@@ -11,7 +11,7 @@ import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { deleteHarvesterSshKey } from 'services/harvester/vm';
 import { hasPermissionForAction } from 'utils/accessMapping';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
@@ -37,7 +37,6 @@ type Props = {
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
-  bordered?: boolean;
 };
 
 const SshKeysSection: React.FC<Props> = ({
@@ -46,7 +45,6 @@ const SshKeysSection: React.FC<Props> = ({
   loading,
   onRefresh,
   isTenant,
-  bordered = true,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -177,7 +175,6 @@ const SshKeysSection: React.FC<Props> = ({
     <PageDetailSection
       title="SSH 密钥 (SSH Keys)"
       asCard={false}
-      bordered={bordered}
       refreshLoading={loading}
       toolbarLeft={
         <>

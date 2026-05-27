@@ -273,7 +273,7 @@ export const ALL_PERMISSIONS = [
   'clouds.monitoring.overview:read',
   'clouds.monitoring.overview:write',
 
-  // Rook/Ceph、对象存储、RGW/S3（/api/clouds/:id/ceph/* 与池内对象存储域）
+  // Rook/统一存储、对象存储、RGW/S3（/api/clouds/:id/ceph/* 与池内统一存储域）
   'clouds.ceph:read',
   'clouds.ceph:write',
 

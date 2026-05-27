@@ -50,7 +50,7 @@ export const CLOUDMAP_RESOURCE_SUB_KEYS = [
   'overview',
   'datacenter_topology',
   'network_topology',
-  /** Rook/Ceph mgr 仪表盘集群总览（原池内 ceph/overview） */
+  /** 统一存储 mgr 仪表盘集群总览（原池内 ceph/overview） */
   'ceph_storage_overview',
 ] as const;
 

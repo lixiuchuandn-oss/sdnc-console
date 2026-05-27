@@ -17,7 +17,6 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import {
   KUBE_OVN_FLAT_VPC,
-  SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   TOWER_IO_DNAT_PORT_GROUP_ANNOTATION,
   isBuiltInKubeOvnVpc,
@@ -58,7 +57,6 @@ interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
-  bordered?: boolean;
 }
 
 interface DnatSectionProps extends BaseSectionProps {
@@ -78,7 +76,6 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   subnets = [],
   loading,
   onRefresh,
-  bordered = true,
   networkScope,
 }) => {
   const { user } = useAuth();

@@ -34,7 +34,7 @@ export const CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
 /** Cloudmap 资源总览 · 监控大盘（/monitoring/* 概览类 API） */
 export const CLOUD_MONITORING_OVERVIEW_READ = 'clouds.monitoring.overview:read';
 
-/** Rook/Ceph、对象存储、RGW/S3（/api/clouds/:id/ceph/*） */
+/** 统一存储（Rook）、对象存储、RGW/S3（/api/clouds/:id/ceph/*） */
 export const CLOUD_CEPH_READ = 'clouds.ceph:read';
 
 /** Cloudmap · 云数据库（池内 paas_databases） */

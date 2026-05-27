@@ -34,7 +34,7 @@ import {
   Form,
   Switch,
 } from 'antd';
-import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -105,20 +105,6 @@ const calculateAge = (timestamp?: string) => {
 const formatIntOrString = (value: any): string => {
   if (value === undefined || value === null) return '-';
   return String(value);
-};
-
-/**
- * 格式化选择器
- */
-const formatSelector = (selector: any): string => {
-  if (!selector) return '-';
-  
-  const matchLabels = selector.matchLabels || {};
-  const labels = Object.entries(matchLabels)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(', ');
-  
-  return labels || '-';
 };
 
 /**
@@ -746,7 +732,7 @@ const PDBSection: React.FC<Props> = ({
         />
       ),
     },
-  ], [handleDelete, handleViewYaml]);
+  ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
 
   // 使用 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_pdb_table');

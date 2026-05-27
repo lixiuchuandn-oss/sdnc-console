@@ -21,7 +21,7 @@
 | **池层** | `create*TabOnRefresh(tab, { loadTabResource, … })` → `void loadTabResource(innerKey, force, skipSync)` |
 | **Section 层** | 工具栏 **`createHarvesterToolbarRefresh(onRefresh)`**；写成功/删改 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`） |
 
-样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**、**`hsm`（resource_hub · 机房/网络拓扑）**、**`kube-ovn`（`kube_ovn` + `flat_network` + cluster 导航挂载）**。其它域新增 Tab 时**优先对齐本模式**。
+样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**、**`backups`（云备份 / `cbr`）**、**`hsm`（resource_hub · 机房/网络拓扑）**、**`kube-ovn`（`kube_ovn` + `flat_network` + cluster 导航挂载）**。其它域新增 Tab 时**优先对齐本模式**。
 
 ---
 
@@ -106,7 +106,7 @@ Cloudmap 侧栏「**集群**」是**产品导航与池层的聚合体**：URL �
 | **kube-ovn** | `cluster_vlans` | `cluster_vlans` | 可同时刷新 VLAN + ProviderNetwork |
 | **kube-ovn** | `kubeovn_public_networks` | `kubeovn_public_networks` | Provider 网络 Tab |
 
-**有意不走路径 `onRefresh` 的例外**：**物理交换机**（Section 内 `loadAll`）、**Ceph `storage_pools`**、**Underlay 子网**（`kubeovn_public_subnets` 自拉）。
+**有意不走路径 `onRefresh` 的例外**：**物理交换机**（Section 内 `loadAll`）、**Underlay 子网**（`kubeovn_public_subnets` 自拉）。**Ceph `storage_pools`** 列表仍 Section 自拉，池层见 **`cephRefresh`** + **`Harvester/ceph/README.md`**。
 
 ### 第 2 层 — Section 层
 
@@ -169,6 +169,38 @@ Cloudmap 侧栏 **`paas_databases/rds`** → `panels/paas_databases` + `Harveste
 | 写成功 / 删改 | **`runHarvesterSectionRefresh(onRefresh, { force: true })`**；**禁止**裸 `onRefresh(true)` |
 
 细则亦见 **`Harvester/database/README.md`**。
+
+---
+
+## 云备份（backups / `cbr`）
+
+Harvester **云备份**在 Cloudmap 资源池内装配（`panels/backups` + `Harvester/cbr/`）。备份/快照/定时策略三 Tab 共用池 key **`backups`** 一次拉数；**禁止**在 `panels/backups` 内联 `loadResource`。
+
+### 第 1 层 — 池层
+
+| 职责 | 文件 |
+|------|------|
+| 各 backups 子 Tab 的 `onRefresh` 映射 | `loaders/backupsRefresh.ts` → **`createBackupsTabOnRefresh(tab, deps)`** |
+| 按 key 拉数 | `loaders/pathResource/backupsPathLoads.ts` |
+| 装配 | `panels/backups/index.tsx` → **`backupsTabOnRefresh.*`** |
+
+### backups 子 Tab 与 `loadTabResource` key
+
+| `innerActiveKey` | `loadTabResource` key | 说明 |
+|------------------|----------------------|------|
+| `backups` / `vm_snapshots` | `backups` | 同一份 `harvesterBackups`；Section 内按 `spec.type` 区分 backup / snapshot |
+| `schedule_vm_backups` | `backups` | 与上并行拉 `scheduleVmBackups` |
+| `vm_restores` | — | **Section 自拉**（恢复 CR + 关联备份；轮询进行中任务） |
+
+### 第 2 层 — Section 层
+
+| 场景 | 用法 |
+|------|------|
+| 工具栏「刷新」 | **`createHarvesterToolbarRefresh(onRefresh)`** |
+| 写成功 / 删改 | **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**；`silent` → 池层 `skipSync` |
+| 定时策略轮询 | **`runHarvesterSectionRefresh(..., { force: true, silent: true })`** |
+
+细则亦见 **`Harvester/cbr/README.md`**。
 
 ---
 

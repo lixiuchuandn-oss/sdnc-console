@@ -11,7 +11,6 @@ import {
   parseInterfaceStatusStdout,
   sortParsedSwitchPortsBySlot,
   type ParsedSwitchPort,
-  type PortStatusKind,
 } from '../../cluster/lib/parseAswCtlInterfaceStdout';
 import {
   switchRecordManagementHost,

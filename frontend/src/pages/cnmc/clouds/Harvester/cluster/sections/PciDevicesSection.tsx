@@ -23,7 +23,6 @@ interface Props {
   onRefresh?: (force?: boolean) => void | Promise<void>;
   raw?: unknown;
   showLog?: boolean;
-  bordered?: boolean;
   /** 与创建向导 SR-IOV VF 选项同源：仅展示启发式识别为虚拟功能的网卡类 PCI */
   variant?: 'all' | 'sriov_vf';
   isTenant?: boolean;
@@ -36,7 +35,6 @@ const PciDevicesSection: React.FC<Props> = ({
   onRefresh,
   raw,
   showLog,
-  bordered = true,
   variant = 'all',
   isTenant = false,
 }) => {
@@ -118,7 +116,6 @@ const PciDevicesSection: React.FC<Props> = ({
     <>
       <PageDetailSection
         asCard={false}
-        bordered={bordered}
         title={sectionTitle}
         toolbarLeft={(
           <>

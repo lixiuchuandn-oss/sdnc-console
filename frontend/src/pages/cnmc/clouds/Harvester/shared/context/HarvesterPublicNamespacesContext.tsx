@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { apiRequest } from '../../../../../services/api';
-import { isPublicNamespace as isPublicNamespaceByLegacyName } from '../../../../../utils/harvesterUtils';
+import { apiRequest } from '../../../../../../services/api';
+import { isPublicNamespace as isPublicNamespaceByLegacyName } from '../../../../../../utils/harvesterUtils';
 
 type Ctx = {
   /** null = 尚未加载完成；加载后可为空 Set（无公共 NS） */

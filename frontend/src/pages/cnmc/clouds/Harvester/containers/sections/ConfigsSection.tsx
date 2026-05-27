@@ -18,7 +18,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Modal, Switch, Spin, Tooltip, Form } from 'antd';
-import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -134,8 +134,8 @@ const ConfigMapDetailDrawer: React.FC<{
   
   // 注意：所有 hooks 必须在条件返回之前调用
   const metadata = configmap?.metadata || {};
-  const data = configmap?.data || {};
-  const binaryData = configmap?.binaryData || {};
+  const data = useMemo(() => configmap?.data || {}, [configmap?.data]);
+  const binaryData = useMemo(() => configmap?.binaryData || {}, [configmap?.binaryData]);
   const dataKeys = useMemo(() => Object.keys(data), [data]);
   const binaryDataKeys = useMemo(() => Object.keys(binaryData), [binaryData]);
   const allKeys = useMemo(() => [...dataKeys, ...binaryDataKeys], [dataKeys, binaryDataKeys]);
@@ -184,7 +184,7 @@ const ConfigMapDetailDrawer: React.FC<{
         ),
       };
     });
-  }, [data, binaryData, dataKeys, binaryDataKeys]);
+  }, [data, binaryData, binaryDataKeys, allKeys]);
   
   return (
     <Drawer
@@ -274,7 +274,7 @@ const SecretDetailDrawer: React.FC<{
   // 注意：所有 hooks 必须在条件返回之前调用
   const metadata = secret?.metadata || {};
   const type = secret?.type || 'Opaque';
-  const data = secret?.data || {};
+  const data = useMemo(() => secret?.data || {}, [secret?.data]);
   const dataKeys = useMemo(() => {
     const keys = Object.keys(data);
     // Basic Auth 类型：确保 username 在前，password 在后
@@ -776,7 +776,7 @@ const ConfigMapTable: React.FC<{
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick]);
+  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick, checkResourceInUse]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1214,7 +1214,7 @@ const SecretTable: React.FC<{
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick]);
+  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick, checkResourceInUse]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(

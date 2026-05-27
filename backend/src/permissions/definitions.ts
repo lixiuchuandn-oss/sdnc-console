@@ -75,7 +75,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.usb-devices': 'USB设备',
   'clouds.pci-devices': 'PCI设备',
   'clouds.monitoring.overview': '监控概览大盘',
-  'clouds.ceph': 'Ceph与对象存储',
+  'clouds.ceph': '统一存储',
   'clouds.paas-databases': '云数据库',
   'clouds.vne': '虚拟网元',
   'clouds.alerts': '告警列表',

@@ -48,6 +48,11 @@ import {
   validateFlatSubnetExcludeIpsLocal,
 } from '../lib/flatSubnetExcludeIpValidation';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDeleteGuard';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 /** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
 const TOWER_PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
@@ -86,7 +91,7 @@ type Props = {
   onSubnetsChanged?: () => void | Promise<void>;
 };
 
-function subnetRecordToFormValues(record: any, isFlatMode: boolean): Record<string, unknown> {
+function subnetRecordToFormValues(record: any, _isFlatMode: boolean): Record<string, unknown> {
   const spec = record?.spec || {};
   const ann = record?.metadata?.annotations || {};
   const excludeRaw = spec.excludeIps;
@@ -295,13 +300,28 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
     void fetchProviderOptions();
   }, [detailDrawerOpen, cloudId, fetchVlanOptions, fetchProviderOptions]);
 
-  const handleForceRefresh = async () => {
-    await Promise.all([
-      fetchData(true, false),
-      fetchVlanOptions(),
-      fetchProviderOptions(),
-    ]);
-  };
+  const reloadAuxiliaryOptions = useCallback(async () => {
+    await Promise.all([fetchVlanOptions(), fetchProviderOptions()]);
+  }, [fetchVlanOptions, fetchProviderOptions]);
+
+  const sectionRefresh: HarvesterSectionOnRefresh = useCallback(
+    async (force = true, silent?: boolean) => {
+      await fetchData(force, !!silent);
+      await reloadAuxiliaryOptions();
+      await notifySubnetsChanged();
+    },
+    [fetchData, reloadAuxiliaryOptions, notifySubnetsChanged],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionRefresh),
+    [sectionRefresh],
+  );
+
+  const refreshAfterWrite = useCallback(
+    () => runHarvesterSectionRefresh(sectionRefresh, { force: true, silent: true }),
+    [sectionRefresh],
+  );
 
   const openEditNetwork = useCallback(
     (record: any) => {
@@ -336,8 +356,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         setEditModalVisible(false);
         setEditRecord(null);
         editForm.resetFields();
-        await fetchData(true, true);
-        await notifySubnetsChanged();
+        await refreshAfterWrite();
         return;
       }
 
@@ -435,8 +454,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       setEditModalVisible(false);
       setEditRecord(null);
       editForm.resetFields();
-      await fetchData(true, true);
-      await notifySubnetsChanged();
+      await refreshAfterWrite();
     } catch (error: any) {
       const raw =
         error?.response?.data?.message ??
@@ -485,8 +503,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
       try {
         await deleteKubeOvnSubnet(cloudId, name);
         message.success('删除成功');
-        await fetchData(true, true);
-        await notifySubnetsChanged();
+        await refreshAfterWrite();
       } catch (error: any) {
         const raw =
           error?.response?.data?.message ??
@@ -500,7 +517,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         message.error(`删除失败：${formatKubeOvnFriendlyError(detail)}`);
       }
     },
-    [cloudId, ensureUnderlayWrite, fetchData, notifySubnetsChanged],
+    [cloudId, ensureUnderlayWrite, refreshAfterWrite],
   );
 
   const allColumns = useMemo(
@@ -611,7 +628,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         title: '子网分类',
         key: 'towerUnderlayCategory',
         render: (_: any, record: any) => {
-          const { category, label, detail } = resolveTowerUnderlaySubnetCategory(record, isFlatMode ? 'flat' : 'public');
+          const { category, label } = resolveTowerUnderlaySubnetCategory(record, isFlatMode ? 'flat' : 'public');
           const color =
             category === 'public'
               ? 'geekblue'
@@ -922,7 +939,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
             onClick={() => {
               setKeyword('');
               setVlanFilter(undefined);
-              void handleForceRefresh();
+              void handleToolbarRefresh();
             }}
           >
             重置
@@ -941,7 +958,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           </Button>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={underlaySubnetTableSettingsKey} />
           <Tooltip title="从集群重新同步子网列表，并刷新本地缓存">
-            <Button icon={<ReloadOutlined />} onClick={handleForceRefresh} loading={loading} aria-label="刷新" />
+            <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} aria-label="刷新" />
           </Tooltip>
         </div>
       </div>
@@ -986,8 +1003,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           providers={providers}
           aliasDupCheckItems={data}
           onSuccess={async () => {
-            await fetchData(true, true);
-            await notifySubnetsChanged();
+            await refreshAfterWrite();
           }}
         />
       ) : (
@@ -1000,8 +1016,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           aliasDupCheckItems={data}
           title={`创建${subnetKindLabel}`}
           onSuccess={async () => {
-            await fetchData(true, true);
-            await notifySubnetsChanged();
+            await refreshAfterWrite();
           }}
         />
       )}
@@ -1040,8 +1055,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         canSubmit={hasUnderlayWrite}
         reloadSubnetRecord={reloadSubnetRecordForAcl}
         onSuccess={async () => {
-          await fetchData(true, true);
-          await notifySubnetsChanged();
+          await refreshAfterWrite();
         }}
       />
     </div>

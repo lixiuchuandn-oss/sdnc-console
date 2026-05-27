@@ -3,7 +3,6 @@ import {
   KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
-  isBuiltInKubeOvnVpc,
 } from '../lib/kubeOvnSubnetConstants';
 import { buildBusinessVpcPickerRows } from '../lib/kubeOvnUiHelpers';
 import { Table, Modal, Form, Input, Select, message, Alert, MenuProps, Badge, Button, Tooltip, Space, Radio } from 'antd';
@@ -57,45 +56,10 @@ function subnetCidrOf(s: any): string {
   return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();
 }
 
-function normalizeExcludeIps(s: any): string[] {
-  const raw = s?.spec?.excludeIps ?? s?.excludeIps ?? [];
-  return Array.isArray(raw) ? raw.map((x) => String(x).trim()).filter(Boolean) : [];
-}
-
-function ipv4InRange(ip: string, start: string, end: string): boolean {
-  const a = ipv4ToInt(start);
-  const b = ipv4ToInt(end);
-  const x = ipv4ToInt(ip);
-  if (a === null || b === null || x === null) return false;
-  const lo = Math.min(a, b);
-  const hi = Math.max(a, b);
-  return x >= lo && x <= hi;
-}
-
-function ipv4ExcludedBy(entries: string[], ip: string): boolean {
-  for (const e of entries) {
-    const v = String(e || '').trim();
-    if (!v) continue;
-    if (v.includes('/')) {
-      if (ipv4InCidr(ip, v)) return true;
-      continue;
-    }
-    if (v.includes('..')) {
-      const parts = v.split('..').map((s) => s.trim());
-      if (parts.length === 2 && ipv4InRange(ip, parts[0], parts[1])) return true;
-      continue;
-    }
-    const isIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v);
-    if (isIp && v === ip) return true;
-  }
-  return false;
-}
-
 interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
-  bordered?: boolean;
 }
 
 interface EipSectionProps extends BaseSectionProps {
@@ -113,7 +77,6 @@ export const EipSection: React.FC<EipSectionProps> = ({
   vpcs,
   loading,
   onRefresh,
-  bordered = true,
   networkScope,
 }) => {
   const { user } = useAuth();

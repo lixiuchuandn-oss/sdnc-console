@@ -34,7 +34,7 @@ const MembersSection = React.lazy(() => import('./sections/MembersSection'));
  * Harbor 项目详情页组件
  */
 const HarborProjectDetailPage: React.FC = () => {
-  const { cloudId, harborId, projectName } = useParams<{ 
+  const { harborId, projectName } = useParams<{ 
     cloudId: string; 
     harborId: string; 
     projectName: string;

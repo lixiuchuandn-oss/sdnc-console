@@ -29,9 +29,6 @@ import {
   Tooltip, 
   Popconfirm, 
   Progress, 
-  Collapse, 
-  InputNumber,
-  TimePicker,
 } from 'antd';
 import { 
   PlusOutlined, 
@@ -40,7 +37,6 @@ import {
   DeleteOutlined,
   EditOutlined,
   PlayCircleOutlined,
-  GlobalOutlined,
   ClockCircleOutlined,
   InfoCircleOutlined,
   ImportOutlined,
@@ -49,8 +45,6 @@ import {
   CloseCircleOutlined,
   LoadingOutlined,
   PauseCircleOutlined,
-  FilterOutlined,
-  SettingOutlined,
 } from '@ant-design/icons';
 import type { HarborRegistry, HarborReplicationPolicy, HarborReplicationExecution } from '../types';
 import { 
@@ -62,7 +56,6 @@ import {
   triggerHarborReplication,
 } from '../shared/harborApi';
 
-const { Panel } = Collapse;
 const { TextArea } = Input;
 
 interface Props {

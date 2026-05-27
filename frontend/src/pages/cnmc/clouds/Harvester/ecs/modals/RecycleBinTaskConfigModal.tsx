@@ -13,7 +13,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Modal, Form, InputNumber, message, App } from 'antd';
+import { Modal, Form, InputNumber, App } from 'antd';
 import { getSystemSetting, updateSystemSetting } from '../../../../../../services/systemApi';
 
 interface Props {

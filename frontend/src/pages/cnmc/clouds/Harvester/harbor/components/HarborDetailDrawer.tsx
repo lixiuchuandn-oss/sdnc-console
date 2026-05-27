@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Drawer, Tabs, Spin, message, Button } from 'antd';
+import { Drawer, Tabs, Spin, message } from 'antd';
 import { getHarborRegistry, testHarborConnection } from '../shared/harborApi';
 import type { HarborRegistry, HarborProject } from '../types';
 

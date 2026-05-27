@@ -32,7 +32,7 @@ export function buildVolumesTableColumns({
   hasDisksWrite,
   safeRead,
   onOpenVolumeDetail,
-  onOpenOpsDrawer,
+  onOpenOpsDrawer: _onOpenOpsDrawer,
   buildRowActionItems,
 }: BuildVolumesTableColumnsParams): ColumnsType<VolumeView> {
   return [

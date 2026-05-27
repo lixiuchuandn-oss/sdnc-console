@@ -3,9 +3,9 @@
  * 按命名空间搜索，展示该命名空间下 receivers 列表（后端返回新结构：通知方式标识/名称、邮件SMTP、是否发送恢复邮件等）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Col, Descriptions, Dropdown, Form, Input, message, Modal, Row, Select, Space, Switch, Table, Tag, Typography } from 'antd';
+import { Button, Col, Descriptions, Form, Input, message, Modal, Row, Select, Space, Switch, Table, Tag, Typography } from 'antd';
 import { DeleteOutlined, DingtalkOutlined, MailOutlined, PlusOutlined, ReloadOutlined as RefreshIcon, SearchOutlined } from '@ant-design/icons';
-import type { ColumnsType, ColumnType } from 'antd/es/table';
+import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
@@ -81,31 +81,6 @@ const RECEIVER_NAME_LABELS: Record<string, string> = {
   [WEBSITE_RECEIVER]: '站内信',    // 'website-receiver' -> '站内信'
 };
 const RECEIVER_NAME_SELECT_OPTIONS = Object.entries(RECEIVER_NAME_LABELS).map(([value, label]) => ({ value, label }));
-
-const EMAIL_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'creator', 'createdAt', 'smtpHost', 'smtpRequireTls', 'smtpAuthUsername', 'smtpAuthPassword', 'emailFrom', 'emailTo', 'sendResolved', 'action'] as const;
-const DINGTALK_COLUMN_KEYS = ['receiverName', 'specReceiverName', 'namespace', 'creator', 'createdAt', 'url', 'robotAccount', 'robotUrl', 'robotAccessToken', 'sendResolved', 'action'] as const;
-const WEBSITE_COLUMN_KEYS = ['receiverName', 'namespace', 'opened', 'action'] as const;
-
-const COLUMN_TITLES: Record<string, string> = {
-  receiverName: '通知方式',
-  namespace: '命名空间',
-  specReceiverName: '通知对象名称',
-  opened: '已开通',
-  creator: '创建人',
-  createdAt: '创建时间',
-  smtpHost: '邮件服务器(SMTP)',
-  smtpRequireTls: 'SMTP是否TLS',
-  smtpAuthUsername: 'SMTP授权账号',
-  smtpAuthPassword: 'SMTP授权账号密钥(Secret)',
-  emailFrom: '发件人',
-  emailTo: '收件人',
-  sendResolved: '是否发送恢复通知',
-  robotAccount: '钉钉机器人账号',
-  robotUrl: '钉钉机器人地址',
-  robotAccessToken: '钉钉机器人访问令牌',
-  url: 'Webhook URL',
-  action: '操作',
-};
 
 const DEFAULT_ADMIN_NAMESPACE = 'cattle-monitoring-system';
 

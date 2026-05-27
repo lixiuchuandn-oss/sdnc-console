@@ -21,7 +21,7 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { DeleteOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
@@ -193,35 +193,6 @@ function AlertRulesTransfer({
   );
 }
 
-function AlertConfigPreview({
-  form,
-  triggerOptions = [],
-}: { form: FormInstanceType; triggerOptions?: TriggerRuleOption[] }) {
-  const name = Form.useWatch('name', form) ?? '';
-  const namespace = Form.useWatch('namespace', form) ?? '';
-  const description = Form.useWatch('description', form) ?? '';
-  const configReceiverName = (Form.useWatch('configReceiverName', form) ?? []) as string[];
-  const firstEntry = configReceiverName[0];
-  const firstType: ReceiverName = firstEntry && firstEntry.includes(':')
-    ? (firstEntry.slice(0, firstEntry.indexOf(':')) as ReceiverName)
-    : 'email-receiver';
-  const receiverName = (Form.useWatch('receiverName', form) ?? firstType) as ReceiverName;
-  const emailList = Form.useWatch('emailList', form) ?? [];
-  const matchers = (Form.useWatch('matchers', form) ?? []) as string[];
-  const emailCount = Array.isArray(emailList) ? emailList.filter((i: any) => (i?.emailTo ?? '').toString().trim()).length : 0;
-  const receiverDetail = receiverName === 'email-receiver' ? (emailCount ? `邮箱 ${emailCount} 条` : '-') : configReceiverName.length ? `已选 ${configReceiverName.length} 个通知对象` : '-';
-  const matcherLabels = (matchers.filter(Boolean) as string[]).map((v) => triggerOptions.find((o) => o.value === v)?.label ?? v);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>名称</span><span>{name || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>命名空间</span><span>{namespace || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>描述</span><span>{(description || '').trim() || '-'}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>配置摘要</span><span>{receiverDetail}</span></div>
-      <div><span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>已选条件</span><span>{matcherLabels.length ? matcherLabels.join('、') : '-'}</span></div>
-    </div>
-  );
-}
-
 interface Props {
   cloudId: string;
 }
@@ -302,7 +273,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           : isAdmin
             ? namespaceList
             : tenantNamespaces;
-      const { data, ok, error } = await fetchNotificationTargetsList(cloudId, {
+      const { data, ok } = await fetchNotificationTargetsList(cloudId, {
         namespaces: namespaces.length ? namespaces : undefined,
       });
       setReceiversLoading(false);
@@ -741,7 +712,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       return { type: (nameToType[entry] ?? 'email-receiver') as ReceiverName, name: entry };
     });
     const configReceiverNames = parsed.map((p) => p.name);
-    const firstType = parsed[0]?.type ?? 'email-receiver';
     if (parsed.some((p) => p.type === 'email-receiver')) {
       const emailValues = await form.validateFields(['emailList']).catch(() => null);
       if (emailValues) values = { ...values, ...emailValues };
@@ -826,7 +796,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         await loadConfigList();
       } else message.error(error || '创建失败');
     }
-  }, [editingRecord, form, handleCloseForm, loadConfigList, specReceiverNameToSpecByType, cloudId, canWritePolicies]);
+  }, [editingRecord, form, handleCloseForm, loadConfigList, nameToType, specReceiverNameToSpecByType, cloudId, canWritePolicies]);
 
   const handleDeleteConfig = useCallback(
     async (row: AlertmanagerConfigItem) => {
@@ -950,7 +920,11 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   const [selectedAlertGroup, setSelectedAlertGroup] = useState<string>('');
 
   /** 按告警分组筛选后的 Transfer 选项（左侧列表）；已选中的项始终保留以便右侧正确展示 */
-  const watchedMatchers = (Form.useWatch('matchers', form) ?? []) as string[];
+  const watchedMatchersRaw = Form.useWatch('matchers', form);
+  const watchedMatchers = useMemo(
+    () => (watchedMatchersRaw ?? []) as string[],
+    [watchedMatchersRaw],
+  );
   const filteredAlertRulesTransferOptions = useMemo(() => {
     const filtered =
       selectedAlertGroup && isAdmin

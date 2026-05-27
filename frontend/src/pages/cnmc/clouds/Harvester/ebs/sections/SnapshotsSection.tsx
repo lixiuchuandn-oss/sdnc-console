@@ -9,7 +9,7 @@ import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { useAuth } from 'contexts/AuthContext';
 import { hasPermissionForAction } from 'utils/accessMapping';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import {
   createHarvesterToolbarRefresh,
@@ -34,7 +34,6 @@ type Props = {
   onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
   namespaces?: unknown[];
-  bordered?: boolean;
 };
 
 const SnapshotsSection: React.FC<Props> = ({

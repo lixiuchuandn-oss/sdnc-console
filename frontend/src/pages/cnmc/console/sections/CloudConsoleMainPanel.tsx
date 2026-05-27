@@ -25,6 +25,7 @@ import SnatSection from '../../clouds/Harvester/kube-ovn/sections/SnatSection';
 import DnatSection from '../../clouds/Harvester/kube-ovn/sections/DnatSection';
 import VpcsSection from '../../clouds/Harvester/kube-ovn/sections/VpcsSection';
 import UnderlaySubnetsSection from '../../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
+import type { BackupsSectionOnRefresh } from '../../clouds/Cloudmap/pool/loaders/backupsRefresh';
 
 type NavResource = { key: string; label: string };
 
@@ -95,8 +96,11 @@ interface Props {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: (force?: boolean) => void;
   onRefreshSnapshots?: () => void;
-  onRefreshBackups?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
-  onRefreshSchedules?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  backupsTabOnRefresh?: {
+    backups: BackupsSectionOnRefresh;
+    vm_snapshots: BackupsSectionOnRefresh;
+    schedule_vm_backups: BackupsSectionOnRefresh;
+  };
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
   onRefreshVpcs?: () => void;
@@ -104,7 +108,6 @@ interface Props {
   onRefreshSnatRules?: (force?: boolean) => void;
   onRefreshDnatRules?: (force?: boolean, silent?: boolean) => void;
 
-  bordered?: boolean;
   showYaml?: boolean;
 }
 
@@ -158,15 +161,13 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   onRefreshStorageClasses,
   onRefreshImages,
   onRefreshSnapshots,
-  onRefreshBackups,
-  onRefreshSchedules,
+  backupsTabOnRefresh,
   onRefreshCloudInits,
   onRefreshGpus,
   onRefreshVpcs,
   onRefreshEips,
   onRefreshSnatRules,
   onRefreshDnatRules,
-  bordered = true,
   showYaml = true,
 }) => {
   const { user } = useAuth();
@@ -365,7 +366,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             onUnpause={onUnpause}
             onDelete={onDelete}
             isTenant={isTenantUser}
-            bordered={bordered}
             storageClasses={storageClasses}
             kubeSubnets={subnets}
             harvesterNads={harvesterNads}
@@ -396,7 +396,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             onRefresh={onRefreshTemplates}
             isTenant={isTenantUser}
             workspaceVmNamespace={isTenantUser ? nsValue : undefined}
-            bordered={bordered}
           />
         );
       case 'ssh':
@@ -407,7 +406,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSshKeys}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'cloudinit':
@@ -443,7 +441,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'volume-snapshot':
@@ -455,7 +452,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             cloudId={cloudId}
             isTenant={isTenantUser}
             namespaces={namespaceObjects}
-            bordered={bordered}
           />
         );
       case 'image':
@@ -467,7 +463,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
 
@@ -476,13 +471,12 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           <BackupsSection
             backups={backups}
             loading={loading}
-            onRefresh={onRefreshBackups}
+            onRefresh={backupsTabOnRefresh?.vm_snapshots}
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
             type="snapshot"
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'backup':
@@ -490,12 +484,11 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           <BackupsSection
             backups={backups}
             loading={loading}
-            onRefresh={onRefreshBackups}
+            onRefresh={backupsTabOnRefresh?.backups}
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'schedule':
@@ -503,11 +496,10 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           <ScheduleVmBackupsSection
             data={schedules}
             loading={loading}
-            onRefresh={onRefreshSchedules}
+            onRefresh={backupsTabOnRefresh?.schedule_vm_backups}
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
 
@@ -524,7 +516,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             namespaces={filteredNamespaces}
             loading={loading}
             onRefresh={onRefreshVpcs}
-            bordered={bordered}
             showYaml={showYaml}
           />
         );
@@ -539,7 +530,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             vpcs={vpcs}
             loading={loading}
             onRefresh={onRefreshEips || (() => {})}
-            bordered={bordered}
           />
         );
       case 'snat':
@@ -553,7 +543,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             subnets={subnets}
             loading={loading}
             onRefresh={onRefreshSnatRules || (() => {})}
-            bordered={bordered}
           />
         );
       case 'dnat':
@@ -567,7 +556,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             subnets={subnets}
             loading={loading}
             onRefresh={onRefreshDnatRules || (() => {})}
-            bordered={bordered}
           />
         );
       default:
@@ -593,6 +581,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     snatRules,
     dnatRules,
     storageClasses,
+    harvesterNads,
     loading,
     cloudId,
     isTenantUser,
@@ -618,15 +607,13 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onRefreshStorageClasses,
     onRefreshImages,
     onRefreshSnapshots,
-    onRefreshBackups,
-    onRefreshSchedules,
+    backupsTabOnRefresh,
     onRefreshCloudInits,
     onRefreshGpus,
     onRefreshVpcs,
     onRefreshEips,
     onRefreshSnatRules,
     onRefreshDnatRules,
-    bordered,
     showYaml,
     canAccessMainResource,
   ]);

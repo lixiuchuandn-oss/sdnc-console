@@ -1,9 +1,9 @@
-﻿/**
+/**
  * 组织管理页状态与副作用（视图：`sections/OrgManageWorkspace.tsx`）。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Button, Dropdown, Form, Input, message, Modal, Select, Typography } from 'antd';
+import { Button, Dropdown, Form, Input, message, Modal, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataNode } from 'antd/es/tree';
 import {
@@ -31,10 +31,7 @@ import {
   type OrgManageRBACRole as RBACRole,
 } from '../lib/orgManageConstants';
 import {
-  getCloudPoolDisplayProvider,
-  getCloudPoolProviderRaw,
   isAssignableExistingNamespaceRecord,
-  isHarvesterLikeOperator,
   poolMatchesAssignDrawerTab,
 } from '../lib/orgManagePoolHelpers';
 import { DeleteOrgConflict } from '../modals/DeleteOrgConflict';

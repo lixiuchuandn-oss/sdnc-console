@@ -1,7 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  KUBE_OVN_FLAT_VPC,
-  SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
   isFlatKubeOvnSubnetForFlatNatSelector,
@@ -45,7 +43,6 @@ interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
-  bordered?: boolean;
 }
 
 interface SnatSectionProps extends BaseSectionProps {
@@ -65,7 +62,6 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
   subnets,
   loading,
   onRefresh,
-  bordered = true,
   networkScope,
 }) => {
   const { user } = useAuth();

@@ -393,7 +393,7 @@ const CephPoolFormModal: React.FC<CephPoolFormModalProps> = ({ open, mode, cloud
           message.error(res.error || '创建失败');
           return;
         }
-        message.success('已提交创建任务（Ceph 可能异步执行，请稍后刷新列表）');
+        message.success('已提交创建任务（统一存储可能异步执行，请稍后刷新列表）');
         onSuccess();
         onClose();
         return;
@@ -436,7 +436,7 @@ const CephPoolFormModal: React.FC<CephPoolFormModalProps> = ({ open, mode, cloud
         message.error(res.error || '更新失败');
         return;
       }
-      message.success('已提交更新（Ceph 可能异步执行，请稍后刷新列表）');
+      message.success('已提交更新（统一存储可能异步执行，请稍后刷新列表）');
       onSuccess();
       onClose();
     } catch (e: unknown) {

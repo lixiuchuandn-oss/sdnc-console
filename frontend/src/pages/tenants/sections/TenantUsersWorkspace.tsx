@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 租户用户列表主视图；逻辑见 `hooks/useTenantUsersPage.tsx`。
  */
 import React from 'react';
@@ -39,7 +39,6 @@ const TenantUsersWorkspace: React.FC = () => {
     handleCreateUser,
     handleCreateTenantChange,
     editModalOpen,
-    editingUser,
     editForm,
     handleEditUser,
     closeEditModal,

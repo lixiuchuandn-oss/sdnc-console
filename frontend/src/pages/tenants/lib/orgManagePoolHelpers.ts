@@ -1,4 +1,4 @@
-﻿import type { ResourcePoolAssignment } from '../../../types/tenant';
+import type { ResourcePoolAssignment } from '../../../types/tenant';
 import { isTenantScenarioNamespace } from '../../../utils/harvesterUtils';
 
 /** 分配计算资源「使用集群已有命名空间」：须 tower.io/scenario=tenant，且未被其它组织占用 */

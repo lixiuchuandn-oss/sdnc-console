@@ -46,7 +46,7 @@ type Props = {
   navigate: (path: string) => void;
   /** 与顶栏高度一致，用于 sticky top 与侧栏可视高度 */
   headerOffsetPx?: number;
-  /** antd Menu `mode`；Cloudmap 池侧栏用 `vertical`（等同官方 demo「Change Mode」开启） */
+  /** antd Menu `mode`；默认 `inline`（侧栏内展开子菜单） */
   menuMode?: 'inline' | 'vertical';
 };
 

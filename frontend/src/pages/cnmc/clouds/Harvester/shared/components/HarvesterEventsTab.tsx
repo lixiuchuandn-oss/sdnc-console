@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { List, Tag, Typography, Space, Tooltip, Empty, Button } from 'antd';
 import { InfoCircleOutlined, WarningOutlined, ClockCircleOutlined, AppstoreOutlined, ReloadOutlined } from '@ant-design/icons';
 import { fetchHarvesterEvents } from '../../../../../../services/loggingApi';
@@ -17,13 +17,7 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
   const [loading, setLoading] = useState(false);
   const kind = propKind ?? 'VirtualMachineInstance';
 
-  useEffect(() => {
-    if (active && cloudId && record) {
-        loadEvents();
-    }
-  }, [active, cloudId, record, kind]);
-
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
       setLoading(true);
       try {
           // Identify namespace and name
@@ -44,7 +38,13 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
       } finally {
           setLoading(false);
       }
-  };
+  }, [cloudId, record, kind]);
+
+  useEffect(() => {
+    if (active && cloudId && record) {
+        loadEvents();
+    }
+  }, [active, cloudId, record, loadEvents]);
 
   const renderEventItem = (item: any) => {
       const type = item.type;
@@ -53,7 +53,7 @@ const HarvesterEventsTab: React.FC<HarvesterEventsTabProps> = ({ cloudId, record
       const message = item.message;
       const time = item.lastTimestamp;
       const component = item.source?.component;
-      const host = item.source?.host;
+      const _host = item.source?.host;
 
       return (
           <List.Item style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0' }}>

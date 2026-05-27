@@ -3,7 +3,7 @@
  * 云数据库实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Tag, Badge, Input, Select, message, Typography, Tooltip } from 'antd';
+import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip } from 'antd';
 import { ReloadOutlined, DatabaseOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -15,6 +15,7 @@ import RdsDatabaseConsoleModal from '../modals/RdsDatabaseConsoleModal';
 import { isTowerPaasDatabaseVm } from '../../shared/harvesterTowerPaas';
 import {
   type HarvesterSectionOnRefresh,
+  createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
@@ -393,31 +394,28 @@ const PaasSection: React.FC<Props> = ({
     setCreateModalVisible(true);
   };
 
-  const handleRefresh = useCallback(async () => {
-    const msgKey = `paas-vm-refresh-${cloudId}`;
-    setRefreshing(true);
-    message.loading({ content: '正在同步云数据库实例...', key: msgKey, duration: 0 });
-    try {
-      if (onForceRefresh) {
-        await Promise.resolve(onForceRefresh());
-      } else {
-        await runHarvesterSectionRefresh(onRefresh, { force: true });
+  const sectionOnRefresh = useMemo((): HarvesterSectionOnRefresh | undefined => {
+    if (!onForceRefresh) return onRefresh;
+    return (force?: boolean, silent?: boolean) => {
+      if (force === false) {
+        return onRefresh?.(false, silent);
       }
-      message.success({ content: '云数据库实例已刷新', key: msgKey });
-    } catch (e: any) {
-      message.error({ content: e?.message || '刷新失败', key: msgKey });
-    } finally {
-      setRefreshing(false);
-    }
-  }, [cloudId, onForceRefresh, onRefresh]);
+      return Promise.resolve(onForceRefresh());
+    };
+  }, [onForceRefresh, onRefresh]);
+
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createHarvesterToolbarRefresh(sectionOnRefresh, {
+        before: () => setRefreshing(true),
+        after: () => setRefreshing(false),
+      }),
+    [sectionOnRefresh],
+  );
 
   const reloadListAfterWrite = useCallback(() => {
-    if (onForceRefresh) {
-      void Promise.resolve(onForceRefresh());
-      return;
-    }
-    void runHarvesterSectionRefresh(onRefresh, { force: true });
-  }, [onForceRefresh, onRefresh]);
+    void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+  }, [sectionOnRefresh]);
 
   return (
     <PageDetailSection
@@ -472,7 +470,7 @@ const PaasSection: React.FC<Props> = ({
           <Button type="primary" onClick={handleOpenCreateModal}>
             创建实例
           </Button>
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} />
+          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleToolbarRefresh} />
         </>
       }
     >
@@ -534,7 +532,7 @@ const PaasSection: React.FC<Props> = ({
           activeTab={vmDetailActiveTab}
           onTabChange={setVmDetailActiveTab}
           onRefresh={(force) => {
-            void runHarvesterSectionRefresh(onRefresh, {
+            void runHarvesterSectionRefresh(sectionOnRefresh, {
               force: force !== false,
             });
           }}

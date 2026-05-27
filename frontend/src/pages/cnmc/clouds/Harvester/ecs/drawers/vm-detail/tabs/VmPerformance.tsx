@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Card, Radio, Spin, Row, Col } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import { fetchMetricRange } from '../../../../../../../../services/monitoringApi';
@@ -62,7 +62,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
   const [diskIopsData, setDiskIopsData] = useState<{ read: any[]; write: any[] }>({ read: [], write: [] });
   const timerRef = useRef<NodeJS.Timeout>();
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!cloudId || !namespace || !name) return;
     
     setLoading(true);
@@ -143,7 +143,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
     } finally {
       setLoading(false);
     }
-  };
+  }, [cloudId, namespace, name, timeRange]);
 
   useEffect(() => {
     fetchData();
@@ -151,7 +151,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [cloudId, namespace, name, timeRange]);
+  }, [fetchData]);
 
   /** 动态计算 x 轴间隔，保持约 5 个刻度 */
   const xAxisMinIntervalMs = (timeRange.value / 5) * 1000;

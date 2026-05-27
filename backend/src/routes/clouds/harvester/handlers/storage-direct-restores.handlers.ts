@@ -69,7 +69,7 @@ export async function harvesterRestoreCreateHandler(req: Request, res: Response)
         sourceVm = resolveCephBackupSourceVm(null, cephRaw);
       }
       if (!sourceVm) {
-        throw new Error(`无法解析 Ceph 备份 ${backupNs}/${backupName} 的源虚拟机（sourceVm）`);
+        throw new Error(`无法解析统一存储备份 ${backupNs}/${backupName} 的源虚拟机（sourceVm）`);
       }
       const cephBody = buildHarvesterCephVmRestoreBody(req.body, {
         sourceVm,

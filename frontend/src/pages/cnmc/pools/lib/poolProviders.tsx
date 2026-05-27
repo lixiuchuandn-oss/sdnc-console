@@ -563,13 +563,13 @@ export const cloudProviders: CloudProvider[] = [
   },
   {
     id: 'ceph',
-    name: 'Ceph',
+    name: '统一存储',
     category: 'object_storage',
     logo: <DatabaseOutlined />,
-    description: 'Ceph对象存储',
+    description: '统一存储（S3 兼容对象存储）',
     fields: [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入Ceph端点' },
+      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入统一存储端点' },
       { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
       { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
     ]

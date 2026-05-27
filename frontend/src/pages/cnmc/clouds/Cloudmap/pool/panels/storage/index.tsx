@@ -5,6 +5,7 @@ import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
 import CloudmapStorageCephRbdMirror from './CloudmapStorageCephRbdMirror';
 import { createStorageTabOnRefresh } from '../../loaders/storageRefresh';
+import { createCephTabOnRefresh } from '../../loaders/cephRefresh';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -61,7 +62,6 @@ function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): bo
 const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (props) => {
   const {
     cloudId,
-    isTenant,
     showLog,
     checkPerm,
     innerActiveKey,
@@ -94,6 +94,13 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
     };
   }, [loadTabResource, refreshVolumesTabAuxiliaries]);
 
+  const cephTabOnRefresh = useMemo(() => {
+    const deps = { loadTabResource };
+    return {
+      rbd_mirror: createCephTabOnRefresh('rbd_mirror', deps),
+    };
+  }, [loadTabResource]);
+
   const refreshImagesAfterExport = useCallback(
     (force?: boolean, skipSync?: boolean) => {
       if (!checkPerm('clouds.images:read')) return;
@@ -114,7 +121,12 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
   }
 
   if (innerActiveKey === 'rbd_mirror') {
-    return <CloudmapStorageCephRbdMirror cloudId={cloudId} />;
+    return (
+      <CloudmapStorageCephRbdMirror
+        cloudId={cloudId}
+        onRefresh={cephTabOnRefresh.rbd_mirror}
+      />
+    );
   }
   if (innerActiveKey === 'volumes') {
     return (

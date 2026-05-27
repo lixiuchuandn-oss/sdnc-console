@@ -19,7 +19,7 @@
 | 池 · `onRefresh` | `loaders/paasDatabasesRefresh.ts` → **`createPaasDatabasesTabOnRefresh('rds')`** |
 | 池 · 拉数 | `loaders/pathResource/paasDatabasesPathLoads.ts` → **`rds` ≡ `ecs`**（sync + 直拉 VM，与云主机 Tab 同源） |
 | 池 · 装配 | `panels/paas_databases/index.tsx` → **`paasDatabasesTabOnRefresh.rds`** |
-| Section | **`runHarvesterSectionRefresh(onRefresh, { force: true })`**；工具栏保留「同步中」提示，内部仍走上述 `onRefresh` |
+| Section | **`createHarvesterToolbarRefresh(onRefresh)`**；写成功/删改 **`runHarvesterSectionRefresh(onRefresh, { force: true })`** |
 
 **说明**：列表数据来自池状态 **`ecs`**，前端在 `PaasSection` 内按 PaaS 标签过滤；刷新的是整份 VM 列表，不是单独 RDS API。
 

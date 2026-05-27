@@ -54,7 +54,6 @@ type Props = {
   onRefresh?: HarvesterSectionOnRefresh;
   vms?: ImageListRecord[];
   isTenant?: boolean;
-  bordered?: boolean;
 };
 
 const ImagesSection: React.FC<Props> = ({
@@ -64,7 +63,6 @@ const ImagesSection: React.FC<Props> = ({
   onRefresh,
   vms = [],
   isTenant = false,
-  bordered = true,
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);

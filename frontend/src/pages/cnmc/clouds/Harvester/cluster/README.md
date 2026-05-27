@@ -55,8 +55,8 @@
 | `innerActiveKey` | 实际域 | 组件位置 | 域内 README |
 |------------------|--------|----------|-------------|
 | `kubeovn_public_networks` / `kubeovn_public_subnets` / `cluster_vlans` | `kube-ovn` | `Harvester/kube-ovn/sections/` | （待补） |
-| `nads` / `load_balancers` / `ippools` | `nad` | `Harvester/nad/sections/` | （待补） |
-| `storage_pools` | `ceph` | `Harvester/ceph/sections/` | （待补） |
+| `nads` / `load_balancers` / `ippools` | `nad` | `Harvester/nad/sections/` | **`Harvester/nad/README.md`** |
+| `storage_pools` | `ceph` | `Harvester/ceph/sections/` | **`Harvester/ceph/README.md`** |
 
 改聚合子页的列表/刷新时：**池层**改 `clusterRefresh` / `clusterPathLoads`；**Section 层**到对应实现域改 Section，勿只在 `cluster/sections/` 找文件。
 
@@ -87,12 +87,15 @@
 | **Ceph `storage_pools`** | ceph 域面板/ Section 自管 |
 | **`kubeovn_public_subnets`** | Underlay 子网 Section 自拉 |
 
-### 聚合子域 · Section 层待收口
+### 聚合子域 · Section 层
 
-池层 key（如 `nads`、`cluster_vlans`）已进 **`clusterTabOnRefresh`**。下列仍待完全对齐 **`runHarvesterSectionRefresh`**，**不算 cluster 样板间完成**：
+池层 key（如 `nads`、`cluster_vlans`）已进 **`clusterTabOnRefresh`**。
 
-- **`nad/`**：`NadsSection`、`LoadBalancersSection`、`IPPoolsSection`
-- **`kube-ovn/`（cluster 导航）**：`ProviderNetworksSection` / `VlansSection` 已接池 `onRefresh` 与 shared helper；**`UnderlaySubnetsSection`** 列表主体仍 Section 自拉（见 **`Harvester/kube-ovn/README.md`** 例外）
+**`nad/`**（`NadsSection`、`LoadBalancersSection`、`IPPoolsSection`）：Section 刷新已对齐 shared helper；列表逻辑已拆 **`lib/*SectionUtils`**、**`*TableColumns`**、**`hooks/*`**（见 **`Harvester/nad/README.md`**）。`NadsSection` 另在 Section 内拉 Subnet/VM 辅助数据。
+
+**`ceph/`**（`CephPoolSection` 等）：池层 **`cephTabOnRefresh.storage_pools`** 已注入；列表仍 Section 自拉 Rook/Dashboard，工具栏/写成功须 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**（见 **`Harvester/ceph/README.md`**）。
+
+**`kube-ovn/`（cluster 导航）**：`ProviderNetworksSection` / `VlansSection` 已接池 `onRefresh` 与 shared helper；**`UnderlaySubnetsSection`** 列表主体仍 Section 自拉（见 **`Harvester/kube-ovn/README.md`** 例外）
 
 收口时：**不改导航归属、不迁目录**；在各自域内 Section 改用 shared refresh helper，父级继续注入 `clusterTabOnRefresh.*` 或 **`kubeOvnTabOnRefresh.*`**（VPC/扁平侧栏见 **`panels/kube_ovn`**）。
 

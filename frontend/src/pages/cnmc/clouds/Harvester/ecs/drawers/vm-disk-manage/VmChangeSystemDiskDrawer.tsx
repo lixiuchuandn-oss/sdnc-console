@@ -282,7 +282,7 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
       } satisfies VmReconfigureMenuInitCtx);
       form.setFieldsValue({ changeOsConfirmed: false });
     })();
-  }, [open, vmData, cloudId, form, reloadScs]);
+  }, [open, vmData, cloudId, form, reloadScs, reloadImages]);
 
   const handleSubmit = async () => {
     if (!changeOsEligibility.allowed) {

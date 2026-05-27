@@ -1,4 +1,4 @@
-﻿import type { Organization } from '../../../types/tenant';
+import type { Organization } from '../../../types/tenant';
 
 /** 在树（含 children）中按 id 查找组织 */
 export function findOrganizationById(orgs: Organization[], id: string): Organization | null {

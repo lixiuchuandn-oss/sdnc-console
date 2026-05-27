@@ -300,7 +300,7 @@ function AdminStandardHeader({
   summaryClouds,
   summaryLoading,
   visibleCenters,
-  activeSidebarKey,
+  activeSidebarKey: _activeSidebarKey,
   platformDropdownSelectedKeys,
   navigateToAdminContent,
   headerSelectedPoolId,
@@ -486,7 +486,10 @@ const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
-  const userPermissions = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
+  const userPermissions = useMemo(
+    () => (user?.permissions && Array.isArray(user.permissions) ? user.permissions : []),
+    [user?.permissions],
+  );
   const { hasFeature } = useLicense();
   const { settings, loading: settingsLoading } = useSettings();
   const { message } = App.useApp();
@@ -710,7 +713,7 @@ const AdminLayout: React.FC = () => {
 
   /** 去掉 requiredFeature，避免传入 DOM */
   const cleanMenuItem = useCallback((item: any): any => {
-    const { requiredFeature, ...rest } = item;
+    const { requiredFeature: _requiredFeature, ...rest } = item;
     if (rest.children) {
       return {
         ...rest,
@@ -845,7 +848,7 @@ const AdminLayout: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId]);
+  }, [rancherClusterCtx]);
 
   const rancherClusterSidebarCenter = useMemo(() => {
     if (!rancherClusterCtx) return null;
@@ -999,7 +1002,7 @@ const AdminLayout: React.FC = () => {
     }
     setSummaryListHydrated(false);
     void loadSummaryClouds();
-  }, [user?.id, loadSummaryClouds]);
+  }, [user, loadSummaryClouds]);
 
   useEffect(() => {
     if (!summaryClouds.length) {
@@ -1446,9 +1449,6 @@ const AdminLayout: React.FC = () => {
           selectedMenuKey={poolSelectedMenuKey}
           navigate={navigateToAdminContent}
           headerOffsetPx={ADMIN_HEADER_HEIGHT_PX}
-          menuMode={
-            activeSidebarKey === CLOUD_POOL_SIDEBAR_CENTER_KEY ? 'vertical' : 'inline'
-          }
         />
         <Content
           className={adminOutletSdnccClassName}

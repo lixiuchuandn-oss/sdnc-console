@@ -3,16 +3,8 @@ import { Tabs, Alert, Button, message, Tag, Table, Popconfirm, Select } from 'an
 import { ApiOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import {
-  checkGatewayApiStatus,
-  fetchGatewayClasses,
-  fetchGateways,
-  fetchHttpRoutes,
-  fetchGrpcRoutes,
-  createGateway,
   deleteGateway,
-  createHttpRoute,
   deleteHttpRoute,
-  createGrpcRoute,
   deleteGrpcRoute,
 } from '../../../../../../services/harvesterApi';
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal } from '../components';

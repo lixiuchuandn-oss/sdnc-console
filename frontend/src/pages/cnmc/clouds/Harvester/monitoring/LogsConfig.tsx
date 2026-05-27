@@ -3,7 +3,7 @@
  * 设计文档：plan/设计-监控服务-日志采集配置.md
  * 参考 Compute.Tower-Monitoring LogsConfigPage；节点用主项目 logging/nodes，组件复用主项目。
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Col,
@@ -67,12 +67,6 @@ import {
   LOG_SCOPE_MAP,
   GLOBAL_OUTPUT_REFS,
   LOCAL_OUTPUT_REFS,
-  ELASTICSEARCH_PROVIDER,
-  S3_PROVIDER,
-  FILE_PROVIDER,
-  KAFKA_PROVIDER,
-  FORWARD_PROVIDER,
-  SYSLOG_PROVIDER
 } from './constants';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
@@ -169,7 +163,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
     () => hasPermissionForAction(perms, 'clouds.log-configs:write'),
     [perms]
   );
-  const { formNamespaceOptions, namespaceLoading, isAdmin } = useLoggingContext();
+  const { formNamespaceOptions, namespaceLoading } = useLoggingContext();
   const [configList, setConfigList] = useState<ClusterFlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
   const [keyword, setKeyword] = useState('');

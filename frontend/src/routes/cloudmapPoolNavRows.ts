@@ -97,7 +97,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-rh-ceph-overview',
     pathSuffix: 'resource_hub/ceph_storage_overview',
-    title: '存储总览',
+    title: '统一存储总览',
     order: 13,
     icon: 'DatabaseOutlined',
     poolNavGroup: '资源总览',
@@ -271,7 +271,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     id: 'cloudmap-pool-cluster-storage_pools',
     pathSuffix: 'cluster/storage_pools',
     poolPageAction: 'clouds.disks:read',
-    title: '存储池',
+    title: '统一存储',
     order: 36,
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',

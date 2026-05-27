@@ -79,6 +79,7 @@ import {
   TENANT_CONSOLE_RESOURCES_NEEDING_ECS,
   type TenantConsoleLeftNavKey,
 } from './lib/tenantConsolePageAccess';
+import { createBackupsTabOnRefresh } from '../clouds/Cloudmap/pool/loaders/backupsRefresh';
 
 const { Content } = Layout;
 
@@ -814,50 +815,30 @@ const CloudConsolePage: React.FC = () => {
     }
   };
 
-  // 加载备份列表
-  const loadBackups = async (
-    cloudId?: string,
-    force: boolean = false,
-    skipSync: boolean = false,
-  ) => {
-    const cid = cloudId || currentCloudId;
-    if (!cid || cid === 'all') return;
-    setLoading(true);
-    try {
-      const res = await fetchHarvesterBackups(cid, force, skipSync, mergeTenantPublicScope(false));
-      setBackups(res?.data?.items || []);
-    } catch (e: any) {
-      console.error('[CloudConsole] loadBackups error:', e);
-      setBackups([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 加载定时备份策略
-  const loadSchedules = async (
-    cloudId?: string,
-    force: boolean = false,
-    skipSync: boolean = false,
-  ) => {
-    const cid = cloudId || currentCloudId;
-    if (!cid || cid === 'all') return;
-    setLoading(true);
-    try {
-      const res = await fetchHarvesterScheduleVmBackups(
-        cid,
-        force,
-        skipSync,
-        mergeTenantPublicScope(false),
-      );
-      setSchedules(res?.data?.items || []);
-    } catch (e: any) {
-      console.error('[CloudConsole] loadSchedules error:', e);
-      setSchedules([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 云备份域：与 Cloudmap 池一致，并行拉备份列表与定时策略
+  const loadBackupsTabResource = useCallback(
+    async (cloudId?: string, force: boolean = false, skipSync: boolean = false) => {
+      const cid = cloudId || currentCloudId;
+      if (!cid || cid === 'all') return;
+      setLoading(true);
+      try {
+        const scope = mergeTenantPublicScope(false);
+        const [bkRes, schedRes] = await Promise.all([
+          fetchHarvesterBackups(cid, force, skipSync, scope),
+          fetchHarvesterScheduleVmBackups(cid, force, skipSync, scope),
+        ]);
+        setBackups(bkRes?.data?.items || []);
+        setSchedules(schedRes?.data?.items || []);
+      } catch (e: any) {
+        console.error('[CloudConsole] loadBackupsTabResource error:', e);
+        setBackups([]);
+        setSchedules([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentCloudId, mergeTenantPublicScope],
+  );
 
   // 加载 Cloud Init 模板
   const loadCloudInits = async (cloudId?: string) => {
@@ -1209,8 +1190,7 @@ const CloudConsolePage: React.FC = () => {
     loadPvcs(currentCloudId, true);
     loadImages(currentCloudId, true);
     loadSnapshots(currentCloudId, true);
-    loadBackups(currentCloudId, true);
-    loadSchedules(currentCloudId);
+    loadBackupsTabResource(currentCloudId, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅随 currentCloudId 变化；load* 保持单次会话语义
   }, [currentCloudId]);
 
@@ -1390,15 +1370,15 @@ const CloudConsolePage: React.FC = () => {
         break;
       case 'snapshot':
         if (!canAccessMainResource('snapshot')) break;
-        loadBackups(currentCloudId, true);
+        loadBackupsTabResource(currentCloudId, true);
         break;
       case 'backup':
         if (!canAccessMainResource('backup')) break;
-        loadBackups(currentCloudId, true);
+        loadBackupsTabResource(currentCloudId, true);
         break;
       case 'schedule':
         if (!canAccessMainResource('schedule')) break;
-        loadSchedules(currentCloudId);
+        loadBackupsTabResource(currentCloudId, true);
         break;
       case 'vpc-subnet':
         if (!canAccessMainResource('vpc-subnet')) break;
@@ -1609,6 +1589,19 @@ const CloudConsolePage: React.FC = () => {
     return 'all';
   }, [consoleLeftNavKey]);
 
+  const backupsTabOnRefresh = useMemo(() => {
+    const deps = {
+      loadTabResource: (_key: string, force?: boolean, skipSync?: boolean) => {
+        void loadBackupsTabResource(currentCloudId, force !== false, skipSync);
+      },
+    };
+    return {
+      backups: createBackupsTabOnRefresh('backups', deps),
+      vm_snapshots: createBackupsTabOnRefresh('vm_snapshots', deps),
+      schedule_vm_backups: createBackupsTabOnRefresh('schedule_vm_backups', deps),
+    };
+  }, [currentCloudId, loadBackupsTabResource]);
+
   /** 页头「可用区」下拉：供应商 / 资源池名称；region 为 default 时不展示但仍随 id 生效 */
   const availabilityZoneOptions = useMemo(() => {
     return clouds.map((c) => {
@@ -1814,12 +1807,7 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                   onRefreshImages={(force?: boolean) => loadImages(currentCloudId, force ?? true)}
                   onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
-                  onRefreshBackups={(force = true, skipSync = false) =>
-                    loadBackups(currentCloudId, force, skipSync)
-                  }
-                  onRefreshSchedules={(force = true, skipSync = false) =>
-                    loadSchedules(currentCloudId, force, skipSync)
-                  }
+                  backupsTabOnRefresh={backupsTabOnRefresh}
                   onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
                   onRefreshGpus={() => loadGpus(currentCloudId)}
                   onRefreshVpcs={() => loadVpcsAndSubnets(currentCloudId, true)}
@@ -1835,7 +1823,6 @@ const CloudConsolePage: React.FC = () => {
                   onPause={handlePause}
                   onUnpause={handleUnpause}
                   onDelete={handleDelete}
-                  bordered={false}
                 />
               )}
             </>

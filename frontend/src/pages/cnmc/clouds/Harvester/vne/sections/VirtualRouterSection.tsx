@@ -3,7 +3,7 @@
  * 成员 VM：`tower.io/paas-category=vne` 或旧 `tower.io/vne-router=true`（与云数据库列表同一套 `paas-*` 键名）。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Tag, Badge, Input, Select, message, Typography, Tooltip } from 'antd';
+import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip } from 'antd';
 import Icon, { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { ReactComponent as VirtualRouterSvg } from '../../../../../../assets/OS/virtual-router.svg';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -16,6 +16,11 @@ import RdsDatabaseConsoleModal, {
   buildRdsDatabaseConsoleUrl,
 } from '../../database/modals/RdsDatabaseConsoleModal';
 import { isTowerPaasVneVm } from '../../shared/harvesterTowerPaas';
+import {
+  type HarvesterSectionOnRefresh,
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 
@@ -23,7 +28,8 @@ type Props = {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
+  /** @deprecated 控制台旧入口；Cloudmap 池请只传 `oniaasNetworkTabOnRefresh.virtual_routers` */
   onForceRefresh?: () => void | Promise<void>;
   isTenant?: boolean;
   images?: any[];
@@ -427,23 +433,28 @@ const VirtualRouterSection: React.FC<Props> = ({
     setCreateModalVisible(true);
   };
 
-  const handleRefresh = async () => {
-    const msgKey = `vne-vr-refresh-${cloudId}`;
-    setRefreshing(true);
-    message.loading({ content: '正在同步虚拟路由器实例...', key: msgKey, duration: 0 });
-    try {
-      if (onForceRefresh) {
-        await Promise.resolve(onForceRefresh());
-      } else {
-        await Promise.resolve(onRefresh(true));
+  const sectionOnRefresh = useMemo((): HarvesterSectionOnRefresh | undefined => {
+    if (!onForceRefresh) return onRefresh;
+    return (force?: boolean, silent?: boolean) => {
+      if (force === false) {
+        return onRefresh?.(false, silent);
       }
-      message.success({ content: '虚拟路由器列表已刷新', key: msgKey });
-    } catch (e: any) {
-      message.error({ content: e?.message || '刷新失败', key: msgKey });
-    } finally {
-      setRefreshing(false);
-    }
-  };
+      return Promise.resolve(onForceRefresh());
+    };
+  }, [onForceRefresh, onRefresh]);
+
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createHarvesterToolbarRefresh(sectionOnRefresh, {
+        before: () => setRefreshing(true),
+        after: () => setRefreshing(false),
+      }),
+    [sectionOnRefresh],
+  );
+
+  const reloadListAfterWrite = useCallback(() => {
+    void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+  }, [sectionOnRefresh]);
 
   return (
     <PageDetailSection
@@ -498,7 +509,7 @@ const VirtualRouterSection: React.FC<Props> = ({
           <Button type="primary" onClick={handleOpenCreateModal}>
             创建实例
           </Button>
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} />
+          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleToolbarRefresh} />
         </>
       }
     >
@@ -523,7 +534,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         storageClasses={storageClasses}
         kubeSubnets={kubeSubnets}
         harvesterNads={harvesterNads}
-        onCreated={() => onRefresh(true)}
+        onCreated={reloadListAfterWrite}
         namespacesOptions={namespacesOptions}
         namespaceRecords={namespaceRecords}
         isTenant={isTenant}
@@ -538,7 +549,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         }}
         cloudId={cloudId}
         resource={labelEditRecord}
-        onSuccess={() => onRefresh(true)}
+        onSuccess={reloadListAfterWrite}
         hintVariant="vne"
       />
 
@@ -563,7 +574,11 @@ const VirtualRouterSection: React.FC<Props> = ({
           images={images || []}
           activeTab={vmDetailActiveTab}
           onTabChange={setVmDetailActiveTab}
-          onRefresh={onRefresh}
+          onRefresh={(force) => {
+            void runHarvesterSectionRefresh(sectionOnRefresh, {
+              force: force !== false,
+            });
+          }}
         />
       ) : null}
 
@@ -576,7 +591,7 @@ const VirtualRouterSection: React.FC<Props> = ({
           }}
           cloudId={cloudId}
           record={yamlDrawerRecord}
-          onSuccess={() => void onRefresh(true)}
+          onSuccess={reloadListAfterWrite}
         />
       ) : null}
     </PageDetailSection>

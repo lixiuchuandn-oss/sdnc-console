@@ -154,7 +154,7 @@ export async function harvesterMonitoringCephRookBundleHandler(req: Request, res
     }
     if (res.headersSent) return;
     const st = (e as any).status || 500;
-    res.status(st).json({ message: e?.message || '请求 Ceph 资源聚合失败' });
+    res.status(st).json({ message: e?.message || '请求统一存储资源聚合失败' });
   }
 }
 
@@ -204,7 +204,7 @@ export async function harvesterMonitoringCephClustersHandler(req: Request, res: 
     if (isUnreachableError(e)) return res.status(200).json({ data: [] });
     if (res.headersSent) return;
     const st = (e as any).status || 500;
-    res.status(st).json({ message: e?.message || '请求 Ceph 集群列表失败' });
+    res.status(st).json({ message: e?.message || '请求统一存储集群列表失败' });
   }
 }
 

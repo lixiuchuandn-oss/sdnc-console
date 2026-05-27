@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Button, Form, Input, message, Modal, Select, Table, Tag, Typography } from 'antd';
 import { ApartmentOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
@@ -17,7 +17,6 @@ import SubnetDetailDrawer from '../drawers/subnet-detail-drawer';
 import { buildBusinessVpcPickerRows, vpcDisplayMapFromVpcs } from '../lib/kubeOvnUiHelpers';
 import {
   KUBE_OVN_PUBLIC_VPC,
-  SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   isBuiltInKubeOvnVpc,
   isVpcOvnSubnetTableRow,
@@ -560,7 +559,6 @@ const VpcSubnetsSection: React.FC<Props> = ({
         key: 'actions',
         fixed: 'right' as const,
         render: (_: any, r: any) => {
-          const name = r?.name || r?.metadata?.name;
           return (
             <ResourceActionsDropdown
               items={[

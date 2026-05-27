@@ -771,7 +771,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
         const res = await getCephBlockPoolRook(cloudId, ns, nm, { signal: ac.signal });
         if (ac.signal.aborted) return;
         if (!res.ok || res.data == null) {
-          message.error(res.error || '加载 CephBlockPool 失败');
+          message.error(res.error || '加载存储池失败');
           const fallback = parseRemoteToForm(editRecord?.detailRaw);
           if (fallback) form.setFieldsValue(fallback as FormShape);
           setRemoteCr(null);
@@ -825,7 +825,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
         if (!dq.ok) {
           message.warning(
             dq.error ||
-              '与 Ceph mgr Dashboard 对齐的配置（配额/PG/CRUSH/QoS/压缩等）未全部写入；可稍后在此池再次保存或打开 Dashboard。',
+              '与统一存储 Dashboard 对齐的配置（配额/PG/CRUSH/QoS/压缩等）未全部写入；可稍后在此池再次保存或打开 Dashboard。',
           );
         }
         onSuccess();
@@ -868,7 +868,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
       if (!dq.ok) {
         message.warning(
           dq.error ||
-            '与 Ceph mgr Dashboard 对齐的配置未能全部写入；若 mgr 未就绪可稍后在本页再次保存。',
+            '与统一存储 Dashboard 对齐的配置未能全部写入；若 mgr 未就绪可稍后在本页再次保存。',
         );
       }
       onSuccess();

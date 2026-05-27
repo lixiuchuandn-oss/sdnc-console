@@ -54,16 +54,6 @@ export function ipv4InCidr(ip: string, cidr: string): boolean {
   return (host & mask) === (prefix & mask);
 }
 
-function ipv4InRange(ip: string, start: string, end: string): boolean {
-  const a = ipv4ToInt(start);
-  const b = ipv4ToInt(end);
-  const x = ipv4ToInt(ip);
-  if (a === null || b === null || x === null) return false;
-  const lo = Math.min(a, b);
-  const hi = Math.max(a, b);
-  return x >= lo && x <= hi;
-}
-
 /**
  * 校验单条排除项是否落在子网 CIDR 内。
  * 支持：单 IPv4、`a.b.c.d..a.b.c.e`（Kube-OVN 区间写法，两个点）。

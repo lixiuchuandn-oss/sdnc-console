@@ -17,13 +17,11 @@
  * - 邮箱（email）：可选
  */
 
-import React, { useCallback } from 'react';
+import React from 'react';
 import {
   Form,
   Input,
   Select,
-  Space,
-  App,
 } from 'antd';
 import {
   KeyOutlined,
@@ -32,10 +30,6 @@ import {
   LockOutlined,
   MailOutlined,
 } from '@ant-design/icons';
-import {
-  createHarvesterImagePullSecret,
-  updateHarvesterImagePullSecret,
-} from '../../../../../../services/harvesterApi';
 
 // ============================================================
 // 类型定义
@@ -155,8 +149,6 @@ const RegistryCredentialForm: React.FC<RegistryCredentialFormProps> = ({
   namespaces,
   isEditMode = false,
 }) => {
-  const { message } = App.useApp();
-  
   // 注意：表单数据初始化由父组件 RegistryCredentialModal 的 useEffect 处理
   // 这里不再重复设置，避免冲突
   

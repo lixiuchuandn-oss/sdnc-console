@@ -242,7 +242,24 @@ frontend/src/pages/
 
 **抽屉「壳层 UI」与落位**：与入口一对一的装配层为 **`ecs/drawers/vm-detail/VmDetailDrawerShell.tsx`**（Drawer 骨架、工具栏、Segmented Tab、`VmDetailTab` 与各业务子抽屉挂载；与胶水入口 **`VmDetailDrawer.tsx` 同目录**），其 **大块 JSX/UI 保留在该壳层文件内**。同目录另有 **`useVmDetailMoreMenu.tsx`**（「⋯」下拉项）、**`VmDetailEjectCdromModal.tsx`**（光驱弹出 Modal）。**`shell/`、`lib/`**（含 `tabs/`）侧放数据/控制 hooks、Derived、`types`、各 Tab 拼装等 **非壳层大块 JSX**；**不因「好找」再把同一页 UI 拆成多级 `parts/`、`*Chrome.tsx` 碎片文件**。独立功能的业务子抽屉（磁盘/网卡/规格、`vm-diagnosis` 虚拟机诊断、`vm-realtime-logs` 实时日志「⋯」打开等）仍各占 `ecs/drawers/` 下单目录，与本条不冲突。
 
-**判定**：只服务 **一个** 业务域 → 放在该域对应子目录；**≥2 域** → 该云下的 `shared/`（Harvester）或上浮至 `src/components`（跨平台）。
+**判定**：只服务 **一个** 业务域 → 放在该域对应子目录；**≥2 域** → 该云下的 `shared/`（`lib/`、`components/`、**`context/`** 等；Harvester 见修改纪要）或上浮至 `src/components`（跨平台）。
+
+**Harvester `shared/context/`**：Cloudmap 池详情等 **多域共用** 的 React Provider（如 **`HarvesterPublicNamespacesProvider`**，挂载于 `Cloudmap/pool/PoolDetailPage.tsx`）。单域 Tab 内 Context 仍放 **`<域>/context/`**（如 `monitoring/context/`）。
+
+**Harvester 根级不设 `hooks/`、`context/`**：Section 编排 hook 放 **`Harvester/<域>/hooks/`**；跨域 Provider 放 **`Harvester/shared/context/`**（勿在 `Harvester/hooks/` 或已废弃的根级 `Harvester/context/` 新建文件）。
+
+### 8.1 Harvester 域 README 索引（Cloudmap 池 / cluster 导航）
+
+Harvester 云详情按 **域优先** 分目录；下列域已对齐 Cloudmap 池样板（`loadTabResource` + Section `runHarvesterSectionRefresh`），细则见各域 **`README.md`** 与 **`Harvester/cluster/README.md`**（聚合导航）。
+
+| 域目录 | 典型 Cloudmap 入口 | 域 README |
+|--------|-------------------|-----------|
+| `Harvester/cbr/` | 侧栏 `backups/...` | `Harvester/cbr/README.md` |
+| `Harvester/nad/` | cluster 导航 `nads` / `load_balancers` / `ippools` | `Harvester/nad/README.md` |
+| `Harvester/cluster/` | cluster 导航（本域 Section + 聚合装配说明） | `Harvester/cluster/README.md` |
+| `Harvester/ecs/`、`ebs/`、`kube-ovn/` 等 | 见 Cloudmap 池 `panels/*` 与修改纪要 | 各域内 README（若有） |
+
+新增 Harvester 域时：在域根补 **`README.md`**（Tab ↔ Section ↔ 池 key ↔ 刷新例外），并在上表或 **`AGENTS.md` · Harvester 云详情** 保持索引一致。
 
 ---
 
@@ -252,9 +269,9 @@ frontend/src/pages/
 |------|----------|
 | 新页面路由归属某平台 | `pages/<平台>/...`，且与 `RouteSpec.platform` 一致；**租户管理**须 **`platform: 'TENANTS'`**，源码在 **`pages/tenants/`**（见 §5） |
 | 仅某云类型使用 | `pages/cnmc/clouds/<vendor>/...` 下对应域 |
-| 仅 Harvester 某域使用 | `Harvester/<域>/sections|drawers|modals|lib|components/` |
-| Harvester `monitoring` 域（对齐 ecs/kube-ovn） | Tab 主体在 **`sections/`**（如监控概览）；数据钩子在 **`hooks/`**；纯函数与解析在 **`lib/`**（勿再用 `utils/`）；卡片与小件在 **`components/`**；跨页 Context 在 **`context/`**；根级 `MonitoringOverview.tsx` 等可作 barrel 再导出以兼容既有 import |
-| Harvester 多域共用 | `Harvester/shared/...`（见修改纪要） |
+| 仅 Harvester 某域使用 | `Harvester/<域>/sections|drawers|modals|lib|hooks|components/`（域 README 见 **§8.1**） |
+| Harvester `monitoring` 域（对齐 ecs/kube-ovn） | Tab 主体在 **`sections/`**（如监控概览）；数据钩子在 **`hooks/`**；纯函数与解析在 **`lib/`**（勿再用 `utils/`）；卡片与小件在 **`components/`**；**仅本域**跨 Tab Context 在 **`monitoring/context/`**；根级 `MonitoringOverview.tsx` 等可作 barrel 再导出以兼容既有 import |
+| Harvester 多域共用 | `Harvester/shared/...`（`lib/`、`components/`、**`context/`** 跨域 Provider；见修改纪要） |
 | 多平台或全局复用 UI | `src/components/` 或 `src/hooks/` |
 | API 封装 | `src/services/` |
 | 路由声明 | `src/routes/RouteSpec.ts` 等 |

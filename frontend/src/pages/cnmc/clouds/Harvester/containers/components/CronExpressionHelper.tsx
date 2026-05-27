@@ -103,7 +103,7 @@ export const parseToChinese = (expression: string): string => {
     return '';
   }
 
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  const [minute, hour, dayOfMonth, _month, dayOfWeek] = parts;
 
   // 每秒执行（不支持，但友好提示）
   if (minute === '*') {

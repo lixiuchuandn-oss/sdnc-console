@@ -74,7 +74,7 @@ export function useVmSectionActions({
     if (!currentMetadata) return null;
     const currentId = getIid(currentMetadata);
     return vms.find((v) => getIid(v) === currentId) || currentMetadata;
-  }, [vms, currentMetadata]);
+  }, [vms, currentMetadata, getIid]);
 
   const handleShowVmDetail = useCallback((record: any, tab: string = 'detail') => {
     setCurrentMetadata(record);
@@ -103,7 +103,7 @@ export function useVmSectionActions({
         message.error(e?.message || '获取VNC地址失败');
       }
     },
-    [cloudId, SafeRead, message],
+    [cloudId, SafeRead, message, getIid],
   );
 
   const handleBackup = useCallback((r: any) => {
@@ -242,7 +242,7 @@ export function useVmSectionActions({
         onOk: () => onDelete(iid, deleteVolumes, false),
       });
     },
-    [onDelete, SafeRead, modal],
+    [onDelete, SafeRead, modal, getIid],
   );
 
   const handleOpenAliasModal = useCallback((r: any) => {
@@ -352,7 +352,7 @@ export function useVmSectionActions({
     } catch (e: any) {
       message.error(e?.message || '批量停止失败');
     }
-  }, [selectedKeys, vms, SafeRead, cloudId, onStop, message]);
+  }, [selectedKeys, vms, SafeRead, cloudId, onStop, message, getIid]);
 
   const batchReboot = useCallback(async () => {
     if (selectedKeys.length === 0) return;
@@ -371,7 +371,7 @@ export function useVmSectionActions({
     } catch (e: any) {
       message.error(e?.message || '批量重启失败');
     }
-  }, [selectedKeys, vms, onReboot, message]);
+  }, [selectedKeys, vms, onReboot, message, getIid]);
 
   const batchDelete = useCallback(() => {
     if (selectedKeys.length === 0) return;
@@ -437,7 +437,7 @@ export function useVmSectionActions({
         }
       },
     });
-  }, [selectedKeys, vms, SafeRead, modal, message, onDelete, onRefresh]);
+  }, [selectedKeys, vms, SafeRead, modal, message, onDelete, onRefresh, getIid]);
 
   return {
     selectedKeys,

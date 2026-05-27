@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Button, Space, message, Row, Col } from 'antd';
+import { Modal, Form, Input, Button, message } from 'antd';
 import { PlusOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import { patchHarvesterImage } from '../../../../../../services/harvesterApi';
 

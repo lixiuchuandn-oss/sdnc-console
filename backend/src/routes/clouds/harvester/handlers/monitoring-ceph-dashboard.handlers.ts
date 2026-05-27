@@ -305,7 +305,7 @@ async function cephDashboardHttpProxy(
   let last: { status: number; contentType: string; raw: Buffer } = {
     status: 502,
     contentType: 'application/json',
-    raw: Buffer.from(JSON.stringify({ message: '无法连接 Ceph mgr Dashboard' })),
+    raw: Buffer.from(JSON.stringify({ message: '无法连接统一存储 Dashboard' })),
   };
 
   urlLoop: for (const url of urls) {
@@ -431,11 +431,11 @@ async function fetchCephDashboardGetKubeOnly(
           : `HTTP ${st}`;
     throw {
       status: st,
-      message: msg || 'Ceph Dashboard API 请求失败',
+      message: msg || '统一存储 Dashboard API 请求失败',
       body: lastErr?.body ?? lastErr?.response?.data,
     };
   }
-  throw lastErr || { status: 502, message: '无法经 Service 代理访问 Ceph mgr Dashboard' };
+  throw lastErr || { status: 502, message: '无法经 Service 代理访问统一存储 Dashboard' };
 }
 
 /**
@@ -579,14 +579,14 @@ async function fetchCephDashboardWithSession(
         ? msgFromBody
         : typeof lastErr?.message === 'string' && lastErr.message
           ? lastErr.message
-          : 'Ceph Dashboard 会话请求失败';
+          : '统一存储 Dashboard 会话请求失败';
     throw {
       status: st,
       message: msg,
       body: lastErr?.body ?? lastErr?.response?.data,
     };
   }
-  throw lastErr || { status: 502, message: 'Ceph Dashboard 登录会话不可用' };
+  throw lastErr || { status: 502, message: '统一存储 Dashboard 登录会话不可用' };
 }
 
 /**
@@ -691,7 +691,7 @@ function respondCephDashboardSummaryError(res: Response, e: any) {
   const st = (e as any).status || 502;
   let msg =
     (e as any).message ||
-    'Ceph Dashboard API 不可用（可能需 Dashboard 登录或 Rook 命名空间/Service 不一致）';
+    '统一存储 Dashboard API 不可用（可能需 Dashboard 登录或 Rook 命名空间/Service 不一致）';
   if (st === 502 || st === 503) {
     msg += ` 联调：请确认云账号 Token 与 probe 脚本一致、endpoint 为集群 API 根地址且已勾选忽略 TLS（自签证书）；若后端为 NODE_ENV=production，须设置 CEPH_DASHBOARD_USER/PASSWORD 或 CEPH_DASHBOARD_DEV_AUTO_LOGIN=1，或在页面 POST 凭据拉取。`;
   }
@@ -829,7 +829,7 @@ export async function harvesterMonitoringCephDashboardSyncHandler(req: Request, 
     }
   } catch (e: any) {
     if (res.headersSent) return;
-    return res.status(500).json({ message: e?.message || 'Ceph 快照同步失败' });
+    return res.status(500).json({ message: e?.message || '统一存储快照同步失败' });
   }
 }
 
@@ -872,7 +872,7 @@ export async function harvesterMonitoringCephDashboardCacheHandler(req: Request,
     });
   } catch (e: any) {
     if (res.headersSent) return;
-    return res.status(500).json({ message: e?.message || '读取 Ceph 快照失败' });
+    return res.status(500).json({ message: e?.message || '读取统一存储快照失败' });
   }
 }
 
@@ -968,6 +968,6 @@ export async function harvesterMonitoringCephDashboardProxyHandler(req: Request,
     return res.send(out.raw);
   } catch (e: any) {
     if (res.headersSent) return;
-    return res.status(500).json({ message: e?.message || 'Ceph Dashboard 代理失败' });
+    return res.status(500).json({ message: e?.message || '统一存储 Dashboard 代理失败' });
   }
 }

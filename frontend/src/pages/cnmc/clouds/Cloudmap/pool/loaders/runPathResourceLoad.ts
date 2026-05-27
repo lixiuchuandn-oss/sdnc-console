@@ -21,7 +21,7 @@ export async function runPathResourceLoad(
   skipSync: boolean,
   deps: PoolPathResourceDeps,
 ): Promise<void> {
-  /** 资源总览 · Ceph 存储总览：面板内自建拉取 */
+  /** 资源总览 · 统一存储总览：面板内自建拉取 */
   if (key === 'ceph_storage_overview') return;
   if (await tryLoadResourceHubTab(key, force, skipSync, deps)) return;
   if (await tryLoadStorageTab(key, force, skipSync, deps)) return;

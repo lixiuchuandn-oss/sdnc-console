@@ -42,7 +42,6 @@ import {
   deleteOutput,
 } from '../../../../../services/loggingApi';
 import {
-  AUDIT_LOGGING_REFS,
   DEFAULT_ADMIN_NAMESPACE,
   DESCRIPTION_ANNOTATION_KEY,
   KUBE_AUDIT_LOGGING_REF,
@@ -275,7 +274,6 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         setList([]);
         return;
       }
-      const items = (data as any)?.items;
       const normalized = normalizeOutputList(data);
       setList(normalized);
     }
@@ -486,7 +484,6 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
     (values: Record<string, unknown>, editing: ClusterOutputItem | null): Record<string, unknown> => {
       const provider = (values.provider ?? NULLOUT_PROVIDER) as string;
       const host = (values.host ?? '').toString().trim();
-      const port = (values.port ?? '').toString().trim();
       const bucket = (values.bucket ?? '').toString().trim();
       const region = (values.region ?? '').toString().trim();
       const accessKeyId = (values.accessKeyId ?? '').toString().trim();
@@ -747,7 +744,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         loadList();
       } else message.error(error || '删除失败');
     },
-    [cloudId, loadList, namespaceFilter, canWriteLogReceivers]
+    [cloudId, loadList, canWriteLogReceivers]
   );
 
   const filteredList = useMemo(() => {

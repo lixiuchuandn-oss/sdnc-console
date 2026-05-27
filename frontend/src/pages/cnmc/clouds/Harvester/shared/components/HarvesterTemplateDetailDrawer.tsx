@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { Drawer, Tabs, Button, Tag, Descriptions, Card, List, Space, Skeleton, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
+import { Drawer, Button, Tag, Descriptions, Card, List, Space, Skeleton, Tooltip } from 'antd';
 import { 
   CloseOutlined, 
   ReloadOutlined,
@@ -48,17 +48,7 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
     return template?.metadata?.namespace;
   }, [template]);
 
-  // 加载版本详情
-  useEffect(() => {
-    if (open && cloudId && namespace && defaultVersionId) {
-      fetchVersionDetail();
-    } else if (open && !defaultVersionId) {
-        // 如果没有默认版本，可能是一个空模板或者数据不完整
-        setVersionData(null);
-    }
-  }, [open, cloudId, namespace, defaultVersionId]);
-
-  const fetchVersionDetail = async () => {
+  const fetchVersionDetail = useCallback(async () => {
     setLoading(true);
     try {
       // 构造 Version 的 API 路径
@@ -85,7 +75,17 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
     } finally {
       setLoading(false);
     }
-  };
+  }, [cloudId, namespace, defaultVersionId]);
+
+  // 加载版本详情
+  useEffect(() => {
+    if (open && cloudId && namespace && defaultVersionId) {
+      fetchVersionDetail();
+    } else if (open && !defaultVersionId) {
+        // 如果没有默认版本，可能是一个空模板或者数据不完整
+        setVersionData(null);
+    }
+  }, [open, cloudId, namespace, defaultVersionId, fetchVersionDetail]);
 
   // 解析 CPU
   const cpuInfo = useMemo(() => {
@@ -142,7 +142,7 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
 
     // 3. 从 ContainerDisk 中查找 (虽然通常直接显示，但也可以解析 Alias)
     const volumes = versionData?.spec?.vm?.spec?.template?.spec?.volumes || [];
-    volumes.forEach((vol: any) => {
+    volumes.forEach((_vol: any) => {
         // ContainerDisk 已经是完整的 Image Reference，无需 API 查找
     });
 
@@ -252,7 +252,7 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
       }).sort((a: any, b: any) => (a.bootOrder || 999) - (b.bootOrder || 999));
     }
     return [];
-  }, [versionData, template, imageAliases]);
+  }, [versionData, imageAliases]);
 
   // 解析 Networks (优先 from versionData 解析)
   const networks = useMemo(() => {
@@ -275,7 +275,7 @@ const HarvesterTemplateDetailDrawer: React.FC<HarvesterTemplateDetailDrawerProps
       });
     }
     return [];
-  }, [versionData, template]);
+  }, [versionData]);
 
   // CloudInit
   const cloudInit = useMemo(() => {

@@ -50,7 +50,7 @@ import {
 } from '../../../../../../../services/harvesterApi';
 
 import { pickDefaultStorageClassName } from '../../../../../../../utils/harvesterUtils';
-import { useHarvesterPublicNamespaces } from '../../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../../shared/context/HarvesterPublicNamespacesContext';
 import { parseSizeToGi } from './VmWizardUtils';
 import { kubeVpcOptionsForVmWizard } from '../../../kube-ovn/lib/kubeOvnUiHelpers';
 import { resolveKubeOvnSubnetNadNamespace } from './kubeOvnNadRefForVmWizard';

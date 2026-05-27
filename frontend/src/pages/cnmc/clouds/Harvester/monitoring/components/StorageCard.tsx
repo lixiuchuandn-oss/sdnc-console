@@ -263,16 +263,16 @@ export const StorageCard: React.FC = () => {
               />
               {vm.showCephCapacityMissingHint ? (
                 <Typography.Text type="secondary" style={STORAGE_CARD_FOOTER_HINT_TEXT_STYLE}>
-                  mgr api/health/minimal 与 CephCluster CR 均未给出容量汇总。
+                  mgr api/health/minimal 与统一存储集群 CR 均未给出容量汇总。
                 </Typography.Text>
               ) : vm.cephCapacityFallbackCr ? (
                 <Typography.Text type="secondary" style={STORAGE_CARD_FOOTER_HINT_TEXT_STYLE}>
-                  容量取自 CephCluster CR（mgr df 不可用时的降级）。
+                  容量取自统一存储集群 CR（mgr df 不可用时的降级）。
                 </Typography.Text>
               ) : null}
               {vm.showCephPoolMatchHint ? (
                 <Typography.Text type="secondary" style={STORAGE_CARD_FOOTER_HINT_TEXT_STYLE}>
-                  未能匹配默认存储类到 CephBlockPool（核对 parameters.pool / clusterID 与池 CR 命名空间/名称）。
+                  未能匹配默认存储类到块存储池（核对 parameters.pool / clusterID 与池 CR 命名空间/名称）。
                 </Typography.Text>
               ) : null}
             </div>

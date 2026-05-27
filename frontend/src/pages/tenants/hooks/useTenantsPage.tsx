@@ -1,6 +1,5 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Form, Input, message, Modal, Typography } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Form, message, Modal, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import type { Tenant, CreateTenantRequest } from '../../../types/tenant';

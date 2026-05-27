@@ -10,7 +10,7 @@ import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { useAuth } from 'contexts/AuthContext';
 import { hasPermissionForAction } from 'utils/accessMapping';
 import { fetchHarvesterNamespaces } from 'services/harvesterApi';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import VolumeDetailDrawer from '../drawers/VolumeDetailDrawer';
 import {
@@ -48,7 +48,6 @@ type Props = {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
-  bordered?: boolean;
 };
 
 const VolumesSection: React.FC<Props> = ({

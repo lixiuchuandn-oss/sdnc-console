@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Form, Input, Modal } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 import type { Tenant, CreateTenantRequest } from '../../../types/tenant';

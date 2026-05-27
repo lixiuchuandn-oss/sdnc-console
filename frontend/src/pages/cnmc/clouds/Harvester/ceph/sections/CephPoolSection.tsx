@@ -32,6 +32,12 @@ import {
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 import CephPoolRookFormModal from '../modals/CephPoolRookFormModal';
+import {
+  createHarvesterToolbarRefresh,
+  mergeCephSectionOnRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/cephSectionRefresh';
 
 const TABLE_SETTINGS_KEY = 'harvester_ceph_pools_table_v4';
 
@@ -111,11 +117,13 @@ export type CephPoolSectionProps = {
    *（mgr Dashboard `api/pool`，仅保留 application 中含 `rgw` 的 RADOS 池）。
    */
   applicationsScope?: 'cloud' | 'object';
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
 const CephPoolSection: React.FC<CephPoolSectionProps> = ({
   cloudId,
   applicationsScope = 'cloud',
+  onRefresh,
 }) => {
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -171,7 +179,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
         if (!res.ok || res.data == null) {
           setRows([]);
           setListSource(null);
-          setLoadErr(res.error || '无法读取 Rook CephBlockPool 列表（/ceph/rook/bundle）。请检查集群连接与权限。');
+          setLoadErr(res.error || '无法读取统一存储池列表（/ceph/rook/bundle）。请检查集群连接与权限。');
           return;
         }
         const body = res.data as Record<string, unknown>;
@@ -214,6 +222,16 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
     [cloudId, applicationsScope],
   );
 
+  const sectionOnRefresh = useMemo(
+    () => mergeCephSectionOnRefresh(load, onRefresh),
+    [load, onRefresh],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionOnRefresh),
+    [sectionOnRefresh],
+  );
+
   const deletePool = useCallback(
     async (r: CephPoolTableRow) => {
       const ns = r.namespace?.trim();
@@ -228,9 +246,9 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
         return;
       }
       message.success('已删除存储池');
-      void load(true);
+      void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
     },
-    [cloudId, load],
+    [cloudId, sectionOnRefresh],
   );
 
   useEffect(() => {
@@ -240,10 +258,6 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
   const namespaceOptions = useMemo(() => distinctFieldOptions(rows, 'namespace'), [rows]);
   const phaseOptions = useMemo(() => distinctFieldOptions(rows, 'phase'), [rows]);
   const applicationsOptions = useMemo(() => distinctFieldOptions(rows, 'applications'), [rows]);
-  const pgStatusOptions = useMemo(() => distinctFieldOptions(rows, 'pgStatus'), [rows]);
-  const dataProtectionOptions = useMemo(() => distinctFieldOptions(rows, 'dataProtection'), [rows]);
-  const failureDomainOptions = useMemo(() => distinctFieldOptions(rows, 'failureDomain'), [rows]);
-  const deviceClassOptions = useMemo(() => distinctFieldOptions(rows, 'deviceClass'), [rows]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
@@ -434,7 +448,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
                   danger: true,
                   onClick: () => {
                     Modal.confirm({
-                      title: '确定删除该 CephBlockPool？',
+                      title: '确定删除该存储池？',
                       okText: '删除',
                       okButtonProps: { danger: true },
                       cancelText: '取消',
@@ -540,7 +554,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
             </Button>
           ) : null}
           <TableColumnSettingsButton allColumns={poolColumnsForSettings} settingsKey={TABLE_SETTINGS_KEY} />
-          <Button icon={<ReloadOutlined />} onClick={() => void load(true)} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </>
       }
     >
@@ -589,7 +603,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
           setPoolModalOpen(false);
           setPoolEditRecord(null);
         }}
-        onSuccess={() => void load(true)}
+        onSuccess={() => void runHarvesterSectionRefresh(sectionOnRefresh, { force: true })}
       />
     </PageDetailSection>
     </>

@@ -22,7 +22,7 @@
  * 步骤5: 高级配置 - 副本数、调度、健康检查
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef, useReducer } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Form,
   Input,
@@ -5498,7 +5498,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     }
     
     return resource;
-  }, []);
+  }, [allNadOptions]);
   
   // 表单数据转 YAML
   const formToYaml = useCallback((values: WorkloadFormValues): string => {
@@ -6062,7 +6062,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata, editData?.spec?.selector, editData?.spec?.template?.metadata?.labels, flatSubnetOptions, kubeSubnets]);
+  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata, editData?.kind, editData?.spec?.selector, editData?.spec?.template?.metadata?.labels, flatSubnetOptions, kubeSubnets]);
   
   // 下一步
   const handleNext = useCallback(async () => {

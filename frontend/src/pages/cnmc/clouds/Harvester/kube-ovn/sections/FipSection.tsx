@@ -33,7 +33,6 @@ interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
-  bordered?: boolean;
 }
 
 interface FipSectionProps extends BaseSectionProps {
@@ -112,7 +111,6 @@ export const FipSection: React.FC<FipSectionProps> = ({
   subnets = [],
   loading,
   onRefresh,
-  bordered = true,
   networkScope,
 }) => {
   void vpcs;

@@ -65,8 +65,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, Space, message, Modal, Tooltip, App, Input, Select, Button, Typography, Checkbox, Drawer } from 'antd';
-import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined, SettingOutlined } from '@ant-design/icons';
+import { Table, message, Tooltip, App, Input, Select, Button, Checkbox, Drawer } from 'antd';
+import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
@@ -82,7 +82,7 @@ import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModa
 import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { getVmInstanceId, selectRecycledVmRows, filterRecycledVmListRows } from '../lib/vmSectionUtils';
+import { selectRecycledVmRows, filterRecycledVmListRows } from '../lib/vmSectionUtils';
 import { createVmRecycleBinListSafeRead } from '../lib/vmSafeRead';
 import {
   buildRecycleBinTableColumns,
@@ -175,9 +175,6 @@ const RecycleBinSection: React.FC<Props> = ({
   // ==========================================
   // [工具函数] 3. 辅助函数 (Utility Functions)
   // ==========================================
-
-  /** 与 VmSection 共用 `vmSectionUtils.getVmInstanceId` */
-  const getIid = getVmInstanceId;
 
   /** 列表字段读取：基于 createVmListSafeRead，回收站 status 固定 Stopped */
   const SafeRead = useMemo(

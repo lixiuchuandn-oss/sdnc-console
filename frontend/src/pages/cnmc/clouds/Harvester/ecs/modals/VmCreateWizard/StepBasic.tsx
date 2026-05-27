@@ -36,7 +36,7 @@ import {
   isSystemNamespace,
   pickFirstNamespaceRecordByScenarioForOptions,
 } from '../../../../../../../utils/harvesterUtils';
-import { useHarvesterPublicNamespaces } from '../../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../../shared/context/HarvesterPublicNamespacesContext';
 import {
   bytesToGiB,
   parseCpuToCores,

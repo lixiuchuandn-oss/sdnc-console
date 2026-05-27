@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Card, Select, Alert, Space, Typography, Collapse, message, Divider, Tag, Input } from 'antd';
+import { Card, Select, Alert, Space, Typography, Collapse, message, Input } from 'antd';
 import { 
   CloudUploadOutlined, 
   DockerOutlined,
@@ -17,7 +17,6 @@ import type { HarborRegistry, HarborProject } from '../types';
 import { getHarborProjects } from '../shared/harborApi';
 
 const { Text, Paragraph } = Typography;
-const { Panel } = Collapse;
 
 interface Props {
   harbor: HarborRegistry;

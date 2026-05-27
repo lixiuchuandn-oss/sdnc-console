@@ -3,7 +3,7 @@
  *
  * 表单区与原 `HotPlugSettings.tsx` 合并于此。
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -200,7 +200,10 @@ const VmHotplugSettingsDrawer: React.FC<VmHotplugSettingsDrawerProps> = ({
   const vmManageCssVars = useVmManageDrawerCssVars();
   const activeRecord = latestVm || record;
 
-  const getCurrentSpec = () => getVmReconfigureCurrentSpec(record, activeRecord);
+  const getCurrentSpec = useCallback(
+    () => getVmReconfigureCurrentSpec(record, activeRecord),
+    [record, activeRecord],
+  );
   const getMemoryInGi = storageQuantityToGiB;
 
   const {
@@ -211,7 +214,7 @@ const VmHotplugSettingsDrawer: React.FC<VmHotplugSettingsDrawerProps> = ({
   } = useMemo(() => {
     if (!getCurrentSpec) return { cpu: 0, memory: 0, maxSockets: undefined, maxMemory: undefined };
     return getCurrentSpec();
-  }, [getCurrentSpec, activeRecord, record]);
+  }, [getCurrentSpec]);
 
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = getMemoryInGi(currentMemoryRaw);
@@ -269,7 +272,7 @@ const VmHotplugSettingsDrawer: React.FC<VmHotplugSettingsDrawerProps> = ({
       reloadNodes: noopReloadNodes,
       setSelectedUsbKeys: () => {},
     } as VmReconfigureMenuInitCtx);
-  }, [open, record, latestVm, activeRecord, cloudId, form]);
+  }, [open, record, latestVm, activeRecord, cloudId, form, getCurrentSpec, getMemoryInGi]);
 
   const handleSubmit = async () => {
     setSubmitting(true);

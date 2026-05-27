@@ -123,19 +123,6 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
     return list;
   }, [alertsList, levelFilter, alertKeyword]);
 
-  const formatDescriptionForDetail = useCallback((description: string): string => {
-    if (!description) return '-';
-    const normalized = String(description)
-      .replace(/\\n/g, '\n')
-      .replace(/\r\n/g, '\n')
-      .trim();
-    // 优先尊重已有换行；若无换行，则按常见句读分段提升可读性
-    if (normalized.includes('\n')) return normalized;
-    return normalized
-      .replace(/([。；;！？!?])\s*/g, '$1\n')
-      .replace(/,\s+(?=[A-Z\u4e00-\u9fa5])/g, ',\n');
-  }, []);
-
   const openDetail = useCallback((record: ParsedAlert) => {
     setDetailRecord(record);
     setDetailOpen(true);
@@ -242,7 +229,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         ),
       },
     ],
-    [isAdmin, openDetail, renderLevel, renderRuleGroup]
+    [openDetail, renderLevel, renderRuleGroup]
   );
 
   // 列显示设置（需要在 alertColumns 定义之后）

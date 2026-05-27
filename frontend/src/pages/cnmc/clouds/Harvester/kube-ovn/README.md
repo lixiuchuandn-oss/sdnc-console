@@ -18,7 +18,7 @@
 | 池 · VPC Tab | `loaders/kubeOvnRefresh.ts` → **`createKubeOvnTabOnRefresh`** → `loadTabResource` → `kubeOvnPathLoads` |
 | 池 · 扁平 Tab | 同上 → `flatNetworkPathLoads`（含 `flat_public_subnets`） |
 | 池 · cluster 导航内 | `clusterRefresh` · `kubeovn_public_networks` / `cluster_vlans` / `kubeovn_public_subnets` |
-| Section | **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**（`lib/kubeOvnSectionRefresh.ts`） |
+| `VlansSection` / `VpcsSection` / `SecurityGroupsSection` / `UnderlaySubnetsSection` | **`runHarvesterSectionRefresh` / `createHarvesterToolbarRefresh`**（`lib/kubeOvnSectionRefresh.ts`） |
 
 ### `loadTabResource` key（VPC / 扁平侧栏）
 
@@ -41,7 +41,7 @@
 ## 有意例外
 
 - **`UnderlaySubnetsSection`**（公共/扁平子网）：创建编辑流程含多路 K8s/ECS 校验，首屏与弹窗内仍 **Section 自拉**；池层在写成功后经 `onSubnetsChanged` / `flat_public_subnets` 同步池状态。
-- **`SecurityGroupsSection`**：独立拉取，待后续纳入池 path load。
+- **`SecurityGroupsSection`**：独立拉取列表；工具栏/写成功已接 shared refresh，待后续纳入池 path load。
 - **非 Cloudmap 入口**：`ProviderNetworksSection` 无 `onParentRefresh` 时保留 `fetchData` 自拉（兼容其它入口）。
 
 细则亦见 **`Cloudmap/pool/README.md`** · Kube-OVN 章节。

@@ -17,10 +17,17 @@ import {
 } from '../../../../../../services/cephApi';
 import { normalizeCephBundle } from '../lib/cephStorage';
 import { objectStoreUserSecretRef } from '../lib/rgwRookHints';
+import {
+  createHarvesterToolbarRefresh,
+  mergeCephSectionOnRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/cephSectionRefresh';
 
 export type RgwObjectStoreUsersSectionProps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
 const k8sDnsLabel = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -29,7 +36,11 @@ function trimStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({ cloudId, checkPerm }) => {
+const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
+  cloudId,
+  checkPerm,
+  onRefresh,
+}) => {
   const { message } = App.useApp();
   const [bundleLoading, setBundleLoading] = useState(false);
   const [objectStores, setObjectStores] = useState<any[]>([]);
@@ -57,11 +68,11 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
     [checkPerm],
   );
 
-  const loadBundle = useCallback(async () => {
+  const loadBundle = useCallback(async (force?: boolean) => {
     if (!cloudId) return;
     setBundleLoading(true);
     try {
-      const res = await fetchCephRookBundle(cloudId, { force: true });
+      const res = await fetchCephRookBundle(cloudId, { force: force !== false });
       if (!res.ok || !res.data) {
         setObjectStores([]);
         setRows([]);
@@ -82,6 +93,16 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
       setBundleLoading(false);
     }
   }, [cloudId, message]);
+
+  const sectionOnRefresh = useMemo(
+    () => mergeCephSectionOnRefresh(loadBundle, onRefresh),
+    [loadBundle, onRefresh],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionOnRefresh),
+    [sectionOnRefresh],
+  );
 
   useEffect(() => {
     void loadBundle();
@@ -160,9 +181,9 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
         message.error(res.error || '创建失败');
         return;
       }
-      message.success('已创建 CephObjectStoreUser（Secret 由 Operator 异步写入）');
+      message.success('已创建 RGW 用户（Secret 由 Operator 异步写入）');
       setCreateOpen(false);
-      await loadBundle();
+      await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
     } finally {
       setCreateSubmitting(false);
     }
@@ -200,7 +221,7 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
       }
       message.success('已更新');
       setEditOpen(false);
-      await loadBundle();
+      await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
     } finally {
       setEditSubmitting(false);
     }
@@ -216,7 +237,7 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
       return;
     }
     message.success('已删除');
-    await loadBundle();
+    await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
   };
 
   const openSecret = async (u: any) => {
@@ -299,7 +320,7 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
                 编辑
               </Button>
               <Popconfirm
-                title="删除 CephObjectStoreUser"
+                title="删除 RGW 用户"
                 description="将删除该 RGW 用户 CR，关联 Secret 可能被清理；不可恢复。"
                 okText="删除"
                 cancelText="取消"
@@ -344,7 +365,7 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
         }
         toolbarRight={
           <>
-            <Button icon={<ReloadOutlined />} onClick={() => void loadBundle()} loading={bundleLoading}>
+            <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={bundleLoading}>
               刷新列表
             </Button>
             {canWrite ? (
@@ -368,12 +389,12 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={{ x: true }}
-          locale={{ emptyText: !bundleLoading ? '暂无 CephObjectStoreUser，可新建或确认 Rook bundle 已加载' : undefined }}
+          locale={{ emptyText: !bundleLoading ? '暂无 RGW 用户，可新建或确认 Rook bundle 已加载' : undefined }}
         />
       </PageDetailSection>
 
       <Modal
-        title="新建 CephObjectStoreUser"
+        title="新建 RGW 用户"
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         okText="创建"
@@ -398,8 +419,8 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
               optionFilterProp="label"
               placeholder={
                 objectStoreNamespaceOptions.length
-                  ? '选择命名空间（与 bundle 中 CephObjectStore 一致）'
-                  : 'bundle 中暂无 CephObjectStore，请先点「刷新列表」'
+                  ? '选择命名空间（与 bundle 中对象网关一致）'
+                  : 'bundle 中暂无对象网关，请先点「刷新列表」'
               }
               options={objectStoreNamespaceOptions}
               disabled={objectStoreNamespaceOptions.length === 0}
@@ -424,7 +445,7 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
               optionFilterProp="label"
               placeholder={
                 trimStr(createNsWatch) && storeOptionsForNs.length
-                  ? '选择 CephObjectStore'
+                  ? '选择对象网关'
                   : trimStr(createNsWatch)
                     ? '该命名空间下 bundle 中无 ObjectStore'
                     : '请先选择命名空间'

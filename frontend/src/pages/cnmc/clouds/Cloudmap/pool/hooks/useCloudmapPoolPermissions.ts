@@ -45,7 +45,7 @@ export type CloudmapPoolPermissions = {
   canViewStorageGroup: boolean;
   /** Rook 对象网关 / COSI（与云存储同级池内 Tab） */
   canViewObjectStorageGroup: boolean;
-  /** Rook-Ceph 总览（原云存储子 Tab，现独立池内域） */
+  /** 统一存储总览（原云存储子 Tab，现独立资源总览子页） */
   canViewCephGroup: boolean;
   canViewBackupsGroup: boolean;
   canViewFlatNetworkGroup: boolean;

@@ -84,9 +84,6 @@ const LABEL_KEY_RULE = {
   message: '须为合法的 Kubernetes 标签键',
 } as const;
 
-/** 注解键：Kubernetes 合法键名较宽，此处仅校验非空（值由用户自担） */
-const ANNOTATION_KEY_RULE = undefined;
-
 const CRD_MANIFEST_EDITOR_MIN_H = 160;
 
 type CrdManifestYamlPanelProps = {

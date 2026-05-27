@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 租户列表主视图；逻辑见 `hooks/useTenantsPage.tsx`。
  */
 import React, { useState } from 'react';

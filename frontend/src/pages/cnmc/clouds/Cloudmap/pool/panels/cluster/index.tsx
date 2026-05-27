@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { createClusterTabOnRefresh } from '../../loaders/clusterRefresh';
+import { createCephTabOnRefresh } from '../../loaders/cephRefresh';
 import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
 import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
 import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
@@ -170,7 +171,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     canReadLoadBalancers,
     innerActiveKey,
     loadTabResource,
-    loadResource,
     harvesterNodes,
     rawNodes,
     harvesterClusterNetworks,
@@ -185,8 +185,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     harvesterVlans,
     rawVlans,
     rawSubnets,
-    setKubeOvnSubnets,
-    setRawSubnets,
     harvesterNamespacesForManagement,
     harvesterStorageClasses,
     harvesterGpuResources,
@@ -237,6 +235,13 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
         'kubeovn_public_subnets',
         deps,
       ),
+    };
+  }, [loadTabResource]);
+
+  const cephTabOnRefresh = useMemo(() => {
+    const deps = { loadTabResource };
+    return {
+      storage_pools: createCephTabOnRefresh('storage_pools', deps),
     };
   }, [loadTabResource]);
 
@@ -331,7 +336,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             onRefresh={clusterTabOnRefresh.cluster_usb}
             raw={rawUsbDevices}
             showLog={showLog}
-            bordered={false}
             isTenant={isTenant}
           />
         );
@@ -349,7 +353,13 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
           </>
         );
       case 'storage_pools':
-        return <CephPoolSection cloudId={cloudId} applicationsScope="cloud" />;
+        return (
+          <CephPoolSection
+            cloudId={cloudId}
+            applicationsScope="cloud"
+            onRefresh={cephTabOnRefresh.storage_pools}
+          />
+        );
       case 'storage_classes':
         return (
           <>
@@ -408,7 +418,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               onRefresh={clusterTabOnRefresh.cluster_pci}
               raw={rawPciDevices}
               showLog={showLog}
-              bordered={false}
               isTenant={isTenant}
             />
             <DebugJSON data={rawPciDevices} show={showLog} />
@@ -424,7 +433,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               onRefresh={clusterTabOnRefresh.cluster_sriov}
               raw={rawPciDevices}
               showLog={showLog}
-              bordered={false}
               variant="sriov_vf"
               isTenant={isTenant}
             />

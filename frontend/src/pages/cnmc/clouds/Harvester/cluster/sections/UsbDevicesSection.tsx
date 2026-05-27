@@ -27,7 +27,6 @@ interface Props {
   onRefresh?: (force?: boolean) => void | Promise<void>;
   raw?: unknown;
   showLog?: boolean;
-  bordered?: boolean;
   isTenant?: boolean;
 }
 
@@ -38,7 +37,6 @@ const UsbDevicesSection: React.FC<Props> = ({
   onRefresh,
   raw,
   showLog,
-  bordered = true,
   isTenant = false,
 }) => {
   const [keyword, setKeyword] = useState('');
@@ -141,7 +139,6 @@ const UsbDevicesSection: React.FC<Props> = ({
     <>
       <PageDetailSection
         asCard={false}
-        bordered={bordered}
         title="USB 资源"
         toolbarLeft={
           <>

@@ -82,7 +82,6 @@ export function buildVmTableColumns(actions: VmTableActions): ColumnsType<any> {
           const isImportant =
             finalizers.includes("tower.io/deletion-protection") ||
             r?.metadata?.labels?.["tower.io/important"] === "true";
-          const hasAlias = !!r?.metadata?.annotations?.["tower.io/alias"];
 
           const cloneTaskAnno =
             r?.metadata?.annotations?.["tower.io/cloneTask"];

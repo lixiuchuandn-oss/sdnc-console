@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Modal } from 'antd';
+import { App } from 'antd';
 import { rebootCloudProviderEcs } from 'services/api';
 import { deleteHarvesterVolume, detachHarvesterVolumeFromVm } from 'services/harvesterApi';
 import { pickDefaultStorageClassName } from 'utils/harvesterUtils';

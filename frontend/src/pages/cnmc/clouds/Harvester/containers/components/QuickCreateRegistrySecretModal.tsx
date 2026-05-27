@@ -16,7 +16,6 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Form, Input, Select, Button, Space, App, Card, Row, Col, Tooltip, Alert } from 'antd';
 import {
-  PlusOutlined,
   InfoCircleOutlined,
   LockOutlined,
   EyeOutlined,

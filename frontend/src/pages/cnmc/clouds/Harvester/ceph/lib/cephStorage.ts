@@ -766,9 +766,9 @@ export function cephPoolTableRowMatchesApplicationScope(
 }
 
 const CEPH_POOL_APP_TOKEN_ZH: Record<string, string> = {
-  rbd: 'RBD（块存储）',
-  cephfs: 'CephFS（文件存储）',
-  rgw: 'RGW（对象存储）',
+  rbd: '块存储',
+  cephfs: '文件存储',
+  rgw: '对象存储',
 };
 
 /** Pools 创建/编辑：应用类型多选选项（Dashboard 与 Rook CephBlockPool 表单共用） */
@@ -934,8 +934,8 @@ const POOL_SCALAR_VALUE_MAP: Record<string, string> = {
   replicated: '副本',
   erasure: '纠删码',
   selfmanaged: '自管理',
-  rbd: 'RBD',
-  cephfs: 'CephFS',
+  rbd: '块存储',
+  cephfs: '文件存储',
   rgw: '对象网关',
   hashpspool: 'PG 按池哈希（hashpspool）',
   selfmanaged_snaps: '自管理快照',

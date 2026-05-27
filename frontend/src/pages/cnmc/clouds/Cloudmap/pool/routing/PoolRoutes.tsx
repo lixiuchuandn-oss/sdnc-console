@@ -27,12 +27,6 @@ import {
   ResourceOverviewNetworkTopologyPanel,
 } from '../panels';
 import { CLOUDMAP_RESOURCE_SUB_KEYS, type CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
-import {
-  fetchHarvesterImages,
-  fetchHarvesterNads,
-  fetchHarvesterStorageClasses,
-  fetchKubeOvnSubnets,
-} from '../api';
 import { useCloudmapPoolDetail } from './PoolDetailContext';
 import CloudmapStorageDashboardByBackend from '../panels/resource_hub/CloudmapStorageDashboardByBackend';
 
@@ -263,8 +257,6 @@ const OniaasNetworkRoute: React.FC = () => {
       innerActiveKey={p.poolInnerActive('oniaas_network')}
       ecs={p.ecs}
       ecsLoading={!!p.resourceLoading.ecs}
-      onRefreshVms={() => p.refreshVms(true)}
-      onForceRefreshVms={() => p.refreshVms(true)}
       canReadLoadBalancers={p.canReadLoadBalancers}
       isTenant={p.isTenant}
       harvesterLoadBalancers={p.harvesterLoadBalancers}
@@ -382,6 +374,7 @@ const ObjectStorageRoute: React.FC = () => {
       cloudId={p.cloudId}
       checkPerm={p.checkPerm}
       innerActiveKey={p.poolInnerActive('object_storage')}
+      loadTabResource={p.loadTabResource}
     />
   );
 };
@@ -441,7 +434,6 @@ const BackupsRoute: React.FC = () => {
       checkPerm={p.checkPerm}
       loadTabResource={p.loadTabResource}
       innerActiveKey={p.poolInnerActive('backups')}
-      setResourceLoading={p.setResourceLoading}
       ecs={p.ecs}
       harvesterBackups={p.harvesterBackups}
       harvesterNamespaces={p.harvesterNamespaces}

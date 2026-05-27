@@ -6,7 +6,7 @@
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, App, Form, Tooltip, Switch } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -183,12 +183,6 @@ const IngressesSection: React.FC<Props> = ({
   const handleEdit = (record: any) => {
     setEditingRecord(record);
     setEditModalOpen(true);
-  };
-  
-  // YAML 编辑
-  const handleYamlEdit = (record: any) => {
-    setYamlEditingRecord(record);
-    setYamlModalOpen(true);
   };
   
   // 加载 YAML 内容

@@ -4,19 +4,17 @@ import ReactFlow, {
   Controls,
   MiniMap,
   Node,
-  Edge,
   useNodesState,
   useEdgesState,
   BackgroundVariant,
   ConnectionMode,
   Panel,
-  useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Empty, Spin, Button, Space } from 'antd';
+import { Empty, Spin, Button } from 'antd';
 import { ApartmentOutlined, NodeIndexOutlined } from '@ant-design/icons';
-import { TopologyNode, TopologyEdge, ServiceTopologyProps } from './types';
-import { nodeTypes, convertToReactFlowNodes, convertToReactFlowEdges, autoLayoutNodes } from './layoutUtils';
+import { ServiceTopologyProps } from './types';
+import { nodeTypes, convertToReactFlowEdges, autoLayoutNodes } from './layoutUtils';
 import './ServiceTopology.css';
 
 const ServiceTopology: React.FC<ServiceTopologyProps> = ({
@@ -36,7 +34,7 @@ const ServiceTopology: React.FC<ServiceTopologyProps> = ({
   }, [topologyEdges]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
 
   // 节点点击事件
   const handleNodeClick = useCallback(

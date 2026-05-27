@@ -10,21 +10,18 @@ import { Spin, message } from 'antd';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
 import ArtifactsSection from './sections/ArtifactsSection';
 import { getHarborRegistry, getHarborProject } from './shared/harborApi';
-import type { HarborRegistry, HarborProject } from './types';
 
 /**
  * 仓库详情页组件
  */
 const RepositoryDetailPage: React.FC = () => {
-  const { cloudId, harborId, projectName, repoName } = useParams<{
+  const { harborId, projectName, repoName } = useParams<{
     cloudId: string;
     harborId: string;
     projectName: string;
     repoName: string;
   }>();
   const navigate = useNavigate();
-  const [harbor, setHarbor] = useState<HarborRegistry | null>(null);
-  const [project, setProject] = useState<HarborProject | null>(null);
   const [loading, setLoading] = useState(true);
 
   const decodedProjectName = projectName ? decodeURIComponent(projectName) : '';
@@ -34,12 +31,10 @@ const RepositoryDetailPage: React.FC = () => {
     if (!harborId || !decodedProjectName) return;
     setLoading(true);
     try {
-      const [harborRes, projectRes] = await Promise.all([
+      await Promise.all([
         getHarborRegistry(harborId),
         getHarborProject(harborId, decodedProjectName),
       ]);
-      setHarbor(harborRes);
-      setProject(projectRes);
     } catch (e: any) {
       console.error('加载数据失败:', e);
       message.error(e?.message || '加载数据失败');

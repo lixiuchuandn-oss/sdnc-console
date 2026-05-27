@@ -11,7 +11,7 @@ import { Alert } from 'antd';
 import { CloudmapPoolDetailProvider, CloudmapPoolRoutes } from './routing';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
 import './styles/layout.css';
-import { HarvesterPublicNamespacesProvider } from '../../Harvester/context/HarvesterPublicNamespacesContext';
+import { HarvesterPublicNamespacesProvider } from '../../Harvester/shared/context/HarvesterPublicNamespacesContext';
 import { useCloudmapPoolDetailEngine } from './hooks/useCloudmapPoolDetailEngine';
 
 const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {

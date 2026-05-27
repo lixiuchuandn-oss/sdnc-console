@@ -32,7 +32,7 @@ import VmCloneModal from "../modals/VmCloneModal";
 import {
   VM_STATUS_MAP,
 } from "../../../../../../utils/harvesterUtils";
-import { useHarvesterPublicNamespaces } from "../../context/HarvesterPublicNamespacesContext";
+import { useHarvesterPublicNamespaces } from "../../shared/context/HarvesterPublicNamespacesContext";
 import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
@@ -94,7 +94,6 @@ type Props = {
   namespaces?: any[];
   volumes?: any[];
   isTenant?: boolean;
-  bordered?: boolean; // New prop to control table border explicitly
   disableColumnSettings?: boolean; // 禁用列设置组件，避免在某些场景下导致死锁
   /**
    * 若提供，则「快速创建」点击时改由父级处理（兼容旧页面在页面层挂载 SimpleVmCreateModal 的写法）。
@@ -138,7 +137,6 @@ const VmSection: React.FC<Props> = ({
   namespaces = [],
   volumes = [],
   isTenant = false,
-  bordered: _bordered = true,
   disableColumnSettings = false,
   onCreateVmOverride,
   storageClasses = [],

@@ -16,7 +16,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Table, Tag, Empty, Spin, Space, Button, Tooltip } from 'antd';
+import { Table, Tag, Empty, Spin } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined, EyeOutlined, FileTextOutlined, CodeOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 

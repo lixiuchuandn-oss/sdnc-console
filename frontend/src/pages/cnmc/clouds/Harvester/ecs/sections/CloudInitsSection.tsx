@@ -10,7 +10,7 @@ import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { hasPermissionForAction } from 'utils/accessMapping';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';

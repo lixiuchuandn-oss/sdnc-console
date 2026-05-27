@@ -33,7 +33,7 @@ import {
   Form,
   Switch,
 } from 'antd';
-import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -798,7 +798,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         );
       },
     },
-  ], [handleDelete, handleViewYaml]);
+  ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
 
   // 使用 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_networkpolicy_table');

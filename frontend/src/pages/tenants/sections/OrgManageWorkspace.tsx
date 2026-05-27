@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 组织管理页主视图（状态见 `hooks/useOrgManagePage.tsx`）。
  */
 import React from 'react';
@@ -38,7 +38,6 @@ import PageDetailContainer from '../../../components/PageDetailContainer';
 import StdSideDrawer from '../../../components/StdSideDrawer';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
 import { apiDelete, apiRequest } from '../../../services/api';
-import type { Organization } from '../../../types/tenant';
 import { useOrgManagePage } from '../hooks/useOrgManagePage';
 import { formatRoleDisplayName } from '../lib/orgManageConstants';
 import {
@@ -88,7 +87,6 @@ export default function OrgManageWorkspace() {
     setUserDrawerOpen,
     editUserModalOpen,
     setEditUserModalOpen,
-    editTargetUserId,
     setEditTargetUserId,
     resourcePoolDrawerOpen,
     setResourcePoolDrawerOpen,
@@ -100,7 +98,6 @@ export default function OrgManageWorkspace() {
     setSecurityKeyword,
     nsLoading,
     setNsLoading,
-    nsOptions,
     setNsOptions,
     occupiedNamespaceNames,
     setOccupiedNamespaceNames,
@@ -111,18 +108,15 @@ export default function OrgManageWorkspace() {
     tenantRoles,
     roleAssignOpen,
     setRoleAssignOpen,
-    roleAssignUser,
     setRoleAssignUser,
     roleAssignSelected,
     setRoleAssignSelected,
-    roleAssignExisting,
     setRoleAssignExisting,
     roleAssignKw,
     setRoleAssignKw,
     selectedUserRowKeys,
     setSelectedUserRowKeys,
     assignableResourcePools,
-    fetchOrganizations,
     fetchUsers,
     fetchAssignments,
     fetchResourcePools,

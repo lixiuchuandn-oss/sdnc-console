@@ -1,5 +1,5 @@
 /**
- * Cloudmap「存储总览」：存在 Rook CephCluster 时展示 Ceph 总览，否则展示 Longhorn（存量底座）。
+ * Cloudmap「统一存储总览」：存在 Rook 统一存储集群时展示统一存储总览，否则展示 Longhorn（存量底座）。
  * 探测仅用 `monitoring/ceph-clusters`（单资源列表），避免 `ceph/rook/bundle` 全量聚合带来的延迟。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -34,14 +34,14 @@ const CloudmapStorageDashboardByBackend: React.FC<CloudmapStorageDashboardByBack
     if (cloudIdRef.current !== targetId) return;
     if (!res.ok) {
       setPhase('error');
-      setErr(res.error || '无法读取 Ceph 集群列表，暂无法判断存储类型');
+      setErr(res.error || '无法读取统一存储集群列表，暂无法判断存储类型');
       return;
     }
     const verdict = interpretCephClusterProbe(res.data);
     if (cloudIdRef.current !== targetId) return;
     if (verdict === 'forbidden') {
       setPhase('error');
-      setErr('无权限列出 Rook Ceph 集群，无法判断存储类型');
+      setErr('无权限列出统一存储集群，无法判断存储类型');
       return;
     }
     setPhase(verdict === 'ceph' ? 'ceph' : 'longhorn');
