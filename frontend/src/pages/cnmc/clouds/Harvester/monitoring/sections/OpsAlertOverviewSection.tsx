@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DownOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Dropdown, Empty, Space, Switch, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Dropdown, Empty, Space, Spin, Switch, Tag, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import { fetchAlertsRules, fetchPrometheusRulesGroups } from '../../../../../../services/monitoringApi';
 import { SEVERITY_MAP } from '../constants';
@@ -31,8 +31,25 @@ const AUTO_REFRESH_OPTIONS: Array<{ label: string; value: number | null }> = [
   { label: '30m', value: 30 * 60 * 1000 },
 ];
 
+/** 概览区首次拉取数据前的居中加载态（与空状态同高，避免误显示「无告警」） */
+const overviewLoadingState = (
+  <div
+    style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      height: '100%',
+      padding: 32,
+    }}
+  >
+    <Spin size="large" />
+    <span style={{ marginTop: 16, fontSize: 14, color: 'rgba(0,0,0,0.45)' }}>正在加载中</span>
+  </div>
+);
+
 const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloudId }) => {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => Boolean(cloudId));
   const [error, setError] = useState<string>('');
   const [alerts, setAlerts] = useState<ParsedAlert[]>([]);
   const [activeLevel, setActiveLevel] = useState<AlertLevelFilter>(ALERT_LEVEL_CRITICAL);
@@ -189,6 +206,9 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
     { key: ALERT_LEVEL_INFO, value: metrics.info, label: SEVERITY_MAP.SEVERITY_INFO, color: '#1677ff' },
   ];
 
+  /** 尚无告警数据且正在请求：展示加载态，不展示「无严重告警」等空状态 */
+  const showOverviewLoading = loading && alerts.length === 0 && !error;
+
   const levelEmptyState = (
     <div
       style={{
@@ -256,6 +276,10 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
           style={{ flex: 1.2, minWidth: 0 }}
         >
           <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', height: OVERVIEW_CONTENT_HEIGHT }}>
+            {showOverviewLoading ? (
+              <div style={{ flex: 1, minWidth: 0 }}>{overviewLoadingState}</div>
+            ) : (
+              <>
             <div
               style={{
                 width: 156,
@@ -346,12 +370,16 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
                 ))
               )}
             </div>
+              </>
+            )}
           </div>
         </Card>
         {/* 告警规则 Top10 告警数目 */}
         <Card size="small" title="告警规则 Top10 告警数目" style={{ flex: 1, minWidth: 0 }}>
           <div style={{ height: OVERVIEW_CONTENT_HEIGHT, overflowY: 'auto', paddingRight: 4 }}>
-            {topRuleCounts.length === 0 ? (
+            {showOverviewLoading ? (
+              overviewLoadingState
+            ) : topRuleCounts.length === 0 ? (
               <Empty description="暂无告警数据" />
             ) : (
               topRuleCounts.map((item, index) => (
