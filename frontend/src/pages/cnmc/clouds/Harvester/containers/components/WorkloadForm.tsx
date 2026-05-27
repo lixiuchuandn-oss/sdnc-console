@@ -1949,6 +1949,10 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
   // 渲染单个挂载配置
   const renderVolumeMount = (mount: VolumeMountConfig, index: number) => {
     const basePath = ['volumeMounts', index];
+    const mountName = form.getFieldValue([...basePath, 'name']);
+    const allVolumes: VolumeConfig[] = form.getFieldValue('volumes') || [];
+    const matchedVolume = allVolumes.find((v) => v.name === mountName);
+    const isReadOnlyImmutable = matchedVolume?.type === 'configMap' || matchedVolume?.type === 'secret';
     
     return (
       <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
@@ -1965,7 +1969,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             />
           </Form.Item>
         </Col>
-        <Col span={8}>
+        <Col span={isReadOnlyImmutable ? 10 : 8}>
           <Form.Item
             name={[...basePath, 'mountPath']}
             label="挂载路径"
@@ -2003,7 +2007,7 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             <Input placeholder="/etc/config" />
           </Form.Item>
         </Col>
-        <Col span={4}>
+        <Col span={isReadOnlyImmutable ? 6 : 4}>
           <Form.Item
             name={[...basePath, 'subPath']}
             label="子路径"
@@ -2026,15 +2030,17 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
             <Input placeholder="相对路径" />
           </Form.Item>
         </Col>
-        <Col span={4}>
-          <Form.Item
-            name={[...basePath, 'readOnly']}
-            label="只读"
-            valuePropName="checked"
-          >
-            <Switch size="small" />
-          </Form.Item>
-        </Col>
+        {!isReadOnlyImmutable && (
+          <Col span={4}>
+            <Form.Item
+              name={[...basePath, 'readOnly']}
+              label="只读"
+              valuePropName="checked"
+            >
+              <Switch size="small" />
+            </Form.Item>
+          </Col>
+        )}
         <Col span={2}>
           <Button
             type="text"
