@@ -4,6 +4,8 @@
  * - Section：`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`（`Harvester/ceph/lib/cephSectionRefresh.ts`）
  */
 export type CephInnerTabKey =
+  | 'overview'
+  | 'harvester_addon'
   | 'storage_pools'
   | 'rgw_s3_buckets'
   | 'rgw_users'

@@ -2,10 +2,14 @@
  * Ceph（Rook / Steve）：`/api/clouds/:id/ceph/rook/*`，与 monitoring 路径分离。
  */
 
+import type { CephHarvesterAddonValuesConfig } from '../pages/cnmc/clouds/Harvester/ceph/lib/cephHarvesterAddon';
 import { API_BASE_URL, getAuthHeaders } from './api';
 
 const cephRookBase = (cloudId: string) =>
   `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/ceph/rook`;
+
+const cephApiBase = (cloudId: string) =>
+  `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/ceph`;
 
 async function apiGet<T = unknown>(
   url: string,
@@ -393,4 +397,47 @@ export function fetchRgwRookSecret(
   }
   const url = `${cephRgwS3Base(cloudId)}/rook-secret/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
   return apiGet(url, { signal: options?.signal, cache: 'no-store' });
+}
+
+export type CephHarvesterAddonStatusResponse = {
+  exists: boolean;
+  enabled: boolean;
+  deployStatus: string;
+  phase: 'not_installed' | 'success' | 'progress' | 'failed' | 'unknown';
+  message: string;
+  valuesContent?: string | null;
+  config?: CephHarvesterAddonValuesConfig | null;
+  _tower?: { unreachable?: boolean };
+};
+
+export type CephHarvesterAddonApplyBody = {
+  config?: CephHarvesterAddonValuesConfig;
+  replicaSize?: number;
+  nodes?: { nodeName: string; deviceName: string; metadataDevice?: string; blockDbSize?: string }[];
+  valuesContent?: string;
+  /** 当前登录管理员密码（服务端校验，不落库） */
+  password: string;
+};
+
+/** Harvester rook-ceph Addon 状态 */
+export function fetchCephHarvesterAddon(
+  cloudId: string,
+  options?: { force?: boolean; signal?: AbortSignal },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = options?.force ? '?force=1' : '';
+  return apiGet<CephHarvesterAddonStatusResponse>(
+    `${cephApiBase(cloudId)}/harvester-addon${q}`,
+    { signal: options?.signal, cache: options?.force ? 'no-store' : 'default' },
+  );
+}
+
+/** 创建或更新并启用 rook-ceph Addon */
+export function applyCephHarvesterAddon(cloudId: string, body: CephHarvesterAddonApplyBody) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite<CephHarvesterAddonStatusResponse & { applied?: string }>(
+    `${cephApiBase(cloudId)}/harvester-addon`,
+    'POST',
+    body,
+  );
 }

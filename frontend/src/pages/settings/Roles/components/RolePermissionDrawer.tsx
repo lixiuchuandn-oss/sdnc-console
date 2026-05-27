@@ -1,37 +1,39 @@
-import React, { useEffect, useMemo, useRef, startTransition, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Anchor,
   Button,
   Card,
   Checkbox,
   Col,
-  Collapse,
   Divider,
   Drawer,
   Empty,
   Flex,
   Input,
+  Menu,
   message,
   Row,
   Segmented,
   Space,
+  Tabs,
   Typography,
 } from 'antd';
 import type { DrawerProps } from 'antd';
-import {
-  groupResourceConsoleChildFeatures,
-  permissionFeatureMatchesKeyword,
-} from '../../../../utils/permissionUtils';
+import { permissionFeatureMatchesKeyword } from '../../../../utils/permissionUtils';
 import { PLATFORM_LABELS } from '../../../../constants/navigation';
+import type {
+  RolePermVerbFilter,
+  RolePermissionGroup,
+  RolePermissionPlatform,
+} from '../lib/rolePermissionTypes';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 
 type Props = {
   open: boolean;
   kw: string;
-  permVerb: '全部' | 'read' | 'write';
+  permVerb: RolePermVerbFilter;
   grantSelectedIds: string[];
-  permissionStructure: any[];
+  permissionStructure: RolePermissionPlatform[];
   confirmLoading?: boolean;
   onKwChange: (v: string) => void;
   onPermVerbChange: (v: '全部' | 'read' | 'write') => void;
@@ -45,9 +47,81 @@ function panelKey(platform: string, group: string) {
   return `${platform}::${group || '未分组'}`;
 }
 
-function sectionDomId(platform: string, group: string) {
-  const g = String(group || '未分组').replace(/\s+/g, '');
-  return `perm-sec-${platform}-${g}`;
+function flattenGroupFeatures(group: RolePermissionGroup) {
+  const out = [...(group.features || [])];
+  for (const sg of group.subgroups || []) {
+    out.push(...(sg.features || []));
+  }
+  if (group.tailFeatures?.length) {
+    out.push(...group.tailFeatures);
+  }
+  return out;
+}
+
+type PermVerbFilter = RolePermVerbFilter;
+
+function collectFeatureActionIds(feature: RolePermissionGroup['features'][number], permVerb: PermVerbFilter): string[] {
+  const ids: string[] = [];
+  if (feature.read && feature.readVisible && (permVerb === '全部' || permVerb === 'read')) {
+    ids.push(feature.read);
+  }
+  if (feature.write && feature.writeVisible && (permVerb === '全部' || permVerb === 'write')) {
+    ids.push(feature.write);
+  }
+  return ids;
+}
+
+function collectGroupActionIds(group: RolePermissionGroup, permVerb: PermVerbFilter): string[] {
+  return flattenGroupFeatures(group).flatMap((f) => collectFeatureActionIds(f, permVerb));
+}
+
+function countGroupSelection(
+  group: RolePermissionGroup,
+  selectedSet: Set<string>,
+  permVerb: PermVerbFilter,
+): { selected: number; total: number } {
+  const ids = collectGroupActionIds(group, permVerb);
+  const selected = ids.filter((id) => selectedSet.has(id)).length;
+  return { selected, total: ids.length };
+}
+
+function countPlatformSelection(
+  platform: RolePermissionPlatform,
+  selectedSet: Set<string>,
+  permVerb: PermVerbFilter,
+): { selected: number; total: number } {
+  let selected = 0;
+  let total = 0;
+  for (const group of platform.groups) {
+    const c = countGroupSelection(group, selectedSet, permVerb);
+    selected += c.selected;
+    total += c.total;
+  }
+  return { selected, total };
+}
+
+function PermCountLabel({ name, selected, total }: { name: string; selected: number; total: number }) {
+  const active = selected > 0;
+  return (
+    <Flex justify="space-between" align="center" gap={4} style={{ width: '100%', minWidth: 0 }}>
+      <Text ellipsis style={{ flex: 1, minWidth: 0 }}>
+        {name}
+      </Text>
+      {total > 0 && (
+        <Text
+          type={active ? undefined : 'secondary'}
+          strong={active}
+          style={{
+            flexShrink: 0,
+            fontSize: 12,
+            color: active ? 'var(--ant-color-primary)' : undefined,
+          }}
+        >
+          {selected}/{total}
+        </Text>
+      )}
+    </Flex>
+  );
 }
 
 /** 抽屉内统一间距（px） */
@@ -67,6 +141,112 @@ const drawerStyles: DrawerProps['styles'] = {
   },
 };
 
+const tabsRootStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+};
+
+type PlatformPermissionPanelProps = {
+  platform: RolePermissionPlatform;
+  isActive: boolean;
+  selectedGroupKey: string;
+  contentScrollRef: React.RefObject<HTMLDivElement | null>;
+  grantSelectedIds: string[];
+  permVerb: PermVerbFilter;
+  onSelectGroup: (key: string) => void;
+  renderGroupBody: (group: RolePermissionGroup) => React.ReactNode;
+};
+
+/** 单平台面板：左侧业务域 Menu + 右侧权限卡片（切换平台 Tab 时不卸载） */
+const PlatformPermissionPanel: React.FC<PlatformPermissionPanelProps> = ({
+  platform,
+  isActive,
+  selectedGroupKey,
+  contentScrollRef,
+  grantSelectedIds,
+  permVerb,
+  onSelectGroup,
+  renderGroupBody,
+}) => {
+  const groups = platform.groups;
+  const selectedSet = useMemo(() => new Set(grantSelectedIds), [grantSelectedIds]);
+  if (groups.length === 0) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限" />;
+  }
+
+  const selectedGroup = groups.find(
+    (g) => panelKey(platform.platform, g.group) === selectedGroupKey,
+  );
+
+  return (
+    <Flex gap={G} style={{ height: '100%', minHeight: 420 }}>
+      <Card
+        size="small"
+        title="业务域"
+        variant="borderless"
+        style={{
+          width: 220,
+          flexShrink: 0,
+          alignSelf: 'stretch',
+          border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+          borderRadius: 8,
+        }}
+        styles={{
+          header: { padding: G, fontSize: 14 },
+          body: { padding: 0, maxHeight: '100%', overflow: 'auto', fontSize: 14 },
+        }}
+      >
+        <Menu
+          mode="inline"
+          selectedKeys={selectedGroupKey ? [selectedGroupKey] : []}
+          items={groups.map((g) => {
+            const { selected, total } = countGroupSelection(g, selectedSet, permVerb);
+            return {
+              key: panelKey(platform.platform, g.group),
+              label: (
+                <PermCountLabel
+                  name={g.group || '未分组'}
+                  selected={selected}
+                  total={total}
+                />
+              ),
+            };
+          })}
+          onClick={({ key }) => onSelectGroup(String(key))}
+          style={{ borderInlineEnd: 'none' }}
+        />
+      </Card>
+
+      <div
+        ref={(el) => {
+          if (isActive && contentScrollRef) {
+            (contentScrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+          }
+        }}
+        className="role-perm-drawer-scroll"
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'auto',
+          padding: G,
+          border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+          borderRadius: 8,
+          background: 'var(--ant-color-bg-container, #fff)',
+          fontSize: 14,
+        }}
+      >
+        {selectedGroup ? (
+          renderGroupBody(selectedGroup)
+        ) : (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请选择业务域" />
+        )}
+      </div>
+    </Flex>
+  );
+};
+
 const RolePermissionDrawer: React.FC<Props> = ({
   open,
   kw,
@@ -81,63 +261,74 @@ const RolePermissionDrawer: React.FC<Props> = ({
   onClose,
   onSave,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [openCollapseKeys, setOpenCollapseKeys] = useState<string[]>([]);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+  const [activePlatform, setActivePlatform] = useState<string>('');
+  const [activeGroupByPlatform, setActiveGroupByPlatform] = useState<Record<string, string>>({});
 
-  const panelKeys = useMemo(
-    () =>
-      permissionStructure.flatMap((p) => p.groups.map((g: any) => panelKey(p.platform, g.group))),
+  const selectedSet = useMemo(() => new Set(grantSelectedIds), [grantSelectedIds]);
+
+  const platformKeys = useMemo(
+    () => permissionStructure.map((p) => p.platform),
     [permissionStructure],
   );
 
-  const structureSig = panelKeys.join('|');
-
   useEffect(() => {
-    if (!open) return;
-    const keys = panelKeys;
-    startTransition(() => {
-      setOpenCollapseKeys(keys);
-    });
-  }, [open, structureSig, panelKeys]);
+    if (!open || platformKeys.length === 0) return;
+    setActivePlatform((prev) => (prev && platformKeys.includes(prev) ? prev : platformKeys[0]));
+  }, [open, platformKeys]);
 
-  const anchorItems = useMemo(() => {
-    return permissionStructure.map((p) => ({
-      key: p.platform,
-      href: `#perm-plat-${p.platform}`,
-      title: (PLATFORM_LABELS as Record<string, string>)[p.platform] || p.platform,
-      children: p.groups.map((g: any) => ({
-        key: panelKey(p.platform, g.group),
-        href: `#${sectionDomId(p.platform, g.group)}`,
-        title: g.group || '未分组',
-      })),
-    }));
-  }, [permissionStructure]);
-
-  useEffect(() => {
-    if (!open || !kw.trim()) return;
-    const id = requestAnimationFrame(() => {
-      const root = scrollRef.current;
-      if (!root) return;
-      const needle = kw.trim();
-      const cards = root.querySelectorAll('[data-perm-card="1"]');
-      for (let i = 0; i < cards.length; i++) {
-        const el = cards[i] as HTMLElement;
-        const prefix = el.getAttribute('data-perm-prefix') || '';
-        const titleAttr = el.getAttribute('data-perm-title') || '';
-        const pathSuffix = el.getAttribute('data-perm-path') || '';
-        if (
-          permissionFeatureMatchesKeyword(
-            { resourcePrefix: prefix, feature: titleAttr, pathSuffix },
-            needle,
-          )
-        ) {
-          el.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          break;
-        }
+  const resolveGroupKey = useCallback(
+    (platform: string, groups: RolePermissionGroup[]) => {
+      if (groups.length === 0) return '';
+      const saved = activeGroupByPlatform[platform];
+      if (saved && groups.some((g) => panelKey(platform, g.group) === saved)) {
+        return saved;
       }
-    });
-    return () => cancelAnimationFrame(id);
-  }, [kw, open, permissionStructure]);
+      return panelKey(platform, groups[0].group);
+    },
+    [activeGroupByPlatform],
+  );
+
+  const selectGroup = useCallback((platform: string, groupKey: string) => {
+    setActiveGroupByPlatform((prev) => ({ ...prev, [platform]: groupKey }));
+  }, []);
+
+  useEffect(() => {
+    if (!open || !kw.trim() || permissionStructure.length === 0) return;
+    const needle = kw.trim();
+    for (const platform of permissionStructure) {
+      for (const group of platform.groups) {
+        const hit = flattenGroupFeatures(group).find((f) =>
+          permissionFeatureMatchesKeyword(f, needle),
+        );
+        if (!hit) continue;
+        const gKey = panelKey(platform.platform, group.group);
+        setActivePlatform(platform.platform);
+        selectGroup(platform.platform, gKey);
+        const id = requestAnimationFrame(() => {
+          const root = contentScrollRef.current;
+          if (!root) return;
+          const cards = root.querySelectorAll('[data-perm-card="1"]');
+          for (let i = 0; i < cards.length; i++) {
+            const el = cards[i] as HTMLElement;
+            const prefix = el.getAttribute('data-perm-prefix') || '';
+            const titleAttr = el.getAttribute('data-perm-title') || '';
+            const pathSuffix = el.getAttribute('data-perm-path') || '';
+            if (
+              permissionFeatureMatchesKeyword(
+                { resourcePrefix: prefix, feature: titleAttr, pathSuffix },
+                needle,
+              )
+            ) {
+              el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+              break;
+            }
+          }
+        });
+        return () => cancelAnimationFrame(id);
+      }
+    }
+  }, [kw, open, permissionStructure, selectGroup]);
 
   const copyCurrentPermissions = async () => {
     const sorted = [...grantSelectedIds].sort();
@@ -150,7 +341,8 @@ const RolePermissionDrawer: React.FC<Props> = ({
     }
   };
 
-  const renderFeatureCards = (features: any[], opts?: { cardSpan?: number }) => (
+  const renderFeatureCards = useCallback(
+    (features: RolePermissionGroup['features'], opts?: { cardSpan?: number }) => (
     <Row gutter={[G, G]}>
       {features.map((feature) => (
         <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
@@ -170,9 +362,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
             <Flex gap={G} align="flex-start" justify="space-between" wrap="wrap">
               <Flex vertical gap={G / 2} style={{ flex: 1, minWidth: 0 }}>
                 <Text ellipsis style={{ display: 'block' }}>
-                  {feature.capabilityKind === 'attached'
-                    ? `附加 · ${feature.feature}`
-                    : feature.feature}
+                  {feature.feature}
                 </Text>
                 <Text
                   type="secondary"
@@ -214,42 +404,85 @@ const RolePermissionDrawer: React.FC<Props> = ({
         </Col>
       ))}
     </Row>
+    ),
+    [grantSelectedIds, onPermissionChange],
   );
 
-  const renderGroupBody = (group: any) => {
-    if (group.group === '平台入口能力') {
+  const renderGroupBody = useCallback((group: RolePermissionGroup) => {
+    if (group.group === '多云管理' || group.group === '租户控制台') {
       return renderFeatureCards(group.features);
     }
 
-    const parentFeatures = group.features.filter((feature: any) => feature.isResourceParent);
-    const childFeatures = group.features.filter((feature: any) => !feature.isResourceParent);
-    const isResourceConsoleGroup = group.group === '资源池管理';
-    const hasSplit = isResourceConsoleGroup && (parentFeatures.length > 0 || childFeatures.length > 0);
-
-    if (!hasSplit) return renderFeatureCards(group.features);
-
-    return (
-      <>
-        {parentFeatures.length > 0 && (
-          <>
-            {renderFeatureCards(parentFeatures, { cardSpan: 24 })}
-            <Divider style={{ margin: `${G}px 0` }} />
-          </>
-        )}
-        {groupResourceConsoleChildFeatures(childFeatures.length > 0 ? childFeatures : group.features).map(
-          (childGroup, idx, arr) => (
-            <div key={childGroup.label}>
+    const subgroups = group.subgroups;
+    const tailFeatures = group.tailFeatures;
+    if (subgroups?.length) {
+      return (
+        <>
+          {group.features?.length > 0 && (
+            <>
+              {renderFeatureCards(group.features)}
+              <Divider style={{ margin: `${G}px 0` }} />
+            </>
+          )}
+          {subgroups.map((sg, idx) => (
+            <div key={sg.label}>
               <Text type="secondary" style={{ display: 'block', marginBottom: G }}>
-                {childGroup.label}
+                {sg.label}
               </Text>
-              {renderFeatureCards(childGroup.items)}
-              {idx < arr.length - 1 && <Divider style={{ margin: `${G}px 0` }} />}
+              {renderFeatureCards(sg.features)}
+              {idx < subgroups.length - 1 && <Divider style={{ margin: `${G}px 0` }} />}
             </div>
+          ))}
+          {tailFeatures && tailFeatures.length > 0 && (
+            <>
+              <Divider style={{ margin: `${G}px 0` }} />
+              {renderFeatureCards(tailFeatures)}
+            </>
+          )}
+        </>
+      );
+    }
+
+    return renderFeatureCards(group.features);
+  }, [renderFeatureCards]);
+
+  const tabItems = useMemo(
+    () =>
+      permissionStructure.map((platform) => {
+        const platformLabel =
+          (PLATFORM_LABELS as Record<string, string>)[platform.platform] || platform.platform;
+        const { selected, total } = countPlatformSelection(platform, selectedSet, permVerb);
+        return {
+          key: platform.platform,
+          label: (
+            <PermCountLabel name={platformLabel} selected={selected} total={total} />
           ),
-        )}
-      </>
-    );
-  };
+          forceRender: true,
+          children: (
+            <PlatformPermissionPanel
+              platform={platform}
+              isActive={activePlatform === platform.platform}
+              selectedGroupKey={resolveGroupKey(platform.platform, platform.groups)}
+              contentScrollRef={contentScrollRef}
+              grantSelectedIds={grantSelectedIds}
+              permVerb={permVerb}
+              onSelectGroup={(key) => selectGroup(platform.platform, key)}
+              renderGroupBody={renderGroupBody}
+            />
+          ),
+        };
+      }),
+    [
+      permissionStructure,
+      activePlatform,
+      grantSelectedIds,
+      selectedSet,
+      permVerb,
+      resolveGroupKey,
+      selectGroup,
+      renderGroupBody,
+    ],
+  );
 
   return (
     <Drawer
@@ -258,7 +491,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
       width={1280}
       open={open}
       onClose={onClose}
-      destroyOnHidden
+      destroyOnHidden={false}
       maskClosable
       styles={drawerStyles}
       footer={
@@ -290,109 +523,39 @@ const RolePermissionDrawer: React.FC<Props> = ({
               style={{ flex: 1, minWidth: 200, maxWidth: 560 }}
             />
           </Flex>
-          <Space size={G}>
-            <Text type="secondary">
+          <Flex align="center" gap={G} wrap="wrap" style={{ flexShrink: 0 }}>
+            <Text type="secondary" style={{ fontSize: 14, lineHeight: '22px' }}>
               已选择 <Text strong style={{ color: 'var(--ant-color-primary)' }}>{grantSelectedIds.length}</Text> 项
             </Text>
-            <Button type="link" onClick={copyCurrentPermissions} style={{ fontSize: 14 }}>
+            <Button
+              type="link"
+              onClick={copyCurrentPermissions}
+              style={{ padding: 0, height: 'auto', fontSize: 14, lineHeight: '22px' }}
+            >
               复制权限
             </Button>
-            <Button type="link" onClick={onClearSelected} style={{ fontSize: 14 }}>
+            <Button
+              type="link"
+              onClick={onClearSelected}
+              style={{ padding: 0, height: 'auto', fontSize: 14, lineHeight: '22px' }}
+            >
               清空选择
             </Button>
-          </Space>
+          </Flex>
         </Flex>
 
-        <Flex gap={G} style={{ flex: 1, minHeight: 0 }}>
-          {permissionStructure.length > 0 ? (
-            <Card
-              className="role-perm-drawer-toc"
-              size="small"
-              title="目录"
-              variant="borderless"
-              style={{
-                width: 220,
-                flexShrink: 0,
-                alignSelf: 'stretch',
-                border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
-                borderRadius: 8,
-                boxShadow: 'none',
-              }}
-              styles={{
-                header: { padding: G, fontSize: 14 },
-                body: { padding: G, maxHeight: '100%', overflow: 'auto', fontSize: 14 },
-              }}
-            >
-              <Anchor
-                affix={false}
-                getContainer={() => scrollRef.current || window}
-                items={anchorItems}
-              />
-            </Card>
-          ) : null}
-
-          <div
-            ref={scrollRef}
-            className="role-perm-drawer-scroll"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              overflow: 'auto',
-              padding: G,
-              border: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
-              borderRadius: 8,
-              background: 'var(--ant-color-bg-container, #fff)',
-              fontSize: 14,
-            }}
-          >
-            {permissionStructure.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
-            ) : (
-              permissionStructure.map((platform, platformIdx) => (
-                <div
-                  key={platform.platform}
-                  style={{ marginBottom: platformIdx < permissionStructure.length - 1 ? G : 0 }}
-                >
-                  <div id={`perm-plat-${platform.platform}`} style={{ scrollMarginTop: G }}>
-                    <Title level={5} style={{ margin: `0 0 ${G}px`, fontSize: 14 }}>
-                      {(PLATFORM_LABELS as Record<string, string>)[platform.platform] || platform.platform}
-                      <Text type="secondary" style={{ marginLeft: G / 2, fontSize: 14, fontWeight: 'normal' }}>
-                        {platform.platform}
-                      </Text>
-                    </Title>
-                  </div>
-                  <Collapse
-                    bordered={false}
-                    expandIconPosition="end"
-                    activeKey={openCollapseKeys}
-                    onChange={(keys) => setOpenCollapseKeys(Array.isArray(keys) ? keys : [keys])}
-                    style={{ background: 'transparent' }}
-                    className="role-perm-drawer-collapse"
-                    items={platform.groups.map((group: any, groupIdx: number) => ({
-                      key: panelKey(platform.platform, group.group),
-                      label: (
-                        <span id={sectionDomId(platform.platform, group.group)} style={{ scrollMarginTop: G }}>
-                          <Text strong>{group.group}</Text>
-                        </span>
-                      ),
-                      style: { marginBottom: groupIdx < platform.groups.length - 1 ? G : 0 },
-                      styles: {
-                        header: {
-                          padding: G,
-                          borderRadius: 8,
-                          background: 'var(--ant-color-fill-alter, rgba(0,0,0,.02))',
-                          fontSize: 14,
-                        },
-                        body: { padding: G, fontSize: 14 },
-                      },
-                      children: renderGroupBody(group),
-                    }))}
-                  />
-                </div>
-              ))
-            )}
-          </div>
-        </Flex>
+        {permissionStructure.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无权限数据" />
+        ) : (
+          <Tabs
+            className="role-perm-drawer-tabs"
+            activeKey={activePlatform || platformKeys[0]}
+            onChange={setActivePlatform}
+            destroyInactiveTabPane={false}
+            items={tabItems}
+            style={tabsRootStyle}
+          />
+        )}
       </Flex>
     </Drawer>
   );

@@ -11,10 +11,10 @@ import { ALL_PERMISSIONS, getPlatformByPermission, getGroupByPermission } from '
  * 权限名称映射（用于生成显示名称）
  */
 const PERMISSION_NAMES: Record<string, string> = {
-  // CNMC - 资源池管理 / 资源控制台（控制台权限分组）
-  'clouds.dashboard': '资源总览（页面权限）',
-  'clouds.resource-pools': '资源池管理（页面权限）',
-  'clouds': '云资源全量（clouds.* 最高权限）',
+  // CNMC - 多云管理（平台页）/ Cloudmap 池内 / 租户控制台
+  'clouds': '云资源全量权限',
+  'clouds.dashboard': '多云总览',
+  'clouds.resource-pools': '资源池管理',
   'clouds.ecs': '云主机管理',
   'clouds.vm-create-wizard': '云主机创建向导',
   'clouds.vm-quick-create': '云主机快速创建',
@@ -75,6 +75,8 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.usb-devices': 'USB设备',
   'clouds.pci-devices': 'PCI设备',
   'clouds.monitoring.overview': '监控概览大盘',
+  'clouds.dc-topology': '机房拓扑',
+  'clouds.net-topology': '网络拓扑',
   'clouds.ceph': '统一存储',
   'clouds.paas-databases': '云数据库',
   'clouds.vne': '虚拟网元',
@@ -86,7 +88,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.log-targets': '日志采集对象',
   'clouds.log-receivers': '日志接收端',
   'clouds.log-configs': '日志采集配置',
-  'clouds.console': '资源控制台（页面权限）',
+  'clouds.console': '租户控制台',
   
   // TENANTS - 租户管理
   'tenants': '租户管理',
@@ -136,8 +138,7 @@ const PERMISSION_NAMES: Record<string, string> = {
  * 权限描述映射
  */
 const PERMISSION_DESCRIPTIONS: Record<string, string> = {
-  'clouds.dashboard:read': '查看资源总览页面',
-  'clouds.dashboard:write': '编辑资源总览配置',
+  'clouds.dashboard:read': '访问多云总览页面',
   'clouds.resource-pools:read': '进入资源池管理列表与资源池详情页',
   'clouds.resource-pools:write': '创建、编辑、删除资源池（接入配置等）',
   'clouds:read': '云资源全量查看（包含所有 clouds.* 读能力）',
@@ -182,8 +183,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.subnets.public:write': '创建、编辑、删除公共子网',
   'clouds.backups:read': '查看虚拟机备份、快照备份任务和定时策略列表',
   'clouds.backups:write': '创建、删除虚拟机备份/快照，管理定时备份策略与恢复操作',
-  'clouds.console:read': '访问资源控制台',
-  'clouds.console:write': '在资源控制台中执行操作',
+  'clouds.console:read': '访问租户控制台',
+  'clouds.console:write': '在租户控制台中执行操作',
   'clouds.containers:read': '查看容器服务资源（工作负载、Pod、任务、服务发现、配置、镜像仓库等）',
   'clouds.containers:write': '管理容器服务资源（创建、编辑、删除及 Pod 终端等写操作）',
   'clouds.containers.workloads:read': '查看容器工作负载（Deployment/StatefulSet/DaemonSet）',
@@ -284,7 +285,9 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
     base.startsWith('clouds.vm-create-wizard') ||
     base.startsWith('clouds.vm-quick-create') ||
     base.startsWith('clouds.containers') ||
-    base === 'clouds.console'
+    base === 'clouds.console' ||
+    base === 'clouds.cluster-services' ||
+    base.startsWith('harbor.')
   ) {
     category = 'compute';
   } else if (base === 'clouds.dashboard' || base === 'clouds.resource-pools') {

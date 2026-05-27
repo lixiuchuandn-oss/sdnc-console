@@ -8,7 +8,7 @@ import { tryLoadKubeOvnVpcTab } from './pathResource/kubeOvnPathLoads';
 import { tryLoadKubeOvnFlatTab } from './pathResource/flatNetworkPathLoads';
 import { tryLoadContainerTab } from './pathResource/containersPathLoads';
 import { tryLoadOniaasNetworkTab } from './pathResource/oniaasNetworkPathLoads';
-import { tryLoadObjectStorageTab } from './pathResource/objectStoragePathLoads';
+import { tryLoadUnifiedStorageTab } from './pathResource/unifiedStoragePathLoads';
 import { tryLoadResourceHubTab } from './pathResource/resourceHubPathLoads';
 
 /**
@@ -21,9 +21,10 @@ export async function runPathResourceLoad(
   skipSync: boolean,
   deps: PoolPathResourceDeps,
 ): Promise<void> {
-  /** 资源总览 · 统一存储总览：面板内自建拉取 */
+  /** 历史 resource_hub/ceph_storage_overview 书签 key */
   if (key === 'ceph_storage_overview') return;
   if (await tryLoadResourceHubTab(key, force, skipSync, deps)) return;
+  if (await tryLoadUnifiedStorageTab(key, force, skipSync, deps)) return;
   if (await tryLoadStorageTab(key, force, skipSync, deps)) return;
   if (await tryLoadBackupTab(key, force, skipSync, deps)) return;
   if (await tryLoadComputeTab(key, force, skipSync, deps)) return;
@@ -33,5 +34,4 @@ export async function runPathResourceLoad(
   if (await tryLoadKubeOvnVpcTab(key, force, skipSync, deps)) return;
   if (await tryLoadKubeOvnFlatTab(key, force, skipSync, deps)) return;
   if (await tryLoadContainerTab(key, force, skipSync, deps)) return;
-  if (await tryLoadObjectStorageTab(key, force, skipSync, deps)) return;
 }

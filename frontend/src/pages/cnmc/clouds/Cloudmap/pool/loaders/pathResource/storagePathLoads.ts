@@ -5,7 +5,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 云存储域：`storage/rbd_mirror | volumes | snapshots` */
+/** 云存储域：`storage/volumes | snapshots` */
 export async function tryLoadStorageTab(
   key: string,
   force: boolean,
@@ -25,8 +25,6 @@ export async function tryLoadStorageTab(
   } = deps;
 
   switch (key) {
-    case 'rbd_mirror':
-      return true;
     case 'volumes':
       if (checkPerm('clouds.disks:read')) {
         loadResource(

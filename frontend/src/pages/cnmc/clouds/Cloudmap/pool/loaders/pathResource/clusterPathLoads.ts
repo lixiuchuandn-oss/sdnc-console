@@ -300,8 +300,6 @@ export async function tryLoadClusterTab(
       return true;
     case 'cluster_physical_switches':
       return true;
-    case 'storage_pools':
-      return true;
     case 'storage_classes':
       if (
         checkPerm('clouds.storage-classes:read') ||

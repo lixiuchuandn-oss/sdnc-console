@@ -40,7 +40,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范（强制约定摘要）** |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | **`AGENTS.md` 子文档**（可提交）；索引见 **`docs/README.md`**；含 **`pr-checklist.md`** 等 |
+| **`docs/`**（Hub） | **`AGENTS.md` 子文档**（可提交）；索引见 **`docs/README.md`**；含 **`pr-checklist.md`**、**`cloudmap-pool-page-rbac.md`** 等 |
 | **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
@@ -57,7 +57,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 3 | **版本管理（平台发布版本）** | 平台 `version`、离线包与发版约定 |
 | 4 | **API 规范** | HTTP / WebSocket 路径索引 |
 | 5 | **Harvester 云详情 · 前端落位** | 多云 Harvester 详情 Tab ↔ `Harvester/` 下 Section |
-| 6 | **开发规范**（摘要） | 落位、刷新与缓存、表格版式；**PR 自查**见 **`docs/pr-checklist.md`**；**Cloudmap 刷新**见 **`Cloudmap/pool/README.md`** |
+| 6 | **开发规范**（摘要） | 落位、刷新与缓存、表格版式；**PR 自查**见 **`docs/pr-checklist.md`**；**Cloudmap 池内 RBAC**见 **`docs/cloudmap-pool-page-rbac.md`**；**Cloudmap 刷新**见 **`Cloudmap/pool/README.md`** |
 | 7 | **认证与权限**、**后台服务**、**注意事项** | 角色与 Token、后台定时任务、运维提示 |
 
 ## 平台模块
@@ -377,7 +377,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 **目录落位**：前端见 **`frontend/src/STRUCTURE.md`**（平台、`pages/`、`sections`/`drawers`/`modals`/`shared`）；后端见 **`backend/src/STRUCTURE.md`**（`routes` → `services` → `entities`、多云目录对称、Harvester `handlers/`）。
 
-**Cloudmap 池内 RBAC**：按 **平台 → 分组（poolNavGroup）→ 主页面 / 附加能力** 组织；每个主页面或附加能力各自落实 **功能入口、页面访问、后端接口** 三层（配置抽屉为授权面，目录须与分组一致）。主页面用 `cloudmapPoolNavRows.poolPageAction`；附加能力用独立原子（如 `vm-create-wizard`），普通操作随主页面。见 **`deployment/docs/specs/cloudmap-pool-page-rbac.md`**、`pool/lib/poolPageReadAccess.ts`。
+**Cloudmap 池内 RBAC**：权限原子**以页面为实体**。CNMC **平台**页（**多云总览**、资源池列表）归属分组「**多云管理**」；池内 Tab 归属「**Cloudmap资源池**」（抽屉按侧栏 poolNavGroup）。页面类型 A–F 见 **`docs/cloudmap-pool-page-rbac.md` §2**。
 
 ### 命名约定
 - **组件文件**： PascalCase (如 `PageContainer.tsx`)

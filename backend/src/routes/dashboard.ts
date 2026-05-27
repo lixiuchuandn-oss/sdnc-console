@@ -41,7 +41,7 @@ const checkDashboardPermission = (req: AuthRequest, res: Response, next: any) =>
     // 使用 perms.includes() 以便系统扫描器能够识别
     if (!perms.includes('clouds.dashboard:read')) {
       return res.status(403).json({ 
-        message: '权限不足：需要 clouds.dashboard:read 权限才能访问仪表板' 
+        message: '权限不足：需要 clouds.dashboard:read 权限才能访问多云总览', 
       });
     }
     

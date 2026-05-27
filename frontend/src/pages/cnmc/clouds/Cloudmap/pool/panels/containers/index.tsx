@@ -222,11 +222,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
   }, [innerActiveKey]);
 
   if (!canReadContainerTab(checkPerm, innerActiveKey)) {
-    return (
-      <div style={{ height: '100%', overflow: 'auto' }}>
-        <Empty description="无权限访问" style={{ marginTop: 48 }} />
-      </div>
-    );
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
   let content: React.ReactNode;
@@ -436,11 +432,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     content = <Empty description="未知页面" style={{ marginTop: 48 }} />;
   }
 
-  return (
-    <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
-      <div style={{ height: '100%', overflow: 'auto' }}>{content}</div>
-    </ContainerOperationsGate>
-  );
+  return <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>{content}</ContainerOperationsGate>;
 };
 
 export default CloudmapContainersRoutePanel;

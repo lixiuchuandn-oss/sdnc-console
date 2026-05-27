@@ -8,12 +8,18 @@
 /**
  * 详情主内容区：占满 AdminLayout Content，由 `PoolRoutes` 内 `<Routes>` 挂载各 `*RoutePanel`。
  */
+/**
+ * 详情主内容区：占满 AdminLayout Content；纵向滚动在 `PoolDetailPage` 的 contentWrapper，
+ * 本节点仅承载路由与 24px 内边距（滚动条贴主内容区右缘，不在 padding 内侧再嵌一层）。
+ */
 .cloudmap-detail-main {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  min-height: min-content;
+  padding: 24px;
+  padding-bottom: 24px;
+  box-sizing: border-box;
 }
 
 /**
@@ -54,28 +60,11 @@
 /**
  * 集群：侧栏仅一项「集群」；主区为单页多区块纵向滚动，可选 URL 锚点 `/cluster/<seg>`。
  */
+/** 集群多区块：随池主内容区（`PoolDetailPage` contentWrapper）整体滚动，不在区块内再嵌滚动条。 */
 .cloudmap-cluster-pane {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  height: 100%;
-  max-height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
   gap: 24px;
-  padding-bottom: 24px;
-  box-sizing: border-box;
-}
-
-/** Ceph 总览 / 存储池：在 `cloudmap-detail-main` 内纵向滚动 */
-.cloudmap-ceph-pane {
-  flex: 1 1 auto;
-  min-height: 0;
-  height: 100%;
-  max-height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
   padding-bottom: 24px;
   box-sizing: border-box;
 }

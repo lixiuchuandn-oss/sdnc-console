@@ -18,6 +18,7 @@ import {
 import { ALL_CLOUD_CONTAINER_SUB_READ } from '../../../../../../utils/permissionUtils';
 import type { CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import {
+  canAccessPoolPage,
   canAccessResourceHubSub,
   firstAccessibleResourceHubSub,
 } from '../lib/poolPageReadAccess';
@@ -29,6 +30,8 @@ export type CloudmapPoolPermissions = {
   canReadFlatSubnets: boolean;
   canReadPublicSubnets: boolean;
   canReadNetworkScope: boolean;
+  /** 资源总览 · 网络拓扑（`clouds.net-topology:read`） */
+  canViewNetworkTopology: boolean;
   canReadLoadBalancers: boolean;
   canViewMonitoringTab: boolean;
   /** 资源总览 · 集群总览（与 poolPageAction `clouds.monitoring.overview:read` 对齐） */
@@ -43,9 +46,11 @@ export type CloudmapPoolPermissions = {
   canViewOniaasNetworkTab: boolean;
   canViewContainersGroup: boolean;
   canViewStorageGroup: boolean;
-  /** Rook 对象网关 / COSI（与云存储同级池内 Tab） */
+  /** 统一存储（块/RBD/对象/RGW） */
+  canViewUnifiedStorageGroup: boolean;
+  /** @deprecated 与 `canViewUnifiedStorageGroup` 同义，兼容旧引用 */
   canViewObjectStorageGroup: boolean;
-  /** 统一存储总览（原云存储子 Tab，现独立资源总览子页） */
+  /** @deprecated 与 `canViewUnifiedStorageGroup` 同义，兼容旧引用 */
   canViewCephGroup: boolean;
   canViewBackupsGroup: boolean;
   canViewFlatNetworkGroup: boolean;
@@ -114,6 +119,8 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
 
   const canViewMonitoringOverview = canAccessResourceHubSubFn('overview');
 
+  const canViewNetworkTopology = canAccessPoolPage(checkPerm, 'resource_hub/network_topology');
+
   const canViewLoggingTab =
     checkPerm('clouds.log-targets:read') ||
     checkPerm('clouds.log-receivers:read') ||
@@ -122,7 +129,6 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   const canViewClusterGroup =
     checkPerm('clouds.disks:read') ||
     checkPerm('clouds.cluster-nodes:read') ||
-    checkPerm('clouds.cluster-services:read') ||
     checkPerm('clouds.cluster-networks:read') ||
     checkPerm('clouds.namespaces:read') ||
     checkPerm('clouds.storage-classes:read') ||
@@ -157,6 +163,8 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
 
   const canViewContainersGroup =
     checkPerm(CLOUD_CONTAINERS_READ) ||
+    checkPerm('clouds.cluster-services:read') ||
+    checkPerm('harbor.registry:read') ||
     checkPerm('clouds:read') ||
     ALL_CLOUD_CONTAINER_SUB_READ.some((a) => checkPerm(a));
 
@@ -167,13 +175,14 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds:read');
 
-  const canViewCephGroup =
+  const canViewUnifiedStorageGroup =
     checkPerm(CLOUD_CEPH_READ) ||
     checkPerm('clouds.disks:read') ||
     checkPerm('clouds.cluster-nodes:read') ||
     checkPerm('clouds:read');
 
-  const canViewObjectStorageGroup = canViewCephGroup;
+  const canViewCephGroup = canViewUnifiedStorageGroup;
+  const canViewObjectStorageGroup = canViewUnifiedStorageGroup;
 
   const canViewBackupsGroup =
     checkPerm('clouds.backups:read') ||
@@ -212,6 +221,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     canReadFlatSubnets,
     canReadPublicSubnets,
     canReadNetworkScope,
+    canViewNetworkTopology,
     canReadLoadBalancers,
     canViewMonitoringTab,
     canViewMonitoringOverview,
@@ -224,6 +234,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     canViewOniaasNetworkTab,
     canViewContainersGroup,
     canViewStorageGroup,
+    canViewUnifiedStorageGroup,
     canViewObjectStorageGroup,
     canViewCephGroup,
     canViewBackupsGroup,

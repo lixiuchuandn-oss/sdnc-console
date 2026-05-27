@@ -1,7 +1,7 @@
 # Harvester · ceph（Rook Ceph / 对象存储 / RBD Mirror）
 
 > 源码根：`frontend/src/pages/cnmc/clouds/Harvester/ceph/`  
-> Cloudmap 入口分散在 **`cluster/storage_pools`**、**`object_storage/*`**、**`storage/rbd_mirror`**、**`resource_hub/ceph_storage_overview`**（总览仍面板内探测，见下文例外）。
+> Cloudmap 入口归 **`集群` → `存储服务`**（`cluster/overview`、`harvester_addon`、`storage_pools`、`rbd_mirror`、`rgw_*` 等）；历史 **`unified_storage/*`**、**`object_storage/*`** 书签重定向到 `cluster/*`。
 
 ## 目录角色
 
@@ -25,12 +25,14 @@
 
 | 侧栏 / 导航 | key | Section |
 |-------------|-----|---------|
-| 集群 · 存储池 | `storage_pools` | `CephPoolSection` |
+| 存储容量 | `overview` | `CloudmapStorageDashboardByBackend` / `CephStorageSection` |
+| 存储配置 | `harvester_addon` | `CephHarvesterAddonSection` |
+| 存储池 | `storage_pools` | `CephPoolSection` |
+| 块存储 · 远程备份 | `rbd_mirror` | `CephBlockRbdMirrorPane` |
 | 对象存储 · S3 桶 | `rgw_s3_buckets` | `RgwS3BucketsSection` |
 | 对象存储 · RGW 用户 | `rgw_users` | `RgwObjectStoreUsersSection` |
 | 对象存储 · 对象网关 | `object_gateways` | `CephObjectStorageSection`（storesOnly） |
 | 对象存储 · COSI | `cosi` | `CephObjectStorageSection`（cosiOnly） |
-| 云存储 · RBD Mirror | `rbd_mirror` | `CephBlockRbdMirrorPane` |
 
 ## 有意例外
 

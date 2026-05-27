@@ -6,6 +6,7 @@
 | 文档 | 说明 |
 |------|------|
 | [pr-checklist.md](./pr-checklist.md) | PR / 专项清理（落位、复用、表格、TS、性能、安全、五十条附录） |
+| [cloudmap-pool-page-rbac.md](./cloudmap-pool-page-rbac.md) | Cloudmap 池内页 RBAC：**以页面为实体**（入口 / 展示 / 操作；跨域才声明依赖） |
 
 **源码旁文档**（不在此 Hub，但与 Hub 并列权威）：
 

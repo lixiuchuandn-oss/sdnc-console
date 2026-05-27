@@ -1,11 +1,8 @@
 import React, { useCallback, useMemo } from 'react';
 import { Empty } from 'antd';
-import { CLOUD_CEPH_READ } from '../../../../../../../constants/cloudPermissions';
 import VolumesSection from '../../../../Harvester/ebs/sections/VolumesSection';
 import SnapshotsSection from '../../../../Harvester/ebs/sections/SnapshotsSection';
-import CloudmapStorageCephRbdMirror from './CloudmapStorageCephRbdMirror';
 import { createStorageTabOnRefresh } from '../../loaders/storageRefresh';
-import { createCephTabOnRefresh } from '../../loaders/cephRefresh';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -47,13 +44,7 @@ export type CloudmapStorageRoutePanelProps = {
   rawSnapshots: any;
 };
 
-function canViewStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
-  const cephish =
-    checkPerm(CLOUD_CEPH_READ) ||
-    checkPerm('clouds.disks:read') ||
-    checkPerm('clouds.cluster-nodes:read') ||
-    checkPerm('clouds:read');
-  if (key === 'rbd_mirror') return cephish;
+function canViewStorageInner(key: string, checkPerm: (act: string) => boolean): boolean {
   if (key === 'volumes') return checkPerm('clouds.disks:read');
   if (key === 'snapshots') return checkPerm('clouds.snapshots:read');
   return false;
@@ -94,13 +85,6 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
     };
   }, [loadTabResource, refreshVolumesTabAuxiliaries]);
 
-  const cephTabOnRefresh = useMemo(() => {
-    const deps = { loadTabResource };
-    return {
-      rbd_mirror: createCephTabOnRefresh('rbd_mirror', deps),
-    };
-  }, [loadTabResource]);
-
   const refreshImagesAfterExport = useCallback(
     (force?: boolean, skipSync?: boolean) => {
       if (!checkPerm('clouds.images:read')) return;
@@ -120,14 +104,6 @@ const CloudmapStorageRoutePanel: React.FC<CloudmapStorageRoutePanelProps> = (pro
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
-  if (innerActiveKey === 'rbd_mirror') {
-    return (
-      <CloudmapStorageCephRbdMirror
-        cloudId={cloudId}
-        onRefresh={cephTabOnRefresh.rbd_mirror}
-      />
-    );
-  }
   if (innerActiveKey === 'volumes') {
     return (
       <>

@@ -52,6 +52,10 @@ import {
 } from './handlers/monitoring-ceph-dashboard.handlers';
 import { harvesterCephRookBundleHandler } from './handlers/ceph-rook.handlers';
 import {
+  harvesterCephHarvesterAddonApplyHandler,
+  harvesterCephHarvesterAddonGetHandler,
+} from './handlers/ceph-harvester-addon.handlers';
+import {
   harvesterCephRookBlockPoolCreateHandler,
   harvesterCephRookBlockPoolDeleteHandler,
   harvesterCephRookBlockPoolGetHandler,
@@ -606,6 +610,16 @@ export function registerHarvesterServiceRoutesProvider(
 
   // Ceph（Rook 控制面：只读 bundle + Steve CRUD）
   router.get('/:id/ceph/rook/bundle', checkAdminPermission, createProviderRouter(cephRookBundleHandlers));
+  router.get(
+    '/:id/ceph/harvester-addon',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephHarvesterAddonGetHandler)),
+  );
+  router.post(
+    '/:id/ceph/harvester-addon',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephHarvesterAddonApplyHandler)),
+  );
   router.get(
     '/:id/ceph/rook/clusters/:namespace/:name',
     checkAdminPermission,

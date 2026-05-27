@@ -22,6 +22,7 @@ const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       <PageDetailContainer
         hideHeader
         asCard={false}
+        pagePadding={0}
         rootStyle={{
           height: '100%',
           maxHeight: '100%',
@@ -36,7 +37,8 @@ const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           minHeight: 0,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden',
+          overflowX: 'hidden',
+          overflowY: 'auto',
         }}
       >
         {error && (
@@ -44,7 +46,7 @@ const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             type="error"
             message="查询失败"
             description={error}
-            style={{ marginBottom: 16, flexShrink: 0 }}
+            style={{ margin: '24px 24px 16px', flexShrink: 0 }}
             showIcon
           />
         )}

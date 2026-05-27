@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { createClusterTabOnRefresh } from '../../loaders/clusterRefresh';
-import { createCephTabOnRefresh } from '../../loaders/cephRefresh';
 import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
 import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
 import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
@@ -12,14 +11,29 @@ import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/Unde
 import VlansSection from '../../../../Harvester/kube-ovn/sections/VlansSection';
 import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
-import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
 import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
-import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
-import { isValidCloudmapPoolInnerSeg } from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import {
+  CLOUD_CEPH_READ,
+  CLOUD_PROVIDER_NETWORKS_READ,
+} from '../../../../../../../constants/cloudPermissions';
+import {
+  isClusterCephPoolInnerSeg,
+  isValidCloudmapPoolInnerSeg,
+} from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import CloudmapUnifiedStorageRoutePanel from '../unified_storage';
 import '../../styles/layout.css';
+
+function clusterCephishPerm(checkPerm: (act: string) => boolean): boolean {
+  return (
+    checkPerm(CLOUD_CEPH_READ) ||
+    checkPerm('clouds.disks:read') ||
+    checkPerm('clouds.cluster-nodes:read') ||
+    checkPerm('clouds:read')
+  );
+}
 
 type ClusterSectionVisibleCtx = {
   checkPerm: (act: string) => boolean;
@@ -64,12 +78,6 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
       );
     case 'clusterNetworks':
       return checkPerm('clouds.cluster-networks:read');
-    case 'storage_pools':
-      return (
-        checkPerm('clouds.disks:read') ||
-        checkPerm('clouds.cluster-nodes:read') ||
-        checkPerm('clouds:read')
-      );
     case 'storage_classes':
       return (
         checkPerm('clouds.storage-classes:read') ||
@@ -87,6 +95,9 @@ function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): bo
     case 'cluster_sriov':
       return checkPerm('clouds.pci-devices:read');
     default:
+      if (isClusterCephPoolInnerSeg(key)) {
+        return clusterCephishPerm(checkPerm);
+      }
       return false;
   }
 }
@@ -208,6 +219,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
   useEffect(() => {
     if (!section) return;
     if (!isClusterSectionVisible(section, visCtx)) return;
+    if (isClusterCephPoolInnerSeg(section)) return;
     void loadTabResource(section, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 门控对象按字段展开会冗长；与切换子路径/池一致即可
   }, [section, cloudId, loadTabResource]);
@@ -235,13 +247,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
         'kubeovn_public_subnets',
         deps,
       ),
-    };
-  }, [loadTabResource]);
-
-  const cephTabOnRefresh = useMemo(() => {
-    const deps = { loadTabResource };
-    return {
-      storage_pools: createCephTabOnRefresh('storage_pools', deps),
     };
   }, [loadTabResource]);
 
@@ -352,14 +357,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             <DebugJSON data={rawClusterNetworks} show={showLog} />
           </>
         );
-      case 'storage_pools':
-        return (
-          <CephPoolSection
-            cloudId={cloudId}
-            applicationsScope="cloud"
-            onRefresh={cephTabOnRefresh.storage_pools}
-          />
-        );
       case 'storage_classes':
         return (
           <>
@@ -464,6 +461,19 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     return (
       <div className="cloudmap-cluster-pane">
         <Empty description="无权限访问该页面" style={{ marginTop: 48 }} />
+      </div>
+    );
+  }
+
+  if (isClusterCephPoolInnerSeg(section)) {
+    return (
+      <div className="cloudmap-cluster-pane">
+        <CloudmapUnifiedStorageRoutePanel
+          cloudId={cloudId}
+          checkPerm={checkPerm}
+          innerActiveKey={section}
+          loadTabResource={loadTabResource}
+        />
       </div>
     );
   }

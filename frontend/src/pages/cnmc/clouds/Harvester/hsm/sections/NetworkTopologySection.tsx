@@ -46,24 +46,24 @@ function chartHostStyle(chartHostHeight: number): React.CSSProperties {
 
 type Props = {
   cloudId: string;
-  canReadNetworkScope: boolean;
+  canViewNetworkTopology: boolean;
   snapshot: NetworkTopologyPoolSnapshot;
   onRefresh?: HarvesterSectionOnRefresh;
 };
 
 const NetworkTopologySection: React.FC<Props> = ({
   cloudId,
-  canReadNetworkScope,
+  canViewNetworkTopology,
   snapshot,
   onRefresh,
 }) => {
   const panelRef = useRef<HTMLDivElement>(null);
   const [topoView, setTopoView] = useState<'underlay' | 'cluster'>('underlay');
 
-  const data = useNetworkTopologyData(cloudId, canReadNetworkScope, snapshot, onRefresh);
+  const data = useNetworkTopologyData(cloudId, canViewNetworkTopology, snapshot, onRefresh);
 
   const chart = useNetworkTopologyChartLayout({
-    enabled: canReadNetworkScope,
+    enabled: canViewNetworkTopology,
     panelRef,
     chartLayoutGate: data.chartLayoutGate,
     topoView,
@@ -78,14 +78,14 @@ const NetworkTopologySection: React.FC<Props> = ({
     clusterNetworksLength: data.clusterNetworks.length,
   });
 
-  if (!canReadNetworkScope) {
+  if (!canViewNetworkTopology) {
     return (
       <div style={{ padding: '16px 0 0' }}>
         <Alert
           type="warning"
           showIcon
           message="无权限查看网络拓扑"
-          description="需要具备物理网络、子网或 VLAN 等相关读权限。"
+          description="需要具备「资源总览 · 网络拓扑」只读权限（clouds.net-topology:read）。"
         />
       </div>
     );

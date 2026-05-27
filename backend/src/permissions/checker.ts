@@ -9,6 +9,7 @@
 
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
+import { poolPageTokenGrantsImpliedRead } from '../constants/poolPageImpliedReads';
 
 /** `clouds.console:*` 的宽松继承不包含容器子域（与预置「云计算用户」等仅算网/存角色对齐；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read`） */
 function isCloudsContainersResourceBase(resourceBase: string): boolean {
@@ -115,7 +116,6 @@ export class PermissionChecker {
     }
 
     // 4c. VM 创建/变配依赖资源读权限：允许 clouds.ecs 兜底
-    // 用于保证只有 ECS 权限的角色仍可读取创建/变配所需资源（节点、存储类、命名空间、镜像、NAD、GPU/USB/PCI）
     if (verb === 'read' && base) {
       const vmDependencyReadBases = new Set([
         'clouds.cluster-nodes',
@@ -135,6 +135,11 @@ export class PermissionChecker {
         ) {
           return true;
         }
+      }
+
+      // 4d/4e. 池内页 token 隐式读（机房/网络拓扑等，见 poolPageImpliedReads）
+      if (poolPageTokenGrantsImpliedRead(permissions, base)) {
+        return true;
       }
     }
 

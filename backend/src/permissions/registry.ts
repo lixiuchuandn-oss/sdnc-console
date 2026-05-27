@@ -55,7 +55,7 @@ export function resolveCloudInstanceScopedPermissionBase(parts: string[]): strin
   const seg = String(parts[2] || '').toLowerCase();
 
   if (seg === 'datacenter-topology') {
-    return 'clouds.cluster-networks';
+    return 'clouds.dc-topology';
   }
 
   if (seg === 'ceph') {

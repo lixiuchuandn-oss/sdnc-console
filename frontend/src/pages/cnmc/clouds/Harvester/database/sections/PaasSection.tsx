@@ -1,6 +1,6 @@
 /**
  * Harvester 上 **虚拟机** 形态的 PaaS 托管实例列表（通用壳子）。
- * 云数据库实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
+ * 关系型数据库（RDS）实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip } from 'antd';
@@ -37,9 +37,9 @@ type Props = {
   /** @deprecated 与 `onRefresh({ force: true })` 等价；Cloudmap 池请只传 `paasDatabasesTabOnRefresh.rds` */
   onForceRefresh?: () => void | Promise<void>;
   isTenant?: boolean;
-  /** 与镜像 `tower.io/paas-type` 一致；不传则展示全部云数据库托管实例（新 `paas-category` 或旧 `rds`） */
+  /** 与镜像 `tower.io/paas-type` 一致；不传则展示全部 RDS 托管实例（新 `paas-category` 或旧 `rds`） */
   paasType?: string;
-  /** 列表区标题，默认随 paasType 或「云数据库」 */
+  /** 列表区标题，默认随 paasType 或「云RDS」 */
   sectionTitle?: string;
   /** 用于创建实例时解析租户允许的业务命名空间（与 VM 向导一致） */
   namespacesOptions?: string[];
@@ -176,9 +176,9 @@ const PaasSection: React.FC<Props> = ({
 
   const resolvedSectionTitle =
     sectionTitle ||
-    (paasType ? `云数据库 · ${String(paasType).toUpperCase()}` : '云数据库 (RDS)');
+    (paasType ? `云RDS · ${String(paasType).toUpperCase()}` : '云RDS');
 
-  /** 云数据库线：新 `paas-category=database` 或旧 `rds`；可选再按 `paas-type`（MySQL 兼容无 paas-type 的旧实例） */
+  /** RDS 线：新 `paas-category=database` 或旧 `rds`；可选再按 `paas-type`（MySQL 兼容无 paas-type 的旧实例） */
   const paasVmInstances = useMemo(() => {
     const base = vms.filter((vm) => isTowerPaasDatabaseVm(vm));
     if (!paasType) return base;

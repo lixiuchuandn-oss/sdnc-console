@@ -1,4 +1,5 @@
 import { routeSpecs } from '../routes/RouteSpec';
+import { POOL_PAGE_IMPLIED_READ_BASES } from '../pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess';
 
 /**
  * 从 RouteSpec 自动生成路径权限映射
@@ -150,7 +151,7 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
     }
   }
   
-  // clouds:read 包含所有 clouds.*:read（含 clouds.resource-pools、资源总览路由仍用独立原子）
+  // clouds:read 包含所有 clouds.*:read（含 clouds.resource-pools；平台多云总览仍用 clouds.dashboard:read 独立原子）
   // 注意：clouds:read 本身不会被 clouds.console:read 继承（格式为 clouds:read vs clouds.*:read）
   if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
@@ -178,6 +179,20 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   ) {
     if (permsArray.includes('clouds.containers:write')) {
       return true;
+    }
+  }
+
+  // 池内页级 token 隐式读（与 poolPageReadAccess POOL_PAGE_IMPLIED_READ_BASES、backend checker 对齐）
+  if (act.endsWith(':read')) {
+    for (const [pagePrefix, impliedBases] of Object.entries(POOL_PAGE_IMPLIED_READ_BASES)) {
+      if (!(impliedBases as readonly string[]).includes(base)) continue;
+      if (
+        permsArray.includes(`${pagePrefix}:read`) ||
+        permsArray.includes(`${pagePrefix}:write`) ||
+        permsArray.includes(`${pagePrefix}:*`)
+      ) {
+        return true;
+      }
     }
   }
 

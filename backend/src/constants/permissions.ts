@@ -23,9 +23,10 @@
  * - verb: 操作类型（read=读取, write=写入）
  * 
  * 【权限分组说明】
- * 1. CNMC 平台 - 资源池 / 多云资源管理
- *    - 资源池管理：云资源管理相关权限
- *    - 资源控制台（分组）：资源控制台页面与运维视图等相关权限（与「资源池管理」分组并列）
+ * 1. CNMC 平台（多云管理）
+ *    - 多云管理：平台级页面（多云总览、资源池列表等）
+ *    - Cloudmap资源池：池内 Tab / clouds.* 细粒度原子（抽屉按侧栏 poolNavGroup 展示）
+ *    - 租户控制台：租户云资源控制台（clouds.console）
  * 
  * 1b. TENANTS 平台 - 租户管理（与 CNMC 顶栏入口并列）
  *    - 租户管理：租户、组织、租户组织用户、用户空间等权限
@@ -44,7 +45,7 @@
  *   1) ALL_PERMISSIONS
  *   2) PERMISSION_GROUPS
  *   3) backend/src/permissions/definitions.ts（名称映射）
- *   4) frontend/src/utils/permissionUtils.ts（资源池管理 / 资源控制台 分组展示顺序以该文件为准；PERMISSION_GROUPS 应对齐）
+ *   4) frontend/src/utils/permissionUtils.ts（多云管理 / Cloudmap资源池 / 租户控制台 分组展示顺序以该文件为准；PERMISSION_GROUPS 应对齐）
  * 
  * 【使用位置】
  * - permissions/definitions.ts - 生成权限定义
@@ -67,16 +68,15 @@ export const ALL_PERMISSIONS = [
   // ============================================================================
   
   // ──────────────────────────────────────────────────────────────────────────
-  // 分组：资源池管理（CNMC · 多云资源）
+  // 分组：多云管理（CNMC 平台级页面）
   // ──────────────────────────────────────────────────────────────────────────
   
-  // 资源总览
-  'clouds.dashboard:read',     // 资源总览页面 - 查看
-  'clouds.dashboard:write',    // 资源总览页面 - 编辑
+  // 多云总览（纯展示；仅 read，无 write）
+  'clouds.dashboard:read',
   
-  // 资源池管理（列表与详情页入口；与 Tab 级 clouds.* 原子解耦，便于按角色隐藏指定 Tab）
-  'clouds.resource-pools:read',   // 资源池管理页面 - 查看列表与进入详情
-  'clouds.resource-pools:write', // 资源池管理页面 - 创建/编辑/删除资源池
+  // 资源池列表页（/admin/clouds；与池内 Tab 级 clouds.* 解耦）
+  'clouds.resource-pools:read',
+  'clouds.resource-pools:write',
   
   // 云资源全量（最高）：等价于拥有全部 clouds.* 读写能力；细粒度角色请勿勾选此项以免 Tab 门控失效
   'clouds:read',
@@ -196,7 +196,7 @@ export const ALL_PERMISSIONS = [
   'clouds.cluster-nodes:read',  // 物理节点列表 - 查看
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
 
-  // 集群服务（K8s Service）
+  // 集群服务（K8s Service；权限抽屉归「容器服务」业务域）
   'clouds.cluster-services:read',  // 集群服务列表 - 查看
   'clouds.cluster-services:write', // 集群服务管理 - 操作维护
 
@@ -273,11 +273,18 @@ export const ALL_PERMISSIONS = [
   'clouds.monitoring.overview:read',
   'clouds.monitoring.overview:write',
 
+  // 资源总览 · 机房拓扑（机柜/柜内占位；与集群物理节点/交换机管理解耦）
+  'clouds.dc-topology:read',
+  'clouds.dc-topology:write',
+
+  // 资源总览 · 网络拓扑（纯展示；与物理网络/集群网络管理 Tab 解耦）
+  'clouds.net-topology:read',
+
   // Rook/统一存储、对象存储、RGW/S3（/api/clouds/:id/ceph/* 与池内统一存储域）
   'clouds.ceph:read',
   'clouds.ceph:write',
 
-  // Cloudmap · 云数据库（PaaS VM；数据面仍走 clouds.ecs API，UI 与角色配置独立门控）
+  // Cloudmap · 云数据库（PaaS VM；当前含 RDS，后续可扩展 NoSQL 等；数据面仍走 clouds.ecs API）
   'clouds.paas-databases:read',
   'clouds.paas-databases:write',
 
@@ -317,9 +324,9 @@ export const ALL_PERMISSIONS = [
   'clouds.log-configs:read',   // 日志采集配置列表 - 查看
   'clouds.log-configs:write',  // 日志采集配置管理 - 创建/编辑/删除
   
-  // 资源控制台（页面）
-  'clouds.console:read',       // 资源控制台 - 访问
-  'clouds.console:write',       // 资源控制台 - 操作（如执行命令）
+  // 租户控制台（页面）
+  'clouds.console:read',
+  'clouds.console:write',
   
   // ──────────────────────────────────────────────────────────────────────────
   // Harbor 镜像仓库管理
@@ -489,10 +496,9 @@ export const ALL_PERMISSIONS = [
 export const PERMISSION_GROUPS = {
   // CNMC 平台
   CNMC: {
-    '资源池管理': [
-      'clouds',
-      'clouds.dashboard',
-      'clouds.resource-pools',
+    '多云管理': ['clouds', 'clouds.dashboard', 'clouds.resource-pools'],
+    '租户控制台': ['clouds.console'],
+    'Cloudmap资源池': [
       'clouds.ecs',
       'clouds.vm-create-wizard',
       'clouds.vm-quick-create',
@@ -513,6 +519,11 @@ export const PERMISSION_GROUPS = {
       'clouds.containers.registries',
       'clouds.containers.pdbs',
       'clouds.containers.networkpolicies',
+      'clouds.cluster-services',
+      'harbor.registry',
+      'harbor.project',
+      'harbor.image',
+      'harbor.scan',
       'clouds.disks',
       'clouds.snapshots',
       'clouds.backups',
@@ -544,7 +555,6 @@ export const PERMISSION_GROUPS = {
       'clouds.route-entries',
       'clouds.network-acls',
       'clouds.cluster-nodes',
-      'clouds.cluster-services',
       'clouds.cluster-networks',
       'clouds.namespaces',
       'clouds.storage-classes',
@@ -552,6 +562,8 @@ export const PERMISSION_GROUPS = {
       'clouds.usb-devices',
       'clouds.pci-devices',
       'clouds.monitoring.overview',
+      'clouds.dc-topology',
+      'clouds.net-topology',
       'clouds.ceph',
       'clouds.paas-databases',
       'clouds.vne',
@@ -564,7 +576,6 @@ export const PERMISSION_GROUPS = {
       'clouds.log-receivers',
       'clouds.log-configs',
     ],
-    '资源控制台': ['clouds.console'],
   },
   // TENANTS 平台（多租户管理）
   TENANTS: {
@@ -615,21 +626,6 @@ export const PERMISSION_GROUPS = {
       'secops.rules',
     ],
   },
-  // Harbor 镜像仓库
-  HARBOR: {
-    '实例管理': [
-      'harbor.registry',
-    ],
-    '项目管理': [
-      'harbor.project',
-    ],
-    '镜像管理': [
-      'harbor.image',
-    ],
-    '漏洞扫描': [
-      'harbor.scan',
-    ],
-  },
 } as const;
 
 /**
@@ -637,12 +633,12 @@ export const PERMISSION_GROUPS = {
  */
 export function getPlatformByPermission(permission: string): string | null {
   const prefix = permission.split(':')[0];
-  
+
   // SETTINGS 平台（系统设置相关权限）
   if (prefix.startsWith('system.')) {
     return 'SETTINGS';
   }
-  
+
   // TENANTS 平台（多租户）
   if (
     prefix.startsWith('tenants') ||
@@ -653,31 +649,26 @@ export function getPlatformByPermission(permission: string): string | null {
     return 'TENANTS';
   }
 
-  // CNMC 平台
-  if (prefix.startsWith('ops.') || prefix.startsWith('clouds')) {
+  // CNMC 平台（含 Harbor 镜像仓库 · 容器业务域；Harbor 权限 ID 为 harbor:registry:read 形式）
+  if (prefix.startsWith('ops.') || prefix.startsWith('clouds') || prefix === 'harbor' || prefix.startsWith('harbor.')) {
     return 'CNMC';
   }
-  
+
   // SETTINGS 平台（系统用户管理）
   if (prefix.startsWith('users')) {
     return 'SETTINGS';
   }
-  
+
   // SDNCC 平台
   if (prefix.startsWith('networks.') || prefix.startsWith('security.')) {
     return 'SDNCC';
   }
-  
+
   // CNSOC 平台
   if (prefix.startsWith('secops.')) {
     return 'CNSOC';
   }
-  
-  // Harbor 镜像仓库
-  if (prefix.startsWith('harbor.')) {
-    return 'HARBOR';
-  }
-  
+
   return null;
 }
 
@@ -690,9 +681,12 @@ export function getGroupByPermission(permission: string): string | null {
   // CNMC / 资源池
   if (prefix.startsWith('clouds')) {
     if (prefix === 'clouds.console') {
-      return '资源控制台';
+      return '租户控制台';
     }
-    return '资源池管理';
+    if (prefix === 'clouds' || prefix === 'clouds.dashboard' || prefix === 'clouds.resource-pools') {
+      return '多云管理';
+    }
+    return 'Cloudmap资源池';
   }
   // TENANTS 平台 · 租户管理分组
   if (prefix.startsWith('tenants') || prefix.startsWith('organizations') || prefix.startsWith('tenant-users') || prefix.startsWith('user-spaces')) {
@@ -737,20 +731,11 @@ export function getGroupByPermission(permission: string): string | null {
   if (prefix.startsWith('secops.')) {
     return '态势中心';
   }
-  
-  // Harbor 镜像仓库
-  if (prefix.startsWith('harbor.registry')) {
-    return '实例管理';
+
+  // Harbor 镜像仓库（CNMC · 容器服务抽屉 orphan；ID 为 harbor:registry:read 或 harbor.*）
+  if (prefix === 'harbor' || prefix.startsWith('harbor.')) {
+    return 'Cloudmap资源池';
   }
-  if (prefix.startsWith('harbor.project')) {
-    return '项目管理';
-  }
-  if (prefix.startsWith('harbor.image')) {
-    return '镜像管理';
-  }
-  if (prefix.startsWith('harbor.scan')) {
-    return '漏洞扫描';
-  }
-  
+
   return null;
 }

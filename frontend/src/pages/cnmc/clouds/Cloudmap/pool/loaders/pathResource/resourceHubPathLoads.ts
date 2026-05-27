@@ -1,4 +1,4 @@
-import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
+import { canAccessPoolPage } from '../../lib/poolPageReadAccess';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import { loadDatacenterTopologyBundle } from '../../../../Harvester/hsm/lib/loadDatacenterTopologyBundle';
 import { loadHarvesterAswSwitchesForTopology } from '../../../../Harvester/hsm/lib/loadHarvesterAswSwitchesForTopology';
@@ -16,28 +16,22 @@ export async function tryLoadResourceHubTab(
   const {
     cloudId,
     checkPerm,
-    canReadNetworkScope,
     setResourceLoading,
     setDatacenterRacks,
     setDatacenterNodeMetricsMap,
     setHarvesterAswSwitches,
     setHarvesterNodes,
     setRawNodes,
-    setHarvesterVlans,
-    setHarvesterKubeOvnProviderNetworks,
     setKubeOvnSubnets,
-    setRawSubnets,
-    setHarvesterClusterNetworks,
   } = deps;
 
   switch (key) {
     case 'datacenter_topology': {
-      const canSyncAsw = checkPerm('clouds.cluster-networks:write');
       setResourceLoading((prev) => ({ ...prev, datacenter_topology: true }));
       try {
         const bundle = await loadDatacenterTopologyBundle(cloudId, force, {
-          skipSync,
-          canSyncToInventory: canSyncAsw,
+          skipSync: true,
+          canSyncToInventory: false,
         });
         setDatacenterRacks(bundle.racks);
         setHarvesterNodes(bundle.nodes);
@@ -50,7 +44,7 @@ export async function tryLoadResourceHubTab(
       return true;
     }
     case 'network_topology': {
-      if (!canReadNetworkScope) return true;
+      if (!canAccessPoolPage(checkPerm, 'resource_hub/network_topology')) return true;
       setResourceLoading((prev) => ({ ...prev, network_topology: true }));
       try {
         await Promise.all([
@@ -60,18 +54,12 @@ export async function tryLoadResourceHubTab(
           (async () => {
             const items = await loadHarvesterAswSwitchesForTopology(cloudId, {
               force,
-              skipSync,
-              canSyncToInventory: checkPerm('clouds.cluster-networks:write'),
+              skipSync: true,
+              canSyncToInventory: false,
             });
             setHarvesterAswSwitches(items);
           })(),
           (async () => {
-            if (
-              !checkPerm('clouds.networks:read') &&
-              !checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-            ) {
-              return;
-            }
             try {
               if (force && cloudId) {
                 clearCache(`/api/clouds/${cloudId}/resources/subnets`, 'GET');

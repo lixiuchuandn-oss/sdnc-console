@@ -16,6 +16,7 @@ export type CloudmapPoolPanelProps = {
   checkPerm: (act: string) => boolean;
   canReadPublicSubnets: boolean;
   canReadNetworkScope: boolean;
+  canViewNetworkTopology: boolean;
   canReadLoadBalancers: boolean;
   canReadFlatSubnets: boolean;
   canReadVpcSubnets: boolean;
@@ -28,6 +29,7 @@ export type CloudmapPoolPanelProps = {
   canViewOniaasNetworkTab: boolean;
   canViewContainersGroup: boolean;
   canViewStorageGroup: boolean;
+  canViewUnifiedStorageGroup: boolean;
   canViewObjectStorageGroup: boolean;
   canViewCephGroup: boolean;
   canViewBackupsGroup: boolean;

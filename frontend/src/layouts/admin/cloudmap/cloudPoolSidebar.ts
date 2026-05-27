@@ -37,7 +37,7 @@ export const CLOUDMAP_POOL_NAV_KEYS = [
   'oniaas_network',
   'containers',
   'storage',
-  'object_storage',
+  'unified_storage',
   'backups',
   'flat_network',
   'kube_ovn',
@@ -50,8 +50,6 @@ export const CLOUDMAP_RESOURCE_SUB_KEYS = [
   'overview',
   'datacenter_topology',
   'network_topology',
-  /** 统一存储 mgr 仪表盘集群总览（原池内 ceph/overview） */
-  'ceph_storage_overview',
 ] as const;
 
 export type CloudmapResourceSubKey = (typeof CLOUDMAP_RESOURCE_SUB_KEYS)[number];
@@ -139,9 +137,11 @@ export const LEGACY_CLOUDMAP_POOL_NAV_ALIASES: Record<string, CloudmapPoolNavKey
   storage_group: 'storage',
   backups_group: 'backups',
   flat_network_group: 'flat_network',
-  ceph_group: 'storage',
-  /** 历史「对象存储」曾挂在 ceph 子路径，现独立为 `object_storage` Tab */
-  object_storage_group: 'object_storage',
+  ceph_group: 'cluster',
+  /** 历史「对象存储 / 统一存储」独立 Tab，现归入集群 · 存储服务 */
+  object_storage: 'cluster',
+  object_storage_group: 'cluster',
+  unified_storage_group: 'cluster',
   kube_ovn_group: 'kube_ovn',
 };
 
@@ -154,7 +154,7 @@ const CLOUDMAP_NAV_LABEL: Record<CloudmapPoolNavKey, string> = {
   oniaas_network: '虚拟网元',
   containers: '容器服务',
   storage: '云存储',
-  object_storage: '对象存储',
+  unified_storage: '统一存储',
   backups: '云备份',
   flat_network: '扁平网络',
   kube_ovn: 'VPC网络',
@@ -170,7 +170,7 @@ const CLOUDMAP_NAV_ICON: Record<CloudmapPoolNavKey, ReactNode> = {
   oniaas_network: createElement(NodeIndexOutlined),
   containers: createElement(DeploymentUnitOutlined),
   storage: createElement(DatabaseOutlined),
-  object_storage: createElement(InboxOutlined),
+  unified_storage: createElement(InboxOutlined),
   backups: createElement(CloudDownloadOutlined),
   flat_network: createElement(ApartmentOutlined),
   kube_ovn: createElement(GlobalOutlined),
@@ -266,7 +266,34 @@ export function cloudmapPoolBasePath(cloudId: string): string {
   return `/admin/clouds/${encodeURIComponent(cloudId)}`;
 }
 
-/** 书签/旧链仍指向 `/ceph/*` 时统一到集群存储池或对象存储（须先于 `parseCloudmapPoolPath` 做 replace navigate） */
+/** 集群 · 存储服务（Rook/Ceph/RGW）池内 `poolInnerSeg` */
+export const CLUSTER_CEPH_POOL_INNER_SEGS = [
+  'overview',
+  'harvester_addon',
+  'storage_pools',
+  'rbd_mirror',
+  'rgw_s3_buckets',
+  'rgw_users',
+  'object_gateways',
+  'cosi',
+] as const;
+
+export function isClusterCephPoolInnerSeg(seg: string): boolean {
+  return (CLUSTER_CEPH_POOL_INNER_SEGS as readonly string[]).includes(seg);
+}
+
+function clusterCephPoolInnerPath(
+  base: string,
+  inner: string | undefined,
+): string {
+  const seg =
+    inner && isClusterCephPoolInnerSeg(inner)
+      ? inner
+      : CLUSTER_CEPH_POOL_INNER_SEGS[0];
+  return `${base}/cluster/${encodeURIComponent(seg)}`;
+}
+
+/** 书签/旧链仍指向 `/ceph/*` 时统一到集群 · 存储服务（须先于 `parseCloudmapPoolPath` 做 replace navigate） */
 export function cloudmapRemapLegacyCephPoolPath(pathname: string, cloudId: string): string | null {
   const rest = stripCloudmapPoolRest(pathname, cloudId);
   if (rest == null || rest === '') return null;
@@ -274,34 +301,64 @@ export function cloudmapRemapLegacyCephPoolPath(pathname: string, cloudId: strin
   if (parts[0] !== 'ceph') return null;
   const base = cloudmapPoolBasePath(cloudId);
   const inner = (parts[1] || '').trim();
-  if (inner === 'block_storage') return `${base}/cluster/storage_pools`;
-  if (inner === 'storage_pools') return `${base}/cluster/storage_pools`;
   if (inner === 'object_storage') {
-    return `${base}/object_storage/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('object_storage'))}`;
+    return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
   }
-  if (inner === 'overview') return `${base}/resource_hub/ceph_storage_overview`;
-  return `${base}/cluster/storage_pools`;
+  if (inner === 'overview') return `${base}/cluster/overview`;
+  if (inner === 'block_storage' || inner === 'storage_pools') {
+    return `${base}/cluster/storage_pools`;
+  }
+  return clusterCephPoolInnerPath(base, inner);
 }
 
-/** 已从侧栏摘除的叶子 pathSeg；书签仍指向时统一到集群下存储池/存储类。 */
-export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: string): string | null {
+/** 历史 `unified_storage/*` 与已摘除叶子：重定向到集群 · 存储服务对应页。 */
+export function cloudmapRemapUnifiedStorageToClusterPath(
+  pathname: string,
+  cloudId: string,
+): string | null {
   const rest = stripCloudmapPoolRest(pathname, cloudId);
   if (!rest || rest === '') return null;
   const parts = rest.split('/').filter(Boolean);
+  if (parts[0] !== 'unified_storage') return null;
+  const base = cloudmapPoolBasePath(cloudId);
+  const inner = (parts[1] || '').trim();
+  return clusterCephPoolInnerPath(base, inner || undefined);
+}
+
+/** 已从侧栏摘除的叶子 pathSeg；书签仍指向时重定向到集群 · 存储服务。 */
+export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: string): string | null {
+  const unified = cloudmapRemapUnifiedStorageToClusterPath(pathname, cloudId);
+  if (unified) return unified;
+
+  const rest = stripCloudmapPoolRest(pathname, cloudId);
+  if (!rest || rest === '') return null;
+  const parts = rest.split('/').filter(Boolean);
+  const base = cloudmapPoolBasePath(cloudId);
+  if (parts[0] === 'resource_hub' && parts[1] === 'ceph_storage_overview') {
+    return `${base}/cluster/overview`;
+  }
+  if (parts[0] === 'storage' && parts[1] === 'rbd_mirror') {
+    return `${base}/cluster/rbd_mirror`;
+  }
   if (parts[0] === 'storage' && parts[1] === 'block_storage') {
-    return `${cloudmapPoolBasePath(cloudId)}/cluster/storage_pools`;
+    return `${base}/cluster/storage_pools`;
   }
   if (parts[0] === 'storage' && parts[1] === 'rados_namespaces') {
-    return `${cloudmapPoolBasePath(cloudId)}/cluster/storage_pools`;
+    return `${base}/cluster/storage_pools`;
   }
   if (parts[0] === 'storage' && parts[1] === 'storage_pools') {
-    return `${cloudmapPoolBasePath(cloudId)}/cluster/storage_pools`;
+    return `${base}/cluster/storage_pools`;
   }
   if (parts[0] === 'storage' && parts[1] === 'storage_classes') {
-    return `${cloudmapPoolBasePath(cloudId)}/cluster/storage_classes`;
+    return `${base}/cluster/storage_classes`;
   }
-  if (parts[0] === 'object_storage' && parts[1] === 'storage_pools') {
-    return `${cloudmapPoolBasePath(cloudId)}/cluster/storage_pools`;
+  if (parts[0] === 'object_storage') {
+    const inner = (parts[1] || '').trim();
+    if (inner === 'storage_pools') return `${base}/cluster/storage_pools`;
+    if (inner && isClusterCephPoolInnerSeg(inner)) {
+      return `${base}/cluster/${encodeURIComponent(inner)}`;
+    }
+    return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
   }
   return null;
 }
@@ -387,18 +444,15 @@ export function cloudmapLegacyQueryToPath(
   if (rawTabStr === 'ceph') {
     const rawSub = (sp.get('sub') || '').trim();
     if (rawSub === 'object_storage') {
-      return `${base}/object_storage/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('object_storage'))}`;
+      return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
     }
     if (rawSub === 'overview') {
-      return `${base}/resource_hub/ceph_storage_overview`;
+      return `${base}/cluster/overview`;
     }
-    if (rawSub === 'storage_pools') {
+    if (rawSub === 'storage_pools' || rawSub === 'block_storage') {
       return `${base}/cluster/storage_pools`;
     }
-    if (rawSub === 'block_storage') {
-      return `${base}/cluster/storage_pools`;
-    }
-    return `${base}/cluster/storage_pools`;
+    return clusterCephPoolInnerPath(base, rawSub || undefined);
   }
 
   const tab = normalizeCloudmapPoolNavParam(rawTab);
@@ -411,6 +465,13 @@ export function cloudmapLegacyQueryToPath(
     if (rawSub === 'ceph') {
       return `${base}/cluster/storage_pools`;
     }
+    if (rawSub === 'rbd_mirror') {
+      return `${base}/cluster/rbd_mirror`;
+    }
+  }
+  if (tab === 'unified_storage') {
+    const rawSub = (sp.get('sub') || '').trim();
+    return clusterCephPoolInnerPath(base, rawSub || undefined);
   }
   if (tab === 'cluster') {
     const cs = (sp.get('cluster_sub') || '').trim();
@@ -612,10 +673,6 @@ function poolTabMenuChildrenWithSubgroups(
       i += 1;
     }
     if (bucket.length === 0) continue;
-    if (bucket.length === 1) {
-      out.push(bucket[0]);
-      continue;
-    }
     const label =
       CLOUDMAP_POOL_NAV_SUBGROUP_LABELS[groupKey] ||
       groupKey;
