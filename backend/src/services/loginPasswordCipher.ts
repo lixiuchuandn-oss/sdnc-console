@@ -113,9 +113,10 @@ export function isLoginCipherConfigured(): boolean {
   return Boolean(privateKeyPem && publicKeyPem);
 }
 
-/** 开发/兼容：配置了密钥时默认仍拒绝明文；设 LOGIN_ALLOW_PLAINT_PASSWORD=1 可放开 */
+/** 开发/兼容：配置了密钥时默认仍拒绝明文；设 LOGIN_ALLOW_PLAINT_PASSWORD=1 可放开；development 下同允许（本地 HTTP 无 Web Crypto） */
 export function isPlaintextLoginAllowed(): boolean {
   if (process.env.LOGIN_ALLOW_PLAINT_PASSWORD === '1') return true;
+  if (process.env.NODE_ENV === 'development') return true;
   return !isLoginCipherConfigured();
 }
 
