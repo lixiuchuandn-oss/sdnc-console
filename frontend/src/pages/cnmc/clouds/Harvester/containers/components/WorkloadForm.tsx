@@ -4202,7 +4202,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
   // 编辑模式：初始化表单数据
   useEffect(() => {
-    if (editData) {
+    if (!editData) return;
+    try {
       const spec = editData?.spec || {};
       const metadata = editData?.metadata || {};
       const template = spec?.template || {};
@@ -4488,6 +4489,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       };
       const yamlStr = yaml.dump(cleanData, { indent: 2 });
       setYamlContent(yamlStr);
+    } catch (err) {
+      console.error('编辑模式初始化表单数据失败:', err);
     }
   }, [editData, defaultType, form]);
   
@@ -4805,10 +4808,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
         let type = 'unknown';
         let vlan: any = undefined;
+        let promiscMode = false;
         try {
           const cfg = JSON.parse(n?.spec?.config || '{}');
           type = String(cfg?.type || 'unknown').toLowerCase();
           vlan = cfg?.vlan;
+          promiscMode = !!cfg?.promiscMode;
         } catch {}
         
         const isCurrentNs = ns === selectedNamespace;
@@ -4823,16 +4828,13 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           value: `${ns}/${name}`,
           nad: n,
           _type: type,
+          _promisc: promiscMode,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
-      .sort((a, b) => {
-        const aNs = a.value.split('/')[0];
-        const bNs = b.value.split('/')[0];
-        if (aNs === selectedNamespace && bNs !== selectedNamespace) return -1;
-        if (aNs !== selectedNamespace && bNs === selectedNamespace) return 1;
-        return a.label.localeCompare(b.label);
-      });
+      .filter((x: any) => x._promisc === true)
+      .filter((x: any) => x.value.split('/')[0] === selectedNamespace)
+      .sort((a, b) => a.label.localeCompare(b.label));
   }, [nads, defaultNamespace, form]);
   
   // 监听工作负载类型变化
@@ -5971,6 +5973,28 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
+
+        // 防御性检查：编辑模式下若表单 workloadType 与资源类型不一致，自动纠正
+        if (isEditMode) {
+          const editKind = editData?.kind?.toLowerCase()
+            || (editMetadata?.name && (() => {
+              if (editMetadata.name.startsWith('id-ds-')) return 'daemonset';
+              if (editMetadata.name.startsWith('id-sts-')) return 'statefulset';
+              if (editMetadata.name.startsWith('id-dep-')) return 'deployment';
+              return null;
+            })());
+          if (editKind) {
+            const formType = values.workloadType?.toLowerCase();
+            if (editKind !== formType) {
+              console.warn('[WorkloadForm 提交] workloadType 不一致，自动纠正:', { formType, editKind, name: editMetadata?.name });
+              values.workloadType = editKind;
+              syncedValues.workloadType = editKind;
+              resource = buildK8sResource(syncedValues);
+              apiPath = getApiPath(editKind as WorkloadType);
+            }
+          }
+        }
+
         namespace = values.namespace;
         
         // 编辑模式下，保留原有元数据，使用资源 ID 作为 API 路径参数
@@ -6935,7 +6959,7 @@ return (
                           <div style={{ marginTop: 8 }}>VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。</div>
                         )}
                         {networkType === 'custom_nad' && (
-                          <div style={{ marginTop: 8 }}>自定义 NAD 需要预先创建 NetworkAttachmentDefinition 资源。Kube-OVN 类型的 NAD 将自动补充子网注解。</div>
+                          <div style={{ marginTop: 8 }}>自定义 NAD 仅展示当前命名空间下混杂模式已开启的网络。Kube-OVN 类型的 NAD 将自动补充子网注解。非 Kube-OVN 类型（如 macvlan/bridge）的 NAD 需在 NAD 配置中设置 IPAM（如 DHCP 或静态 IP）才能为容器分配 IP 地址。</div>
                         )}
                       </div>
                     }
