@@ -1695,6 +1695,20 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               rules={[
                 { required: true, message: '请输入卷名称' },
                 { validator: validateVolumeName },
+                {
+                  validator: (_: any, value: string) => {
+                    if (!value) return Promise.resolve();
+                    const allVolumes: VolumeConfig[] = form.getFieldValue('volumes') || [];
+                    const duplicates = allVolumes.filter(
+                      (v: VolumeConfig, i: number) =>
+                        i !== index && v?.name && v.name === value,
+                    );
+                    if (duplicates.length > 0) {
+                      return Promise.reject(new Error(`卷名称 "${value}" 已存在，请使用不同的名称`));
+                    }
+                    return Promise.resolve();
+                  },
+                },
               ]}
             >
               <Input placeholder="如: config-volume" />
@@ -1937,12 +1951,12 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
     const basePath = ['volumeMounts', index];
     
     return (
-      <Row key={index} gutter={8} style={{ marginBottom: 8 }} align="middle">
+      <Row key={index} gutter={8} style={{ marginBottom: 8 }}>
         <Col span={6}>
           <Form.Item
             name={[...basePath, 'name']}
+            label="卷名称"
             rules={[{ required: true, message: '请选择卷' }]}
-            style={{ marginBottom: 0 }}
           >
             <Select
               placeholder="选择卷"
@@ -1954,49 +1968,52 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
         <Col span={8}>
           <Form.Item
             name={[...basePath, 'mountPath']}
+            label="挂载路径"
             rules={[
               { required: true, message: '请输入挂载路径' },
               {
                 validator: (_, value) => {
                   if (!value) return Promise.resolve();
-                  // 路径必须以 / 开头
                   if (!value.startsWith('/')) {
                     return Promise.reject(new Error('路径必须以 / 开头'));
                   }
-                  // 不能是根路径 /
                   if (value === '/') {
                     return Promise.reject(new Error('不能挂载到根路径 /'));
                   }
-                  // 不能包含 ..
                   if (value.includes('..')) {
                     return Promise.reject(new Error('路径不能包含 ..'));
                   }
-                  // 不能包含连续的 //
                   if (/\/\//.test(value)) {
                     return Promise.reject(new Error('路径不能包含连续的 //'));
+                  }
+                  const allMounts: VolumeMountConfig[] = form.getFieldValue('volumeMounts') || [];
+                  const duplicates = allMounts.filter(
+                    (m: VolumeMountConfig, i: number) =>
+                      i !== index && m?.mountPath && m.mountPath === value,
+                  );
+                  if (duplicates.length > 0) {
+                    return Promise.reject(new Error(`挂载路径 "${value}" 已被使用，同一容器内不能重复挂载到相同路径`));
                   }
                   return Promise.resolve();
                 },
               },
             ]}
             validateTrigger={['onChange', 'onBlur']}
-            style={{ marginBottom: 0 }}
           >
-            <Input placeholder="挂载路径 (如: /etc/config)" />
+            <Input placeholder="/etc/config" />
           </Form.Item>
         </Col>
         <Col span={4}>
           <Form.Item
             name={[...basePath, 'subPath']}
+            label="子路径"
             rules={[
               {
                 validator: (_, value) => {
                   if (!value) return Promise.resolve();
-                  // K8s subPath 不能以 / 开头，必须是相对路径
                   if (value.startsWith('/')) {
                     return Promise.reject(new Error('子路径不能以 / 开头，请使用相对路径'));
                   }
-                  // 不能包含 ..
                   if (value.includes('..')) {
                     return Promise.reject(new Error('子路径不能包含 ..'));
                   }
@@ -2005,16 +2022,15 @@ const VolumesEditor: React.FC<VolumesEditorProps> = ({
               },
             ]}
             validateTrigger={['onChange', 'onBlur']}
-            style={{ marginBottom: 0 }}
           >
-            <Input placeholder="子路径 (相对路径)" />
+            <Input placeholder="相对路径" />
           </Form.Item>
         </Col>
         <Col span={4}>
           <Form.Item
             name={[...basePath, 'readOnly']}
+            label="只读"
             valuePropName="checked"
-            style={{ marginBottom: 0 }}
           >
             <Switch size="small" />
           </Form.Item>
