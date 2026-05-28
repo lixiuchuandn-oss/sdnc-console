@@ -27,7 +27,7 @@
 | 侧栏 / 导航 | key | Section |
 |-------------|-----|---------|
 | 存储容量 | `overview` | `CloudmapStorageDashboardByBackend` / `CephStorageSection` |
-| 存储配置 | `harvester_addon` | `CephHarvesterAddonSection` + **`hooks/useHarvesterAddonSection`**；列表数据 Section 自拉；**`PageDetailSection.onRefresh`** 须配置（池层 `loadTabResource` 对该 key 仅门控）；代码自评见 **`docs/code-quality.md` §12** |
+| 存储配置 | `harvester_addon` | **`sections/harvesterAddon/README.md`**（域内样板）；`CephHarvesterAddonSection` + **`useHarvesterAddonSection`** / **`useHarvesterAddonSectionData`**；BlockDevice 见 **`lib/cephHarvesterBlockDevices.ts`**；刷新/布局例外已登记 |
 | 存储池 | `storage_pools` | `CephPoolSection` |
 | 块存储 · 远程备份 | `rbd_mirror` | `CephBlockRbdMirrorPane` |
 | 对象存储 · S3 桶 | `rgw_s3_buckets` | `RgwS3BucketsSection` |

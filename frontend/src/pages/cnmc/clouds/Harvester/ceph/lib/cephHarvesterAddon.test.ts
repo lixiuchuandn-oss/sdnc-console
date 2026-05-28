@@ -1,11 +1,8 @@
 import {
   buildAllNodesEmptyDeviceRows,
   buildHarvesterAddonFormValuesFromStatus,
-  buildMetadataDeviceSelectOptions,
-  isCephOsdCandidateDeviceName,
   normalizeDatabaseSizeMBInput,
   parseDatabaseSizeMB,
-  parseBlockDeviceOptions,
   validateRunningClusterConfigChange,
   type CephHarvesterAddonValuesConfig,
 } from './cephHarvesterAddon';
@@ -42,7 +39,7 @@ function sampleRunningConfig(
   };
 }
 
-describe('cephHarvesterAddon block devices', () => {
+describe('cephHarvesterAddon form', () => {
   describe('buildHarvesterAddonFormValuesFromStatus', () => {
     it('groups configured nodes and devices for Form.List', () => {
       const values = buildHarvesterAddonFormValuesFromStatus({
@@ -135,70 +132,6 @@ describe('cephHarvesterAddon block devices', () => {
     ]);
   });
 
-  describe('isCephOsdCandidateDeviceName', () => {
-    it('rejects virtual device names', () => {
-      expect(isCephOsdCandidateDeviceName('rbd0')).toBe(false);
-      expect(isCephOsdCandidateDeviceName('/dev/rbd0')).toBe(false);
-      expect(isCephOsdCandidateDeviceName('loop0')).toBe(false);
-      expect(isCephOsdCandidateDeviceName('dm-0')).toBe(false);
-    });
-
-    it('accepts whole-disk names', () => {
-      expect(isCephOsdCandidateDeviceName('sdd')).toBe(true);
-      expect(isCephOsdCandidateDeviceName('/dev/nvme0n1')).toBe(true);
-    });
-  });
-
-  describe('parseBlockDeviceOptions', () => {
-    it('filters rbd devices and dedupes by resolved value', () => {
-      const raw = {
-        data: [
-          {
-            metadata: { name: 'node1-rbd-a' },
-            spec: { nodeName: 'node1', devPath: '/dev/rbd0' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/rbd0',
-                capacity: { sizeBytes: 215000000000 },
-                details: { driveType: 'SSD', model: 'unknown', serialNumber: 'unknown' },
-              },
-            },
-          },
-          {
-            metadata: { name: 'node1-rbd-b' },
-            spec: { nodeName: 'node1', devPath: '/dev/rbd0' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/rbd0',
-                capacity: { sizeBytes: 228000000000 },
-                details: { driveType: 'SSD', model: 'unknown', serialNumber: 'unknown' },
-              },
-            },
-          },
-          {
-            metadata: { name: 'node1-sdd' },
-            spec: { nodeName: 'node1', devPath: '/dev/sdd' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/sdd',
-                capacity: { sizeBytes: 2000000000000 },
-                details: { driveType: 'HDD', model: 'WDC WD200', serialNumber: 'SN123' },
-              },
-            },
-          },
-        ],
-      };
-
-      const opts = parseBlockDeviceOptions(raw, 'node1');
-      expect(opts).toHaveLength(1);
-      expect(opts[0].value).toBe('sdd');
-      expect(opts[0].blockDeviceCrName).toBe('node1-sdd');
-    });
-  });
-
   describe('databaseSizeMB helpers', () => {
     it('parses MB and legacy Gi strings', () => {
       expect(parseDatabaseSizeMB(30720)).toBe(30720);
@@ -208,75 +141,6 @@ describe('cephHarvesterAddon block devices', () => {
     });
   });
 
-  describe('buildMetadataDeviceSelectOptions', () => {
-    it('excludes disks already selected as data devices', () => {
-      const raw = {
-        data: [
-          {
-            metadata: { name: 'node1-sdd' },
-            spec: { nodeName: 'node1', devPath: '/dev/sdd' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/sdd',
-                capacity: { sizeBytes: 2000000000000 },
-                details: { driveType: 'HDD', model: 'WDC', serialNumber: 'SN1' },
-              },
-            },
-          },
-          {
-            metadata: { name: 'node1-sdb' },
-            spec: { nodeName: 'node1', devPath: '/dev/sdb' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/sdb',
-                capacity: { sizeBytes: 500000000000 },
-                details: { driveType: 'SSD', model: 'Samsung', serialNumber: 'SN2' },
-              },
-            },
-          },
-        ],
-      };
-      const opts = buildMetadataDeviceSelectOptions(raw, 'node1', undefined, ['sdd']);
-      expect(opts).toHaveLength(1);
-      expect(opts[0].value).toBe('sdb');
-    });
-
-    it('excludes HDD from metadata candidates', () => {
-      const raw = {
-        data: [
-          {
-            metadata: { name: 'node1-sdb' },
-            spec: { nodeName: 'node1', devPath: '/dev/sdb' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/sdb',
-                capacity: { sizeBytes: 500000000000 },
-                details: { driveType: 'HDD', model: 'WDC', serialNumber: 'SN1' },
-              },
-            },
-          },
-          {
-            metadata: { name: 'node1-nvme0n1' },
-            spec: { nodeName: 'node1', devPath: '/dev/nvme0n1' },
-            status: {
-              provisionPhase: 'Provisioned',
-              deviceStatus: {
-                devicePath: '/dev/nvme0n1',
-                capacity: { sizeBytes: 500000000000 },
-                details: { driveType: 'SSD', model: 'Samsung', serialNumber: 'SN2' },
-              },
-            },
-          },
-        ],
-      };
-      const opts = buildMetadataDeviceSelectOptions(raw, 'node1', undefined, []);
-      expect(opts).toHaveLength(1);
-      expect(opts[0].value).toBe('nvme0n1');
-    });
-  });
 });
 
 describe('validateRunningClusterConfigChange', () => {

@@ -2,8 +2,13 @@ import React from 'react';
 import { Card, Tag, Tooltip, Typography } from 'antd';
 import { CheckCircleFilled, HddOutlined, LockOutlined } from '@ant-design/icons';
 import {
+  blockDeviceDriveKindIconColor,
+  blockDeviceDriveKindLabel,
+  blockDeviceDriveKindTagColor,
   blockDeviceOptionTooltip,
+  formatBlockDeviceStorageController,
   normalizeDeviceNames,
+  resolveBlockDeviceDriveKind,
   type CephBlockDeviceOption,
 } from '../../lib/cephHarvesterAddon';
 
@@ -40,7 +45,7 @@ const BlockDeviceCardGrid: React.FC<BlockDeviceCardGridProps> = ({
   if (options.length === 0) {
     return (
       <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-        该节点暂无可用磁盘，请确认已挂载数据盘或刷新列表
+        该节点暂无可用于构建存储的硬盘，请确认已挂载数据盘或刷新列表
       </Typography.Text>
     );
   }
@@ -55,7 +60,13 @@ const BlockDeviceCardGrid: React.FC<BlockDeviceCardGridProps> = ({
     >
       {options.map((opt) => {
         const pathLabel = opt.devPath || (opt.value ? `/dev/${opt.value}` : opt.value);
-        const meta = [opt.sizeLabel, opt.driveType, opt.model, opt.serialNumber ? `SN ${opt.serialNumber}` : '']
+        const driveKind = resolveBlockDeviceDriveKind(opt);
+        const meta = [
+          opt.sizeLabel,
+          formatBlockDeviceStorageController(opt.storageController),
+          opt.model,
+          opt.serialNumber ? `SN ${opt.serialNumber}` : '',
+        ]
           .filter(Boolean)
           .join(' · ');
         const isSelected = normalizedValue.includes(opt.value);
@@ -85,7 +96,7 @@ const BlockDeviceCardGrid: React.FC<BlockDeviceCardGridProps> = ({
                   style={{
                     fontSize: 20,
                     marginTop: 2,
-                    color: isSelected ? '#1677ff' : 'rgba(0,0,0,.45)',
+                    color: blockDeviceDriveKindIconColor(driveKind, isSelected),
                   }}
                 />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -93,6 +104,11 @@ const BlockDeviceCardGrid: React.FC<BlockDeviceCardGridProps> = ({
                     <Typography.Text strong ellipsis style={{ maxWidth: '100%' }}>
                       {pathLabel}
                     </Typography.Text>
+                    {driveKind !== 'unknown' ? (
+                      <Tag color={blockDeviceDriveKindTagColor(driveKind)} style={{ margin: 0 }}>
+                        {blockDeviceDriveKindLabel(driveKind)}
+                      </Tag>
+                    ) : null}
                     {isLocked ? (
                       <Tag icon={<LockOutlined />} color="default" style={{ margin: 0 }}>
                         已部署

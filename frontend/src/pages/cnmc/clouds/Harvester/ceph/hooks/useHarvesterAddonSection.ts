@@ -1,36 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Form, message } from 'antd';
 import type { FormInstance } from 'antd/es/form';
-import {
-  applyCephHarvesterAddon,
-  fetchCephHarvesterAddon,
-  type CephHarvesterAddonStatusResponse,
-} from '../../../../../../services/cephApi';
-import { fetchBlockDevices, fetchNodeResources } from '../../../../../../services/monitoringApi';
+import { applyCephHarvesterAddon } from '../../../../../../services/cephApi';
 import type { CephStorageNetworkEditorHandle } from '../sections/harvesterAddon/CephStorageNetworkCard';
 import {
   EXPANSION_SUBMIT_RISK_ITEMS,
   SUBMIT_RISK_ITEMS,
   WIZARD_STEPS,
 } from '../sections/harvesterAddon/addonUiConstants';
+import { runHarvesterSectionRefresh, type HarvesterSectionOnRefresh } from '../lib/cephSectionRefresh';
 import {
-  createHarvesterToolbarRefresh,
-  mergeCephSectionOnRefresh,
-  runHarvesterSectionRefresh,
-  type HarvesterSectionOnRefresh,
-} from '../lib/cephSectionRefresh';
-import {
-  buildAllNodesEmptyDeviceRows,
-  buildDefaultHarvesterAddonFormValues,
-  buildHarvesterAddonFormValuesFromStatus,
   formValuesToApplyConfig,
-  isCephHarvesterAddonRunning,
-  isDefaultEmptyWizardNodeRows,
-  parseNodeNameOptions,
   validateAddonConfig,
   validateRunningClusterConfigChange,
 } from '../lib/cephHarvesterAddon';
 import { summarizeNodeDevices, type HarvesterAddonFormValues } from './harvesterAddonFormTypes';
+import { useHarvesterAddonSectionData } from './useHarvesterAddonSectionData';
 
 export type UseHarvesterAddonSectionParams = {
   cloudId: string;
@@ -47,166 +32,21 @@ export function useHarvesterAddonSection({
   onDeployed,
   storageNetworkRef,
 }: UseHarvesterAddonSectionParams) {
-  const [formInitKey, setFormInitKey] = useState(0);
-  const [formInitialValues, setFormInitialValues] = useState<HarvesterAddonFormValues>(() =>
-    buildDefaultHarvesterAddonFormValues(),
-  );
+  const data = useHarvesterAddonSectionData({ cloudId, form, onRefresh, onDeployed });
+
   const [currentStep, setCurrentStep] = useState(0);
   const [operateTabKey, setOperateTabKey] = useState<'expand' | 'config'>('expand');
-  const [statusLoading, setStatusLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitRiskAck, setSubmitRiskAck] = useState(false);
   const [submitAdminPassword, setSubmitAdminPassword] = useState('');
-  const [metaLoading, setMetaLoading] = useState(false);
   const [expertDrawerOpen, setExpertDrawerOpen] = useState(false);
-  const [status, setStatus] = useState<CephHarvesterAddonStatusResponse | null>(null);
-  const [nodeOptions, setNodeOptions] = useState<{ label: string; value: string }[]>([]);
-  const [blockDevicesRaw, setBlockDevicesRaw] = useState<unknown>(null);
-
-  const pollRef = useRef<number | null>(null);
-  const prevPhaseRef = useRef<CephHarvesterAddonStatusResponse['phase'] | null>(null);
-  const disabledNodesSeededRef = useRef(false);
-  const onDeployedRef = useRef(onDeployed);
-  onDeployedRef.current = onDeployed;
-
-  const notifyDeployedIfNeeded = useCallback((phase: CephHarvesterAddonStatusResponse['phase']) => {
-    const prev = prevPhaseRef.current;
-    prevPhaseRef.current = phase;
-    if (prev === 'progress' && phase === 'success') {
-      onDeployedRef.current?.();
-    }
-  }, []);
-
-  const applyStatusToForm = useCallback(
-    (res: CephHarvesterAddonStatusResponse) => {
-      if (res.phase === 'disabled') {
-        disabledNodesSeededRef.current = false;
-        const currentNodes = form.getFieldValue(['cephCluster', 'nodes']) as
-          | HarvesterAddonFormValues['cephCluster']['nodes']
-          | undefined;
-        if (!isDefaultEmptyWizardNodeRows(currentNodes)) {
-          return;
-        }
-      }
-      const values = buildHarvesterAddonFormValuesFromStatus(res);
-      setFormInitialValues(values);
-      form.setFieldsValue(values);
-      setFormInitKey((k) => k + 1);
-    },
-    [form],
-  );
-
-  const loadMeta = useCallback(async (force?: boolean) => {
-    if (!cloudId) return;
-    setMetaLoading(true);
-    try {
-      const shouldForce = force !== false;
-      const [nodeRes, bdRes] = await Promise.all([
-        fetchNodeResources(cloudId, { force: shouldForce }),
-        fetchBlockDevices(cloudId, { force: shouldForce }),
-      ]);
-      if (nodeRes.ok && nodeRes.data != null) {
-        setNodeOptions(parseNodeNameOptions(nodeRes.data));
-      }
-      if (bdRes.ok && bdRes.data != null) {
-        setBlockDevicesRaw(bdRes.data);
-      }
-    } finally {
-      setMetaLoading(false);
-    }
-  }, [cloudId]);
-
-  const loadStatus = useCallback(
-    async (force?: boolean, opts?: { silent?: boolean }) => {
-      if (!cloudId) return;
-      if (!opts?.silent) setStatusLoading(true);
-      try {
-        const res = await fetchCephHarvesterAddon(cloudId, { force: !!force });
-        if (!res.ok || !res.data) {
-          setStatus(null);
-          prevPhaseRef.current = null;
-          return;
-        }
-        notifyDeployedIfNeeded(res.data.phase);
-        setStatus(res.data);
-        applyStatusToForm(res.data);
-      } finally {
-        if (!opts?.silent) setStatusLoading(false);
-      }
-    },
-    [applyStatusToForm, cloudId, notifyDeployedIfNeeded],
-  );
-
-  const reloadSection = useCallback(
-    async (force?: boolean) => {
-      const shouldForce = force !== false;
-      await Promise.all([loadStatus(shouldForce), loadMeta(shouldForce)]);
-    },
-    [loadMeta, loadStatus],
-  );
-
-  const sectionOnRefresh = useMemo(
-    () => mergeCephSectionOnRefresh(reloadSection, onRefresh),
-    [onRefresh, reloadSection],
-  );
-
-  const handleToolbarRefresh = useMemo(
-    () => createHarvesterToolbarRefresh(sectionOnRefresh),
-    [sectionOnRefresh],
-  );
 
   useEffect(() => {
-    prevPhaseRef.current = null;
-    disabledNodesSeededRef.current = false;
     setCurrentStep(0);
     setOperateTabKey('expand');
-    const defaults = buildDefaultHarvesterAddonFormValues();
-    setFormInitialValues(defaults);
-    setFormInitKey((k) => k + 1);
-    void sectionOnRefresh(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅 cloudId 切换时初始化
   }, [cloudId]);
 
-  useEffect(() => {
-    if (status?.phase !== 'disabled') {
-      disabledNodesSeededRef.current = false;
-      return;
-    }
-    if (disabledNodesSeededRef.current || nodeOptions.length === 0 || metaLoading) return;
-    const currentNodes = form.getFieldValue(['cephCluster', 'nodes']) as
-      | HarvesterAddonFormValues['cephCluster']['nodes']
-      | undefined;
-    if (!isDefaultEmptyWizardNodeRows(currentNodes)) return;
-
-    const base = buildHarvesterAddonFormValuesFromStatus({ phase: 'disabled' });
-    const nodes = buildAllNodesEmptyDeviceRows(nodeOptions);
-    const next = {
-      ...base,
-      cephCluster: { ...base.cephCluster, nodes },
-    };
-    form.setFieldsValue(next);
-    setFormInitialValues(next);
-    setFormInitKey((k) => k + 1);
-    disabledNodesSeededRef.current = true;
-  }, [form, metaLoading, nodeOptions, status?.phase]);
-
-  useEffect(() => {
-    if (pollRef.current != null) {
-      window.clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (status?.phase === 'progress') {
-      pollRef.current = window.setInterval(() => {
-        void loadStatus(true, { silent: true });
-      }, 8000);
-    }
-    return () => {
-      if (pollRef.current != null) window.clearInterval(pollRef.current);
-    };
-  }, [loadStatus, status?.phase]);
-
-  const isRunningCluster = isCephHarvesterAddonRunning(status);
   const watchedExpandNodes = Form.useWatch(['cephCluster', 'nodes'], form);
   const expandUsedNodeNames = useMemo(
     () =>
@@ -215,15 +55,14 @@ export function useHarvesterAddonSection({
       ),
     [watchedExpandNodes],
   );
-  const formDisabled = submitting || metaLoading || status?.phase === 'progress';
-  const configLocked = isRunningCluster;
-  const baselineConfig = isRunningCluster ? status?.config ?? null : null;
-  const submitActionLabel = isRunningCluster
+  const formDisabled = submitting || data.metaLoading || data.status?.phase === 'progress';
+  const configLocked = data.isRunningCluster;
+  const submitActionLabel = data.isRunningCluster
     ? '提交扩容'
-    : status?.exists
+    : data.status?.exists
       ? '保存并应用'
       : '开启统一存储';
-  const submitRiskItems = isRunningCluster ? EXPANSION_SUBMIT_RISK_ITEMS : SUBMIT_RISK_ITEMS;
+  const submitRiskItems = data.isRunningCluster ? EXPANSION_SUBMIT_RISK_ITEMS : SUBMIT_RISK_ITEMS;
   const submitConfirmReady = submitRiskAck && submitAdminPassword.trim().length > 0;
 
   const getWizardFormValues = useCallback((): HarvesterAddonFormValues => {
@@ -320,12 +159,12 @@ export function useHarvesterAddonSection({
 
   const openSubmitConfirm = useCallback(async () => {
     if (!cloudId) return;
-    if (status?.phase === 'progress') {
+    if (data.status?.phase === 'progress') {
       message.warning('统一存储正在部署中，请待完成后再提交配置变更');
       return;
     }
     try {
-      if (isRunningCluster) {
+      if (data.isRunningCluster) {
         await validateWizardStep(1);
       } else {
         for (let step = 0; step < WIZARD_STEPS.length - 1; step += 1) {
@@ -338,7 +177,7 @@ export function useHarvesterAddonSection({
     } catch (e) {
       if (e instanceof Error && e.message) message.warning(e.message);
     }
-  }, [cloudId, isRunningCluster, status?.phase, validateWizardStep]);
+  }, [cloudId, data.isRunningCluster, data.status?.phase, validateWizardStep]);
 
   const executeSubmit = useCallback(async () => {
     const password = submitAdminPassword.trim();
@@ -348,7 +187,7 @@ export function useHarvesterAddonSection({
     }
     setSubmitting(true);
     try {
-      if (!isRunningCluster) {
+      if (!data.isRunningCluster) {
         const saved = await storageNetworkRef.current?.validateAndSave();
         if (saved === false) {
           setCurrentStep(0);
@@ -359,7 +198,7 @@ export function useHarvesterAddonSection({
       const values = getWizardFormValues();
       const overrideYaml = String(values.valuesContentOverride || '').trim();
 
-      if (isRunningCluster && overrideYaml) {
+      if (data.isRunningCluster && overrideYaml) {
         message.warning('已运行集群不支持专家 YAML 覆盖，请使用向导扩容');
         return;
       }
@@ -375,14 +214,14 @@ export function useHarvesterAddonSection({
         }
         closeSubmitConfirm();
         setExpertDrawerOpen(false);
-        setStatus(res.data);
-        prevPhaseRef.current = res.data.phase;
-        applyStatusToForm(res.data);
+        data.setStatus(res.data);
+        data.prevPhaseRef.current = res.data.phase;
+        data.applyStatusToForm(res.data);
         message.success(
           res.data.applied === 'created' ? '已提交开启统一存储' : '已更新统一存储配置',
         );
-        if (res.data.phase === 'success') onDeployedRef.current?.();
-        else void runHarvesterSectionRefresh(sectionOnRefresh, { force: true, silent: true });
+        if (res.data.phase === 'success') onDeployed?.();
+        else void runHarvesterSectionRefresh(data.sectionOnRefresh, { force: true, silent: true });
         return;
       }
 
@@ -390,13 +229,13 @@ export function useHarvesterAddonSection({
       const validationError = validateAddonConfig(config);
       if (validationError) {
         message.warning(validationError);
-        if (!isRunningCluster) setCurrentStep(1);
+        if (!data.isRunningCluster) setCurrentStep(1);
         setOperateTabKey('expand');
         return;
       }
 
-      if (isRunningCluster && status?.config) {
-        const expansionError = validateRunningClusterConfigChange(status.config, config);
+      if (data.isRunningCluster && data.status?.config) {
+        const expansionError = validateRunningClusterConfigChange(data.status.config, config);
         if (expansionError) {
           message.warning(expansionError);
           setOperateTabKey('expand');
@@ -410,62 +249,59 @@ export function useHarvesterAddonSection({
         return;
       }
       closeSubmitConfirm();
-      setStatus(res.data);
-      prevPhaseRef.current = res.data.phase;
-      applyStatusToForm(res.data);
+      data.setStatus(res.data);
+      data.prevPhaseRef.current = res.data.phase;
+      data.applyStatusToForm(res.data);
       message.success(
         res.data.applied === 'created'
           ? '已提交开启统一存储'
-          : isRunningCluster
+          : data.isRunningCluster
             ? '已提交扩容'
             : '已更新统一存储配置',
       );
-      if (res.data.phase === 'success') onDeployedRef.current?.();
-      else void runHarvesterSectionRefresh(sectionOnRefresh, { force: true, silent: true });
+      if (res.data.phase === 'success') onDeployed?.();
+      else void runHarvesterSectionRefresh(data.sectionOnRefresh, { force: true, silent: true });
     } catch {
       /* 表单校验 */
     } finally {
       setSubmitting(false);
     }
   }, [
-    applyStatusToForm,
     closeSubmitConfirm,
     cloudId,
+    data,
     getWizardFormValues,
-    isRunningCluster,
-    sectionOnRefresh,
-    status?.config,
+    onDeployed,
     storageNetworkRef,
     submitAdminPassword,
     submitRiskAck,
   ]);
 
   return {
-    formInitKey,
-    formInitialValues,
+    formInitKey: data.formInitKey,
+    formInitialValues: data.formInitialValues,
     currentStep,
     operateTabKey,
     setOperateTabKey,
-    statusLoading,
+    statusLoading: data.statusLoading,
     submitting,
     submitConfirmOpen,
     submitRiskAck,
     setSubmitRiskAck,
     submitAdminPassword,
     setSubmitAdminPassword,
-    metaLoading,
+    metaLoading: data.metaLoading,
     expertDrawerOpen,
     setExpertDrawerOpen,
-    status,
-    nodeOptions,
-    blockDevicesRaw,
-    handleToolbarRefresh,
-    loadMeta,
-    isRunningCluster,
+    status: data.status,
+    nodeOptions: data.nodeOptions,
+    blockDevicesRaw: data.blockDevicesRaw,
+    loadMeta: data.loadMeta,
+    isRunningCluster: data.isRunningCluster,
     expandUsedNodeNames,
     formDisabled,
     configLocked,
-    baselineConfig,
+    baselineConfig: data.baselineConfig,
     submitActionLabel,
     submitRiskItems,
     submitConfirmReady,

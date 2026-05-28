@@ -402,7 +402,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   );
 
   return (
-    <PageDetailSection contentPadding={16} autoStyleInputs onRefresh={ctrl.handleToolbarRefresh}>
+    <PageDetailSection contentPadding={16} autoStyleInputs>
       <AddonStatusOverview
         status={ctrl.status}
         loading={ctrl.statusLoading}

@@ -17,11 +17,30 @@ export const OPERATE_TAB_BODY_STYLE: CSSProperties = { marginTop: 0 };
 export const NODE_DISK_LIST_LAYOUT_STYLE: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 16,
+  gap: 24,
   width: '100%',
   margin: 0,
   padding: 0,
 };
+
+/** 单张节点配置卡：与页面白底拉开层次，便于区分相邻节点 */
+export const NODE_DISK_NODE_CARD_STYLE: CSSProperties = {
+  background: '#fafafa',
+  border: '1px solid #e5e6eb',
+  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+};
+
+export const NODE_DISK_NODE_CARD_STYLES = {
+  header: {
+    background: '#f2f3f5',
+    borderBottom: '1px solid #e5e6eb',
+    minHeight: 48,
+  },
+  body: {
+    padding: '16px 20px',
+    background: '#fff',
+  },
+} as const;
 
 export const WIZARD_STEPS = [
   { title: '存储网', description: '设定存储网络' },

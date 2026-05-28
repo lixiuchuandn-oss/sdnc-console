@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
-  Card,
   Drawer,
   Empty,
   Form,
@@ -14,57 +13,25 @@ import {
 } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 import type { FormListOperation } from 'antd/es/form';
-import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import {
   buildMetadataDeviceSelectOptions,
-  mergeConfiguredBlockDeviceOptions,
   normalizeDatabaseSizeMBInput,
   normalizeDeviceNames,
-  parseBlockDeviceOptions,
-  parseDatabaseSizeMB,
   baselineNodeDeviceKeySet,
   baselineNodeNameSet,
   type CephHarvesterAddonFormValues,
-  type CephHarvesterAddonNodeFormRow,
   type CephHarvesterAddonValuesConfig,
 } from '../../lib/cephHarvesterAddon';
-import BlockDeviceCardGrid from './BlockDeviceCardGrid';
+import { summarizeNodeDevices } from '../../hooks/harvesterAddonFormTypes';
 import FormSection from './FormSection';
+import NodeDiskNodeCard, { nodeRowHasAdvanced } from './NodeDiskNodeCard';
 import { NODE_DISK_LIST_LAYOUT_STYLE } from './addonUiConstants';
 import { addHarvesterAddonNodeRow } from './nodeDiskAssignmentUtils';
 
 type FormValues = CephHarvesterAddonFormValues & {
   valuesContentOverride?: string;
 };
-
-const deviceNamesFieldRules = [
-  {
-    validator: async (_: unknown, value: unknown) => {
-      if (normalizeDeviceNames(value).length < 1) {
-        throw new Error('请至少选择一块数据盘');
-      }
-    },
-  },
-];
-
-function summarizeNodeDevices(nodes: CephHarvesterAddonNodeFormRow[] | undefined): {
-  diskCount: number;
-  nodeCount: number;
-  duplicateNodeNames: string[];
-} {
-  const rows = (nodes || []).filter(
-    (r) => r?.nodeName && normalizeDeviceNames(r.deviceNames).length > 0,
-  );
-  const nodeNames = (nodes || []).map((r) => r?.nodeName).filter(Boolean) as string[];
-  const duplicateNodeNames = [
-    ...new Set(nodeNames.filter((name, index) => nodeNames.indexOf(name) !== index)),
-  ];
-  return {
-    diskCount: rows.reduce((sum, r) => sum + normalizeDeviceNames(r.deviceNames).length, 0),
-    nodeCount: rows.length,
-    duplicateNodeNames,
-  };
-}
 
 type NodeDiskAssignmentEditorProps = {
   form: FormInstance<FormValues>;
@@ -74,9 +41,7 @@ type NodeDiskAssignmentEditorProps = {
   disabled: boolean;
   baselineConfig: CephHarvesterAddonValuesConfig | null;
   onRefresh: () => void;
-  /** 扩容 Tab：仅渲染列表区，Alert 由父级与「配置详情」Tab 对齐 */
   expansionMode?: boolean;
-  /** 扩容 Tab：向父级暴露 Form.List 的 add/remove，供 Alert 工具栏使用 */
   listOpsRef?: React.MutableRefObject<FormListOperation | null>;
 };
 
@@ -166,7 +131,7 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
           ? ({ margin: 0 } as const)
           : ({ margin: '16px 0' } as const);
 
-        const nodeListContent =
+        const nodeListContent: React.ReactNode =
           fields.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -175,7 +140,7 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
             />
           ) : (
             <div style={NODE_DISK_LIST_LAYOUT_STYLE}>
-              {fields.map((field) => {
+              {fields.map((field, rowIndex) => {
                 const currentNode = watchedNodes?.[field.name]?.nodeName;
                 const nodeLocked = !!(currentNode && lockedNodeNames.has(currentNode));
                 const usedByOthers = new Set(
@@ -185,112 +150,34 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
                     .filter(Boolean) as string[],
                 );
                 const selected = normalizeDeviceNames(watchedNodes?.[field.name]?.deviceNames);
-                const options = currentNode
-                  ? mergeConfiguredBlockDeviceOptions(
-                      parseBlockDeviceOptions(blockDevicesRaw, currentNode),
-                      selected,
-                      currentNode,
-                    )
-                  : [];
-                const hasAdvanced = !!(
-                  watchedNodes?.[field.name]?.metadataDevice?.trim() ||
-                  parseDatabaseSizeMB(watchedNodes?.[field.name]?.databaseSizeMB) != null
-                );
 
                 return (
-                  <Card
+                  <NodeDiskNodeCard
                     key={field.key}
-                    size="small"
-                    styles={{ body: { padding: '16px 20px' } }}
-                    title={
-                      <Form.Item
-                        noStyle
-                        name={[field.name, 'nodeName']}
-                        rules={[{ required: true, message: '请选择节点' }]}
-                      >
-                        <Select
-                          size="small"
-                          variant="borderless"
-                          allowClear
-                          showSearch
-                          placeholder="选择存储节点"
-                          options={nodeOptions.filter(
-                            (o) => o.value === currentNode || !usedByOthers.has(o.value),
-                          )}
-                          optionFilterProp="label"
-                          loading={metaLoading}
-                          disabled={disabled || nodeLocked}
-                          style={{ maxWidth: 320, width: '100%' }}
-                          onChange={() => clearDevicesForRow(field.name)}
-                        />
-                      </Form.Item>
-                    }
-                    extra={
-                      <Space size={4}>
-                        <Button
-                          type="link"
-                          icon={<SettingOutlined />}
-                          disabled={disabled || nodeLocked || !currentNode}
-                          onClick={() => setAdvancedRowIndex(field.name)}
-                          style={hasAdvanced ? { color: '#1677ff' } : undefined}
-                        >
-                          高级参数
-                        </Button>
-                        <Button
-                          type="link"
-                          danger
-                          disabled={disabled || fields.length <= 1 || nodeLocked}
-                          onClick={() => remove(field.name)}
-                        >
-                          移除
-                        </Button>
-                      </Space>
-                    }
-                  >
-                    {!currentNode ? (
-                      <Typography.Text type="secondary">请先选择节点，再勾选数据盘</Typography.Text>
-                    ) : (
-                      <>
-                        <Typography.Text
-                          type="secondary"
-                          style={{ display: 'block', marginBottom: 12, fontSize: 13 }}
-                        >
-                          {selected.length > 0
-                            ? `已选 ${selected.length} 块数据盘`
-                            : '请点选下方磁盘卡片（可多选）'}
-                        </Typography.Text>
-                        <Form.Item
-                          noStyle
-                          name={[field.name, 'deviceNames']}
-                          normalize={(value) => normalizeDeviceNames(value)}
-                          rules={deviceNamesFieldRules}
-                        >
-                          <BlockDeviceCardGrid
-                            options={options}
-                            disabled={disabled || metaLoading}
-                            lockedDevices={lockedDevicesForNode(currentNode)}
-                          />
-                        </Form.Item>
-                      </>
-                    )}
-                    {!currentNode ? (
-                      <Form.Item
-                        noStyle
-                        name={[field.name, 'deviceNames']}
-                        normalize={(value) => normalizeDeviceNames(value)}
-                        rules={deviceNamesFieldRules}
-                        hidden
-                      >
-                        <Select mode="multiple" style={{ display: 'none' }} />
-                      </Form.Item>
-                    ) : null}
-                  </Card>
+                    field={field}
+                    rowIndex={rowIndex}
+                    fieldsLength={fields.length}
+                    currentNode={currentNode}
+                    nodeLocked={nodeLocked}
+                    usedByOthers={usedByOthers}
+                    nodeOptions={nodeOptions}
+                    blockDevicesRaw={blockDevicesRaw}
+                    metaLoading={metaLoading}
+                    disabled={disabled}
+                    selected={selected}
+                    hasAdvanced={nodeRowHasAdvanced(watchedNodes?.[field.name])}
+                    lockedDevices={lockedDevicesForNode(currentNode)}
+                    onNodeChange={() => clearDevicesForRow(field.name)}
+                    onOpenAdvanced={() => setAdvancedRowIndex(field.name)}
+                    onRemove={() => remove(field.name)}
+                    canRemove={fields.length > 1}
+                  />
                 );
               })}
             </div>
           );
 
-        const editorBody = (
+        const editorBody: React.ReactNode = (
           <>
             {!metaLoading && nodeOptions.length === 0 ? (
               <Empty
@@ -313,7 +200,7 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
             {!metaLoading ? (
               <Space wrap size={[16, 4]} style={{ marginTop: 16 }}>
                 <Typography.Text type="secondary">
-                  已选 {summary.diskCount} 块盘，涉及 {summary.nodeCount} 个节点
+                  已选择 {summary.diskCount} 块存储硬盘，涉及 {summary.nodeCount} 个节点
                 </Typography.Text>
                 {nodeOptions.length > 0 ? (
                   <Typography.Text type="secondary">集群共 {nodeOptions.length} 个节点</Typography.Text>
@@ -340,7 +227,7 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
             ) : (
               <FormSection
                 title="节点与数据盘"
-                description="为每个节点选择用于存储的数据盘，可多选。请勿勾选系统盘或仍有业务数据的磁盘。"
+                description="为每个节点选择参与构建存储的硬盘，可多选，推荐每个节点选择的硬盘数量相同。"
                 extra={toolbarButtons}
               >
                 {editorBody}
