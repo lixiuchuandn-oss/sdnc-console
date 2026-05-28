@@ -18,11 +18,19 @@ import { getSystemSetting, updateSystemSetting } from '../../../../../../service
 
 interface Props {
   open: boolean;
+  canRead?: boolean;
+  canEdit?: boolean;
   onClose: () => void;
   onSuccess?: () => void;
 }
 
-const RecycleBinTaskConfigModal: React.FC<Props> = ({ open, onClose, onSuccess }) => {
+const RecycleBinTaskConfigModal: React.FC<Props> = ({
+  open,
+  canRead = true,
+  canEdit = true,
+  onClose,
+  onSuccess,
+}) => {
   const { message: messageApi } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -30,6 +38,10 @@ const RecycleBinTaskConfigModal: React.FC<Props> = ({ open, onClose, onSuccess }
   // 加载当前配置
   useEffect(() => {
     if (open) {
+      if (!canRead) {
+        form.resetFields();
+        return;
+      }
       const loadConfig = async () => {
         try {
           const [shutdownInterval, retentionDays] = await Promise.all([
@@ -57,9 +69,13 @@ const RecycleBinTaskConfigModal: React.FC<Props> = ({ open, onClose, onSuccess }
 
       loadConfig();
     }
-  }, [open, form]);
+  }, [canRead, open, form]);
 
   const handleSubmit = async () => {
+    if (!canEdit) {
+      messageApi.warning('当前为只读权限，无法修改任务配置');
+      return;
+    }
     try {
       const values = await form.validateFields();
       setLoading(true);
@@ -93,18 +109,23 @@ const RecycleBinTaskConfigModal: React.FC<Props> = ({ open, onClose, onSuccess }
     <Modal
       title="回收站定时任务配置"
       open={open}
-      onOk={handleSubmit}
+      onOk={canEdit ? handleSubmit : undefined}
       onCancel={onClose}
       confirmLoading={loading}
-      okText="保存"
+      okText={canEdit ? '保存' : '关闭'}
       cancelText="取消"
+      okButtonProps={{ style: canEdit ? undefined : { display: 'none' } }}
       width={500}
     >
-      <Form
-        form={form}
-        layout="vertical"
-        style={{ marginTop: 24 }}
-      >
+      {!canRead ? (
+        <div style={{ marginTop: 12, color: 'rgba(0,0,0,0.65)' }}>当前账号无权限查看任务配置</div>
+      ) : null}
+      {canRead ? (
+        <Form
+          form={form}
+          layout="vertical"
+          style={{ marginTop: 24 }}
+        >
         <Form.Item
           label="定时关机任务执行间隔"
           name="shutdownIntervalHours"
@@ -117,6 +138,7 @@ const RecycleBinTaskConfigModal: React.FC<Props> = ({ open, onClose, onSuccess }
           <InputNumber
             min={1}
             max={24}
+            disabled={!canEdit}
             style={{ width: '100%' }}
             suffix="小时"
             placeholder="请输入间隔时间"
@@ -135,12 +157,14 @@ const RecycleBinTaskConfigModal: React.FC<Props> = ({ open, onClose, onSuccess }
           <InputNumber
             min={1}
             max={30}
+            disabled={!canEdit}
             style={{ width: '100%' }}
             suffix="天"
             placeholder="请输入保留天数"
           />
         </Form.Item>
-      </Form>
+        </Form>
+      ) : null}
     </Modal>
   );
 };

@@ -49,6 +49,7 @@ import {
 } from '../lib/poolProviders';
 import { CloudsFilterFormValues, matchesPoolVendor, readCloudApiErr } from '../lib/poolsListUtils';
 import { navigateToPoolDetail } from '../lib/poolDetailNav';
+import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../routes/cloudmapPoolNavRows';
 
 const { Text } = Typography;
 
@@ -58,6 +59,15 @@ export function usePoolsListPage() {
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
   const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
   const canSetDefaultPool = canWriteClouds;
+  const canAccessPoolDetail = useMemo(() => {
+    if (hasPermissionForAction(perms, 'clouds.console:read')) return true;
+    return CLOUDMAP_POOL_NAV_ROWS.some((row) => {
+      if (row.poolPageReadAnyOf?.length) {
+        return row.poolPageReadAnyOf.some((act) => hasPermissionForAction(perms, act));
+      }
+      return hasPermissionForAction(perms, row.poolPageAction ?? 'clouds.console:read');
+    });
+  }, [perms]);
 
   const [filterForm] = Form.useForm();
   const [clouds, setClouds] = useState<Cloud[]>([]);
@@ -258,13 +268,17 @@ export function usePoolsListPage() {
         fixed: 'left',
         render: (_text: string, record: Cloud) => (
           <Space size={6}>
-            <Button
-              type="link"
-              onClick={() => navigateToPoolDetail(navigate, record as unknown as Record<string, any>)}
-              style={{ padding: 0, height: 'auto' }}
-            >
-              {record.name}
-            </Button>
+            {canAccessPoolDetail ? (
+              <Button
+                type="link"
+                onClick={() => navigateToPoolDetail(navigate, record as unknown as Record<string, any>)}
+                style={{ padding: 0, height: 'auto' }}
+              >
+                {record.name}
+              </Button>
+            ) : (
+              <Text>{record.name}</Text>
+            )}
             {favoriteCloudId && String(record.id) === String(favoriteCloudId) && (
               <Tag bordered={false} color="gold" style={{ marginInlineEnd: 0 }}>
                 默认
@@ -327,7 +341,7 @@ export function usePoolsListPage() {
           const isFavorite = !!favoriteCloudId && String(record.id) === String(favoriteCloudId);
           const items = filterMenuItemsForReadOnly(
             [
-              { key: 'detail', label: '资源详情' },
+              ...(canAccessPoolDetail ? [{ key: 'detail', label: '资源详情' } as const] : []),
               { key: 'edit', label: '编辑信息' },
               {
                 key: 'test',
@@ -355,7 +369,13 @@ export function usePoolsListPage() {
           );
           const onMenuClick = ({ key }: { key: string }) => {
             if (key === 'test') return void testConnection(record.id);
-            if (key === 'detail') return void navigateToPoolDetail(navigate, record as unknown as Record<string, any>);
+            if (key === 'detail') {
+              if (!canAccessPoolDetail) {
+                message.warning('无资源池内页面访问权限，无法进入资源详情');
+                return;
+              }
+              return void navigateToPoolDetail(navigate, record as unknown as Record<string, any>);
+            }
             if (key === 'edit') return void handleEdit(record);
             if (key === 'setFavorite') {
               void (async () => {
@@ -394,6 +414,7 @@ export function usePoolsListPage() {
     [
       navigate,
       canWriteClouds,
+      canAccessPoolDetail,
       canSetDefaultPool,
       favoriteCloudId,
       testingConnection,

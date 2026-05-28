@@ -8,11 +8,10 @@ import {
   CLOUD_ALERT_RULES_READ,
   CLOUD_ALERT_SECRETS_READ,
   CLOUD_ALERTS_READ,
-  CLOUD_MONITORING_OVERVIEW_READ,
 } from '../../../../../../constants/cloudPermissions';
 
 /** 侧栏：运维监控（Prometheus 大盘） */
-export const MONITORING_OPS_LIST_READ = CLOUD_MONITORING_OVERVIEW_READ;
+export const MONITORING_OPS_LIST_READ = CLOUD_ALERTS_READ;
 
 /** 侧栏：运维告警 / 接入管理 */
 export const MONITORING_ALERTS_SIDEBAR_READ = CLOUD_ALERTS_READ;

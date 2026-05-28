@@ -100,6 +100,10 @@ function isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
 
+function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
+}
+
 export const hasPermissionForAction = (perms: string[], act: string | null): boolean => {
   if (!act) return false; // 未映射的路径默认拒绝访问
   const permsArray = perms || [];
@@ -120,23 +124,25 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
-  // 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，见 isCloudsContainersResourceBase）
+  // 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，且不含 dashboard/resource-pools）
   // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read（含容器）
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':read') &&
-    !isCloudsContainersResourceBase(base)
+    !isCloudsContainersResourceBase(base) &&
+    !isCloudsDashboardOrPoolsResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
     }
   }
 
-  // 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，与上对称）
+  // 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，且不含 dashboard/resource-pools）
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':write') &&
-    !isCloudsContainersResourceBase(base)
+    !isCloudsContainersResourceBase(base) &&
+    !isCloudsDashboardOrPoolsResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:write')) {
       return true;

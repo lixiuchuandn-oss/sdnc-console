@@ -3,7 +3,7 @@
  * 成员 VM：`tower.io/paas-category=vne` 或旧 `tower.io/vne-router=true`（与云数据库列表同一套 `paas-*` 键名）。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip } from 'antd';
+import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip, message } from 'antd';
 import Icon, { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { ReactComponent as VirtualRouterSvg } from '../../../../../../assets/OS/virtual-router.svg';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -166,9 +166,7 @@ const VirtualRouterSection: React.FC<Props> = ({
     const perms = (user?.permissions ?? []) as string[];
     return (
       hasPermissionForAction(perms, 'clouds.vne:write') ||
-      hasPermissionForAction(perms, 'clouds.ecs:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
 
@@ -389,25 +387,29 @@ const VirtualRouterSection: React.FC<Props> = ({
         fixed: 'right' as const,
         render: (_: any, r: any) => {
           const items = filterMenuItemsForReadOnly([
-            {
-              key: 'vrConsole',
-              label: '管理台',
-              disabled: !buildVrouterConsoleUrl(r) || !canManageVne,
-              onClick: () => setVrConsoleVm(r),
-            },
+            ...(canManageVne
+              ? [{
+                  key: 'vrConsole',
+                  label: '管理台',
+                  disabled: !buildVrouterConsoleUrl(r),
+                  onClick: () => setVrConsoleVm(r),
+                }]
+              : []),
             {
               key: 'openInstance',
               label: '云主机详情',
               onClick: () => openVmDetailDrawer(r),
             },
-            {
-              key: 'editLabels',
-              label: '编辑标签',
-              onClick: () => {
-                setLabelEditRecord(r);
-                setLabelEditOpen(true);
-              },
-            },
+            ...(canManageVne
+              ? [{
+                  key: 'editLabels',
+                  label: '编辑标签',
+                  onClick: () => {
+                    setLabelEditRecord(r);
+                    setLabelEditOpen(true);
+                  },
+                }]
+              : []),
             { type: 'divider' as const, key: 'div-yaml' },
             {
               key: 'yamlManifest',
@@ -428,6 +430,10 @@ const VirtualRouterSection: React.FC<Props> = ({
   );
 
   const handleOpenCreateModal = () => {
+    if (!canManageVne) {
+      message.error('当前账号没有虚拟路由器操作权限（需要 clouds.vne:write 或 clouds:write 权限）');
+      return;
+    }
     Promise.resolve(onReloadImages?.()).catch(() => undefined);
     Promise.resolve(onReloadSubnets?.()).catch(() => undefined);
     Promise.resolve(onReloadNads?.()).catch(() => undefined);

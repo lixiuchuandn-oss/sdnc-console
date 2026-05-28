@@ -251,35 +251,39 @@ export function buildRecycleBinTableColumns(
         </span>
       ),
     },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right',
-      render: (_: any, r: any) => {
-        const items: any[] = [
-          { key: 'restore', label: '恢复', onClick: () => onRestore(r) },
-          ...(!isTenant
-            ? [
+    ...((hasRecycleBinWrite || !isTenant)
+      ? ([
+          {
+            title: '操作',
+            key: 'actions',
+            fixed: 'right' as const,
+            render: (_: any, r: any) => {
+              const items: any[] = [
+                { key: 'restore', label: '恢复', onClick: () => onRestore(r) },
+                ...(!isTenant
+                  ? [
+                      { type: 'divider' },
+                      { key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) },
+                    ]
+                  : []),
                 { type: 'divider' },
-                { key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) },
-              ]
-            : []),
-          { type: 'divider' },
-          { key: 'force_delete', label: '彻底删除', danger: true, onClick: () => onForceDelete(r) },
-        ];
-        const filteredItems = filterMenuItemsForReadOnly(items, hasRecycleBinWrite);
-        return (
-          <span>
-            <ResourceActionsDropdown
-              items={filteredItems}
-              buttonProps={{
-                className: 'row-actions-trigger',
-                style: { margin: 0 },
-              }}
-            />
-          </span>
-        );
-      },
-    },
+                { key: 'force_delete', label: '彻底删除', danger: true, onClick: () => onForceDelete(r) },
+              ];
+              const filteredItems = filterMenuItemsForReadOnly(items, hasRecycleBinWrite);
+              return (
+                <span>
+                  <ResourceActionsDropdown
+                    items={filteredItems}
+                    buttonProps={{
+                      className: 'row-actions-trigger',
+                      style: { margin: 0 },
+                    }}
+                  />
+                </span>
+              );
+            },
+          },
+        ] as ColumnsType<any>)
+      : []),
   ];
 }

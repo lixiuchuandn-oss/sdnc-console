@@ -5,17 +5,7 @@
  */
 export const POOL_PAGE_IMPLIED_READ_BASES: Readonly<
   Record<string, readonly string[]>
-> = {
-  'clouds.dc-topology': ['clouds.cluster-nodes', 'clouds.cluster-networks'],
-  'clouds.net-topology': [
-    'clouds.provider-networks',
-    'clouds.cluster-networks',
-    'clouds.vlans',
-    'clouds.cluster-nodes',
-    'clouds.subnets.public',
-    'clouds.nads',
-  ],
-};
+> = {};
 
 /** 页 token 是否隐式满足对某 resource base 的 read */
 export function poolPageTokenGrantsImpliedRead(
