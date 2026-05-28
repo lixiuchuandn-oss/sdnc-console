@@ -30,6 +30,7 @@ const { Text } = Typography;
 
 type Props = {
   open: boolean;
+  canEdit: boolean;
   kw: string;
   permVerb: RolePermVerbFilter;
   grantSelectedIds: string[];
@@ -259,6 +260,7 @@ const PlatformPermissionPanel: React.FC<PlatformPermissionPanelProps> = ({
 
 const RolePermissionDrawer: React.FC<Props> = ({
   open,
+  canEdit,
   kw,
   permVerb,
   grantSelectedIds,
@@ -395,6 +397,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
                 {feature.read && feature.readVisible && (
                   <Checkbox
                     checked={grantSelectedIds.includes(feature.read)}
+                    disabled={!canEdit}
                     onChange={(e) => onPermissionChange(feature.read!, e.target.checked)}
                   >
                     只读
@@ -403,6 +406,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
                 {feature.write && feature.writeVisible && (
                   <Checkbox
                     checked={grantSelectedIds.includes(feature.write)}
+                    disabled={!canEdit}
                     onChange={(e) => onPermissionChange(feature.write!, e.target.checked)}
                   >
                     读写
@@ -507,9 +511,11 @@ const RolePermissionDrawer: React.FC<Props> = ({
       footer={
         <Flex justify="flex-end" gap={G}>
           <Button onClick={onClose}>取消</Button>
-          <Button type="primary" onClick={onSave} loading={confirmLoading}>
-            保存
-          </Button>
+          {canEdit ? (
+            <Button type="primary" onClick={onSave} loading={confirmLoading}>
+              保存
+            </Button>
+          ) : null}
         </Flex>
       }
     >
@@ -537,6 +543,11 @@ const RolePermissionDrawer: React.FC<Props> = ({
             <Text type="secondary" style={{ fontSize: 14, lineHeight: '22px' }}>
               已选择 <Text strong style={{ color: 'var(--ant-color-primary)' }}>{grantSelectedIds.length}</Text> 项
             </Text>
+            {!canEdit && (
+              <Text type="secondary" style={{ fontSize: 14, lineHeight: '22px' }}>
+                当前为只读模式
+              </Text>
+            )}
             <Button
               type="link"
               onClick={copyCurrentPermissions}
@@ -544,13 +555,15 @@ const RolePermissionDrawer: React.FC<Props> = ({
             >
               复制权限
             </Button>
-            <Button
-              type="link"
-              onClick={onClearSelected}
-              style={{ padding: 0, height: 'auto', fontSize: 14, lineHeight: '22px' }}
-            >
-              清空选择
-            </Button>
+            {canEdit ? (
+              <Button
+                type="link"
+                onClick={onClearSelected}
+                style={{ padding: 0, height: 'auto', fontSize: 14, lineHeight: '22px' }}
+              >
+                清空选择
+              </Button>
+            ) : null}
           </Flex>
         </Flex>
 

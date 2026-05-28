@@ -13,14 +13,23 @@ export function normalizeAdminPath(p: string): string {
 
 function findRouteSpecForPath(pathname: string): RouteSpec | undefined {
   const p = normalizeAdminPath(pathname);
-  return routeSpecs.find((r) => {
-    if (r.path === p) return true;
-    if (r.path.includes(':')) {
-      const base = r.path.split(':')[0];
-      return p.startsWith(base);
+  const matchesPath = (targetPath: string, patternPath: string): boolean => {
+    const targetSegments = targetPath.split('/').filter(Boolean);
+    const patternSegments = patternPath.split('/').filter(Boolean);
+    if (targetSegments.length < patternSegments.length) return false;
+
+    for (let i = 0; i < patternSegments.length; i += 1) {
+      const patternSeg = patternSegments[i];
+      const targetSeg = targetSegments[i];
+      if (!patternSeg.startsWith(':') && patternSeg !== targetSeg) {
+        return false;
+      }
     }
-    return false;
-  });
+    return true;
+  };
+
+  const orderedSpecs = [...routeSpecs].sort((a, b) => b.path.length - a.path.length);
+  return orderedSpecs.find((r) => matchesPath(p, normalizeAdminPath(r.path)));
 }
 
 export function canAccessAdminPath(

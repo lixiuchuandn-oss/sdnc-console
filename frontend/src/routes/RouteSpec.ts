@@ -1108,7 +1108,7 @@ export const routeSpecs: RouteSpec[] = [
     requiredActions: {
       page: 'system.audit:read',
       read: 'system.audit:read',
-      write: 'system.audit:read'
+      write: 'system.audit:write'
     },
     homePagePriority: 6
   },

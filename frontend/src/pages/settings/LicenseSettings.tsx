@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Descriptions, Alert, Input, Modal, Upload, message, Row, Col, Typography, Space, Empty, Table, Tag } from 'antd';
 import { useLicense } from '../../contexts/LicenseContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { CheckCircleOutlined, CloseCircleOutlined, UploadOutlined, ReloadOutlined, CrownOutlined, SafetyCertificateOutlined, CloudServerOutlined, AppstoreOutlined, TeamOutlined, SafetyOutlined, ShareAltOutlined, NodeIndexOutlined, GatewayOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import PageContainer from '../../components/PageContainer';
 import axios from 'axios';
 import { API_BASE_URL } from '../../services/api';
 import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
+import { hasPermissionForAction } from '../../utils/accessMapping';
 
 const { TextArea } = Input;
 const { Text } = Typography;
@@ -75,12 +77,16 @@ const FEATURE_GROUPS: Array<{
 ];
 
 const LicenseSettingsPage: React.FC = () => {
+  const { user } = useAuth();
   const { license, loading, refresh, activate } = useLicense();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [inputKey, setInputKey] = useState('');
   const [activating, setActivating] = useState(false);
   const [nodeId, setNodeId] = useState<string | null>(null);
   const [issuerDisplay, setIssuerDisplay] = useState('');
+  const canWriteLicense =
+    user?.role === 'super_admin' ||
+    hasPermissionForAction((user?.permissions ?? []) as string[], 'system.license:write');
   
   const copyText = async (text: string) => {
     try {
@@ -135,6 +141,7 @@ const LicenseSettingsPage: React.FC = () => {
   }, []);
 
   const saveIssuerDisplay = async () => {
+    if (!canWriteLicense) return;
     try {
       await updateSystemSetting('license.issuer_display', issuerDisplay.trim());
       message.success('颁发者展示名称已保存');
@@ -153,6 +160,10 @@ const LicenseSettingsPage: React.FC = () => {
   };
 
   const handleActivate = async () => {
+    if (!canWriteLicense) {
+      message.warning('无权限更新授权');
+      return;
+    }
     if (!inputKey.trim()) {
       message.error('请输入 License Key');
       return;
@@ -274,9 +285,11 @@ const LicenseSettingsPage: React.FC = () => {
           title={<span><CrownOutlined style={{ marginRight: 8 }} />授权状态</span>}
           extra={
             <Space>
-              <Button type="primary" onClick={() => setIsModalOpen(true)}>
-                {license.status === 'valid' ? '更新授权' : '导入授权'}
-              </Button>
+              {canWriteLicense ? (
+                <Button type="primary" onClick={() => setIsModalOpen(true)}>
+                  {license.status === 'valid' ? '更新授权' : '导入授权'}
+                </Button>
+              ) : null}
               <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}></Button>
             </Space>
           }
@@ -317,6 +330,7 @@ const LicenseSettingsPage: React.FC = () => {
                     value={issuerDisplay}
                     onChange={(e) => setIssuerDisplay(e.target.value)}
                     onBlur={saveIssuerDisplay}
+                    disabled={!canWriteLicense}
                     style={{ maxWidth: 400 }}
                   />
                   <Text type="secondary" style={{ fontSize: 12 }}>
@@ -475,7 +489,8 @@ const LicenseSettingsPage: React.FC = () => {
               image={Empty.PRESENTED_IMAGE_SIMPLE} 
               description={
                 <span>
-                  暂无详细授权信息，请<a onClick={() => setIsModalOpen(true)}>导入授权文件</a>
+                  暂无详细授权信息
+                  {canWriteLicense ? <>，请<a onClick={() => setIsModalOpen(true)}>导入授权文件</a></> : null}
                 </span>
               } 
             />
@@ -505,6 +520,7 @@ const LicenseSettingsPage: React.FC = () => {
         onOk={handleActivate}
         onCancel={() => setIsModalOpen(false)}
         confirmLoading={activating}
+        okButtonProps={{ disabled: !canWriteLicense }}
         okText="激活"
         cancelText="取消"
         width={600}
@@ -522,8 +538,9 @@ const LicenseSettingsPage: React.FC = () => {
             showUploadList={false} 
             accept=".key,.txt"
             customRequest={() => {}} // 禁用默认上传行为
+            disabled={!canWriteLicense}
           >
-            <Button icon={<UploadOutlined />} size="large" block>从本地文件导入授权</Button>
+            <Button icon={<UploadOutlined />} size="large" block disabled={!canWriteLicense}>从本地文件导入授权</Button>
           </Upload>
         </div>
         
@@ -535,6 +552,7 @@ const LicenseSettingsPage: React.FC = () => {
           placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
           value={inputKey}
           onChange={(e) => setInputKey(e.target.value)}
+          disabled={!canWriteLicense}
           style={{ fontFamily: 'monospace' }}
         />
       </Modal>

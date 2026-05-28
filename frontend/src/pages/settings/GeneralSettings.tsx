@@ -3,14 +3,18 @@ import { Card, Form, Button, Input, App, Upload, Image, Typography, ColorPicker,
 import { BgColorsOutlined, UploadOutlined, DeleteOutlined, LoginOutlined } from '@ant-design/icons';
 import PageContainer from '../../components/PageContainer';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useAuth } from '../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../utils/accessMapping';
 
 const GeneralSettings: React.FC = () => {
   const { message } = App.useApp();
+  const { user } = useAuth();
   const [themeForm] = Form.useForm();
   const [contentCardForm] = Form.useForm();
   const [loginForm] = Form.useForm();
   const { settings, updateSetting, loading } = useSettings();
   const [previewIcon, setPreviewIcon] = useState<string | undefined>(undefined);
+  const canWrite = user?.role === 'super_admin' || hasPermissionForAction(user?.permissions || [], 'system.settings:write');
 
   useEffect(() => {
     themeForm.setFieldsValue({
@@ -38,6 +42,10 @@ const GeneralSettings: React.FC = () => {
   }, [settings, themeForm, contentCardForm, loginForm]);
 
   const handleSaveTheme = async (values: any) => {
+    if (!canWrite) {
+      message.warning('无权限修改界面设置');
+      return;
+    }
     const getHexString = (color: any, fallback: string): string => {
       if (!color) return fallback;
       if (typeof color === 'string') {
@@ -71,6 +79,10 @@ const GeneralSettings: React.FC = () => {
   };
 
   const handleSaveContentCard = async (values: any) => {
+    if (!canWrite) {
+      message.warning('无权限修改界面设置');
+      return;
+    }
     const getHexString = (color: any, fallback: string): string => {
       if (!color) return fallback;
       if (typeof color === 'string') {
@@ -112,6 +124,10 @@ const GeneralSettings: React.FC = () => {
   };
 
   const handleSaveLogin = async (values: any) => {
+    if (!canWrite) {
+      message.warning('无权限修改界面设置');
+      return;
+    }
     // ColorPicker 可能返回 Color 对象，需要转换为 hex 字符串
     const getHexString = (color: any, defaultValue: string): string => {
       if (!color) return defaultValue;
@@ -204,10 +220,11 @@ const GeneralSettings: React.FC = () => {
                     beforeUpload={handleIconUpload} 
                     showUploadList={false} 
                     accept=".png,.jpg,.jpeg,.svg"
+                    disabled={!canWrite}
                   >
-                    <Button icon={<UploadOutlined />}>上传</Button>
+                    <Button icon={<UploadOutlined />} disabled={!canWrite}>上传</Button>
                   </Upload>
-                  {previewIcon && (
+                  {canWrite && previewIcon && (
                     <Button danger icon={<DeleteOutlined />} onClick={handleClearIcon} />
                   )}
                 </div>
@@ -288,7 +305,7 @@ const GeneralSettings: React.FC = () => {
               </div>
             )}
             <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
+              {canWrite ? <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button> : null}
             </Form.Item>
           </Form>
         </Card>
@@ -323,7 +340,7 @@ const GeneralSettings: React.FC = () => {
               />
             </Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
+              {canWrite ? <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button> : null}
             </Form.Item>
           </Form>
         </Card>
@@ -454,7 +471,7 @@ const GeneralSettings: React.FC = () => {
               />
             </Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button>
+              {canWrite ? <Button type="primary" htmlType="submit" loading={loading}>保存设置</Button> : null}
             </Form.Item>
           </Form>
         </Card>

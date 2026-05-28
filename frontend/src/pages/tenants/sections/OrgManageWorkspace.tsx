@@ -52,6 +52,9 @@ export default function OrgManageWorkspace() {
   const {
     navigate,
     tenantId,
+    canWriteOrganizations,
+    canWriteTenantUsers,
+    canWriteRoleAssignments,
     modal,
     contextHolder,
     messageApi,
@@ -221,48 +224,52 @@ export default function OrgManageWorkspace() {
                       </div>
 
                       <div className="toolbar-actions" style={{ display: 'flex', gap: 8 }}>
-                        <Button 
-                          type="primary" 
-                          onClick={() => {
-                            userForm.resetFields();
-                            const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
-                            userForm.setFieldsValue({ organizationId: selectedOrg?.id, username: rand });
-                            setUserDrawerOpen(true);
-                          }}
-                        >添加用户</Button>
+                        {canWriteTenantUsers ? (
+                          <Button 
+                            type="primary" 
+                            onClick={() => {
+                              userForm.resetFields();
+                              const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+                              userForm.setFieldsValue({ organizationId: selectedOrg?.id, username: rand });
+                              setUserDrawerOpen(true);
+                            }}
+                          >添加用户</Button>
+                        ) : null}
                         <TableColumnSettingsButton allColumns={userColumns} settingsKey="org_manage_users" />
-                        <Dropdown
-                          menu={{
-                            items: [
-                              { key: 'batchDelete', label: '批量删除', danger: true, disabled: selectedUserRowKeys.length === 0 },
-                            ],
-                            onClick: ({ key }) => {
-                              if (key === 'batchDelete') {
-                                modal.confirm({
-                                  title: '确认批量删除用户',
-                                  content: '删除后将无法恢复，这些用户将无法继续访问系统。',
-                                  okText: '删除',
-                                  cancelText: '取消',
-                                  onOk: async () => { 
-                                    if (!tenantId || !selectedOrg) return;
-                                    try {
-                                      await Promise.all(selectedUserRowKeys.map(id => 
-                                        apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${id}`)
-                                      ));
-                                      messageApi.success('批量删除成功');
-                                      setSelectedUserRowKeys([]);
-                                      fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
-                                    } catch (e: any) {
-                                      messageApi.error(e?.message || '批量删除失败');
-                                    }
-                                  },
-                                });
+                        {canWriteTenantUsers ? (
+                          <Dropdown
+                            menu={{
+                              items: [
+                                { key: 'batchDelete', label: '批量删除', danger: true, disabled: selectedUserRowKeys.length === 0 },
+                              ],
+                              onClick: ({ key }) => {
+                                if (key === 'batchDelete') {
+                                  modal.confirm({
+                                    title: '确认批量删除用户',
+                                    content: '删除后将无法恢复，这些用户将无法继续访问系统。',
+                                    okText: '删除',
+                                    cancelText: '取消',
+                                    onOk: async () => { 
+                                      if (!tenantId || !selectedOrg || !canWriteTenantUsers) return;
+                                      try {
+                                        await Promise.all(selectedUserRowKeys.map(id => 
+                                          apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${id}`)
+                                        ));
+                                        messageApi.success('批量删除成功');
+                                        setSelectedUserRowKeys([]);
+                                        fetchUsers(tenantId, selectedOrg.id, true); // 强制刷新，跳过缓存
+                                      } catch (e: any) {
+                                        messageApi.error(e?.message || '批量删除失败');
+                                      }
+                                    },
+                                  });
+                                }
                               }
-                            }
-                          }}
-                        >
-                          <Button icon={<EllipsisOutlined />} />
-                        </Dropdown>
+                            }}
+                          >
+                            <Button icon={<EllipsisOutlined />} />
+                          </Dropdown>
+                        ) : null}
                         <Tooltip title="刷新列表">
                           <Button 
                             icon={<ReloadOutlined />} 
@@ -277,7 +284,11 @@ export default function OrgManageWorkspace() {
                     </div>
                     <Table
                       columns={userDisplayColumns}
-                      rowSelection={{ selectedRowKeys: selectedUserRowKeys, onChange: (keys)=> setSelectedUserRowKeys(keys as string[]) }}
+                      rowSelection={
+                        canWriteTenantUsers
+                          ? { selectedRowKeys: selectedUserRowKeys, onChange: (keys)=> setSelectedUserRowKeys(keys as string[]) }
+                          : undefined
+                      }
                       dataSource={users.filter((u) => {
                         if (userStatusFilter && u.status !== userStatusFilter) return false;
                         if (!userKeyword.trim()) return true;
@@ -316,15 +327,17 @@ export default function OrgManageWorkspace() {
                         />
                         <div style={{ display: 'flex', gap: 8 }}>
 
-                          <Button 
-                            type="primary" 
-                            onClick={() => {
-                              fetchResourcePools();
-                              resourcePoolForm.resetFields();
-                              setAssignType('compute');
-                              setResourcePoolDrawerOpen(true);
-                            }}
-                          >分配计算资源池</Button>
+                          {canWriteOrganizations ? (
+                            <Button 
+                              type="primary" 
+                              onClick={() => {
+                                fetchResourcePools();
+                                resourcePoolForm.resetFields();
+                                setAssignType('compute');
+                                setResourcePoolDrawerOpen(true);
+                              }}
+                            >分配计算资源池</Button>
+                          ) : null}
                           <TableColumnSettingsButton allColumns={assignmentColumns} settingsKey="org_manage_assignments" />
                           <Tooltip title="刷新列表">
                             <Button 
@@ -381,15 +394,17 @@ export default function OrgManageWorkspace() {
                               }} 
                             />
                           </Tooltip>
-                          <Button 
-                            type="primary" 
-                            onClick={() => {
-                              fetchResourcePools();
-                              resourcePoolForm.resetFields();
-                              setAssignType('storage');
-                              setResourcePoolDrawerOpen(true);
-                            }}
-                         >分配存储资源池</Button>
+                          {canWriteOrganizations ? (
+                            <Button 
+                              type="primary" 
+                              onClick={() => {
+                                fetchResourcePools();
+                                resourcePoolForm.resetFields();
+                                setAssignType('storage');
+                                setResourcePoolDrawerOpen(true);
+                              }}
+                           >分配存储资源池</Button>
+                          ) : null}
                         </div>
                     </div>
                     <Table
@@ -438,15 +453,17 @@ export default function OrgManageWorkspace() {
                               }} 
                             />
                           </Tooltip>
-                          <Button
-                            type="primary"
-                            onClick={() => {
-                              fetchResourcePools();
-                              resourcePoolForm.resetFields();
-                              setAssignType('security');
-                              setResourcePoolDrawerOpen(true);
-                            }}
-                          >分配安全资源池</Button>
+                          {canWriteOrganizations ? (
+                            <Button
+                              type="primary"
+                              onClick={() => {
+                                fetchResourcePools();
+                                resourcePoolForm.resetFields();
+                                setAssignType('security');
+                                setResourcePoolDrawerOpen(true);
+                              }}
+                            >分配安全资源池</Button>
+                          ) : null}
                         </div>
                     </div>
                     <Table
@@ -567,23 +584,26 @@ export default function OrgManageWorkspace() {
                               title: '操作',
                               key: 'action',
                               width: 100,
-                              render: (_: any, r: any) => (
-                                <Button type="link" danger size="small" onClick={() => {
-                                  modal.confirm({
-                                    title: '确认删除',
-                                    content: '确定要删除该VR绑定记录吗？',
-                                    onOk: async () => {
-                                      try {
-                                        await apiDelete(`/api/vr-config/${r.uuid}`);
-                                        messageApi.success('删除成功');
-                                        fetchSdnVrs();
-                                      } catch (e) {
-                                        messageApi.error('删除失败');
+                              render: (_: any, r: any) =>
+                                canWriteOrganizations ? (
+                                  <Button type="link" danger size="small" onClick={() => {
+                                    modal.confirm({
+                                      title: '确认删除',
+                                      content: '确定要删除该VR绑定记录吗？',
+                                      onOk: async () => {
+                                        try {
+                                          await apiDelete(`/api/vr-config/${r.uuid}`);
+                                          messageApi.success('删除成功');
+                                          fetchSdnVrs();
+                                        } catch (e) {
+                                          messageApi.error('删除失败');
+                                        }
                                       }
-                                    }
-                                  });
-                                }}>删除</Button>
-                              )
+                                    });
+                                  }}>删除</Button>
+                                ) : (
+                                  <Typography.Text type="secondary">—</Typography.Text>
+                                )
                             }
                           ]}
                         />
@@ -1055,6 +1075,7 @@ export default function OrgManageWorkspace() {
           )()}
           targetKeys={roleAssignSelected}
           onChange={(next) => setRoleAssignSelected(next.map(String))}
+          disabled={!canWriteRoleAssignments}
           titles={["角色库","已选角色"]}
           render={(item: any) => item.title}
           rowKey={(item: any) => item.key}

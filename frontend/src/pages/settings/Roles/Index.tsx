@@ -31,6 +31,18 @@ const AccessRolesPage: React.FC = () => {
   const userPerms = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
   const role = String(user?.role || '').toLowerCase();
   const canWrite = role === 'super_admin' || hasPermissionForAction(userPerms, 'system.roles:write');
+  const canReadActions =
+    role === 'super_admin' ||
+    hasPermissionForAction(userPerms, 'system.actions:read') ||
+    hasPermissionForAction(userPerms, 'system.actions:write');
+  const canWriteActions =
+    role === 'super_admin' || hasPermissionForAction(userPerms, 'system.actions:write');
+  const canConfigurePermissions = canReadActions;
+  const canEditPermissions = canWrite && canWriteActions;
+  const canAssignUsersRead =
+    role === 'super_admin' || hasPermissionForAction(userPerms, 'system.roles.assignments:read');
+  const canAssignUsersWrite =
+    role === 'super_admin' || hasPermissionForAction(userPerms, 'system.roles.assignments:write');
 
   const [roles, setRoles] = useState<RBACRole[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
@@ -103,13 +115,16 @@ const AccessRolesPage: React.FC = () => {
 
   const handlePermissionChange = useCallback(
     (action: string, checked: boolean) => {
+      if (!canEditPermissions) {
+        return;
+      }
       if (checked) {
         setGrantSelectedIds((prev) => expandRoleGrantOnCheck(action, prev));
       } else {
         setGrantSelectedIds((prev) => prev.filter((id) => id !== action));
       }
     },
-    [],
+    [canEditPermissions],
   );
 
   const normalizeForBackendSave = useCallback(
@@ -118,9 +133,13 @@ const AccessRolesPage: React.FC = () => {
   );
 
   const openAssignUser = useCallback((target: RBACRole) => {
+    if (!canAssignUsersRead) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     setAssignUserTarget(target);
     setAssignUserOpen(true);
-  }, []);
+  }, [canAssignUsersRead]);
 
   const closeAssignDrawer = useCallback(() => {
     setAssignUserOpen(false);
@@ -128,6 +147,10 @@ const AccessRolesPage: React.FC = () => {
   }, []);
 
   const handleCreate = useCallback(async () => {
+    if (!canWrite) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     try {
       const vals = await createForm.validateFields();
       const payload = { name: vals.name, description: vals.description || '', scope: vals.scope };
@@ -150,10 +173,18 @@ const AccessRolesPage: React.FC = () => {
     } catch (error: unknown) {
       message.error(error instanceof Error ? error.message : '创建角色失败');
     }
-  }, [createForm, fetchRoles]);
+  }, [canWrite, createForm, fetchRoles]);
 
   const handleGrantSave = useCallback(
     async (targetKeys: string[]) => {
+      if (!canConfigurePermissions) {
+        message.warning('无权限执行该操作');
+        return;
+      }
+      if (!canEditPermissions) {
+        message.warning('无权限执行该操作');
+        return;
+      }
       if (!grantTarget) return;
       setGrantSaving(true);
       try {
@@ -170,17 +201,25 @@ const AccessRolesPage: React.FC = () => {
         setGrantSaving(false);
       }
     },
-    [grantTarget, normalizeForBackendSave, fetchRoles],
+    [canConfigurePermissions, canEditPermissions, grantTarget, normalizeForBackendSave, fetchRoles],
   );
 
   const openAuthorize = useCallback((target: RBACRole) => {
+    if (!canConfigurePermissions) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     setGrantTarget(target);
     setGrantSelectedIds(mapLegacySubnetsToSplit(target.actions || []));
     setGrantOpen(true);
-  }, []);
+  }, [canConfigurePermissions]);
 
   const handleDelete = useCallback(
     async (target: RBACRole) => {
+      if (!canWrite) {
+        message.warning('无权限执行该操作');
+        return;
+      }
       try {
         await apiDelete(`/api/system/rbac/roles/${target.id}`);
         message.success('删除成功');
@@ -189,11 +228,13 @@ const AccessRolesPage: React.FC = () => {
         message.error(error instanceof Error ? error.message : '删除失败');
       }
     },
-    [fetchRoles],
+    [canWrite, fetchRoles],
   );
 
   const fullColumns = useRoleListColumns({
     canWrite,
+    canAssignUsers: canAssignUsersRead,
+    canConfigurePermissions,
     modal,
     onAuthorize: openAuthorize,
     onAssignUser: openAssignUser,
@@ -265,7 +306,8 @@ const AccessRolesPage: React.FC = () => {
               新建角色
             </Button>
           )}
-          <Dropdown
+          {canWrite ? (
+            <Dropdown
             menu={{
               items: [
                 {
@@ -273,6 +315,10 @@ const AccessRolesPage: React.FC = () => {
                   label: '批量删除',
                   danger: true,
                   onClick: () => {
+                    if (!canWrite) {
+                      message.warning('无权限执行该操作');
+                      return;
+                    }
                     if (!selectedRowKeys.length) {
                       message.warning('请先选择角色');
                       return;
@@ -311,7 +357,8 @@ const AccessRolesPage: React.FC = () => {
             trigger={['click']}
           >
             <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
+            </Dropdown>
+          ) : null}
           <TableColumnSettingsButton allColumns={fullColumns} settingsKey="access_roles_v2" />
           <Button icon={<ReloadOutlined />} onClick={() => void fetchRoles()} />
         </div>
@@ -320,10 +367,14 @@ const AccessRolesPage: React.FC = () => {
       <Table
         className="std-table"
         rowKey="id"
-        rowSelection={{
-          selectedRowKeys,
-          onChange: setSelectedRowKeys,
-        }}
+        rowSelection={
+          canWrite
+            ? {
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+              }
+            : undefined
+        }
         dataSource={filteredRoles}
         columns={displayedColumns}
         pagination={{
@@ -339,6 +390,7 @@ const AccessRolesPage: React.FC = () => {
         onCancel={() => setCreateOpen(false)}
         onOk={() => createForm.submit()}
         okText="创建"
+        okButtonProps={{ disabled: !canWrite }}
         destroyOnHidden
         width={600}
         centered
@@ -370,6 +422,7 @@ const AccessRolesPage: React.FC = () => {
 
       <RolePermissionDrawer
         open={grantOpen}
+        canEdit={canEditPermissions}
         kw={kw}
         permVerb={permVerb}
         grantSelectedIds={grantSelectedIds}
@@ -377,7 +430,10 @@ const AccessRolesPage: React.FC = () => {
         confirmLoading={grantSaving}
         onKwChange={setKw}
         onPermVerbChange={setPermVerb}
-        onClearSelected={() => setGrantSelectedIds([])}
+        onClearSelected={() => {
+          if (!canEditPermissions) return;
+          setGrantSelectedIds([]);
+        }}
         onPermissionChange={handlePermissionChange}
         onClose={() => {
           setGrantOpen(false);
@@ -389,6 +445,7 @@ const AccessRolesPage: React.FC = () => {
       <RoleAssignUsersDrawer
         open={assignUserOpen}
         target={assignUserTarget}
+        canWrite={canAssignUsersWrite}
         onClose={closeAssignDrawer}
         onSaved={() => void fetchRoles()}
       />

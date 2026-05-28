@@ -117,16 +117,22 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   }
 
   const currentSpec = (() => {
-    const p = String(location.pathname || '');
-    const found = routeSpecs.find((r) => {
-      if (r.path === p) return true;
-      if (r.path.includes(':')) {
-        const base = r.path.split(':')[0];
-        return p.startsWith(base);
+    const p = normalizeAdminPath(String(location.pathname || ''));
+    const matchesPath = (targetPath: string, patternPath: string): boolean => {
+      const targetSegments = targetPath.split('/').filter(Boolean);
+      const patternSegments = patternPath.split('/').filter(Boolean);
+      if (targetSegments.length < patternSegments.length) return false;
+      for (let i = 0; i < patternSegments.length; i += 1) {
+        const patternSeg = patternSegments[i];
+        const targetSeg = targetSegments[i];
+        if (!patternSeg.startsWith(':') && patternSeg !== targetSeg) {
+          return false;
+        }
       }
-      return false;
-    });
-    return found;
+      return true;
+    };
+    const orderedSpecs = [...routeSpecs].sort((a, b) => b.path.length - a.path.length);
+    return orderedSpecs.find((r) => matchesPath(p, normalizeAdminPath(r.path)));
   })();
 
   if (currentSpec?.requiredFeature && !hasFeature(currentSpec.requiredFeature)) {
