@@ -10,6 +10,8 @@ const { Text, Link } = Typography;
 
 export type RoleListColumnsOptions = {
   canWrite: boolean;
+  canAssignUsers: boolean;
+  canConfigurePermissions: boolean;
   modal: ReturnType<typeof App.useApp>['modal'];
   onAuthorize: (role: RBACRole) => void;
   onAssignUser: (role: RBACRole) => void;
@@ -17,7 +19,7 @@ export type RoleListColumnsOptions = {
 };
 
 export function useRoleListColumns(options: RoleListColumnsOptions) {
-  const { canWrite, modal, onAuthorize, onAssignUser, onDelete } = options;
+  const { canWrite, canAssignUsers, canConfigurePermissions, modal, onAuthorize, onAssignUser, onDelete } = options;
 
   return useMemo(
     () => [
@@ -57,7 +59,7 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         align: 'left' as const,
         render: (_: unknown, row: RBACRole) => {
           const n = getRolePermissionCount(row);
-          if (!canWrite) return <Text>{n}</Text>;
+          if (!canConfigurePermissions) return <Text>{n}</Text>;
           return (
             <Link
               onClick={(e) => {
@@ -78,7 +80,7 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         align: 'left' as const,
         render: (_: unknown, row: RBACRole) => {
           const n = typeof row.grantedUserCount === 'number' ? row.grantedUserCount : 0;
-          if (!canWrite) return <Text>{n}</Text>;
+          if (!canAssignUsers) return <Text>{n}</Text>;
           return (
             <Link
               onClick={(e) => {
@@ -113,20 +115,28 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         align: 'left' as const,
         fixed: 'right' as const,
         render: (_: unknown, row: RBACRole) => {
-          if (!canWrite) return <Text type="secondary">—</Text>;
+          if (!canWrite && !canAssignUsers && !canConfigurePermissions) return <Text type="secondary">—</Text>;
           const items: MenuProps['items'] = [
-            {
-              key: 'auth',
-              label: '配置权限',
-              onClick: () => onAuthorize(row),
-            },
-            {
-              key: 'assign',
-              label: '授予用户',
-              onClick: () => onAssignUser(row),
-            },
+            ...(canConfigurePermissions
+              ? [
+                  {
+                    key: 'auth',
+                    label: '配置权限',
+                    onClick: () => onAuthorize(row),
+                  },
+                ]
+              : []),
+            ...(canAssignUsers
+              ? [
+                  {
+                    key: 'assign',
+                    label: '授予用户',
+                    onClick: () => onAssignUser(row),
+                  },
+                ]
+              : []),
           ];
-          if (row.type !== '系统策略') {
+          if (canWrite && row.type !== '系统策略') {
             items.push({ type: 'divider' });
             items.push({
               key: 'delete',
@@ -152,6 +162,6 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         },
       },
     ],
-    [canWrite, modal, onAuthorize, onAssignUser, onDelete],
+    [canAssignUsers, canConfigurePermissions, canWrite, modal, onAuthorize, onAssignUser, onDelete],
   );
 }

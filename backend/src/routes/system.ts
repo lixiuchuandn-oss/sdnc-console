@@ -70,6 +70,29 @@ function hasFavoritePoolSettingAccess(req: AuthRequest, isWrite: boolean): boole
   );
 }
 
+function hasAuditSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return checkPermission(perms, 'system.audit:write');
+  }
+  return checkPermission(perms, 'system.audit:read') || checkPermission(perms, 'system.audit:write');
+}
+
+const INTEGRATION_SETTING_KEYS = new Set([
+  'CSMCTL_ADDRESS',
+  'ai_soc_frontend_url',
+  'ai_soc_backend_url',
+  'ai_soc_base_url',
+]);
+
+function hasIntegrationSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return checkPermission(perms, 'system.integration:write');
+  }
+  return checkPermission(perms, 'system.integration:read') || checkPermission(perms, 'system.integration:write');
+}
+
 function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
   return (req: AuthRequest, res: any, next: any) => {
     if (req.params.key === 'favorite.cloudId') {
@@ -77,6 +100,22 @@ function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
         return res
           .status(403)
           .json({ message: isWrite ? '权限不足：需要资源池管理-管理' : '权限不足：需要资源池管理权限' });
+      }
+      return next();
+    }
+    if (req.params.key === 'audit.logs.retention_days') {
+      if (!hasAuditSettingAccess(req, isWrite)) {
+        return res
+          .status(403)
+          .json({ message: isWrite ? '权限不足：需要操作审计-管理' : '权限不足：需要操作审计权限' });
+      }
+      return next();
+    }
+    if (INTEGRATION_SETTING_KEYS.has(req.params.key)) {
+      if (!hasIntegrationSettingAccess(req, isWrite)) {
+        return res
+          .status(403)
+          .json({ message: isWrite ? '权限不足：需要高级集成-管理' : '权限不足：需要高级集成权限' });
       }
       return next();
     }

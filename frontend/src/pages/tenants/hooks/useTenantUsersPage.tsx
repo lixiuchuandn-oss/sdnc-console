@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { MenuProps } from 'antd';
-import { Form, message, Modal } from 'antd';
+import { Form, message, Modal, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import { apiDelete, apiPost, apiPut, apiRequest } from '../../../services/api';
+import { useAuth } from '../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../utils/rbacUi';
 import type {
   Assignment,
   CreateUserFormValues,
@@ -14,6 +17,22 @@ import type {
 import { displayRolesForTenantUser } from '../lib/tenantUsers';
 
 export function useTenantUsersPage() {
+  const { user } = useAuth();
+  const userPerms = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
+  const role = String(user?.role || '').toLowerCase();
+  const isSuperAdmin = role === 'super_admin';
+  const canReadTenantUsers =
+    isSuperAdmin ||
+    hasPermissionForAction(userPerms, 'tenant-users:read') ||
+    hasPermissionForAction(userPerms, 'tenant-users:write');
+  const canWriteTenantUsers = isSuperAdmin || hasPermissionForAction(userPerms, 'tenant-users:write');
+  const canReadRoleAssignments =
+    isSuperAdmin ||
+    hasPermissionForAction(userPerms, 'system.roles.assignments:read') ||
+    hasPermissionForAction(userPerms, 'system.roles.assignments:write');
+  const canWriteRoleAssignments =
+    isSuperAdmin || hasPermissionForAction(userPerms, 'system.roles.assignments:write');
+
   const [users, setUsers] = useState<TenantUser[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<TenantUser[]>([]);
   const [loading, setLoading] = useState(false);
@@ -151,6 +170,10 @@ export function useTenantUsersPage() {
 
   const handleCreateUser = useCallback(
     async (values: CreateUserFormValues) => {
+      if (!canWriteTenantUsers) {
+        messageApi.warning('无权限执行该操作');
+        return;
+      }
       try {
         if (!values.tenantId || !values.organizationId) {
           messageApi.error('请选择租户和组织');
@@ -169,11 +192,15 @@ export function useTenantUsersPage() {
         messageApi.error(err?.message || '创建用户失败');
       }
     },
-    [createForm, fetchTenantUsers, messageApi],
+    [canWriteTenantUsers, createForm, fetchTenantUsers, messageApi],
   );
 
   const openEditModal = useCallback(
     (user: TenantUser) => {
+      if (!canWriteTenantUsers) {
+        messageApi.warning('无权限执行该操作');
+        return;
+      }
       if (!user.tenant?.id || !user.organization?.id) {
         messageApi.error('用户数据缺失租户或组织信息，无法编辑');
         return;
@@ -188,10 +215,14 @@ export function useTenantUsersPage() {
       });
       setEditModalOpen(true);
     },
-    [editForm, messageApi],
+    [canWriteTenantUsers, editForm, messageApi],
   );
 
   const handleEditUser = useCallback(async () => {
+    if (!canWriteTenantUsers) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!editingUser?.tenant?.id || !editingUser.organization?.id) {
       messageApi.error('用户数据缺失租户或组织信息，无法保存');
       throw new Error('missing-tenant-org');
@@ -220,10 +251,14 @@ export function useTenantUsersPage() {
       messageApi.error(err?.message || '保存失败');
       throw e;
     }
-  }, [editForm, editingUser, fetchTenantUsers, messageApi]);
+  }, [canWriteTenantUsers, editForm, editingUser, fetchTenantUsers, messageApi]);
 
   const handleDeleteUser = useCallback(
     async (user: TenantUser) => {
+      if (!canWriteTenantUsers) {
+        messageApi.warning('无权限执行该操作');
+        return;
+      }
       if (!user.tenant || !user.organization) {
         messageApi.error('用户数据缺失租户或组织信息，无法删除');
         return;
@@ -239,10 +274,14 @@ export function useTenantUsersPage() {
         messageApi.error(err?.message || '删除用户失败');
       }
     },
-    [fetchTenantUsers, messageApi],
+    [canWriteTenantUsers, fetchTenantUsers, messageApi],
   );
 
   const handleBatchDelete = useCallback(() => {
+    if (!canWriteTenantUsers) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     modal.confirm({
       title: '确认批量删除用户',
       content: `确定要删除选中的 ${selectedRowKeys.length} 个用户吗？删除后无法恢复。`,
@@ -268,25 +307,31 @@ export function useTenantUsersPage() {
         }
       },
     });
-  }, [modal, messageApi, selectedRowKeys, users, fetchTenantUsers]);
+  }, [canWriteTenantUsers, modal, messageApi, selectedRowKeys, users, fetchTenantUsers]);
 
   const bulkActionsMenu: MenuProps = useMemo(
     () => ({
-      items: [
-        {
-          key: 'bulkDelete',
-          label: '批量删除',
-          danger: true,
-          disabled: selectedRowKeys.length === 0,
-          onClick: handleBatchDelete,
-        },
-      ],
+      items: canWriteTenantUsers
+        ? [
+            {
+              key: 'bulkDelete',
+              label: '批量删除',
+              danger: true,
+              disabled: selectedRowKeys.length === 0,
+              onClick: handleBatchDelete,
+            },
+          ]
+        : [],
     }),
-    [handleBatchDelete, selectedRowKeys.length],
+    [canWriteTenantUsers, handleBatchDelete, selectedRowKeys.length],
   );
 
   const openAssignRoleModal = useCallback(
     async (user: TenantUser) => {
+      if (!canReadRoleAssignments) {
+        messageApi.warning('无权限执行该操作');
+        return;
+      }
       setCurrentAssignUser(user);
       setAssignRoleModalOpen(true);
       setRoleAssignExisting([]);
@@ -309,10 +354,14 @@ export function useTenantUsersPage() {
         messageApi.error('获取用户角色失败');
       }
     },
-    [messageApi],
+    [canReadRoleAssignments, messageApi],
   );
 
   const handleSaveRoles = useCallback(async () => {
+    if (!canWriteRoleAssignments) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!currentAssignUser) return;
 
     const currentRoleIds = new Set(roleAssignExisting.map((x) => x.roleId));
@@ -336,7 +385,7 @@ export function useTenantUsersPage() {
     } catch {
       messageApi.error('保存角色赋权失败');
     }
-  }, [currentAssignUser, messageApi, roleAssignExisting, roleAssignSelected]);
+  }, [canWriteRoleAssignments, currentAssignUser, messageApi, roleAssignExisting, roleAssignSelected]);
 
   const baseColumns: ColumnsType<TenantUser> = useMemo(
     () => [
@@ -416,33 +465,50 @@ export function useTenantUsersPage() {
         title: '操作',
         key: 'action',
         fixed: 'right',
-        render: (_, record) => (
-          <ResourceActionsDropdown
-            items={[
+        render: (_, record) => {
+          const items = filterMenuItemsForReadOnly(
+            [
               { key: 'edit', label: '编辑' },
-              { key: 'assign', label: '分配角色' },
+              ...(canReadRoleAssignments ? [{ key: 'assign', label: '分配角色' } as const] : []),
               { type: 'divider', key: 'divider-before-delete' },
               { key: 'delete', label: '删除', danger: true },
-            ]}
-            onClick={({ key }) => {
-              if (key === 'edit') openEditModal(record);
-              if (key === 'assign') void openAssignRoleModal(record);
-              if (key === 'delete') {
-                modal.confirm({
-                  title: '确认删除用户',
-                  content: `确定要删除用户 "${record.username}" 吗？此操作无法撤销。`,
-                  okText: '删除',
-                  okType: 'danger',
-                  cancelText: '取消',
-                  onOk: () => handleDeleteUser(record),
-                });
-              }
-            }}
-          />
-        ),
+            ],
+            canWriteTenantUsers,
+          );
+          if (!items.length) {
+            return <Typography.Text type="secondary">—</Typography.Text>;
+          }
+          return (
+            <ResourceActionsDropdown
+              items={items}
+              onClick={({ key }) => {
+                if (key === 'edit') openEditModal(record);
+                if (key === 'assign') void openAssignRoleModal(record);
+                if (key === 'delete') {
+                  modal.confirm({
+                    title: '确认删除用户',
+                    content: `确定要删除用户 "${record.username}" 吗？此操作无法撤销。`,
+                    okText: '删除',
+                    okType: 'danger',
+                    cancelText: '取消',
+                    onOk: () => handleDeleteUser(record),
+                  });
+                }
+              }}
+            />
+          );
+        },
       },
     ],
-    [modal, availableRoles, openAssignRoleModal, openEditModal, handleDeleteUser],
+    [
+      modal,
+      availableRoles,
+      canReadRoleAssignments,
+      canWriteTenantUsers,
+      openAssignRoleModal,
+      openEditModal,
+      handleDeleteUser,
+    ],
   );
 
   const { displayColumns: columns } = useTableColumnSettings(baseColumns, 'tenant-users-columns');
@@ -471,6 +537,9 @@ export function useTenantUsersPage() {
 
   return {
     loading,
+    canReadTenantUsers,
+    canWriteTenantUsers,
+    canWriteRoleAssignments,
     filteredUsers,
     columns,
     baseColumns,

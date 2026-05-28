@@ -15,7 +15,10 @@ import {
 } from '@ant-design/icons';
 
 import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
+import { useAuth } from '../../../contexts/AuthContext';
 import { apiDelete, apiPost, apiPut, apiRequest } from '../../../services/api';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../utils/rbacUi';
 import { fetchProtectionObjects, fetchServiceChains } from '../../../services/trafficOrchestration';
 import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
 import {
@@ -38,6 +41,28 @@ import { DeleteOrgConflict } from '../modals/DeleteOrgConflict';
 import { RemoveAssignmentConflict } from '../modals/RemoveAssignmentConflict';
 
 export function useOrgManagePage() {
+  const { user } = useAuth();
+  const userPerms = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
+  const role = String(user?.role || '').toLowerCase();
+  const isSuperAdmin = role === 'super_admin';
+  const canReadOrganizations =
+    isSuperAdmin ||
+    hasPermissionForAction(userPerms, 'organizations:read') ||
+    hasPermissionForAction(userPerms, 'organizations:write');
+  const canWriteOrganizations =
+    isSuperAdmin || hasPermissionForAction(userPerms, 'organizations:write');
+  const canReadTenantUsers =
+    isSuperAdmin ||
+    hasPermissionForAction(userPerms, 'tenant-users:read') ||
+    hasPermissionForAction(userPerms, 'tenant-users:write');
+  const canWriteTenantUsers = isSuperAdmin || hasPermissionForAction(userPerms, 'tenant-users:write');
+  const canReadRoleAssignments =
+    isSuperAdmin ||
+    hasPermissionForAction(userPerms, 'system.roles.assignments:read') ||
+    hasPermissionForAction(userPerms, 'system.roles.assignments:write');
+  const canWriteRoleAssignments =
+    isSuperAdmin || hasPermissionForAction(userPerms, 'system.roles.assignments:write');
+
   // --- 路由与全局反馈 ---
   const navigate = useNavigate();
   const { tenantId } = useParams();
@@ -262,6 +287,10 @@ export function useOrgManagePage() {
   // --- 事件处理 ---
   // 保存组织重命名，并刷新组织树
   const handleOrgRename = async (orgId: string, name: string) => {
+    if (!canWriteOrganizations) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     try {
       await apiPut(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
@@ -276,6 +305,10 @@ export function useOrgManagePage() {
 
   // 添加子组织保存：校验名称、调用创建接口、刷新组织树
   const handleAddChildSave = async (parentId: string) => {
+    if (!canWriteOrganizations) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!tenantId) return;
     const name = newChildName.trim();
     if (!name) return;
@@ -293,6 +326,10 @@ export function useOrgManagePage() {
 
   // 提交创建用户：成功后关闭抽屉并刷新列表
   const handleUserSubmit = async (values: CreateTenantUserRequest) => {
+    if (!canWriteTenantUsers) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!tenantId || !selectedOrg) return;
     try {
       await apiPost(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users`, values);
@@ -307,6 +344,10 @@ export function useOrgManagePage() {
   };
 
   const openRoleAssign = useCallback(async (user: TenantUser) => {
+    if (!canReadRoleAssignments) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     try {
       const rawData = await apiRequest(
         `/api/system/rbac/assignments?userType=tenant&userId=${encodeURIComponent(user.id)}`,
@@ -328,7 +369,7 @@ export function useOrgManagePage() {
       setRoleAssignSelected(list.map(it => it.roleId));
       setRoleAssignOpen(true);
     } catch {}
-  }, []);
+  }, [canReadRoleAssignments, messageApi]);
 
   useEffect(() => {
     const run = async () => {
@@ -369,6 +410,10 @@ export function useOrgManagePage() {
   // - 使用 Promise.all 并发请求以提升体验；失败时保持已有映射
 
   const saveRoleAssign = async () => {
+    if (!canWriteRoleAssignments) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!roleAssignUser) return;
     const current = new Set(roleAssignExisting.map(x => x.roleId));
     const needAdd = roleAssignSelected.filter(id => !current.has(id));
@@ -398,6 +443,10 @@ export function useOrgManagePage() {
   };
 
   const handleDeleteUser = useCallback(async (userId: string) => {
+    if (!canWriteTenantUsers) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!tenantId || !selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/${tenantId}/organizations/${selectedOrg.id}/users/${userId}`);
@@ -407,12 +456,16 @@ export function useOrgManagePage() {
       const msg = e?.response?.data?.message || '删除用户失败';
       messageApi.error(msg);
     }
-  }, [tenantId, selectedOrg, messageApi]);
+  }, [canWriteTenantUsers, tenantId, selectedOrg, messageApi]);
   // 删除用户：
   // - 依赖当前选中组织上下文；成功后刷新用户列表
 
   const openEditUser = useCallback(
     (user: TenantUser) => {
+      if (!canWriteTenantUsers) {
+        messageApi.warning('无权限执行该操作');
+        return;
+      }
       if (!tenantId || !selectedOrg?.id) {
         messageApi.error('缺少租户或组织上下文，无法编辑');
         return;
@@ -427,10 +480,14 @@ export function useOrgManagePage() {
       });
       setEditUserModalOpen(true);
     },
-    [tenantId, selectedOrg?.id, editUserForm, messageApi],
+    [canWriteTenantUsers, tenantId, selectedOrg?.id, editUserForm, messageApi],
   );
 
   const handleEditUserSave = async () => {
+    if (!canWriteTenantUsers) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!tenantId || !selectedOrg?.id || !editTargetUserId) {
       messageApi.error('无法保存：缺少租户、组织或用户');
       throw new Error('abort');
@@ -457,6 +514,10 @@ export function useOrgManagePage() {
     }
   };
   const handleResourcePoolAssign = async (values: any) => {
+    if (!canWriteOrganizations) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!selectedOrg) return;
     try {
       const idsRaw = values.resourcePoolIds;
@@ -518,6 +579,10 @@ export function useOrgManagePage() {
   };
 
   const handleRemoveAssignment = useCallback(async (poolId: string) => {
+    if (!canWriteOrganizations) {
+      messageApi.warning('无权限执行该操作');
+      return;
+    }
     if (!selectedOrg) return;
     try {
       await apiDelete(`/api/tenants/organizations/${selectedOrg.id}/resource-pools/${poolId}`);
@@ -568,7 +633,7 @@ export function useOrgManagePage() {
         message.error(errorMsg);
       }
     }
-  }, [selectedOrg, modal]);
+  }, [canWriteOrganizations, selectedOrg, modal, messageApi]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -655,7 +720,7 @@ export function useOrgManagePage() {
         if (visited.has(org.id)) return null;
         visited.add(org.id);
         const children = org.children ? recur(org.children) : [];
-        if (addingForParentId === org.id) {
+        if (canWriteOrganizations && addingForParentId === org.id) {
           children.push({
             key: `__new__-${org.id}`,
             title: (
@@ -710,7 +775,7 @@ export function useOrgManagePage() {
               <Typography.Text style={{ pointerEvents: 'none' }}>{org.name}</Typography.Text>
             )}
             <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', justifyContent: 'flex-end' }}>
-              {renameOrgId === org.id ? (
+              {canWriteOrganizations && renameOrgId === org.id ? (
                 <>
                   <Button
                     type="link"
@@ -729,27 +794,29 @@ export function useOrgManagePage() {
                     onClick={(e) => { e.stopPropagation(); setRenameOrgId(null); setRenameName(''); }}
                   >取消</Button>
                 </>
-              ) : (
+              ) : canWriteOrganizations ? (
                 <Button
                   type="link"
                   size="small"
                   icon={<EditOutlined />}
                   onClick={(e) => { e.stopPropagation(); setRenameOrgId(org.id); setRenameName(org.name); }}
                 >重命名</Button>
-              )}
-              <Button
-                type="link"
-                size="small"
-                icon={<PlusOutlined />}
-                disabled={org.level >= 4}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpandedKeys(prev => (prev.includes(org.id) ? prev : [...prev, org.id]));
-                  setAddingForParentId(org.id);
-                  setNewChildName('');
-                }}
-              >添加子组织</Button>
-              {org.level !== 1 && (
+              ) : null}
+              {canWriteOrganizations ? (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  disabled={org.level >= 4}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExpandedKeys(prev => (prev.includes(org.id) ? prev : [...prev, org.id]));
+                    setAddingForParentId(org.id);
+                    setNewChildName('');
+                  }}
+                >添加子组织</Button>
+              ) : null}
+              {canWriteOrganizations && org.level !== 1 && (
                 <Button
                   type="link"
                   danger
@@ -827,37 +894,46 @@ export function useOrgManagePage() {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: TenantUser) => (
-        <Dropdown
-          menu={{
-            items: [
-              { key: 'edit', label: '编辑' },
-              { key: 'assign', label: '配置角色' },
-              { type: 'divider', key: 'divider-before-delete' },
-              { key: 'delete', label: '删除', danger: true },
-            ],
-            onClick: ({ key }) => {
-              if (key === 'edit') {
-                openEditUser(record);
-              } else if (key === 'assign') {
-                openRoleAssign(record);
-              } else if (key === 'delete') {
-                modal.confirm({
-                  title: '确认删除用户',
-                  content: '删除后将无法恢复，该用户将无法继续访问系统。',
-                  okText: '删除',
-                  cancelText: '取消',
-                  onOk: async () => { await handleDeleteUser(record.id); },
-                });
+      render: (_: any, record: TenantUser) => {
+        const items = filterMenuItemsForReadOnly(
+          [
+            { key: 'edit', label: '编辑' },
+            ...(canReadRoleAssignments ? [{ key: 'assign', label: '配置角色' } as const] : []),
+            { type: 'divider', key: 'divider-before-delete' },
+            { key: 'delete', label: '删除', danger: true },
+          ],
+          canWriteTenantUsers,
+        );
+        if (!items.length) {
+          return <Typography.Text type="secondary">—</Typography.Text>;
+        }
+        return (
+          <Dropdown
+            menu={{
+              items,
+              onClick: ({ key }) => {
+                if (key === 'edit') {
+                  openEditUser(record);
+                } else if (key === 'assign') {
+                  openRoleAssign(record);
+                } else if (key === 'delete') {
+                  modal.confirm({
+                    title: '确认删除用户',
+                    content: '删除后将无法恢复，该用户将无法继续访问系统。',
+                    okText: '删除',
+                    cancelText: '取消',
+                    onOk: async () => { await handleDeleteUser(record.id); },
+                  });
+                }
               }
-            }
-          }}
-        >
-          <Button type="link" size="small" icon={<EllipsisOutlined />} className="row-actions-trigger" />
-        </Dropdown>
-      ),
+            }}
+          >
+            <Button type="link" size="small" icon={<EllipsisOutlined />} className="row-actions-trigger" />
+          </Dropdown>
+        );
+      },
     }
-  ], [rolesByUser, openRoleAssign, openEditUser, handleDeleteUser, modal]);
+  ], [rolesByUser, canReadRoleAssignments, canWriteTenantUsers, openRoleAssign, openEditUser, handleDeleteUser, modal]);
 
   const { displayColumns: userDisplayColumns } = useTableColumnSettings(userColumns, 'org_manage_users');
 
@@ -899,33 +975,44 @@ export function useOrgManagePage() {
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: ResourcePoolAssignment) => (
-        <Dropdown
-          menu={{
-            items: [{ key: 'remove', label: '移除', danger: true }],
-            onClick: ({ key }) => {
-              if (key === 'remove') {
-                modal.confirm({
-                  title: '确认移除资源池分配',
-                  content: '移除后，组织将不再拥有该资源池的关联权限。',
-                  okText: '移除',
-                  cancelText: '取消',
-                  onOk: async () => { await handleRemoveAssignment(record.cloudId || (record.cloud as any)?.id); },
-                });
+      render: (_: any, record: ResourcePoolAssignment) => {
+        if (!canWriteOrganizations) {
+          return <Typography.Text type="secondary">—</Typography.Text>;
+        }
+        return (
+          <Dropdown
+            menu={{
+              items: [{ key: 'remove', label: '移除', danger: true }],
+              onClick: ({ key }) => {
+                if (key === 'remove') {
+                  modal.confirm({
+                    title: '确认移除资源池分配',
+                    content: '移除后，组织将不再拥有该资源池的关联权限。',
+                    okText: '移除',
+                    cancelText: '取消',
+                    onOk: async () => { await handleRemoveAssignment(record.cloudId || (record.cloud as any)?.id); },
+                  });
+                }
               }
-            }
-          }}
-        >
-          <Button type="link" size="small" icon={<EllipsisOutlined />} className="row-actions-trigger" />
-        </Dropdown>
-      ),
+            }}
+          >
+            <Button type="link" size="small" icon={<EllipsisOutlined />} className="row-actions-trigger" />
+          </Dropdown>
+        );
+      },
     },
-  ], [handleRemoveAssignment, modal]);
+  ], [canWriteOrganizations, handleRemoveAssignment, modal]);
 
   const { displayColumns: assignmentDisplayColumns } = useTableColumnSettings(assignmentColumns, 'org_manage_assignments');
   return {
     navigate,
     tenantId,
+    canReadOrganizations,
+    canWriteOrganizations,
+    canReadTenantUsers,
+    canWriteTenantUsers,
+    canReadRoleAssignments,
+    canWriteRoleAssignments,
     modal,
     contextHolder,
     messageApi,
