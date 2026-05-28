@@ -190,7 +190,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
         render: (_, row) => renderRuleGroup(row),
       },
       {
-        title: '触发时间',
+        title: '最近触发时间',
         dataIndex: 'activeAt',
         key: 'activeAt',
         sorter: (a: ParsedAlert, b: ParsedAlert) => {

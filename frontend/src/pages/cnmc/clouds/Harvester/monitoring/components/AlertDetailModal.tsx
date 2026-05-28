@@ -204,10 +204,10 @@ const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
                 {record.description || '-'}
               </Typography.Text>
             </Descriptions.Item>
-            <Descriptions.Item label="触发时间">
+            <Descriptions.Item label="开始告警时间">
               {formatDateTimeDetailed(record.startsAtRaw)}
             </Descriptions.Item>
-            <Descriptions.Item label="最近更新">
+            <Descriptions.Item label="最近触发时间">
               {formatDateTimeDetailed(record.updatedAtRaw || record.activeAtRaw)}
             </Descriptions.Item>
             <Descriptions.Item label="持续时间" span={2}>
