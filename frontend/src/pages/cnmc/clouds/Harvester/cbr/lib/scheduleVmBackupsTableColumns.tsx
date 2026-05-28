@@ -4,6 +4,7 @@ import { Badge, Button, Dropdown, Tooltip } from 'antd';
 import { CalendarOutlined, EllipsisOutlined } from '@ant-design/icons';
 import { formatCron } from '../../../../../../utils/cronFormatter';
 import type { ScheduleVmBackupListRow } from './scheduleVmBackupsSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type ScheduleVmBackupsTableActions = {
   isTenant?: boolean;
@@ -109,8 +110,9 @@ export function buildScheduleVmBackupsTableColumns(
           disabled: !hasBackupsWrite,
           onClick: () => onDelete(r),
         });
+        const filteredItems = filterMenuItemsForReadOnly(items as any[], hasBackupsWrite);
         return (
-          <Dropdown menu={{ items }} trigger={['click']}>
+          <Dropdown menu={{ items: filteredItems }} trigger={['click']}>
             <Button icon={<EllipsisOutlined />} className="row-actions-trigger" type="text" />
           </Dropdown>
         );

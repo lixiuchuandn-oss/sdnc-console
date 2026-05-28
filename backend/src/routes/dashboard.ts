@@ -37,11 +37,17 @@ const checkDashboardPermission = (req: AuthRequest, res: Response, next: any) =>
       return next();
     }
     
-    // 检查是否有 clouds.dashboard:read 权限
+    // 检查是否有 clouds.dashboard:read 权限（恢复后兼容 clouds:read / clouds:write）
     // 使用 perms.includes() 以便系统扫描器能够识别
-    if (!perms.includes('clouds.dashboard:read')) {
+    const hasDashboardRead =
+      perms.includes('clouds.dashboard:read') ||
+      perms.includes('clouds.dashboard:write') ||
+      perms.includes('clouds:read') ||
+      perms.includes('clouds:write') ||
+      perms.includes('*');
+    if (!hasDashboardRead) {
       return res.status(403).json({ 
-        message: '权限不足：需要 clouds.dashboard:read 权限才能访问多云总览', 
+        message: '权限不足：需要 clouds.dashboard:read（或 clouds:read）权限才能访问多云总览', 
       });
     }
     

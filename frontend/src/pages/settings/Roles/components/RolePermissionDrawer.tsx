@@ -60,6 +60,16 @@ function flattenGroupFeatures(group: RolePermissionGroup) {
 
 type PermVerbFilter = RolePermVerbFilter;
 
+function featureStableKey(feature: RolePermissionGroup['features'][number]): string {
+  return [
+    feature.resourcePrefix || '',
+    feature.feature || '',
+    feature.read || '',
+    feature.write || '',
+    feature.pathSuffix || '',
+  ].join('::');
+}
+
 function collectFeatureActionIds(feature: RolePermissionGroup['features'][number], permVerb: PermVerbFilter): string[] {
   const ids: string[] = [];
   if (feature.read && feature.readVisible && (permVerb === '全部' || permVerb === 'read')) {
@@ -238,7 +248,7 @@ const PlatformPermissionPanel: React.FC<PlatformPermissionPanelProps> = ({
         }}
       >
         {selectedGroup ? (
-          renderGroupBody(selectedGroup)
+          <div key={selectedGroupKey}>{renderGroupBody(selectedGroup)}</div>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="请选择业务域" />
         )}
@@ -345,7 +355,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
     (features: RolePermissionGroup['features'], opts?: { cardSpan?: number }) => (
     <Row gutter={[G, G]}>
       {features.map((feature) => (
-        <Col span={opts?.cardSpan ?? 8} key={`${feature.resourcePrefix || feature.feature}`}>
+        <Col span={opts?.cardSpan ?? 8} key={featureStableKey(feature)}>
           <Card
             size="small"
             variant="borderless"

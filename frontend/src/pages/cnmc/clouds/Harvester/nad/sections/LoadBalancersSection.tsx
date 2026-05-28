@@ -5,6 +5,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Button, Input, Select, Space, Table } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../../components/WriteGuard';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
@@ -40,6 +43,7 @@ const LoadBalancersSection: React.FC<Props> = ({
   onRefresh,
   isTenant,
 }) => {
+  const { user } = useAuth();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
@@ -47,6 +51,15 @@ const LoadBalancersSection: React.FC<Props> = ({
   const [keyword, setKeyword] = useState('');
   const [nsFilter, setNsFilter] = useState('');
   const [ipamFilter, setIpamFilter] = useState('');
+  const hasLoadBalancersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.load-balancers:write') ||
+      hasPermissionForAction(perms, 'clouds.nads:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
 
   const dataSource = useMemo(
     () => normalizeLoadBalancerList(loadBalancers),
@@ -94,11 +107,12 @@ const LoadBalancersSection: React.FC<Props> = ({
     () =>
       buildLoadBalancersTableColumns({
         isTenant,
+        hasLoadBalancersWrite,
         isPublicNamespace,
         onOpenYaml: openYaml,
         onDelete: actions.handleDelete,
       }),
-    [actions.handleDelete, isPublicNamespace, isTenant, openYaml],
+    [actions.handleDelete, hasLoadBalancersWrite, isPublicNamespace, isTenant, openYaml],
   );
 
   const rowSelection = useMemo(
@@ -161,14 +175,16 @@ const LoadBalancersSection: React.FC<Props> = ({
       }
       toolbarRight={
         <Space>
-          {actions.selectedRowKeys.length > 0 && (
+          {hasLoadBalancersWrite && actions.selectedRowKeys.length > 0 && (
             <Button danger onClick={actions.handleBatchDelete}>
               批量删除
             </Button>
           )}
-          <Button type="primary" onClick={() => actions.setCreateModalOpen(true)}>
-            创建负载均衡
-          </Button>
+          <WriteGuard canWrite={hasLoadBalancersWrite}>
+            <Button type="primary" onClick={() => actions.setCreateModalOpen(true)}>
+              创建负载均衡
+            </Button>
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </Space>
       }
@@ -184,7 +200,7 @@ const LoadBalancersSection: React.FC<Props> = ({
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={rowSelection}
+        rowSelection={hasLoadBalancersWrite ? rowSelection : undefined}
       />
 
       <CreateLoadBalancerModal

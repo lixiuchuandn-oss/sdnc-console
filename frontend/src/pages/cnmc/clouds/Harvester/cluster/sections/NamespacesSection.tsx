@@ -8,6 +8,7 @@ import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { deleteHarvesterNamespace } from 'services/harvester/clusterInventory';
@@ -225,17 +226,17 @@ const NamespacesSection: React.FC<Props> = ({
       )}
       toolbarRight={(
         <div className="toolbar-actions">
-          <Button
-            type="primary"
-            disabled={!hasNamespacesWrite}
-            onClick={() => {
-              if (!hasNamespacesWrite) return;
-              setEditingNamespace(null);
-              setNamespaceFormOpen(true);
-            }}
-          >
-            创建项目
-          </Button>
+          <WriteGuard canWrite={hasNamespacesWrite}>
+            <Button
+              type="primary"
+              onClick={() => {
+                setEditingNamespace(null);
+                setNamespaceFormOpen(true);
+              }}
+            >
+              创建项目
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={TABLE_COLUMNS_SETTINGS_KEY} />
           <Button
             icon={<ReloadOutlined />}

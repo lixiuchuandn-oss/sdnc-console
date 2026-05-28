@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Button, Typography, Tooltip } from 'antd';
+import { Button, Typography } from 'antd';
 import { CloudUploadOutlined } from '@ant-design/icons';
 import { useOutletContext } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -64,20 +64,19 @@ const AdminWelcomePage: React.FC = () => {
         >
           接入首个资源池，解锁平台核心管理能力。
         </Typography.Paragraph>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <Tooltip title={!canWritePools ? '当前账号暂无资源池接入权限' : undefined}>
+        {canWritePools && (
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
             <Button
               type="primary"
               size="large"
               icon={<CloudUploadOutlined />}
-              disabled={!canWritePools}
               onClick={() => setWizardOpen(true)}
               style={{ minWidth: 200, height: 48, fontSize: 16 }}
             >
               接入资源池
             </Button>
-          </Tooltip>
-        </div>
+          </div>
+        )}
       </div>
 
       <PoolEdgeWizard

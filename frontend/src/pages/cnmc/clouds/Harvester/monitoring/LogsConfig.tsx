@@ -27,6 +27,7 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../components/WriteGuard';
 import {
   fetchClusterflows,
   fetchClusterflowDetail,
@@ -70,6 +71,7 @@ import {
 } from './constants';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 
 
 
@@ -747,7 +749,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         fixed: 'right',
         render: (_, row) => (
           <ResourceActionsDropdown
-            items={[
+            items={filterMenuItemsForReadOnly([
               { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
               { key: 'edit', label: '编辑配置', disabled: !canWriteLogConfigs, onClick: () => handleOpenForm(row) },
               { type: 'divider' as const },
@@ -775,7 +777,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
                   });
                 },
               },
-            ]}
+            ], canWriteLogConfigs)}
           />
         ),
       },
@@ -832,9 +834,11 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteLogConfigs} onClick={() => handleOpenForm(null)}>
-              新增日志采集配置
-            </Button>
+            <WriteGuard canWrite={canWriteLogConfigs}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
+                新增日志采集配置
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey="logs_config_clusterflow_table_v2" />
             <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
           </>

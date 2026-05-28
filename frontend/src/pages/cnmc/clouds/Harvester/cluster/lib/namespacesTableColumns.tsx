@@ -5,6 +5,7 @@ import { FolderOpenTwoTone } from '@ant-design/icons';
 import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
 import { isSystemNamespace, isTenantScenarioNamespace, namespaceSectionType } from 'utils/harvesterUtils';
 import type { NamespaceListRow } from './namespacesSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type NamespacesTableActions = {
   isTenant?: boolean;
@@ -115,8 +116,9 @@ export function buildNamespacesTableColumns(
           });
         }
 
+        const filteredItems = filterMenuItemsForReadOnly(items as any[], hasNamespacesWrite);
         return (
-          <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />
+          <ResourceActionsDropdown items={filteredItems} buttonProps={{ className: 'row-actions-trigger' }} />
         );
       },
     },

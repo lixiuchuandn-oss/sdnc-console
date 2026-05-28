@@ -5,6 +5,7 @@ import { useParams } from 'react-router-dom';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { deleteKubeOvnSubnet, fetchKubeOvnSubnets, updateKubeOvnSubnet } from '../../../../../../services/harvesterApi';
@@ -29,6 +30,7 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 /**
  * =============================================================================
@@ -561,7 +563,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         render: (_: any, r: any) => {
           return (
             <ResourceActionsDropdown
-              items={[
+              items={filterMenuItemsForReadOnly([
                 ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r) }] : []),
                 {
                   key: 'edit',
@@ -587,8 +589,8 @@ const VpcSubnetsSection: React.FC<Props> = ({
                   disabled: !hasVpcsWrite,
                   onClick: () => void handleDelete(r),
                 },
-              ]}
-              buttonProps={{ className: 'row-actions-trigger', disabled: !hasVpcsWrite }}
+              ], hasVpcsWrite)}
+              buttonProps={{ className: 'row-actions-trigger' }}
             />
           );
         },
@@ -668,9 +670,11 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button type="primary" disabled={!hasVpcsWrite} onClick={openCreateVpcSubnetModal}>
-            新建 VPC 子网
-          </Button>
+          <WriteGuard canWrite={hasVpcsWrite}>
+            <Button type="primary" onClick={openCreateVpcSubnetModal}>
+              新建 VPC 子网
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_subnets_table" />
           <Button icon={<ReloadOutlined />} onClick={createHarvesterToolbarRefresh(onRefresh)} />
         </>

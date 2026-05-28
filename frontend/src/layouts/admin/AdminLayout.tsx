@@ -441,20 +441,21 @@ function AdminStandardHeader({
               >
                 访问
               </button>
-              <button
-                type="button"
-                className="admin-header-pool-icon-btn"
-                disabled={!canWritePools}
-                title={
-                  !summaryClouds.filter((c) => !isCsmCloud(c)).length
-                    ? '添加默认资源池'
-                    : '编辑当前默认资源池（未显式指定时为最早添加的池）'
-                }
-                aria-label="设定默认资源池"
-                onClick={openDefaultPoolWizardAction}
-              >
-                <ApiFilled />
-              </button>
+              {canWritePools && (
+                <button
+                  type="button"
+                  className="admin-header-pool-icon-btn"
+                  title={
+                    !summaryClouds.filter((c) => !isCsmCloud(c)).length
+                      ? '添加默认资源池'
+                      : '编辑当前默认资源池（未显式指定时为最早添加的池）'
+                  }
+                  aria-label="设定默认资源池"
+                  onClick={openDefaultPoolWizardAction}
+                >
+                  <ApiFilled />
+                </button>
+              )}
             </>
           )}
         </div>

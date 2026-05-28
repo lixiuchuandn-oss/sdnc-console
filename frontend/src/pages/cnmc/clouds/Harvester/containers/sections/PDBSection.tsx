@@ -38,8 +38,12 @@ import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditT
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchHarvesterPDBDetail,
@@ -350,6 +354,15 @@ const PDBSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
+  const hasContainersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.containers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -705,7 +718,7 @@ const PDBSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown
-          items={[
+          items={filterMenuItemsForReadOnly([
             {
               key: 'detail',
               label: '查看详情',
@@ -727,7 +740,7 @@ const PDBSection: React.FC<Props> = ({
               tooltip: getSystemResourceProtectionHint(record),
               onClick: () => handleDelete(record),
             },
-          ]}
+          ], hasContainersWrite)}
           buttonProps={{ className: 'row-actions-trigger' }}
         />
       ),
@@ -808,10 +821,13 @@ const PDBSection: React.FC<Props> = ({
                 style={{ marginRight: 8 }}
               />
             )}
-            <Button type="primary" onClick={() => setCreateModalVisible(true)}>
-              创建保护规则
-            </Button>
-            <Dropdown
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button type="primary" onClick={() => setCreateModalVisible(true)}>
+                创建保护规则
+              </Button>
+            </WriteGuard>
+            {hasContainersWrite ? (
+              <Dropdown
               menu={{
                 items: [
                   {
@@ -832,7 +848,8 @@ const PDBSection: React.FC<Props> = ({
               disabled={selectedKeys.length === 0}
             >
               <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
-            </Dropdown>
+              </Dropdown>
+            ) : null}
             <TableColumnSettingsButton
               allColumns={allColumns}
               settingsKey="harvester_pdb_table"
@@ -858,10 +875,14 @@ const PDBSection: React.FC<Props> = ({
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={pdbTableScroll}
-          rowSelection={{
-            selectedRowKeys: selectedKeys,
-            onChange: (keys) => setSelectedKeys(keys),
-          }}
+          rowSelection={
+            hasContainersWrite
+              ? {
+                  selectedRowKeys: selectedKeys,
+                  onChange: (keys) => setSelectedKeys(keys),
+                }
+              : undefined
+          }
         />
       </PageDetailSection>
 

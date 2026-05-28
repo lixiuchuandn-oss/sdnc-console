@@ -10,8 +10,12 @@ import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { IngressFormModal, YamlEditModal } from '../components';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import { deleteHarvesterIngress, fetchHarvesterIngressDetail, updateHarvesterIngress, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 
@@ -68,7 +72,16 @@ const IngressesSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
   const { message: antMessage } = App.useApp();
+  const hasContainersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.containers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   // 关键字搜索（名称 / 命名空间）
@@ -305,7 +318,7 @@ const IngressesSection: React.FC<Props> = ({
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={[
+            items={filterMenuItemsForReadOnly([
               {
                 key: 'edit',
                 label: '编辑',
@@ -338,7 +351,7 @@ const IngressesSection: React.FC<Props> = ({
                   });
                 }
               }
-            ]}
+            ], hasContainersWrite)}
           />
         );
       },
@@ -391,13 +404,15 @@ const IngressesSection: React.FC<Props> = ({
               style={{ marginRight: 8 }}
             />
           )}
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            创建
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateModalOpen(true)}
+            >
+              创建
+            </Button>
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
         </div>
       }

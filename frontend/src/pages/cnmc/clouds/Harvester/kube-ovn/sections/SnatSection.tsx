@@ -15,6 +15,7 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import {
   createCloudProviderOvnSnatRule,
   deleteCloudProviderOvnSnatRule,
@@ -456,16 +457,16 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
       key: 'action',
       fixed: 'right' as const,
       render: (_: any, r: any) => {
-        const menuItems: MenuProps['items'] = [
+        const menuItems: MenuProps['items'] = filterMenuItemsForReadOnly([
           { key: 'metadata', label: '查看元数据' },
           { type: 'divider' },
           { key: 'delete', label: '删除', danger: true, disabled: !hasNatWrite }
-        ];
+        ], hasNatWrite);
         return (
           <ResourceActionsDropdown 
             items={menuItems} 
             onClick={({ key }) => handleMenuClick(key, r)}
-            buttonProps={{ className: 'row-actions-trigger', disabled: !hasNatWrite }}
+            buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       }
@@ -516,15 +517,13 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
             </button>
           </>
         )}
-        primaryAction={{
+        primaryAction={hasNatWrite ? {
           label: '创建 SNAT 网关',
           onClick: () => {
-            if (!hasNatWrite) return;
             form.resetFields();
             setIsCreateVisible(true);
           },
-          disabled: !hasNatWrite
-        }}
+        } : undefined}
         toolbarRight={
           <Space size={8}>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey={snatTableSettingsKey} />

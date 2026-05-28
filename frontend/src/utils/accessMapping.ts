@@ -104,7 +104,6 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (!act) return false; // 未映射的路径默认拒绝访问
   const permsArray = perms || [];
   const base = act.split(':')[0];
-  const isDashboardOrPools = base === 'clouds.dashboard' || base === 'clouds.resource-pools';
   const segments = base.split('.');
   const hasDomainPrefix = segments.length >= 2 ? `${segments[0]}.${segments[1]}` : null;
   
@@ -126,7 +125,6 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':read') &&
-    !isDashboardOrPools &&
     !isCloudsContainersResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
@@ -138,7 +136,6 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':write') &&
-    !isDashboardOrPools &&
     !isCloudsContainersResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:write')) {
@@ -146,15 +143,14 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
     }
   }
 
-  // clouds:write 包含所有 clouds.*:write（与 clouds:read 对读权限的对称）
+  // clouds:write 包含 clouds.*:write
   if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
       return true;
     }
   }
   
-  // clouds:read 包含所有 clouds.*:read（含 clouds.resource-pools；平台多云总览仍用 clouds.dashboard:read 独立原子）
-  // 注意：clouds:read 本身不会被 clouds.console:read 继承（格式为 clouds:read vs clouds.*:read）
+  // clouds:read|write 覆盖 clouds.*:read
   if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
       return true;

@@ -3,6 +3,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { Badge, Button, Dropdown } from 'antd';
 import { CameraTwoTone, EllipsisOutlined } from '@ant-design/icons';
 import type { BackupListRow } from './backupsSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type BackupsTableActions = {
   isTenant?: boolean;
@@ -104,13 +105,14 @@ export function buildBackupsTableColumns(
           onClick: () => onDelete(record),
         });
 
+        const filteredItems = filterMenuItemsForReadOnly(items as any[], hasBackupsWrite);
         return (
-          <Dropdown menu={{ items }} trigger={['click']}>
+          <Dropdown menu={{ items: filteredItems }} trigger={['click']}>
             <Button
               icon={<EllipsisOutlined />}
               className="row-actions-trigger"
               type="text"
-              disabled={!hasBackupsWrite}
+              disabled={filteredItems.length === 0}
             />
           </Dropdown>
         );
