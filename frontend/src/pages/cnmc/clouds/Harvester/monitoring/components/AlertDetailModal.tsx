@@ -3,14 +3,15 @@
  * 站点内「运维告警概览」与「告警处理状态」列表共用此组件。
  * 展示字段按 Alertmanager v2 业务场景分组：基本信息 / 位置 / 时间 / 通知 / 详情 / 跳转。
  */
-import React from 'react';
-import { LinkOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Descriptions, Modal, Space, Tag, Typography } from 'antd';
 import { SEVERITY_MAP } from '../constants';
 import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING } from '../context/MonitoringContext';
+import { fetchAlertmanagerconfigs, type AlertmanagerPolicy } from '../../../../../../services/monitoringApi';
 import { formatDateTimeDetailed, formatDuration, getAlertGroupLabel, type ParsedAlert } from '../lib/prometheusAlerts';
 
 interface AlertDetailModalProps {
+  cloudId: string;
   open: boolean;
   onClose: () => void;
   record: ParsedAlert | null;
@@ -62,6 +63,42 @@ function filterDisplayReceivers(receivers: string[] | undefined): string[] {
     .map(stripReceiverNamespacePrefix);
 }
 
+function unwrapPoliciesPayload(payload: unknown): AlertmanagerPolicy[] {
+  if (Array.isArray(payload)) return payload as AlertmanagerPolicy[];
+  if (payload && typeof payload === 'object') {
+    const raw = (payload as { data?: unknown }).data;
+    if (Array.isArray(raw)) return raw as AlertmanagerPolicy[];
+  }
+  return [];
+}
+
+function parseReceiverPath(
+  receiverPath: string,
+  fallbackNamespace?: string,
+): { namespace: string; policyName: string; receiverName: string } | null {
+  const parts = receiverPath
+    .split('/')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (parts.length >= 3) {
+    const [namespace, policyName, ...receiverRest] = parts;
+    return {
+      namespace: namespace || fallbackNamespace || '',
+      policyName: policyName || '',
+      receiverName: receiverRest.join('/') || '',
+    };
+  }
+  if (parts.length === 2) {
+    const [policyName, receiverName] = parts;
+    return {
+      namespace: fallbackNamespace || '',
+      policyName: policyName || '',
+      receiverName: receiverName || '',
+    };
+  }
+  return null;
+}
+
 /**
  * @param open - 是否打开
  * @param onClose - 关闭回调
@@ -69,8 +106,74 @@ function filterDisplayReceivers(receivers: string[] | undefined): string[] {
  * @param rulesGroupMap - 告警分组别名映射（可选）
  * @returns 告警详情 Modal
  */
-const AlertDetailModal: React.FC<AlertDetailModalProps> = ({ open, onClose, record, rulesGroupMap }) => {
-  const displayReceivers = filterDisplayReceivers(record?.receivers);
+const AlertDetailModal: React.FC<AlertDetailModalProps> = ({
+  cloudId,
+  open,
+  onClose,
+  record,
+  rulesGroupMap,
+}) => {
+  const [policies, setPolicies] = useState<AlertmanagerPolicy[]>([]);
+
+  useEffect(() => {
+    if (!open || !cloudId) return;
+    let cancelled = false;
+    fetchAlertmanagerconfigs(cloudId).then(({ ok, data }) => {
+      if (cancelled || !ok) return;
+      setPolicies(unwrapPoliciesPayload(data));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, cloudId]);
+
+  const policyAliasMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const policy of policies) {
+      const namespace = String(policy?.namespace ?? '').trim();
+      const policyName = String(policy?.name ?? '').trim();
+      if (!policyName) continue;
+      const policyAlias = String(policy?.aliasName ?? '').trim() || policyName;
+      map.set(policyName, policyAlias);
+      if (namespace) map.set(`${namespace}/${policyName}`, policyAlias);
+    }
+    return map;
+  }, [policies]);
+
+  const receiverAliasMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const policy of policies) {
+      const namespace = String(policy?.namespace ?? '').trim();
+      const policyName = String(policy?.name ?? '').trim();
+      const receivers = Array.isArray(policy?.receivers) ? policy.receivers : [];
+      for (const receiver of receivers) {
+        const receiverName = String(receiver?.name ?? '').trim();
+        if (!policyName || !receiverName) continue;
+        const receiverAlias = String(receiver?.aliasName ?? '').trim() || receiverName;
+        map.set(`${policyName}/${receiverName}`, receiverAlias);
+        if (namespace) map.set(`${namespace}/${policyName}/${receiverName}`, receiverAlias);
+      }
+    }
+    return map;
+  }, [policies]);
+
+  const displayReceivers = useMemo(() => {
+    const receivers = filterDisplayReceivers(record?.receivers);
+    return receivers.map((receiverPath) => {
+      const parsed = parseReceiverPath(receiverPath, record?.namespace);
+      if (!parsed) return receiverPath;
+      const { namespace, policyName, receiverName } = parsed;
+      const policyAlias =
+        policyAliasMap.get(`${namespace}/${policyName}`) ??
+        policyAliasMap.get(policyName) ??
+        policyName;
+      const receiverAlias =
+        receiverAliasMap.get(`${namespace}/${policyName}/${receiverName}`) ??
+        receiverAliasMap.get(`${policyName}/${receiverName}`) ??
+        receiverName;
+      return `${policyAlias}/${receiverAlias}`;
+    });
+  }, [record, policyAliasMap, receiverAliasMap]);
 
   return (
     <Modal
@@ -78,12 +181,12 @@ const AlertDetailModal: React.FC<AlertDetailModalProps> = ({ open, onClose, reco
       onCancel={onClose}
       title="告警详情"
       footer={<Button onClick={onClose}>关闭</Button>}
-      width={900}
+      width={1000}
       destroyOnHidden
     >
       {record ? (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Descriptions column={2} bordered size="small" labelStyle={{ width: 110 }}>
+          <Descriptions column={2} bordered size="small" labelStyle={{ width: 150 }}>
             <Descriptions.Item label="告警名称" span={2}>
               <Space size={8} wrap>
                 <Typography.Text strong>{record.title || record.alertname || '-'}</Typography.Text>

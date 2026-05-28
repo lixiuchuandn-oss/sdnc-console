@@ -29,54 +29,60 @@ const RULES_TITLE_TAG_STYLE: React.CSSProperties = {
 };
 
 const MonitoringPrometheusRules: React.FC<MonitoringPrometheusRulesProps> = ({ cloudId }) => {
-  const severityTip = (
-    <Typography style={{ maxWidth: 320 }}>
-      <Typography.Paragraph style={{ marginBottom: 12 }}>
-        <Typography.Text strong>告警等级</Typography.Text>
-        <br />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          用于标识告警事件的严重程度，便于快速判断优先级与响应策略。
-        </Typography.Text>
-      </Typography.Paragraph>
-      <Typography.Paragraph style={{ marginBottom: 12 }}>
-        <Typography.Text strong>1. 严重告警(Critical)</Typography.Text>
-        <br />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          表示高优先级故障或风险，通常需要立即处理。
-        </Typography.Text>
-      </Typography.Paragraph>
-      <Typography.Paragraph style={{ marginBottom: 12 }}>
-        <Typography.Text strong>2. 注意(Warning)</Typography.Text>
-        <br />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          表示存在异常或潜在风险，建议尽快排查与处理。
-        </Typography.Text>
-      </Typography.Paragraph>
-      <Typography.Paragraph style={{ marginBottom: 0 }}>
-        <Typography.Text strong>3. 信息(Info)</Typography.Text>
-        <br />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          表示状态提示或一般信息，通常用于观察与记录。
-        </Typography.Text>
-      </Typography.Paragraph>
-    </Typography>
+  const severityTip = useMemo(
+    () => (
+      <Typography style={{ maxWidth: 320 }}>
+        <Typography.Paragraph style={{ marginBottom: 12 }}>
+          <Typography.Text strong>告警等级</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            用于标识告警事件的严重程度，便于快速判断优先级与响应策略。
+          </Typography.Text>
+        </Typography.Paragraph>
+        <Typography.Paragraph style={{ marginBottom: 12 }}>
+          <Typography.Text strong>1. 严重告警(Critical)</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            表示高优先级故障或风险，通常需要立即处理。
+          </Typography.Text>
+        </Typography.Paragraph>
+        <Typography.Paragraph style={{ marginBottom: 12 }}>
+          <Typography.Text strong>2. 注意(Warning)</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            表示存在异常或潜在风险，建议尽快排查与处理。
+          </Typography.Text>
+        </Typography.Paragraph>
+        <Typography.Paragraph style={{ marginBottom: 0 }}>
+          <Typography.Text strong>3. 信息(Info)</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            表示状态提示或一般信息，通常用于观察与记录。
+          </Typography.Text>
+        </Typography.Paragraph>
+      </Typography>
+    ),
+    [],
   );
 
-  const durationTip = (
-    <Typography style={{ maxWidth: 320 }}>
-      <Typography.Paragraph style={{ marginBottom: 12 }}>
-        <Typography.Text strong>持续时间（for）</Typography.Text>
-        <br />
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          对应 Kubernetes PrometheusRule 的 <Typography.Text code>for</Typography.Text> 字段。
-        </Typography.Text>
-      </Typography.Paragraph>
-      <Typography.Paragraph style={{ marginBottom: 0 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          表示告警条件需要连续满足的时长，超过该时长会触发告警（例如 <Typography.Text code>5m</Typography.Text>、<Typography.Text code>1h</Typography.Text>）。
-        </Typography.Text>
-      </Typography.Paragraph>
-    </Typography>
+  const durationTip = useMemo(
+    () => (
+      <Typography style={{ maxWidth: 320 }}>
+        <Typography.Paragraph style={{ marginBottom: 12 }}>
+          <Typography.Text strong>持续时间（for）</Typography.Text>
+          <br />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            对应 Kubernetes PrometheusRule 的 <Typography.Text code>for</Typography.Text> 字段。
+          </Typography.Text>
+        </Typography.Paragraph>
+        <Typography.Paragraph style={{ marginBottom: 0 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            表示告警条件需要连续满足的时长，超过该时长会触发告警（例如 <Typography.Text code>5m</Typography.Text>、<Typography.Text code>1h</Typography.Text>）。
+          </Typography.Text>
+        </Typography.Paragraph>
+      </Typography>
+    ),
+    [],
   );
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);

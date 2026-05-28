@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { Alert, Card, Empty, Space, Spin, Switch, Tag, Typography } from 'antd';
 import { fetchPrometheusRulesGroups } from '../../../../../../services/monitoringApi';
-import { SEVERITY_MAP } from '../constants';
+import { getAlertItemHoverBg, SEVERITY_MAP } from '../constants';
 import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING } from '../context/MonitoringContext';
 import MonitoringAlerts from '../MonitoringAlerts';
 import type { ParsedAlert } from '../lib/prometheusAlerts';
@@ -179,6 +179,7 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
   );
 
   return (
+      /** 运维告警概览 Card */
     <Space direction="vertical" size={OPS_DASHBOARD_PAGE_STACK_GAP} style={{ width: '100%' }}>
       {error ? <Alert type="error" showIcon message={error} /> : null}
       <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
@@ -250,7 +251,7 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
                       transition: 'background-color .15s',
                     }}
                     onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLDivElement).style.background = 'rgba(250, 140, 22, 0.08)';
+                      (e.currentTarget as HTMLDivElement).style.background = getAlertItemHoverBg(item.level);
                     }}
                     onMouseLeave={(e) => {
                       (e.currentTarget as HTMLDivElement).style.background = 'transparent';
@@ -329,6 +330,7 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
       </Card>
 
       <AlertDetailModal
+        cloudId={cloudId}
         open={detailOpen}
         onClose={closeAlertDetail}
         record={detailRecord}

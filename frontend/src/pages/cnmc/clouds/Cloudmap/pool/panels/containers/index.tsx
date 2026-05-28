@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Empty, Switch } from 'antd';
+import { Empty } from 'antd';
 import {
   WorkloadsSection,
   PodsSection,

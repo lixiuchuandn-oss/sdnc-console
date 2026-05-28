@@ -105,6 +105,8 @@ import {
   harvesterMonitoringPrometheusTargetsHandler,
   harvesterMonitoringPrometheusUpdateHandler,
   harvesterMonitoringPrometheusRulesHandler,
+  harvesterMonitoringPrometheusRuleDetailHandler,
+  harvesterMonitoringPrometheusRuleUpdateHandler,
   harvesterMonitoringPrometheusRulesGroupsHandler,
   harvesterMonitoringVmCustomRulesHandler,
 } from './handlers/monitoring-rules.handlers';
@@ -515,6 +517,20 @@ export function registerHarvesterServiceRoutesProvider(
     'cloudmap.edge': harvesterMonitoringPrometheusRulesHandler,
   };
 
+  const monitoringPrometheusRuleDetailHandlers = {
+    harvester: harvesterMonitoringPrometheusRuleDetailHandler,
+    cloudmap: harvesterMonitoringPrometheusRuleDetailHandler,
+    'cloudmap.private': harvesterMonitoringPrometheusRuleDetailHandler,
+    'cloudmap.edge': harvesterMonitoringPrometheusRuleDetailHandler,
+  };
+
+  const monitoringPrometheusRuleUpdateHandlers = {
+    harvester: harvesterMonitoringPrometheusRuleUpdateHandler,
+    cloudmap: harvesterMonitoringPrometheusRuleUpdateHandler,
+    'cloudmap.private': harvesterMonitoringPrometheusRuleUpdateHandler,
+    'cloudmap.edge': harvesterMonitoringPrometheusRuleUpdateHandler,
+  };
+
   const monitoringPrometheusRulesGroupsHandlers = {
     harvester: harvesterMonitoringPrometheusRulesGroupsHandler,
     cloudmap: harvesterMonitoringPrometheusRulesGroupsHandler,
@@ -905,6 +921,16 @@ export function registerHarvesterServiceRoutesProvider(
     createProviderRouter(monitoringPrometheusTargetsHandlers),
   );
   router.get('/:id/monitoring/prometheusrules', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesHandlers));
+  router.get(
+    '/:id/monitoring/prometheusrules/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusRuleDetailHandlers),
+  );
+  router.put(
+    '/:id/monitoring/prometheusrules/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusRuleUpdateHandlers),
+  );
   router.get('/:id/monitoring/prometheusrules-groups', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesGroupsHandlers));
   router.get('/:id/monitoring/prometheusrules/vm-custom-rules', checkAdminPermission, createProviderRouter(monitoringVmCustomRulesHandlers));
 

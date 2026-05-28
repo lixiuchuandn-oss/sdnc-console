@@ -643,9 +643,89 @@ export function fetchAllowedNamespaces(cloudId: string, options?: { signal?: Abo
   return apiGet<{ isAdmin: boolean; namespaces: string[] }>(`${base(cloudId)}/allowed-namespaces`, options);
 }
 
+// ===== 告警通知策略（AlertmanagerPolicy）=====
+// 与后端 monitoring-helpers.ts 中的 AlertmanagerPolicy* 系列类型保持一致。
+// 列表/详情 → 结构化 Policy（已联表通知对象的 receiverType / aliasName）；
+// 创建/更新 → 结构化 payload（不再直接拼装 AlertmanagerConfig CR）。
+
+/** matcher（与 AlertmanagerConfig sub-route 字段一致） */
+export interface AlertmanagerPolicyMatcher {
+  matchType: string;
+  name: string;
+  value: string;
+}
+
+/** receiver 引用（已联表通知对象） */
+export interface AlertmanagerPolicyReceiverRef {
+  /** spec.receivers[].name；同时是同 ns 通知对象 CR 的 metadata.name */
+  name: string;
+  /** 关联通知对象 annotation `tower.io/monitoring-receiver` */
+  receiverType?: NotificationReceiverType;
+  /** 关联通知对象 annotation `tower.io/alias` */
+  aliasName?: string;
+}
+
+/** 子路由：UI 主消费 alertNames + repeatInterval；matchers 原样保留供调试 */
+export interface AlertmanagerPolicySubRoute {
+  continue?: boolean;
+  receiver?: string;
+  repeatInterval?: string;
+  matchers?: AlertmanagerPolicyMatcher[];
+  /** 解析自 matchers（name=alertname, matchType==~）；前端「告警规则」编辑的唯一字段 */
+  alertNames?: string[];
+}
+
+/** 顶层路由：保留 groupBy 等告警组信息，预留 */
+export interface AlertmanagerPolicyRoute {
+  groupBy?: string[];
+  groupWait?: string;
+  groupInterval?: string;
+  repeatInterval?: string;
+  receiver?: string;
+  routes?: AlertmanagerPolicySubRoute[];
+}
+
+/** 对外暴露的告警通知策略 */
+export interface AlertmanagerPolicy {
+  /** `${namespace}/${name}` */
+  id: string;
+  /** metadata.name（策略唯一标识，不可变） */
+  name: string;
+  /** metadata.namespace */
+  namespace: string;
+  /** 通知策略名称（annotation `tower.io/alias`） */
+  aliasName?: string;
+  /** 通知策略描述（annotation `tower.io/description` 或 annotation `description`） */
+  description?: string;
+  /** 关联通知对象（已联表 receiverType / aliasName；不含 null-receiver） */
+  receivers: AlertmanagerPolicyReceiverRef[];
+  /** 完整 route（含 groupBy 告警组信息），预留供未来扩展 */
+  route?: AlertmanagerPolicyRoute;
+  /** routes[0] 解析结果；UI 主消费此字段 */
+  subRoute?: AlertmanagerPolicySubRoute;
+  creationTimestamp?: string;
+  creator?: string;
+  /** metadata.resourceVersion；UPDATE 时随 payload 回传以避免 409 冲突 */
+  resourceVersion?: string;
+  /** 系统默认策略不可编辑/删除 */
+  isSystemDefault?: boolean;
+}
+
+/** 前端 -> 后端 创建/更新 payload */
+export interface UpsertAlertmanagerPolicyPayload {
+  name: string;
+  namespace: string;
+  aliasName?: string;
+  description?: string;
+  receivers: Array<{ name: string }>;
+  alertNames: string[];
+  subRouteRepeatInterval?: string;
+  resourceVersion?: string;
+}
+
 export function fetchAlertmanagerconfigs(cloudId: string, options?: { signal?: AbortSignal }) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/alertmanagerconfigs`, options);
+  return apiGet<{ data: AlertmanagerPolicy[] }>(`${base(cloudId)}/alertmanagerconfigs`, options);
 }
 
 export function fetchAlertmanagerconfigDetail(
@@ -655,7 +735,10 @@ export function fetchAlertmanagerconfigDetail(
   options?: { signal?: AbortSignal }
 ) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiGet(`${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, options);
+  return apiGet<{ data: AlertmanagerPolicy }>(
+    `${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+    options,
+  );
 }
 
 /**
@@ -666,8 +749,8 @@ export type NotificationReceiverType = 'email-receiver' | 'dingtalk-receiver' | 
 
 /** 通知对象 CR 级展示字段（metadata.annotations） */
 export interface NotificationTargetReceiverMeta {
-  /** 通知对象名称，annotation `tower.io/alias` */
-  alias?: string;
+  /** 通知对象名称，annotation `tower.io/alias`（与 AlertmanagerPolicy.aliasName 同口径） */
+  aliasName?: string;
   /** 通知对象描述，annotation `tower.io/description` */
   description?: string;
 }
@@ -791,9 +874,13 @@ export function fetchNotificationTargetsList(
   );
 }
 
-export function createAlertmanagerconfig(cloudId: string, body: unknown) {
+/** 创建告警通知策略：提交结构化 payload，后端序列化为 AlertmanagerConfig CR */
+export function createAlertmanagerconfig(
+  cloudId: string,
+  body: UpsertAlertmanagerPolicyPayload,
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiPostPut(`${base(cloudId)}/alertmanagerconfigs`, 'POST', body);
+  return apiPostPut<{ data: AlertmanagerPolicy }>(`${base(cloudId)}/alertmanagerconfigs`, 'POST', body);
 }
 
 /**
@@ -825,12 +912,18 @@ export function postAlertmanagerconfigReceivers(
   );
 }
 
-export function updateAlertmanagerconfig(cloudId: string, namespace: string, name: string, body: unknown) {
+/** 更新告警通知策略：提交结构化 payload，后端会保留既有 CR 中的其它字段后再序列化 */
+export function updateAlertmanagerconfig(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: UpsertAlertmanagerPolicyPayload,
+) {
   if (!cloudId || !namespace || !name) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
-  return apiPostPut(
+  return apiPostPut<{ data: AlertmanagerPolicy }>(
     `${base(cloudId)}/alertmanagerconfigs/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
     'PUT',
-    body
+    body,
   );
 }
 
@@ -993,6 +1086,39 @@ export function fetchPrometheusRulesGroups(cloudId: string, options?: { signal?:
   return apiGet<{ rulesGroupMap: Record<string, string> }>(
     `${base(cloudId)}/prometheusrules-groups?datasource=prometheus`,
     options
+  );
+}
+
+/** PrometheusRule 详情（按 namespace + name 读取原始 CR） */
+export function fetchPrometheusRuleDetail(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  options?: { signal?: AbortSignal }
+) {
+  if (!cloudId || !namespace || !name) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  }
+  return apiGet<Record<string, unknown>>(
+    `${base(cloudId)}/prometheusrules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?datasource=prometheus`,
+    options
+  );
+}
+
+/** 更新 PrometheusRule（按 namespace + name 覆盖 CR） */
+export function updatePrometheusRule(
+  cloudId: string,
+  namespace: string,
+  name: string,
+  body: Record<string, unknown>
+) {
+  if (!cloudId || !namespace || !name) {
+    return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId/namespace/name' });
+  }
+  return apiPostPut(
+    `${base(cloudId)}/prometheusrules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?datasource=prometheus`,
+    'PUT',
+    body
   );
 }
 

@@ -1,9 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ReloadOutlined } from '@ant-design/icons';
-import { Button, Drawer, Table, Tag, Typography } from 'antd';
+import { Button, Drawer, Modal, Space, Spin, Table, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchPrometheusRules, fetchPrometheusRulesGroups, type PrometheusRuleItem } from '../../../../../../services/monitoringApi';
+import yaml from 'js-yaml';
+import {
+  fetchPrometheusRuleDetail,
+  fetchPrometheusRules,
+  fetchPrometheusRulesGroups,
+  updatePrometheusRule,
+  type PrometheusRuleItem,
+} from '../../../../../../services/monitoringApi';
 import { CRITICAL_COLOR, WARNING_COLOR, SEVERITY_CRITICAL, SEVERITY_WARNING } from '../constants';
+import { ANNOTATION_ALIAS } from '../context/MonitoringContext';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import YamlEditor from '../../../../../../components/YamlEditor';
 
@@ -38,7 +46,7 @@ function buildGroupYaml(row: GroupRow): string {
   const groupAlias = (row.groupAliasName || '').toString().trim();
   const metadataAnnotations =
     groupAlias && groupAlias !== groupName
-      ? `\n  annotations:\n    cloudhci.io/rule-name: "${groupAlias}"`
+      ? `\n  annotations:\n    ${ANNOTATION_ALIAS}: "${groupAlias}"`
       : '';
   const rulesYaml = row.rules
     .map((r) => {
@@ -75,17 +83,80 @@ const OpsAlertGroupsSection: React.FC<OpsAlertGroupsSectionProps> = ({ cloudId }
   const [pageSize, setPageSize] = useState(20);
   const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
   const [yamlDrawerGroup, setYamlDrawerGroup] = useState<GroupRow | null>(null);
+  const [yamlContent, setYamlContent] = useState('');
+  const [yamlOriginalContent, setYamlOriginalContent] = useState('');
+  const [yamlLoading, setYamlLoading] = useState(false);
+  const [yamlSaving, setYamlSaving] = useState(false);
   const [hoveredGroupKey, setHoveredGroupKey] = useState<string | null>(null);
 
-  const openYamlDrawer = useCallback((row: GroupRow) => {
-    setYamlDrawerGroup(row);
-    setYamlDrawerOpen(true);
-  }, []);
-
-  const closeYamlDrawer = useCallback(() => {
+  const resetYamlDrawerState = useCallback(() => {
     setYamlDrawerOpen(false);
     setYamlDrawerGroup(null);
+    setYamlContent('');
+    setYamlOriginalContent('');
+    setYamlLoading(false);
+    setYamlSaving(false);
   }, []);
+
+  const loadYamlForGroup = useCallback(
+    async (row: GroupRow) => {
+      setYamlLoading(true);
+      try {
+        const { data, ok, error } = await fetchPrometheusRuleDetail(cloudId, row.namespace, row.groupName);
+        if (ok && data && typeof data === 'object') {
+          const cr = data as Record<string, unknown>;
+          const meta =
+            cr.metadata && typeof cr.metadata === 'object'
+              ? { ...(cr.metadata as Record<string, unknown>) }
+              : undefined;
+          const clean = {
+            ...cr,
+            ...(meta ? { metadata: { ...meta, managedFields: undefined } } : {}),
+          };
+          const text = yaml.dump(clean, { lineWidth: -1, noRefs: true });
+          setYamlContent(text);
+          setYamlOriginalContent(text);
+          return;
+        }
+        const fallback = buildGroupYaml(row);
+        setYamlContent(fallback);
+        setYamlOriginalContent(fallback);
+        if (error) message.warning(`加载 CR 失败，已使用本地模板：${error}`);
+      } finally {
+        setYamlLoading(false);
+      }
+    },
+    [cloudId],
+  );
+
+  const openYamlDrawer = useCallback(
+    (row: GroupRow) => {
+      setYamlDrawerGroup(row);
+      setYamlDrawerOpen(true);
+      void loadYamlForGroup(row);
+    },
+    [loadYamlForGroup],
+  );
+
+  const yamlHasChanges = yamlContent !== yamlOriginalContent;
+
+  const closeYamlDrawer = useCallback(() => {
+    resetYamlDrawerState();
+  }, [resetYamlDrawerState]);
+
+  const handleCloseYamlDrawer = useCallback(() => {
+    if (yamlHasChanges) {
+      Modal.confirm({
+        title: '确认退出？',
+        content: '您有未保存的修改，确定要关闭吗？',
+        okText: '退出',
+        cancelText: '继续编辑',
+        onOk: closeYamlDrawer,
+      });
+      return;
+    }
+    closeYamlDrawer();
+  }, [yamlHasChanges, closeYamlDrawer]);
 
   const loadGroups = useCallback(async () => {
     if (!cloudId) return;
@@ -141,6 +212,63 @@ const OpsAlertGroupsSection: React.FC<OpsAlertGroupsSectionProps> = ({ cloudId }
       setLoading(false);
     }
   }, [cloudId]);
+
+  const handleSaveYaml = useCallback(async () => {
+    const row = yamlDrawerGroup;
+    if (!cloudId || !row) return;
+    const text = yamlContent.trim();
+    if (!text) {
+      message.error('YAML 内容不能为空');
+      return;
+    }
+    const hasApiVersion = text.includes('apiVersion') || text.includes('"apiVersion"');
+    const hasKind = text.includes('kind') || text.includes('"kind"');
+    if (!hasApiVersion || !hasKind) {
+      message.error('格式错误：缺少 apiVersion 或 kind 字段');
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = yaml.load(text);
+    } catch (e: any) {
+      message.error(`YAML 解析失败：${e?.message || '格式错误'}`);
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      message.error('无效的 PrometheusRule 定义');
+      return;
+    }
+
+    const body = parsed as Record<string, unknown>;
+    const meta =
+      body.metadata && typeof body.metadata === 'object'
+        ? { ...(body.metadata as Record<string, unknown>) }
+        : {};
+    const cleanBody = {
+      ...body,
+      metadata: {
+        ...meta,
+        namespace: row.namespace,
+        name: row.groupName,
+        managedFields: undefined,
+      },
+    };
+
+    setYamlSaving(true);
+    try {
+      const { ok, error } = await updatePrometheusRule(cloudId, row.namespace, row.groupName, cleanBody);
+      if (!ok) {
+        message.error(error || '保存 PrometheusRule 失败');
+        return;
+      }
+      message.success('保存成功');
+      closeYamlDrawer();
+      await loadGroups();
+    } finally {
+      setYamlSaving(false);
+    }
+  }, [cloudId, yamlContent, yamlDrawerGroup, closeYamlDrawer, loadGroups]);
 
   useEffect(() => {
     void loadGroups();
@@ -253,15 +381,30 @@ const OpsAlertGroupsSection: React.FC<OpsAlertGroupsSectionProps> = ({ cloudId }
         placement="right"
         width={800}
         open={yamlDrawerOpen}
-        onClose={closeYamlDrawer}
+        onClose={handleCloseYamlDrawer}
         destroyOnHidden
+        maskClosable={false}
+        extra={
+          <Space>
+            <Button onClick={handleCloseYamlDrawer}>取消</Button>
+            <Button type="primary" loading={yamlSaving} disabled={yamlLoading || !yamlHasChanges} onClick={() => void handleSaveYaml()}>
+              保存
+            </Button>
+          </Space>
+        }
       >
-        <YamlEditor
-          value={yamlDrawerGroup ? buildGroupYaml(yamlDrawerGroup) : ''}
-          readOnly
-          minHeight={600}
-          maxHeight={800}
-        />
+        {yamlLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 600 }}>
+            <Spin tip="正在加载中" />
+          </div>
+        ) : (
+          <YamlEditor
+            value={yamlContent}
+            onChange={setYamlContent}
+            minHeight={600}
+            maxHeight={800}
+          />
+        )}
       </Drawer>
     </PageDetailSection>
   );
