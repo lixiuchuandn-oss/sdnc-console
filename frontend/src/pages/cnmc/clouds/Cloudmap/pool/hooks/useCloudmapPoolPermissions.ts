@@ -5,6 +5,7 @@ import { useCallback, useMemo } from 'react';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { useLicense } from '../../../../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { readActionToWrite } from '../../../../../../utils/rbacUi';
 import {
   CLOUD_CONTAINERS_READ,
   CLOUD_MONITORING_OVERVIEW_READ,
@@ -35,6 +36,8 @@ import {
 
 export type CloudmapPoolPermissions = {
   checkPerm: (act: string) => boolean;
+  /** 由 read atom 推导对应 write（用于隐藏写操作按钮） */
+  checkWrite: (readAction: string) => boolean;
   isTenant: boolean;
   canReadVpcSubnets: boolean;
   canReadFlatSubnets: boolean;
@@ -76,6 +79,11 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
 
   const checkPerm = useCallback(
     (act: string) => hasPermissionForAction(permissions || [], act),
+    [permissions],
+  );
+
+  const checkWrite = useCallback(
+    (readAction: string) => hasPermissionForAction(permissions || [], readActionToWrite(readAction)),
     [permissions],
   );
 
@@ -236,6 +244,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
 
   return {
     checkPerm,
+    checkWrite,
     isTenant,
     canReadVpcSubnets,
     canReadFlatSubnets,

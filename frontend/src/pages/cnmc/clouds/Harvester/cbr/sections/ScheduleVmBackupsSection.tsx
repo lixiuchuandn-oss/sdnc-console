@@ -3,6 +3,7 @@ import { Table, Button, Input, Select, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
@@ -192,16 +193,17 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
         )}
         toolbarRight={(
           <div className="toolbar-actions">
-            <Button
-              type="primary"
-              disabled={!hasBackupsWrite}
-              onClick={() => {
-                if (!ensureBackupsWrite()) return;
-                setCreateModalVisible(true);
-              }}
-            >
-              创建定时策略
-            </Button>
+            <WriteGuard canWrite={hasBackupsWrite}>
+              <Button
+                type="primary"
+                onClick={() => {
+                  if (!ensureBackupsWrite()) return;
+                  setCreateModalVisible(true);
+                }}
+              >
+                创建定时策略
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton
               allColumns={columns}
               settingsKey="harvester_schedule_backups_list"

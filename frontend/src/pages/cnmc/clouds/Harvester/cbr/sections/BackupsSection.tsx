@@ -6,6 +6,7 @@ import { Button, Input, Select, Table } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -185,13 +186,14 @@ const BackupsSection: React.FC<Props> = ({
         }
         toolbarRight={
           <div className="toolbar-actions">
-            <Button
-              type="primary"
-              disabled={!hasBackupsWrite}
-              onClick={() => actions.setCreateModalVisible(true)}
-            >
-              创建{type === 'backup' ? '备份' : '快照'}
-            </Button>
+            <WriteGuard canWrite={hasBackupsWrite}>
+              <Button
+                type="primary"
+                onClick={() => actions.setCreateModalVisible(true)}
+              >
+                创建{type === 'backup' ? '备份' : '快照'}
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton
               allColumns={columns}
               settingsKey={`harvester_${type}_list`}

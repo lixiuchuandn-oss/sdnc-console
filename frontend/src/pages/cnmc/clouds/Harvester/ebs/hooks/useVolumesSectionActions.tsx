@@ -26,6 +26,7 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/ebsSectionRefresh';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -373,7 +374,7 @@ export function useVolumesSectionActions({
         },
       });
 
-      return items;
+      return filterMenuItemsForReadOnly(items as any[], hasDisksWrite);
     },
     [
       burstRefreshVolumes,

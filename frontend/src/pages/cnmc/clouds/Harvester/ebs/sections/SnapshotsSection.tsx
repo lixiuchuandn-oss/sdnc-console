@@ -6,6 +6,7 @@ import { Button, Dropdown, Input, Select, Table, message } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { useAuth } from 'contexts/AuthContext';
 import { hasPermissionForAction } from 'utils/accessMapping';
@@ -159,25 +160,27 @@ const SnapshotsSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Dropdown
-            trigger={['click']}
-            menu={{
-              items: [
-                {
-                  key: 'batchDelete',
-                  label: '批量删除',
-                  disabled: !hasSnapshotsWrite || selectedRowKeys.length === 0,
-                  danger: true,
-                },
-              ],
-              onClick: ({ key }) => key === 'batchDelete' && snapshotActions.handleBatchDelete(),
-            }}
-          >
-            <Button
-              icon={<EllipsisOutlined />}
-              disabled={!hasSnapshotsWrite || selectedRowKeys.length === 0}
-            />
-          </Dropdown>
+          <WriteGuard canWrite={hasSnapshotsWrite}>
+            <Dropdown
+              trigger={['click']}
+              menu={{
+                items: [
+                  {
+                    key: 'batchDelete',
+                    label: '批量删除',
+                    disabled: selectedRowKeys.length === 0,
+                    danger: true,
+                  },
+                ],
+                onClick: ({ key }) => key === 'batchDelete' && snapshotActions.handleBatchDelete(),
+              }}
+            >
+              <Button
+                icon={<EllipsisOutlined />}
+                disabled={selectedRowKeys.length === 0}
+              />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={TABLE_COLUMNS_SETTINGS_KEY} />
           <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </>

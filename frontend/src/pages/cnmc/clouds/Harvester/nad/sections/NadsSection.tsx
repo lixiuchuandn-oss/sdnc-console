@@ -9,6 +9,7 @@ import { Button, Dropdown, Input, Select, Table, message } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
@@ -236,35 +237,38 @@ const NadsSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button
-            type="primary"
-            disabled={!hasNadsWrite}
-            onClick={() => {
-              if (!ensureNadsWrite()) return;
-              actions.setCreateVisible(true);
-            }}
-          >
-            创建网络
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'batchDelete',
-                  label: '批量删除',
-                  disabled: !hasNadsWrite || actions.selectedRowKeys.length === 0,
-                },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'batchDelete') void actions.handleBatchDelete();
-              },
-            }}
-          >
+          <WriteGuard canWrite={hasNadsWrite}>
             <Button
-              icon={<EllipsisOutlined />}
-              disabled={!hasNadsWrite || actions.selectedRowKeys.length === 0}
-            />
-          </Dropdown>
+              type="primary"
+              onClick={() => {
+                if (!ensureNadsWrite()) return;
+                actions.setCreateVisible(true);
+              }}
+            >
+              创建网络
+            </Button>
+          </WriteGuard>
+          <WriteGuard canWrite={hasNadsWrite}>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'batchDelete',
+                    label: '批量删除',
+                    disabled: actions.selectedRowKeys.length === 0,
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'batchDelete') void actions.handleBatchDelete();
+                },
+              }}
+            >
+              <Button
+                icon={<EllipsisOutlined />}
+                disabled={actions.selectedRowKeys.length === 0}
+              />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey={TABLE_COLUMNS_SETTINGS_KEY}

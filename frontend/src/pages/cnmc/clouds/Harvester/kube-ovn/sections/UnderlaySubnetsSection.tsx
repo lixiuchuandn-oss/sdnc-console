@@ -3,6 +3,7 @@ import { Button, Form, Input, Modal, Select, Table, Tag, Tooltip, Typography, me
 import { ApartmentOutlined, EditTwoTone, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import {
   deleteKubeOvnSubnet,
@@ -53,6 +54,7 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 /** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
 const TOWER_PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
@@ -828,7 +830,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         fixed: 'right' as const,
         render: (_: any, record: any) => {
           const name = record?.metadata?.name;
-          const actionItems = [
+          const actionItems = filterMenuItemsForReadOnly([
             ...(effectiveShowYaml
               ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => openSubnetYamlDrawer(record) }]
               : []),
@@ -876,7 +878,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                 })();
               },
             },
-          ];
+          ], hasUnderlayWrite);
           return (
             <ResourceActionsDropdown
               items={actionItems}
@@ -955,16 +957,17 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           </Button>
         </div>
         <div className="toolbar-actions">
-          <Button
-            type="primary"
-            disabled={!hasUnderlayWrite}
-            onClick={() => {
-              if (!ensureUnderlayWrite()) return;
-              setIsModalVisible(true);
-            }}
-          >
-            {`创建${subnetKindLabel}`}
-          </Button>
+          <WriteGuard canWrite={hasUnderlayWrite}>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (!ensureUnderlayWrite()) return;
+                setIsModalVisible(true);
+              }}
+            >
+              {`创建${subnetKindLabel}`}
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey={underlaySubnetTableSettingsKey}

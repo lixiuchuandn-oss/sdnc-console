@@ -379,6 +379,12 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 **Cloudmap 池内 RBAC**：权限原子**以页面为实体**。CNMC **平台**页（**多云总览**、资源池列表）归属分组「**多云管理**」；池内 Tab 归属「**Cloudmap资源池**」（抽屉按侧栏 poolNavGroup）。页面类型 A–F 见 **`docs/cloudmap-pool-page-rbac.md` §2**。
 
+**RBAC 按钮显隐（强制）**：
+- 页面功能可见（有 read）但无对应按钮 write 权限时，**操作按钮/菜单项必须隐藏**，**禁止置灰（disabled）**。
+- 适用范围：工具栏主按钮、行操作下拉、批量操作、详情页动作按钮。
+- 实现约定：优先使用 `WriteGuard` 与 `filterMenuItemsForReadOnly`，避免在仅权限不足场景使用 `disabled` 代替隐藏。
+- 权限不足提示仅用于“用户可触达但需拦截”的提交路径；**仅因无权限导致不可操作时，不应显示按钮入口**。
+
 ### 命名约定
 - **组件文件**： PascalCase (如 `PageContainer.tsx`)
 - **工具文件**： camelCase (如 `harvesterUtils.ts`)

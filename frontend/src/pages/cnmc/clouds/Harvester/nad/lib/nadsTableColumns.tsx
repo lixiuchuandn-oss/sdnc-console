@@ -13,6 +13,7 @@ import {
   subnetTypeToShortLabel,
   type ProcessedNadRecord,
 } from './nadsSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type NadsTableActions = {
   hasNadsWrite: boolean;
@@ -184,7 +185,7 @@ export function buildNadsTableColumns(actions: NadsTableActions): ColumnsType<Pr
         if (items.length === 0) {
           return '—';
         }
-        return <ResourceActionsDropdown items={items} buttonProps={{ disabled: !hasNadsWrite }} />;
+        return <ResourceActionsDropdown items={filterMenuItemsForReadOnly(items as any[], hasNadsWrite)} />;
       },
     },
   ];

@@ -29,6 +29,7 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../components/WriteGuard';
 import {
   fetchClusteroutputs,
   fetchClusteroutputDetail,
@@ -65,6 +66,7 @@ import {
 import { useLoggingContext } from './context/LoggingContext';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 
 type LogType = typeof LOG_TYPE_LOGGING | typeof LOG_TYPE_AUDIT | typeof LOG_TYPE_EVENT;
 
@@ -815,11 +817,14 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         title: '名称',
         dataIndex: ['metadata', 'name'],
         key: 'name',
-        render: (v: string, row) => (
-          <Button type="link" style={{ padding: 0 }} onClick={() => handleOpenForm(row)}>
-            {v || '-'}
-          </Button>
-        ),
+        render: (v: string, row) =>
+          canWriteLogReceivers ? (
+            <Button type="link" style={{ padding: 0 }} onClick={() => handleOpenForm(row)}>
+              {v || '-'}
+            </Button>
+          ) : (
+            <span>{v || '-'}</span>
+          ),
       },
       { title: '命名空间', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (v: string) => v || '-' },
       {
@@ -865,7 +870,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         fixed: 'right',
         render: (_, row) => (
           <ResourceActionsDropdown
-            items={[
+            items={filterMenuItemsForReadOnly([
               { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
               { key: 'edit', label: '编辑配置', disabled: !canWriteLogReceivers, onClick: () => handleOpenForm(row) },
               { type: 'divider' as const },
@@ -893,7 +898,7 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
                   });
                 },
               },
-            ]}
+            ], canWriteLogReceivers)}
           />
         ),
       },
@@ -953,9 +958,11 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteLogReceivers} onClick={() => handleOpenForm(null)}>
-              新增日志接收端
-            </Button>
+            <WriteGuard canWrite={canWriteLogReceivers}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
+                新增日志接收端
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton allColumns={columns} settingsKey="monitoring_log_outputs_table" />
             <Button icon={<ReloadOutlined />} loading={loading} onClick={() => loadList()} />
           </>

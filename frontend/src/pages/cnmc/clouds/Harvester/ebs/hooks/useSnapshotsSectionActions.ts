@@ -10,6 +10,7 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/ebsSectionRefresh';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type UseSnapshotsSectionActionsParams = {
   cloudId: string;
@@ -148,7 +149,7 @@ export function useSnapshotsSectionActions({
           disabled: !hasSnapshotsWrite,
         },
       );
-      return items;
+      return filterMenuItemsForReadOnly(items as any[], hasSnapshotsWrite);
     },
     [handleDelete, handleOpenDrawer, handleRestore, hasSnapshotsWrite, isTenant],
   );

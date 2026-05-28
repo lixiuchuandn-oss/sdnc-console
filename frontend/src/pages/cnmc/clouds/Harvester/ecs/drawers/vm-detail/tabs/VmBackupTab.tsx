@@ -28,6 +28,8 @@ import {
   harvesterScheduleVmBackupSourceVmName,
   isHarvesterCephVmBackup,
 } from '../../../../../../../../utils/harvesterUtils';
+import WriteGuard from '../../../../../../../../components/WriteGuard';
+import { filterMenuItemsForReadOnly } from '../../../../../../../../utils/rbacUi';
 import {
   formatVmBackupLocaleTime,
   formatVmBackupRelativeAge,
@@ -232,12 +234,12 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     return (
       <List.Item
         style={{ padding: '16px 24px' }}
-        actions={[
+        actions={hasBackupsWrite ? [
           <Button
             key="restore"
             type="link"
             size="small"
-            disabled={!readyToUse || !hasBackupsWrite}
+            disabled={!readyToUse}
             onClick={() => handleRestore(item, type)}
           >
             恢复
@@ -247,12 +249,11 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
             type="link"
             size="small"
             danger
-            disabled={!hasBackupsWrite}
             onClick={() => handleDeleteBackup(item, type)}
           >
             删除
           </Button>,
-        ]}
+        ] : []}
       >
         <List.Item.Meta
           avatar={
@@ -299,12 +300,12 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     } catch (e) {}
 
     const menuProps: MenuProps = {
-      items: [
+      items: filterMenuItemsForReadOnly([
         { key: 'edit', label: '编辑策略', disabled: !hasBackupsWrite, onClick: () => handleEditSchedule(item) },
         { key: 'suspend', label: suspend ? '启用' : '停用', disabled: !hasBackupsWrite, onClick: () => handleSuspendSchedule(item) },
         { type: 'divider' },
         { key: 'delete', label: '删除', danger: true, disabled: !hasBackupsWrite, onClick: () => handleDeleteSchedule(item) }
-      ]
+      ] as any[], hasBackupsWrite)
     };
 
     return (
@@ -339,7 +340,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
           }
         />
         <Dropdown menu={menuProps} trigger={['click']}>
-          <Button type="text" icon={<EllipsisOutlined />} disabled={!hasBackupsWrite} />
+          <Button type="text" icon={<EllipsisOutlined />} />
         </Dropdown>
       </List.Item>
     );
@@ -355,9 +356,11 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
-                  <Tooltip title={hasBackupsWrite ? '创建快照' : undefined}>
-                      <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateSnapshotVisible(true)} />
-                  </Tooltip>
+                  <WriteGuard canWrite={hasBackupsWrite}>
+                    <Tooltip title="创建快照">
+                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateSnapshotVisible(true)} />
+                    </Tooltip>
+                  </WriteGuard>
               </Space>
           </div>
           <Card
@@ -383,9 +386,11 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
-                  <Tooltip title={hasBackupsWrite ? '创建备份' : undefined}>
-                      <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateBackupVisible(true)} />
-                  </Tooltip>
+                  <WriteGuard canWrite={hasBackupsWrite}>
+                    <Tooltip title="创建备份">
+                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateBackupVisible(true)} />
+                    </Tooltip>
+                  </WriteGuard>
               </Space>
           </div>
           <Card
@@ -411,9 +416,11 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={schedulesLoading} />
                   </Tooltip>
-                  <Tooltip title={hasBackupsWrite ? '创建定时策略' : undefined}>
-                      <Button type="text" size="small" icon={<PlusOutlined />} disabled={!hasBackupsWrite} onClick={() => setCreateScheduleVisible(true)} />
-                  </Tooltip>
+                  <WriteGuard canWrite={hasBackupsWrite}>
+                    <Tooltip title="创建定时策略">
+                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateScheduleVisible(true)} />
+                    </Tooltip>
+                  </WriteGuard>
               </Space>
           </div>
           <Card

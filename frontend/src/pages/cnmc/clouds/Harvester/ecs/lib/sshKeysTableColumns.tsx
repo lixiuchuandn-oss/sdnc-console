@@ -4,6 +4,7 @@ import { TagTwoTone } from '@ant-design/icons';
 
 import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
 import type { SshKeyTableRow } from './sshKeysSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type SshKeysTableActions = {
   isTenant?: boolean;
@@ -69,10 +70,11 @@ export function buildSshKeysTableColumns(actions: SshKeysTableActions): ColumnsT
           disabled: !hasSshKeysWrite,
           onClick: () => onDelete(record),
         });
+        const filteredItems = filterMenuItemsForReadOnly(items as any[], hasSshKeysWrite);
         return (
           <ResourceActionsDropdown
-            items={items}
-            buttonProps={{ className: 'row-actions-trigger', disabled: !hasSshKeysWrite }}
+            items={filteredItems}
+            buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       },

@@ -7,6 +7,7 @@ import { ReloadOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/ic
 
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { deleteHarvesterSshKey } from 'services/harvester/vm';
@@ -211,32 +212,34 @@ const SshKeysSection: React.FC<Props> = ({
       }
       toolbarRight={
         <div className="toolbar-actions">
-          <Button
-            type="primary"
-            disabled={!hasSshKeysWrite}
-            onClick={() => {
-              if (!hasSshKeysWrite) return;
-              setCreateModalVisible(true);
-            }}
-          >
-            创建
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'delete',
-                  label: '批量删除',
-                  danger: true,
-                  disabled: !hasSshKeysWrite || selectedRowKeys.length === 0,
-                  onClick: handleBatchDelete,
-                },
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button icon={<EllipsisOutlined />} disabled={!hasSshKeysWrite || selectedRowKeys.length === 0} />
-          </Dropdown>
+          <WriteGuard canWrite={hasSshKeysWrite}>
+            <Button
+              type="primary"
+              onClick={() => {
+                setCreateModalVisible(true);
+              }}
+            >
+              创建
+            </Button>
+          </WriteGuard>
+          <WriteGuard canWrite={hasSshKeysWrite}>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'delete',
+                    label: '批量删除',
+                    danger: true,
+                    disabled: selectedRowKeys.length === 0,
+                    onClick: handleBatchDelete,
+                  },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button icon={<EllipsisOutlined />} disabled={selectedRowKeys.length === 0} />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={TABLE_SETTINGS_KEY} />
           <Button
             icon={<ReloadOutlined />}

@@ -69,6 +69,7 @@ import { Table, message, Tooltip, App, Input, Select, Button, Checkbox, Drawer }
 import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
@@ -440,25 +441,20 @@ const RecycleBinSection: React.FC<Props> = ({
          */
         <div className="toolbar-actions">
           {!isTenant && (
-            <Tooltip title={undefined}>
-              <span>
-                <Button
-                  type="primary"
-                  disabled={!hasRecycleBinWrite}
-                  onClick={() => {
-                    if (!hasRecycleBinWrite) {
-                      message.error(
-                        '当前账号没有回收站操作权限（需要 clouds.recycle-bin:write 或 clouds.ecs:write 或 clouds:write 权限）',
-                      );
-                      return;
-                    }
-                    setConfigModalVisible(true);
-                  }}
-                >
-                  任务配置
-                </Button>
-              </span>
-            </Tooltip>
+            <WriteGuard canWrite={hasRecycleBinWrite}>
+              <Tooltip title={undefined}>
+                <span>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      setConfigModalVisible(true);
+                    }}
+                  >
+                    任务配置
+                  </Button>
+                </span>
+              </Tooltip>
+            </WriteGuard>
           )}
           <Button onClick={() => setRecordsDrawerVisible(true)}>
             回收站记录

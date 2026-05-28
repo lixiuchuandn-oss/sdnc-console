@@ -6,6 +6,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Input, Button, Select, message, App, Modal, Switch, Dropdown, Tooltip } from 'antd';
 import { ReloadOutlined, ExclamationCircleOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import HarvesterTemplateDetailDrawer from '../../shared/components/HarvesterTemplateDetailDrawer';
@@ -301,46 +302,38 @@ const TemplatesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Tooltip
-            title={
-              !hasTemplatesWrite
-                ? undefined
-                : selectedRowKeys.length === 0
-                  ? '请先选择模板'
-                  : undefined
-            }
-          >
-            <span>
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: [
-                    {
-                      key: 'batchDelete',
-                      label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
-                      disabled: !hasTemplatesWrite || selectedRowKeys.length === 0,
+          <WriteGuard canWrite={hasTemplatesWrite}>
+            <Tooltip
+              title={selectedRowKeys.length === 0 ? '请先选择模板' : undefined}
+            >
+              <span>
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: [
+                      {
+                        key: 'batchDelete',
+                        label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
+                        disabled: selectedRowKeys.length === 0,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (selectedRowKeys.length === 0) {
+                        message.warning('请先选择模板');
+                        return;
+                      }
+                      if (key === 'batchDelete') handleBatchDelete();
                     },
-                  ],
-                  onClick: ({ key }) => {
-                    if (!hasTemplatesWrite) {
-                      message.error('无权限执行批量操作');
-                      return;
-                    }
-                    if (selectedRowKeys.length === 0) {
-                      message.warning('请先选择模板');
-                      return;
-                    }
-                    if (key === 'batchDelete') handleBatchDelete();
-                  },
-                }}
-              >
-                <Button
-                  icon={<EllipsisOutlined />}
-                  disabled={!hasTemplatesWrite || selectedRowKeys.length === 0}
-                />
-              </Dropdown>
-            </span>
-          </Tooltip>
+                  }}
+                >
+                  <Button
+                    icon={<EllipsisOutlined />}
+                    disabled={selectedRowKeys.length === 0}
+                  />
+                </Dropdown>
+              </span>
+            </Tooltip>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey={HARVESTER_TEMPLATES_TABLE_SETTINGS_KEY}
