@@ -23,8 +23,12 @@ import {
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   deleteHarvesterContainerResource,
@@ -650,6 +654,7 @@ const CredentialTable: React.FC<{
   onBrowse: (secret: any) => void;
   onRefresh: (force?: boolean) => void;
   onCreateCredential: () => void;
+  hasContainersWrite: boolean;
 }> = ({
   secrets,
   loading,
@@ -665,6 +670,7 @@ const CredentialTable: React.FC<{
   onBrowse,
   onRefresh,
   onCreateCredential,
+  hasContainersWrite,
 }) => {
   const { modal, message } = App.useApp();
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
@@ -875,10 +881,15 @@ const CredentialTable: React.FC<{
             },
           },
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleOpenAliasModal, handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal]);
+  ], [handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal, hasContainersWrite]);
 
   // 使用列设置 Hook
   const { displayColumns: credentialDisplayColumns } = useTableColumnSettings(
@@ -920,9 +931,11 @@ const CredentialTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCredential}>
-            创建凭证
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCredential}>
+              创建凭证
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-registries-credentials"
@@ -1029,8 +1042,17 @@ const RegistriesSection: React.FC<Props> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
+  const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
+  const hasContainersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.containers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   
   // Tab 状态
   const [activeTab, setActiveTab] = useState('credentials');
@@ -1537,7 +1559,12 @@ const RegistriesSection: React.FC<Props> = ({
               },
             },
           ];
-          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+          return (
+            <ResourceActionsDropdown
+              items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+              buttonProps={{ className: 'row-actions-trigger' }}
+            />
+          );
         }
         
         // 通用仓库操作
@@ -1577,10 +1604,15 @@ const RegistriesSection: React.FC<Props> = ({
             },
           },
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, modal]);
+  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, modal, hasContainersWrite]);
   
   // 使用列设置 Hook（镜像仓库）
   const { displayColumns: registryDisplayColumns } = useTableColumnSettings(
@@ -1616,6 +1648,7 @@ const RegistriesSection: React.FC<Props> = ({
             onBrowse={handleBrowseFromSecret}
             onRefresh={onRefresh}
             onCreateCredential={handleCreateCredential}
+            hasContainersWrite={hasContainersWrite}
           />
         ) : (
           <div key="registries">
@@ -1631,9 +1664,11 @@ const RegistriesSection: React.FC<Props> = ({
                 />
               </div>
               <div className="toolbar-actions">
-                <Button type="primary" icon={<DatabaseOutlined />} onClick={() => { setEditingRegistry(null); setAddRegistryVisible(true); }}>
-                  添加仓库
-                </Button>
+                <WriteGuard canWrite={hasContainersWrite}>
+                  <Button type="primary" icon={<DatabaseOutlined />} onClick={() => { setEditingRegistry(null); setAddRegistryVisible(true); }}>
+                    添加仓库
+                  </Button>
+                </WriteGuard>
                 <TableColumnSettingsButton
                   allColumns={registryColumns}
                   settingsKey="harvester-containers-registries"

@@ -11,8 +11,12 @@ import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
@@ -92,7 +96,16 @@ const ServicesSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
+  const hasContainersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.containers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
 
   /** 业务命名空间选项：去掉系统命名空间，供下拉与创建默认命名空间 */
   const namespacesOptionsBiz = useMemo(
@@ -482,7 +495,7 @@ const ServicesSection: React.FC<Props> = ({
         const systemHint = getSystemResourceProtectionHint(rawResource);
         return (
           <ResourceActionsDropdown 
-            items={[
+            items={filterMenuItemsForReadOnly([
               ...(isTenant
                 ? [
                     {
@@ -512,13 +525,13 @@ const ServicesSection: React.FC<Props> = ({
                   }
                 }
               ])
-            ]}
+            ], hasContainersWrite)}
             buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       },
     },
-  ], [isTenant, handleOpenAliasModal, openRelatedPodsDrawer, handleEdit, handleDelete]);
+  ], [isTenant, openRelatedPodsDrawer, handleEdit, handleDelete, hasContainersWrite]);
 
   // 使用新的 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');
@@ -581,12 +594,14 @@ const ServicesSection: React.FC<Props> = ({
             />
           )}
           {!isTenant && (
-            <Button
-              type="primary"
-              onClick={handleOpenCreateService}
-            >
-              创建服务
-            </Button>
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button
+                type="primary"
+                onClick={handleOpenCreateService}
+              >
+                创建服务
+              </Button>
+            </WriteGuard>
           )}
           <TableColumnSettingsButton
             allColumns={allColumns}

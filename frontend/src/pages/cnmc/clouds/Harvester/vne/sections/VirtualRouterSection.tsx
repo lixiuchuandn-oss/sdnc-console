@@ -8,8 +8,10 @@ import Icon, { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { ReactComponent as VirtualRouterSvg } from '../../../../../../assets/OS/virtual-router.svg';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import VirtualRouterCreateModal from '../modals/VirtualRouterCreateModal';
 import RdsInstanceLabelEditModal from '../../database/modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal, {
@@ -160,9 +162,10 @@ const VirtualRouterSection: React.FC<Props> = ({
   clusterCapabilities,
 }) => {
   const { user } = useAuth();
-  const canEditPaasVmLabels = useMemo(() => {
+  const canManageVne = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     return (
+      hasPermissionForAction(perms, 'clouds.vne:write') ||
       hasPermissionForAction(perms, 'clouds.ecs:write') ||
       hasPermissionForAction(perms, 'clouds:write') ||
       hasPermissionForAction(perms, 'clouds.console:write')
@@ -385,11 +388,11 @@ const VirtualRouterSection: React.FC<Props> = ({
         key: 'actions',
         fixed: 'right' as const,
         render: (_: any, r: any) => {
-          const items = [
+          const items = filterMenuItemsForReadOnly([
             {
               key: 'vrConsole',
               label: '管理台',
-              disabled: !buildVrouterConsoleUrl(r),
+              disabled: !buildVrouterConsoleUrl(r) || !canManageVne,
               onClick: () => setVrConsoleVm(r),
             },
             {
@@ -400,7 +403,6 @@ const VirtualRouterSection: React.FC<Props> = ({
             {
               key: 'editLabels',
               label: '编辑标签',
-              disabled: !canEditPaasVmLabels,
               onClick: () => {
                 setLabelEditRecord(r);
                 setLabelEditOpen(true);
@@ -412,7 +414,7 @@ const VirtualRouterSection: React.FC<Props> = ({
               label: '查看YAML',
               onClick: () => openYamlDrawer(r),
             },
-          ];
+          ], canManageVne);
           return (
             <ResourceActionsDropdown
               items={items}
@@ -422,7 +424,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         },
       },
     ],
-    [canEditPaasVmLabels, openVmDetailDrawer, openYamlDrawer],
+    [canManageVne, openVmDetailDrawer, openYamlDrawer],
   );
 
   const handleOpenCreateModal = () => {
@@ -506,9 +508,11 @@ const VirtualRouterSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button type="primary" onClick={handleOpenCreateModal}>
-            创建实例
-          </Button>
+          <WriteGuard canWrite={canManageVne}>
+            <Button type="primary" onClick={handleOpenCreateModal}>
+              创建实例
+            </Button>
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleToolbarRefresh} />
         </>
       }

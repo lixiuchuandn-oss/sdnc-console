@@ -2,9 +2,11 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Button, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
+import { useAuth } from 'contexts/AuthContext';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { claimHarvesterUsbDevice, unclaimHarvesterUsbDevice } from 'services/harvester/clusterInventory';
+import { hasPermissionForAction } from 'utils/accessMapping';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import {
   filterUsbDevices,
@@ -39,6 +41,14 @@ const UsbDevicesSection: React.FC<Props> = ({
   showLog,
   isTenant = false,
 }) => {
+  const { user } = useAuth();
+  const hasUsbWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   const [keyword, setKeyword] = useState('');
   const [nodeFilter, setNodeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -127,10 +137,11 @@ const UsbDevicesSection: React.FC<Props> = ({
     () =>
       buildUsbDevicesTableColumns({
         isTenant,
+        hasUsbWrite,
         onOpenYaml: handleOpenYaml,
         onSetPassthrough: handleSetPassthrough,
       }),
-    [handleOpenYaml, handleSetPassthrough, isTenant],
+    [handleOpenYaml, handleSetPassthrough, hasUsbWrite, isTenant],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, 'harvester_usb_devices_table');

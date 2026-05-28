@@ -39,6 +39,7 @@ import {
   useMonitoring,
 } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../components/WriteGuard';
 import {
   fetchAlertmanagerconfigs,
   fetchAlertmanagerconfigDetail,
@@ -62,6 +63,7 @@ import {
 } from './lib/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 
 const ALERT_POLICY_ALIAS_ANNOTATION = 'tower.io/alias';
 
@@ -1034,13 +1036,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               >
                 {alias || name || '-'}
               </span>
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => handleStartAliasEdit(row)}
-                disabled={!canWritePolicies}
-              />
+              {canWritePolicies ? (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => handleStartAliasEdit(row)}
+                />
+              ) : null}
             </Space>
           );
         },
@@ -1077,12 +1080,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           const isSystemDefaultPolicy = isSystemDefaultAlertPolicy(row);
           return (
             <ResourceActionsDropdown
-              items={[
+              items={filterMenuItemsForReadOnly([
                 { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
                 {
                   key: 'edit',
                   label: '编辑策略',
-                  disabled: !canWritePolicies || isSystemDefaultPolicy,
+                  disabled: isSystemDefaultPolicy,
                   onClick: () => handleOpenForm(row),
                 },
                 { type: 'divider' as const },
@@ -1090,7 +1093,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   key: 'delete',
                   label: '删除',
                   danger: true,
-                  disabled: !canWritePolicies || isSystemDefaultPolicy,
+                  disabled: isSystemDefaultPolicy,
                   onClick: () => {
                     Modal.confirm({
                       title: '确定删除该策略？',
@@ -1101,7 +1104,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                     });
                   },
                 },
-              ]}
+              ], canWritePolicies)}
             />
           );
         },
@@ -1233,7 +1236,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <Button type="primary" disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              <WriteGuard canWrite={canWritePolicies}>
+                <Button type="primary" onClick={() => handleOpenForm(null)}>新增通知策略</Button>
+              </WriteGuard>
               <TableColumnSettingsButton allColumns={allConfigColumns} settingsKey="monitoring_alert_notification_policy_table" />
               <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>

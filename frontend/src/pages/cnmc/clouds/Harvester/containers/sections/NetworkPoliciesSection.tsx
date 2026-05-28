@@ -37,8 +37,12 @@ import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutl
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchNetworkPolicyDetail,
@@ -491,6 +495,15 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
+  const hasContainersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.containers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -760,7 +773,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         const systemHint = getSystemResourceProtectionHint(record);
         return (
           <ResourceActionsDropdown
-            items={[
+            items={filterMenuItemsForReadOnly([
               {
                 key: 'detail',
                 label: '查看详情',
@@ -792,7 +805,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
                 tooltip: systemHint,
                 onClick: () => handleDelete(record),
               },
-            ]}
+            ], hasContainersWrite)}
             buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
@@ -874,10 +887,13 @@ const NetworkPoliciesSection: React.FC<Props> = ({
                 style={{ marginRight: 8 }}
               />
             )}
-            <Button type="primary" onClick={() => setCreateModalVisible(true)}>
-              创建策略
-            </Button>
-            <Dropdown
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button type="primary" onClick={() => setCreateModalVisible(true)}>
+                创建策略
+              </Button>
+            </WriteGuard>
+            {hasContainersWrite ? (
+              <Dropdown
               menu={{
                 items: [
                   {
@@ -898,7 +914,8 @@ const NetworkPoliciesSection: React.FC<Props> = ({
               disabled={selectedKeys.length === 0}
             >
               <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
-            </Dropdown>
+              </Dropdown>
+            ) : null}
             <TableColumnSettingsButton
               allColumns={allColumns}
               settingsKey="harvester_networkpolicy_table"
@@ -924,10 +941,14 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={networkPolicyTableScroll}
-          rowSelection={{
-            selectedRowKeys: selectedKeys,
-            onChange: (keys) => setSelectedKeys(keys),
-          }}
+          rowSelection={
+            hasContainersWrite
+              ? {
+                  selectedRowKeys: selectedKeys,
+                  onChange: (keys) => setSelectedKeys(keys),
+                }
+              : undefined
+          }
         />
       </PageDetailSection>
 

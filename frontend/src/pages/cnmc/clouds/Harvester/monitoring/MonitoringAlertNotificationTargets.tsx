@@ -8,6 +8,7 @@ import { DeleteOutlined, DingtalkOutlined, MailOutlined, PlusOutlined, ReloadOut
 import type { ColumnsType } from 'antd/es/table';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import PageDetailSection from '../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../components/WriteGuard';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import {
@@ -45,6 +46,7 @@ import {
   type ReceiverSpec,
 } from './lib/receivers';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 
 type ReceiverSpecItem = NotificationTargetReceiver;
 type ReceiverItem = {
@@ -884,12 +886,12 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   const renderAction = useCallback(
     (_: unknown, record: ReceiverItem) => (
       <ResourceActionsDropdown
-        items={[
+        items={filterMenuItemsForReadOnly([
           { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
-          { key: 'edit', label: '编辑', disabled: !canWriteReceivers, onClick: () => handleEdit(record, receiverRows) },
+          { key: 'edit', label: '编辑', onClick: () => handleEdit(record, receiverRows) },
           { type: 'divider' as const },
-          { key: 'delete', label: '删除', danger: true, disabled: !canWriteReceivers, onClick: () => handleDelete(record) },
-        ]}
+          { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) },
+        ], canWriteReceivers)}
       />
     ),
     [handleDetail, handleEdit, handleDelete, receiverRows, canWriteReceivers]
@@ -1039,12 +1041,12 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   const renderWebsiteAction = useCallback(
     (_: unknown, record: ReceiverItem) => (
       <ResourceActionsDropdown
-        items={[
+        items={filterMenuItemsForReadOnly([
           { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
-          { key: 'edit', label: '编辑', disabled: !canWriteReceivers, onClick: () => handleEdit(record, receiverRows) },
+          { key: 'edit', label: '编辑', onClick: () => handleEdit(record, receiverRows) },
           { type: 'divider' as const },
-          { key: 'delete', label: '删除', danger: true, disabled: !canWriteReceivers, onClick: () => handleDelete(record) },
-        ]}
+          { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) },
+        ], canWriteReceivers)}
       />
     ),
     [handleDetail, handleEdit, handleDelete, receiverRows, canWriteReceivers]
@@ -1138,22 +1140,23 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              disabled={!canWriteReceivers}
-              onClick={() => {
-                if (receiverTypeFilter === EMAIL_RECEIVER) handleOpenAddEmailModal();
-                else if (receiverTypeFilter === DINGTALK_RECEIVER) handleOpenAddDingtalkModal();
-                else if (receiverTypeFilter === WEBSITE_RECEIVER) handleOpenAddWebsiteModal();
-              }}
-            >
-              {receiverTypeFilter === EMAIL_RECEIVER
-                ? '新增邮件通知对象'
-                : receiverTypeFilter === DINGTALK_RECEIVER
-                  ? '新增钉钉通知对象'
-                  : '开通站内信'}
-            </Button>
+            <WriteGuard canWrite={canWriteReceivers}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  if (receiverTypeFilter === EMAIL_RECEIVER) handleOpenAddEmailModal();
+                  else if (receiverTypeFilter === DINGTALK_RECEIVER) handleOpenAddDingtalkModal();
+                  else if (receiverTypeFilter === WEBSITE_RECEIVER) handleOpenAddWebsiteModal();
+                }}
+              >
+                {receiverTypeFilter === EMAIL_RECEIVER
+                  ? '新增邮件通知对象'
+                  : receiverTypeFilter === DINGTALK_RECEIVER
+                    ? '新增钉钉通知对象'
+                    : '开通站内信'}
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey={settingsKey} />
             <Button icon={<RefreshIcon />} loading={loading} onClick={() => loadReceivers()} />
           </>

@@ -26,6 +26,7 @@ import {
 import type { FormListOperation } from 'antd/es/form';
 import { PlusOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 import {
   applyCephHarvesterAddon,
   fetchCephHarvesterAddon,
@@ -61,6 +62,7 @@ import {
   OPERATE_TAB_INFO_ALERT_PROPS,
 } from './harvesterAddon/addonUiConstants';
 import { addHarvesterAddonNodeRow } from './harvesterAddon/nodeDiskAssignmentUtils';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 
 export type CephHarvesterAddonSectionProps = {
   cloudId: string;
@@ -107,7 +109,19 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   onRefresh,
   onDeployed,
 }) => {
+  const { user } = useAuth();
   const [form] = Form.useForm<FormValues>();
+  const canWriteAddon = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.storage-addon:write') ||
+      hasPermissionForAction(perms, 'clouds.unified-storage:write') ||
+      hasPermissionForAction(perms, 'clouds.ceph:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
+
   const [formInitKey, setFormInitKey] = useState(0);
   const [formInitialValues, setFormInitialValues] = useState<FormValues>(() =>
     buildDefaultHarvesterAddonFormValues(),
@@ -309,6 +323,10 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
 
   const openSubmitConfirm = async () => {
     if (!cloudId) return;
+    if (!canWriteAddon) {
+      message.warning('无权修改统一存储配置');
+      return;
+    }
     if (status?.phase === 'progress') {
       message.warning('统一存储正在部署中，请待完成后再提交配置变更');
       return;
@@ -329,7 +347,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
     }
   };
 
-  const formDisabled = submitting || metaLoading || status?.phase === 'progress';
+  const formDisabled = !canWriteAddon || submitting || metaLoading || status?.phase === 'progress';
   const isRunningCluster = status?.phase === 'success' && !!status?.config;
   const watchedExpandNodes = Form.useWatch(['cephCluster', 'nodes'], form);
   const expandUsedNodeNames = useMemo(
@@ -613,7 +631,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
       <FormSection title="配置摘要" description="提交前请核对以下参数。">
         <ConfigSummaryDescriptions values={getWizardFormValues()} blockDevicesRaw={blockDevicesRaw} column={2} />
       </FormSection>
-      {!configLocked ? (
+      {!configLocked && canWriteAddon ? (
         <Typography.Link onClick={() => setExpertDrawerOpen(true)} style={{ fontSize: 13 }}>
           专家模式（手动编辑 YAML）
         </Typography.Link>
@@ -645,15 +663,21 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
       {currentStep === 3 ? renderStepConfirm() : null}
 
       <WizardFooter>
-        {currentStep > 0 ? <Button onClick={handlePrev}>上一步</Button> : <span />}
-        {currentStep < WIZARD_STEPS.length - 1 ? (
-          <Button type="primary" onClick={() => void handleNext()}>
-            下一步
-          </Button>
+        {canWriteAddon ? (
+          <>
+            {currentStep > 0 ? <Button onClick={handlePrev}>上一步</Button> : <span />}
+            {currentStep < WIZARD_STEPS.length - 1 ? (
+              <Button type="primary" onClick={() => void handleNext()}>
+                下一步
+              </Button>
+            ) : (
+              <Button type="primary" loading={submitting} onClick={() => void openSubmitConfirm()}>
+                {submitActionLabel}
+              </Button>
+            )}
+          </>
         ) : (
-          <Button type="primary" loading={submitting} onClick={() => void openSubmitConfirm()}>
-            {submitActionLabel}
-          </Button>
+          <span />
         )}
       </WizardFooter>
     </Card>
@@ -674,26 +698,28 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
                 message="扩容：新增节点与数据盘"
                 description="仅可新增存储节点或勾选新数据盘；已部署的 OSD 不可移除或改配。"
                 action={
-                  <Space wrap size={8}>
-                    <Button loading={metaLoading} disabled={formDisabled} onClick={() => void loadMeta(true)}>
-                      刷新磁盘
-                    </Button>
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      disabled={
-                        formDisabled ||
-                        nodeOptions.length === 0 ||
-                        nodeOptions.every((o) => expandUsedNodeNames.has(o.value))
-                      }
-                      onClick={() => {
-                        const add = expandListOpsRef.current?.add;
-                        if (add) addHarvesterAddonNodeRow(add, nodeOptions, watchedExpandNodes);
-                      }}
-                    >
-                      添加节点
-                    </Button>
-                  </Space>
+                  canWriteAddon ? (
+                    <Space wrap size={8}>
+                      <Button loading={metaLoading} disabled={formDisabled} onClick={() => void loadMeta(true)}>
+                        刷新磁盘
+                      </Button>
+                      <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        disabled={
+                          formDisabled ||
+                          nodeOptions.length === 0 ||
+                          nodeOptions.every((o) => expandUsedNodeNames.has(o.value))
+                        }
+                        onClick={() => {
+                          const add = expandListOpsRef.current?.add;
+                          if (add) addHarvesterAddonNodeRow(add, nodeOptions, watchedExpandNodes);
+                        }}
+                      >
+                        添加节点
+                      </Button>
+                    </Space>
+                  ) : null
                 }
               />
               <div style={OPERATE_TAB_BODY_STYLE}>
@@ -711,9 +737,11 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
               </div>
               <WizardFooter>
                 <span />
-                <Button type="primary" loading={submitting} onClick={() => void openSubmitConfirm()}>
-                  {submitActionLabel}
-                </Button>
+                {canWriteAddon ? (
+                  <Button type="primary" loading={submitting} onClick={() => void openSubmitConfirm()}>
+                    {submitActionLabel}
+                  </Button>
+                ) : null}
               </WizardFooter>
             </>
           ),
@@ -779,9 +807,11 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
         destroyOnClose
         onClose={() => setExpertDrawerOpen(false)}
         extra={
-          <Button type="primary" loading={submitting} onClick={() => void openSubmitConfirm()}>
-            {submitActionLabel}
-          </Button>
+          canWriteAddon ? (
+            <Button type="primary" loading={submitting} onClick={() => void openSubmitConfirm()}>
+              {submitActionLabel}
+            </Button>
+          ) : null
         }
       >
         <Alert
