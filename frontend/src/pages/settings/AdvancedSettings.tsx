@@ -89,7 +89,7 @@ const AdvancedSettings: React.FC = () => {
           </Form>
         </Card>
 
-        <Card title={<span><ApiOutlined style={{ marginRight: 8 }} /> CSMCTL 配置</span>} style={{ marginBottom: 24 }}>
+        <Card title={<span><ApiOutlined style={{ marginRight: 8 }} /> SDN 控制器</span>} style={{ marginBottom: 24 }}>
           <Form
             form={csmctlForm}
             layout="vertical"
@@ -101,14 +101,14 @@ const AdvancedSettings: React.FC = () => {
               }
               try {
                 await apiUpdateSystemSetting('CSMCTL_ADDRESS', String(values.address || '').trim());
-                message.success('CSMCTL 配置已更新');
+                message.success('SDN 控制器配置已更新');
               } catch {
                 message.error('更新失败');
               }
             }}
           >
             <Form.Item
-              label="CSMCTL 地址"
+              label="SDN 控制器地址"
               name="address"
               rules={[
                 {

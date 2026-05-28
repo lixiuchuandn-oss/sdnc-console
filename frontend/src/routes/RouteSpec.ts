@@ -1139,7 +1139,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'DesktopGatewaySettings',
     layout: 'admin',
     platform: 'SETTINGS',
-    group: '云桌面',
+    group: '高级集成',
     title: '云桌面网关',
     subtitle: '注册云桌面网关，并为多云资源池启用云桌面接入。',
     icon: 'DesktopOutlined',
