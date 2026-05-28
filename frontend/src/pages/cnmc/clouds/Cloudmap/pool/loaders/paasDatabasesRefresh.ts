@@ -28,12 +28,12 @@ export function createPaasDatabasesTabOnRefresh(
 
   switch (tab) {
     case 'rds':
-      return (force?: boolean) => {
+      return async (force?: boolean) => {
         const shouldForce = force !== false;
-        void loadTabResource('rds', shouldForce);
+        await loadTabResource('rds', shouldForce);
         if (shouldForce) refreshVmSectionAuxiliaries?.();
       };
     default:
-      return () => {};
+      return async () => {};
   }
 }

@@ -214,6 +214,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [, setRawIngresses] = useState<any | null>(null);
 
   const loadedRef = React.useRef<Set<string>>(new Set());
+  const loadInflightRef = React.useRef<Record<string, number>>({});
 
   const loadResource = React.useCallback(
     async (
@@ -228,6 +229,7 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         loadedRef.current.delete(key);
       }
 
+      loadInflightRef.current[key] = (loadInflightRef.current[key] || 0) + 1;
       setResourceLoading((prev) => ({ ...prev, [key]: true }));
       try {
         const timeoutPromise = new Promise((_, reject) => {
@@ -247,7 +249,10 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
           cb(null);
         } catch {}
       } finally {
-        setResourceLoading((prev) => ({ ...prev, [key]: false }));
+        loadInflightRef.current[key] = Math.max(0, (loadInflightRef.current[key] || 1) - 1);
+        if (loadInflightRef.current[key] === 0) {
+          setResourceLoading((prev) => ({ ...prev, [key]: false }));
+        }
       }
     },
     [],

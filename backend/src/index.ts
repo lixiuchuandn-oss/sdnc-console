@@ -67,6 +67,7 @@ import apiProxyRoutes from './routes/apiProxy';
 // Harbor 镜像仓库路由：
 // - harborRoutes：Harbor 实例管理、项目浏览、镜像管理等
 import { harborRoutes } from './routes/harbor';
+import { guacamoleRoutes } from './routes/remote/guacamole.routes';
 
 import path from 'path';
 import fs from 'fs';
@@ -283,6 +284,9 @@ app.use('/api/threats', threatRoutes);
 // - /api/harbor/registries：Harbor 实例管理
 app.use('/api/harbor', harborRoutes);
 
+// 云桌面网关（Guacamole BFF）
+app.use('/api/remote/guacamole', authMiddleware, guacamoleRoutes);
+
 // 健康检查：
 // - 简单返回服务状态与时间戳，供负载均衡或监控系统探活使用
 app.get('/health', (req, res) => {
@@ -359,6 +363,7 @@ AppDataSource.initialize()
         ensureDatacenterTopologyTables,
         ensureHarborTables,
         ensureCephMgrDashboardSnapshotTable,
+        ensureGuacamoleTables,
       } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
@@ -368,6 +373,7 @@ AppDataSource.initialize()
       await ensureDatacenterTopologyTables();
       await ensureHarborTables();
       await ensureCephMgrDashboardSnapshotTable();
+      await ensureGuacamoleTables();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }

@@ -53,47 +53,47 @@ export function createKubeOvnTabOnRefresh(
         if (opts?.vpcsAll && refreshVpcsAllScope) {
           await refreshVpcsAllScope(shouldForce, skipSync);
         } else {
-          void loadTabResource('vpcs', shouldForce, skipSync);
+          await loadTabResource('vpcs', shouldForce, skipSync);
         }
-        void loadTabResource('subnets', shouldForce, skipSync);
+        await loadTabResource('subnets', shouldForce, skipSync);
       };
     case 'subnets':
-      return (force?: boolean) => {
+      return async (force?: boolean) => {
         const shouldForce = force !== false;
-        void loadTabResource('subnets', shouldForce);
+        await loadTabResource('subnets', shouldForce);
         if (ovnVpcEnabled) {
-          void loadTabResource('vpcs', shouldForce);
+          await loadTabResource('vpcs', shouldForce);
         }
       };
     case 'kubeovn_eips':
-      return (force?: boolean) => {
-        void loadTabResource('kubeovn_eips', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('kubeovn_eips', force !== false);
       };
     case 'kubeovn_snat':
-      return (force?: boolean, silent?: boolean) => {
-        void loadTabResource('kubeovn_snat', force !== false, !!silent);
+      return async (force?: boolean, silent?: boolean) => {
+        await loadTabResource('kubeovn_snat', force !== false, !!silent);
       };
     case 'kubeovn_dnat':
-      return (force?: boolean, silent?: boolean) => {
-        void loadTabResource('kubeovn_dnat', force !== false, !!silent);
+      return async (force?: boolean, silent?: boolean) => {
+        await loadTabResource('kubeovn_dnat', force !== false, !!silent);
       };
     case 'flat_kubeovn_eips':
-      return (force?: boolean) => {
-        void loadTabResource('flat_kubeovn_eips', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('flat_kubeovn_eips', force !== false);
       };
     case 'flat_kubeovn_snat':
-      return (force?: boolean, silent?: boolean) => {
-        void loadTabResource('flat_kubeovn_snat', force !== false, !!silent);
+      return async (force?: boolean, silent?: boolean) => {
+        await loadTabResource('flat_kubeovn_snat', force !== false, !!silent);
       };
     case 'flat_kubeovn_dnat':
-      return (force?: boolean, silent?: boolean) => {
-        void loadTabResource('flat_kubeovn_dnat', force !== false, !!silent);
+      return async (force?: boolean, silent?: boolean) => {
+        await loadTabResource('flat_kubeovn_dnat', force !== false, !!silent);
       };
     case 'flat_public_subnets':
-      return (force?: boolean) => {
-        void loadTabResource('flat_public_subnets', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('flat_public_subnets', force !== false);
       };
     default:
-      return () => {};
+      return async () => {};
   }
 }

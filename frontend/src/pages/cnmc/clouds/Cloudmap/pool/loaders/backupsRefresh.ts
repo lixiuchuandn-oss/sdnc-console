@@ -26,7 +26,7 @@ export function createBackupsTabOnRefresh(
   deps: BackupsTabRefreshDeps,
 ): BackupsSectionOnRefresh {
   const { loadTabResource } = deps;
-  return (force?: boolean, skipSync?: boolean) => {
-    void loadTabResource('backups', force !== false, skipSync);
+  return async (force?: boolean, skipSync?: boolean) => {
+    await loadTabResource('backups', force !== false, skipSync);
   };
 }

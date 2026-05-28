@@ -31,6 +31,7 @@ const Tenants = lazy(() => import('./pages/tenants/sections/TenantsWorkspace'));
 const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
 const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
+const DesktopGatewaySettings = lazy(() => import('./pages/settings/DesktopGatewaySettings'));
 
 const LicenseSettingsPage = lazy(() => import('./pages/settings/LicenseSettings'));
 const OfflineUpgradeSettings = lazy(() => import('./pages/settings/OfflineUpgradeSettings'));
@@ -162,6 +163,7 @@ const AppRoutes: React.FC = () => {
           <Route path="settings/general" element={<GeneralSettings />} />
           <Route path="settings/audit-logs" element={<AuditLogs />} />
           <Route path="settings/advanced" element={<AdvancedSettings />} />
+          <Route path="settings/desktop-gateway" element={<DesktopGatewaySettings />} />
 
           <Route path="settings/offline-upgrade" element={<OfflineUpgradeSettings />} />
           <Route path="settings/license" element={<LicenseSettingsPage />} />

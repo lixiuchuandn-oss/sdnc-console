@@ -47,6 +47,7 @@ import {
 } from "../../../../../../constants/cloudPermissions";
 import SimpleVmCreateModal from "../modals/SimpleVmCreateModal";
 import VmAliasEditModal from "../modals/VmAliasEditModal";
+import VmAssignDesktopUsersModal from "../modals/VmAssignDesktopUsersModal";
 import { findFirstVmVolumeResizeState } from "../lib/vmVolumePvc";
 import { createVmListSafeRead } from "../lib/vmSafeRead";
 import {
@@ -291,6 +292,14 @@ const VmSection: React.FC<Props> = ({
     aliasSubmitting,
     handleShowVmDetail,
     handleWebVnc,
+    handleAssignDesktop,
+    desktopGatewayReady,
+    desktopModalOpen,
+    setDesktopModalOpen,
+    desktopModalVm,
+    desktopSubmitting,
+    handleSubmitDesktopAssign,
+    guessDesktopDefaults,
     handleBackup,
     handleSnapshot,
     handleClone,
@@ -333,6 +342,8 @@ const VmSection: React.FC<Props> = ({
         onUnpause,
         handleShowVmDetail,
         handleWebVnc,
+        handleAssignDesktop,
+        desktopGatewayReady,
         handleOpenAliasModal,
         handleToggleImportant,
         handleDeleteConfirm,
@@ -351,6 +362,8 @@ const VmSection: React.FC<Props> = ({
       onUnpause,
       handleShowVmDetail,
       handleWebVnc,
+      handleAssignDesktop,
+      desktopGatewayReady,
       handleOpenAliasModal,
       handleToggleImportant,
       handleDeleteConfirm,
@@ -657,6 +670,37 @@ const VmSection: React.FC<Props> = ({
         )}
         confirmLoading={aliasSubmitting}
         onSubmit={handleSubmitAlias}
+      />
+
+      <VmAssignDesktopUsersModal
+        open={desktopModalOpen}
+        loading={desktopSubmitting}
+        cloudId={cloudId}
+        namespace={
+          desktopModalVm
+            ? String(
+                desktopModalVm?.metadata?.namespace ||
+                  desktopModalVm?.namespace ||
+                  '',
+              ).trim()
+            : ''
+        }
+        vmName={
+          desktopModalVm
+            ? String(desktopModalVm?.metadata?.name || desktopModalVm?.name || '').trim()
+            : ''
+        }
+        defaultUsername={
+          desktopModalVm ? guessDesktopDefaults(desktopModalVm).username : undefined
+        }
+        defaultProtocol={
+          desktopModalVm ? guessDesktopDefaults(desktopModalVm).protocol : undefined
+        }
+        onCancel={() => {
+          if (desktopSubmitting) return;
+          setDesktopModalOpen(false);
+        }}
+        onSubmit={handleSubmitDesktopAssign}
       />
 
       {/* 简易创建虚拟机弹窗（未由外部接管创建入口时展示） */}

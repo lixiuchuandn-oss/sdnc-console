@@ -1133,6 +1133,24 @@ export const routeSpecs: RouteSpec[] = [
     requiredFeature: 'platform.aisoc'
   },
 
+  {
+    id: 'settings-desktop-gateway',
+    path: '/admin/settings/desktop-gateway',
+    element: 'DesktopGatewaySettings',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '云桌面',
+    title: '云桌面网关',
+    subtitle: '注册云桌面网关，并为多云资源池启用云桌面接入。',
+    icon: 'DesktopOutlined',
+    order: 21,
+    requiredActions: {
+      page: 'clouds.desktop:read',
+      read: 'clouds.desktop:read',
+      write: 'clouds.desktop:write'
+    },
+  },
+
   // ============================================================================
   // Harbor 详情页路由
   // ============================================================================

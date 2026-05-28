@@ -4,7 +4,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射为 `backups` */
+/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射�?`backups` */
 export async function tryLoadBackupTab(
   key: string,
   force: boolean,
@@ -24,7 +24,7 @@ export async function tryLoadBackupTab(
   } = deps;
 
   if (checkPerm('clouds.backups:read')) {
-    loadResource(
+    await loadResource(
       'backups',
       () => fetchHarvesterBackups(cloudId, force, skipSync),
       (json) => {
@@ -36,7 +36,7 @@ export async function tryLoadBackupTab(
       },
       force,
     );
-    loadResource(
+    await loadResource(
       'scheduleVmBackups',
       () => fetchHarvesterScheduleVmBackups(cloudId, force, skipSync),
       (json) => {

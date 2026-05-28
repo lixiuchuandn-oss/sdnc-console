@@ -40,7 +40,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范（强制约定摘要）** |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**（代码质量）、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`maas-integration.md`**（MAAS 等对接规格） |
+| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`** |
 | **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
@@ -57,7 +57,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 3 | **版本管理（平台发布版本）** | 平台 `version`、离线包与发版约定 |
 | 4 | **API 规范** | HTTP / WebSocket 路径索引 |
 | 5 | **Harvester 云详情 · 前端落位** | 多云 Harvester 详情 Tab ↔ `Harvester/` 下 Section |
-| 6 | **开发规范**（摘要） | 落位、**页面布局**、刷新与缓存、表格版式；**布局** **`docs/frontend-layout.md`**；**代码质量** **`docs/code-quality.md`**；**Cloudmap RBAC** **`docs/cloudmap-pool-rbac.md`**；**Cloudmap 刷新** **`Cloudmap/pool/README.md`**；**MAAS 对接** **`docs/maas-integration.md`** |
+| 6 | **开发规范**（摘要） | 落位、**页面布局**、刷新与缓存、表格版式；**布局** **`docs/frontend-layout.md`**；**代码质量** **`docs/code-quality.md`**；**Cloudmap RBAC** **`docs/cloudmap-pool-rbac.md`**；**Cloudmap 刷新** **`Cloudmap/pool/README.md`**；**云桌面网关** **`docs/remote-access-architecture.md`**；**MAAS 对接** **`docs/maas-integration.md`** |
 | 7 | **认证与权限**、**后台服务**、**注意事项** | 角色与 Token、后台定时任务、运维提示 |
 
 ## 平台模块
@@ -275,6 +275,7 @@ Compute.Tower/
 - `/api/clouds/aliyun/*`: 阿里云资源
 - `/api/clouds/huawei/*`: 华为云资源
 - `/api/clouds/harvester/*`: Harvester/KubeVirt 资源
+- **云桌面网关（Guacamole BFF）**：`GET|POST|PUT /api/remote/guacamole/instances`；`POST .../instances/{id}/test`；`GET|PUT .../pools/{cloudId}/...`；`GET|POST|PUT|DELETE .../desktop-users`；`POST .../users/sync`；`GET|POST .../assignments`；**当前范围**：扁平网 + **云桌面用户**（管理员分配 VM，统一密码登录网关门户）；架构 **`docs/remote-access-architecture.md`** · 细则 **`docs/integrate-guacamole.md`**
 - **MAAS 裸金属（`config.provider=maas`；BFF OAuth1 v2）**：`GET /api/clouds/{id}/maas/dashboard`（概览聚合）；`GET .../maas/machines`、`GET .../maas/machines/{systemId}`；`POST .../maas/machines/{systemId}/ops`；`GET .../maas/discoveries`；`GET|POST .../maas/images`（列表/同步/删除）；`GET .../maas/network`（子网+VLAN）；`GET .../maas/region`（兼容，UI 以 dashboard 为准）。前端落位 `pages/cnmc/clouds/maas/` · **`maas/README.md`**；北向/Adapter 细则 **`docs/maas-integration.md`**
 - `/api/clouds/{id}/monitoring/storage-nodes`: Longhorn 节点（Steve `longhorn.io.nodes`，Cloudmap「分布式存储」）
 - `/api/clouds/{id}/monitoring/ceph-clusters`: Rook `CephCluster` 列表（Steve 优先 `cephclusters.ceph.rook.io`，回退 `ceph.rook.io.cephclusters`；Cloudmap「Ceph 存储」）

@@ -155,47 +155,53 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
   const [networkPoliciesAll, setNetworkPoliciesAll] = useState(false);
   const [configsAll, setConfigsAll] = useState(false);
 
-  const loadWorkloads = (force = true, all?: boolean) => {
+  const loadWorkloads = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : workloadsAll;
-    loadResource('deployments', () => fetchHarvesterDeployments(cloudId, undefined, force, queryAll), (json) => { setHarvesterDeployments(json?.data?.items || []); }, force);
-    loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterStatefulSets(json?.data?.items || []); }, force);
-    loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterDaemonSets(json?.data?.items || []); }, force);
+    await Promise.all([
+      loadResource('deployments', () => fetchHarvesterDeployments(cloudId, undefined, force, queryAll), (json) => { setHarvesterDeployments(json?.data?.items || []); }, force),
+      loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterStatefulSets(json?.data?.items || []); }, force),
+      loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterDaemonSets(json?.data?.items || []); }, force),
+    ]);
   };
 
-  const loadPods = (force = true, all?: boolean) => {
+  const loadPods = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : podsAll;
-    loadResource('pods', () => fetchHarvesterPods(cloudId, undefined, force, queryAll), (json) => { setHarvesterPods(json?.data?.items || []); }, force);
+    await loadResource('pods', () => fetchHarvesterPods(cloudId, undefined, force, queryAll), (json) => { setHarvesterPods(json?.data?.items || []); }, force);
   };
 
-  const loadJobs = (force = true, all?: boolean) => {
+  const loadJobs = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : jobsAll;
-    loadResource('jobs', () => fetchHarvesterJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterJobs(json?.data?.items || []); }, force);
-    loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterCronJobs(json?.data?.items || []); }, force);
+    await Promise.all([
+      loadResource('jobs', () => fetchHarvesterJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterJobs(json?.data?.items || []); }, force),
+      loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterCronJobs(json?.data?.items || []); }, force),
+    ]);
   };
 
-  const loadServices = (force = true) => {
-    loadResource('services', () => fetchHarvesterServices(cloudId, force, false), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
+  const loadServices = async (force = true) => {
+    await loadResource('services', () => fetchHarvesterServices(cloudId, force, false), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
   };
 
-  const loadIngresses = (force = true, all?: boolean) => {
+  const loadIngresses = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : ingressesAll;
-    loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force, queryAll), (json) => { setHarvesterIngresses(json?.data?.items || []); }, force);
+    await loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force, queryAll), (json) => { setHarvesterIngresses(json?.data?.items || []); }, force);
   };
 
-  const loadPdbs = (force = true, all?: boolean) => {
+  const loadPdbs = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : pdbsAll;
-    loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force, queryAll), (json) => { setHarvesterPDBs(json?.data?.items || []); }, force);
+    await loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force, queryAll), (json) => { setHarvesterPDBs(json?.data?.items || []); }, force);
   };
 
-  const loadNetworkPolicies = (force = true, all?: boolean) => {
+  const loadNetworkPolicies = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : networkPoliciesAll;
-    loadResource('networkpolicies', () => fetchNetworkPolicies(cloudId, undefined, force, queryAll), (json) => { setHarvesterNetworkPolicies(json?.data?.items || []); }, force);
+    await loadResource('networkpolicies', () => fetchNetworkPolicies(cloudId, undefined, force, queryAll), (json) => { setHarvesterNetworkPolicies(json?.data?.items || []); }, force);
   };
 
-  const loadConfigs = (force = true, all?: boolean) => {
+  const loadConfigs = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : configsAll;
-    loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force, queryAll), (json) => { setHarvesterConfigMaps(json?.data?.items || []); }, force);
-    loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force, queryAll), (json) => { setHarvesterSecrets(json?.data?.items || []); }, force);
+    await Promise.all([
+      loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force, queryAll), (json) => { setHarvesterConfigMaps(json?.data?.items || []); }, force),
+      loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force, queryAll), (json) => { setHarvesterSecrets(json?.data?.items || []); }, force),
+    ]);
   };
 
   const operationsReadOnly = useMemo(
@@ -341,7 +347,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         services={filterByTenantNs(harvesterServices)}
-        onRefresh={() => loadTabResource('gateway_api', true)}
+        onRefresh={async () => loadTabResource('gateway_api', true)}
       />
     );
   } else if (innerActiveKey === 'service_topology') {
@@ -357,10 +363,12 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
           resourceLoading.services ||
           resourceLoading.pods
         }
-        onRefresh={() => {
-          loadTabResource('ingresses', true);
-          loadTabResource('services', true);
-          loadTabResource('pods', true);
+        onRefresh={async () => {
+          await Promise.all([
+            loadTabResource('ingresses', true),
+            loadTabResource('services', true),
+            loadTabResource('pods', true),
+          ]);
         }}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
@@ -425,7 +433,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={() => loadTabResource('registries', true)}
+        onRefresh={async () => loadTabResource('registries', true)}
       />
     );
   } else {

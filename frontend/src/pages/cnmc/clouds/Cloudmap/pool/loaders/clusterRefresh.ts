@@ -50,28 +50,28 @@ export function createClusterTabOnRefresh(
         }
       };
     case 'nads':
-      return (force?: boolean, silent?: boolean) => {
-        void loadTabResource('nads', force !== false, !!silent);
+      return async (force?: boolean, silent?: boolean) => {
+        await loadTabResource('nads', force !== false, !!silent);
       };
     case 'cluster_vlans':
-      return (force?: boolean, skipSync?: boolean) => {
-        void loadTabResource('cluster_vlans', force !== false, skipSync);
+      return async (force?: boolean, skipSync?: boolean) => {
+        await loadTabResource('cluster_vlans', force !== false, skipSync);
       };
     case 'kubeovn_public_networks':
-      return (force?: boolean, skipSync?: boolean) => {
-        void loadTabResource(
+      return async (force?: boolean, skipSync?: boolean) => {
+        await loadTabResource(
           'kubeovn_public_networks',
           force !== false,
           skipSync,
         );
       };
     case 'kubeovn_public_subnets':
-      return (force?: boolean) => {
-        void loadTabResource('kubeovn_public_subnets', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('kubeovn_public_subnets', force !== false);
       };
     default:
-      return (force?: boolean) => {
-        void loadTabResource(tab, force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource(tab, force !== false);
       };
   }
 }

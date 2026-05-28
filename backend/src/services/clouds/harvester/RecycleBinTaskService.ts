@@ -26,6 +26,7 @@ import { listKubevirtVMsRaw } from './vm';
 import { harvesterEnsureVmStopped, harvesterForceDeleteVM } from './lifecycle';
 import { HarvesterTestParams } from './types';
 import { logger } from '../../../utils/logger';
+import { cleanupVmDesktopResources } from '../../remote/guacamole/guacamoleAssignment';
 
 const rbLog = logger.child('Recycle-Bin');
 
@@ -670,6 +671,9 @@ export class RecycleBinTaskService {
     try {
       // 同步执行卷清理：须等 VM 删除与 PVC 删除（含重试）完成后再记成功，避免后台任务未跑完即漏删磁盘
       await harvesterForceDeleteVM(params, instanceId, true, false);
+      await cleanupVmDesktopResources(cloud.id, instanceId).catch((err) => {
+        rbLog.warn(`云桌面资源清理失败: ${cloud.name}/${instanceId}`, summarizeRbErr(err));
+      });
       rbLog.debug(`已删除过期的回收站虚拟机及关联卷: ${cloud.name}/${instanceId}`);
       return 'success';
     } catch (err: any) {

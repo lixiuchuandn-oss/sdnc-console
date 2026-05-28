@@ -28,16 +28,16 @@ export function createOniaasNetworkTabOnRefresh(
 
   switch (tab) {
     case 'virtual_routers':
-      return (force?: boolean) => {
+      return async (force?: boolean) => {
         const shouldForce = force !== false;
-        void loadTabResource('virtual_routers', shouldForce);
+        await loadTabResource('virtual_routers', shouldForce);
         if (shouldForce) refreshVmSectionAuxiliaries?.();
       };
     case 'slb':
-      return (force?: boolean) => {
-        void loadTabResource('slb', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('slb', force !== false);
       };
     default:
-      return () => {};
+      return async () => {};
   }
 }

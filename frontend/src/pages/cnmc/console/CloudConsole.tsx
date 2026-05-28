@@ -661,11 +661,17 @@ const CloudConsolePage: React.FC = () => {
   const loadEcs = async (cloudId?: string, forceRefresh: boolean = false) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
-    
+
     setLoading(true);
     setError(null);
+    const ECS_FETCH_TIMEOUT_MS = 35_000;
     try {
-      const json: any = await fetchCloudProviderEcs(cid, forceRefresh, mergeTenantPublicScope(false));
+      const json: any = await Promise.race([
+        fetchCloudProviderEcs(cid, forceRefresh, mergeTenantPublicScope(false)),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('云主机列表请求超时')), ECS_FETCH_TIMEOUT_MS);
+        }),
+      ]);
       
       // 兼容不同后端的返回格式:
       // 1. json.data: 标准数组
@@ -1795,9 +1801,7 @@ const CloudConsolePage: React.FC = () => {
                   activeResource={harvesterResource}
                   setActiveResource={setHarvesterResource}
                   onRefreshVms={async (force?: boolean) => {
-                    const f = force !== false;
-                    await loadEcs(currentCloudId, f);
-                    await loadPvcs(currentCloudId, f);
+                    await loadEcs(currentCloudId, force !== false);
                   }}
                   onRefreshStorageClasses={(force?: boolean, skipSync?: boolean) =>
                     loadStorageClasses(currentCloudId, !!force, !!skipSync)

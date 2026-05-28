@@ -18,7 +18,7 @@
 
 | 层 | 约定 |
 |----|------|
-| **池层** | `create*TabOnRefresh(tab, { loadTabResource, … })` → `void loadTabResource(innerKey, force, skipSync)` |
+| **池层** | `create*TabOnRefresh(tab, { loadTabResource, … })` → `await loadTabResource(innerKey, force, skipSync)` |
 | **Section 层** | 工具栏 **`createHarvesterToolbarRefresh(onRefresh)`**；写成功/删改 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**（`Harvester/shared/lib/harvesterSectionRefresh.ts`） |
 
 样板域：**`ecs`（compute）**、**`cluster`**、**`ebs`（storage 池）**、**`paas_databases`（云数据库 / RDS）**、**`backups`（云备份 / `cbr`）**、**`hsm`（resource_hub · 机房/网络拓扑）**、**`kube-ovn`（`kube_ovn` + `flat_network` + cluster 导航挂载）**。其它域新增 Tab 时**优先对齐本模式**。

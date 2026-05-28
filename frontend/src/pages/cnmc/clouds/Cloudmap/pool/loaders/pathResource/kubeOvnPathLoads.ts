@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** Kube-OVN / VPC 域（`panels/kube_ovn`）：VPC、子网、EIP/SNAT/DNAT 与路径别名 */
+/** Kube-OVN / VPC 域（`panels/kube_ovn`）：VPC、子网、EIP/SNAT/DNAT 与路径别�?*/
 export async function tryLoadKubeOvnVpcTab(
   key: string,
   force: boolean,
@@ -35,7 +35,7 @@ export async function tryLoadKubeOvnVpcTab(
   switch (key) {
     case 'vpcs':
       if (checkPerm('clouds.networks:read') && ovnVpcEnabled) {
-        loadResource(
+        await loadResource(
           'vpcs',
           () => fetchKubeOvnVpcs(cloudId, force, skipSync),
           (json) => {
@@ -49,7 +49,7 @@ export async function tryLoadKubeOvnVpcTab(
       return true;
     case 'subnets':
       if (checkPerm('clouds.networks:read') && ovnVpcEnabled) {
-        loadResource(
+        await loadResource(
           'subnets',
           () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'vpc'),
           (json) => {
@@ -60,7 +60,7 @@ export async function tryLoadKubeOvnVpcTab(
           force,
         );
         if (ovnVpcEnabled) {
-          loadResource(
+          await loadResource(
             'vpcs',
             () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'vpc'),
             (json) => {
@@ -90,7 +90,7 @@ export async function tryLoadKubeOvnVpcTab(
           key === 'dnat' ||
           key === 'kubeovn_dnat';
         if (needsEipSubnetContext && checkPerm('clouds.networks:read')) {
-          loadResource(
+          await loadResource(
             'subnets',
             () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'vpc'),
             (json) => {
@@ -106,7 +106,7 @@ export async function tryLoadKubeOvnVpcTab(
           checkPerm('clouds.networks:read') &&
           ovnVpcEnabled
         ) {
-          loadResource(
+          await loadResource(
             'vpcs',
             () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'vpc'),
             (json) => {
@@ -125,7 +125,7 @@ export async function tryLoadKubeOvnVpcTab(
           key === 'dnat' ||
           key === 'kubeovn_dnat'
         ) {
-          loadResource(
+          await loadResource(
             'eips',
             () => fetchCloudProviderOvnEips(cloudId, force, 'vpc'),
             (json) => {
@@ -140,7 +140,7 @@ export async function tryLoadKubeOvnVpcTab(
         if (key === 'fips' || key === 'kubeovn_fips') { ... }
         */
         if (key === 'snat' || key === 'kubeovn_snat') {
-          loadResource(
+          await loadResource(
             'snatRules',
             () =>
               fetchCloudProviderOvnSnatRules(cloudId, force, false, 'vpc'),
@@ -153,7 +153,7 @@ export async function tryLoadKubeOvnVpcTab(
           );
         }
         if (key === 'dnat' || key === 'kubeovn_dnat') {
-          loadResource(
+          await loadResource(
             'dnatRules',
             () =>
               fetchCloudProviderOvnDnatRules(cloudId, force, false, 'vpc'),

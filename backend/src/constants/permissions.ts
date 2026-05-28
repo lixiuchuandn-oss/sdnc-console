@@ -343,6 +343,10 @@ export const ALL_PERMISSIONS = [
   // 租户控制台（页面）
   'clouds.console:read',
   'clouds.console:write',
+
+  // 云桌面（网关配置、云桌面用户、VM 分配；统一权限）
+  'clouds.desktop:read',
+  'clouds.desktop:write',
   
   // ──────────────────────────────────────────────────────────────────────────
   // Harbor 镜像仓库管理
@@ -513,6 +517,7 @@ export const PERMISSION_GROUPS = {
     '租户控制台': ['clouds.console'],
     'Cloudmap资源池': [
       'clouds.ecs',
+      'clouds.desktop',
       'clouds.vm-create-wizard',
       'clouds.vm-quick-create',
       'clouds.images',

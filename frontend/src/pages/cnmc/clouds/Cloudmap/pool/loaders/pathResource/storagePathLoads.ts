@@ -27,7 +27,7 @@ export async function tryLoadStorageTab(
   switch (key) {
     case 'volumes':
       if (checkPerm('clouds.disks:read')) {
-        loadResource(
+        await loadResource(
           'volumes',
           () => fetchHarvesterVolumes(cloudId, force),
           (json) => {
@@ -43,7 +43,7 @@ export async function tryLoadStorageTab(
         );
       }
       if (checkPerm('clouds.ecs:read')) {
-        loadResource(
+        await loadResource(
           'ecs',
           () => fetchCloudProviderEcs(cloudId, force),
           (json) => {
@@ -62,7 +62,7 @@ export async function tryLoadStorageTab(
       return true;
     case 'snapshots':
       if (checkPerm('clouds.snapshots:read')) {
-        loadResource(
+        await loadResource(
           'snapshots',
           () => fetchHarvesterSnapshots(cloudId, force),
           (json) => {

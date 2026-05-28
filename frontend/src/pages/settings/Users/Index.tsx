@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Checkbox, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Dropdown, Form, Input, Modal, Select, Space, Table, Tag, Tooltip, Typography, Tabs, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
@@ -14,7 +14,9 @@ import {
   validateAdminPasswordClient,
 } from '../../../utils/adminPasswordPolicy';
 import { SecuritySettingsDrawer } from './SecuritySettings';
+import CloudDesktopUsersPanel from './CloudDesktopUsersPanel';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useCloudDesktopPermission } from '../../../hooks/useCloudDesktopPermission';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 
 const { Text } = Typography;
@@ -37,6 +39,7 @@ const AccessUsersPage: React.FC = () => {
   const canWriteUsers =
     authUser?.role === 'super_admin' ||
     hasPermissionForAction((authUser?.permissions ?? []) as string[], 'users:write');
+  const { canRead: canReadDesktop } = useCloudDesktopPermission();
   const [users, setUsers] = useState<SysUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState('');
@@ -56,6 +59,13 @@ const AccessUsersPage: React.FC = () => {
   const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
   const [securityDrawerOpen, setSecurityDrawerOpen] = useState(false);
   const [systemRoles, setSystemRoles] = useState<RBACRole[]>([]);
+  const [userTab, setUserTab] = useState('system');
+
+  useEffect(() => {
+    if (!canReadDesktop && userTab === 'desktop') {
+      setUserTab('system');
+    }
+  }, [canReadDesktop, userTab]);
 
   useEffect(() => {
     getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
@@ -376,6 +386,15 @@ const AccessUsersPage: React.FC = () => {
 
   return (
     <PageContainer titleLevel={3} asCard={false}>
+      <Tabs
+        activeKey={userTab}
+        onChange={setUserTab}
+        items={[
+          {
+            key: 'system',
+            label: '系统用户',
+            children: (
+              <>
       <div className="page-toolbar">
         <Form
           form={filterForm}
@@ -416,6 +435,21 @@ const AccessUsersPage: React.FC = () => {
         }
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
         bordered={false}
+      />
+
+              </>
+            ),
+          },
+          ...(canReadDesktop
+            ? [
+                {
+                  key: 'desktop',
+                  label: '云桌面用户',
+                  children: <CloudDesktopUsersPanel />,
+                },
+              ]
+            : []),
+        ]}
       />
 
       <Modal

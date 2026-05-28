@@ -30,6 +30,7 @@ import {
   resolveTenantVmId,
   ensureProvider,
 } from '../harvester.direct.helpers';
+import { cleanupVmDesktopResources } from '../../../../services/remote/guacamole/guacamoleAssignment';
 
 /**
  * POST /:id/resources/ecs/:instanceId/start - 启动 VM
@@ -364,6 +365,9 @@ export async function harvesterEcsDeleteHandler(req: Request, res: Response) {
       String(deleteVolumes) === 'true',
       true,
     );
+    void cleanupVmDesktopResources(id, resolvedId).catch((err) => {
+      console.warn('[DeleteVM] 云桌面资源清理失败', { cloudId: id, vm: resolvedId, err });
+    });
     res.json({ message: '删除成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -449,6 +453,9 @@ export async function harvesterEcsForceDeleteHandler(req: Request, res: Response
       String(deleteVolumes) === 'true',
       true,
     );
+    void cleanupVmDesktopResources(id, resolvedId).catch((err) => {
+      console.warn('[ForceDeleteVM] 云桌面资源清理失败', { cloudId: id, vm: resolvedId, err });
+    });
     res.json({ message: '强制删除成功', data });
   } catch (error: any) {
     if (res.headersSent) return;

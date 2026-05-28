@@ -39,6 +39,8 @@ export type VmTableActions = {
   onUnpause?: (iid: string) => void;
   handleShowVmDetail: (record: any, tab?: string) => void;
   handleWebVnc: (record: any) => void;
+  handleAssignDesktop?: (record: any) => void;
+  desktopGatewayReady?: boolean;
   handleOpenAliasModal: (record: any) => void;
   handleToggleImportant: (record: any) => void;
   handleDeleteConfirm: (record: any) => void;
@@ -60,6 +62,8 @@ export function buildVmTableColumns(actions: VmTableActions): ColumnsType<any> {
     onUnpause,
     handleShowVmDetail,
     handleWebVnc,
+    handleAssignDesktop,
+    desktopGatewayReady,
     handleOpenAliasModal,
     handleToggleImportant,
     handleDeleteConfirm,
@@ -533,6 +537,19 @@ export function buildVmTableColumns(actions: VmTableActions): ColumnsType<any> {
             hasPermissionForAction(perms, "clouds.ecs:write") ||
             hasPermissionForAction(perms, "clouds:write");
 
+          const hasDesktopWrite =
+            hasPermissionForAction(perms, "clouds.desktop:write") ||
+            hasPermissionForAction(perms, "clouds:write");
+
+          const vmIp = safeRead.ip(r);
+          const canAssignDesktop =
+            !isTenant &&
+            !!handleAssignDesktop &&
+            !!desktopGatewayReady &&
+            hasDesktopWrite &&
+            isRunning &&
+            !!vmIp;
+
           const items: any[] = [
             // ----------------------------------------------------------------
             // 1. 基础信息与访问
@@ -550,6 +567,16 @@ export function buildVmTableColumns(actions: VmTableActions): ColumnsType<any> {
               disabled: isStopped,
               onClick: () => handleWebVnc(r),
             },
+
+            ...(canAssignDesktop
+              ? [
+                  {
+                    key: "assign-desktop",
+                    label: "分配云桌面",
+                    onClick: () => handleAssignDesktop!(r),
+                  },
+                ]
+              : []),
 
             { type: "divider" },
 

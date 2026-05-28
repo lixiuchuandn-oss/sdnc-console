@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 扁平子网域（`panels/flat_network`）：扁平 EIP/SNAT/DNAT 与路径别名 */
+/** 扁平子网域（`panels/flat_network`）：扁平 EIP/SNAT/DNAT 与路径别�?*/
 export async function tryLoadKubeOvnFlatTab(
   key: string,
   force: boolean,
@@ -31,7 +31,7 @@ export async function tryLoadKubeOvnFlatTab(
   switch (key) {
     case 'flat_public_subnets':
       if (canViewFlatNetworkGroup && checkPerm('clouds.networks:read')) {
-        loadResource(
+        await loadResource(
           'subnets',
           () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -55,7 +55,7 @@ export async function tryLoadKubeOvnFlatTab(
         (key === 'flat_kubeovn_dnat' && checkPerm('clouds.dnat.flat:read'));
 
       if (needsFlatSubnetForTab && checkPerm('clouds.networks:read')) {
-        loadResource(
+        await loadResource(
           'subnets',
           () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -65,7 +65,7 @@ export async function tryLoadKubeOvnFlatTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'vpcs',
           () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -83,7 +83,7 @@ export async function tryLoadKubeOvnFlatTab(
           key === 'flat_kubeovn_dnat') &&
         checkPerm('clouds.eips.flat:read')
       ) {
-        loadResource(
+        await loadResource(
           'flatEips',
           () => fetchCloudProviderOvnEips(cloudId, force, 'flat'),
           (json) => {
@@ -100,7 +100,7 @@ export async function tryLoadKubeOvnFlatTab(
         key === 'flat_kubeovn_snat' &&
         checkPerm('clouds.snat.flat:read')
       ) {
-        loadResource(
+        await loadResource(
           'flatSnatRules',
           () =>
             fetchCloudProviderOvnSnatRules(cloudId, force, false, 'flat'),
@@ -115,7 +115,7 @@ export async function tryLoadKubeOvnFlatTab(
         key === 'flat_kubeovn_dnat' &&
         checkPerm('clouds.dnat.flat:read')
       ) {
-        loadResource(
+        await loadResource(
           'flatDnatRules',
           () =>
             fetchCloudProviderOvnDnatRules(cloudId, force, false, 'flat'),

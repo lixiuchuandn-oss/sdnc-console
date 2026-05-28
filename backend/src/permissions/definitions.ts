@@ -97,6 +97,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.log-receivers': '日志接收端',
   'clouds.log-configs': '日志采集配置',
   'clouds.console': '租户控制台',
+  'clouds.desktop': '云桌面',
   
   // TENANTS - 租户管理
   'tenants': '租户管理',
@@ -192,6 +193,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.backups:write': '创建、删除虚拟机备份/快照，管理定时备份策略与恢复操作',
   'clouds.console:read': '访问租户控制台',
   'clouds.console:write': '在租户控制台中执行操作',
+  'clouds.desktop:read': '查看云桌面网关、云桌面用户及 VM 云桌面分配',
+  'clouds.desktop:write': '管理云桌面网关、云桌面用户及 VM 云桌面分配',
   'clouds.containers:read': '查看容器服务资源（工作负载、Pod、任务、服务发现、配置、镜像仓库等）',
   'clouds.containers:write': '管理容器服务资源（创建、编辑、删除及 Pod 终端等写操作）',
   'clouds.containers.workloads:read': '查看容器工作负载（Deployment/StatefulSet/DaemonSet）',

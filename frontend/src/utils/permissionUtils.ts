@@ -119,7 +119,7 @@ export function getPoolNavLeafResourcePrefixSet(): Set<string> {
  * 设计原则与页面类型见 docs/cloudmap-pool-rbac.md §2。
  */
 export const POOL_NAV_GROUP_ATTACHED_PREFIXES: Readonly<Record<string, readonly string[]>> = {
-  云主机: ['clouds.vm-create-wizard', 'clouds.vm-quick-create'],
+  云主机: ['clouds.vm-create-wizard', 'clouds.vm-quick-create', 'clouds.desktop'],
 };
 
 export function getPoolNavAttachedResourcePrefixSet(): Set<string> {
@@ -403,6 +403,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.net-topology',
   // 云主机
   'clouds.ecs',
+  'clouds.desktop',
   'clouds.paas-databases',
   'clouds.vm-create-wizard',
   'clouds.vm-quick-create',

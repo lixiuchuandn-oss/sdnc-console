@@ -31,7 +31,7 @@ export function createCephTabOnRefresh(
   deps: CephTabRefreshDeps,
 ): CephSectionOnRefresh {
   const { loadTabResource } = deps;
-  return (force?: boolean, silent?: boolean) => {
-    void loadTabResource(tab, force !== false, silent);
+  return async (force?: boolean, silent?: boolean) => {
+    await loadTabResource(tab, force !== false, silent);
   };
 }

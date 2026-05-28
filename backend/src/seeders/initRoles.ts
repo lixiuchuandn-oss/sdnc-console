@@ -74,6 +74,7 @@ export async function initializeRoles() {
             !p.startsWith('clouds.dashboard:') &&
             !p.startsWith('clouds.resource-pools:') &&
             !p.startsWith('clouds.alerts:') &&
+            !p.startsWith('clouds.desktop:') &&
             !p.startsWith('clouds.log') &&
             p !== 'clouds:read' &&
             p !== 'clouds:write' &&
