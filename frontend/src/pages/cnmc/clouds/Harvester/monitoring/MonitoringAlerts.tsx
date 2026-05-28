@@ -312,6 +312,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
       {tableNode}
 
       <AlertDetailModal
+        cloudId={cloudId}
         open={detailOpen}
         onClose={closeDetail}
         record={detailRecord}

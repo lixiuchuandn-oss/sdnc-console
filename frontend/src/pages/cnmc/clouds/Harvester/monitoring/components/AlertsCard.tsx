@@ -6,9 +6,9 @@ import { Card, Typography, Spin } from 'antd';
 import { WarningOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
-import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING } from '../context/MonitoringContext';
+import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_WARNING } from '../context/MonitoringContext';
 import { parseAlerts, type ParsedAlert } from '../lib/prometheusAlerts';
-import { CRITICAL_COLOR, WARNING_COLOR } from '../constants';
+import { CRITICAL_COLOR, getAlertItemHoverBg, SEVERITY_MAP, WARNING_COLOR } from '../constants';
 
 interface AlertsCardProps {
   cloudId: string;
@@ -30,8 +30,8 @@ export const AlertsCard: React.FC<AlertsCardProps> = ({ cloudId }) => {
     return {
       alertsList: list,
       levelConfig: {
-        [ALERT_LEVEL_CRITICAL]: { color: CRITICAL_COLOR, label: '严重告警', count: criticalCount },
-        [ALERT_LEVEL_WARNING]: { color: WARNING_COLOR, label: '注意', count: warningCount }
+        [ALERT_LEVEL_CRITICAL]: { color: CRITICAL_COLOR, label: SEVERITY_MAP.SEVERITY_CRITICAL, count: criticalCount },
+        [ALERT_LEVEL_WARNING]: { color: WARNING_COLOR, label: SEVERITY_MAP.SEVERITY_WARNING, count: warningCount }
       },
     };
   }, [alertsData]);
@@ -51,19 +51,6 @@ export const AlertsCard: React.FC<AlertsCardProps> = ({ cloudId }) => {
   const getAlertIcon = (level: string) => {
     if (level === ALERT_LEVEL_CRITICAL) return <WarningOutlined style={{ color: CRITICAL_COLOR, fontSize: 20 }} />;
     return <WarningOutlined style={{ color: WARNING_COLOR, fontSize: 20 }} />;
-  };
-
-  const getAlertItemBg = (level: ParsedAlert['level']) => {
-    if (level === ALERT_LEVEL_CRITICAL) return 'rgba(255,92,124,0.05)';
-    if (level === ALERT_LEVEL_WARNING) return 'rgba(245,158,11,0.08)';
-    return 'rgba(22,119,255,0.06)';
-  };
-
-  const getAlertItemHoverBg = (level: ParsedAlert['level']) => {
-    if (level === ALERT_LEVEL_CRITICAL) return 'rgba(255, 77, 79, 0.08)';
-    if (level === ALERT_LEVEL_WARNING) return 'rgba(250, 140, 22, 0.08)';
-    if (level === ALERT_LEVEL_INFO) return 'rgba(22, 119, 255, 0.08)';
-    return 'rgba(22, 119, 255, 0.08)';
   };
 
   const goToOpsAlerts = () => {
@@ -207,14 +194,13 @@ export const AlertsCard: React.FC<AlertsCardProps> = ({ cloudId }) => {
                 (e.currentTarget as HTMLDivElement).style.background = getAlertItemHoverBg(alert.level);
               }}
               onMouseLeave={(e) => {
-                (e.currentTarget as HTMLDivElement).style.background = getAlertItemBg(alert.level);
+                (e.currentTarget as HTMLDivElement).style.background = 'transparent';
               }}
               style={{
                 padding: 12,
                 marginBottom: 8,
                 borderRadius: 6,
                 borderLeft: `4px solid ${alert.level === ALERT_LEVEL_CRITICAL ? CRITICAL_COLOR : WARNING_COLOR}`,
-                background: getAlertItemBg(alert.level),
                 cursor: 'pointer',
                 transition: 'background-color .15s',
               }}

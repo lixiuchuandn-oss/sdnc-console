@@ -1,5 +1,12 @@
 /**
- * 告警通知策略：配置列表 + 新增/编辑步骤弹框（由 AlertForwardConfig 迁入）
+ * 告警通知策略：配置列表 + 新增/编辑 Modal
+ *
+ * 数据契约（与后端 AlertmanagerPolicy 对齐）：
+ *   - 列表/详情：从 fetchAlertmanagerconfigs / fetchAlertmanagerconfigDetail 直接拿结构化 Policy
+ *     - aliasName / name / namespace / description 直接读
+ *     - receivers: [{name, receiverType?, aliasName?}] 已联表通知对象元信息
+ *     - subRoute.alertNames: 解析自 sub-route matchers（唯一可信源）
+ *   - 创建/更新：提交 UpsertAlertmanagerPolicyPayload（不再前端拼 CR）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -32,9 +39,6 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import {
-  ALERTMANAGERCONFIG_KIND,
-  MONITORING_API_VERSION,
-  MONITORING_DEFAULT_NAMESPACE,
   MONITORING_NAMESPACE_FILTER_ALL,
   useMonitoring,
 } from './context/MonitoringContext';
@@ -50,22 +54,16 @@ import {
   fetchNotificationTargetsList,
   fetchPrometheusRules,
   fetchPrometheusRulesGroups,
+  type AlertmanagerPolicy,
+  type AlertmanagerPolicyReceiverRef,
+  type NotificationTargetReceiver,
+  type PrometheusRuleItem,
+  type UpsertAlertmanagerPolicyPayload,
 } from '../../../../../services/monitoringApi';
-import type {
-  NotificationTargetReceiver,
-  PrometheusRuleItem,
-} from '../../../../../services/monitoringApi';
-import {
-  buildReceiverSpec,
-  RECEIVER_NAME_OPTIONS,
-  type ReceiverName,
-  type ReceiverSpec,
-} from './lib/receivers';
+import { RECEIVER_NAME_OPTIONS, type ReceiverName } from './lib/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
-
-const ALERT_POLICY_ALIAS_ANNOTATION = 'tower.io/alias';
 
 interface TriggerRuleOption {
   value: string;
@@ -75,6 +73,7 @@ interface TriggerRuleOption {
   /** 告警分组（管理员 rulesList 有，用于按分组筛选） */
   groupName?: string;
 }
+
 const SECTION_TITLE_TAG_STYLE: React.CSSProperties = {
   padding: '4px 12px',
   fontSize: 14,
@@ -82,6 +81,19 @@ const SECTION_TITLE_TAG_STYLE: React.CSSProperties = {
   cursor: 'default',
   userSelect: 'none',
 };
+
+const RECEIVER_TYPE_LABEL_MAP: Record<string, string> = {
+  'email-receiver': '邮件',
+  'dingtalk-receiver': '钉钉',
+  'website-receiver': '站内信',
+};
+
+/** 「通知方式 + 通知对象」展示文案：`<aliasName 或 name>(<类型标签>)` */
+function renderReceiverRefTag(ref: AlertmanagerPolicyReceiverRef): string {
+  const display = ref.aliasName?.trim() || ref.name;
+  const typeLabel = RECEIVER_TYPE_LABEL_MAP[ref.receiverType ?? ''] ?? '邮件';
+  return `${display}(${typeLabel})`;
+}
 
 function flattenPrometheusRuleToTriggerOptions(raw: any): TriggerRuleOption[] {
   const spec = raw?.spec ?? raw?.data?.spec;
@@ -101,91 +113,27 @@ function flattenPrometheusRuleToTriggerOptions(raw: any): TriggerRuleOption[] {
   return list;
 }
 
-interface AlertmanagerConfigItem {
-  id?: string;
-  type?: string;
-  metadata?: { name?: string; namespace?: string; creationTimestamp?: string; creator?: string; annotations?: Record<string, string> };
-  spec?: { receivers?: Array<{ name?: string }>; route?: Record<string, unknown> };
-}
-
-const SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME = 'default-alertmanager-config';
-
-function isSystemDefaultAlertPolicy(row: AlertmanagerConfigItem): boolean {
-  const namespace = (row.metadata?.namespace ?? '').toString().trim();
-  if (namespace !== MONITORING_DEFAULT_NAMESPACE) return false;
-  const specAny = (row.spec ?? {}) as any;
-  const alertmanagerSpecName = (
-    specAny?.alertmanager?.spec?.name ??
-    specAny?.alertmanager?.name ??
-    specAny?.name
-  )
-    ?.toString()
-    .trim();
-  if (alertmanagerSpecName === SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME) return true;
-  const targetAnnotation = (row.metadata?.annotations?.['tower.io/alertmanager-target'] ?? '')
-    .toString()
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return targetAnnotation.includes(SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME);
-}
-
-function normalizeListPayload(res: any): AlertmanagerConfigItem[] {
-  if (!res || typeof res !== 'object') return [];
-  let list: any[] = [];
-  if (Array.isArray(res.data)) list = res.data;
-  else if (Array.isArray(res.data?.data)) list = res.data.data;
-  else if (Array.isArray(res.items)) list = res.items;
-  if (list.length === 0) return [];
-  return list.map((item: any) => {
-    const inner = item?.data != null && typeof item.data === 'object' ? item.data : item;
-    const meta = inner?.metadata ?? {};
-    const rawName = meta?.name ?? item?.name;
-    const avoidIdAsName = item?.id && rawName === item?.id;
-    return {
-      ...item,
-      metadata: {
-        ...meta,
-        name: avoidIdAsName ? undefined : rawName,
-        namespace: meta?.namespace ?? item?.namespace,
-      },
-      spec: inner?.spec ?? item?.spec,
-    };
-  });
-}
-
-function parseAlertnameReToMatchers(alertnameRe: string): string[] {
-  if (!alertnameRe.trim()) return [];
-  const parts: string[] = [];
-  let current = '';
-  for (let i = 0; i < alertnameRe.length; i++) {
-    const c = alertnameRe[i];
-    if (c === '\\' && i + 1 < alertnameRe.length) {
-      current += alertnameRe[i + 1];
-      i++;
-    } else if (c === '|') {
-      if (current.trim()) parts.push(current.trim());
-      current = '';
-    } else {
-      current += c;
-    }
+/** 列表/详情接口响应解包：兼容 `{ data: [...] }` 与 `{ data: { data: [...] } }` 两层包装 */
+function unwrapPoliciesPayload(raw: any): AlertmanagerPolicy[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const inner = (raw as any).data;
+  if (Array.isArray(inner)) return inner as AlertmanagerPolicy[];
+  if (inner && typeof inner === 'object' && Array.isArray((inner as any).data)) {
+    return (inner as any).data as AlertmanagerPolicy[];
   }
-  if (current.trim()) parts.push(current.trim());
-  return parts.filter(Boolean);
+  if (Array.isArray((raw as any))) return raw as AlertmanagerPolicy[];
+  return [];
 }
 
-/** 从 route 中收集所有 receiver 名称（顶层 + routes[].receiver），且仅保留在 receivers 中存在的 */
-function collectReceiverNamesFromRoute(route: any, receivers: Array<{ name?: string }>): string[] {
-  const names: string[] = [];
-  const set = new Set((receivers ?? []).map((r) => (r?.name ?? '').trim()).filter(Boolean));
-  const top = (route?.receiver ?? '').toString().trim();
-  if (top && set.has(top)) names.push(top);
-  const children = Array.isArray(route?.routes) ? route.routes : [];
-  for (const c of children) {
-    const r = (c?.receiver ?? '').toString().trim();
-    if (r && set.has(r) && !names.includes(r)) names.push(r);
+function unwrapPolicyDetailPayload(raw: any): AlertmanagerPolicy | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const inner = (raw as any).data;
+  if (inner && typeof inner === 'object' && !Array.isArray(inner)) {
+    if ((inner as any).id || (inner as any).name) return inner as AlertmanagerPolicy;
+    const nested = (inner as any).data;
+    if (nested && typeof nested === 'object') return nested as AlertmanagerPolicy;
   }
-  return names;
+  return null;
 }
 
 type FormInstanceType = ReturnType<typeof Form.useForm>[0];
@@ -263,14 +211,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     formNamespaceOptionsForForm,
   } = useMonitoring();
 
-  const [configList, setConfigList] = useState<AlertmanagerConfigItem[]>([]);
+  const [configList, setConfigList] = useState<AlertmanagerPolicy[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
   const [receiversList, setReceiversList] = useState<NotificationTargetReceiver[]>([]);
   const [receiversLoading, setReceiversLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
 
   const [formModalOpen, setFormModalOpen] = useState(false);
-  const [editingRecord, setEditingRecord] = useState<AlertmanagerConfigItem | null>(null);
+  const [editingRecord, setEditingRecord] = useState<AlertmanagerPolicy | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [form] = Form.useForm();
   const [vmTriggerOptions, setVmTriggerOptions] = useState<TriggerRuleOption[]>([]);
@@ -280,17 +228,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   const [rulesLoading, setRulesLoading] = useState(false);
 
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [detailData, setDetailData] = useState<{
-    name?: string;
-    alias?: string;
-    namespace?: string;
-    description?: string;
-    creator?: string;
-    creationTimestamp?: string;
-    receiverNames?: string[];
-    matchers?: string[];
-    repeatInterval?: string;
-  } | null>(null);
+  const [detailData, setDetailData] = useState<AlertmanagerPolicy | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [aliasEditingKey, setAliasEditingKey] = useState<string | null>(null);
   const [aliasDraft, setAliasDraft] = useState('');
@@ -306,10 +244,10 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       setConfigList([]);
       return;
     }
-    setConfigList(normalizeListPayload(data));
+    setConfigList(unwrapPoliciesPayload(data));
   }, [cloudId, canReadPolicies]);
 
-  /** 通知对象标识下拉数据：来自数据库（GET .../alertmanagerconfigs/receivers，不调用 Harvester），按 receiverName 聚合；可指定 namespaces 覆盖（用于表单内按选中项目名称加载） */
+  /** 加载通知对象列表（供「通知方式 → 通知对象」级联与下拉使用） */
   const loadReceiversList = useCallback(
     async (overrideNamespaces?: string[]) => {
       if (!cloudId) return;
@@ -344,7 +282,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     if (cloudId && canReadPolicies) loadConfigList();
   }, [cloudId, loadConfigList, canReadPolicies]);
 
-  /** 项目名称就绪后拉取通知对象列表（供「通知对象标识」下拉使用） */
   useEffect(() => {
     if (!cloudId) return;
     const namespaces = namespaceList;
@@ -391,144 +328,84 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       const k = keyword.trim().toLowerCase();
       list = list.filter(
         (row) =>
-          (row.metadata?.name ?? '').toLowerCase().includes(k) ||
-          (row.metadata?.namespace ?? '').toLowerCase().includes(k)
+          (row.name ?? '').toLowerCase().includes(k) ||
+          (row.aliasName ?? '').toLowerCase().includes(k) ||
+          (row.namespace ?? '').toLowerCase().includes(k)
       );
     }
-    if (configNsFilter) list = list.filter((row) => row.metadata?.namespace === configNsFilter);
+    if (configNsFilter) list = list.filter((row) => row.namespace === configNsFilter);
     if (!isAdmin && namespaceList.length) {
-      list = list.filter((row) => namespaceList.includes(row.metadata?.namespace ?? ''));
+      list = list.filter((row) => namespaceList.includes(row.namespace));
     }
-    return [...list].sort((a, b) => {
-      const aTs = new Date((a.metadata?.creationTimestamp ?? '').toString()).getTime();
-      const bTs = new Date((b.metadata?.creationTimestamp ?? '').toString()).getTime();
-      const aSafe = Number.isFinite(aTs) ? aTs : 0;
-      const bSafe = Number.isFinite(bTs) ? bTs : 0;
-      return bSafe - aSafe;
-    });
+    return list;
   }, [configList, keyword, configNsFilter, isAdmin, namespaceList]);
 
-  /**
-   * spec 接收器名称 -> 通知方式（用于编辑回填时拼 type:name，以及提交时按类型取 spec）。
-   *
-   * 通知方式优先取后端落到 `receiverType` 字段（来源于 AlertmanagerConfig 注解
-   * `tower.io/monitoring-receiver`）；注解缺失时回退 metadata.name（receiverName）以兼容历史数据。
-   */
-  const nameToType = useMemo(() => {
-    const map: Record<string, ReceiverName> = {};
+  /** 通知对象（specReceivers[].name -> NotificationTargetReceiver）索引；级联展示时按通知方式分组 */
+  const receiversByType = useMemo(() => {
+    const types: ReceiverName[] = ['email-receiver', 'dingtalk-receiver', 'website-receiver'];
+    const result: Record<ReceiverName, { name: string; aliasName?: string }[]> = {} as Record<ReceiverName, { name: string; aliasName?: string }[]>;
+    for (const t of types) result[t] = [];
     for (const r of receiversList) {
       const type = (
         (r as { receiverType?: string }).receiverType ??
         r.receiverName ??
         ''
-      )
-        .toString()
-        .trim() as ReceiverName;
-      if (!type) continue;
+      ).toString().trim() as ReceiverName;
+      if (!result[type]) continue;
+      const aliasName = (r as { aliasName?: string }).aliasName?.toString().trim() || undefined;
       const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
       for (const s of list) {
         const name = (s?.name ?? '').toString().trim();
-        if (name && !map[name]) map[name] = type;
+        if (!name) continue;
+        if (!result[type].some((x) => x.name === name)) {
+          result[type].push({ name, aliasName });
+        }
       }
     }
-    return map;
+    return result;
   }, [receiversList]);
-  const receiverTypeLabelMap: Record<ReceiverName, string> = useMemo(
-    () => ({
-      'email-receiver': '邮件',
-      'dingtalk-receiver': '钉钉',
-      'website-receiver': '站内信',
-    }),
-    []
-  );
+
+  /** name -> receiverType 索引：用于把级联 cascader 的 `:type:name` 值反推类型时回退 */
+  const nameToType = useMemo(() => {
+    const map: Record<string, ReceiverName> = {};
+    (Object.entries(receiversByType) as Array<[ReceiverName, { name: string }[]]>).forEach(([t, list]) => {
+      for (const o of list) {
+        if (!map[o.name]) map[o.name] = t;
+      }
+    });
+    return map;
+  }, [receiversByType]);
 
   const handleOpenForm = useCallback(
-    (record: AlertmanagerConfigItem | null) => {
+    (record: AlertmanagerPolicy | null) => {
       if (!canWritePolicies) {
         message.warning('无权修改告警通知策略');
         return;
       }
       setEditingRecord(record);
-      if (record?.metadata?.namespace != null && record?.metadata?.name != null && cloudId) {
+      if (record?.namespace && record?.name && cloudId) {
         setFormLoading(true);
-        fetchAlertmanagerconfigDetail(cloudId, record.metadata.namespace, record.metadata.name)
+        fetchAlertmanagerconfigDetail(cloudId, record.namespace, record.name)
           .then(({ data, ok, error }) => {
             setFormLoading(false);
-            if (ok && data && typeof data === 'object') {
-              const raw = data as any;
-              const d = raw?.data != null && typeof raw.data === 'object' ? raw.data : raw;
-              const annotations = d.metadata?.annotations ?? {};
-              const receivers = Array.isArray(d.spec?.receivers) ? d.spec.receivers : [];
-              const routeReceiverNames = (collectReceiverNamesFromRoute(d.spec?.route, receivers) ?? []).filter((n: string) => n !== 'null-receiver');
-              const routeReceiver = routeReceiverNames[0] ?? (d.spec?.route?.receiver !== 'null-receiver' ? d.spec?.route?.receiver : undefined) ?? receivers.find((r: any) => (r?.name ?? '') !== 'null-receiver')?.name;
-              const r0 = routeReceiver ? receivers.find((r: any) => r.name === routeReceiver) : receivers.find((r: any) => (r?.name ?? '') !== 'null-receiver');
-              let receiverName: ReceiverName = 'email-receiver';
-              let emailList = [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }];
-              if (r0) {
-                if (r0.emailConfigs?.length) {
-                  receiverName = 'email-receiver';
-                  emailList = (r0.emailConfigs || []).map((e: any) => {
-                    const ap = e?.authPassword;
-                    const name = typeof ap === 'object' && ap !== null ? ap.name : (e?.authIdentity ?? '');
-                    const key = typeof ap === 'object' && ap !== null ? (ap.key ?? '') : (e?.authSecretKey ?? '');
-                    return {
-                      emailTo: e?.to ?? '',
-                      emailFrom: e?.from ?? '',
-                      smarthost: e?.smarthost ?? '',
-                      requireTls: e?.requireTLS !== false && e?.requireTls !== false,
-                      authUsername: e?.authUsername ?? '',
-                      authIdentity: name,
-                      authSecretKey: key,
-                    };
-                  });
-                  if (emailList.length === 0) emailList.push({ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' });
-                }
-              }
-              const route = d.spec?.route ?? {};
-              const match = (route.match ?? {}) as Record<string, string>;
-              const matchRe = (route.matchRe ?? {}) as Record<string, string>;
-              let routeMatchersArray = Array.isArray(route.matchers) ? route.matchers : [];
-              const childRoutes = Array.isArray(route.routes) ? route.routes : [];
-              if (routeMatchersArray.length === 0 && childRoutes.length > 0) {
-                const firstChild = childRoutes[0];
-                routeMatchersArray = Array.isArray(firstChild?.matchers) ? firstChild.matchers : [];
-              }
-              const alertnameMatchers = routeMatchersArray.filter((m: any) => String(m?.name ?? '').toLowerCase() === 'alertname');
-              let matchersFromRouteMatchers: string[] = [];
-              if (alertnameMatchers.length > 0) {
-                const first = alertnameMatchers[0];
-                const matchType = String(first?.matchType ?? '').trim();
-                const value = String(first?.value ?? '').trim();
-                if (matchType === '=~' && value) matchersFromRouteMatchers = value.split('|').map((s) => s.trim()).filter(Boolean);
-                else matchersFromRouteMatchers = alertnameMatchers.map((m: any) => String(m?.value ?? '').trim()).filter(Boolean);
-              }
-              const alertnameRe = (matchRe.alertname ?? '').toString().trim();
-              const matchersFromRe = alertnameRe ? parseAlertnameReToMatchers(alertnameRe) : [];
-              const alertnameExact = (match.alertname ?? '').toString().trim();
-              const matchersFromMatch = alertnameExact ? [alertnameExact] : [];
-              const fallbackMatchers = typeof annotations.matchers === 'string' ? annotations.matchers.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-              const resolvedMatchers = matchersFromRouteMatchers.length ? matchersFromRouteMatchers : matchersFromRe.length ? matchersFromRe : matchersFromMatch.length ? matchersFromMatch : fallbackMatchers;
-              const matcherPairsFromMatch =
-                routeMatchersArray.length > 0
-                  ? routeMatchersArray.filter((m: any) => (m?.name ?? '').trim() && (m?.value ?? '').trim()).map((m: any) => ({ key: String(m.name).trim(), value: String(m.value).trim() }))
-                  : Object.keys(match).length ? Object.entries(match).map(([key, value]) => ({ key, value })) : [];
-              const routeRepeatInterval = (childRoutes[0] as any)?.repeatInterval ?? (d.spec?.route as any)?.repeatInterval ?? '4h';
-              const configReceiverNameTypeName = routeReceiverNames.length
-                ? routeReceiverNames.map((n: string) => `${nameToType[n] ?? 'email-receiver'}:${n}`)
-                : routeReceiver ? [`${nameToType[routeReceiver] ?? 'email-receiver'}:${routeReceiver}`] : [];
-              form.setFieldsValue({
-                name: d.metadata?.name,
-                alias: (annotations[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString(),
-                namespace: d.metadata?.namespace,
-                description: annotations.description ?? '',
-                repeatInterval: routeRepeatInterval,
-                receiverName,
-                configReceiverName: configReceiverNameTypeName,
-                emailList,
-                matchers: resolvedMatchers,
-                matcherPairs: matcherPairsFromMatch.length ? matcherPairsFromMatch : [],
-              });
-            } else message.error(error || '获取配置详情失败');
+            const policy = unwrapPolicyDetailPayload(data);
+            if (!ok || !policy) {
+              message.error(error || '获取配置详情失败');
+              return;
+            }
+            setEditingRecord(policy);
+            const receiverEntries = policy.receivers.map(
+              (r) => `${r.receiverType ?? nameToType[r.name] ?? 'email-receiver'}:${r.name}`,
+            );
+            form.setFieldsValue({
+              name: policy.name,
+              aliasName: policy.aliasName ?? '',
+              namespace: policy.namespace,
+              description: policy.description ?? '',
+              repeatInterval: policy.subRoute?.repeatInterval ?? '4h',
+              configReceiverName: receiverEntries,
+              matchers: policy.subRoute?.alertNames ?? [],
+            });
           })
           .catch(() => {
             setFormLoading(false);
@@ -539,12 +416,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         const defaultNs = isAdmin ? undefined : (namespaceList[0] ?? 'default');
         form.setFieldsValue({
           namespace: defaultNs,
-          alias: '',
-          receiverName: 'email-receiver',
+          aliasName: '',
           configReceiverName: [],
-          emailList: [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }],
           matchers: [],
-          matcherPairs: [],
           repeatInterval: '4h',
         });
       }
@@ -561,94 +435,24 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   /** 打开详情：从接口拉取策略详情并展示只读 Modal */
   const handleOpenDetail = useCallback(
-    (row: AlertmanagerConfigItem) => {
-      const ns = row.metadata?.namespace ?? '';
-      const name = row.metadata?.name ?? '';
-      if (!cloudId || !ns || !name) {
-        message.error('缺少项目名称/策略名称/策略标识');
+    (row: AlertmanagerPolicy) => {
+      if (!cloudId || !row.namespace || !row.name) {
+        message.error('缺少生效项目/策略标识');
         return;
       }
       setDetailData(null);
       setDetailModalOpen(true);
       setDetailLoading(true);
-      fetchAlertmanagerconfigDetail(cloudId, ns, name)
-        .then(async ({ data, ok, error }) => {
+      fetchAlertmanagerconfigDetail(cloudId, row.namespace, row.name)
+        .then(({ data, ok, error }) => {
           setDetailLoading(false);
-          if (!ok || !data) {
+          const policy = unwrapPolicyDetailPayload(data);
+          if (!ok || !policy) {
             message.error(error || '获取策略详情失败');
             setDetailData(null);
             return;
           }
-          const raw = data as any;
-          const d = raw?.data != null && typeof raw.data === 'object' ? raw.data : raw;
-          const annotations = d.metadata?.annotations ?? {};
-          const receivers = Array.isArray(d.spec?.receivers) ? d.spec.receivers : [];
-          const route = d.spec?.route ?? {};
-          const rawRouteReceiverNames = collectReceiverNamesFromRoute(route, receivers);
-          const routeReceiverNames = (rawRouteReceiverNames ?? []).filter((n: string) => n !== 'null-receiver');
-          const match = (route.match ?? {}) as Record<string, string>;
-          const matchRe = (route.matchRe ?? {}) as Record<string, string>;
-          let routeMatchersArray = Array.isArray(route.matchers) ? route.matchers : [];
-          const detailChildRoutes = Array.isArray(route.routes) ? route.routes : [];
-          if (routeMatchersArray.length === 0 && detailChildRoutes.length > 0) {
-            const firstChild = detailChildRoutes[0];
-            routeMatchersArray = Array.isArray(firstChild?.matchers) ? firstChild.matchers : [];
-          }
-          const alertnameMatchers = routeMatchersArray.filter((m: any) => String(m?.name ?? '').toLowerCase() === 'alertname');
-          let matchersFromRouteMatchers: string[] = [];
-          if (alertnameMatchers.length > 0) {
-            const first = alertnameMatchers[0];
-            const matchType = String(first?.matchType ?? '').trim();
-            const value = String(first?.value ?? '').trim();
-            if (matchType === '=~' && value) matchersFromRouteMatchers = value.split('|').map((s: string) => s.trim()).filter(Boolean);
-            else matchersFromRouteMatchers = alertnameMatchers.map((m: any) => String(m?.value ?? '').trim()).filter(Boolean);
-          }
-          const alertnameRe = (matchRe.alertname ?? '').toString().trim();
-          const matchersFromRe = alertnameRe ? parseAlertnameReToMatchers(alertnameRe) : [];
-          const alertnameExact = (match.alertname ?? '').toString().trim();
-          const matchersFromMatch = alertnameExact ? [alertnameExact] : [];
-          const fallbackMatchers = typeof annotations.matchers === 'string' ? annotations.matchers.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-          const resolvedMatchers: string[] =
-            matchersFromRouteMatchers.length ? matchersFromRouteMatchers
-              : matchersFromRe.length ? matchersFromRe
-              : matchersFromMatch.length ? matchersFromMatch
-              : fallbackMatchers;
-          const matcherNameMap = new Map<string, string>();
-          for (const r of rulesList) {
-            const ruleId = (r?.name ?? '').toString().trim();
-            const ruleName = (r?.aliasName ?? '').toString().trim() || ruleId;
-            if (ruleId) matcherNameMap.set(ruleId, ruleName);
-          }
-          for (const o of vmTriggerOptions) {
-            const ruleId = (o?.value ?? '').toString().trim();
-            const ruleName = (o?.label ?? '').toString().trim() || ruleId;
-            if (ruleId && !matcherNameMap.has(ruleId)) matcherNameMap.set(ruleId, ruleName);
-          }
-          const missingMatcherIds = resolvedMatchers.filter((id: string) => !matcherNameMap.has(id));
-          if (missingMatcherIds.length > 0) {
-            const { data: matchedRules, ok: matchedOk } = await fetchPrometheusRules(cloudId, {
-              alertNames: missingMatcherIds,
-            });
-            if (matchedOk && matchedRules?.rules?.length) {
-              for (const r of matchedRules.rules) {
-                const ruleId = (r?.name ?? '').toString().trim();
-                const ruleName = (r?.aliasName ?? '').toString().trim() || ruleId;
-                if (ruleId) matcherNameMap.set(ruleId, ruleName);
-              }
-            }
-          }
-          const matcherDisplayNames = resolvedMatchers.map((id: string) => matcherNameMap.get(id) || id);
-          setDetailData({
-            name: d.metadata?.name ?? name,
-            alias: (annotations[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().trim() || undefined,
-            namespace: d.metadata?.namespace ?? ns,
-            description: (annotations.description ?? '').toString().trim() || undefined,
-            creator: d.metadata?.creator ?? undefined,
-            creationTimestamp: d.metadata?.creationTimestamp ?? undefined,
-            receiverNames: routeReceiverNames.length ? routeReceiverNames : (route.receiver && route.receiver !== 'null-receiver' ? [route.receiver] : receivers.map((r: any) => r.name).filter((n: string) => n !== 'null-receiver')),
-            matchers: matcherDisplayNames.length ? matcherDisplayNames : undefined,
-            repeatInterval: (detailChildRoutes[0] as any)?.repeatInterval ?? (route as any)?.repeatInterval ?? '4h',
-          });
+          setDetailData(policy);
         })
         .catch(() => {
           setDetailLoading(false);
@@ -656,7 +460,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           setDetailData(null);
         });
     },
-    [cloudId, rulesList, vmTriggerOptions]
+    [cloudId]
   );
 
   const handleCloseDetail = useCallback(() => {
@@ -664,225 +468,131 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     setDetailData(null);
   }, []);
 
-  /**
-   * 按通知方式（receiverType）聚合该类型下所有 spec 接收器名称，供级联/多选下拉使用。
-   * 通知方式从 annotation 落到的 `receiverType` 字段读取，缺失回退 metadata.name（receiverName）。
-   */
-  const specReceiverNameOptionsByType = useMemo(() => {
-    const types: ReceiverName[] = ['email-receiver', 'dingtalk-receiver', 'website-receiver'];
-    const map: Record<ReceiverName, { label: string; value: string }[]> = {} as Record<ReceiverName, { label: string; value: string }[]>;
-    for (const t of types) {
-      const names = new Set<string>();
-      for (const r of receiversList) {
-        const rt = (
-          (r as { receiverType?: string }).receiverType ??
-          r.receiverName ??
-          ''
-        )
-          .toString()
-          .trim();
-        if (rt !== t) continue;
-        const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
-        for (const s of list) {
-          const name = (s?.name ?? '').toString().trim();
-          if (name) names.add(name);
-        }
-      }
-      map[t] = Array.from(names)
-        .sort()
-        .map((name) => ({ label: name, value: name }));
+  /** 详情 Modal 中：用 rulesList / vmTriggerOptions 把 alertname id 翻译为可读规则名 */
+  const detailMatcherDisplayNames = useMemo(() => {
+    if (!detailData?.subRoute?.alertNames?.length) return undefined;
+    const nameMap = new Map<string, string>();
+    for (const r of rulesList) {
+      const id = (r?.name ?? '').toString().trim();
+      const aliasName = (r?.aliasName ?? '').toString().trim() || id;
+      if (id) nameMap.set(id, aliasName);
     }
-    return map;
-  }, [receiversList]);
-
-  /**
-   * 按通知方式（receiverType）映射 spec 接收器名称 -> 完整 ReceiverSpec，
-   * 用于多选提交时按类型取 spec；通知方式以 annotation `receiverType` 为准。
-   */
-  const specReceiverNameToSpecByType = useMemo(() => {
-    const map: Record<ReceiverName, Record<string, ReceiverSpec>> = {} as Record<ReceiverName, Record<string, ReceiverSpec>>;
-    const types: ReceiverName[] = ['email-receiver', 'dingtalk-receiver', 'website-receiver'];
-    for (const t of types) {
-      const byName: Record<string, ReceiverSpec> = {};
-      for (const r of receiversList) {
-        const rt = (
-          (r as { receiverType?: string }).receiverType ??
-          r.receiverName ??
-          ''
-        )
-          .toString()
-          .trim();
-        if (rt !== t) continue;
-        const list = Array.isArray(r.specReceivers) ? r.specReceivers : [];
-        for (const s of list) {
-          const name = (s?.name ?? '').toString().trim();
-          const hasConfig = 'emailConfigs' in s ? !!s.emailConfigs : 'webhookConfigs' in s && !!s.webhookConfigs;
-          if (name && hasConfig) byName[name] = { ...s, name } as ReceiverSpec;
-        }
-      }
-      map[t] = byName;
+    for (const o of vmTriggerOptions) {
+      const id = (o?.value ?? '').toString().trim();
+      const aliasName = (o?.label ?? '').toString().trim() || id;
+      if (id && !nameMap.has(id)) nameMap.set(id, aliasName);
     }
-    return map;
-  }, [receiversList]);
+    return detailData.subRoute.alertNames.map((id) => nameMap.get(id) || id);
+  }, [detailData, rulesList, vmTriggerOptions]);
 
   /** 级联选择：第一级 邮件/钉钉/网站，第二级 该类型下的通知对象标识；叶子 value 为 type:name */
   const receiverCascadeOptions = useMemo((): { value: string; label: string; children?: { value: string; label: string }[] }[] => {
     return RECEIVER_NAME_OPTIONS.map((t) => ({
       value: t.value,
       label: t.label,
-      children: (specReceiverNameOptionsByType[t.value] ?? []).map((o) => ({
-        value: `${t.value}:${o.value}`,
-        label: o.label,
+      children: (receiversByType[t.value] ?? []).map((o) => ({
+        value: `${t.value}:${o.name}`,
+        label: o.aliasName ? `${o.aliasName}（${o.name}）` : o.name,
       })),
     }));
-  }, [specReceiverNameOptionsByType]);
+  }, [receiversByType]);
 
-  /** 通知对象多选：所有类型的选项扁平化，value=type:name，label=name (邮件) */
+  /** 通知对象多选：所有类型扁平化，value=type:name，label=<aliasName||name> (类型标签) */
   const configReceiverNameOptionsFlattened = useMemo(() => {
     const out: { value: string; label: string }[] = [];
-    const typeLabels: Record<ReceiverName, string> = {
-      'email-receiver': '邮件',
-      'dingtalk-receiver': '钉钉',
-      'website-receiver': '站内信',
-    };
     for (const t of RECEIVER_NAME_OPTIONS) {
-      const list = specReceiverNameOptionsByType[t.value] ?? [];
-      const typeLabel = typeLabels[t.value] ?? t.label;
+      const list = receiversByType[t.value] ?? [];
+      const typeLabel = RECEIVER_TYPE_LABEL_MAP[t.value] ?? t.label;
       for (const o of list) {
-        out.push({ value: `${t.value}:${o.value}`, label: `${o.label} (${typeLabel})` });
+        const display = o.aliasName ? `${o.aliasName}（${o.name}）` : o.name;
+        out.push({ value: `${t.value}:${o.name}`, label: `${display} (${typeLabel})` });
       }
     }
     return out;
-  }, [specReceiverNameOptionsByType]);
+  }, [receiversByType]);
 
   const [cascadeSelectedValue, setCascadeSelectedValue] = useState<string[]>([]);
 
-  /** 表单内项目名称：未选择时无法按项目名称加载通知对象，需提示用户 */
+  /** 表单内策略生效项目：未选择时无法按策略生效项目加载通知对象，需提示用户 */
   const watchedFormNamespace = Form.useWatch('namespace', form);
   const formNamespaceEmpty = !(watchedFormNamespace != null && String(watchedFormNamespace).trim());
 
-  /** 表单打开且用户选择了项目名称时，按该项目名称重新加载通知对象列表（确保「通知方式」下拉能获取 specReceiverName） */
+  /** 表单打开且用户选择了策略生效项目时，按该策略生效项目重新加载通知对象列表 */
   useEffect(() => {
     if (!formModalOpen || !cloudId) return;
     const ns = (watchedFormNamespace ?? '').toString().trim();
     if (ns) loadReceiversList([ns]);
   }, [formModalOpen, cloudId, watchedFormNamespace, loadReceiversList]);
 
+  /** 把 cascader/select 里 `type:name` 形式的条目解析出 name 数组 */
+  const parseReceiverEntriesToNames = useCallback((entries: unknown): string[] => {
+    if (!Array.isArray(entries)) {
+      if (entries == null || entries === '') return [];
+      return [String(entries).trim()].filter(Boolean);
+    }
+    return entries
+      .map((entry) => {
+        const e = String(entry ?? '').trim();
+        if (!e) return '';
+        const idx = e.indexOf(':');
+        return idx > 0 ? e.slice(idx + 1) : e;
+      })
+      .filter(Boolean);
+  }, []);
+
   const handleFormSubmit = useCallback(async () => {
     if (!canWritePolicies) {
       message.warning('无权修改告警通知策略');
       return;
     }
-    let fieldsToValidate: string[] = ['name', 'namespace', 'configReceiverName', 'matchers'];
-    let values = await form.validateFields(fieldsToValidate).catch(() => null);
+    const values = await form
+      .validateFields(['name', 'namespace', 'configReceiverName', 'matchers'])
+      .catch(() => null);
     if (!values || !cloudId) return;
-    const rawConfigNames = form.getFieldValue('configReceiverName');
-    const configReceiverNameEntries: string[] = Array.isArray(rawConfigNames)
-      ? rawConfigNames.map((n: unknown) => String(n ?? '').trim()).filter(Boolean)
-      : rawConfigNames != null && rawConfigNames !== ''
-        ? [String(rawConfigNames).trim()]
-        : (() => {
-          const r = (editingRecord?.spec?.route as any)?.receiver;
-          return r ? [r] : [];
-        })();
-    if (configReceiverNameEntries.length === 0) {
+    const receiverNames = parseReceiverEntriesToNames(form.getFieldValue('configReceiverName'));
+    if (receiverNames.length === 0) {
       message.warning('请至少选择一个通知对象');
       return;
     }
-    const matchersRaw = Array.isArray(form.getFieldValue('matchers')) ? form.getFieldValue('matchers') : [];
-    const matchersFiltered = (matchersRaw as string[]).filter(Boolean);
-    if (matchersFiltered.length === 0) {
+    const matchersRaw = form.getFieldValue('matchers');
+    const alertNames = (Array.isArray(matchersRaw) ? (matchersRaw as unknown[]) : [])
+      .map((x) => String(x ?? '').trim())
+      .filter(Boolean);
+    if (alertNames.length === 0) {
       message.warning('已选告警规则不能为空');
       return;
     }
-    const parsed = configReceiverNameEntries.map((entry: string) => {
-      const idx = entry.indexOf(':');
-      if (idx > 0) {
-        const type = entry.slice(0, idx) as ReceiverName;
-        const name = entry.slice(idx + 1);
-        return { type, name };
-      }
-      return { type: (nameToType[entry] ?? 'email-receiver') as ReceiverName, name: entry };
-    });
-    const configReceiverNames = parsed.map((p) => p.name);
-    if (parsed.some((p) => p.type === 'email-receiver')) {
-      const emailValues = await form.validateFields(['emailList']).catch(() => null);
-      if (emailValues) values = { ...values, ...emailValues };
-    }
-    const name = (values.name ?? '').toString().trim();
-    const aliasInput = (form.getFieldValue('alias') ?? '').toString().trim();
-    const namespace = (values.namespace ?? 'default').toString().trim();
-    const description = form.getFieldValue('description');
-    const matchers = (Array.isArray(form.getFieldValue('matchers')) ? form.getFieldValue('matchers') : []) as string[];
+    const name = String(values.name ?? '').trim();
+    const namespace = String(values.namespace ?? 'default').trim();
+    const aliasNameInput = String(form.getFieldValue('aliasName') ?? '').trim();
+    const description = String(form.getFieldValue('description') ?? '').trim();
+    const subRouteRepeatInterval =
+      String(form.getFieldValue('repeatInterval') ?? '').trim() || '4h';
+
+    const payload: UpsertAlertmanagerPolicyPayload = {
+      name,
+      namespace,
+      aliasName: aliasNameInput || name,
+      ...(description ? { description } : {}),
+      receivers: receiverNames.map((n) => ({ name: n })),
+      alertNames,
+      subRouteRepeatInterval,
+      ...(editingRecord?.resourceVersion ? { resourceVersion: editingRecord.resourceVersion } : {}),
+    };
+
     setFormLoading(true);
-    const annotations: Record<string, string> = editingRecord?.metadata?.annotations ? { ...editingRecord.metadata.annotations } : {};
-    if (description != null) annotations.description = String(description).trim();
-    const alias = aliasInput || name;
-    if (alias) annotations[ALERT_POLICY_ALIAS_ANNOTATION] = alias;
-    else delete annotations[ALERT_POLICY_ALIAS_ANNOTATION];
-    if (matchers.length) annotations.matchers = matchers.join(',');
-    type RouteMatcherItem = { matchType: string; name: string; value: string; matchers?: unknown[] };
-    const routeMatchers: RouteMatcherItem[] = [];
-    if (matchers.length) {
-      const regexValue = matchers.map((a) => String(a).trim()).filter(Boolean).join('|');
-      routeMatchers.push({ matchType: '=~', name: 'alertname', value: regexValue, matchers: [] });
-    }
-    const receiverSpecs: ReceiverSpec[] = parsed.map(({ type, name: n }) => {
-      const lookup = specReceiverNameToSpecByType[type] ?? {};
-      return lookup[n] ?? buildReceiverSpec(n, type, values);
-    });
-    const repeatInterval = (form.getFieldValue('repeatInterval') ?? '4h').toString().trim() || '4h';
-    const rootRepeatInterval = '30m';
-    const routePayload: Record<string, unknown> = {
-      groupBy: ['alertname', 'namespace'],
-      groupWait: '30s',
-      groupInterval: '5m',
-      receiver: configReceiverNames[0],
-      repeatInterval: rootRepeatInterval,
-      routes: configReceiverNames.map((receiver) => ({
-        continue: true,
-        matchers: routeMatchers.map((m) => ({ matchType: m.matchType, name: m.name, value: m.value })),
-        receiver,
-        repeatInterval,
-      })),
-    };
-    const payload: Record<string, unknown> = {
-      apiVersion: MONITORING_API_VERSION,
-      kind: ALERTMANAGERCONFIG_KIND,
-      metadata: { name, namespace, ...(Object.keys(annotations).length ? { annotations } : {}) },
-      spec: { receivers: receiverSpecs, route: routePayload },
-    };
-    if (editingRecord?.metadata?.namespace && editingRecord?.metadata?.name) {
-      const { data: full, ok: okDetail, error: errDetail } = await fetchAlertmanagerconfigDetail(cloudId, editingRecord.metadata.namespace, editingRecord.metadata.name);
-      if (!okDetail || !full) {
-        setFormLoading(false);
-        message.error(errDetail || '获取告警通知策略失败');
-        return;
-      }
-      const existingRaw = full as any;
-      const existing = existingRaw?.data != null && typeof existingRaw.data === 'object' ? existingRaw.data : existingRaw;
-      const existingRouteFull = existing.spec?.route ?? {};
-      const { match: _omitMatch, matchRe: _omitMatchRe, matchers: _omitMatchers, ...restExistingRoute } = existingRouteFull as Record<string, unknown>;
-      const routeForPut = {
-        ...restExistingRoute,
-        groupBy: routePayload.groupBy,
-        groupInterval: routePayload.groupInterval,
-        groupWait: routePayload.groupWait,
-        receiver: routePayload.receiver,
-        repeatInterval: routePayload.repeatInterval,
-        routes: routePayload.routes,
-      };
-      const nextPayload = {
-        ...existing,
-        metadata: { ...existing.metadata, name, namespace, resourceVersion: existing.metadata?.resourceVersion, ...(Object.keys(annotations).length ? { annotations } : {}) },
-        spec: { ...existing.spec, receivers: receiverSpecs, route: routeForPut },
-      };
-      const { ok, error } = await updateAlertmanagerconfig(cloudId, editingRecord.metadata.namespace, editingRecord.metadata.name, nextPayload);
+    if (editingRecord?.namespace && editingRecord?.name) {
+      const { ok, error } = await updateAlertmanagerconfig(
+        cloudId,
+        editingRecord.namespace,
+        editingRecord.name,
+        payload,
+      );
       setFormLoading(false);
       if (ok) {
         message.success('更新成功');
         handleCloseForm();
-        loadConfigList();
+        await loadConfigList();
       } else message.error(error || '更新失败');
     } else {
       const { ok, error } = await createAlertmanagerconfig(cloudId, payload);
@@ -893,18 +603,26 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         await loadConfigList();
       } else message.error(error || '创建失败');
     }
-  }, [editingRecord, form, handleCloseForm, loadConfigList, nameToType, specReceiverNameToSpecByType, cloudId, canWritePolicies]);
+  }, [
+    canWritePolicies,
+    cloudId,
+    editingRecord,
+    form,
+    handleCloseForm,
+    loadConfigList,
+    parseReceiverEntriesToNames,
+  ]);
 
   const handleDeleteConfig = useCallback(
-    async (row: AlertmanagerConfigItem) => {
+    async (row: AlertmanagerPolicy) => {
       if (!canWritePolicies) {
         message.warning('无权删除告警通知策略');
         return;
       }
-      const ns = row.metadata?.namespace;
-      const name = row.metadata?.name;
+      const ns = row.namespace;
+      const name = row.name;
       if (!ns || !name || !cloudId) {
-        message.error('缺少项目名称或名称');
+        message.error('缺少策略生效项目或名称');
         return;
       }
       const { ok, error } = await deleteAlertmanagerconfig(cloudId, ns, name);
@@ -916,13 +634,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     [loadConfigList, cloudId, canWritePolicies]
   );
 
-  const handleStartAliasEdit = useCallback((row: AlertmanagerConfigItem) => {
-    const name = (row.metadata?.name ?? (row as any).name ?? '').toString().trim();
-    const namespace = (row.metadata?.namespace ?? '').toString().trim();
+  const handleStartAliasEdit = useCallback((row: AlertmanagerPolicy) => {
+    const name = row.name ?? '';
+    const namespace = row.namespace ?? '';
     const key = `${namespace}/${name}`;
-    const alias = (row.metadata?.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? name).toString().trim();
     setAliasEditingKey(key);
-    setAliasDraft(alias);
+    setAliasDraft((row.aliasName ?? name).trim());
   }, []);
 
   const handleCancelAliasEdit = useCallback(() => {
@@ -931,45 +648,37 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   }, []);
 
   const handleSaveAlias = useCallback(
-    async (row: AlertmanagerConfigItem) => {
+    async (row: AlertmanagerPolicy) => {
       if (!canWritePolicies) {
         message.warning('无权编辑通知策略名称');
         return;
       }
-      const namespace = (row.metadata?.namespace ?? '').toString().trim();
-      const name = (row.metadata?.name ?? (row as any).name ?? '').toString().trim();
+      const namespace = row.namespace ?? '';
+      const name = row.name ?? '';
       if (!cloudId || !namespace || !name) {
-        message.error('缺少项目名称或通知策略标识');
+        message.error('缺少策略生效项目或通知策略标识');
         return;
       }
       const nextAlias = aliasDraft.trim() || name;
       setAliasSaving(true);
       try {
-        const { data: full, ok: okDetail, error: errDetail } = await fetchAlertmanagerconfigDetail(cloudId, namespace, name);
-        if (!okDetail || !full) {
-          message.error(errDetail || '获取通知策略详情失败');
+        const detailRes = await fetchAlertmanagerconfigDetail(cloudId, namespace, name);
+        const policy = unwrapPolicyDetailPayload(detailRes.data);
+        if (!detailRes.ok || !policy) {
+          message.error(detailRes.error || '获取通知策略详情失败');
           return;
         }
-        const existingRaw = full as any;
-        const existing = existingRaw?.data != null && typeof existingRaw.data === 'object' ? existingRaw.data : existingRaw;
-        const existingAnnotations =
-          existing?.metadata?.annotations && typeof existing.metadata.annotations === 'object'
-            ? existing.metadata.annotations
-            : {};
-        const nextPayload = {
-          ...existing,
-          metadata: {
-            ...existing.metadata,
-            name,
-            namespace,
-            resourceVersion: existing.metadata?.resourceVersion,
-            annotations: {
-              ...existingAnnotations,
-              [ALERT_POLICY_ALIAS_ANNOTATION]: nextAlias,
-            },
-          },
+        const payload: UpsertAlertmanagerPolicyPayload = {
+          name: policy.name,
+          namespace: policy.namespace,
+          aliasName: nextAlias,
+          ...(policy.description ? { description: policy.description } : {}),
+          receivers: policy.receivers.map((r) => ({ name: r.name })),
+          alertNames: policy.subRoute?.alertNames ?? [],
+          subRouteRepeatInterval: policy.subRoute?.repeatInterval ?? '4h',
+          ...(policy.resourceVersion ? { resourceVersion: policy.resourceVersion } : {}),
         };
-        const { ok, error } = await updateAlertmanagerconfig(cloudId, namespace, name, nextPayload);
+        const { ok, error } = await updateAlertmanagerconfig(cloudId, namespace, name, payload);
         if (ok) {
           message.success('通知策略名称已更新');
           handleCancelAliasEdit();
@@ -984,14 +693,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     [aliasDraft, canWritePolicies, cloudId, handleCancelAliasEdit, loadConfigList]
   );
 
-  const allConfigColumns: ColumnsType<AlertmanagerConfigItem> = useMemo(
+  const allConfigColumns: ColumnsType<AlertmanagerPolicy> = useMemo(
     () => [
       {
         title: '通知策略名称',
-        key: 'alias',
-        render: (_, row: AlertmanagerConfigItem) => {
-          const name = (row.metadata?.name ?? (row as any).name ?? '').toString().trim();
-          const namespace = (row.metadata?.namespace ?? '').toString().trim();
+        key: 'aliasName',
+        render: (_, row: AlertmanagerPolicy) => {
+          const name = row.name ?? '';
+          const namespace = row.namespace ?? '';
           const rowKey = `${namespace}/${name}`;
           if (aliasEditingKey === rowKey) {
             return (
@@ -1019,7 +728,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               </Space>
             );
           }
-          const alias = (row.metadata?.annotations?.[ALERT_POLICY_ALIAS_ANNOTATION] ?? '').toString().trim();
           return (
             <Space size={6}>
               <span
@@ -1034,7 +742,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   }
                 }}
               >
-                {alias || name || '-'}
+                {row.aliasName?.trim() || name || '-'}
               </span>
               {canWritePolicies ? (
                 <Button
@@ -1048,36 +756,49 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           );
         },
       },
-      { title: '通知策略标识', dataIndex: ['metadata', 'name'], key: 'name', render: (n: string, row: AlertmanagerConfigItem) => (n ?? (row as any).name ?? '-') as string },
-      { title: '项目名称', dataIndex: ['metadata', 'namespace'], key: 'namespace', render: (ns: string) => ns || '-' },
+      {
+        title: '通知策略标识',
+        dataIndex: 'name',
+        key: 'name',
+        render: (v: string) => v || '-',
+      },
+      {
+        title: '策略生效项目',
+        dataIndex: 'namespace',
+        key: 'namespace',
+        render: (ns: string) => ns || '-',
+      },
       {
         title: <span style={{ fontWeight: 600, color: '#000' }}>通知对象</span>,
         key: 'receivers',
         render: (_, row) => {
-          const receivers = row.spec?.receivers;
-          if (!Array.isArray(receivers)) return '-';
-          const names = (receivers as { name?: string }[])
-            .map((r) => r.name)
-            .filter((n): n is string => Boolean(n) && String(n).trim() !== 'null-receiver');
-          if (!names.length) return '-';
+          const refs = Array.isArray(row.receivers) ? row.receivers : [];
+          if (refs.length === 0) return '-';
           return (
             <Space size={[8, 4]} wrap>
-              {names.map((name) => (
-                <Tag key={name} color="blue" style={{ fontSize: 'inherit', margin: 0, lineHeight: 'inherit' }}>
-                  {`${name}(${receiverTypeLabelMap[(nameToType[name] ?? 'email-receiver') as ReceiverName] ?? '邮件'})`}
+              {refs.map((r) => (
+                <Tag key={r.name} color="blue" style={{ fontSize: 'inherit', margin: 0, lineHeight: 'inherit' }}>
+                  {renderReceiverRefTag(r)}
                 </Tag>
               ))}
             </Space>
           );
         },
       },
-      { title: '创建时间', dataIndex: ['metadata', 'creationTimestamp'], key: 'createdAt', ellipsis: true, render: (v: string | undefined) => (v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-') },
+      {
+        title: '创建时间',
+        dataIndex: 'creationTimestamp',
+        key: 'createdAt',
+        ellipsis: true,
+        render: (v: string | undefined) =>
+          v ? (String(v).replace('T', ' ').replace(/\.\d{3}Z?$/, '') || v) : '-',
+      },
       {
         title: '操作',
         key: 'action',
         fixed: 'right',
         render: (_, row) => {
-          const isSystemDefaultPolicy = isSystemDefaultAlertPolicy(row);
+          const isSystemDefault = !!row.isSystemDefault;
           return (
             <ResourceActionsDropdown
               items={filterMenuItemsForReadOnly([
@@ -1085,7 +806,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 {
                   key: 'edit',
                   label: '编辑策略',
-                  disabled: isSystemDefaultPolicy,
+                  disabled: !canWritePolicies || isSystemDefault,
                   onClick: () => handleOpenForm(row),
                 },
                 { type: 'divider' as const },
@@ -1093,7 +814,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   key: 'delete',
                   label: '删除',
                   danger: true,
-                  disabled: isSystemDefaultPolicy,
+                  disabled: !canWritePolicies || isSystemDefault,
                   onClick: () => {
                     Modal.confirm({
                       title: '确定删除该策略？',
@@ -1121,15 +842,15 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
       handleOpenForm,
       handleSaveAlias,
       handleStartAliasEdit,
-      nameToType,
-      receiverTypeLabelMap,
     ]
   );
 
-  // 列显示设置（需要在 allConfigColumns 定义之后）
-  const { displayColumns: configColumns } = useTableColumnSettings(allConfigColumns, 'monitoring_alert_notification_policy_table');
+  const { displayColumns: configColumns } = useTableColumnSettings(
+    allConfigColumns,
+    'monitoring_alert_notification_policy_table',
+  );
 
-  /** 告警规则 Transfer 数据源：管理员用 rulesList（含 groupName），租户用 vmTriggerOptions */
+  /** 告警规则 Transfer 数据源 */
   const alertRulesTransferOptions = useMemo((): TriggerRuleOption[] => {
     if (isAdmin) {
       return rulesList.map((r) => ({
@@ -1141,7 +862,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
     return vmTriggerOptions;
   }, [isAdmin, rulesList, vmTriggerOptions]);
 
-  /** 告警分组下拉选项（管理员：从 rulesList 去重；租户无分组则空） */
   const alertGroupOptions = useMemo(() => {
     if (!isAdmin || !rulesList.length) return [];
     const seen = new Set<string>();
@@ -1165,7 +885,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
 
   const [selectedAlertGroup, setSelectedAlertGroup] = useState<string>('');
 
-  /** 按告警分组筛选后的 Transfer 选项（左侧列表）；已选中的项始终保留以便右侧正确展示 */
   const watchedMatchersRaw = Form.useWatch('matchers', form);
   const watchedMatchers = useMemo(
     () => (watchedMatchersRaw ?? []) as string[],
@@ -1188,7 +907,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
   if (!canReadPolicies) {
     return (
       <PageDetailSection asCard={false}>
-        <Typography.Text type="secondary">无权查看告警通知策略，请联系管理员分配 `clouds.alert-policies:read` 权限。</Typography.Text>
+        <Typography.Text type="secondary">
+          无权查看告警通知策略，请联系管理员分配 `clouds.alert-policies:read` 权限。
+        </Typography.Text>
       </PageDetailSection>
     );
   }
@@ -1203,12 +924,12 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               <Tag.CheckableTag checked style={SECTION_TITLE_TAG_STYLE}>
                 通知策略
               </Tag.CheckableTag>
-              <Input 
-                allowClear 
-                placeholder="名称/标识" 
+              <Input
+                allowClear
+                placeholder="名称/标识"
                 suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-                value={keyword} 
-                onChange={(e) => setKeyword(e.target.value)} 
+                value={keyword}
+                onChange={(e) => setKeyword(e.target.value)}
                 className="toolbar-search"
               />
               <Select
@@ -1216,7 +937,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 allowClear
                 value={configNsFilter ?? MONITORING_NAMESPACE_FILTER_ALL}
                 onChange={(v) =>
-                  setConfigNsFilter(v === MONITORING_NAMESPACE_FILTER_ALL ? MONITORING_NAMESPACE_FILTER_ALL : v)
+                  setConfigNsFilter(
+                    v === MONITORING_NAMESPACE_FILTER_ALL ? MONITORING_NAMESPACE_FILTER_ALL : v,
+                  )
                 }
                 loading={namespaceLoading}
                 options={formNamespaceOptions}
@@ -1236,10 +959,13 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           }
           toolbarRight={
             <>
-              <WriteGuard canWrite={canWritePolicies}>
-                <Button type="primary" onClick={() => handleOpenForm(null)}>新增通知策略</Button>
-              </WriteGuard>
-              <TableColumnSettingsButton allColumns={allConfigColumns} settingsKey="monitoring_alert_notification_policy_table" />
+              <Button type="primary" disabled={!canWritePolicies} onClick={() => handleOpenForm(null)}>
+                新增通知策略
+              </Button>
+              <TableColumnSettingsButton
+                allColumns={allConfigColumns}
+                settingsKey="monitoring_alert_notification_policy_table"
+              />
               <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
             </>
           }
@@ -1247,7 +973,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           <Table
             className="std-table"
             bordered={false}
-            rowKey={(row) => row.id ?? row.metadata?.name ?? String(Math.random())}
+            rowKey={(row) => row.id ?? `${row.namespace}/${row.name}`}
             loading={configLoading}
             columns={configColumns}
             dataSource={filteredConfigList}
@@ -1256,7 +982,8 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           />
         </PageDetailSection>
       </div>
-      {/* 告警通知策略详情/只读Modal */}
+
+      {/* 告警通知策略详情 Modal */}
       <Modal
         open={detailModalOpen}
         onCancel={handleCloseDetail}
@@ -1271,39 +998,48 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           </div>
         ) : detailData ? (
           <Descriptions column={1} bordered size="small" labelStyle={{ width: 120 }}>
-            <Descriptions.Item label="通知策略名称">{detailData.alias ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知策略名称">{detailData.aliasName ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="通知策略标识">{detailData.name ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="项目">{detailData.namespace ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="描述">{detailData.description ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="通知对象">
-              {detailData.receiverNames?.length ? (
+              {detailData.receivers?.length ? (
                 <Space size={[8, 4]} wrap>
-                  {detailData.receiverNames.map((n) => (
-                    <Tag key={n} color="blue">
-                      {`${n}(${receiverTypeLabelMap[(nameToType[n] ?? 'email-receiver') as ReceiverName] ?? '邮件'})`}
+                  {detailData.receivers.map((r) => (
+                    <Tag key={r.name} color="blue">
+                      {renderReceiverRefTag(r)}
                     </Tag>
                   ))}
                 </Space>
-              ) : '-'}
+              ) : (
+                '-'
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="触发规则">
-              {detailData.matchers?.length ? (
+              {detailMatcherDisplayNames?.length ? (
                 <Space size={[8, 4]} wrap>
-                  {detailData.matchers.map((m) => (
+                  {detailMatcherDisplayNames.map((m) => (
                     <Tag key={m}>{m}</Tag>
                   ))}
                 </Space>
-              ) : '-'}
+              ) : (
+                '-'
+              )}
             </Descriptions.Item>
-            <Descriptions.Item label="重复推送间隔">{detailData.repeatInterval ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="重复推送间隔">
+              {detailData.subRoute?.repeatInterval ?? '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="创建时间">
-              {detailData.creationTimestamp ? String(detailData.creationTimestamp).replace('T', ' ').replace(/\.\d{3}Z?$/, '') : '-'}
+              {detailData.creationTimestamp
+                ? String(detailData.creationTimestamp).replace('T', ' ').replace(/\.\d{3}Z?$/, '')
+                : '-'}
             </Descriptions.Item>
           </Descriptions>
         ) : (
           <Typography.Text type="secondary">暂无数据</Typography.Text>
         )}
       </Modal>
+
       {/* 告警通知策略新增/编辑Modal */}
       <Modal
         open={formModalOpen}
@@ -1314,7 +1050,9 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
         footer={
           <Space>
             <Button onClick={handleCloseForm}>取消</Button>
-            <Button type="primary" loading={formLoading} onClick={handleFormSubmit}>{editingRecord ? '保存' : '创建'}</Button>
+            <Button type="primary" loading={formLoading} onClick={handleFormSubmit}>
+              {editingRecord ? '保存' : '创建'}
+            </Button>
           </Space>
         }
         styles={{ body: { maxHeight: '75vh', overflow: 'auto', padding: 24 } }}
@@ -1323,31 +1061,42 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           form={form}
           layout="vertical"
           initialValues={{
-            namespace: isAdmin ? undefined : (namespaceList[0] ?? 'default'),
-            alias: '',
+            namespace: isAdmin ? undefined : namespaceList[0] ?? 'default',
+            aliasName: '',
             matchers: [],
-            matcherPairs: [],
-            receiverName: 'email-receiver',
             configReceiverName: [],
             repeatInterval: '4h',
-            emailList: [{ emailTo: '', emailFrom: '', smarthost: '', requireTls: true, authUsername: '', authIdentity: '', authSecretKey: '' }],
           }}
         >
           <Row gutter={24}>
             <Col span={24}>
               <Form.Item name="namespace" label="项目" rules={[{ required: true }]}>
-                <Select placeholder={isAdmin ? '选择项目名称' : '租户项目名称'} disabled={!!editingRecord} loading={namespaceLoading} options={formNamespaceOptionsForForm} />
+                <Select
+                  placeholder={isAdmin ? '选择策略生效项目' : '租户策略生效项目'}
+                  disabled={!!editingRecord}
+                  loading={namespaceLoading}
+                  options={formNamespaceOptionsForForm}
+                />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={24}>
             <Col span={12}>
-              <Form.Item name="alias" label="通知策略名称" extra="支持输入中文，如：运维团队通知策略、存储团队通知策略">
+              <Form.Item
+                name="aliasName"
+                label="通知策略名称"
+                extra="支持输入中文，如：运维团队通知策略、存储团队通知策略"
+              >
                 <Input placeholder="通知策略名称" maxLength={128} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="name" label="通知策略标识" extra="通知策略标识必须唯一且不可变更，如：ops-alert-policy、storage-alert-policy" rules={[{ required: true, message: '请输入通知策略标识，必须唯一' }]}>
+              <Form.Item
+                name="name"
+                label="通知策略标识"
+                extra="通知策略标识必须唯一且不可变更，如：ops-alert-policy、storage-alert-policy"
+                rules={[{ required: true, message: '请输入通知策略标识，必须唯一' }]}
+              >
                 <Input placeholder="通知策略标识" disabled={!!editingRecord} />
               </Form.Item>
             </Col>
@@ -1368,7 +1117,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
             <Col span={12}>
               <Form.Item
                 label="通知方式"
-                extra={formNamespaceEmpty ? '请先选择项目名称以加载通知对象' : undefined}
+                extra={formNamespaceEmpty ? '请先选择策略生效项目以加载通知对象' : undefined}
               >
                 <Cascader
                   allowClear
@@ -1378,7 +1127,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   loading={receiversLoading}
                   onDropdownVisibleChange={(open) => {
                     if (open && !(form.getFieldValue('namespace') != null && String(form.getFieldValue('namespace')).trim())) {
-                      message.warning('请先选择项目名称，以便加载该项目下的通知对象');
+                      message.warning('请先选择策略生效项目，以便加载该项目下的通知对象');
                     }
                   }}
                   onChange={(value) => {
@@ -1401,7 +1150,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 name="configReceiverName"
                 label="通知对象"
                 rules={[{ required: true, type: 'array', min: 1, message: '请至少选择一个通知对象' }]}
-                extra={formNamespaceEmpty ? '请先选择项目名称以加载通知对象' : undefined}
+                extra={formNamespaceEmpty ? '请先选择策略生效项目以加载通知对象' : undefined}
               >
                 <Select
                   mode="multiple"
@@ -1413,7 +1162,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   placeholder="请选择通知对象（可多选，至少选择一个）"
                   onDropdownVisibleChange={(open) => {
                     if (open && !(form.getFieldValue('namespace') != null && String(form.getFieldValue('namespace')).trim())) {
-                      message.warning('请先选择项目名称，以便加载该项目下的通知对象');
+                      message.warning('请先选择策略生效项目，以便加载该项目下的通知对象');
                     }
                   }}
                 />

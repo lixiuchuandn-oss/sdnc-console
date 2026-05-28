@@ -12,6 +12,7 @@ import {
   PAGESIZE,
   EXCLUDE,
   ALERTMANAGER_PATH,
+  ANNOTATION_ALIAS,
   CATTLE_MONITORING_SYSTEM_NS,
   PROMETHEUSRULE_VM,
   isUnreachableError,
@@ -235,7 +236,7 @@ export async function harvesterMonitoringPrometheusRulesHandler(req: Request, re
     for (const item of data) {
       const meta = item?.metadata ?? {};
       const groupName = String(meta.name ?? '').trim();
-      const groupAliasName = String(meta.annotations?.['cloudhci.io/rule-name'] ?? '').trim();
+      const groupAliasName = String(meta.annotations?.[ANNOTATION_ALIAS] ?? '').trim();
       const namespace = meta.namespace ? String(meta.namespace).trim() : undefined;
       if (groupName) rulesGroupMap[groupName] = groupAliasName || groupName;
 
@@ -294,6 +295,104 @@ export async function harvesterMonitoringPrometheusRulesHandler(req: Request, re
     if (res.headersSent) return;
     const status = (e as any).status || 500;
     res.status(status).json({ message: e?.message || '请求 Prometheus 规则失败' });
+  }
+}
+
+export async function harvesterMonitoringPrometheusRuleDetailHandler(req: Request, res: Response) {
+  try {
+    const { id, namespace, name } = req.params;
+    const tenant = await getTenantAccessForMonitoring(req as any, id);
+    if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
+
+    const cloud = (req as any).cloud;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+
+    const ns = String(namespace ?? '').trim();
+    const ruleName = String(name ?? '').trim();
+    if (!ns || !ruleName) return res.status(400).json({ message: '缺少 namespace 或 prometheusrule 名称' });
+
+    if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) {
+      return res.status(403).json({ message: '您没有该命名空间的访问权限' });
+    }
+
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const origin = normalizeOrigin(cloud.endpoint || '');
+    const exclude =
+      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state';
+    const url = `${origin}/${PROMETHEUSRULES_PATH}/${encodeURIComponent(ns)}/${encodeURIComponent(ruleName)}?${exclude}`;
+    const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
+    const item = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+    res.json(item);
+  } catch (e: any) {
+    if (isUnreachableError(e)) return res.status(200).json({});
+    if (res.headersSent) return;
+    const status = (e as any).status || 500;
+    res.status(status).json({ message: e?.message || '请求 PrometheusRule 详情失败' });
+  }
+}
+
+export async function harvesterMonitoringPrometheusRuleUpdateHandler(req: Request, res: Response) {
+  try {
+    const { id, namespace, name } = req.params;
+    const tenant = await getTenantAccessForMonitoring(req as any, id);
+    if (!tenant.allowed) return res.status(403).json({ message: '您没有该资源池的访问权限' });
+
+    const cloud = (req as any).cloud;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
+
+    const ns = String(namespace ?? '').trim();
+    const ruleName = String(name ?? '').trim();
+    if (!ns || !ruleName) return res.status(400).json({ message: '缺少 namespace 或 prometheusrule 名称' });
+
+    if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) {
+      return res.status(403).json({ message: '您没有该命名空间的访问权限' });
+    }
+
+    const payload =
+      req.body && typeof req.body === 'object' ? { ...(req.body as Record<string, unknown>) } : null;
+    if (!payload) return res.status(400).json({ message: '请求体必须为 PrometheusRule CR 对象' });
+
+    const metadata =
+      payload.metadata && typeof payload.metadata === 'object'
+        ? { ...(payload.metadata as Record<string, unknown>) }
+        : {};
+    payload.metadata = {
+      ...metadata,
+      namespace: ns,
+      name: ruleName,
+    };
+
+    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const origin = normalizeOrigin(cloud.endpoint || '');
+    const updateUrl = `${origin}/${PROMETHEUSRULES_PATH}/${encodeURIComponent(ns)}/${encodeURIComponent(ruleName)}`;
+    const updated = await requestJson('PUT', updateUrl, cloud.secretKey || '', insecure, payload);
+
+    try {
+      const groupAliasName = String(
+        (payload.metadata as any)?.annotations?.[ANNOTATION_ALIAS] ?? ''
+      ).trim();
+      if (groupAliasName) {
+        const repo = AppDataSource.getRepository(PrometheusRulesGroup);
+        let row = await repo.findOne({ where: { cloudId: id } });
+        const rulesGroupMap: Record<string, string> = row?.data ? JSON.parse(row.data) : {};
+        rulesGroupMap[ruleName] = groupAliasName;
+        if (row) {
+          row.data = JSON.stringify(rulesGroupMap);
+          await repo.save(row);
+        } else {
+          await repo.save(repo.create({ cloudId: id, data: JSON.stringify(rulesGroupMap) }));
+        }
+      }
+    } catch (dbErr: any) {
+      console.warn('[monitoring] prometheus-rule update cache save failed:', dbErr?.message);
+    }
+
+    res.json(updated);
+  } catch (e: any) {
+    if (isUnreachableError(e)) return res.status(200).json({});
+    if (res.headersSent) return;
+    const status = (e as any).status || 500;
+    res.status(status).json({ message: e?.message || '更新 PrometheusRule 失败' });
   }
 }
 
