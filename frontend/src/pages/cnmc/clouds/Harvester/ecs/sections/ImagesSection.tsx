@@ -21,6 +21,7 @@ import {
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
@@ -235,16 +236,17 @@ const ImagesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button
-            type="primary"
-            disabled={!hasImagesWrite}
-            onClick={() => {
-              if (!ensureImagesWrite()) return;
-              setCreating(true);
-            }}
-          >
-            新增镜像
-          </Button>
+          <WriteGuard canWrite={hasImagesWrite}>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (!ensureImagesWrite()) return;
+                setCreating(true);
+              }}
+            >
+              新增镜像
+            </Button>
+          </WriteGuard>
           <Button
             onClick={() => {
               setTaskDrawerOpen(true);
@@ -253,50 +255,38 @@ const ImagesSection: React.FC<Props> = ({
           >
             上传任务
           </Button>
-          <Tooltip
-            title={
-              !hasImagesWrite
-                ? undefined
-                : selectedKeys.length === 0
-                  ? '请先选择镜像'
-                  : undefined
-            }
-          >
-            <span>
-              <Dropdown
-                menu={{
-                  items: [
-                    { type: 'divider' },
-                    {
-                      key: 'batchDelete',
-                      label: '批量删除',
-                      disabled: !hasImagesWrite || selectedKeys.length === 0,
+          <WriteGuard canWrite={hasImagesWrite}>
+            <Tooltip title={selectedKeys.length === 0 ? '请先选择镜像' : undefined}>
+              <span>
+                <Dropdown
+                  menu={{
+                    items: [
+                      { type: 'divider' },
+                      {
+                        key: 'batchDelete',
+                        label: '批量删除',
+                        disabled: selectedKeys.length === 0,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (selectedKeys.length === 0) {
+                        message.warning('请先选择镜像');
+                        return;
+                      }
+                      if (key === 'batchDelete') {
+                        batchDelete(selectedKeys, images, () => setSelectedKeys([]));
+                      }
                     },
-                  ],
-                  onClick: ({ key }) => {
-                    if (!hasImagesWrite) {
-                      message.error(
-                        '当前账号没有批量操作镜像的权限（需要 clouds.images:write 或 clouds:write 权限）',
-                      );
-                      return;
-                    }
-                    if (selectedKeys.length === 0) {
-                      message.warning('请先选择镜像');
-                      return;
-                    }
-                    if (key === 'batchDelete') {
-                      batchDelete(selectedKeys, images, () => setSelectedKeys([]));
-                    }
-                  },
-                }}
-              >
-                <Button
-                  icon={<EllipsisOutlined />}
-                  disabled={!hasImagesWrite || selectedKeys.length === 0}
-                />
-              </Dropdown>
-            </span>
-          </Tooltip>
+                  }}
+                >
+                  <Button
+                    icon={<EllipsisOutlined />}
+                    disabled={selectedKeys.length === 0}
+                  />
+                </Dropdown>
+              </span>
+            </Tooltip>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_images_table" />
           <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </>

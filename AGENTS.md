@@ -40,7 +40,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范（强制约定摘要）** |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | **`AGENTS.md` 子文档**（可提交）；索引见 **`docs/README.md`**；含 **`pr-checklist.md`**、**`cloudmap-pool-page-rbac.md`** 等 |
+| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**（代码质量）、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`maas-integration.md`**（MAAS 等对接规格） |
 | **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
@@ -57,7 +57,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 3 | **版本管理（平台发布版本）** | 平台 `version`、离线包与发版约定 |
 | 4 | **API 规范** | HTTP / WebSocket 路径索引 |
 | 5 | **Harvester 云详情 · 前端落位** | 多云 Harvester 详情 Tab ↔ `Harvester/` 下 Section |
-| 6 | **开发规范**（摘要） | 落位、刷新与缓存、表格版式；**PR 自查**见 **`docs/pr-checklist.md`**；**Cloudmap 池内 RBAC**见 **`docs/cloudmap-pool-page-rbac.md`**；**Cloudmap 刷新**见 **`Cloudmap/pool/README.md`** |
+| 6 | **开发规范**（摘要） | 落位、**页面布局**、刷新与缓存、表格版式；**布局** **`docs/frontend-layout.md`**；**代码质量** **`docs/code-quality.md`**；**Cloudmap RBAC** **`docs/cloudmap-pool-rbac.md`**；**Cloudmap 刷新** **`Cloudmap/pool/README.md`**；**MAAS 对接** **`docs/maas-integration.md`** |
 | 7 | **认证与权限**、**后台服务**、**注意事项** | 角色与 Token、后台定时任务、运维提示 |
 
 ## 平台模块
@@ -226,7 +226,7 @@ Compute.Tower/
 │   ├── patches/               # npm 包补丁
 │   └── package.json
 ├── AGENTS.md                  # 文档入口与开发规范摘要
-├── docs/                      # Hub 子文档（pr-checklist.md 等，可提交）
+├── docs/                      # Hub 子文档（code-quality.md 等，可提交）
 ├── deployment/docs/           # 本地设计/规格（deployment/ 不入库，见 .gitignore）
 ├── tools/                     # 外部工具
 │   └── harvester-uploader/    # Harvester 上传工具
@@ -275,11 +275,13 @@ Compute.Tower/
 - `/api/clouds/aliyun/*`: 阿里云资源
 - `/api/clouds/huawei/*`: 华为云资源
 - `/api/clouds/harvester/*`: Harvester/KubeVirt 资源
+- **MAAS 裸金属（`config.provider=maas`；BFF OAuth1 v2）**：`GET /api/clouds/{id}/maas/dashboard`（概览聚合）；`GET .../maas/machines`、`GET .../maas/machines/{systemId}`；`POST .../maas/machines/{systemId}/ops`；`GET .../maas/discoveries`；`GET|POST .../maas/images`（列表/同步/删除）；`GET .../maas/network`（子网+VLAN）；`GET .../maas/region`（兼容，UI 以 dashboard 为准）。前端落位 `pages/cnmc/clouds/maas/` · **`maas/README.md`**；北向/Adapter 细则 **`docs/maas-integration.md`**
 - `/api/clouds/{id}/monitoring/storage-nodes`: Longhorn 节点（Steve `longhorn.io.nodes`，Cloudmap「分布式存储」）
 - `/api/clouds/{id}/monitoring/ceph-clusters`: Rook `CephCluster` 列表（Steve 优先 `cephclusters.ceph.rook.io`，回退 `ceph.rook.io.cephclusters`；Cloudmap「Ceph 存储」）
 - `/api/clouds/{id}/monitoring/ceph-resources`: Rook Ceph Steve 多资源聚合（`cephclusters`、`cephblockpools`、`cephblockpoolradosnamespaces`、`cephfilesystems`、`cephfilesystemsubvolumegroups`、`cephfilesystemmirrors`、`cephnfses`、`cephobjectstores`、`cephobjectstoreusers`、`cephobjectrealms`、`cephobjectzones`、`cephobjectzonegroups`、`cephbuckettopics`、`cephbucketnotifications`、`cephclients`、`cephcosidrivers`、`cephrbdmirrors` 等；字段名为 camelCase，与 `GET .../ceph/rook/bundle` 一致）
 - `/api/clouds/{id}/ceph/rook/bundle`: 与上条**同源**；独立 Ceph 路径，响应另含 `_tower.api=ceph`
 - **RGW / S3（Tower 代发；管理员权限；不落库）**：`POST /api/clouds/{id}/ceph/rgw/s3/list-buckets`、`POST .../buckets`、`POST .../delete-bucket`、`POST .../list-objects` — 请求体须含 `connection`（至少 `endpoint`，及 `region`、`forcePathStyle`）；可同时提交 **`objectStoreUser`: `{ namespace, name }`**（`CephObjectStoreUser` CR），服务端据此读 CR 关联 Secret 并补全 AK/SK 后代发 S3。亦可不传 `objectStoreUser`，并在 `connection` 中直接提供 `accessKeyId`、`secretAccessKey`（兼容旧用法）。`GET .../rook-secret/{namespace}/{name}` 仍可单独读取 Secret（**响应敏感**）。**Tower/S3 客户端 Endpoint（按 `namespace/objectStoreName`）**：`GET|PUT /api/clouds/{id}/ceph/rgw/s3/gateway-client-config` / `PUT .../gateway-client-config/{namespace}/{name}`（写入云实例 `clouds.config.towerRgwS3ClientByStore`）。兼容 Path-Style 的 Ceph RGW endpoint。
+- **Ceph 存储网（Harvester Setting，名称固定 `ceph-storage-network`）**：`GET|PUT /api/clouds/{id}/ceph/storage-network`；未配置或 value 为空时部署统一存储走管理网 `mgmt`；配置 JSON 形如 `{"vlan":100,"clusterNetwork":"cuncu","range":"176.11.0.0/24"}`。UI：`Harvester/ceph/sections/harvesterAddon/CephStorageNetworkCard.tsx`
 - **Rook CR Steve 写读**（`{id}` 为云实例 ID；均须经 Harvester/Cloudmap 且管理员权限；请求/响应体为 Steve/K8s CR JSON；PATCH 使用 `Content-Type: application/merge-patch+json`）：
   - **CephCluster**：`GET|PUT|PATCH /api/clouds/{id}/ceph/rook/clusters/{namespace}/{name}`（无集群级 POST/DELETE，避免误操作）
   - **CephBlockPool**：`POST /api/clouds/{id}/ceph/rook/block-pools`，`GET|PUT|PATCH|DELETE /api/clouds/{id}/ceph/rook/block-pools/{namespace}/{name}`
@@ -377,7 +379,13 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 **目录落位**：前端见 **`frontend/src/STRUCTURE.md`**（平台、`pages/`、`sections`/`drawers`/`modals`/`shared`）；后端见 **`backend/src/STRUCTURE.md`**（`routes` → `services` → `entities`、多云目录对称、Harvester `handlers/`）。
 
-**Cloudmap 池内 RBAC**：权限原子**以页面为实体**。CNMC **平台**页（**多云总览**、资源池列表）归属分组「**多云管理**」；池内 Tab 归属「**Cloudmap资源池**」（抽屉按侧栏 poolNavGroup）。页面类型 A–F 见 **`docs/cloudmap-pool-page-rbac.md` §2**。
+**Cloudmap 池内 RBAC**：权限原子**以页面为实体**。CNMC **平台**页（**多云总览**、资源池列表）归属分组「**多云管理**」；池内 Tab 归属「**Cloudmap资源池**」（抽屉按侧栏 poolNavGroup）。页面类型 A–F 见 **`docs/cloudmap-pool-rbac.md` §2**。
+
+**RBAC 按钮显隐（强制）**：
+- 页面功能可见（有 read）但无对应按钮 write 权限时，**操作按钮/菜单项必须隐藏**，**禁止置灰（disabled）**。
+- 适用范围：工具栏主按钮、行操作下拉、批量操作、详情页动作按钮。
+- 实现约定：优先使用 `WriteGuard` 与 `filterMenuItemsForReadOnly`，避免在仅权限不足场景使用 `disabled` 代替隐藏。
+- 权限不足提示仅用于“用户可触达但需拦截”的提交路径；**仅因无权限导致不可操作时，不应显示按钮入口**。
 
 ### 命名约定
 - **组件文件**： PascalCase (如 `PageContainer.tsx`)
@@ -473,48 +481,20 @@ const addRule = useCallback(() => {
 }, [rules, form]);
 ```
 
-### 页面模板组件
+### 前端页面布局
 
-前端页面开发遵循三层容器结构：
+全站页面壳层与容器选用以 **`docs/frontend-layout.md`** 为权威（Hub 可提交）；本节仅摘要。
 
-| 组件 | 路径 | 用途 |
-|------|------|------|
-| `PageContainer` | `components/PageContainer.tsx` | 列表页面容器，如资源池管理页面 |
-| `PageDetailContainer` | `components/PageDetailContainer.tsx` | 详情页容器，如某个资源池详情页 |
-| `PageDetailSection` | `components/PageDetailSection.tsx` | 详情页 Tab 区块，如弹性计算、块存储等 |
+| 层级 | 说明 |
+|------|------|
+| **`AdminLayout`** | 顶栏 + 侧栏 + 内容区；资源池/集群场景用**上下文侧栏**替换平台菜单 |
+| **`PageContainer`** | 列表/管理页（资源池列表、设置列表等） |
+| **`PageDetailContainer`** | 详情外壳（返回、面包屑、可选内置 Tabs / 总览区） |
+| **`PageDetailSection`** | 详情内数据区块（标题、工具栏、`onRefresh`、表格/表单） |
 
-**使用示例**：
+**常见组合**：Cloudmap / 厂商池（MAAS、Xinference 等）→ `PageDetailContainer`（常 `hideHeader` + `asCard={false}`）+ URL `?tab=` + 侧栏 + 各 Tab 一个 `sections/*Section` 根节点 `PageDetailSection`。列表页 → `PageContainer`。
 
-```tsx
-// 1. 列表页面 (PageContainer)
-<PageContainer
-  title="资源池管理"
-  icon={<CloudOutlined />}
-  primaryAction={{ text: '新增', onClick: handleAdd }}
-  onRefresh={handleRefresh}
-  tableProps={{ columns, dataSource, rowKey: 'id' }}
-/>
-
-// 2. 详情页面 (PageDetailContainer)
-<PageDetailContainer
-  title={cloud.name}
-  icon={<CloudOutlined />}
-  onBack={() => navigate(-1)}
-  tabs={[
-    { key: 'compute', label: '弹性计算', children: <ComputeTab /> },
-    { key: 'storage', label: '块存储', children: <StorageTab /> },
-  ]}
-/>
-
-// 3. Tab 区块内容 (PageDetailSection)
-<PageDetailSection
-  title="虚拟机列表"
-  toolbarLeft={<Input.Search placeholder="搜索" />}
-  onRefresh={handleRefresh}
->
-  <Table columns={columns} dataSource={vms} />
-</PageDetailSection>
-```
+新增资源池产品线或 Tab 时，须对照 Hub 文档 §3 注册侧栏与 `poolDetailNav` 入口路径。
 
 ### API 开发原则
 
@@ -525,17 +505,17 @@ const addRule = useCallback(() => {
    - 是否实际存在该接口，只是未总结到文档
    - 是否可以用其他接口替代
    - 确认后再决定是否需要新增
-3. **避免重复造轮子**： 不要一上来就从零开始开发，优先复用已有的 API 和代码；细则见 **`docs/pr-checklist.md` · §4 不要重复造轮子**。
+3. **避免重复造轮子**： 不要一上来就从零开始开发，优先复用已有的 API 和代码；细则见 **`docs/code-quality.md` · §4 不要重复造轮子**。
 
 ### 全局样式
 通用 CSS 样式文件：`frontend/src/global-new.css`
 
 ### 列表表格（.std-table，**全站版式 A**）
 
-全站**统一版式 A**：标准数据列表**首列左冻结、行操作列右冻结**，并**配横向滚动**；**不采用**「全表不钉列、无 `scroll`」作为新列表默认。样式与表级 `min-width` 等以 **`frontend/src/global-new.css`** 中 `.std-table` 及注释为唯一落点。
+全站**统一版式 A**：标准数据列表**首列左冻结、行操作列右冻结**，并**配横向滚动**；**不采用**「全表不钉列、无 `scroll`」作为新列表默认。结构与样式细则见 **`docs/frontend-layout.md` §5.1**；**样板页**为 **`frontend/src/pages/cnmc/clouds/Harvester/ecs/sections/VmSection.tsx`**。样式与表级 `min-width`、行分隔线等以 **`frontend/src/global-new.css`** 中 `.std-table` 及注释为唯一落点。
 
 1. **Table 与 `scroll`**
-   - 列表 `Table` 使用 `className="std-table"`。
+   - 列表 `Table` 使用 `className="std-table"`，并 **`bordered={false}`**（与 VmSection 一致；勿开 antd 全网格边框）。
    - **列冻结要求**：**首列**须 **`fixed: 'left'`**（最左一列，一般为多选/名称/主标识等主入口列，含行多选时与现网大表一致，多选列在左则一并纳入左端冻结区）；有**行级操作**时，**操作列**须 **`fixed: 'right'`**。中间业务列不钉。
    - 因已含左/右 `fixed`，**必须**同表写 `scroll={{ x: true }}`（或等价的 `scroll.x: minWidth` 等），否则 Ant Design 下固定列易错位。
    - 新增、整改、复制**按上条**实现；曾无首列/操作列冻结的列表**应**补全并对齐全站，避免两套路长期并存。无行操作列的只读/极窄子表，经评审可例外，不在此默认内。
@@ -548,13 +528,33 @@ const addRule = useCallback(() => {
 3. **列展示（`useTableColumnSettings` / `TableColumnSettingsButton`）**
    - 已设 `fixed` 的列**不允许**在「列展示」中关闭；行为由 `useTableColumnSettings` 将此类列**锁定为常显**、选项 **disabled**，全不选时**仅保留冻结列**。
 
-4. **其它**
-   - **勿**为和某页「看起来一致」擅自给 `Table` 或 `pagination` 加 `size="small"` 等，除非产品/设计明确要求。
+4. **边框与单元格视觉（全局 CSS，业务勿覆盖）**
+   - **仅横向行分隔**：`.std-table` 表头/表体单元格 `border-bottom: 1px solid #e5e6eb`；**无**竖线、**无**表格外框（故禁止 `bordered`）。
+   - 表头**不加粗**；单元格默认 `padding: 12px 16px`、`font-size: 14px`；行悬停 `#f2f3f5`。
+   - 勿在页面内对 `.std-table .ant-table-cell` 写 `border-bottom: none` 等覆盖（除非经评审的域内例外，且不得影响标准列表）。
+
+5. **其它**
+   - **勿**为和某页「看起来一致」擅自给 **`Table`** 加 `size="small"`，除非产品/设计明确要求；**分页**可用 `pagination.size: 'small'`（VmSection 做法）。
+   - 大表列展示：`useTableColumnSettings` + `TableColumnSettingsButton`（`fixed` 列锁定常显）。
 
 ```tsx
-// 首列 fixed: 'left'、行操作列 fixed: 'right'，并 scroll.x（见上节 1）
-<Table className="std-table" columns={columns} scroll={{ x: true }} />
+// 与 VmSection 一致：std-table、无边框网格、冻结列、scroll.x
+<Table
+  className="std-table"
+  bordered={false}
+  columns={columns}
+  scroll={{ x: true }}
+/>
 ```
+
+### 列表工具栏（与 `.std-table` 配套）
+
+详情/列表区块的工具栏以 **`PageDetailSection` 的 `toolbarLeft` / `toolbarRight`**（内部 **`SharedToolbar`**）或 **`PageContainer` 的 `toolbarLeft` + 右侧操作** 实现；**样板**同为 **`Harvester/ecs/sections/VmSection.tsx`**，细则见 **`docs/frontend-layout.md` §5.2**。
+
+- **CSS 落点**：`frontend/src/global-new.css`（`.toolbar-search`、`.toolbar-filter` / `-sm`、`.toolbar-actions`、`.toolbar-reset-btn`、`.shared-toolbar` / `.page-container-toolbar`）。
+- **左侧**：搜索/筛选用上述 class；重置用 **`<button className="toolbar-reset-btn">`**。
+- **右侧**：包 **`div.toolbar-actions`**；顺序建议 主按钮 → 批量 **`EllipsisOutlined`** 图标钮 → 列展示 → **`ReloadOutlined`** 刷新（Harvester 池刷新用 **`createHarvesterToolbarRefresh`**）。
+- **禁止**在 Section 内另造一条与 `SharedToolbar` 等价的工具栏 flex。
 
 ### 前端代码质量
 
@@ -577,13 +577,13 @@ const addRule = useCallback(() => {
 
 ### 代码质量自查（PR / 专项清理）
 
-合入前对照 **`docs/pr-checklist.md`**（落位、复用、刷新、表格、TS、性能、安全、构建与五十条附录）。与本文件 **开发规范** 冲突时，以 **STRUCTURE 专章与本文件强制约定** 为准。
+合入前对照 **`docs/code-quality.md`**（§1～§9 合入清单；§10～§12 可维护性/规范性可选评分，**不含功能测试**；五十条附录）。与本文件 **开发规范** 冲突时，以 **STRUCTURE 专章与本文件强制约定** 为准。
 
 **合入前最小检查（可复制到 PR 描述）**：
 
-1. 文件落位是否符合 STRUCTURE / 本文件 **开发规范**？
+1. 文件落位与页面布局是否符合 STRUCTURE / **`docs/frontend-layout.md`** / 本文件 **开发规范**？
 2. 是否已 **先查再写**、复用已有 API/组件/域内 `lib`？
-3. 列表/写操作是否满足 **刷新与缓存**、**std-table**？
+3. 列表/工具栏/写操作是否满足 **刷新与缓存**、**std-table**（§5.1）、**工具栏**（§5.2）？
 4. 是否引入 ESLint/类型/构建错误？
 5. 是否删除本次改动产生的死代码与重复逻辑？
 6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？

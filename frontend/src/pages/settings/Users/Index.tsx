@@ -15,6 +15,7 @@ import {
 } from '../../../utils/adminPasswordPolicy';
 import { SecuritySettingsDrawer } from './SecuritySettings';
 import { useAuth } from '../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
 
 const { Text } = Typography;
 type SysUser = {
@@ -33,6 +34,9 @@ type Assignment = { id: string; roleId: string; userType: 'system'|'tenant'; use
 
 const AccessUsersPage: React.FC = () => {
   const { user: authUser } = useAuth();
+  const canWriteUsers =
+    authUser?.role === 'super_admin' ||
+    hasPermissionForAction((authUser?.permissions ?? []) as string[], 'users:write');
   const [users, setUsers] = useState<SysUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState('');
@@ -165,6 +169,7 @@ const AccessUsersPage: React.FC = () => {
       },
     },
     { title:'操作', key:'actions', width:80, fixed:'right' as const, render: (_:any, row: SysUser) => {
+      if (!canWriteUsers) return null;
       const itemsRaw = row.builtIn
         ? [
             { key:'edit', label:'编辑', onClick: () => {
@@ -229,11 +234,15 @@ const AccessUsersPage: React.FC = () => {
       const items = itemsRaw.filter(Boolean);
       return <ResourceActionsDropdown items={items as any} />;
     } }
-  ], [rolesByUser, editForm]);
+  ], [canWriteUsers, rolesByUser, editForm]);
 
   const { displayColumns: visibleColumns } = useTableColumnSettings(defaultColumns, 'sys_users_v1');
 
   const handleBatchDelete = () => {
+    if (!canWriteUsers) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     if (selectedRowKeys.length === 0) return;
     Modal.confirm({
       title: '批量删除',
@@ -256,7 +265,7 @@ const AccessUsersPage: React.FC = () => {
   };
 
   const batchMenuProps = {
-    items: [{ key: 'delete', label: '批量删除', danger: true, onClick: handleBatchDelete }],
+    items: canWriteUsers ? [{ key: 'delete', label: '批量删除', danger: true, onClick: handleBatchDelete }] : [],
   };
 
   const fetchUsers = async (skipCache: boolean = false) => {
@@ -272,6 +281,10 @@ const AccessUsersPage: React.FC = () => {
   };
 
   const performUserEdit = async (vals: any) => {
+    if (!canWriteUsers) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     if (!editingUser) return;
     const body = isEditingAdmin
       ? { email: vals.email, status: vals.status, password: vals.password }
@@ -330,6 +343,10 @@ const AccessUsersPage: React.FC = () => {
 
   const handleCreate = React.useCallback(
     async (values: any) => {
+      if (!canWriteUsers) {
+        message.warning('无权限执行该操作');
+        return;
+      }
       try {
         const created: any = await apiPost('/api/users', {
           username: values.username,
@@ -354,7 +371,7 @@ const AccessUsersPage: React.FC = () => {
         message.error(error?.message || '创建失败');
       }
     },
-    [createForm],
+    [canWriteUsers, createForm],
   );
 
   return (
@@ -371,9 +388,11 @@ const AccessUsersPage: React.FC = () => {
           <Button type="link" className="toolbar-reset-btn" onClick={() => { setKw(''); setStatusFilter(''); filterForm.resetFields(); }}>重置</Button>
         </Form>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setSecurityDrawerOpen(true)}>安全设定</Button>
-          <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
-          <Dropdown menu={batchMenuProps}><Button icon={<EllipsisOutlined />} /></Dropdown>
+          {canWriteUsers ? <Button type="primary" onClick={() => setSecurityDrawerOpen(true)}>安全设定</Button> : null}
+          {canWriteUsers ? (
+            <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
+          ) : null}
+          {canWriteUsers ? <Dropdown menu={batchMenuProps}><Button icon={<EllipsisOutlined />} /></Dropdown> : null}
           <TableColumnSettingsButton allColumns={defaultColumns} settingsKey="sys_users_v1" />
           <Button icon={<ReloadOutlined />} onClick={() => fetchUsers(true)} />
         </div>
@@ -386,11 +405,15 @@ const AccessUsersPage: React.FC = () => {
         dataSource={filteredUsers}
         columns={visibleColumns}
         scroll={{ x: 'max-content' }}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: setSelectedRowKeys,
-          getCheckboxProps: (record: SysUser) => ({ disabled: !!record.builtIn }),
-        }}
+        rowSelection={
+          canWriteUsers
+            ? {
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+                getCheckboxProps: (record: SysUser) => ({ disabled: !!record.builtIn }),
+              }
+            : undefined
+        }
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
         bordered={false}
       />
@@ -401,6 +424,7 @@ const AccessUsersPage: React.FC = () => {
         onCancel={() => setCreateOpen(false)}
         onOk={() => createForm.submit()}
         okText="创建"
+        okButtonProps={{ disabled: !canWriteUsers }}
         width={600}
         centered
         destroyOnHidden
@@ -431,6 +455,7 @@ const AccessUsersPage: React.FC = () => {
         onCancel={() => { setEditOpen(false); setEditingUser(null); setIsEditingAdmin(false); }}
         onOk={() => editForm.submit()}
         okText="保存"
+        okButtonProps={{ disabled: !canWriteUsers }}
         width={600}
         centered
         destroyOnHidden
@@ -531,7 +556,7 @@ const AccessUsersPage: React.FC = () => {
         zIndex={2100}
         okText="确认保存"
         cancelText="取消"
-        okButtonProps={{ disabled: !builtInStatusAck, danger: true }}
+        okButtonProps={{ disabled: !canWriteUsers || !builtInStatusAck, danger: true }}
         maskClosable={false}
         onCancel={() => {
           setBuiltInStatusConfirmOpen(false);

@@ -103,12 +103,11 @@ const PERMISSION_NAMES: Record<string, string> = {
   'organizations': '组织管理',
   'tenant-users': '组织用户管理',
   'users': '用户管理',
-  'user-spaces': '用户空间管理',
   
   // CNMC - 权限管控
   'system.roles': '角色管理',
-  'system.roles.assignments': '角色分配',
-  'system.actions': '权限动作',
+  'system.roles.assignments': '授予用户',
+  'system.actions': '配置权限',
   'system.rbac': 'RBAC管理',
   'system.audit': '操作审计',
   'system.settings': '界面设置',

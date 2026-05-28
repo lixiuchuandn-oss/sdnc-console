@@ -2,6 +2,7 @@
  * Harvester `Addon`（rook-ceph / hms-ceph）：探测与开启统一存储。
  */
 import yaml from 'js-yaml';
+import { prepareCephStorageNetworkForAddonDeploy } from './cephStorageNetwork';
 import { getJsonOnce, requestJson, resolveHarvesterCloudKubeToken } from './utils';
 
 function normalizeOrigin(endpoint: string): string {
@@ -107,7 +108,7 @@ export type CephHarvesterAddonStatus = {
   exists: boolean;
   enabled: boolean;
   deployStatus: string;
-  phase: 'not_installed' | 'success' | 'progress' | 'failed' | 'unknown';
+  phase: 'not_installed' | 'success' | 'progress' | 'failed' | 'disabled' | 'unknown';
   message: string;
   valuesContent?: string | null;
   config?: CephHarvesterAddonValuesConfig | null;
@@ -474,7 +475,10 @@ function nodeLayoutByNode(
   return byNode;
 }
 
-/** 已运行统一存储：仅允许「只增不减」扩容 */
+/**
+ * 已运行统一存储：仅允许「只增不减」扩容。
+ * 规则须与 frontend/.../ceph/lib/cephHarvesterAddon.ts 中同名函数保持同步。
+ */
 export function validateRunningClusterConfigChange(
   before: CephHarvesterAddonValuesConfig,
   after: CephHarvesterAddonValuesConfig,
@@ -485,7 +489,7 @@ export function validateRunningClusterConfigChange(
   for (const row of listConfiguredNodeDevices(before)) {
     const key = nodeDeviceKey(row.nodeName, row.deviceName);
     if (!afterKeys.has(key)) {
-      return `不可移除已有 OSD：${row.nodeName} / ${row.deviceName}。扩容请仅新增节点或数据盘。`;
+      return `不可移除已有数据盘：${row.nodeName} / ${row.deviceName}。扩容请仅新增节点或数据盘。`;
     }
   }
 
@@ -555,7 +559,7 @@ export function validateRunningClusterConfigChange(
   const beforeCount = listConfiguredNodeDevices(before).length;
   const afterCount = listConfiguredNodeDevices(after).length;
   if (afterCount <= beforeCount) {
-    return '已运行集群提交时须新增至少一块数据盘或一个新节点上的 OSD。';
+    return '已运行集群提交时须新增至少一块数据盘，或在新节点上至少勾选一块新盘。';
   }
 
   return null;
@@ -654,24 +658,34 @@ export function parseHarvesterRookCephAddonStatus(raw: unknown): CephHarvesterAd
   const failed = condByType.get('OperationFailed');
   const inProgress = condByType.get('InProgress');
   const completed = condByType.get('Completed');
+  const deployStatusLower = deployStatus.toLowerCase();
+  const wasDeployed =
+    deployStatus === 'AddonDeploySuccessful' || completed?.status === 'True';
+  const addonDisabled =
+    !enabled ||
+    deployStatusLower.includes('disabled') ||
+    deployStatus === 'AddonDisabled';
 
   let phase: CephHarvesterAddonStatus['phase'] = 'unknown';
   let message = deployStatus || 'Addon 已存在';
 
-  if (failed?.status === 'True' || deployStatus.toLowerCase().includes('fail')) {
+  if (failed?.status === 'True' || deployStatusLower.includes('fail')) {
     phase = 'failed';
     message = deployStatus || 'Addon 部署失败';
-  } else if (
-    deployStatus === 'AddonDeploySuccessful' ||
-    completed?.status === 'True'
-  ) {
-    phase = 'success';
-    message = enabled ? '统一存储 Addon 已部署成功' : 'Addon 已部署但未启用';
-  } else if (inProgress?.status === 'True' || deployStatus.toLowerCase().includes('progress')) {
+  } else if (inProgress?.status === 'True' || deployStatusLower.includes('progress')) {
     phase = 'progress';
     message = 'Addon 部署进行中，请稍候…';
+  } else if (addonDisabled && (wasDeployed || deployStatus)) {
+    phase = 'disabled';
+    message =
+      deployStatus === 'AddonDisabled' || !enabled
+        ? '统一存储 Addon 已停用；若集群内 Ceph 已卸载，请在本页重新提交以开启，或在 Harvester 中删除 rook-ceph Addon 后全新部署。'
+        : `统一存储 Addon 已停用（${deployStatus}）`;
+  } else if (wasDeployed && enabled) {
+    phase = 'success';
+    message = '统一存储 Addon 已部署成功';
   } else if (!enabled) {
-    phase = 'unknown';
+    phase = 'disabled';
     message = 'Addon 已创建但未启用';
   }
 
@@ -760,7 +774,7 @@ export async function applyHarvesterRookCephAddon(
 
   const current = await fetchHarvesterRookCephAddon(cloud);
   const runningConfig =
-    current.phase === 'success' && current.config ? current.config : null;
+    current.phase === 'success' && current.enabled && current.config ? current.config : null;
 
   if (runningConfig) {
     if (input.valuesContent && String(input.valuesContent).trim()) {
@@ -776,6 +790,8 @@ export async function applyHarvesterRookCephAddon(
       throw err;
     }
   }
+
+  await prepareCephStorageNetworkForAddonDeploy(cloud);
 
   const valuesContent = buildRookCephAddonValuesContent(input);
   const body = buildAddonBody(valuesContent);

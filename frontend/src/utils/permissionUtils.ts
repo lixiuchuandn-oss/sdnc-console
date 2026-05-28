@@ -11,7 +11,7 @@ import {
 import { hasPermissionForAction } from './accessMapping';
 import { poolPageWriteAction } from '../pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess';
 
-/** 配置权限抽屉：与 Cloudmap 池内主页面 / 附加能力对齐（见 cloudmap-pool-page-rbac.md） */
+/** 配置权限抽屉：与 Cloudmap 池内主页面 / 附加能力对齐（见 cloudmap-pool-rbac.md） */
 export type PoolNavLeafPermissionFeature = {
   feature: string;
   resourcePrefix: string;
@@ -116,7 +116,7 @@ export function getPoolNavLeafResourcePrefixSet(): Set<string> {
 
 /**
  * 非侧栏叶、挂在 poolNavGroup 下的附加能力（如创建向导）
- * 设计原则与页面类型见 docs/cloudmap-pool-page-rbac.md §2。
+ * 设计原则与页面类型见 docs/cloudmap-pool-rbac.md §2。
  */
 export const POOL_NAV_GROUP_ATTACHED_PREFIXES: Readonly<Record<string, readonly string[]>> = {
   云主机: ['clouds.vm-create-wizard', 'clouds.vm-quick-create'],

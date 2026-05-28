@@ -14,6 +14,9 @@ import { CRITICAL_COLOR, WARNING_COLOR, SEVERITY_CRITICAL, SEVERITY_WARNING } fr
 import { ANNOTATION_ALIAS } from '../context/MonitoringContext';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import YamlEditor from '../../../../../../components/YamlEditor';
+import WriteGuard from '../../../../../../components/WriteGuard';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 
 interface OpsAlertGroupsSectionProps {
   cloudId: string;
@@ -77,6 +80,11 @@ ${rulesYaml || '        []'}`;
 }
 
 const OpsAlertGroupsSection: React.FC<OpsAlertGroupsSectionProps> = ({ cloudId }) => {
+  const { user } = useAuth();
+  const canWriteAlertGroups = useMemo(
+    () => hasPermissionForAction((user?.permissions ?? []) as string[], 'clouds.alerts:write'),
+    [user?.permissions]
+  );
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<GroupRow[]>([]);
   const [page, setPage] = useState(1);
@@ -349,7 +357,9 @@ const OpsAlertGroupsSection: React.FC<OpsAlertGroupsSectionProps> = ({ cloudId }
       }
       toolbarRight={
         <>
-          <Button type="dashed">新增告警分组</Button>
+          <WriteGuard canWrite={canWriteAlertGroups}>
+            <Button type="dashed">新增告警分组</Button>
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} onClick={() => void loadGroups()} loading={loading} />
         </>
       }

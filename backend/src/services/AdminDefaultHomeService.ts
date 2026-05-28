@@ -45,7 +45,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (!act) return false;
   const permsArray = perms || [];
   const base = act.split(':')[0];
-  const isDashboardOrPools = base === 'clouds.dashboard' || base === 'clouds.resource-pools';
   const segments = base.split('.');
   const hasDomainPrefix = segments.length >= 2 ? `${segments[0]}.${segments[1]}` : null;
 
@@ -58,7 +57,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':read') &&
-    !isDashboardOrPools &&
     !isCloudsContainersResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
@@ -69,7 +67,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':write') &&
-    !isDashboardOrPools &&
     !isCloudsContainersResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:write')) {
@@ -121,7 +118,7 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     id: 'cloudmap-pool-rh-overview',
     homePagePriority: -1,
     path: '/admin/clouds/:cloudId/resource_hub/overview',
-    pageAction: 'clouds.console:read',
+    pageAction: 'clouds.monitoring.overview:read',
     homePageReplaceParamFrom: 'favoriteCloudId',
     homePageAllowedRoles: ['super_admin', 'admin'],
   },

@@ -5,6 +5,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Button, Input, Select, Space, Table } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -35,7 +36,15 @@ type Props = {
 const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh, isTenant }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
-  const canCreate = hasPermissionForAction(user?.permissions || [], 'clouds.nads:write');
+  const canWriteIpPools = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.nads:write') ||
+      hasPermissionForAction(perms, 'clouds.load-balancers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
@@ -78,11 +87,12 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
     () =>
       buildIpPoolsTableColumns({
         isTenant,
+        hasIpPoolsWrite: canWriteIpPools,
         isPublicNamespace,
         onOpenYaml: openYaml,
         onDelete: actions.handleDelete,
       }),
-    [actions.handleDelete, isPublicNamespace, isTenant, openYaml],
+    [actions.handleDelete, canWriteIpPools, isPublicNamespace, isTenant, openYaml],
   );
 
   const rowSelection = useMemo(
@@ -135,16 +145,16 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
       }
       toolbarRight={
         <>
-          {actions.selectedRowKeys.length > 0 && (
+          {canWriteIpPools && actions.selectedRowKeys.length > 0 && (
             <Button danger onClick={actions.handleBatchDelete}>
               批量删除
             </Button>
           )}
-          {canCreate && (
+          <WriteGuard canWrite={canWriteIpPools}>
             <Button type="primary" onClick={() => actions.setCreateVisible(true)}>
               创建地址池
             </Button>
-          )}
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </>
       }
@@ -160,7 +170,7 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={rowSelection}
+        rowSelection={canWriteIpPools ? rowSelection : undefined}
       />
 
       <IPPoolCreateModal

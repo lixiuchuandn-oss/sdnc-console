@@ -56,6 +56,10 @@ import {
   harvesterCephHarvesterAddonGetHandler,
 } from './handlers/ceph-harvester-addon.handlers';
 import {
+  harvesterCephStorageNetworkGetHandler,
+  harvesterCephStorageNetworkPutHandler,
+} from './handlers/ceph-storage-network.handlers';
+import {
   harvesterCephRookBlockPoolCreateHandler,
   harvesterCephRookBlockPoolDeleteHandler,
   harvesterCephRookBlockPoolGetHandler,
@@ -675,6 +679,16 @@ export function registerHarvesterServiceRoutesProvider(
     '/:id/ceph/harvester-addon',
     checkAdminPermission,
     createProviderRouter(cephAll(harvesterCephHarvesterAddonApplyHandler)),
+  );
+  router.get(
+    '/:id/ceph/storage-network',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephStorageNetworkGetHandler)),
+  );
+  router.put(
+    '/:id/ceph/storage-network',
+    checkAdminPermission,
+    createProviderRouter(cephAll(harvesterCephStorageNetworkPutHandler)),
   );
   router.get(
     '/:id/ceph/rook/clusters/:namespace/:name',

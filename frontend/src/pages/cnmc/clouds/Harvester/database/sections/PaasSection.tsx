@@ -7,8 +7,10 @@ import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip } from 'a
 import { ReloadOutlined, DatabaseOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import RdsCreateModal from '../modals/RdsCreateModal';
 import RdsInstanceLabelEditModal from '../modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal from '../modals/RdsDatabaseConsoleModal';
@@ -153,9 +155,10 @@ const PaasSection: React.FC<Props> = ({
   clusterCapabilities,
 }) => {
   const { user } = useAuth();
-  const canEditPaasVmLabels = useMemo(() => {
+  const canPaasWrite = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     return (
+      hasPermissionForAction(perms, 'clouds.paas-databases:write') ||
       hasPermissionForAction(perms, 'clouds.ecs:write') ||
       hasPermissionForAction(perms, 'clouds:write') ||
       hasPermissionForAction(perms, 'clouds.console:write')
@@ -353,27 +356,37 @@ const PaasSection: React.FC<Props> = ({
         key: 'actions',
         width: 128,
         render: (_: any, r: any) => {
-          const items = [
-            {
-              key: 'dbConsole',
-              label: '数据库管理',
-              onClick: () => setDbConsoleVm(r),
-            },
-            {
-              key: 'vmDetail',
-              label: '云主机详情',
-              onClick: () => openVmDetailDrawer(r),
-            },
-            {
-              key: 'editLabels',
-              label: '编辑标签',
-              disabled: !canEditPaasVmLabels,
-              onClick: () => {
-                setLabelEditRecord(r);
-                setLabelEditOpen(true);
+          const items = filterMenuItemsForReadOnly(
+            [
+              ...(canPaasWrite
+                ? [
+                    {
+                      key: 'dbConsole',
+                      label: '数据库管理',
+                      onClick: () => setDbConsoleVm(r),
+                    },
+                  ]
+                : []),
+              {
+                key: 'vmDetail',
+                label: '云主机详情',
+                onClick: () => openVmDetailDrawer(r),
               },
-            },
-          ];
+              ...(canPaasWrite
+                ? [
+                    {
+                      key: 'editLabels',
+                      label: '编辑标签',
+                      onClick: () => {
+                        setLabelEditRecord(r);
+                        setLabelEditOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+            ],
+            canPaasWrite,
+          );
           return (
             <ResourceActionsDropdown
               items={items}
@@ -383,7 +396,7 @@ const PaasSection: React.FC<Props> = ({
         },
       },
     ],
-    [canEditPaasVmLabels, openVmDetailDrawer],
+    [canPaasWrite, openVmDetailDrawer],
   );
 
   const handleOpenCreateModal = () => {
@@ -467,9 +480,11 @@ const PaasSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button type="primary" onClick={handleOpenCreateModal}>
-            创建实例
-          </Button>
+          <WriteGuard canWrite={canPaasWrite}>
+            <Button type="primary" onClick={handleOpenCreateModal}>
+              创建实例
+            </Button>
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleToolbarRefresh} />
         </>
       }

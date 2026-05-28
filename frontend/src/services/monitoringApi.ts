@@ -360,9 +360,15 @@ export async function cephDashboardProxy(
   }
 }
 
-export function fetchNodeResources(cloudId: string, options?: { signal?: AbortSignal }) {
+export function fetchNodeResources(
+  cloudId: string,
+  options?: { signal?: AbortSignal; force?: boolean },
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/node-resources`, options);
+  return apiGet(`${base(cloudId)}/node-resources`, {
+    signal: options?.signal,
+    cache: options?.force ? 'no-store' : 'default',
+  });
 }
 
 export function fetchNodeMetrics(cloudId: string, options?: { signal?: AbortSignal }) {
@@ -631,9 +637,15 @@ export function fetchVirtualMachineInstances(cloudId: string, options?: { signal
   return apiGet(`${base(cloudId)}/virtualmachineinstances`, options);
 }
 
-export function fetchBlockDevices(cloudId: string, options?: { signal?: AbortSignal }) {
+export function fetchBlockDevices(
+  cloudId: string,
+  options?: { signal?: AbortSignal; force?: boolean },
+) {
   if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
-  return apiGet(`${base(cloudId)}/blockdevices`, options);
+  return apiGet(`${base(cloudId)}/blockdevices`, {
+    signal: options?.signal,
+    cache: options?.force ? 'no-store' : 'default',
+  });
 }
 
 // --- 监控告警：租户 allowed-namespaces、AlertmanagerConfig、PrometheusRule ---

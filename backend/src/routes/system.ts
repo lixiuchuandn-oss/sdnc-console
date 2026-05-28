@@ -54,10 +54,79 @@ const checkUpgradePermission = createApiPermissionMiddleware({
   allowSuperAdmin: true,
 });
 
+function hasFavoritePoolSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return (
+      checkPermission(perms, 'clouds.resource-pools:write') ||
+      checkPermission(perms, 'clouds:write')
+    );
+  }
+  return (
+    checkPermission(perms, 'clouds.resource-pools:read') ||
+    checkPermission(perms, 'clouds:read') ||
+    checkPermission(perms, 'clouds.resource-pools:write') ||
+    checkPermission(perms, 'clouds:write')
+  );
+}
+
+function hasAuditSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return checkPermission(perms, 'system.audit:write');
+  }
+  return checkPermission(perms, 'system.audit:read') || checkPermission(perms, 'system.audit:write');
+}
+
+const INTEGRATION_SETTING_KEYS = new Set([
+  'CSMCTL_ADDRESS',
+  'ai_soc_frontend_url',
+  'ai_soc_backend_url',
+  'ai_soc_base_url',
+]);
+
+function hasIntegrationSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return checkPermission(perms, 'system.integration:write');
+  }
+  return checkPermission(perms, 'system.integration:read') || checkPermission(perms, 'system.integration:write');
+}
+
+function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
+  return (req: AuthRequest, res: any, next: any) => {
+    if (req.params.key === 'favorite.cloudId') {
+      if (!hasFavoritePoolSettingAccess(req, isWrite)) {
+        return res
+          .status(403)
+          .json({ message: isWrite ? '权限不足：需要资源池管理-管理' : '权限不足：需要资源池管理权限' });
+      }
+      return next();
+    }
+    if (req.params.key === 'audit.logs.retention_days') {
+      if (!hasAuditSettingAccess(req, isWrite)) {
+        return res
+          .status(403)
+          .json({ message: isWrite ? '权限不足：需要操作审计-管理' : '权限不足：需要操作审计权限' });
+      }
+      return next();
+    }
+    if (INTEGRATION_SETTING_KEYS.has(req.params.key)) {
+      if (!hasIntegrationSettingAccess(req, isWrite)) {
+        return res
+          .status(403)
+          .json({ message: isWrite ? '权限不足：需要高级集成-管理' : '权限不足：需要高级集成权限' });
+      }
+      return next();
+    }
+    return checkSettingsPermission(req as any, res, next);
+  };
+}
+
 // 读取单个系统设置项（简单的 KV 配置）
 // - key 从 URL 路径中获取
 // - value 如果不存在则返回空字符串，方便前端统一处理
-router.get('/settings/:key', checkSettingsPermission, (req, res) => {
+router.get('/settings/:key', checkSettingsOrFavoritePoolPermission(false), (req: AuthRequest, res) => {
   const key = req.params.key;
   const value = getSystemSetting(key);
   res.json({ data: { key, value: value || '' } });
@@ -66,7 +135,7 @@ router.get('/settings/:key', checkSettingsPermission, (req, res) => {
 // 更新单个系统设置项
 // - value 来源于请求体，内部统一转成字符串保存
 // - 适合存储一些轻量级的全局配置，例如开关、字符串参数等
-router.patch('/settings/:key', checkSettingsPermission, (req, res) => {
+router.patch('/settings/:key', checkSettingsOrFavoritePoolPermission(true), (req: AuthRequest, res) => {
   const key = req.params.key;
   const { value } = req.body;
   

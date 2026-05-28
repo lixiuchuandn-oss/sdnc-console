@@ -123,8 +123,7 @@ export async function initializeRoles() {
       ...CURATED_PERMISSIONS.filter((p) => 
         p.startsWith('tenants') || 
         p.startsWith('organizations') || 
-        p.startsWith('tenant-users') || 
-        p.startsWith('user-spaces')
+        p.startsWith('tenant-users')
       ),
     ];
     await ensureRole({

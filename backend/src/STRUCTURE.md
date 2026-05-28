@@ -115,6 +115,8 @@ backend/src/
 - `handlers/`：按主题拆分的处理模块（推荐新增默认落点）。
 - `*.provider.ts` / `*.routes.ts`：装配与注册。
 
+**MAAS 裸金属**：`routes/clouds/maas.routes.ts` → `services/clouds/maas/`（`maasClient.ts`、`maasDashboard.ts`、镜像分组等）；挂载 `GET|POST /api/clouds/:id/maas/*`。
+
 **`routes/clouds/middleware/`**：仅 clouds 子树使用的路由级中间件，与顶层 `middleware/` 区分。
 
 ### `services/`

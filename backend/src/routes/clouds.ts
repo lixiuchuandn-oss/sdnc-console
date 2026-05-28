@@ -22,9 +22,15 @@ import { attachRancherClusterResourceRoutes } from './clouds/rancherClusterResou
 import { attachXinferenceClusterRoutes } from './clouds/xinferenceCluster.routes';
 import { attachXinferenceModelsRoutes } from './clouds/xinferenceModels.routes';
 import { attachXinferenceMonitoringRoutes } from './clouds/xinferenceMonitoring.routes';
+import { attachMaasRoutes } from './clouds/maas.routes';
 import { attachDifySsoRoutes } from './clouds/difySso.routes';
 import { attachDifyAdminRoutes } from './clouds/difyAdmin.routes';
 import { testXinferenceConnection } from '../services/clouds/xinference/xinferenceClient';
+import {
+  normalizeMaasEndpoint,
+  testMaasConnection,
+  validateMaasApiKey,
+} from '../services/clouds/maas/maasClient';
 
 const cloudRouteLog = logger.child('Cloud');
 const cloudDebugLog = logger.child('Cloud-Debug');
@@ -67,7 +73,7 @@ const testCloudConnectionUnified = async (args: {
 }): Promise<{
   ok: boolean;
   message: string;
-  data?: { rancherClusters: RancherClusterListItem[] };
+  data?: { rancherClusters?: RancherClusterListItem[]; machineCount?: number };
 }> => {
   const providerRaw = String(args.provider || args.config?.provider || '').trim();
   const provider = providerRaw.toLowerCase();
@@ -248,6 +254,14 @@ const testCloudConnectionUnified = async (args: {
     });
     return { ok: !!t.ok, message: t.message || '' };
   }
+  if (provider === 'maas') {
+    const t = await testMaasConnection({
+      endpoint: String(args.config?.endpoint || args.endpoint || ''),
+      apiKey: String(args.config?.apiKey || ''),
+      ignoreTls: !!args.config?.ignoreTls,
+    });
+    return { ok: !!t.ok, message: t.message || '', data: t.data };
+  }
   return { ok: false, message: '暂不支持该云接入' };
 };
 
@@ -276,8 +290,18 @@ const ensureProvider = (cloud: any, provider: string, res: Response, msg: string
 // - 限制 provider 必须在支持列表内
 // - 对 provider 值做 trim 与统一小写处理，并为 harvester 系列补充默认版本号
 const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
-  const { name, type, region, endpoint, config } = req.body;
-  if (!name || !type || !region || !endpoint || !config?.provider) {
+  const { name, type, region, endpoint, accessKey, secretKey, config } = req.body;
+  const pvEarly = String(config?.provider || '')
+    .trim()
+    .toLowerCase();
+  if (!name || !type || !config?.provider) {
+    return res.status(400).json({ message: '缺少必填字段：name, type, config.provider' });
+  }
+  const endpointOrConfig = String(endpoint || config?.endpoint || '').trim();
+  if (!endpointOrConfig) {
+    return res.status(400).json({ message: '缺少必填字段：endpoint（或 config.endpoint）' });
+  }
+  if (pvEarly !== 'maas' && !region) {
     return res
       .status(400)
       .json({ message: '缺少必填字段：name, type, region, endpoint, config.provider' });
@@ -295,6 +319,7 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
     'cloudmap.csm',
     'rancher',
     'xinference',
+    'maas',
   ];
   if (!allowed.includes(pvRaw)) {
     return res.status(400).json({ message: `不支持的 provider：${pvRaw}` });
@@ -307,6 +332,36 @@ const validateCloudInput = (req: AuthRequest, res: Response, next: any) => {
     return res.status(400).json({
       message: 'Rancher 资源池需填写活动集群 ID（一池对应一个下游集群，即 Norman 的 c-xxxxx）',
     });
+  }
+  if (pvRaw === 'maas') {
+    const epRaw = String(endpoint || fixedConfig.endpoint || '').trim();
+    const ep = normalizeMaasEndpoint(epRaw);
+    if (!ep) {
+      return res.status(400).json({
+        message: 'MAAS endpoint 必须以 /MAAS 结尾，例如 http://10.0.0.1:5240/MAAS',
+      });
+    }
+    const apiKey = String(fixedConfig.apiKey || '').trim();
+    if (!validateMaasApiKey(apiKey)) {
+      return res.status(400).json({
+        message: 'MAAS apiKey 格式必须为 consumer_key:token:secret（恰好两个冒号、三段非空）',
+      });
+    }
+    if (accessKey || secretKey) {
+      return res.status(400).json({
+        message: 'MAAS 资源池禁止使用 accessKey/secretKey，请仅使用 config.apiKey',
+      });
+    }
+    req.body.region = 'default';
+    req.body.endpoint = ep;
+    req.body.accessKey = undefined;
+    req.body.secretKey = undefined;
+    req.body.config = {
+      provider: 'maas',
+      apiKey,
+      ignoreTls: fixedConfig.ignoreTls !== false,
+    };
+    return next();
   }
   req.body.config = fixedConfig;
   next();
@@ -424,6 +479,7 @@ attachXinferenceMonitoringRoutes(router, checkAdminPermission);
 attachDifySsoRoutes(router, checkAdminPermission);
 attachDifyAdminRoutes(router, checkAdminPermission);
 attachXinferenceModelsRoutes(router, checkAdminPermission);
+attachMaasRoutes(router, checkAdminPermission);
 
 // 标准化获取实例列表：
 // - 对不同 provider 的接口调用结果进行统一转换，输出统一结构的实例信息
@@ -1038,14 +1094,20 @@ router.post(
       const isConnected = !!test.ok;
       const connectionMessage = test.message || '';
 
+      if (provider === 'maas' && !isConnected) {
+        return res.status(400).json({
+          message: connectionMessage || 'MAAS 连通性校验未通过，请修正 endpoint 与 apiKey 后重试',
+        });
+      }
+
       const cloud = cloudRepository.create({
         name,
         description,
         type,
         region,
         endpoint,
-        accessKey,
-        secretKey,
+        accessKey: provider === 'maas' ? undefined : accessKey,
+        secretKey: provider === 'maas' ? undefined : secretKey,
         config,
         status: isConnected ? CloudStatus.ONLINE : CloudStatus.OFFLINE,
         createdBy: req.user?.id,
@@ -1232,7 +1294,13 @@ router.put('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res
     }
 
     // 如果更新了连接配置，重新测试连接
-    const needsConnectionTest = updateData.endpoint || updateData.accessKey || updateData.secretKey;
+    const needsConnectionTest =
+      updateData.endpoint ||
+      updateData.accessKey ||
+      updateData.secretKey ||
+      (updateData.config &&
+        (Object.prototype.hasOwnProperty.call(updateData.config, 'apiKey') ||
+          Object.prototype.hasOwnProperty.call(updateData.config, 'endpoint')));
 
     Object.assign(cloud, updateData);
     cloud.updatedAt = new Date();

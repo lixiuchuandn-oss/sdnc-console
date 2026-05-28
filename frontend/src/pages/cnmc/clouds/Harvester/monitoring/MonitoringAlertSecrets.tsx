@@ -14,6 +14,8 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../components/WriteGuard';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 import { MONITORING_DEFAULT_NAMESPACE, MONITORING_NAMESPACE_FILTER_ALL, useMonitoring } from './context/MonitoringContext';
 import {
   createSecret,
@@ -372,12 +374,15 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
   const renderAction = useCallback(
     (_: unknown, record: SecretRow) => (
       <ResourceActionsDropdown
-        items={[
-          { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
-          { key: 'edit', label: '编辑', disabled: !canWriteSecrets, onClick: () => handleEdit(record) },
-          { type: 'divider' as const },
-          { key: 'delete', label: '删除', danger: true, disabled: !canWriteSecrets, onClick: () => handleDelete(record) },
-        ]}
+        items={filterMenuItemsForReadOnly(
+          [
+            { key: 'detail', label: '详情', onClick: () => handleDetail(record) },
+            { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
+            { type: 'divider' as const },
+            { key: 'delete', label: '删除', danger: true, onClick: () => handleDelete(record) },
+          ],
+          canWriteSecrets,
+        )}
       />
     ),
     [handleEdit, handleDetail, handleDelete, canWriteSecrets]
@@ -433,13 +438,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
             >
               {alias || name || '-'}
             </span>
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleStartAliasEdit(r)}
-              disabled={!canWriteSecrets}
-            />
+            {canWriteSecrets && (
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => handleStartAliasEdit(r)}
+              />
+            )}
           </Space>
         );
       },
@@ -504,9 +510,11 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         }
         toolbarRight={
           <Space>
-            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteSecrets} onClick={handleAdd}>
-              新增密钥
-            </Button>
+            <WriteGuard canWrite={canWriteSecrets}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+                新增密钥
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey="monitoring_alert_secrets_table" />
             <Button icon={<ReloadOutlined />} onClick={loadSecrets} loading={loading} />
           </Space>

@@ -22,8 +22,12 @@ import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, Re
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { ConfigMapForm, SecretForm } from '../components';
 import CodeEditor, { detectLanguage } from '../../../../../../components/CodeEditor';
@@ -533,13 +537,14 @@ const ConfigMapTable: React.FC<{
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onCreateClick: () => void;
+  hasContainersWrite: boolean;
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
   checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, hasContainersWrite, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -773,10 +778,15 @@ const ConfigMapTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick, checkResourceInUse]);
+  ], [handleViewDetail, handleDelete, handleViewYaml, modal, onEditClick, checkResourceInUse, hasContainersWrite]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -827,9 +837,11 @@ const ConfigMapTable: React.FC<{
               style={{ marginRight: 8 }}
             />
           )}
-          <Button type="primary" onClick={onCreateClick}>
-            创建 ConfigMap
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button type="primary" onClick={onCreateClick}>
+              创建 ConfigMap
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-configmaps"
@@ -851,10 +863,14 @@ const ConfigMapTable: React.FC<{
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          hasContainersWrite
+            ? {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+            : undefined
+        }
       />
       
       {/* ConfigMap 详情抽屉 */}
@@ -943,13 +959,14 @@ const SecretTable: React.FC<{
   typeFilter?: string;
   onTypeChange: (type?: string) => void;
   onCreateClick: () => void;
+  hasContainersWrite: boolean;
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
   checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, hasContainersWrite, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -1211,10 +1228,15 @@ const SecretTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick, checkResourceInUse]);
+  ], [handleViewDetail, handleDelete, handleViewYaml, modal, onEditClick, checkResourceInUse, hasContainersWrite]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1276,9 +1298,11 @@ const SecretTable: React.FC<{
               style={{ marginRight: 8 }}
             />
           )}
-          <Button type="primary" onClick={onCreateClick}>
-            创建 Secret
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button type="primary" onClick={onCreateClick}>
+              创建 Secret
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-secrets"
@@ -1300,10 +1324,14 @@ const SecretTable: React.FC<{
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          hasContainersWrite
+            ? {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+            : undefined
+        }
       />
       
       {/* Secret 详情抽屉 */}
@@ -1400,7 +1428,16 @@ const ConfigsSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
+  const hasContainersWrite = useMemo(() => {
+    const perms = (user?.permissions ?? []) as string[];
+    return (
+      hasPermissionForAction(perms, 'clouds.containers:write') ||
+      hasPermissionForAction(perms, 'clouds:write') ||
+      hasPermissionForAction(perms, 'clouds.console:write')
+    );
+  }, [user?.permissions]);
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
   
@@ -1589,6 +1626,7 @@ const ConfigsSection: React.FC<Props> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onCreateClick={handleCreateConfigMap}
+            hasContainersWrite={hasContainersWrite}
             onRefresh={onRefresh}
             onEditClick={handleEditConfigMap}
             checkResourceInUse={checkResourceInUse}
@@ -1608,6 +1646,7 @@ const ConfigsSection: React.FC<Props> = ({
             typeFilter={secretTypeFilter}
             onTypeChange={setSecretTypeFilter}
             onCreateClick={handleCreateSecret}
+            hasContainersWrite={hasContainersWrite}
             onRefresh={onRefresh}
             onEditClick={handleEditSecret}
             checkResourceInUse={checkResourceInUse}

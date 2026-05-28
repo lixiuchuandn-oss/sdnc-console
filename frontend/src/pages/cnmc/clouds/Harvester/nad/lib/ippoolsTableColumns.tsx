@@ -4,10 +4,12 @@ import { Tag } from 'antd';
 import { EnvironmentTwoTone } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import type { IPPoolListRow } from './ippoolsSectionUtils';
 
 export type IPPoolsTableActions = {
   isTenant?: boolean;
+  hasIpPoolsWrite: boolean;
   isPublicNamespace: (ns: string) => boolean;
   onOpenYaml: (record: IPPoolListRow) => void;
   onDelete: (record: IPPoolListRow) => void;
@@ -16,7 +18,7 @@ export type IPPoolsTableActions = {
 export function buildIpPoolsTableColumns(
   actions: IPPoolsTableActions,
 ): ColumnsType<IPPoolListRow> {
-  const { isTenant, isPublicNamespace, onOpenYaml, onDelete } = actions;
+  const { isTenant, hasIpPoolsWrite, isPublicNamespace, onOpenYaml, onDelete } = actions;
 
   return [
     {
@@ -57,7 +59,7 @@ export function buildIpPoolsTableColumns(
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={[
+            items={filterMenuItemsForReadOnly([
               {
                 key: 'opsinfo',
                 label: '查看YAML',
@@ -71,7 +73,7 @@ export function buildIpPoolsTableColumns(
                 disabled: deleteDisabled,
                 onClick: () => onDelete(record),
               },
-            ]}
+            ], hasIpPoolsWrite)}
           />
         );
       },

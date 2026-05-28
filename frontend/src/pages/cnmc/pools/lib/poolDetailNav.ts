@@ -1,7 +1,7 @@
 import type { NavigateFunction } from 'react-router-dom';
 
 /** 资源池 `/admin/clouds/vendor/{slug}/:id` 段（不含 Cloudmap 嵌套）。 */
-export type PoolVendorSlug = 'aliyun' | 'csm' | 'huawei' | 'rancher' | 'xinference';
+export type PoolVendorSlug = 'aliyun' | 'csm' | 'huawei' | 'rancher' | 'xinference' | 'maas';
 
 export type PoolRouteKind =
   | { kind: 'cloudmap'; variant: 'edge' | 'private' }
@@ -21,6 +21,9 @@ export function inferPoolRouteKind(cloud: {
   if (raw === 'cloudmap.private') return { kind: 'cloudmap', variant: 'private' };
   if (raw === 'rancher') return { kind: 'vendor', slug: 'rancher' };
   if (raw === 'xinference') return { kind: 'vendor', slug: 'xinference' };
+  if (raw === 'maas') return { kind: 'vendor', slug: 'maas' };
+  const t = String(cloud?.type ?? '').toLowerCase().trim();
+  if (t === 'bare_metal') return { kind: 'vendor', slug: 'maas' };
   return { kind: 'unknown' };
 }
 
@@ -44,6 +47,9 @@ export function buildPoolEntryPath(cloud: Record<string, any>): string {
   if (k.kind === 'vendor') {
     if (k.slug === 'xinference') {
       return `/admin/clouds/vendor/xinference/${id}?tab=dashboard`;
+    }
+    if (k.slug === 'maas') {
+      return `/admin/clouds/vendor/maas/${id}?tab=dashboard`;
     }
     return `/admin/clouds/vendor/${k.slug}/${id}`;
   }

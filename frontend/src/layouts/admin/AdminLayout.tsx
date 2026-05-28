@@ -52,7 +52,8 @@ import {
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
-import { type Cloud, isCsmCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
+import { type Cloud, isCsmCloud, isMaasPoolCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
+import { buildPoolEntryPath, inferPoolRouteKind } from '../../pages/cnmc/pools/lib/poolDetailNav';
 import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import {
@@ -73,6 +74,12 @@ import {
   XINFERENCE_POOL_SIDEBAR_CENTER_KEY,
   xinferencePoolSidebarSelectedKey,
 } from './xinference/xinferencePoolSidebar';
+import {
+  parseMaasPoolDetailId,
+  buildMaasPoolSidebarCenter,
+  MAAS_POOL_SIDEBAR_CENTER_KEY,
+  maasPoolSidebarSelectedKey,
+} from './maas/maasPoolSidebar';
 import {
   parseRancherClusterWorkspacePath,
   buildRancherClusterSidebarCenter,
@@ -129,10 +136,15 @@ const HEADER_POOL_STRIP_STYLE: React.CSSProperties = {
   boxSizing: 'border-box',
 };
 
+/** 顶栏切换池 /「访问」：厂商池（Xinference、MAAS、Rancher 等）走 `buildPoolEntryPath`；Cloudmap 仍进资源总览。 */
 function poolOverviewPath(cloudId: string, clouds: Cloud[]): string {
   const c = clouds.find((x) => String(x.id) === String(cloudId));
-  if (c && isCsmCloud(c)) {
-    return `/admin/security/traffic/csm-pools/${encodeURIComponent(cloudId)}`;
+  if (!c) {
+    return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
+  }
+  const kind = inferPoolRouteKind(c);
+  if (kind.kind === 'vendor' || kind.kind === 'cloudmap-csm') {
+    return buildPoolEntryPath(c);
   }
   return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
 }
@@ -230,14 +242,21 @@ function findMenuOpenKeyChainForPath(items: unknown[] | undefined, currentPath: 
 
 /** 由当前路径解析应高亮的平台侧栏 key */
 function sidebarForPath(p: string): string {
-  const found = routeSpecs.find((r) => {
-    if (r.path === p) return true;
-    if (r.path.includes(':')) {
-      const base = r.path.split(':')[0];
-      return p.startsWith(base);
+  const matchesPath = (targetPath: string, patternPath: string): boolean => {
+    const targetSegments = targetPath.split('/').filter(Boolean);
+    const patternSegments = patternPath.split('/').filter(Boolean);
+    if (targetSegments.length < patternSegments.length) return false;
+    for (let i = 0; i < patternSegments.length; i += 1) {
+      const patternSeg = patternSegments[i];
+      const targetSeg = targetSegments[i];
+      if (!patternSeg.startsWith(':') && patternSeg !== targetSeg) {
+        return false;
+      }
     }
-    return false;
-  });
+    return true;
+  };
+  const orderedSpecs = [...routeSpecs].sort((a, b) => b.path.length - a.path.length);
+  const found = orderedSpecs.find((r) => matchesPath(p, r.path));
 
   if (found?.platform) {
     if (found.platform === 'CNMC') return '/admin/cen_compute';
@@ -429,20 +448,21 @@ function AdminStandardHeader({
               >
                 访问
               </button>
-              <button
-                type="button"
-                className="admin-header-pool-icon-btn"
-                disabled={!canWritePools}
-                title={
-                  !summaryClouds.filter((c) => !isCsmCloud(c)).length
-                    ? '添加默认资源池'
-                    : '编辑当前默认资源池（未显式指定时为最早添加的池）'
-                }
-                aria-label="设定默认资源池"
-                onClick={openDefaultPoolWizardAction}
-              >
-                <ApiFilled />
-              </button>
+              {canWritePools && (
+                <button
+                  type="button"
+                  className="admin-header-pool-icon-btn"
+                  title={
+                    !summaryClouds.filter((c) => !isCsmCloud(c)).length
+                      ? '添加默认资源池'
+                      : '编辑当前默认资源池（未显式指定时为最早添加的池）'
+                  }
+                  aria-label="设定默认资源池"
+                  onClick={openDefaultPoolWizardAction}
+                >
+                  <ApiFilled />
+                </button>
+              )}
             </>
           )}
         </div>
@@ -787,6 +807,18 @@ const AdminLayout: React.FC = () => {
     [summaryClouds, xinferencePoolId],
   );
 
+  const maasPoolId = useMemo(
+    () => parseMaasPoolDetailId(location.pathname),
+    [location.pathname],
+  );
+  const maasPoolCloud = useMemo(
+    () =>
+      maasPoolId
+        ? summaryClouds.find((c) => String(c.id) === String(maasPoolId))
+        : undefined,
+    [summaryClouds, maasPoolId],
+  );
+
   const poolCloudId = useMemo(
     () => parseCloudPoolDetailId(location.pathname),
     [location.pathname],
@@ -815,6 +847,15 @@ const AdminLayout: React.FC = () => {
       String(prev) === String(xinferencePoolId) ? prev : xinferencePoolId,
     );
   }, [xinferencePoolId, summaryClouds]);
+
+  useEffect(() => {
+    if (!maasPoolId) return;
+    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
+    if (!cnmcPools.some((c) => String(c.id) === String(maasPoolId))) return;
+    setHeaderSelectedPoolId((prev) =>
+      String(prev) === String(maasPoolId) ? prev : maasPoolId,
+    );
+  }, [maasPoolId, summaryClouds]);
 
   const rancherClusterCtx = useMemo(
     () => parseRancherClusterWorkspacePath(location.pathname),
@@ -909,11 +950,18 @@ const AdminLayout: React.FC = () => {
     return buildXinferencePoolSidebarCenter(xinferencePoolCloud, xinferencePoolId);
   }, [xinferencePoolId, xinferencePoolCloud]);
 
-  /** CSM / Xinference / Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
+  const maasPoolSidebarCenter = useMemo(() => {
+    if (!maasPoolId || !maasPoolCloud) return null;
+    if (summaryClouds.length > 0 && !isMaasPoolCloud(maasPoolCloud)) return null;
+    return buildMaasPoolSidebarCenter(maasPoolCloud, maasPoolId);
+  }, [maasPoolId, maasPoolCloud, summaryClouds.length]);
+
+  /** CSM / Xinference / MAAS / Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
   const contextualPoolSidebar =
     rancherClusterSidebarCenter ||
     csmPoolSidebarCenter ||
     xinferencePoolSidebarCenter ||
+    maasPoolSidebarCenter ||
     poolSidebarCenter;
   const sidebarCentersForMenu = useMemo(
     () => (contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters),
@@ -955,6 +1003,9 @@ const AdminLayout: React.FC = () => {
         location.search,
       );
     }
+    if (maasPoolSidebarCenter && maasPoolId) {
+      return maasPoolSidebarSelectedKey(maasPoolId, location.pathname, location.search);
+    }
     if (!poolSidebarCenter || !poolCloudId) return undefined;
     return cloudmapPoolSidebarSelectedKey(location.pathname, poolSidebarCenter.items);
   }, [
@@ -964,6 +1015,8 @@ const AdminLayout: React.FC = () => {
     csmPoolId,
     xinferencePoolSidebarCenter,
     xinferencePoolId,
+    maasPoolSidebarCenter,
+    maasPoolId,
     poolSidebarCenter,
     poolCloudId,
     location.pathname,
@@ -975,7 +1028,7 @@ const AdminLayout: React.FC = () => {
   useEffect(() => {
     setOpenKeys([]);
     lastSidebarAutoExpandSigRef.current = '';
-  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId]);
+  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId, maasPoolId]);
 
   useEffect(() => {
     if (!user || summaryLoading) return;
@@ -1197,12 +1250,24 @@ const AdminLayout: React.FC = () => {
       setActiveSidebarKey(XINFERENCE_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
+    if (maasPoolSidebarCenter) {
+      setActiveSidebarKey(MAAS_POOL_SIDEBAR_CENTER_KEY);
+      return;
+    }
     if (poolSidebarCenter) {
       setActiveSidebarKey(CLOUD_POOL_SIDEBAR_CENTER_KEY);
       return;
     }
     setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
-  }, [location.pathname, location.search, poolSidebarCenter, rancherClusterSidebarCenter, csmPoolSidebarCenter, xinferencePoolSidebarCenter]);
+  }, [
+    location.pathname,
+    location.search,
+    poolSidebarCenter,
+    rancherClusterSidebarCenter,
+    csmPoolSidebarCenter,
+    xinferencePoolSidebarCenter,
+    maasPoolSidebarCenter,
+  ]);
 
   useEffect(() => {
     if (collapsed) {

@@ -169,7 +169,11 @@ const translateErrorMessage = (error: any): string => {
       ? `资源版本冲突：${kubeDetail}`
       : '资源版本冲突：对象有更新，请更新到最新的版本后重试';
   }
-  if (status === 500) return '服务器内部错误：Harvester 集群响应异常';
+  if (status === 500) {
+    return kubeDetail
+      ? `Harvester 集群响应异常：${kubeDetail}`
+      : '服务器内部错误：Harvester 集群响应异常';
+  }
   if (status === 502 || status === 503 || status === 504) return '网关错误：无法连接到 Harvester 控制平面';
 
   if (kubeDetail) return kubeDetail;

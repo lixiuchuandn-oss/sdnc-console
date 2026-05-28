@@ -3,9 +3,15 @@ import { Card, Form, Input, Button, App } from 'antd';
 import { ApiOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { getSystemSetting as apiGetSystemSetting, updateSystemSetting as apiUpdateSystemSetting } from '../../services/systemApi';
 import PageContainer from '../../components/PageContainer';
+import { useAuth } from '../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../utils/accessMapping';
 
 const AdvancedSettings: React.FC = () => {
   const { message } = App.useApp();
+  const { user } = useAuth();
+  const canWriteIntegration =
+    user?.role === 'super_admin' ||
+    hasPermissionForAction((user?.permissions ?? []) as string[], 'system.integration:write');
   const [aiSocForm] = Form.useForm();
   const [csmctlForm] = Form.useForm();
 
@@ -56,6 +62,10 @@ const AdvancedSettings: React.FC = () => {
       <div className="advanced-settings-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Card title={<span><SafetyCertificateOutlined style={{ marginRight: 8 }} /> AI SOC 配置</span>}>
           <Form form={aiSocForm} layout="vertical" style={{ maxWidth: 480 }} onFinish={async (values) => {
+            if (!canWriteIntegration) {
+               message.warning('无权限修改高级集成配置');
+               return;
+            }
             try {
                const p1 = apiUpdateSystemSetting('ai_soc_frontend_url', String(values.frontendUrl || '').trim());
                const p2 = apiUpdateSystemSetting('ai_soc_backend_url', String(values.backendUrl || '').trim());
@@ -68,13 +78,13 @@ const AdvancedSettings: React.FC = () => {
             }
           }}>
              <Form.Item label="AI SOC 前端地址" name="frontendUrl">
-               <Input placeholder="http://192.168.2.22:5173" />
+               <Input placeholder="http://192.168.2.22:5173" disabled={!canWriteIntegration} />
              </Form.Item>
              <Form.Item label="AI SOC 后端地址" name="backendUrl">
-               <Input placeholder="http://192.168.2.22:5000" />
+               <Input placeholder="http://192.168.2.22:5000" disabled={!canWriteIntegration} />
              </Form.Item>
              <Form.Item>
-               <Button type="primary" htmlType="submit">保存配置</Button>
+               {canWriteIntegration ? <Button type="primary" htmlType="submit">保存配置</Button> : null}
              </Form.Item>
           </Form>
         </Card>
@@ -85,6 +95,10 @@ const AdvancedSettings: React.FC = () => {
             layout="vertical"
             style={{ maxWidth: 480 }}
             onFinish={async (values) => {
+              if (!canWriteIntegration) {
+                message.warning('无权限修改高级集成配置');
+                return;
+              }
               try {
                 await apiUpdateSystemSetting('CSMCTL_ADDRESS', String(values.address || '').trim());
                 message.success('CSMCTL 配置已更新');
@@ -106,10 +120,10 @@ const AdvancedSettings: React.FC = () => {
                 },
               ]}
             >
-              <Input placeholder="https://127.0.0.1:8016" />
+              <Input placeholder="https://127.0.0.1:8016" disabled={!canWriteIntegration} />
             </Form.Item>
             <Form.Item>
-              <Button type="primary" htmlType="submit">保存配置</Button>
+              {canWriteIntegration ? <Button type="primary" htmlType="submit">保存配置</Button> : null}
             </Form.Item>
           </Form>
         </Card>

@@ -11,6 +11,8 @@ import PageContainer from '../../../../components/PageContainer';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../components/WriteGuard';
+import { filterMenuItemsForReadOnly } from '../../../../utils/rbacUi';
 import { fetchClouds as fetchCloudsApi, apiDelete } from '../../../../services/api';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
@@ -228,11 +230,14 @@ const CsmPoolsPage: React.FC = () => {
         fixed: 'right',
         render: (_: unknown, record) => (
           <ResourceActionsDropdown
-            items={[
-              { key: 'edit', label: '编辑', disabled: !canWrite },
-              { type: 'divider' },
-              { key: 'delete', label: '删除', danger: true, disabled: !canWrite },
-            ]}
+            items={filterMenuItemsForReadOnly(
+              [
+                { key: 'edit', label: '编辑' },
+                { type: 'divider' },
+                { key: 'delete', label: '删除', danger: true },
+              ],
+              canWrite,
+            )}
             onClick={({ key }) => {
               if (key === 'edit') {
                 setEditing(record);
@@ -272,13 +277,11 @@ const CsmPoolsPage: React.FC = () => {
       externalColumnControl
       toolbarRight={
         <div className="toolbar-actions">
-          <Button
-            type="primary"
-            disabled={!canWrite}
-            onClick={() => setWizardVisible(true)}
-          >
-            接入资源池
-          </Button>
+          <WriteGuard canWrite={canWrite}>
+            <Button type="primary" onClick={() => setWizardVisible(true)}>
+              接入资源池
+            </Button>
+          </WriteGuard>
           {canWrite && (
             <Dropdown
               menu={{

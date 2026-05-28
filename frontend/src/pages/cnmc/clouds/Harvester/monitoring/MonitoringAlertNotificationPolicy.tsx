@@ -43,6 +43,7 @@ import {
   useMonitoring,
 } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../components/WriteGuard';
 import {
   fetchAlertmanagerconfigs,
   fetchAlertmanagerconfigDetail,
@@ -62,6 +63,7 @@ import {
 import { RECEIVER_NAME_OPTIONS, type ReceiverName } from './lib/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 
 interface TriggerRuleOption {
   value: string;
@@ -742,13 +744,14 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
               >
                 {row.aliasName?.trim() || name || '-'}
               </span>
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => handleStartAliasEdit(row)}
-                disabled={!canWritePolicies}
-              />
+              {canWritePolicies ? (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => handleStartAliasEdit(row)}
+                />
+              ) : null}
             </Space>
           );
         },
@@ -798,7 +801,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
           const isSystemDefault = !!row.isSystemDefault;
           return (
             <ResourceActionsDropdown
-              items={[
+              items={filterMenuItemsForReadOnly([
                 { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
                 {
                   key: 'edit',
@@ -822,7 +825,7 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                     });
                   },
                 },
-              ]}
+              ], canWritePolicies)}
             />
           );
         },

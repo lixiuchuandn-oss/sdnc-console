@@ -389,10 +389,6 @@ export const ALL_PERMISSIONS = [
   'users:read',               // 系统用户列表 - 查看
   'users:write',              // 系统用户管理 - 创建/编辑/删除/重置密码
   
-  // 用户空间管理
-  'user-spaces:read',          // 用户空间列表 - 查看
-  'user-spaces:write',         // 用户空间管理 - 创建/编辑/删除/分配资源
-  
   // ──────────────────────────────────────────────────────────────────────────
   // 分组：权限管控 (RBAC - Role-Based Access Control)
   // ──────────────────────────────────────────────────────────────────────────
@@ -415,6 +411,7 @@ export const ALL_PERMISSIONS = [
   
   // 操作审计
   'system.audit:read',         // 操作审计日志 - 查看
+  'system.audit:write',        // 操作审计日志 - 管理（预留写权限位）
   
   // 系统设置
   'system.settings:read',      // 系统设置 - 查看
@@ -603,7 +600,7 @@ export const PERMISSION_GROUPS = {
   },
   // TENANTS 平台（多租户管理）
   TENANTS: {
-    '租户管理': ['tenants', 'organizations', 'tenant-users', 'user-spaces'],
+    '租户管理': ['tenants', 'organizations', 'tenant-users'],
   },
   // SETTINGS 平台
   SETTINGS: {
@@ -667,8 +664,7 @@ export function getPlatformByPermission(permission: string): string | null {
   if (
     prefix.startsWith('tenants') ||
     prefix.startsWith('organizations') ||
-    prefix.startsWith('tenant-users') ||
-    prefix.startsWith('user-spaces')
+    prefix.startsWith('tenant-users')
   ) {
     return 'TENANTS';
   }
@@ -713,7 +709,7 @@ export function getGroupByPermission(permission: string): string | null {
     return 'Cloudmap资源池';
   }
   // TENANTS 平台 · 租户管理分组
-  if (prefix.startsWith('tenants') || prefix.startsWith('organizations') || prefix.startsWith('tenant-users') || prefix.startsWith('user-spaces')) {
+  if (prefix.startsWith('tenants') || prefix.startsWith('organizations') || prefix.startsWith('tenant-users')) {
     return '租户管理';
   }
   

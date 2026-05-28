@@ -4,10 +4,12 @@ import { Tag } from 'antd';
 import { ShareAltOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import type { LoadBalancerListRow } from './loadBalancersSectionUtils';
 
 export type LoadBalancersTableActions = {
   isTenant?: boolean;
+  hasLoadBalancersWrite: boolean;
   isPublicNamespace: (ns: string) => boolean;
   onOpenYaml: (record: LoadBalancerListRow) => void;
   onDelete: (record: LoadBalancerListRow) => void;
@@ -16,7 +18,7 @@ export type LoadBalancersTableActions = {
 export function buildLoadBalancersTableColumns(
   actions: LoadBalancersTableActions,
 ): ColumnsType<LoadBalancerListRow> {
-  const { isTenant, isPublicNamespace, onOpenYaml, onDelete } = actions;
+  const { isTenant, hasLoadBalancersWrite, isPublicNamespace, onOpenYaml, onDelete } = actions;
 
   return [
     {
@@ -53,7 +55,7 @@ export function buildLoadBalancersTableColumns(
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={[
+            items={filterMenuItemsForReadOnly([
               {
                 key: 'opsinfo',
                 label: '查看YAML',
@@ -67,7 +69,7 @@ export function buildLoadBalancersTableColumns(
                 disabled: deleteDisabled,
                 onClick: () => onDelete(record),
               },
-            ]}
+            ], hasLoadBalancersWrite)}
           />
         );
       },

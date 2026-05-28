@@ -1,7 +1,7 @@
 # Cloudmap 资源池 · 池层数据与刷新
 
 > 源码根：`frontend/src/pages/cnmc/clouds/Cloudmap/pool/`  
-> 对外导航与 RBAC 见 **`deployment/docs/specs/cloudmap-pool-page-rbac.md`**；全站刷新原则摘要见 **`AGENTS.md` · 数据展示与刷新**。
+> 对外导航与 RBAC 见 **`docs/cloudmap-pool-rbac.md`**；全站刷新原则摘要见 **`AGENTS.md` · 数据展示与刷新**。
 
 ## 池层职责
 

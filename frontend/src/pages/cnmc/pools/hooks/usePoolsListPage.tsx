@@ -33,6 +33,7 @@ import { fetchKubeOvnVpcs } from '../../../../services/harvesterApi';
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import type { AdminLayoutOutletContext } from '../../../../layouts/admin/adminLayoutOutletContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../utils/rbacUi';
 import { isMustChangePasswordApiError } from '../../../../utils/errorHandler';
 
 import {
@@ -56,7 +57,7 @@ export function usePoolsListPage() {
   const { user } = useAuth();
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
   const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
-  const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
+  const canSetDefaultPool = canWriteClouds;
 
   const [filterForm] = Form.useForm();
   const [clouds, setClouds] = useState<Cloud[]>([]);
@@ -324,19 +325,34 @@ export function usePoolsListPage() {
         align: 'center',
         render: (_: unknown, record: Cloud) => {
           const isFavorite = !!favoriteCloudId && String(record.id) === String(favoriteCloudId);
-          const items = [
-            { key: 'detail', label: '资源详情' },
-            { key: 'edit', label: '编辑信息', disabled: !canWriteClouds },
-            {
-              key: 'test',
-              label: '连接测试',
-              disabled: !canWriteClouds || testingConnection === record.id,
-            },
-            { key: 'setFavorite', label: '设为默认资源池', disabled: !canSetDefaultPool || isFavorite },
-            { key: 'unsetFavorite', label: '取消默认资源池', disabled: !canSetDefaultPool || !isFavorite },
-            { type: 'divider' as const },
-            { key: 'del', label: '删除', danger: true, disabled: !canWriteClouds },
-          ];
+          const items = filterMenuItemsForReadOnly(
+            [
+              { key: 'detail', label: '资源详情' },
+              { key: 'edit', label: '编辑信息' },
+              {
+                key: 'test',
+                label: '连接测试',
+                disabled: testingConnection === record.id,
+              },
+              ...(canSetDefaultPool
+                ? [
+                    {
+                      key: 'setFavorite',
+                      label: '设为默认资源池',
+                      disabled: isFavorite,
+                    },
+                    {
+                      key: 'unsetFavorite',
+                      label: '取消默认资源池',
+                      disabled: !isFavorite,
+                    },
+                  ]
+                : []),
+              { type: 'divider' as const },
+              { key: 'del', label: '删除', danger: true },
+            ],
+            canWriteClouds,
+          );
           const onMenuClick = ({ key }: { key: string }) => {
             if (key === 'test') return void testConnection(record.id);
             if (key === 'detail') return void navigateToPoolDetail(navigate, record as unknown as Record<string, any>);
@@ -496,15 +512,18 @@ export function usePoolsListPage() {
   }, [canWriteClouds, selectedRowKeys, fetchClouds, clouds, reloadSummaryClouds]);
 
   const bulkActionsMenu: MenuProps = {
-    items: [
-      {
-        key: 'bulkDelete',
-        label: '批量删除',
-        danger: true,
-        disabled: !canWriteClouds || selectedRowKeys.length === 0,
-        onClick: handleBulkDelete,
-      },
-    ],
+    items: filterMenuItemsForReadOnly(
+      [
+        {
+          key: 'bulkDelete',
+          label: '批量删除',
+          danger: true,
+          disabled: selectedRowKeys.length === 0,
+          onClick: handleBulkDelete,
+        },
+      ],
+      canWriteClouds,
+    ),
   };
 
   const refreshList = useCallback(() => {

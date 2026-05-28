@@ -8,6 +8,7 @@ import { cnVmStatus } from 'utils/harvesterUtils';
 import { formatStorageSize } from './storageSize';
 import type { VmListSafeRead } from './vmSafeRead';
 import { formatVmListTimestamp } from './vmSectionActions';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export const HARVESTER_RECYCLE_BIN_TABLE_SETTINGS_KEY = 'harvester_recycle_bin_table';
 
@@ -266,14 +267,14 @@ export function buildRecycleBinTableColumns(
           { type: 'divider' },
           { key: 'force_delete', label: '彻底删除', danger: true, onClick: () => onForceDelete(r) },
         ];
+        const filteredItems = filterMenuItemsForReadOnly(items, hasRecycleBinWrite);
         return (
           <span>
             <ResourceActionsDropdown
-              items={items}
+              items={filteredItems}
               buttonProps={{
                 className: 'row-actions-trigger',
                 style: { margin: 0 },
-                disabled: !hasRecycleBinWrite,
               }}
             />
           </span>
