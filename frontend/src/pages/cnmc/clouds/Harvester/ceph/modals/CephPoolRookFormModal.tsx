@@ -612,16 +612,6 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
           return;
         }
         message.success('已创建存储池（Rook）');
-        const dq = await pushDashboardPoolSyncAfterRook(cloudId, pname, v, {
-          isEdit: false,
-          allBlue: effectiveAllBluestore,
-        });
-        if (!dq.ok) {
-          message.warning(
-            dq.error ||
-              '与统一存储 Dashboard 对齐的配置（配额/PG/CRUSH/QoS/压缩等）未全部写入；可稍后在此池再次保存或打开 Dashboard。',
-          );
-        }
         onSuccess();
         onClose();
         return;
@@ -655,16 +645,6 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
         return;
       }
       message.success('已更新存储池（Rook）');
-      const dq = await pushDashboardPoolSyncAfterRook(cloudId, nm, v, {
-        isEdit: true,
-        allBlue: effectiveAllBluestore,
-      });
-      if (!dq.ok) {
-        message.warning(
-          dq.error ||
-            '与统一存储 Dashboard 对齐的配置未能全部写入；若 mgr 未就绪可稍后在本页再次保存。',
-        );
-      }
       onSuccess();
       onClose();
     } catch {
