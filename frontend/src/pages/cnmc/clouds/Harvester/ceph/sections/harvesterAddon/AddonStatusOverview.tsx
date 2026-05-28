@@ -75,6 +75,13 @@ function phaseMeta(
         tagLabel: '未开启',
         icon: <ExclamationCircleOutlined />,
       };
+    case 'disabled':
+      return {
+        badge: 'warning',
+        tagColor: 'warning',
+        tagLabel: '已停用',
+        icon: <ExclamationCircleOutlined />,
+      };
     default:
       return {
         badge: 'default',
@@ -91,7 +98,7 @@ function resolveStatusMessage(
   isRunningCluster: boolean,
 ): string {
   if (loading && !status) return '正在获取统一存储状态…';
-  if (!status) return '无法读取 Addon 状态，请刷新后重试';
+  if (!status) return '无法读取统一存储状态，请刷新后重试';
   if (status.phase === 'progress') {
     return status.message || '正在部署统一存储，通常需要数分钟，页面将自动刷新进度';
   }
@@ -102,6 +109,12 @@ function resolveStatusMessage(
     return isRunningCluster
       ? '统一存储已就绪。集群级参数已锁定，可在下方扩容新增节点或数据盘。'
       : status.message || '统一存储已就绪';
+  }
+  if (status.phase === 'disabled') {
+    return (
+      status.message ||
+      '统一存储已停用。若集群内存储已卸载，请在本页按向导重新开启；必要时可在集群侧清理后全新部署。'
+    );
   }
   if (status.phase === 'not_installed') {
     return status.message || '尚未开启统一存储，请按向导完成配置并提交';
@@ -114,11 +127,16 @@ const AddonStatusOverview: React.FC<AddonStatusOverviewProps> = ({
   loading,
   isRunningCluster,
 }) => {
+  /** 仅「运行中」展示 Addon values 内历史配置；停用/未安装等不计入（避免误导为当前集群规模） */
+  const showLiveStats = isRunningCluster;
   const stats = useMemo(() => countConfigStats(status?.config), [status?.config]);
   const meta = phaseMeta(status?.phase, isRunningCluster);
   const message = resolveStatusMessage(status, loading, isRunningCluster);
   const lockedNodes = baselineNodeNameSet(status?.config ?? null).size;
   const lockedDisks = baselineNodeDeviceKeySet(status?.config ?? null).size;
+  const nodeCount = showLiveStats ? stats.nodeCount || lockedNodes || 0 : 0;
+  const diskCount = showLiveStats ? stats.diskCount || lockedDisks || 0 : 0;
+  const replicaSize = showLiveStats ? status?.config?.replicaSize ?? 0 : 0;
 
   if (loading && !status) {
     return (
@@ -157,29 +175,27 @@ const AddonStatusOverview: React.FC<AddonStatusOverviewProps> = ({
             <Col>
               <Statistic
                 title="存储节点"
-                value={stats.nodeCount || lockedNodes || 0}
+                value={nodeCount}
                 prefix={<CloudServerOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
                 valueStyle={{ fontSize: 20 }}
               />
             </Col>
             <Col>
               <Statistic
-                title="数据盘 / OSD"
-                value={stats.diskCount || lockedDisks || 0}
+                title="数据盘"
+                value={diskCount}
                 prefix={<HddOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
                 valueStyle={{ fontSize: 20 }}
               />
             </Col>
-            {status?.config?.replicaSize != null ? (
-              <Col>
-                <Statistic
-                  title="数据副本"
-                  value={status.config.replicaSize}
-                  prefix={<DatabaseOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
-                  valueStyle={{ fontSize: 20 }}
-                />
-              </Col>
-            ) : null}
+            <Col>
+              <Statistic
+                title="数据副本"
+                value={replicaSize}
+                prefix={<DatabaseOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
+                valueStyle={{ fontSize: 20 }}
+              />
+            </Col>
           </Row>
         </Col>
       </Row>

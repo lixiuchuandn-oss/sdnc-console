@@ -1,6 +1,12 @@
 /** Harvester rook-ceph Addon 状态、结构化配置与块设备/节点表单辅助 */
 
-export type CephHarvesterAddonPhase = 'not_installed' | 'success' | 'progress' | 'failed' | 'unknown';
+export type CephHarvesterAddonPhase =
+  | 'not_installed'
+  | 'success'
+  | 'progress'
+  | 'failed'
+  | 'disabled'
+  | 'unknown';
 
 export type CephHarvesterAddonNodeDevice = {
   nodeName: string;
@@ -20,6 +26,31 @@ export type CephHarvesterAddonNodeFormRow = {
 
 export function defaultNodeDeviceFormRows(): CephHarvesterAddonNodeFormRow[] {
   return [{ nodeName: '', deviceNames: [], metadataDevice: '' }];
+}
+
+/** 停用后重新部署：为集群每个节点占一行，数据盘留空由用户重选 */
+export function buildAllNodesEmptyDeviceRows(
+  nodeOptions: { label: string; value: string }[],
+): CephHarvesterAddonNodeFormRow[] {
+  const names = nodeOptions.map((o) => String(o.value || '').trim()).filter(Boolean);
+  if (names.length === 0) return defaultNodeDeviceFormRows();
+  return names.map((nodeName) => ({
+    nodeName,
+    deviceNames: [],
+    metadataDevice: '',
+  }));
+}
+
+/** 是否为向导初始占位（单行且未选节点/盘） */
+export function isDefaultEmptyWizardNodeRows(
+  nodes: CephHarvesterAddonNodeFormRow[] | undefined,
+): boolean {
+  if (!Array.isArray(nodes) || nodes.length === 0) return true;
+  if (nodes.length > 1) return false;
+  const row = nodes[0];
+  const hasNode = !!String(row?.nodeName ?? '').trim();
+  const hasDisk = normalizeDeviceNames(row?.deviceNames).length > 0;
+  return !hasNode && !hasDisk;
 }
 
 export function normalizeDeviceNames(value: unknown): string[] {
@@ -277,8 +308,14 @@ function configNodesToFormRows(
 
 /** 从 Addon 状态（结构化 config 或 valuesContent）生成向导 Form 值 */
 export function buildHarvesterAddonFormValuesFromStatus(
-  res: Pick<CephHarvesterAddonStatus, 'config' | 'valuesContent'>,
+  res: Pick<CephHarvesterAddonStatus, 'config' | 'valuesContent'> & {
+    phase?: CephHarvesterAddonStatus['phase'];
+  },
 ): CephHarvesterAddonFormValuesWithOverride {
+  /** Addon 已停用：不把 spec.valuesContent 里的历史 OSD 配置灌回向导（避免误以为仍在运行） */
+  if (res.phase === 'disabled') {
+    return buildDefaultHarvesterAddonFormValues();
+  }
   if (res.config) {
     const cfg = configToFormValues(res.config);
     return {
@@ -398,7 +435,8 @@ function nodeLayoutByNode(
 
 /**
  * 已运行统一存储：仅允许「只增不减」的扩容（新节点 / 新数据盘）。
- * 禁止移除 OSD、改副本/服务规模、换镜像等高风险改配。
+ * 禁止移除已有盘、改副本/服务规模、换镜像等高风险改配。
+ * 规则须与 backend/src/services/clouds/harvester/cephHarvesterAddon.ts 中同名函数保持同步。
  */
 export function validateRunningClusterConfigChange(
   before: CephHarvesterAddonValuesConfig,
@@ -410,7 +448,7 @@ export function validateRunningClusterConfigChange(
   for (const row of listConfiguredNodeDevices(before)) {
     const key = nodeDeviceKey(row.nodeName, row.deviceName);
     if (!afterKeys.has(key)) {
-      return `不可移除已有 OSD：${row.nodeName} / ${row.deviceName}。扩容请仅新增节点或数据盘。`;
+      return `不可移除已有数据盘：${row.nodeName} / ${row.deviceName}。扩容请仅新增节点或数据盘。`;
     }
   }
 
@@ -480,7 +518,7 @@ export function validateRunningClusterConfigChange(
   const beforeCount = listConfiguredNodeDevices(before).length;
   const afterCount = listConfiguredNodeDevices(after).length;
   if (afterCount <= beforeCount) {
-    return '已运行集群提交时须新增至少一块数据盘或一个新节点上的 OSD。';
+    return '已运行集群提交时须新增至少一块数据盘，或在新节点上至少勾选一块新盘。';
   }
 
   return null;
@@ -779,6 +817,13 @@ export function buildMetadataDeviceSelectOptions(
   }));
 }
 
+/** 统一存储是否处于「运行中」扩容/锁定配置态（仅 Addon 启用且 phase=success） */
+export function isCephHarvesterAddonRunning(
+  status: Pick<CephHarvesterAddonStatus, 'phase' | 'enabled' | 'config'> | null | undefined,
+): boolean {
+  return status?.phase === 'success' && status.enabled === true && !!status.config;
+}
+
 export function addonPhaseTagColor(phase: CephHarvesterAddonPhase): string {
   switch (phase) {
     case 'success':
@@ -787,6 +832,8 @@ export function addonPhaseTagColor(phase: CephHarvesterAddonPhase): string {
       return 'processing';
     case 'failed':
       return 'error';
+    case 'disabled':
+      return 'warning';
     case 'not_installed':
       return 'default';
     default:
@@ -802,6 +849,8 @@ export function addonPhaseLabel(phase: CephHarvesterAddonPhase): string {
       return '部署中';
     case 'failed':
       return '失败';
+    case 'disabled':
+      return '已停用';
     case 'not_installed':
       return '未安装';
     default:

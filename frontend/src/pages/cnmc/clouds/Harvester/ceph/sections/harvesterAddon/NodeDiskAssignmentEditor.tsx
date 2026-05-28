@@ -340,7 +340,7 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
             ) : (
               <FormSection
                 title="节点与数据盘"
-                description="为每个存储节点选择一块或多块裸盘作为 Ceph OSD。请勿选择系统盘或仍在使用的业务盘。"
+                description="为每个节点选择用于存储的数据盘，可多选。请勿勾选系统盘或仍有业务数据的磁盘。"
                 extra={toolbarButtons}
               >
                 {editorBody}

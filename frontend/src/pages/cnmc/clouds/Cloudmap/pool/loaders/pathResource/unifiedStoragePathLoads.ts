@@ -1,6 +1,9 @@
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 统一存储域（`panels/unified_storage`）：列表/仪表盘由各 Section 自拉 */
+/**
+ * 统一存储域（`panels/unified_storage`）：池层仅门控 Tab；
+ * 实际拉数由各 Section 自拉（如 `harvester_addon` → `CephHarvesterAddonSection` 工具栏刷新）。
+ */
 export async function tryLoadUnifiedStorageTab(
   key: string,
   _force: boolean,

@@ -1,4 +1,5 @@
 import {
+  buildAllNodesEmptyDeviceRows,
   buildHarvesterAddonFormValuesFromStatus,
   buildMetadataDeviceSelectOptions,
   isCephOsdCandidateDeviceName,
@@ -84,6 +85,54 @@ describe('cephHarvesterAddon block devices', () => {
         deviceNames: ['sdd'],
       });
     });
+
+    it('does not pre-fill nodes when Addon is disabled', () => {
+      const values = buildHarvesterAddonFormValuesFromStatus({
+        phase: 'disabled',
+        config: {
+          replicaSize: 3,
+          requireSafeReplicaSize: false,
+          compressionMode: 'none',
+          storageClass: {
+            jobImage: 'docker.io/rancher/shell:v0.5.0',
+            reclaimPolicy: 'Delete',
+            allowVolumeExpansion: true,
+            volumeBindingMode: 'Immediate',
+          },
+          cephtools: { replicas: 3, image: 'quay.io/ceph/ceph:v19.2.3' },
+          cephCluster: {
+            cephVersionImage: 'quay.io/ceph/ceph:v19.2.3',
+            allowUnsupported: false,
+            monCount: 3,
+            allowMultipleMonPerNode: false,
+            mgrCount: 3,
+            dashboardEnabled: true,
+            useAllNodes: false,
+            useAllDevices: false,
+            nodes: [{ nodeName: 'node1', deviceName: 'sdd' }],
+            osdsPerDevice: '1',
+            osdObjectstore: 'bluestore',
+            metadataDevice: '',
+          },
+          operator: { replicas: 1, image: 'docker.io/rook/ceph:v1.19.3' },
+        },
+      });
+      expect(values.cephCluster.nodes).toEqual([
+        { nodeName: '', deviceNames: [], metadataDevice: '' },
+      ]);
+    });
+  });
+
+  it('buildAllNodesEmptyDeviceRows lists every node without disks', () => {
+    expect(
+      buildAllNodesEmptyDeviceRows([
+        { value: 'node-a', label: 'node-a' },
+        { value: 'node-b', label: 'node-b' },
+      ]),
+    ).toEqual([
+      { nodeName: 'node-a', deviceNames: [], metadataDevice: '' },
+      { nodeName: 'node-b', deviceNames: [], metadataDevice: '' },
+    ]);
   });
 
   describe('isCephOsdCandidateDeviceName', () => {
@@ -256,7 +305,7 @@ describe('validateRunningClusterConfigChange', () => {
 
   it('rejects removing an existing osd', () => {
     const after = sampleRunningConfig([{ nodeName: 'node1', deviceName: 'sdd' }]);
-    expect(validateRunningClusterConfigChange(before, after)).toMatch(/不可移除已有 OSD/);
+    expect(validateRunningClusterConfigChange(before, after)).toMatch(/不可移除已有数据盘/);
   });
 
   it('rejects unchanged config without new disks', () => {

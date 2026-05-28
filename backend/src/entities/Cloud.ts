@@ -18,6 +18,8 @@ export enum CloudType {
   CONTAINER_CLOUD = 'container_cloud',
   /** 历史存量：曾单独使用 rancher 作为 type */
   RANCHER = 'rancher',
+  /** 裸金属（MAAS Region 等）；细分子厂商见 config.provider */
+  BARE_METAL = 'bare_metal',
 }
 
 export enum CloudStatus {

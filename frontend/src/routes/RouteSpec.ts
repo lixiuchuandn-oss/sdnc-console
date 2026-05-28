@@ -248,6 +248,21 @@ export const routeSpecs: RouteSpec[] = [
     },
   },
   {
+    id: 'pool-vendor-maas',
+    path: '/admin/clouds/vendor/maas/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: 'Cloudmap资源池',
+    hidden: true,
+    title: 'MAAS 裸金属资源池详情',
+    requiredActions: {
+      page: 'clouds.console:read',
+      read: 'clouds.console:read',
+      write: 'clouds.console:write',
+    },
+  },
+  {
     id: 'pool-vendor-csm',
     path: '/admin/clouds/vendor/csm/:cloudId',
     element: 'Clouds',

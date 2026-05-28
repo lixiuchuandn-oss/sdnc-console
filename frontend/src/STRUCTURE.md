@@ -204,6 +204,7 @@ frontend/src/pages/
 │   ├── pools/             # 资源池列表、详情闸门、实例详情入口等
 │   ├── clouds/
 │   │   ├── Harvester/     # 云详情：域 + sections/modals/shared（细则见 Harvester 修改纪要）
+│   │   ├── maas/          # MAAS 裸金属资源池（`?tab=` + `layouts/admin/maas/`）；见 `maas/README.md`
 │   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/traffic/CsmPools/：CloudDetailCsm、sections/、modals/）
 │   ├── console/           # 租户 Cloudmap 控制台（`/console`）：`CloudConsole.tsx` + `hooks/`、`lib/`、`sections/`
 │
@@ -258,6 +259,7 @@ Harvester 云详情按 **域优先** 分目录；下列域已对齐 Cloudmap 池
 | `Harvester/nad/` | cluster 导航 `nads` / `load_balancers` / `ippools` | `Harvester/nad/README.md` |
 | `Harvester/cluster/` | cluster 导航（本域 Section + 聚合装配说明） | `Harvester/cluster/README.md` |
 | `Harvester/ecs/`、`ebs/`、`kube-ovn/` 等 | 见 Cloudmap 池 `panels/*` 与修改纪要 | 各域内 README（若有） |
+| `maas/` | `/admin/clouds/vendor/maas/:id?tab=` | `maas/README.md` |
 
 新增 Harvester 域时：在域根补 **`README.md`**（Tab ↔ Section ↔ 池 key ↔ 刷新例外），并在上表或 **`AGENTS.md` · Harvester 云详情** 保持索引一致。
 

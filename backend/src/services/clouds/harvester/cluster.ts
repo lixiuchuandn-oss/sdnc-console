@@ -827,9 +827,15 @@ export const updateHarvesterSettingValue = async ({
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   let rv = resourceVersion;
+  let current: any = null;
   if (!rv) {
-    const current = await getHarvesterSettingRaw({ endpoint, token, insecure }, name);
+    current = await getHarvesterSettingRaw({ endpoint, token, insecure }, name);
     rv = (current as any)?.metadata?.resourceVersion || (current as any)?.resourceVersion || undefined;
+  }
+  if (!rv) {
+    const err = new Error(`Harvester Setting「${name}」不存在，无法更新`);
+    (err as { status?: number }).status = 404;
+    throw err;
   }
   const url = `${origin}/v1/harvester/harvesterhci.io.settings/${encodeURIComponent(name)}`;
   const body = {

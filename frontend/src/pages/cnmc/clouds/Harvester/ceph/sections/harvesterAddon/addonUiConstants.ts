@@ -24,9 +24,10 @@ export const NODE_DISK_LIST_LAYOUT_STYLE: CSSProperties = {
 };
 
 export const WIZARD_STEPS = [
-  { title: '存储节点', description: '选择参与存储的节点与数据盘' },
+  { title: '存储网', description: '设定存储网络' },
+  { title: '存储节点', description: '选择参与的节点与硬盘' },
   { title: '集群服务', description: '管理节点与调度服务' },
-  { title: '容量与策略', description: '副本、压缩与云硬盘行为' },
+  { title: '容量与策略', description: '设定副本、压缩参数' },
   { title: '确认提交', description: '核对配置并提交' },
 ] as const;
 
@@ -53,19 +54,19 @@ export const OSD_STORE_OPTIONS = [
 ];
 
 export const SUBMIT_RISK_ITEMS = [
-  '所选数据盘将用于 Ceph OSD，盘内原有数据会被清除且不可恢复。',
+  '所选数据盘将用于统一存储，盘内原有数据会被清除且不可恢复。',
   '节点、磁盘或副本等配置错误可能导致部署失败，或导致集群/业务长时间不可用。',
-  '对已运行的统一存储修改配置，可能触发 OSD 迁移、重建或服务中断。',
+  '对已运行的统一存储修改配置，可能触发数据迁移、重建或服务中断。',
   '提交后部署或应用通常需要数分钟，请勿重复提交；进度以页面状态为准。',
   '若使用专家模式手动 YAML，将绕过向导校验，错误配置需自行承担后果。',
 ];
 
 export const EXPANSION_SUBMIT_RISK_ITEMS = [
-  '本次仅允许扩容：新增数据盘或新存储节点；已有 OSD 不可移除或改配。',
-  '仅新勾选的数据盘会被初始化并加入集群，已有 OSD 上的业务数据不会被此向导清除。',
-  '新盘仍会被格式化为 OSD，盘内原有数据不可恢复，请勿误选系统盘或业务盘。',
+  '本次仅允许扩容：新增数据盘或新存储节点；已有数据盘不可移除或改配。',
+  '仅新勾选的数据盘会被初始化并加入集群，已有盘上的业务数据不会被此向导清除。',
+  '新盘仍会被格式化用于存储，盘内原有数据不可恢复，请勿误选系统盘或业务盘。',
   '副本数、管理节点、镜像等集群级配置已锁定；如需调整请联系运维在维护窗口处理。',
-  '提交后 Rook 创建新 OSD 通常需要数分钟，请勿重复提交；进度以页面状态为准。',
+  '提交后扩容通常需要数分钟，请勿重复提交；进度以页面状态为准。',
 ];
 
 export function formatCompressionLabel(value?: string): string {

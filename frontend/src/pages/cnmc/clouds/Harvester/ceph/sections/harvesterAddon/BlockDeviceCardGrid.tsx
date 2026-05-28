@@ -40,7 +40,7 @@ const BlockDeviceCardGrid: React.FC<BlockDeviceCardGridProps> = ({
   if (options.length === 0) {
     return (
       <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-        该节点暂无可用磁盘，请确认已挂载裸盘或刷新列表
+        该节点暂无可用磁盘，请确认已挂载数据盘或刷新列表
       </Typography.Text>
     );
   }

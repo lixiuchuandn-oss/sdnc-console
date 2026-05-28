@@ -1,6 +1,6 @@
 /**
  * 租户云控制台（/console）页面读权限：与 Cloudmap 池内 `poolPageAction` 对齐。
- * 规范见 deployment/docs/specs/cloudmap-pool-page-rbac.md
+ * 规范见 docs/cloudmap-pool-rbac.md
  */
 import { checkPoolPageReadPerm, getPoolPageReadAction } from '../../clouds/Cloudmap/pool/lib/poolPageReadAccess';
 

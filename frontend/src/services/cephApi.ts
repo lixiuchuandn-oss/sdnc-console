@@ -3,6 +3,10 @@
  */
 
 import type { CephHarvesterAddonValuesConfig } from '../pages/cnmc/clouds/Harvester/ceph/lib/cephHarvesterAddon';
+import type {
+  CephStorageNetworkConfig,
+  CephStorageNetworkEffective,
+} from '../pages/cnmc/clouds/Harvester/ceph/lib/cephStorageNetwork';
 import { API_BASE_URL, getAuthHeaders } from './api';
 
 const cephRookBase = (cloudId: string) =>
@@ -403,7 +407,7 @@ export type CephHarvesterAddonStatusResponse = {
   exists: boolean;
   enabled: boolean;
   deployStatus: string;
-  phase: 'not_installed' | 'success' | 'progress' | 'failed' | 'unknown';
+  phase: 'not_installed' | 'success' | 'progress' | 'failed' | 'disabled' | 'unknown';
   message: string;
   valuesContent?: string | null;
   config?: CephHarvesterAddonValuesConfig | null;
@@ -443,6 +447,36 @@ export function applyCephHarvesterAddon(cloudId: string, body: CephHarvesterAddo
   return apiWrite<CephHarvesterAddonStatusResponse & { applied?: string }>(
     `${cephApiBase(cloudId)}/harvester-addon`,
     'POST',
+    body,
+  );
+}
+
+export type CephStorageNetworkResponse = CephStorageNetworkEffective & {
+  _tower?: { unreachable?: boolean };
+};
+
+/** 读取 Harvester Setting `ceph-storage-network`（未配置时 mode=mgmt） */
+export function fetchCephStorageNetwork(
+  cloudId: string,
+  options?: { force?: boolean; signal?: AbortSignal },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = options?.force ? '?force=1' : '';
+  return apiGet<CephStorageNetworkResponse>(
+    `${cephApiBase(cloudId)}/storage-network${q}`,
+    { signal: options?.signal, cache: options?.force ? 'no-store' : 'default' },
+  );
+}
+
+/** 保存或清空 Ceph 存储网 Setting（清空后部署走管理网） */
+export function applyCephStorageNetwork(
+  cloudId: string,
+  body: { enabled: boolean; config?: CephStorageNetworkConfig | null },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite<CephStorageNetworkResponse>(
+    `${cephApiBase(cloudId)}/storage-network`,
+    'PUT',
     body,
   );
 }

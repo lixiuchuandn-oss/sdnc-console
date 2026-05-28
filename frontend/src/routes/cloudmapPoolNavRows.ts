@@ -66,7 +66,7 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
 
 /** 并入 `routeSpecs` 的唯一表（按 `order` 升序、与侧栏分组一致） */
 export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
-  // --- 资源总览（叶子读权限见 deployment/docs/specs/cloudmap-pool-page-rbac.md）---
+  // --- 资源总览（叶子读权限见 docs/cloudmap-pool-rbac.md）---
   {
     id: 'cloudmap-pool-rh-overview',
     pathSuffix: 'resource_hub/overview',

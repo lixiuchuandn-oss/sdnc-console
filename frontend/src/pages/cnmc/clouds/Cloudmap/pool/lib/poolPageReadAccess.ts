@@ -7,7 +7,7 @@
  * - 角色勾选：`expandRoleGrantOnCheck`（仅 write→read）
  *
  * 页级隐式读（机房/网络拓扑拉数）与 backend checker 对齐，见 POOL_PAGE_IMPLIED_READ_BASES。
- * 设计原则见 docs/cloudmap-pool-page-rbac.md。
+ * 设计原则见 docs/cloudmap-pool-rbac.md。
  */
 import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../../../routes/cloudmapPoolNavRows';
 import type { CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';

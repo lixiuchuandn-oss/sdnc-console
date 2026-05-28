@@ -11,6 +11,7 @@
 | `sections/block/` | RBD Mirror 视图 + bundle hook |
 | `modals/` | BlockPool / Rook 池表单 |
 | `lib/` | bundle 归一化、表格行映射；**`cephSectionRefresh.ts`** re-export shared 刷新 helper |
+| `hooks/` | **`useHarvesterAddonSection`**（统一存储配置：状态/元数据/向导/提交） |
 
 ## 列表刷新约定（Cloudmap 池）
 
@@ -26,7 +27,7 @@
 | 侧栏 / 导航 | key | Section |
 |-------------|-----|---------|
 | 存储容量 | `overview` | `CloudmapStorageDashboardByBackend` / `CephStorageSection` |
-| 存储配置 | `harvester_addon` | `CephHarvesterAddonSection` |
+| 存储配置 | `harvester_addon` | `CephHarvesterAddonSection` + **`hooks/useHarvesterAddonSection`**；列表数据 Section 自拉；**`PageDetailSection.onRefresh`** 须配置（池层 `loadTabResource` 对该 key 仅门控）；代码自评见 **`docs/code-quality.md` §12** |
 | 存储池 | `storage_pools` | `CephPoolSection` |
 | 块存储 · 远程备份 | `rbd_mirror` | `CephBlockRbdMirrorPane` |
 | 对象存储 · S3 桶 | `rgw_s3_buckets` | `RgwS3BucketsSection` |
