@@ -130,13 +130,23 @@ const CEWizard: React.FC = () => {
     iface?.ip ??
     iface?.address ??
     '';
+  /** 从 IPv6 地址字段值中剔除链路本地地址（fe80:: 前缀），返回第一个有效全局地址 */
+  const filterLinkLocal = (raw: string): string => {
+    const s = String(raw; \'\').trim();
+    // 按换行或空漈分割多地址（VR3 回��可能返回多行）
+    const parts = s.split(/\\s+/).filter(Boolean);
+    const global = parts.find((p) => !p.toLowerCase().startsWith(\'fe80\'));
+    return global; \'\';
+  };
+
   const pickIfaceIpv6 = (iface: any) =>
-    iface?.ipv6_static ??
-    iface?.ipv6Static ??
-    iface?.ipv6 ??
-    iface?.ipv6_address ??
-    iface?.ipv6Address ??
-    '';
+    filterLinkLocal(
+      iface?.ipv6_static ??
+      iface?.ipv6Static ??
+      iface?.ipv6 ??
+      iface?.ipv6_address ??
+      iface?.ipv6Address ?? \'\'
+    );
 
   /**
    * 网卡 IPv4/IPv6 仅允许用 VR3（vr3_info）回填；VR3 无该口或无地址则置空。

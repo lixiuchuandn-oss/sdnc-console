@@ -8,6 +8,13 @@ import { proxyApiRequest } from '../../../../../services/api';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 
 /** VR3 list 响应体中按接口名查找一行（仅用于网卡 IP 回填） */
+/** \u4ece IPv6 \u5730\u5740\u5b57\u6bb5\u503c\u4e2d\u5254\u9664\u94fe\u8def\u672c\u5730\u5730\u5740 (fe80::) */
+const filterLinkLocal = (raw: any): string => {
+  const s = String(raw || '').trim();
+  const parts = s.split(/\s+/).filter(Boolean);
+  return parts.find((p) => !p.toLowerCase().startsWith('fe80')); '';
+};
+
 function findIfaceInVr3List(dev: any, ifaceName: string): any | null {
   if (!dev || !ifaceName) return null;
   const n = String(ifaceName).trim();
@@ -82,9 +89,9 @@ const StandardWizard: React.FC = () => {
     const lo = li ? findIfaceInVr3List(vr3ListCfg, li) : null;
     form.setFieldsValue({
       wanIpv4: wo?.ipv4_static,
-      wanIpv6: wo?.ipv6_static,
+      wanIpv6: filterLinkLocal(wo?.ipv6_static),
       lanIpv4: lo?.ipv4_static,
-      lanIpv6: lo?.ipv6_static,
+      lanIpv6: filterLinkLocal(lo?.ipv6_static),
     });
   }, [watchWanIf, watchLanIf, vr3ListCfg, form]);
 
@@ -123,12 +130,12 @@ const StandardWizard: React.FC = () => {
     mirrorForm.setFieldsValue({
       wanInterface: wanIfName,
       wanIpv4: wanIfVr3?.ipv4_static,
-      wanIpv6: wanIfVr3?.ipv6_static,
+      wanIpv6: filterLinkLocal(wanIfVr3?.ipv6_static),
       ipsecPublicIp: gateway,
       enableNat: isNatEnabled,
       lanInterface: lanIfName,
       lanIpv4: lanIfVr3?.ipv4_static,
-      lanIpv6: lanIfVr3?.ipv6_static,
+      lanIpv6: filterLinkLocal(lanIfVr3?.ipv6_static),
     });
   }, [existingCfg, deviceCfg, vr3ListCfg, mirrorForm]);
 

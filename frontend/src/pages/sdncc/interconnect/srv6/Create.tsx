@@ -539,6 +539,61 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   /**
+   * 将 IPv6 地址按指定位数截断为网段地址。
+   * 例如 maskToIpv6Network("240f:2033::1235", 64) → "240f:2033::"
+   * 原理：将地址转为 128 位整数，按 prefixLen 位掩码清零低位，再转回 IPv6 表示。
+   */
+  const maskToIpv6Network = (addr: string, prefixLen: number): string => {
+    try {
+      const clean = addr.replace(/\/\d+$/, '').trim();
+      // 展开为 8 组 16 进制
+      const halves = clean.split('::');
+      let groups: string[];
+      if (halves.length === 2) {
+        const left = halves[0] ? halves[0].split(':') : [];
+        const right = halves[1] ? halves[1].split(':') : [];
+        const fill = Array(8 - left.length - right.length).fill('0');
+        groups = [...left, ...fill, ...right];
+      } else {
+        groups = clean.split(':');
+      }
+      if (groups.length !== 8) return addr; // 解析失败则原样返回
+      // 转 128 位 BigInt
+      let bits = 0n;
+      for (const g of groups) bits = (bits << 16n) | BigInt(parseInt(g, 16));
+      // 按前缀长度掩码
+      if (prefixLen < 0 || prefixLen > 128) return addr;
+      const mask = prefixLen === 0 ? 0n : ((1n << BigInt(128 - prefixLen)) - 1n);
+      bits &= ~mask;
+      // 转回 8 组
+      const result: string[] = [];
+      for (let i = 7; i >= 0; i--) {
+        result[i] = (bits & 0xffffn).toString(16);
+        bits >>= 16n;
+      }
+      // 最简压缩（:: 替换最长连续 0 段）
+      let bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
+      for (let i = 0; i < 8; i++) {
+        if (result[i] === '0') {
+          if (curStart < 0) curStart = i;
+          curLen = i - curStart + 1;
+          if (curLen > bestLen) { bestStart = curStart; bestLen = curLen; }
+        } else {
+          curStart = -1;
+        }
+      }
+      if (bestLen >= 2) {
+        const left = result.slice(0, bestStart).join(':');
+        const right = result.slice(bestStart + bestLen).join(':');
+        return `${left}::${right}`;
+      }
+      return result.join(':');
+    } catch {
+      return addr;
+    }
+  };
+
+  /**
    * 向顶层写入两条 IPv6 静态路由：
    * 1. 对端 PE SID 网段/64 路由（不带 vrf），via 为对端 PE 公网 IPv6
    * 2. VRF 默认路由 ::/0（带 vrf），via 固定为 "nexthop-vrf 0"，使 VRF 内流量可经由公网表转发
@@ -878,7 +933,7 @@ const SRv6CreatePage: React.FC = () => {
     }
     // IPv6 路由：注入两条——①对端 SID/64 路由(不带 vrf，via=对端PE公网IPv6) ②VRF默认路由 ::/0(带 vrf，via=nexthop-vrf 0)
     const peerPrefix = peerCfg ? extractSrv6Prefix(peerCfg) : undefined;
-    const srv6PeerDest = peerPrefix ? `${peerPrefix.split('/')[0].trim()}/64` : undefined;
+    const srv6PeerDest = peerPrefix ? `${maskToIpv6Network(peerPrefix.split('/')[0].trim(), 64)}/64` : undefined;
     const via = peerCfg ? extractPortIpv6(peerCfg, 0) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
 
