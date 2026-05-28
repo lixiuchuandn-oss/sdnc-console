@@ -3,7 +3,7 @@
  * 关系型数据库（RDS）实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip } from 'antd';
+import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip, message } from 'antd';
 import { ReloadOutlined, DatabaseOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -159,9 +159,7 @@ const PaasSection: React.FC<Props> = ({
     const perms = (user?.permissions ?? []) as string[];
     return (
       hasPermissionForAction(perms, 'clouds.paas-databases:write') ||
-      hasPermissionForAction(perms, 'clouds.ecs:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
 
@@ -400,6 +398,10 @@ const PaasSection: React.FC<Props> = ({
   );
 
   const handleOpenCreateModal = () => {
+    if (!canPaasWrite) {
+      message.error('当前账号没有云数据库操作权限（需要 clouds.paas-databases:write 或 clouds:write 权限）');
+      return;
+    }
     Promise.resolve(onReloadImages?.()).catch(() => undefined);
     Promise.resolve(onReloadSubnets?.()).catch(() => undefined);
     Promise.resolve(onReloadNads?.()).catch(() => undefined);

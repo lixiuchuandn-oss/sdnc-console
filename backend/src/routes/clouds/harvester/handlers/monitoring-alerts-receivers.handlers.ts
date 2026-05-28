@@ -84,12 +84,12 @@ function buildReceiverMetadataAnnotations(
   return next;
 }
 
-function readReceiverAliasDescription(meta: any): { alias?: string; description?: string } {
+function readReceiverAliasDescription(meta: any): { aliasName?: string; description?: string } {
   const annotations = meta?.annotations && typeof meta.annotations === 'object' ? meta.annotations : {};
-  const alias = String(annotations[ANNOTATION_ALIAS] ?? '').trim();
+  const aliasName = String(annotations[ANNOTATION_ALIAS] ?? '').trim();
   const description = String(annotations[ANNOTATION_DESCRIPTION] ?? '').trim();
   return {
-    ...(alias ? { alias } : {}),
+    ...(aliasName ? { aliasName } : {}),
     ...(description ? { description } : {}),
   };
 }
@@ -197,11 +197,11 @@ async function syncLinkedSecretsAnnotationForReceivers(
  * 接口约定：
  * - `receiverName` 兼容历史调用，可传入 `email-receiver|dingtalk-receiver|website-receiver`
  *   做「通知方式」过滤（与 annotation `tower.io/monitoring-receiver` 等价）。
- * - 响应中每条 `{ namespace, receiverName, receiverType, alias, description, specReceivers }`：
+ * - 响应中每条 `{ namespace, receiverName, receiverType, aliasName, description, specReceivers }`：
  *   - `receiverName`: AlertmanagerConfig `metadata.name`，用于后续 CRUD URL 寻址。
  *   - `receiverType`: 通知方式类型，来源 **annotation `tower.io/monitoring-receiver`**，
  *     annotation 缺失时按 metadata.name 回退（兼容历史数据）。**前端「通知方式」一律读这一字段**。
- *   - `alias`: 通知对象名称，来源 annotation `tower.io/alias`。
+ *   - `aliasName`: 通知对象名称，来源 annotation `tower.io/alias`（与 AlertmanagerPolicy.aliasName 同口径）。
  *   - `description`: 通知对象描述，来源 annotation `tower.io/description`。
  */
 export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(req: Request, res: Response) {
@@ -254,12 +254,12 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(req
       }));
 
       if (specReceivers.length > 0) {
-        const { alias, description } = readReceiverAliasDescription(meta);
+        const { aliasName, description } = readReceiverAliasDescription(meta);
         receivers.push({
           namespace: ns,
           receiverName: name,
           receiverType,
-          ...(alias ? { alias } : {}),
+          ...(aliasName ? { aliasName } : {}),
           ...(description ? { description } : {}),
           specReceivers,
         });

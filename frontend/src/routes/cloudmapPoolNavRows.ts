@@ -125,7 +125,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-mon-alerts',
     pathSuffix: 'monitoring_alerts/alerts-list',
-    poolPageAction: 'clouds.monitoring.overview:read',
+    poolPageAction: 'clouds.alerts:read',
     title: '运维监控',
     order: 20,
     icon: 'AlertOutlined',

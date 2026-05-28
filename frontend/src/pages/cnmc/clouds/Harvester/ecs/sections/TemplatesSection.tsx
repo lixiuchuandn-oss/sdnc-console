@@ -49,7 +49,6 @@ interface Props {
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
-  bordered?: boolean;
   workspaceVmNamespace?: string;
 }
 
@@ -59,7 +58,6 @@ const TemplatesSection: React.FC<Props> = ({
   loading,
   onRefresh,
   isTenant = false,
-  bordered = true,
 }) => {
   const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();

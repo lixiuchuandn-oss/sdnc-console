@@ -445,13 +445,13 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 - 使用 TypeScript 类型定义，放在 `types/`
 - 所有 API 调用通过 `services/` 层
 
-### 云监控 Tooltip 规范
+### 云监控说明气泡（Popover）规范
 
-在 `frontend/src/pages/cnmc/clouds/Harvester/monitoring/` 下新增或修改 Tooltip 时：
+在 `frontend/src/pages/cnmc/clouds/Harvester/monitoring/` 下新增或修改说明类浮层时：
 
-- 必须复用 `components/MonitoringTooltip`。
-- 不要在业务页面内重复内联 Tooltip 的 `styles.body`。
-- Tooltip 默认使用 `placement="topLeft"`。
+- 优先复用 `components/MonitoringTooltip` 导出的 **`MonitoringPopover`**（气泡卡片）。
+- 存量 `MonitoringTooltip`（Tooltip）逐步迁移为 Popover；不要在业务页面内重复内联 `styles.body`。
+- Popover 默认使用 `placement="topLeft"`、`trigger="hover"`。
 - 说明类图标使用 `QuestionCircleOutlined`，颜色 `rgba(0,0,0,.45)`，字号 `12`，鼠标样式 `help`。
 
 ### 加载态与骨架屏（列表 / 数据区块）

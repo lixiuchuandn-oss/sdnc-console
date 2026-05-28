@@ -40,6 +40,10 @@ function isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
 
+function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
+}
+
 /** 与 `frontend/src/utils/accessMapping.ts` 中 `hasPermissionForAction` 对齐 */
 export function hasPermissionForAction(perms: string[], act: string | null): boolean {
   if (!act) return false;
@@ -57,7 +61,8 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':read') &&
-    !isCloudsContainersResourceBase(base)
+    !isCloudsContainersResourceBase(base) &&
+    !isCloudsDashboardOrPoolsResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
       return true;
@@ -67,7 +72,8 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':write') &&
-    !isCloudsContainersResourceBase(base)
+    !isCloudsContainersResourceBase(base) &&
+    !isCloudsDashboardOrPoolsResourceBase(base)
   ) {
     if (permsArray.includes('clouds.console:write')) {
       return true;

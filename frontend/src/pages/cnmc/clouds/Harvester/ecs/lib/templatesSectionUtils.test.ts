@@ -47,6 +47,13 @@ describe('templatesSectionUtils', () => {
     expect(getTemplateName(rows[0])).toBe('my-tpl');
   });
 
+  it('filterHiddenBaseTemplates hides all base templates', () => {
+    const rows = filterHiddenBaseTemplates([
+      { metadata: { name: 'raw-image-base-template', namespace: 'ns-a' } },
+    ]);
+    expect(rows).toHaveLength(0);
+  });
+
   it('filterTemplateListRows applies keyword and namespace', () => {
     const base = filterHiddenBaseTemplates([
       tpl,

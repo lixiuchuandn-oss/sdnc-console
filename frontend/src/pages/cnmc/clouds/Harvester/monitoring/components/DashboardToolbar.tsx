@@ -6,7 +6,7 @@ import React, { useCallback, useMemo } from 'react';
 import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Button, Dropdown, Space } from 'antd';
 import type { MenuProps } from 'antd';
-import MonitoringTooltip from './MonitoringTooltip';
+import MonitoringTooltip, { MonitoringPopover } from './MonitoringTooltip';
 import {
   OPS_DASHBOARD_TIME_RANGE_OPTIONS,
   type DashboardTimeRangeOption,
@@ -91,18 +91,18 @@ const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
           </MonitoringTooltip>
         </Dropdown>
       ) : null}
-      <MonitoringTooltip title={manualRefreshTooltip}>
+      <MonitoringPopover title={manualRefreshTooltip}>
         <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading} />
-      </MonitoringTooltip>
+      </MonitoringPopover>
       <Dropdown menu={autoMenu} trigger={['click']}>
-        <MonitoringTooltip
+        <MonitoringPopover
           title={autoRefreshMs === null ? '自动刷新已关闭' : `自动刷新间隔：${autoLabel}`}
         >
           <Button>
             {autoLabel}
             <DownOutlined />
           </Button>
-        </MonitoringTooltip>
+        </MonitoringPopover>
       </Dropdown>
     </Space>
   );

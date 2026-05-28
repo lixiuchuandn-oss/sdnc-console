@@ -93,6 +93,25 @@ function hasIntegrationSettingAccess(req: AuthRequest, isWrite: boolean): boolea
   return checkPermission(perms, 'system.integration:read') || checkPermission(perms, 'system.integration:write');
 }
 
+function hasRecycleBinSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return (
+      checkPermission(perms, 'clouds.recycle-bin:write') ||
+      checkPermission(perms, 'clouds.ecs:write') ||
+      checkPermission(perms, 'clouds:write')
+    );
+  }
+  return (
+    checkPermission(perms, 'clouds.recycle-bin:read') ||
+    checkPermission(perms, 'clouds.recycle-bin:write') ||
+    checkPermission(perms, 'clouds.ecs:read') ||
+    checkPermission(perms, 'clouds.ecs:write') ||
+    checkPermission(perms, 'clouds:read') ||
+    checkPermission(perms, 'clouds:write')
+  );
+}
+
 function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
   return (req: AuthRequest, res: any, next: any) => {
     if (req.params.key === 'favorite.cloudId') {
@@ -116,6 +135,17 @@ function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
         return res
           .status(403)
           .json({ message: isWrite ? '权限不足：需要高级集成-管理' : '权限不足：需要高级集成权限' });
+      }
+      return next();
+    }
+    if (
+      req.params.key === 'harvester.recycle_bin.shutdown_interval_hours' ||
+      req.params.key === 'harvester.recycle_bin.retention_days'
+    ) {
+      if (!hasRecycleBinSettingAccess(req, isWrite)) {
+        return res.status(403).json({
+          message: isWrite ? '权限不足：需要回收站-管理' : '权限不足：需要回收站权限',
+        });
       }
       return next();
     }

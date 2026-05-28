@@ -64,8 +64,8 @@ type ReceiverItem = {
   receiverType: string;
   namespace?: string;
   specReceiverName: string;
-  /** 通知对象名称，annotation `tower.io/alias` */
-  alias?: string;
+  /** 通知对象名称，annotation `tower.io/alias`（与 AlertmanagerPolicy.aliasName 同口径） */
+  aliasName?: string;
   /** 通知对象描述，annotation `tower.io/description` */
   description?: string;
   /** 邮件/钉钉/站内信通知对象 ID（用于删除前校验关联） */
@@ -117,15 +117,15 @@ const DEFAULT_ADMIN_NAMESPACE = 'cattle-monitoring-system';
 const EMPTY_EMAIL_CONFIG = { emailTo: '', emailFrom: '', smarthost: '', requireTls: false, authUsername: '', authIdentity: '', authSecretKey: '', sendResolved: true };
 const EMPTY_DINGTALK_CONFIG = { url: '', robotAccount: '', robotUrl: '', robotAccessToken: '', sendResolved: true };
 
-/** 构造 AlertmanagerConfig metadata.annotations（含 monitoring-receiver / alias / description） */
+/** 构造 AlertmanagerConfig metadata.annotations（含 monitoring-receiver / aliasName / description） */
 function buildReceiverCrAnnotations(
   receiverType: NotificationReceiverType,
-  alias?: string,
+  aliasName?: string,
   description?: string,
 ): Record<string, string> {
   return {
     [ANNOTATION_MONITORING_RECEIVER]: receiverType,
-    [ANNOTATION_ALIAS]: (alias ?? '').toString().trim(),
+    [ANNOTATION_ALIAS]: (aliasName ?? '').toString().trim(),
     [ANNOTATION_DESCRIPTION]: (description ?? '').toString().trim(),
   };
 }
@@ -134,8 +134,8 @@ function buildReceiverCrAnnotations(
 const RECEIVER_ALIAS_COLUMN: ColumnsType<ReceiverItem> = [
   {
     title: '通知对象名称',
-    dataIndex: 'alias',
-    key: 'alias',
+    dataIndex: 'aliasName',
+    key: 'aliasName',
     ellipsis: true,
     onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
     render: (v: string | undefined) => v?.trim() || '-',
@@ -329,7 +329,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       namespace: selectedNamespace,
       receiverName: EMAIL_RECEIVER,
       specReceiverName: '',
-      alias: '',
+      aliasName: '',
       description: '',
       emailConfigs: [{ ...EMPTY_EMAIL_CONFIG }],
     });
@@ -350,7 +350,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     addDingtalkForm.setFieldsValue({
       namespace: selectedNamespace,
       specReceiverName: '',
-      alias: '',
+      aliasName: '',
       description: '',
       webhookConfigs: [{ ...EMPTY_DINGTALK_CONFIG }],
     });
@@ -366,7 +366,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     addWebsiteForm.setFieldsValue({
       namespace: selectedNamespace ? [selectedNamespace] : [],
       receiverName: WEBSITE_RECEIVER,
-      alias: '',
+      aliasName: '',
       description: '',
     });
   }, [selectedNamespace, addWebsiteForm, canWriteReceivers]);
@@ -392,7 +392,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   }, [addWebsiteForm]);
 
   const handleAddWebsiteSubmit = useCallback(async () => {
-    const values = await addWebsiteForm.validateFields(['namespace', 'receiverName', 'alias', 'description']).catch(() => null);
+    const values = await addWebsiteForm.validateFields(['namespace', 'receiverName', 'aliasName', 'description']).catch(() => null);
     if (!values || !cloudId) return;
     const raw = values.namespace;
     const isWebsiteEdit = !!editingRecord && editingRecord.receiverType === WEBSITE_RECEIVER;
@@ -410,7 +410,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       const receiverSpec = buildReceiverSpec(WEBSITE_RECEIVER, WEBSITE_RECEIVER as ReceiverName, {});
       const annotations = buildReceiverCrAnnotations(
         WEBSITE_RECEIVER,
-        values.alias,
+        values.aliasName,
         values.description,
       );
       const failed: string[] = [];
@@ -532,7 +532,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
     }
 
     // 新模型：URL `:name` 直接为通知对象标识；payload 仅含本次表单生成的单条 receiver
-    const alias = (formValues.alias ?? '').toString().trim();
+    const aliasName = (formValues.aliasName ?? '').toString().trim();
     const description = (formValues.description ?? '').toString().trim();
     const payload = {
       apiVersion: MONITORING_API_VERSION,
@@ -541,7 +541,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         name: specReceiverName,
         namespace,
         labels: { 'monitoring-receiver': 'true' },
-        annotations: buildReceiverCrAnnotations(receiverType, alias, description),
+        annotations: buildReceiverCrAnnotations(receiverType, aliasName, description),
       },
       spec: { receivers: [receiverSpec] },
     };
@@ -581,7 +581,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   }, [cloudId, loadReceivers]);
 
   const handleAddEmailSubmit = useCallback(async () => {
-    const fieldsToValidate = ['namespace', 'specReceiverName', 'alias', 'description', 'emailConfigs'];
+    const fieldsToValidate = ['namespace', 'specReceiverName', 'aliasName', 'description', 'emailConfigs'];
     const values = await addEmailForm.validateFields(fieldsToValidate).catch(() => null);
     const namespace = (values?.namespace ?? selectedNamespace) ?? '';
     if (!values || !cloudId || !namespace) return;
@@ -596,7 +596,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
   }, [addEmailForm, cloudId, selectedNamespace, editingRecord, upsertReceiverToAlertmanagerConfig, handleCloseAddEmailModal]);
 
   const handleAddDingtalkSubmit = useCallback(async () => {
-    const fieldsToValidate = ['namespace', 'specReceiverName', 'alias', 'description', 'webhookConfigs'];
+    const fieldsToValidate = ['namespace', 'specReceiverName', 'aliasName', 'description', 'webhookConfigs'];
     const values = await addDingtalkForm.validateFields(fieldsToValidate).catch(() => null);
     const namespace = (values?.namespace ?? selectedNamespace) ?? '';
     if (!values || !cloudId || !namespace) return;
@@ -650,7 +650,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           namespace: record.namespace,
           receiverName: EMAIL_RECEIVER,
           specReceiverName: record.specReceiverName,
-          alias: record.alias ?? '',
+          aliasName: record.aliasName ?? '',
           description: record.description ?? '',
           emailConfigs: formConfigs,
         });
@@ -668,7 +668,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         addDingtalkForm.setFieldsValue({
           namespace: record.namespace,
           specReceiverName: record.specReceiverName,
-          alias: record.alias ?? '',
+          aliasName: record.aliasName ?? '',
           description: record.description ?? '',
           webhookConfigs: formList,
         });
@@ -678,7 +678,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         addWebsiteForm.setFieldsValue({
           namespace: record.namespace ?? undefined,
           receiverName: WEBSITE_RECEIVER,
-          alias: record.alias ?? '',
+          aliasName: record.aliasName ?? '',
           description: record.description ?? '',
         });
         setAddWebsiteModalOpen(true);
@@ -687,7 +687,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         message.info('暂不支持编辑该类型');
       }
     },
-    [cloudId, addEmailForm, addDingtalkForm, canWriteReceivers]
+    [cloudId, addEmailForm, addDingtalkForm, addWebsiteForm, canWriteReceivers]
   );
   /**
    * 删除通知对象。
@@ -764,7 +764,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       const receiverType = rawType || '';
       const receiverName = (r.receiverName ?? '').toString().trim() || receiverType;
       const ns = (r.namespace ?? selectedNamespace) || '';
-      const itemAlias = ((r as { alias?: string }).alias ?? '').toString().trim() || undefined;
+      const itemAliasName = ((r as { aliasName?: string }).aliasName ?? '').toString().trim() || undefined;
       const itemDescription = ((r as { description?: string }).description ?? '').toString().trim() || undefined;
       const list = Array.isArray((r as any)?.specReceivers) ? (r as any).specReceivers : [];
       const keyType = receiverType || receiverName || 'unknown-receiver';
@@ -780,7 +780,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               receiverName,
               receiverType,
               specReceiverName,
-              alias: itemAlias,
+              aliasName: itemAliasName,
               description: itemDescription,
               emailReceiverId: receiverId,
               emailTo: c?.to,
@@ -803,7 +803,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               receiverName,
               receiverType,
               specReceiverName,
-              alias: itemAlias,
+              aliasName: itemAliasName,
               description: itemDescription,
               emailReceiverId: receiverId,
               createdAt: specReceiver?.createdAt,
@@ -822,7 +822,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               receiverName,
               receiverType,
               specReceiverName,
-              alias: itemAlias,
+              aliasName: itemAliasName,
               description: itemDescription,
               dingtalkReceiverId: receiverId,
               robotAccount: c?.robotAccount,
@@ -840,7 +840,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
               receiverName,
               receiverType,
               specReceiverName,
-              alias: itemAlias,
+              aliasName: itemAliasName,
               description: itemDescription,
               dingtalkReceiverId: receiverId,
               createdAt: specReceiver?.createdAt,
@@ -856,7 +856,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
             receiverName,
             receiverType,
             specReceiverName,
-            alias: itemAlias,
+            aliasName: itemAliasName,
             description: itemDescription,
             websiteReceiverId: specReceiver?.id,
             createdAt: specReceiver?.createdAt,
@@ -875,9 +875,9 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
       filtered = filtered.filter((r) => {
         const typeMatch = (r.receiverType ?? '').toLowerCase().includes(k);
         const specNameMatch = (r.specReceiverName ?? '').toLowerCase().includes(k);
-        const aliasMatch = (r.alias ?? '').toLowerCase().includes(k);
+        const aliasNameMatch = (r.aliasName ?? '').toLowerCase().includes(k);
         const nsMatch = (r.namespace ?? '').toLowerCase().includes(k);
-        return typeMatch || specNameMatch || aliasMatch || nsMatch;
+        return typeMatch || specNameMatch || aliasNameMatch || nsMatch;
       });
     }
     return filtered;
@@ -1173,7 +1173,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           pagination={false}
           locale={{ emptyText: '暂无数据' }}
         />
-
+      {/* 通知对象详情 Modal */}
       <Modal
         title="详情"
         open={!!detailRecord}
@@ -1188,7 +1188,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
             </Descriptions.Item>
             <Descriptions.Item label="项目">{detailRecord.namespace ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="通知对象标识">{detailRecord.specReceiverName ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="通知对象名称">{detailRecord.alias?.trim() || '-'}</Descriptions.Item>
+            <Descriptions.Item label="通知对象名称">{detailRecord.aliasName?.trim() || '-'}</Descriptions.Item>
             <Descriptions.Item label="通知对象描述">{detailRecord.description?.trim() || '-'}</Descriptions.Item>
             {detailRecord.receiverType === EMAIL_RECEIVER && ( // 邮件通知对象
               <>
@@ -1225,7 +1225,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         open={addEmailModalOpen}
         onCancel={handleCloseAddEmailModal}
         destroyOnHidden
-        width={800}
+        width={1000}
         footer={[
           <Button key="cancel" onClick={handleCloseAddEmailModal}>取消</Button>,
           <Button key="submit" type="primary" loading={addEmailFormLoading} onClick={() => handleAddEmailSubmit()}>确定</Button>,
@@ -1237,13 +1237,13 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           initialValues={{
             namespace: selectedNamespace,
             specReceiverName: '',
-            alias: '',
+            aliasName: '',
             description: '',
             emailConfigs: [{ ...EMPTY_EMAIL_CONFIG }],
           }}
         >
           <Row gutter={24}>
-            <Col span={10} style={{ minWidth: 280 }}>
+            <Col span={12} style={{ minWidth: 300 }}>
               <Form.Item name="namespace" label="项目" rules={[{ required: true, message: '请选择项目' }]}>
                 <Select
                   placeholder="项目"
@@ -1267,7 +1267,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                 />
               </Form.Item>
             </Col>
-          <Col span={14}>
+          <Col span={12}>
             <Form.Item name="specReceiverName" label="通知对象标识" rules={[{ required: true, message: '请输入通知对象标识' }]}>
               <Input placeholder="如：ops-email、storage-email 等" disabled={!!editingRecord} />
             </Form.Item>
@@ -1275,7 +1275,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         </Row>
           <Row gutter={24}>
             <Col span={12}>
-              <Form.Item name="alias" label="通知对象名称">
+              <Form.Item name="aliasName" label="通知对象名称">
                 <Input placeholder="便于识别的展示名称（可选）" />
               </Form.Item>
             </Col>
@@ -1348,7 +1348,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           <Button type="dashed" onClick={handleAddEmailConfigRow} block icon={<PlusOutlined />}>添加邮箱</Button>
         </Form>
       </Modal>
-
+      {/* 编辑/新增钉钉通知对象 Modal */}
       <Modal
         title={editingRecord ? '编辑钉钉通知对象' : '新增钉钉通知对象'}
         open={addDingtalkModalOpen}
@@ -1366,7 +1366,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           initialValues={{
             namespace: selectedNamespace,
             specReceiverName: '',
-            alias: '',
+            aliasName: '',
             description: '',
             webhookConfigs: [{ url: '', robotAccount: '', robotUrl: '', robotAccessToken: '', sendResolved: true }],
           }}
@@ -1392,7 +1392,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         </Row>
           <Row gutter={24}>
             <Col span={12}>
-              <Form.Item name="alias" label="通知对象名称">
+              <Form.Item name="aliasName" label="通知对象名称">
                 <Input placeholder="便于识别的展示名称（可选）" />
               </Form.Item>
             </Col>
@@ -1441,7 +1441,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           initialValues={{
             namespace: selectedNamespace ? [selectedNamespace] : [],
             receiverName: WEBSITE_RECEIVER,
-            alias: '',
+            aliasName: '',
             description: '',
           }}
         >
@@ -1471,7 +1471,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           </Row>
           <Row gutter={24}>
             <Col span={12}>
-              <Form.Item name="alias" label="通知对象名称">
+              <Form.Item name="aliasName" label="通知对象名称">
                 <Input placeholder="便于识别的展示名称（可选）" />
               </Form.Item>
             </Col>

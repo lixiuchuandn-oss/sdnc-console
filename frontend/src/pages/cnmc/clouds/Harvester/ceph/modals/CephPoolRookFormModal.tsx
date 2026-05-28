@@ -26,7 +26,6 @@ import {
 import {
   crushRuleOptionLabel,
   QUOTA_UNIT_OPTIONS,
-  quotaBytesFromAmountAndUnit,
   type QuotaUnit,
 } from '../lib/cephPoolFormUtils';
 

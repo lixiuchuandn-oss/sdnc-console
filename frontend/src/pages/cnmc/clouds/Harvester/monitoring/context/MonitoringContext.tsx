@@ -9,6 +9,18 @@ import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterAp
 export const EMAIL_RECEIVER = 'email-receiver';
 export const DINGTALK_RECEIVER = 'dingtalk-receiver';
 export const WEBSITE_RECEIVER = 'website-receiver';
+export const NULL_RECEIVER = 'null-receiver';
+/** 通知方式取值集合（仅这三类） */
+export type MonitoringReceiverType =
+  | typeof EMAIL_RECEIVER
+  | typeof DINGTALK_RECEIVER
+  | typeof WEBSITE_RECEIVER;
+
+export const RECEIVER_TYPE_LABELS: Record<MonitoringReceiverType, string> = {
+  [EMAIL_RECEIVER]: '邮件',
+  [DINGTALK_RECEIVER]: '钉钉',
+  [WEBSITE_RECEIVER]: '站内信',
+};
 /**
  * AlertmanagerConfig metadata.annotations 中标识「通知方式」的注解键。
  * 取值同 EMAIL_RECEIVER / DINGTALK_RECEIVER / WEBSITE_RECEIVER。
@@ -20,11 +32,9 @@ export const ANNOTATION_MONITORING_RECEIVER = 'tower.io/monitoring-receiver';
 export const ANNOTATION_ALIAS = 'tower.io/alias';
 /** 通知对象描述（AlertmanagerConfig metadata.annotations） */
 export const ANNOTATION_DESCRIPTION = 'tower.io/description';
-/** 通知方式取值集合（仅这三类） */
-export type MonitoringReceiverType =
-  | typeof EMAIL_RECEIVER
-  | typeof DINGTALK_RECEIVER
-  | typeof WEBSITE_RECEIVER;
+/** 通知对象目标（AlertmanagerConfig metadata.annotations） */
+export const ANNOTATION_ALERTMANAGER_TARGET = 'tower.io/alertmanager-target';
+
 /** 将任意输入归一为 MonitoringReceiverType，未知值回退为邮件 */
 export function normalizeMonitoringReceiverType(value: unknown): MonitoringReceiverType {
   const v = String(value ?? '').trim();
@@ -42,6 +52,9 @@ export const MONITORING_DEFAULT_NAMESPACE = 'cattle-monitoring-system';
 export const MONITORING_NAMESPACE_FILTER_ALL = '';
 export const DINGTALK_CONFIGMAP_NAMESPACE = MONITORING_DEFAULT_NAMESPACE;
 export const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
+/** 系统默认 AlertmanagerConfig 名称 */
+export const SYSTEM_DEFAULT_ALERTMANAGER_CONFIG_NAME = 'default-alertmanager-config';
+
 /** Monitoring CRD apiVersion */
 export const MONITORING_API_VERSION = 'monitoring.coreos.com/v1alpha1';
 /** AlertmanagerConfig CRD kind */

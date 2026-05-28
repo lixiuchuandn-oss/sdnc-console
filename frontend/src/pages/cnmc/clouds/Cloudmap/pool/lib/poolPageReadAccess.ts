@@ -36,17 +36,7 @@ const PAGE_META_BY_SUFFIX = new Map<string, PoolPageRowMeta>(
 );
 
 /** 页 token（prefix）→ 运行时隐式满足的其它读 prefix（仅 read，不含写） */
-export const POOL_PAGE_IMPLIED_READ_BASES: Readonly<Record<string, readonly string[]>> = {
-  'clouds.dc-topology': ['clouds.cluster-nodes', 'clouds.cluster-networks'],
-  'clouds.net-topology': [
-    'clouds.provider-networks',
-    'clouds.cluster-networks',
-    'clouds.vlans',
-    'clouds.cluster-nodes',
-    'clouds.subnets.public',
-    'clouds.nads',
-  ],
-};
+export const POOL_PAGE_IMPLIED_READ_BASES: Readonly<Record<string, readonly string[]>> = {};
 
 /** 资源总览子页访问顺序（路径同步 fallback） */
 export const RESOURCE_HUB_SUB_ORDER: readonly CloudmapResourceSubKey[] = [

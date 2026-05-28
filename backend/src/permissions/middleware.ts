@@ -155,12 +155,11 @@ export function createApiPermissionMiddleware(options?: {
       return `${actionBase}:write`;
     }
 
-    // GET /clouds 列表：主权限为资源池页；兼容全量 clouds:read、控制台与 ECS（创建向导等依赖拉取云列表）
+    // GET /clouds 列表：主权限为资源池页；兼容全量 clouds:read 与 ECS（创建向导等依赖拉取云列表）
     if (actionBase === 'clouds.resource-pools' && isRead) {
       return [
         'clouds.resource-pools:read',
         'clouds:read',
-        'clouds.console:read',
         'clouds.ecs:read',
       ];
     }

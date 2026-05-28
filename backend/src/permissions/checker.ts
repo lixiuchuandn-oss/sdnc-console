@@ -20,6 +20,10 @@ function isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
 
+function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
+}
+
 export class PermissionChecker {
   private registry: PermissionRegistry;
   private inheritanceEngine: InheritanceEngine;
@@ -99,21 +103,28 @@ export class PermissionChecker {
       }
     }
 
-    // 4. 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，见 isCloudsContainersResourceBase）
+    // 4. 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，且不含 dashboard/resource-pools）
     if (
       base &&
       base.startsWith('clouds.') &&
       verb === 'read' &&
       base !== 'clouds' &&
-      !isCloudsContainersResourceBase(base)
+      !isCloudsContainersResourceBase(base) &&
+      !isCloudsDashboardOrPoolsResourceBase(base)
     ) {
       if (permissions.includes('clouds.console:read') || permissions.includes('clouds.console:write')) {
         return true;
       }
     }
 
-    // 4b. 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，与 4 对称）
-    if (base && base.startsWith('clouds.') && verb === 'write' && !isCloudsContainersResourceBase(base)) {
+    // 4b. 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，且不含 dashboard/resource-pools）
+    if (
+      base &&
+      base.startsWith('clouds.') &&
+      verb === 'write' &&
+      !isCloudsContainersResourceBase(base) &&
+      !isCloudsDashboardOrPoolsResourceBase(base)
+    ) {
       if (permissions.includes('clouds.console:write')) {
         return true;
       }

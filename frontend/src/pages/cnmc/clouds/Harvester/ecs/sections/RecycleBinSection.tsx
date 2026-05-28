@@ -69,7 +69,6 @@ import { Table, message, Tooltip, App, Input, Select, Button, Checkbox, Drawer }
 import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import WriteGuard from '../../../../../../components/WriteGuard';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
@@ -82,7 +81,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import RecycleBinTaskConfigModal from '../../ecs/modals/RecycleBinTaskConfigModal';
 import RecycleBinRecordsSection from './RecycleBinRecordsSection';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { selectRecycledVmRows, filterRecycledVmListRows } from '../lib/vmSectionUtils';
 import { createVmRecycleBinListSafeRead } from '../lib/vmSafeRead';
 import {
@@ -131,13 +129,30 @@ const RecycleBinSection: React.FC<Props> = ({
   const { modal } = App.useApp(); // Ant Design App 上下文，用于显示确认对话框
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
+  const hasAnyPermission = useCallback(
+    (targets: string[]) => targets.some((perm) => perms.includes(perm)),
+    [perms],
+  );
+  const canReadRecycleBin = useMemo(() => {
+    return hasAnyPermission([
+      '*',
+      'clouds:*',
+      'clouds:read',
+      'clouds:write',
+      'clouds.recycle-bin:*',
+      'clouds.recycle-bin:read',
+      'clouds.recycle-bin:write',
+    ]);
+  }, [hasAnyPermission]);
   const hasRecycleBinWrite = useMemo(() => {
-    return (
-      hasPermissionForAction(perms, 'clouds.recycle-bin:write') ||
-      hasPermissionForAction(perms, 'clouds.ecs:write') ||
-      hasPermissionForAction(perms, 'clouds:write')
-    );
-  }, [perms]);
+    return hasAnyPermission([
+      '*',
+      'clouds:*',
+      'clouds:write',
+      'clouds.recycle-bin:*',
+      'clouds.recycle-bin:write',
+    ]);
+  }, [hasAnyPermission]);
 
   // [筛选状态] 用户输入的筛选条件
   const [keyword, setKeyword] = useState<string>(''); // 关键字搜索（名称/ID/命名空间）
@@ -441,20 +456,14 @@ const RecycleBinSection: React.FC<Props> = ({
          */
         <div className="toolbar-actions">
           {!isTenant && (
-            <WriteGuard canWrite={hasRecycleBinWrite}>
-              <Tooltip title={undefined}>
-                <span>
-                  <Button
-                    type="primary"
-                    onClick={() => {
-                      setConfigModalVisible(true);
-                    }}
-                  >
-                    任务配置
-                  </Button>
-                </span>
-              </Tooltip>
-            </WriteGuard>
+            <Button
+              type="primary"
+              onClick={() => {
+                setConfigModalVisible(true);
+              }}
+            >
+              任务配置
+            </Button>
           )}
           <Button onClick={() => setRecordsDrawerVisible(true)}>
             回收站记录
@@ -493,6 +502,8 @@ const RecycleBinSection: React.FC<Props> = ({
       {!isTenant && (
         <RecycleBinTaskConfigModal
           open={configModalVisible}
+          canEdit={hasRecycleBinWrite}
+          canRead={canReadRecycleBin}
           onClose={() => setConfigModalVisible(false)}
           onSuccess={() => {
             console.log('回收站任务配置已更新');

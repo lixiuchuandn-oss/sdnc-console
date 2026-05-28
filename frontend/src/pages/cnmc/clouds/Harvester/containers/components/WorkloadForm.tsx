@@ -3020,7 +3020,7 @@ const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityE
                         updateMatchLabelKey(ruleType, ruleIndex, key, newKey);
                       }
                     }}
-                    onChange={(e) => {
+                    onChange={() => {
                       if (labelErrors[rowKey]?.key) {
                         setLabelErrors((prev) => ({ ...prev, [rowKey]: { ...prev[rowKey], key: undefined } }));
                       }

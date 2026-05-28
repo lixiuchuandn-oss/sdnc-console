@@ -27,6 +27,16 @@ export const LEVEL_FILTER_OPTIONS = [
   ...LEVEL_OPTIONS,
 ];
 
+type AlertLevel = typeof ALERT_LEVEL_CRITICAL | typeof ALERT_LEVEL_WARNING | typeof ALERT_LEVEL_INFO | string;
+
+/** 告警列表行 hover 背景（按级别） */
+export const getAlertItemHoverBg = (level: AlertLevel) => {
+  if (level === ALERT_LEVEL_CRITICAL) return 'rgba(255, 77, 79, 0.08)';
+  if (level === ALERT_LEVEL_WARNING) return 'rgba(250, 140, 22, 0.08)';
+  if (level === ALERT_LEVEL_INFO) return 'rgba(22, 119, 255, 0.08)';
+  return 'rgba(22, 119, 255, 0.08)';
+};
+
 // -------- Logging (ClusterFlow / ClusterOutput) --------
 export const LOG_TYPE_LOGGING = 'Logging' as const;
 export const LOG_TYPE_AUDIT = 'Audit' as const;
