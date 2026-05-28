@@ -119,7 +119,7 @@ const CloudInitsSection: React.FC<Props> = ({
             <Select
               allowClear
               showSearch
-              placeholder="命名空间"
+              placeholder="项目"
               className="toolbar-filter-sm"
               options={namespaceOptions}
               value={namespaceFilter || undefined}

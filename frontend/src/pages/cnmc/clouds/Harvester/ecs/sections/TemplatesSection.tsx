@@ -1,6 +1,6 @@
 /**
- * Harvester - VM ?????? Section
- * ???????????????????? `ecs/lib/templatesSectionUtils.ts`???`templatesTableColumns.tsx`???
+ * Harvester - VM 模板列表 Section
+ * 列表列与筛选逻辑见 `ecs/lib/templatesSectionUtils.ts`、`templatesTableColumns.tsx`。
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Input, Button, Select, message, App, Modal, Switch, Dropdown, Tooltip } from 'antd';
@@ -48,6 +48,7 @@ interface Props {
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
+  bordered?: boolean;
   workspaceVmNamespace?: string;
 }
 
@@ -57,6 +58,7 @@ const TemplatesSection: React.FC<Props> = ({
   loading,
   onRefresh,
   isTenant = false,
+  bordered = true,
 }) => {
   const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
@@ -104,23 +106,23 @@ const TemplatesSection: React.FC<Props> = ({
   const handleDelete = useCallback(
     async (tpl: any) => {
       if (!hasTemplatesWrite) {
-        message.error('???????????????????');
+        message.error('无权限执行该操作');
         return;
       }
       const { path, label } = buildTemplateDeleteRequest(tpl);
       modal.confirm({
-        title: '????????????',
+        title: '确认删除模板？',
         icon: <ExclamationCircleOutlined />,
-        content: `???????????? ${label} ?????????????????`,
-        okText: '??????',
+        content: `确定要删除模板 ${label} 吗？此操作不可恢复。`,
+        okText: '删除',
         okType: 'danger',
         onOk: async () => {
           try {
             await deleteHarvesterResourceByLink(cloudId, path);
-            message.success('????????????');
+            message.success('删除成功');
             void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: any) {
-            message.error(`????????: ${e.message}`);
+            message.error(`删除失败: ${e.message}`);
           }
         },
       });
@@ -130,16 +132,16 @@ const TemplatesSection: React.FC<Props> = ({
 
   const handleBatchDelete = useCallback(() => {
     if (!hasTemplatesWrite) {
-      message.error('???????????????????');
+      message.error('无权限执行该操作');
       return;
     }
     if (selectedRowKeys.length === 0) return;
 
     modal.confirm({
-      title: '??????????????????',
+      title: '确认批量删除模板？',
       icon: <ExclamationCircleOutlined />,
-      content: `????????????????? ${selectedRowKeys.length} ????????????????????`,
-      okText: '????????????',
+      content: `确定要删除选中的 ${selectedRowKeys.length} 个模板吗？此操作不可恢复。`,
+      okText: '批量删除',
       okType: 'danger',
       onOk: async () => {
         const targets = selectTemplatesByRowKeys(
@@ -164,7 +166,7 @@ const TemplatesSection: React.FC<Props> = ({
   const openQuickCreate = useCallback(
     (tpl: any) => {
       if (!hasTemplatesWrite) {
-        message.error('???????????????????');
+        message.error('无权限执行该操作');
         return;
       }
       if (!tpl) return;
@@ -192,12 +194,12 @@ const TemplatesSection: React.FC<Props> = ({
         namespace: tplNs,
         autoStart: quickCreateAutoStart,
       });
-      message.success('??????????');
+      message.success('创建成功');
       setQuickCreateVisible(false);
       setQuickCreateTpl(null);
       setQuickCreateName('');
     } catch (e: any) {
-      message.error(e?.message || '??????');
+      message.error(e?.message || '创建失败');
     } finally {
       setQuickCreating(false);
     }
@@ -212,7 +214,7 @@ const TemplatesSection: React.FC<Props> = ({
   const handleOpenYaml = useCallback(
     (tpl: any) => {
       if (!tpl) return;
-      openYamlDrawer(buildTemplateYamlRecord(tpl), { title: '?? YAML' });
+      openYamlDrawer(buildTemplateYamlRecord(tpl), { title: '模板 YAML' });
     },
     [openYamlDrawer],
   );
@@ -255,7 +257,7 @@ const TemplatesSection: React.FC<Props> = ({
       toolbarLeft={
         <>
           <Input
-            placeholder="??/ID"
+            placeholder="名称/ID"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
@@ -266,7 +268,7 @@ const TemplatesSection: React.FC<Props> = ({
             <Select
               allowClear
               showSearch
-              placeholder="????????"
+              placeholder="项目"
               value={selectedNamespace || undefined}
               onChange={(v) => setSelectedNamespace((v as string) || '')}
               options={namespaceOptions}
@@ -275,12 +277,12 @@ const TemplatesSection: React.FC<Props> = ({
           )}
           <Select
             allowClear
-            placeholder="????????"
+            placeholder="作用域"
             value={selectedScope || undefined}
             onChange={(val) => setSelectedScope((val as any) || '')}
             options={[
-              { value: 'public', label: '????????' },
-              { value: 'private', label: '??????' },
+              { value: 'public', label: '公共模板' },
+              { value: 'private', label: '私有模板' },
             ]}
             className="toolbar-filter-sm"
           />
@@ -293,7 +295,7 @@ const TemplatesSection: React.FC<Props> = ({
               setSelectedScope('');
             }}
           >
-            ????
+            重置
           </button>
         </>
       }
@@ -304,7 +306,7 @@ const TemplatesSection: React.FC<Props> = ({
               !hasTemplatesWrite
                 ? undefined
                 : selectedRowKeys.length === 0
-                  ? '????????????'
+                  ? '请先选择模板'
                   : undefined
             }
           >
@@ -315,17 +317,17 @@ const TemplatesSection: React.FC<Props> = ({
                   items: [
                     {
                       key: 'batchDelete',
-                      label: <span style={{ color: '#ff4d4f' }}>????????????</span>,
+                      label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
                       disabled: !hasTemplatesWrite || selectedRowKeys.length === 0,
                     },
                   ],
                   onClick: ({ key }) => {
                     if (!hasTemplatesWrite) {
-                      message.error('????????????????????????');
+                      message.error('无权限执行批量操作');
                       return;
                     }
                     if (selectedRowKeys.length === 0) {
-                      message.warning('????????????');
+                      message.warning('请先选择模板');
                       return;
                     }
                     if (key === 'batchDelete') handleBatchDelete();
@@ -363,15 +365,15 @@ const TemplatesSection: React.FC<Props> = ({
         scroll={{ x: true }}
         pagination={{
           size: 'small',
-          showTotal: (total) => `??? ${total} ?`,
+          showTotal: (total) => `共 ${total} 条`,
         }}
       />
 
       <Modal
-        title="???????????????????"
+        title="使用模板创建虚拟机"
         open={quickCreateVisible}
-        okText="????"
-        cancelText="????"
+        okText="创建"
+        cancelText="取消"
         confirmLoading={quickCreating}
         onOk={doQuickCreate}
         onCancel={() => {
@@ -390,7 +392,7 @@ const TemplatesSection: React.FC<Props> = ({
             autoFocus
           />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>???????????</span>
+            <span>自动开机</span>
             <Switch checked={quickCreateAutoStart} onChange={setQuickCreateAutoStart} />
           </div>
         </div>
@@ -408,7 +410,7 @@ const TemplatesSection: React.FC<Props> = ({
         onClose={closeYamlDrawer}
         cloudId={cloudId}
         viewLink={yamlViewLink}
-        title={yamlDrawerTitle || '?? YAML'}
+        title={yamlDrawerTitle || '模板 YAML'}
       />
     </PageDetailSection>
   );

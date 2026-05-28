@@ -904,7 +904,16 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
   );
 
   const underlaySubnetTableSettingsKey = `harvester_underlay_subnets_${mode}`;
-  const { displayColumns: columns } = useTableColumnSettings(allColumns, underlaySubnetTableSettingsKey);
+  /** 扁平子网列表：ACL 列默认隐藏，可在「列设置」中勾选展示 */
+  const underlaySubnetDefaultHiddenColumns = useMemo(
+    () => (isFlatMode ? (['acls'] as const) : []),
+    [isFlatMode],
+  );
+  const { displayColumns: columns } = useTableColumnSettings(
+    allColumns,
+    underlaySubnetTableSettingsKey,
+    [...underlaySubnetDefaultHiddenColumns],
+  );
 
   return (
     <div>
@@ -956,7 +965,11 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
           >
             {`创建${subnetKindLabel}`}
           </Button>
-          <TableColumnSettingsButton allColumns={allColumns} settingsKey={underlaySubnetTableSettingsKey} />
+          <TableColumnSettingsButton
+            allColumns={allColumns}
+            settingsKey={underlaySubnetTableSettingsKey}
+            defaultHiddenColumns={[...underlaySubnetDefaultHiddenColumns]}
+          />
           <Tooltip title="从集群重新同步子网列表，并刷新本地缓存">
             <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} aria-label="刷新" />
           </Tooltip>
