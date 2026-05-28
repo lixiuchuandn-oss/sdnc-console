@@ -163,7 +163,7 @@ const ImagesSection: React.FC<Props> = ({
         <>
           <Input
             allowClear
-            placeholder="名称/命名空间"
+            placeholder="名称/项目"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}

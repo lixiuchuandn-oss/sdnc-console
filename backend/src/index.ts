@@ -26,6 +26,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { auditLogRoutes } from './routes/auditLogs';
 import { auditMiddleware } from './middleware/audit';
 import { authMiddleware } from './middleware/auth';
+import { resolveStaticPublicRoot } from './utils/resolveStaticPublicRoot';
 
 import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
@@ -137,18 +138,11 @@ app.use(auditMiddleware);
 //   b) 编译后模式：dist/src/index.js → ../../public 即与 dist 同级的应用根 public
 // - 远程部署（deploy_tool）把前端解压到「应用根/public」，必须把该目录排在 dist/public 之前：
 //   否则若 backend/dist 里残留过时的 dist/public，会被整包打进 zip，运行时会错误地托管旧前端，而本地 dev 走 react-scripts 看不出问题。
-const nestedPublicPath = path.join(__dirname, '../public');
-const appRootPublicPath = path.join(__dirname, '../../public');
-let staticPath: string;
-if (fs.existsSync(appRootPublicPath)) {
-  staticPath = appRootPublicPath;
-  logger.info('静态资源目录（应用根 public，优先）:', staticPath);
-} else if (fs.existsSync(nestedPublicPath)) {
-  staticPath = nestedPublicPath;
-  logger.info('静态资源目录（相对路径）:', staticPath);
+const staticPath = resolveStaticPublicRoot(__dirname);
+if (fs.existsSync(staticPath)) {
+  logger.info('静态资源目录:', staticPath);
 } else {
-  staticPath = nestedPublicPath;
-  logger.info('静态资源目录（默认路径，可能不存在）:', staticPath);
+  logger.info('静态资源目录（可能不存在）:', staticPath);
 }
 
 // 只要最终解析出的 staticPath 存在，就开启静态托管

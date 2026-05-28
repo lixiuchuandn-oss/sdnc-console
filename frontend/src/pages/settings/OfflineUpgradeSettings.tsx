@@ -71,12 +71,6 @@ const OfflineUpgradeSettings: React.FC = () => {
           const r = await applyOfflineUpgradeBundle(raw);
           setBundle(null);
           message.success(r.message || '已应用');
-          if (r.needsRestart) {
-            modal.info({
-              title: '需要重启后端',
-              content: r.message,
-            });
-          }
           await load();
         } catch (e: any) {
           message.error(e?.message || '应用失败');
@@ -107,7 +101,7 @@ const OfflineUpgradeSettings: React.FC = () => {
           type="info"
           showIcon
           message="升级前请知悉"
-          description="请仅使用本单位或产品方提供的正式离线升级包，勿使用来源不明的文件。建议在维护窗口或业务低峰期操作；完成后请按页面提示刷新浏览器或联系管理员处理服务重启。"
+          description="请仅使用本单位或产品方提供的正式离线升级包，勿使用来源不明的文件。建议在维护窗口或业务低峰期操作；应用成功后后台将自动重启，请稍候刷新浏览器（Ctrl+F5）。"
         />
 
         <div className="offline-upgrade-settings-cards" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

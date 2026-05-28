@@ -169,7 +169,7 @@ const MonitoringAlerts: React.FC<MonitoringAlertsProps> = ({ cloudId }) => {
           </Space>
         ),
       },
-      { title: '告警项目', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
+      { title: '项目', dataIndex: 'namespace', key: 'namespace', render: (v: string) => v || '-' },
       {
         title: '节点',
         dataIndex: 'node',

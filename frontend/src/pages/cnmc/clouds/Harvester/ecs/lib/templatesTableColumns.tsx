@@ -95,7 +95,7 @@ export function buildTemplatesTableColumns(
     ...(!isTenant
       ? [
           {
-            title: '命名空间',
+            title: '项目',
             key: 'namespace',
             render: (_: any, r: any) => getTemplateNamespace(r) || '-',
           },

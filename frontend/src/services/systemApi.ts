@@ -75,6 +75,7 @@ export type OfflineUpgradeApplyResultDto = {
   appliedPublic: boolean;
   appliedServer: boolean;
   needsRestart: boolean;
+  autoRestartScheduled?: boolean;
   message: string;
 };
 

@@ -879,6 +879,26 @@ export function cephBlockPoolRowToTableRow(r: CephBlockPoolRow, rookCrRaw?: unkn
   };
 }
 
+/**
+ * 云存储「存储池」列表可见的 Rook `CephBlockPool`：
+ * - 内置 `replicapool`；
+ * - 其它带 `spec.replicated` 的块池（Tower 创建的自定义副本池）。
+ * 不展示纠删码等其它 Rook 块池；列表不依赖 mgr Dashboard。
+ */
+export function isTowerVisibleRookStoragePool(pool: unknown): boolean {
+  if (!pool || typeof pool !== 'object') return false;
+  const cr = pool as Record<string, unknown>;
+  const name =
+    typeof (cr.metadata as Record<string, unknown> | undefined)?.name === 'string'
+      ? String((cr.metadata as Record<string, unknown>).name).trim().toLowerCase()
+      : '';
+  if (name === 'replicapool') return true;
+  const spec = cr.spec;
+  if (!spec || typeof spec !== 'object') return false;
+  const rep = (spec as Record<string, unknown>).replicated;
+  return rep != null && typeof rep === 'object';
+}
+
 export function cephBlockPoolToRow(pool: any, index: number): CephBlockPoolRow {
   const name = typeof pool?.metadata?.name === 'string' ? pool.metadata.name : '—';
   const namespace = typeof pool?.metadata?.namespace === 'string' ? pool.metadata.namespace : '—';

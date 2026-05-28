@@ -31,7 +31,7 @@ export function buildCloudInitsTableColumns(
       ),
     },
     ...(!isTenant
-      ? [{ title: '命名空间', dataIndex: 'namespace', key: 'namespace' }]
+      ? [{ title: '项目', dataIndex: 'namespace', key: 'namespace' }]
       : []),
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     {

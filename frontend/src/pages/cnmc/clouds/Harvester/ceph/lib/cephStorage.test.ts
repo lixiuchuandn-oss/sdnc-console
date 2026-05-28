@@ -1,6 +1,7 @@
 import {
   buildRookCephOverviewLandingInputs,
   daemonCountFromCephVersionsField,
+  isTowerVisibleRookStoragePool,
   normalizeCephBundle,
 } from './cephStorage';
 import { buildCephLandingModel } from './cephDashboardLanding';
@@ -28,6 +29,29 @@ describe('daemonCountFromCephVersionsField', () => {
         c: 'ceph version 19.2.0',
       }),
     ).toBe(3);
+  });
+});
+
+describe('isTowerVisibleRookStoragePool', () => {
+  it('includes replicapool and replicated custom pools, excludes erasure', () => {
+    expect(
+      isTowerVisibleRookStoragePool({
+        metadata: { name: 'replicapool', namespace: 'rook-ceph' },
+        spec: { replicated: { size: 3 } },
+      }),
+    ).toBe(true);
+    expect(
+      isTowerVisibleRookStoragePool({
+        metadata: { name: 'my-pool', namespace: 'rook-ceph' },
+        spec: { replicated: { size: 2 } },
+      }),
+    ).toBe(true);
+    expect(
+      isTowerVisibleRookStoragePool({
+        metadata: { name: 'ec-pool', namespace: 'rook-ceph' },
+        spec: { erasureCoded: { dataChunks: 2, codingChunks: 1 } },
+      }),
+    ).toBe(false);
   });
 });
 
