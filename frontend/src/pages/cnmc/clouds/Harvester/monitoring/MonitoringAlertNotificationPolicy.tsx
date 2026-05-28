@@ -806,7 +806,6 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                 {
                   key: 'edit',
                   label: '编辑策略',
-                  disabled: !canWritePolicies || isSystemDefault,
                   onClick: () => handleOpenForm(row),
                 },
                 { type: 'divider' as const },
