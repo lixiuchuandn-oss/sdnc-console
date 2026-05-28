@@ -14,6 +14,14 @@ import { useAutoRefresh } from './hooks/useAutoRefresh';
 import OpsDashboardClusterSection from './sections/OpsDashboardClusterSection';
 import OpsDashboardNodesSection from './sections/OpsDashboardNodesSection';
 import OpsDashboardVmsSection from './sections/OpsDashboardVmsSection';
+import '../../Cloudmap/pool/styles/layout.css';
+import {
+  OPS_DASHBOARD_PAGE_ROOT_STYLE,
+  OPS_DASHBOARD_PAGE_STACK_GAP,
+  OPS_DASHBOARD_TOOLBAR_ROW_STYLE,
+  OPS_DASHBOARD_TOOLBAR_SPACE_SIZE,
+  opsDashboardTagStyle,
+} from './lib/opsDashboardLayout';
 
 interface MonitoringOpsDashboardProps {
   cloudId: string;
@@ -28,15 +36,6 @@ const DASHBOARD_VIEWS: Array<{ key: OpsDashboardView; label: string }> = [
 ];
 
 const DEFAULT_AUTO_REFRESH_MS: number | null = 60 * 1000;
-
-const tagStyle = (active: boolean): React.CSSProperties => ({
-  padding: '4px 12px',
-  fontSize: 14,
-  borderRadius: 16,
-  border: active ? undefined : '1px solid #d9d9d9',
-  cursor: 'pointer',
-  userSelect: 'none',
-});
 
 const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId }) => {
   const [activeView, setActiveView] = useState<OpsDashboardView>('cluster-resources');
@@ -70,24 +69,16 @@ const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId
   }, [activeView, cloudId, resolved, reloadToken]);
 
   return (
-    <div style={{ maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', overflowX: 'hidden', paddingRight: 4 }}>
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-          }}
-        >
-          <Space size={8} wrap>
+    <div className="cloudmap-monitoring-page-root" style={OPS_DASHBOARD_PAGE_ROOT_STYLE}>
+      <Space direction="vertical" size={OPS_DASHBOARD_PAGE_STACK_GAP} style={{ width: '100%' }}>
+        <div style={OPS_DASHBOARD_TOOLBAR_ROW_STYLE}>
+          <Space size={OPS_DASHBOARD_TOOLBAR_SPACE_SIZE} wrap>
             {DASHBOARD_VIEWS.map((view) => (
               <Tag.CheckableTag
                 key={view.key}
                 checked={activeView === view.key}
                 onChange={() => setActiveView(view.key)}
-                style={tagStyle(activeView === view.key)}
+                style={opsDashboardTagStyle(activeView === view.key)}
               >
                 {view.label}
               </Tag.CheckableTag>

@@ -52,6 +52,8 @@ export interface RouteSpec {
   poolMenuParentKey?: string;
   /** Cloudmap 池内：侧栏二级分组键（与 `cloudmapPoolNavRows.poolNavSubgroup` 一致） */
   poolNavSubgroup?: string;
+  /** Cloudmap 池侧栏：满足任一 read 即可展示（见 `cloudmapPoolNavRows.poolPageReadAnyOf`） */
+  poolPageReadAnyOf?: readonly string[];
 }
 
 function toCloudmapPoolRouteSpec(
@@ -76,6 +78,7 @@ function toCloudmapPoolRouteSpec(
     poolNavGroup: r.poolNavGroup,
     poolMenuParentKey: r.poolMenuParentKey || undefined,
     poolNavSubgroup: r.poolNavSubgroup,
+    poolPageReadAnyOf: r.poolPageReadAnyOf,
     title: r.title,
     breadcrumbLabel: r.title,
     subtitle: `${r.poolNavGroup} · ${r.title}`,

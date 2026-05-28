@@ -16,24 +16,12 @@ import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevices
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
 import {
-  CLOUD_CEPH_READ,
-  CLOUD_PROVIDER_NETWORKS_READ,
-} from '../../../../../../../constants/cloudPermissions';
-import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
 } from '../../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import { canViewClusterSidebarLeaf } from '../../lib/clusterPageAccess';
 import CloudmapUnifiedStorageRoutePanel from '../unified_storage';
 import '../../styles/layout.css';
-
-function clusterCephishPerm(checkPerm: (act: string) => boolean): boolean {
-  return (
-    checkPerm(CLOUD_CEPH_READ) ||
-    checkPerm('clouds.disks:read') ||
-    checkPerm('clouds.cluster-nodes:read') ||
-    checkPerm('clouds:read')
-  );
-}
 
 type ClusterSectionVisibleCtx = {
   checkPerm: (act: string) => boolean;
@@ -43,63 +31,7 @@ type ClusterSectionVisibleCtx = {
 };
 
 function isClusterSectionVisible(key: string, ctx: ClusterSectionVisibleCtx): boolean {
-  const {
-    checkPerm,
-    canReadPublicSubnets,
-    canReadNetworkScope,
-    canReadLoadBalancers,
-  } = ctx;
-  switch (key) {
-    case 'cluster_nodes':
-      return (
-        checkPerm('clouds.cluster-nodes:read') || checkPerm('clouds.ecs:read')
-      );
-    case 'cluster_physical_switches':
-      return checkPerm('clouds.cluster-networks:read');
-    case 'kubeovn_public_networks':
-      return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
-    case 'namespaces':
-      return (
-        checkPerm('clouds.namespaces:read') ||
-        checkPerm('clouds:read') ||
-        checkPerm('clouds.ecs:read')
-      );
-    case 'kubeovn_public_subnets':
-      return canReadPublicSubnets;
-    case 'cluster_vlans':
-      return (
-        checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-      );
-    case 'gpu':
-      return checkPerm('clouds.gpus:read') || checkPerm('clouds.ecs:read');
-    case 'cluster_usb':
-      return (
-        checkPerm('clouds.usb-devices:read') || checkPerm('clouds.ecs:read')
-      );
-    case 'clusterNetworks':
-      return checkPerm('clouds.cluster-networks:read');
-    case 'storage_classes':
-      return (
-        checkPerm('clouds.storage-classes:read') ||
-        checkPerm('clouds.ecs:read') ||
-        checkPerm('clouds:read')
-      );
-    case 'nads':
-      return canReadNetworkScope;
-    case 'load_balancers':
-      return canReadLoadBalancers;
-    case 'ippools':
-      return checkPerm('clouds.nads:read');
-    case 'cluster_pci':
-      return checkPerm('clouds.pci-devices:read');
-    case 'cluster_sriov':
-      return checkPerm('clouds.pci-devices:read');
-    default:
-      if (isClusterCephPoolInnerSeg(key)) {
-        return clusterCephishPerm(checkPerm);
-      }
-      return false;
-  }
+  return canViewClusterSidebarLeaf(key, ctx.checkPerm, ctx);
 }
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {

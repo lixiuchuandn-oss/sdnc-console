@@ -9,6 +9,7 @@ import {
   isClusterCephPoolInnerSeg,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { Empty } from 'antd';
+import { canAccessPoolPage } from '../lib/poolPageReadAccess';
 import {
   CloudmapBackupsRoutePanel,
   CloudmapCloudDatabaseRoutePanel,
@@ -110,6 +111,10 @@ const ClusterRoute: React.FC = () => {
   const p = useCloudmapPoolDetail();
   if (!p.canViewClusterGroup) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+  }
+  const inner = p.poolInnerActive('cluster');
+  if (inner && !canAccessPoolPage(p.checkPerm, `cluster/${inner}`)) {
+    return <Empty description="无权限访问该页面" style={{ marginTop: 48 }} />;
   }
   return (
     <CloudmapClusterRoutePanel

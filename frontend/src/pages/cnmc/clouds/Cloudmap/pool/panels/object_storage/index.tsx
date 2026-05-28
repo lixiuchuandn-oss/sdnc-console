@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
-import { CLOUD_CEPH_READ } from '../../../../../../../constants/cloudPermissions';
+import { canViewClusterStorageInner } from '../../lib/clusterPageAccess';
 import CephObjectStorageSection from '../../../../Harvester/ceph/sections/CephObjectStorageSection';
 import RgwObjectStoreUsersSection from '../../../../Harvester/ceph/sections/RgwObjectStoreUsersSection';
 import RgwS3BucketsSection from '../../../../Harvester/ceph/sections/RgwS3BucketsSection';
@@ -21,18 +21,12 @@ export type CloudmapObjectStorageRoutePanelProps = {
 };
 
 function canViewObjectStorageInner(key: string, checkPerm: (a: string) => boolean): boolean {
-  const ok =
-    checkPerm(CLOUD_CEPH_READ) ||
-    checkPerm('clouds.disks:read') ||
-    checkPerm('clouds.cluster-nodes:read') ||
-    checkPerm('clouds:read');
-  if (!ok) return false;
   return (
     key === 'rgw_s3_buckets' ||
     key === 'rgw_users' ||
     key === 'object_gateways' ||
     key === 'cosi'
-  );
+  ) && canViewClusterStorageInner(key, checkPerm);
 }
 
 const CloudmapObjectStorageRoutePanel: React.FC<CloudmapObjectStorageRoutePanelProps> = ({

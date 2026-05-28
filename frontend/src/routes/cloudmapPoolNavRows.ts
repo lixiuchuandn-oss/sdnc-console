@@ -18,6 +18,8 @@ export type CloudmapPoolNavRow = {
   requiredFeature?: string;
   /** 池内页 `requiredActions.page`；缺省为 `clouds.console:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
   poolPageAction?: string;
+  /** 侧栏可见：满足其一即可（仅运维告警等入口；抽屉仍以 `poolPageAction` 为主卡片） */
+  poolPageReadAnyOf?: readonly string[];
   /** 纯展示页：角色抽屉仅「只读」，不展示写权限 */
   poolPageDisplayOnly?: boolean;
   /** 并入管理端默认首页顺位（后端 `resolveAdminDefaultHome` / RouteSpec `homePagePriority`） */
@@ -107,6 +109,13 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     id: 'cloudmap-pool-mon-ops-alert-dashboard',
     pathSuffix: 'monitoring_alerts/ops-alert-dashboard',
     poolPageAction: 'clouds.alerts:read',
+    poolPageReadAnyOf: [
+      'clouds.alerts:read',
+      'clouds.alert-rules:read',
+      'clouds.alert-policies:read',
+      'clouds.alert-receivers:read',
+      'clouds.alert-secrets:read',
+    ],
     title: '运维告警',
     order: 20.5,
     icon: 'AlertOutlined',
@@ -116,7 +125,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-mon-alerts',
     pathSuffix: 'monitoring_alerts/alerts-list',
-    poolPageAction: 'clouds.alerts:read',
+    poolPageAction: 'clouds.monitoring.overview:read',
     title: '运维监控',
     order: 20,
     icon: 'AlertOutlined',
@@ -246,7 +255,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-storage_overview',
     pathSuffix: 'cluster/overview',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-dashboard:read',
     title: '仪表板',
     order: 36,
     icon: 'DatabaseOutlined',
@@ -257,7 +266,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-harvester_addon',
     pathSuffix: 'cluster/harvester_addon',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-addon:read',
     title: '统一存储配置',
     order: 36.1,
     icon: 'PlusCircleOutlined',
@@ -268,7 +277,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-storage_pools',
     pathSuffix: 'cluster/storage_pools',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.unified-storage-pools:read',
     title: '统一存储池',
     order: 36.2,
     icon: 'DatabaseOutlined',
@@ -290,7 +299,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-rbd_mirror',
     pathSuffix: 'cluster/rbd_mirror',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-rbd-mirror:read',
     title: '远程备份',
     order: 36.4,
     icon: 'DatabaseOutlined',
@@ -301,7 +310,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-rgw_s3',
     pathSuffix: 'cluster/rgw_s3_buckets',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-s3-buckets:read',
     title: 'S3 存储桶',
     order: 36.5,
     icon: 'FolderOutlined',
@@ -312,7 +321,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-rgw_users',
     pathSuffix: 'cluster/rgw_users',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-rgw-users:read',
     title: 'RGW 用户密钥',
     order: 36.6,
     icon: 'KeyOutlined',
@@ -323,7 +332,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-object_gateways',
     pathSuffix: 'cluster/object_gateways',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-object-gateway:read',
     title: '对象网关',
     order: 36.7,
     icon: 'GatewayOutlined',
@@ -334,7 +343,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-cosi',
     pathSuffix: 'cluster/cosi',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.storage-cosi:read',
     title: 'COSI 驱动',
     order: 36.8,
     icon: 'ApiOutlined',

@@ -10,6 +10,10 @@
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
 import { poolPageTokenGrantsImpliedRead } from '../constants/poolPageImpliedReads';
+import {
+  hasLegacyOrUmbrellaUnifiedStorageGrant,
+  isUnifiedStorageReadBase,
+} from '../constants/unifiedStoragePermissionBases';
 
 /** `clouds.console:*` 的宽松继承不包含容器子域（与预置「云计算用户」等仅算网/存角色对齐；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read`） */
 function isCloudsContainersResourceBase(resourceBase: string): boolean {
@@ -112,6 +116,20 @@ export class PermissionChecker {
     if (base && base.startsWith('clouds.') && verb === 'write' && !isCloudsContainersResourceBase(base)) {
       if (permissions.includes('clouds.console:write')) {
         return true;
+      }
+    }
+
+    // 4b2. 统一存储：umbrella / 历史 clouds.ceph 覆盖各子域 read；write 同理
+    if (base && verb) {
+      if (verb === 'read' && isUnifiedStorageReadBase(base)) {
+        if (hasLegacyOrUmbrellaUnifiedStorageGrant(permissions, 'read')) {
+          return true;
+        }
+      }
+      if (verb === 'write' && isUnifiedStorageReadBase(base)) {
+        if (hasLegacyOrUmbrellaUnifiedStorageGrant(permissions, 'write')) {
+          return true;
+        }
       }
     }
 

@@ -1,9 +1,9 @@
 import {
   buildHarvesterAddonFormValuesFromStatus,
   buildMetadataDeviceSelectOptions,
-  formatBlockDbSizeForConfig,
   isCephOsdCandidateDeviceName,
-  parseBlockDbSizeGiB,
+  normalizeDatabaseSizeMBInput,
+  parseDatabaseSizeMB,
   parseBlockDeviceOptions,
   validateRunningClusterConfigChange,
   type CephHarvesterAddonValuesConfig,
@@ -150,11 +150,12 @@ describe('cephHarvesterAddon block devices', () => {
     });
   });
 
-  describe('blockDbSize GiB helpers', () => {
-    it('round-trips config string and form number', () => {
-      expect(parseBlockDbSizeGiB('30Gi')).toBe(30);
-      expect(formatBlockDbSizeForConfig(30)).toBe('30Gi');
-      expect(formatBlockDbSizeForConfig('')).toBe('');
+  describe('databaseSizeMB helpers', () => {
+    it('parses MB and legacy Gi strings', () => {
+      expect(parseDatabaseSizeMB(30720)).toBe(30720);
+      expect(parseDatabaseSizeMB('30Gi')).toBe(30720);
+      expect(parseDatabaseSizeMB('')).toBeUndefined();
+      expect(normalizeDatabaseSizeMBInput(1024)).toBe(1024);
     });
   });
 

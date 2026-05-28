@@ -46,8 +46,33 @@ export function mapHarvesterContainerSubPathToPermissionBase(sub: string): strin
   }
 }
 
+/** `/api/clouds/:id/ceph/...` → 存储子域权限基（URL 段仍为 ceph，权限 ID 不含 ceph） */
+export function resolveCephApiPermissionBase(parts: string[]): string {
+  const sub = String(parts[3] || '').toLowerCase();
+  if (sub === 'harvester-addon') return 'clouds.storage-addon';
+  if (sub === 'rook') {
+    const rookSeg = String(parts[4] || '').toLowerCase();
+    if (rookSeg === 'bundle') return 'clouds.storage-dashboard';
+    if (rookSeg === 'rbd-mirrors') return 'clouds.storage-rbd-mirror';
+    if (rookSeg === 'object-stores') return 'clouds.storage-object-gateway';
+    if (rookSeg === 'object-store-users') return 'clouds.storage-rgw-users';
+    if (
+      rookSeg === 'block-pools' ||
+      rookSeg === 'filesystems' ||
+      rookSeg === 'blockpool-rados-namespaces' ||
+      rookSeg === 'clusters'
+    ) {
+      return 'clouds.unified-storage-pools';
+    }
+    return 'clouds.unified-storage';
+  }
+  if (sub === 'rgw') return 'clouds.storage-s3-buckets';
+  if (sub.includes('cosi')) return 'clouds.storage-cosi';
+  return 'clouds.unified-storage';
+}
+
 /**
- * /api/clouds/:cloudId/{seg}/... 且不在 /resources 子树时的权限基（监控、日志、Ceph、机房拓扑等）。
+ * /api/clouds/:cloudId/{seg}/... 且不在 /resources 子树时的权限基（监控、日志、统一存储、机房拓扑等）。
  * 与 Cloudmap 池内 Tab 及 frontend accessMapping 对齐；避免一律落 clouds.resource-pools。
  */
 export function resolveCloudInstanceScopedPermissionBase(parts: string[]): string | null {
@@ -59,7 +84,7 @@ export function resolveCloudInstanceScopedPermissionBase(parts: string[]): strin
   }
 
   if (seg === 'ceph') {
-    return 'clouds.ceph';
+    return resolveCephApiPermissionBase(parts);
   }
 
   if (seg === 'logging') {

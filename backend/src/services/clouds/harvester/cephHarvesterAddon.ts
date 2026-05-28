@@ -27,8 +27,35 @@ export type CephHarvesterAddonNodeDevice = {
   deviceName: string;
   /** 节点级 metadata 盘（同节点多盘时取首条非空） */
   metadataDevice?: string;
-  blockDbSize?: string;
+  /** 每盘 BlueStore DB 容量（MB）；hms-ceph values `databaseSizeMB` */
+  databaseSizeMB?: number;
 };
+
+function parseNodeDatabaseSizeMB(nodeConfig: Record<string, unknown>): number | undefined {
+  if (nodeConfig.databaseSizeMB != null && nodeConfig.databaseSizeMB !== '') {
+    const n = Number(nodeConfig.databaseSizeMB);
+    if (Number.isFinite(n) && n > 0) return Math.trunc(n);
+  }
+  const legacy = strOr(nodeConfig.blockDbSize, '').trim();
+  if (!legacy) return undefined;
+  const gi = legacy.match(/^(\d+(?:\.\d+)?)\s*(?:GiB?|G)?$/i);
+  if (gi) {
+    const g = Number(gi[1]);
+    if (Number.isFinite(g) && g > 0) return Math.trunc(g * 1024);
+  }
+  const plain = Number(legacy);
+  if (Number.isFinite(plain) && plain > 0) return Math.trunc(plain);
+  return undefined;
+}
+
+function databaseSizeMBFromDeviceRow(
+  row: CephHarvesterAddonNodeDevice & { blockDbSize?: unknown },
+): number | undefined {
+  if (row.databaseSizeMB != null && Number.isFinite(row.databaseSizeMB) && row.databaseSizeMB > 0) {
+    return Math.trunc(row.databaseSizeMB);
+  }
+  return parseNodeDatabaseSizeMB({ blockDbSize: row.blockDbSize });
+}
 
 /** 与 hms-ceph Chart values / deployment/ceph.yaml 对齐的结构化配置 */
 export type CephHarvesterAddonValuesConfig = {
@@ -175,27 +202,22 @@ export function parseRookCephAddonValuesContent(
       if (!nodeName) continue;
       const nodeConfig = (row.config || {}) as Record<string, unknown>;
       const metaDev = strOr(nodeConfig.metadataDevice, '');
-      const blockDb = strOr(nodeConfig.blockDbSize, '');
+      const databaseSizeMB = parseNodeDatabaseSizeMB(nodeConfig);
       const devices = Array.isArray(row.devices) ? row.devices : [];
+      const nodeBase = {
+        nodeName,
+        metadataDevice: metaDev,
+        ...(databaseSizeMB != null ? { databaseSizeMB } : {}),
+      };
       if (devices.length === 0) {
-        nodeRows.push({
-          nodeName,
-          deviceName: '',
-          metadataDevice: metaDev,
-          blockDbSize: blockDb,
-        });
+        nodeRows.push({ ...nodeBase, deviceName: '' });
         continue;
       }
       for (const dev of devices) {
         if (!dev || typeof dev !== 'object') continue;
         const d = dev as Record<string, unknown>;
         const deviceName = strOr(d.name, '').trim();
-        nodeRows.push({
-          nodeName,
-          deviceName,
-          metadataDevice: metaDev,
-          blockDbSize: blockDb,
-        });
+        nodeRows.push({ ...nodeBase, deviceName });
       }
     }
 
@@ -246,13 +268,17 @@ export function parseRookCephAddonValuesContent(
 
 function groupNodesForValues(
   nodes: CephHarvesterAddonNodeDevice[],
-): { name: string; devices: { name: string }[]; config: { metadataDevice: string; blockDbSize: string } }[] {
+): {
+  name: string;
+  devices: { name: string }[];
+  config: { metadataDevice: string; databaseSizeMB?: number };
+}[] {
   const byNode = new Map<
     string,
     {
       devices: Set<string>;
       metadataDevice: string;
-      blockDbSize: string;
+      databaseSizeMB?: number;
     }
   >();
 
@@ -264,7 +290,7 @@ function groupNodesForValues(
       byNode.set(nodeName, {
         devices: new Set(),
         metadataDevice: String(row.metadataDevice ?? ''),
-        blockDbSize: String(row.blockDbSize ?? ''),
+        databaseSizeMB: databaseSizeMBFromDeviceRow(row),
       });
     }
     const entry = byNode.get(nodeName)!;
@@ -272,9 +298,8 @@ function groupNodesForValues(
     if (row.metadataDevice != null && String(row.metadataDevice).trim()) {
       entry.metadataDevice = String(row.metadataDevice);
     }
-    if (row.blockDbSize != null && String(row.blockDbSize).trim()) {
-      entry.blockDbSize = String(row.blockDbSize);
-    }
+    const dbMb = databaseSizeMBFromDeviceRow(row);
+    if (dbMb != null) entry.databaseSizeMB = dbMb;
   }
 
   return Array.from(byNode.entries()).map(([name, entry]) => ({
@@ -282,7 +307,7 @@ function groupNodesForValues(
     devices: Array.from(entry.devices).map((deviceName) => ({ name: deviceName })),
     config: {
       metadataDevice: entry.metadataDevice,
-      blockDbSize: entry.blockDbSize,
+      ...(entry.databaseSizeMB != null ? { databaseSizeMB: entry.databaseSizeMB } : {}),
     },
   }));
 }
@@ -380,12 +405,17 @@ function legacyInputToConfig(input: CephHarvesterAddonApplyInput): CephHarvester
     cfg.cephCluster.useAllNodes = false;
     cfg.cephCluster.useAllDevices = false;
     cfg.cephCluster.nodes = nodesInput
-      .map((r) => ({
-        nodeName: String(r?.nodeName || '').trim(),
-        deviceName: String(r?.deviceName || '').trim(),
-        metadataDevice: r?.metadataDevice != null ? String(r.metadataDevice) : '',
-        blockDbSize: r?.blockDbSize != null ? String(r.blockDbSize) : '',
-      }))
+      .map((r) => {
+        const databaseSizeMB = databaseSizeMBFromDeviceRow(
+          r as CephHarvesterAddonNodeDevice & { blockDbSize?: unknown },
+        );
+        return {
+          nodeName: String(r?.nodeName || '').trim(),
+          deviceName: String(r?.deviceName || '').trim(),
+          metadataDevice: r?.metadataDevice != null ? String(r.metadataDevice) : '',
+          ...(databaseSizeMB != null ? { databaseSizeMB } : {}),
+        };
+      })
       .filter((r) => r.nodeName && r.deviceName);
   }
   return cfg;
@@ -396,12 +426,17 @@ function listConfiguredNodeDevices(
 ): CephHarvesterAddonNodeDevice[] {
   const nodes = config?.cephCluster?.nodes || [];
   return nodes
-    .map((r) => ({
-      nodeName: String(r?.nodeName || '').trim(),
-      deviceName: String(r?.deviceName || '').trim(),
-      metadataDevice: r?.metadataDevice ?? '',
-      blockDbSize: r?.blockDbSize ?? '',
-    }))
+    .map((r) => {
+      const databaseSizeMB = databaseSizeMBFromDeviceRow(
+        r as CephHarvesterAddonNodeDevice & { blockDbSize?: unknown },
+      );
+      return {
+        nodeName: String(r?.nodeName || '').trim(),
+        deviceName: String(r?.deviceName || '').trim(),
+        metadataDevice: r?.metadataDevice ?? '',
+        ...(databaseSizeMB != null ? { databaseSizeMB } : {}),
+      };
+    })
     .filter((r) => r.nodeName && r.deviceName);
 }
 
@@ -411,17 +446,19 @@ function nodeDeviceKey(nodeName: string, deviceName: string): string {
 
 function nodeLayoutByNode(
   config: CephHarvesterAddonValuesConfig,
-): Map<string, { devices: Set<string>; metadataDevice: string; blockDbSize: string }> {
+): Map<string, { devices: Set<string>; metadataDevice: string; databaseSizeMB?: number }> {
   const byNode = new Map<
     string,
-    { devices: Set<string>; metadataDevice: string; blockDbSize: string }
+    { devices: Set<string>; metadataDevice: string; databaseSizeMB?: number }
   >();
   for (const row of listConfiguredNodeDevices(config)) {
     if (!byNode.has(row.nodeName)) {
       byNode.set(row.nodeName, {
         devices: new Set(),
         metadataDevice: String(row.metadataDevice ?? ''),
-        blockDbSize: String(row.blockDbSize ?? ''),
+        databaseSizeMB: databaseSizeMBFromDeviceRow(
+          row as CephHarvesterAddonNodeDevice & { blockDbSize?: unknown },
+        ),
       });
     }
     const entry = byNode.get(row.nodeName)!;
@@ -429,9 +466,10 @@ function nodeLayoutByNode(
     if (String(row.metadataDevice ?? '').trim()) {
       entry.metadataDevice = String(row.metadataDevice);
     }
-    if (String(row.blockDbSize ?? '').trim()) {
-      entry.blockDbSize = String(row.blockDbSize);
-    }
+    const dbMb = databaseSizeMBFromDeviceRow(
+      row as CephHarvesterAddonNodeDevice & { blockDbSize?: unknown },
+    );
+    if (dbMb != null) entry.databaseSizeMB = dbMb;
   }
   return byNode;
 }
@@ -461,7 +499,7 @@ export function validateRunningClusterConfigChange(
     if (prev.metadataDevice !== next.metadataDevice) {
       return `不可修改节点 ${nodeName} 的元数据盘。`;
     }
-    if (prev.blockDbSize !== next.blockDbSize) {
+    if (prev.databaseSizeMB !== next.databaseSizeMB) {
       return `不可修改节点 ${nodeName} 的每盘缓存区大小。`;
     }
   }

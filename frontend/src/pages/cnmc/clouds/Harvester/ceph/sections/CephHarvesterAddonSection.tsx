@@ -46,12 +46,12 @@ import {
   buildHarvesterAddonFormValuesFromStatus,
   buildMetadataDeviceSelectOptions,
   describeSelectedBlockDevices,
-  formatBlockDbSizeForConfig,
+  normalizeDatabaseSizeMBInput,
   formValuesToApplyConfig,
   formatBlockDeviceOptionSummary,
   mergeConfiguredBlockDeviceOptions,
   normalizeDeviceNames,
-  parseBlockDbSizeGiB,
+  parseDatabaseSizeMB,
   parseBlockDeviceOptions,
   parseNodeNameOptions,
   validateAddonConfig,
@@ -78,7 +78,6 @@ const WIZARD_STEPS = [
   { title: '存储节点' },
   { title: '集群服务' },
   { title: '容量与策略' },
-  { title: '组件版本' },
   { title: '确认配置' },
 ] as const;
 
@@ -298,7 +297,6 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
       nodeName: presetNode,
       deviceNames: [],
       metadataDevice: '',
-      blockDbSize: '',
     });
   };
 
@@ -492,7 +490,9 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
                           row?.deviceNames,
                         )
                       : [];
-                    const hasAdvanced = !!(row?.metadataDevice?.trim() || row?.blockDbSize?.trim());
+                    const hasAdvanced = !!(
+                      row?.metadataDevice?.trim() || parseDatabaseSizeMB(row?.databaseSizeMB) != null
+                    );
                     return (
                       <Popover
                         trigger="click"
@@ -517,17 +517,16 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
                               />
                             </Form.Item>
                             <Form.Item
-                              name={[field.name, 'blockDbSize']}
+                              name={[field.name, 'databaseSizeMB']}
                               label="每盘缓存区大小"
-                              normalize={formatBlockDbSizeForConfig}
-                              getValueProps={(v) => ({ value: parseBlockDbSizeGiB(v) })}
+                              normalize={normalizeDatabaseSizeMBInput}
                               style={{ marginBottom: 0 }}
                             >
                               <InputNumber
                                 min={1}
                                 precision={0}
                                 placeholder="留空默认"
-                                suffix="GiB"
+                                suffix="MB"
                                 disabled={disabled || nodeLocked}
                                 style={{ width: '100%' }}
                               />
@@ -775,14 +774,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
       ]);
       return;
     }
-    if (step === 3) {
-      await form.validateFields([
-        ['cephtools', 'replicas'],
-        ['cephtools', 'image'],
-        ['operator', 'replicas'],
-        ['operator', 'image'],
-      ]);
-    }
   };
 
   const handleNext = async () => {
@@ -933,7 +924,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
           name="replicaSize"
           label="数据副本数"
           rules={[{ required: true, message: '请输入副本数' }]}
-          extra="修改后会同步更新「集群服务」与「组件版本」中的相关副本数量。"
+          extra="修改后会同步更新「集群服务」中的管理/调度节点副本数量。"
         >
           <InputNumber
             min={1}
@@ -982,13 +973,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
                   extra="关闭后允许使用非标准副本数组合，仅在有明确规划时调整。"
                 >
                   <Switch checkedChildren="启用" unCheckedChildren="关闭" disabled={configLocked} />
-                </Form.Item>
-                <Form.Item
-                  name={['storageClass', 'jobImage']}
-                  label="存储初始化镜像"
-                  rules={[{ required: true, message: '请输入镜像地址' }]}
-                >
-                  <Input placeholder="docker.io/rancher/shell:v0.5.0" style={fc} disabled={configLocked} />
                 </Form.Item>
               </WizardBlock>
             ),
@@ -1039,22 +1023,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
             label: '高级选项',
             children: (
               <>
-                <WizardBlock title="高级 · 软件版本" description="除非有升级或兼容性要求，请保持默认版本。">
-                  <Form.Item
-                    name={['cephCluster', 'cephVersionImage']}
-                    label="存储引擎版本"
-                    rules={[{ required: true, message: '请输入版本镜像' }]}
-                  >
-                    <Input placeholder="quay.io/ceph/ceph:v19.2.3" style={fc} disabled={configLocked} />
-                  </Form.Item>
-                  <Form.Item
-                    name={['cephCluster', 'allowUnsupported']}
-                    label="允许非官方支持版本"
-                    valuePropName="checked"
-                  >
-                    <Switch checkedChildren="允许" unCheckedChildren="禁止" disabled={configLocked} />
-                  </Form.Item>
-                </WizardBlock>
                 <WizardBlock title="高级 · 磁盘布局" description="影响单盘上的存储进程划分，一般无需修改。">
                   <Form.Item name={['cephCluster', 'osdsPerDevice']} label="每盘存储进程数">
                     <Input style={fc} disabled={configLocked} />
@@ -1078,42 +1046,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
           },
         ]}
       />
-    </>
-  );
-
-  const renderStepComponents = () => (
-    <>
-      <WizardBlock
-        title="运维工具"
-        description="用于集群诊断与运维的辅助组件，副本数通常与数据副本数一致。"
-      >
-        <Form.Item name={['cephtools', 'replicas']} label="实例数量">
-          <InputNumber min={1} max={7} style={fc} disabled={configLocked} />
-        </Form.Item>
-        <Form.Item
-          name={['cephtools', 'image']}
-          label="软件版本"
-          rules={[{ required: true, message: '请输入版本镜像' }]}
-        >
-          <Input placeholder="quay.io/ceph/ceph:v19.2.3" style={fc} disabled={configLocked} />
-        </Form.Item>
-      </WizardBlock>
-
-      <WizardBlock
-        title="存储控制器"
-        description="负责在集群中创建与管理统一存储服务，生产环境通常部署 1 个实例。"
-      >
-        <Form.Item name={['operator', 'replicas']} label="实例数量">
-          <InputNumber min={1} max={3} style={fc} disabled={configLocked} />
-        </Form.Item>
-        <Form.Item
-          name={['operator', 'image']}
-          label="软件版本"
-          rules={[{ required: true, message: '请输入版本镜像' }]}
-        >
-          <Input placeholder="docker.io/rook/ceph:v1.19.3" style={fc} disabled={configLocked} />
-        </Form.Item>
-      </WizardBlock>
     </>
   );
 
@@ -1199,8 +1131,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
       case 2:
         return renderStepPoolAndSc();
       case 3:
-        return renderStepComponents();
-      case 4:
         return renderStepConfirm();
       default:
         return null;
@@ -1269,6 +1199,27 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
             initialValues={formInitialValues}
             preserve
           >
+            <Form.Item name={['cephCluster', 'cephVersionImage']} hidden>
+              <Input />
+            </Form.Item>
+            <Form.Item name={['cephCluster', 'allowUnsupported']} hidden valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name={['cephtools', 'replicas']} hidden>
+              <InputNumber />
+            </Form.Item>
+            <Form.Item name={['cephtools', 'image']} hidden>
+              <Input />
+            </Form.Item>
+            <Form.Item name={['operator', 'replicas']} hidden>
+              <InputNumber />
+            </Form.Item>
+            <Form.Item name={['operator', 'image']} hidden>
+              <Input />
+            </Form.Item>
+            <Form.Item name={['storageClass', 'jobImage']} hidden>
+              <Input />
+            </Form.Item>
             {renderStepContent()}
 
             <div
@@ -1284,18 +1235,28 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
             >
               <Space wrap>
                 {status?.config ? (
-                  <Button
-                    onClick={() => {
-                      const values = buildHarvesterAddonFormValuesFromStatus(status);
-                      setFormInitialValues(values);
-                      form.setFieldsValue(values);
-                      setFormInitKey((k) => k + 1);
-                      setCurrentStep(0);
-                      message.info('已恢复为当前集群配置');
-                    }}
+                  <Tooltip
+                    title={
+                      <>
+                        放弃向导里尚未提交的修改，用本页已加载的 rook-ceph Addon 登记配置重填表单。
+                        <br />
+                        不会提交到集群，也不读取 Ceph 运行时状态；若 Addon 已在外部变更，请先点上方刷新。
+                      </>
+                    }
                   >
-                    恢复当前集群配置
-                  </Button>
+                    <Button
+                      onClick={() => {
+                        const values = buildHarvesterAddonFormValuesFromStatus(status);
+                        setFormInitialValues(values);
+                        form.setFieldsValue(values);
+                        setFormInitKey((k) => k + 1);
+                        setCurrentStep(0);
+                        message.info('已还原为 Addon 已登记配置（未提交到集群）');
+                      }}
+                    >
+                      放弃修改，还原登记配置
+                    </Button>
+                  </Tooltip>
                 ) : null}
               </Space>
               <Space wrap>

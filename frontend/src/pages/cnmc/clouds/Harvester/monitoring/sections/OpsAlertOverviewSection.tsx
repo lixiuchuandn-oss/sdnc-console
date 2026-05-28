@@ -4,32 +4,25 @@
  * 落位：monitoring/sections/（与 MonitoringOverviewSection 相邻）
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DownOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Dropdown, Empty, Space, Spin, Switch, Tag, Typography } from 'antd';
-import type { MenuProps } from 'antd';
-import { fetchAlertsRules, fetchPrometheusRulesGroups } from '../../../../../../services/monitoringApi';
+import { SafetyCertificateOutlined } from '@ant-design/icons';
+import { Alert, Card, Empty, Space, Spin, Switch, Tag, Typography } from 'antd';
+import { fetchPrometheusRulesGroups } from '../../../../../../services/monitoringApi';
 import { SEVERITY_MAP } from '../constants';
 import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING } from '../context/MonitoringContext';
 import MonitoringAlerts from '../MonitoringAlerts';
-import { parseAlerts, type ParsedAlert } from '../lib/prometheusAlerts';
+import type { ParsedAlert } from '../lib/prometheusAlerts';
 import AlertDetailModal from '../components/AlertDetailModal';
-import MonitoringTooltip from '../components/MonitoringTooltip';
+import type { OpsAlertOverviewControls } from '../hooks/useOpsAlertOverviewControls';
+import { OPS_DASHBOARD_PAGE_STACK_GAP } from '../lib/opsDashboardLayout';
 
 interface OpsAlertOverviewSectionProps {
   cloudId: string;
+  controls: OpsAlertOverviewControls;
 }
 
-const DEFAULT_AUTO_REFRESH_MS = 10 * 60 * 1000;
 const OVERVIEW_CONTENT_HEIGHT = 360;
 type AlertLevelFilter = typeof ALERT_LEVEL_CRITICAL | typeof ALERT_LEVEL_WARNING | typeof ALERT_LEVEL_INFO;
 type OpsAlertListTab = 'unresolved' | 'resolved';
-const AUTO_REFRESH_OPTIONS: Array<{ label: string; value: number | null }> = [
-  { label: '关', value: null },
-  { label: '5m', value: 5 * 60 * 1000 },
-  { label: '10m', value: 10 * 60 * 1000 },
-  { label: '15m', value: 15 * 60 * 1000 },
-  { label: '30m', value: 30 * 60 * 1000 },
-];
 
 /** 概览区首次拉取数据前的居中加载态（与空状态同高，避免误显示「无告警」） */
 const overviewLoadingState = (
@@ -48,13 +41,10 @@ const overviewLoadingState = (
   </div>
 );
 
-const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloudId }) => {
-  const [loading, setLoading] = useState(() => Boolean(cloudId));
-  const [error, setError] = useState<string>('');
-  const [alerts, setAlerts] = useState<ParsedAlert[]>([]);
+const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloudId, controls }) => {
+  const { loading, error, alerts } = controls;
   const [activeLevel, setActiveLevel] = useState<AlertLevelFilter>(ALERT_LEVEL_CRITICAL);
   const [activeListTab, setActiveListTab] = useState<OpsAlertListTab>('unresolved');
-  const [autoRefreshMs, setAutoRefreshMs] = useState<number | null>(DEFAULT_AUTO_REFRESH_MS);
   /** 用户是否手动选择过等级；未手动选择时，按数据自动 fallback 到有数据的等级 */
   const userPickedLevelRef = useRef(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -76,36 +66,6 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
     setDetailRecord(null);
   }, []);
 
-  /** 加载运维告警数据 */
-  const loadDashboard = useCallback(async () => {
-    if (!cloudId) return;
-    setLoading(true);
-    setError('');
-    try {
-      const { data, ok, error: err } = await fetchAlertsRules(cloudId, {
-        datasource: 'prometheus',
-        autoRefreshMs,
-      });
-      if (!ok) {
-        setAlerts([]);
-        setError(err || '加载运维告警数据失败');
-        return;
-      }
-      const list = parseAlerts(data ?? null).sort((a, b) => {
-        const at = a.activeAtRaw ? new Date(a.activeAtRaw).getTime() : 0;
-        const bt = b.activeAtRaw ? new Date(b.activeAtRaw).getTime() : 0;
-        return bt - at;
-      });
-      setAlerts(list);
-    } finally {
-      setLoading(false);
-    }
-  }, [autoRefreshMs, cloudId]);
-
-  useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
-
   useEffect(() => {
     if (!cloudId) return;
     fetchPrometheusRulesGroups(cloudId).then(({ data, ok }) => {
@@ -116,31 +76,6 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
       }
     });
   }, [cloudId]);
-
-  useEffect(() => {
-    if (!autoRefreshMs) return undefined;
-    const timer = window.setInterval(() => {
-      void loadDashboard();
-    }, autoRefreshMs);
-    return () => window.clearInterval(timer);
-  }, [autoRefreshMs, loadDashboard]);
-
-  const autoRefreshLabel = useMemo(() => {
-    return AUTO_REFRESH_OPTIONS.find((item) => item.value === autoRefreshMs)?.label ?? '自定义';
-  }, [autoRefreshMs]);
-
-  const autoRefreshMenuItems = useMemo<MenuProps['items']>(
-    () =>
-      AUTO_REFRESH_OPTIONS.map((item) => ({
-        key: item.value === null ? 'off' : String(item.value),
-        label: item.label,
-      })),
-    []
-  );
-
-  const handleAutoRefreshMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(({ key }) => {
-    setAutoRefreshMs(key === 'off' ? null : Number(key));
-  }, []);
 
   const metrics = useMemo(() => {
     const critical = alerts.filter((a) => a.level === ALERT_LEVEL_CRITICAL).length;
@@ -244,37 +179,10 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
   );
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <Space direction="vertical" size={OPS_DASHBOARD_PAGE_STACK_GAP} style={{ width: '100%' }}>
       {error ? <Alert type="error" showIcon message={error} /> : null}
       <div style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
-        {/* 运维告警概览 */}
-        <Card
-          size="small"
-          title="运维告警概览"
-          extra={
-            <Space size={8}>
-              <MonitoringTooltip title="刷新告警中心概览">
-                <Button icon={<ReloadOutlined />} onClick={() => void loadDashboard()} loading={loading} />
-              </MonitoringTooltip>
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: autoRefreshMenuItems,
-                  selectedKeys: [autoRefreshMs === null ? 'off' : String(autoRefreshMs)],
-                  onClick: handleAutoRefreshMenuClick,
-                }}
-              >
-                <MonitoringTooltip title={autoRefreshMs === null ? '自动刷新关闭' : `自动刷新间隔：${autoRefreshLabel}`}>
-                  <Button>
-                    {autoRefreshLabel}
-                    <DownOutlined />
-                  </Button>
-                </MonitoringTooltip>
-              </Dropdown>
-            </Space>
-          }
-          style={{ flex: 1.2, minWidth: 0 }}
-        >
+        <Card size="small" title="运维告警概览" style={{ flex: 1.2, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 16, alignItems: 'stretch', height: OVERVIEW_CONTENT_HEIGHT }}>
             {showOverviewLoading ? (
               <div style={{ flex: 1, minWidth: 0 }}>{overviewLoadingState}</div>
@@ -317,7 +225,6 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
                 );
               })}
             </div>
-
             <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', paddingRight: 4 }}>
               {latestAlerts.length === 0 ? (
                 levelEmptyState
@@ -374,7 +281,6 @@ const OpsAlertOverviewSection: React.FC<OpsAlertOverviewSectionProps> = ({ cloud
             )}
           </div>
         </Card>
-        {/* 告警规则 Top10 告警数目 */}
         <Card size="small" title="告警规则 Top10 告警数目" style={{ flex: 1, minWidth: 0 }}>
           <div style={{ height: OVERVIEW_CONTENT_HEIGHT, overflowY: 'auto', paddingRight: 4 }}>
             {showOverviewLoading ? (

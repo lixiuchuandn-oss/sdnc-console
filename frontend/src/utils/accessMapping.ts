@@ -1,5 +1,7 @@
 import { routeSpecs } from '../routes/RouteSpec';
 import { POOL_PAGE_IMPLIED_READ_BASES } from '../pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess';
+import { unifiedStorageReadGranted } from '../pages/cnmc/clouds/Cloudmap/pool/lib/clusterPageAccess';
+import { isUnifiedStorageReadBase } from '../constants/unifiedStoragePermissions';
 
 /**
  * 从 RouteSpec 自动生成路径权限映射
@@ -194,6 +196,11 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
         return true;
       }
     }
+  }
+
+  // 统一存储子域：umbrella / 历史 clouds.ceph（权限 ID 不含 ceph）
+  if (act.endsWith(':read') && isUnifiedStorageReadBase(base)) {
+    if (unifiedStorageReadGranted(permsArray, act)) return true;
   }
 
   return false;

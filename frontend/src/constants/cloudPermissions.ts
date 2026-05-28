@@ -34,6 +34,18 @@ export const CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
 /** Cloudmap 资源总览 · 监控大盘（/monitoring/* 概览类 API） */
 export const CLOUD_MONITORING_OVERVIEW_READ = 'clouds.monitoring.overview:read';
 
+/** 云监控 · 运维监控（Prometheus 大盘；与资源总览「集群总览」共用 monitoring API 权限基） */
+export const CLOUD_ALERTS_READ = 'clouds.alerts:read';
+export const CLOUD_ALERTS_WRITE = 'clouds.alerts:write';
+export const CLOUD_ALERT_RULES_READ = 'clouds.alert-rules:read';
+export const CLOUD_ALERT_RULES_WRITE = 'clouds.alert-rules:write';
+export const CLOUD_ALERT_POLICIES_READ = 'clouds.alert-policies:read';
+export const CLOUD_ALERT_POLICIES_WRITE = 'clouds.alert-policies:write';
+export const CLOUD_ALERT_RECEIVERS_READ = 'clouds.alert-receivers:read';
+export const CLOUD_ALERT_RECEIVERS_WRITE = 'clouds.alert-receivers:write';
+export const CLOUD_ALERT_SECRETS_READ = 'clouds.alert-secrets:read';
+export const CLOUD_ALERT_SECRETS_WRITE = 'clouds.alert-secrets:write';
+
 /** 资源总览 · 机房拓扑（机柜/柜内占位；与物理节点/交换机 Tab 解耦） */
 export const CLOUD_DATACENTER_TOPOLOGY_READ = 'clouds.dc-topology:read';
 export const CLOUD_DATACENTER_TOPOLOGY_WRITE = 'clouds.dc-topology:write';
@@ -41,8 +53,23 @@ export const CLOUD_DATACENTER_TOPOLOGY_WRITE = 'clouds.dc-topology:write';
 /** 资源总览 · 网络拓扑（纯展示） */
 export const CLOUD_NETWORK_TOPOLOGY_READ = 'clouds.net-topology:read';
 
-/** 统一存储（Rook）、对象存储、RGW/S3（/api/clouds/:id/ceph/*） */
-export const CLOUD_CEPH_READ = 'clouds.ceph:read';
+/** 统一存储（Rook / RGW）；见 unifiedStoragePermissions.ts */
+export {
+  CLOUD_UNIFIED_STORAGE_READ,
+  CLOUD_UNIFIED_STORAGE_WRITE,
+  CLOUD_STORAGE_DASHBOARD_READ,
+  CLOUD_STORAGE_ADDON_READ,
+  CLOUD_UNIFIED_STORAGE_POOLS_READ,
+  CLOUD_STORAGE_RBD_MIRROR_READ,
+  CLOUD_STORAGE_S3_BUCKETS_READ,
+  CLOUD_STORAGE_RGW_USERS_READ,
+  CLOUD_STORAGE_OBJECT_GATEWAY_READ,
+  CLOUD_STORAGE_COSI_READ,
+  LEGACY_CLOUD_CEPH_READ,
+} from './unifiedStoragePermissions';
+
+/** @deprecated 新代码请用 CLOUD_UNIFIED_STORAGE_READ 或子域常量 */
+export { LEGACY_CLOUD_CEPH_READ as CLOUD_CEPH_READ } from './unifiedStoragePermissions';
 
 /** Cloudmap · 云数据库（池内 paas_databases；当前 RDS 页） */
 export const CLOUD_PAAS_DATABASES_READ = 'clouds.paas-databases:read';

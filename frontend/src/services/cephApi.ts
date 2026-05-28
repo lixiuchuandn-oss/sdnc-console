@@ -413,7 +413,12 @@ export type CephHarvesterAddonStatusResponse = {
 export type CephHarvesterAddonApplyBody = {
   config?: CephHarvesterAddonValuesConfig;
   replicaSize?: number;
-  nodes?: { nodeName: string; deviceName: string; metadataDevice?: string; blockDbSize?: string }[];
+  nodes?: {
+    nodeName: string;
+    deviceName: string;
+    metadataDevice?: string;
+    databaseSizeMB?: number;
+  }[];
   valuesContent?: string;
   /** 当前登录管理员密码（服务端校验，不落库） */
   password: string;

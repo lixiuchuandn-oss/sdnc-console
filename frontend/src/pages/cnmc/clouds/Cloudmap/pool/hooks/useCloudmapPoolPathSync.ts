@@ -23,6 +23,7 @@ export type UseCloudmapPoolPathSyncParams = {
   locationPathname: string;
   navigate: NavigateFunction;
   canViewClusterGroup: boolean;
+  resolveClusterPoolInnerAccess: (requested: string) => string | null;
   canViewComputeGroup: boolean;
   resolveResourceHubSubAccess: (requested: CloudmapResourceSubKey) => CloudmapResourceSubKey | null;
   canViewMonitoringTab: boolean;
@@ -42,6 +43,7 @@ export function useCloudmapPoolPathSync({
   locationPathname,
   navigate,
   canViewClusterGroup,
+  resolveClusterPoolInnerAccess,
   canViewComputeGroup,
   resolveResourceHubSubAccess,
   canViewMonitoringTab,
@@ -141,13 +143,40 @@ export function useCloudmapPoolPathSync({
     if (cloudmapNavUsesPoolInnerPath(p.tab)) {
       const inner = p.poolInnerSeg;
       if (!inner || !isValidCloudmapPoolInnerSeg(p.tab, inner)) {
+        const defaultSeg =
+          p.tab === 'cluster'
+            ? resolveClusterPoolInnerAccess(
+                cloudmapDefaultPoolInnerSeg('cluster'),
+              ) ?? cloudmapDefaultPoolInnerSeg(p.tab)
+            : cloudmapDefaultPoolInnerSeg(p.tab);
         navigate(
           cloudmapPathForNav(cloudId, p.tab, {
-            poolInnerSeg: cloudmapDefaultPoolInnerSeg(p.tab),
+            poolInnerSeg: defaultSeg,
           }),
           { replace: true },
         );
         return;
+      }
+      if (p.tab === 'cluster') {
+        const resolved = resolveClusterPoolInnerAccess(inner);
+        if (!resolved) {
+          if (canViewComputeGroup) {
+            navigate(
+              cloudmapPathForNav(cloudId, 'compute', {
+                poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
+              }),
+              { replace: true },
+            );
+          }
+          return;
+        }
+        if (resolved !== inner) {
+          navigate(
+            cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved }),
+            { replace: true },
+          );
+          return;
+        }
       }
       handleTabChangeRef.current(inner);
     }
@@ -190,6 +219,7 @@ export function useCloudmapPoolPathSync({
     locationPathname,
     cloudId,
     canViewClusterGroup,
+  resolveClusterPoolInnerAccess,
     canViewComputeGroup,
     resolveResourceHubSubAccess,
     canViewMonitoringTab,

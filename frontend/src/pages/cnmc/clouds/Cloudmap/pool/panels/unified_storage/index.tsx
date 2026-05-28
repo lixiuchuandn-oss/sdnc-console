@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
-import { CLOUD_CEPH_READ } from '../../../../../../../constants/cloudPermissions';
+import { canViewClusterStorageInner } from '../../lib/clusterPageAccess';
 import CloudmapStorageDashboardByBackend from '../resource_hub/CloudmapStorageDashboardByBackend';
 import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
 import CephHarvesterAddonSection from '../../../../Harvester/ceph/sections/CephHarvesterAddonSection';
@@ -24,27 +24,8 @@ export type CloudmapUnifiedStorageRoutePanelProps = {
   ) => void | Promise<void>;
 };
 
-function cephishPerm(checkPerm: (act: string) => boolean): boolean {
-  return (
-    checkPerm(CLOUD_CEPH_READ) ||
-    checkPerm('clouds.disks:read') ||
-    checkPerm('clouds.cluster-nodes:read') ||
-    checkPerm('clouds:read')
-  );
-}
-
 function canViewUnifiedStorageInner(key: string, checkPerm: (act: string) => boolean): boolean {
-  if (!cephishPerm(checkPerm)) return false;
-  return (
-    key === 'overview' ||
-    key === 'harvester_addon' ||
-    key === 'storage_pools' ||
-    key === 'rbd_mirror' ||
-    key === 'rgw_s3_buckets' ||
-    key === 'rgw_users' ||
-    key === 'object_gateways' ||
-    key === 'cosi'
-  );
+  return canViewClusterStorageInner(key, checkPerm);
 }
 
 const CloudmapUnifiedStorageRoutePanel: React.FC<CloudmapUnifiedStorageRoutePanelProps> = ({

@@ -17,34 +17,39 @@ import {
 } from '../hooks/useAutoRefresh';
 
 export interface DashboardToolbarProps {
-  rangeSeconds: number;
-  onRangeChange: (s: number) => void;
+  rangeSeconds?: number;
+  onRangeChange?: (s: number) => void;
   autoRefreshMs: number | null;
   onAutoRefreshChange: (v: number | null) => void;
   loading?: boolean;
   onManualRefresh: () => void;
+  /** 是否展示时间范围（运维告警概览仅刷新 + 自动刷新） */
+  showTimeRange?: boolean;
   /** 自定义时间范围选项；不传用默认 */
   rangeOptions?: DashboardTimeRangeOption[];
   /** 自定义自动刷新选项 */
   autoRefreshOptions?: AutoRefreshOption[];
+  manualRefreshTooltip?: string;
 }
 
 const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
-  rangeSeconds,
+  rangeSeconds = 0,
   onRangeChange,
   autoRefreshMs,
   onAutoRefreshChange,
   loading,
   onManualRefresh,
+  showTimeRange = true,
   rangeOptions = OPS_DASHBOARD_TIME_RANGE_OPTIONS,
   autoRefreshOptions = OPS_DASHBOARD_AUTO_REFRESH_OPTIONS,
+  manualRefreshTooltip = '立即刷新当前大盘',
 }) => {
   const rangeMenu: MenuProps = useMemo(
     () => ({
       items: rangeOptions.map((it) => ({ key: String(it.value), label: it.label })),
       selectable: true,
       selectedKeys: [String(rangeSeconds)],
-      onClick: ({ key }) => onRangeChange(Number(key)),
+      onClick: ({ key }) => onRangeChange?.(Number(key)),
     }),
     [rangeOptions, rangeSeconds, onRangeChange],
   );
@@ -76,15 +81,17 @@ const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
 
   return (
     <Space size={8}>
-      <Dropdown menu={rangeMenu} trigger={['click']}>
-        <MonitoringTooltip title={`时间范围：最近 ${rangeLabel}`}>
-          <Button>
-            {`最近 ${rangeLabel}`}
-            <DownOutlined />
-          </Button>
-        </MonitoringTooltip>
-      </Dropdown>
-      <MonitoringTooltip title="立即刷新当前大盘">
+      {showTimeRange ? (
+        <Dropdown menu={rangeMenu} trigger={['click']}>
+          <MonitoringTooltip title={`时间范围：最近 ${rangeLabel}`}>
+            <Button>
+              {`最近 ${rangeLabel}`}
+              <DownOutlined />
+            </Button>
+          </MonitoringTooltip>
+        </Dropdown>
+      ) : null}
+      <MonitoringTooltip title={manualRefreshTooltip}>
         <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading} />
       </MonitoringTooltip>
       <Dropdown menu={autoMenu} trigger={['click']}>

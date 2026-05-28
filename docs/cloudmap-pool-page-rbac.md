@@ -175,6 +175,50 @@ Section 写门控：`Harvester/hsm/sections/DatacenterTopologySection.tsx` → `
 
 ---
 
+## 6.1 样板：云监控（`monitoring_alerts`）
+
+侧栏仍为 **运维监控 / 运维告警 / 接入管理** 三片叶子（**不改 URL、不改页内 Tab**）。子能力用 **F · 组内孤儿** 进抽屉，不新增侧栏项。
+
+| 侧栏叶子 | 类型 | 入口 `poolPageAction` |
+|----------|------|------------------------|
+| 运维监控 | **C** | `clouds.monitoring.overview:read`（与资源总览「集群总览」同 API 权限基；抽屉标题仍用侧栏名） |
+| 运维告警 | **C** | 抽屉主卡 `clouds.alerts:read`；侧栏可见另支持 `poolPageReadAnyOf`（告警子域 read 任一即可进门，页内 Tab 不变） |
+| 接入管理 | **C** | `clouds.alerts:read` |
+
+| 抽屉孤儿（无侧栏叶） | 入口 read | 运行时门控 |
+|---------------------|-----------|------------|
+| 告警规则 | `clouds.alert-rules:read` | 运维告警页内「告警规则」；直达 `monitoring_alerts/alert-rules` |
+| 告警通知策略 | `clouds.alert-policies:read` | 页内「通知策略」 |
+| 告警通知对象 | `clouds.alert-receivers:read` | 页内「通知对象」 |
+| 告警密钥 | `clouds.alert-secrets:read` | 页内「通知密钥」 |
+
+告警分组与告警规则共用 `clouds.alert-rules:read`。门控实现：`Harvester/monitoring/lib/monitoringPageAccess.ts`；池路由：`Cloudmap/pool/panels/monitoring_alerts/index.tsx`。
+
+---
+
+## 6.2 样板：集群（`cluster`）
+
+侧栏仍为 **节点 / 网络 / 存储服务 / 直通设备** 等叶子（**不改 URL、不改页内 Tab**）。存储服务 8 叶不再共用单一 read。
+
+| 侧栏叶子（`cluster/...`） | 入口 `poolPageAction` |
+|---------------------------|------------------------|
+| 仪表板 | `clouds.storage-dashboard:read` |
+| 统一存储配置 | `clouds.storage-addon:read` |
+| 统一存储池 | `clouds.unified-storage-pools:read` |
+| 远程备份 | `clouds.storage-rbd-mirror:read` |
+| S3 存储桶 | `clouds.storage-s3-buckets:read` |
+| RGW 用户密钥 | `clouds.storage-rgw-users:read` |
+| 对象网关 | `clouds.storage-object-gateway:read` |
+| COSI 驱动 | `clouds.storage-cosi:read` |
+| 其它（节点、NAD、存储类等） | 各页独立原子（见 `cloudmapPoolNavRows`） |
+
+- **整组进门**：`canViewClusterGroup` = 任一集群叶子可读（`clusterPageAccess.ts`），**不用** `clouds:read` / `ecs:read` 兜底。
+- **路由**：`ClusterRoute` 对当前 `poolInnerSeg` 再验 `canAccessPoolPage('cluster/<seg>')`；路径同步用 `resolveClusterPoolInnerAccess` 回落到首个可访问叶子。
+- **API**：`/api/clouds/:id/ceph/*` 仍走 URL 段 `ceph`，权限基映射到上表子域；**`clouds.unified-storage:*`** 与存量 **`clouds.ceph:*`**（仅 checker/accessMapping 兼容，抽屉不再展示）覆盖全部存储子域。
+- 门控：`Cloudmap/pool/lib/clusterPageAccess.ts` · `Cloudmap/pool/panels/cluster/index.tsx`。
+
+---
+
 ## 7. 新增 / 改造池内页检查清单
 
 1. **定类型**：A 壳 / B 纯展示 / C 可操作 / D 附加能力（见 §2）；新功能避免 F 孤儿

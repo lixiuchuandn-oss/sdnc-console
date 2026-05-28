@@ -878,6 +878,10 @@ const AdminLayout: React.FC = () => {
       ovnVpcEnabled: hasFeature('network.ovn.vpc'),
       hasFeature,
       poolRouteAccess: (spec: RouteSpec) => {
+        const anyOf = spec.poolPageReadAnyOf;
+        if (anyOf?.length) {
+          return anyOf.some((act) => hasPermissionForAction(userPermissions, act));
+        }
         const page = spec.requiredActions?.page;
         if (!page) return true;
         return hasPermissionForAction(userPermissions, page);

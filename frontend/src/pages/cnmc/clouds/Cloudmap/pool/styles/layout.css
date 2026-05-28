@@ -22,6 +22,12 @@
   box-sizing: border-box;
 }
 
+/** 云监控（monitoring_alerts）：根节点不嵌套滚动，避免滚动条落在 padding 内侧 */
+.cloudmap-monitoring-page-root {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /**
  * 资源总览内层若使用 antd Tabs，使用本类（与主路径 compute/cluster 无关）。
  */
