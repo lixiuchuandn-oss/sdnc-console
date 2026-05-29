@@ -374,15 +374,15 @@ export class PermissionRegistry {
             // 公有云 /resources/eips 默认映射到 VPC EIP
             permissionBase = 'clouds.eips.vpc';
           } else if (seg1 === 'fips') {
-            // 公有云 /resources/fips 默认映射到 VPC FIP
-            permissionBase = 'clouds.fips.vpc';
+            // 公有云 /resources/fips：与 EIP 同族授权（无独立 FIP 权限项）
+            permissionBase = 'clouds.eips.vpc';
           } else if (seg1 === 'ovneips') {
             // Kube-OVN EIP（未分域路径）：兼容 Harvester 页全量，权限与 VPC EIP 同族并扩张扁平
             permissionBase = 'clouds.eips.vpc';
           } else if (seg1 === 'ovnfips') {
-            permissionBase = 'clouds.fips.vpc';
+            permissionBase = 'clouds.eips.vpc';
           } else if (seg1 === 'subnets') {
-            // 子网独立权限 clouds.subnets；中间件对读/写同时接受 clouds.vpcs（兼容仅授 VPC 权限的旧角色）
+            // 子网独立权限 clouds.subnets（与 clouds.vpcs 解耦，见 middleware）
             permissionBase = 'clouds.subnets';
           } else if (seg1 === 'security-groups') {
             // 公有云安全组默认映射到 VPC 安全组
@@ -467,10 +467,15 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'hms') {
                 // HMS Switch CR 声明式配置（与物理交换机 Tab 对齐）
                 permissionBase = 'clouds.cluster-networks';
-              } else if (actualResourceType === 'backups' || actualResourceType === 'schedulevmbackups' ||
-                         actualResourceType === 'virtualmachinebackups' || actualResourceType === 'virtualmachinerestores') {
-                // VM 备份/快照与定时策略统一使用独立备份权限
+              } else if (
+                actualResourceType === 'backups' ||
+                actualResourceType === 'virtualmachinebackups'
+              ) {
                 permissionBase = 'clouds.backups';
+              } else if (actualResourceType === 'schedulevmbackups') {
+                permissionBase = 'clouds.schedules';
+              } else if (actualResourceType === 'virtualmachinerestores') {
+                permissionBase = 'clouds.restore-tasks';
               } else if (actualResourceType === 'templates') {
                 permissionBase = 'clouds.templates';
               } else if (actualResourceType === 'cloud-inits') {

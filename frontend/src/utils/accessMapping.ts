@@ -3,6 +3,10 @@ import { POOL_PAGE_IMPLIED_READ_BASES } from '../pages/cnmc/clouds/Cloudmap/pool
 import { unifiedStorageReadGranted } from '../pages/cnmc/clouds/Cloudmap/pool/lib/clusterPageAccess';
 import { isUnifiedStorageReadBase } from '../constants/unifiedStoragePermissions';
 import { isCloudsContainersResourceBase } from './permissionUtils';
+import {
+  cbrBackupScheduleAliasSatisfied,
+  isCbrBackupScheduleResourceBase,
+} from '../constants/cbrPermissionBases';
 
 /**
  * 从 RouteSpec 自动生成路径权限映射
@@ -161,6 +165,20 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
     if (permsArray.includes('clouds.containers:write')) {
       return true;
     }
+  }
+
+  // 云备份：历史 clouds.backups 总权仅覆盖快照；定时策略须显式 clouds.schedules
+  if (base === 'clouds.vm-backup-snapshots') {
+    if (permsArray.includes('clouds.backups:read') || permsArray.includes('clouds.backups:write')) {
+      return true;
+    }
+  }
+  if (
+    isCbrBackupScheduleResourceBase(base) &&
+    (act.endsWith(':read') || act.endsWith(':write')) &&
+    cbrBackupScheduleAliasSatisfied(permsArray, base, act.endsWith(':write') ? 'write' : 'read')
+  ) {
+    return true;
   }
 
   // 池内页级 token 隐式读（与 poolPageReadAccess POOL_PAGE_IMPLIED_READ_BASES、backend checker 对齐）

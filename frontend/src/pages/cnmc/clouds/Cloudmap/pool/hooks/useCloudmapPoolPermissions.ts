@@ -209,6 +209,8 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
 
   const canViewBackupsGroup =
     checkPerm('clouds.backups:read') ||
+    checkPerm('clouds.vm-backup-snapshots:read') ||
+    checkPerm('clouds.schedules:read') ||
     checkPerm('clouds.restore-tasks:read') ||
     checkPerm('clouds:read');
 
@@ -217,7 +219,6 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     canReadFlatSubnets ||
     checkPerm('clouds.security-groups.flat:read') ||
     checkPerm('clouds.eips.flat:read') ||
-    checkPerm('clouds.fips.flat:read') ||
     checkPerm('clouds.snat.flat:read') ||
     checkPerm('clouds.dnat.flat:read');
 
@@ -232,7 +233,6 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
       canReadVpcSubnets ||
       checkPerm('clouds.security-groups.vpc:read') ||
       checkPerm('clouds.eips.vpc:read') ||
-      checkPerm('clouds.fips.vpc:read') ||
       checkPerm('clouds.dnat.vpc:read') ||
       checkPerm('clouds.snat.vpc:read') ||
       checkPerm('clouds.traffic-mirroring.vpc:read'));

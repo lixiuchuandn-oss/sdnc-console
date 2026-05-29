@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 扁平子网域（`panels/flat_network`）：扁平 EIP/SNAT/DNAT 与路径别�?*/
+/** ?????`panels/flat_network`??????? EIP/SNAT/DNAT ???? */
 export async function tryLoadKubeOvnFlatTab(
   key: string,
   force: boolean,
@@ -44,7 +44,6 @@ export async function tryLoadKubeOvnFlatTab(
       }
       return true;
     case 'flat_kubeovn_eips':
-    case 'flat_kubeovn_fips':
     case 'flat_kubeovn_snat':
     case 'flat_kubeovn_dnat':
       if (!canViewFlatNetworkGroup) return true;
@@ -93,9 +92,6 @@ export async function tryLoadKubeOvnFlatTab(
           force,
         );
       }
-      /* Cloudmap：FIP 入口暂缓联调
-      if (key === 'flat_kubeovn_fips' && checkPerm('clouds.fips.flat:read')) { ... }
-      */
       if (
         key === 'flat_kubeovn_snat' &&
         checkPerm('clouds.snat.flat:read')

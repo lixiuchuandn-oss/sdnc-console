@@ -10,8 +10,7 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { deleteKubeOvnSubnet, fetchKubeOvnSubnets, updateKubeOvnSubnet } from '../../../../../../services/harvesterApi';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { CLOUD_SUBNETS_VPC_WRITE } from '../../../../../../constants/cloudPermissions';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { hasKubeOvnVpcSubnetWrite } from '../../../../../../constants/cloudPermissions';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import SubnetAclFormItems, { normalizeAclRowForForm, validateAclsFormRowsForSubmit } from '../lib/SubnetAclFormItems';
 import SubnetDetailDrawer from '../drawers/subnet-detail-drawer';
@@ -30,7 +29,7 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
-import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
+import { compactActionMenuItems, writeMenuItemIf } from '../../../../../../utils/rbacUi';
 
 /**
  * =============================================================================
@@ -109,14 +108,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
   const resolvedDisplayMode = displayModeProp ?? (isTenantUser ? 'standard' : 'ops');
   const effectiveShowYaml = showYaml !== false;
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasVpcsWrite = useMemo(
-    () =>
-      hasPermissionForAction(perms, CLOUD_SUBNETS_VPC_WRITE) ||
-      hasPermissionForAction(perms, 'clouds.subnets:write') ||
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write'),
-    [perms],
-  );
+  const canWriteVpcSubnet = useMemo(() => hasKubeOvnVpcSubnetWrite(perms), [perms]);
   const { id: cloudId } = useParams<{ id: string }>();
   const isStandardView = resolvedDisplayMode === 'standard';
 
@@ -211,11 +203,11 @@ const VpcSubnetsSection: React.FC<Props> = ({
   
 
   const openCreateVpcSubnetModal = useCallback(() => {
-    if (!hasVpcsWrite) return;
+    if (!canWriteVpcSubnet) return;
     setIsEditMode(false);
     setCurrentSubnet(null);
     setIsModalOpen(true);
-  }, [hasVpcsWrite]);
+  }, [canWriteVpcSubnet]);
 
   const openDetailDrawer = useCallback((record: any) => {
     setDetailSubnetRecord(record);
@@ -257,7 +249,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
 
   const handleAclFinish = useCallback(
     async (values: any) => {
-      if (!hasVpcsWrite) {
+      if (!canWriteVpcSubnet) {
         message.error('无权限执行该操作');
         return;
       }
@@ -304,7 +296,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         setAclSubmitting(false);
       }
     },
-    [aclForm, aclSubnetName, cloudId, hasVpcsWrite, onRefresh, onRefreshNads, resyncAclFormFromCluster],
+    [aclForm, aclSubnetName, cloudId, canWriteVpcSubnet, onRefresh, onRefreshNads, resyncAclFormFromCluster],
   );
 
   const handleShowYaml = useCallback((record: any) => {
@@ -315,7 +307,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
 
   const handleEdit = useCallback(
     (record: any) => {
-      if (!hasVpcsWrite) {
+      if (!canWriteVpcSubnet) {
         message.error('无权限执行该操作');
         return;
       }
@@ -328,7 +320,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       setCurrentSubnet(record);
       setIsModalOpen(true);
     },
-    [hasVpcsWrite],
+    [canWriteVpcSubnet],
   );
 
   const handleDelete = useCallback(
@@ -336,7 +328,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       const name = String(record?.metadata?.name || record?.name || '');
       const displayName = ovnDisplayName(record);
       if (!name) return;
-      if (!hasVpcsWrite) {
+      if (!canWriteVpcSubnet) {
         message.error('无权限执行该操作');
         return;
       }
@@ -398,7 +390,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
             },
       });
     },
-    [cloudId, hasVpcsWrite, onRefresh, onRefreshNads],
+    [cloudId, canWriteVpcSubnet, onRefresh, onRefreshNads],
   );
 
   const allColumns = useMemo(
@@ -542,7 +534,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
                       .filter((a: any) => !isRuleFromSecurityGroup(a))
                       .length 
                   : 0;
-                if (!hasVpcsWrite) return <span>{n} 条</span>;
+                if (!canWriteVpcSubnet) return <span>{n} 条</span>;
                 return (
                   <Typography.Link
                     onClick={(e) => {
@@ -563,33 +555,34 @@ const VpcSubnetsSection: React.FC<Props> = ({
         render: (_: any, r: any) => {
           return (
             <ResourceActionsDropdown
-              items={filterMenuItemsForReadOnly([
-                ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r) }] : []),
-                {
+              items={compactActionMenuItems([
+                ...(effectiveShowYaml
+                  ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r) }]
+                  : []),
+                ...writeMenuItemIf(canWriteVpcSubnet, {
                   key: 'edit',
                   label: '编辑',
-                  disabled: !hasVpcsWrite,
                   onClick: () => handleEdit(r),
-                },
+                }),
                 ...(!isStandardView
+                  ? writeMenuItemIf(canWriteVpcSubnet, {
+                      key: 'edit_acl',
+                      label: '编辑 ACL',
+                      onClick: () => openAclEditor(r),
+                    })
+                  : []),
+                ...(canWriteVpcSubnet
                   ? [
+                      { type: 'divider' as const },
                       {
-                        key: 'edit_acl',
-                        label: '编辑 ACL',
-                        disabled: !hasVpcsWrite,
-                        onClick: () => openAclEditor(r),
+                        key: 'delete',
+                        label: '删除',
+                        danger: true,
+                        onClick: () => void handleDelete(r),
                       },
                     ]
                   : []),
-                { type: 'divider' },
-                {
-                  key: 'delete',
-                  label: '删除',
-                  danger: true,
-                  disabled: !hasVpcsWrite,
-                  onClick: () => void handleDelete(r),
-                },
-              ], hasVpcsWrite)}
+              ])}
               buttonProps={{ className: 'row-actions-trigger' }}
             />
           );
@@ -598,7 +591,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
     ],
     [
       effectiveShowYaml,
-      hasVpcsWrite,
+      canWriteVpcSubnet,
       isStandardView,
       vpcDisplayMap,
       vpcNsById,
@@ -670,7 +663,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <WriteGuard canWrite={hasVpcsWrite}>
+          <WriteGuard canWrite={canWriteVpcSubnet}>
             <Button type="primary" onClick={openCreateVpcSubnetModal}>
               新建 VPC 子网
             </Button>
@@ -725,7 +718,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         isEditMode={isEditMode}
         editingRecord={currentSubnet}
         cloudId={cloudId}
-        hasVpcsWrite={hasVpcsWrite}
+        canWriteVpcSubnet={canWriteVpcSubnet}
         vpcPickerRows={vpcPickerRows}
         subnets={vpcOnlySubnets}
         onRefresh={onRefresh}
@@ -745,7 +738,7 @@ const VpcSubnetsSection: React.FC<Props> = ({
         }}
         confirmLoading={aclSubmitting}
         destroyOnHidden
-        okButtonProps={{ disabled: !hasVpcsWrite }}
+        okButtonProps={{ disabled: !canWriteVpcSubnet }}
       >
         <Form form={aclForm} layout="vertical" onFinish={handleAclFinish} className="std-form">
           <SubnetAclFormItems />

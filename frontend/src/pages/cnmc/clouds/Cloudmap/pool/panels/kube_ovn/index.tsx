@@ -87,7 +87,6 @@ function canViewKubeOvnInner(
   if (key === 'kubeovn_eips') {
     return checkPerm('clouds.eips.vpc:read') || checkPerm('clouds:read');
   }
-  if (key === 'kubeovn_fips') return false;
   if (key === 'kubeovn_snat') {
     return checkPerm('clouds.snat.vpc:read') || checkPerm('clouds:read');
   }

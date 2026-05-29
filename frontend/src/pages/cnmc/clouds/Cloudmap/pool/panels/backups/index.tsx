@@ -7,6 +7,11 @@ import BackupsSection from '../../../../Harvester/cbr/sections/BackupsSection';
 import ScheduleVmBackupsSection from '../../../../Harvester/cbr/sections/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from '../../../../Harvester/cbr/sections/VmRestoreTasksSection';
 import { createBackupsTabOnRefresh } from '../../loaders/backupsRefresh';
+import {
+  canReadBackupSchedules,
+  canReadVmBackupSnapshots,
+  canReadVmBackups,
+} from '../../../../Harvester/cbr/lib/cbrPermissions';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -56,15 +61,11 @@ export type CloudmapBackupsRoutePanelProps = {
 };
 
 function canViewBackupsInner(key: string, checkPerm: (a: string) => boolean): boolean {
-  if (key === 'backups' || key === 'vm_snapshots' || key === 'schedule_vm_backups') {
-    return checkPerm('clouds.backups:read') || checkPerm('clouds:read');
-  }
+  if (key === 'backups') return canReadVmBackups(checkPerm);
+  if (key === 'vm_snapshots') return canReadVmBackupSnapshots(checkPerm);
+  if (key === 'schedule_vm_backups') return canReadBackupSchedules(checkPerm);
   if (key === 'vm_restores') {
-    return (
-      checkPerm('clouds.restore-tasks:read') ||
-      checkPerm('clouds.backups:read') ||
-      checkPerm('clouds:read')
-    );
+    return checkPerm('clouds.restore-tasks:read') || checkPerm('clouds:read');
   }
   return false;
 }

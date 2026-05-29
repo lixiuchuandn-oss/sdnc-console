@@ -92,7 +92,6 @@ export function runPoolEssentials(
 
   const wantsFlatNatContext =
     checkPerm('clouds.eips.flat:read') ||
-    checkPerm('clouds.fips.flat:read') ||
     checkPerm('clouds.snat.flat:read') ||
     checkPerm('clouds.dnat.flat:read');
 

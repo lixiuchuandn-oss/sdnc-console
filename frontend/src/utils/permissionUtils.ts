@@ -55,10 +55,8 @@ export const POOL_NAV_GROUP_ORPHAN_PREFIXES: Readonly<Record<string, readonly st
     'clouds.alert-receivers',
     'clouds.alert-secrets',
   ],
-  云备份: ['clouds.schedules'],
-  扁平网络: ['clouds.fips.flat', 'clouds.traffic-mirroring.flat'],
+  扁平网络: ['clouds.traffic-mirroring.flat'],
   VPC网络: [
-    'clouds.fips.vpc',
     'clouds.traffic-mirroring.vpc',
     'clouds.security-groups.vpc',
     'clouds.vswitches',
@@ -439,6 +437,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.storage-object-gateway',
   'clouds.storage-cosi',
   'clouds.backups',
+  'clouds.vm-backup-snapshots',
   'clouds.schedules',
   'clouds.restore-tasks',
   // 基础网络
@@ -451,7 +450,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   // 扁平网络
   'clouds.subnets.flat',
   'clouds.eips.flat',
-  'clouds.fips.flat',
   'clouds.dnat.flat',
   'clouds.snat.flat',
   'clouds.traffic-mirroring.flat',
@@ -460,7 +458,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.vpcs',
   'clouds.subnets.vpc',
   'clouds.eips.vpc',
-  'clouds.fips.vpc',
   'clouds.dnat.vpc',
   'clouds.snat.vpc',
   'clouds.traffic-mirroring.vpc',

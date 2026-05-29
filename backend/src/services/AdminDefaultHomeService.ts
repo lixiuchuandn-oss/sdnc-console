@@ -8,6 +8,10 @@ import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
 import { getSystemSetting } from '../config/systemSettings';
 import { licenseService } from './LicenseService';
+import {
+  cbrBackupScheduleAliasSatisfied,
+  isCbrBackupScheduleResourceBase,
+} from '../constants/cbrSchedulePermissionLegacy';
 
 export type AdminHomeStepOutcome = 'matched' | 'skipped';
 
@@ -109,6 +113,19 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
     if (permsArray.includes('clouds.containers:write')) {
       return true;
     }
+  }
+
+  if (base === 'clouds.vm-backup-snapshots') {
+    if (permsArray.includes('clouds.backups:read') || permsArray.includes('clouds.backups:write')) {
+      return true;
+    }
+  }
+  if (
+    isCbrBackupScheduleResourceBase(base) &&
+    (act.endsWith(':read') || act.endsWith(':write')) &&
+    cbrBackupScheduleAliasSatisfied(permsArray, base, act.endsWith(':write') ? 'write' : 'read')
+  ) {
+    return true;
   }
 
   return false;

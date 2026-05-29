@@ -3,8 +3,7 @@ import { Form, Input, Modal, Radio, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { CLOUD_SUBNETS_PUBLIC_WRITE } from '../../../../../../constants/cloudPermissions';
+import { hasKubeOvnPublicSubnetWrite } from '../../../../../../constants/cloudPermissions';
 import UnderlaySubnetFormFields from '../lib/UnderlaySubnetFormFields';
 import {
   SUBNET_FINALIZER,
@@ -68,14 +67,10 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant', [user?.role]);
-  const canSubmit = useMemo(() => {
-    const hasWrite =
-      hasPermissionForAction(perms, CLOUD_SUBNETS_PUBLIC_WRITE) ||
-      hasPermissionForAction(perms, 'clouds.subnets:write') ||
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write');
-    return hasWrite && !isTenantUser;
-  }, [perms, isTenantUser]);
+  const canSubmit = useMemo(
+    () => hasKubeOvnPublicSubnetWrite(perms) && !isTenantUser,
+    [perms, isTenantUser],
+  );
 
   useEffect(() => {
     if (!open) {

@@ -10,7 +10,7 @@ import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarveste
 import ScheduleVmBackupCreateModal from '../modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../modals/ScheduleVmBackupEditModal';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { canWriteBackupSchedules } from '../lib/cbrPermissions';
 import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
@@ -52,15 +52,12 @@ const ScheduleVmBackupsSection: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasBackupsWrite = useMemo(
-    () =>
-      hasPermissionForAction(perms, 'clouds.backups:write') ||
-      hasPermissionForAction(perms, 'clouds:write'),
-    [perms],
-  );
+  const hasBackupsWrite = useMemo(() => canWriteBackupSchedules(perms), [perms]);
   const ensureBackupsWrite = useCallback(() => {
     if (hasBackupsWrite) return true;
-    message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+    message.error(
+      '当前账号没有定时策略操作权限（需要 clouds.schedules:write 权限）',
+    );
     return false;
   }, [hasBackupsWrite]);
   const handleToolbarRefresh = useMemo(

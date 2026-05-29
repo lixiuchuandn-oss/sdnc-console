@@ -92,8 +92,6 @@ export const ALL_PERMISSIONS = [
   // 扁平网络（新命名）
   'clouds.eips.flat:read',
   'clouds.eips.flat:write',
-  'clouds.fips.flat:read',
-  'clouds.fips.flat:write',
   'clouds.dnat.flat:read',
   'clouds.dnat.flat:write',
   'clouds.snat.flat:read',
@@ -103,11 +101,11 @@ export const ALL_PERMISSIONS = [
   'clouds.security-groups.flat:read',
   'clouds.security-groups.flat:write',
 
-  // 虚拟私有云 (VPC)
+  // 虚拟私有云 (VPC)；与 clouds.subnets.* 解耦（VPC 写不隐含子网写）
   'clouds.vpcs:read',          // VPC 列表 - 查看
   'clouds.vpcs:write',         // VPC 管理 - 创建/编辑/删除
 
-  // 子网
+  // 子网（Kube-OVN；独立授权，见 clouds.subnets.vpc/flat/public）
   'clouds.subnets:read',       // 子网列表 - 查看
   'clouds.subnets:write',      // 子网管理 - 创建/编辑/删除
   /** Kube-OVN 子网按 tower.io/subnet-type 拆分（与前端门控一致；父级 clouds.subnets 仍保留兼容） */
@@ -121,8 +119,6 @@ export const ALL_PERMISSIONS = [
   // VPC 网络（新命名）
   'clouds.eips.vpc:read',
   'clouds.eips.vpc:write',
-  'clouds.fips.vpc:read',
-  'clouds.fips.vpc:write',
   'clouds.dnat.vpc:read',
   'clouds.dnat.vpc:write',
   'clouds.snat.vpc:read',
@@ -156,9 +152,9 @@ export const ALL_PERMISSIONS = [
   'clouds.sshkeys:read',       // SSH 密钥列表 - 查看
   'clouds.sshkeys:write',      // SSH 密钥管理 - 创建/删除
   
-  // 定时任务
-  'clouds.schedules:read',     // 定时任务列表 - 查看
-  'clouds.schedules:write',    // 定时任务管理 - 创建/编辑/删除
+  // 定时策略（虚拟机定时备份）
+  'clouds.schedules:read',     // 定时备份策略列表 - 查看
+  'clouds.schedules:write',    // 定时备份策略管理 - 创建/编辑/删除
 
   // 恢复任务（细化）
   'clouds.restore-tasks:read',  // 恢复任务列表 - 查看
@@ -226,10 +222,11 @@ export const ALL_PERMISSIONS = [
   'clouds.snapshots:read',     // 云盘快照列表 - 查看
   'clouds.snapshots:write',    // 云盘快照管理 - 创建/恢复/删除
 
-  // 整机快照备份
-  'clouds.backups:read',       // 整机快照备份列表/策略列表 - 查看
-  'clouds.backups:write',      // 整机快照备份管理 - 创建/恢复/删除/策略维护
-
+  // 云主机备份（历史 clouds.backups 总权仍保留，兼容旧角色）
+  'clouds.backups:read',       // 云主机备份列表 - 查看
+  'clouds.backups:write',      // 云主机备份管理 - 创建/删除/恢复
+  'clouds.vm-backup-snapshots:read',   // 云主机快照列表 - 查看
+  'clouds.vm-backup-snapshots:write',  // 云主机快照管理 - 创建/删除/恢复
   // 回收站
   'clouds.recycle-bin:read',   // 回收站记录 - 查看
   'clouds.recycle-bin:write',  // 回收站操作 - 恢复/彻底删除
@@ -541,6 +538,7 @@ export const PERMISSION_GROUPS = {
       'clouds.disks',
       'clouds.snapshots',
       'clouds.backups',
+      'clouds.vm-backup-snapshots',
       'clouds.schedules',
       'clouds.restore-tasks',
       'clouds.provider-networks',
@@ -550,7 +548,6 @@ export const PERMISSION_GROUPS = {
       'clouds.subnets.public',
       'clouds.subnets.flat',
       'clouds.eips.flat',
-      'clouds.fips.flat',
       'clouds.dnat.flat',
       'clouds.snat.flat',
       'clouds.traffic-mirroring.flat',
@@ -558,7 +555,6 @@ export const PERMISSION_GROUPS = {
       'clouds.vpcs',
       'clouds.subnets.vpc',
       'clouds.eips.vpc',
-      'clouds.fips.vpc',
       'clouds.dnat.vpc',
       'clouds.snat.vpc',
       'clouds.traffic-mirroring.vpc',

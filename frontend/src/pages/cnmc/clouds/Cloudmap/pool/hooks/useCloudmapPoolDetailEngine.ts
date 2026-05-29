@@ -462,11 +462,9 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     }
     const shouldForceRefresh =
       key === 'kubeovn_eips' ||
-      key === 'kubeovn_fips' ||
       key === 'kubeovn_snat' ||
       key === 'kubeovn_dnat' ||
       key === 'flat_kubeovn_eips' ||
-      key === 'flat_kubeovn_fips' ||
       key === 'flat_kubeovn_snat' ||
       key === 'flat_kubeovn_dnat';
     loadTabResource(key, shouldForceRefresh);

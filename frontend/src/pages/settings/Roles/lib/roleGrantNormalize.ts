@@ -12,6 +12,7 @@ import {
   LEGACY_CLOUD_CONTAINERS_READ,
   LEGACY_CLOUD_CONTAINERS_WRITE,
 } from '../../../../utils/permissionUtils';
+import { mapLegacyBackupSchedulesToCanonical } from '../../../../constants/cbrPermissionBases';
 
 /** 旧后端无拆分子网 atoms 时，前端抽屉仍展示 vpc/flat/public 卡片 */
 export const SUBNET_SPLIT_ACTIONS = [
@@ -52,6 +53,22 @@ export function mapLegacySubnetsToSplit(ids: string[]): string[] {
   return Array.from(out);
 }
 
+/** 已移除的 FIP 原子权 → 同域 EIP（打开/保存角色时迁移） */
+const OBSOLETE_FIP_TO_EIP: Readonly<Record<string, string>> = {
+  'clouds.fips.flat:read': 'clouds.eips.flat:read',
+  'clouds.fips.flat:write': 'clouds.eips.flat:write',
+  'clouds.fips.vpc:read': 'clouds.eips.vpc:read',
+  'clouds.fips.vpc:write': 'clouds.eips.vpc:write',
+};
+
+export function mapObsoleteFipsToEips(ids: string[]): string[] {
+  const out = new Set(ids);
+  for (const [from, to] of Object.entries(OBSOLETE_FIP_TO_EIP)) {
+    if (out.delete(from)) out.add(to);
+  }
+  return Array.from(out);
+}
+
 /** 历史 clouds.containers 总权 → 各子域（抽屉展示与勾选状态） */
 export function mapLegacyContainersToSubdomains(ids: string[]): string[] {
   const out = new Set(ids);
@@ -68,14 +85,20 @@ export function mapLegacyContainersToSubdomains(ids: string[]): string[] {
 
 /** 打开/保存角色授权时的权限 ID 规范化 */
 export function normalizeRoleGrantIds(ids: string[]): string[] {
-  return mapLegacyContainersToSubdomains(mapLegacySubnetsToSplit(ids));
+  return mapLegacyContainersToSubdomains(
+    mapLegacyBackupSchedulesToCanonical(
+      mapObsoleteFipsToEips(mapLegacySubnetsToSplit(ids)),
+    ),
+  );
 }
 
 export function normalizeRoleGrantForBackendSave(
   ids: string[],
   backendSupportsSubnetSplit: boolean,
 ): string[] {
-  const expanded = mapLegacyContainersToSubdomains(ids);
+  const expanded = mapLegacyContainersToSubdomains(
+    mapLegacyBackupSchedulesToCanonical(mapObsoleteFipsToEips(ids)),
+  );
   if (backendSupportsSubnetSplit) return expanded;
   const out = new Set(expanded.filter((id) => !SUBNET_SPLIT_SET.has(id)));
   const hasAnyRead = [CLOUD_SUBNETS_VPC_READ, CLOUD_SUBNETS_FLAT_READ, CLOUD_SUBNETS_PUBLIC_READ].some(
@@ -93,7 +116,7 @@ export function expandActionAtomsForDrawer(
   actionAtoms: string[],
   backendSupportsSubnetSplit: boolean,
 ): string[] {
-  const withContainers = mapLegacyContainersToSubdomains(actionAtoms);
+  const withContainers = mapLegacyContainersToSubdomains(mapLegacyBackupSchedulesToCanonical(actionAtoms));
   const withFrontendSubnetSplit =
     !backendSupportsSubnetSplit &&
     (withContainers.includes('clouds.subnets:read') || withContainers.includes('clouds.subnets:write'))

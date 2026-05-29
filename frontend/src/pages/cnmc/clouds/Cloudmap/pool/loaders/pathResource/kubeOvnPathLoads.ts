@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** Kube-OVN / VPC 域（`panels/kube_ovn`）：VPC、子网、EIP/SNAT/DNAT 与路径别�?*/
+/** Kube-OVN / VPC ???`panels/kube_ovn`??VPC???? EIP/SNAT/DNAT ???? */
 export async function tryLoadKubeOvnVpcTab(
   key: string,
   force: boolean,
@@ -75,8 +75,6 @@ export async function tryLoadKubeOvnVpcTab(
       return true;
     case 'eips':
     case 'kubeovn_eips':
-    case 'fips':
-    case 'kubeovn_fips':
     case 'snat':
     case 'kubeovn_snat':
     case 'dnat':
@@ -136,9 +134,6 @@ export async function tryLoadKubeOvnVpcTab(
             force,
           );
         }
-        /* Cloudmap：FIP 入口暂缓联调
-        if (key === 'fips' || key === 'kubeovn_fips') { ... }
-        */
         if (key === 'snat' || key === 'kubeovn_snat') {
           await loadResource(
             'snatRules',

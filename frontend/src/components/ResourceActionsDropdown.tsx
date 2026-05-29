@@ -74,6 +74,10 @@ const ResourceActionsDropdown: React.FC<Props> = ({
     });
   }, [items]);
 
+  if (!processedItems?.length) {
+    return null;
+  }
+
   const finalMenu: MenuProps = menuProps || {
     items: processedItems,
     onClick: (info) => {

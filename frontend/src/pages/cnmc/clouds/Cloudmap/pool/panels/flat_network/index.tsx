@@ -65,7 +65,6 @@ function canViewFlatInner(
   if (key === 'flat_kubeovn_eips') {
     return checkPerm('clouds.eips.flat:read') || checkPerm('clouds:read');
   }
-  if (key === 'flat_kubeovn_fips') return false;
   if (key === 'flat_kubeovn_snat') {
     return checkPerm('clouds.snat.flat:read') || checkPerm('clouds:read');
   }
