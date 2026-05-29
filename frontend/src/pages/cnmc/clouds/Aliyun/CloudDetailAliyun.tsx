@@ -40,7 +40,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [slbs, setSlbs] = useState<any[]>([]);
   const [natGateways, setNatGateways] = useState<any[]>([]);
   const [routeTables, setRouteTables] = useState<any[]>([]);
-  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [, setSnapshots] = useState<any[]>([]);
 
   const [vmDetailOpen, setVmDetailOpen] = useState<boolean>(false);
   const [vmDetail, setVmDetail] = useState<any | null>(null);

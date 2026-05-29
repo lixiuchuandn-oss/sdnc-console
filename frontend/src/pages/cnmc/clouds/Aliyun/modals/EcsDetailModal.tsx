@@ -22,10 +22,10 @@ type EcsDetailModalProps = {
 
 const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId, instanceId }) => {
   const { message } = App.useApp();
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const [clouds, setClouds] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [instance, setInstance] = useState<any | null>(null);
   const [enis, setEnis] = useState<any[]>([]);
   const [provider, setProvider] = useState<string>('');

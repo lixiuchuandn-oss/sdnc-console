@@ -210,7 +210,7 @@ const VRPage: React.FC = () => {
     })();
   }, [tenantOptions]);
 
-  const getActionMenu = (row: VRRow): MenuProps['items'] => ([
+  const getActionMenu = (_row: VRRow): MenuProps['items'] => ([
     { key: 'metadata', label: '查看详情' },
     { key: 'editDevice', label: '修改名称' },
     { type: 'divider' },

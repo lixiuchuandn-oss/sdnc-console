@@ -12,32 +12,32 @@ const { Option } = Select;
 const IPsecVPNWizard: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [isEdit, setIsEdit] = useState(false);
+  const [, setIsEdit] = useState(false);
   const [form] = Form.useForm();
   const [current, setCurrent] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [vrLoading, setVrLoading] = useState(false);
   const [vrs, setVrs] = useState<any[]>([]);
-  const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
+  const [_ifaceLoading, _setIfaceLoading] = useState<boolean>(false);
   const [peerPresetAvailable, setPeerPresetAvailable] = useState<boolean>(false);
   const [usePeerPreset, setUsePeerPreset] = useState<boolean>(false);
   const [localPreset, setLocalPreset] = useState<any>(null);
   const [peerPreset, setPeerPreset] = useState<any>(null);
   const [localPresetAvailable, setLocalPresetAvailable] = useState<boolean>(false);
   const [useLocalPreset, setUseLocalPreset] = useState<boolean>(false);
-  const [progressSteps, setProgressSteps] = useState([
+  const [_progressSteps, _setProgressSteps] = useState([
     { status: 'wait', description: '开始下发本端VR配置' },
     { status: 'wait', description: '本端VR配置下发成功' },
     { status: 'wait', description: '开始下发对端VR配置' },
     { status: 'wait', description: '对端VR配置下发成功' },
     { status: 'wait', description: '结束' },
   ]);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [canDeploy, setCanDeploy] = useState(false);
+  const [, setRefreshKey] = useState(0);
+  const [_canDeploy, _setCanDeploy] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [fullLocalConfig, setFullLocalConfig] = useState<any>(null);
-  const [fullPeerConfig, setFullPeerConfig] = useState<any>(null);
-  const deployedRef = React.useRef(false);
+  const [_fullLocalConfig, _setFullLocalConfig] = useState<any>(null);
+  const [_fullPeerConfig, _setFullPeerConfig] = useState<any>(null);
+  const _deployedRef = React.useRef(false);
 
   // Manual Step State
   const [manualStep, setManualStep] = useState(0);
@@ -272,7 +272,7 @@ const IPsecVPNWizard: React.FC = () => {
     }
   };
 
-  const requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
+  const _requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
     const accessKey = 'Cloudmap#123';
     const secretKey = 'Cloudmap#123';
     const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;

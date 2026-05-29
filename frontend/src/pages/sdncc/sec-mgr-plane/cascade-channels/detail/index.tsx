@@ -15,7 +15,7 @@ const CenDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [cen, setCen] = useState<Cen | undefined>();
   const [, setTenants] = useState<any[]>([]);
   const [allDomains, setAllDomains] = useState<SecurityDomainOption[]>([]);

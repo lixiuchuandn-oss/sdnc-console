@@ -44,7 +44,7 @@ type EcsDetailHwProps = {
   overviewNode?: React.ReactNode;
 };
 
-const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail, visibleTabs, overviewNode }) => {
+const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail: _onOpenDetail, visibleTabs, overviewNode }) => {
   const { message } = App.useApp();
   const vmCesAvail: string[] = Array.isArray(vmCesAvailable) ? vmCesAvailable : [];
   const vmCesMetricsSafe: string[] = Array.isArray(vmCesMetrics) ? vmCesMetrics : [];

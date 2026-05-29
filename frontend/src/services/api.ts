@@ -269,7 +269,7 @@ export const apiPut = async (endpoint: string, body: any = {}) => {
 
 // 通用文件上传请求（支持 FormData，带重试，不缓存，不去重）
 // 注意：文件上传操作禁用去重，确保每次上传都能真正执行
-export const apiUpload = async (endpoint: string, formData: FormData, options?: { timeout?: number }) => {
+export const apiUpload = async (endpoint: string, formData: FormData, _options?: { timeout?: number }) => {
   try {
     return await requestManager(
       {

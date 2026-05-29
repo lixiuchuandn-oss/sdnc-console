@@ -52,7 +52,7 @@ const SRv6CreatePage: React.FC = () => {
   const [current, setCurrent] = useState<number>(0);
   const [mode, setMode] = useState<'标准' | '高可用' | undefined>('标准');
   const [formValues, setFormValues] = useState<any>({});
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [peConfigs, setPeConfigs] = useState<{ peA?: any; peB?: any }>({});
   const [ceConfigs, setCeConfigs] = useState<{ ceA?: any; ceB?: any }>({});
   /** 第 3 步：已创建隧道记录并写入平台 VR配置库 */
@@ -578,7 +578,7 @@ const SRv6CreatePage: React.FC = () => {
   };
   const stripMeta = (obj: any) => {
     if (!obj || typeof obj !== 'object') return obj;
-    const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj as any;
+    const { msg: _msg, code: _code, report_config_status: _report_config_status, updateDate: _updateDate, createDate: _createDate, _id, requestId: _requestId, ...rest } = obj as any;
     return rest;
   };
   const expandForPreview = (cleaned: any) => {
@@ -734,7 +734,7 @@ const SRv6CreatePage: React.FC = () => {
   }, [vrs, rolesMap]);
 
   // 简易视图：将 VR 列表映射为表格行，显示名称/角色/UUID/状态
-  const vrsView = useMemo(() => {
+  const _vrsView = useMemo(() => {
     return (vrs || []).map((r: any, idx: number) => {
       const uuid = r?.uuid;
       const name = getVRLabel(r);
@@ -960,7 +960,7 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   // 专家模式跳转到 VR 配置专家页
-  const goExpertMode = (target: 'peA' | 'peB') => {
+  const _goExpertMode = (target: 'peA' | 'peB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
       message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);
@@ -1062,7 +1062,7 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   const deferredValues = useDeferredValue(formValues);
-  const configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
+  const _configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
 
   /** 仅在前两步回退时清空「已保存」标记；从下发向导回到确认页仍保留（避免重复点创建） */
   useEffect(() => {

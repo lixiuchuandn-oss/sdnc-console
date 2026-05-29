@@ -33,7 +33,7 @@ const AddVRInstance: React.FC = () => {
     }, 1000);
   };
 
-  const onFinishFailed = (errorInfo: any) => {
+  const onFinishFailed = (_errorInfo: any) => {
     message.error('请检查表单填写是否正确');
   };
 

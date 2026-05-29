@@ -77,8 +77,8 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [eipManageBusy, setEipManageBusy] = useState<boolean>(false);
   const [eipManageSelId, setEipManageSelId] = useState<string>('');
 
-  const [sgCreateOpen, setSgCreateOpen] = useState<boolean>(false);
-  const [loading, setLoading] = useState(false);
+  const [_sgCreateOpen, _setSgCreateOpen] = useState<boolean>(false);
+  const [, setLoading] = useState(false);
 
   const refreshMonitor = useCallback(async () => {
     const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return;
@@ -120,23 +120,23 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   const [rtEditOpen, setRtEditOpen] = useState(false);
   const [vpcEditOpen, setVpcEditOpen] = useState(false);
-  const [vpcEditTarget, setVpcEditTarget] = useState<any | null>(null);
+  const [vpcEditTarget, _setVpcEditTarget] = useState<any | null>(null);
   const [vpcCreateOpen, setVpcCreateOpen] = useState(false);
   const [subnetCreateOpen, setSubnetCreateOpen] = useState(false);
   const [subnetEditOpen, setSubnetEditOpen] = useState(false);
-  const [subnetEditTarget, setSubnetEditTarget] = useState<any | null>(null);
+  const [subnetEditTarget, _setSubnetEditTarget] = useState<any | null>(null);
   const [rtAssocOpen, setRtAssocOpen] = useState(false);
   const [routeDrawerOpen, setRouteDrawerOpen] = useState(false);
   const [rtEntryOpen, setRtEntryOpen] = useState(false);
   const [rtEntryEditOpen, setRtEntryEditOpen] = useState(false);
-  const [rtEditTarget, setRtEditTarget] = useState<any | null>(null);
+  const [rtEditTarget, _setRtEditTarget] = useState<any | null>(null);
   const [rtAssocTarget, setRtAssocTarget] = useState<any | null>(null);
   const [rtEntryTarget, setRtEntryTarget] = useState<any | null>(null);
   const [rtEntryList, setRtEntryList] = useState<any[]>([]);
 
   const [rtEntryEditTarget, setRtEntryEditTarget] = useState<any | null>(null);
 
-  const [vpcEditInitial, setVpcEditInitial] = useState<any>({});
+  const [_vpcEditInitial, _setVpcEditInitial] = useState<any>({});
   const extractHwRouteEntries = (json: any): any[] => {
     const d = (json && (json as any).data) ? (json as any).data : json;
     const arr = Array.isArray(d)
