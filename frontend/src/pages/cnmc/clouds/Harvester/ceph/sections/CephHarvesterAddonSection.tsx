@@ -390,6 +390,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
                 <ConfigSummaryDescriptions
                   values={ctrl.getWizardFormValues()}
                   blockDevicesRaw={ctrl.blockDevicesRaw}
+                  storageNetwork={ctrl.storageNetwork}
                   column={2}
                 />
               </div>
@@ -407,10 +408,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
         loading={ctrl.statusLoading}
         isRunningCluster={ctrl.isRunningCluster}
       />
-
-      {ctrl.isRunningCluster ? (
-        <CephStorageNetworkCard cloudId={cloudId} readOnly variant="card" />
-      ) : null}
 
       {ctrl.status?.phase === 'failed' ? (
         <Alert

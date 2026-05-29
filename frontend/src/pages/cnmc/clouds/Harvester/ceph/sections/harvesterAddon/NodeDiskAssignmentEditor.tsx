@@ -16,6 +16,7 @@ import type { FormListOperation } from 'antd/es/form';
 import { PlusOutlined } from '@ant-design/icons';
 import {
   buildMetadataDeviceSelectOptions,
+  createMetadataDeviceSizeLookup,
   normalizeDatabaseSizeMBInput,
   normalizeDeviceNames,
   baselineNodeDeviceKeySet,
@@ -28,6 +29,10 @@ import FormSection from './FormSection';
 import NodeDiskNodeCard, { nodeRowHasAdvanced } from './NodeDiskNodeCard';
 import { NODE_DISK_LIST_LAYOUT_STYLE } from './addonUiConstants';
 import { addHarvesterAddonNodeRow } from './nodeDiskAssignmentUtils';
+import {
+  buildDatabaseSizeMBFieldRules,
+  formatDatabaseSizeMBFieldExtra,
+} from './nodeDiskMetadataFieldRules';
 
 type FormValues = CephHarvesterAddonFormValues & {
   valuesContentOverride?: string;
@@ -88,6 +93,10 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
 
   const advancedRow = advancedRowIndex != null ? watchedNodes?.[advancedRowIndex] : undefined;
   const advancedNodeName = advancedRow?.nodeName;
+  const lookupMetadataDeviceSizeMB = useMemo(
+    () => createMetadataDeviceSizeLookup(blockDevicesRaw),
+    [blockDevicesRaw],
+  );
   const advancedMetadataOptions = advancedNodeName
     ? buildMetadataDeviceSelectOptions(
         blockDevicesRaw,
@@ -250,11 +259,12 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
                     name={[advancedRowIndex, 'metadataDevice']}
                     label="元数据盘"
                     style={{ marginBottom: 16 }}
+                    extra="与数据盘分离的 SSD/NVMe；选定后须配置每盘缓存区大小。"
                   >
                     <Select
                       allowClear
                       showSearch
-                      placeholder={advancedNodeName ? '选择元数据盘（可选）' : '请先选择节点'}
+                      placeholder={advancedNodeName ? '选择元数据盘' : '请先选择节点'}
                       options={advancedMetadataOptions}
                       optionFilterProp="label"
                       loading={metaLoading}
@@ -269,12 +279,26 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
                     name={[advancedRowIndex, 'databaseSizeMB']}
                     label="每盘缓存区大小"
                     normalize={normalizeDatabaseSizeMBInput}
-                    extra="BlueStore DB 容量，留空使用集群默认。"
+                    dependencies={[
+                      ['cephCluster', 'nodes', advancedRowIndex, 'metadataDevice'],
+                      ['cephCluster', 'nodes', advancedRowIndex, 'nodeName'],
+                      ['cephCluster', 'nodes', advancedRowIndex, 'deviceNames'],
+                    ]}
+                    rules={buildDatabaseSizeMBFieldRules({
+                      rowIndex: advancedRowIndex,
+                      lookupMetadataDeviceSizeMB,
+                    })}
+                    extra={formatDatabaseSizeMBFieldExtra(
+                      advancedRow?.metadataDevice,
+                      advancedNodeName,
+                      advancedRow?.deviceNames,
+                      lookupMetadataDeviceSizeMB,
+                    )}
                   >
                     <InputNumber
                       min={1}
                       precision={0}
-                      placeholder="留空默认"
+                      placeholder="必填（已选元数据盘时）"
                       suffix="MB"
                       style={{ width: '100%' }}
                       disabled={

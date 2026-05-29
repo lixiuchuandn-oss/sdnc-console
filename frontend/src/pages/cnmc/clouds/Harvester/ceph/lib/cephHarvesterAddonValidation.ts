@@ -4,10 +4,22 @@
  */
 
 import { parseDatabaseSizeMB } from './cephHarvesterAddonForm';
+import {
+  type MetadataDeviceSizeLookup,
+  validateMetadataDeviceConfigFromValues,
+} from './cephHarvesterAddonMetadataValidation';
 import type {
   CephHarvesterAddonNodeDevice,
   CephHarvesterAddonValuesConfig,
 } from './cephHarvesterAddonTypes';
+
+export type { MetadataDeviceSizeLookup } from './cephHarvesterAddonMetadataValidation';
+export {
+  METADATA_DEVICE_HEADROOM_RATIO,
+  METADATA_DEVICE_WAL_RESERVE_MB,
+  suggestDatabaseSizeMBPerOsd,
+  validateNodeMetadataDeviceRows,
+} from './cephHarvesterAddonMetadataValidation';
 
 export function listConfiguredNodeDevices(
   config: CephHarvesterAddonValuesConfig | null | undefined,
@@ -73,7 +85,10 @@ function nodeLayoutByNode(
   return byNode;
 }
 
-export function validateAddonConfig(config: CephHarvesterAddonValuesConfig): string | null {
+export function validateAddonConfig(
+  config: CephHarvesterAddonValuesConfig,
+  options?: { lookupMetadataDeviceSizeMB?: MetadataDeviceSizeLookup },
+): string | null {
   const nodes = config.cephCluster.nodes || [];
   if (nodes.length === 0) {
     return '请至少为一台节点指定数据盘';
@@ -84,6 +99,11 @@ export function validateAddonConfig(config: CephHarvesterAddonValuesConfig): str
     if (seen.has(key)) return '存在重复的节点与磁盘组合，请调整后再提交';
     seen.add(key);
   }
+  const metadataError = validateMetadataDeviceConfigFromValues(
+    config,
+    options?.lookupMetadataDeviceSizeMB,
+  );
+  if (metadataError) return metadataError;
   return null;
 }
 

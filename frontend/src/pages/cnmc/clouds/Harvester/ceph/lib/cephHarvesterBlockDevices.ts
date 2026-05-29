@@ -465,3 +465,55 @@ export function buildMetadataDeviceSelectOptions(
     label: formatBlockDeviceOptionSummary(o),
   }));
 }
+
+function blockDeviceValueMatches(deviceValue: string, candidate: string, devPath: string): boolean {
+  const target = String(deviceValue ?? '').trim();
+  if (!target) return false;
+  if (candidate === target) return true;
+  const targetBase = basenameDevPath(target);
+  const candidateBase = basenameDevPath(candidate);
+  const devPathBase = basenameDevPath(devPath);
+  return (
+    (!!targetBase && targetBase === candidateBase) ||
+    (!!targetBase && targetBase === devPathBase) ||
+    (!!devPathBase && devPathBase === target)
+  );
+}
+
+/** 从 BlockDevice 列表解析元数据盘容量（MB，向下取整） */
+export function resolveBlockDeviceSizeMB(
+  blockDevicesRaw: unknown,
+  nodeName: string,
+  deviceValue: string,
+): number | undefined {
+  const node = String(nodeName ?? '').trim();
+  const target = String(deviceValue ?? '').trim();
+  if (!node || !target) return undefined;
+
+  for (const item of steveList(blockDevicesRaw)) {
+    const o = item as Record<string, unknown>;
+    const md = (o.metadata || {}) as Record<string, unknown>;
+    const spec = (o.spec || {}) as Record<string, unknown>;
+    const status = (o.status || {}) as Record<string, unknown>;
+    const devNode = resolveBlockDeviceNodeName(spec, md);
+    if (devNode !== node) continue;
+
+    const st = readBlockDeviceStatus(status);
+    const devPath = resolveBlockDeviceDevPath(spec, status, md);
+    const value = resolveCephDeviceName(spec, status, md);
+    if (!blockDeviceValueMatches(target, value, devPath)) continue;
+
+    const bytes = Number(st.sizeBytes);
+    if (Number.isFinite(bytes) && bytes > 0) {
+      return Math.max(1, Math.floor(bytes / (1024 * 1024)));
+    }
+  }
+  return undefined;
+}
+
+export function createMetadataDeviceSizeLookup(
+  blockDevicesRaw: unknown,
+): (nodeName: string, metadataDevice: string) => number | undefined {
+  return (nodeName, metadataDevice) =>
+    resolveBlockDeviceSizeMB(blockDevicesRaw, nodeName, metadataDevice);
+}

@@ -3,6 +3,9 @@ import {
   buildHarvesterAddonFormValuesFromStatus,
   normalizeDatabaseSizeMBInput,
   parseDatabaseSizeMB,
+  suggestDatabaseSizeMBPerOsd,
+  validateAddonConfig,
+  validateNodeMetadataDeviceRows,
   validateRunningClusterConfigChange,
   type CephHarvesterAddonValuesConfig,
 } from './cephHarvesterAddon';
@@ -141,6 +144,48 @@ describe('cephHarvesterAddon form', () => {
     });
   });
 
+  describe('metadata device validation', () => {
+    it('requires databaseSizeMB when metadata device is selected', () => {
+      expect(
+        validateNodeMetadataDeviceRows([
+          {
+            nodeName: 'node1',
+            deviceNames: ['sdb'],
+            metadataDevice: 'nvme0n1',
+          },
+        ]),
+      ).toMatch(/须填写每盘缓存区大小/);
+    });
+
+    it('rejects databaseSizeMB that exceeds metadata device capacity', () => {
+      const lookup = () => 491520;
+      expect(
+        validateNodeMetadataDeviceRows(
+          [
+            {
+              nodeName: 'node1',
+              deviceNames: ['sdb', 'sdc', 'sdd'],
+              metadataDevice: 'nvme0n1',
+              databaseSizeMB: 200000,
+            },
+          ],
+          lookup,
+        ),
+      ).toMatch(/超出元数据盘可用容量/);
+    });
+
+    it('suggests per-osd database size from metadata device capacity', () => {
+      expect(suggestDatabaseSizeMBPerOsd(491520, 4)).toBe(114688);
+      expect(suggestDatabaseSizeMBPerOsd(491520, 1)).toBe(464896);
+    });
+
+    it('validateAddonConfig applies metadata rules', () => {
+      const config = sampleRunningConfig([
+        { nodeName: 'node1', deviceName: 'sdb', metadataDevice: 'nvme0n1' },
+      ]);
+      expect(validateAddonConfig(config)).toMatch(/须填写每盘缓存区大小/);
+    });
+  });
 });
 
 describe('validateRunningClusterConfigChange', () => {

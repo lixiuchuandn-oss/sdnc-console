@@ -13,6 +13,7 @@ export {
   blockDeviceDriveKindTagColor,
   blockDeviceOptionTooltip,
   buildMetadataDeviceSelectOptions,
+  createMetadataDeviceSizeLookup,
   describeSelectedBlockDevices,
   formatBlockDeviceOptionSummary,
   formatBlockDeviceSizeBytes,
@@ -26,6 +27,7 @@ export {
   parseNodeNameOptions,
   resolveBlockDeviceDriveKind,
   resolveBlockDeviceNodeName,
+  resolveBlockDeviceSizeMB,
 } from './cephHarvesterBlockDevices';
 
 export type {
@@ -58,11 +60,14 @@ export {
   parseDatabaseSizeMB,
 } from './cephHarvesterAddonForm';
 
+export type { MetadataDeviceSizeLookup } from './cephHarvesterAddonValidation';
 export {
   baselineNodeDeviceKeySet,
   baselineNodeNameSet,
   listConfiguredNodeDevices,
+  suggestDatabaseSizeMBPerOsd,
   validateAddonConfig,
+  validateNodeMetadataDeviceRows,
   validateRunningClusterConfigChange,
 } from './cephHarvesterAddonValidation';
 

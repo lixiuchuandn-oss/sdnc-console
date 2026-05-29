@@ -98,3 +98,14 @@ export function storageNetworkModeLabel(mode: CephStorageNetworkEffective['mode'
 export function storageNetworkModeTagColor(mode: CephStorageNetworkEffective['mode']): string {
   return mode === 'configured' ? 'blue' : 'default';
 }
+
+/** 配置详情等只读场景的一行摘要 */
+export function formatCephStorageNetworkSummary(
+  effective: CephStorageNetworkEffective | null | undefined,
+): string {
+  if (!effective || effective.mode !== 'configured' || !effective.config) {
+    return '使用管理网（mgmt）';
+  }
+  const c = effective.config;
+  return `专用存储网 · VLAN ${c.vlan} · ${c.clusterNetwork} · ${c.range}`;
+}
