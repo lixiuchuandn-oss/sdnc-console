@@ -515,4 +515,45 @@ export const replaceCloudProviderEcsSystemDisk = async (
   return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/replace-system-disk`, payload);
 };
 
+// ===== RDS 云数据库 =====
+export const fetchCloudProviderRds = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/rds`);
+};
+export const fetchCloudProviderRdsDetail = async (cloudId: string, dbInstanceId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}`);
+};
+export const createCloudProviderRds = async (
+  cloudId: string,
+  payload: {
+    engine: string;
+    engineVersion: string;
+    dbInstanceClass: string;
+    dbInstanceStorage: number;
+    payType?: string;
+    dbInstanceNetType?: string;
+    securityIPList?: string;
+    dbInstanceDescription?: string;
+    vpcId?: string;
+    vSwitchId?: string;
+    zoneId?: string;
+    instanceNetwork?: string;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/rds`, payload);
+};
+export const deleteCloudProviderRds = async (cloudId: string, dbInstanceId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}`);
+};
+export const restartCloudProviderRds = async (cloudId: string, dbInstanceId: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}/restart`, {});
+};
+
+// ===== 池级监控告警 =====
+export const fetchCloudProviderAlarmLogs = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/monitor/alarm-logs`);
+};
+export const fetchCloudProviderAlarmRules = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/monitor/alarm-rules`);
+};
+
 export { fetchCloudProviderDisks, fetchCloudProviderSnapshots } from './api';
