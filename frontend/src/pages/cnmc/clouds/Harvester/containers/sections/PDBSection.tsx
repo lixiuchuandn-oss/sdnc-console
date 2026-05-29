@@ -745,6 +745,7 @@ const PDBSection: React.FC<Props> = ({
         />
       ),
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
 
   // 使用 hook 管理列设置

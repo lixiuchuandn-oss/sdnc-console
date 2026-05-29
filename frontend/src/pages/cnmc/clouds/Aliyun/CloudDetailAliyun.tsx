@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { App, Alert, Button, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
+import { Alert, Button, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
 import { CloudUploadOutlined, DashboardOutlined, HomeOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { useNavigate } from 'react-router-dom';
@@ -12,9 +12,7 @@ import DiskSectionAliyun, { Icon as DiskIcon, Label as DiskLabel } from './secti
 import LoadBalancerSectionAliyun, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSectionAliyun';
 import NatGatewaySectionAliyun, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySectionAliyun';
 import RouteTableSectionAliyun, { Icon as RouteTableIcon, Label as RouteTableLabel } from './sections/RouteTableSectionAliyun';
-import SnapshotSectionAliyun, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSectionAliyun';
 // import disk section
-import { statusTag, collectIpv4FromAddresses } from '../Hw/components/Common';
 import { fetchClouds } from '../../../../services/api';
 import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches } from '../../../../services/aliyunApi';
 import EcsInsDetSection from './sections/EcsInsDetSection';
@@ -31,7 +29,6 @@ type CloudDetailAliyunProps = {
 
 const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const navigate = useNavigate();
-  const { message } = App.useApp();
   const [error, setError] = useState<string>('');
   const [cloud, setCloud] = useState<any>(null);
   const [ecs, setEcs] = useState<any[]>([]);
@@ -43,7 +40,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [slbs, setSlbs] = useState<any[]>([]);
   const [natGateways, setNatGateways] = useState<any[]>([]);
   const [routeTables, setRouteTables] = useState<any[]>([]);
-  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [, setSnapshots] = useState<any[]>([]);
 
   const [vmDetailOpen, setVmDetailOpen] = useState<boolean>(false);
   const [vmDetail, setVmDetail] = useState<any | null>(null);

@@ -739,6 +739,7 @@ const SecDomainAppWizardModal: React.FC<Props> = ({
     }
     void loadInstances();
     void loadDomains();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingApp, form, defaultRegistrationType]);
 
   useEffect(() => {
@@ -816,6 +817,7 @@ const SecDomainAppWizardModal: React.FC<Props> = ({
     return () => {
       cancel = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, selectedType, rancherCtx?.poolId, rancherCtx?.clusterId, workloadKindWatch, domainLoading, domains.length]);
 
   useEffect(() => {

@@ -54,6 +54,7 @@ export function TableColumnSettingsButton<T extends object>({
   const allOptionsSelected = columnOptions.length > 0 && columnOptions.every((o) => checkedColumnKeys.includes(o.value));
   const someOptionsSelected = columnOptions.some((o) => checkedColumnKeys.includes(o.value));
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleCheckAll = (e: { target: { checked: boolean } }) => {
     if (e.target.checked) {
       handleColumnSettingsChange(columnOptions.map((o) => o.value));

@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Dropdown, Card, Space, Button, Input, Select, Tabs, Descriptions, Row, Col, Statistic, Form, Drawer, Modal, InputNumber, App, Tooltip, Alert, DatePicker, Divider } from 'antd';
+import { Table, Tag, Dropdown, Card, Button, Descriptions, Row, Col, Statistic, App, Divider } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { HomeOutlined, CloudUploadOutlined, ReloadOutlined, ArrowLeftOutlined, MoreOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined, PlayCircleOutlined, PoweroffOutlined, CopyOutlined, EyeOutlined, DashboardOutlined, LineChartOutlined, WindowsOutlined, CodeOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
+import { HomeOutlined, CloudUploadOutlined, MoreOutlined, DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderEcsVncUrl, createCloudProviderRouteTable, updateCloudProviderRouteTable, associateCloudProviderRouteTable, deleteCloudProviderRouteTable, fetchCloudProviderRouteEntries, modCloudProviderRouteEntry, deleteCloudProviderRouteEntry, deleteCloudProviderVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
-import { showCloudProviderVpc, showCloudProviderSecurityGroup, deleteHuaweiCloudSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule, fetchHuaweiEcsMetrics, fetchHuaweiEcsAuditLogs, fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, bindHuaweiEip, unbindHuaweiEip, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, deleteHuaweiCloudSubnet as deleteCloudProviderSubnet } from '../../../../services/huaweiApi';
-import StdSideDrawer from '../../../../components/StdSideDrawer';
-import { statusTag, EllipsisText, SubResourceCard, collectIpv4FromAddresses, collectInstanceIpv4 } from './components/Common';
-import { normalizeErr } from './utils/net';
+import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
+import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics } from '../../../../services/huaweiApi';
+import { statusTag } from './components/Common';
 // force update
 import VpcCreateModal from './modals/VpcCreateModal';
 import SubnetCreateModal from './modals/SubnetCreateModal';
@@ -21,7 +19,6 @@ import RouteEntryCreateDrawer from './drawers/RouteEntryCreateDrawer';
 import RouteEntryManageDrawer from './drawers/RouteEntryManageDrawer';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
 import SecurityGroupRefsModal from './modals/SecurityGroupRefsModal';
-import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
 import RouteTableAssociateModal from './modals/RouteTableAssociateModal';
 import EcsSection, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSection';
 import VpcSection, { Icon as VpcIcon, Label as VpcLabel } from './sections/VpcSection';
@@ -31,8 +28,7 @@ import RouteTableSection, { Icon as RtIcon, Label as RtLabel } from './sections/
 import EipSection, { Icon as EipIcon, Label as EipLabel } from './sections/EipSection';
 import LoadBalancerSection, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSection';
 import NatGatewaySection, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySection';
-import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
-import SnapshotSection, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSection';
+import { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
 import VmDetailModal from './modals/VmDetailModal';
 import ResourceDetailModal from './modals/ResourceDetailModal';
 import RouteTableSubnetsViewModal from './modals/RouteTableSubnetsViewModal';
@@ -81,8 +77,8 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [eipManageBusy, setEipManageBusy] = useState<boolean>(false);
   const [eipManageSelId, setEipManageSelId] = useState<string>('');
 
-  const [sgCreateOpen, setSgCreateOpen] = useState<boolean>(false);
-  const [loading, setLoading] = useState(false);
+  const [_sgCreateOpen, _setSgCreateOpen] = useState<boolean>(false);
+  const [, setLoading] = useState(false);
 
   const refreshMonitor = useCallback(async () => {
     const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return;
@@ -113,6 +109,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       setVmCes(m2?.data || m2 || null);
       message.success('监控已刷新');
     } catch(e: any) { const msg = e?.message || '刷新监控失败'; if (/ces/i.test(String(msg))) setVmCesError(msg); else setVmMonitorError(msg); message.error(msg); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudId, vmDetail, lastCesAt, vmCesPeriod, vmCesRange, vmCesFilter, vmCesMetrics, vmCesAvailable]);
 
   const [sgRuleDrawerOpen, setSgRuleDrawerOpen] = useState<boolean>(false);
@@ -124,23 +121,23 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   const [rtEditOpen, setRtEditOpen] = useState(false);
   const [vpcEditOpen, setVpcEditOpen] = useState(false);
-  const [vpcEditTarget, setVpcEditTarget] = useState<any | null>(null);
+  const [vpcEditTarget, _setVpcEditTarget] = useState<any | null>(null);
   const [vpcCreateOpen, setVpcCreateOpen] = useState(false);
   const [subnetCreateOpen, setSubnetCreateOpen] = useState(false);
   const [subnetEditOpen, setSubnetEditOpen] = useState(false);
-  const [subnetEditTarget, setSubnetEditTarget] = useState<any | null>(null);
+  const [subnetEditTarget, _setSubnetEditTarget] = useState<any | null>(null);
   const [rtAssocOpen, setRtAssocOpen] = useState(false);
   const [routeDrawerOpen, setRouteDrawerOpen] = useState(false);
   const [rtEntryOpen, setRtEntryOpen] = useState(false);
   const [rtEntryEditOpen, setRtEntryEditOpen] = useState(false);
-  const [rtEditTarget, setRtEditTarget] = useState<any | null>(null);
+  const [rtEditTarget, _setRtEditTarget] = useState<any | null>(null);
   const [rtAssocTarget, setRtAssocTarget] = useState<any | null>(null);
   const [rtEntryTarget, setRtEntryTarget] = useState<any | null>(null);
   const [rtEntryList, setRtEntryList] = useState<any[]>([]);
 
   const [rtEntryEditTarget, setRtEntryEditTarget] = useState<any | null>(null);
 
-  const [vpcEditInitial, setVpcEditInitial] = useState<any>({});
+  const [_vpcEditInitial, _setVpcEditInitial] = useState<any>({});
   const extractHwRouteEntries = (json: any): any[] => {
     const d = (json && (json as any).data) ? (json as any).data : json;
     const arr = Array.isArray(d)
@@ -215,38 +212,8 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (cloudId) loadAll(); }, [cloudId]);
-
-  const renderProtoPort = (r:any) => {
-    const p = String(r?.protocol || '').toLowerCase();
-    const min = r?.port_min;
-    const max = r?.port_max;
-    if (!p || p === 'all') return '全部';
-    if (p === 'icmp') return 'ICMP: 全部';
-    if (min != null && max != null && min === max) return `${p.toUpperCase()}: ${min}`;
-    if (min != null || max != null) return `${p.toUpperCase()}: ${(min ?? '')}-${(max ?? '')}`;
-    return p.toUpperCase();
-  };
-
-  const protoSorter = (a:any, b:any) => {
-    const order = (p:string) => {
-      const x = String(p || '').toLowerCase();
-      if (x === 'all') return 0;
-      if (x === 'icmp') return 1;
-      if (x === 'tcp') return 2;
-      if (x === 'udp') return 3;
-      return 9;
-    };
-    const oa = order(a?.protocol);
-    const ob = order(b?.protocol);
-    if (oa !== ob) return oa - ob;
-    const am = Number(a?.port_min ?? -1);
-    const bm = Number(b?.port_min ?? -1);
-    if (am !== bm) return am - bm;
-    const ax = Number(a?.port_max ?? -1);
-    const bx = Number(b?.port_max ?? -1);
-    return ax - bx;
-  };
 
   const diskColumns = useMemo(() => ([
     { title: '名称', dataIndex: 'name', key: 'name', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.name||'').localeCompare(String(b?.name||'')) },

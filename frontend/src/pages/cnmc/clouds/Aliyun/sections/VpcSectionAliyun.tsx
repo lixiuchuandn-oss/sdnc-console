@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Table, Space } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, ClusterOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Table, Space } from 'antd';
+import { ReloadOutlined, ClusterOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderVpcs, deleteCloudProviderVpc, updateCloudProviderVpc } from '../../../../../services/aliyunApi';
+import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../../services/aliyunApi';
 import { statusTag } from '../../Hw/components/Common';
 
 type VpcSectionAliyunProps = {
@@ -164,6 +163,7 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, onOpenDetail, onSetVpcs]);
 
   return (

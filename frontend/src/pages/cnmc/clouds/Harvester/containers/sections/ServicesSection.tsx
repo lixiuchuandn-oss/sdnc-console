@@ -531,6 +531,7 @@ const ServicesSection: React.FC<Props> = ({
         );
       },
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [isTenant, openRelatedPodsDrawer, handleEdit, handleDelete, hasContainersWrite]);
 
   // 使用新的 hook 管理列设置

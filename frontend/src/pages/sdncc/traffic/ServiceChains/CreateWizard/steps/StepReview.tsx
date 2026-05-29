@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Descriptions, Tag, Input, Button, Space } from 'antd';
+import { Descriptions, Tag } from 'antd';
 import { SCENARIOS } from '../constants';
 import { fetchCsmVRouters, detectCsmPoolId } from '../../../../../../services/api';
 
@@ -37,7 +37,7 @@ const StepReview: React.FC<StepReviewProps> = ({
     return sel?.name || values.cluster || '-';
   })();
   
-  const vrSelectedList = (values.vrDomains || []).map((id: string) => {
+  const _vrSelectedList = (values.vrDomains || []).map((id: string) => {
     const d = (vrDomains || []).find((v: any) => String(v.id) === String(id));
     const name = d?.name || id;
     const cidr = d?.cidr;
@@ -66,14 +66,14 @@ const StepReview: React.FC<StepReviewProps> = ({
     const nodeAbnormal = (n.data?.instances || []).filter((it: any) => it.status !== 'normal').length;
     return { label, count, nodeLoad, nodeAbnormal };
   });
-  const orderedServices = (nodes || [])
+  const _orderedServices = (nodes || [])
     .filter((n: any) => n.type === 'serviceNode')
     .sort((a: any, b: any) => (a.position?.x || 0) - (b.position?.x || 0))
     .map((n: any) => n.data?.serviceType)
     .filter((x: any) => !!x);
   
   const steeringMode = form.getFieldValue('steeringMode') || 'vr';
-  const poolId = String(values.pool_id || '').trim();
+  const _poolId = String(values.pool_id || '').trim();
 
   const selectedList = (() => {
       if (steeringMode === 'direct') {
@@ -92,7 +92,7 @@ const StepReview: React.FC<StepReviewProps> = ({
       });
   })();
 
-  const targetsCidrs = (() => {
+  const _targetsCidrs = (() => {
       if (steeringMode === 'direct') {
           const objects = form.getFieldValue('selectedAssetObjects') || [];
           return objects.map((o: any) => String(o.value || o.cidr || '')).filter(Boolean);
@@ -129,6 +129,7 @@ const StepReview: React.FC<StepReviewProps> = ({
     if (cloudId && !form.getFieldValue('pool_id')) {
       detectPoolId();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [String(values.cluster || '')]);
 
   return (

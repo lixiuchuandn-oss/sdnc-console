@@ -53,6 +53,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
     });
   }, [secGroups, keyword, typeFilter, vpcFilter]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const refresh = async () => {
     if (!cloudId) return;
     setLoading(true);

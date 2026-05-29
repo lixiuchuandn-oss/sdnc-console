@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Input, Select, Space, Table } from 'antd';
 import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
@@ -16,7 +15,7 @@ type LoadBalancerSectionAliyunProps = {
   onOpenDetail: (type: string, title: string, data: any) => void;
 };
 
-const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, subnets, onSetSlbs, onOpenDetail }) => {
+const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, onSetSlbs, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');

@@ -14,8 +14,6 @@ type Props = {
 
 const EipAddressSectionAliyun: React.FC<Props> = ({ cloudId, instance, eips, enis, onRefreshAll }) => {
   const { message } = App.useApp();
-  const iid = String(instance?.InstanceId || instance?.id || '');
-  const ports: string[] = Array.isArray((instance as any)?.network_interfaces) ? (instance as any)!.network_interfaces.map((ni: any) => ni?.port_id).filter(Boolean) : [];
   const eniList: any[] = useMemo(() => {
     const fromApi: any[] = Array.isArray(enis) ? enis : [];
     if (fromApi && fromApi.length) return fromApi;

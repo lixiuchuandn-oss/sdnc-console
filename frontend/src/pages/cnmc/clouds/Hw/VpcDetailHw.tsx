@@ -13,7 +13,7 @@ type VpcDetailHwProps = {
   onOpenVmDetail: (vm: any) => void;
 };
 
-const VpcDetailHw: React.FC<VpcDetailHwProps> = ({ cloudId, vpc, vpcs, subnets, routeTables, ecs, onOpenVmDetail }) => {
+const VpcDetailHw: React.FC<VpcDetailHwProps> = ({ vpc, subnets, routeTables, ecs, onOpenVmDetail }) => {
   const vpcId = String(vpc?.id || vpc?.VpcId || '');
 
   const subnetColumns = [
@@ -35,7 +35,7 @@ const VpcDetailHw: React.FC<VpcDetailHwProps> = ({ cloudId, vpc, vpcs, subnets, 
     } },
   ] as any;
 
-  const sgColumns = [
+  const _sgColumns = [
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: 'ID', dataIndex: 'id', key: 'id' },
     { title: '描述', dataIndex: 'description', key: 'desc' },

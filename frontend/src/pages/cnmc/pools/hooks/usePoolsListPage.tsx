@@ -8,11 +8,9 @@ import {
   Button,
   Dropdown,
   Form,
-  Input,
   MenuProps,
   message,
   Modal,
-  Select,
   Space,
   Tag,
   Typography,
@@ -41,7 +39,6 @@ import {
   CLOUD_TYPE_MAP,
   resolvePoolTypeLabel,
   type Cloud,
-  type CloudProvider,
   cloudProviders,
   getProviderLogo,
   getProviderName,
@@ -56,6 +53,7 @@ const { Text } = Typography;
 export function usePoolsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
   const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
   const canSetDefaultPool = canWriteClouds;

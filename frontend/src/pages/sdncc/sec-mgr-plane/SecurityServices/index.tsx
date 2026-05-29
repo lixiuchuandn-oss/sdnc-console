@@ -325,7 +325,7 @@ const SecurityServices: React.FC = () => {
       title: '服务名称',
       dataIndex: 'name',
       key: 'name',
-      render: (t: string, r: SecurityServiceRow) => (
+      render: (t: string, _r: SecurityServiceRow) => (
         <Space direction="vertical" size={0}>
           <span>{t || '-'}</span>
         </Space>

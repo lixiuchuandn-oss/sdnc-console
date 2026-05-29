@@ -3,7 +3,6 @@ import { App, Button, Input, Select, Table, Space, Typography, Badge, Tag, Modal
 import { CameraOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSnapshots } from '../../../../../services/aliyunApi';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 
 type SnapshotSectionAliyunProps = {
   cloudId: string;
@@ -163,9 +162,6 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
             items={items}
             onClick={async ({ key }: { key: string }) => {
               if (key === 'detail') { 
-                const name = r?.SnapshotName || r?.name || '-'; 
-                const id = r?.SnapshotId || r?.id || '-'; 
-                
                 Modal.info({
                   title: '快照详情',
                   width: 600,

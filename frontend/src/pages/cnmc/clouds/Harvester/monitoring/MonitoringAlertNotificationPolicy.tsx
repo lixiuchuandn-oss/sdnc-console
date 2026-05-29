@@ -43,7 +43,6 @@ import {
   useMonitoring,
 } from './context/MonitoringContext';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
-import WriteGuard from '../../../../../components/WriteGuard';
 import {
   fetchAlertmanagerconfigs,
   fetchAlertmanagerconfigDetail,

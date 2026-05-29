@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table } from 'antd';
+import { App, Input, Select, Table } from 'antd';
 import { HddOutlined } from '@ant-design/icons';
 import { fetchCloudProviderDisks } from '../../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';

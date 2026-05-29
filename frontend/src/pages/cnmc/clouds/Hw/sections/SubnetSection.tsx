@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table } from 'antd';
+import { App, Button, Input, Select, Table } from 'antd';
 import { NodeIndexOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSubnets, deleteCloudProviderSubnet } from '../../../../../services/api';
 import SharedToolbar from '../../../../../components/SharedToolbar';
@@ -62,6 +62,7 @@ const SubnetSection: React.FC<SubnetSectionProps> = ({ cloudId, subnets, vpcs, o
           />
         );
       } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, vpcs, onOpenDetail]);
 
   return (

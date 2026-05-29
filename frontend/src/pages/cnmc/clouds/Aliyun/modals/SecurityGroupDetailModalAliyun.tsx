@@ -205,6 +205,7 @@ const SecurityGroupDetailModalAliyun: React.FC<Props> = ({ open, onCancel, cloud
     } else {
       setDetail(null);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, cloudId, securityGroup]);
 
   const rules = useMemo(() => {

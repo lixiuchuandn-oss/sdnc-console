@@ -889,6 +889,7 @@ const CredentialTable: React.FC<{
         );
       },
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal, hasContainersWrite]);
 
   // 使用列设置 Hook

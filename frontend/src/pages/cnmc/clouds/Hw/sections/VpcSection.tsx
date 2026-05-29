@@ -158,6 +158,7 @@ const VpcSection: React.FC<VpcSectionProps> = ({ cloudId, vpcs, onSetVpcs, onOpe
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, nameEditingId, nameEditingValue, descEditingId, descEditingValue, onOpenDetail]);
 
   return (

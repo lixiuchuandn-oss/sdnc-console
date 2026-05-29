@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Col, Descriptions, Divider, Form, Input, Radio, Row, Select, Space, Spin, Steps, Switch, Tabs, message, Checkbox } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space, Steps, Switch, Tabs, message, Checkbox } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { createIPsecVPN, API_BASE_URL, apiRequest, apiPost, apiPatch, getAuthHeaders } from '../../../../services/api';
-import { ReloadOutlined, CheckCircleOutlined, LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { API_BASE_URL, apiRequest, apiPost, getAuthHeaders } from '../../../../services/api';
+import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
 // Tabs 用于配置预览，保持与 SRv6 创建页一致
@@ -12,32 +12,32 @@ const { Option } = Select;
 const IPsecVPNWizard: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [isEdit, setIsEdit] = useState(false);
+  const [, setIsEdit] = useState(false);
   const [form] = Form.useForm();
   const [current, setCurrent] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [vrLoading, setVrLoading] = useState(false);
   const [vrs, setVrs] = useState<any[]>([]);
-  const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
+  const [_ifaceLoading, _setIfaceLoading] = useState<boolean>(false);
   const [peerPresetAvailable, setPeerPresetAvailable] = useState<boolean>(false);
   const [usePeerPreset, setUsePeerPreset] = useState<boolean>(false);
   const [localPreset, setLocalPreset] = useState<any>(null);
   const [peerPreset, setPeerPreset] = useState<any>(null);
   const [localPresetAvailable, setLocalPresetAvailable] = useState<boolean>(false);
   const [useLocalPreset, setUseLocalPreset] = useState<boolean>(false);
-  const [progressSteps, setProgressSteps] = useState([
+  const [_progressSteps, _setProgressSteps] = useState([
     { status: 'wait', description: '开始下发本端VR配置' },
     { status: 'wait', description: '本端VR配置下发成功' },
     { status: 'wait', description: '开始下发对端VR配置' },
     { status: 'wait', description: '对端VR配置下发成功' },
     { status: 'wait', description: '结束' },
   ]);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [canDeploy, setCanDeploy] = useState(false);
+  const [, setRefreshKey] = useState(0);
+  const [_canDeploy, _setCanDeploy] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [fullLocalConfig, setFullLocalConfig] = useState<any>(null);
-  const [fullPeerConfig, setFullPeerConfig] = useState<any>(null);
-  const deployedRef = React.useRef(false);
+  const [_fullLocalConfig, _setFullLocalConfig] = useState<any>(null);
+  const [_fullPeerConfig, _setFullPeerConfig] = useState<any>(null);
+  const _deployedRef = React.useRef(false);
 
   // Manual Step State
   const [manualStep, setManualStep] = useState(0);
@@ -148,6 +148,7 @@ const IPsecVPNWizard: React.FC = () => {
       // Auto-start
       setTimeout(() => executeManualStep(0), 500);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
   // 1. 精确监听 Checkbox 状态，确保 React 能够感知变化
@@ -182,6 +183,7 @@ const IPsecVPNWizard: React.FC = () => {
       setIsEdit(true);
       fetchVPN(id);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchVPN = async (vpnId: string) => {
@@ -251,6 +253,7 @@ const IPsecVPNWizard: React.FC = () => {
         });
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchVRs = async () => {
@@ -272,7 +275,7 @@ const IPsecVPNWizard: React.FC = () => {
     }
   };
 
-  const requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
+  const _requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
     const accessKey = 'Cloudmap#123';
     const secretKey = 'Cloudmap#123';
     const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
@@ -367,32 +370,6 @@ const IPsecVPNWizard: React.FC = () => {
       // 尝试提取 EIP/Floating IP (优先级高于 WAN IP)
       eip: data?.floating_ip || data?.public_ip || data?.eip || data?.external_ip || wanIfObj?.floating_ip || wanIfObj?.public_ip,
     };
-  };
-
-  const fetchVR3Interfaces = async (uuid: string) => {
-    try {
-      const method = 'GET';
-      const other = `uuid=${uuid}`;
-      const path = '/V2/ctcontrol/VR3/VRConfig/list';
-      const info = await requestSign(path, method, other, '');
-      const queryUrl = `/api-proxy${path}?${other}`;
-      const resp = await fetch(queryUrl, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json', 'Authorization': info.Authorization, 'tonce': String(info.tonce) },
-      });
-      const raw = await resp.json().catch(async () => ({ raw: await resp.text() }));
-      const unwrapData = (obj: any) => {
-        let cur = obj;
-        while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
-        return cur;
-      };
-      const data = unwrapData(raw);
-
-      return parseVrInterfaces(data);
-    } catch (e) {
-      console.error('Fetch VR3 failed:', e);
-      return null;
-    }
   };
 
   const prefillFromVrPreset = async (which: 'local' | 'remote', vrUuid: string) => {

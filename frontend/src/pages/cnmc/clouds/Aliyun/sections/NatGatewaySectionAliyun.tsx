@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, SwapOutlined } from '@ant-design/icons';
+import { App, Input, Select, Space, Table } from 'antd';
+import { SwapOutlined } from '@ant-design/icons';
 import { fetchCloudProviderNatGateways } from '../../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
@@ -16,7 +16,7 @@ type NatGatewaySectionAliyunProps = {
   onOpenDetail: (type: string, title: string, data: any) => void;
 };
 
-const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloudId, natGateways, eips, vpcs, subnets, onSetNatGateways, onOpenDetail }) => {
+const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloudId, natGateways, vpcs, onSetNatGateways, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');

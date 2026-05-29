@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Dropdown, Input, Modal, Select, Table, Switch, Space, Typography } from 'antd';
-import { MoreOutlined, ReloadOutlined, EllipsisOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { App, Button, Input, Modal, Select, Table, Space, Typography } from 'antd';
+import { ReloadOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../../../../services/api';
 import { startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs, fetchAliyunEcsVncUrl } from '../../../../../services/aliyunApi';
 import PageDetailSection, { LiveSwitch, RowActionsButton } from '../../../../../components/PageDetailSection';
@@ -130,6 +130,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
       const okVpc = !vpcFilter || String(vpcFilter || '') === vid;
       return (okKw || ipText.includes(kn)) && okSt && okZn && okCpu && okMem && okVpc;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ecs, keyword, statusFilter, zoneFilter, cpuFilter, memGbFilter, vpcFilter]);
 
   const columns = useMemo(() => [
@@ -260,6 +261,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [cloudId]);
 
   return (

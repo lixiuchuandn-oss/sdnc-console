@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table } from 'antd';
+import { App, Input, Select, Table } from 'antd';
 import { SwapOutlined } from '@ant-design/icons';
 import { fetchCloudProviderNatGateways } from '../../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
@@ -65,6 +65,7 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [eips, vpcs, subnets, onOpenDetail]);
 
   return (

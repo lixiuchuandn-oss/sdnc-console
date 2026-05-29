@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Table, Modal } from 'antd';
-import { MoreOutlined, GlobalOutlined } from '@ant-design/icons';
+import { App, Input, Table, Modal } from 'antd';
+import { GlobalOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderEips } from '../../../../../services/aliyunApi';

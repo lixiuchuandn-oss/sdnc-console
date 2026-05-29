@@ -4,7 +4,7 @@ import { ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { fetchAliyunEcsMetrics } from '../../../../../services/aliyunApi';
 type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: (force?: boolean) => void | Promise<void>; };
-const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics, onRefresh }) => {
+const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, onRefresh }) => {
   const iid = String(instance?.InstanceId || instance?.id || '');
   const [loading, setLoading] = useState<boolean>(false);
   const [seriesMap, setSeriesMap] = useState<Record<string, any[]>>({});
@@ -42,11 +42,13 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics
       setSeriesMap(entries);
     } finally { setLoading(false); }
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadAll(); }, [cloudId, iid, period]);
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => { loadAll(); }, Math.max(period * 1000, 30000));
     return () => { clearInterval(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, period, cloudId, iid]);
   const optionsFor = (key: string, label: string, unit: string) => {
     const arr = seriesMap[key] || [];

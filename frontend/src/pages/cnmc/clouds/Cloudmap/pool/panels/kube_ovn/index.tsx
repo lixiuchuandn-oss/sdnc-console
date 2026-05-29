@@ -121,8 +121,6 @@ const CloudmapKubeOvnRoutePanel: React.FC<CloudmapKubeOvnRoutePanelProps> = (
     setKubeOvnVpcs,
     setRawVpcs,
     kubeOvnSubnets,
-    setKubeOvnSubnets,
-    setRawSubnets,
     kubeOvnEips,
     kubeOvnSnatRules,
     kubeOvnDnatRules,

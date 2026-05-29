@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Table } from 'antd';
-import { MoreOutlined, NodeIndexOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Table } from 'antd';
+import { NodeIndexOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import { fetchCloudProviderVSwitches, deleteCloudProviderVSwitch } from '../../../../../services/aliyunApi';
@@ -68,6 +68,7 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, vpcs, onOpenDetail, onSetVSwitches]);
 
   return (

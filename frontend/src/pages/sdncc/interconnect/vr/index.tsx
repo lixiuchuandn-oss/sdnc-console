@@ -78,45 +78,6 @@ function parseJsonField(val: unknown): unknown {
   return val;
 }
 
-/** 与新增/修改设备一致：`/V2/vrcontrol/VR1/register` 等为 POST + `/api-proxy/api/sign`；注销见 `vrApi.deleteVRInstance`（规范 DELETE unregister） */
-async function vrcontrolVr1SignedPost(
-  path: string,
-  body: Record<string, unknown>,
-): Promise<{ res: Response; json: unknown }> {
-  const accesskey = 'Cloudmap#123';
-  const secretkey = 'Cloudmap#123';
-  const method = 'POST';
-  const other = '';
-  const bodyStr = JSON.stringify(body);
-  const authUrl =
-    `/api-proxy/api/sign?` +
-    `url=${encodeURIComponent(path)}&` +
-    `method=${method}&` +
-    `other=${encodeURIComponent(other)}&` +
-    `accessKey=${encodeURIComponent(accesskey)}&` +
-    `secretKey=${encodeURIComponent(secretkey)}`;
-  const signResp = await fetch(authUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: bodyStr,
-  });
-  const signJson = await signResp.json();
-  const info = signJson && signJson.data ? signJson.data : signJson;
-  if (!info || !info.Authorization || !info.tonce) {
-    throw new Error('认证响应数据缺少 Authorization 或 tonce');
-  }
-  const res = await fetch(`/api-proxy${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: info.Authorization,
-      tonce: String(info.tonce),
-    },
-    body: bodyStr,
-  });
-  const json = await res.json().catch(async () => ({ raw: await res.text() }));
-  return { res, json };
-}
 
 function formatTrafficRateBps(bps: number): string {
   if (!bps) return '0 bps';
@@ -249,7 +210,7 @@ const VRPage: React.FC = () => {
     })();
   }, [tenantOptions]);
 
-  const getActionMenu = (row: VRRow): MenuProps['items'] => ([
+  const getActionMenu = (_row: VRRow): MenuProps['items'] => ([
     { key: 'metadata', label: '查看详情' },
     { key: 'editDevice', label: '修改名称' },
     { type: 'divider' },

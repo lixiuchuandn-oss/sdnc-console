@@ -47,7 +47,7 @@ const ResourceActionsDropdown: React.FC<Props> = ({
         return { type: 'divider' as const, key: item.key };
       }
       
-      const { tooltip, show, onClick: itemOnClick, disabled, danger, ...rest } = item;
+      const { tooltip, show: _show, onClick: itemOnClick, disabled, danger, ...rest } = item;
       
       if (disabled) {
         return {
