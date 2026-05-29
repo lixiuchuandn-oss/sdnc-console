@@ -5,7 +5,7 @@
 import React from 'react';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import { Alert, Card, Empty, Skeleton, Space, Typography } from 'antd';
-import MonitoringTooltip from './MonitoringTooltip';
+import { MonitoringPopover } from './MonitoringPopover';
 
 export interface MetricPanelCardProps {
   title: React.ReactNode;
@@ -44,11 +44,11 @@ const MetricPanelCard: React.FC<MetricPanelCardProps> = ({
         {title}
       </Typography.Text>
       {description ? (
-        <MonitoringTooltip title={description}>
+        <MonitoringPopover title={description}>
           <QuestionCircleOutlined
             style={{ color: 'rgba(0,0,0,.45)', fontSize: 12, cursor: 'help' }}
           />
-        </MonitoringTooltip>
+        </MonitoringPopover>
       ) : null}
     </Space>
   );

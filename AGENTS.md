@@ -448,8 +448,7 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 
 在 `frontend/src/pages/cnmc/clouds/Harvester/monitoring/` 下新增或修改说明类浮层时：
 
-- 优先复用 `components/MonitoringTooltip` 导出的 **`MonitoringPopover`**（气泡卡片）。
-- 存量 `MonitoringTooltip`（Tooltip）逐步迁移为 Popover；不要在业务页面内重复内联 `styles.body`。
+- 优先复用 `components/MonitoringPopover` 导出的 **`MonitoringPopover`**（气泡卡片）。
 - Popover 默认使用 `placement="topLeft"`、`trigger="hover"`。
 - 说明类图标使用 `QuestionCircleOutlined`，颜色 `rgba(0,0,0,.45)`，字号 `12`，鼠标样式 `help`。
 

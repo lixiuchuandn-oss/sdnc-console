@@ -1,5 +1,5 @@
 /**
- * 运维监控大盘 · 节点视图（对齐 Grafana 仪表盘 `Node Exporter / Nodes`，uid=efn3nhjgavzlse）。
+ * 运维监控大盘 · 节点视图（对齐 Grafana 仪表盘 `Node Exporter / Nodes`）。
  *
  * 与 Grafana 的差异：
  * - 顶部 `Instance` 模板变量由后端 Prometheus `query_range` 取 `node_uname_info` 标签实现，
@@ -106,8 +106,8 @@ const NODES_PANEL_GROUPS: NodesPanelGroup[] = [
     panels: [
       {
         kind: 'timeseries',
-        id: 'cpu-usage',
-        title: 'CPU 使用率',
+        id: 'node-cpu-utilization',
+        title: '节点CPU利用率(%)',
         description:
           '每个 CPU 核的非空闲占比，sum without (mode) 排除 idle/iowait/steal 后除以总核数；按 cpu 堆叠，总高度对应整机 CPU 利用率',
         unit: 'percent01',

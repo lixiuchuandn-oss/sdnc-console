@@ -4,41 +4,45 @@
  * 内用 Ant Design + ECharts 自渲染。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Space, Tag } from 'antd';
+import { Space } from 'antd';
 import DashboardToolbar from './components/DashboardToolbar';
+import OpsDashboardViewTabs from './components/OpsDashboardViewTabs';
 import {
   useDashboardTimeRange,
   OPS_DASHBOARD_DEFAULT_RANGE_SECONDS,
 } from './hooks/useDashboardTimeRange';
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 import OpsDashboardClusterSection from './sections/OpsDashboardClusterSection';
-import OpsDashboardNodesSection from './sections/OpsDashboardNodesSection';
 import OpsDashboardVmsSection from './sections/OpsDashboardVmsSection';
+import OpsDashboardVmsOverviewSection from './sections/OpsDashboardVmsOverviewSection';
+import OpsDashboardNodesSection from './sections/OpsDashboardNodesSection';
 import '../../Cloudmap/pool/styles/layout.css';
 import {
   OPS_DASHBOARD_PAGE_ROOT_STYLE,
   OPS_DASHBOARD_PAGE_STACK_GAP,
   OPS_DASHBOARD_TOOLBAR_ROW_STYLE,
-  OPS_DASHBOARD_TOOLBAR_SPACE_SIZE,
-  opsDashboardTagStyle,
 } from './lib/opsDashboardLayout';
+import { loadOpsDashboardViewOrder } from './lib/opsDashboardViewOrder';
+import {
+  CLUSTER_RESOURCES_VIEW,
+  NODES_OVERVIEW_VIEW,
+  VMS_OVERVIEW_VIEW,
+  VMS_RESOURCES_VIEW,
+  type OpsDashboardView,
+  type OpsDashboardViewDef,
+} from './lib/opsDashboardViews';
 
 interface MonitoringOpsDashboardProps {
   cloudId: string;
 }
 
-type OpsDashboardView = 'cluster-resources' | 'nodes-resources' | 'vms-resources';
-
-const DASHBOARD_VIEWS: Array<{ key: OpsDashboardView; label: string }> = [
-  { key: 'cluster-resources', label: '集群资源' },
-  { key: 'nodes-resources', label: '节点资源' },
-  { key: 'vms-resources', label: '云主机资源' },
-];
-
 const DEFAULT_AUTO_REFRESH_MS: number | null = 60 * 1000;
 
 const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId }) => {
-  const [activeView, setActiveView] = useState<OpsDashboardView>('cluster-resources');
+  const [orderedViews, setOrderedViews] = useState<OpsDashboardViewDef[]>(() =>
+    loadOpsDashboardViewOrder(),
+  );
+  const [activeView, setActiveView] = useState<OpsDashboardView>(CLUSTER_RESOURCES_VIEW);
   const {
     rangeSeconds,
     setRangeSeconds,
@@ -58,11 +62,15 @@ const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId
 
   const sectionBody = useMemo(() => {
     switch (activeView) {
-      case 'nodes-resources':
+      case NODES_OVERVIEW_VIEW:
         return <OpsDashboardNodesSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />;
-      case 'vms-resources':
+      case VMS_RESOURCES_VIEW:
+        return (
+          <OpsDashboardVmsOverviewSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />
+        );
+      case VMS_OVERVIEW_VIEW:
         return <OpsDashboardVmsSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />;
-      case 'cluster-resources':
+      case CLUSTER_RESOURCES_VIEW:
       default:
         return <OpsDashboardClusterSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />;
     }
@@ -72,18 +80,12 @@ const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId
     <div className="cloudmap-monitoring-page-root" style={OPS_DASHBOARD_PAGE_ROOT_STYLE}>
       <Space direction="vertical" size={OPS_DASHBOARD_PAGE_STACK_GAP} style={{ width: '100%' }}>
         <div style={OPS_DASHBOARD_TOOLBAR_ROW_STYLE}>
-          <Space size={OPS_DASHBOARD_TOOLBAR_SPACE_SIZE} wrap>
-            {DASHBOARD_VIEWS.map((view) => (
-              <Tag.CheckableTag
-                key={view.key}
-                checked={activeView === view.key}
-                onChange={() => setActiveView(view.key)}
-                style={opsDashboardTagStyle(activeView === view.key)}
-              >
-                {view.label}
-              </Tag.CheckableTag>
-            ))}
-          </Space>
+          <OpsDashboardViewTabs
+            views={orderedViews}
+            activeView={activeView}
+            onActiveViewChange={setActiveView}
+            onViewsOrderChange={setOrderedViews}
+          />
           <DashboardToolbar
             rangeSeconds={rangeSeconds}
             onRangeChange={setRangeSeconds}

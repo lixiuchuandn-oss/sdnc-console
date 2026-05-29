@@ -1,19 +1,21 @@
 /**
- * 运维监控大盘 · 云主机视图（对齐 Grafana 仪表盘 `Harvester 虚拟机概览`，uid=harvester-vm-dashboard-1）。
+ * 运维监控大盘 · 云主机资源视图
  *
  * 与 Grafana 的差异：
  * - `$count` 模板变量改为顶部 `<Select>`（5 / 10 / 20，默认 10），通过 `expandPromql` 注入到 PromQL。
  * - `bargauge` 类型用本地新增的 `MetricBarGauge` 复刻：按 max 取百分比、按阈值（65% / 90%）离散染色。
- *   原 Grafana `displayMode: gradient` 的颜色过渡舍弃，换离散段色，避免引入 SVG/Canvas 复杂度。
- *
- * Panel 网格（Grafana 24-col → AntD 24-col）：每个 panel `w=8`，每行 3 个；共 3 行（最后一行 2 个）。
+ * 面板按计算 / 存储 / 网络分组展示（与集群、节点资源视图一致）；每组内每行最多 3 个 panel（`lg=8`）。
  */
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Col, Row, Select, Space, Typography } from 'antd';
 import MetricPanelCard from '../components/MetricPanelCard';
+import MetricPanelExpandButton from '../components/MetricPanelExpandButton';
+import MetricPanelPreviewModal from '../components/MetricPanelPreviewModal';
 import MetricTimeSeriesChart, { type MetricSeriesInput } from '../components/MetricTimeSeriesChart';
 import MetricBarGauge, { type BarGaugeThresholdStep } from '../components/MetricBarGauge';
 import { usePromQueries, type PromQueryDef, type PromQueryResult } from '../hooks/usePromQueries';
+import { useVmDisplayNameMap } from '../hooks/useVmDisplayNameMap';
+import { resolveVmMetricLegendName } from '../lib/vmDisplayNames';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
 
@@ -25,6 +27,7 @@ export interface OpsDashboardVmsSectionProps {
 
 const PANEL_HEIGHT = 340;
 const CHART_HEIGHT = 260;
+const PREVIEW_CHART_HEIGHT = 480;
 const BARGAUGE_MAX_HEIGHT = 260;
 const COUNT_OPTIONS = [5, 10, 20] as const;
 const DEFAULT_COUNT = 10;
@@ -64,17 +67,29 @@ interface BarGaugePanelDef {
 
 type VmsPanelDef = TimeSeriesPanelDef | BarGaugePanelDef;
 
-const VMS_PANELS: VmsPanelDef[] = [
+interface VmsPanelGroup {
+  id: string;
+  title: string;
+  panels: VmsPanelDef[];
+}
+
+/** 云主机资源监控面板定义（按域分组） */
+const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
+  {
+    id: 'vm-compute',
+    title: '计算',
+    panels: [
   {
     kind: 'timeseries',
     id: 'vm-cpu-usage',
-    title: 'CPU 使用率',
-    description: 'TopN VM 的虚拟机 vCPU 利用率：avg(rate(kubevirt_vmi_vcpu_seconds_total[5m])) by (domain, name) / 1000；按 VM 堆叠',
+    title: 'CPU利用率(%)',
+    description:
+      '按 CPU 占用从高到低展示最繁忙的云主机（数量由上方「TopN 数量」决定）。每条线代表一台虚拟机，数值越高表示该云主机算力占用越多；若长期接近 100%，可能影响虚拟机内应用响应速度。',
     unit: 'percent01',
     yMin: 0,
     stack: true,
     showLegend: true,
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     queries: [
       {
         key: 'A',
@@ -87,14 +102,14 @@ const VMS_PANELS: VmsPanelDef[] = [
   {
     kind: 'timeseries',
     id: 'vm-memory-usage',
-    title: '内存使用率',
+    title: '内存使用率(%)',
     description:
-      'TopN VM 的虚拟机内存利用率：(kubevirt_vmi_memory_available_bytes - kubevirt_vmi_memory_unused_bytes) / kubevirt_vmi_memory_available_bytes',
+      '按内存占用从高到低展示最吃内存的云主机（数量由上方「TopN 数量」决定）。每条线代表一台虚拟机，数值为「已用内存 ÷ 分配给该机的可用内存」；越高表示内存越紧，长期接近 100% 时应用可能变慢或出现内存不足风险。',
     unit: 'percent01',
     yMin: 0,
     stack: true,
     showLegend: true,
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     queries: [
       {
         key: 'A',
@@ -104,6 +119,12 @@ const VMS_PANELS: VmsPanelDef[] = [
       },
     ],
   },
+    ],
+  },
+  {
+    id: 'vm-storage',
+    title: '存储',
+    panels: [
   {
     kind: 'timeseries',
     id: 'vm-storage-read',
@@ -112,7 +133,7 @@ const VMS_PANELS: VmsPanelDef[] = [
     unit: 'bytesRate',
     yMin: 0,
     showLegend: true,
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     queries: [
       {
         key: 'A',
@@ -125,11 +146,12 @@ const VMS_PANELS: VmsPanelDef[] = [
     kind: 'timeseries',
     id: 'vm-storage-write',
     title: '存储写流量',
-    description: 'TopN VM 的磁盘写字节速率：irate(kubevirt_vmi_storage_write_traffic_bytes_total[5m])，按 VM × drive 一条线',
+    description:
+      '按磁盘写入速度从高到低展示写入最活跃的云主机（数量由上方「TopN 数量」决定）。每条线代表一台云主机的一块磁盘，数值表示每秒写入的数据量；写入突增常见于落盘、日志或备份类操作。',
     unit: 'bytesRate',
     yMin: 0,
     showLegend: true,
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     queries: [
       {
         key: 'A',
@@ -138,6 +160,12 @@ const VMS_PANELS: VmsPanelDef[] = [
       },
     ],
   },
+  ],
+  },
+  {
+    id: 'network',
+    title: '网络',
+    panels: [
   {
     kind: 'timeseries',
     id: 'vm-network-receive',
@@ -146,7 +174,7 @@ const VMS_PANELS: VmsPanelDef[] = [
     unit: 'bitsRate',
     yMin: 0,
     showLegend: true,
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     queries: [
       {
         key: 'A',
@@ -163,7 +191,7 @@ const VMS_PANELS: VmsPanelDef[] = [
     unit: 'bitsRate',
     yMin: 0,
     showLegend: true,
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     queries: [
       {
         key: 'A',
@@ -184,7 +212,7 @@ const VMS_PANELS: VmsPanelDef[] = [
       { percent: 90, color: '#f5222d' },
     ],
     legendTemplate: '{{name}}',
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     query: {
       key: 'A',
       expr: 'topk(${count}, (delta(kubevirt_vmi_network_receive_packets_total[2h])))',
@@ -203,14 +231,18 @@ const VMS_PANELS: VmsPanelDef[] = [
       { percent: 90, color: '#f5222d' },
     ],
     legendTemplate: '{{name}}',
-    col: { xs: 24, lg: 8 },
+    col: { xs: 24, lg: 12 },
     query: {
       key: 'A',
       expr: 'topk(${count}, (delta(kubevirt_vmi_network_transmit_packets_total[2h])))',
       legend: '{{name}}',
     },
   },
+    ],
+  },
 ];
+
+const ALL_VMS_PANELS = VMS_PANEL_GROUPS.flatMap((g) => g.panels);
 
 function composeKey(panelId: string, queryKey: string): string {
   return `${panelId}__${queryKey}`;
@@ -247,11 +279,19 @@ function isPanelEmpty(panel: VmsPanelDef, results: Record<string, PromQueryResul
   return list.every((r) => !r || r.series.length === 0 || r.series.every((s) => s.values.length === 0));
 }
 
+type VmLegendNameResolver = (
+  template: string,
+  labels: Record<string, string>,
+  fallback: string,
+) => string;
+
 function renderTimeSeriesPanel(
   panel: TimeSeriesPanelDef,
   results: Record<string, PromQueryResult>,
   chartMin: number,
   chartMax: number,
+  legendNameResolver?: VmLegendNameResolver,
+  height: number = CHART_HEIGHT,
 ): React.ReactNode {
   const groups: MetricSeriesInput[] = panel.queries.map((q) => ({
     name: q.legend,
@@ -262,18 +302,24 @@ function renderTimeSeriesPanel(
     <MetricTimeSeriesChart
       groups={groups}
       unit={panel.unit}
-      height={CHART_HEIGHT}
+      height={height}
       chartMin={chartMin}
       chartMax={chartMax}
       yMin={panel.yMin}
       yMax={panel.yMax}
       showLegend={panel.showLegend}
       stack={panel.stack}
+      legendNameResolver={legendNameResolver}
     />
   );
 }
 
-function renderBarGaugePanel(panel: BarGaugePanelDef, results: Record<string, PromQueryResult>): React.ReactNode {
+function renderBarGaugePanel(
+  panel: BarGaugePanelDef,
+  results: Record<string, PromQueryResult>,
+  legendNameResolver?: VmLegendNameResolver,
+  maxHeight: number = BARGAUGE_MAX_HEIGHT,
+): React.ReactNode {
   const series = results[composeKey(panel.id, panel.query.key)]?.series ?? [];
   return (
     <MetricBarGauge
@@ -281,14 +327,43 @@ function renderBarGaugePanel(panel: BarGaugePanelDef, results: Record<string, Pr
       unit={panel.unit}
       thresholds={panel.thresholds}
       legendTemplate={panel.legendTemplate}
-      maxHeight={BARGAUGE_MAX_HEIGHT}
+      maxHeight={maxHeight}
+      legendNameResolver={legendNameResolver}
     />
   );
 }
 
+function renderVmsPanelBody(
+  panel: VmsPanelDef,
+  results: Record<string, PromQueryResult>,
+  chartMin: number,
+  chartMax: number,
+  legendNameResolver: VmLegendNameResolver,
+  options?: { chartHeight?: number; barGaugeMaxHeight?: number },
+): React.ReactNode {
+  switch (panel.kind) {
+    case 'timeseries':
+      return renderTimeSeriesPanel(
+        panel,
+        results,
+        chartMin,
+        chartMax,
+        legendNameResolver,
+        options?.chartHeight,
+      );
+    case 'bargauge':
+      return renderBarGaugePanel(
+        panel,
+        results,
+        legendNameResolver,
+        options?.barGaugeMaxHeight,
+      );
+  }
+}
+
 function collectAllQueries(): PromQueryDef[] {
   const list: PromQueryDef[] = [];
-  for (const panel of VMS_PANELS) {
+  for (const panel of ALL_VMS_PANELS) {
     const push = (panelId: string, q: PanelQueryDef) => {
       list.push({ key: composeKey(panelId, q.key), expr: q.expr, legend: q.legend });
     };
@@ -311,7 +386,13 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
   resolved,
   reloadToken,
 }) => {
-  const [count, setCount] = React.useState<number>(DEFAULT_COUNT);
+  const [count, setCount] = useState<number>(DEFAULT_COUNT);
+  const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
+
+  const { nameMap, loading: vmNamesLoading, error: vmNamesError } = useVmDisplayNameMap(
+    cloudId,
+    reloadToken,
+  );
 
   const globalVars = useMemo(
     () => ({
@@ -332,12 +413,29 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
     reloadToken,
   });
 
+  const legendNameResolver = useCallback<VmLegendNameResolver>(
+    (template, labels, fallback) => resolveVmMetricLegendName(labels, template, fallback, nameMap),
+    [nameMap],
+  );
+
   const chartMin = resolved.start * 1000;
   const chartMax = resolved.end * 1000;
 
+  const previewPanel = useMemo(
+    () => (previewPanelId ? ALL_VMS_PANELS.find((p) => p.id === previewPanelId) ?? null : null),
+    [previewPanelId],
+  );
+
+  const previewPanelLoading = previewPanel
+    ? isPanelLoading(previewPanel, results) || vmNamesLoading
+    : false;
+  const previewPanelError = previewPanel ? panelErrorMsg(previewPanel, results) : undefined;
+  const previewPanelEmpty =
+    previewPanel != null && !previewPanelLoading && isPanelEmpty(previewPanel, results);
+
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Space size={12} wrap>
+      <Space size={12} wrap align="center">
         <Typography.Text strong>TopN 数量</Typography.Text>
         <Select<number>
           size="middle"
@@ -347,7 +445,6 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           onChange={(v) => setCount(Number(v))}
         />
       </Space>
-
       {aggregateError ? (
         <Alert
           type="warning"
@@ -357,38 +454,60 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           style={{ whiteSpace: 'pre-wrap' }}
         />
       ) : null}
-
-      <Row gutter={[16, 16]}>
-        {VMS_PANELS.map((panel) => {
-          const loading = isPanelLoading(panel, results);
-          const error = panelErrorMsg(panel, results);
-          const empty = !loading && isPanelEmpty(panel, results);
-          let body: React.ReactNode;
-          switch (panel.kind) {
-            case 'timeseries':
-              body = renderTimeSeriesPanel(panel, results, chartMin, chartMax);
-              break;
-            case 'bargauge':
-              body = renderBarGaugePanel(panel, results);
-              break;
-          }
-          return (
-            <Col key={panel.id} xs={panel.col.xs} lg={panel.col.lg}>
-              <MetricPanelCard
-                title={panel.title}
-                description={panel.description}
-                loading={loading}
-                error={error}
-                isEmpty={empty}
-                height={PANEL_HEIGHT}
-                bodyPadding={12}
-              >
-                {body}
-              </MetricPanelCard>
-            </Col>
-          );
-        })}
-      </Row>
+      {vmNamesError ? (
+        <Alert
+          type="info"
+          showIcon
+          message="云主机名称暂不可用"
+          description={`图例将显示云主机 ID。${vmNamesError}`}
+        />
+      ) : null}
+      {VMS_PANEL_GROUPS.map((group) => (
+        <div key={group.id}>
+          <Typography.Title level={5} style={{ margin: '0 0 8px' }}>
+            {group.title}
+          </Typography.Title>
+          <Row gutter={[16, 16]}>
+            {group.panels.map((panel) => {
+              const loading = isPanelLoading(panel, results) || vmNamesLoading;
+              const error = panelErrorMsg(panel, results);
+              const empty = !loading && isPanelEmpty(panel, results);
+              return (
+                <Col key={panel.id} xs={panel.col.xs} lg={panel.col.lg}>
+                  <MetricPanelCard
+                    title={panel.title}
+                    description={panel.description}
+                    extra={<MetricPanelExpandButton onClick={() => setPreviewPanelId(panel.id)} />}
+                    loading={loading}
+                    error={error}
+                    isEmpty={empty}
+                    height={PANEL_HEIGHT}
+                    bodyPadding={12}
+                  >
+                    {renderVmsPanelBody(panel, results, chartMin, chartMax, legendNameResolver)}
+                  </MetricPanelCard>
+                </Col>
+              );
+            })}
+          </Row>
+        </div>
+      ))}
+      <MetricPanelPreviewModal
+        open={previewPanel != null}
+        onClose={() => setPreviewPanelId(null)}
+        title={previewPanel?.title}
+        description={previewPanel?.description}
+        loading={previewPanelLoading}
+        error={previewPanelError}
+        isEmpty={previewPanelEmpty}
+      >
+        {previewPanel
+          ? renderVmsPanelBody(previewPanel, results, chartMin, chartMax, legendNameResolver, {
+              chartHeight: PREVIEW_CHART_HEIGHT,
+              barGaugeMaxHeight: PREVIEW_CHART_HEIGHT,
+            })
+          : null}
+      </MetricPanelPreviewModal>
     </Space>
   );
 };
