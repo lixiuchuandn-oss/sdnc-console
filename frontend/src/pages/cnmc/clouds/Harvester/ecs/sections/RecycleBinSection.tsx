@@ -65,7 +65,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, message, Tooltip, App, Input, Select, Button, Checkbox, Drawer } from 'antd';
+import { Table, message, App, Input, Select, Button, Checkbox, Drawer } from 'antd';
 import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';

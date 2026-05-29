@@ -41,7 +41,7 @@ import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, 
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
 import { isSdnccPagePath } from '../routes/adminRouteMatch';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, FolderOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined, AuditOutlined, RocketOutlined } from '@ant-design/icons';
+import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, FolderOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined, AuditOutlined, RocketOutlined } from '@ant-design/icons';
 
 /**
  * 图标映射函数
@@ -296,7 +296,7 @@ const PageContainer = <T extends Record<string, any> = any>({
       })
       .map((c: any) => {
         // 强制移除列宽，符合设计规范 "禁止添加列宽"
-        const { width, ...rest } = c;
+        const { width: _width, ...rest } = c;
         return rest;
       });
   }, [tableProps?.columns, hiddenColumns, externalColumnControl]);
@@ -417,6 +417,7 @@ const PageContainer = <T extends Record<string, any> = any>({
    * 当前路由对应的路由规范
    * 用于自动获取标题、图标、面包屑等信息
    */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const currentSpec = useMemo(() => findSpec(loc.pathname), [loc.pathname]);
 
   /** SDN 控制台：内嵌 Table 默认无边框；显式传 tableProps.bordered 仍可打开。 */
@@ -464,6 +465,7 @@ const PageContainer = <T extends Record<string, any> = any>({
     items.push({ label: lbl });
     
     return items;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loc.pathname, currentSpec, breadcrumb]);
 
   /**

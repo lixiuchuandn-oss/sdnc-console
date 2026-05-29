@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table } from 'antd';
+import { App, Input, Select, Table } from 'antd';
 import { GlobalOutlined } from '@ant-design/icons';
 import { fetchCloudProviderEips } from '../../../../../services/api';
 import { statusTag } from '../components/Common';

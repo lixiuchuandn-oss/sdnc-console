@@ -4,7 +4,6 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
 import { LOGGING_NS, LOG_SCOPE_CLUSTER, LOG_SCOPE_NAMESPACE, LOG_SCOPE_MAP } from '../constants';
 
@@ -68,7 +67,7 @@ export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, child
 
   const [namespaceList, setNamespaceList] = useState<string[]>([]);
   const [namespaceLoading, setNamespaceLoading] = useState(false);
-  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
+  const [tenantNamespaces] = useState<string[]>([]);
   const [nsFilter, setNsFilter] = useState<string | undefined>();
 
   const loadNamespaces = useCallback(async () => {

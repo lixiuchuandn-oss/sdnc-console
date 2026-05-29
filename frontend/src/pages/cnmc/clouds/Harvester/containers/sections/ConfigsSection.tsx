@@ -786,6 +786,7 @@ const ConfigMapTable: React.FC<{
         );
       },
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [handleViewDetail, handleDelete, handleViewYaml, modal, onEditClick, checkResourceInUse, hasContainersWrite]);
   
   // 使用列设置 Hook
@@ -1236,6 +1237,7 @@ const SecretTable: React.FC<{
         );
       },
     },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [handleViewDetail, handleDelete, handleViewYaml, modal, onEditClick, checkResourceInUse, hasContainersWrite]);
   
   // 使用列设置 Hook

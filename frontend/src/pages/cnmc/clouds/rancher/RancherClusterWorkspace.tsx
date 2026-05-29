@@ -4,8 +4,8 @@
 import type { CSSProperties } from 'react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { Alert, Button, Space, Spin } from 'antd';
-import { CloudUploadOutlined, HomeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Alert, Button, Spin } from 'antd';
+import { HomeOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { fetchRancherClustersForPool } from '../../../../services/api';
 import {
@@ -101,7 +101,6 @@ export function RancherPoolHomeRedirect({
   providerLabel,
   boundClusterId,
 }: RancherPoolHomeRedirectProps): React.ReactElement {
-  const navigate = useNavigate();
   const [phase, setPhase] = useState<'loading' | 'error' | 'empty'>('loading');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(() =>

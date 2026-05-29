@@ -34,7 +34,8 @@ function isMustChangePasswordAllowedRoute(req: Request): boolean {
 }
 
 export interface AuthRequest extends Request {
-  user?: User;
+  // 运行时由 authMiddleware 在 User 实体上附加：RBAC 聚合后的权限列表与租户用户标记
+  user?: User & { permissions?: string[]; isTenantUser?: boolean };
 }
 
 export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {

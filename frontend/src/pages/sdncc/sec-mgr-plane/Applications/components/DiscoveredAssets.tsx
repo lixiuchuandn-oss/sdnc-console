@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Tag, Button, Space, Select, message, Tooltip, Badge, Typography, Form, Input } from 'antd';
-import { SearchOutlined, PlusOutlined, LinkOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Table, Tag, Button, Space, Select, message, Badge, Typography, Form, Input } from 'antd';
+import { SearchOutlined, PlusOutlined, LinkOutlined } from '@ant-design/icons';
 import SharedToolbar from '../../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import { fetchSaseDiscoveredAssets } from '../../../../../services/api';
@@ -121,6 +121,7 @@ const DiscoveredAssets: React.FC<Props> = ({ domains, existingApps, onCreateApp,
   useEffect(() => {
     // Always fetch, regardless of domains
     fetchAssets();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domains]); // Keep domains dependency if cloudName mapping depends on it, but logic inside is safe
 
   // Reconciliation Logic
@@ -151,6 +152,7 @@ const DiscoveredAssets: React.FC<Props> = ({ domains, existingApps, onCreateApp,
     return a.status === filterStatus;
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const columns: any[] = [
     {
       title: '主机信息',

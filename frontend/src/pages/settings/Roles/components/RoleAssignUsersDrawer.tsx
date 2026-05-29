@@ -302,6 +302,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
       },
     });
     return cols;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renderOtherRolesCell, handleRemove]);
 
   const candidateColumns = useMemo(() => {

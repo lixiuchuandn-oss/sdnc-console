@@ -366,6 +366,7 @@ export function useTenantsPage() {
         },
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       navigate,
       canReadOrganizations,

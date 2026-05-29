@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Table, Spin } from 'antd';
-import { DeploymentUnitOutlined, GlobalOutlined, HddOutlined, SafetyOutlined, LineChartOutlined, FileSearchOutlined } from '@ant-design/icons';
+import { App, Table } from 'antd';
+import { SafetyOutlined } from '@ant-design/icons';
 import { fetchClouds, fetchCloudProviderEcs, fetchInventoryInstancesByCloud, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderSnapshots } from '../../../../../services/api';
 import { fetchCloudProviderEnis, fetchAliyunEcsMetrics, fetchAliyunEcsHistoryEvents } from '../../../../../services/aliyunApi';
 import { fetchCloudProviderSecurityGroups } from '../../../../../services/securityGroups';
@@ -22,10 +22,10 @@ type EcsDetailModalProps = {
 
 const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId, instanceId }) => {
   const { message } = App.useApp();
-  const navigate = useNavigate();
+  const _navigate = useNavigate();
   const [clouds, setClouds] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   const [instance, setInstance] = useState<any | null>(null);
   const [enis, setEnis] = useState<any[]>([]);
   const [provider, setProvider] = useState<string>('');
@@ -172,7 +172,9 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
     }
   }, [open]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) loadInstance(); }, [cloudId, instanceId, provider, open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) { loadEnis(); loadEips(); loadSecGroups(); loadDisks(); loadSnapshots(); loadMetrics(); loadAuditEvents(); } }, [cloudId, instanceId, open, loadMetrics]);
 
   const prefixText = useMemo(() => {
@@ -216,7 +218,6 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
       ) : null}
       tabsItems={(() => {
         const iid = String(instance?.InstanceId || instance?.id || '');
-        const ports:string[] = Array.isArray((instance as any)?.network_interfaces)? (instance as any)!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];
         const eniList:any[] = (() => {
           const fromApi:any[] = Array.isArray(enis) ? enis : [];
           if (enisFiltered && fromApi.length > 0) return fromApi;

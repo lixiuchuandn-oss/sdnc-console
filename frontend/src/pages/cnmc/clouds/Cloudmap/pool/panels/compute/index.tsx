@@ -151,8 +151,6 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
     harvesterTemplates,
     harvesterSshKeys,
     harvesterCloudInits,
-    harvesterGpuResources,
-    harvesterUsbDevices,
     rawImages,
     rawTemplates,
     rawSshKeys,

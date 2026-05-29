@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Space, Table } from 'antd';
+import { App, Button, Input, Table } from 'antd';
 import { SafetyCertificateOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups } from '../../../../../services/securityGroups';
 import { deleteHuaweiCloudSecurityGroup } from '../../../../../services/huaweiApi';
@@ -95,6 +95,7 @@ const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, se
         );
       } },
     ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ecs, cloudId, onOpenDetail, onOpenRuleDrawer, onOpenRefsDrawer]);
 
   return (
