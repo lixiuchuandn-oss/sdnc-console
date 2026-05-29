@@ -625,6 +625,27 @@ export const deleteCloudProviderRds = async (cloudId: string, dbInstanceId: stri
 export const restartCloudProviderRds = async (cloudId: string, dbInstanceId: string) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}/restart`, {});
 };
+const rdsBase = (cloudId: string, dbInstanceId: string) => `/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}`;
+// 账号
+export const fetchCloudProviderRdsAccounts = async (cloudId: string, dbInstanceId: string) => apiRequest(`${rdsBase(cloudId, dbInstanceId)}/accounts`);
+export const createCloudProviderRdsAccount = async (cloudId: string, dbInstanceId: string, payload: { accountName: string; accountPassword: string; accountType?: string; accountDescription?: string }) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/accounts`, payload);
+export const deleteCloudProviderRdsAccount = async (cloudId: string, dbInstanceId: string, accountName: string) => apiDelete(`${rdsBase(cloudId, dbInstanceId)}/accounts/${encodeURIComponent(accountName)}`);
+export const resetCloudProviderRdsAccountPassword = async (cloudId: string, dbInstanceId: string, accountName: string, accountPassword: string) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/accounts/${encodeURIComponent(accountName)}/reset-password`, { accountPassword });
+// 数据库
+export const fetchCloudProviderRdsDatabases = async (cloudId: string, dbInstanceId: string) => apiRequest(`${rdsBase(cloudId, dbInstanceId)}/databases`);
+export const createCloudProviderRdsDatabase = async (cloudId: string, dbInstanceId: string, payload: { dbName: string; characterSetName?: string; dbDescription?: string }) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/databases`, payload);
+export const deleteCloudProviderRdsDatabase = async (cloudId: string, dbInstanceId: string, dbName: string) => apiDelete(`${rdsBase(cloudId, dbInstanceId)}/databases/${encodeURIComponent(dbName)}`);
+// 白名单
+export const fetchCloudProviderRdsWhitelist = async (cloudId: string, dbInstanceId: string) => apiRequest(`${rdsBase(cloudId, dbInstanceId)}/whitelist`);
+export const modifyCloudProviderRdsWhitelist = async (cloudId: string, dbInstanceId: string, payload: { securityIps: string; groupName?: string }) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/whitelist`, payload);
+// 变配
+export const modifyCloudProviderRdsSpec = async (cloudId: string, dbInstanceId: string, payload: { dbInstanceClass?: string; dbInstanceStorage?: number }) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/modify-spec`, payload);
+// 备份
+export const fetchCloudProviderRdsBackups = async (cloudId: string, dbInstanceId: string) => apiRequest(`${rdsBase(cloudId, dbInstanceId)}/backups`);
+export const createCloudProviderRdsBackup = async (cloudId: string, dbInstanceId: string) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/backups`, {});
+// 连接地址
+export const fetchCloudProviderRdsNetInfo = async (cloudId: string, dbInstanceId: string) => apiRequest(`${rdsBase(cloudId, dbInstanceId)}/net-info`);
+export const allocateCloudProviderRdsPublicConnection = async (cloudId: string, dbInstanceId: string, payload: { connectionStringPrefix: string; port?: number }) => apiPost(`${rdsBase(cloudId, dbInstanceId)}/public-connection`, payload);
 
 // ===== 池级监控告警 =====
 export const fetchCloudProviderAlarmLogs = async (cloudId: string) => {

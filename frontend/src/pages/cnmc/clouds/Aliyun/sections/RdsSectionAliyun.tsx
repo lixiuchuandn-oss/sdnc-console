@@ -3,6 +3,7 @@ import { App, Button, Input, Select, Table, Space, Tooltip, Typography, Tag, Mod
 import { DatabaseOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import { statusTag } from '../../Hw/components/Common';
+import RdsDetailDrawerAliyun from '../drawers/RdsDetailDrawerAliyun';
 import {
   fetchCloudProviderRds,
   createCloudProviderRds,
@@ -43,6 +44,7 @@ const RdsSectionAliyun: React.FC<Props> = ({ cloudId, rds, vpcs, vswitches, onSe
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [createOpen, setCreateOpen] = useState<boolean>(false);
   const [createForm] = Form.useForm();
+  const [drawerRds, setDrawerRds] = useState<any | null>(null);
 
   const refresh = async () => {
     if (!cloudId) return;
@@ -168,11 +170,13 @@ const RdsSectionAliyun: React.FC<Props> = ({ cloudId, rds, vpcs, vswitches, onSe
       render: (_: any, r: any) => (
         <RowActionsButton
           items={[
-            { key: 'detail', label: '详情' },
+            { key: 'manage', label: '管理(账号/库/白名单/备份)' },
+            { key: 'detail', label: '详情(JSON)' },
             { key: 'restart', label: '重启' },
             { key: 'del', label: '删除', danger: true },
           ]}
           onClick={({ key }: { key: string }) => {
+            if (key === 'manage') { setDrawerRds(r); return; }
             if (key === 'detail') { Modal.info({ title: '数据库详情', width: 600, maskClosable: true, content: (<pre style={{ maxHeight: 400, overflow: 'auto', background: '#f5f5f5', padding: 10 }}>{JSON.stringify(r, null, 2)}</pre>) }); return; }
             if (key === 'restart') handleRestart(r);
             if (key === 'del') handleDelete(r);
@@ -244,6 +248,8 @@ const RdsSectionAliyun: React.FC<Props> = ({ cloudId, rds, vpcs, vswitches, onSe
           <Form.Item name="dbInstanceDescription" label="实例描述"><Input placeholder="选填" maxLength={256} allowClear /></Form.Item>
         </Form>
       </Modal>
+
+      <RdsDetailDrawerAliyun open={!!drawerRds} cloudId={cloudId} rds={drawerRds} onClose={() => setDrawerRds(null)} />
     </PageDetailSection>
   );
 };
