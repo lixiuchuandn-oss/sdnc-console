@@ -111,8 +111,11 @@ export class InheritanceEngine {
       .forEach(rule => {
         const { pattern, parent } = rule.hierarchical!;
         
-        // 检查是否匹配模式
+        // 检查是否匹配模式（容器子域不与 clouds:read 层级挂钩）
         if (this.matchPattern(pattern, base)) {
+          if (parent === 'clouds' && base.startsWith('clouds.containers')) {
+            return;
+          }
           const parentPerm = `${parent}:${verb}`;
           if (this.registry.has(parentPerm)) {
             inherited.push(parentPerm);
@@ -120,11 +123,17 @@ export class InheritanceEngine {
         }
       });
 
-    // 默认层级继承：clouds.ecs:read -> clouds:read
+    // 默认层级继承：clouds.ecs:read -> clouds:read（容器子域不与 clouds:read 层级挂钩）
     // clouds.ecs.vms:read -> clouds.ecs:read
     if (segments.length >= 2) {
       const parent = `${segments[0]}:${verb}`;
-      if (this.registry.has(parent) && !inherited.includes(parent)) {
+      const skipCloudsDomainForContainers =
+        segments[0] === 'clouds' && segments[1] === 'containers';
+      if (
+        !skipCloudsDomainForContainers &&
+        this.registry.has(parent) &&
+        !inherited.includes(parent)
+      ) {
         inherited.push(parent);
       }
     }

@@ -2,6 +2,7 @@ import { routeSpecs } from '../routes/RouteSpec';
 import { POOL_PAGE_IMPLIED_READ_BASES } from '../pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess';
 import { unifiedStorageReadGranted } from '../pages/cnmc/clouds/Cloudmap/pool/lib/clusterPageAccess';
 import { isUnifiedStorageReadBase } from '../constants/unifiedStoragePermissions';
+import { isCloudsContainersResourceBase } from './permissionUtils';
 
 /**
  * 从 RouteSpec 自动生成路径权限映射
@@ -95,15 +96,6 @@ export const getRequiredActionForPath = (path: string): string | null => {
   return null;
 };
 
-/** `clouds.console:*` 的宽松继承不包含容器子域；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read` */
-function isCloudsContainersResourceBase(resourceBase: string): boolean {
-  return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
-}
-
-function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
-  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
-}
-
 export const hasPermissionForAction = (perms: string[], act: string | null): boolean => {
   if (!act) return false; // 未映射的路径默认拒绝访问
   const permsArray = perms || [];
@@ -124,40 +116,25 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
-  // 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，且不含 dashboard/resource-pools）
-  // 注意：顶层 clouds:read 不是 clouds.* 前缀，由下方单独规则扩展为全部 clouds.*:read（含容器）
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':read') &&
-    !isCloudsContainersResourceBase(base) &&
-    !isCloudsDashboardOrPoolsResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
+  // clouds.console:* 仅作用于 console 本身；不再继承其它 clouds.* 资源。
 
-  // 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，且不含 dashboard/resource-pools）
+  // clouds:write 包含 clouds.*:write（不含容器子域，与 clouds.console 对齐）
   if (
     base.startsWith('clouds.') &&
     act.endsWith(':write') &&
-    !isCloudsContainersResourceBase(base) &&
-    !isCloudsDashboardOrPoolsResourceBase(base)
+    !isCloudsContainersResourceBase(base)
   ) {
-    if (permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
-
-  // clouds:write 包含 clouds.*:write
-  if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
       return true;
     }
   }
-  
-  // clouds:read|write 覆盖 clouds.*:read
-  if (base.startsWith('clouds.') && act.endsWith(':read')) {
+
+  // clouds:read|write 覆盖 clouds.*:read（不含容器子域；容器须显式子域 atom 或历史总权）
+  if (
+    base.startsWith('clouds.') &&
+    act.endsWith(':read') &&
+    !isCloudsContainersResourceBase(base)
+  ) {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
       return true;
     }
@@ -203,6 +180,50 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   // 统一存储子域：umbrella / 历史 clouds.ceph（权限 ID 不含 ceph）
   if (act.endsWith(':read') && isUnifiedStorageReadBase(base)) {
     if (unifiedStorageReadGranted(permsArray, act)) return true;
+  }
+
+  // 容器子域 ↔ 已移除的 clouds.containers 总权（双向兼容）
+  const containerSubReadActions = [
+    'clouds.containers.workloads:read',
+    'clouds.containers.pods:read',
+    'clouds.containers.jobs:read',
+    'clouds.containers.services:read',
+    'clouds.containers.ingresses:read',
+    'clouds.containers.gateway:read',
+    'clouds.containers.configs:read',
+    'clouds.containers.registries:read',
+    'clouds.containers.pdbs:read',
+    'clouds.containers.networkpolicies:read',
+  ] as const;
+  const containerSubWriteActions = containerSubReadActions.map((a) =>
+    a.replace(':read', ':write'),
+  );
+  if (base === 'clouds.containers') {
+    if (
+      act.endsWith(':read') &&
+      containerSubReadActions.some(
+        (a) => permsArray.includes(a) || permsArray.includes(a.replace(':read', ':write')),
+      )
+    ) {
+      return true;
+    }
+    if (act.endsWith(':write') && containerSubWriteActions.some((a) => permsArray.includes(a))) {
+      return true;
+    }
+  }
+
+  // 历史 atom：clouds.cluster-services 已并入 clouds.containers.services
+  if (base === 'clouds.containers.services') {
+    if (
+      act.endsWith(':read') &&
+      (permsArray.includes('clouds.cluster-services:read') ||
+        permsArray.includes('clouds.cluster-services:write'))
+    ) {
+      return true;
+    }
+    if (act.endsWith(':write') && permsArray.includes('clouds.cluster-services:write')) {
+      return true;
+    }
   }
 
   return false;

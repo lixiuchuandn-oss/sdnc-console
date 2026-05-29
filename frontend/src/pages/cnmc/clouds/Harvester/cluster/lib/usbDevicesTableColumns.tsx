@@ -191,7 +191,7 @@ export function buildUsbDevicesTableColumns(
         const vmName = isUsedByVm ? row.vmInfo!.vmDisplayName || row.vmInfo!.vmName : '';
 
         const items: ResourceActionItem[] = [
-          ...(enabled === true
+          ...(hasUsbWrite && enabled === true
             ? [
                 {
                   key: 'unclaim',
@@ -202,7 +202,7 @@ export function buildUsbDevicesTableColumns(
                 },
               ]
             : []),
-          ...(enabled === false
+          ...(hasUsbWrite && enabled === false
             ? [{ key: 'claim', label: '设为直通', onClick: () => onSetPassthrough([r], true) }]
             : []),
           ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }] : []),

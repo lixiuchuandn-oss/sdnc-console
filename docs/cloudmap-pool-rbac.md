@@ -96,9 +96,11 @@ Cloudmap 池内 UI 在权限设计上分为下列类型。**A–D 为授权原�
 
 无侧栏叶、挂在 **`容器服务`** 分组下的 prefix（`POOL_NAV_GROUP_ORPHAN_PREFIXES`）：
 
-- `clouds.containers`（K8s 总权）
-- `clouds.cluster-services`（K8s Service；**不属于「集群」抽屉分组**）
 - `harbor.registry` / `harbor.project` / `harbor.image` / `harbor.scan`（Harbor 镜像仓；**CNMC · 容器业务域**，非独立 HARBOR 平台 Tab）
+
+容器 K8s 资源按侧栏叶子授权（`clouds.containers.workloads` / `.pods` / `.services` 等），**不再**在抽屉中提供 `clouds.containers` 总权卡片。
+
+（已移除 `clouds.cluster-services`，K8s Service 统一使用 `clouds.containers.services`；历史角色若仍带 `clouds.cluster-services` 或 `clouds.containers` atom，运行时 checker / `hasPermissionForAction` 仍按子域生效。）
 
 后端 `getPlatformByPermission('harbor.*')` → `CNMC`；`getGroupByPermission` → `Cloudmap资源池`（抽屉仍按侧栏 `poolNavGroup` 展示）。
 

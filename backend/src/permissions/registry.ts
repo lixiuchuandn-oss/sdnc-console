@@ -10,9 +10,103 @@
 
 import { PermissionDefinition, ApiPattern } from './types';
 
+/** Steve/K8s apiPath（如 /apis/apps/v1/deployments）→ 权限基；用于 containers/create|update|patch|delete 代理 */
+export function mapHarvesterContainerApiPathToPermissionBase(apiPath: string): string | null {
+  const p = String(apiPath || '')
+    .toLowerCase()
+    .replace(/\/+$/, '');
+  if (!p) return null;
+
+  if (/\/cronjobs(\/|$)/.test(p)) return 'clouds.containers.jobs';
+  if (/\/jobs(\/|$)/.test(p)) return 'clouds.containers.jobs';
+  if (
+    /\/deployments(\/|$)/.test(p) ||
+    /\/statefulsets(\/|$)/.test(p) ||
+    /\/daemonsets(\/|$)/.test(p)
+  ) {
+    return 'clouds.containers.workloads';
+  }
+  if (/\/pods(\/|$)/.test(p)) return 'clouds.containers.pods';
+  if (/\/configmaps(\/|$)/.test(p) || /\/secrets(\/|$)/.test(p)) {
+    return 'clouds.containers.configs';
+  }
+  if (/\/imagepullsecrets(\/|$)/.test(p)) return 'clouds.containers.registries';
+  if (/\/services(\/|$)/.test(p)) return 'clouds.containers.services';
+  if (/\/ingresses(\/|$)/.test(p)) return 'clouds.containers.ingresses';
+  if (
+    /\/gatewayclasses(\/|$)/.test(p) ||
+    /\/gateways(\/|$)/.test(p) ||
+    /\/httproutes(\/|$)/.test(p) ||
+    /\/grpcroutes(\/|$)/.test(p)
+  ) {
+    return 'clouds.containers.gateway';
+  }
+  if (/\/networkpolicies(\/|$)/.test(p)) return 'clouds.containers.networkpolicies';
+  if (/\/poddisruptionbudgets(\/|$)/.test(p)) return 'clouds.containers.pdbs';
+
+  return null;
+}
+
+const HARVESTER_CONTAINER_PROXY_OPS = new Set(['create', 'update', 'patch', 'delete']);
+
+const HARVESTER_CONTAINER_PROXY_PATH_RE =
+  /\/resources\/harvester\/containers\/(create|update|patch|delete)$/i;
+
+const HARVESTER_CONTAINER_SUB_PATH_RE = /\/resources\/harvester\/containers\/([^/?]+)/i;
+
+/**
+ * Harvester 容器通用代理 CRUD（body.apiPath 指明资源类型）
+ */
+export function resolveHarvesterContainerProxyPermissionFromBody(
+  method: string,
+  fullPath: string,
+  apiPath: string,
+): string | null {
+  const path = String(fullPath || '').toLowerCase();
+  if (!HARVESTER_CONTAINER_PROXY_PATH_RE.test(path)) {
+    return null;
+  }
+  const base = mapHarvesterContainerApiPathToPermissionBase(apiPath);
+  if (!base) {
+    return null;
+  }
+  const isRead = method.toUpperCase() === 'GET' || method.toUpperCase() === 'HEAD';
+  return `${base}:${isRead ? 'read' : 'write'}`;
+}
+
+/**
+ * 从 URL 解析 Harvester 容器子路径权限（不含 create/update/patch/delete 代理）
+ */
+export function resolveHarvesterContainerUrlPermission(
+  method: string,
+  fullPath: string,
+): string | null {
+  const path = String(fullPath || '').toLowerCase();
+  if (!path.includes('/resources/harvester/containers/')) {
+    return null;
+  }
+  if (HARVESTER_CONTAINER_PROXY_PATH_RE.test(path)) {
+    return null;
+  }
+  const m = path.match(HARVESTER_CONTAINER_SUB_PATH_RE);
+  if (!m) {
+    return null;
+  }
+  const base = mapHarvesterContainerSubPathToPermissionBase(m[1]);
+  if (!base) {
+    return null;
+  }
+  const isRead = method.toUpperCase() === 'GET' || method.toUpperCase() === 'HEAD';
+  return `${base}:${isRead ? 'read' : 'write'}`;
+}
+
 /** `/api/clouds/:id/resources/harvester/containers/{sub}/...` 的 sub 段 → 权限基 */
-export function mapHarvesterContainerSubPathToPermissionBase(sub: string): string {
-  switch (String(sub || '').toLowerCase()) {
+export function mapHarvesterContainerSubPathToPermissionBase(sub: string): string | null {
+  const key = String(sub || '').toLowerCase();
+  if (HARVESTER_CONTAINER_PROXY_OPS.has(key)) {
+    return null;
+  }
+  switch (key) {
     case 'deployments':
     case 'statefulsets':
     case 'daemonsets':
@@ -26,6 +120,8 @@ export function mapHarvesterContainerSubPathToPermissionBase(sub: string): strin
     case 'secrets':
       return 'clouds.containers.configs';
     case 'imagepullsecrets':
+    case 'containerd-registry':
+    case 'registry':
       return 'clouds.containers.registries';
     case 'services':
       return 'clouds.containers.services';
@@ -42,7 +138,7 @@ export function mapHarvesterContainerSubPathToPermissionBase(sub: string): strin
     case 'poddisruptionbudgets':
       return 'clouds.containers.pdbs';
     default:
-      return 'clouds.containers';
+      return null;
   }
 }
 
@@ -306,9 +402,12 @@ export class PermissionRegistry {
             permissionBase = 'clouds.traffic-mirroring.vpc';
           } else if (seg1 === 'flat-nat') {
             permissionBase = 'clouds.dnat.flat';
-          } else if (seg1 === 'services' || seg1 === 'ippools') {
-            // Harvester/CloudMap 场景：LB(Service) 与 IPPool 归入 NAD 网络能力权限
-            permissionBase = 'clouds.nads';
+          } else if (seg1 === 'services' || seg1 === 'harvester-loadbalancers') {
+            // 负载均衡（LB Service / harvester-loadbalancers）独立权限
+            permissionBase = 'clouds.load-balancers';
+          } else if (seg1 === 'ippools') {
+            // IP 地址池（LoadBalancer IPPool）独立权限，区别于 NAD 网络
+            permissionBase = 'clouds.ip-pools';
           } else if (seg1 === 'harvester') {
             // /api/clouds/:id/resources/harvester/... -> 需要检查 harvester 后面的资源类型
             // 路径格式：/api/clouds/:id/resources/harvester/{resourceType}/...
@@ -337,7 +436,10 @@ export class PermissionRegistry {
                   harvesterIndex + 2 < parts.length
                     ? String(parts[harvesterIndex + 2] || '').toLowerCase()
                     : '';
-                permissionBase = mapHarvesterContainerSubPathToPermissionBase(sub);
+                const mapped = mapHarvesterContainerSubPathToPermissionBase(sub);
+                if (mapped) {
+                  permissionBase = mapped;
+                }
               } else if (actualResourceType === 'nads') {
                 permissionBase = 'clouds.nads';
               } else if (actualResourceType === 'sshkeys') {
@@ -345,8 +447,8 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'snapshots') {
                 permissionBase = 'clouds.snapshots';
               } else if (actualResourceType === 'loadbalancers' || actualResourceType === 'load-balancers') {
-                // Harvester 负载均衡归入 NAD 网络能力权限
-                permissionBase = 'clouds.nads';
+                // Harvester 负载均衡独立权限
+                permissionBase = 'clouds.load-balancers';
               } else if (actualResourceType === 'storage-classes') {
                 permissionBase = 'clouds.storage-classes';
               } else if (actualResourceType === 'nodes') {
@@ -376,7 +478,8 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'migrations' || actualResourceType === 'migrations-direct') {
                 permissionBase = 'clouds.migrations';
               } else if (actualResourceType === 'services') {
-                permissionBase = 'clouds.cluster-services';
+                // 旧缓存路由 /harvester/services；与 containers/services 同权
+                permissionBase = 'clouds.containers.services';
               } else if (actualResourceType === 'health' || actualResourceType === 'capabilities' ||
                          actualResourceType === 'proxy') {
                 // 集群状态/代理等能力继续复用 ecs 权限

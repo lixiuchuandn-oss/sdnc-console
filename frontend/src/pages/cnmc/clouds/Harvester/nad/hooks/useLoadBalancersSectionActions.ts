@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Modal, message } from 'antd';
-import { deleteHarvesterService } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterLoadBalancer } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import {
   runHarvesterSectionRefresh,
@@ -45,7 +45,7 @@ export function useLoadBalancersSectionActions({
         cancelText: '取消',
         onOk: async () => {
           try {
-            await deleteHarvesterService(cloudId, record.namespace, record.name);
+            await deleteHarvesterLoadBalancer(cloudId, record.namespace, record.name);
             message.success('删除成功');
             void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
@@ -84,7 +84,7 @@ export function useLoadBalancersSectionActions({
         try {
           await Promise.all(
             deletableTargets.map((item) =>
-              deleteHarvesterService(cloudId, item.namespace, item.name),
+              deleteHarvesterLoadBalancer(cloudId, item.namespace, item.name),
             ),
           );
           message.success('批量删除成功');

@@ -41,7 +41,7 @@ import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
@@ -496,14 +496,10 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   onQueryAllChange,
 }) => {
   const { user } = useAuth();
-  const hasContainersWrite = useMemo(() => {
-    const perms = (user?.permissions ?? []) as string[];
-    return (
-      hasPermissionForAction(perms, 'clouds.containers:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
-    );
-  }, [user?.permissions]);
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'networkpolicies'),
+    [user?.permissions],
+  );
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');

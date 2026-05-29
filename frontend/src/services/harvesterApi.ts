@@ -132,6 +132,16 @@ export const fetchHarvesterLoadBalancers = async (cloudId: string, force = false
 };
 
 /**
+ * 删除 Harvester 负载均衡（loadbalancer.harvesterhci.io CRD）
+ * 走负载均衡专用接口，权限为 clouds.load-balancers:write，区别于容器 Service
+ */
+export const deleteHarvesterLoadBalancer = async (cloudId: string, namespace: string, name: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester-loadbalancers/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+  );
+};
+
+/**
  * 获取 Harvester IP 池列表
  * @param cloudId 云环境 ID
  * @param force 是否强制刷新，默认 false

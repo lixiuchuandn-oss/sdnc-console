@@ -6,6 +6,10 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { permissionRegistry, permissionChecker, resolvePermissionFromApi } from './index';
+import {
+  resolveHarvesterContainerProxyPermissionFromBody,
+  resolveHarvesterContainerUrlPermission,
+} from './registry';
 import { logger } from '../utils/logger';
 
 const permLog = logger.child('Permission');
@@ -26,6 +30,13 @@ export interface AuthRequest extends Request {
  * 权限解析器函数类型
  */
 export type PermissionResolver = (req: AuthRequest) => string | string[] | null;
+
+/** Harvester 容器通用代理 CRUD：真实资源类型在 body.apiPath */
+function resolveHarvesterContainerProxyPermission(req: AuthRequest): string | null {
+  const fullPath = (req.baseUrl || '') + (req.path || '');
+  const apiPath = String((req.body as { apiPath?: unknown })?.apiPath ?? '');
+  return resolveHarvesterContainerProxyPermissionFromBody(req.method, fullPath, apiPath);
+}
 
 /**
  * 创建权限检查中间件
@@ -118,6 +129,11 @@ export function createApiPermissionMiddleware(options?: {
       if (custom) return custom;
     }
 
+    const proxyPerm = resolveHarvesterContainerProxyPermission(req);
+    if (proxyPerm) {
+      return proxyPerm;
+    }
+
     // 从 API 路径解析权限
     const method = req.method.toUpperCase();
     const fullPath = (req.baseUrl || '') + (req.path || '');
@@ -135,14 +151,15 @@ export function createApiPermissionMiddleware(options?: {
     if (isConsolePath) {
       actionBase = 'clouds.console';
     } else {
-      // 从新权限注册表解析
-      const permissionId = resolvePermissionFromApi(method, fullPath);
-      
+      // 从新权限注册表解析；失败时用容器子路径兜底（如 containerd-registry/insecure）
+      const permissionId =
+        resolvePermissionFromApi(method, fullPath) ||
+        resolveHarvesterContainerUrlPermission(method, fullPath);
+
       if (!permissionId) {
-        // 如果无法解析，返回 null 触发错误
         return null;
       }
-      
+
       // 从权限ID中提取基础名称（去掉 :read/:write 后缀）
       actionBase = permissionId.split(':')[0];
     }

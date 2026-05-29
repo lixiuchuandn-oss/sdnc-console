@@ -78,7 +78,7 @@ export function canViewClusterSidebarLeaf(
     case 'load_balancers':
       return canReadLoadBalancers;
     case 'ippools':
-      return checkPerm('clouds.nads:read');
+      return checkPerm('clouds.ip-pools:read');
     case 'cluster_pci':
     case 'cluster_sriov':
       return checkPerm('clouds.pci-devices:read');

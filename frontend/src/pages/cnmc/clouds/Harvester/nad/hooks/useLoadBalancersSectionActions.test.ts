@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { message } from 'antd';
-import { deleteHarvesterService } from '../../../../../../services/harvesterApi';
+import { deleteHarvesterLoadBalancer } from '../../../../../../services/harvesterApi';
 import { runHarvesterSectionRefresh } from '../lib/nadSectionRefresh';
 import { useLoadBalancersSectionActions } from './useLoadBalancersSectionActions';
 import type { LoadBalancerListRow } from '../lib/loadBalancersSectionUtils';
@@ -19,7 +19,7 @@ jest.mock('antd', () => ({
 }));
 
 jest.mock('../../../../../../services/harvesterApi', () => ({
-  deleteHarvesterService: jest.fn(),
+  deleteHarvesterLoadBalancer: jest.fn(),
 }));
 
 jest.mock('../lib/nadSectionRefresh', () => ({
@@ -62,7 +62,7 @@ describe('useLoadBalancersSectionActions', () => {
 
   it('handleDelete refreshes after successful delete', async () => {
     const onRefresh = jest.fn();
-    (deleteHarvesterService as jest.Mock).mockResolvedValue(undefined);
+    (deleteHarvesterLoadBalancer as jest.Mock).mockResolvedValue(undefined);
     mockConfirm.mockImplementation(({ onOk }: { onOk: () => Promise<void> }) => {
       void onOk();
     });
@@ -81,7 +81,7 @@ describe('useLoadBalancersSectionActions', () => {
       await Promise.resolve();
     });
 
-    expect(deleteHarvesterService).toHaveBeenCalledWith('cloud-1', 'proj-1', 'lb-a');
+    expect(deleteHarvesterLoadBalancer).toHaveBeenCalledWith('cloud-1', 'proj-1', 'lb-a');
     expect(runHarvesterSectionRefresh).toHaveBeenCalledWith(onRefresh, { force: true });
   });
 

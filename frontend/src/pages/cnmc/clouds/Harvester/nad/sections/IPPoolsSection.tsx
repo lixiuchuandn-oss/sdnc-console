@@ -39,10 +39,8 @@ const IPPoolsSection: React.FC<Props> = ({ cloudId, ippools, loading, onRefresh,
   const canWriteIpPools = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     return (
-      hasPermissionForAction(perms, 'clouds.nads:write') ||
-      hasPermissionForAction(perms, 'clouds.load-balancers:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds.ip-pools:write') ||
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =

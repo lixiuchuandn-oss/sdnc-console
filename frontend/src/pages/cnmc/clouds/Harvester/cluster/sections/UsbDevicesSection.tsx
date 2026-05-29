@@ -45,8 +45,8 @@ const UsbDevicesSection: React.FC<Props> = ({
   const hasUsbWrite = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     return (
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds.usb-devices:write') ||
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
   const [keyword, setKeyword] = useState('');
@@ -97,6 +97,7 @@ const UsbDevicesSection: React.FC<Props> = ({
 
   const handleSetPassthrough = useCallback(
     (rows: unknown[], passthrough: boolean) => {
+      if (!hasUsbWrite) return;
       const list = Array.isArray(rows) ? rows : [];
       if (!list.length) return;
 
@@ -130,7 +131,7 @@ const UsbDevicesSection: React.FC<Props> = ({
         },
       });
     },
-    [cloudId, onRefresh],
+    [cloudId, hasUsbWrite, onRefresh],
   );
 
   const columnsAll = useMemo(

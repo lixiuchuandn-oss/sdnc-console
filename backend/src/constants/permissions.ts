@@ -168,9 +168,7 @@ export const ALL_PERMISSIONS = [
   'clouds.namespaces:read',    // 命名空间列表 - 查看
   'clouds.namespaces:write',   // 命名空间管理 - 创建/编辑/删除
 
-  // 容器服务（Harvester/K8s：工作负载、Pod、Job、Service、Ingress、Gateway、配置与仓库等）
-  'clouds.containers:read',   // 容器总权·查看（含各子域；细粒度角色可只授子域）
-  'clouds.containers:write',  // 容器总权·管理
+  // 容器服务（Harvester/K8s：按子域授权；历史 clouds.containers:* 运行时仍覆盖各子域）
   'clouds.containers.workloads:read',
   'clouds.containers.workloads:write',
   'clouds.containers.pods:read',
@@ -196,10 +194,6 @@ export const ALL_PERMISSIONS = [
   'clouds.cluster-nodes:read',  // 物理节点列表 - 查看
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
 
-  // 集群服务（K8s Service；权限抽屉归「容器服务」业务域）
-  'clouds.cluster-services:read',  // 集群服务列表 - 查看
-  'clouds.cluster-services:write', // 集群服务管理 - 操作维护
-
   // 集群网络
   'clouds.cluster-networks:read',  // 集群网络列表 - 查看
   'clouds.cluster-networks:write', // 集群网络管理 - 操作维护
@@ -211,6 +205,10 @@ export const ALL_PERMISSIONS = [
   // 网络附加定义 (NAD - Network Attachment Definition)，与基础网络能力归并展示
   'clouds.nads:read',          // NAD 列表 - 查看
   'clouds.nads:write',         // NAD 管理 - 创建/编辑/删除
+
+  // IP 地址池 (LoadBalancer IPPool)，独立于 NAD 网络权限
+  'clouds.ip-pools:read',      // IP 地址池列表 - 查看
+  'clouds.ip-pools:write',     // IP 地址池管理 - 创建/删除
   
   // 虚拟交换机
   'clouds.vswitches:read',     // 虚拟交换机列表 - 查看
@@ -526,7 +524,6 @@ export const PERMISSION_GROUPS = {
       'clouds.sshkeys',
       'clouds.recycle-bin',
       'clouds.migrations',
-      'clouds.containers',
       'clouds.containers.workloads',
       'clouds.containers.pods',
       'clouds.containers.jobs',
@@ -537,7 +534,6 @@ export const PERMISSION_GROUPS = {
       'clouds.containers.registries',
       'clouds.containers.pdbs',
       'clouds.containers.networkpolicies',
-      'clouds.cluster-services',
       'harbor.registry',
       'harbor.project',
       'harbor.image',
@@ -550,6 +546,7 @@ export const PERMISSION_GROUPS = {
       'clouds.provider-networks',
       'clouds.vlans',
       'clouds.nads',
+      'clouds.ip-pools',
       'clouds.subnets.public',
       'clouds.subnets.flat',
       'clouds.eips.flat',

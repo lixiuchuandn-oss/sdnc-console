@@ -15,7 +15,7 @@ import {
   isUnifiedStorageReadBase,
 } from '../constants/unifiedStoragePermissionBases';
 
-/** `clouds.console:*` 的宽松继承不包含容器子域（与预置「云计算用户」等仅算网/存角色对齐；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read`） */
+/** `clouds.console:*` / `clouds:read` 的宽松继承不包含容器子域（须显式子域 atoms；历史 `clouds.containers:*` 仍兼容） */
 function isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
@@ -190,6 +190,52 @@ export class PermissionChecker {
     if (verb === 'read' && base) {
       const writePerm = `${base}:write`;
       if (this.check(permissions, writePerm)) {
+        return true;
+      }
+    }
+
+    // 8. 容器子域 ↔ 已移除的 clouds.containers 总权（双向兼容）
+    const containerSubReadBases = [
+      'clouds.containers.workloads',
+      'clouds.containers.pods',
+      'clouds.containers.jobs',
+      'clouds.containers.services',
+      'clouds.containers.ingresses',
+      'clouds.containers.gateway',
+      'clouds.containers.configs',
+      'clouds.containers.registries',
+      'clouds.containers.pdbs',
+      'clouds.containers.networkpolicies',
+    ] as const;
+    if (base === 'clouds.containers') {
+      if (verb === 'read') {
+        if (
+          containerSubReadBases.some(
+            (b) =>
+              permissions.includes(`${b}:read`) || permissions.includes(`${b}:write`),
+          )
+        ) {
+          return true;
+        }
+      }
+      if (
+        verb === 'write' &&
+        containerSubReadBases.some((b) => permissions.includes(`${b}:write`))
+      ) {
+        return true;
+      }
+    }
+
+    // 9. 历史 atom：clouds.cluster-services 已并入 clouds.containers.services
+    if (base === 'clouds.containers.services') {
+      if (
+        verb === 'read' &&
+        (permissions.includes('clouds.cluster-services:read') ||
+          permissions.includes('clouds.cluster-services:write'))
+      ) {
+        return true;
+      }
+      if (verb === 'write' && permissions.includes('clouds.cluster-services:write')) {
         return true;
       }
     }
