@@ -26,6 +26,11 @@ import {
   stopMaasImagesSyncV2,
   type MaasImageGroup,
 } from '../../services/clouds/maas/maasBootImages';
+import {
+  listMaasBootSources,
+  createMaasBootSourceSelection,
+  deleteMaasBootSourceSelection,
+} from '../../services/clouds/maas/maasBootSources';
 
 async function fetchMaasCloudOr404(id: string, res: Response): Promise<Cloud | null> {
   const cloud = await AppDataSource.getRepository(Cloud).findOne({ where: { id } });
@@ -379,6 +384,86 @@ export function attachMaasRoutes(router: Router, perm: RequestHandler): void {
       res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
     }
   });
+
+  router.get('/:id/maas/boot-sources', perm, async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchMaasCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const ctx = resolveMaasCtx(cloud, res);
+      if (!ctx) return;
+      const result = await listMaasBootSources(ctx);
+      if (!result.ok) {
+        res.status(502).json({ message: result.message || '拉取镜像源失败' });
+        return;
+      }
+      res.json({ ok: true, items: result.items, total: result.items.length });
+    } catch (err: unknown) {
+      res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
+    }
+  });
+
+  router.post(
+    '/:id/maas/boot-sources/:sourceId/selections',
+    perm,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const cloud = await fetchMaasCloudOr404(req.params.id, res);
+        if (!cloud) return;
+        const ctx = resolveMaasCtx(cloud, res);
+        if (!ctx) return;
+        const body = (req.body || {}) as Record<string, unknown>;
+        const toArr = (v: unknown): string[] | undefined => {
+          if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
+          if (typeof v === 'string' && v.trim()) {
+            return v
+              .split(/[,\s]+/)
+              .map((x) => x.trim())
+              .filter(Boolean);
+          }
+          return undefined;
+        };
+        const result = await createMaasBootSourceSelection(ctx, req.params.sourceId, {
+          os: String(body.os || '').trim(),
+          release: String(body.release || '').trim(),
+          arches: toArr(body.arches),
+          subarches: toArr(body.subarches),
+          labels: toArr(body.labels),
+        });
+        if (!result.ok) {
+          res.status(result.message.includes('认证') ? 401 : 400).json({ message: result.message });
+          return;
+        }
+        res.json({ ok: true, message: result.message, data: result.data });
+      } catch (err: unknown) {
+        res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
+      }
+    },
+  );
+
+  router.delete(
+    '/:id/maas/boot-sources/:sourceId/selections/:selectionId',
+    perm,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const cloud = await fetchMaasCloudOr404(req.params.id, res);
+        if (!cloud) return;
+        const ctx = resolveMaasCtx(cloud, res);
+        if (!ctx) return;
+        const result = await deleteMaasBootSourceSelection(
+          ctx,
+          req.params.sourceId,
+          req.params.selectionId,
+        );
+        if (!result.ok) {
+          res.status(result.message.includes('认证') ? 401 : 400).json({ message: result.message });
+          return;
+        }
+        res.json({ ok: true, message: result.message });
+      } catch (err: unknown) {
+        res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
+      }
+    },
+  );
 
   router.get('/:id/maas/region', perm, async (req: AuthRequest, res: Response) => {
     try {
