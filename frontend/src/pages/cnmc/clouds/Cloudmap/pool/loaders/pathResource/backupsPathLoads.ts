@@ -4,7 +4,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射�?`backups` */
+/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射�?`backups` */
 export async function tryLoadBackupTab(
   key: string,
   force: boolean,
