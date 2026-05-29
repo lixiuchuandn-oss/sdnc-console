@@ -8,27 +8,20 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } fr
 import {
   App,
   Button,
-  Dropdown,
   Form,
   Input,
   Layout,
   Modal,
-  Select,
   Space,
   Spin,
-  Tag,
   Typography,
 } from 'antd';
-import { Outlet, useNavigate, useLocation, type NavigateFunction } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import type { AdminLayoutOutletContext } from './adminLayoutOutletContext';
 import {
   CodeOutlined,
-  HomeFilled,
-  ApiFilled,
-  LogoutOutlined,
   SettingOutlined,
   TeamOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLicense } from '../../contexts/LicenseContext';
@@ -46,14 +39,12 @@ import {
   validateAdminPasswordClient,
   type AdminPasswordPolicy,
 } from '../../utils/adminPasswordPolicy';
-import { renderMarkdownBold } from '../../utils/markdown';
 import {
   CLOUD_RESOURCE_POOLS_CREATE_WRITE,
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
 import { type Cloud, isCsmCloud, isMaasPoolCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
-import { buildPoolEntryPath, inferPoolRouteKind } from '../../pages/cnmc/pools/lib/poolDetailNav';
 import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import {
@@ -91,11 +82,17 @@ import {
   type RancherClusterWorkloadsSubKey,
 } from './rancher/rancherClusterSidebar';
 import './admin-shell.css';
+import AdminStandardHeader from './AdminStandardHeader';
+import {
+  ADMIN_HEADER_HEIGHT_PX,
+  buildGroupMenuChildren,
+  findMenuOpenKeyChainForPath,
+  pickDefaultPoolId,
+  resolveDefaultPool,
+  sidebarForPath,
+} from './lib/adminLayoutNav';
 
-const { Header, Content } = Layout;
-
-/** 顶栏高度（与 sticky、抽屉 top、侧栏 top 对齐） */
-const ADMIN_HEADER_HEIGHT_PX = 64;
+const { Content } = Layout;
 
 /** 内容区懒加载分包占位：与 Content 同高，避免矮占位 → 池页全高一瞬间跳变 */
 function AdminOutletSuspenseFallback() {
@@ -121,57 +118,6 @@ const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
 /** 无资源池时强弹向导：本会话用户点「稍后接入」后不再自动弹出 */
 const MUST_BIND_POOL_DISMISS_KEY = 'adminLayout.mustBindPoolPromptDismissed';
 
-/** 顶栏资源池条：外框（与业务逻辑无关的静态样式集中） */
-const HEADER_POOL_STRIP_STYLE: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  minWidth: 0,
-  fontSize: 14,
-  color: 'rgba(255,255,255,0.92)',
-  border: '1px solid rgba(255,255,255,0.38)',
-  borderRadius: 8,
-  padding: 4,
-  background: 'rgba(255,255,255,0.06)',
-  boxSizing: 'border-box',
-};
-
-/** 顶栏切换池 /「访问」：厂商池（Xinference、MAAS、Rancher 等）走 `buildPoolEntryPath`；Cloudmap 仍进资源总览。 */
-function poolOverviewPath(cloudId: string, clouds: Cloud[]): string {
-  const c = clouds.find((x) => String(x.id) === String(cloudId));
-  if (!c) {
-    return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
-  }
-  const kind = inferPoolRouteKind(c);
-  if (kind.kind === 'vendor' || kind.kind === 'cloudmap-csm') {
-    return buildPoolEntryPath(c);
-  }
-  return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
-}
-
-function byCloudCreatedAtAsc(a: Cloud, b: Cloud): number {
-  const ta = Date.parse(String(a.createdAt || '')) || 0;
-  const tb = Date.parse(String(b.createdAt || '')) || 0;
-  return ta - tb;
-}
-
-/**
- * 默认资源池：显式 config.isDefault；否则按创建时间取「第一个添加的」池。
- */
-function pickDefaultPoolId(clouds: Cloud[]): string | undefined {
-  if (!clouds.length) return undefined;
-  const cfg = (c: Cloud) => Boolean((c.config as Record<string, unknown> | undefined)?.isDefault);
-  const flagged = clouds.find(cfg);
-  if (flagged) return flagged.id;
-  const sorted = [...clouds].sort(byCloudCreatedAtAsc);
-  return sorted[0]?.id;
-}
-
-function resolveDefaultPool(clouds: Cloud[]): Cloud | undefined {
-  const id = pickDefaultPoolId(clouds);
-  return id ? clouds.find((c) => c.id === id) : undefined;
-}
-
 type PageSearchEntry = {
   path: string;
   title: string;
@@ -179,328 +125,6 @@ type PageSearchEntry = {
   label: string;
   group: string;
 };
-
-function firstMenuPathInCenter(center: { items?: unknown[] }): string | null {
-  const first = (center.items || [])[0] as { key?: string; children?: { key?: string }[] } | undefined;
-  const page = first?.children?.length ? first.children[0] : first;
-  const key = page && 'key' in page ? page.key : undefined;
-  return typeof key === 'string' && key.startsWith('/') ? key : null;
-}
-
-/** 组内菜单：含 `parentId` 的项挂到父 `RouteSpec` 下为子菜单（如 安全资源池 → 资源池列表 + 防护对象管理） */
-function buildGroupMenuChildren(specs: RouteSpec[]) {
-  const sorted = [...specs].sort((a: any, b: any) => Number(a.order ?? 0) - Number(b.order ?? 0));
-  return sorted
-    .filter((s) => !s.parentId)
-    .map((root) => {
-      const subs = sorted
-        .filter((s) => s.parentId === root.id)
-        .sort((a: any, b: any) => Number(a.order ?? 0) - Number(b.order ?? 0));
-      if (subs.length === 0) {
-        return {
-          key: root.path,
-          label: root.title || root.breadcrumbLabel || root.id,
-          icon: iconOf(root.icon),
-          requiredFeature: root.requiredFeature,
-        };
-      }
-      return {
-        key: `__sub__${root.id}`,
-        label: root.title || root.breadcrumbLabel || root.id,
-        icon: iconOf(root.icon),
-        requiredFeature: root.requiredFeature,
-        children: [
-          { key: root.path, label: '资源池列表', requiredFeature: root.requiredFeature },
-          ...subs.map((s) => ({
-            key: s.path,
-            label: s.title || s.breadcrumbLabel || s.id,
-            requiredFeature: s.requiredFeature,
-          })),
-        ],
-      };
-    });
-}
-
-/** 当前路径在侧栏 `items` 树中对应的各级 SubMenu 的 `openKeys`（无嵌套时为空数组，仅展开分组） */
-function findMenuOpenKeyChainForPath(items: unknown[] | undefined, currentPath: string, ancestors: string[] = []): string[] | null {
-  if (!items?.length) return null;
-  for (const raw of items) {
-    const item = raw as { key?: string; children?: unknown[] };
-    const k = String(item.key ?? '');
-    const keyPath = k.split('?')[0];
-    if (k.startsWith('/') && keyPath === currentPath) {
-      return ancestors;
-    }
-    if (item.children?.length) {
-      const nextAnc = k && !k.startsWith('/') ? [...ancestors, k] : ancestors;
-      const hit = findMenuOpenKeyChainForPath(item.children, currentPath, nextAnc);
-      if (hit) return hit;
-    }
-  }
-  return null;
-}
-
-/** 由当前路径解析应高亮的平台侧栏 key */
-function sidebarForPath(p: string): string {
-  const matchesPath = (targetPath: string, patternPath: string): boolean => {
-    const targetSegments = targetPath.split('/').filter(Boolean);
-    const patternSegments = patternPath.split('/').filter(Boolean);
-    if (targetSegments.length < patternSegments.length) return false;
-    for (let i = 0; i < patternSegments.length; i += 1) {
-      const patternSeg = patternSegments[i];
-      const targetSeg = targetSegments[i];
-      if (!patternSeg.startsWith(':') && patternSeg !== targetSeg) {
-        return false;
-      }
-    }
-    return true;
-  };
-  const orderedSpecs = [...routeSpecs].sort((a, b) => b.path.length - a.path.length);
-  const found = orderedSpecs.find((r) => matchesPath(p, r.path));
-
-  if (found?.platform) {
-    if (found.platform === 'CNMC') return '/admin/cen_compute';
-    if (found.platform === 'TENANTS') return '/admin/cen_tenants';
-    if (found.platform === 'SDNCC') return '/admin/cen_sdn';
-    if (found.platform === 'CNSOC') return '/admin/cen_secops';
-    if (found.platform === 'SETTINGS') return '/admin/cen_settings';
-  }
-
-  const s = p.toLowerCase();
-  if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) {
-    return '/admin/cen_sdn';
-  }
-  if (s.includes('/alarms') || s.includes('/soc') || s.includes('/aisoc')) {
-    return '/admin/cen_secops';
-  }
-  if (s.includes('/settings')) {
-    return '/admin/cen_settings';
-  }
-  return '/admin/cen_compute';
-}
-
-/** 顶栏须为模块级组件：避免在 AdminLayout 内每次渲染新建子组件类型，导致 Select 被卸载、切换不生效 */
-type AdminStandardHeaderProps = {
-  settings: {
-    headerColor?: string;
-    headerColorEnd?: string;
-    headerIcon?: string;
-    headerTitle?: string;
-  };
-  settingsLoading: boolean;
-  summaryClouds: Cloud[];
-  summaryLoading: boolean;
-  visibleCenters: AdminSidebarCenter[];
-  activeSidebarKey: string;
-  /** 资源池详情时顶栏「平台」下拉不高亮具体平台 */
-  platformDropdownSelectedKeys: string[];
-  navigateToAdminContent: (path: string) => void;
-  headerSelectedPoolId: string | undefined;
-  setHeaderSelectedPoolId: React.Dispatch<React.SetStateAction<string | undefined>>;
-  /** 顶栏切换池后是否可进入池内总览（未授权多云管理时仅依赖控制台读权限） */
-  headerPoolOverviewEnabled: boolean;
-  canWritePools: boolean;
-  navigate: NavigateFunction;
-  user: {
-    username?: string;
-    fullName?: string;
-    role?: string;
-    tenantName?: string;
-    organizationName?: string;
-  } | null;
-  openChangePassword: () => void;
-  handleLogout: () => void;
-  openDefaultPoolWizardAction: () => void;
-};
-
-function AdminStandardHeader({
-  settings,
-  settingsLoading,
-  summaryClouds,
-  summaryLoading,
-  visibleCenters,
-  activeSidebarKey: _activeSidebarKey,
-  platformDropdownSelectedKeys,
-  navigateToAdminContent,
-  headerSelectedPoolId,
-  setHeaderSelectedPoolId,
-  headerPoolOverviewEnabled,
-  canWritePools,
-  navigate,
-  user,
-  openChangePassword,
-  handleLogout,
-  openDefaultPoolWizardAction,
-}: AdminStandardHeaderProps) {
-  const headerColor = settings.headerColor?.trim();
-  const headerColorEnd = settings.headerColorEnd?.trim();
-  const gradient =
-    headerColor && headerColorEnd
-      ? `linear-gradient(90deg, ${headerColor} 0%, ${headerColorEnd} 100%)`
-      : 'transparent';
-
-  const zoneOptions = [...summaryClouds].filter((c) => !isCsmCloud(c)).sort(byCloudCreatedAtAsc).map((c) => ({
-    value: c.id,
-    label: c.name,
-  }));
-
-  return (
-    <Header
-      style={{
-        background: gradient,
-        color: '#fff',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 20px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 1000,
-        height: ADMIN_HEADER_HEIGHT_PX,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-        borderBottom: '1px solid var(--admin-nav-divider-color, rgb(200, 207, 218))',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          height: ADMIN_HEADER_HEIGHT_PX,
-          gap: 12,
-          flex: 1,
-          minWidth: 0,
-        }}
-      >
-        <Dropdown
-          menu={{
-            items: visibleCenters.map((c: AdminSidebarCenter) => ({
-              key: c.key,
-              label: <span style={{ fontWeight: 500 }}>{c.label}</span>,
-              onClick: () => {
-                const path = firstMenuPathInCenter(c);
-                if (path) navigateToAdminContent(path);
-              },
-            })),
-            selectable: true,
-            selectedKeys: platformDropdownSelectedKeys,
-          }}
-          trigger={['click']}
-        >
-          <button
-            type="button"
-            className="admin-header-platform-trigger"
-            aria-label="切换平台"
-            title="切换平台"
-          >
-            <HomeFilled />
-          </button>
-        </Dropdown>
-        <Space size={8} style={{ height: '100%', alignItems: 'center' }}>
-          {settings.headerIcon && (
-            <img src={settings.headerIcon} alt="Logo" style={{ height: 28, width: 'auto', display: 'block' }} />
-          )}
-          <span
-            style={{
-              fontSize: 18,
-              color: '#fff',
-              lineHeight: '18px',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            {settingsLoading ? '' : renderMarkdownBold(settings.headerTitle ?? '')}
-          </span>
-        </Space>
-        <div role="region" aria-label="可用区与资源池" style={{ ...HEADER_POOL_STRIP_STYLE, gap: 5 }}>
-          {summaryLoading ? (
-            <Spin size="small" />
-          ) : (
-            <>
-              <Select
-                prefix="可用区"
-                className="admin-header-zone-select"
-                size="small"
-                showSearch
-                optionFilterProp="label"
-                disabled={!zoneOptions.length}
-                loading={summaryLoading}
-                placeholder={zoneOptions.length ? undefined : '暂无多云资源池'}
-                value={headerSelectedPoolId}
-                options={zoneOptions}
-                style={{ width: 150 }}
-                onChange={(id) => {
-                  setHeaderSelectedPoolId(id);
-                  if (headerPoolOverviewEnabled && id) navigate(poolOverviewPath(String(id), summaryClouds));
-                }}
-                aria-label="选择资源池（可用区）"
-              />
-              <button
-                type="button"
-                className="admin-header-pool-access-btn"
-                disabled={!headerPoolOverviewEnabled || !headerSelectedPoolId || !zoneOptions.length}
-                title="进入当前资源池总览"
-                aria-label="访问当前资源池总览"
-                onClick={() => {
-                  if (headerPoolOverviewEnabled && headerSelectedPoolId) {
-                    navigate(poolOverviewPath(String(headerSelectedPoolId), summaryClouds));
-                  }
-                }}
-              >
-                访问
-              </button>
-              {canWritePools && (
-                <button
-                  type="button"
-                  className="admin-header-pool-icon-btn"
-                  title={
-                    !summaryClouds.filter((c) => !isCsmCloud(c)).length
-                      ? '添加默认资源池'
-                      : '编辑当前默认资源池（未显式指定时为最早添加的池）'
-                  }
-                  aria-label="设定默认资源池"
-                  onClick={openDefaultPoolWizardAction}
-                >
-                  <ApiFilled />
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-      <div className="admin-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%', flexShrink: 0 }}>
-        {user && (
-          <>
-            <div className="admin-header-user-strip" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px', maxWidth: 520, minWidth: 0 }}>
-              <span className="admin-header-login-user">
-                <UserOutlined aria-hidden />
-                <span className="admin-header-login-user-name">{String(user.username || '').trim() || '—'}</span>
-              </span>
-              {user.tenantName && <Tag color="gold">租户: {user.tenantName}</Tag>}
-              {user.organizationName && <Tag color="cyan">组织: {user.organizationName}</Tag>}
-            </div>
-            {user.role !== 'tenant' && (
-              <Button
-                type="link"
-                size="small"
-                className="admin-header-change-pwd-link"
-                onClick={openChangePassword}
-              >
-                修改密码
-              </Button>
-            )}
-            <Button
-              type="default"
-              size="small"
-              className="admin-header-logout-btn"
-              icon={<LogoutOutlined />}
-              onClick={handleLogout}
-            />
-          </>
-        )}
-      </div>
-    </Header>
-  );
-}
 
 const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
