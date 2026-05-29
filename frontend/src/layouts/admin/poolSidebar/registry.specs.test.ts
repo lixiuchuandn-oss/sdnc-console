@@ -8,12 +8,14 @@ import type { Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
 const mkCloud = (over: Record<string, unknown>): Cloud => over as unknown as Cloud;
 
 describe('poolSidebarRegistry：已注册的真实池 spec', () => {
-  it('注册 5 池且 cloudmap 兜底在最后', () => {
+  it('注册全部池且 cloudmap 兜底在最后', () => {
     expect(poolSidebarRegistry.map((s) => s.type)).toEqual([
       'rancher',
       'csm',
       'xinference',
       'maas',
+      'huawei',
+      'aliyun',
       'cloudmap',
     ]);
     expect(poolSidebarRegistry[poolSidebarRegistry.length - 1].type).toBe('cloudmap');
@@ -23,6 +25,8 @@ describe('poolSidebarRegistry：已注册的真实池 spec', () => {
   it('resolvePoolSidebar 按路径命中正确的池', () => {
     expect(resolvePoolSidebar('/admin/clouds/vendor/maas/p1')?.spec.type).toBe('maas');
     expect(resolvePoolSidebar('/admin/clouds/vendor/xinference/p2')?.spec.type).toBe('xinference');
+    expect(resolvePoolSidebar('/admin/clouds/vendor/huawei/p6')?.spec.type).toBe('huawei');
+    expect(resolvePoolSidebar('/admin/clouds/vendor/aliyun/p7')?.spec.type).toBe('aliyun');
     expect(resolvePoolSidebar('/admin/security/traffic/csm-pools/p3')?.spec.type).toBe('csm');
 
     const rancher = resolvePoolSidebar('/admin/clouds/p4/clusters/c1');
