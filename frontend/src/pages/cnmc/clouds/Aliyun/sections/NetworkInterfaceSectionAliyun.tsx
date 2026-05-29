@@ -32,6 +32,7 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       return [{ id: '-', VSwitchId: vsw, PrivateIpAddress: { IpAddress: arr }, Status: st }];
     }
     return [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enis, instance, iid]);
 
   const [keyword, setKeyword] = useState<string>('');
@@ -61,6 +62,7 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       const okBind = !bindFilter || (bindFilter === 'bound' ? bound : !bound);
       return okKw && okTp && okBind;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eniList, keyword, typeFilter, bindFilter, eips]);
 
   const hasAny = (getter: (r: any) => any) => {

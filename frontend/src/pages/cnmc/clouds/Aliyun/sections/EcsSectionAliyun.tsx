@@ -130,6 +130,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
       const okVpc = !vpcFilter || String(vpcFilter || '') === vid;
       return (okKw || ipText.includes(kn)) && okSt && okZn && okCpu && okMem && okVpc;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ecs, keyword, statusFilter, zoneFilter, cpuFilter, memGbFilter, vpcFilter]);
 
   const columns = useMemo(() => [
@@ -260,6 +261,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [cloudId]);
 
   return (

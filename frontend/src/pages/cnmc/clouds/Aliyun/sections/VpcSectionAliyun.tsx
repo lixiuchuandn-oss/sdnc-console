@@ -163,6 +163,7 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, onOpenDetail, onSetVpcs]);
 
   return (

@@ -62,6 +62,7 @@ const SubnetSection: React.FC<SubnetSectionProps> = ({ cloudId, subnets, vpcs, o
           />
         );
       } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, vpcs, onOpenDetail]);
 
   return (

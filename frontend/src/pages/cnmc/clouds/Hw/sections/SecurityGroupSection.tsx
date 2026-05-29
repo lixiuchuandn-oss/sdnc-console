@@ -95,6 +95,7 @@ const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, se
         );
       } },
     ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ecs, cloudId, onOpenDetail, onOpenRuleDrawer, onOpenRefsDrawer]);
 
   return (

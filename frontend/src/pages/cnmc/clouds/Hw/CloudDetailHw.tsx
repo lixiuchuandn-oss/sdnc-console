@@ -109,6 +109,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       setVmCes(m2?.data || m2 || null);
       message.success('监控已刷新');
     } catch(e: any) { const msg = e?.message || '刷新监控失败'; if (/ces/i.test(String(msg))) setVmCesError(msg); else setVmMonitorError(msg); message.error(msg); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudId, vmDetail, lastCesAt, vmCesPeriod, vmCesRange, vmCesFilter, vmCesMetrics, vmCesAvailable]);
 
   const [sgRuleDrawerOpen, setSgRuleDrawerOpen] = useState<boolean>(false);
@@ -211,6 +212,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     }
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (cloudId) loadAll(); }, [cloudId]);
 
   const diskColumns = useMemo(() => ([

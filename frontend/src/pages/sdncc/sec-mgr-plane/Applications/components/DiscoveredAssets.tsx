@@ -121,6 +121,7 @@ const DiscoveredAssets: React.FC<Props> = ({ domains, existingApps, onCreateApp,
   useEffect(() => {
     // Always fetch, regardless of domains
     fetchAssets();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domains]); // Keep domains dependency if cloudName mapping depends on it, but logic inside is safe
 
   // Reconciliation Logic
@@ -151,6 +152,7 @@ const DiscoveredAssets: React.FC<Props> = ({ domains, existingApps, onCreateApp,
     return a.status === filterStatus;
   });
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const columns: any[] = [
     {
       title: '主机信息',

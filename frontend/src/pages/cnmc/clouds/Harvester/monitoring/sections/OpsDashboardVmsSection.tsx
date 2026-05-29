@@ -1,3 +1,4 @@
+/* eslint-disable no-template-curly-in-string -- PromQL 模板占位符 ${count} 由 expandPromql 运行时注入，非 JS 模板字符串 */
 /**
  * 运维监控大盘 · 云主机视图（对齐 Grafana 仪表盘 `Harvester 虚拟机概览`，uid=harvester-vm-dashboard-1）。
  *

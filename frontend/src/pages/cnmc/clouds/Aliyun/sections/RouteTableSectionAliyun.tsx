@@ -79,6 +79,7 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, vpcs, subnets, onOpenDetail, onOpenAssoc, onManageRoutes, onOpenSubnetsView]);
 
   return (

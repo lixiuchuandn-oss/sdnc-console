@@ -419,6 +419,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
       ))}
     </Row>
     ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [grantSelectedIds, onPermissionChange],
   );
 

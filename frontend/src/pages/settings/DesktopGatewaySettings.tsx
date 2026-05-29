@@ -112,6 +112,7 @@ const DesktopGatewaySettings: React.FC = () => {
   useEffect(() => {
     void loadInstances();
     void loadPools();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canRead]);
 
   useEffect(() => {

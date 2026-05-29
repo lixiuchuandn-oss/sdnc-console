@@ -64,6 +64,7 @@ const SecurityDomainPage: React.FC = () => {
       reloadDomains();
       loadTenants();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const reloadDomains = useCallback(async () => {

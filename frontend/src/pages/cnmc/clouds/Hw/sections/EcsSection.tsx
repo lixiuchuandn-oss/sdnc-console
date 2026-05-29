@@ -141,6 +141,7 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [cloudId, onOpenVmDetail, onRefreshAll]);
 
   return (

@@ -417,6 +417,7 @@ const PageContainer = <T extends Record<string, any> = any>({
    * 当前路由对应的路由规范
    * 用于自动获取标题、图标、面包屑等信息
    */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const currentSpec = useMemo(() => findSpec(loc.pathname), [loc.pathname]);
 
   /** SDN 控制台：内嵌 Table 默认无边框；显式传 tableProps.bordered 仍可打开。 */
@@ -464,6 +465,7 @@ const PageContainer = <T extends Record<string, any> = any>({
     items.push({ label: lbl });
     
     return items;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loc.pathname, currentSpec, breadcrumb]);
 
   /**

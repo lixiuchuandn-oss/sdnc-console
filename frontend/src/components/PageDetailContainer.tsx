@@ -109,6 +109,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
     return re.test(b);
   };
   const findSpec = (p: string) => routeSpecs.find(s => pathMatch(s.path, p));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const currentSpec = useMemo(() => findSpec(loc.pathname), [loc.pathname]);
 
   const autoCrumbs = useMemo(() => {
@@ -123,6 +124,7 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
     if (parent) items.push({ label: parent.breadcrumbLabel || parent.title || parent.id, href: parent.path });
     items.push({ label: lbl });
     return items;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loc.pathname, currentSpec]);
 
   const finalBreadcrumbs = useMemo(() => {

@@ -172,7 +172,9 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
     }
   }, [open]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) loadInstance(); }, [cloudId, instanceId, provider, open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (open) { loadEnis(); loadEips(); loadSecGroups(); loadDisks(); loadSnapshots(); loadMetrics(); loadAuditEvents(); } }, [cloudId, instanceId, open, loadMetrics]);
 
   const prefixText = useMemo(() => {

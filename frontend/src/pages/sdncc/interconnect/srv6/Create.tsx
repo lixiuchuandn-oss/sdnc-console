@@ -861,6 +861,7 @@ const SRv6CreatePage: React.FC = () => {
     const via = b ? extractPortIpv6(b, 0) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
     return c ? sanitizeForDevice(c) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
 
   /** 与 peAPreviewCfg 同源拼装，额外带 pe.publicBgpIndex 写入平台 vr-config */
@@ -881,6 +882,7 @@ const SRv6CreatePage: React.FC = () => {
     const via = b ? extractPortIpv6(b, 0) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
     return c ? buildPeConfigForPlatformStorage(c) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
 
   const peBPreviewCfg = useMemo(() => {
@@ -901,6 +903,7 @@ const SRv6CreatePage: React.FC = () => {
     const via = a ? extractPortIpv6(a, 0) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
     return c ? sanitizeForDevice(c) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
 
   const peBPreviewStorageCfg = useMemo(() => {
@@ -920,6 +923,7 @@ const SRv6CreatePage: React.FC = () => {
     const via = a ? extractPortIpv6(a, 0) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
     return c ? buildPeConfigForPlatformStorage(c) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peConfigs, ceConfigs, rdRtMeta, formValues]);
 
   // CE 预览：仅注入 PE 内网 neighbor（与 ce2 一致：无 RD/RT、无 neighbor_disable_connected_check）
@@ -930,6 +934,7 @@ const SRv6CreatePage: React.FC = () => {
     const peAInnerIp = peAInnerIf ? extractInterfaceIp(peA, peAInnerIf) : extractPortIp(peA, 1);
     const injected = ceA && peA ? injectConnectionsForCE(ceA, peAInnerIp ? { ...peA, _inner_ip_override: peAInnerIp } : peA) : ceA;
     return injected ? sanitizeForDevice(injected) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ceConfigs, peConfigs, formValues]);
 
   const ceBPreviewCfg = useMemo(() => {
@@ -939,6 +944,7 @@ const SRv6CreatePage: React.FC = () => {
     const peBInnerIp = peBInnerIf ? extractInterfaceIp(peB, peBInnerIf) : extractPortIp(peB, 1);
     const injected = ceB && peB ? injectConnectionsForCE(ceB, peBInnerIp ? { ...peB, _inner_ip_override: peBInnerIp } : peB) : ceB;
     return injected ? sanitizeForDevice(injected) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ceConfigs, peConfigs, formValues]);
 
   // 打开 PE 配置弹窗
@@ -1062,6 +1068,7 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   const deferredValues = useDeferredValue(formValues);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const _configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
 
   /** 仅在前两步回退时清空「已保存」标记；从下发向导回到确认页仍保留（避免重复点创建） */

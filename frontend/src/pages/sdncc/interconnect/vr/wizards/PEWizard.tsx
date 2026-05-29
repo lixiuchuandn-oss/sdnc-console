@@ -509,6 +509,7 @@ const PEWizard: React.FC = () => {
     } else {
       form.setFieldsValue(fullInferredForForm);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [csmctlCfg, existingCfg, vr3Info, mirrorForm, form]);
 
   const watchedWanDev = Form.useWatch('wanDev', form);

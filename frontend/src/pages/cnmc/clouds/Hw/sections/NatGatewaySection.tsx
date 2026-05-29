@@ -65,6 +65,7 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [eips, vpcs, subnets, onOpenDetail]);
 
   return (

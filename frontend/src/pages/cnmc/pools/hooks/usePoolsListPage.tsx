@@ -53,6 +53,7 @@ const { Text } = Typography;
 export function usePoolsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
   const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
   const canSetDefaultPool = canWriteClouds;

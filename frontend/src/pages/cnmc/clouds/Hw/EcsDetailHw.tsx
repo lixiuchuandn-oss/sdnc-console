@@ -60,6 +60,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
   const [ruleTarget, setRuleTarget] = React.useState<any | null>(null);
 
   const secPorts: any[] = Array.isArray(vmPorts) ? vmPorts : [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const secPortChoices = React.useMemo(() => secPorts.map((p: any) => ({ label: p?.name || p?.id, value: p?.id })).filter((x: any) => !!x.value), [JSON.stringify(secPorts)]);
   React.useEffect(() => {
     (async () => {
@@ -83,6 +84,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
       setSgStats(map);
       if (!secSetPortId && secPorts.length) { setSecSetPortId(String(secPorts[0]?.id || '')); }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudId, JSON.stringify(secPorts.map((p: any) => p?.security_groups)), secSetPortId]);
 
   const st = String(vmDetail?.status || vmDetail?.Status || '').trim().toUpperCase();

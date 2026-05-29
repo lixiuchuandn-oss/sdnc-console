@@ -68,6 +68,7 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, vpcs, onOpenDetail, onSetVSwitches]);
 
   return (

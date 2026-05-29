@@ -574,6 +574,7 @@ export function useCenDetailTabs(p: CenDetailTabsContext) {
         )
       }
     ];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     p.cen,
     p.topologyData,

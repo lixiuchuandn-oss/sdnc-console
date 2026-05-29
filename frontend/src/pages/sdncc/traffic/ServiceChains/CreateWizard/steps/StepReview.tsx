@@ -129,6 +129,7 @@ const StepReview: React.FC<StepReviewProps> = ({
     if (cloudId && !form.getFieldValue('pool_id')) {
       detectPoolId();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [String(values.cluster || '')]);
 
   return (

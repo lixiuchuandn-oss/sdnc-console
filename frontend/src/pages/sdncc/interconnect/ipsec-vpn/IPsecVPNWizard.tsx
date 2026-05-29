@@ -148,6 +148,7 @@ const IPsecVPNWizard: React.FC = () => {
       // Auto-start
       setTimeout(() => executeManualStep(0), 500);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current]);
 
   // 1. 精确监听 Checkbox 状态，确保 React 能够感知变化
@@ -182,6 +183,7 @@ const IPsecVPNWizard: React.FC = () => {
       setIsEdit(true);
       fetchVPN(id);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchVPN = async (vpnId: string) => {
@@ -251,6 +253,7 @@ const IPsecVPNWizard: React.FC = () => {
         });
       }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const fetchVRs = async () => {

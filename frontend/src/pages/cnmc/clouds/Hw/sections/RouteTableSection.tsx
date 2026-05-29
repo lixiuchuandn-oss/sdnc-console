@@ -66,6 +66,7 @@ const RouteTableSection: React.FC<RouteTableSectionProps> = ({ cloudId, routeTab
         />
       );
     } },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [cloudId, vpcs, subnets, onOpenDetail, onOpenAssoc, onManageRoutes, onOpenSubnetsView]);
 
   return (

@@ -250,6 +250,7 @@ const CsmPoolsPage: React.FC = () => {
         ),
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [navigate, canWrite, handleDelete, csmPoolsListPath],
   );
 

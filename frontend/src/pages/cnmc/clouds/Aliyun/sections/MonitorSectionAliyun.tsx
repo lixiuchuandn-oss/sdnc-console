@@ -42,11 +42,13 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, onRefre
       setSeriesMap(entries);
     } finally { setLoading(false); }
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadAll(); }, [cloudId, iid, period]);
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => { loadAll(); }, Math.max(period * 1000, 30000));
     return () => { clearInterval(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, period, cloudId, iid]);
   const optionsFor = (key: string, label: string, unit: string) => {
     const arr = seriesMap[key] || [];
