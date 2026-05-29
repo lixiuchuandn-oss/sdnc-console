@@ -572,6 +572,8 @@ export const createCloudProviderEcs = async (
     instanceChargeType?: string;
     internetMaxBandwidthOut?: number;
     internetChargeType?: string;
+    period?: number;
+    periodUnit?: string;
   },
 ) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/ecs`, payload);

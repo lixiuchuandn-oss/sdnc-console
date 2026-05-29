@@ -69,6 +69,7 @@ const EcsCreateModalAliyun: React.FC<Props> = ({ open, cloudId, securityGroups, 
   const sgOptions = useMemo(() => (securityGroups || []).map((g: any) => ({ label: `${g?.SecurityGroupName || g?.SecurityGroupId}（${g?.SecurityGroupId}）`, value: g?.SecurityGroupId || g?.id })), [securityGroups]);
   const keyPairOptions = useMemo(() => (keyPairs || []).map((k: any) => ({ label: k?.KeyPairName, value: k?.KeyPairName })), [keyPairs]);
 
+  const chargeType = Form.useWatch('instanceChargeType', form);
   const selectedZone = Form.useWatch('zoneId', form);
   const vSwitchOptions = useMemo(() => {
     return (vswitches || [])
@@ -89,6 +90,7 @@ const EcsCreateModalAliyun: React.FC<Props> = ({ open, cloudId, securityGroups, 
         amount: values.amount,
         instanceName: values.instanceName,
         instanceChargeType: values.instanceChargeType,
+        ...(values.instanceChargeType === 'PrePaid' ? { period: values.period, periodUnit: 'Month' } : {}),
         systemDiskCategory: values.systemDiskCategory,
         systemDiskSize: values.systemDiskSize,
         internetMaxBandwidthOut: values.internetMaxBandwidthOut,
@@ -112,6 +114,11 @@ const EcsCreateModalAliyun: React.FC<Props> = ({ open, cloudId, securityGroups, 
           <Form.Item name="instanceChargeType" label="计费方式" rules={[{ required: true }]}>
             <Radio.Group options={[{ label: '按量付费', value: 'PostPaid' }, { label: '包年包月', value: 'PrePaid' }]} optionType="button" />
           </Form.Item>
+          {chargeType === 'PrePaid' && (
+            <Form.Item name="period" label="购买时长（月）" rules={[{ required: true, message: '请选择购买时长' }]}>
+              <Select options={[1, 2, 3, 6, 12, 24, 36].map((m) => ({ label: `${m} 个月`, value: m }))} placeholder="请选择" />
+            </Form.Item>
+          )}
           <Form.Item name="zoneId" label="可用区"><Select showSearch optionFilterProp="label" placeholder="不选则由系统分配" options={zoneOptions} allowClear /></Form.Item>
           <Form.Item name="imageId" label="镜像" rules={[{ required: true, message: '请选择镜像' }]}>
             <Select showSearch optionFilterProp="label" placeholder="请选择镜像" options={imageOptions} />

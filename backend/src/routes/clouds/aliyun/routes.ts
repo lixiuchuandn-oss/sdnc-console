@@ -18,6 +18,26 @@ const isAliyun = (cloud: any) => {
   return p.includes('aliyun');
 };
 
+/** 通用全量分页聚合：循环翻页直到返回数量不足一页，避免单页截断 */
+const aggregatePaged = async (
+  caller: (extra: Record<string, any>) => Promise<any>,
+  pick: (resp: any) => any,
+  pageSize = 100,
+): Promise<any[]> => {
+  let page = 1;
+  let all: any[] = [];
+  while (true) {
+    const resp = await caller({ PageNumber: page, PageSize: pageSize });
+    const chunk = pick(resp);
+    const arr = Array.isArray(chunk) ? chunk : chunk ? [chunk] : [];
+    all = all.concat(arr);
+    if (arr.length < pageSize) break;
+    page += 1;
+    if (page > 100) break; // 安全上限
+  }
+  return all;
+};
+
 export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) => {
   router.get(
     '/:id/resources/ecs/:instanceId/metrics',
@@ -1358,13 +1378,17 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey)
           return res.status(400).json({ message: '本期仅支持阿里云资源查询' });
-        const data = await callAliyunVpc({
-          accessKeyId: cloud.accessKey,
-          accessKeySecret: cloud.secretKey,
-          regionId: cloud.region,
-          action: 'DescribeEipAddresses',
-          extraParams: { PageNumber: 1, PageSize: 50 },
-        } as any);
+        const all = await aggregatePaged(
+          (extra) => callAliyunVpc({
+            accessKeyId: cloud.accessKey,
+            accessKeySecret: cloud.secretKey,
+            regionId: cloud.region,
+            action: 'DescribeEipAddresses',
+            extraParams: extra,
+          } as any),
+          (resp) => resp?.EipAddresses?.EipAddress || resp?.data?.EipAddresses?.EipAddress,
+        );
+        const data = { EipAddresses: { EipAddress: all } };
         const capabilities = { isHarvester: false, supportsEip: true };
         res.json({ message: '查询成功', data, capabilities });
       } catch (error: any) {
@@ -3051,13 +3075,17 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await callAliyunRds({
-          accessKeyId: cloud.accessKey,
-          accessKeySecret: cloud.secretKey,
-          regionId: cloud.region,
-          action: 'DescribeDBInstances',
-          extraParams: { PageSize: 100, PageNumber: 1 },
-        } as any);
+        const all = await aggregatePaged(
+          (extra) => callAliyunRds({
+            accessKeyId: cloud.accessKey,
+            accessKeySecret: cloud.secretKey,
+            regionId: cloud.region,
+            action: 'DescribeDBInstances',
+            extraParams: extra,
+          } as any),
+          (resp) => resp?.Items?.DBInstance || resp?.data?.Items?.DBInstance,
+        );
+        const data = { Items: { DBInstance: all } };
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3937,14 +3965,17 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey)
           return res.status(400).json({ message: '缺少阿里云访问密钥' });
-        const data = await callAliyunEcs({
-          accessKeyId: cloud.accessKey,
-          accessKeySecret: cloud.secretKey,
-          regionId: cloud.region,
-          action: 'DescribeSnapshots',
-          extraParams: { PageNumber: 1, PageSize: 50 },
-        } as any);
-        res.json({ message: '查询成功', data });
+        const all = await aggregatePaged(
+          (extra) => callAliyunEcs({
+            accessKeyId: cloud.accessKey,
+            accessKeySecret: cloud.secretKey,
+            regionId: cloud.region,
+            action: 'DescribeSnapshots',
+            extraParams: extra,
+          } as any),
+          (resp) => resp?.Snapshots?.Snapshot || resp?.data?.Snapshots?.Snapshot,
+        );
+        res.json({ message: '查询成功', data: { Snapshots: { Snapshot: all } } });
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '查询快照失败', error: error.message });
@@ -4026,20 +4057,21 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const extraParams: Record<string, any> = {
-          PageSize: Number(pageSize) || 100,
-          PageNumber: 1,
-          Status: 'Available',
-        };
-        if (owner) extraParams.ImageOwnerAlias = owner;
-        if (osType) extraParams.OSType = osType;
-        const data = await callAliyunEcs({
-          accessKeyId: cloud.accessKey,
-          accessKeySecret: cloud.secretKey,
-          regionId: cloud.region,
-          action: 'DescribeImages',
-          extraParams,
-        } as any);
+        const baseParams: Record<string, any> = { Status: 'Available' };
+        if (owner) baseParams.ImageOwnerAlias = owner;
+        if (osType) baseParams.OSType = osType;
+        const all = await aggregatePaged(
+          (extra) => callAliyunEcs({
+            accessKeyId: cloud.accessKey,
+            accessKeySecret: cloud.secretKey,
+            regionId: cloud.region,
+            action: 'DescribeImages',
+            extraParams: { ...baseParams, ...extra },
+          } as any),
+          (resp) => resp?.Images?.Image || resp?.data?.Images?.Image,
+          Number(pageSize) || 100,
+        );
+        const data = { Images: { Image: all } };
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -4177,13 +4209,17 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await callAliyunEcs({
-          accessKeyId: cloud.accessKey,
-          accessKeySecret: cloud.secretKey,
-          regionId: cloud.region,
-          action: 'DescribeKeyPairs',
-          extraParams: { PageSize: 50, PageNumber: 1 },
-        } as any);
+        const all = await aggregatePaged(
+          (extra) => callAliyunEcs({
+            accessKeyId: cloud.accessKey,
+            accessKeySecret: cloud.secretKey,
+            regionId: cloud.region,
+            action: 'DescribeKeyPairs',
+            extraParams: extra,
+          } as any),
+          (resp) => resp?.KeyPairs?.KeyPair || resp?.data?.KeyPairs?.KeyPair,
+        );
+        const data = { KeyPairs: { KeyPair: all } };
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -4311,6 +4347,10 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (b.systemDiskSize) extraParams['SystemDisk.Size'] = Number(b.systemDiskSize);
         if (b.internetMaxBandwidthOut != null) extraParams.InternetMaxBandwidthOut = Number(b.internetMaxBandwidthOut);
         if (b.internetChargeType) extraParams.InternetChargeType = b.internetChargeType;
+        if (String(extraParams.InstanceChargeType) === 'PrePaid' && b.period) {
+          extraParams.Period = Number(b.period);
+          extraParams.PeriodUnit = b.periodUnit || 'Month';
+        }
         const result = await callAliyunEcs({
           accessKeyId: cloud.accessKey,
           accessKeySecret: cloud.secretKey,
