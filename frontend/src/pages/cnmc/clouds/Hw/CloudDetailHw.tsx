@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Tag, Card, Descriptions, Row, Col, Statistic, App, Divider } from 'antd';
+import { Tag, Descriptions, Row, App, Divider } from 'antd';
 import { useSearchParams } from 'react-router-dom';
 import { DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
+import { OverviewMetricCard } from '../../../../components/overview';
 import { normalizeHwPoolTabParam, type HwPoolTabKey } from '../../../../layouts/admin/hw/hwPoolSidebar';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
 import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics } from '../../../../services/huaweiApi';
@@ -256,56 +257,16 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             <>
               {hwDescriptions}
               <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><ClusterOutlined style={{ color:'#1677ff', marginRight:8 }} />VPC 数量</span>} value={vpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CloudServerOutlined style={{ color:'#1677ff', marginRight:8 }} />ECS 实例数</span>} value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><NodeIndexOutlined style={{ color:'#1677ff', marginRight:8 }} />子网</span>} value={subnets.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SafetyCertificateOutlined style={{ color:'#1677ff', marginRight:8 }} />安全组</span>} value={secGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><GlobalOutlined style={{ color:'#1677ff', marginRight:8 }} />EIP</span>} value={eips.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><DeploymentUnitOutlined style={{ color:'#1677ff', marginRight:8 }} />负载均衡</span>} value={slbs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><SwapOutlined style={{ color:'#1677ff', marginRight:8 }} />NAT 网关</span>} value={natGateways.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><BranchesOutlined style={{ color:'#1677ff', marginRight:8 }} />路由表</span>} value={routeTables.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><HddOutlined style={{ color:'#1677ff', marginRight:8 }} />云盘</span>} value={disks.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title={<span style={{ display:'flex', alignItems:'center' }}><CameraOutlined style={{ color:'#1677ff', marginRight:8 }} />快照</span>} value={snapshots.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
+                <OverviewMetricCard title="VPC 数量" icon={<ClusterOutlined style={{ color: '#1677ff' }} />} value={vpcs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="ECS 实例数" icon={<CloudServerOutlined style={{ color: '#1677ff' }} />} value={ecs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="子网" icon={<NodeIndexOutlined style={{ color: '#1677ff' }} />} value={subnets.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="安全组" icon={<SafetyCertificateOutlined style={{ color: '#1677ff' }} />} value={secGroups.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="EIP" icon={<GlobalOutlined style={{ color: '#1677ff' }} />} value={eips.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="负载均衡" icon={<DeploymentUnitOutlined style={{ color: '#1677ff' }} />} value={slbs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="NAT 网关" icon={<SwapOutlined style={{ color: '#1677ff' }} />} value={natGateways.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="路由表" icon={<BranchesOutlined style={{ color: '#1677ff' }} />} value={routeTables.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="云盘" icon={<HddOutlined style={{ color: '#1677ff' }} />} value={disks.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="快照" icon={<CameraOutlined style={{ color: '#1677ff' }} />} value={snapshots.length} col={{ xs: 24, sm: 12, md: 6 }} />
               </Row>
             </>
           )

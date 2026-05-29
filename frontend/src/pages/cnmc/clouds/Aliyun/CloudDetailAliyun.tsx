@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
+import { Alert, Modal, Descriptions, Row } from 'antd';
 import { DashboardOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
+import { OverviewMetricCard } from '../../../../components/overview';
 import { useSearchParams } from 'react-router-dom';
 import { normalizeAliyunPoolTabParam, type AliyunPoolTabKey } from '../../../../layouts/admin/aliyun/aliyunPoolSidebar';
 import EcsSectionAliyun, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSectionAliyun';
@@ -199,33 +200,11 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
             <>
               {aliyunDescriptions}
               <Row gutter={[16, 16]}>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title="VPC 数量" value={vpcs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title="交换机数量" value={vswitches.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title="安全组数量" value={secGroups.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title="EIP 数量" value={eips.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
-              </Row>
-              <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
-                <Col xs={24} sm={12} md={6}>
-                  <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
-                    <Statistic title="云主机数量" value={ecs.length} valueStyle={{ fontSize: 24, fontWeight: 700 }} />
-                  </Card>
-                </Col>
+                <OverviewMetricCard title="VPC 数量" icon={VpcIcon} value={vpcs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="交换机数量" icon={VSwitchIcon} value={vswitches.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="安全组数量" icon={SgIcon} value={secGroups.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="EIP 数量" icon={EipIcon} value={eips.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="云主机数量" icon={EcsIcon} value={ecs.length} col={{ xs: 24, sm: 12, md: 6 }} />
               </Row>
             </>
           )

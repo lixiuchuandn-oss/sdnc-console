@@ -2,7 +2,7 @@ import {
   buildVmBackupCreateBlockedMessage,
   findInProgressHarvesterBackupForVm,
   isHarvesterVmBackupReady,
-} from '../../../../services/clouds/harvester/vmBackupTaskStatus';
+} from './vmBackupTaskStatus';
 
 describe('vmBackupTaskStatus', () => {
   it('isHarvesterVmBackupReady for longhorn backup', () => {
