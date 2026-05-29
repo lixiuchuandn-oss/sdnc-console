@@ -2025,6 +2025,38 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     },
   );
 
+  // 创建 NAT 网关 CreateNatGateway（增强型）
+  router.post(
+    '/:id/resources/nat-gateways',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { vpcId, vSwitchId, name, natType } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!vpcId) return res.status(400).json({ message: '缺少 vpcId' });
+        const extraParams: Record<string, any> = { VpcId: vpcId, NatType: natType || 'Enhanced' };
+        if (vSwitchId) extraParams.VSwitchId = vSwitchId;
+        if (name) extraParams.Name = name;
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateNatGateway',
+          extraParams,
+        } as any);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建NAT网关失败', error: error.message });
+      }
+    },
+  );
+
   // SNAT 规则列表 DescribeSnatTableEntries
   router.get(
     '/:id/resources/nat-gateways/snat-entries',
@@ -2214,6 +2246,34 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     },
   );
 
+  // 删除 NAT 网关 DeleteNatGateway（在 snat/forward 具体路径之后注册，避免 :natId 抢占）
+  router.delete(
+    '/:id/resources/nat-gateways/:natId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, natId } = req.params;
+        const { force } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteNatGateway',
+          extraParams: { NatGatewayId: natId, Force: !!force },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除NAT网关失败', error: error.message });
+      }
+    },
+  );
+
   // VPN Gateways
   router.get(
     '/:id/resources/vpn-gateways',
@@ -2293,6 +2353,195 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '删除VPN网关失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 VPN 网关 CreateVpnGateway
+  router.post(
+    '/:id/resources/vpn-gateways',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { vpcId, vSwitchId, name, bandwidth, instanceChargeType, vpnType, enableIpsec } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!vpcId) return res.status(400).json({ message: '缺少 vpcId' });
+        const extraParams: Record<string, any> = {
+          VpcId: vpcId,
+          Bandwidth: Number(bandwidth) || 10,
+          InstanceChargeType: instanceChargeType || 'POSTPAY',
+          AutoPay: true,
+          EnableIpsec: enableIpsec === false ? false : true,
+        };
+        if (vSwitchId) extraParams.VSwitchId = vSwitchId;
+        if (name) extraParams.Name = name;
+        if (vpnType) extraParams.VpnType = vpnType;
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateVpnGateway',
+          extraParams,
+        } as any);
+        res.json({ message: '创建指令已下发', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建VPN网关失败', error: error.message });
+      }
+    },
+  );
+
+  // 用户网关列表 DescribeCustomerGateways
+  router.get(
+    '/:id/resources/customer-gateways',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const data = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeCustomerGateways',
+          extraParams: { PageSize: 50, PageNumber: 1 },
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询用户网关失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建用户网关 CreateCustomerGateway
+  router.post(
+    '/:id/resources/customer-gateways',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { ipAddress, name, description } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!ipAddress) return res.status(400).json({ message: '缺少对端网关 IP ipAddress' });
+        const extraParams: Record<string, any> = { IpAddress: ipAddress };
+        if (name) extraParams.Name = name;
+        if (description) extraParams.Description = description;
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateCustomerGateway',
+          extraParams,
+        } as any);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建用户网关失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除用户网关 DeleteCustomerGateway
+  router.delete(
+    '/:id/resources/customer-gateways/:cgwId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, cgwId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteCustomerGateway',
+          extraParams: { CustomerGatewayId: cgwId },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除用户网关失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 IPsec 连接 CreateVpnConnection
+  router.post(
+    '/:id/resources/vpn-connections',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { vpnGatewayId, customerGatewayId, name, localSubnet, remoteSubnet } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!vpnGatewayId || !customerGatewayId || !localSubnet || !remoteSubnet)
+          return res.status(400).json({ message: '缺少 vpnGatewayId / customerGatewayId / localSubnet / remoteSubnet' });
+        const extraParams: Record<string, any> = {
+          VpnGatewayId: vpnGatewayId,
+          CustomerGatewayId: customerGatewayId,
+          LocalSubnet: localSubnet,
+          RemoteSubnet: remoteSubnet,
+        };
+        if (name) extraParams.Name = name;
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateVpnConnection',
+          extraParams,
+        } as any);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建IPsec连接失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 IPsec 连接 DeleteVpnConnection
+  router.delete(
+    '/:id/resources/vpn-connections/:connId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, connId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteVpnConnection',
+          extraParams: { VpnConnectionId: connId },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除IPsec连接失败', error: error.message });
       }
     },
   );

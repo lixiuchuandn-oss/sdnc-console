@@ -433,6 +433,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               cloudId={cloudId}
               vpnGateways={vpnGateways}
               vpcs={vpcs}
+              vswitches={vswitches}
               onSetVpnGateways={(list) => setVpnGateways(list)}
               onRefreshAll={loadAll}
             />

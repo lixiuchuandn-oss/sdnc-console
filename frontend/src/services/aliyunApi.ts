@@ -47,6 +47,33 @@ export const fetchCloudProviderVpnConnections = async (cloudId: string, vpnGatew
 export const deleteCloudProviderVpnGateway = async (cloudId: string, vpnGatewayId: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/vpn-gateways/${encodeURIComponent(vpnGatewayId)}`);
 };
+export const createCloudProviderVpnGateway = async (
+  cloudId: string,
+  payload: { vpcId: string; vSwitchId?: string; name?: string; bandwidth?: number; instanceChargeType?: string; vpnType?: string; enableIpsec?: boolean },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/vpn-gateways`, payload);
+};
+export const fetchCloudProviderCustomerGateways = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/customer-gateways`);
+};
+export const createCloudProviderCustomerGateway = async (
+  cloudId: string,
+  payload: { ipAddress: string; name?: string; description?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/customer-gateways`, payload);
+};
+export const deleteCloudProviderCustomerGateway = async (cloudId: string, cgwId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/customer-gateways/${encodeURIComponent(cgwId)}`);
+};
+export const createCloudProviderVpnConnection = async (
+  cloudId: string,
+  payload: { vpnGatewayId: string; customerGatewayId: string; name?: string; localSubnet: string; remoteSubnet: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/vpn-connections`, payload);
+};
+export const deleteCloudProviderVpnConnection = async (cloudId: string, connId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/vpn-connections/${encodeURIComponent(connId)}`);
+};
 
 // 云资源池：查询阿里云 弹性网卡（ENI）列表（支持按 VPC/VSwitch/ECS 过滤）
 export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string; vSwitchId?: string; instanceId?: string } & Record<string, any>) => {
@@ -283,6 +310,15 @@ export const createCloudProviderForwardEntry = async (
 };
 export const deleteCloudProviderForwardEntry = async (cloudId: string, forwardTableId: string, forwardEntryId: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/forward-entries`, { forwardTableId, forwardEntryId });
+};
+export const createCloudProviderNatGateway = async (
+  cloudId: string,
+  payload: { vpcId: string; vSwitchId?: string; name?: string; natType?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/nat-gateways`, payload);
+};
+export const deleteCloudProviderNatGateway = async (cloudId: string, natId: string, force?: boolean) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/${encodeURIComponent(natId)}`, { force });
 };
 
 export const fetchCloudProviderRouteTables = async (cloudId: string) => {

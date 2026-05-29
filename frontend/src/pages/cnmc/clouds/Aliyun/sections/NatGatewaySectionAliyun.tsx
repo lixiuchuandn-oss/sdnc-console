@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
-import { SwapOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { fetchCloudProviderNatGateways } from '../../../../../services/aliyunApi';
+import { App, Button, Input, Select, Space, Table, Tooltip, Typography, Modal, Form } from 'antd';
+import { SwapOutlined, ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
+import { fetchCloudProviderNatGateways, createCloudProviderNatGateway, deleteCloudProviderNatGateway } from '../../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import NatRulesDrawerAliyun from '../drawers/NatRulesDrawerAliyun';
@@ -25,6 +25,9 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
   const [drawerNat, setDrawerNat] = useState<any | null>(null);
+  const [createOpen, setCreateOpen] = useState<boolean>(false);
+  const [createForm] = Form.useForm();
+  const [submitting, setSubmitting] = useState<boolean>(false);
 
   const refresh = async () => {
     if (!cloudId) return;
@@ -34,6 +37,32 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
       onSetNatGateways(parseNatList(json));
     } catch (e: any) { message.error(e?.message || '刷新失败'); }
     finally { setLoading(false); }
+  };
+
+  const vpcOptions = useMemo(() => (vpcs || []).map((v: any) => ({ label: `${v.VpcName || v.name || v.VpcId || v.id}（${v.VpcId || v.id}）`, value: v.VpcId || v.id })), [vpcs]);
+  const selectedVpc = Form.useWatch('vpcId', createForm);
+  const vswOptions = useMemo(() => (subnets || []).filter((s: any) => !selectedVpc || String(s?.VpcId || s?.vpc_id || '') === String(selectedVpc)).map((s: any) => ({ label: `${s?.VSwitchName || s?.VSwitchId}（${s?.ZoneId || ''}）`, value: s?.VSwitchId || s?.id })), [subnets, selectedVpc]);
+
+  const submitCreate = async () => {
+    try {
+      const v = await createForm.validateFields();
+      setSubmitting(true);
+      await createCloudProviderNatGateway(cloudId, { vpcId: v.vpcId, vSwitchId: v.vSwitchId, name: v.name });
+      message.success('创建指令已下发');
+      setCreateOpen(false);
+      await refresh();
+    } catch (e: any) { if (e?.errorFields) return; message.error(e?.message || '创建失败'); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleDelete = (r: any) => {
+    const natId = r?.NatGatewayId || r?.id;
+    if (!natId) return;
+    Modal.confirm({
+      title: '确定删除该 NAT 网关?', content: `${r?.Name || natId} 删除后不可恢复`,
+      okText: '确认删除', okType: 'danger', cancelText: '取消',
+      onOk: async () => { try { await deleteCloudProviderNatGateway(cloudId, natId, true); message.success('删除成功'); await refresh(); } catch (e: any) { message.error(e?.message || '删除失败'); } },
+    });
   };
 
   const filtered = useMemo(() => {
@@ -83,13 +112,15 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
         const items = [
           { key: 'rules', label: 'SNAT/DNAT 规则' },
           { key: 'detail', label: '详情(JSON)' },
+          { key: 'del', label: '删除', danger: true },
         ];
         return (
           <RowActionsButton
             items={items}
             onClick={async ({ key }: { key: string }) => {
               if (key === 'rules') { setDrawerNat(r); return; }
-              if (key === 'detail') { const name = r?.Name || r?.name || '-'; const id = r?.NatGatewayId || r?.id || '-'; onOpenDetail('nat', `NAT网关 ${name}（${id}）`, r); }
+              if (key === 'detail') { const name = r?.Name || r?.name || '-'; const id = r?.NatGatewayId || r?.id || '-'; onOpenDetail('nat', `NAT网关 ${name}（${id}）`, r); return; }
+              if (key === 'del') { handleDelete(r); }
             }}
           />
         );
@@ -113,6 +144,7 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { createForm.resetFields(); setCreateOpen(true); }}>创建 NAT 网关</Button>
           <Tooltip title="刷新"><Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} /></Tooltip>
         </div>
       )}
@@ -139,6 +171,18 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
         vswitches={subnets}
         onClose={() => setDrawerNat(null)}
       />
+
+      <Modal title="创建 NAT 网关" open={createOpen} onCancel={() => setCreateOpen(false)} onOk={submitCreate} confirmLoading={submitting} okText="创建" cancelText="取消" destroyOnClose>
+        <Form form={createForm} layout="vertical">
+          <Form.Item name="name" label="名称"><Input placeholder="选填" maxLength={128} allowClear /></Form.Item>
+          <Form.Item name="vpcId" label="专有网络 VPC" rules={[{ required: true, message: '请选择 VPC' }]}>
+            <Select showSearch optionFilterProp="label" placeholder="请选择 VPC" options={vpcOptions} onChange={() => createForm.setFieldsValue({ vSwitchId: undefined })} />
+          </Form.Item>
+          <Form.Item name="vSwitchId" label="交换机" rules={[{ required: true, message: '增强型 NAT 需指定交换机' }]}>
+            <Select showSearch optionFilterProp="label" placeholder="请选择交换机" options={vswOptions} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </PageDetailSection>
   );
 };
