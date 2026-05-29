@@ -53,14 +53,16 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     nodesLength: nodes?.length ?? 0,
   });
 
+  // 指标（CPU/内存等）首批就绪后，后台刷新/轮询保留旧值，避免单元格反复闪 Spin
+  const metricsReady = Object.keys(metricsMap).length > 0;
   const resourceMaps: NodesResourceMaps = useMemo(
     () => ({
-      resourceLoading,
+      resourceLoading: resourceLoading && !metricsReady,
       metricsMap,
       requestsMap,
       nodesDetailMap,
     }),
-    [metricsMap, nodesDetailMap, requestsMap, resourceLoading],
+    [metricsMap, metricsReady, nodesDetailMap, requestsMap, resourceLoading],
   );
 
   const handleOpenYaml = useCallback(
@@ -116,6 +118,9 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     [onRefresh, reload],
   );
 
+  // 表格遮罩只反映「节点列表」加载；指标(bundle)加载只驱动单元格内 Spin，
+  // 避免整表遮罩与单元格 Spin 叠成两层，也避免指标轮询时整表被遮罩盖住「刷不出来」
+  const listLoading = loading;
   const tableLoading = loading || resourceLoading;
 
   return (
@@ -162,8 +167,8 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
           <Button
             icon={<ReloadOutlined />}
             onClick={handleToolbarRefresh}
-            loading={tableLoading}
-            disabled={tableLoading}
+            loading={listLoading}
+            disabled={listLoading}
           />
         </div>
       )}
@@ -177,7 +182,7 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         rowKey={(r, i) => nodeRowKey(r, typeof i === 'number' && Number.isFinite(i) ? i : 0)}
         columns={tableColumns}
         dataSource={filtered}
-        loading={tableLoading}
+        loading={listLoading}
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
