@@ -14,6 +14,11 @@ import {
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
 import { type Cloud, isCsmCloud } from '../../../pages/cnmc/pools/lib/poolProviders';
+import type {
+  PoolSidebarBuildArgs,
+  PoolSidebarSelectArgs,
+  PoolSidebarSpec,
+} from '../poolSidebar/types';
 
 export const CSM_POOL_SIDEBAR_CENTER_KEY = '/admin/csm_pool_context';
 
@@ -112,3 +117,34 @@ export function buildCsmPoolSidebarCenter(cloud: Cloud, cloudId: string): AdminS
     items: csmPoolMenuItems(cloudId),
   };
 }
+
+/**
+ * CSM 安全资源池上下文侧栏 spec（external-redirect / `?tab=`）。
+ * 基路径位于 SDNCC：`/admin/security/traffic/csm-pools/:cloudId`，侧栏含「返回列表」项。
+ */
+export const csmPoolSidebarSpec: PoolSidebarSpec = {
+  type: 'csm',
+  presentation: 'context-sidebar',
+  subNav: 'tab',
+  tier: 'external-redirect',
+  centerKey: CSM_POOL_SIDEBAR_CENTER_KEY,
+  label: 'CSM 资源池',
+  icon: createElement(SafetyCertificateOutlined),
+  navKeys: CSM_POOL_TAB_KEYS,
+  pathForTab: (cloudId: string, tab: string) => csmPoolPathForTab(cloudId, tab as CsmPoolTabKey),
+  normalizeTabParam: (tab: string | null) => normalizeCsmPoolTabParam(tab),
+  resolveContext: (pathname: string) => {
+    const id = parseCsmPoolDetailId(pathname);
+    return id ? { poolId: id } : null;
+  },
+  matchCloud: (cloud: Cloud) => isCsmCloud(cloud),
+  buildSidebarCenter: ({ context, cloud, summaryCloudCount }: PoolSidebarBuildArgs) => {
+    if (!cloud) return null;
+    if (summaryCloudCount > 0 && !isCsmCloud(cloud)) return null;
+    return buildCsmPoolSidebarCenter(cloud, context.poolId);
+  },
+  selectedKey: ({ context, pathname, search }: PoolSidebarSelectArgs) =>
+    csmPoolSidebarSelectedKey(context.poolId, pathname, search),
+  autoExpandByMenuKey: true,
+  autoExpandSigPrefix: 'csm-pool',
+};

@@ -11,6 +11,11 @@ import {
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
 import { type Cloud, isMaasPoolCloud } from '../../../pages/cnmc/pools/lib/poolProviders';
+import type {
+  PoolSidebarBuildArgs,
+  PoolSidebarSelectArgs,
+  PoolSidebarSpec,
+} from '../poolSidebar/types';
 import {
   MAAS_POOL_TAB_KEYS,
   MAAS_POOL_TAB_LEGACY_ALIASES,
@@ -97,3 +102,29 @@ export function buildMaasPoolSidebarCenter(
     items: maasPoolMenuItems(cloudId),
   };
 }
+
+/** MAAS 裸金属资源池上下文侧栏 spec（simple / `?tab=`）。路径：`/admin/clouds/vendor/maas/:cloudId`。 */
+export const maasPoolSidebarSpec: PoolSidebarSpec = {
+  type: 'maas',
+  presentation: 'context-sidebar',
+  subNav: 'tab',
+  tier: 'simple',
+  centerKey: MAAS_POOL_SIDEBAR_CENTER_KEY,
+  label: '裸金属',
+  icon: createElement(HddOutlined),
+  navKeys: MAAS_POOL_TAB_KEYS,
+  pathForTab: (cloudId: string, tab: string) => maasPoolPathForTab(cloudId, tab as MaasPoolTabKey),
+  normalizeTabParam: (tab: string | null) => normalizeMaasPoolTabParam(tab),
+  resolveContext: (pathname: string) => {
+    const id = parseMaasPoolDetailId(pathname);
+    return id ? { poolId: id } : null;
+  },
+  matchCloud: (cloud: Cloud) => isMaasPoolCloud(cloud),
+  buildSidebarCenter: ({ context, cloud, summaryCloudCount }: PoolSidebarBuildArgs) => {
+    if (!cloud) return null;
+    if (summaryCloudCount > 0 && !isMaasPoolCloud(cloud)) return null;
+    return buildMaasPoolSidebarCenter(cloud, context.poolId);
+  },
+  selectedKey: ({ context, pathname, search }: PoolSidebarSelectArgs) =>
+    maasPoolSidebarSelectedKey(context.poolId, pathname, search),
+};

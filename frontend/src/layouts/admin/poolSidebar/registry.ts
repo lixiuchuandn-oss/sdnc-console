@@ -6,6 +6,11 @@
  * 各 `resolveContext` 已对非本池路由返回 `null`，故 `resolvePoolSidebarForPath` 取首个命中即可。
  */
 import type { PoolSidebarContext, PoolSidebarSpec } from './types';
+import { rancherClusterPoolSidebarSpec } from '../rancher/rancherClusterSidebar';
+import { csmPoolSidebarSpec } from '../csm/csmPoolSidebar';
+import { xinferencePoolSidebarSpec } from '../xinference/xinferencePoolSidebar';
+import { maasPoolSidebarSpec } from '../maas/maasPoolSidebar';
+import { cloudmapPoolSidebarSpec } from '../cloudmap/cloudPoolSidebar';
 
 /** 解析结果：命中的 spec 与其池上下文。 */
 export interface ResolvedPoolSidebar {
@@ -35,9 +40,15 @@ export function resolvePoolSidebarForPath(
 
 /**
  * 已注册的资源池上下文侧栏。
- * 注：当前为空骨架，各池 spec 在后续步骤逐一加入（契约先行，注册随后）。
+ * 顺序：更具体的池路由在前；`cloudmap`（`/admin/clouds/:id` 贪婪匹配）置于**最后**做兜底。
  */
-export const poolSidebarRegistry: readonly PoolSidebarSpec[] = [];
+export const poolSidebarRegistry: readonly PoolSidebarSpec[] = [
+  rancherClusterPoolSidebarSpec,
+  csmPoolSidebarSpec,
+  xinferencePoolSidebarSpec,
+  maasPoolSidebarSpec,
+  cloudmapPoolSidebarSpec,
+];
 
 /** 便捷封装：基于模块级注册表按 `type` 查询。 */
 export function getPoolSidebarSpec(type: string): PoolSidebarSpec | undefined {
