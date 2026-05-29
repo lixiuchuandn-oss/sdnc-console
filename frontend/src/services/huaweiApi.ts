@@ -47,6 +47,32 @@ export const deleteHuaweiServer = async (cloudId: string, instanceId: string, de
   return await apiDelete(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}`, { deleteVolume });
 };
 
+// ===== EVS 云盘/快照写操作（华为云）=====
+export const createHuaweiVolume = async (
+  cloudId: string,
+  payload: { availabilityZone: string; volumeType?: string; size: number; name?: string; description?: string; count?: number },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks`, payload);
+};
+export const deleteHuaweiVolume = async (cloudId: string, diskId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}`);
+};
+export const resizeHuaweiVolume = async (cloudId: string, diskId: string, newSize: number) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/resize`, { newSize });
+};
+export const attachHuaweiVolume = async (cloudId: string, diskId: string, instanceId: string, device?: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/attach`, { instanceId, device });
+};
+export const detachHuaweiVolume = async (cloudId: string, diskId: string, instanceId: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/detach`, { instanceId });
+};
+export const createHuaweiSnapshot = async (cloudId: string, payload: { diskId: string; name?: string; description?: string }) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/snapshots`, payload);
+};
+export const deleteHuaweiSnapshot = async (cloudId: string, snapshotId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/snapshots/${encodeURIComponent(snapshotId)}`);
+};
+
 // 云资源池：查询单个 VPC（华为云）
 export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`);

@@ -1495,6 +1495,73 @@ export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: 
   }, 'HuaweiCloud 删除实例失败');
 }
 
+// ===== EVS 云盘写操作 =====
+export async function huaweiCreateVolume(opts: HuaweiClientOptions, volume: any): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/cloudvolumes',
+    pathParams: { project_id: opts.projectId },
+    data: { volume },
+  }, 'HuaweiCloud 创建云盘失败');
+}
+
+export async function huaweiDeleteVolume(opts: HuaweiClientOptions, volumeId: string): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/cloudvolumes/{volume_id}',
+    pathParams: { project_id: opts.projectId, volume_id: volumeId },
+  }, 'HuaweiCloud 删除云盘失败');
+}
+
+export async function huaweiResizeVolume(opts: HuaweiClientOptions, volumeId: string, newSize: number): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v2.1/{project_id}/cloudvolumes/{volume_id}/action',
+    pathParams: { project_id: opts.projectId, volume_id: volumeId },
+    data: { 'os-extend': { new_size: Number(newSize) } },
+  }, 'HuaweiCloud 扩容云盘失败');
+}
+
+export async function huaweiAttachVolume(opts: HuaweiClientOptions, serverId: string, volumeId: string, device?: string): Promise<any> {
+  const volumeAttachment: any = { volumeId };
+  if (device) volumeAttachment.device = device;
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/cloudservers/{server_id}/attachvolume',
+    pathParams: { project_id: opts.projectId, server_id: serverId },
+    data: { volumeAttachment },
+  }, 'HuaweiCloud 挂载云盘失败');
+}
+
+export async function huaweiDetachVolume(opts: HuaweiClientOptions, serverId: string, volumeId: string): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v1/{project_id}/cloudservers/{server_id}/detachvolume/{volume_id}',
+    pathParams: { project_id: opts.projectId, server_id: serverId, volume_id: volumeId },
+  }, 'HuaweiCloud 卸载云盘失败');
+}
+
+// ===== EVS 快照写操作 =====
+export async function huaweiCreateSnapshot(opts: HuaweiClientOptions, volumeId: string, name?: string, description?: string): Promise<any> {
+  const snapshot: any = { volume_id: volumeId, force: true };
+  if (name) snapshot.name = name;
+  if (description) snapshot.description = description;
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/snapshots',
+    pathParams: { project_id: opts.projectId },
+    data: { snapshot },
+  }, 'HuaweiCloud 创建快照失败');
+}
+
+export async function huaweiDeleteSnapshot(opts: HuaweiClientOptions, snapshotId: string): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/snapshots/{snapshot_id}',
+    pathParams: { project_id: opts.projectId, snapshot_id: snapshotId },
+  }, 'HuaweiCloud 删除快照失败');
+}
+
 export async function testHuaweiConnection(
   opts: HuaweiClientOptions,
 ): Promise<{ ok: boolean; message?: string }> {

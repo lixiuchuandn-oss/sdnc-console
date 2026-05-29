@@ -50,6 +50,13 @@ import {
   huaweiListImages,
   huaweiCreateServers,
   huaweiDeleteServers,
+  huaweiCreateVolume,
+  huaweiDeleteVolume,
+  huaweiResizeVolume,
+  huaweiAttachVolume,
+  huaweiDetachVolume,
+  huaweiCreateSnapshot,
+  huaweiDeleteSnapshot,
 } from '../../../services/clouds/huaweicloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
@@ -1631,6 +1638,173 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '查询云盘失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建云盘 CreateVolume
+  router.post(
+    '/:id/resources/disks',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const b = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!b.availabilityZone || !b.size) return res.status(400).json({ message: '缺少可用区或容量' });
+        const volume: any = { availability_zone: b.availabilityZone, volume_type: b.volumeType || 'SAS', size: Number(b.size), count: Number(b.count || 1) };
+        if (b.name) volume.name = b.name;
+        if (b.description) volume.description = b.description;
+        const data = await huaweiCreateVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, volume);
+        res.json({ message: '创建云盘指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建云盘失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除云盘 DeleteVolume
+  router.delete(
+    '/:id/resources/disks/:diskId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, diskId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiDeleteVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, diskId);
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除云盘失败', error: error.message });
+      }
+    },
+  );
+
+  // 扩容云盘 ResizeVolume
+  router.post(
+    '/:id/resources/disks/:diskId/resize',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, diskId } = req.params;
+        const { newSize } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!newSize) return res.status(400).json({ message: '缺少目标容量 newSize' });
+        const data = await huaweiResizeVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, diskId, Number(newSize));
+        res.json({ message: '扩容指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '扩容云盘失败', error: error.message });
+      }
+    },
+  );
+
+  // 挂载云盘 AttachVolume
+  router.post(
+    '/:id/resources/disks/:diskId/attach',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, diskId } = req.params;
+        const { instanceId, device } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!instanceId) return res.status(400).json({ message: '缺少目标实例 instanceId' });
+        const data = await huaweiAttachVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, instanceId, diskId, device);
+        res.json({ message: '挂载指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '挂载云盘失败', error: error.message });
+      }
+    },
+  );
+
+  // 卸载云盘 DetachVolume
+  router.post(
+    '/:id/resources/disks/:diskId/detach',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, diskId } = req.params;
+        const { instanceId } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!instanceId) return res.status(400).json({ message: '缺少所属实例 instanceId' });
+        const data = await huaweiDetachVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, instanceId, diskId);
+        res.json({ message: '卸载指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '卸载云盘失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建快照 CreateSnapshot
+  router.post(
+    '/:id/resources/snapshots',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { diskId, name, description } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!diskId) return res.status(400).json({ message: '缺少源云盘 diskId' });
+        const data = await huaweiCreateSnapshot({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, diskId, name, description);
+        res.json({ message: '创建快照指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建快照失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除快照 DeleteSnapshot
+  router.delete(
+    '/:id/resources/snapshots/:snapshotId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, snapshotId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiDeleteSnapshot({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, snapshotId);
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除快照失败', error: error.message });
       }
     },
   );

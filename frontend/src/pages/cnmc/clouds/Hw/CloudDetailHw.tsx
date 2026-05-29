@@ -469,13 +469,16 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               <DiskSection
                 cloudId={cloudId}
                 disks={disks}
+                ecs={ecs}
                 onSetDisks={(list)=> setDisks(list)}
                 onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
+                onRefreshAll={loadAll}
               />
               <Divider />
               <SnapshotSection
                 cloudId={cloudId}
                 snapshots={snapshots}
+                disks={disks}
                 onSetSnapshots={(list)=> setSnapshots(list)}
                 onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
               />
