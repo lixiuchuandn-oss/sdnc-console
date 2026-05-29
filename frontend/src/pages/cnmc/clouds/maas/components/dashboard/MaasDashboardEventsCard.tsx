@@ -1,12 +1,9 @@
 import React from 'react';
-import { Alert, Card, Table } from 'antd';
+import { Alert, Table } from 'antd';
+import { ProfileOutlined } from '@ant-design/icons';
+import { OverviewCard, overviewTitleIcon } from '../../../../../../components/overview';
 import type { MaasDashboardResponse } from '../../../../../../services/maasApi';
 import { maasDashboardEventColumns } from '../../lib/maasDashboardEventColumns';
-import {
-  MAAS_OVERVIEW_CARD_BODY_STYLES,
-  MAAS_OVERVIEW_CARD_HEADER_STYLES,
-  MAAS_OVERVIEW_CARD_SHADOW,
-} from '../../lib/maasOverviewCardStyles';
 
 type Props = {
   data: MaasDashboardResponse | null;
@@ -15,15 +12,12 @@ type Props = {
 };
 
 const MaasDashboardEventsCard: React.FC<Props> = ({ data, connected, machines }) => (
-  <Card
+  <OverviewCard
     title="最近动态"
-    size="small"
+    icon={overviewTitleIcon(<ProfileOutlined />)}
     className="dashboard-overview-activity-card"
-    style={{ marginTop: 16, boxShadow: MAAS_OVERVIEW_CARD_SHADOW }}
-    styles={{
-      header: MAAS_OVERVIEW_CARD_HEADER_STYLES,
-      body: MAAS_OVERVIEW_CARD_BODY_STYLES,
-    }}
+    style={{ marginTop: 16 }}
+    bodyStyle={{ padding: '8px 16px 16px' }}
   >
     {connected && machines?.total === 0 ? (
       <Alert
@@ -44,7 +38,7 @@ const MaasDashboardEventsCard: React.FC<Props> = ({ data, connected, machines })
       locale={{ emptyText: connected ? '暂无事件' : '—' }}
       pagination={false}
     />
-  </Card>
+  </OverviewCard>
 );
 
 export default MaasDashboardEventsCard;

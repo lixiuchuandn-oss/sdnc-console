@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Modal, Descriptions, Row } from 'antd';
-import { DashboardOutlined } from '@ant-design/icons';
+import { Alert, Modal, Descriptions, Row, Tag, Button } from 'antd';
+import { DashboardOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
-import { OverviewMetricCard } from '../../../../components/overview';
+import PageDetailSection from '../../../../components/PageDetailSection';
+import { OverviewCard, OverviewMetricCard, overviewTitleIcon } from '../../../../components/overview';
 import { useSearchParams } from 'react-router-dom';
 import { normalizeAliyunPoolTabParam, type AliyunPoolTabKey } from '../../../../layouts/admin/aliyun/aliyunPoolSidebar';
 import EcsSectionAliyun, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSectionAliyun';
@@ -40,6 +41,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = normalizeAliyunPoolTabParam(searchParams.get('tab'));
   const [error, setError] = useState<string>('');
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [cloud, setCloud] = useState<any>(null);
   const [ecs, setEcs] = useState<any[]>([]);
   const [vpcs, setVpcs] = useState<any[]>([]);
@@ -161,6 +163,15 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
     loadAll();
   }, [loadAll]);
 
+  const handleOverviewRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadAll();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadAll]);
+
   useEffect(() => {
     if (!searchParams.get('tab')) {
       setSearchParams({ tab: 'overview' }, { replace: true });
@@ -174,21 +185,28 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
     });
   }, []);
 
-  const aliyunDescriptions = (
-    <Descriptions bordered size="small" column={4} style={{ marginBottom: 16 }}>
-      <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-      <Descriptions.Item label="资源供应商">阿里云</Descriptions.Item>
-      <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
-      <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
-      <Descriptions.Item label="资源状态">
-        {cloud?.status === 'online' ? '在线' : cloud?.status === 'maintenance' ? '维护' : cloud?.status === 'offline' ? '离线' : '未知'}
-      </Descriptions.Item>
-      <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
-      <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
-      <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
-      <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
-      <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
-    </Descriptions>
+  const aliyunInfoCard = (
+    <OverviewCard
+      title="资源池信息"
+      icon={overviewTitleIcon(<DashboardOutlined />)}
+      style={{ marginTop: 16 }}
+      bodyStyle={{ padding: '16px 20px' }}
+    >
+      <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="middle">
+        <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
+        <Descriptions.Item label="资源供应商">阿里云</Descriptions.Item>
+        <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
+        <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
+        <Descriptions.Item label="资源状态">
+          {cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}
+        </Descriptions.Item>
+        <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+        <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
+        <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
+        <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
+      </Descriptions>
+    </OverviewCard>
   );
 
   const tabDefs: Array<{ key: AliyunPoolTabKey; label?: React.ReactNode; icon?: React.ReactNode; count?: number; children: React.ReactNode }> = [
@@ -197,16 +215,26 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
           label: '资源总览',
           icon: <DashboardOutlined />,
           children: (
-            <>
-              {aliyunDescriptions}
+            <PageDetailSection
+              asCard={false}
+              showHeaderTitle
+              icon={<DashboardOutlined />}
+              title={cloud?.name || '资源总览'}
+              extra={
+                <div className="toolbar-actions">
+                  <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void handleOverviewRefresh()} />
+                </div>
+              }
+            >
               <Row gutter={[16, 16]}>
-                <OverviewMetricCard title="VPC 数量" icon={VpcIcon} value={vpcs.length} col={{ xs: 24, sm: 12, md: 6 }} />
-                <OverviewMetricCard title="交换机数量" icon={VSwitchIcon} value={vswitches.length} col={{ xs: 24, sm: 12, md: 6 }} />
-                <OverviewMetricCard title="安全组数量" icon={SgIcon} value={secGroups.length} col={{ xs: 24, sm: 12, md: 6 }} />
-                <OverviewMetricCard title="EIP 数量" icon={EipIcon} value={eips.length} col={{ xs: 24, sm: 12, md: 6 }} />
-                <OverviewMetricCard title="云主机数量" icon={EcsIcon} value={ecs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="云主机数量" icon={overviewTitleIcon(EcsIcon)} value={ecs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="VPC 数量" icon={overviewTitleIcon(VpcIcon)} value={vpcs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="交换机数量" icon={overviewTitleIcon(VSwitchIcon)} value={vswitches.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="安全组数量" icon={overviewTitleIcon(SgIcon)} value={secGroups.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="EIP 数量" icon={overviewTitleIcon(EipIcon)} value={eips.length} col={{ xs: 24, sm: 12, lg: 6 }} />
               </Row>
-            </>
+              {aliyunInfoCard}
+            </PageDetailSection>
           )
         },
         {

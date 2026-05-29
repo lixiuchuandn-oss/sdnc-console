@@ -1,29 +1,28 @@
 import type { ComponentType, CSSProperties } from 'react';
 import {
-  CheckCircleTwoTone,
-  CloudTwoTone,
-  ControlTwoTone,
-  EnvironmentTwoTone,
-  AppstoreTwoTone,
-  HddTwoTone,
-  PlayCircleTwoTone,
-  WarningTwoTone,
+  AppstoreOutlined,
+  CheckCircleOutlined,
+  CloudOutlined,
+  ControlOutlined,
+  EnvironmentOutlined,
+  HddOutlined,
+  PlayCircleOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 
-/** 概览统计卡双色图标（@ant-design/icons TwoTone） */
-export type MaasDashTwoToneIcon = ComponentType<{
+/** 概览统计卡图标（统一单色 Outlined，与阿里云/华为云/Xinference 总览一致） */
+export type MaasDashStatIconComp = ComponentType<{
   style?: CSSProperties;
   className?: string;
-  twoToneColor?: string | [string, string];
 }>;
 
 export const MaasDashStatIcon = {
-  region: ControlTwoTone,
-  rack: CloudTwoTone,
-  machines: HddTwoTone,
-  ready: CheckCircleTwoTone,
-  deployed: PlayCircleTwoTone,
-  error: WarningTwoTone,
-  discoveries: EnvironmentTwoTone,
-  images: AppstoreTwoTone,
-} as const satisfies Record<string, MaasDashTwoToneIcon>;
+  region: ControlOutlined,
+  rack: CloudOutlined,
+  machines: HddOutlined,
+  ready: CheckCircleOutlined,
+  deployed: PlayCircleOutlined,
+  error: WarningOutlined,
+  discoveries: EnvironmentOutlined,
+  images: AppstoreOutlined,
+} as const satisfies Record<string, MaasDashStatIconComp>;

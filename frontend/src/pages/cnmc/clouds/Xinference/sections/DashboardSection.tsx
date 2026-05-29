@@ -19,11 +19,17 @@ import {
   ApiOutlined,
   CloudServerOutlined,
   ClusterOutlined,
+  DashboardOutlined,
   DatabaseOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { OverviewCard } from '../../../../../components/overview';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import {
+  OVERVIEW_COLORS,
+  OverviewCard,
+  overviewTitleIcon,
+} from '../../../../../components/overview';
 import {
   fetchXinferenceClusterInfo,
   type XinferenceClusterInfo,
@@ -102,15 +108,15 @@ const METRIC_TILE: React.CSSProperties = {
   minWidth: 0,
   padding: '12px 14px',
   borderRadius: 8,
-  background: '#f8fafc',
-  border: '1px solid #eef2f7',
+  background: OVERVIEW_COLORS.tileBg,
+  border: `1px solid ${OVERVIEW_COLORS.tileBorder}`,
 };
 
 const WORKER_NODE_ITEM: React.CSSProperties = {
   padding: '12px 14px',
   marginBottom: 8,
   borderRadius: 8,
-  background: '#f8fafc',
+  background: OVERVIEW_COLORS.tileBg,
 };
 
 const RING_SIZE = 108;
@@ -121,7 +127,7 @@ const PROGRESS_BAR_STROKE = 12;
 
 const EXTRA_TEXT_STYLE: React.CSSProperties = {
   fontSize: 13,
-  color: '#94a3b8',
+  color: OVERVIEW_COLORS.textSecondary,
 };
 
 function MetricRing({
@@ -147,7 +153,7 @@ function MetricRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="#e5e7eb"
+          stroke={OVERVIEW_COLORS.trackBg}
           strokeWidth={RING_STROKE}
         />
         <circle
@@ -176,7 +182,13 @@ function MetricRing({
         <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1 }}>
           {fmtNum(percent)}%
         </span>
-        <span style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+        <span
+          style={{
+            fontSize: 12,
+            color: OVERVIEW_COLORS.textSecondary,
+            marginTop: 2,
+          }}
+        >
           {label}
         </span>
       </div>
@@ -200,7 +212,7 @@ function SplitMetricRow({
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '7px 0',
-        borderBottom: border ? '1px solid #f0f0f0' : undefined,
+        borderBottom: border ? `1px solid ${OVERVIEW_COLORS.splitLine}` : undefined,
       }}
     >
       <Typography.Text type="secondary">{label}</Typography.Text>
@@ -228,7 +240,7 @@ function SupervisorPanel({
   return (
     <OverviewCard
       title="主管"
-      icon={<ThunderboltOutlined style={{ color: '#64748b' }} />}
+      icon={overviewTitleIcon(<ThunderboltOutlined />, OVERVIEW_COLORS.neutral)}
       extra={
         <span
           style={EXTRA_TEXT_STYLE}
@@ -283,7 +295,7 @@ function WorkersListPanel({
   return (
     <OverviewCard
       title="工作节点"
-      icon={<ClusterOutlined style={{ color: '#1677ff' }} />}
+      icon={overviewTitleIcon(<ClusterOutlined />)}
       extra={
         <span style={EXTRA_TEXT_STYLE}>
           {workers.length > 0 ? `共 ${workers.length} 台` : '无节点'}
@@ -317,7 +329,7 @@ function WorkersListPanel({
                 <List.Item.Meta
                   avatar={
                     <ClusterOutlined
-                      style={{ color: '#1677ff', fontSize: 20 }}
+                      style={{ color: OVERVIEW_COLORS.primary, fontSize: 20 }}
                     />
                   }
                   title={
@@ -429,18 +441,12 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
   }
 
   return (
-    <>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 12,
-        }}
-      >
-        <Typography.Title level={5} style={{ margin: 0 }}>
-          资源概览
-        </Typography.Title>
+    <PageDetailSection
+      asCard={false}
+      showHeaderTitle
+      icon={<DashboardOutlined />}
+      title="资源概览"
+      extra={
         <div className="toolbar-actions">
           <Button
             icon={<ReloadOutlined />}
@@ -448,8 +454,8 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
             onClick={() => void load()}
           />
         </div>
-      </div>
-
+      }
+    >
       {err && (
         <Alert
           type="error"
@@ -504,7 +510,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
             <Col xs={24} lg={8} style={COL_FILL}>
               <OverviewCard
                 title="集群概览"
-                icon={<CloudServerOutlined style={{ color: '#1677ff' }} />}
+                icon={overviewTitleIcon(<CloudServerOutlined />)}
                 style={CARD_FILL}
                 bodyStyle={CARD_BODY_CENTER}
               >
@@ -525,8 +531,8 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
                     }
                     size={140}
                     strokeWidth={8}
-                    strokeColor="#1677ff"
-                    trailColor="#f0f0f0"
+                    strokeColor={OVERVIEW_COLORS.primary}
+                    trailColor={OVERVIEW_COLORS.trackBg}
                     format={() => (
                       <div style={{ lineHeight: 1.15, textAlign: 'center' }}>
                         <span style={{ fontSize: 28, fontWeight: 600 }}>
@@ -557,17 +563,17 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
                       {
                         label: '主管',
                         value: info?.supervisor?.count ?? 1,
-                        color: '#64748b',
+                        color: OVERVIEW_COLORS.neutral,
                       },
                       {
                         label: 'Worker',
                         value: agg.workerCount,
-                        color: '#1677ff',
+                        color: OVERVIEW_COLORS.primary,
                       },
                       {
                         label: '模型',
                         value: info?.runningModelCount ?? 0,
-                        color: '#22c55e',
+                        color: OVERVIEW_COLORS.success,
                       },
                     ].map((item) => (
                       <div
@@ -601,7 +607,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
               <div style={{ ...CARD_FILL, gap: CARD_GAP }}>
                 <OverviewCard
                   title="CPU"
-                  icon={<ThunderboltOutlined style={{ color: '#1677ff' }} />}
+                  icon={overviewTitleIcon(<ThunderboltOutlined />)}
                   extra={
                     <span style={EXTRA_TEXT_STYLE}>
                       共 {fmtNum(agg.cpuCount, 0)} 核
@@ -640,7 +646,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
 
                 <OverviewCard
                   title="内存"
-                  icon={<DatabaseOutlined style={{ color: '#1677ff' }} />}
+                  icon={overviewTitleIcon(<DatabaseOutlined />)}
                   extra={
                     <span style={EXTRA_TEXT_STYLE}>
                       共 {fmtGiB(agg.memTotalBytes)}
@@ -694,7 +700,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
             <Col xs={24} lg={8} style={COL_FILL}>
               <OverviewCard
                 title="GPU"
-                icon={<ApiOutlined style={{ color: '#1677ff' }} />}
+                icon={overviewTitleIcon(<ApiOutlined />)}
                 extra={
                   <span style={EXTRA_TEXT_STYLE}>共 {agg.gpuCount} 块</span>
                 }
@@ -762,7 +768,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
           </Row>
         </div>
       )}
-    </>
+    </PageDetailSection>
   );
 };
 
