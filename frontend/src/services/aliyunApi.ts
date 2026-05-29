@@ -380,4 +380,89 @@ export const deleteCloudProviderSnapshot = async (cloudId: string, snapshotId: s
   return await apiDelete(`/api/clouds/${cloudId}/resources/snapshots/${encodeURIComponent(snapshotId)}`);
 };
 
+// ===== 镜像 / 规格 / 可用区 =====
+export const fetchCloudProviderImages = async (cloudId: string, params?: { owner?: string; osType?: string; pageSize?: number }) => {
+  const qs: string[] = [];
+  if (params?.owner) qs.push(`owner=${encodeURIComponent(params.owner)}`);
+  if (params?.osType) qs.push(`osType=${encodeURIComponent(params.osType)}`);
+  if (params?.pageSize != null) qs.push(`pageSize=${encodeURIComponent(String(params.pageSize))}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/images${qs.length ? `?${qs.join('&')}` : ''}`);
+};
+
+export const deleteCloudProviderImage = async (cloudId: string, imageId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/images/${encodeURIComponent(imageId)}`);
+};
+
+export const createCloudProviderImage = async (
+  cloudId: string,
+  payload: { instanceId?: string; snapshotId?: string; imageName?: string; description?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/images`, payload);
+};
+
+export const fetchCloudProviderInstanceTypes = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/instance-types`);
+};
+
+export const fetchCloudProviderZones = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/zones`);
+};
+
+// ===== SSH 密钥对 =====
+export const fetchCloudProviderKeyPairs = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/key-pairs`);
+};
+
+export const createCloudProviderKeyPair = async (cloudId: string, keyPairName: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/key-pairs`, { keyPairName });
+};
+
+export const importCloudProviderKeyPair = async (cloudId: string, keyPairName: string, publicKeyBody: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/key-pairs/import`, { keyPairName, publicKeyBody });
+};
+
+export const deleteCloudProviderKeyPair = async (cloudId: string, keyPairName: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/key-pairs/${encodeURIComponent(keyPairName)}`);
+};
+
+// ===== ECS 创建与变更 =====
+export const createCloudProviderEcs = async (
+  cloudId: string,
+  payload: {
+    imageId: string;
+    instanceType: string;
+    securityGroupId: string;
+    vSwitchId: string;
+    zoneId?: string;
+    amount?: number;
+    instanceName?: string;
+    hostName?: string;
+    password?: string;
+    keyPairName?: string;
+    systemDiskCategory?: string;
+    systemDiskSize?: number;
+    instanceChargeType?: string;
+    internetMaxBandwidthOut?: number;
+    internetChargeType?: string;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/ecs`, payload);
+};
+
+export const modifyCloudProviderEcsSpec = async (cloudId: string, instanceId: string, instanceType: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/modify-spec`, { instanceType });
+};
+
+export const resetCloudProviderEcsPassword = async (cloudId: string, instanceId: string, password: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/reset-password`, { password });
+};
+
+export const replaceCloudProviderEcsSystemDisk = async (
+  cloudId: string,
+  instanceId: string,
+  payload: { imageId: string; password?: string; keyPairName?: string; systemDiskSize?: number },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/replace-system-disk`, payload);
+};
+
 export { fetchCloudProviderDisks, fetchCloudProviderSnapshots } from './api';

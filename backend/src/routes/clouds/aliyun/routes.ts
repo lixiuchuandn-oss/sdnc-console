@@ -2413,6 +2413,410 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     },
   );
 
+  // 镜像列表 DescribeImages（owner: system/self/others/marketplace）
+  router.get(
+    '/:id/resources/images',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { owner, osType, pageSize } = (req.query || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const extraParams: Record<string, any> = {
+          PageSize: Number(pageSize) || 100,
+          PageNumber: 1,
+          Status: 'Available',
+        };
+        if (owner) extraParams.ImageOwnerAlias = owner;
+        if (osType) extraParams.OSType = osType;
+        const data = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeImages',
+          extraParams,
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询镜像失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除镜像 DeleteImage
+  router.delete(
+    '/:id/resources/images/:imageId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, imageId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!imageId) return res.status(400).json({ message: '缺少镜像标识 ImageId' });
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteImage',
+          extraParams: { ImageId: imageId },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除镜像失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建自定义镜像 CreateImage（从实例或快照）
+  router.post(
+    '/:id/resources/images',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { instanceId, snapshotId, imageName, description } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!instanceId && !snapshotId)
+          return res.status(400).json({ message: '请提供 instanceId 或 snapshotId' });
+        const extraParams: Record<string, any> = {};
+        if (instanceId) extraParams.InstanceId = instanceId;
+        if (snapshotId) extraParams.SnapshotId = snapshotId;
+        if (imageName) extraParams.ImageName = imageName;
+        if (description) extraParams.Description = description;
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateImage',
+          extraParams,
+        } as any);
+        res.json({ message: '创建镜像指令已下发', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建镜像失败', error: error.message });
+      }
+    },
+  );
+
+  // 实例规格列表 DescribeInstanceTypes
+  router.get(
+    '/:id/resources/instance-types',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const data = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeInstanceTypes',
+          extraParams: {},
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询实例规格失败', error: error.message });
+      }
+    },
+  );
+
+  // 可用区列表 DescribeZones
+  router.get(
+    '/:id/resources/zones',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const data = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeZones',
+          extraParams: { AcceptLanguage: 'zh-CN' },
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询可用区失败', error: error.message });
+      }
+    },
+  );
+
+  // SSH 密钥对列表 DescribeKeyPairs
+  router.get(
+    '/:id/resources/key-pairs',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const data = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeKeyPairs',
+          extraParams: { PageSize: 50, PageNumber: 1 },
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询密钥对失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建密钥对 CreateKeyPair（返回私钥，仅此一次）
+  router.post(
+    '/:id/resources/key-pairs',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { keyPairName } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!keyPairName) return res.status(400).json({ message: '缺少密钥对名称 keyPairName' });
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateKeyPair',
+          extraParams: { KeyPairName: keyPairName },
+        } as any);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建密钥对失败', error: error.message });
+      }
+    },
+  );
+
+  // 导入密钥对 ImportKeyPair
+  router.post(
+    '/:id/resources/key-pairs/import',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { keyPairName, publicKeyBody } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!keyPairName || !publicKeyBody)
+          return res.status(400).json({ message: '缺少 keyPairName 或 publicKeyBody' });
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'ImportKeyPair',
+          extraParams: { KeyPairName: keyPairName, PublicKeyBody: publicKeyBody },
+        } as any);
+        res.json({ message: '导入成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '导入密钥对失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除密钥对 DeleteKeyPairs
+  router.delete(
+    '/:id/resources/key-pairs/:keyPairName',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, keyPairName } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!keyPairName) return res.status(400).json({ message: '缺少密钥对名称' });
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteKeyPairs',
+          extraParams: { KeyPairNames: JSON.stringify([keyPairName]) },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除密钥对失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建实例 RunInstances
+  router.post(
+    '/:id/resources/ecs',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const b = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!b.imageId || !b.instanceType || !b.securityGroupId || !b.vSwitchId)
+          return res.status(400).json({ message: '缺少必要参数：imageId / instanceType / securityGroupId / vSwitchId' });
+        const extraParams: Record<string, any> = {
+          ImageId: b.imageId,
+          InstanceType: b.instanceType,
+          SecurityGroupId: b.securityGroupId,
+          VSwitchId: b.vSwitchId,
+          Amount: Number(b.amount) || 1,
+          InstanceChargeType: b.instanceChargeType || 'PostPaid',
+        };
+        if (b.zoneId) extraParams.ZoneId = b.zoneId;
+        if (b.instanceName) extraParams.InstanceName = b.instanceName;
+        if (b.hostName) extraParams.HostName = b.hostName;
+        if (b.password) extraParams.Password = b.password;
+        if (b.keyPairName) extraParams.KeyPairName = b.keyPairName;
+        if (b.systemDiskCategory) extraParams['SystemDisk.Category'] = b.systemDiskCategory;
+        if (b.systemDiskSize) extraParams['SystemDisk.Size'] = Number(b.systemDiskSize);
+        if (b.internetMaxBandwidthOut != null) extraParams.InternetMaxBandwidthOut = Number(b.internetMaxBandwidthOut);
+        if (b.internetChargeType) extraParams.InternetChargeType = b.internetChargeType;
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'RunInstances',
+          extraParams,
+        } as any);
+        res.json({ message: '创建实例指令已下发', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建实例失败', error: error.message });
+      }
+    },
+  );
+
+  // 实例变配 ModifyInstanceSpec（按量）
+  router.post(
+    '/:id/resources/ecs/:instanceId/modify-spec',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, instanceId } = req.params;
+        const { instanceType } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!instanceType) return res.status(400).json({ message: '缺少目标规格 instanceType' });
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'ModifyInstanceSpec',
+          extraParams: { InstanceId: instanceId, InstanceType: instanceType },
+        } as any);
+        res.json({ message: '变配指令已下发', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '变配失败', error: error.message });
+      }
+    },
+  );
+
+  // 重置实例密码 ModifyInstanceAttribute（需重启生效）
+  router.post(
+    '/:id/resources/ecs/:instanceId/reset-password',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, instanceId } = req.params;
+        const { password } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!password) return res.status(400).json({ message: '缺少新密码 password' });
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'ModifyInstanceAttribute',
+          extraParams: { InstanceId: instanceId, Password: password },
+        } as any);
+        res.json({ message: '密码重置成功，重启后生效', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '重置密码失败', error: error.message });
+      }
+    },
+  );
+
+  // 更换系统盘镜像 ReplaceSystemDisk
+  router.post(
+    '/:id/resources/ecs/:instanceId/replace-system-disk',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, instanceId } = req.params;
+        const { imageId, password, keyPairName, systemDiskSize } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!imageId) return res.status(400).json({ message: '缺少目标镜像 imageId' });
+        const extraParams: Record<string, any> = { InstanceId: instanceId, ImageId: imageId };
+        if (password) extraParams.Password = password;
+        if (keyPairName) extraParams.KeyPairName = keyPairName;
+        if (systemDiskSize) extraParams['SystemDisk.Size'] = Number(systemDiskSize);
+        const result = await callAliyunEcs({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'ReplaceSystemDisk',
+          extraParams,
+        } as any);
+        res.json({ message: '更换系统盘指令已下发', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '更换系统盘失败', error: error.message });
+      }
+    },
+  );
+
   router.post(
     '/:id/resources/ecs/:instanceId/start',
     checkAdminPermission,
