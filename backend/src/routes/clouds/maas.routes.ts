@@ -31,6 +31,7 @@ import {
   createMaasBootSourceSelection,
   deleteMaasBootSourceSelection,
 } from '../../services/clouds/maas/maasBootSources';
+import { listMaasPlacement } from '../../services/clouds/maas/maasPlacement';
 
 async function fetchMaasCloudOr404(id: string, res: Response): Promise<Cloud | null> {
   const cloud = await AppDataSource.getRepository(Cloud).findOne({ where: { id } });
@@ -380,6 +381,24 @@ export function attachMaasRoutes(router: Router, perm: RequestHandler): void {
         return;
       }
       res.json({ ok: true, items: result.items, total: result.items.length, apiVersion: 'v2' });
+    } catch (err: unknown) {
+      res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
+    }
+  });
+
+  router.get('/:id/maas/placement', perm, async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchMaasCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const ctx = resolveMaasCtx(cloud, res);
+      if (!ctx) return;
+      const result = await listMaasPlacement(ctx);
+      res.json({
+        ok: true,
+        zones: result.zones,
+        pools: result.pools,
+        domains: result.domains,
+      });
     } catch (err: unknown) {
       res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
     }
