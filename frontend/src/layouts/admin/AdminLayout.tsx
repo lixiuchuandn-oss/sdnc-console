@@ -90,7 +90,9 @@ import {
   pickDefaultPoolId,
   resolveDefaultPool,
   sidebarForPath,
+  type PageSearchEntry,
 } from './lib/adminLayoutNav';
+import { useGlobalSearch } from './hooks/useGlobalSearch';
 
 const { Content } = Layout;
 
@@ -118,13 +120,6 @@ const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
 /** 无资源池时强弹向导：本会话用户点「稍后接入」后不再自动弹出 */
 const MUST_BIND_POOL_DISMISS_KEY = 'adminLayout.mustBindPoolPromptDismissed';
 
-type PageSearchEntry = {
-  path: string;
-  title: string;
-  icon: React.ReactNode;
-  label: string;
-  group: string;
-};
 
 const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -146,10 +141,6 @@ const AdminLayout: React.FC = () => {
   const lastSidebarAutoExpandSigRef = useRef<string>('');
   /** 池详情 URL 已有 cloudId 但顶栏列表尚未含该池时，触发一次列表刷新（避免侧栏空白直至手动刷新） */
   const poolNavMissingListRefetchKeyRef = useRef('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
-  const searchActiveIndexRef = useRef(0);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [changePasswordSaving, setChangePasswordSaving] = useState(false);
   const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
@@ -803,63 +794,15 @@ const AdminLayout: React.FC = () => {
     return opts;
   }, [visibleCenters]);
 
-  const filteredSearchList = useMemo(() => {
-    const kw = String(searchText || '').toLowerCase().trim();
-    const base = pageSearchEntries;
-    if (!kw) return base.slice(0, 12);
-    return base.filter((e) => e.title.toLowerCase().includes(kw));
-  }, [pageSearchEntries, searchText]);
-
-  useEffect(() => {
-    searchActiveIndexRef.current = searchActiveIndex;
-  }, [searchActiveIndex]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setSearchOpen(true);
-        setSearchText('');
-        setSearchActiveIndex(0);
-      }
-      if (searchOpen) {
-        if (e.key === 'Escape') {
-          setSearchOpen(false);
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSearchActiveIndex(i => {
-            const newIndex = Math.min(i + 1, Math.max(filteredSearchList.length - 1, 0));
-            searchActiveIndexRef.current = newIndex;
-            return newIndex;
-          });
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSearchActiveIndex(i => {
-            const newIndex = Math.max(i - 1, 0);
-            searchActiveIndexRef.current = newIndex;
-            return newIndex;
-          });
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const sel = filteredSearchList[searchActiveIndexRef.current];
-          if (sel) {
-            const path = sel.path;
-            const pure = String(path || '').split('?')[0];
-            navigateToAdminContent(path);
-            if (pure !== '/console') {
-              setActiveSidebarKey(sidebarForPath(path));
-            }
-            setSearchOpen(false);
-          }
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [searchOpen, filteredSearchList, navigateToAdminContent]);
+  const {
+    searchOpen,
+    setSearchOpen,
+    searchText,
+    setSearchText,
+    searchActiveIndex,
+    setSearchActiveIndex,
+    filteredSearchList,
+  } = useGlobalSearch({ pageSearchEntries, navigateToAdminContent, setActiveSidebarKey });
 
   useEffect(() => {
     if (rancherClusterSidebarCenter) {
