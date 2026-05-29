@@ -5,12 +5,14 @@ import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
+import LoadBalancerDetailDrawerAliyun from '../drawers/LoadBalancerDetailDrawerAliyun';
 
 type LoadBalancerSectionAliyunProps = {
   cloudId: string;
   slbs: any[];
   vpcs: any[];
   subnets: any[];
+  ecs?: any[];
   onSetSlbs: (list: any[]) => void;
   onOpenDetail: (type: string, title: string, data: any) => void;
 };
@@ -18,11 +20,12 @@ type LoadBalancerSectionAliyunProps = {
 const parseSlbList = (json: any): any[] =>
   (json?.data?.LoadBalancers?.LoadBalancer) || (json?.LoadBalancers?.LoadBalancer) || (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
 
-const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, onSetSlbs, onOpenDetail }) => {
+const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, ecs, onSetSlbs, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
+  const [drawerSlb, setDrawerSlb] = useState<any | null>(null);
 
   const refresh = async () => {
     if (!cloudId) return;
@@ -91,11 +94,15 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
     {
       title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
       render: (_: any, r: any) => {
-        const items = [{ key: 'detail', label: '详情' }];
+        const items = [
+          { key: 'manage', label: '监听器/后端管理' },
+          { key: 'detail', label: '详情(JSON)' },
+        ];
         return (
           <RowActionsButton
             items={items}
             onClick={async ({ key }: { key: string }) => {
+              if (key === 'manage') { setDrawerSlb(r); return; }
               if (key === 'detail') { const name = r?.LoadBalancerName || r?.name || '-'; const id = r?.LoadBalancerId || r?.id || '-'; onOpenDetail('slb', `负载均衡 ${name}（${id}）`, r); }
             }}
           />
@@ -137,6 +144,13 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
+      />
+      <LoadBalancerDetailDrawerAliyun
+        open={!!drawerSlb}
+        cloudId={cloudId}
+        slb={drawerSlb}
+        ecs={ecs}
+        onClose={() => setDrawerSlb(null)}
       />
     </PageDetailSection>
   );

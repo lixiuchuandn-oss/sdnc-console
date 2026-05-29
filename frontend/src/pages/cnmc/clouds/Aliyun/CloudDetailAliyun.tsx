@@ -13,11 +13,19 @@ import LoadBalancerSectionAliyun, { Icon as SlbIcon, Label as SlbLabel } from '.
 import NatGatewaySectionAliyun, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySectionAliyun';
 import RouteTableSectionAliyun, { Icon as RouteTableIcon, Label as RouteTableLabel } from './sections/RouteTableSectionAliyun';
 import SnapshotSectionAliyun, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSectionAliyun';
+import NetworkAclSectionAliyun, { Icon as AclIcon, Label as AclLabel } from './sections/NetworkAclSectionAliyun';
+import ImagesSectionAliyun, { Icon as ImageIcon, Label as ImageLabel } from './sections/ImagesSectionAliyun';
+import KeyPairsSectionAliyun, { Icon as KeyPairIcon, Label as KeyPairLabel } from './sections/KeyPairsSectionAliyun';
+import VpnGatewaySectionAliyun, { Icon as VpnIcon, Label as VpnLabel } from './sections/VpnGatewaySectionAliyun';
+import RdsSectionAliyun, { Icon as RdsIcon, Label as RdsLabel } from './sections/RdsSectionAliyun';
+import MonitorAlarmSectionAliyun, { Icon as MonitorIcon, Label as MonitorLabel } from './sections/MonitorAlarmSectionAliyun';
 import { fetchClouds } from '../../../../services/api';
-import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches } from '../../../../services/aliyunApi';
+import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches, fetchCloudProviderNetworkAcls, fetchCloudProviderImages, fetchCloudProviderKeyPairs, fetchCloudProviderVpnGateways, fetchCloudProviderRds } from '../../../../services/aliyunApi';
 import SecurityGroupDetailModalAliyun from './modals/SecurityGroupDetailModalAliyun';
 import RouteTableCreateModalAliyun from './modals/RouteTableCreateModalAliyun';
 import RouteTableAssociateModalAliyun from './modals/RouteTableAssociateModalAliyun';
+import VpcCreateModalAliyun from './modals/VpcCreateModalAliyun';
+import VSwitchCreateModalAliyun from './modals/VSwitchCreateModalAliyun';
 import RouteEntryManageDrawerAliyun from './drawers/RouteEntryManageDrawerAliyun';
 import RouteEntryCreateDrawerAliyun from './drawers/RouteEntryCreateDrawerAliyun';
 import RouteEntryEditDrawerAliyun from './drawers/RouteEntryEditDrawerAliyun';
@@ -40,6 +48,11 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [natGateways, setNatGateways] = useState<any[]>([]);
   const [routeTables, setRouteTables] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [networkAcls, setNetworkAcls] = useState<any[]>([]);
+  const [images, setImages] = useState<any[]>([]);
+  const [keyPairs, setKeyPairs] = useState<any[]>([]);
+  const [vpnGateways, setVpnGateways] = useState<any[]>([]);
+  const [rds, setRds] = useState<any[]>([]);
 
   const [sgDetailOpen, setSgDetailOpen] = useState<boolean>(false);
   const [sgDetailData, setSgDetailData] = useState<any | null>(null);
@@ -50,6 +63,8 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [rawVSwitches, setRawVSwitches] = useState<any | null>(null);
   const [rawSecGroups, setRawSecGroups] = useState<any | null>(null);
   const [rawEips, setRawEips] = useState<any | null>(null);
+  const [vpcCreateOpen, setVpcCreateOpen] = useState<boolean>(false);
+  const [vswCreateOpen, setVswCreateOpen] = useState<boolean>(false);
   const [rtCreateOpen, setRtCreateOpen] = useState<boolean>(false);
   const [rtAssocOpen, setRtAssocOpen] = useState<boolean>(false);
   const [rtAssocTarget, setRtAssocTarget] = useState<any | null>(null);
@@ -67,7 +82,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
       const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray(cloudsRes?.data) ? cloudsRes.data : []);
       setCloud((cloudList || []).find((c: any) => String(c.id) === String(cloudId)) || null);
 
-      const [vpcJson, ecsJson, vswJson, sgJson, eipJson, diskJson, slbJson, natJson, rtJson, snapJson] = await Promise.all([
+      const [vpcJson, ecsJson, vswJson, sgJson, eipJson, diskJson, slbJson, natJson, rtJson, snapJson, aclJson, imgJson, kpJson, vpnJson, rdsJson] = await Promise.all([
         fetchCloudProviderVpcs(cloudId),
         fetchCloudProviderEcs(cloudId),
         fetchCloudProviderVSwitches(cloudId),
@@ -78,6 +93,11 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
         fetchCloudProviderNatGateways(cloudId).catch(() => null),
         fetchCloudProviderRouteTables(cloudId).catch(() => null),
         fetchCloudProviderSnapshots(cloudId).catch(() => null),
+        fetchCloudProviderNetworkAcls(cloudId).catch(() => null),
+        fetchCloudProviderImages(cloudId, { owner: 'self', pageSize: 100 }).catch(() => null),
+        fetchCloudProviderKeyPairs(cloudId).catch(() => null),
+        fetchCloudProviderVpnGateways(cloudId).catch(() => null),
+        fetchCloudProviderRds(cloudId).catch(() => null),
       ]);
 
       const vpcList: any[] = (vpcJson?.data?.Vpcs?.Vpc) || (vpcJson?.Vpcs?.Vpc) || [];
@@ -101,6 +121,11 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
         (rtJson?.routetables) ||
         (Array.isArray(rtJson?.data) ? rtJson?.data : (Array.isArray(rtJson) ? rtJson : []));
       const snapList: any[] = (snapJson?.Snapshots?.Snapshot) || (snapJson?.data?.snapshots) || (snapJson?.snapshots) || [];
+      const aclList: any[] = (aclJson?.data?.NetworkAcls?.NetworkAcl) || (aclJson?.NetworkAcls?.NetworkAcl) || [];
+      const imgList: any[] = (imgJson?.data?.Images?.Image) || (imgJson?.Images?.Image) || [];
+      const kpList: any[] = (kpJson?.data?.KeyPairs?.KeyPair) || (kpJson?.KeyPairs?.KeyPair) || [];
+      const vpnList: any[] = (vpnJson?.data?.VpnGateways?.VpnGateway) || (vpnJson?.VpnGateways?.VpnGateway) || [];
+      const rdsList: any[] = (rdsJson?.data?.Items?.DBInstance) || (rdsJson?.Items?.DBInstance) || [];
 
       setVpcs(Array.isArray(vpcList) ? vpcList : []);
       setEcs(Array.isArray(ecsList) ? ecsList : []);
@@ -112,6 +137,11 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
       setNatGateways(Array.isArray(natList) ? natList : []);
       setRouteTables(Array.isArray(rtList) ? rtList : []);
       setSnapshots(Array.isArray(snapList) ? snapList : []);
+      setNetworkAcls(Array.isArray(aclList) ? aclList : []);
+      setImages(Array.isArray(imgList) ? imgList : []);
+      setKeyPairs(Array.isArray(kpList) ? kpList : []);
+      setVpnGateways(Array.isArray(vpnList) ? vpnList : []);
+      setRds(Array.isArray(rdsList) ? rdsList : []);
       setRawVpcs(vpcJson || null);
       setRawEcs(ecsJson || null);
       setRawVSwitches(vswJson || null);
@@ -218,6 +248,8 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               cloudId={cloudId}
               ecs={ecs}
               onRefreshAll={loadAll}
+              securityGroups={secGroups}
+              vswitches={vswitches}
               showLog={showLog}
               raw={rawEcs}
             />
@@ -234,6 +266,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               vpcs={vpcs}
               onSetVpcs={(list)=> setVpcs(list)}
               onOpenDetail={(type, title, data)=> openDetail(type, title, data)}
+              onOpenCreate={() => setVpcCreateOpen(true)}
               showLog={showLog}
               raw={rawVpcs}
             />
@@ -251,6 +284,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               vpcs={vpcs}
               onSetVSwitches={(list)=> setVSwitches(list)}
               onOpenDetail={(type, title, data)=> openDetail(type, title, data)}
+              onOpenCreate={() => setVswCreateOpen(true)}
               showLog={showLog}
               raw={rawVSwitches}
             />
@@ -326,6 +360,36 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
           ),
         },
         {
+          key: 'images',
+          label: ImageLabel,
+          icon: ImageIcon,
+          count: images.length,
+          children: (
+            <ImagesSectionAliyun
+              cloudId={cloudId}
+              images={images}
+              ecs={ecs}
+              snapshots={snapshots}
+              onSetImages={(list) => setImages(list)}
+              onRefreshAll={loadAll}
+            />
+          ),
+        },
+        {
+          key: 'keypairs',
+          label: KeyPairLabel,
+          icon: KeyPairIcon,
+          count: keyPairs.length,
+          children: (
+            <KeyPairsSectionAliyun
+              cloudId={cloudId}
+              keyPairs={keyPairs}
+              onSetKeyPairs={(list) => setKeyPairs(list)}
+              onRefreshAll={loadAll}
+            />
+          ),
+        },
+        {
           key: 'slb',
           label: SlbLabel,
           icon: SlbIcon,
@@ -336,6 +400,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               slbs={slbs}
               vpcs={vpcs}
               subnets={vswitches}
+              ecs={ecs}
               onSetSlbs={(list) => setSlbs(list)}
               onOpenDetail={(type, title, data) => openDetail(type, title, data)}
             />
@@ -355,6 +420,21 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               subnets={vswitches}
               onSetNatGateways={(list) => setNatGateways(list)}
               onOpenDetail={(type, title, data) => openDetail(type, title, data)}
+            />
+          ),
+        },
+        {
+          key: 'vpn',
+          label: VpnLabel,
+          icon: VpnIcon,
+          count: vpnGateways.length,
+          children: (
+            <VpnGatewaySectionAliyun
+              cloudId={cloudId}
+              vpnGateways={vpnGateways}
+              vpcs={vpcs}
+              onSetVpnGateways={(list) => setVpnGateways(list)}
+              onRefreshAll={loadAll}
             />
           ),
         },
@@ -382,6 +462,46 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
             />
           ),
         },
+        {
+          key: 'networkacl',
+          label: AclLabel,
+          icon: AclIcon,
+          count: networkAcls.length,
+          children: (
+            <NetworkAclSectionAliyun
+              cloudId={cloudId}
+              networkAcls={networkAcls}
+              vpcs={vpcs}
+              vswitches={vswitches}
+              onSetNetworkAcls={(list) => setNetworkAcls(list)}
+              onRefreshAll={loadAll}
+            />
+          ),
+        },
+        {
+          key: 'rds',
+          label: RdsLabel,
+          icon: RdsIcon,
+          count: rds.length,
+          children: (
+            <RdsSectionAliyun
+              cloudId={cloudId}
+              rds={rds}
+              vpcs={vpcs}
+              vswitches={vswitches}
+              onSetRds={(list) => setRds(list)}
+              onRefreshAll={loadAll}
+            />
+          ),
+        },
+        {
+          key: 'monitor',
+          label: MonitorLabel,
+          icon: MonitorIcon,
+          children: (
+            <MonitorAlarmSectionAliyun cloudId={cloudId} />
+          ),
+        },
       ]}
     >
       {error && (
@@ -395,6 +515,20 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
         securityGroup={sgDetailData}
         ecs={ecs}
         defaultTab={sgDetailTab}
+      />
+      <VpcCreateModalAliyun
+        open={vpcCreateOpen}
+        cloudId={cloudId}
+        onCancel={() => setVpcCreateOpen(false)}
+        onOk={() => { setVpcCreateOpen(false); loadAll(); }}
+      />
+      <VSwitchCreateModalAliyun
+        open={vswCreateOpen}
+        cloudId={cloudId}
+        vpcs={vpcs}
+        vswitches={vswitches}
+        onCancel={() => setVswCreateOpen(false)}
+        onOk={() => { setVswCreateOpen(false); loadAll(); }}
       />
       <RouteTableCreateModalAliyun
         open={rtCreateOpen}

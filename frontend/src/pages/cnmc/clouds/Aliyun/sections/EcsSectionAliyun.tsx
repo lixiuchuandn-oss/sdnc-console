@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { App, Badge, Button, Input, Modal, Select, Table, Space, Tooltip, Typography } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, CloudServerOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, EllipsisOutlined, CloudServerOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { API_BASE_URL } from '../../../../../services/api';
 import { startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs, fetchAliyunEcsVncUrl } from '../../../../../services/aliyunApi';
@@ -9,6 +9,8 @@ import ResourceActionsDropdown from '../../../../../components/ResourceActionsDr
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import EcsDetailModal from '../modals/EcsDetailModal';
+import EcsCreateModalAliyun from '../modals/EcsCreateModalAliyun';
+import EcsActionsModalAliyun, { type EcsActionMode } from '../modals/EcsActionsModalAliyun';
 import { collectIpv4FromAddresses } from '../../Hw/components/Common';
 import { getToken } from '../../../../../utils/tokenStorage';
 
@@ -17,6 +19,8 @@ type EcsSectionAliyunProps = {
   ecs: any[];
   onRefreshAll: () => void;
   onOpenVmDetail?: (vm: any) => void;
+  securityGroups?: any[];
+  vswitches?: any[];
   showLog?: boolean;
   raw?: any;
 };
@@ -64,8 +68,11 @@ const getPrivateIp = (r: any): string => {
   return String(r?.privateIpAddress || '');
 };
 
-const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRefreshAll, showLog, raw }) => {
+const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRefreshAll, securityGroups, vswitches, showLog, raw }) => {
   const { message } = App.useApp();
+  const [createOpen, setCreateOpen] = useState<boolean>(false);
+  const [actionMode, setActionMode] = useState<EcsActionMode>(null);
+  const [actionInstance, setActionInstance] = useState<any | null>(null);
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [zoneFilter, setZoneFilter] = useState<string | undefined>(undefined);
@@ -350,6 +357,10 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
           { key: 'stop', label: '停止', disabled: !(st === 'Running' || st === 'Starting') },
           { key: 'reboot', label: '重启', disabled: !(st === 'Running') },
           { type: 'divider' as any },
+          { key: 'modifySpec', label: '变更规格' },
+          { key: 'resetPassword', label: '重置密码' },
+          { key: 'replaceDisk', label: '更换系统盘镜像' },
+          { type: 'divider' as any },
           { key: 'delete', label: '删除', danger: true },
         ];
         return (
@@ -374,6 +385,9 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
                 } catch (e: any) { message.error(e?.message || '获取VNC地址失败'); }
                 return;
               }
+              if (key === 'modifySpec') { setActionInstance(r); setActionMode('resize'); return; }
+              if (key === 'resetPassword') { setActionInstance(r); setActionMode('password'); return; }
+              if (key === 'replaceDisk') { setActionInstance(r); setActionMode('replaceDisk'); return; }
               if (key === 'start') { try { await startAliyunEcs(cloudId, iid); message.success('启动指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '启动失败'); } return; }
               if (key === 'stop') { try { await stopAliyunEcs(cloudId, iid, false); message.success('停止指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '停止失败'); } return; }
               if (key === 'reboot') { try { await rebootAliyunEcs(cloudId, iid, false); message.success('重启指令已下发'); await onRefreshAll(); } catch(e:any){ message.error(e?.message || '重启失败'); } return; }
@@ -437,6 +451,7 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
       toolbarRight={(
         <div className="toolbar-actions">
           <Space size={8}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>创建云主机</Button>
             <LiveSwitch checked={!!live} onChange={() => toggleLive()} />
             <ResourceActionsDropdown
               items={[
@@ -507,6 +522,22 @@ const EcsSectionAliyun: React.FC<EcsSectionAliyunProps> = ({ cloudId, ecs, onRef
         </div>
       )}
       <EcsDetailModal open={detailOpen} onClose={() => setDetailOpen(false)} cloudId={cloudId} instanceId={detailInstanceId} />
+      <EcsCreateModalAliyun
+        open={createOpen}
+        cloudId={cloudId}
+        securityGroups={securityGroups || []}
+        vswitches={vswitches || []}
+        onCancel={() => setCreateOpen(false)}
+        onOk={async () => { setCreateOpen(false); await onRefreshAll(); }}
+      />
+      <EcsActionsModalAliyun
+        open={!!actionMode}
+        mode={actionMode}
+        cloudId={cloudId}
+        instance={actionInstance}
+        onClose={() => { setActionMode(null); setActionInstance(null); }}
+        onDone={async () => { setActionMode(null); setActionInstance(null); await onRefreshAll(); }}
+      />
     </PageDetailSection>
   );
 };
