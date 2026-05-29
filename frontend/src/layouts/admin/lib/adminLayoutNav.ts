@@ -5,7 +5,7 @@
 import React from 'react';
 import type { RouteSpec } from '../../../routes/RouteSpec';
 import { routeSpecs } from '../../../routes/RouteSpec';
-import { iconOf } from '../../../components/PageContainer';
+import { iconOf } from '../../../utils/iconOf';
 import { type Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
 import { buildPoolEntryPath, inferPoolRouteKind } from '../../../pages/cnmc/pools/lib/poolDetailNav';
 
