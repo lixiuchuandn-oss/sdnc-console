@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { message } from 'antd';
 import { deleteHarvesterBackup } from 'services/harvester/cbr';
+import { findRestoreBlockingBackupDelete } from '../lib/checkBackupDeleteBlocked';
 import { runHarvesterSectionRefresh } from '../lib/cbrSectionRefresh';
 import { useBackupsSectionActions } from './useBackupsSectionActions';
 import type { BackupListRow } from '../lib/backupsSectionUtils';
@@ -14,7 +15,14 @@ jest.mock('antd', () => ({
   message: {
     error: jest.fn(),
     success: jest.fn(),
+    warning: jest.fn(),
   },
+}));
+
+jest.mock('../lib/checkBackupDeleteBlocked', () => ({
+  buildRestoreBlockingDeleteMessage: jest.requireActual('../lib/checkBackupDeleteBlocked')
+    .buildRestoreBlockingDeleteMessage,
+  findRestoreBlockingBackupDelete: jest.fn().mockResolvedValue(null),
 }));
 
 jest.mock('services/harvester/cbr', () => ({
@@ -102,7 +110,11 @@ describe('useBackupsSectionActions', () => {
     );
 
     act(() => {
-      result.current.handleDelete(record);
+      void result.current.handleDelete(record);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
     });
 
     expect(mockConfirm).toHaveBeenCalled();
@@ -164,5 +176,30 @@ describe('useBackupsSectionActions', () => {
     });
 
     expect(runHarvesterSectionRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('handleDelete blocks when restore task is in progress', async () => {
+    (findRestoreBlockingBackupDelete as jest.Mock).mockResolvedValue({
+      namespace: 'proj-1',
+      name: 'restore-1',
+      statusText: '进行中',
+    });
+
+    const { result } = renderHook(() =>
+      useBackupsSectionActions({
+        cloudId: 'cloud-1',
+        type: 'backup',
+        hasBackupsWrite: true,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleDelete(record);
+    });
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(message.warning).toHaveBeenCalledWith(
+      '该备份已有进行中的恢复任务（proj-1/restore-1，进行中），请等待完成后再删除',
+    );
   });
 });

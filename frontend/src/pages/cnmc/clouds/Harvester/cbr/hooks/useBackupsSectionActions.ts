@@ -8,6 +8,10 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../lib/cbrSectionRefresh';
 import type { BackupListRow, BackupListType } from '../lib/backupsSectionUtils';
+import {
+  buildRestoreBlockingDeleteMessage,
+  findRestoreBlockingBackupDelete,
+} from '../lib/checkBackupDeleteBlocked';
 
 export type UseBackupsSectionActionsParams = {
   cloudId: string;
@@ -30,10 +34,23 @@ export function useBackupsSectionActions({
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
 
   const handleDelete = useCallback(
-    (record: BackupListRow) => {
+    async (record: BackupListRow) => {
       if (!hasBackupsWrite) {
         message.error('无权限执行该操作');
         return;
+      }
+      try {
+        const blocking = await findRestoreBlockingBackupDelete(
+          cloudId,
+          record.namespace,
+          record.name,
+        );
+        if (blocking) {
+          message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
+          return;
+        }
+      } catch {
+        // 恢复任务列表拉取失败时仍允许打开确认框，由后端删除接口兜底校验
       }
       Modal.confirm({
         title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
@@ -43,6 +60,15 @@ export function useBackupsSectionActions({
         cancelText: '取消',
         onOk: async () => {
           try {
+            const blocking = await findRestoreBlockingBackupDelete(
+              cloudId,
+              record.namespace,
+              record.name,
+            );
+            if (blocking) {
+              message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
+              return;
+            }
             await deleteHarvesterBackup(cloudId, record.namespace, record.name);
             message.success('删除成功');
             void runHarvesterSectionRefresh(onRefresh, { force: true });

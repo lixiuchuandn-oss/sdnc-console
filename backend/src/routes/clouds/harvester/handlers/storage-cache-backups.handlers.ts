@@ -25,7 +25,16 @@ import {
   shouldFallbackToCephVmBackup,
   normalizeCephVmBackupForInventory,
   isCephVmBackupResource,
+  listHarvesterBackupsStandard,
+  listHarvesterCephVmBackupsRaw,
+  listHarvesterVirtualMachineRestoresRaw,
+  listHarvesterCephVmRestoresRaw,
 } from '../../../../services/clouds/harvester/client';
+import { findInProgressHarvesterRestoreForBackup } from '../../../../services/clouds/harvester/vmRestoreTaskStatus';
+import {
+  buildVmBackupCreateBlockedMessage,
+  findInProgressHarvesterBackupForVm,
+} from '../../../../services/clouds/harvester/vmBackupTaskStatus';
 import { syncHarvesterBackups } from '../../../../services/clouds/harvester/inventory';
 import { HarvesterBackupInventory } from '../../../../entities/harvester/HarvesterBackupInventory';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
@@ -136,6 +145,22 @@ export async function harvesterBackupCreateHandler(req: Request, res: Response) 
     }
 
     const conn = { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any;
+
+    const [longhornBackups, cephBackups] = await Promise.all([
+      listHarvesterBackupsStandard(conn).catch(() => [] as any[]),
+      listHarvesterCephVmBackupsRaw(conn).catch(() => [] as any[]),
+    ]);
+    const backupItems = [
+      ...longhornBackups,
+      ...cephBackups.map((item) => normalizeCephVmBackupForInventory(item)),
+    ];
+    const inProgressBackup = findInProgressHarvesterBackupForVm(backupItems, namespace, vmName);
+    if (inProgressBackup) {
+      return res.status(409).json({
+        message: buildVmBackupCreateBlockedMessage(inProgressBackup),
+      });
+    }
+
     let useCephBackup = await vmShouldUseCephVmBackup(conn, namespace, vmName);
 
     let result: any;
@@ -249,6 +274,23 @@ export async function harvesterBackupDeleteHandler(req: Request, res: Response) 
     const cached = await repo.findOne({ where: { cloudId: id, namespace, name } });
     const raw = cached?.rawData;
     const useCephDelete = isCephVmBackupResource(raw);
+
+    const [longhornRestores, cephRestores] = await Promise.all([
+      listHarvesterVirtualMachineRestoresRaw(conn).catch(() => [] as any[]),
+      listHarvesterCephVmRestoresRaw(conn).catch(() => [] as any[]),
+    ]);
+    const inProgress = findInProgressHarvesterRestoreForBackup(
+      [...longhornRestores, ...cephRestores],
+      namespace,
+      name,
+    );
+    if (inProgress) {
+      const resourceType = String(cached?.type || raw?.spec?.type || 'backup');
+      const resourceLabel = resourceType === 'snapshot' ? '快照' : '备份';
+      return res.status(409).json({
+        message: `该${resourceLabel}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再删除`,
+      });
+    }
 
     const result = useCephDelete
       ? await deleteHarvesterCephVmBackup(conn, namespace, name)

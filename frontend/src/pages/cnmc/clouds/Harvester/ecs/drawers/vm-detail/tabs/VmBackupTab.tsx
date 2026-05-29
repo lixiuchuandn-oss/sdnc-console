@@ -40,6 +40,14 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterBackupsInventoryReload,
 } from '../../../../shared/lib/harvesterSectionRefresh';
+import {
+  buildRestoreBlockingDeleteMessage,
+  findRestoreBlockingBackupDelete,
+} from '../../../../cbr/lib/checkBackupDeleteBlocked';
+import {
+  buildVmBackupCreateBlockedMessage,
+  findInProgressHarvesterBackupForVm,
+} from '../../../../cbr/lib/vmBackupReadyStatus';
 
 interface VmBackupTabProps {
   cloudId: string;
@@ -112,8 +120,33 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     return sortVmBackupItemsByCreationDesc(vmSchedules);
   }, [schedules, vmId]);
 
+  const vmBackupCreateBlocking = useMemo(
+    () => findInProgressHarvesterBackupForVm(backups, namespace, vmId),
+    [backups, namespace, vmId],
+  );
+
+  const vmBackupCreateBlockedMessage = vmBackupCreateBlocking
+    ? buildVmBackupCreateBlockedMessage(vmBackupCreateBlocking)
+    : undefined;
+
+  const handleOpenCreateBackup = () => {
+    if (vmBackupCreateBlocking) {
+      message.warning(vmBackupCreateBlockedMessage!);
+      return;
+    }
+    setCreateBackupVisible(true);
+  };
+
+  const handleOpenCreateSnapshot = () => {
+    if (vmBackupCreateBlocking) {
+      message.warning(vmBackupCreateBlockedMessage!);
+      return;
+    }
+    setCreateSnapshotVisible(true);
+  };
+
   // 动作
-  const handleDeleteBackup = (item: any, type: 'backup' | 'snapshot') => {
+  const handleDeleteBackup = async (item: any, type: 'backup' | 'snapshot') => {
     if (!hasBackupsWrite) {
       message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
       return;
@@ -123,7 +156,17 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     const alias = raw.metadata?.annotations?.['tower.io/alias'];
     const displayName = alias || name;
     const ns = raw.metadata?.namespace;
-    
+
+    try {
+      const blocking = await findRestoreBlockingBackupDelete(cloudId, ns, name);
+      if (blocking) {
+        message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
+        return;
+      }
+    } catch {
+      // 恢复任务列表拉取失败时仍允许打开确认框，由后端删除接口兜底校验
+    }
+
     Modal.confirm({
       title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
       content: (
@@ -137,6 +180,11 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
       cancelText: '取消',
       onOk: async () => {
         try {
+          const blocking = await findRestoreBlockingBackupDelete(cloudId, ns, name);
+          if (blocking) {
+            message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
+            return;
+          }
           await deleteHarvesterBackup(cloudId, ns, name);
           message.success('删除成功');
           void runHarvesterSectionRefresh(onRefresh, { force: true });
@@ -357,8 +405,14 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
                   <WriteGuard canWrite={hasBackupsWrite}>
-                    <Tooltip title="创建快照">
-                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateSnapshotVisible(true)} />
+                    <Tooltip title={vmBackupCreateBlockedMessage || '创建快照'}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        disabled={!!vmBackupCreateBlocking}
+                        onClick={handleOpenCreateSnapshot}
+                      />
                     </Tooltip>
                   </WriteGuard>
               </Space>
@@ -387,8 +441,14 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
                   <WriteGuard canWrite={hasBackupsWrite}>
-                    <Tooltip title="创建备份">
-                      <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateBackupVisible(true)} />
+                    <Tooltip title={vmBackupCreateBlockedMessage || '创建备份'}>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        disabled={!!vmBackupCreateBlocking}
+                        onClick={handleOpenCreateBackup}
+                      />
                     </Tooltip>
                   </WriteGuard>
               </Space>
@@ -446,6 +506,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         namespaces={namespaces}
         vms={[record]}
         initialType="backup"
+        backups={backups}
         onSuccess={() => {
           setCreateBackupVisible(false);
           message.success('备份创建指令已发送');
@@ -463,6 +524,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
         namespaces={namespaces}
         vms={[record]}
         initialType="snapshot"
+        backups={backups}
         onSuccess={() => {
           setCreateSnapshotVisible(false);
           message.success('快照创建指令已发送');

@@ -234,6 +234,7 @@ const BackupsSection: React.FC<Props> = ({
         namespaces={namespaces}
         vms={vms}
         initialType={type}
+        backups={backups}
       />
 
       <VmRestoreModal
