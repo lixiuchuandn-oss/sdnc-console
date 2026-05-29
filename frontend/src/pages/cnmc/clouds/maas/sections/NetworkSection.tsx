@@ -27,8 +27,6 @@ const NetworkSection: React.FC<Props> = ({ poolId }) => {
       const res = await fetchMaasNetwork(poolId, { skipCache: true });
       if (!res?.ok) {
         setError(res?.message || '拉取网络资源失败');
-        setSubnets([]);
-        setVlans([]);
         return;
       }
       setSubnets(Array.isArray(res.subnets) ? res.subnets : []);

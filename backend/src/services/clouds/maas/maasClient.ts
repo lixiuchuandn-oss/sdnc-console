@@ -25,7 +25,9 @@ export type MaasMachineOp =
   | 'power_on'
   | 'power_off'
   | 'power_cycle'
-  | 'mark_broken';
+  | 'mark_broken'
+  | 'mark_fixed'
+  | 'abort';
 
 /** endpoint 须以 `/MAAS` 结尾；仅去掉末尾 `/`，不自动补全路径 */
 export function normalizeMaasEndpoint(raw: string): string | null {
@@ -539,4 +541,22 @@ export async function maasMachineOperation(
     message: '操作已提交',
     data: res.data,
   };
+}
+
+export async function maasDeleteMachine(
+  ctx: MaasHttpContext,
+  systemId: string,
+): Promise<{ ok: boolean; message: string }> {
+  const sid = encodeURIComponent(systemId);
+  const res = await maasRequest(ctx, 'DELETE', `/api/2.0/machines/${sid}/`, { timeout: 60_000 });
+  if (res.status === 401) {
+    return { ok: false, message: '认证失败：MAAS API Key 无效或已过期' };
+  }
+  if (res.status === 409) {
+    return { ok: false, message: res.message || '当前状态不允许删除该机器' };
+  }
+  if (!res.ok) {
+    return { ok: false, message: res.message || '删除机器失败' };
+  }
+  return { ok: true, message: '机器已删除' };
 }

@@ -53,14 +53,12 @@ const DiscoveriesSection: React.FC<Props> = ({ poolId }) => {
       const res = await fetchMaasDiscoveries(poolId, { skipCache: true });
       if (!res?.ok) {
         setError(res?.message || '拉取网络发现失败');
-        setRows([]);
         return;
       }
       const items = Array.isArray(res.items) ? res.items : [];
       setRows(items.map((m, i) => normalizeDiscovery(m as Record<string, unknown>, i)));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '拉取网络发现失败');
-      setRows([]);
     } finally {
       setLoading(false);
     }

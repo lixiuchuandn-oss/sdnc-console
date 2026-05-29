@@ -12,6 +12,7 @@ import {
   listMaasMachines,
   listMaasSubnets,
   maasMachineOperation,
+  maasDeleteMachine,
   getMaasRegionStatus,
   type MaasMachineOp,
 } from '../../services/clouds/maas/maasClient';
@@ -56,6 +57,8 @@ const MACHINE_OPS: MaasMachineOp[] = [
   'power_off',
   'power_cycle',
   'mark_broken',
+  'mark_fixed',
+  'abort',
 ];
 
 export function attachMaasRoutes(router: Router, perm: RequestHandler): void {
@@ -151,6 +154,23 @@ export function attachMaasRoutes(router: Router, perm: RequestHandler): void {
         return;
       }
       res.json({ ok: true, message: result.message, data: result.data });
+    } catch (err: unknown) {
+      res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
+    }
+  });
+
+  router.delete('/:id/maas/machines/:systemId', perm, async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchMaasCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const ctx = resolveMaasCtx(cloud, res);
+      if (!ctx) return;
+      const result = await maasDeleteMachine(ctx, req.params.systemId);
+      if (!result.ok) {
+        res.status(result.message.includes('认证') ? 401 : 409).json({ message: result.message });
+        return;
+      }
+      res.json({ ok: true, message: result.message });
     } catch (err: unknown) {
       res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
     }

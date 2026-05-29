@@ -57,13 +57,11 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
       const res = await fetchMaasImages(poolId, { skipCache: true });
       if (!res?.ok) {
         setError(res?.message || '拉取镜像失败');
-        setRows([]);
         return;
       }
       setRows(Array.isArray(res.items) ? res.items : []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '拉取镜像失败');
-      setRows([]);
     } finally {
       setLoading(false);
     }

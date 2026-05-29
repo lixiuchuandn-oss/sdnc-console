@@ -74,7 +74,9 @@ export type MaasMachineOp =
   | 'power_on'
   | 'power_off'
   | 'power_cycle'
-  | 'mark_broken';
+  | 'mark_broken'
+  | 'mark_fixed'
+  | 'abort';
 
 function maasPath(cloudId: string, suffix: string): string {
   return `/api/clouds/${encodeURIComponent(cloudId)}/maas${suffix}`;
@@ -115,6 +117,13 @@ export async function maasMachineOp(
     maasPath(cloudId, `/machines/${encodeURIComponent(systemId)}/${op}`),
     body || {},
   );
+}
+
+export async function maasDeleteMachine(
+  cloudId: string,
+  systemId: string,
+): Promise<{ ok: boolean; message?: string }> {
+  return apiDelete(maasPath(cloudId, `/machines/${encodeURIComponent(systemId)}`));
 }
 
 export async function fetchMaasDiscoveries(

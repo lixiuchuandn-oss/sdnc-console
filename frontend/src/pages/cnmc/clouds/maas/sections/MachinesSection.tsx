@@ -4,19 +4,37 @@ import { SearchOutlined } from '@ant-design/icons';
 import { Alert, Input, Modal, Table, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import { fetchMaasMachines, maasMachineOp, type MaasMachineOp } from '../../../../../services/maasApi';
+import {
+  fetchMaasMachines,
+  maasDeleteMachine,
+  maasMachineOp,
+  type MaasMachineOp,
+} from '../../../../../services/maasApi';
 import MachineDetailDrawer from '../drawers/MachineDetailDrawer';
 import MaasDeployModal from '../modals/MaasDeployModal';
 import { MAAS_LIST_TABLE_PAGINATION } from '../lib/maasTablePagination';
 import { MaasToolbarRefresh } from '../lib/maasToolbar';
 import { machineMatchesBucket } from '../lib/maasMachineBuckets';
 import { normalizeMaasMachineRow } from '../lib/maasStatus';
+import { maasMachineRowActions, type MaasRowActionKey } from '../lib/maasMachineActions';
 
 type Props = {
   poolId: string;
 };
 
 type MachineRow = ReturnType<typeof normalizeMaasMachineRow>;
+
+/** 需二次确认的操作；content 接收主机名 */
+const OP_CONFIRMS: Partial<Record<MaasRowActionKey, { title: string; content: (h: string) => string }>> = {
+  commission: { title: '纳管（Commission）', content: (h) => `对 ${h} 执行硬件检测？` },
+  power_off: { title: '关机', content: (h) => `确认对 ${h} 执行关机？` },
+  power_cycle: { title: '重启', content: (h) => `确认对 ${h} 执行强制重启？` },
+  mark_broken: { title: '标记故障', content: (h) => `将 ${h} 标记为故障状态？` },
+  mark_fixed: { title: '标记修复', content: (h) => `将 ${h} 标记为已修复（可用）？` },
+  abort: { title: '中止操作', content: (h) => `中止 ${h} 当前进行中的操作？` },
+  release: { title: '释放机器', content: (h) => `释放 ${h}？机器将回到可用池。` },
+  delete: { title: '删除机器', content: (h) => `删除 ${h}？该操作不可恢复。` },
+};
 
 const MachinesSection: React.FC<Props> = ({ poolId }) => {
   const [searchParams] = useSearchParams();
@@ -38,13 +56,11 @@ const MachinesSection: React.FC<Props> = ({ poolId }) => {
       const items = Array.isArray(res?.items) ? res.items : [];
       if (!res?.ok) {
         setError(res?.message || '拉取机器列表失败');
-        setRows([]);
         return;
       }
       setRows(items.map((m) => normalizeMaasMachineRow(m as Record<string, unknown>)));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '拉取机器列表失败');
-      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -55,18 +71,7 @@ const MachinesSection: React.FC<Props> = ({ poolId }) => {
   }, [load]);
 
   const runOp = useCallback(
-    async (systemId: string, op: MaasMachineOp, confirm?: { title: string; content: string }) => {
-      if (confirm) {
-        const ok = await new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: confirm.title,
-            content: confirm.content,
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-          });
-        });
-        if (!ok) return;
-      }
+    async (systemId: string, op: MaasMachineOp) => {
       setOpLoading(true);
       try {
         const res = await maasMachineOp(poolId, systemId, op);
@@ -83,6 +88,68 @@ const MachinesSection: React.FC<Props> = ({ poolId }) => {
       }
     },
     [poolId, load],
+  );
+
+  const removeMachine = useCallback(
+    async (systemId: string) => {
+      setOpLoading(true);
+      try {
+        const res = await maasDeleteMachine(poolId, systemId);
+        if (res?.ok) {
+          message.success(res.message || '机器已删除');
+          void load();
+        } else {
+          message.error(res?.message || '删除失败');
+        }
+      } catch (e: unknown) {
+        message.error(e instanceof Error ? e.message : '删除失败');
+      } finally {
+        setOpLoading(false);
+      }
+    },
+    [poolId, load],
+  );
+
+  const confirmThen = useCallback(
+    async (key: MaasRowActionKey, hostname: string, run: () => void) => {
+      const cfg = OP_CONFIRMS[key];
+      if (!cfg) {
+        run();
+        return;
+      }
+      const ok = await new Promise<boolean>((resolve) => {
+        Modal.confirm({
+          title: cfg.title,
+          content: cfg.content(hostname),
+          okButtonProps: key === 'delete' ? { danger: true } : undefined,
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      if (ok) run();
+    },
+    [],
+  );
+
+  const handleAction = useCallback(
+    (record: MachineRow, key: MaasRowActionKey) => {
+      if (key === 'detail') {
+        setDetailId(record.systemId);
+        return;
+      }
+      if (key === 'deploy') {
+        setDeployId(record.systemId);
+        return;
+      }
+      if (key === 'delete') {
+        void confirmThen(key, record.hostname, () => void removeMachine(record.systemId));
+        return;
+      }
+      void confirmThen(key, record.hostname, () =>
+        void runOp(record.systemId, key as MaasMachineOp),
+      );
+    },
+    [confirmThen, removeMachine, runOp],
   );
 
   const filtered = useMemo(() => {
@@ -146,45 +213,8 @@ const MachinesSection: React.FC<Props> = ({ poolId }) => {
       fixed: 'right',
       render: (_, record) => (
         <RowActionsButton
-          items={[
-            { key: 'detail', label: '详情' },
-            { key: 'commission', label: '纳管' },
-            { key: 'deploy', label: '部署' },
-            { key: 'power_on', label: '开机' },
-            { key: 'power_off', label: '关机' },
-            { key: 'release', label: '释放', danger: true },
-          ]}
-          onClick={({ key }) => {
-            if (key === 'detail') {
-              setDetailId(record.systemId);
-              return;
-            }
-            if (key === 'commission') {
-              void runOp(record.systemId, 'commission', {
-                title: '纳管（Commission）',
-                content: `对 ${record.hostname} 执行硬件检测？`,
-              });
-              return;
-            }
-            if (key === 'deploy') {
-              setDeployId(record.systemId);
-              return;
-            }
-            if (key === 'power_on') {
-              void runOp(record.systemId, 'power_on');
-              return;
-            }
-            if (key === 'power_off') {
-              void runOp(record.systemId, 'power_off');
-              return;
-            }
-            if (key === 'release') {
-              void runOp(record.systemId, 'release', {
-                title: '释放机器',
-                content: `释放 ${record.hostname}？机器将回到可用池。`,
-              });
-            }
-          }}
+          items={maasMachineRowActions(record.raw.status)}
+          onClick={({ key }) => handleAction(record, key as MaasRowActionKey)}
         />
       ),
     },
