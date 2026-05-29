@@ -33,17 +33,10 @@
   margin-bottom: 16px;
 }
 
-.dashboard-overview-metric-card.ant-card,
 .dashboard-overview-chart-card.ant-card,
 .dashboard-overview-activity-card.ant-card,
 .dashboard-overview-resources-card.ant-card {
   border-radius: 8px;
-}
-
-.dashboard-overview-metric-card.ant-card {
-  width: 100%;
-  min-width: 0;
-  box-sizing: border-box;
 }
 
 .dashboard-overview-chart-body {
@@ -119,7 +112,6 @@
   margin-bottom: 0;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-head,
 .dashboard-overview-chart-card.ant-card .ant-card-head,
 .dashboard-overview-activity-card.ant-card .ant-card-head,
 .dashboard-overview-resources-card.ant-card .ant-card-head {
@@ -129,14 +121,12 @@
   margin-bottom: 0;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-body,
 .dashboard-overview-chart-card.ant-card .ant-card-body,
 .dashboard-overview-activity-card.ant-card .ant-card-body,
 .dashboard-overview-resources-card.ant-card .ant-card-body {
   border-top: none;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-head-wrapper,
 .dashboard-overview-chart-card.ant-card .ant-card-head-wrapper,
 .dashboard-overview-activity-card.ant-card .ant-card-head-wrapper,
 .dashboard-overview-resources-card.ant-card .ant-card-head-wrapper {
@@ -144,7 +134,6 @@
   align-items: center;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-head-title,
 .dashboard-overview-chart-card.ant-card .ant-card-head-title,
 .dashboard-overview-activity-card.ant-card .ant-card-head-title,
 .dashboard-overview-resources-card.ant-card .ant-card-head-title {
@@ -155,7 +144,6 @@
   overflow: visible;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-head-title > span,
 .dashboard-overview-chart-card.ant-card .ant-card-head-title > span,
 .dashboard-overview-activity-card.ant-card .ant-card-head-title > span,
 .dashboard-overview-resources-card.ant-card .ant-card-head-title > span {
@@ -165,14 +153,12 @@
   line-height: 1;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-head-title > span > *:not(.anticon),
 .dashboard-overview-chart-card.ant-card .ant-card-head-title > span > *:not(.anticon),
 .dashboard-overview-activity-card.ant-card .ant-card-head-title > span > *:not(.anticon),
 .dashboard-overview-resources-card.ant-card .ant-card-head-title > span > *:not(.anticon) {
   line-height: 1;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-head-title .anticon,
 .dashboard-overview-chart-card.ant-card .ant-card-head-title .anticon,
 .dashboard-overview-activity-card.ant-card .ant-card-head-title .anticon,
 .dashboard-overview-resources-card.ant-card .ant-card-head-title .anticon {
@@ -182,7 +168,6 @@
   line-height: 0;
 }
 
-.dashboard-overview-metric-card.ant-card .ant-card-extra,
 .dashboard-overview-chart-card.ant-card .ant-card-extra,
 .dashboard-overview-activity-card.ant-card .ant-card-extra,
 .dashboard-overview-resources-card.ant-card .ant-card-extra {
@@ -193,7 +178,6 @@
   line-height: 1;
 }
 
-[data-theme='dark'] .dashboard-overview-metric-card.ant-card,
 [data-theme='dark'] .dashboard-overview-chart-card.ant-card,
 [data-theme='dark'] .dashboard-overview-activity-card.ant-card,
 [data-theme='dark'] .dashboard-overview-resources-card.ant-card {
