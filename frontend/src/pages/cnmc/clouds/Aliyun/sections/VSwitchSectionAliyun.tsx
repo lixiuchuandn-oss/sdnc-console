@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Table, Space, Tooltip, Typography } from 'antd';
+import { App, Button, Input, Modal, Select, Table, Space, Tooltip, Typography } from 'antd';
 import { NodeIndexOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import { fetchCloudProviderVSwitches, deleteCloudProviderVSwitch } from '../../../../../services/aliyunApi';
@@ -109,7 +109,6 @@ const VSwitchSectionAliyun: React.FC<VSwitchSectionAliyunProps> = ({ cloudId, vs
                 return;
               }
               if (key === 'del') {
-                const { Modal } = await import('antd');
                 const id0 = r?.VSwitchId || r?.id; if (!id0) return;
                 Modal.confirm({
                   title: '确定删除该交换机?',

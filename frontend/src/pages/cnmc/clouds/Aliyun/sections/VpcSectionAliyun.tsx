@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Input, Select, Table, Space, Tooltip, Typography } from 'antd';
+import { App, Button, Input, Modal, Select, Table, Space, Tooltip, Typography } from 'antd';
 import { ReloadOutlined, PlusOutlined, ClusterOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../../services/aliyunApi';
@@ -137,7 +137,6 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
                 return;
               }
               if (key === 'del') {
-                const { Modal } = await import('antd');
                 const id0 = r?.VpcId || r?.id; if (!id0) return;
                 Modal.confirm({
                   title: '确定删除该 VPC?',

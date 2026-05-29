@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Input, Modal, Space, Table, Tooltip, Typography } from 'antd';
 import { BranchesOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { fetchCloudProviderRouteTables, deleteCloudProviderRouteTable } from '../../../../../services/aliyunApi';
 import SharedToolbar from '../../../../../components/SharedToolbar';
@@ -122,7 +122,6 @@ const RouteTableSectionAliyun: React.FC<RouteTableSectionAliyunProps> = ({ cloud
               if (key === 'assoc') { onOpenAssoc(r); return; }
               if (key === 'routes') { onManageRoutes(r); return; }
               if (key === 'del') {
-                const { Modal } = await import('antd');
                 const id0 = r?.RouteTableId || r?.id; if (!id0) return;
                 Modal.confirm({
                   title: '确定删除该路由表?',
