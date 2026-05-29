@@ -19,10 +19,9 @@ import SubnetDetailDrawer from '../drawers/subnet-detail-drawer';
 import SubnetAclEditDrawer from '../drawers/subnet-acl-drawer';
 import ResourceLinkYamlDrawer from '../../shared/components/ResourceLinkYamlDrawer';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import {
-  CLOUD_SUBNETS_FLAT_WRITE,
-  CLOUD_SUBNETS_PUBLIC_WRITE,
+  hasKubeOvnFlatSubnetWrite,
+  hasKubeOvnPublicSubnetWrite,
 } from '../../../../../../constants/cloudPermissions';
 import CreateFlatSubnetModal from '../modals/CreateFlatSubnetModal';
 import CreatePublicSubnetModal from '../modals/CreatePublicSubnetModal';
@@ -54,7 +53,7 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
-import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
+import { compactActionMenuItems, writeMenuItemIf } from '../../../../../../utils/rbacUi';
 
 /** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
 const TOWER_PROVIDER_NETWORK_ANNOTATION = 'tower.io/provider-network';
@@ -124,12 +123,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
   const effectiveShowYaml = showYaml !== false;
   const isFlatMode = mode === 'flat';
   const hasUnderlayWrite = useMemo(() => {
-    const scopedWrite = isFlatMode ? CLOUD_SUBNETS_FLAT_WRITE : CLOUD_SUBNETS_PUBLIC_WRITE;
-    const hasWrite =
-      hasPermissionForAction(perms, scopedWrite) ||
-      hasPermissionForAction(perms, 'clouds.subnets:write') ||
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write');
+    const hasWrite = isFlatMode ? hasKubeOvnFlatSubnetWrite(perms) : hasKubeOvnPublicSubnetWrite(perms);
     // 租户角色禁止扁平/公共子网写操作（与镜像写权限收敛策略一致）
     return hasWrite && !isTenantUser;
   }, [isFlatMode, perms, isTenantUser]);
@@ -830,7 +824,7 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
         fixed: 'right' as const,
         render: (_: any, record: any) => {
           const name = record?.metadata?.name;
-          const actionItems = filterMenuItemsForReadOnly([
+          const actionItems = compactActionMenuItems([
             ...(effectiveShowYaml
               ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => openSubnetYamlDrawer(record) }]
               : []),
@@ -840,45 +834,50 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
               onClick: () => openOpsDrawer(record),
             },
             ...(!isStandardView
+              ? writeMenuItemIf(hasUnderlayWrite, {
+                  key: 'edit_acl',
+                  label: '编辑 ACL',
+                  onClick: () => openAclEditor(record),
+                })
+              : []),
+            ...(hasUnderlayWrite
               ? [
+                  { type: 'divider' as const },
                   {
-                    key: 'edit_acl',
-                    label: '编辑 ACL',
-                    disabled: !hasUnderlayWrite,
-                    onClick: () => openAclEditor(record),
+                    key: 'delete',
+                    label: '删除',
+                    danger: true,
+                    onClick: () => {
+                      void (async () => {
+                        if (!name) return;
+                        if (isFlatMode) {
+                          const subnetName = String(record?.metadata?.name ?? '').trim();
+                          const cidr = String(record?.spec?.cidrBlock ?? record?.spec?.cidr ?? '').trim();
+                          const block = await getFlatSubnetDeleteBlockedByNatMessage(
+                            cloudId,
+                            subnetName,
+                            cidr,
+                          );
+                          if (block) {
+                            message.warning(block);
+                            return;
+                          }
+                        }
+                        const disp =
+                          String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() ||
+                          name;
+                        Modal.confirm({
+                          title: '确认删除',
+                          okType: 'danger',
+                          content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
+                          onOk: () => handleDelete(name),
+                        });
+                      })();
+                    },
                   },
                 ]
               : []),
-            { type: 'divider' as const },
-            {
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              disabled: !hasUnderlayWrite,
-              onClick: () => {
-                void (async () => {
-                  if (!name) return;
-                  if (isFlatMode) {
-                    const subnetName = String(record?.metadata?.name ?? '').trim();
-                    const cidr = String(record?.spec?.cidrBlock ?? record?.spec?.cidr ?? '').trim();
-                    const block = await getFlatSubnetDeleteBlockedByNatMessage(cloudId, subnetName, cidr);
-                    if (block) {
-                      message.warning(block);
-                      return;
-                    }
-                  }
-                  const disp =
-                      String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() || name;
-                    Modal.confirm({
-                      title: '确认删除',
-                      okType: 'danger',
-                      content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
-                      onOk: () => handleDelete(name),
-                    });
-                })();
-              },
-            },
-          ], hasUnderlayWrite);
+          ]);
           return (
             <ResourceActionsDropdown
               items={actionItems}

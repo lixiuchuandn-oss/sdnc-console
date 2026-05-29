@@ -653,7 +653,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-snaps',
     pathSuffix: 'backups/vm_snapshots',
-    poolPageAction: 'clouds.backups:read',
+    poolPageAction: 'clouds.vm-backup-snapshots:read',
     title: '云主机快照',
     order: 92,
     icon: 'CloudDownloadOutlined',
@@ -663,7 +663,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-sched',
     pathSuffix: 'backups/schedule_vm_backups',
-    poolPageAction: 'clouds.backups:read',
+    poolPageAction: 'clouds.schedules:read',
     title: '定时策略',
     order: 93,
     icon: 'CloudDownloadOutlined',
@@ -767,7 +767,6 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolMenuParentKey: KUBE,
     requiredFeature: 'network.ovn.vpc',
   },
-  /** VPC 下浮动 IP 入口已隐藏（产品配置）；扁平网络仍保留 flat_kubeovn_fips */
   {
     id: 'cloudmap-pool-ovn-snat',
     pathSuffix: 'kube_ovn/kubeovn_snat',

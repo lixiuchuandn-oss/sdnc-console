@@ -3,7 +3,8 @@ import React, { useMemo } from 'react';
 import { Breadcrumb, Card, Space, Typography, theme, Tooltip, Button, Dropdown, Collapse, Tabs } from 'antd';
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, CodeOutlined, ArrowLeftOutlined, SettingOutlined } from '@ant-design/icons';
+import { HomeOutlined, CodeOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { iconOf } from '../utils/iconOf';
 
 export interface PageDetailContainerProps {
   title?: React.ReactNode;
@@ -73,26 +74,6 @@ const PageDetailContainer: React.FC<PageDetailContainerProps> = ({
 }) => {
   const loc = useLocation();
   const { token } = theme.useToken();
-
-  const iconOf = (key?: string) => {
-    const m: Record<string, React.ReactNode> = {
-      AppstoreOutlined: <AppstoreOutlined />,
-      DeploymentUnitOutlined: <DeploymentUnitOutlined />,
-      CloudUploadOutlined: <CloudUploadOutlined />,
-      DesktopOutlined: <DesktopOutlined />,
-      TeamOutlined: <TeamOutlined />,
-      UserOutlined: <UserOutlined />,
-      UserSwitchOutlined: <UserSwitchOutlined />,
-      GatewayOutlined: <GatewayOutlined />,
-      LockOutlined: <LockOutlined />,
-      ApiOutlined: <ApiOutlined />,
-      BranchesOutlined: <BranchesOutlined />,
-      GlobalOutlined: <GlobalOutlined />,
-      EnvironmentOutlined: <EnvironmentOutlined />,
-      SettingOutlined: <SettingOutlined />,
-    };
-    return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
-  };
 
   const styledIcon = (node: React.ReactNode, size: number, color: string) => {
     return React.isValidElement(node)

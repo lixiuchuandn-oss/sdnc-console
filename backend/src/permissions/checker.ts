@@ -14,6 +14,14 @@ import {
   hasLegacyOrUmbrellaUnifiedStorageGrant,
   isUnifiedStorageReadBase,
 } from '../constants/unifiedStoragePermissionBases';
+import {
+  CBR_VM_BACKUPS_BASE,
+  CBR_VM_SNAPSHOTS_BASE,
+} from '../constants/cbrPermissionBases';
+import {
+  cbrBackupScheduleAliasSatisfied,
+  isCbrBackupScheduleResourceBase,
+} from '../constants/cbrSchedulePermissionLegacy';
 
 /** `clouds.console:*` / `clouds:read` 的宽松继承不包含容器子域（须显式子域 atoms；历史 `clouds.containers:*` 仍兼容） */
 function isCloudsContainersResourceBase(resourceBase: string): boolean {
@@ -67,6 +75,19 @@ export class PermissionChecker {
         if (scoped.some((s) => this.check(permissions, s))) {
           return true;
         }
+      }
+      // 云备份：历史 clouds.backups 总权仅覆盖快照子域（定时策略须显式 clouds.schedules）
+      if (base === CBR_VM_SNAPSHOTS_BASE && (verb === 'read' || verb === 'write')) {
+        if (permissions.includes(`${CBR_VM_BACKUPS_BASE}:${verb}`)) {
+          return true;
+        }
+      }
+      if (
+        isCbrBackupScheduleResourceBase(base) &&
+        (verb === 'read' || verb === 'write') &&
+        cbrBackupScheduleAliasSatisfied(permissions, base, verb)
+      ) {
+        return true;
       }
       if (
         base.startsWith('clouds.containers.') &&

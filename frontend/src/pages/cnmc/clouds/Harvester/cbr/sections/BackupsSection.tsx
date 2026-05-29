@@ -10,7 +10,7 @@ import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { canWriteVmBackupSnapshots, canWriteVmBackups } from '../lib/cbrPermissions';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import VmBackupCreateModal from '../modals/VmBackupCreateModal';
 import VmRestoreModal from '../modals/VmRestoreModal';
@@ -59,10 +59,8 @@ const BackupsSection: React.FC<Props> = ({
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasBackupsWrite = useMemo(
-    () =>
-      hasPermissionForAction(perms, 'clouds.backups:write') ||
-      hasPermissionForAction(perms, 'clouds:write'),
-    [perms],
+    () => (type === 'snapshot' ? canWriteVmBackupSnapshots(perms) : canWriteVmBackups(perms)),
+    [perms, type],
   );
 
   const [keyword, setKeyword] = useState('');

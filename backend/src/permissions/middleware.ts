@@ -11,6 +11,14 @@ import {
   resolveHarvesterContainerUrlPermission,
 } from './registry';
 import { logger } from '../utils/logger';
+import {
+  cbrBackupScheduleReadAlternates,
+  cbrBackupScheduleWriteAlternates,
+  cbrVmBackupListReadAlternates,
+  cbrVmBackupListWriteAlternates,
+  CBR_BACKUP_SCHEDULES_BASE,
+  CBR_VM_BACKUPS_BASE,
+} from '../constants/cbrPermissionBases';
 
 const permLog = logger.child('Permission');
 
@@ -188,7 +196,9 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.ecs:write', 'clouds.paas-databases:write', 'clouds.vne:write'];
     }
 
-    // 子网：父级 clouds.subnets + 按 tower.io/subnet-type 拆分的子权限；仍兼容仅授 VPC 权限的旧角色
+    // 子网：父级 clouds.subnets + 按 tower.io/subnet-type 拆分
+    // - 读：允许 clouds.vpcs:read（VPC 页展开子网仅查看，与写解耦）
+    // - 写：不含 clouds.vpcs:write（VPC 写 ≠ 子网写）
     if (actionBase === 'clouds.subnets') {
       return isRead
         ? [
@@ -203,7 +213,6 @@ export function createApiPermissionMiddleware(options?: {
             'clouds.subnets.vpc:write',
             'clouds.subnets.flat:write',
             'clouds.subnets.public:write',
-            'clouds.vpcs:write',
           ];
     }
 
@@ -241,16 +250,11 @@ export function createApiPermissionMiddleware(options?: {
         : ['clouds.security-groups.flat:write', 'clouds.vpcs:write'];
     }
 
-    // 扁平分域 OVN EIP/FIP/SNAT/DNAT（actionBase 为 *.flat；路径已统一为 /resources/ovn*）
+    // 扁平分域 OVN EIP/SNAT/DNAT（actionBase 为 *.flat；路径已统一为 /resources/ovn*）
     if (actionBase === 'clouds.eips.flat') {
       return isRead
         ? ['clouds.eips.flat:read', 'clouds:read']
         : ['clouds.eips.flat:write', 'clouds:write'];
-    }
-    if (actionBase === 'clouds.fips.flat') {
-      return isRead
-        ? ['clouds.fips.flat:read', 'clouds:read']
-        : ['clouds.fips.flat:write', 'clouds:write'];
     }
     if (actionBase === 'clouds.snat.flat') {
       return isRead
@@ -267,7 +271,7 @@ export function createApiPermissionMiddleware(options?: {
       .trim()
       .toLowerCase();
 
-    // EIP/FIP：?ovnNetworkScope=vpc 仅 VPC 原子；underlay/all 为扁平或全量
+    // EIP：按 ovnNetworkScope=vpc 仅 VPC 原子；underlay/all 为扁平或全量
     if (actionBase === 'clouds.eips.vpc') {
       const scopedVpc = ovnNs === 'vpc';
       if (scopedVpc) {
@@ -279,18 +283,6 @@ export function createApiPermissionMiddleware(options?: {
         ? ['clouds.eips.vpc:read', 'clouds.eips.flat:read', 'clouds.vpcs:read']
         : ['clouds.eips.vpc:write', 'clouds.eips.flat:write', 'clouds.vpcs:write'];
     }
-    if (actionBase === 'clouds.fips.vpc') {
-      const scopedVpc = ovnNs === 'vpc';
-      if (scopedVpc) {
-        return isRead
-          ? ['clouds.fips.vpc:read', 'clouds:read']
-          : ['clouds.fips.vpc:write', 'clouds:write'];
-      }
-      return isRead
-        ? ['clouds.fips.vpc:read', 'clouds.fips.flat:read', 'clouds.vpcs:read']
-        : ['clouds.fips.vpc:write', 'clouds.fips.flat:write', 'clouds.vpcs:write'];
-    }
-
     // SNAT
     if (actionBase === 'clouds.snat.vpc') {
       const scopedVpc = ovnNs === 'vpc';
@@ -309,6 +301,14 @@ export function createApiPermissionMiddleware(options?: {
       return isRead
         ? ['clouds.traffic-mirroring.vpc:read', 'clouds.traffic-mirroring.flat:read', 'clouds.vpcs:read']
         : ['clouds.traffic-mirroring.vpc:write', 'clouds.traffic-mirroring.flat:write', 'clouds.vpcs:write'];
+    }
+
+    // 云备份：列表 API 供备份/快照两页共用；历史 clouds.backups 总权覆盖快照（不含定时策略）
+    if (actionBase === CBR_VM_BACKUPS_BASE) {
+      return isRead ? cbrVmBackupListReadAlternates() : cbrVmBackupListWriteAlternates();
+    }
+    if (actionBase === CBR_BACKUP_SCHEDULES_BASE) {
+      return isRead ? cbrBackupScheduleReadAlternates() : cbrBackupScheduleWriteAlternates();
     }
 
     // DNAT

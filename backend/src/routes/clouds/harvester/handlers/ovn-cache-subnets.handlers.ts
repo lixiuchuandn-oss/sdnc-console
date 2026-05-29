@@ -17,7 +17,7 @@
  * 本接口挂载 `createApiPermissionMiddleware()`（见 `permissions/middleware.ts`）。
  * GET 映射为 `clouds.subnets:read`，并允许以下任一满足即通过：
  *   `clouds.subnets.vpc:read` | `clouds.subnets.flat:read` | `clouds.subnets.public:read`
- *   | `clouds.vpcs:read`（兼容旧角色）
+ *   | `clouds.vpcs:read`（VPC 页展开子网只读；写操作仍须子网写权限，见 middleware）
  * 即：读权限按「子网总权 + 分域 + VPC 读」做并集，不在本 handler 内再按 subnet-type 细分。
  *
  * 【许可证 License】

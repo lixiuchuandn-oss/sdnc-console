@@ -1385,6 +1385,388 @@ export async function huaweiRebootServer(
   }
 }
 
+function buildImsEndpoint(region: string): string {
+  return `https://ims.${region}.myhuaweicloud.com`;
+}
+
+/** 通用 HcClient 原始 REST 调用（用于无现成 SDK 模型的写操作） */
+async function huaweiHcSend(
+  opts: HuaweiClientOptions,
+  endpoint: string,
+  req: { method: string; url: string; pathParams?: any; queryParams?: any; data?: any },
+  fallbackMsg: string,
+): Promise<any> {
+  const http = new DefaultHttpClient(undefined, [endpoint]);
+  const hc = new HcClient(http);
+  hc.withEndpoints([endpoint]).withCredential(buildBasicCredentials(opts));
+  try {
+    return await hc.sendRequest<any>({
+      method: req.method,
+      url: req.url,
+      contentType: 'application/json',
+      queryParams: req.queryParams || {},
+      pathParams: req.pathParams || {},
+      headers: {},
+      data: req.data,
+    });
+  } catch (err: any) {
+    const message = err?.message || err?.errorMsg || fallbackMsg;
+    const code = err?.errorCode || err?.code || err?.response?.status;
+    const e: any = new Error(code ? `${code}: ${message}` : message);
+    e.code = code;
+    e.status = err?.response?.status;
+    e.response = err?.response;
+    throw e;
+  }
+}
+
+// ===== ECS 创建依赖 =====
+export async function huaweiListFlavors(opts: HuaweiClientOptions, availabilityZone?: string): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v1/{project_id}/cloudservers/flavors',
+    pathParams: { project_id: opts.projectId },
+    queryParams: availabilityZone ? { availability_zone: availabilityZone } : {},
+  }, 'HuaweiCloud 查询规格失败');
+}
+
+export async function huaweiListAvailabilityZones(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v1/{project_id}/os-availability-zone',
+    pathParams: { project_id: opts.projectId },
+  }, 'HuaweiCloud 查询可用区失败');
+}
+
+export async function huaweiListKeypairs(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v1/{project_id}/os-keypairs',
+    pathParams: { project_id: opts.projectId },
+  }, 'HuaweiCloud 查询密钥对失败');
+}
+
+export async function huaweiCreateKeypair(opts: HuaweiClientOptions, name: string, publicKey?: string): Promise<any> {
+  const keypair: any = { name };
+  if (publicKey) keypair.public_key = publicKey;
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/os-keypairs',
+    pathParams: { project_id: opts.projectId },
+    data: { keypair },
+  }, 'HuaweiCloud 创建密钥对失败');
+}
+
+export async function huaweiDeleteKeypair(opts: HuaweiClientOptions, name: string): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v1/{project_id}/os-keypairs/{keypair_name}',
+    pathParams: { project_id: opts.projectId, keypair_name: name },
+  }, 'HuaweiCloud 删除密钥对失败');
+}
+
+export async function huaweiListImages(opts: HuaweiClientOptions, params?: { imagetype?: string; osType?: string; limit?: number }): Promise<any> {
+  const queryParams: any = { status: 'active', limit: String(params?.limit || 200) };
+  if (params?.imagetype) queryParams.__imagetype = params.imagetype;
+  if (params?.osType) queryParams.__os_type = params.osType;
+  return huaweiHcSend(opts, buildImsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v2/cloudimages',
+    queryParams,
+  }, 'HuaweiCloud 查询镜像失败');
+}
+
+// ===== ECS 创建/删除 =====
+export async function huaweiCreateServers(opts: HuaweiClientOptions, server: any): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/cloudservers',
+    pathParams: { project_id: opts.projectId },
+    data: { server },
+  }, 'HuaweiCloud 创建实例失败');
+}
+
+export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: string[], deleteVolume = false): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/cloudservers/delete',
+    pathParams: { project_id: opts.projectId },
+    data: { servers: serverIds.map((id) => ({ id })), delete_publicip: false, delete_volume: !!deleteVolume },
+  }, 'HuaweiCloud 删除实例失败');
+}
+
+// ===== CES 告警规则 =====
+export async function huaweiListAlarms(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'GET',
+    url: '/V1.0/{project_id}/alarms',
+    pathParams: { project_id: opts.projectId },
+    queryParams: { limit: '100' },
+  }, 'HuaweiCloud 查询告警规则失败');
+}
+
+export async function huaweiCreateAlarm(opts: HuaweiClientOptions, alarm: any): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'POST',
+    url: '/V1.0/{project_id}/alarms',
+    pathParams: { project_id: opts.projectId },
+    data: alarm,
+  }, 'HuaweiCloud 创建告警规则失败');
+}
+
+export async function huaweiDeleteAlarm(opts: HuaweiClientOptions, alarmId: string): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/V1.0/{project_id}/alarms/{alarm_id}',
+    pathParams: { project_id: opts.projectId, alarm_id: alarmId },
+  }, 'HuaweiCloud 删除告警规则失败');
+}
+
+export async function huaweiSetAlarmAction(opts: HuaweiClientOptions, alarmId: string, enabled: boolean): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'PUT',
+    url: '/V1.0/{project_id}/alarms/{alarm_id}/action',
+    pathParams: { project_id: opts.projectId, alarm_id: alarmId },
+    data: { alarm_enabled: enabled },
+  }, 'HuaweiCloud 启停告警规则失败');
+}
+
+// ===== RDS 云数据库 =====
+function buildRdsEndpoint(region: string): string {
+  return `https://rds.${region}.myhuaweicloud.com`;
+}
+
+export async function huaweiListDbInstances(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v3/{project_id}/instances',
+    pathParams: { project_id: opts.projectId },
+  }, 'HuaweiCloud 查询云数据库失败');
+}
+
+export async function huaweiListDatastores(opts: HuaweiClientOptions, engine: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v3/{project_id}/datastores/{database_name}',
+    pathParams: { project_id: opts.projectId, database_name: engine },
+  }, 'HuaweiCloud 查询数据库版本失败');
+}
+
+export async function huaweiListRdsFlavors(opts: HuaweiClientOptions, engine: string, version?: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v3/{project_id}/flavors/{database_name}',
+    pathParams: { project_id: opts.projectId, database_name: engine },
+    queryParams: version ? { version_name: version } : {},
+  }, 'HuaweiCloud 查询数据库规格失败');
+}
+
+export async function huaweiCreateDbInstance(opts: HuaweiClientOptions, instance: any): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v3/{project_id}/instances',
+    pathParams: { project_id: opts.projectId },
+    data: instance,
+  }, 'HuaweiCloud 创建云数据库失败');
+}
+
+export async function huaweiDeleteDbInstance(opts: HuaweiClientOptions, instanceId: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v3/{project_id}/instances/{instance_id}',
+    pathParams: { project_id: opts.projectId, instance_id: instanceId },
+  }, 'HuaweiCloud 删除云数据库失败');
+}
+
+export async function huaweiRestartDbInstance(opts: HuaweiClientOptions, instanceId: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v3/{project_id}/instances/{instance_id}/action',
+    pathParams: { project_id: opts.projectId, instance_id: instanceId },
+    data: { restart: {} },
+  }, 'HuaweiCloud 重启云数据库失败');
+}
+
+// ===== NAT SNAT/DNAT 规则 =====
+function buildNatEndpointStr(region: string): string {
+  return `https://nat.${region}.myhuaweicloud.com`;
+}
+
+export async function huaweiListSnatRules(opts: HuaweiClientOptions, natGatewayId?: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'GET',
+    url: '/v2/{project_id}/snat_rules',
+    pathParams: { project_id: opts.projectId },
+    queryParams: natGatewayId ? { nat_gateway_id: natGatewayId } : {},
+  }, 'HuaweiCloud 查询SNAT规则失败');
+}
+
+export async function huaweiCreateSnatRule(opts: HuaweiClientOptions, rule: any): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/snat_rules',
+    pathParams: { project_id: opts.projectId },
+    data: { snat_rule: rule },
+  }, 'HuaweiCloud 创建SNAT规则失败');
+}
+
+export async function huaweiDeleteSnatRule(opts: HuaweiClientOptions, natGatewayId: string, snatRuleId: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/nat_gateways/{nat_gateway_id}/snat_rules/{snat_rule_id}',
+    pathParams: { project_id: opts.projectId, nat_gateway_id: natGatewayId, snat_rule_id: snatRuleId },
+  }, 'HuaweiCloud 删除SNAT规则失败');
+}
+
+export async function huaweiListDnatRules(opts: HuaweiClientOptions, natGatewayId?: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'GET',
+    url: '/v2/{project_id}/dnat_rules',
+    pathParams: { project_id: opts.projectId },
+    queryParams: natGatewayId ? { nat_gateway_id: natGatewayId } : {},
+  }, 'HuaweiCloud 查询DNAT规则失败');
+}
+
+export async function huaweiCreateDnatRule(opts: HuaweiClientOptions, rule: any): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/dnat_rules',
+    pathParams: { project_id: opts.projectId },
+    data: { dnat_rule: rule },
+  }, 'HuaweiCloud 创建DNAT规则失败');
+}
+
+export async function huaweiDeleteDnatRule(opts: HuaweiClientOptions, natGatewayId: string, dnatRuleId: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/nat_gateways/{nat_gateway_id}/dnat_rules/{dnat_rule_id}',
+    pathParams: { project_id: opts.projectId, nat_gateway_id: natGatewayId, dnat_rule_id: dnatRuleId },
+  }, 'HuaweiCloud 删除DNAT规则失败');
+}
+
+// ===== EIP 申请/释放 =====
+async function huaweiEipSend(
+  opts: HuaweiClientOptions,
+  req: { method: string; url: string; pathParams?: any; data?: any },
+  fallbackMsg: string,
+): Promise<any> {
+  const endpoints = [`https://eip.${opts.region}.myhuaweicloud.com`, `https://vpc.${opts.region}.myhuaweicloud.com`];
+  const credentials = buildBasicCredentials(opts);
+  let lastErr: any = null;
+  for (const ep of endpoints) {
+    try {
+      const http = new DefaultHttpClient(undefined, [ep]);
+      const hc = new HcClient(http);
+      hc.withEndpoints([ep]).withCredential(credentials);
+      return await hc.sendRequest<any>({
+        method: req.method,
+        url: req.url,
+        contentType: 'application/json',
+        queryParams: {},
+        pathParams: req.pathParams || {},
+        headers: {},
+        data: req.data,
+      });
+    } catch (err: any) {
+      lastErr = err;
+      const msg = err?.message || '';
+      if (!msg.includes('ENOTFOUND')) {
+        const code = err?.errorCode || err?.code;
+        throw new Error(code ? `${code}: ${msg || fallbackMsg}` : (msg || fallbackMsg));
+      }
+    }
+  }
+  const code = lastErr?.errorCode || lastErr?.code;
+  throw new Error(code ? `${code}: ${lastErr?.message || fallbackMsg}` : (lastErr?.message || fallbackMsg));
+}
+
+export async function huaweiCreatePublicip(
+  opts: HuaweiClientOptions,
+  payload: { ipType?: string; bandwidthName?: string; bandwidthSize?: number; shareType?: string; chargeMode?: string },
+): Promise<any> {
+  const data: any = {
+    publicip: { type: payload.ipType || '5_bgp' },
+    bandwidth: {
+      name: payload.bandwidthName || `bw-${Date.now()}`,
+      size: Number(payload.bandwidthSize || 5),
+      share_type: payload.shareType || 'PER',
+    },
+  };
+  if (payload.chargeMode) data.bandwidth.charge_mode = payload.chargeMode;
+  return huaweiEipSend(opts, { method: 'POST', url: '/v1/{project_id}/publicips', pathParams: { project_id: opts.projectId }, data }, 'HuaweiCloud 申请EIP失败');
+}
+
+export async function huaweiDeletePublicip(opts: HuaweiClientOptions, publicipId: string): Promise<any> {
+  return huaweiEipSend(opts, { method: 'DELETE', url: '/v1/{project_id}/publicips/{publicip_id}', pathParams: { project_id: opts.projectId, publicip_id: publicipId } }, 'HuaweiCloud 释放EIP失败');
+}
+
+// ===== EVS 云盘写操作 =====
+export async function huaweiCreateVolume(opts: HuaweiClientOptions, volume: any): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/cloudvolumes',
+    pathParams: { project_id: opts.projectId },
+    data: { volume },
+  }, 'HuaweiCloud 创建云盘失败');
+}
+
+export async function huaweiDeleteVolume(opts: HuaweiClientOptions, volumeId: string): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/cloudvolumes/{volume_id}',
+    pathParams: { project_id: opts.projectId, volume_id: volumeId },
+  }, 'HuaweiCloud 删除云盘失败');
+}
+
+export async function huaweiResizeVolume(opts: HuaweiClientOptions, volumeId: string, newSize: number): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v2.1/{project_id}/cloudvolumes/{volume_id}/action',
+    pathParams: { project_id: opts.projectId, volume_id: volumeId },
+    data: { 'os-extend': { new_size: Number(newSize) } },
+  }, 'HuaweiCloud 扩容云盘失败');
+}
+
+export async function huaweiAttachVolume(opts: HuaweiClientOptions, serverId: string, volumeId: string, device?: string): Promise<any> {
+  const volumeAttachment: any = { volumeId };
+  if (device) volumeAttachment.device = device;
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/cloudservers/{server_id}/attachvolume',
+    pathParams: { project_id: opts.projectId, server_id: serverId },
+    data: { volumeAttachment },
+  }, 'HuaweiCloud 挂载云盘失败');
+}
+
+export async function huaweiDetachVolume(opts: HuaweiClientOptions, serverId: string, volumeId: string): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v1/{project_id}/cloudservers/{server_id}/detachvolume/{volume_id}',
+    pathParams: { project_id: opts.projectId, server_id: serverId, volume_id: volumeId },
+  }, 'HuaweiCloud 卸载云盘失败');
+}
+
+// ===== EVS 快照写操作 =====
+export async function huaweiCreateSnapshot(opts: HuaweiClientOptions, volumeId: string, name?: string, description?: string): Promise<any> {
+  const snapshot: any = { volume_id: volumeId, force: true };
+  if (name) snapshot.name = name;
+  if (description) snapshot.description = description;
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/snapshots',
+    pathParams: { project_id: opts.projectId },
+    data: { snapshot },
+  }, 'HuaweiCloud 创建快照失败');
+}
+
+export async function huaweiDeleteSnapshot(opts: HuaweiClientOptions, snapshotId: string): Promise<any> {
+  return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/snapshots/{snapshot_id}',
+    pathParams: { project_id: opts.projectId, snapshot_id: snapshotId },
+  }, 'HuaweiCloud 删除快照失败');
+}
+
 export async function testHuaweiConnection(
   opts: HuaweiClientOptions,
 ): Promise<{ ok: boolean; message?: string }> {

@@ -1,8 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CloudUploadOutlined, SearchOutlined } from '@ant-design/icons';
-import { Alert, Button, Input, Modal, Progress, Table, Tag, Tooltip, message } from 'antd';
+import {
+  CloudUploadOutlined,
+  DatabaseOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
+import {
+  Alert,
+  Button,
+  Input,
+  Modal,
+  Progress,
+  Table,
+  Tag,
+  Tooltip,
+  message,
+} from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
+import PageDetailSection, {
+  RowActionsButton,
+} from '../../../../../components/PageDetailSection';
 import {
   deleteMaasImage,
   fetchMaasImageSyncStatus,
@@ -18,6 +34,7 @@ import {
 } from '../lib/maasImages';
 import { MAAS_LIST_TABLE_PAGINATION } from '../lib/maasTablePagination';
 import { MaasToolbarRefresh } from '../lib/maasToolbar';
+import MaasBootSourcesDrawer from '../drawers/MaasBootSourcesDrawer';
 
 const SYNC_POLL_MS = 5000;
 
@@ -27,7 +44,12 @@ type Props = {
 
 const variantColumns: ColumnsType<MaasImageVariant> = [
   { title: '内核 / 架构', dataIndex: 'label', key: 'label' },
-  { title: '架构标识', dataIndex: 'architecture', key: 'architecture', ellipsis: true },
+  {
+    title: '架构标识',
+    dataIndex: 'architecture',
+    key: 'architecture',
+    ellipsis: true,
+  },
   {
     title: '大小',
     key: 'size',
@@ -48,6 +70,7 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
   const [isImporting, setIsImporting] = useState(false);
   const [syncActionLoading, setSyncActionLoading] = useState(false);
   const [deleteLoadingId, setDeleteLoadingId] = useState<string | null>(null);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const loadList = useCallback(async () => {
     if (!poolId) return;
@@ -57,13 +80,11 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
       const res = await fetchMaasImages(poolId, { skipCache: true });
       if (!res?.ok) {
         setError(res?.message || '拉取镜像失败');
-        setRows([]);
         return;
       }
       setRows(Array.isArray(res.items) ? res.items : []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '拉取镜像失败');
-      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -151,7 +172,8 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
             确定删除「{record.display_name}」的默认安装包？
             {record.variant_count > 1 ? (
               <div style={{ marginTop: 8, color: '#8c8c8c', fontSize: 12 }}>
-                仅删除默认内核变体（resource id={String(record.default_resource_id)}）。
+                仅删除默认内核变体（resource id=
+                {String(record.default_resource_id)}）。
                 同版本其它内核变体需单独处理。
               </div>
             ) : null}
@@ -162,7 +184,10 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
         onOk: async () => {
           setDeleteLoadingId(String(record.default_resource_id));
           try {
-            const res = await deleteMaasImage(poolId, record.default_resource_id);
+            const res = await deleteMaasImage(
+              poolId,
+              record.default_resource_id,
+            );
             if (!res?.ok) {
               message.error(res?.message || '删除失败');
               return;
@@ -226,7 +251,11 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
       render: (_, r) => {
         const label = maasImageStatusLabel(r.status);
         const color =
-          r.status === 'ready' ? 'success' : r.status === 'downloading' ? 'processing' : 'default';
+          r.status === 'ready'
+            ? 'success'
+            : r.status === 'downloading'
+              ? 'processing'
+              : 'default';
         return <Tag color={color}>{label}</Tag>;
       },
     },
@@ -246,90 +275,118 @@ const ImagesSection: React.FC<Props> = ({ poolId }) => {
   ];
 
   return (
-    <PageDetailSection
-      asCard={false}
-      title="操作系统镜像"
-      toolbarLeft={
-        <>
-          <Input
-            allowClear
-            className="toolbar-search"
-            placeholder="操作系统名称"
-            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
-          <button
-            type="button"
-            className="toolbar-reset-btn"
-            onClick={() => setKeyword('')}
-          >
-            重置
-          </button>
-        </>
-      }
-      toolbarRight={
-        <div className="toolbar-actions">
-          <Button
-            type="primary"
-            loading={syncActionLoading}
-            disabled={isImporting}
-            onClick={() => void handleSync()}
-          >
-            同步镜像
-          </Button>
-          <Button
-            disabled={!isImporting || syncActionLoading}
-            onClick={() => void handleStopSync()}
-          >
-            停止同步
-          </Button>
-          <Tooltip title="分片上传将在后续版本提供（M4）">
-            <Button icon={<CloudUploadOutlined />} disabled>
-              上传自定义镜像
-            </Button>
-          </Tooltip>
-          <MaasToolbarRefresh loading={loading} onRefresh={() => void refreshAll()} />
-        </div>
-      }
-    >
-      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
-      {isImporting ? (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="正在从官方源同步镜像"
-          description={
-            <Progress percent={100} status="active" showInfo={false} style={{ marginTop: 8 }} />
-          }
-        />
-      ) : null}
-      <Table<MaasImageGroup>
-        className="std-table"
-        bordered={false}
-        rowKey="group_id"
-        loading={loading || !!deleteLoadingId}
-        columns={columns}
-        dataSource={filtered}
-        scroll={{ x: true }}
-        pagination={MAAS_LIST_TABLE_PAGINATION}
-        expandable={{
-          rowExpandable: (r) => r.variant_count > 1,
-          expandedRowRender: (record) => (
-            <Table<MaasImageVariant>
-              className="std-table"
-              bordered={false}
-              rowKey={(v) => String(v.resource_id)}
-              columns={variantColumns}
-              dataSource={record.variants}
-              pagination={false}
-              scroll={{ x: true }}
+    <>
+      <PageDetailSection
+        asCard={false}
+        title="操作系统镜像"
+        toolbarLeft={
+          <>
+            <Input
+              allowClear
+              className="toolbar-search"
+              placeholder="操作系统名称"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
             />
-          ),
-        }}
+            <button
+              type="button"
+              className="toolbar-reset-btn"
+              onClick={() => setKeyword('')}
+            >
+              重置
+            </button>
+          </>
+        }
+        toolbarRight={
+          <div className="toolbar-actions">
+            <Button
+              icon={<DatabaseOutlined />}
+              onClick={() => setSourcesOpen(true)}
+            >
+              镜像源
+            </Button>
+            <Button
+              type="primary"
+              loading={syncActionLoading}
+              disabled={isImporting}
+              onClick={() => void handleSync()}
+            >
+              同步镜像
+            </Button>
+            <Button
+              disabled={!isImporting || syncActionLoading}
+              onClick={() => void handleStopSync()}
+            >
+              停止同步
+            </Button>
+            <Tooltip title="分片上传将在后续版本提供（M4）">
+              <Button icon={<CloudUploadOutlined />} disabled>
+                上传自定义镜像
+              </Button>
+            </Tooltip>
+            <MaasToolbarRefresh
+              loading={loading}
+              onRefresh={() => void refreshAll()}
+            />
+          </div>
+        }
+      >
+        {error ? (
+          <Alert
+            type="error"
+            showIcon
+            message={error}
+            style={{ marginBottom: 16 }}
+          />
+        ) : null}
+        {isImporting ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="正在从官方源同步镜像"
+            description={
+              <Progress
+                percent={100}
+                status="active"
+                showInfo={false}
+                style={{ marginTop: 8 }}
+              />
+            }
+          />
+        ) : null}
+        <Table<MaasImageGroup>
+          className="std-table"
+          bordered={false}
+          rowKey="group_id"
+          loading={loading || !!deleteLoadingId}
+          columns={columns}
+          dataSource={filtered}
+          scroll={{ x: true }}
+          pagination={MAAS_LIST_TABLE_PAGINATION}
+          expandable={{
+            rowExpandable: (r) => r.variant_count > 1,
+            expandedRowRender: (record) => (
+              <Table<MaasImageVariant>
+                className="std-table"
+                bordered={false}
+                rowKey={(v) => String(v.resource_id)}
+                columns={variantColumns}
+                dataSource={record.variants}
+                pagination={false}
+                scroll={{ x: true }}
+              />
+            ),
+          }}
+        />
+      </PageDetailSection>
+      <MaasBootSourcesDrawer
+        poolId={poolId}
+        open={sourcesOpen}
+        onClose={() => setSourcesOpen(false)}
       />
-    </PageDetailSection>
+    </>
   );
 };
 

@@ -11,7 +11,7 @@ import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDra
 import { createHarvesterVpc, fetchHarvesterNamespaces, deleteHarvesterVpc, deleteKubeOvnSubnet, updateHarvesterVpc } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { hasKubeOvnVpcSubnetWrite, hasKubeOvnVpcWrite } from '../../../../../../constants/cloudPermissions';
 import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
@@ -24,7 +24,7 @@ import { getVpcSubnetDeleteBlockedByNatMessage } from '../lib/flatSubnetNatDelet
 import { validateIpv4CidrNotation, validateIpv4HostAddress } from '../lib/ipv4CidrValidate';
 import CreateVpcSubnetModal from '../modals/CreateVpcSubnetModal';
 import { buildBusinessVpcPickerRows } from '../lib/kubeOvnUiHelpers';
-import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
+import { compactActionMenuItems, writeMenuItemIf } from '../../../../../../utils/rbacUi';
 import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
@@ -160,10 +160,8 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
 
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasVpcsWrite = useMemo(
-    () => hasPermissionForAction(perms, 'clouds.vpcs:write') || hasPermissionForAction(perms, 'clouds:write'),
-    [perms],
-  );
+  const hasVpcsWrite = useMemo(() => hasKubeOvnVpcWrite(perms), [perms]);
+  const hasVpcSubnetsWrite = useMemo(() => hasKubeOvnVpcSubnetWrite(perms), [perms]);
   const vpcPickerRows = useMemo(() => buildBusinessVpcPickerRows(vpcs), [vpcs]);
   const vpcOnlySubnets = useMemo(
     () => (subnets || []).filter((s) => isVpcOvnSubnetTableRow(s)),
@@ -374,7 +372,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   };
 
   const handleOpenCreateSubnet = useCallback((record: any) => {
-    if (!hasVpcsWrite) {
+    if (!hasVpcSubnetsWrite) {
       message.error('无权限执行该操作');
       return;
     }
@@ -387,10 +385,10 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     setVpcSubnetEditMode(false);
     setVpcSubnetEditingRecord(null);
     setVpcSubnetModalOpen(true);
-  }, [hasVpcsWrite]);
+  }, [hasVpcSubnetsWrite]);
 
   const handleEditSubnet = (record: any) => {
-    if (!hasVpcsWrite) {
+    if (!hasVpcSubnetsWrite) {
       message.error('无权限执行该操作');
       return;
     }
@@ -448,7 +446,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
   }, [hasVpcsWrite, cloudId, subnets, refreshVpcsFromCluster]);
 
   const handleDeleteSubnet = async (record: any) => {
-    if (!hasVpcsWrite) {
+    if (!hasVpcSubnetsWrite) {
       message.error('无权限执行该操作');
       return;
     }
@@ -631,12 +629,27 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       key: 'actions',
       fixed: 'right' as const,
       render: (_: any, r: any) => {
-        const items = filterMenuItemsForReadOnly([
-          { key: 'edit', label: '编辑子网', disabled: !hasVpcsWrite, onClick: () => handleEditSubnet(r) },
-          ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Subnet') }] : []),
-          { type: 'divider' as const },
-          { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite, onClick: () => handleDeleteSubnet(r) },
-        ], hasVpcsWrite);
+        const items = compactActionMenuItems([
+          ...writeMenuItemIf(hasVpcSubnetsWrite, {
+            key: 'edit',
+            label: '编辑子网',
+            onClick: () => handleEditSubnet(r),
+          }),
+          ...(effectiveShowYaml
+            ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Subnet') }]
+            : []),
+          ...(hasVpcSubnetsWrite
+            ? [
+                { type: 'divider' as const },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  onClick: () => handleDeleteSubnet(r),
+                },
+              ]
+            : []),
+        ]);
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
@@ -719,19 +732,36 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       render: (_: any, r: any) => {
         const name = SafeRead.name(r);
         const isSystem = isBuiltInKubeOvnVpc(name);
-        const items = filterMenuItemsForReadOnly([
-          { key: 'edit', label: '编辑VPC', disabled: !hasVpcsWrite, onClick: () => handleEditVpc(r) },
-          { key: 'createSubnet', label: '创建子网', disabled: !hasVpcsWrite, onClick: () => handleOpenCreateSubnet(r) },
-          ...(effectiveShowYaml ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }] : []),
-          ...(!isSystem ? [
-            { type: 'divider' as const },
-            { key: 'delete', label: '删除', danger: true, disabled: !hasVpcsWrite, onClick: () => handleDelete(r) }
-          ] : []),
-        ], hasVpcsWrite);
+        const items = compactActionMenuItems([
+          ...writeMenuItemIf(hasVpcsWrite, {
+            key: 'edit',
+            label: '编辑VPC',
+            onClick: () => handleEditVpc(r),
+          }),
+          ...writeMenuItemIf(hasVpcSubnetsWrite, {
+            key: 'createSubnet',
+            label: '创建子网',
+            onClick: () => handleOpenCreateSubnet(r),
+          }),
+          ...(effectiveShowYaml
+            ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => handleShowYaml(r, 'Vpc') }]
+            : []),
+          ...(!isSystem && hasVpcsWrite
+            ? [
+                { type: 'divider' as const },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  onClick: () => handleDelete(r),
+                },
+              ]
+            : []),
+        ]);
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
-  ], [hasVpcsWrite, effectiveShowYaml, handleDelete, handleEditVpc, handleOpenCreateSubnet, handleShowYaml]);
+  ], [hasVpcsWrite, hasVpcSubnetsWrite, effectiveShowYaml, handleDelete, handleEditVpc, handleOpenCreateSubnet, handleShowYaml]);
 
   // --- Render Helpers ---
 
@@ -879,7 +909,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
         isEditMode={vpcSubnetEditMode}
         editingRecord={vpcSubnetEditingRecord}
         cloudId={cloudId}
-        hasVpcsWrite={hasVpcsWrite}
+        canWriteVpcSubnet={hasVpcSubnetsWrite}
         vpcPickerRows={vpcPickerRows}
         subnets={vpcOnlySubnets}
         onRefresh={onRefresh}

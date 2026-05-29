@@ -26,7 +26,10 @@ import {
 import { clearCache } from '../../../../../../../utils/requestManager';
 import { useAuth } from '../../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../../utils/accessMapping';
-import { CLOUD_SUBNETS_FLAT_WRITE, CLOUD_SUBNETS_PUBLIC_WRITE } from '../../../../../../../constants/cloudPermissions';
+import {
+  hasKubeOvnFlatSubnetWrite,
+  hasKubeOvnPublicSubnetWrite,
+} from '../../../../../../../constants/cloudPermissions';
 import { TOWER_IO_ALIES_ANNOTATION, generateKubeOvnTwelveCharName } from '../../../../../../../utils/towerKubeOvnNames';
 import CreateFlatSubnetModal from '../../modals/CreateFlatSubnetModal';
 import CreatePublicSubnetModal from '../../modals/CreatePublicSubnetModal';
@@ -103,22 +106,12 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
   const isTenantUser = user?.role === 'tenant';
   const canWriteFlatSubnet = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
-    const hasWrite =
-      hasPermissionForAction(perms, CLOUD_SUBNETS_FLAT_WRITE) ||
-      hasPermissionForAction(perms, 'clouds.subnets:write') ||
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write');
-    return hasWrite && !isTenantUser;
+    return hasKubeOvnFlatSubnetWrite(perms) && !isTenantUser;
   }, [user?.permissions, isTenantUser]);
 
   const canWritePublicSubnet = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
-    const hasWrite =
-      hasPermissionForAction(perms, CLOUD_SUBNETS_PUBLIC_WRITE) ||
-      hasPermissionForAction(perms, 'clouds.subnets:write') ||
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write');
-    return hasWrite && !isTenantUser;
+    return hasKubeOvnPublicSubnetWrite(perms) && !isTenantUser;
   }, [user?.permissions, isTenantUser]);
 
   const [form] = Form.useForm();

@@ -47,17 +47,10 @@ function menuItemKey(item: MenuItem): string {
   return String(item.key ?? '');
 }
 
-/** 只读账号：隐藏写操作菜单项（保留 divider 清理） */
-export function filterMenuItemsForReadOnly<T extends MenuItem>(items: T[], canWrite: boolean): T[] {
-  if (canWrite) return items;
-
-  const filtered = items.filter((it) => {
-    if (isDividerItem(it)) return true;
-    return !WRITE_MENU_ITEM_KEYS.has(menuItemKey(it));
-  });
-
+/** 清理菜单首尾与连续 divider */
+export function compactActionMenuItems<T extends MenuItem>(items: T[]): T[] {
   const out: T[] = [];
-  for (const it of filtered) {
+  for (const it of items) {
     if (isDividerItem(it)) {
       if (!out.length || isDividerItem(out[out.length - 1])) continue;
       out.push(it);
@@ -69,4 +62,21 @@ export function filterMenuItemsForReadOnly<T extends MenuItem>(items: T[], canWr
     out.pop();
   }
   return out;
+}
+
+/** 有写权限时纳入菜单项，否则不展示（隐藏，勿用 disabled 置灰） */
+export function writeMenuItemIf<T extends MenuItem>(canWrite: boolean, item: T): T[] {
+  return canWrite ? [item] : [];
+}
+
+/** 只读账号：隐藏写操作菜单项（保留 divider 清理） */
+export function filterMenuItemsForReadOnly<T extends MenuItem>(items: T[], canWrite: boolean): T[] {
+  if (canWrite) return compactActionMenuItems(items);
+
+  const filtered = items.filter((it) => {
+    if (isDividerItem(it)) return true;
+    return !WRITE_MENU_ITEM_KEYS.has(menuItemKey(it));
+  });
+
+  return compactActionMenuItems(filtered);
 }

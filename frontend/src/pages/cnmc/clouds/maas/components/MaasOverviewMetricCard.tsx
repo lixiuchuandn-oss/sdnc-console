@@ -1,15 +1,8 @@
 import React from 'react';
-import { Card, Col, theme } from 'antd';
+import { theme } from 'antd';
+import { OverviewMetricCard } from '../../../../../components/overview';
 import type { MaasDashTwoToneIcon } from '../lib/maasDashboardStatIcons';
 import { maasStatPrefix } from '../lib/maasDashboardStatTheme';
-import {
-  MAAS_OVERVIEW_CARD_BODY_STYLES,
-  MAAS_OVERVIEW_CARD_HEADER_STYLES,
-  MAAS_OVERVIEW_CARD_SHADOW,
-  MAAS_OVERVIEW_TITLE_ICON_STYLE,
-  MAAS_OVERVIEW_TITLE_TEXT_STYLE,
-} from '../lib/maasOverviewCardStyles';
-import '../../../dashboard/Dashboard.css';
 
 type Props = {
   title: string;
@@ -27,6 +20,7 @@ type Props = {
   onClick?: () => void;
 };
 
+/** MAAS 概览 KPI 卡：基于全项目共享 OverviewMetricCard，叠加 MAAS 双色图标与未连接灰化 */
 const MaasOverviewMetricCard: React.FC<Props> = ({
   title,
   icon,
@@ -41,75 +35,19 @@ const MaasOverviewMetricCard: React.FC<Props> = ({
   const { token } = theme.useToken();
   const valueColor =
     valueColorProp ?? (connected ? '#1677ff' : token.colorTextQuaternary);
-  const clickable = connected && !!onClick;
-
-  const body = (
-    <>
-      <div className="kpi-value-section-v2">
-        <span className="kpi-value-v2" style={{ color: valueColor }}>
-          {value}
-        </span>
-        {total != null && total !== '' ? (
-          <>
-            <span className="kpi-divider-v2">/</span>
-            <span className="kpi-total-v2">{total}</span>
-          </>
-        ) : null}
-      </div>
-      <div
-        style={{
-          marginTop: 8,
-          fontSize: 12,
-          color: token.colorTextSecondary,
-          minHeight: 40,
-          lineHeight: '20px',
-        }}
-      >
-        {footer ?? '\u00A0'}
-      </div>
-    </>
-  );
+  const iconNode =
+    titleIcon ?? (icon ? maasStatPrefix(token, icon, connected) : undefined);
 
   return (
-    <Col xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
-      <Card
-        size="small"
-        className="dashboard-overview-metric-card"
-        title={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <span style={MAAS_OVERVIEW_TITLE_ICON_STYLE}>
-              {titleIcon ??
-                (icon ? maasStatPrefix(token, icon, connected) : null)}
-            </span>
-            <span style={MAAS_OVERVIEW_TITLE_TEXT_STYLE}>{title}</span>
-          </span>
-        }
-        styles={{
-          header: MAAS_OVERVIEW_CARD_HEADER_STYLES,
-          body: MAAS_OVERVIEW_CARD_BODY_STYLES,
-        }}
-        style={{
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: MAAS_OVERVIEW_CARD_SHADOW,
-          cursor: clickable ? 'pointer' : undefined,
-        }}
-        onClick={clickable ? onClick : undefined}
-        onKeyDown={
-          clickable
-            ? (e) => {
-                if (e.key === 'Enter') onClick?.();
-              }
-            : undefined
-        }
-        tabIndex={clickable ? 0 : undefined}
-        role={clickable ? 'button' : undefined}
-      >
-        {body}
-      </Card>
-    </Col>
+    <OverviewMetricCard
+      title={title}
+      icon={iconNode}
+      value={value}
+      total={total}
+      footer={footer}
+      valueColor={valueColor}
+      onClick={connected ? onClick : undefined}
+    />
   );
 };
 

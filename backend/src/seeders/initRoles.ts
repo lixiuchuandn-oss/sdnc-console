@@ -4,6 +4,8 @@ import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { ALL_PERMISSIONS } from '../constants/permissions';
 import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
+import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
+import { expandLegacyBackupSchedulePermissions } from '../constants/cbrSchedulePermissionLegacy';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
 
 // 使用统一的权限原子定义
@@ -180,12 +182,12 @@ export async function initializeRoles() {
       'clouds.snapshots',
       // 云备份
       'clouds.backups',
+      'clouds.vm-backup-snapshots',
       'clouds.schedules',
       'clouds.restore-tasks',
       // 扁平网络
       'clouds.subnets.flat',
       'clouds.eips.flat',
-      'clouds.fips.flat',
       'clouds.dnat.flat',
       'clouds.snat.flat',
       'clouds.traffic-mirroring.flat',
@@ -245,7 +247,9 @@ export async function initializeRoles() {
       } catch {
         perms = [];
       }
-      const migrated = expandLegacyContainerParentPermissions(perms);
+      const migrated = expandLegacyBackupSchedulePermissions(
+        expandLegacyContainerParentPermissions(expandObsoleteFipsToEips(perms)),
+      );
       const beforeKey = JSON.stringify([...perms].sort());
       const afterKey = JSON.stringify([...migrated].sort());
       if (beforeKey !== afterKey) {

@@ -16,7 +16,11 @@ import VmRestoreModal from '../../../../cbr/modals/VmRestoreModal';
 import ScheduleVmBackupCreateModal from '../../../../cbr/modals/ScheduleVmBackupCreateModal';
 import ScheduleVmBackupEditModal from '../../../../cbr/modals/ScheduleVmBackupEditModal';
 import { useAuth } from '../../../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../../../utils/accessMapping';
+import {
+  canWriteBackupSchedules,
+  canWriteVmBackupSnapshots,
+  canWriteVmBackups,
+} from '../../../../cbr/lib/cbrPermissions';
 import {
   VM_DETAIL_DRAWER_DETAIL_TAB_BLOCK_CARD_STYLE,
   VM_DETAIL_DRAWER_SECTION_TITLE_LABEL_STYLE,
@@ -74,9 +78,9 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
-  const hasBackupsWrite = useMemo(() => {
-    return hasPermissionForAction(perms, 'clouds.backups:write') || hasPermissionForAction(perms, 'clouds:write');
-  }, [perms]);
+  const hasVmBackupWrite = useMemo(() => canWriteVmBackups(perms), [perms]);
+  const hasVmSnapshotWrite = useMemo(() => canWriteVmBackupSnapshots(perms), [perms]);
+  const hasScheduleWrite = useMemo(() => canWriteBackupSchedules(perms), [perms]);
 
   // 弹窗状态
   const [createBackupVisible, setCreateBackupVisible] = useState(false);
@@ -147,8 +151,13 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
 
   // 动作
   const handleDeleteBackup = async (item: any, type: 'backup' | 'snapshot') => {
-    if (!hasBackupsWrite) {
-      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+    const allowed = type === 'snapshot' ? hasVmSnapshotWrite : hasVmBackupWrite;
+    if (!allowed) {
+      message.error(
+        type === 'snapshot'
+          ? '当前账号没有快照操作权限（需要 clouds.vm-backup-snapshots:write 或 clouds.backups:write 权限）'
+          : '当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）',
+      );
       return;
     }
     const raw = item.rawData || item;
@@ -196,8 +205,13 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
   };
 
   const handleRestore = (item: any, type: 'backup' | 'snapshot') => {
-    if (!hasBackupsWrite) {
-      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+    const allowed = type === 'snapshot' ? hasVmSnapshotWrite : hasVmBackupWrite;
+    if (!allowed) {
+      message.error(
+        type === 'snapshot'
+          ? '当前账号没有快照操作权限（需要 clouds.vm-backup-snapshots:write 或 clouds.backups:write 权限）'
+          : '当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）',
+      );
       return;
     }
     setCurrentRestoreItem(item.rawData || item);
@@ -206,8 +220,10 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
   };
 
   const handleDeleteSchedule = (item: any) => {
-    if (!hasBackupsWrite) {
-      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+    if (!hasScheduleWrite) {
+      message.error(
+        '当前账号没有定时策略操作权限（需要 clouds.schedules:write 权限）',
+      );
       return;
     }
     const raw = item.rawData || item;
@@ -240,8 +256,10 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
   };
 
   const handleSuspendSchedule = async (item: any) => {
-    if (!hasBackupsWrite) {
-      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+    if (!hasScheduleWrite) {
+      message.error(
+        '当前账号没有定时策略操作权限（需要 clouds.schedules:write 权限）',
+      );
       return;
     }
     const raw = item.rawData || item;
@@ -260,8 +278,10 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
   };
 
   const handleEditSchedule = (item: any) => {
-    if (!hasBackupsWrite) {
-      message.error('当前账号没有备份操作权限（需要 clouds.backups:write 或 clouds:write 权限）');
+    if (!hasScheduleWrite) {
+      message.error(
+        '当前账号没有定时策略操作权限（需要 clouds.schedules:write 权限）',
+      );
       return;
     }
     setCurrentScheduleItem(item.rawData || item);
@@ -278,11 +298,12 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     const isCephBackup = isHarvesterCephVmBackup(item);
     const createdAt = raw.metadata?.creationTimestamp;
     const timeAgo = formatVmBackupRelativeAge(createdAt);
+    const canWriteItem = type === 'snapshot' ? hasVmSnapshotWrite : hasVmBackupWrite;
 
     return (
       <List.Item
         style={{ padding: '16px 24px' }}
-        actions={hasBackupsWrite ? [
+        actions={canWriteItem ? [
           <Button
             key="restore"
             type="link"
@@ -349,11 +370,11 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
 
     const menuProps: MenuProps = {
       items: filterMenuItemsForReadOnly([
-        { key: 'edit', label: '编辑策略', disabled: !hasBackupsWrite, onClick: () => handleEditSchedule(item) },
-        { key: 'suspend', label: suspend ? '启用' : '停用', disabled: !hasBackupsWrite, onClick: () => handleSuspendSchedule(item) },
+        { key: 'edit', label: '编辑策略', disabled: !hasScheduleWrite, onClick: () => handleEditSchedule(item) },
+        { key: 'suspend', label: suspend ? '启用' : '停用', disabled: !hasScheduleWrite, onClick: () => handleSuspendSchedule(item) },
         { type: 'divider' },
-        { key: 'delete', label: '删除', danger: true, disabled: !hasBackupsWrite, onClick: () => handleDeleteSchedule(item) }
-      ] as any[], hasBackupsWrite)
+        { key: 'delete', label: '删除', danger: true, disabled: !hasScheduleWrite, onClick: () => handleDeleteSchedule(item) }
+      ] as any[], hasScheduleWrite)
     };
 
     return (
@@ -404,7 +425,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
-                  <WriteGuard canWrite={hasBackupsWrite}>
+                  <WriteGuard canWrite={hasVmSnapshotWrite}>
                     <Tooltip title={vmBackupCreateBlockedMessage || '创建快照'}>
                       <Button
                         type="text"
@@ -440,7 +461,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={backupsLoading} />
                   </Tooltip>
-                  <WriteGuard canWrite={hasBackupsWrite}>
+                  <WriteGuard canWrite={hasVmBackupWrite}>
                     <Tooltip title={vmBackupCreateBlockedMessage || '创建备份'}>
                       <Button
                         type="text"
@@ -476,7 +497,7 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
                   <Tooltip title="刷新">
                       <Button type="text" size="small" icon={<ReloadOutlined />} onClick={() => void runHarvesterSectionRefresh(onRefresh, { force: true })} loading={schedulesLoading} />
                   </Tooltip>
-                  <WriteGuard canWrite={hasBackupsWrite}>
+                  <WriteGuard canWrite={hasScheduleWrite}>
                     <Tooltip title="创建定时策略">
                       <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setCreateScheduleVisible(true)} />
                     </Tooltip>

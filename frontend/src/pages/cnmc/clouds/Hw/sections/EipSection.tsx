@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
-import { GlobalOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { App, Button, Input, InputNumber, Select, Space, Table, Tooltip, Typography, Modal, Form } from 'antd';
+import { GlobalOutlined, ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import { fetchCloudProviderEips } from '../../../../../services/api';
+import { allocateHuaweiEip, releaseHuaweiEip } from '../../../../../services/huaweiApi';
 import { statusTag } from '../components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 
@@ -20,6 +21,9 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [allocOpen, setAllocOpen] = useState<boolean>(false);
+  const [allocForm] = Form.useForm();
 
   const refresh = async () => {
     if (!cloudId) return;
@@ -29,6 +33,23 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
       onSetEips(parseEipList(json));
     } catch (e: any) { message.error(e?.message || '刷新失败'); }
     finally { setLoading(false); }
+  };
+
+  const submitAlloc = async () => {
+    try {
+      const v = await allocForm.validateFields();
+      setSubmitting(true);
+      await allocateHuaweiEip(cloudId, { ipType: v.ipType, bandwidthName: v.bandwidthName, bandwidthSize: v.bandwidthSize, shareType: 'PER' });
+      message.success('EIP 申请成功'); setAllocOpen(false); await refresh();
+    } catch (e: any) { if (e?.errorFields) return; message.error(e?.message || '申请失败'); }
+    finally { setSubmitting(false); }
+  };
+
+  const handleRelease = (r: any) => {
+    const eipId = r?.id || r?.publicip_id;
+    if (!eipId) return;
+    Modal.confirm({ title: '确定释放该 EIP?', content: `EIP ${r?.public_ip_address || r?.publicip_address || eipId} 释放后将被回收`, okText: '确认释放', okType: 'danger', cancelText: '取消',
+      onOk: async () => { try { await releaseHuaweiEip(cloudId, eipId); message.success('释放成功'); await refresh(); } catch (e: any) { message.error(e?.message || '释放失败'); } } });
   };
 
   const filtered = useMemo(() => {
@@ -98,12 +119,20 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
     { title: '状态', dataIndex: 'status', key: 'status', width: 110, render: (s: string) => statusTag(s) },
     {
       title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
-      render: (_: any, r: any) => (
-        <RowActionsButton
-          items={[{ key: 'detail', label: '详情' }]}
-          onClick={async ({ key }) => { if (key === 'detail') { const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-'; const id = r?.id || r?.publicip_id || '-'; onOpenDetail('eip', `EIP ${ip}（${id}）`, r); } }}
-        />
-      ),
+      render: (_: any, r: any) => {
+        const bound = !!(r?.port_id || (r?.associate_instance && (r.associate_instance.id || r.associate_instance.instance_id)));
+        const items: any[] = [{ key: 'detail', label: '详情' }];
+        if (!bound) items.push({ key: 'release', label: '释放', danger: true });
+        return (
+          <RowActionsButton
+            items={items}
+            onClick={async ({ key }) => {
+              if (key === 'detail') { const ip = r?.public_ip_address || r?.publicip_address || r?.ip_address || '-'; const id = r?.id || r?.publicip_id || '-'; onOpenDetail('eip', `EIP ${ip}（${id}）`, r); return; }
+              if (key === 'release') handleRelease(r);
+            }}
+          />
+        );
+      },
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [onOpenDetail]);
@@ -123,6 +152,7 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { allocForm.resetFields(); allocForm.setFieldsValue({ ipType: '5_bgp', bandwidthSize: 5 }); setAllocOpen(true); }}>申请 EIP</Button>
           <Tooltip title="刷新"><Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} /></Tooltip>
         </div>
       )}
@@ -138,6 +168,18 @@ const EipSection: React.FC<EipSectionProps> = ({ cloudId, eips, onSetEips, onOpe
         scroll={{ x: true }}
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
+
+      <Modal title="申请 EIP" open={allocOpen} onCancel={() => setAllocOpen(false)} onOk={submitAlloc} confirmLoading={submitting} okText="申请" cancelText="取消" destroyOnHidden>
+        <Form form={allocForm} layout="vertical">
+          <Form.Item name="ipType" label="线路类型" rules={[{ required: true }]}>
+            <Select options={[{ label: '全动态BGP (5_bgp)', value: '5_bgp' }, { label: '静态BGP (5_sbgp)', value: '5_sbgp' }]} />
+          </Form.Item>
+          <Form.Item name="bandwidthSize" label="带宽 (Mbps)" rules={[{ required: true, message: '请输入带宽' }]}>
+            <InputNumber min={1} max={2000} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="bandwidthName" label="带宽名称"><Input placeholder="选填" maxLength={64} allowClear /></Form.Item>
+        </Form>
+      </Modal>
     </PageDetailSection>
   );
 };

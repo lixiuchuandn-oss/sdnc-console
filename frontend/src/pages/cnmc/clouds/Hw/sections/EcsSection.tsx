@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Typography } from 'antd';
-import { CloudServerOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import { statusTag, collectIpv4FromAddresses } from '../components/Common';
 import { fetchCloudProviderEcsVncUrl, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../../services/api';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
@@ -10,9 +10,10 @@ type EcsSectionProps = {
   ecs: any[];
   onRefreshAll: () => void;
   onOpenVmDetail: (vm: any) => void;
+  onOpenCreate?: () => void;
 };
 
-const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onOpenVmDetail }) => {
+const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onOpenVmDetail, onOpenCreate }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
@@ -160,6 +161,7 @@ const EcsSection: React.FC<EcsSectionProps> = ({ cloudId, ecs, onRefreshAll, onO
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          {onOpenCreate && <Button type="primary" icon={<PlusOutlined />} onClick={onOpenCreate}>创建云主机</Button>}
           <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={async () => { await onRefreshAll(); }} /></Tooltip>
         </div>
       )}

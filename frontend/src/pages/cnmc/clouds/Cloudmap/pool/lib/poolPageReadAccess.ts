@@ -12,6 +12,10 @@
 import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../../../routes/cloudmapPoolNavRows';
 import type { CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { isCloudsContainersResourceBase } from '../../../../../../utils/permissionUtils';
+import {
+  cbrBackupScheduleAliasSatisfied,
+  isCbrBackupScheduleResourceBase,
+} from '../../../../../../constants/cbrPermissionBases';
 
 export type PoolPageRowMeta = {
   pathSuffix: string;
@@ -88,6 +92,14 @@ export function checkPoolPageReadPerm(permissions: string[], requiredRead: strin
   }
   if (base.startsWith('clouds.subnets.') && base !== 'clouds.subnets') {
     if (perms.includes('clouds.subnets:read') || perms.includes('clouds.subnets:write')) return true;
+  }
+
+  // 云备份子域：历史 clouds.backups 总权仅覆盖快照；定时策略须显式 clouds.schedules
+  if (base === 'clouds.vm-backup-snapshots') {
+    if (perms.includes('clouds.backups:read') || perms.includes('clouds.backups:write')) return true;
+  }
+  if (isCbrBackupScheduleResourceBase(base) && cbrBackupScheduleAliasSatisfied(perms, base, 'read')) {
+    return true;
   }
 
   return false;

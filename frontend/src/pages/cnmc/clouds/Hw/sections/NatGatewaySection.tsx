@@ -4,6 +4,7 @@ import { SwapOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { fetchCloudProviderNatGateways } from '../../../../../services/api';
 import { statusTag, tagsToText } from '../components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
+import NatRulesDrawer from '../drawers/NatRulesDrawer';
 
 type NatGatewaySectionProps = {
   cloudId: string;
@@ -22,6 +23,7 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
+  const [drawerNat, setDrawerNat] = useState<any | null>(null);
 
   const refresh = async () => {
     if (!cloudId) return;
@@ -91,8 +93,11 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
       title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
       render: (_: any, r: any) => (
         <RowActionsButton
-          items={[{ key: 'detail', label: '详情' }]}
-          onClick={async ({ key }: { key: string }) => { if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || '-'; onOpenDetail('nat', `NAT网关 ${name}（${id}）`, r); } }}
+          items={[{ key: 'rules', label: 'SNAT/DNAT 规则' }, { key: 'detail', label: '详情' }]}
+          onClick={async ({ key }: { key: string }) => {
+            if (key === 'rules') { setDrawerNat(r); return; }
+            if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || '-'; onOpenDetail('nat', `NAT网关 ${name}（${id}）`, r); }
+          }}
         />
       ),
     },
@@ -129,6 +134,7 @@ const NatGatewaySection: React.FC<NatGatewaySectionProps> = ({ cloudId, natGatew
         scroll={{ x: true }}
         pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
+      <NatRulesDrawer open={!!drawerNat} cloudId={cloudId} nat={drawerNat} eips={eips} subnets={subnets} onClose={() => setDrawerNat(null)} />
     </PageDetailSection>
   );
 };

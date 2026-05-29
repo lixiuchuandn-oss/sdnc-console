@@ -74,7 +74,9 @@ export type MaasMachineOp =
   | 'power_on'
   | 'power_off'
   | 'power_cycle'
-  | 'mark_broken';
+  | 'mark_broken'
+  | 'mark_fixed'
+  | 'abort';
 
 function maasPath(cloudId: string, suffix: string): string {
   return `/api/clouds/${encodeURIComponent(cloudId)}/maas${suffix}`;
@@ -84,14 +86,18 @@ export async function fetchMaasDashboard(
   cloudId: string,
   opts?: { skipCache?: boolean },
 ): Promise<MaasDashboardResponse> {
-  return apiRequest(maasPath(cloudId, '/dashboard'), { skipCache: opts?.skipCache ?? true });
+  return apiRequest(maasPath(cloudId, '/dashboard'), {
+    skipCache: opts?.skipCache ?? true,
+  });
 }
 
 export async function fetchMaasMachines(
   cloudId: string,
   opts?: { skipCache?: boolean },
 ): Promise<MaasListResponse> {
-  return apiRequest(maasPath(cloudId, '/machines'), { skipCache: opts?.skipCache ?? true });
+  return apiRequest(maasPath(cloudId, '/machines'), {
+    skipCache: opts?.skipCache ?? true,
+  });
 }
 
 export async function fetchMaasMachineDetail(
@@ -117,11 +123,44 @@ export async function maasMachineOp(
   );
 }
 
+export async function maasDeleteMachine(
+  cloudId: string,
+  systemId: string,
+): Promise<{ ok: boolean; message?: string }> {
+  return apiDelete(
+    maasPath(cloudId, `/machines/${encodeURIComponent(systemId)}`),
+  );
+}
+
+export type MaasCreateMachinePayload = {
+  architecture: string;
+  macAddresses: string[];
+  powerType: string;
+  powerParameters?: Record<string, string>;
+  hostname?: string;
+  domain?: string;
+  zone?: string;
+  pool?: string;
+  commission?: boolean;
+};
+
+export async function maasCreateMachine(
+  cloudId: string,
+  payload: MaasCreateMachinePayload,
+): Promise<{ ok: boolean; message?: string }> {
+  return apiPost(
+    maasPath(cloudId, '/machines'),
+    payload as unknown as Record<string, unknown>,
+  );
+}
+
 export async function fetchMaasDiscoveries(
   cloudId: string,
   opts?: { skipCache?: boolean },
 ): Promise<MaasListResponse> {
-  return apiRequest(maasPath(cloudId, '/discoveries'), { skipCache: opts?.skipCache ?? true });
+  return apiRequest(maasPath(cloudId, '/discoveries'), {
+    skipCache: opts?.skipCache ?? true,
+  });
 }
 
 export async function fetchMaasEvents(
@@ -179,7 +218,9 @@ export async function fetchMaasImages(
   opts?: { deployable?: boolean; skipCache?: boolean },
 ): Promise<MaasImagesListResponse> {
   const q = opts?.deployable ? '?deployable=true' : '';
-  return apiRequest(maasPath(cloudId, `/images${q}`), { skipCache: opts?.skipCache ?? true });
+  return apiRequest(maasPath(cloudId, `/images${q}`), {
+    skipCache: opts?.skipCache ?? true,
+  });
 }
 
 export async function fetchMaasImageSyncStatus(
@@ -207,7 +248,99 @@ export async function deleteMaasImage(
   cloudId: string,
   imageId: string | number,
 ): Promise<{ ok: boolean; message?: string }> {
-  return apiDelete(maasPath(cloudId, `/images/${encodeURIComponent(String(imageId))}`));
+  return apiDelete(
+    maasPath(cloudId, `/images/${encodeURIComponent(String(imageId))}`),
+  );
+}
+
+export type MaasNamedItem = {
+  id: number | string;
+  name: string;
+  description: string;
+};
+
+export type MaasPlacementResponse = {
+  ok: boolean;
+  message?: string;
+  zones?: MaasNamedItem[];
+  pools?: MaasNamedItem[];
+  domains?: MaasNamedItem[];
+};
+
+export async function fetchMaasPlacement(
+  cloudId: string,
+  opts?: { skipCache?: boolean },
+): Promise<MaasPlacementResponse> {
+  return apiRequest(maasPath(cloudId, '/placement'), {
+    skipCache: opts?.skipCache ?? true,
+  });
+}
+
+export type MaasBootSourceSelection = {
+  id: number | string;
+  os: string;
+  release: string;
+  arches: string[];
+  subarches: string[];
+  labels: string[];
+};
+
+export type MaasBootSource = {
+  id: number | string;
+  url: string;
+  keyring_filename: string;
+  selections: MaasBootSourceSelection[];
+};
+
+export type MaasBootSourcesResponse = {
+  ok: boolean;
+  message?: string;
+  items?: MaasBootSource[];
+  total?: number;
+};
+
+export async function fetchMaasBootSources(
+  cloudId: string,
+  opts?: { skipCache?: boolean },
+): Promise<MaasBootSourcesResponse> {
+  return apiRequest(maasPath(cloudId, '/boot-sources'), {
+    skipCache: opts?.skipCache ?? true,
+  });
+}
+
+export async function createMaasBootSourceSelection(
+  cloudId: string,
+  sourceId: string | number,
+  payload: {
+    os: string;
+    release: string;
+    arches?: string[];
+    subarches?: string[];
+    labels?: string[];
+  },
+): Promise<{ ok: boolean; message?: string }> {
+  return apiPost(
+    maasPath(
+      cloudId,
+      `/boot-sources/${encodeURIComponent(String(sourceId))}/selections`,
+    ),
+    payload as unknown as Record<string, unknown>,
+  );
+}
+
+export async function deleteMaasBootSourceSelection(
+  cloudId: string,
+  sourceId: string | number,
+  selectionId: string | number,
+): Promise<{ ok: boolean; message?: string }> {
+  return apiDelete(
+    maasPath(
+      cloudId,
+      `/boot-sources/${encodeURIComponent(String(sourceId))}/selections/${encodeURIComponent(
+        String(selectionId),
+      )}`,
+    ),
+  );
 }
 
 /** @deprecated 使用 fetchMaasImages */
@@ -222,5 +355,7 @@ export async function fetchMaasNetwork(
   cloudId: string,
   opts?: { skipCache?: boolean },
 ): Promise<MaasNetworkResponse> {
-  return apiRequest(maasPath(cloudId, '/network'), { skipCache: opts?.skipCache ?? true });
+  return apiRequest(maasPath(cloudId, '/network'), {
+    skipCache: opts?.skipCache ?? true,
+  });
 }
