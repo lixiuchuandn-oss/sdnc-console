@@ -102,7 +102,8 @@ export const registerHarvesterRoutes = (
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
-        const data = await getHarvesterNodeResourceUsage(cloud);
+        const force = req.query?.force === 'true' || req.query?.force === '1';
+        const data = await getHarvesterNodeResourceUsage(cloud, { force });
         res.json({ ok: true, ...data });
       } catch (error: any) {
         if (res.headersSent) return;
