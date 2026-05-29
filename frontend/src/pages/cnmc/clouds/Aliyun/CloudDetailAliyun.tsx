@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Alert, Modal, Descriptions, Row } from 'antd';
-import { CloudUploadOutlined, DashboardOutlined, HomeOutlined } from '@ant-design/icons';
+import { DashboardOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { OverviewMetricCard } from '../../../../components/overview';
-import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
+import { normalizeAliyunPoolTabParam, type AliyunPoolTabKey } from '../../../../layouts/admin/aliyun/aliyunPoolSidebar';
 import EcsSectionAliyun, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSectionAliyun';
 import VpcSectionAliyun, { Icon as VpcIcon, Label as VpcLabel } from './sections/VpcSectionAliyun';
 import VSwitchSectionAliyun, { Icon as VSwitchIcon, Label as VSwitchLabel } from './sections/VSwitchSectionAliyun';
@@ -36,7 +37,8 @@ type CloudDetailAliyunProps = {
 };
 
 const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = normalizeAliyunPoolTabParam(searchParams.get('tab'));
   const [error, setError] = useState<string>('');
   const [cloud, setCloud] = useState<any>(null);
   const [ecs, setEcs] = useState<any[]>([]);
@@ -58,7 +60,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [sgDetailOpen, setSgDetailOpen] = useState<boolean>(false);
   const [sgDetailData, setSgDetailData] = useState<any | null>(null);
   const [sgDetailTab, setSgDetailTab] = useState<string | undefined>(undefined);
-  const [showLog, setShowLog] = useState<boolean>(false);
+  const [showLog] = useState<boolean>(false);
   const [rawEcs, setRawEcs] = useState<any | null>(null);
   const [rawVpcs, setRawVpcs] = useState<any | null>(null);
   const [rawVSwitches, setRawVSwitches] = useState<any | null>(null);
@@ -159,6 +161,12 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
     loadAll();
   }, [loadAll]);
 
+  useEffect(() => {
+    if (!searchParams.get('tab')) {
+      setSearchParams({ tab: 'overview' }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const openDetail = useCallback((type: string, title: string, data: any) => {
     Modal.info({
       title,
@@ -166,53 +174,39 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
     });
   }, []);
 
-  return (
-    <PageDetailContainer
-      breadcrumbs={[
-        { title: <HomeOutlined />, href: '/' },
-        { title: '资源池管理' },
-        { title: '资源池管理', href: '/admin/clouds' },
-        { title: `阿里云 ${cloud?.name || '-'}` }
-      ]}
-      icon={<CloudUploadOutlined />}
-      title={`阿里云 ${cloud?.name || '-'}`}
-      titleLevel={3}
-      onBack={() => navigate('/admin/clouds')}
-      backTooltip="返回列表"
-      moreMenuItems={[{ key: 'refresh', label: '刷新' }, { key: 'toggleLog', label: (showLog ? '隐藏返回' : '显示返回') }]}
-      onMoreMenuClick={({ key }) => { if (key === 'refresh') loadAll(); if (key === 'toggleLog') setShowLog(v => !v); }}
-      asCard={false}
-      subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"
-      overviewContent={(
-        <Descriptions bordered size="small" column={4}>
-          <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源供应商">阿里云</Descriptions.Item>
-          <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源状态">
-            {cloud?.status === 'online' ? '在线' : cloud?.status === 'maintenance' ? '维护' : cloud?.status === 'offline' ? '离线' : '未知'}
-          </Descriptions.Item>
-          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
-          <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
-        </Descriptions>
-      )}
-      defaultActiveTabKey="overview"
-      tabs={[
+  const aliyunDescriptions = (
+    <Descriptions bordered size="small" column={4} style={{ marginBottom: 16 }}>
+      <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源供应商">阿里云</Descriptions.Item>
+      <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源状态">
+        {cloud?.status === 'online' ? '在线' : cloud?.status === 'maintenance' ? '维护' : cloud?.status === 'offline' ? '离线' : '未知'}
+      </Descriptions.Item>
+      <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+      <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
+      <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
+      <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
+    </Descriptions>
+  );
+
+  const tabDefs: Array<{ key: AliyunPoolTabKey; label?: React.ReactNode; icon?: React.ReactNode; count?: number; children: React.ReactNode }> = [
         {
           key: 'overview',
           label: '资源总览',
           icon: <DashboardOutlined />,
           children: (
-            <Row gutter={[16, 16]}>
-              <OverviewMetricCard title="VPC 数量" icon={VpcIcon} value={vpcs.length} col={{ xs: 24, sm: 12, md: 6 }} />
-              <OverviewMetricCard title="交换机数量" icon={VSwitchIcon} value={vswitches.length} col={{ xs: 24, sm: 12, md: 6 }} />
-              <OverviewMetricCard title="安全组数量" icon={SgIcon} value={secGroups.length} col={{ xs: 24, sm: 12, md: 6 }} />
-              <OverviewMetricCard title="EIP 数量" icon={EipIcon} value={eips.length} col={{ xs: 24, sm: 12, md: 6 }} />
-              <OverviewMetricCard title="云主机数量" icon={EcsIcon} value={ecs.length} col={{ xs: 24, sm: 12, md: 6 }} />
-            </Row>
+            <>
+              {aliyunDescriptions}
+              <Row gutter={[16, 16]}>
+                <OverviewMetricCard title="VPC 数量" icon={VpcIcon} value={vpcs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="交换机数量" icon={VSwitchIcon} value={vswitches.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="安全组数量" icon={SgIcon} value={secGroups.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="EIP 数量" icon={EipIcon} value={eips.length} col={{ xs: 24, sm: 12, md: 6 }} />
+                <OverviewMetricCard title="云主机数量" icon={EcsIcon} value={ecs.length} col={{ xs: 24, sm: 12, md: 6 }} />
+              </Row>
+            </>
           )
         },
         {
@@ -480,11 +474,16 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
             <MonitorAlarmSectionAliyun cloudId={cloudId} ecs={ecs} />
           ),
         },
-      ]}
-    >
+  ];
+
+  const activeTab = tabDefs.find((t) => t.key === tab) || tabDefs[0];
+
+  return (
+    <PageDetailContainer hideHeader asCard={false}>
       {error && (
         <Alert type="error" message="查询失败" description={error} style={{ marginBottom: 16 }} showIcon />
       )}
+      {activeTab.children}
       
       <SecurityGroupDetailModalAliyun
         open={sgDetailOpen}

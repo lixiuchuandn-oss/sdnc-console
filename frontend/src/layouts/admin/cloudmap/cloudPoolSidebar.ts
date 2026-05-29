@@ -22,6 +22,11 @@ import {
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
 import type { Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
+import type {
+  PoolSidebarBuildArgs,
+  PoolSidebarSelectArgs,
+  PoolSidebarSpec,
+} from '../poolSidebar/types';
 
 
 /**
@@ -775,4 +780,38 @@ export function buildCloudmapPoolSidebarCenter(
     items: cloudmapPoolMenuItems(cloudId, opts),
   };
 }
+
+/** 排除厂商池 / Rancher 集群工作台等更具体的 `/admin/clouds/...` 路由，避免贪婪误匹配。 */
+const CLOUDMAP_RANCHER_CLUSTER_RE = /^\/admin\/clouds\/[^/]+\/clusters\/[^/]+$/;
+
+/**
+ * Cloudmap 资源池上下文侧栏 spec（complex / 路径段）。路径：`/admin/clouds/:cloudId/...`。
+ * 注册表中须置于**最后**做兜底（`/admin/clouds/:id` 贪婪匹配）。
+ */
+export const cloudmapPoolSidebarSpec: PoolSidebarSpec = {
+  type: 'cloudmap',
+  presentation: 'context-sidebar',
+  subNav: 'path',
+  tier: 'complex',
+  centerKey: CLOUD_POOL_SIDEBAR_CENTER_KEY,
+  label: '资源池',
+  icon: createElement(DashboardOutlined),
+  navKeys: CLOUDMAP_POOL_NAV_KEYS,
+  resolveContext: (pathname: string) => {
+    if (pathname.startsWith('/admin/clouds/vendor/')) return null;
+    if (CLOUDMAP_RANCHER_CLUSTER_RE.test(pathname)) return null;
+    const id = parseCloudPoolDetailId(pathname);
+    if (!id || id === 'vendor') return null;
+    return { poolId: id };
+  },
+  matchCloud: (cloud: Cloud) => isCloudmapPool(cloud),
+  buildSidebarCenter: ({ context, cloud, buildOpts }: PoolSidebarBuildArgs) => {
+    if (!cloud) return null;
+    return buildCloudmapPoolSidebarCenter(cloud, context.poolId, buildOpts);
+  },
+  selectedKey: ({ pathname, center }: PoolSidebarSelectArgs) =>
+    cloudmapPoolSidebarSelectedKey(pathname, center.items),
+  autoExpandByMenuKey: true,
+  autoExpandSigPrefix: 'cloudmap-pool',
+};
 

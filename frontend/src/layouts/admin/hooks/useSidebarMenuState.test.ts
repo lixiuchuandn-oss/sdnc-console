@@ -5,6 +5,12 @@ import { useSidebarMenuState } from './useSidebarMenuState';
 import type { AdminSidebarCenter } from '../AdminSidebar';
 import type { Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
 import { CLOUD_POOL_SIDEBAR_CENTER_KEY } from '../cloudmap/cloudPoolSidebar';
+import { HW_POOL_SIDEBAR_CENTER_KEY } from '../hw/hwPoolSidebar';
+import { ALIYUN_POOL_SIDEBAR_CENTER_KEY } from '../aliyun/aliyunPoolSidebar';
+import { MAAS_POOL_SIDEBAR_CENTER_KEY } from '../maas/maasPoolSidebar';
+import { XINFERENCE_POOL_SIDEBAR_CENTER_KEY } from '../xinference/xinferencePoolSidebar';
+import { CSM_POOL_SIDEBAR_CENTER_KEY } from '../csm/csmPoolSidebar';
+import { RANCHER_CLUSTER_SIDEBAR_CENTER_KEY } from '../rancher/rancherClusterSidebar';
 
 jest.mock('../../../services/api', () => ({
   apiRequest: jest.fn().mockResolvedValue({}),
@@ -65,6 +71,80 @@ describe('useSidebarMenuState', () => {
     expect(view.result.current.sidebarCentersForMenu).toHaveLength(1);
     expect(view.result.current.sidebarCentersForMenu[0].key).toBe(CLOUD_POOL_SIDEBAR_CENTER_KEY);
     expect(view.result.current.platformDropdownSelectedKeys).toEqual([]);
+  });
+
+  it('华为云池：侧栏切换为华为上下文，选中项随 ?tab=（查表分发覆盖 Hw）', async () => {
+    const clouds = [
+      mkCloud({
+        id: 'h1',
+        name: '华为一',
+        createdAt: '2026-01-01T00:00:00Z',
+        config: { provider: 'huaweicloud' },
+      }),
+    ];
+    const view = setup('/admin/clouds/vendor/huawei/h1?tab=ecs', clouds);
+    await waitFor(() =>
+      expect(view.result.current.activeSidebarKey).toBe(HW_POOL_SIDEBAR_CENTER_KEY),
+    );
+    expect(view.result.current.sidebarCentersForMenu[0].key).toBe(HW_POOL_SIDEBAR_CENTER_KEY);
+    expect(view.result.current.poolSelectedMenuKey).toBe('/admin/clouds/vendor/huawei/h1?tab=ecs');
+    expect(view.result.current.platformDropdownSelectedKeys).toEqual([]);
+  });
+
+  it('阿里云池：侧栏切换为阿里云上下文（查表分发覆盖 Aliyun）', async () => {
+    const clouds = [
+      mkCloud({
+        id: 'a1',
+        name: '阿里一',
+        createdAt: '2026-01-01T00:00:00Z',
+        config: { provider: 'aliyun' },
+      }),
+    ];
+    const view = setup('/admin/clouds/vendor/aliyun/a1?tab=vpc', clouds);
+    await waitFor(() =>
+      expect(view.result.current.activeSidebarKey).toBe(ALIYUN_POOL_SIDEBAR_CENTER_KEY),
+    );
+    expect(view.result.current.poolSelectedMenuKey).toBe('/admin/clouds/vendor/aliyun/a1?tab=vpc');
+  });
+
+  it('MAAS 池：侧栏切换为裸金属上下文，选中项随 ?tab=', async () => {
+    const view = setup('/admin/clouds/vendor/maas/m1?tab=machines', [
+      mkCloud({ id: 'm1', name: '裸金属', createdAt: '2026-01-01T00:00:00Z', config: { provider: 'maas' } }),
+    ]);
+    await waitFor(() =>
+      expect(view.result.current.activeSidebarKey).toBe(MAAS_POOL_SIDEBAR_CENTER_KEY),
+    );
+    expect(view.result.current.poolSelectedMenuKey).toBe('/admin/clouds/vendor/maas/m1?tab=machines');
+  });
+
+  it('Xinference 池：侧栏切换为边缘推理上下文', async () => {
+    const view = setup('/admin/clouds/vendor/xinference/x1?tab=running_models', [
+      mkCloud({ id: 'x1', name: '推理池', createdAt: '2026-01-01T00:00:00Z', config: { provider: 'xinference' } }),
+    ]);
+    await waitFor(() =>
+      expect(view.result.current.activeSidebarKey).toBe(XINFERENCE_POOL_SIDEBAR_CENTER_KEY),
+    );
+  });
+
+  it('CSM 池：侧栏切换为 CSM 上下文（基路径在 SDNCC）', async () => {
+    const view = setup('/admin/security/traffic/csm-pools/cs1?tab=assets', [
+      mkCloud({ id: 'cs1', name: 'CSM', createdAt: '2026-01-01T00:00:00Z', config: { provider: 'cloudmap.csm' } }),
+    ]);
+    await waitFor(() =>
+      expect(view.result.current.activeSidebarKey).toBe(CSM_POOL_SIDEBAR_CENTER_KEY),
+    );
+  });
+
+  it('Rancher 集群工作台：侧栏切换为集群上下文，选中项随 ?tab=&sub=', async () => {
+    const view = setup('/admin/clouds/r1/clusters/c1?tab=workloads&sub=deployment', [
+      mkCloud({ id: 'r1', name: 'R', createdAt: '2026-01-01T00:00:00Z', config: { provider: 'rancher' } }),
+    ]);
+    await waitFor(() =>
+      expect(view.result.current.activeSidebarKey).toBe(RANCHER_CLUSTER_SIDEBAR_CENTER_KEY),
+    );
+    expect(view.result.current.poolSelectedMenuKey).toBe(
+      '/admin/clouds/r1/clusters/c1?tab=workloads&sub=deployment',
+    );
   });
 
   it('collapsed 默认 false，setCollapsed 可切换', () => {

@@ -13,6 +13,12 @@ import {
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
+import { type Cloud, isRancherPoolCloud } from '../../../pages/cnmc/pools/lib/poolProviders';
+import type {
+  PoolSidebarBuildArgs,
+  PoolSidebarSelectArgs,
+  PoolSidebarSpec,
+} from '../poolSidebar/types';
 
 export const RANCHER_CLUSTER_SIDEBAR_CENTER_KEY = '/admin/rancher_cluster_context';
 
@@ -413,3 +419,74 @@ export function resolveRancherK8sListKey(
   if (tab === 'more_resources' && (s === 'configmaps' || s === 'secrets')) return s;
   return null;
 }
+
+/**
+ * 与侧栏 `items[].key` 一致：由 `?tab=` / `?sub=` 拼出当前应高亮的整段 URL（含查询）。
+ * 行为与历史 `useSidebarMenuState` 内联实现一致。
+ */
+export function rancherClusterSidebarSelectedKey(
+  poolId: string,
+  clusterId: string,
+  search: string,
+): string {
+  const sp = new URLSearchParams(search);
+  const rawTab = sp.get('tab');
+  const tab = normalizeRancherClusterNavParam(rawTab);
+  const base = `/admin/clouds/${encodeURIComponent(poolId)}/clusters/${encodeURIComponent(clusterId)}`;
+  if (tab === 'cluster') {
+    const sub = normalizeRancherClusterSubParam(rawTab, sp.get('sub'), rawTab);
+    return `${base}?tab=cluster&sub=${encodeURIComponent(sub)}`;
+  }
+  if (tab === 'workloads') {
+    const sub = normalizeRancherClusterWorkloadsSubParam(sp.get('sub'));
+    return `${base}?tab=workloads&sub=${encodeURIComponent(sub)}`;
+  }
+  if (
+    tab === 'apps' ||
+    tab === 'service_discovery' ||
+    tab === 'storage' ||
+    tab === 'policies' ||
+    tab === 'more_resources'
+  ) {
+    const sub = normalizeRancherResourceSub(tab, sp.get('sub'));
+    return `${base}?tab=${encodeURIComponent(tab)}&sub=${encodeURIComponent(sub)}`;
+  }
+  return `${base}?tab=${encodeURIComponent(tab)}`;
+}
+
+/**
+ * Rancher 集群工作台上下文侧栏 spec（complex / 路径段语义，URL 用 `?tab=`+`?sub=`）。
+ * 路径：`/admin/clouds/:poolId/clusters/:clusterId`。
+ */
+export const rancherClusterPoolSidebarSpec: PoolSidebarSpec = {
+  type: 'rancher',
+  presentation: 'context-sidebar',
+  subNav: 'path',
+  tier: 'complex',
+  centerKey: RANCHER_CLUSTER_SIDEBAR_CENTER_KEY,
+  label: '集群工作台',
+  icon: createElement(ClusterOutlined),
+  navKeys: RANCHER_CLUSTER_NAV_KEYS,
+  resolveContext: (pathname: string) => {
+    const ctx = parseRancherClusterWorkspacePath(pathname);
+    return ctx ? { poolId: ctx.poolId, clusterId: ctx.clusterId } : null;
+  },
+  matchCloud: (cloud: Cloud) => isRancherPoolCloud(cloud),
+  buildSidebarCenter: ({ context, cloud, summaryCloudCount, extra }: PoolSidebarBuildArgs) => {
+    if (!context.clusterId) return null;
+    // 列表已加载且类型不符 → 不渲染；未加载（count=0）时仍渲染（不阻塞集群工作台首屏）
+    if (summaryCloudCount > 0 && cloud && !isRancherPoolCloud(cloud)) return null;
+    return buildRancherClusterSidebarCenter(
+      context.poolId,
+      context.clusterId,
+      cloud?.name,
+      extra?.rancherWorkloadCounts,
+    );
+  },
+  selectedKey: ({ context, search }: PoolSidebarSelectArgs) =>
+    context.clusterId
+      ? rancherClusterSidebarSelectedKey(context.poolId, context.clusterId, search)
+      : undefined,
+  autoExpandByMenuKey: true,
+  autoExpandSigPrefix: 'rancher',
+};

@@ -18,6 +18,11 @@ import {
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
 import { type Cloud, isXinferencePoolCloud } from '../../../pages/cnmc/pools/lib/poolProviders';
+import type {
+  PoolSidebarBuildArgs,
+  PoolSidebarSelectArgs,
+  PoolSidebarSpec,
+} from '../poolSidebar/types';
 import {
   DIFY_CONSOLE_NAV_ENTRIES,
   XINFERENCE_INFERENCE_TAB_KEYS,
@@ -124,3 +129,29 @@ export function buildXinferencePoolSidebarCenter(
     items: xinferencePoolMenuItems(cloudId),
   };
 }
+
+/** 边缘推理资源池上下文侧栏 spec（simple / `?tab=`）。路径：`/admin/clouds/vendor/xinference/:cloudId`。 */
+export const xinferencePoolSidebarSpec: PoolSidebarSpec = {
+  type: 'xinference',
+  presentation: 'context-sidebar',
+  subNav: 'tab',
+  tier: 'simple',
+  centerKey: XINFERENCE_POOL_SIDEBAR_CENTER_KEY,
+  label: '边缘推理池',
+  icon: createElement(DashboardOutlined),
+  navKeys: XINFERENCE_POOL_TAB_KEYS,
+  pathForTab: (cloudId: string, tab: string) =>
+    xinferencePoolPathForTab(cloudId, tab as XinferencePoolTabKey),
+  normalizeTabParam: (tab: string | null) => normalizeXinferencePoolTabParam(tab),
+  resolveContext: (pathname: string) => {
+    const id = parseXinferencePoolDetailId(pathname);
+    return id ? { poolId: id } : null;
+  },
+  matchCloud: (cloud: Cloud) => isXinferencePoolCloud(cloud),
+  buildSidebarCenter: ({ context, cloud }: PoolSidebarBuildArgs) => {
+    if (!cloud) return null;
+    return buildXinferencePoolSidebarCenter(cloud, context.poolId);
+  },
+  selectedKey: ({ context, pathname, search }: PoolSidebarSelectArgs) =>
+    xinferencePoolSidebarSelectedKey(context.poolId, pathname, search),
+};
