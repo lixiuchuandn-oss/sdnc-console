@@ -41,57 +41,13 @@ import { Breadcrumb, Card, Space, Typography, theme, Button, Dropdown, Divider, 
 import { useLocation } from 'react-router-dom';
 import { routeSpecs } from '../routes/RouteSpec';
 import { isSdnccPagePath } from '../routes/adminRouteMatch';
-import { HomeOutlined, AppstoreOutlined, DeploymentUnitOutlined, CloudUploadOutlined, DesktopOutlined, TeamOutlined, UserOutlined, UserSwitchOutlined, GatewayOutlined, FolderOutlined, LockOutlined, ApiOutlined, BranchesOutlined, GlobalOutlined, EnvironmentOutlined, ArrowLeftOutlined, ShareAltOutlined, NodeIndexOutlined, SecurityScanOutlined, SwapOutlined, SettingOutlined, EllipsisOutlined, AppstoreAddOutlined, BarChartOutlined, DashboardOutlined, FileTextOutlined, FundProjectionScreenOutlined, RadarChartOutlined, DatabaseOutlined, CloudDownloadOutlined, SolutionOutlined, ClusterOutlined, BorderOuterOutlined, SafetyCertificateOutlined, ReloadOutlined, AuditOutlined, RocketOutlined } from '@ant-design/icons';
+import { iconOf } from '../utils/iconOf';
+import { HomeOutlined, ArrowLeftOutlined, SettingOutlined, EllipsisOutlined, ReloadOutlined } from '@ant-design/icons';
 
 /**
- * 图标映射函数
- * 根据图标名称字符串返回对应的 Ant Design 图标组件
- * 
- * @param key - 图标名称（如 'AppstoreOutlined'）
- * @returns React 图标组件，如果未找到则返回默认图标 AppstoreOutlined
- * 
- * 【使用场景】
- * - 从路由配置中读取图标名称并转换为实际图标组件
- * - 支持动态图标渲染
+ * 路由图标名 → 图标组件映射，迁至中性 `utils/iconOf`；此处再导出以兼容既有引用路径。
  */
-export const iconOf = (key?: string) => {
-  const m: Record<string, React.ReactNode> = {
-    RocketOutlined: <RocketOutlined />,
-    AppstoreOutlined: <AppstoreOutlined />,
-    DashboardOutlined: <DashboardOutlined />,
-    DeploymentUnitOutlined: <DeploymentUnitOutlined />,
-    CloudUploadOutlined: <CloudUploadOutlined />,
-    DesktopOutlined: <DesktopOutlined />,
-    TeamOutlined: <TeamOutlined />,
-    UserOutlined: <UserOutlined />,
-    UserSwitchOutlined: <UserSwitchOutlined />,
-    GatewayOutlined: <GatewayOutlined />,
-    FolderOutlined: <FolderOutlined />,
-    LockOutlined: <LockOutlined />,
-    ApiOutlined: <ApiOutlined />,
-    BranchesOutlined: <BranchesOutlined />,
-    GlobalOutlined: <GlobalOutlined />,
-    EnvironmentOutlined: <EnvironmentOutlined />,
-    ShareAltOutlined: <ShareAltOutlined />,
-    NodeIndexOutlined: <NodeIndexOutlined />,
-    SecurityScanOutlined: <SecurityScanOutlined />,
-    SwapOutlined: <SwapOutlined />,
-    AppstoreAddOutlined: <AppstoreAddOutlined />,
-    BarChartOutlined: <BarChartOutlined />,
-    FileTextOutlined: <FileTextOutlined />,
-    FundProjectionScreenOutlined: <FundProjectionScreenOutlined />,
-    RadarChartOutlined: <RadarChartOutlined />,
-    DatabaseOutlined: <DatabaseOutlined />,
-    CloudDownloadOutlined: <CloudDownloadOutlined />,
-    SolutionOutlined: <SolutionOutlined />,
-    ClusterOutlined: <ClusterOutlined />,
-    BorderOuterOutlined: <BorderOuterOutlined />,
-    SafetyCertificateOutlined: <SafetyCertificateOutlined />,
-    SettingOutlined: <SettingOutlined />,
-    AuditOutlined: <AuditOutlined />,
-  };
-  return key ? (m[key] || <AppstoreOutlined />) : <AppstoreOutlined />;
-};
+export { iconOf };
 
 /**
  * PageContainer 组件的属性接口

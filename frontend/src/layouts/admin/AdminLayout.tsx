@@ -4,18 +4,8 @@
  * 检索关键词: AdminLayout layout admin sidebar visibleCenters canAccessPath Ctrl+K
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
-import {
-  App,
-  Button,
-  Form,
-  Input,
-  Layout,
-  Modal,
-  Space,
-  Spin,
-  Typography,
-} from 'antd';
+import React, { useCallback, useMemo, Suspense } from 'react';
+import { App, Layout, Spin } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import type { AdminLayoutOutletContext } from './adminLayoutOutletContext';
 import {
@@ -27,71 +17,31 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLicense } from '../../contexts/LicenseContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../../utils/accessMapping';
-import type { RouteSpec } from '../../routes/RouteSpec';
 import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
-import { iconOf } from '../../components/PageContainer';
-import { apiRequest } from '../../services/api';
-import {
-  DEFAULT_ADMIN_PASSWORD_POLICY,
-  validateAdminPasswordClient,
-} from '../../utils/adminPasswordPolicy';
+import { iconOf } from '../../utils/iconOf';
 import {
   CLOUD_RESOURCE_POOLS_CREATE_WRITE,
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
-import { type Cloud, isCsmCloud, isMaasPoolCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
 import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
-import {
-  parseCloudPoolDetailId,
-  buildCloudmapPoolSidebarCenter,
-  CLOUD_POOL_SIDEBAR_CENTER_KEY,
-  cloudmapPoolSidebarSelectedKey,
-} from './cloudmap/cloudPoolSidebar';
-import {
-  parseCsmPoolDetailId,
-  buildCsmPoolSidebarCenter,
-  CSM_POOL_SIDEBAR_CENTER_KEY,
-  csmPoolSidebarSelectedKey,
-} from './csm/csmPoolSidebar';
-import {
-  parseXinferencePoolDetailId,
-  buildXinferencePoolSidebarCenter,
-  XINFERENCE_POOL_SIDEBAR_CENTER_KEY,
-  xinferencePoolSidebarSelectedKey,
-} from './xinference/xinferencePoolSidebar';
-import {
-  parseMaasPoolDetailId,
-  buildMaasPoolSidebarCenter,
-  MAAS_POOL_SIDEBAR_CENTER_KEY,
-  maasPoolSidebarSelectedKey,
-} from './maas/maasPoolSidebar';
-import {
-  parseRancherClusterWorkspacePath,
-  buildRancherClusterSidebarCenter,
-  RANCHER_CLUSTER_SIDEBAR_CENTER_KEY,
-  normalizeRancherClusterNavParam,
-  normalizeRancherClusterSubParam,
-  normalizeRancherClusterWorkloadsSubParam,
-  normalizeRancherResourceSub,
-} from './rancher/rancherClusterSidebar';
 import './admin-shell.css';
 import AdminStandardHeader from './AdminStandardHeader';
 import {
   ADMIN_HEADER_HEIGHT_PX,
   buildGroupMenuChildren,
-  findMenuOpenKeyChainForPath,
-  pickDefaultPoolId,
-  resolveDefaultPool,
-  sidebarForPath,
   type PageSearchEntry,
 } from './lib/adminLayoutNav';
+import AdminChangePasswordModal from './AdminChangePasswordModal';
+import AdminGlobalSearchModal from './AdminGlobalSearchModal';
 import { useGlobalSearch } from './hooks/useGlobalSearch';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
-import { useRancherSidebarCounts } from './hooks/useRancherSidebarCounts';
+import { useHeaderPoolStrip } from './hooks/useHeaderPoolStrip';
+import { usePoolWizard } from './hooks/usePoolWizard';
+import { useSidebarMenuState } from './hooks/useSidebarMenuState';
 
 const { Content } = Layout;
 
@@ -116,9 +66,6 @@ function AdminOutletSuspenseFallback() {
 /** 顶栏底边、侧栏右边线等与导航分割相关的颜色 */
 const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
 
-/** 无资源池时强弹向导：本会话用户点「稍后接入」后不再自动弹出 */
-const MUST_BIND_POOL_DISMISS_KEY = 'adminLayout.mustBindPoolPromptDismissed';
-
 
 const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
@@ -132,13 +79,6 @@ const AdminLayout: React.FC = () => {
   const { settings, loading: settingsLoading } = useSettings();
   const { message } = App.useApp();
 
-  const [collapsed, setCollapsed] = useState(false);
-  const [activeSidebarKey, setActiveSidebarKey] = useState('/admin/cen_compute');
-  const [openKeys, setOpenKeys] = useState<string[]>([]);
-  /** 仅当选中页/池内菜单签名变化时自动展开分组；避免每次 effect 把用户已折叠的分组强行撑开 */
-  const lastSidebarAutoExpandSigRef = useRef<string>('');
-  /** 池详情 URL 已有 cloudId 但顶栏列表尚未含该池时，触发一次列表刷新（避免侧栏空白直至手动刷新） */
-  const poolNavMissingListRefetchKeyRef = useRef('');
   const {
     changePasswordForm,
     changePasswordOpen,
@@ -150,18 +90,14 @@ const AdminLayout: React.FC = () => {
     submitChangePassword,
   } = useAdminPasswordGate();
 
-  const [summaryClouds, setSummaryClouds] = useState<Cloud[]>([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  /** 顶栏云列表是否已完成至少一次拉取；避免在 GET /clouds 返回前把「无池」判成真并自动弹接入向导 */
-  const [summaryListHydrated, setSummaryListHydrated] = useState(false);
-  /** 顶栏可用区（资源池）选择；列表变更时若当前项失效则回到默认池 */
-  const [headerSelectedPoolId, setHeaderSelectedPoolId] = useState<string | undefined>(undefined);
-  const [poolWizardOpen, setPoolWizardOpen] = useState(false);
-  const [poolWizardEditing, setPoolWizardEditing] = useState<Cloud | null>(null);
-  const [poolWizardForceRequired, setPoolWizardForceRequired] = useState(false);
-  const poolWizardOpenedByAutoRef = useRef(false);
-  /** 顶栏云列表请求世代：新请求开始 +1；仅当完成时 gen 仍等于 ref 才写回 state，避免慢请求覆盖快请求、或登出后旧请求写回 */
-  const summaryLoadGenRef = useRef(0);
+  const {
+    summaryClouds,
+    summaryLoading,
+    summaryListHydrated,
+    headerSelectedPoolId,
+    setHeaderSelectedPoolId,
+    loadSummaryClouds,
+  } = useHeaderPoolStrip(user);
 
 
   /** super_admin 全放行；其余按路径 required action 与 permissions 校验 */
@@ -216,24 +152,6 @@ const AdminLayout: React.FC = () => {
       hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user]);
-
-  const loadSummaryClouds = useCallback(async () => {
-    const gen = ++summaryLoadGenRef.current;
-    setSummaryLoading(true);
-    try {
-      const raw = await apiRequest('/api/clouds', { skipCache: true });
-      if (gen !== summaryLoadGenRef.current) return;
-      const list = Array.isArray(raw) ? raw : (raw?.data || []);
-      setSummaryClouds((Array.isArray(list) ? list : []) as Cloud[]);
-    } catch {
-      if (gen !== summaryLoadGenRef.current) return;
-      setSummaryClouds([]);
-    } finally {
-      if (gen !== summaryLoadGenRef.current) return;
-      setSummaryLoading(false);
-      setSummaryListHydrated(true);
-    }
-  }, []);
 
   /**
    * 侧栏 / 搜索等入口的统一跳转：`/console`（租户资源控制台）始终新标签打开，其余路径当前页路由。
@@ -367,331 +285,38 @@ const AdminLayout: React.FC = () => {
     [location.pathname],
   );
 
-  const csmPoolId = useMemo(
-    () => parseCsmPoolDetailId(location.pathname),
-    [location.pathname],
-  );
-  const csmPoolCloud = useMemo(
-    () =>
-      csmPoolId
-        ? summaryClouds.find((c) => String(c.id) === String(csmPoolId))
-        : undefined,
-    [summaryClouds, csmPoolId],
-  );
+  const {
+    collapsed,
+    setCollapsed,
+    openKeys,
+    setOpenKeys,
+    activeSidebarKey,
+    setActiveSidebarKey,
+    sidebarCentersForMenu,
+    poolSelectedMenuKey,
+    platformDropdownSelectedKeys,
+  } = useSidebarMenuState({
+    visibleCenters: visibleCenters as AdminSidebarCenter[],
+    summaryClouds,
+    userPermissions,
+    hasFeature,
+  });
 
-  const xinferencePoolId = useMemo(
-    () => parseXinferencePoolDetailId(location.pathname),
-    [location.pathname],
-  );
-  const xinferencePoolCloud = useMemo(
-    () =>
-      xinferencePoolId
-        ? summaryClouds.find((c) => String(c.id) === String(xinferencePoolId))
-        : undefined,
-    [summaryClouds, xinferencePoolId],
-  );
-
-  const maasPoolId = useMemo(
-    () => parseMaasPoolDetailId(location.pathname),
-    [location.pathname],
-  );
-  const maasPoolCloud = useMemo(
-    () =>
-      maasPoolId
-        ? summaryClouds.find((c) => String(c.id) === String(maasPoolId))
-        : undefined,
-    [summaryClouds, maasPoolId],
-  );
-
-  const poolCloudId = useMemo(
-    () => parseCloudPoolDetailId(location.pathname),
-    [location.pathname],
-  );
-  const poolCloud = useMemo(
-    () =>
-      poolCloudId
-        ? summaryClouds.find((c) => String(c.id) === String(poolCloudId))
-        : undefined,
-    [summaryClouds, poolCloudId],
-  );
-
-  // 从 URL 同步顶栏「可用区」：避免仅改路径时 header 仍显示上一池（与页面 cloudId 不一致）
-  useEffect(() => {
-    if (!poolCloudId) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(poolCloudId))) return;
-    setHeaderSelectedPoolId((prev) => (String(prev) === String(poolCloudId) ? prev : poolCloudId));
-  }, [poolCloudId, summaryClouds]);
-
-  useEffect(() => {
-    if (!xinferencePoolId) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(xinferencePoolId))) return;
-    setHeaderSelectedPoolId((prev) =>
-      String(prev) === String(xinferencePoolId) ? prev : xinferencePoolId,
-    );
-  }, [xinferencePoolId, summaryClouds]);
-
-  useEffect(() => {
-    if (!maasPoolId) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(maasPoolId))) return;
-    setHeaderSelectedPoolId((prev) =>
-      String(prev) === String(maasPoolId) ? prev : maasPoolId,
-    );
-  }, [maasPoolId, summaryClouds]);
-
-  const rancherClusterCtx = useMemo(
-    () => parseRancherClusterWorkspacePath(location.pathname),
-    [location.pathname],
-  );
-
-  const rancherWorkloadCounts = useRancherSidebarCounts(rancherClusterCtx);
-
-  const rancherClusterSidebarCenter = useMemo(() => {
-    if (!rancherClusterCtx) return null;
-    const cloud = summaryClouds.find((c) => String(c.id) === String(rancherClusterCtx.poolId));
-    if (summaryClouds.length > 0 && cloud && !isRancherPoolCloud(cloud)) {
-      return null;
-    }
-    return buildRancherClusterSidebarCenter(
-      rancherClusterCtx.poolId,
-      rancherClusterCtx.clusterId,
-      cloud?.name,
-      rancherWorkloadCounts,
-    );
-  }, [rancherClusterCtx, summaryClouds, rancherWorkloadCounts]);
-
-  useEffect(() => {
-    if (!rancherClusterCtx) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(rancherClusterCtx.poolId))) return;
-    setHeaderSelectedPoolId((prev) =>
-      String(prev) === String(rancherClusterCtx.poolId) ? prev : rancherClusterCtx.poolId,
-    );
-  }, [rancherClusterCtx, summaryClouds]);
-
-  const cloudmapPoolSidebarOpts = useMemo(
-    () => ({
-      ovnVpcEnabled: hasFeature('network.ovn.vpc'),
-      hasFeature,
-      poolRouteAccess: (spec: RouteSpec) => {
-        const anyOf = spec.poolPageReadAnyOf;
-        if (anyOf?.length) {
-          return anyOf.some((act) => hasPermissionForAction(userPermissions, act));
-        }
-        const page = spec.requiredActions?.page;
-        if (!page) return true;
-        return hasPermissionForAction(userPermissions, page);
-      },
-    }),
-    [hasFeature, userPermissions],
-  );
-
-  const poolSidebarCenter = useMemo(
-    () =>
-      poolCloud && poolCloudId
-        ? buildCloudmapPoolSidebarCenter(poolCloud, poolCloudId, cloudmapPoolSidebarOpts)
-        : null,
-    [poolCloud, poolCloudId, cloudmapPoolSidebarOpts],
-  );
-
-  const csmPoolSidebarCenter = useMemo(() => {
-    if (!csmPoolId || !csmPoolCloud) return null;
-    if (summaryClouds.length > 0 && !isCsmCloud(csmPoolCloud)) return null;
-    return buildCsmPoolSidebarCenter(csmPoolCloud, csmPoolId);
-  }, [csmPoolId, csmPoolCloud, summaryClouds.length]);
-
-  const xinferencePoolSidebarCenter = useMemo(() => {
-    if (!xinferencePoolId || !xinferencePoolCloud) return null;
-    return buildXinferencePoolSidebarCenter(xinferencePoolCloud, xinferencePoolId);
-  }, [xinferencePoolId, xinferencePoolCloud]);
-
-  const maasPoolSidebarCenter = useMemo(() => {
-    if (!maasPoolId || !maasPoolCloud) return null;
-    if (summaryClouds.length > 0 && !isMaasPoolCloud(maasPoolCloud)) return null;
-    return buildMaasPoolSidebarCenter(maasPoolCloud, maasPoolId);
-  }, [maasPoolId, maasPoolCloud, summaryClouds.length]);
-
-  /** CSM / Xinference / MAAS / Cloudmap 池详情、Rancher 集群工作台：侧栏替换为池内 / 集群内导航 */
-  const contextualPoolSidebar =
-    rancherClusterSidebarCenter ||
-    csmPoolSidebarCenter ||
-    xinferencePoolSidebarCenter ||
-    maasPoolSidebarCenter ||
-    poolSidebarCenter;
-  const sidebarCentersForMenu = useMemo(
-    () => (contextualPoolSidebar ? [contextualPoolSidebar] : visibleCenters),
-    [contextualPoolSidebar, visibleCenters],
-  );
-  const poolSelectedMenuKey = useMemo(() => {
-    if (rancherClusterSidebarCenter && rancherClusterCtx) {
-      const sp = new URLSearchParams(location.search);
-      const rawTab = sp.get('tab');
-      const tab = normalizeRancherClusterNavParam(rawTab);
-      const base = `/admin/clouds/${encodeURIComponent(rancherClusterCtx.poolId)}/clusters/${encodeURIComponent(rancherClusterCtx.clusterId)}`;
-      if (tab === 'cluster') {
-        const sub = normalizeRancherClusterSubParam(rawTab, sp.get('sub'), rawTab);
-        return `${base}?tab=cluster&sub=${encodeURIComponent(sub)}`;
-      }
-      if (tab === 'workloads') {
-        const sub = normalizeRancherClusterWorkloadsSubParam(sp.get('sub'));
-        return `${base}?tab=workloads&sub=${encodeURIComponent(sub)}`;
-      }
-      if (
-        tab === 'apps' ||
-        tab === 'service_discovery' ||
-        tab === 'storage' ||
-        tab === 'policies' ||
-        tab === 'more_resources'
-      ) {
-        const sub = normalizeRancherResourceSub(tab, sp.get('sub'));
-        return `${base}?tab=${encodeURIComponent(tab)}&sub=${encodeURIComponent(sub)}`;
-      }
-      return `${base}?tab=${encodeURIComponent(tab)}`;
-    }
-    if (csmPoolSidebarCenter && csmPoolId) {
-      return csmPoolSidebarSelectedKey(csmPoolId, location.pathname, location.search);
-    }
-    if (xinferencePoolSidebarCenter && xinferencePoolId) {
-      return xinferencePoolSidebarSelectedKey(
-        xinferencePoolId,
-        location.pathname,
-        location.search,
-      );
-    }
-    if (maasPoolSidebarCenter && maasPoolId) {
-      return maasPoolSidebarSelectedKey(maasPoolId, location.pathname, location.search);
-    }
-    if (!poolSidebarCenter || !poolCloudId) return undefined;
-    return cloudmapPoolSidebarSelectedKey(location.pathname, poolSidebarCenter.items);
-  }, [
-    rancherClusterSidebarCenter,
-    rancherClusterCtx,
-    csmPoolSidebarCenter,
-    csmPoolId,
-    xinferencePoolSidebarCenter,
-    xinferencePoolId,
-    maasPoolSidebarCenter,
-    maasPoolId,
-    poolSidebarCenter,
-    poolCloudId,
-    location.pathname,
-    location.search,
-  ]);
-  const platformDropdownSelectedKeys = contextualPoolSidebar ? [] : [activeSidebarKey];
-
-  // 仅在「进入另一资源池 / 另一集群上下文」时重置侧栏展开态；勿依赖 poolSidebarCenter 引用（其随权限等重算会变，误清 openKeys 会导致无法折叠分组）
-  useEffect(() => {
-    setOpenKeys([]);
-    lastSidebarAutoExpandSigRef.current = '';
-  }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId, maasPoolId]);
-
-  useEffect(() => {
-    if (!user || summaryLoading) return;
-    const poolId = parseCloudPoolDetailId(location.pathname);
-    if (!poolId) {
-      poolNavMissingListRefetchKeyRef.current = '';
-      return;
-    }
-    if (summaryClouds.some((c) => String(c.id) === String(poolId))) {
-      poolNavMissingListRefetchKeyRef.current = '';
-      return;
-    }
-    const key = location.pathname;
-    if (poolNavMissingListRefetchKeyRef.current === key) return;
-    poolNavMissingListRefetchKeyRef.current = key;
-    void loadSummaryClouds();
-  }, [user, location.pathname, summaryLoading, summaryClouds, loadSummaryClouds]);
-
-  const autoBindPoolPromptShownRef = useRef(false);
-
-  useEffect(() => {
-    if (!user) {
-      summaryLoadGenRef.current += 1;
-      setSummaryLoading(false);
-      setSummaryClouds([]);
-      setSummaryListHydrated(false);
-      return;
-    }
-    setSummaryListHydrated(false);
-    void loadSummaryClouds();
-  }, [user, loadSummaryClouds]);
-
-  useEffect(() => {
-    if (!summaryClouds.length) {
-      setHeaderSelectedPoolId(undefined);
-      return;
-    }
-    setHeaderSelectedPoolId((prev) => {
-      const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-      if (prev && cnmcPools.some((c) => String(c.id) === String(prev))) return prev;
-      return pickDefaultPoolId(cnmcPools);
-    });
-  }, [summaryClouds]);
-
-  useEffect(() => {
-    if (!user) return;
-    if (!summaryListHydrated) return;
-    if (summaryClouds.filter((c) => !isCsmCloud(c)).length > 0) {
-      autoBindPoolPromptShownRef.current = false;
-      if (poolWizardOpenedByAutoRef.current) {
-        setPoolWizardOpen(false);
-        setPoolWizardForceRequired(false);
-        poolWizardOpenedByAutoRef.current = false;
-      }
-      return;
-    }
-    // 注释掉自动弹出接入边缘云弹窗的逻辑
-    // if (summaryLoading) return;
-    // if (!canWritePools) return;
-    // try {
-    //   if (window.sessionStorage.getItem(MUST_BIND_POOL_DISMISS_KEY) === '1') return;
-    // } catch {
-    //   /* ignore */
-    // }
-    // if (autoBindPoolPromptShownRef.current) return;
-    // autoBindPoolPromptShownRef.current = true;
-    // poolWizardOpenedByAutoRef.current = true;
-    // setPoolWizardForceRequired(true);
-    // setPoolWizardEditing(null);
-    // setPoolWizardOpen(true);
-  }, [user, summaryLoading, summaryClouds, canWritePools, summaryListHydrated]);
-
-  const handlePoolWizardCancel = useCallback(() => {
-    setPoolWizardOpen(false);
-    setPoolWizardEditing(null);
-    setPoolWizardForceRequired(false);
-    if (poolWizardOpenedByAutoRef.current) {
-      try {
-        window.sessionStorage.setItem(MUST_BIND_POOL_DISMISS_KEY, '1');
-      } catch {
-        /* ignore */
-      }
-      poolWizardOpenedByAutoRef.current = false;
-    }
-  }, []);
-
-  const handlePoolWizardSuccess = useCallback(() => {
-    setPoolWizardOpen(false);
-    setPoolWizardEditing(null);
-    setPoolWizardForceRequired(false);
-    poolWizardOpenedByAutoRef.current = false;
-    void loadSummaryClouds();
-  }, [loadSummaryClouds]);
-
-  /** 设定默认资源池：无池=添加；有池=编辑当前默认池（显式 default 或最早创建） */
-  const openDefaultPoolWizardAction = useCallback(() => {
-    poolWizardOpenedByAutoRef.current = false;
-    setPoolWizardForceRequired(false);
-    if (!summaryClouds.length) {
-      setPoolWizardEditing(null);
-    } else {
-      const def = resolveDefaultPool(summaryClouds.filter((c) => !isCsmCloud(c)));
-      setPoolWizardEditing(def ?? null);
-    }
-    setPoolWizardOpen(true);
-  }, [summaryClouds]);
+  const {
+    poolWizardOpen,
+    poolWizardEditing,
+    poolWizardForceRequired,
+    handlePoolWizardCancel,
+    handlePoolWizardSuccess,
+    openDefaultPoolWizardAction,
+  } = usePoolWizard({
+    user,
+    summaryClouds,
+    summaryListHydrated,
+    summaryLoading,
+    canWritePools,
+    loadSummaryClouds,
+  });
 
   const pageSearchEntries = useMemo(() => {
     const opts: PageSearchEntry[] = [];
@@ -746,101 +371,6 @@ const AdminLayout: React.FC = () => {
     filteredSearchList,
   } = useGlobalSearch({ pageSearchEntries, navigateToAdminContent, setActiveSidebarKey });
 
-  useEffect(() => {
-    if (rancherClusterSidebarCenter) {
-      setActiveSidebarKey(RANCHER_CLUSTER_SIDEBAR_CENTER_KEY);
-      return;
-    }
-    if (csmPoolSidebarCenter) {
-      setActiveSidebarKey(CSM_POOL_SIDEBAR_CENTER_KEY);
-      return;
-    }
-    if (xinferencePoolSidebarCenter) {
-      setActiveSidebarKey(XINFERENCE_POOL_SIDEBAR_CENTER_KEY);
-      return;
-    }
-    if (maasPoolSidebarCenter) {
-      setActiveSidebarKey(MAAS_POOL_SIDEBAR_CENTER_KEY);
-      return;
-    }
-    if (poolSidebarCenter) {
-      setActiveSidebarKey(CLOUD_POOL_SIDEBAR_CENTER_KEY);
-      return;
-    }
-    setActiveSidebarKey(sidebarForPath(location.pathname + location.search));
-  }, [
-    location.pathname,
-    location.search,
-    poolSidebarCenter,
-    rancherClusterSidebarCenter,
-    csmPoolSidebarCenter,
-    xinferencePoolSidebarCenter,
-    maasPoolSidebarCenter,
-  ]);
-
-  useEffect(() => {
-    if (collapsed) {
-      lastSidebarAutoExpandSigRef.current = '';
-      return;
-    }
-
-    const expandPoolGroupByMenuKey = (sigPrefix: string, menuKey: string) => {
-      const center =
-        sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
-        sidebarCentersForMenu[0];
-      if (!center) return;
-      const activeGroup = (center.items || []).find((item: any) =>
-        item?.children?.some((child: any) => String(child?.key || '') === menuKey),
-      );
-      if (activeGroup && activeGroup.key != null) {
-        const sig = `${sigPrefix}|${menuKey}`;
-        if (lastSidebarAutoExpandSigRef.current === sig) return;
-        lastSidebarAutoExpandSigRef.current = sig;
-        const gk = String(activeGroup.key);
-        setOpenKeys((prev) => (prev.includes(gk) ? prev : [...prev, gk]));
-      }
-    };
-
-    if (activeSidebarKey === RANCHER_CLUSTER_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
-      expandPoolGroupByMenuKey('rancher', poolSelectedMenuKey);
-      return;
-    }
-
-    if (activeSidebarKey === CLOUD_POOL_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
-      expandPoolGroupByMenuKey('cloudmap-pool', poolSelectedMenuKey);
-      return;
-    }
-
-    if (activeSidebarKey === CSM_POOL_SIDEBAR_CENTER_KEY && poolSelectedMenuKey) {
-      expandPoolGroupByMenuKey('csm-pool', poolSelectedMenuKey);
-      return;
-    }
-
-    const center =
-      sidebarCentersForMenu.find((c) => c.key === activeSidebarKey) ||
-      sidebarCentersForMenu[0];
-    if (!center) return;
-
-    const currentPath = location.pathname.split('?')[0]; // 移除查询参数
-
-    const chain = findMenuOpenKeyChainForPath(center.items, currentPath);
-    if (chain && chain.length > 0) {
-      const sig = `path|${activeSidebarKey}|${currentPath}|${chain.join('>')}`;
-      if (lastSidebarAutoExpandSigRef.current === sig) return;
-      lastSidebarAutoExpandSigRef.current = sig;
-      setOpenKeys((prev) => {
-        const firstKey = chain[0];
-        const pfPrefix = String(firstKey).split('_')[0];
-        const nextBase = prev.filter((k) => String(k).startsWith(pfPrefix + '_'));
-        const merged = [...nextBase];
-        for (const k of chain) {
-          if (!merged.includes(k)) merged.push(k);
-        }
-        return merged;
-      });
-    }
-  }, [collapsed, activeSidebarKey, location.pathname, sidebarCentersForMenu, poolSelectedMenuKey]);
-
   const rootShellStyle = {
     height: '100vh',
     overflow: 'hidden',
@@ -869,62 +399,16 @@ const AdminLayout: React.FC = () => {
         openDefaultPoolWizardAction={openDefaultPoolWizardAction}
       />
       <>
-        <Modal
-          title={forcePasswordChange ? '密码已过期，请修改密码' : '修改密码'}
+        <AdminChangePasswordModal
           open={changePasswordOpen}
-          onCancel={() => {
-            if (!forcePasswordChange) setChangePasswordOpen(false);
-          }}
+          forcePasswordChange={forcePasswordChange}
+          saving={changePasswordSaving}
+          form={changePasswordForm}
+          policy={adminPwdPolicy}
+          username={user?.username}
           onOk={submitChangePassword}
-          confirmLoading={changePasswordSaving}
-          okText="确认修改"
-          cancelText="取消"
-          closable={!forcePasswordChange}
-          maskClosable={!forcePasswordChange}
-          destroyOnHidden
-        >
-          <Form form={changePasswordForm} layout="vertical">
-            <Form.Item
-              label="原密码"
-              name="oldPassword"
-              rules={[{ required: true, message: '请输入原密码' }]}
-            >
-              <Input.Password autoComplete="current-password" />
-            </Form.Item>
-            <Form.Item
-              label="新密码"
-              name="newPassword"
-              rules={[
-                { required: true, message: '请输入新密码' },
-                {
-                  validator: async (_, v) => {
-                    const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
-                    const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
-                    if (err) throw new Error(err);
-                  },
-                },
-              ]}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-            <Form.Item
-              label="确认新密码"
-              name="confirmPassword"
-              dependencies={['newPassword']}
-              rules={[
-                { required: true, message: '请再次输入新密码' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                    return Promise.reject(new Error('两次输入的新密码不一致'));
-                  },
-                }),
-              ]}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-          </Form>
-        </Modal>
+          onClose={() => setChangePasswordOpen(false)}
+        />
         <PoolEdgeWizard
           visible={poolWizardOpen}
           onCancel={handlePoolWizardCancel}
@@ -932,86 +416,17 @@ const AdminLayout: React.FC = () => {
           forceRequired={poolWizardForceRequired}
           editingCloud={poolWizardEditing}
         />
-        {/* 全局搜索弹窗 */}
-        {/* 检索关键词: search modal dialog 搜索弹窗 */}
-        {searchOpen && (
-          <div
-            onClick={()=> setSearchOpen(false)}
-            style={{
-              position:'fixed',
-              inset:0,
-              background:'rgba(0,0,0,0.25)',
-              zIndex:3000
-            }}
-          >
-            <div
-              onClick={(e)=> e.stopPropagation()}
-              style={{
-                position:'absolute',
-                top:'10%',
-                left:'50%',
-                transform:'translateX(-50%)',
-                width:720,
-                background:'#fff',
-                borderRadius:12,
-                boxShadow:'0 20px 40px rgba(0,0,0,0.2)',
-                overflow:'hidden'
-              }}
-            >
-              <div style={{ padding:16, borderBottom:'1px solid #f0f0f0' }}>
-                <Input
-                  autoFocus
-                  value={searchText}
-                  onChange={(e)=> { setSearchText(e.target.value); setSearchActiveIndex(0); }}
-                  placeholder="搜索页面…  快捷键 Ctrl+K / Esc 关闭"
-                  size="large"
-                />
-              </div>
-              <div style={{ maxHeight:360, overflow:'auto' }}>
-                {filteredSearchList.length === 0 ? (
-                  <div style={{ padding:16 }}>
-                    <Typography.Text type="secondary">无匹配结果</Typography.Text>
-                  </div>
-                ) : (
-                  filteredSearchList.map((it: PageSearchEntry, idx: number) => (
-                    <div
-                      key={it.path}
-                      onMouseEnter={()=> setSearchActiveIndex(idx)}
-                      onClick={()=> {
-                        const path = it.path;
-                        const pure = String(path || '').split('?')[0];
-                        navigateToAdminContent(path);
-                        if (pure !== '/console') {
-                          setActiveSidebarKey(sidebarForPath(path));
-                        }
-                        setSearchOpen(false);
-                      }}
-                      style={{
-                        padding:'12px 16px',
-                        display:'flex',
-                        alignItems:'center',
-                        justifyContent:'space-between',
-                        cursor:'pointer',
-                        background: idx === searchActiveIndex ? '#f0f7ff' : '#fff',
-                        borderBottom:'1px solid #f5f5f5'
-                      }}
-                    >
-                      <Space size={10}>
-                        <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:6, background:'#f0f5ff' }}>{it.icon}</span>
-                        <span style={{ fontSize:14 }}>{it.label}</span>
-                      </Space>
-                      <Typography.Text type="secondary">{it.group}</Typography.Text>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div style={{ padding:'10px 16px', background:'#fafafa', borderTop:'1px solid #f0f0f0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <Typography.Text type="secondary">Enter 打开 · ESC 关闭 · SCROLL 查看更多</Typography.Text>
-                <Button type="text" onClick={()=> setSearchOpen(false)}>关闭</Button>
-              </div>
-            </div>
-          </div>
-        )}
+        <AdminGlobalSearchModal
+          open={searchOpen}
+          setOpen={setSearchOpen}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          searchActiveIndex={searchActiveIndex}
+          setSearchActiveIndex={setSearchActiveIndex}
+          filteredSearchList={filteredSearchList}
+          navigateToAdminContent={navigateToAdminContent}
+          setActiveSidebarKey={setActiveSidebarKey}
+        />
       </>
       {/* 侧边栏和内容区域 */}
       <Layout>
