@@ -77,7 +77,6 @@ import {
   normalizeRancherClusterSubParam,
   normalizeRancherClusterWorkloadsSubParam,
   normalizeRancherResourceSub,
-  type RancherClusterWorkloadsSubKey,
 } from './rancher/rancherClusterSidebar';
 import './admin-shell.css';
 import AdminStandardHeader from './AdminStandardHeader';
@@ -92,6 +91,7 @@ import {
 } from './lib/adminLayoutNav';
 import { useGlobalSearch } from './hooks/useGlobalSearch';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
+import { useRancherSidebarCounts } from './hooks/useRancherSidebarCounts';
 
 const { Content } = Layout;
 
@@ -446,34 +446,7 @@ const AdminLayout: React.FC = () => {
     [location.pathname],
   );
 
-  const [rancherWorkloadCounts, setRancherWorkloadCounts] = useState<
-    Partial<Record<RancherClusterWorkloadsSubKey, number>>
-  >({});
-
-  useEffect(() => {
-    if (!rancherClusterCtx) {
-      setRancherWorkloadCounts({});
-      return;
-    }
-    let cancelled = false;
-    const run = async () => {
-      try {
-        const j = await apiRequest(
-          `/api/clouds/${encodeURIComponent(rancherClusterCtx.poolId)}/rancher/clusters/${encodeURIComponent(rancherClusterCtx.clusterId)}/workloads/counts`,
-          { skipCache: true },
-        );
-        const c = j?.data?.counts;
-        if (cancelled || !c || typeof c !== 'object') return;
-        setRancherWorkloadCounts(c as Partial<Record<RancherClusterWorkloadsSubKey, number>>);
-      } catch {
-        if (!cancelled) setRancherWorkloadCounts({});
-      }
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [rancherClusterCtx]);
+  const rancherWorkloadCounts = useRancherSidebarCounts(rancherClusterCtx);
 
   const rancherClusterSidebarCenter = useMemo(() => {
     if (!rancherClusterCtx) return null;
