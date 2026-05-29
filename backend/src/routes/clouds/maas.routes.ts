@@ -13,6 +13,7 @@ import {
   listMaasSubnets,
   maasMachineOperation,
   maasDeleteMachine,
+  maasCreateMachine,
   getMaasRegionStatus,
   type MaasMachineOp,
 } from '../../services/clouds/maas/maasClient';
@@ -100,6 +101,44 @@ export function attachMaasRoutes(router: Router, perm: RequestHandler): void {
         items: result.items,
         total: result.items.length,
       });
+    } catch (err: unknown) {
+      res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
+    }
+  });
+
+  router.post('/:id/maas/machines', perm, async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchMaasCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const ctx = resolveMaasCtx(cloud, res);
+      if (!ctx) return;
+      const body = (req.body || {}) as Record<string, unknown>;
+      const rawMacs = body.macAddresses ?? body.mac_addresses;
+      const macAddresses = Array.isArray(rawMacs)
+        ? rawMacs.map((m) => String(m))
+        : String(rawMacs || '')
+            .split(/[,\s]+/)
+            .filter(Boolean);
+      const powerParameters =
+        body.powerParameters && typeof body.powerParameters === 'object'
+          ? (body.powerParameters as Record<string, string>)
+          : undefined;
+      const result = await maasCreateMachine(ctx, {
+        architecture: String(body.architecture || '').trim(),
+        macAddresses,
+        powerType: String(body.powerType || body.power_type || '').trim(),
+        powerParameters,
+        hostname: body.hostname != null ? String(body.hostname) : undefined,
+        domain: body.domain != null ? String(body.domain) : undefined,
+        zone: body.zone != null ? String(body.zone) : undefined,
+        pool: body.pool != null ? String(body.pool) : undefined,
+        commission: body.commission != null ? Boolean(body.commission) : undefined,
+      });
+      if (!result.ok) {
+        res.status(result.message.includes('认证') ? 401 : 400).json({ message: result.message });
+        return;
+      }
+      res.json({ ok: true, message: result.message, data: result.data });
     } catch (err: unknown) {
       res.status(500).json({ message: err instanceof Error ? err.message : '服务器错误' });
     }
