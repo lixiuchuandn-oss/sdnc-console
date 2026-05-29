@@ -57,6 +57,8 @@ import {
   huaweiDetachVolume,
   huaweiCreateSnapshot,
   huaweiDeleteSnapshot,
+  huaweiCreatePublicip,
+  huaweiDeletePublicip,
 } from '../../../services/clouds/huaweicloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
@@ -2148,6 +2150,54 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '查询弹性公网IP失败', error: error.message });
+      }
+    },
+  );
+
+  // 申请 EIP CreatePublicip
+  router.post(
+    '/:id/resources/eips',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { ipType, bandwidthName, bandwidthSize, shareType, chargeMode } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiCreatePublicip(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          { ipType, bandwidthName, bandwidthSize, shareType, chargeMode },
+        );
+        res.json({ message: '申请成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '申请EIP失败', error: error.message });
+      }
+    },
+  );
+
+  // 释放 EIP DeletePublicip
+  router.delete(
+    '/:id/resources/eips/:eipId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, eipId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiDeletePublicip({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, eipId);
+        res.json({ message: '释放成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '释放EIP失败', error: error.message });
       }
     },
   );

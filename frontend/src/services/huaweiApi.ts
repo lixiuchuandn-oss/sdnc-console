@@ -73,6 +73,17 @@ export const deleteHuaweiSnapshot = async (cloudId: string, snapshotId: string) 
   return await apiDelete(`/api/clouds/${cloudId}/resources/snapshots/${encodeURIComponent(snapshotId)}`);
 };
 
+// ===== EIP 申请/释放（华为云）=====
+export const allocateHuaweiEip = async (
+  cloudId: string,
+  payload: { ipType?: string; bandwidthName?: string; bandwidthSize?: number; shareType?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/eips`, payload);
+};
+export const releaseHuaweiEip = async (cloudId: string, eipId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(eipId)}`);
+};
+
 // 云资源池：查询单个 VPC（华为云）
 export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`);

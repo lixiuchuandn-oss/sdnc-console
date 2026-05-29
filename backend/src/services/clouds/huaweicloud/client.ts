@@ -1495,6 +1495,62 @@ export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: 
   }, 'HuaweiCloud 删除实例失败');
 }
 
+// ===== EIP 申请/释放 =====
+async function huaweiEipSend(
+  opts: HuaweiClientOptions,
+  req: { method: string; url: string; pathParams?: any; data?: any },
+  fallbackMsg: string,
+): Promise<any> {
+  const endpoints = [`https://eip.${opts.region}.myhuaweicloud.com`, `https://vpc.${opts.region}.myhuaweicloud.com`];
+  const credentials = buildBasicCredentials(opts);
+  let lastErr: any = null;
+  for (const ep of endpoints) {
+    try {
+      const http = new DefaultHttpClient(undefined, [ep]);
+      const hc = new HcClient(http);
+      hc.withEndpoints([ep]).withCredential(credentials);
+      return await hc.sendRequest<any>({
+        method: req.method,
+        url: req.url,
+        contentType: 'application/json',
+        queryParams: {},
+        pathParams: req.pathParams || {},
+        headers: {},
+        data: req.data,
+      });
+    } catch (err: any) {
+      lastErr = err;
+      const msg = err?.message || '';
+      if (!msg.includes('ENOTFOUND')) {
+        const code = err?.errorCode || err?.code;
+        throw new Error(code ? `${code}: ${msg || fallbackMsg}` : (msg || fallbackMsg));
+      }
+    }
+  }
+  const code = lastErr?.errorCode || lastErr?.code;
+  throw new Error(code ? `${code}: ${lastErr?.message || fallbackMsg}` : (lastErr?.message || fallbackMsg));
+}
+
+export async function huaweiCreatePublicip(
+  opts: HuaweiClientOptions,
+  payload: { ipType?: string; bandwidthName?: string; bandwidthSize?: number; shareType?: string; chargeMode?: string },
+): Promise<any> {
+  const data: any = {
+    publicip: { type: payload.ipType || '5_bgp' },
+    bandwidth: {
+      name: payload.bandwidthName || `bw-${Date.now()}`,
+      size: Number(payload.bandwidthSize || 5),
+      share_type: payload.shareType || 'PER',
+    },
+  };
+  if (payload.chargeMode) data.bandwidth.charge_mode = payload.chargeMode;
+  return huaweiEipSend(opts, { method: 'POST', url: '/v1/{project_id}/publicips', pathParams: { project_id: opts.projectId }, data }, 'HuaweiCloud 申请EIP失败');
+}
+
+export async function huaweiDeletePublicip(opts: HuaweiClientOptions, publicipId: string): Promise<any> {
+  return huaweiEipSend(opts, { method: 'DELETE', url: '/v1/{project_id}/publicips/{publicip_id}', pathParams: { project_id: opts.projectId, publicip_id: publicipId } }, 'HuaweiCloud 释放EIP失败');
+}
+
 // ===== EVS 云盘写操作 =====
 export async function huaweiCreateVolume(opts: HuaweiClientOptions, volume: any): Promise<any> {
   return huaweiHcSend(opts, buildEvsEndpoint(opts.region), {
