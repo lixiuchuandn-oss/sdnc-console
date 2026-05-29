@@ -212,6 +212,48 @@ export const removeCloudProviderBackendServers = async (cloudId: string, lbId: s
 export const operateCloudProviderListener = async (cloudId: string, lbId: string, port: number, op: 'start' | 'stop' | 'delete', protocol?: string) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/listeners/${port}/${op}`, protocol ? { protocol } : {});
 };
+export const createCloudProviderLoadBalancer = async (
+  cloudId: string,
+  payload: { loadBalancerName?: string; addressType?: string; loadBalancerSpec?: string; payType?: string; vpcId?: string; vSwitchId?: string; masterZoneId?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/loadbalancers`, payload);
+};
+export const deleteCloudProviderLoadBalancer = async (cloudId: string, lbId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}`);
+};
+export const createCloudProviderListener = async (
+  cloudId: string,
+  lbId: string,
+  payload: { protocol: string; listenerPort: number; backendServerPort?: number; bandwidth?: number; serverCertificateId?: string; stickySession?: string; healthCheck?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/listeners`, payload);
+};
+export const fetchCloudProviderLbRules = async (cloudId: string, lbId: string, listenerPort: number) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/rules?listenerPort=${listenerPort}`);
+};
+export const createCloudProviderLbRules = async (
+  cloudId: string,
+  lbId: string,
+  listenerPort: number,
+  rules: Array<{ ruleName?: string; domain?: string; url?: string; vServerGroupId?: string }>,
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/rules`, { listenerPort, rules });
+};
+export const deleteCloudProviderLbRules = async (cloudId: string, lbId: string, ruleIds: string[]) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/rules`, { ruleIds });
+};
+export const fetchCloudProviderServerCertificates = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/server-certificates`);
+};
+export const uploadCloudProviderServerCertificate = async (
+  cloudId: string,
+  payload: { name?: string; serverCertificate: string; privateKey: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/server-certificates`, payload);
+};
+export const deleteCloudProviderServerCertificate = async (cloudId: string, certId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/server-certificates/${encodeURIComponent(certId)}`);
+};
 
 export const fetchCloudProviderNatGateways = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/nat-gateways`);

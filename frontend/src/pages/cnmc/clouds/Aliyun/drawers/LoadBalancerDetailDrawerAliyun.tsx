@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, Input, Table, Space, Tabs, Tag, Modal, Form, Select, Typography } from 'antd';
+import { App, Button, Input, InputNumber, Table, Space, Tabs, Tag, Modal, Form, Select, Typography } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../../../../components/StdSideDrawer';
 import { statusTag } from '../../Hw/components/Common';
@@ -9,6 +9,10 @@ import {
   addCloudProviderBackendServers,
   removeCloudProviderBackendServers,
   operateCloudProviderListener,
+  createCloudProviderListener,
+  fetchCloudProviderServerCertificates,
+  uploadCloudProviderServerCertificate,
+  deleteCloudProviderServerCertificate,
 } from '../../../../../services/aliyunApi';
 
 type Props = {
@@ -29,6 +33,11 @@ const LoadBalancerDetailDrawerAliyun: React.FC<Props> = ({ open, cloudId, slb, e
   const [addOpen, setAddOpen] = useState(false);
   const [addForm] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+  const [listenerOpen, setListenerOpen] = useState(false);
+  const [listenerForm] = Form.useForm();
+  const [certs, setCerts] = useState<any[]>([]);
+  const [certOpen, setCertOpen] = useState(false);
+  const [certForm] = Form.useForm();
 
   const lbId = slb?.LoadBalancerId || slb?.id;
 
@@ -50,7 +59,55 @@ const LoadBalancerDetailDrawerAliyun: React.FC<Props> = ({ open, cloudId, slb, e
     }
   }, [cloudId, lbId, message]);
 
-  useEffect(() => { if (open) load(); }, [open, load]);
+  const loadCerts = useCallback(async () => {
+    if (!cloudId) return;
+    try {
+      const c: any = await fetchCloudProviderServerCertificates(cloudId);
+      setCerts(ensureArr((c?.data?.ServerCertificates?.ServerCertificate) || (c?.ServerCertificates?.ServerCertificate)));
+    } catch { /* ignore */ }
+  }, [cloudId]);
+
+  useEffect(() => { if (open) { load(); loadCerts(); } }, [open, load, loadCerts]);
+
+  const listenerProtocol = Form.useWatch('protocol', listenerForm);
+
+  const submitListener = async () => {
+    try {
+      const v = await listenerForm.validateFields();
+      setSubmitting(true);
+      await createCloudProviderListener(cloudId, lbId, {
+        protocol: v.protocol,
+        listenerPort: v.listenerPort,
+        backendServerPort: v.backendServerPort,
+        bandwidth: v.bandwidth ?? -1,
+        serverCertificateId: v.serverCertificateId,
+      });
+      message.success('创建监听器成功');
+      setListenerOpen(false);
+      await load();
+    } catch (e: any) { if (e?.errorFields) return; message.error(e?.message || '创建监听器失败'); }
+    finally { setSubmitting(false); }
+  };
+
+  const submitCert = async () => {
+    try {
+      const v = await certForm.validateFields();
+      setSubmitting(true);
+      await uploadCloudProviderServerCertificate(cloudId, { name: v.name, serverCertificate: v.serverCertificate, privateKey: v.privateKey });
+      message.success('上传成功');
+      setCertOpen(false);
+      await loadCerts();
+    } catch (e: any) { if (e?.errorFields) return; message.error(e?.message || '上传失败'); }
+    finally { setSubmitting(false); }
+  };
+
+  const delCert = (r: any) => {
+    const certId = r?.ServerCertificateId;
+    Modal.confirm({
+      title: '删除服务器证书?', content: r?.ServerCertificateName || certId, okText: '确认删除', okType: 'danger', cancelText: '取消',
+      onOk: async () => { try { await deleteCloudProviderServerCertificate(cloudId, certId); message.success('删除成功'); await loadCerts(); } catch (e: any) { message.error(e?.message || '删除失败'); } },
+    });
+  };
 
   const listeners = useMemo(() => ensureArr(detail?.ListenerPortsAndProtocol?.ListenerPortAndProtocol), [detail]);
   const backends = useMemo(() => ensureArr(detail?.BackendServers?.BackendServer), [detail]);
@@ -131,7 +188,12 @@ const LoadBalancerDetailDrawerAliyun: React.FC<Props> = ({ open, cloudId, slb, e
           {
             key: 'listeners',
             label: `监听器（${listeners.length}）`,
-            children: (<Table size="small" className="std-table" bordered={false} loading={loading} rowKey={(r: any) => `${r?.ListenerPort}-${r?.ListenerProtocol}`} dataSource={listeners} columns={listenerColumns as any} pagination={false} scroll={{ x: true }} />),
+            children: (
+              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                <Space><Button type="primary" icon={<PlusOutlined />} onClick={() => { listenerForm.resetFields(); listenerForm.setFieldsValue({ protocol: 'tcp', bandwidth: -1 }); setListenerOpen(true); }}>创建监听器</Button></Space>
+                <Table size="small" className="std-table" bordered={false} loading={loading} rowKey={(r: any) => `${r?.ListenerPort}-${r?.ListenerProtocol}`} dataSource={listeners} columns={listenerColumns as any} pagination={false} scroll={{ x: true }} />
+              </Space>
+            ),
           },
           {
             key: 'backends',
@@ -143,8 +205,62 @@ const LoadBalancerDetailDrawerAliyun: React.FC<Props> = ({ open, cloudId, slb, e
               </Space>
             ),
           },
+          {
+            key: 'certs',
+            label: `服务器证书（${certs.length}）`,
+            children: (
+              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                <Space><Button type="primary" icon={<PlusOutlined />} onClick={() => { certForm.resetFields(); setCertOpen(true); }}>上传证书</Button></Space>
+                <Table
+                  size="small" className="std-table" bordered={false} rowKey={(r: any) => r?.ServerCertificateId}
+                  dataSource={certs} pagination={false} scroll={{ x: true }}
+                  columns={[
+                    { title: '名称', dataIndex: 'ServerCertificateName', key: 'name', render: (v: any) => v || '-' },
+                    { title: '证书 ID', dataIndex: 'ServerCertificateId', key: 'id', render: (v: any) => <Typography.Text copyable={{ text: v }}>{v}</Typography.Text> },
+                    { title: '指纹', dataIndex: 'Fingerprint', key: 'fp', render: (v: any) => v || '-' },
+                    { title: '到期时间', dataIndex: 'ExpireTime', key: 'exp', render: (v: any) => v || '-' },
+                    { title: '操作', key: 'op', width: 80, render: (_: any, r: any) => <Button size="small" type="link" danger onClick={() => delCert(r)}>删除</Button> },
+                  ] as any}
+                />
+              </Space>
+            ),
+          },
         ]}
       />
+
+      <Modal title="创建监听器" open={listenerOpen} onCancel={() => setListenerOpen(false)} onOk={submitListener} confirmLoading={submitting} okText="创建" cancelText="取消" destroyOnClose>
+        <Form form={listenerForm} layout="vertical">
+          <Form.Item name="protocol" label="协议" rules={[{ required: true }]}>
+            <Select options={[{ label: 'TCP', value: 'tcp' }, { label: 'UDP', value: 'udp' }, { label: 'HTTP', value: 'http' }, { label: 'HTTPS', value: 'https' }]} />
+          </Form.Item>
+          <Form.Item name="listenerPort" label="监听端口" rules={[{ required: true, message: '请输入监听端口' }]}>
+            <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="backendServerPort" label="后端端口" rules={[{ required: true, message: '请输入后端端口' }]}>
+            <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="bandwidth" label="带宽峰值 (Mbps，-1 不限制)">
+            <InputNumber min={-1} max={5120} style={{ width: '100%' }} />
+          </Form.Item>
+          {listenerProtocol === 'https' && (
+            <Form.Item name="serverCertificateId" label="服务器证书" rules={[{ required: true, message: 'HTTPS 需选择证书' }]}>
+              <Select showSearch optionFilterProp="label" placeholder={certs.length ? '请选择证书' : '暂无证书，请先在「服务器证书」上传'} options={certs.map((c: any) => ({ label: c?.ServerCertificateName || c?.ServerCertificateId, value: c?.ServerCertificateId }))} />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
+
+      <Modal title="上传服务器证书" open={certOpen} onCancel={() => setCertOpen(false)} onOk={submitCert} confirmLoading={submitting} okText="上传" cancelText="取消" width={620} destroyOnClose>
+        <Form form={certForm} layout="vertical">
+          <Form.Item name="name" label="证书名称"><Input placeholder="选填" allowClear /></Form.Item>
+          <Form.Item name="serverCertificate" label="证书内容 (PEM)" rules={[{ required: true, message: '请粘贴证书内容' }]}>
+            <Input.TextArea rows={5} placeholder="-----BEGIN CERTIFICATE-----" />
+          </Form.Item>
+          <Form.Item name="privateKey" label="私钥 (PEM)" rules={[{ required: true, message: '请粘贴私钥' }]}>
+            <Input.TextArea rows={5} placeholder="-----BEGIN RSA PRIVATE KEY-----" />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal title="添加后端服务器" open={addOpen} onCancel={() => setAddOpen(false)} onOk={submitAdd} confirmLoading={submitting} okText="添加" cancelText="取消" destroyOnClose>
         <Form form={addForm} layout="vertical">

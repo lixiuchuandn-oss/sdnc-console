@@ -1691,6 +1691,312 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     },
   );
 
+  // 创建 SLB 实例 CreateLoadBalancer
+  router.post(
+    '/:id/resources/loadbalancers',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const b = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const extraParams: Record<string, any> = {
+          AddressType: b.addressType || 'intranet',
+          PayType: b.payType || 'PayOnDemand',
+          LoadBalancerSpec: b.loadBalancerSpec || 'slb.s1.small',
+        };
+        if (b.loadBalancerName) extraParams.LoadBalancerName = b.loadBalancerName;
+        if (b.vpcId) extraParams.VpcId = b.vpcId;
+        if (b.vSwitchId) extraParams.VSwitchId = b.vSwitchId;
+        if (b.masterZoneId) extraParams.MasterZoneId = b.masterZoneId;
+        const result = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateLoadBalancer',
+          extraParams,
+        } as any);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建负载均衡失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 SLB 实例 DeleteLoadBalancer
+  router.delete(
+    '/:id/resources/loadbalancers/:lbId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, lbId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const result = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteLoadBalancer',
+          extraParams: { LoadBalancerId: lbId },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除负载均衡失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 SLB 监听器（按协议分发，创建后自动启动）
+  router.post(
+    '/:id/resources/loadbalancers/:lbId/listeners',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, lbId } = req.params;
+        const b = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const protocol = String(b.protocol || '').toLowerCase();
+        const listenerPort = Number(b.listenerPort);
+        const backendServerPort = Number(b.backendServerPort || b.listenerPort);
+        if (!protocol || !listenerPort) return res.status(400).json({ message: '缺少 protocol 或 listenerPort' });
+        const actionMap: Record<string, string> = {
+          tcp: 'CreateLoadBalancerTCPListener',
+          udp: 'CreateLoadBalancerUDPListener',
+          http: 'CreateLoadBalancerHTTPListener',
+          https: 'CreateLoadBalancerHTTPSListener',
+        };
+        const action = actionMap[protocol];
+        if (!action) return res.status(400).json({ message: '不支持的协议' });
+        const extraParams: Record<string, any> = {
+          LoadBalancerId: lbId,
+          ListenerPort: listenerPort,
+          BackendServerPort: backendServerPort,
+          Bandwidth: Number(b.bandwidth ?? -1),
+        };
+        if (protocol === 'http' || protocol === 'https') {
+          extraParams.StickySession = b.stickySession || 'off';
+          extraParams.HealthCheck = b.healthCheck || 'on';
+        }
+        if (protocol === 'https') {
+          if (!b.serverCertificateId) return res.status(400).json({ message: 'HTTPS 监听器需 serverCertificateId' });
+          extraParams.ServerCertificateId = b.serverCertificateId;
+        }
+        await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action,
+          extraParams,
+        } as any);
+        // 创建后启动监听器使其生效
+        await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'StartLoadBalancerListener',
+          extraParams: { LoadBalancerId: lbId, ListenerPort: listenerPort, ListenerProtocol: protocol },
+        } as any).catch(() => undefined);
+        res.json({ message: '创建监听器成功' });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建监听器失败', error: error.message });
+      }
+    },
+  );
+
+  // SLB 转发规则列表 DescribeRules（HTTP/HTTPS）
+  router.get(
+    '/:id/resources/loadbalancers/:lbId/rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, lbId } = req.params;
+        const { listenerPort } = (req.query || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!listenerPort) return res.status(400).json({ message: '缺少 listenerPort' });
+        const data = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeRules',
+          extraParams: { LoadBalancerId: lbId, ListenerPort: Number(listenerPort) },
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询转发规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 SLB 转发规则 CreateRules
+  router.post(
+    '/:id/resources/loadbalancers/:lbId/rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, lbId } = req.params;
+        const { listenerPort, rules } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const arr = Array.isArray(rules) ? rules : [];
+        if (!listenerPort || arr.length === 0) return res.status(400).json({ message: '缺少 listenerPort 或规则列表' });
+        const ruleList = arr.map((r: any) => ({
+          RuleName: r?.ruleName,
+          Domain: r?.domain,
+          Url: r?.url,
+          VServerGroupId: r?.vServerGroupId,
+        }));
+        const result = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'CreateRules',
+          extraParams: { LoadBalancerId: lbId, ListenerPort: Number(listenerPort), RuleList: JSON.stringify(ruleList) },
+        } as any);
+        res.json({ message: '创建成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建转发规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 SLB 转发规则 DeleteRules
+  router.delete(
+    '/:id/resources/loadbalancers/:lbId/rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, lbId } = req.params;
+        const { ruleIds } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const ids = Array.isArray(ruleIds) ? ruleIds : [];
+        if (ids.length === 0) return res.status(400).json({ message: '缺少规则 ID 列表' });
+        const result = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteRules',
+          extraParams: { LoadBalancerId: lbId, RuleIds: JSON.stringify(ids) },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除转发规则失败', error: error.message });
+      }
+    },
+  );
+
+  // SLB 服务器证书列表 DescribeServerCertificates
+  router.get(
+    '/:id/resources/server-certificates',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const data = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DescribeServerCertificates',
+          extraParams: {},
+        } as any);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询服务器证书失败', error: error.message });
+      }
+    },
+  );
+
+  // 上传 SLB 服务器证书 UploadServerCertificate
+  router.post(
+    '/:id/resources/server-certificates',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { name, serverCertificate, privateKey } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!serverCertificate || !privateKey) return res.status(400).json({ message: '缺少证书内容或私钥' });
+        const extraParams: Record<string, any> = { ServerCertificate: serverCertificate, PrivateKey: privateKey };
+        if (name) extraParams.ServerCertificateName = name;
+        const result = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'UploadServerCertificate',
+          extraParams,
+        } as any);
+        res.json({ message: '上传成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '上传证书失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 SLB 服务器证书 DeleteServerCertificate
+  router.delete(
+    '/:id/resources/server-certificates/:certId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, certId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const result = await callAliyunSlb({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'DeleteServerCertificate',
+          extraParams: { ServerCertificateId: certId },
+        } as any);
+        res.json({ message: '删除成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除证书失败', error: error.message });
+      }
+    },
+  );
+
   // NAT Gateways
   router.get(
     '/:id/resources/nat-gateways',
