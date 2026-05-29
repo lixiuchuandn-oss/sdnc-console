@@ -8,6 +8,7 @@ import MaasDashboardEventsCard from '../components/dashboard/MaasDashboardEvents
 import MaasDashboardMachineStatusCard from '../components/dashboard/MaasDashboardMachineStatusCard';
 import MaasDashboardMetricRow from '../components/dashboard/MaasDashboardMetricRow';
 import MaasDashboardPoolConfigCard from '../components/dashboard/MaasDashboardPoolConfigCard';
+import { MaasToolbarRefresh } from '../lib/maasToolbar';
 import { useMaasDashboard } from '../hooks/useMaasDashboard';
 import {
   MAAS_CONFIG_SECTION_ID,
@@ -45,8 +46,13 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
   return (
     <PageDetailSection
       asCard={false}
-      onRefresh={() => void load()}
-      refreshLoading={loading}
+      showHeaderTitle
+      title={data?.region?.name || cloud?.name || '资源概览'}
+      extra={
+        <div className="toolbar-actions">
+          <MaasToolbarRefresh loading={loading} onRefresh={() => void load()} />
+        </div>
+      }
     >
       {error ? (
         <Alert
