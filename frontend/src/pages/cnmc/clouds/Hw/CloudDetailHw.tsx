@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Tag, Card, Descriptions, Row, Col, Statistic, App, Divider } from 'antd';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { HomeOutlined, CloudUploadOutlined, DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
+import { DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
+import { normalizeHwPoolTabParam, type HwPoolTabKey } from '../../../../layouts/admin/hw/hwPoolSidebar';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
 import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics } from '../../../../services/huaweiApi';
 import VpcCreateModal from './modals/VpcCreateModal';
@@ -40,8 +41,8 @@ import EipManageModal from './modals/EipManageModal';
 
 const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const { message } = App.useApp();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = normalizeHwPoolTabParam(searchParams.get('tab'));
   const [cloud, setCloud] = useState<any | null>(null);
   const [vpcs, setVpcs] = useState<any[]>([]);
   const [subnets, setSubnets] = useState<any[]>([]);
@@ -223,49 +224,37 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (cloudId) loadAll(); }, [cloudId]);
 
-  return (
-    <PageDetailContainer
-      breadcrumbs={[
-        { title: <HomeOutlined />, href: '/' },
-        { title: '资源池管理' },
-        { title: '资源池管理', href: '/admin/clouds' },
-        { title: `华为云 ${cloud?.name || '-'}` }
-      ]}
-      icon={<CloudUploadOutlined />}
-      title={`华为云 ${cloud?.name || '-'}`}
-      titleLevel={3}
-      onBack={() => navigate('/admin/clouds')}
-      backTooltip="返回列表"
-      moreMenuItems={[
-        { key: 'refresh', label: '刷新' },
-      ]}
-      onMoreMenuClick={({ key }) => { if (key === 'refresh') loadAll(); }}
-      asCard={false}
-      subtitle="集中展示云资源池信息，提供多种资源类型的生命周期管理能力"
-      overviewContent={(
-        <Descriptions bordered size="small" column={4}>
-          <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源供应商">{(cloud?.config?.provider === 'huaweicloud' ? '华为云' : (cloud?.config?.provider || cloud?.type || '-'))}</Descriptions.Item>
-          <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源状态">
-            {cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}
-          </Descriptions.Item>
-          <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
-          <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
-          <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
-          <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
-        </Descriptions>
-      )}
-      defaultActiveTabKey={(location.state as any)?.tabKey || 'overview'}
-      tabs={[
+  useEffect(() => {
+    if (!searchParams.get('tab')) {
+      setSearchParams({ tab: 'overview' }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const hwDescriptions = (
+    <Descriptions bordered size="small" column={4} style={{ marginBottom: 16 }}>
+      <Descriptions.Item label="资源名称">{cloud?.name || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源供应商">{(cloud?.config?.provider === 'huaweicloud' ? '华为云' : (cloud?.config?.provider || cloud?.type || '-'))}</Descriptions.Item>
+      <Descriptions.Item label="资源地域">{cloud?.region || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源类型">{cloud?.type || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源状态">
+        {cloud?.status === 'online' ? <Tag color="green">在线</Tag> : cloud?.status === 'maintenance' ? <Tag color="orange">维护</Tag> : cloud?.status === 'offline' ? <Tag color="red">离线</Tag> : <Tag>未知</Tag>}
+      </Descriptions.Item>
+      <Descriptions.Item label="Endpoint">{cloud?.endpoint || '-'}</Descriptions.Item>
+      <Descriptions.Item label="项目ID">{cloud?.config?.projectId || '-'}</Descriptions.Item>
+      <Descriptions.Item label="资源ID">{cloud?.id || '-'}</Descriptions.Item>
+      <Descriptions.Item label="创建时间">{cloud?.createdAt || '-'}</Descriptions.Item>
+      <Descriptions.Item label="更新时间">{cloud?.updatedAt || '-'}</Descriptions.Item>
+    </Descriptions>
+  );
+
+  const tabDefs: Array<{ key: HwPoolTabKey; label?: React.ReactNode; icon?: React.ReactNode; count?: number; children: React.ReactNode }> = [
         {
           key: 'overview',
           label: '资源总览',
           icon: <DashboardOutlined />,
           children: (
             <>
+              {hwDescriptions}
               <Row gutter={[16, 16]}>
                 <Col xs={24} sm={12} md={6}>
                   <Card size="small" style={{ borderRadius: 8, border: '1px solid #f0f0f0' }}>
@@ -523,8 +512,13 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             <MonitorAlarmSection cloudId={cloudId} ecs={ecs} />
           )
         },
-      ]}
-    >
+  ];
+
+  const activeTab = tabDefs.find((t) => t.key === tab) || tabDefs[0];
+
+  return (
+    <PageDetailContainer hideHeader asCard={false}>
+      {activeTab.children}
 
       <SecurityGroupCreateModal
         open={sgCreateOpen}

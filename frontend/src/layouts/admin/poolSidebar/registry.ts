@@ -10,6 +10,8 @@ import { rancherClusterPoolSidebarSpec } from '../rancher/rancherClusterSidebar'
 import { csmPoolSidebarSpec } from '../csm/csmPoolSidebar';
 import { xinferencePoolSidebarSpec } from '../xinference/xinferencePoolSidebar';
 import { maasPoolSidebarSpec } from '../maas/maasPoolSidebar';
+import { hwPoolSidebarSpec } from '../hw/hwPoolSidebar';
+import { aliyunPoolSidebarSpec } from '../aliyun/aliyunPoolSidebar';
 import { cloudmapPoolSidebarSpec } from '../cloudmap/cloudPoolSidebar';
 
 /** 解析结果：命中的 spec 与其池上下文。 */
@@ -47,6 +49,8 @@ export const poolSidebarRegistry: readonly PoolSidebarSpec[] = [
   csmPoolSidebarSpec,
   xinferencePoolSidebarSpec,
   maasPoolSidebarSpec,
+  hwPoolSidebarSpec,
+  aliyunPoolSidebarSpec,
   cloudmapPoolSidebarSpec,
 ];
 

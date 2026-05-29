@@ -63,6 +63,18 @@ export function isXinferencePoolCloud(cloud: { config?: { provider?: string }; t
   return pv === 'xinference';
 }
 
+/** 华为云资源池（config.provider/type 含 `huawei`，与 `inferPoolRouteKind` 语义一致） */
+export function isHuaweiPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const raw = String(cloud?.config?.provider ?? cloud?.type ?? '').toLowerCase().trim();
+  return raw.includes('huawei');
+}
+
+/** 阿里云资源池（config.provider/type 含 `aliyun`，与 `inferPoolRouteKind` 语义一致） */
+export function isAliyunPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const raw = String(cloud?.config?.provider ?? cloud?.type ?? '').toLowerCase().trim();
+  return raw.includes('aliyun');
+}
+
 /** MAAS 裸金属资源池（type=bare_metal + config.provider=maas） */
 export function isMaasPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
   const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();

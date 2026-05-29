@@ -51,6 +51,10 @@ export function buildPoolEntryPath(cloud: Record<string, any>): string {
     if (k.slug === 'maas') {
       return `/admin/clouds/vendor/maas/${id}?tab=dashboard`;
     }
+    // 华为 / 阿里云：进入即落在「资源总览」tab，由左侧上下文侧栏驱动子页
+    if (k.slug === 'huawei' || k.slug === 'aliyun') {
+      return `/admin/clouds/vendor/${k.slug}/${id}?tab=overview`;
+    }
     return `/admin/clouds/vendor/${k.slug}/${id}`;
   }
   if (k.kind === 'cloudmap-csm') return `/admin/security/traffic/csm-pools/${id}`;
