@@ -50,8 +50,16 @@ const NetworkSection: React.FC<Props> = ({ poolId }) => {
       render: (_, r) => String(r.name ?? r.id ?? '—'),
     },
     { title: 'CIDR', key: 'cidr', render: (_, r) => String(r.cidr ?? '—') },
-    { title: 'VLAN', key: 'vlan', render: (_, r) => String(r.vlan ?? r.vid ?? '—') },
-    { title: 'Fabric', key: 'fabric', render: (_, r) => String(r.fabric ?? r.fabric_id ?? '—') },
+    {
+      title: 'VLAN',
+      key: 'vlan',
+      render: (_, r) => String(r.vlan ?? r.vid ?? '—'),
+    },
+    {
+      title: 'Fabric',
+      key: 'fabric',
+      render: (_, r) => String(r.fabric ?? r.fabric_id ?? '—'),
+    },
   ];
 
   const vlanColumns: ColumnsType<Record<string, unknown>> = [
@@ -63,7 +71,11 @@ const NetworkSection: React.FC<Props> = ({ poolId }) => {
     },
     { title: '名称', key: 'name', render: (_, r) => String(r.name ?? '—') },
     { title: 'VID', key: 'vid', render: (_, r) => String(r.vid ?? '—') },
-    { title: 'Fabric', key: 'fabric', render: (_, r) => String(r.fabric ?? '—') },
+    {
+      title: 'Fabric',
+      key: 'fabric',
+      render: (_, r) => String(r.fabric ?? '—'),
+    },
   ];
 
   const segmentedOptions = useMemo(
@@ -92,7 +104,14 @@ const NetworkSection: React.FC<Props> = ({ poolId }) => {
         </div>
       }
     >
-      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
+      {error ? (
+        <Alert
+          type="error"
+          showIcon
+          message={error}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
       <Table
         className="std-table"
         bordered={false}

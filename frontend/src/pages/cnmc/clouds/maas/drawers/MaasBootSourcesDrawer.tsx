@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { PlusOutlined } from "@ant-design/icons";
+import React, { useCallback, useEffect, useState } from 'react';
+import { PlusOutlined } from '@ant-design/icons';
 import {
   Alert,
   Button,
@@ -15,15 +15,15 @@ import {
   Tag,
   Typography,
   message,
-} from "antd";
-import type { ColumnsType } from "antd/es/table";
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
   createMaasBootSourceSelection,
   deleteMaasBootSourceSelection,
   fetchMaasBootSources,
   type MaasBootSource,
   type MaasBootSourceSelection,
-} from "../../../../../services/maasApi";
+} from '../../../../../services/maasApi';
 
 type Props = {
   poolId: string;
@@ -33,7 +33,7 @@ type Props = {
   onChanged?: () => void;
 };
 
-const OS_OPTIONS = ["ubuntu", "centos", "rhel"].map((v) => ({
+const OS_OPTIONS = ['ubuntu', 'centos', 'rhel'].map((v) => ({
   value: v,
   label: v,
 }));
@@ -58,12 +58,12 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
     try {
       const res = await fetchMaasBootSources(poolId, { skipCache: true });
       if (!res?.ok) {
-        setError(res?.message || "拉取镜像源失败");
+        setError(res?.message || '拉取镜像源失败');
         return;
       }
       setSources(Array.isArray(res.items) ? res.items : []);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "拉取镜像源失败");
+      setError(e instanceof Error ? e.message : '拉取镜像源失败');
     } finally {
       setLoading(false);
     }
@@ -76,9 +76,9 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
   const handleDelete = useCallback(
     (sourceId: string | number, sel: MaasBootSourceSelection) => {
       Modal.confirm({
-        title: "删除镜像源选择",
-        content: `删除 ${sel.os}/${sel.release}（${sel.arches.join(", ") || "*"}）？同步时将不再下载该项。`,
-        okText: "删除",
+        title: '删除镜像源选择',
+        content: `删除 ${sel.os}/${sel.release}（${sel.arches.join(', ') || '*'}）？同步时将不再下载该项。`,
+        okText: '删除',
         okButtonProps: { danger: true },
         onOk: async () => {
           try {
@@ -88,14 +88,14 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
               sel.id,
             );
             if (!res?.ok) {
-              message.error(res?.message || "删除失败");
+              message.error(res?.message || '删除失败');
               return;
             }
-            message.success(res.message || "已删除");
+            message.success(res.message || '已删除');
             onChanged?.();
             await load();
           } catch (e: unknown) {
-            message.error(e instanceof Error ? e.message : "删除失败");
+            message.error(e instanceof Error ? e.message : '删除失败');
           }
         },
       });
@@ -116,17 +116,17 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
         labels: v.labels,
       });
       if (!res?.ok) {
-        message.error(res?.message || "新增失败");
+        message.error(res?.message || '新增失败');
         return;
       }
-      message.success(res.message || "已新增");
+      message.success(res.message || '已新增');
       setAddSourceId(null);
       form.resetFields();
       onChanged?.();
       await load();
     } catch (e) {
-      if (e && typeof e === "object" && "errorFields" in e) return;
-      message.error(e instanceof Error ? e.message : "新增失败");
+      if (e && typeof e === 'object' && 'errorFields' in e) return;
+      message.error(e instanceof Error ? e.message : '新增失败');
     } finally {
       setSubmitting(false);
     }
@@ -135,11 +135,11 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
   const buildColumns = (
     sourceId: string | number,
   ): ColumnsType<MaasBootSourceSelection> => [
-    { title: "操作系统", dataIndex: "os", key: "os", fixed: "left" },
-    { title: "版本", dataIndex: "release", key: "release" },
+    { title: '操作系统', dataIndex: 'os', key: 'os', fixed: 'left' },
+    { title: '版本', dataIndex: 'release', key: 'release' },
     {
-      title: "架构",
-      key: "arches",
+      title: '架构',
+      key: 'arches',
       render: (_, r) =>
         r.arches.length ? (
           r.arches.map((a) => <Tag key={a}>{a}</Tag>)
@@ -148,19 +148,19 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
         ),
     },
     {
-      title: "子架构",
-      key: "subarches",
-      render: (_, r) => r.subarches.join(", ") || "*",
+      title: '子架构',
+      key: 'subarches',
+      render: (_, r) => r.subarches.join(', ') || '*',
     },
     {
-      title: "标签",
-      key: "labels",
-      render: (_, r) => r.labels.join(", ") || "*",
+      title: '标签',
+      key: 'labels',
+      render: (_, r) => r.labels.join(', ') || '*',
     },
     {
-      title: "操作",
-      key: "actions",
-      fixed: "right",
+      title: '操作',
+      key: 'actions',
+      fixed: 'right',
       render: (_, r) => (
         <Button
           type="link"
@@ -204,8 +204,8 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
             <div key={String(s.id)} style={{ marginBottom: 24 }}>
               <Space
                 style={{
-                  width: "100%",
-                  justifyContent: "space-between",
+                  width: '100%',
+                  justifyContent: 'space-between',
                   marginBottom: 8,
                 }}
                 align="start"
@@ -220,7 +220,7 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
                       copyable
                       style={{ fontSize: 12 }}
                     >
-                      {s.url || "—"}
+                      {s.url || '—'}
                     </Typography.Text>
                   </div>
                 </div>
@@ -230,9 +230,9 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
                   onClick={() => {
                     setAddSourceId(s.id);
                     form.setFieldsValue({
-                      os: "ubuntu",
+                      os: 'ubuntu',
                       release: undefined,
-                      arches: ["amd64"],
+                      arches: ['amd64'],
                       subarches: undefined,
                       labels: undefined,
                     });
@@ -249,7 +249,7 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
                 dataSource={s.selections}
                 pagination={false}
                 scroll={{ x: true }}
-                locale={{ emptyText: "该源暂无同步项" }}
+                locale={{ emptyText: '该源暂无同步项' }}
               />
             </div>
           ))
@@ -268,7 +268,7 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
           <Form.Item
             name="os"
             label="操作系统"
-            rules={[{ required: true, message: "请填写操作系统" }]}
+            rules={[{ required: true, message: '请填写操作系统' }]}
           >
             <Select
               showSearch
@@ -280,14 +280,14 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
           <Form.Item
             name="release"
             label="版本（release）"
-            rules={[{ required: true, message: "请填写版本" }]}
+            rules={[{ required: true, message: '请填写版本' }]}
           >
             <Input placeholder="如 jammy、focal、22.04" />
           </Form.Item>
           <Form.Item name="arches" label="架构（留空表示全部）">
             <Select
               mode="tags"
-              tokenSeparators={[",", " "]}
+              tokenSeparators={[',', ' ']}
               placeholder="如 amd64，回车确认"
               open={false}
             />
@@ -295,7 +295,7 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
           <Form.Item name="subarches" label="子架构（可选）">
             <Select
               mode="tags"
-              tokenSeparators={[",", " "]}
+              tokenSeparators={[',', ' ']}
               placeholder="留空表示全部（*）"
               open={false}
             />
@@ -303,7 +303,7 @@ const MaasBootSourcesDrawer: React.FC<Props> = ({
           <Form.Item name="labels" label="标签（可选）">
             <Select
               mode="tags"
-              tokenSeparators={[",", " "]}
+              tokenSeparators={[',', ' ']}
               placeholder="如 release、daily，留空表示全部"
               open={false}
             />

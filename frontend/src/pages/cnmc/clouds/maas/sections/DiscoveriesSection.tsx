@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { SearchOutlined } from "@ant-design/icons";
-import { Alert, Button, Input, Table } from "antd";
-import type { ColumnsType } from "antd/es/table";
-import PageDetailSection from "../../../../../components/PageDetailSection";
-import { fetchMaasDiscoveries } from "../../../../../services/maasApi";
-import { MAAS_LIST_TABLE_PAGINATION } from "../lib/maasTablePagination";
-import { MaasToolbarRefresh } from "../lib/maasToolbar";
-import MaasMachineCreateModal from "../modals/MaasMachineCreateModal";
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { SearchOutlined } from '@ant-design/icons';
+import { Alert, Button, Input, Table } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import PageDetailSection from '../../../../../components/PageDetailSection';
+import { fetchMaasDiscoveries } from '../../../../../services/maasApi';
+import { MAAS_LIST_TABLE_PAGINATION } from '../lib/maasTablePagination';
+import { MaasToolbarRefresh } from '../lib/maasToolbar';
+import MaasMachineCreateModal from '../modals/MaasMachineCreateModal';
 
 type Props = {
   poolId: string;
@@ -27,18 +27,18 @@ function normalizeDiscovery(raw: Record<string, unknown>, idx: number): Row {
     String(
       raw.ip ??
         raw.ip_address ??
-        (Array.isArray(raw.ip_addresses) ? raw.ip_addresses[0] : "") ??
-        "",
-    ).trim() || "—";
-  const mac = String(raw.mac ?? raw.mac_address ?? "—").trim() || "—";
+        (Array.isArray(raw.ip_addresses) ? raw.ip_addresses[0] : '') ??
+        '',
+    ).trim() || '—';
+  const mac = String(raw.mac ?? raw.mac_address ?? '—').trim() || '—';
   return {
     key: String(raw.id ?? raw.discovery_id ?? `${mac}-${idx}`),
     ip,
     mac,
-    hostname: String(raw.hostname ?? raw.mdns ?? "").trim(),
-    fabric: String(raw.fabric ?? raw.fabric_name ?? "—"),
-    vlan: String(raw.vid ?? raw.vlan ?? "—"),
-    lastSeen: String(raw.last_seen ?? raw.updated ?? raw.created ?? "—"),
+    hostname: String(raw.hostname ?? raw.mdns ?? '').trim(),
+    fabric: String(raw.fabric ?? raw.fabric_name ?? '—'),
+    vlan: String(raw.vid ?? raw.vlan ?? '—'),
+    lastSeen: String(raw.last_seen ?? raw.updated ?? raw.created ?? '—'),
   };
 }
 
@@ -46,7 +46,7 @@ const DiscoveriesSection: React.FC<Props> = ({ poolId }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
-  const [keyword, setKeyword] = useState("");
+  const [keyword, setKeyword] = useState('');
   const [createInitial, setCreateInitial] = useState<{
     macAddresses?: string[];
     hostname?: string;
@@ -59,7 +59,7 @@ const DiscoveriesSection: React.FC<Props> = ({ poolId }) => {
     try {
       const res = await fetchMaasDiscoveries(poolId, { skipCache: true });
       if (!res?.ok) {
-        setError(res?.message || "拉取网络发现失败");
+        setError(res?.message || '拉取网络发现失败');
         return;
       }
       const items = Array.isArray(res.items) ? res.items : [];
@@ -69,7 +69,7 @@ const DiscoveriesSection: React.FC<Props> = ({ poolId }) => {
         ),
       );
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "拉取网络发现失败");
+      setError(e instanceof Error ? e.message : '拉取网络发现失败');
     } finally {
       setLoading(false);
     }
@@ -91,21 +91,21 @@ const DiscoveriesSection: React.FC<Props> = ({ poolId }) => {
   }, [rows, keyword]);
 
   const columns: ColumnsType<Row> = [
-    { title: "IP", dataIndex: "ip", key: "ip", fixed: "left" },
-    { title: "MAC", dataIndex: "mac", key: "mac" },
+    { title: 'IP', dataIndex: 'ip', key: 'ip', fixed: 'left' },
+    { title: 'MAC', dataIndex: 'mac', key: 'mac' },
     {
-      title: "主机名",
-      dataIndex: "hostname",
-      key: "hostname",
-      render: (v: string) => v || "—",
+      title: '主机名',
+      dataIndex: 'hostname',
+      key: 'hostname',
+      render: (v: string) => v || '—',
     },
-    { title: "Fabric", dataIndex: "fabric", key: "fabric" },
-    { title: "VLAN", dataIndex: "vlan", key: "vlan" },
-    { title: "最近发现", dataIndex: "lastSeen", key: "lastSeen" },
+    { title: 'Fabric', dataIndex: 'fabric', key: 'fabric' },
+    { title: 'VLAN', dataIndex: 'vlan', key: 'vlan' },
+    { title: '最近发现', dataIndex: 'lastSeen', key: 'lastSeen' },
     {
-      title: "操作",
-      key: "actions",
-      fixed: "right",
+      title: '操作',
+      key: 'actions',
+      fixed: 'right',
       render: (_, record) => {
         const validMac = /^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(record.mac);
         return (
@@ -138,14 +138,14 @@ const DiscoveriesSection: React.FC<Props> = ({ poolId }) => {
               allowClear
               className="toolbar-search"
               placeholder="IP / MAC"
-              suffix={<SearchOutlined style={{ color: "rgba(0,0,0,.45)" }} />}
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
             />
             <button
               type="button"
               className="toolbar-reset-btn"
-              onClick={() => setKeyword("")}
+              onClick={() => setKeyword('')}
             >
               重置
             </button>
