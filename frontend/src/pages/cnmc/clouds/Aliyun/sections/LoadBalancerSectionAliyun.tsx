@@ -15,7 +15,7 @@ type LoadBalancerSectionAliyunProps = {
   onOpenDetail: (type: string, title: string, data: any) => void;
 };
 
-const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, subnets, onSetSlbs, onOpenDetail }) => {
+const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, onSetSlbs, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');

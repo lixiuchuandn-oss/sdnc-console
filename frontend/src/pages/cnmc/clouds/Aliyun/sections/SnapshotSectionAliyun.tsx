@@ -162,9 +162,6 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
             items={items}
             onClick={async ({ key }: { key: string }) => {
               if (key === 'detail') { 
-                const name = r?.SnapshotName || r?.name || '-'; 
-                const id = r?.SnapshotId || r?.id || '-'; 
-                
                 Modal.info({
                   title: '快照详情',
                   width: 600,

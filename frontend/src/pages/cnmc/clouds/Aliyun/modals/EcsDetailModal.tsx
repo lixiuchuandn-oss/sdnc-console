@@ -216,7 +216,6 @@ const EcsDetailModal: React.FC<EcsDetailModalProps> = ({ open, onClose, cloudId,
       ) : null}
       tabsItems={(() => {
         const iid = String(instance?.InstanceId || instance?.id || '');
-        const ports:string[] = Array.isArray((instance as any)?.network_interfaces)? (instance as any)!.network_interfaces.map((ni:any)=> ni?.port_id).filter(Boolean) : [];
         const eniList:any[] = (() => {
           const fromApi:any[] = Array.isArray(enis) ? enis : [];
           if (enisFiltered && fromApi.length > 0) return fromApi;

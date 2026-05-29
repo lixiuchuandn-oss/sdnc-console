@@ -296,7 +296,7 @@ const PageContainer = <T extends Record<string, any> = any>({
       })
       .map((c: any) => {
         // 强制移除列宽，符合设计规范 "禁止添加列宽"
-        const { width, ...rest } = c;
+        const { width: _width, ...rest } = c;
         return rest;
       });
   }, [tableProps?.columns, hiddenColumns, externalColumnControl]);

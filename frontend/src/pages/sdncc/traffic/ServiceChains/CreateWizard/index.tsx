@@ -88,7 +88,7 @@ const CreateServiceChainWizard: React.FC = () => {
   const [selectedGroup, setSelectedGroup] = useState<string>('');
 
   // Preview Modal State
-  const [submitPreviewVisible, setSubmitPreviewVisible] = useState(false);
+  const [, setSubmitPreviewVisible] = useState(false);
   const [previewData, setPreviewData] = useState<any>(null);
 
   useEffect(() => {

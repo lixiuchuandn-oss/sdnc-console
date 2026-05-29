@@ -213,37 +213,6 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   useEffect(() => { if (cloudId) loadAll(); }, [cloudId]);
 
-  const renderProtoPort = (r:any) => {
-    const p = String(r?.protocol || '').toLowerCase();
-    const min = r?.port_min;
-    const max = r?.port_max;
-    if (!p || p === 'all') return '全部';
-    if (p === 'icmp') return 'ICMP: 全部';
-    if (min != null && max != null && min === max) return `${p.toUpperCase()}: ${min}`;
-    if (min != null || max != null) return `${p.toUpperCase()}: ${(min ?? '')}-${(max ?? '')}`;
-    return p.toUpperCase();
-  };
-
-  const protoSorter = (a:any, b:any) => {
-    const order = (p:string) => {
-      const x = String(p || '').toLowerCase();
-      if (x === 'all') return 0;
-      if (x === 'icmp') return 1;
-      if (x === 'tcp') return 2;
-      if (x === 'udp') return 3;
-      return 9;
-    };
-    const oa = order(a?.protocol);
-    const ob = order(b?.protocol);
-    if (oa !== ob) return oa - ob;
-    const am = Number(a?.port_min ?? -1);
-    const bm = Number(b?.port_min ?? -1);
-    if (am !== bm) return am - bm;
-    const ax = Number(a?.port_max ?? -1);
-    const bx = Number(b?.port_max ?? -1);
-    return ax - bx;
-  };
-
   const diskColumns = useMemo(() => ([
     { title: '名称', dataIndex: 'name', key: 'name', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.name||'').localeCompare(String(b?.name||'')) },
     { title: 'ID', dataIndex: 'id', key: 'id', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.id||'').localeCompare(String(b?.id||'')) },

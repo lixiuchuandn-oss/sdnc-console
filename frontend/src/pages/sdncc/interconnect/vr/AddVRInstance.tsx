@@ -23,7 +23,7 @@ const AddVRInstance: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  const onFinish = (values: any) => {
+  const onFinish = (_values: any) => {
     setLoading(true);
     // 模拟保存操作
     setTimeout(() => {

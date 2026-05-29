@@ -144,7 +144,6 @@ export function useCenDetailTabs(p: CenDetailTabsContext) {
       refreshDetailAttachments,
       openAttachModal,
       filteredAttachments,
-      domainOfAttachment,
       topologyHeight,
       setTopologyEl,
       setCen,

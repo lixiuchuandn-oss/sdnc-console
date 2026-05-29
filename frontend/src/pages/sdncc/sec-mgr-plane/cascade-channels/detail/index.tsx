@@ -17,7 +17,7 @@ const CenDetailPage: React.FC = () => {
 
   const [loading, setLoading] = useState(false);
   const [cen, setCen] = useState<Cen | undefined>();
-  const [tenants, setTenants] = useState<any[]>([]);
+  const [, setTenants] = useState<any[]>([]);
   const [allDomains, setAllDomains] = useState<SecurityDomainOption[]>([]);
   const [attachments, setAttachments] = useState<any[]>([]);
 

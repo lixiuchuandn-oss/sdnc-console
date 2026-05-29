@@ -369,32 +369,6 @@ const IPsecVPNWizard: React.FC = () => {
     };
   };
 
-  const fetchVR3Interfaces = async (uuid: string) => {
-    try {
-      const method = 'GET';
-      const other = `uuid=${uuid}`;
-      const path = '/V2/ctcontrol/VR3/VRConfig/list';
-      const info = await requestSign(path, method, other, '');
-      const queryUrl = `/api-proxy${path}?${other}`;
-      const resp = await fetch(queryUrl, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json', 'Authorization': info.Authorization, 'tonce': String(info.tonce) },
-      });
-      const raw = await resp.json().catch(async () => ({ raw: await resp.text() }));
-      const unwrapData = (obj: any) => {
-        let cur = obj;
-        while (cur && typeof cur === 'object' && 'data' in cur) cur = (cur as any).data;
-        return cur;
-      };
-      const data = unwrapData(raw);
-
-      return parseVrInterfaces(data);
-    } catch (e) {
-      console.error('Fetch VR3 failed:', e);
-      return null;
-    }
-  };
-
   const prefillFromVrPreset = async (which: 'local' | 'remote', vrUuid: string) => {
     // 立即设置 ID，确保即使获取配置失败，表单也能记录选中状态
     if (which === 'local') {

@@ -50,7 +50,7 @@ const SRv6Page: React.FC = () => {
   ];
   const [healthSteps, setHealthSteps] = useState<HealthStep[]>(initialHealthSteps);
 
-  const getActionMenu = (row: Srv6TunnelRow): MenuProps['items'] => ([
+  const getActionMenu = (_row: Srv6TunnelRow): MenuProps['items'] => ([
     { key: 'topology', label: '查看拓扑' },
     { key: 'update', label: '更新SRv6配置' },
     { key: 'health', label: '健康巡检' },

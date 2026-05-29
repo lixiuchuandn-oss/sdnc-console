@@ -106,7 +106,7 @@ const uuidToObjectIdHex = (uuidStr: string): string => {
 };
 
 // Helper: Parse error response
-const parseErrorResponse = async (response: Response) => {
+const _parseErrorResponse = async (response: Response) => {
     let errorMsg = `HTTP error! status: ${response.status}`;
     let hint: string | undefined;
     try {

@@ -67,7 +67,7 @@ export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, child
 
   const [namespaceList, setNamespaceList] = useState<string[]>([]);
   const [namespaceLoading, setNamespaceLoading] = useState(false);
-  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
+  const [tenantNamespaces] = useState<string[]>([]);
   const [nsFilter, setNsFilter] = useState<string | undefined>();
 
   const loadNamespaces = useCallback(async () => {

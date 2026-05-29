@@ -185,8 +185,6 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       return !hasAssoc && (st === 'available' || st === '' || st === 'idle');
     });
   }, [eips]);
-  const [selEip, setSelEip] = useState<Record<string, string>>({});
-  const [selUnEip, setSelUnEip] = useState<Record<string, string>>({});
   const [bindOpen, setBindOpen] = useState<boolean>(false);
   const [unbindOpen, setUnbindOpen] = useState<boolean>(false);
   const [activeNiId, setActiveNiId] = useState<string>('');

@@ -110,8 +110,6 @@ const EcsInsDetSection: React.FC<EcsInsDetSectionProps> = ({ cloudId, instance, 
   };
 
   const createdAt = formatDate(instance?.CreationTime || instance?.created || instance?.create_time);
-  const updatedAt = formatDate(instance?.Updated || instance?.updated || instance?.update_time || instance?.StartTime || instance?.start_time);
-  
   // Expired Time Logic
   const expiredTimeRaw = instance?.ExpiredTime || '';
   let expiredTimeNode: React.ReactNode = '-';

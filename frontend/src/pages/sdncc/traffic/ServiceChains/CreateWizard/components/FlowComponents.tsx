@@ -284,7 +284,7 @@ export const EndNode = ({ data }: any) => {
 export const ServiceNode = ({ data }: any) => {
   const instanceCount = data.instanceCount || 1;
   
-  const content = (
+  const _content = (
     <div style={{ width: 260 }}>
       <div style={{ 
         padding: '8px 12px', 

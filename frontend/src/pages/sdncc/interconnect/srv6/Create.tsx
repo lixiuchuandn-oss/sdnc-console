@@ -942,7 +942,7 @@ const SRv6CreatePage: React.FC = () => {
   }, [ceConfigs, peConfigs, formValues]);
 
   // 打开 PE 配置弹窗
-  const openPeDialog = (target: 'peA' | 'peB') => {
+  const _openPeDialog = (target: 'peA' | 'peB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
       message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);

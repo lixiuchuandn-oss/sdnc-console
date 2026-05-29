@@ -92,7 +92,7 @@ const StepReview: React.FC<StepReviewProps> = ({
       });
   })();
 
-  const targetsCidrs = (() => {
+  const _targetsCidrs = (() => {
       if (steeringMode === 'direct') {
           const objects = form.getFieldValue('selectedAssetObjects') || [];
           return objects.map((o: any) => String(o.value || o.cidr || '')).filter(Boolean);

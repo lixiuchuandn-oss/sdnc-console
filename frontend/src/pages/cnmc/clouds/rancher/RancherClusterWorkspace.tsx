@@ -101,7 +101,6 @@ export function RancherPoolHomeRedirect({
   providerLabel,
   boundClusterId,
 }: RancherPoolHomeRedirectProps): React.ReactElement {
-  const navigate = useNavigate();
   const [phase, setPhase] = useState<'loading' | 'error' | 'empty'>('loading');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(() =>

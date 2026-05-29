@@ -327,9 +327,6 @@ const PEWizard: React.FC = () => {
     const ipv4RouteTop = Array.isArray((dev as any)?.ipv4_route) ? (dev as any).ipv4_route[0] : undefined;
     const ipv6RouteTop = Array.isArray((dev as any)?.ipv6_route) ? (dev as any).ipv6_route[0] : undefined;
     const wanDevCandidate = ipv4RouteTop?.dev || anyIface?.name;
-    const wanIfaceResolved = wanDevCandidate
-      ? findInterfaceInDevice(dev, String(wanDevCandidate))
-      : undefined;
     const wanDevStr = wanDevCandidate ? String(wanDevCandidate) : '';
     const wanIfVr3 = wanDevStr && vr3Info ? findInterfaceInDevice(vr3Info, wanDevStr) : null;
     const v4Wan = wanIfVr3 ? String(pickIfaceIpv4(wanIfVr3) || '').trim() : '';

@@ -82,7 +82,7 @@ const CloudDesktopUsersPanel: React.FC = () => {
       dataIndex: 'username',
       key: 'username',
       fixed: 'left',
-      render: (v, row) => (
+      render: (v, _row) => (
         <Space>
           <Tag color="purple">云桌面用户</Tag>
           <Typography.Text strong>{v}</Typography.Text>

@@ -13,7 +13,7 @@ type VpcDetailHwProps = {
   onOpenVmDetail: (vm: any) => void;
 };
 
-const VpcDetailHw: React.FC<VpcDetailHwProps> = ({ cloudId, vpc, vpcs, subnets, routeTables, ecs, onOpenVmDetail }) => {
+const VpcDetailHw: React.FC<VpcDetailHwProps> = ({ vpc, subnets, routeTables, ecs, onOpenVmDetail }) => {
   const vpcId = String(vpc?.id || vpc?.VpcId || '');
 
   const subnetColumns = [

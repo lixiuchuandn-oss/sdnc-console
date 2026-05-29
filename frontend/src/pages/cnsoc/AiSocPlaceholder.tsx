@@ -10,7 +10,7 @@ type Props = {
   module: string;
 };
 
-const AiSocPlaceholder: React.FC<Props> = ({ title, module }) => {
+const AiSocPlaceholder: React.FC<Props> = ({ title }) => {
   const navigate = useNavigate();
   // TODO: Fetch configured URL from backend using 'module' key
   // For now, show a placeholder

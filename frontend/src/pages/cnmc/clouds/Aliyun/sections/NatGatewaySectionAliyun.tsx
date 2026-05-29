@@ -16,7 +16,7 @@ type NatGatewaySectionAliyunProps = {
   onOpenDetail: (type: string, title: string, data: any) => void;
 };
 
-const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloudId, natGateways, eips, vpcs, subnets, onSetNatGateways, onOpenDetail }) => {
+const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloudId, natGateways, vpcs, onSetNatGateways, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');

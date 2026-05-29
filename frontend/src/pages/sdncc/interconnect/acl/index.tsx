@@ -263,7 +263,7 @@ const ACLPage: React.FC = () => {
       } else {
         const gid = String((values as any).groupId || '').trim();
         if (!gid) throw new Error('请选择所属 ACL 组');
-        const { groupId, ...rest } = values as any;
+        const { groupId: _groupId, ...rest } = values as any;
         await addACLRuleToGroup(gid, rest);
       }
       

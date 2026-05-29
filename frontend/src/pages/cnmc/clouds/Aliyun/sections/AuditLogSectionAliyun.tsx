@@ -2,7 +2,7 @@ import React from 'react';
 import { Table } from 'antd';
 import { FileSearchOutlined } from '@ant-design/icons';
 type Props = { cloudId: string; instance: any; events?: any[]; };
-const AuditLogSectionAliyun: React.FC<Props> = ({ cloudId, instance, events }) => {
+const AuditLogSectionAliyun: React.FC<Props> = ({ events }) => {
   const data = Array.isArray(events) ? events : [];
   return (
     <Table

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { App, Alert, Button, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
+import { Alert, Button, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
 import { CloudUploadOutlined, DashboardOutlined, HomeOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { useNavigate } from 'react-router-dom';
@@ -29,7 +29,6 @@ type CloudDetailAliyunProps = {
 
 const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const navigate = useNavigate();
-  const { message } = App.useApp();
   const [error, setError] = useState<string>('');
   const [cloud, setCloud] = useState<any>(null);
   const [ecs, setEcs] = useState<any[]>([]);

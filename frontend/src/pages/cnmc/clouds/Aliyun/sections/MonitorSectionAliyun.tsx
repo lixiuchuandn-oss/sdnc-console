@@ -4,7 +4,7 @@ import { ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import { fetchAliyunEcsMetrics } from '../../../../../services/aliyunApi';
 type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: (force?: boolean) => void | Promise<void>; };
-const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics, onRefresh }) => {
+const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, onRefresh }) => {
   const iid = String(instance?.InstanceId || instance?.id || '');
   const [loading, setLoading] = useState<boolean>(false);
   const [seriesMap, setSeriesMap] = useState<Record<string, any[]>>({});

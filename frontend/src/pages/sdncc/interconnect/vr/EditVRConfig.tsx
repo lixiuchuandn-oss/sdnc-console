@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, Space, message, Collapse, Switch, Card, Row, Col, Tag } from 'antd';
 import { SaveOutlined, SendOutlined, ArrowLeftOutlined, CopyOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -549,23 +549,6 @@ const EditVRConfig: React.FC = () => {
       return null;
     }
   };
-
-  const mergedConfig = useMemo(() => {
-    const out: any = {};
-    (SECTION_DEFS.map((d) => d.key) as SectionKey[]).forEach((key) => {
-      if (!enabledSections[key]) return; // 未启用则不参与合并
-      try {
-        const v = sections[key];
-        if (v && v.trim().length > 0) {
-          out[key] = JSON.parse(v);
-        }
-      } catch {
-        // 有错误时，合并预览保持已解析部分，错误在保存时提示
-      }
-    });
-    if (uuid) out.uuid = uuid;
-    return out;
-  }, [sections, enabledSections, uuid]);
 
   // 折叠分组定义
   const GROUPS: { title: string; keys: SectionKey[] }[] = [
