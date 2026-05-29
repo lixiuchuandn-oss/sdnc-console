@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Alert, Card, Col, Row, Skeleton, Typography } from 'antd';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import { maasPoolPathForTab } from '../../../../../layouts/admin/maas/maasPoolSidebar';
-import MaasDashboardClusterBar from '../components/dashboard/MaasDashboardClusterBar';
 import MaasDashboardControllersBlock from '../components/dashboard/MaasDashboardControllersBlock';
 import MaasDashboardEventsCard from '../components/dashboard/MaasDashboardEventsCard';
 import MaasDashboardMachineStatusCard from '../components/dashboard/MaasDashboardMachineStatusCard';
@@ -44,7 +43,11 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
   );
 
   return (
-    <PageDetailSection asCard={false}>
+    <PageDetailSection
+      asCard={false}
+      onRefresh={() => void load()}
+      refreshLoading={loading}
+    >
       {error ? (
         <Alert
           type="error"
@@ -75,14 +78,6 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
       ) : null}
       {loading && !data ? (
         <div>
-          <Card
-            size="small"
-            className="overview-card"
-            style={{ marginBottom: 16 }}
-            styles={{ body: { padding: '14px 16px' } }}
-          >
-            <Skeleton.Button active style={{ width: 320, height: 22 }} />
-          </Card>
           <Row gutter={[16, 16]}>
             {Array.from({ length: 8 }).map((_, i) => (
               <Col key={i} xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
@@ -110,13 +105,6 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
         </div>
       ) : (
         <>
-          <MaasDashboardClusterBar
-            data={data}
-            cloud={cloud}
-            loading={loading}
-            connected={connected}
-            onRefresh={() => void load()}
-          />
           <MaasDashboardMetricRow
             data={data}
             connected={connected}
