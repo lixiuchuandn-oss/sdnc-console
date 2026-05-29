@@ -626,3 +626,38 @@ const addRule = useCallback(() => {
 5. **补丁**： 前端使用 `patch-package` 修复第三方库问题（novnc、zrender）
 6. **代码规范**： 使用 Husky + lint-staged 进行提交前代码检查
 7. **Cloudmap 网络拓扑**：物理网络拓扑仅在 Cloudmap「资源总览 → 网络拓扑」提供（`Harvester/hsm/`）；物理网络（ProviderNetwork）**详情抽屉不含拓扑 Tab**。子网详情中的「子网 → 虚拟机」拓扑复用 `hsm/lib/networkTopology/kubeOvnTopoPrimitives.tsx` 与 Kube-OVN 域数据。
+
+## Cursor Cloud specific instructions
+
+### npm scripts 与 Linux 兼容性
+
+`backend/package.json` 和 `frontend/package.json` 中的 npm scripts 使用 Windows 风格 `set "VAR=value" &&`，**在 Linux 上不会设置环境变量**。启动服务时须直接传入环境变量：
+
+```bash
+# 后端（端口 5001）
+cd backend
+NODE_ENV=development PORT=5001 DB_SYNC=true LOGIN_ALLOW_PLAINT_PASSWORD=1 npx nodemon --exec "npx ts-node --transpile-only" src/index.ts
+
+# 前端（端口 5000，代理到后端 5001）
+cd frontend
+HOST=0.0.0.0 PORT=5000 REACT_APP_API_URL=http://127.0.0.1:5001 NODE_OPTIONS=--max-old-space-size=4096 BROWSER=none npx react-scripts start
+```
+
+### 服务启动顺序与依赖
+
+- **后端先启动**：前端 CRA dev server 通过 `setupProxy.js` 将 `/api/*` 和 `/ws/*` 代理到 `http://127.0.0.1:5001`。
+- **数据库**：SQLite，自动在 `backend/data.sqlite` 创建并同步 schema（`DB_SYNC=true`）。首次启动会自动创建 `admin/admin123` 超级管理员账户。
+- **无需外部服务**：开发环境无需 Docker、PostgreSQL 或其他外部依赖即可启动全栈。
+
+### Lint / Test / Build 命令
+
+| 服务 | Lint | Test | TypeScript 检查 |
+|------|------|------|-----------------|
+| 后端 | `cd backend && npx eslint "src/**/*.ts"` | `cd backend && npx jest` | `cd backend && npx tsc --noEmit` |
+| 前端 | `cd frontend && npx eslint "src/**/*.{ts,tsx}"` | `cd frontend && CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts test --watchAll=false` | 编译时由 CRA 内置检查 |
+
+### 注意事项
+
+- 前端编译首次较慢（约 1-2 分钟），后续热重载正常。
+- Husky 在非 git 根目录运行 `npm install` 时会报 `.git can't be found`，这是正常行为（已 fallback）。
+- `patch-package` 在 `frontend/postinstall` 中自动运行，补丁 `@novnc/novnc` 和 `react-dev-utils`。
