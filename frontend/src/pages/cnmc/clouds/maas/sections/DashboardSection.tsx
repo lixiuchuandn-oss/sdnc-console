@@ -6,10 +6,15 @@ import { maasPoolPathForTab } from '../../../../../layouts/admin/maas/maasPoolSi
 import MaasDashboardClusterBar from '../components/dashboard/MaasDashboardClusterBar';
 import MaasDashboardControllersBlock from '../components/dashboard/MaasDashboardControllersBlock';
 import MaasDashboardEventsCard from '../components/dashboard/MaasDashboardEventsCard';
+import MaasDashboardMachineStatusCard from '../components/dashboard/MaasDashboardMachineStatusCard';
 import MaasDashboardMetricRow from '../components/dashboard/MaasDashboardMetricRow';
 import MaasDashboardPoolConfigCard from '../components/dashboard/MaasDashboardPoolConfigCard';
 import { useMaasDashboard } from '../hooks/useMaasDashboard';
-import { MAAS_CONFIG_SECTION_ID, maasScrollToSection } from '../lib/maasDashboardUtils';
+import {
+  MAAS_CONFIG_SECTION_ID,
+  maasScrollToSection,
+} from '../lib/maasDashboardUtils';
+import '../../../dashboard/Dashboard.css';
 
 type Props = {
   poolId: string;
@@ -51,7 +56,9 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
               : '请检查下方 Tower 资源池中的 MAAS 地址与 API Key；编辑与连接测试请在资源池管理中操作。'
           }
           action={
-            <Typography.Link onClick={() => maasScrollToSection(MAAS_CONFIG_SECTION_ID)}>
+            <Typography.Link
+              onClick={() => maasScrollToSection(MAAS_CONFIG_SECTION_ID)}
+            >
               查看连接配置
             </Typography.Link>
           }
@@ -59,7 +66,12 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
         />
       ) : null}
       {warn && !error ? (
-        <Alert type="warning" showIcon message={warn} style={{ marginBottom: 16 }} />
+        <Alert
+          type="warning"
+          showIcon
+          message={warn}
+          style={{ marginBottom: 16 }}
+        />
       ) : null}
       <Spin spinning={loading}>
         <MaasDashboardClusterBar
@@ -77,7 +89,16 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
           rackCtrl={rackCtrl}
           onGoTab={goTab}
         />
-        <MaasDashboardEventsCard data={data} connected={connected} machines={machines} />
+        <MaasDashboardMachineStatusCard
+          connected={connected}
+          machines={machines}
+          onGoTab={goTab}
+        />
+        <MaasDashboardEventsCard
+          data={data}
+          connected={connected}
+          machines={machines}
+        />
         <MaasDashboardPoolConfigCard cloud={cloud} />
         <MaasDashboardControllersBlock
           connected={connected}
