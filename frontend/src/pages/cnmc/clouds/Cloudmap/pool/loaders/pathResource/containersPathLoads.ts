@@ -370,15 +370,6 @@ export async function tryLoadContainerTab(
             force,
           );
         }
-        await loadResource(
-          'pdbs',
-          () => fetchHarvesterPDBs(cloudId, undefined, force),
-          (json) => {
-            const list: any[] = (json as any)?.data?.items || [];
-            setHarvesterPDBs(Array.isArray(list) ? list : []);
-          },
-          force,
-        );
       }
       return true;
     case 'gateway_api':
