@@ -335,11 +335,7 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'services':
-      if (
-        checkPerm('clouds.cluster-services:read') ||
-        checkPerm('clouds.services:read') ||
-        canReadContainerTab(checkPerm, 'services')
-      ) {
+      if (canReadContainerTab(checkPerm, 'services')) {
         await loadResource(
           'services',
           () => fetchHarvesterServices(cloudId, force),

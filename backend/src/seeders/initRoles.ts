@@ -3,6 +3,7 @@ import { AppDataSource } from '../config/database';
 import { RBACRole } from '../entities/RBACRole';
 import { RoleAssignment } from '../entities/RoleAssignment';
 import { ALL_PERMISSIONS } from '../constants/permissions';
+import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
 
 // 使用统一的权限原子定义
@@ -233,6 +234,25 @@ export async function initializeRoles() {
       permissions: cloudOpsPerms,
       status: 'active',
     });
+
+    // 历史角色：clouds.containers 总权 → 各子域 atoms（与前端 normalizeRoleGrantIds 一致）
+    const allRoles = await repo.find();
+    for (const role of allRoles) {
+      let perms: string[] = [];
+      try {
+        const parsed = JSON.parse(String(role.permissions || '[]'));
+        perms = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        perms = [];
+      }
+      const migrated = expandLegacyContainerParentPermissions(perms);
+      const beforeKey = JSON.stringify([...perms].sort());
+      const afterKey = JSON.stringify([...migrated].sort());
+      if (beforeKey !== afterKey) {
+        role.permissions = JSON.stringify(migrated);
+        await repo.save(role);
+      }
+    }
 
   } catch (error) {
     console.error('初始化角色失败:', error);

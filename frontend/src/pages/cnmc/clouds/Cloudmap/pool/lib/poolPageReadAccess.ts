@@ -11,6 +11,7 @@
  */
 import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../../../routes/cloudmapPoolNavRows';
 import type { CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import { isCloudsContainersResourceBase } from '../../../../../../utils/permissionUtils';
 
 export type PoolPageRowMeta = {
   pathSuffix: string;
@@ -109,6 +110,10 @@ export function canWritePoolPage(
 ): boolean {
   const meta = getPoolPageMeta(pathSuffix);
   if (!meta?.writeAction) return false;
+  const base = meta.writeAction.split(':')[0];
+  if (isCloudsContainersResourceBase(base)) {
+    return checkPerm(meta.writeAction);
+  }
   return checkPerm(meta.writeAction) || checkPerm('clouds:write');
 }
 

@@ -24,6 +24,7 @@ import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdo
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 import { checkTenantAccess } from './clouds/harvester/harvester.direct.helpers';
 import { ALL_PERMISSIONS } from '../constants/permissions';
+import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
 import { createApiPermissionMiddleware, checkPermission, PERMISSION_DEFINITIONS } from '../permissions';
@@ -482,7 +483,7 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
     try {
-      row.permissions = JSON.stringify(permissions);
+      row.permissions = JSON.stringify(expandLegacyContainerParentPermissions(permissions));
       const saved = await repo.save(row);
       res.json(saved);
     } catch (e: any) {

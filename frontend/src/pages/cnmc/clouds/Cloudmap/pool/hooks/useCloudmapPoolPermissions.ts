@@ -7,7 +7,6 @@ import { useLicense } from '../../../../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { readActionToWrite } from '../../../../../../utils/rbacUi';
 import {
-  CLOUD_CONTAINERS_READ,
   CLOUD_MONITORING_OVERVIEW_READ,
   CLOUD_ALERTS_READ,
   CLOUD_ALERT_RULES_READ,
@@ -21,7 +20,7 @@ import {
   CLOUD_SUBNETS_PUBLIC_READ,
   CLOUD_SUBNETS_VPC_READ,
 } from '../../../../../../constants/cloudPermissions';
-import { ALL_CLOUD_CONTAINER_SUB_READ } from '../../../../../../utils/permissionUtils';
+import { canViewAnyContainerSubPage } from '../../../../../../utils/permissionUtils';
 import type { CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import {
   canAccessPoolPage,
@@ -191,11 +190,7 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds:read');
 
   const canViewContainersGroup =
-    checkPerm(CLOUD_CONTAINERS_READ) ||
-    checkPerm('clouds.cluster-services:read') ||
-    checkPerm('harbor.registry:read') ||
-    checkPerm('clouds:read') ||
-    ALL_CLOUD_CONTAINER_SUB_READ.some((a) => checkPerm(a));
+    canViewAnyContainerSubPage(checkPerm) || checkPerm('harbor.registry:read');
 
   const canViewStorageGroup =
     checkPerm('clouds.disks:read') ||

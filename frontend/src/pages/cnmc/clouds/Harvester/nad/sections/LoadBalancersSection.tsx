@@ -55,9 +55,7 @@ const LoadBalancersSection: React.FC<Props> = ({
     const perms = (user?.permissions ?? []) as string[];
     return (
       hasPermissionForAction(perms, 'clouds.load-balancers:write') ||
-      hasPermissionForAction(perms, 'clouds.nads:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
 

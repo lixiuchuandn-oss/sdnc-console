@@ -24,6 +24,9 @@ export const WRITE_MENU_ITEM_KEYS = new Set([
   'add',
   'create',
   'test',
+  /** USB 直通：claim / unclaim */
+  'claim',
+  'unclaim',
 ]);
 
 export function readActionToWrite(readAction: string): string {

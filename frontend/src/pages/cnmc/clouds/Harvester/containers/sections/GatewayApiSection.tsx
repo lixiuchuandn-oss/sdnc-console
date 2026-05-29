@@ -4,7 +4,7 @@ import { ApiOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-des
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import WriteGuard from '../../../../../../components/WriteGuard';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import {
   deleteGateway,
   deleteHttpRoute,
@@ -51,14 +51,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
 }) => {
   const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
-  const hasContainersWrite = useMemo(() => {
-    const perms = (user?.permissions ?? []) as string[];
-    return (
-      hasPermissionForAction(perms, 'clouds.containers:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
-    );
-  }, [user?.permissions]);
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'gateway_api'),
+    [user?.permissions],
+  );
   const [activeSubTab, setActiveSubTab] = useState('gatewayclasses');
   
   // 创建弹窗状态

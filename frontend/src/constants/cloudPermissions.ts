@@ -27,9 +27,11 @@ export const CLOUD_SUBNETS_FLAT_WRITE = 'clouds.subnets.flat:write';
 export const CLOUD_SUBNETS_PUBLIC_READ = 'clouds.subnets.public:read';
 export const CLOUD_SUBNETS_PUBLIC_WRITE = 'clouds.subnets.public:write';
 
-/** Harvester 容器服务（工作负载、Pod、Service、Ingress、Gateway、配置、仓库等） */
-export const CLOUD_CONTAINERS_READ = 'clouds.containers:read';
-export const CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
+/** @deprecated 请按子域授权；见 permissionUtils LEGACY_CLOUD_CONTAINERS_* */
+export {
+  LEGACY_CLOUD_CONTAINERS_READ as CLOUD_CONTAINERS_READ,
+  LEGACY_CLOUD_CONTAINERS_WRITE as CLOUD_CONTAINERS_WRITE,
+} from '../utils/permissionUtils';
 
 /** Cloudmap 资源总览 · 监控大盘（/monitoring/* 概览类 API） */
 export const CLOUD_MONITORING_OVERVIEW_READ = 'clouds.monitoring.overview:read';

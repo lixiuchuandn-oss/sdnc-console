@@ -244,7 +244,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-ippools',
     pathSuffix: 'cluster/ippools',
-    poolPageAction: 'clouds.nads:read',
+    poolPageAction: 'clouds.ip-pools:read',
     title: 'IP地址池',
     order: 35,
     icon: 'ClusterOutlined',

@@ -42,10 +42,10 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.cloudinits': 'Cloud Init',
   'clouds.sshkeys': 'SSH密钥',
   'clouds.nads': '网络附加定义',
+  'clouds.ip-pools': 'IP地址池',
   'clouds.schedules': '定时任务',
   'clouds.restore-tasks': '恢复任务',
   'clouds.namespaces': '命名空间',
-  'clouds.containers': '容器服务（K8s）',
   'clouds.containers.workloads': '容器·工作负载',
   'clouds.containers.pods': '容器·Pod',
   'clouds.containers.jobs': '容器·任务',
@@ -57,7 +57,6 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.containers.pdbs': '容器·Pod 中断保护',
   'clouds.containers.networkpolicies': '容器·网络策略',
   'clouds.cluster-nodes': '物理节点',
-  'clouds.cluster-services': '集群服务',
   'clouds.cluster-networks': '集群网络',
   'clouds.provider-networks': '物理网络',
   'clouds.vswitches': '虚拟交换机',
@@ -149,8 +148,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.dashboard:read': '访问多云总览页面',
   'clouds.resource-pools:read': '进入资源池管理列表与资源池详情页',
   'clouds.resource-pools:write': '创建、编辑、删除资源池（接入配置等）',
-  'clouds:read': '云资源全量查看（包含所有 clouds.* 读能力）',
-  'clouds:write': '云资源全量管理（包含所有 clouds.* 写能力）',
+  'clouds:read': '云资源全量查看（含算网存等 clouds.* 读能力；不含容器子域，容器须单独授权）',
+  'clouds:write': '云资源全量管理（含算网存等 clouds.* 写能力；不含容器子域，容器须单独授权）',
   'clouds.ecs:read': '查看云主机列表和详情',
   'clouds.ecs:write': '创建、启动、停止、删除云主机',
   'clouds.vm-create-wizard:write': '使用虚拟机创建向导（分步创建云主机）',
@@ -195,8 +194,6 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.console:write': '在租户控制台中执行操作',
   'clouds.desktop:read': '查看云桌面网关、云桌面用户及 VM 云桌面分配',
   'clouds.desktop:write': '管理云桌面网关、云桌面用户及 VM 云桌面分配',
-  'clouds.containers:read': '查看容器服务资源（工作负载、Pod、任务、服务发现、配置、镜像仓库等）',
-  'clouds.containers:write': '管理容器服务资源（创建、编辑、删除及 Pod 终端等写操作）',
   'clouds.containers.workloads:read': '查看容器工作负载（Deployment/StatefulSet/DaemonSet）',
   'clouds.containers.workloads:write': '管理工作负载',
   'clouds.containers.pods:read': '查看 Pod、日志',
@@ -296,7 +293,6 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
     base.startsWith('clouds.vm-quick-create') ||
     base.startsWith('clouds.containers') ||
     base === 'clouds.console' ||
-    base === 'clouds.cluster-services' ||
     base.startsWith('harbor.')
   ) {
     category = 'compute';
@@ -313,10 +309,12 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
   // 生成继承关系
   const inherits: string[] = [];
   
-  // 层级继承：clouds.ecs:read 继承 clouds:read
+  // 层级继承：clouds.ecs:read 继承 clouds:read（容器子域除外）
   if (base.includes('.') && base !== 'clouds.console') {
     const segments = base.split('.');
-    if (segments.length >= 2) {
+    const skipCloudsDomainForContainers =
+      segments[0] === 'clouds' && segments[1] === 'containers';
+    if (segments.length >= 2 && !skipCloudsDomainForContainers) {
       const parentBase = segments[0];
       const parentPerm = `${parentBase}:${verb}`;
       if (ALL_PERMISSIONS.includes(parentPerm as any)) {

@@ -248,7 +248,7 @@ export async function tryLoadClusterTab(
       }
       return true;
     case 'ippools':
-      if (checkPerm('clouds.nads:read')) {
+      if (checkPerm('clouds.ip-pools:read')) {
         await loadResource(
           'ippools',
           () => fetchHarvesterIPPools(cloudId, force),

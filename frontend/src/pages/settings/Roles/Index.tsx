@@ -18,8 +18,8 @@ import {
 } from './lib/buildRolePermissionStructure';
 import { filterRolePermissionStructureByKeyword } from './lib/filterRolePermissionStructure';
 import {
-  mapLegacySubnetsToSplit,
   normalizeRoleGrantForBackendSave,
+  normalizeRoleGrantIds,
   SUBNET_SPLIT_ACTIONS,
 } from './lib/roleGrantNormalize';
 import { useRoleListColumns } from './lib/useRoleListColumns';
@@ -168,7 +168,7 @@ const AccessRolesPage: React.FC = () => {
           return [];
         }
       })();
-      setGrantSelectedIds(mapLegacySubnetsToSplit(permArr));
+      setGrantSelectedIds(normalizeRoleGrantIds(permArr));
       setGrantOpen(true);
     } catch (error: unknown) {
       message.error(error instanceof Error ? error.message : '创建角色失败');
@@ -210,7 +210,7 @@ const AccessRolesPage: React.FC = () => {
       return;
     }
     setGrantTarget(target);
-    setGrantSelectedIds(mapLegacySubnetsToSplit(target.actions || []));
+    setGrantSelectedIds(normalizeRoleGrantIds(target.actions || []));
     setGrantOpen(true);
   }, [canConfigurePermissions]);
 

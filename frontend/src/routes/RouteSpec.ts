@@ -84,7 +84,7 @@ function toCloudmapPoolRouteSpec(
     subtitle: `${r.poolNavGroup} · ${r.title}`,
     icon: r.icon,
     order: r.order,
-    /** 池内页：默认控制台读；容器分组等可单独绑定 clouds.containers:read（与后端路径推断一致） */
+    /** 池内页：默认控制台读；容器各 Tab 绑定 clouds.containers.{子域}:read（与后端 registry 一致） */
     requiredActions: {
       page,
       read: page,
@@ -1165,9 +1165,9 @@ export const routeSpecs: RouteSpec[] = [
     title: 'Harbor 详情',
     hidden: true,
     requiredActions: {
-      page: 'clouds.containers:read',
-      read: 'clouds.containers:read',
-      write: 'clouds.containers:write'
+      page: 'clouds.containers.registries:read',
+      read: 'clouds.containers.registries:read',
+      write: 'clouds.containers.registries:write',
     }
   },
 

@@ -15,7 +15,7 @@ import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
@@ -98,14 +98,10 @@ const ServicesSection: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
-  const hasContainersWrite = useMemo(() => {
-    const perms = (user?.permissions ?? []) as string[];
-    return (
-      hasPermissionForAction(perms, 'clouds.containers:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
-    );
-  }, [user?.permissions]);
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'services'),
+    [user?.permissions],
+  );
 
   /** 业务命名空间选项：去掉系统命名空间，供下拉与创建默认命名空间 */
   const namespacesOptionsBiz = useMemo(

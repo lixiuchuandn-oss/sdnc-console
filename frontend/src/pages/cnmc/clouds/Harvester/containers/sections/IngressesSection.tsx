@@ -14,7 +14,7 @@ import WriteGuard from '../../../../../../components/WriteGuard';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { IngressFormModal, YamlEditModal } from '../components';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import { deleteHarvesterIngress, fetchHarvesterIngressDetail, updateHarvesterIngress, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
@@ -74,14 +74,10 @@ const IngressesSection: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const { message: antMessage } = App.useApp();
-  const hasContainersWrite = useMemo(() => {
-    const perms = (user?.permissions ?? []) as string[];
-    return (
-      hasPermissionForAction(perms, 'clouds.containers:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
-    );
-  }, [user?.permissions]);
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'ingresses'),
+    [user?.permissions],
+  );
   const [aliasForm] = Form.useForm<{ alias?: string }>();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   // 关键字搜索（名称 / 命名空间）

@@ -11,6 +11,23 @@ import { HarborRegistry, HarborStatus } from '../../entities/harbor/HarborRegist
 import { HarborProject } from '../../entities/harbor/HarborProject';
 import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
+
+/** 容器页「镜像仓库」角色常授 clouds.containers.registries:*，与 harbor:registry:* 对齐 */
+function canManageHarborRegistry(
+  perms: string[],
+  action: 'create' | 'update' | 'delete',
+): boolean {
+  const harborPerm =
+    action === 'create'
+      ? 'harbor:registry:create'
+      : action === 'update'
+        ? 'harbor:registry:update'
+        : 'harbor:registry:delete';
+  return (
+    checkPermission(perms, harborPerm) ||
+    checkPermission(perms, 'clouds.containers.registries:write')
+  );
+}
 import { HarborProxyService } from '../../services/harbor/HarborProxyService';
 import { logger } from '../../utils/logger';
 
@@ -71,7 +88,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const perms: string[] = Array.isArray((req.user as any)?.permissions) 
       ? (req.user as any).permissions 
       : [];
-    if (!checkPermission(perms, 'harbor:registry:create')) {
+    if (!canManageHarborRegistry(perms, 'create')) {
       return res.status(403).json({ message: '权限不足' });
     }
 
@@ -276,7 +293,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     const perms: string[] = Array.isArray((req.user as any)?.permissions) 
       ? (req.user as any).permissions 
       : [];
-    if (!checkPermission(perms, 'harbor:registry:update')) {
+    if (!canManageHarborRegistry(perms, 'update')) {
       return res.status(403).json({ message: '权限不足' });
     }
 
@@ -344,7 +361,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const perms: string[] = Array.isArray((req.user as any)?.permissions) 
       ? (req.user as any).permissions 
       : [];
-    if (!checkPermission(perms, 'harbor:registry:delete')) {
+    if (!canManageHarborRegistry(perms, 'delete')) {
       return res.status(403).json({ message: '权限不足' });
     }
 

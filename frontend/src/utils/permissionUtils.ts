@@ -44,8 +44,6 @@ export type PoolNavPermissionDrawerSection = {
 /** 无侧栏叶子、归入 12 组之一的权限 prefix（顺序即组内展示顺序） */
 export const POOL_NAV_GROUP_ORPHAN_PREFIXES: Readonly<Record<string, readonly string[]>> = {
   容器服务: [
-    'clouds.containers',
-    'clouds.cluster-services',
     'harbor.registry',
     'harbor.project',
     'harbor.image',
@@ -414,7 +412,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.recycle-bin',
   'clouds.migrations',
   // 容器服务（K8s 子域，与池内 Tab 一致）
-  'clouds.containers',
   'clouds.containers.workloads',
   'clouds.containers.pods',
   'clouds.containers.jobs',
@@ -425,7 +422,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.containers.registries',
   'clouds.containers.pdbs',
   'clouds.containers.networkpolicies',
-  'clouds.cluster-services',
   'harbor.registry',
   'harbor.project',
   'harbor.image',
@@ -449,6 +445,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.provider-networks',
   'clouds.vlans',
   'clouds.nads',
+  'clouds.ip-pools',
   'clouds.subnets', // 子网（Kube-OVN · 汇总，与分域原子并列展示）
   'clouds.subnets.public',
   // 扁平网络
@@ -579,6 +576,14 @@ export function sortByResourceConsoleFeatureOrder<T extends { resourcePrefix: st
 // 容器服务：池内 Tab / 控制台 ctr-* ↔ clouds.containers.* 原子（与后端 registry 对齐）
 // =============================================================================
 
+/** 历史容器总权（角色抽屉已移除；checker / accessMapping 仍识别） */
+export const LEGACY_CLOUD_CONTAINERS_READ = 'clouds.containers:read';
+export const LEGACY_CLOUD_CONTAINERS_WRITE = 'clouds.containers:write';
+
+export function isCloudsContainersResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
+}
+
 /** 池内 Tab / 控制台 innerActiveKey（service_topology 走 services） */
 export type ContainerTabPermissionKey =
   | 'workloads'
@@ -646,10 +651,10 @@ export function canReadContainerTab(
     return canReadContainerTab(checkPerm, 'services');
   }
   if (!isContainerTabPermissionKey(tab)) {
-    return checkPerm('clouds.containers:read') || checkPerm('clouds:read');
+    return ALL_CLOUD_CONTAINER_SUB_READ.some((a) => checkPerm(a));
   }
   const atom = CLOUD_CONTAINER_TAB_READ[tab];
-  return checkPerm(atom) || checkPerm('clouds.containers:read') || checkPerm('clouds:read');
+  return checkPerm(atom);
 }
 
 export function canWriteContainerTab(
@@ -660,15 +665,26 @@ export function canWriteContainerTab(
     return canWriteContainerTab(checkPerm, 'services');
   }
   if (!isContainerTabPermissionKey(tab)) {
-    return checkPerm('clouds.containers:write') || checkPerm('clouds:write');
+    return Object.values(CLOUD_CONTAINER_TAB_WRITE).some((a) => checkPerm(a));
   }
   const atom = CLOUD_CONTAINER_TAB_WRITE[tab];
-  return checkPerm(atom) || checkPerm('clouds.containers:write') || checkPerm('clouds:write');
+  return checkPerm(atom);
+}
+
+export function hasContainerSubWritePermission(
+  permissions: string[],
+  tab: ContainerTabPermissionKey,
+): boolean {
+  const perms = permissions ?? [];
+  const writeAction = CLOUD_CONTAINER_TAB_WRITE[tab];
+  return (
+    hasPermissionForAction(perms, writeAction) ||
+    hasPermissionForAction(perms, 'clouds:write') ||
+    hasPermissionForAction(perms, 'clouds.console:write')
+  );
 }
 
 export function canViewAnyContainerSubPage(checkPerm: (act: string) => boolean): boolean {
-  if (checkPerm('clouds.containers:read') || checkPerm('clouds.containers:write')) return true;
-  if (checkPerm('clouds:read') || checkPerm('clouds:write')) return true;
   return ALL_CLOUD_CONTAINER_SUB_READ.some((a) => checkPerm(a));
 }
 

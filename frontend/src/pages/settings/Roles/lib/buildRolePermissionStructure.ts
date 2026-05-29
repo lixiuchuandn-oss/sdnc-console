@@ -92,14 +92,9 @@ export function buildRolePermissionStructure(
     let group = isFrontendSubnetSplit
       ? 'Cloudmap资源池'
       : getGroupFromDefinition(action, permissionDefinitions);
-    if (!group && resource === 'clouds.containers') {
-      group = 'Cloudmap资源池';
-    }
     const feature = isFrontendSubnetSplit
       ? SUBNET_SPLIT_RESOURCE_NAME[resource] || resource
-      : resource === 'clouds.containers'
-        ? '容器服务（K8s）'
-        : getFeatureFromDefinition(action, permissionDefinitions);
+      : getFeatureFromDefinition(action, permissionDefinitions);
 
     if (!platformMap.has(platform)) {
       platformMap.set(platform, new Map());
