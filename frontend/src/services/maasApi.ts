@@ -253,6 +253,73 @@ export async function deleteMaasImage(
   );
 }
 
+export type MaasBootSourceSelection = {
+  id: number | string;
+  os: string;
+  release: string;
+  arches: string[];
+  subarches: string[];
+  labels: string[];
+};
+
+export type MaasBootSource = {
+  id: number | string;
+  url: string;
+  keyring_filename: string;
+  selections: MaasBootSourceSelection[];
+};
+
+export type MaasBootSourcesResponse = {
+  ok: boolean;
+  message?: string;
+  items?: MaasBootSource[];
+  total?: number;
+};
+
+export async function fetchMaasBootSources(
+  cloudId: string,
+  opts?: { skipCache?: boolean },
+): Promise<MaasBootSourcesResponse> {
+  return apiRequest(maasPath(cloudId, "/boot-sources"), {
+    skipCache: opts?.skipCache ?? true,
+  });
+}
+
+export async function createMaasBootSourceSelection(
+  cloudId: string,
+  sourceId: string | number,
+  payload: {
+    os: string;
+    release: string;
+    arches?: string[];
+    subarches?: string[];
+    labels?: string[];
+  },
+): Promise<{ ok: boolean; message?: string }> {
+  return apiPost(
+    maasPath(
+      cloudId,
+      `/boot-sources/${encodeURIComponent(String(sourceId))}/selections`,
+    ),
+    payload as unknown as Record<string, unknown>,
+  );
+}
+
+export async function deleteMaasBootSourceSelection(
+  cloudId: string,
+  sourceId: string | number,
+  selectionId: string | number,
+): Promise<{ ok: boolean; message?: string }> {
+  return apiDelete(
+    maasPath(
+      cloudId,
+      `/boot-sources/${encodeURIComponent(String(sourceId))}/selections/${encodeURIComponent(
+        String(selectionId),
+      )}`,
+    ),
+  );
+}
+
 /** @deprecated 使用 fetchMaasImages */
 export async function fetchMaasBootResources(
   cloudId: string,
