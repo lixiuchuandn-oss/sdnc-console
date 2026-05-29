@@ -32,7 +32,6 @@ import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 import { iconOf } from '../../components/PageContainer';
-import { apiRequest } from '../../services/api';
 import {
   DEFAULT_ADMIN_PASSWORD_POLICY,
   validateAdminPasswordClient,
@@ -84,7 +83,6 @@ import {
   ADMIN_HEADER_HEIGHT_PX,
   buildGroupMenuChildren,
   findMenuOpenKeyChainForPath,
-  pickDefaultPoolId,
   resolveDefaultPool,
   sidebarForPath,
   type PageSearchEntry,
@@ -92,6 +90,7 @@ import {
 import { useGlobalSearch } from './hooks/useGlobalSearch';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
 import { useRancherSidebarCounts } from './hooks/useRancherSidebarCounts';
+import { useHeaderPoolStrip } from './hooks/useHeaderPoolStrip';
 
 const { Content } = Layout;
 
@@ -137,8 +136,6 @@ const AdminLayout: React.FC = () => {
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   /** 仅当选中页/池内菜单签名变化时自动展开分组；避免每次 effect 把用户已折叠的分组强行撑开 */
   const lastSidebarAutoExpandSigRef = useRef<string>('');
-  /** 池详情 URL 已有 cloudId 但顶栏列表尚未含该池时，触发一次列表刷新（避免侧栏空白直至手动刷新） */
-  const poolNavMissingListRefetchKeyRef = useRef('');
   const {
     changePasswordForm,
     changePasswordOpen,
@@ -150,18 +147,19 @@ const AdminLayout: React.FC = () => {
     submitChangePassword,
   } = useAdminPasswordGate();
 
-  const [summaryClouds, setSummaryClouds] = useState<Cloud[]>([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  /** 顶栏云列表是否已完成至少一次拉取；避免在 GET /clouds 返回前把「无池」判成真并自动弹接入向导 */
-  const [summaryListHydrated, setSummaryListHydrated] = useState(false);
-  /** 顶栏可用区（资源池）选择；列表变更时若当前项失效则回到默认池 */
-  const [headerSelectedPoolId, setHeaderSelectedPoolId] = useState<string | undefined>(undefined);
+  const {
+    summaryClouds,
+    summaryLoading,
+    summaryListHydrated,
+    headerSelectedPoolId,
+    setHeaderSelectedPoolId,
+    loadSummaryClouds,
+  } = useHeaderPoolStrip(user);
+
   const [poolWizardOpen, setPoolWizardOpen] = useState(false);
   const [poolWizardEditing, setPoolWizardEditing] = useState<Cloud | null>(null);
   const [poolWizardForceRequired, setPoolWizardForceRequired] = useState(false);
   const poolWizardOpenedByAutoRef = useRef(false);
-  /** 顶栏云列表请求世代：新请求开始 +1；仅当完成时 gen 仍等于 ref 才写回 state，避免慢请求覆盖快请求、或登出后旧请求写回 */
-  const summaryLoadGenRef = useRef(0);
 
 
   /** super_admin 全放行；其余按路径 required action 与 permissions 校验 */
@@ -216,24 +214,6 @@ const AdminLayout: React.FC = () => {
       hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user]);
-
-  const loadSummaryClouds = useCallback(async () => {
-    const gen = ++summaryLoadGenRef.current;
-    setSummaryLoading(true);
-    try {
-      const raw = await apiRequest('/api/clouds', { skipCache: true });
-      if (gen !== summaryLoadGenRef.current) return;
-      const list = Array.isArray(raw) ? raw : (raw?.data || []);
-      setSummaryClouds((Array.isArray(list) ? list : []) as Cloud[]);
-    } catch {
-      if (gen !== summaryLoadGenRef.current) return;
-      setSummaryClouds([]);
-    } finally {
-      if (gen !== summaryLoadGenRef.current) return;
-      setSummaryLoading(false);
-      setSummaryListHydrated(true);
-    }
-  }, []);
 
   /**
    * 侧栏 / 搜索等入口的统一跳转：`/console`（租户资源控制台）始终新标签打开，其余路径当前页路由。
@@ -415,32 +395,6 @@ const AdminLayout: React.FC = () => {
     [summaryClouds, poolCloudId],
   );
 
-  // 从 URL 同步顶栏「可用区」：避免仅改路径时 header 仍显示上一池（与页面 cloudId 不一致）
-  useEffect(() => {
-    if (!poolCloudId) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(poolCloudId))) return;
-    setHeaderSelectedPoolId((prev) => (String(prev) === String(poolCloudId) ? prev : poolCloudId));
-  }, [poolCloudId, summaryClouds]);
-
-  useEffect(() => {
-    if (!xinferencePoolId) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(xinferencePoolId))) return;
-    setHeaderSelectedPoolId((prev) =>
-      String(prev) === String(xinferencePoolId) ? prev : xinferencePoolId,
-    );
-  }, [xinferencePoolId, summaryClouds]);
-
-  useEffect(() => {
-    if (!maasPoolId) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(maasPoolId))) return;
-    setHeaderSelectedPoolId((prev) =>
-      String(prev) === String(maasPoolId) ? prev : maasPoolId,
-    );
-  }, [maasPoolId, summaryClouds]);
-
   const rancherClusterCtx = useMemo(
     () => parseRancherClusterWorkspacePath(location.pathname),
     [location.pathname],
@@ -461,15 +415,6 @@ const AdminLayout: React.FC = () => {
       rancherWorkloadCounts,
     );
   }, [rancherClusterCtx, summaryClouds, rancherWorkloadCounts]);
-
-  useEffect(() => {
-    if (!rancherClusterCtx) return;
-    const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-    if (!cnmcPools.some((c) => String(c.id) === String(rancherClusterCtx.poolId))) return;
-    setHeaderSelectedPoolId((prev) =>
-      String(prev) === String(rancherClusterCtx.poolId) ? prev : rancherClusterCtx.poolId,
-    );
-  }, [rancherClusterCtx, summaryClouds]);
 
   const cloudmapPoolSidebarOpts = useMemo(
     () => ({
@@ -587,48 +532,7 @@ const AdminLayout: React.FC = () => {
     lastSidebarAutoExpandSigRef.current = '';
   }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId, maasPoolId]);
 
-  useEffect(() => {
-    if (!user || summaryLoading) return;
-    const poolId = parseCloudPoolDetailId(location.pathname);
-    if (!poolId) {
-      poolNavMissingListRefetchKeyRef.current = '';
-      return;
-    }
-    if (summaryClouds.some((c) => String(c.id) === String(poolId))) {
-      poolNavMissingListRefetchKeyRef.current = '';
-      return;
-    }
-    const key = location.pathname;
-    if (poolNavMissingListRefetchKeyRef.current === key) return;
-    poolNavMissingListRefetchKeyRef.current = key;
-    void loadSummaryClouds();
-  }, [user, location.pathname, summaryLoading, summaryClouds, loadSummaryClouds]);
-
   const autoBindPoolPromptShownRef = useRef(false);
-
-  useEffect(() => {
-    if (!user) {
-      summaryLoadGenRef.current += 1;
-      setSummaryLoading(false);
-      setSummaryClouds([]);
-      setSummaryListHydrated(false);
-      return;
-    }
-    setSummaryListHydrated(false);
-    void loadSummaryClouds();
-  }, [user, loadSummaryClouds]);
-
-  useEffect(() => {
-    if (!summaryClouds.length) {
-      setHeaderSelectedPoolId(undefined);
-      return;
-    }
-    setHeaderSelectedPoolId((prev) => {
-      const cnmcPools = summaryClouds.filter((c) => !isCsmCloud(c));
-      if (prev && cnmcPools.some((c) => String(c.id) === String(prev))) return prev;
-      return pickDefaultPoolId(cnmcPools);
-    });
-  }, [summaryClouds]);
 
   useEffect(() => {
     if (!user) return;
