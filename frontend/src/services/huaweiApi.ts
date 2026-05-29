@@ -1,5 +1,52 @@
 import { apiDelete, apiPost, apiRequest, apiPatch } from './api';
 
+// ===== ECS 创建依赖与生命周期（华为云）=====
+export const fetchHuaweiFlavors = async (cloudId: string, availabilityZone?: string) => {
+  const qs = availabilityZone ? `?availabilityZone=${encodeURIComponent(availabilityZone)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/flavors${qs}`);
+};
+export const fetchHuaweiAvailabilityZones = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/availability-zones`);
+};
+export const fetchHuaweiImages = async (cloudId: string, params?: { imagetype?: string; osType?: string }) => {
+  const q: string[] = [];
+  if (params?.imagetype) q.push(`imagetype=${encodeURIComponent(params.imagetype)}`);
+  if (params?.osType) q.push(`osType=${encodeURIComponent(params.osType)}`);
+  return await apiRequest(`/api/clouds/${cloudId}/resources/images${q.length ? `?${q.join('&')}` : ''}`);
+};
+export const fetchHuaweiKeypairs = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/key-pairs`);
+};
+export const createHuaweiKeypair = async (cloudId: string, name: string, publicKey?: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/key-pairs`, { name, publicKey });
+};
+export const deleteHuaweiKeypair = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/key-pairs/${encodeURIComponent(name)}`);
+};
+export const createHuaweiServer = async (
+  cloudId: string,
+  payload: {
+    name?: string;
+    imageRef: string;
+    flavorRef: string;
+    vpcid: string;
+    subnetId: string;
+    availabilityZone?: string;
+    rootVolumeType?: string;
+    rootVolumeSize?: number;
+    count?: number;
+    keyName?: string;
+    adminPass?: string;
+    securityGroupIds?: string[];
+    dataVolumes?: Array<{ volumetype?: string; size?: number }>;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/ecs`, payload);
+};
+export const deleteHuaweiServer = async (cloudId: string, instanceId: string, deleteVolume?: boolean) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}`, { deleteVolume });
+};
+
 // 云资源池：查询单个 VPC（华为云）
 export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`);

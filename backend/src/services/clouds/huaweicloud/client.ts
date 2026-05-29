@@ -1385,6 +1385,116 @@ export async function huaweiRebootServer(
   }
 }
 
+function buildImsEndpoint(region: string): string {
+  return `https://ims.${region}.myhuaweicloud.com`;
+}
+
+/** 通用 HcClient 原始 REST 调用（用于无现成 SDK 模型的写操作） */
+async function huaweiHcSend(
+  opts: HuaweiClientOptions,
+  endpoint: string,
+  req: { method: string; url: string; pathParams?: any; queryParams?: any; data?: any },
+  fallbackMsg: string,
+): Promise<any> {
+  const http = new DefaultHttpClient(undefined, [endpoint]);
+  const hc = new HcClient(http);
+  hc.withEndpoints([endpoint]).withCredential(buildBasicCredentials(opts));
+  try {
+    return await hc.sendRequest<any>({
+      method: req.method,
+      url: req.url,
+      contentType: 'application/json',
+      queryParams: req.queryParams || {},
+      pathParams: req.pathParams || {},
+      headers: {},
+      data: req.data,
+    });
+  } catch (err: any) {
+    const message = err?.message || err?.errorMsg || fallbackMsg;
+    const code = err?.errorCode || err?.code || err?.response?.status;
+    const e: any = new Error(code ? `${code}: ${message}` : message);
+    e.code = code;
+    e.status = err?.response?.status;
+    e.response = err?.response;
+    throw e;
+  }
+}
+
+// ===== ECS 创建依赖 =====
+export async function huaweiListFlavors(opts: HuaweiClientOptions, availabilityZone?: string): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v1/{project_id}/cloudservers/flavors',
+    pathParams: { project_id: opts.projectId },
+    queryParams: availabilityZone ? { availability_zone: availabilityZone } : {},
+  }, 'HuaweiCloud 查询规格失败');
+}
+
+export async function huaweiListAvailabilityZones(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v1/{project_id}/os-availability-zone',
+    pathParams: { project_id: opts.projectId },
+  }, 'HuaweiCloud 查询可用区失败');
+}
+
+export async function huaweiListKeypairs(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v1/{project_id}/os-keypairs',
+    pathParams: { project_id: opts.projectId },
+  }, 'HuaweiCloud 查询密钥对失败');
+}
+
+export async function huaweiCreateKeypair(opts: HuaweiClientOptions, name: string, publicKey?: string): Promise<any> {
+  const keypair: any = { name };
+  if (publicKey) keypair.public_key = publicKey;
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/os-keypairs',
+    pathParams: { project_id: opts.projectId },
+    data: { keypair },
+  }, 'HuaweiCloud 创建密钥对失败');
+}
+
+export async function huaweiDeleteKeypair(opts: HuaweiClientOptions, name: string): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v1/{project_id}/os-keypairs/{keypair_name}',
+    pathParams: { project_id: opts.projectId, keypair_name: name },
+  }, 'HuaweiCloud 删除密钥对失败');
+}
+
+export async function huaweiListImages(opts: HuaweiClientOptions, params?: { imagetype?: string; osType?: string; limit?: number }): Promise<any> {
+  const queryParams: any = { status: 'active', limit: String(params?.limit || 200) };
+  if (params?.imagetype) queryParams.__imagetype = params.imagetype;
+  if (params?.osType) queryParams.__os_type = params.osType;
+  return huaweiHcSend(opts, buildImsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v2/cloudimages',
+    queryParams,
+  }, 'HuaweiCloud 查询镜像失败');
+}
+
+// ===== ECS 创建/删除 =====
+export async function huaweiCreateServers(opts: HuaweiClientOptions, server: any): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/cloudservers',
+    pathParams: { project_id: opts.projectId },
+    data: { server },
+  }, 'HuaweiCloud 创建实例失败');
+}
+
+export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: string[], deleteVolume = false): Promise<any> {
+  return huaweiHcSend(opts, buildEcsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v1/{project_id}/cloudservers/delete',
+    pathParams: { project_id: opts.projectId },
+    data: { servers: serverIds.map((id) => ({ id })), delete_publicip: false, delete_volume: !!deleteVolume },
+  }, 'HuaweiCloud 删除实例失败');
+}
+
 export async function testHuaweiConnection(
   opts: HuaweiClientOptions,
 ): Promise<{ ok: boolean; message?: string }> {

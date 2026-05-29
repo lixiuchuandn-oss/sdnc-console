@@ -27,7 +27,10 @@ import LoadBalancerSection, { Icon as SlbIcon, Label as SlbLabel } from './secti
 import NatGatewaySection, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySection';
 import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
 import SnapshotSection from './sections/SnapshotSection';
+import ImagesSection, { Icon as ImageIcon, Label as ImageLabel } from './sections/ImagesSection';
+import KeyPairsSection, { Icon as KeyPairIcon, Label as KeyPairLabel } from './sections/KeyPairsSection';
 import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
+import EcsCreateModal from './modals/EcsCreateModal';
 import VmDetailModal from './modals/VmDetailModal';
 import ResourceDetailModal from './modals/ResourceDetailModal';
 import RouteTableSubnetsViewModal from './modals/RouteTableSubnetsViewModal';
@@ -62,6 +65,9 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [vmCesAvailable, setVmCesAvailable] = useState<string[]>([]);
 
   const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [images, setImages] = useState<any[]>([]);
+  const [keyPairs, setKeyPairs] = useState<any[]>([]);
+  const [ecsCreateOpen, setEcsCreateOpen] = useState<boolean>(false);
 
   const [detailOpen, setDetailOpen] = useState<boolean>(false);
   const [detailData, setDetailData] = useState<any>(null);
@@ -322,6 +328,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               cloudId={cloudId}
               ecs={ecs}
               onRefreshAll={loadAll}
+              onOpenCreate={()=> setEcsCreateOpen(true)}
               onOpenVmDetail={async (r:any) => {
                 const iid = r?.id || r?.InstanceId; if (!iid) return;
                 setVmDetail(r);
@@ -475,6 +482,24 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
             </>
           )
         },
+        {
+          key: 'images',
+          label: ImageLabel,
+          icon: ImageIcon,
+          count: images.length,
+          children: (
+            <ImagesSection cloudId={cloudId} images={images} onSetImages={(list)=> setImages(list)} />
+          )
+        },
+        {
+          key: 'keypairs',
+          label: KeyPairLabel,
+          icon: KeyPairIcon,
+          count: keyPairs.length,
+          children: (
+            <KeyPairsSection cloudId={cloudId} keyPairs={keyPairs} onSetKeyPairs={(list)=> setKeyPairs(list)} />
+          )
+        },
       ]}
     >
 
@@ -483,6 +508,16 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         cloudId={cloudId}
         onClose={()=> setSgCreateOpen(false)}
         onSuccess={(list)=> { if (Array.isArray(list)) setSecGroups(list); setSgCreateOpen(false); }}
+      />
+
+      <EcsCreateModal
+        open={ecsCreateOpen}
+        cloudId={cloudId}
+        vpcs={vpcs}
+        subnets={subnets}
+        secGroups={secGroups}
+        onClose={()=> setEcsCreateOpen(false)}
+        onSuccess={()=> { setEcsCreateOpen(false); loadAll(); }}
       />
 
       <SecurityGroupRuleManageDrawer
