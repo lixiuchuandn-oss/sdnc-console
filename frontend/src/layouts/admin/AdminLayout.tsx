@@ -5,17 +5,7 @@
  */
 
 import React, { useCallback, useMemo, Suspense } from 'react';
-import {
-  App,
-  Button,
-  Form,
-  Input,
-  Layout,
-  Modal,
-  Space,
-  Spin,
-  Typography,
-} from 'antd';
+import { App, Layout, Spin } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import type { AdminLayoutOutletContext } from './adminLayoutOutletContext';
 import {
@@ -30,11 +20,7 @@ import { getRequiredActionForPath, hasPermissionForAction } from '../../utils/ac
 import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
-import { iconOf } from '../../components/PageContainer';
-import {
-  DEFAULT_ADMIN_PASSWORD_POLICY,
-  validateAdminPasswordClient,
-} from '../../utils/adminPasswordPolicy';
+import { iconOf } from '../../utils/iconOf';
 import {
   CLOUD_RESOURCE_POOLS_CREATE_WRITE,
   CLOUD_RESOURCE_POOLS_READ,
@@ -47,9 +33,10 @@ import AdminStandardHeader from './AdminStandardHeader';
 import {
   ADMIN_HEADER_HEIGHT_PX,
   buildGroupMenuChildren,
-  sidebarForPath,
   type PageSearchEntry,
 } from './lib/adminLayoutNav';
+import AdminChangePasswordModal from './AdminChangePasswordModal';
+import AdminGlobalSearchModal from './AdminGlobalSearchModal';
 import { useGlobalSearch } from './hooks/useGlobalSearch';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
 import { useHeaderPoolStrip } from './hooks/useHeaderPoolStrip';
@@ -412,62 +399,16 @@ const AdminLayout: React.FC = () => {
         openDefaultPoolWizardAction={openDefaultPoolWizardAction}
       />
       <>
-        <Modal
-          title={forcePasswordChange ? '密码已过期，请修改密码' : '修改密码'}
+        <AdminChangePasswordModal
           open={changePasswordOpen}
-          onCancel={() => {
-            if (!forcePasswordChange) setChangePasswordOpen(false);
-          }}
+          forcePasswordChange={forcePasswordChange}
+          saving={changePasswordSaving}
+          form={changePasswordForm}
+          policy={adminPwdPolicy}
+          username={user?.username}
           onOk={submitChangePassword}
-          confirmLoading={changePasswordSaving}
-          okText="确认修改"
-          cancelText="取消"
-          closable={!forcePasswordChange}
-          maskClosable={!forcePasswordChange}
-          destroyOnHidden
-        >
-          <Form form={changePasswordForm} layout="vertical">
-            <Form.Item
-              label="原密码"
-              name="oldPassword"
-              rules={[{ required: true, message: '请输入原密码' }]}
-            >
-              <Input.Password autoComplete="current-password" />
-            </Form.Item>
-            <Form.Item
-              label="新密码"
-              name="newPassword"
-              rules={[
-                { required: true, message: '请输入新密码' },
-                {
-                  validator: async (_, v) => {
-                    const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
-                    const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
-                    if (err) throw new Error(err);
-                  },
-                },
-              ]}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-            <Form.Item
-              label="确认新密码"
-              name="confirmPassword"
-              dependencies={['newPassword']}
-              rules={[
-                { required: true, message: '请再次输入新密码' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                    return Promise.reject(new Error('两次输入的新密码不一致'));
-                  },
-                }),
-              ]}
-            >
-              <Input.Password autoComplete="new-password" />
-            </Form.Item>
-          </Form>
-        </Modal>
+          onClose={() => setChangePasswordOpen(false)}
+        />
         <PoolEdgeWizard
           visible={poolWizardOpen}
           onCancel={handlePoolWizardCancel}
@@ -475,86 +416,17 @@ const AdminLayout: React.FC = () => {
           forceRequired={poolWizardForceRequired}
           editingCloud={poolWizardEditing}
         />
-        {/* 全局搜索弹窗 */}
-        {/* 检索关键词: search modal dialog 搜索弹窗 */}
-        {searchOpen && (
-          <div
-            onClick={()=> setSearchOpen(false)}
-            style={{
-              position:'fixed',
-              inset:0,
-              background:'rgba(0,0,0,0.25)',
-              zIndex:3000
-            }}
-          >
-            <div
-              onClick={(e)=> e.stopPropagation()}
-              style={{
-                position:'absolute',
-                top:'10%',
-                left:'50%',
-                transform:'translateX(-50%)',
-                width:720,
-                background:'#fff',
-                borderRadius:12,
-                boxShadow:'0 20px 40px rgba(0,0,0,0.2)',
-                overflow:'hidden'
-              }}
-            >
-              <div style={{ padding:16, borderBottom:'1px solid #f0f0f0' }}>
-                <Input
-                  autoFocus
-                  value={searchText}
-                  onChange={(e)=> { setSearchText(e.target.value); setSearchActiveIndex(0); }}
-                  placeholder="搜索页面…  快捷键 Ctrl+K / Esc 关闭"
-                  size="large"
-                />
-              </div>
-              <div style={{ maxHeight:360, overflow:'auto' }}>
-                {filteredSearchList.length === 0 ? (
-                  <div style={{ padding:16 }}>
-                    <Typography.Text type="secondary">无匹配结果</Typography.Text>
-                  </div>
-                ) : (
-                  filteredSearchList.map((it: PageSearchEntry, idx: number) => (
-                    <div
-                      key={it.path}
-                      onMouseEnter={()=> setSearchActiveIndex(idx)}
-                      onClick={()=> {
-                        const path = it.path;
-                        const pure = String(path || '').split('?')[0];
-                        navigateToAdminContent(path);
-                        if (pure !== '/console') {
-                          setActiveSidebarKey(sidebarForPath(path));
-                        }
-                        setSearchOpen(false);
-                      }}
-                      style={{
-                        padding:'12px 16px',
-                        display:'flex',
-                        alignItems:'center',
-                        justifyContent:'space-between',
-                        cursor:'pointer',
-                        background: idx === searchActiveIndex ? '#f0f7ff' : '#fff',
-                        borderBottom:'1px solid #f5f5f5'
-                      }}
-                    >
-                      <Space size={10}>
-                        <span style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:24, height:24, borderRadius:6, background:'#f0f5ff' }}>{it.icon}</span>
-                        <span style={{ fontSize:14 }}>{it.label}</span>
-                      </Space>
-                      <Typography.Text type="secondary">{it.group}</Typography.Text>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div style={{ padding:'10px 16px', background:'#fafafa', borderTop:'1px solid #f0f0f0', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <Typography.Text type="secondary">Enter 打开 · ESC 关闭 · SCROLL 查看更多</Typography.Text>
-                <Button type="text" onClick={()=> setSearchOpen(false)}>关闭</Button>
-              </div>
-            </div>
-          </div>
-        )}
+        <AdminGlobalSearchModal
+          open={searchOpen}
+          setOpen={setSearchOpen}
+          searchText={searchText}
+          setSearchText={setSearchText}
+          searchActiveIndex={searchActiveIndex}
+          setSearchActiveIndex={setSearchActiveIndex}
+          filteredSearchList={filteredSearchList}
+          navigateToAdminContent={navigateToAdminContent}
+          setActiveSidebarKey={setActiveSidebarKey}
+        />
       </>
       {/* 侧边栏和内容区域 */}
       <Layout>

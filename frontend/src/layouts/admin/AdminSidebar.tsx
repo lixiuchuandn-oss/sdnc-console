@@ -1,15 +1,26 @@
 import React from 'react';
 import { Layout, Menu } from 'antd';
+import type { MenuProps } from 'antd';
 
 const { Sider } = Layout;
 const SIDEBAR_COLLAPSED_WIDTH = 64;
 
-type MenuItem = any;
+/**
+ * 侧栏菜单项（antd Menu 项的结构化子集）：仅声明本组件读写的字段，
+ * 其余 antd 透传字段以索引签名兜底，避免回退到 `any`。
+ */
+export type AdminMenuItem = {
+  key?: React.Key;
+  label?: React.ReactNode;
+  icon?: React.ReactNode;
+  children?: AdminMenuItem[];
+  [extra: string]: unknown;
+};
 
 /** 保留一级菜单 icon；子级（二级及以下）去掉 icon，避免与分组标题重复堆叠。 */
-function menuItemsForSidebar(items: MenuItem[] | undefined): MenuItem[] {
+function menuItemsForSidebar(items: AdminMenuItem[] | undefined): AdminMenuItem[] {
   if (!items?.length) return [];
-  const stripChildIcons = (nodes: MenuItem[]): MenuItem[] =>
+  const stripChildIcons = (nodes: AdminMenuItem[]): AdminMenuItem[] =>
     nodes.map((node) => {
       const { icon: _omitIcon, ...rest } = node;
       if (rest.children?.length) {
@@ -29,7 +40,7 @@ function menuItemsForSidebar(items: MenuItem[] | undefined): MenuItem[] {
 export type AdminSidebarCenter = {
   key: string;
   label: string;
-  items: MenuItem[];
+  items: AdminMenuItem[];
 };
 
 type Props = {
@@ -108,7 +119,7 @@ const AdminSidebar: React.FC<Props> = ({
             overflowX: isVerticalMenu ? 'visible' : 'hidden',
             overflowY: isVerticalMenu || collapsed ? 'visible' : 'auto',
           }}
-          items={menuItemsForSidebar(center.items)}
+          items={menuItemsForSidebar(center.items) as MenuProps['items']}
           selectedKeys={[selectedMenuKey ?? selectedPathname]}
           openKeys={collapsed ? undefined : openKeys}
           inlineCollapsed={!isVerticalMenu && collapsed}
