@@ -654,5 +654,29 @@ export const fetchCloudProviderAlarmLogs = async (cloudId: string) => {
 export const fetchCloudProviderAlarmRules = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/monitor/alarm-rules`);
 };
+export const createCloudProviderAlarmRule = async (
+  cloudId: string,
+  payload: {
+    ruleName: string;
+    namespace: string;
+    metricName: string;
+    resources: string;
+    statistics?: string;
+    comparisonOperator?: string;
+    threshold?: number;
+    times?: number;
+    period?: number;
+    contactGroups?: string;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/monitor/alarm-rules`, payload);
+};
+export const deleteCloudProviderAlarmRule = async (cloudId: string, ruleId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/monitor/alarm-rules/${encodeURIComponent(ruleId)}`);
+};
+export const fetchCloudProviderMetricLast = async (cloudId: string, namespace: string, metricName: string, dimensions?: string) => {
+  const qs = `namespace=${encodeURIComponent(namespace)}&metricName=${encodeURIComponent(metricName)}${dimensions ? `&dimensions=${encodeURIComponent(dimensions)}` : ''}`;
+  return await apiRequest(`/api/clouds/${cloudId}/resources/monitor/metric-last?${qs}`);
+};
 
 export { fetchCloudProviderDisks, fetchCloudProviderSnapshots } from './api';

@@ -500,7 +500,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
           label: MonitorLabel,
           icon: MonitorIcon,
           children: (
-            <MonitorAlarmSectionAliyun cloudId={cloudId} />
+            <MonitorAlarmSectionAliyun cloudId={cloudId} ecs={ecs} />
           ),
         },
       ]}
