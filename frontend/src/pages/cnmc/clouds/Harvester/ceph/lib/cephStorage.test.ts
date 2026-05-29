@@ -1,8 +1,10 @@
 import {
   buildRookCephOverviewLandingInputs,
+  cephBlockPoolToRow,
   daemonCountFromCephVersionsField,
   isTowerVisibleRookStoragePool,
   normalizeCephBundle,
+  resolveRookBlockPoolStorageKind,
 } from './cephStorage';
 import { buildCephLandingModel } from './cephDashboardLanding';
 
@@ -52,6 +54,25 @@ describe('isTowerVisibleRookStoragePool', () => {
         spec: { erasureCoded: { dataChunks: 2, codingChunks: 1 } },
       }),
     ).toBe(false);
+  });
+});
+
+describe('resolveRookBlockPoolStorageKind', () => {
+  it('prefers replicated when both replicated and erasureCoded exist', () => {
+    const spec = {
+      replicated: { size: 3 },
+      erasureCoded: { dataChunks: 2, codingChunks: 1 },
+    };
+    expect(resolveRookBlockPoolStorageKind(spec)).toBe('replicated');
+    const row = cephBlockPoolToRow({ metadata: { name: 'p1', namespace: 'rook-ceph' }, spec }, 0);
+    expect(row.poolType).toBe('副本');
+    expect(row.typeDetail).toBe('3');
+  });
+
+  it('returns erasure when only erasureCoded is set', () => {
+    expect(
+      resolveRookBlockPoolStorageKind({ erasureCoded: { dataChunks: 4, codingChunks: 2 } }),
+    ).toBe('erasure');
   });
 });
 

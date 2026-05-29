@@ -21,6 +21,8 @@ import { CEPH_RBD_QOS_FIELD_META } from '../lib/cephRbdPoolConfiguration';
 import {
   CEPH_POOL_APPLICATION_METADATA_SELECT_OPTIONS,
   cephPoolApplicationMetadataTokens,
+  readRookBlockPoolErasureChunks,
+  resolveRookBlockPoolStorageKind,
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 import {
@@ -346,10 +348,12 @@ function parseRemoteToForm(remote: unknown): Partial<FormShape> | null {
   const apps = cephPoolApplicationMetadataTokens(spec);
   base.application_metadata = apps.length ? apps : ['rbd'];
 
-  if (ec && ec.dataChunks != null && ec.codingChunks != null) {
+  const storageKind = resolveRookBlockPoolStorageKind(spec) ?? 'replicated';
+  if (storageKind === 'erasure') {
+    const chunks = readRookBlockPoolErasureChunks(ec);
     base.pool_type = 'erasure';
-    base.data_chunks = Number(ec.dataChunks);
-    base.coding_chunks = Number(ec.codingChunks);
+    base.data_chunks = chunks?.dataChunks ?? 2;
+    base.coding_chunks = chunks?.codingChunks ?? 1;
     base.size = 3;
     base.min_size = 2;
   } else {
@@ -374,8 +378,15 @@ function poolTypeLockedFromEditRecord(record: CephPoolTableRow | null | undefine
   if (!record) return null;
   if (record.poolType === '纠删码') return 'erasure';
   if (record.poolType === '副本') return 'replicated';
-  const parsed = parseRemoteToForm(record.detailRaw);
-  return parsed?.pool_type ?? null;
+  const raw = record.detailRaw;
+  if (isPlainRecord(raw) && isPlainRecord(raw.spec)) {
+    return resolveRookBlockPoolStorageKind(raw.spec);
+  }
+  return null;
+}
+
+function poolTypeLockedFromRemote(remote: unknown, record: CephPoolTableRow | null | undefined): 'replicated' | 'erasure' | null {
+  return poolTypeLockedFromEditRecord(record) ?? (parseRemoteToForm(remote)?.pool_type ?? null);
 }
 
 const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
@@ -565,7 +576,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
           const fallback = parseRemoteToForm(editRecord?.detailRaw);
           if (fallback) {
             form.setFieldsValue(fallback as FormShape);
-            if (fallback.pool_type) setEditPoolTypeLocked(fallback.pool_type);
+            setEditPoolTypeLocked(poolTypeLockedFromRemote(editRecord?.detailRaw, editRecord));
           }
           setRemoteCr(null);
           return;
@@ -575,7 +586,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
         const parsed = parseRemoteToForm(data);
         if (parsed) {
           form.setFieldsValue(parsed as FormShape);
-          if (parsed.pool_type) setEditPoolTypeLocked(parsed.pool_type);
+          setEditPoolTypeLocked(poolTypeLockedFromRemote(data, editRecord));
         }
       } finally {
         if (!ac.signal.aborted) setLoadingRemote(false);

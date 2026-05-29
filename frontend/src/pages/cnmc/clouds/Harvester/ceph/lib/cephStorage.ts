@@ -899,6 +899,35 @@ export function isTowerVisibleRookStoragePool(pool: unknown): boolean {
   return rep != null && typeof rep === 'object';
 }
 
+export type RookBlockPoolStorageKind = 'replicated' | 'erasure';
+
+/**
+ * 判定 Rook `CephBlockPool` 存储方式，与列表 `cephBlockPoolToRow` 一致：
+ * `spec.replicated` 优先于 `spec.erasureCoded`，避免 CR 残留纠删字段导致编辑误判。
+ */
+export function resolveRookBlockPoolStorageKind(spec: unknown): RookBlockPoolStorageKind | null {
+  if (!spec || typeof spec !== 'object') return null;
+  const s = spec as Record<string, unknown>;
+  if (s.replicated != null && typeof s.replicated === 'object') return 'replicated';
+  if (s.erasureCoded != null && typeof s.erasureCoded === 'object') return 'erasure';
+  return null;
+}
+
+export function readRookBlockPoolErasureChunks(
+  ec: unknown,
+): { dataChunks: number; codingChunks: number } | null {
+  if (!ec || typeof ec !== 'object') return null;
+  const e = ec as Record<string, unknown>;
+  const dcRaw = e.dataChunks ?? e.data_chunks;
+  const ccRaw = e.codingChunks ?? e.coding_chunks;
+  if (dcRaw == null || ccRaw == null) return null;
+  const dataChunks = Number(dcRaw);
+  const codingChunks = Number(ccRaw);
+  if (!Number.isFinite(dataChunks) || !Number.isFinite(codingChunks)) return null;
+  if (dataChunks < 1 || codingChunks < 1) return null;
+  return { dataChunks, codingChunks };
+}
+
 export function cephBlockPoolToRow(pool: any, index: number): CephBlockPoolRow {
   const name = typeof pool?.metadata?.name === 'string' ? pool.metadata.name : '—';
   const namespace = typeof pool?.metadata?.namespace === 'string' ? pool.metadata.namespace : '—';
@@ -907,17 +936,17 @@ export function cephBlockPoolToRow(pool: any, index: number): CephBlockPoolRow {
   const spec = pool?.spec && typeof pool.spec === 'object' ? pool.spec : {};
   const rep = (spec as any).replicated;
   const ec = (spec as any).erasureCoded;
+  const storageKind = resolveRookBlockPoolStorageKind(spec);
   let poolType = '—';
   let typeDetail = '—';
-  if (rep && typeof rep === 'object') {
+  if (storageKind === 'replicated' && rep && typeof rep === 'object') {
     poolType = '副本';
     const sz = (rep as any).size ?? (rep as any).targetSize;
     typeDetail = sz != null && sz !== '' ? String(sz) : '—';
-  } else if (ec && typeof ec === 'object') {
+  } else if (storageKind === 'erasure' && ec && typeof ec === 'object') {
     poolType = '纠删码';
-    const dc = (ec as any).dataChunks;
-    const cc = (ec as any).codingChunks;
-    typeDetail = dc != null && cc != null ? `${dc}+${cc}` : '—';
+    const chunks = readRookBlockPoolErasureChunks(ec);
+    typeDetail = chunks ? `${chunks.dataChunks}+${chunks.codingChunks}` : '—';
   }
   const fd = (spec as any).failureDomain;
   const failureDomain = typeof fd === 'string' && fd.trim() ? fd.trim() : '—';
