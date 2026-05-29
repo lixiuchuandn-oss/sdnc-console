@@ -11,6 +11,7 @@
  */
 import { Router, Response } from 'express';
 import { requestJson } from '../../../services/clouds/harvester/utils';
+import { getHarvesterNodeResourceUsage } from '../../../services/clouds/harvester/nodeResourceUsage';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { registerHarvesterCacheRoutesProvider } from './harvester.cache.routes.provider';
 import { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
@@ -88,6 +89,29 @@ export const registerHarvesterRoutes = (
         });
       }
     }
+  );
+
+  // 节点 CPU/内存资源聚合：服务端读取 metrics/nodes/全量 Pod 并聚合，仅回小结果，
+  // 避免把全集群 Pod 列表传回浏览器（物理节点列表 CPU/内存列刷新慢的根因）
+  router.get(
+    '/:id/resources/harvester/node-resource-usage',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
+        const data = await getHarvesterNodeResourceUsage(cloud);
+        res.json({ ok: true, ...data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({
+          message: '聚合节点资源失败',
+          error: error?.message || String(error),
+        });
+      }
+    },
   );
 
   // 物理交换机 / HSM：默认同资源池 API Endpoint；可选 config.aswCtl 覆盖
