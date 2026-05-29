@@ -268,4 +268,87 @@ export const deleteCloudProviderNetworkAcl = async (cloudId: string, aclId: stri
   return await apiDelete(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`);
 };
 
+// 云资源池：申请阿里云 EIP（AllocateEipAddress）
+export const allocateCloudProviderEip = async (
+  cloudId: string,
+  payload: { bandwidth?: number; internetChargeType?: string; name?: string; isp?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/eips`, payload || {});
+};
+
+// 云资源池：释放阿里云 EIP（ReleaseEipAddress）
+export const releaseCloudProviderEip = async (cloudId: string, allocationId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(allocationId)}`);
+};
+
+// 云资源池：创建阿里云云盘（CreateDisk）
+export const createCloudProviderDisk = async (
+  cloudId: string,
+  payload: {
+    zoneId: string;
+    diskCategory?: string;
+    size?: number;
+    diskName?: string;
+    description?: string;
+    snapshotId?: string;
+    performanceLevel?: string;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks`, payload);
+};
+
+// 云资源池：删除阿里云云盘（DeleteDisk）
+export const deleteCloudProviderDisk = async (cloudId: string, diskId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}`);
+};
+
+// 云资源池：扩容阿里云云盘（ResizeDisk）
+export const resizeCloudProviderDisk = async (
+  cloudId: string,
+  diskId: string,
+  payload: { newSize: number; type?: 'offline' | 'online' },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/resize`, payload);
+};
+
+// 云资源池：挂载阿里云云盘（AttachDisk）
+export const attachCloudProviderDisk = async (
+  cloudId: string,
+  diskId: string,
+  payload: { instanceId: string; deleteWithInstance?: boolean },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/attach`, payload);
+};
+
+// 云资源池：卸载阿里云云盘（DetachDisk）
+export const detachCloudProviderDisk = async (
+  cloudId: string,
+  diskId: string,
+  payload: { instanceId: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/detach`, payload);
+};
+
+// 云资源池：回滚阿里云云盘到快照（ResetDisk）
+export const rollbackCloudProviderDisk = async (
+  cloudId: string,
+  diskId: string,
+  payload: { snapshotId: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/disks/${encodeURIComponent(diskId)}/reset`, payload);
+};
+
+// 云资源池：创建阿里云快照（CreateSnapshot）
+export const createCloudProviderSnapshot = async (
+  cloudId: string,
+  payload: { diskId: string; snapshotName?: string; description?: string; retentionDays?: number },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/snapshots`, payload);
+};
+
+// 云资源池：删除阿里云快照（DeleteSnapshot）
+export const deleteCloudProviderSnapshot = async (cloudId: string, snapshotId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/snapshots/${encodeURIComponent(snapshotId)}`);
+};
+
 export { fetchCloudProviderDisks, fetchCloudProviderSnapshots } from './api';

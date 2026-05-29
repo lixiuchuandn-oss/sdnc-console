@@ -295,6 +295,7 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               cloudId={cloudId}
               eips={eips}
               onSetEips={(list)=> setEips(list)}
+              onRefreshAll={loadAll}
               showLog={showLog}
               raw={rawEips}
             />
@@ -310,7 +311,23 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               cloudId={cloudId}
               instance={undefined}
               disks={disks}
+              ecs={ecs}
               onSetDisks={(list) => setDisks(list)}
+              onRefreshAll={loadAll}
+            />
+          ),
+        },
+        {
+          key: 'snapshot',
+          label: SnapshotLabel,
+          icon: SnapshotIcon,
+          count: snapshots.length,
+          children: (
+            <SnapshotSectionAliyun
+              cloudId={cloudId}
+              snapshots={snapshots}
+              disks={disks}
+              onSetSnapshots={(list) => setSnapshots(list)}
               onRefreshAll={loadAll}
             />
           ),
