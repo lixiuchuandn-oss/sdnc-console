@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Typography } from 'antd';
+import { Alert, Card, Col, Row, Skeleton, Typography } from 'antd';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import { maasPoolPathForTab } from '../../../../../layouts/admin/maas/maasPoolSidebar';
 import MaasDashboardClusterBar from '../components/dashboard/MaasDashboardClusterBar';
@@ -8,7 +8,6 @@ import MaasDashboardControllersBlock from '../components/dashboard/MaasDashboard
 import MaasDashboardEventsCard from '../components/dashboard/MaasDashboardEventsCard';
 import MaasDashboardMachineStatusCard from '../components/dashboard/MaasDashboardMachineStatusCard';
 import MaasDashboardMetricRow from '../components/dashboard/MaasDashboardMetricRow';
-import MaasDashboardSkeleton from '../components/dashboard/MaasDashboardSkeleton';
 import MaasDashboardPoolConfigCard from '../components/dashboard/MaasDashboardPoolConfigCard';
 import { useMaasDashboard } from '../hooks/useMaasDashboard';
 import {
@@ -75,7 +74,40 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
         />
       ) : null}
       {loading && !data ? (
-        <MaasDashboardSkeleton />
+        <div>
+          <Card
+            size="small"
+            className="overview-card"
+            style={{ marginBottom: 16 }}
+            styles={{ body: { padding: '14px 16px' } }}
+          >
+            <Skeleton.Button active style={{ width: 320, height: 22 }} />
+          </Card>
+          <Row gutter={[16, 16]}>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Col key={i} xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
+                <Card
+                  size="small"
+                  className="overview-card"
+                  style={{ width: '100%' }}
+                >
+                  <Skeleton.Button
+                    active
+                    size="small"
+                    style={{ width: 92, height: 14 }}
+                  />
+                  <div style={{ marginTop: 14 }}>
+                    <Skeleton.Button
+                      active
+                      size="large"
+                      style={{ width: 72, height: 32 }}
+                    />
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </div>
       ) : (
         <>
           <MaasDashboardClusterBar
