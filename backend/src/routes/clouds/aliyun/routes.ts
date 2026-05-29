@@ -1215,6 +1215,137 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     },
   );
 
+  // 更新网络ACL规则（整组覆盖 ingress/egress） UpdateNetworkAclEntries
+  router.patch(
+    '/:id/resources/network-acls/:aclId/entries',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, aclId } = req.params;
+        const { ingress, egress } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        if (!aclId) return res.status(400).json({ message: '缺少网络ACL标识 NetworkAclId' });
+        const extraParams: Record<string, any> = { NetworkAclId: aclId };
+        const inArr = Array.isArray(ingress) ? ingress : [];
+        const egArr = Array.isArray(egress) ? egress : [];
+        // 阿里云规定：传 IngressAclEntries 即覆盖入方向；传 EgressAclEntries 即覆盖出方向
+        if (Array.isArray(ingress)) {
+          extraParams.UpdateIngressAclEntries = true;
+          inArr.forEach((e: any, i: number) => {
+            const n = i + 1;
+            extraParams[`IngressAclEntries.${n}.NetworkAclEntryName`] = e?.name || '';
+            extraParams[`IngressAclEntries.${n}.Policy`] = e?.policy || 'accept';
+            extraParams[`IngressAclEntries.${n}.Protocol`] = e?.protocol || 'all';
+            extraParams[`IngressAclEntries.${n}.SourceCidrIp`] = e?.sourceCidrIp || '0.0.0.0/0';
+            extraParams[`IngressAclEntries.${n}.Port`] = e?.port || '-1/-1';
+            if (e?.description) extraParams[`IngressAclEntries.${n}.Description`] = e.description;
+          });
+        }
+        if (Array.isArray(egress)) {
+          extraParams.UpdateEgressAclEntries = true;
+          egArr.forEach((e: any, i: number) => {
+            const n = i + 1;
+            extraParams[`EgressAclEntries.${n}.NetworkAclEntryName`] = e?.name || '';
+            extraParams[`EgressAclEntries.${n}.Policy`] = e?.policy || 'accept';
+            extraParams[`EgressAclEntries.${n}.Protocol`] = e?.protocol || 'all';
+            extraParams[`EgressAclEntries.${n}.DestinationCidrIp`] = e?.destinationCidrIp || '0.0.0.0/0';
+            extraParams[`EgressAclEntries.${n}.Port`] = e?.port || '-1/-1';
+            if (e?.description) extraParams[`EgressAclEntries.${n}.Description`] = e.description;
+          });
+        }
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'UpdateNetworkAclEntries',
+          extraParams,
+        } as any);
+        res.json({ message: '规则更新成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '更新网络ACL规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 关联网络ACL到交换机 AssociateNetworkAcl
+  router.post(
+    '/:id/resources/network-acls/:aclId/associate',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, aclId } = req.params;
+        const { vSwitchIds } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const ids: string[] = Array.isArray(vSwitchIds) ? vSwitchIds : [];
+        if (!aclId || ids.length === 0)
+          return res.status(400).json({ message: '缺少 NetworkAclId 或交换机列表' });
+        const extraParams: Record<string, any> = { NetworkAclId: aclId };
+        ids.forEach((vid: string, i: number) => {
+          const n = i + 1;
+          extraParams[`Resource.${n}.ResourceId`] = vid;
+          extraParams[`Resource.${n}.ResourceType`] = 'VSwitch';
+        });
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'AssociateNetworkAcl',
+          extraParams,
+        } as any);
+        res.json({ message: '关联成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '关联网络ACL失败', error: error.message });
+      }
+    },
+  );
+
+  // 解除网络ACL与交换机关联 UnassociateNetworkAcl
+  router.post(
+    '/:id/resources/network-acls/:aclId/unassociate',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, aclId } = req.params;
+        const { vSwitchIds } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isAliyun(cloud)) return next();
+        if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
+          return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
+        const ids: string[] = Array.isArray(vSwitchIds) ? vSwitchIds : [];
+        if (!aclId || ids.length === 0)
+          return res.status(400).json({ message: '缺少 NetworkAclId 或交换机列表' });
+        const extraParams: Record<string, any> = { NetworkAclId: aclId };
+        ids.forEach((vid: string, i: number) => {
+          const n = i + 1;
+          extraParams[`Resource.${n}.ResourceId`] = vid;
+          extraParams[`Resource.${n}.ResourceType`] = 'VSwitch';
+        });
+        const result = await callAliyunVpc({
+          accessKeyId: cloud.accessKey,
+          accessKeySecret: cloud.secretKey,
+          regionId: cloud.region,
+          action: 'UnassociateNetworkAcl',
+          extraParams,
+        } as any);
+        res.json({ message: '解除关联成功', data: result });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '解除网络ACL关联失败', error: error.message });
+      }
+    },
+  );
+
   // EIPs
   router.get(
     '/:id/resources/eips',

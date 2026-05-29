@@ -268,6 +268,35 @@ export const deleteCloudProviderNetworkAcl = async (cloudId: string, aclId: stri
   return await apiDelete(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}`);
 };
 
+export type AliyunAclEntry = {
+  name?: string;
+  policy?: 'accept' | 'drop';
+  protocol?: 'all' | 'tcp' | 'udp' | 'icmp' | 'gre';
+  port?: string;
+  sourceCidrIp?: string;
+  destinationCidrIp?: string;
+  description?: string;
+};
+
+// 云资源池：更新阿里云网络ACL规则（整组覆盖 ingress/egress）
+export const updateCloudProviderNetworkAclEntries = async (
+  cloudId: string,
+  aclId: string,
+  payload: { ingress?: AliyunAclEntry[]; egress?: AliyunAclEntry[] },
+) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}/entries`, payload);
+};
+
+// 云资源池：关联网络ACL到交换机
+export const associateCloudProviderNetworkAcl = async (cloudId: string, aclId: string, vSwitchIds: string[]) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}/associate`, { vSwitchIds });
+};
+
+// 云资源池：解除网络ACL与交换机关联
+export const unassociateCloudProviderNetworkAcl = async (cloudId: string, aclId: string, vSwitchIds: string[]) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/network-acls/${encodeURIComponent(aclId)}/unassociate`, { vSwitchIds });
+};
+
 // 云资源池：申请阿里云 EIP（AllocateEipAddress）
 export const allocateCloudProviderEip = async (
   cloudId: string,
