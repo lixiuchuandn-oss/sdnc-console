@@ -41,7 +41,7 @@ import {
   CLOUD_RESOURCE_POOLS_READ,
   CLOUD_RESOURCE_POOLS_WRITE,
 } from '../../constants/cloudPermissions';
-import { type Cloud, isCsmCloud, isMaasPoolCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
+import { isCsmCloud, isMaasPoolCloud, isRancherPoolCloud } from '../../pages/cnmc/pools/lib/poolProviders';
 import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import {
@@ -83,7 +83,6 @@ import {
   ADMIN_HEADER_HEIGHT_PX,
   buildGroupMenuChildren,
   findMenuOpenKeyChainForPath,
-  resolveDefaultPool,
   sidebarForPath,
   type PageSearchEntry,
 } from './lib/adminLayoutNav';
@@ -91,6 +90,7 @@ import { useGlobalSearch } from './hooks/useGlobalSearch';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
 import { useRancherSidebarCounts } from './hooks/useRancherSidebarCounts';
 import { useHeaderPoolStrip } from './hooks/useHeaderPoolStrip';
+import { usePoolWizard } from './hooks/usePoolWizard';
 
 const { Content } = Layout;
 
@@ -114,9 +114,6 @@ function AdminOutletSuspenseFallback() {
 
 /** 顶栏底边、侧栏右边线等与导航分割相关的颜色 */
 const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
-
-/** 无资源池时强弹向导：本会话用户点「稍后接入」后不再自动弹出 */
-const MUST_BIND_POOL_DISMISS_KEY = 'adminLayout.mustBindPoolPromptDismissed';
 
 
 const AdminLayout: React.FC = () => {
@@ -155,11 +152,6 @@ const AdminLayout: React.FC = () => {
     setHeaderSelectedPoolId,
     loadSummaryClouds,
   } = useHeaderPoolStrip(user);
-
-  const [poolWizardOpen, setPoolWizardOpen] = useState(false);
-  const [poolWizardEditing, setPoolWizardEditing] = useState<Cloud | null>(null);
-  const [poolWizardForceRequired, setPoolWizardForceRequired] = useState(false);
-  const poolWizardOpenedByAutoRef = useRef(false);
 
 
   /** super_admin 全放行；其余按路径 required action 与 permissions 校验 */
@@ -532,70 +524,21 @@ const AdminLayout: React.FC = () => {
     lastSidebarAutoExpandSigRef.current = '';
   }, [poolCloudId, rancherClusterCtx?.poolId, rancherClusterCtx?.clusterId, csmPoolId, xinferencePoolId, maasPoolId]);
 
-  const autoBindPoolPromptShownRef = useRef(false);
-
-  useEffect(() => {
-    if (!user) return;
-    if (!summaryListHydrated) return;
-    if (summaryClouds.filter((c) => !isCsmCloud(c)).length > 0) {
-      autoBindPoolPromptShownRef.current = false;
-      if (poolWizardOpenedByAutoRef.current) {
-        setPoolWizardOpen(false);
-        setPoolWizardForceRequired(false);
-        poolWizardOpenedByAutoRef.current = false;
-      }
-      return;
-    }
-    // 注释掉自动弹出接入边缘云弹窗的逻辑
-    // if (summaryLoading) return;
-    // if (!canWritePools) return;
-    // try {
-    //   if (window.sessionStorage.getItem(MUST_BIND_POOL_DISMISS_KEY) === '1') return;
-    // } catch {
-    //   /* ignore */
-    // }
-    // if (autoBindPoolPromptShownRef.current) return;
-    // autoBindPoolPromptShownRef.current = true;
-    // poolWizardOpenedByAutoRef.current = true;
-    // setPoolWizardForceRequired(true);
-    // setPoolWizardEditing(null);
-    // setPoolWizardOpen(true);
-  }, [user, summaryLoading, summaryClouds, canWritePools, summaryListHydrated]);
-
-  const handlePoolWizardCancel = useCallback(() => {
-    setPoolWizardOpen(false);
-    setPoolWizardEditing(null);
-    setPoolWizardForceRequired(false);
-    if (poolWizardOpenedByAutoRef.current) {
-      try {
-        window.sessionStorage.setItem(MUST_BIND_POOL_DISMISS_KEY, '1');
-      } catch {
-        /* ignore */
-      }
-      poolWizardOpenedByAutoRef.current = false;
-    }
-  }, []);
-
-  const handlePoolWizardSuccess = useCallback(() => {
-    setPoolWizardOpen(false);
-    setPoolWizardEditing(null);
-    setPoolWizardForceRequired(false);
-    poolWizardOpenedByAutoRef.current = false;
-    void loadSummaryClouds();
-  }, [loadSummaryClouds]);
-
-  /** 设定默认资源池：无池=添加；有池=编辑当前默认池（显式 default 或最早创建） */
-  const openDefaultPoolWizardAction = useCallback(() => {
-    poolWizardOpenedByAutoRef.current = false;
-    setPoolWizardForceRequired(false);
-    if (!summaryClouds.length) {
-      setPoolWizardEditing(null);
-    } else {
-      const def = resolveDefaultPool(summaryClouds.filter((c) => !isCsmCloud(c)));
-      setPoolWizardEditing(def ?? null);
-    }
-    setPoolWizardOpen(true);
-  }, [summaryClouds]);
+  const {
+    poolWizardOpen,
+    poolWizardEditing,
+    poolWizardForceRequired,
+    handlePoolWizardCancel,
+    handlePoolWizardSuccess,
+    openDefaultPoolWizardAction,
+  } = usePoolWizard({
+    user,
+    summaryClouds,
+    summaryListHydrated,
+    summaryLoading,
+    canWritePools,
+    loadSummaryClouds,
+  });
 
   const pageSearchEntries = useMemo(() => {
     const opts: PageSearchEntry[] = [];
