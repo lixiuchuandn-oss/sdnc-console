@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Spin, Typography } from 'antd';
+import { Alert, Typography } from 'antd';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import { maasPoolPathForTab } from '../../../../../layouts/admin/maas/maasPoolSidebar';
 import MaasDashboardClusterBar from '../components/dashboard/MaasDashboardClusterBar';
@@ -8,6 +8,7 @@ import MaasDashboardControllersBlock from '../components/dashboard/MaasDashboard
 import MaasDashboardEventsCard from '../components/dashboard/MaasDashboardEventsCard';
 import MaasDashboardMachineStatusCard from '../components/dashboard/MaasDashboardMachineStatusCard';
 import MaasDashboardMetricRow from '../components/dashboard/MaasDashboardMetricRow';
+import MaasDashboardSkeleton from '../components/dashboard/MaasDashboardSkeleton';
 import MaasDashboardPoolConfigCard from '../components/dashboard/MaasDashboardPoolConfigCard';
 import { useMaasDashboard } from '../hooks/useMaasDashboard';
 import {
@@ -73,39 +74,43 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
           style={{ marginBottom: 16 }}
         />
       ) : null}
-      <Spin spinning={loading}>
-        <MaasDashboardClusterBar
-          data={data}
-          cloud={cloud}
-          loading={loading}
-          connected={connected}
-          onRefresh={() => void load()}
-        />
-        <MaasDashboardMetricRow
-          data={data}
-          connected={connected}
-          machines={machines}
-          regionCtrl={regionCtrl}
-          rackCtrl={rackCtrl}
-          onGoTab={goTab}
-        />
-        <MaasDashboardMachineStatusCard
-          connected={connected}
-          machines={machines}
-          onGoTab={goTab}
-        />
-        <MaasDashboardEventsCard
-          data={data}
-          connected={connected}
-          machines={machines}
-        />
-        <MaasDashboardPoolConfigCard cloud={cloud} />
-        <MaasDashboardControllersBlock
-          connected={connected}
-          regionCtrl={regionCtrl}
-          rackCtrl={rackCtrl}
-        />
-      </Spin>
+      {loading && !data ? (
+        <MaasDashboardSkeleton />
+      ) : (
+        <>
+          <MaasDashboardClusterBar
+            data={data}
+            cloud={cloud}
+            loading={loading}
+            connected={connected}
+            onRefresh={() => void load()}
+          />
+          <MaasDashboardMetricRow
+            data={data}
+            connected={connected}
+            machines={machines}
+            regionCtrl={regionCtrl}
+            rackCtrl={rackCtrl}
+            onGoTab={goTab}
+          />
+          <MaasDashboardMachineStatusCard
+            connected={connected}
+            machines={machines}
+            onGoTab={goTab}
+          />
+          <MaasDashboardEventsCard
+            data={data}
+            connected={connected}
+            machines={machines}
+          />
+          <MaasDashboardPoolConfigCard cloud={cloud} />
+          <MaasDashboardControllersBlock
+            connected={connected}
+            regionCtrl={regionCtrl}
+            rackCtrl={rackCtrl}
+          />
+        </>
+      )}
     </PageDetailSection>
   );
 };
