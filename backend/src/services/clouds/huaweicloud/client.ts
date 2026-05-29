@@ -1495,6 +1495,62 @@ export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: 
   }, 'HuaweiCloud 删除实例失败');
 }
 
+// ===== RDS 云数据库 =====
+function buildRdsEndpoint(region: string): string {
+  return `https://rds.${region}.myhuaweicloud.com`;
+}
+
+export async function huaweiListDbInstances(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v3/{project_id}/instances',
+    pathParams: { project_id: opts.projectId },
+  }, 'HuaweiCloud 查询云数据库失败');
+}
+
+export async function huaweiListDatastores(opts: HuaweiClientOptions, engine: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v3/{project_id}/datastores/{database_name}',
+    pathParams: { project_id: opts.projectId, database_name: engine },
+  }, 'HuaweiCloud 查询数据库版本失败');
+}
+
+export async function huaweiListRdsFlavors(opts: HuaweiClientOptions, engine: string, version?: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'GET',
+    url: '/v3/{project_id}/flavors/{database_name}',
+    pathParams: { project_id: opts.projectId, database_name: engine },
+    queryParams: version ? { version_name: version } : {},
+  }, 'HuaweiCloud 查询数据库规格失败');
+}
+
+export async function huaweiCreateDbInstance(opts: HuaweiClientOptions, instance: any): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v3/{project_id}/instances',
+    pathParams: { project_id: opts.projectId },
+    data: instance,
+  }, 'HuaweiCloud 创建云数据库失败');
+}
+
+export async function huaweiDeleteDbInstance(opts: HuaweiClientOptions, instanceId: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/v3/{project_id}/instances/{instance_id}',
+    pathParams: { project_id: opts.projectId, instance_id: instanceId },
+  }, 'HuaweiCloud 删除云数据库失败');
+}
+
+export async function huaweiRestartDbInstance(opts: HuaweiClientOptions, instanceId: string): Promise<any> {
+  return huaweiHcSend(opts, buildRdsEndpoint(opts.region), {
+    method: 'POST',
+    url: '/v3/{project_id}/instances/{instance_id}/action',
+    pathParams: { project_id: opts.projectId, instance_id: instanceId },
+    data: { restart: {} },
+  }, 'HuaweiCloud 重启云数据库失败');
+}
+
 // ===== NAT SNAT/DNAT 规则 =====
 function buildNatEndpointStr(region: string): string {
   return `https://nat.${region}.myhuaweicloud.com`;

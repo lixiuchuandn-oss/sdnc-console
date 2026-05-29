@@ -65,6 +65,12 @@ import {
   huaweiListDnatRules,
   huaweiCreateDnatRule,
   huaweiDeleteDnatRule,
+  huaweiListDbInstances,
+  huaweiListDatastores,
+  huaweiListRdsFlavors,
+  huaweiCreateDbInstance,
+  huaweiDeleteDbInstance,
+  huaweiRestartDbInstance,
 } from '../../../services/clouds/huaweicloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
@@ -2585,6 +2591,159 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '删除DNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // ===== RDS 云数据库 =====
+  router.get(
+    '/:id/resources/rds',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiListDbInstances({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询云数据库失败', error: error.message });
+      }
+    },
+  );
+
+  // RDS 数据库版本
+  router.get(
+    '/:id/resources/rds/datastores',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { engine } = (req.query || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!engine) return res.status(400).json({ message: '缺少 engine' });
+        const data = await huaweiListDatastores({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, engine);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询数据库版本失败', error: error.message });
+      }
+    },
+  );
+
+  // RDS 规格
+  router.get(
+    '/:id/resources/rds/flavors',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { engine, version } = (req.query || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!engine) return res.status(400).json({ message: '缺少 engine' });
+        const data = await huaweiListRdsFlavors({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, engine, version);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询数据库规格失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 RDS 实例
+  router.post(
+    '/:id/resources/rds',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const b = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!b.name || !b.engine || !b.engineVersion || !b.flavorRef || !b.volumeType || !b.volumeSize || !b.vpcId || !b.subnetId || !b.securityGroupId || !b.availabilityZone || !b.password)
+          return res.status(400).json({ message: '缺少必要参数（name/engine/engineVersion/flavorRef/volumeType/volumeSize/vpcId/subnetId/securityGroupId/availabilityZone/password）' });
+        const instance: any = {
+          name: b.name,
+          datastore: { type: b.engine, version: b.engineVersion },
+          flavor_ref: b.flavorRef,
+          volume: { type: b.volumeType, size: Number(b.volumeSize) },
+          region: cloud.region,
+          availability_zone: b.availabilityZone,
+          vpc_id: b.vpcId,
+          subnet_id: b.subnetId,
+          security_group_id: b.securityGroupId,
+          password: b.password,
+          charge_info: { charge_mode: 'postPaid' },
+        };
+        if (b.port) instance.port = String(b.port);
+        const data = await huaweiCreateDbInstance({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, instance);
+        res.json({ message: '创建数据库指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建云数据库失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 RDS 实例
+  router.delete(
+    '/:id/resources/rds/:dbInstanceId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, dbInstanceId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiDeleteDbInstance({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, dbInstanceId);
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除云数据库失败', error: error.message });
+      }
+    },
+  );
+
+  // 重启 RDS 实例
+  router.post(
+    '/:id/resources/rds/:dbInstanceId/restart',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, dbInstanceId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiRestartDbInstance({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, dbInstanceId);
+        res.json({ message: '重启指令已下发', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '重启云数据库失败', error: error.message });
       }
     },
   );

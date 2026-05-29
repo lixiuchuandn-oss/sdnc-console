@@ -110,6 +110,34 @@ export const deleteHuaweiDnatRule = async (cloudId: string, natGatewayId: string
   return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/dnat-rules`, { natGatewayId, dnatRuleId });
 };
 
+// ===== RDS 云数据库（华为云）=====
+export const fetchHuaweiRds = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/rds`);
+};
+export const fetchHuaweiRdsDatastores = async (cloudId: string, engine: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/rds/datastores?engine=${encodeURIComponent(engine)}`);
+};
+export const fetchHuaweiRdsFlavors = async (cloudId: string, engine: string, version?: string) => {
+  const q = version ? `&version=${encodeURIComponent(version)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/rds/flavors?engine=${encodeURIComponent(engine)}${q}`);
+};
+export const createHuaweiRds = async (
+  cloudId: string,
+  payload: {
+    name: string; engine: string; engineVersion: string; flavorRef: string;
+    volumeType: string; volumeSize: number; vpcId: string; subnetId: string;
+    securityGroupId: string; availabilityZone: string; password: string; port?: number;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/rds`, payload);
+};
+export const deleteHuaweiRds = async (cloudId: string, dbInstanceId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}`);
+};
+export const restartHuaweiRds = async (cloudId: string, dbInstanceId: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}/restart`, {});
+};
+
 // 云资源池：查询单个 VPC（华为云）
 export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`);

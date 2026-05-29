@@ -29,6 +29,7 @@ import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/Di
 import SnapshotSection from './sections/SnapshotSection';
 import ImagesSection, { Icon as ImageIcon, Label as ImageLabel } from './sections/ImagesSection';
 import KeyPairsSection, { Icon as KeyPairIcon, Label as KeyPairLabel } from './sections/KeyPairsSection';
+import RdsSection, { Icon as RdsIcon, Label as RdsLabel } from './sections/RdsSection';
 import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
 import EcsCreateModal from './modals/EcsCreateModal';
 import VmDetailModal from './modals/VmDetailModal';
@@ -67,6 +68,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [snapshots, setSnapshots] = useState<any[]>([]);
   const [images, setImages] = useState<any[]>([]);
   const [keyPairs, setKeyPairs] = useState<any[]>([]);
+  const [rds, setRds] = useState<any[]>([]);
   const [ecsCreateOpen, setEcsCreateOpen] = useState<boolean>(false);
 
   const [detailOpen, setDetailOpen] = useState<boolean>(false);
@@ -501,6 +503,15 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           count: keyPairs.length,
           children: (
             <KeyPairsSection cloudId={cloudId} keyPairs={keyPairs} onSetKeyPairs={(list)=> setKeyPairs(list)} />
+          )
+        },
+        {
+          key: 'rds',
+          label: RdsLabel,
+          icon: RdsIcon,
+          count: rds.length,
+          children: (
+            <RdsSection cloudId={cloudId} rds={rds} vpcs={vpcs} subnets={subnets} secGroups={secGroups} onSetRds={(list)=> setRds(list)} onRefreshAll={loadAll} />
           )
         },
       ]}
