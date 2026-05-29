@@ -22,7 +22,3 @@ export const MAAS_OVERVIEW_TITLE_ICON_STYLE = {
   display: 'inline-flex' as const,
   lineHeight: 1,
 };
-
-export const MAAS_OVERVIEW_TITLE_TEXT_STYLE = {
-  fontSize: 16,
-} as const;
