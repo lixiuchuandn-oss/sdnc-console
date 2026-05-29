@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  AutoComplete,
   Collapse,
   Form,
   Input,
@@ -8,8 +9,12 @@ import {
   Select,
   Switch,
   message,
-} from "antd";
-import { maasCreateMachine } from "../../../../../services/maasApi";
+} from 'antd';
+import {
+  fetchMaasPlacement,
+  maasCreateMachine,
+  type MaasNamedItem,
+} from '../../../../../services/maasApi';
 
 type Props = {
   poolId: string;
@@ -20,10 +25,10 @@ type Props = {
 };
 
 const ARCH_OPTIONS = [
-  { value: "amd64/generic", label: "amd64/generic（x86_64）" },
-  { value: "arm64/generic", label: "arm64/generic（aarch64）" },
-  { value: "ppc64el/generic", label: "ppc64el/generic" },
-  { value: "s390x/generic", label: "s390x/generic" },
+  { value: 'amd64/generic', label: 'amd64/generic（x86_64）' },
+  { value: 'arm64/generic', label: 'arm64/generic（aarch64）' },
+  { value: 'ppc64el/generic', label: 'ppc64el/generic' },
+  { value: 's390x/generic', label: 's390x/generic' },
 ];
 
 /** 电源类型 → 需要的参数字段（MAAS power_parameters_*） */
@@ -37,32 +42,32 @@ const POWER_TYPES: {
     password?: boolean;
   }[];
 }[] = [
-  { value: "manual", label: "manual（手动）", fields: [] },
+  { value: 'manual', label: 'manual（手动）', fields: [] },
   {
-    value: "ipmi",
-    label: "IPMI",
+    value: 'ipmi',
+    label: 'IPMI',
     fields: [
-      { name: "power_address", label: "BMC 地址", required: true },
-      { name: "power_user", label: "用户名" },
-      { name: "power_pass", label: "密码", password: true },
-      { name: "power_driver", label: "驱动（如 LAN_2_0）" },
+      { name: 'power_address', label: 'BMC 地址', required: true },
+      { name: 'power_user', label: '用户名' },
+      { name: 'power_pass', label: '密码', password: true },
+      { name: 'power_driver', label: '驱动（如 LAN_2_0）' },
     ],
   },
   {
-    value: "redfish",
-    label: "Redfish",
+    value: 'redfish',
+    label: 'Redfish',
     fields: [
-      { name: "power_address", label: "Redfish 地址", required: true },
-      { name: "power_user", label: "用户名" },
-      { name: "power_pass", label: "密码", password: true },
+      { name: 'power_address', label: 'Redfish 地址', required: true },
+      { name: 'power_user', label: '用户名' },
+      { name: 'power_pass', label: '密码', password: true },
     ],
   },
   {
-    value: "amt",
-    label: "Intel AMT",
+    value: 'amt',
+    label: 'Intel AMT',
     fields: [
-      { name: "power_address", label: "AMT 地址", required: true },
-      { name: "power_pass", label: "密码", password: true },
+      { name: 'power_address', label: 'AMT 地址', required: true },
+      { name: 'power_pass', label: '密码', password: true },
     ],
   },
 ];
@@ -78,14 +83,36 @@ const MaasMachineCreateModal: React.FC<Props> = ({
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [zones, setZones] = useState<MaasNamedItem[]>([]);
+  const [pools, setPools] = useState<MaasNamedItem[]>([]);
+  const [domains, setDomains] = useState<MaasNamedItem[]>([]);
   const powerType =
-    (Form.useWatch("powerType", form) as string | undefined) || "manual";
+    (Form.useWatch('powerType', form) as string | undefined) || 'manual';
+
+  useEffect(() => {
+    if (!open || !poolId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetchMaasPlacement(poolId, { skipCache: true });
+        if (cancelled || !res?.ok) return;
+        setZones(Array.isArray(res.zones) ? res.zones : []);
+        setPools(Array.isArray(res.pools) ? res.pools : []);
+        setDomains(Array.isArray(res.domains) ? res.domains : []);
+      } catch {
+        /* 候选项加载失败时仍可手动输入 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, poolId]);
 
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
-        architecture: "amd64/generic",
-        powerType: "manual",
+        architecture: 'amd64/generic',
+        powerType: 'manual',
         commission: true,
         macAddresses: initial?.macAddresses ?? [],
         hostname: initial?.hostname,
@@ -102,7 +129,7 @@ const MaasMachineCreateModal: React.FC<Props> = ({
       const powerParameters: Record<string, string> = {};
       for (const f of activeType.fields) {
         const val = v[f.name];
-        if (val != null && String(val).trim() !== "") {
+        if (val != null && String(val).trim() !== '') {
           powerParameters[f.name] = String(val).trim();
         }
       }
@@ -119,16 +146,16 @@ const MaasMachineCreateModal: React.FC<Props> = ({
         commission: v.commission,
       });
       if (!res?.ok) {
-        message.error(res?.message || "添加机器失败");
+        message.error(res?.message || '添加机器失败');
         return;
       }
-      message.success(res.message || "机器已添加");
+      message.success(res.message || '机器已添加');
       onSuccess();
       onClose();
       form.resetFields();
     } catch (e) {
-      if (e && typeof e === "object" && "errorFields" in e) return;
-      message.error(e instanceof Error ? e.message : "添加机器失败");
+      if (e && typeof e === 'object' && 'errorFields' in e) return;
+      message.error(e instanceof Error ? e.message : '添加机器失败');
     } finally {
       setLoading(false);
     }
@@ -157,7 +184,7 @@ const MaasMachineCreateModal: React.FC<Props> = ({
         <Form.Item
           name="architecture"
           label="架构"
-          rules={[{ required: true, message: "请选择架构" }]}
+          rules={[{ required: true, message: '请选择架构' }]}
         >
           <Select options={ARCH_OPTIONS} showSearch optionFilterProp="label" />
         </Form.Item>
@@ -165,14 +192,14 @@ const MaasMachineCreateModal: React.FC<Props> = ({
           name="macAddresses"
           label="MAC 地址（PXE 网卡，可多个）"
           rules={[
-            { required: true, message: "请至少填写一个 MAC 地址" },
+            { required: true, message: '请至少填写一个 MAC 地址' },
             {
               validator: (_, value: string[]) => {
                 const bad = (value || []).filter(
                   (m) => !MAC_RE.test(String(m).trim()),
                 );
                 return bad.length
-                  ? Promise.reject(new Error(`MAC 格式无效：${bad.join("、")}`))
+                  ? Promise.reject(new Error(`MAC 格式无效：${bad.join('、')}`))
                   : Promise.resolve();
               },
             },
@@ -180,7 +207,7 @@ const MaasMachineCreateModal: React.FC<Props> = ({
         >
           <Select
             mode="tags"
-            tokenSeparators={[",", " "]}
+            tokenSeparators={[',', ' ']}
             placeholder="如 52:54:00:12:34:56，回车确认"
             open={false}
           />
@@ -188,7 +215,7 @@ const MaasMachineCreateModal: React.FC<Props> = ({
         <Form.Item
           name="powerType"
           label="电源类型"
-          rules={[{ required: true, message: "请选择电源类型" }]}
+          rules={[{ required: true, message: '请选择电源类型' }]}
         >
           <Select
             options={POWER_TYPES.map((t) => ({
@@ -226,8 +253,8 @@ const MaasMachineCreateModal: React.FC<Props> = ({
           ghost
           items={[
             {
-              key: "placement",
-              label: "高级：归属（可选）",
+              key: 'placement',
+              label: '高级：归属（可选）',
               children: (
                 <>
                   <Form.Item
@@ -235,21 +262,48 @@ const MaasMachineCreateModal: React.FC<Props> = ({
                     label="DNS 域（domain）"
                     style={{ marginBottom: 12 }}
                   >
-                    <Input placeholder="如 maas" />
+                    <AutoComplete
+                      allowClear
+                      placeholder="如 maas（可选择或手填）"
+                      options={domains.map((d) => ({ value: d.name }))}
+                      filterOption={(input, option) =>
+                        String(option?.value ?? '')
+                          .toLowerCase()
+                          .includes(input.toLowerCase())
+                      }
+                    />
                   </Form.Item>
                   <Form.Item
                     name="zone"
                     label="可用区（zone）"
                     style={{ marginBottom: 12 }}
                   >
-                    <Input placeholder="如 default" />
+                    <AutoComplete
+                      allowClear
+                      placeholder="如 default（可选择或手填）"
+                      options={zones.map((z) => ({ value: z.name }))}
+                      filterOption={(input, option) =>
+                        String(option?.value ?? '')
+                          .toLowerCase()
+                          .includes(input.toLowerCase())
+                      }
+                    />
                   </Form.Item>
                   <Form.Item
                     name="pool"
                     label="资源池（pool）"
                     style={{ marginBottom: 0 }}
                   >
-                    <Input placeholder="如 default" />
+                    <AutoComplete
+                      allowClear
+                      placeholder="如 default（可选择或手填）"
+                      options={pools.map((p) => ({ value: p.name }))}
+                      filterOption={(input, option) =>
+                        String(option?.value ?? '')
+                          .toLowerCase()
+                          .includes(input.toLowerCase())
+                      }
+                    />
                   </Form.Item>
                 </>
               ),
