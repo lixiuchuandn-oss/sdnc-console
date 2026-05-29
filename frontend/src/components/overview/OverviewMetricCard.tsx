@@ -1,5 +1,5 @@
 import React from 'react';
-import { Col } from 'antd';
+import { Col, Spin } from 'antd';
 import OverviewCard from './OverviewCard';
 
 type ColSpan = {
@@ -19,6 +19,8 @@ type Props = {
   total?: React.ReactNode;
   footer?: React.ReactNode;
   valueColor?: string;
+  /** 首次加载时在数值区显示 Spin */
+  loading?: boolean;
   onClick?: () => void;
   /** 栅格断点，默认 xs=24 sm=12 lg=6 */
   col?: ColSpan;
@@ -34,6 +36,7 @@ const OverviewMetricCard: React.FC<Props> = ({
   total,
   footer,
   valueColor = '#1677ff',
+  loading,
   onClick,
   col,
 }) => (
@@ -58,17 +61,19 @@ const OverviewMetricCard: React.FC<Props> = ({
       }}
       onClick={onClick}
     >
-      <div className="overview-kpi-value-section">
-        <span className="overview-kpi-value" style={{ color: valueColor }}>
-          {value}
-        </span>
-        {total != null && total !== '' ? (
-          <>
-            <span className="overview-kpi-divider">/</span>
-            <span className="overview-kpi-total">{total}</span>
-          </>
-        ) : null}
-      </div>
+      <Spin spinning={!!loading}>
+        <div className="overview-kpi-value-section">
+          <span className="overview-kpi-value" style={{ color: valueColor }}>
+            {value}
+          </span>
+          {total != null && total !== '' ? (
+            <>
+              <span className="overview-kpi-divider">/</span>
+              <span className="overview-kpi-total">{total}</span>
+            </>
+          ) : null}
+        </div>
+      </Spin>
       <div className="overview-kpi-footer">{footer ?? '\u00A0'}</div>
     </OverviewCard>
   </Col>
