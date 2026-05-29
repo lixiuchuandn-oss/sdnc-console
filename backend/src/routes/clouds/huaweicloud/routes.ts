@@ -59,6 +59,12 @@ import {
   huaweiDeleteSnapshot,
   huaweiCreatePublicip,
   huaweiDeletePublicip,
+  huaweiListSnatRules,
+  huaweiCreateSnatRule,
+  huaweiDeleteSnatRule,
+  huaweiListDnatRules,
+  huaweiCreateDnatRule,
+  huaweiDeleteDnatRule,
 } from '../../../services/clouds/huaweicloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
@@ -2423,6 +2429,162 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '查询NAT网关失败', error: error.message });
+      }
+    },
+  );
+
+  // SNAT 规则列表
+  router.get(
+    '/:id/resources/nat-gateways/snat-rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { natGatewayId } = (req.query || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiListSnatRules({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询SNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 SNAT 规则
+  router.post(
+    '/:id/resources/nat-gateways/snat-rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { natGatewayId, floatingIpId, cidr, subnetId, sourceType } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!natGatewayId || !floatingIpId || (!cidr && !subnetId))
+          return res.status(400).json({ message: '缺少 natGatewayId / floatingIpId / (cidr 或 subnetId)' });
+        const rule: any = { nat_gateway_id: natGatewayId, floating_ip_id: floatingIpId };
+        if (subnetId) { rule.network_id = subnetId; rule.source_type = sourceType ?? 0; }
+        else { rule.cidr = cidr; rule.source_type = sourceType ?? 1; }
+        const data = await huaweiCreateSnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, rule);
+        res.json({ message: '创建成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建SNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 SNAT 规则
+  router.delete(
+    '/:id/resources/nat-gateways/snat-rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { natGatewayId, snatRuleId } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!natGatewayId || !snatRuleId) return res.status(400).json({ message: '缺少 natGatewayId 或 snatRuleId' });
+        const data = await huaweiDeleteSnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId, snatRuleId);
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除SNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // DNAT 规则列表
+  router.get(
+    '/:id/resources/nat-gateways/dnat-rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { natGatewayId } = (req.query || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiListDnatRules({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId);
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询DNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建 DNAT 规则
+  router.post(
+    '/:id/resources/nat-gateways/dnat-rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { natGatewayId, floatingIpId, protocol, externalServicePort, internalServicePort, privateIp, portId } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!natGatewayId || !floatingIpId || !protocol)
+          return res.status(400).json({ message: '缺少 natGatewayId / floatingIpId / protocol' });
+        const rule: any = {
+          nat_gateway_id: natGatewayId,
+          floating_ip_id: floatingIpId,
+          protocol,
+          external_service_port: Number(externalServicePort),
+          internal_service_port: Number(internalServicePort),
+        };
+        if (privateIp) rule.private_ip = privateIp;
+        if (portId) rule.port_id = portId;
+        const data = await huaweiCreateDnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, rule);
+        res.json({ message: '创建成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建DNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除 DNAT 规则
+  router.delete(
+    '/:id/resources/nat-gateways/dnat-rules',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const { natGatewayId, dnatRuleId } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!natGatewayId || !dnatRuleId) return res.status(400).json({ message: '缺少 natGatewayId 或 dnatRuleId' });
+        const data = await huaweiDeleteDnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId, dnatRuleId);
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除DNAT规则失败', error: error.message });
       }
     },
   );

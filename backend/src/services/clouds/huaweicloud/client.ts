@@ -1495,6 +1495,63 @@ export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: 
   }, 'HuaweiCloud 删除实例失败');
 }
 
+// ===== NAT SNAT/DNAT 规则 =====
+function buildNatEndpointStr(region: string): string {
+  return `https://nat.${region}.myhuaweicloud.com`;
+}
+
+export async function huaweiListSnatRules(opts: HuaweiClientOptions, natGatewayId?: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'GET',
+    url: '/v2/{project_id}/snat_rules',
+    pathParams: { project_id: opts.projectId },
+    queryParams: natGatewayId ? { nat_gateway_id: natGatewayId } : {},
+  }, 'HuaweiCloud 查询SNAT规则失败');
+}
+
+export async function huaweiCreateSnatRule(opts: HuaweiClientOptions, rule: any): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/snat_rules',
+    pathParams: { project_id: opts.projectId },
+    data: { snat_rule: rule },
+  }, 'HuaweiCloud 创建SNAT规则失败');
+}
+
+export async function huaweiDeleteSnatRule(opts: HuaweiClientOptions, natGatewayId: string, snatRuleId: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/nat_gateways/{nat_gateway_id}/snat_rules/{snat_rule_id}',
+    pathParams: { project_id: opts.projectId, nat_gateway_id: natGatewayId, snat_rule_id: snatRuleId },
+  }, 'HuaweiCloud 删除SNAT规则失败');
+}
+
+export async function huaweiListDnatRules(opts: HuaweiClientOptions, natGatewayId?: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'GET',
+    url: '/v2/{project_id}/dnat_rules',
+    pathParams: { project_id: opts.projectId },
+    queryParams: natGatewayId ? { nat_gateway_id: natGatewayId } : {},
+  }, 'HuaweiCloud 查询DNAT规则失败');
+}
+
+export async function huaweiCreateDnatRule(opts: HuaweiClientOptions, rule: any): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'POST',
+    url: '/v2/{project_id}/dnat_rules',
+    pathParams: { project_id: opts.projectId },
+    data: { dnat_rule: rule },
+  }, 'HuaweiCloud 创建DNAT规则失败');
+}
+
+export async function huaweiDeleteDnatRule(opts: HuaweiClientOptions, natGatewayId: string, dnatRuleId: string): Promise<any> {
+  return huaweiHcSend(opts, buildNatEndpointStr(opts.region), {
+    method: 'DELETE',
+    url: '/v2/{project_id}/nat_gateways/{nat_gateway_id}/dnat_rules/{dnat_rule_id}',
+    pathParams: { project_id: opts.projectId, nat_gateway_id: natGatewayId, dnat_rule_id: dnatRuleId },
+  }, 'HuaweiCloud 删除DNAT规则失败');
+}
+
 // ===== EIP 申请/释放 =====
 async function huaweiEipSend(
   opts: HuaweiClientOptions,

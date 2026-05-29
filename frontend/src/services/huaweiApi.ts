@@ -84,6 +84,32 @@ export const releaseHuaweiEip = async (cloudId: string, eipId: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/eips/${encodeURIComponent(eipId)}`);
 };
 
+// ===== NAT SNAT/DNAT 规则（华为云）=====
+export const fetchHuaweiSnatRules = async (cloudId: string, natGatewayId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/nat-gateways/snat-rules?natGatewayId=${encodeURIComponent(natGatewayId)}`);
+};
+export const createHuaweiSnatRule = async (
+  cloudId: string,
+  payload: { natGatewayId: string; floatingIpId: string; cidr?: string; subnetId?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/nat-gateways/snat-rules`, payload);
+};
+export const deleteHuaweiSnatRule = async (cloudId: string, natGatewayId: string, snatRuleId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/snat-rules`, { natGatewayId, snatRuleId });
+};
+export const fetchHuaweiDnatRules = async (cloudId: string, natGatewayId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/nat-gateways/dnat-rules?natGatewayId=${encodeURIComponent(natGatewayId)}`);
+};
+export const createHuaweiDnatRule = async (
+  cloudId: string,
+  payload: { natGatewayId: string; floatingIpId: string; protocol: string; externalServicePort: number; internalServicePort: number; privateIp?: string; portId?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/nat-gateways/dnat-rules`, payload);
+};
+export const deleteHuaweiDnatRule = async (cloudId: string, natGatewayId: string, dnatRuleId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/dnat-rules`, { natGatewayId, dnatRuleId });
+};
+
 // 云资源池：查询单个 VPC（华为云）
 export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`);
