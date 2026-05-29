@@ -40,7 +40,7 @@ import { getProviderChartOption } from './chartUtils';
 import './Dashboard.css';
 import { isCsmCloud } from '../pools/lib/poolProviders';
 import { navigateToPoolDetail } from '../pools/lib/poolDetailNav';
-import { OverviewMetricCard } from '../../../components/overview';
+import { OverviewMetricCard, OverviewSectionSpin } from '../../../components/overview';
 
 function pickSettledResult<T>(result: PromiseSettledResult<T>, fallback: T): T {
   return result.status === 'fulfilled' ? result.value : fallback;
@@ -287,12 +287,12 @@ const OverviewDashboard: React.FC = () => {
 
   return (
     <div className="dashboard-modern">
+      <OverviewSectionSpin loading={statsLoading || chartsLoading}>
       <Row gutter={[16, 16]} className="kpi-row dashboard-overview-row" align="stretch">
         <OverviewMetricCard
           title="纳管云资源"
           value={cloudStats.online}
           total={cloudStats.total}
-          loading={statsLoading}
           valueColor="#1677ff"
           icon={<CloudServerOutlined style={{ color: '#1677ff' }} />}
           col={{ xs: 24, sm: 12, lg: 6 }}
@@ -301,7 +301,6 @@ const OverviewDashboard: React.FC = () => {
           title="运行中实例"
           value={instanceStats.running}
           total={instanceStats.total}
-          loading={statsLoading}
           valueColor="#1677ff"
           icon={<DesktopOutlined style={{ color: '#1677ff' }} />}
           col={{ xs: 24, sm: 12, lg: 6 }}
@@ -310,7 +309,6 @@ const OverviewDashboard: React.FC = () => {
           title="活跃用户"
           value={stats.newUserCount || 0}
           total={stats.totalUserCount || 0}
-          loading={statsLoading}
           valueColor="#1677ff"
           icon={<TeamOutlined style={{ color: '#1677ff' }} />}
           col={{ xs: 24, sm: 12, lg: 6 }}
@@ -319,12 +317,12 @@ const OverviewDashboard: React.FC = () => {
           title="24h 告警"
           value={criticalAlertsCount}
           total={alarmCount}
-          loading={chartsLoading}
           valueColor={alarmCount > 0 ? '#ff4d4f' : '#1677ff'}
           icon={<BellOutlined style={{ color: alarmCount > 0 ? '#ff4d4f' : '#1677ff' }} />}
           col={{ xs: 24, sm: 12, lg: 6 }}
         />
       </Row>
+      </OverviewSectionSpin>
 
       <Row gutter={[16, 16]} className="charts-row dashboard-overview-row" align="stretch">
         <Col xs={24} lg={6} style={CHART_COL_OUTER_STYLE}>

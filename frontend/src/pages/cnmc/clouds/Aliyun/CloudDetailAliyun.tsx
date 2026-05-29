@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Alert, Modal, Descriptions, Row, Tag, Button } from 'antd';
-import { DashboardOutlined, ReloadOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Alert, Modal, Descriptions, Row, Tag } from 'antd';
+import { DashboardOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import { OverviewCard, OverviewMetricCard, overviewTitleIcon } from '../../../../components/overview';
+import { OverviewCard, OverviewDashboardLayout, OverviewMetricCard, OverviewPoolRefreshButton, overviewTitleIcon } from '../../../../components/overview';
 import { useSearchParams } from 'react-router-dom';
 import { normalizeAliyunPoolTabParam, type AliyunPoolTabKey } from '../../../../layouts/admin/aliyun/aliyunPoolSidebar';
 import EcsSectionAliyun, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSectionAliyun';
@@ -22,7 +21,7 @@ import KeyPairsSectionAliyun, { Icon as KeyPairIcon, Label as KeyPairLabel } fro
 import VpnGatewaySectionAliyun, { Icon as VpnIcon, Label as VpnLabel } from './sections/VpnGatewaySectionAliyun';
 import RdsSectionAliyun, { Icon as RdsIcon, Label as RdsLabel } from './sections/RdsSectionAliyun';
 import MonitorAlarmSectionAliyun, { Icon as MonitorIcon, Label as MonitorLabel } from './sections/MonitorAlarmSectionAliyun';
-import { fetchClouds } from '../../../../services/api';
+import { fetchCloudById } from '../../../../services/api';
 import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches, fetchCloudProviderNetworkAcls, fetchCloudProviderImages, fetchCloudProviderKeyPairs, fetchCloudProviderVpnGateways, fetchCloudProviderRds } from '../../../../services/aliyunApi';
 import SecurityGroupDetailModalAliyun from './modals/SecurityGroupDetailModalAliyun';
 import RouteTableCreateModalAliyun from './modals/RouteTableCreateModalAliyun';
@@ -41,7 +40,8 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = normalizeAliyunPoolTabParam(searchParams.get('tab'));
   const [error, setError] = useState<string>('');
-  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [overviewLoading, setOverviewLoading] = useState<boolean>(true);
+  const overviewReadyRef = useRef(false);
   const [cloud, setCloud] = useState<any>(null);
   const [ecs, setEcs] = useState<any[]>([]);
   const [vpcs, setVpcs] = useState<any[]>([]);
@@ -80,12 +80,14 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [curRtTarget, setCurRtTarget] = useState<any | null>(null);
   const [curRtEntries, setCurRtEntries] = useState<any[]>([]);
 
-  const loadAll = useCallback(async () => {
-    setError('');
+  const loadAll = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setOverviewLoading(true);
+      setError('');
+    }
     try {
-      const cloudsRes = await fetchClouds();
-      const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray(cloudsRes?.data) ? cloudsRes.data : []);
-      setCloud((cloudList || []).find((c: any) => String(c.id) === String(cloudId)) || null);
+      const cloudRes = await fetchCloudById(cloudId, { skipCache: !opts?.silent });
+      setCloud(cloudRes || null);
 
       const [vpcJson, ecsJson, vswJson, sgJson, eipJson, diskJson, slbJson, natJson, rtJson, snapJson, aclJson, imgJson, kpJson, vpnJson, rdsJson] = await Promise.all([
         fetchCloudProviderVpcs(cloudId),
@@ -152,24 +154,22 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
       setRawVSwitches(vswJson || null);
       setRawSecGroups(sgJson || null);
       setRawEips(eipJson || null);
+      overviewReadyRef.current = true;
     } catch (e: any) {
-      setError(e?.message || '查询阿里云资源失败');
-      setVpcs([]); setEcs([]); setVSwitches([]); setSecGroups([]); setEips([]);
-      setRawVpcs(null); setRawEcs(null); setRawVSwitches(null); setRawSecGroups(null); setRawEips(null);
+      if (!opts?.silent) {
+        setError(e?.message || '查询阿里云资源失败');
+        if (!overviewReadyRef.current) {
+          setVpcs([]); setEcs([]); setVSwitches([]); setSecGroups([]); setEips([]);
+          setRawVpcs(null); setRawEcs(null); setRawVSwitches(null); setRawSecGroups(null); setRawEips(null);
+        }
+      }
+    } finally {
+      if (!opts?.silent) setOverviewLoading(false);
     }
   }, [cloudId]);
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
-
-  const handleOverviewRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await loadAll();
-    } finally {
-      setRefreshing(false);
-    }
+    void loadAll();
   }, [loadAll]);
 
   useEffect(() => {
@@ -189,7 +189,13 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
     <OverviewCard
       title="资源池信息"
       icon={overviewTitleIcon(<DashboardOutlined />)}
-      style={{ marginTop: 16 }}
+      extra={
+        <OverviewPoolRefreshButton
+          loading={overviewLoading}
+          onRefresh={() => void loadAll()}
+        />
+      }
+      style={{ marginBottom: 16 }}
       bodyStyle={{ padding: '16px 20px' }}
     >
       <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="middle">
@@ -215,16 +221,9 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
           label: '资源总览',
           icon: <DashboardOutlined />,
           children: (
-            <PageDetailSection
-              asCard={false}
-              showHeaderTitle
-              icon={<DashboardOutlined />}
-              title={cloud?.name || '资源总览'}
-              extra={
-                <div className="toolbar-actions">
-                  <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void handleOverviewRefresh()} />
-                </div>
-              }
+            <OverviewDashboardLayout
+              loading={overviewLoading}
+              poolCard={aliyunInfoCard}
             >
               <Row gutter={[16, 16]}>
                 <OverviewMetricCard title="云主机数量" icon={overviewTitleIcon(EcsIcon)} value={ecs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
@@ -232,9 +231,18 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
                 <OverviewMetricCard title="交换机数量" icon={overviewTitleIcon(VSwitchIcon)} value={vswitches.length} col={{ xs: 24, sm: 12, lg: 6 }} />
                 <OverviewMetricCard title="安全组数量" icon={overviewTitleIcon(SgIcon)} value={secGroups.length} col={{ xs: 24, sm: 12, lg: 6 }} />
                 <OverviewMetricCard title="EIP 数量" icon={overviewTitleIcon(EipIcon)} value={eips.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="云硬盘数量" icon={overviewTitleIcon(DiskIcon)} value={disks.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="快照数量" icon={overviewTitleIcon(SnapshotIcon)} value={snapshots.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="镜像数量" icon={overviewTitleIcon(ImageIcon)} value={images.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="密钥对数量" icon={overviewTitleIcon(KeyPairIcon)} value={keyPairs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="负载均衡数量" icon={overviewTitleIcon(SlbIcon)} value={slbs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="NAT 网关数量" icon={overviewTitleIcon(NatIcon)} value={natGateways.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="VPN 网关数量" icon={overviewTitleIcon(VpnIcon)} value={vpnGateways.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="路由表数量" icon={overviewTitleIcon(RouteTableIcon)} value={routeTables.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="网络 ACL 数量" icon={overviewTitleIcon(AclIcon)} value={networkAcls.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="RDS 数量" icon={overviewTitleIcon(RdsIcon)} value={rds.length} col={{ xs: 24, sm: 12, lg: 6 }} />
               </Row>
-              {aliyunInfoCard}
-            </PageDetailSection>
+            </OverviewDashboardLayout>
           )
         },
         {

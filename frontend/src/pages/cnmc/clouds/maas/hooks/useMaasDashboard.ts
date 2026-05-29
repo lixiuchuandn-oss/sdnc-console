@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchCloudById } from '../../../../../services/api';
 import { fetchMaasDashboard, type MaasDashboardResponse } from '../../../../../services/maasApi';
 import type { Cloud } from '../../../pools/lib/poolProviders';
@@ -6,6 +6,7 @@ import { MAAS_DASHBOARD_POLL_MS } from '../lib/maasDashboardUtils';
 
 export function useMaasDashboard(poolId: string) {
   const [loading, setLoading] = useState(true);
+  const overviewReadyRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [warn, setWarn] = useState<string | null>(null);
   const [data, setData] = useState<MaasDashboardResponse | null>(null);
@@ -24,8 +25,11 @@ export function useMaasDashboard(poolId: string) {
           fetchMaasDashboard(poolId, { skipCache: true }),
           fetchCloudById(poolId, { skipCache: true }),
         ]);
-        setData(dashRes);
-        setCloud((cloudRes as Cloud) || null);
+        if (dashRes) {
+          setData(dashRes);
+          overviewReadyRef.current = true;
+        }
+        if (cloudRes) setCloud((cloudRes as Cloud) || null);
         if (!dashRes?.ok) {
           if (!opts?.silent) setError(dashRes?.message || '拉取概览失败');
           return;

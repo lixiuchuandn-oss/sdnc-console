@@ -1,6 +1,5 @@
 import React from 'react';
-import { Button } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { OverviewPoolRefreshButton } from '../../../../../components/overview';
 
 /**
  * MAAS 池工具栏刷新钮（仅图标 Button）。
@@ -10,5 +9,5 @@ export const MaasToolbarRefresh: React.FC<{
   loading?: boolean;
   onRefresh: () => void;
 }> = ({ loading, onRefresh }) => (
-  <Button icon={<ReloadOutlined />} loading={loading} onClick={onRefresh} />
+  <OverviewPoolRefreshButton loading={loading} onRefresh={onRefresh} />
 );

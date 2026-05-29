@@ -6,13 +6,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Button,
   Col,
+  Descriptions,
   Empty,
   List,
   Progress,
   Row,
-  Skeleton,
+  Tag,
   Typography,
 } from 'antd';
 import {
@@ -21,15 +21,16 @@ import {
   ClusterOutlined,
   DashboardOutlined,
   DatabaseOutlined,
-  ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import PageDetailSection from '../../../../../components/PageDetailSection';
 import {
   OVERVIEW_COLORS,
   OverviewCard,
+  OverviewDashboardLayout,
+  OverviewPoolRefreshButton,
   overviewTitleIcon,
 } from '../../../../../components/overview';
+import { fetchCloudById } from '../../../../../services/api';
 import {
   fetchXinferenceClusterInfo,
   type XinferenceClusterInfo,
@@ -44,6 +45,9 @@ import {
   fmtVersionRelease,
   getRiskColor,
 } from '../lib/xinferenceFormat';
+import type { Cloud } from '../../../pools/lib/poolProviders';
+import { resolvePoolTypeLabel } from '../../../pools/lib/poolProviders';
+import { formatMaasDateTime, maskMaasApiKey } from '../../maas/lib/maasPoolConfigFormat';
 
 type Props = {
   poolId: string;
@@ -384,6 +388,7 @@ function WorkersListPanel({
 
 const DashboardSection: React.FC<Props> = ({ poolId }) => {
   const [info, setInfo] = useState<XinferenceClusterInfo | null>(null);
+  const [cloud, setCloud] = useState<Cloud | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -398,10 +403,14 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
         setErr(null);
       }
       try {
-        const next = await fetchXinferenceClusterInfo(poolId, {
-          skipCache: true,
-        });
+        const [next, cloudRes] = await Promise.all([
+          fetchXinferenceClusterInfo(poolId, {
+            skipCache: true,
+          }),
+          fetchCloudById(poolId, { skipCache: true }),
+        ]);
         setInfo(next);
+        setCloud((cloudRes as Cloud) || null);
       } catch (e: unknown) {
         // 失败不清空：保留上次数据，仅前台加载时提示错误
         if (!opts?.silent)
@@ -440,70 +449,84 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
     return <Alert type="warning" message="缺少资源池参数" showIcon />;
   }
 
-  return (
-    <PageDetailSection
-      asCard={false}
-      showHeaderTitle
-      icon={<DashboardOutlined />}
-      title="资源概览"
-      extra={
-        <div className="toolbar-actions">
-          <Button
-            icon={<ReloadOutlined />}
-            loading={loading}
-            onClick={() => void load()}
-          />
-        </div>
-      }
-    >
-      {err && (
-        <Alert
-          type="error"
-          message={err}
-          showIcon
-          style={{ marginBottom: CARD_GAP }}
-        />
-      )}
-      {(info?.modelsError || info?.versionError) && (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: CARD_GAP }}
-          message="部分数据拉取失败"
-          description={[info?.versionError, info?.modelsError]
-            .filter(Boolean)
-            .join('；')}
-        />
-      )}
+  const poolCfg = (cloud?.config || {}) as Record<string, unknown>;
 
-      {loading && !info ? (
-        <div style={OVERVIEW_GRID}>
-          <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
-            {[0, 1, 2].map((i) => (
-              <Col key={i} xs={24} lg={8} style={COL_FILL}>
-                <OverviewCard
-                  style={CARD_FILL}
-                  bodyStyle={{ flex: 1, minHeight: 0, padding: '16px 20px' }}
-                >
-                  <Skeleton active paragraph={{ rows: 4 }} />
-                </OverviewCard>
-              </Col>
-            ))}
-          </Row>
-          <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
-            {[0, 1].map((i) => (
-              <Col key={i} xs={24} lg={12} style={COL_FILL}>
-                <OverviewCard
-                  style={CARD_FILL}
-                  bodyStyle={{ flex: 1, minHeight: 0, padding: '16px 20px' }}
-                >
-                  <Skeleton active paragraph={{ rows: 5 }} />
-                </OverviewCard>
-              </Col>
-            ))}
-          </Row>
-        </div>
-      ) : (
+  const poolInfoCard = (
+    <OverviewCard
+      title="资源池信息"
+      icon={overviewTitleIcon(<DashboardOutlined />)}
+      extra={
+        <OverviewPoolRefreshButton loading={loading} onRefresh={() => void load()} />
+      }
+      style={{ marginBottom: CARD_GAP }}
+      bodyStyle={{ padding: '16px 20px' }}
+    >
+      <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="middle">
+        <Descriptions.Item label="名称">{cloud?.name || '—'}</Descriptions.Item>
+        <Descriptions.Item label="类型">
+          {resolvePoolTypeLabel(String(cloud?.type || ''))}
+        </Descriptions.Item>
+        <Descriptions.Item label="资源状态">
+          {cloud?.status === 'online' ? (
+            <Tag color="green">在线</Tag>
+          ) : cloud?.status === 'maintenance' ? (
+            <Tag color="orange">维护</Tag>
+          ) : cloud?.status === 'offline' ? (
+            <Tag color="red">离线</Tag>
+          ) : (
+            <Tag>未知</Tag>
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label="边缘节点地址" span={2}>
+          <Typography.Text copyable={!!cloud?.endpoint}>
+            {cloud?.endpoint || '—'}
+          </Typography.Text>
+        </Descriptions.Item>
+        <Descriptions.Item label="API 令牌">
+          {maskMaasApiKey(String(poolCfg.apiToken || ''))}
+        </Descriptions.Item>
+        <Descriptions.Item label="Grafana 地址" span={2}>
+          {String(poolCfg.grafanaUrl || '—')}
+        </Descriptions.Item>
+        <Descriptions.Item label="资源 ID">{cloud?.id || '—'}</Descriptions.Item>
+        <Descriptions.Item label="创建时间">
+          {formatMaasDateTime(cloud?.createdAt)}
+        </Descriptions.Item>
+        <Descriptions.Item label="更新时间">
+          {formatMaasDateTime(cloud?.updatedAt)}
+        </Descriptions.Item>
+      </Descriptions>
+    </OverviewCard>
+  );
+
+  return (
+    <OverviewDashboardLayout
+      loading={loading}
+      alerts={
+        <>
+          {err ? (
+            <Alert
+              type="error"
+              message={err}
+              showIcon
+              style={{ marginBottom: CARD_GAP }}
+            />
+          ) : null}
+          {(info?.modelsError || info?.versionError) ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: CARD_GAP }}
+              message="部分数据拉取失败"
+              description={[info?.versionError, info?.modelsError]
+                .filter(Boolean)
+                .join('；')}
+            />
+          ) : null}
+        </>
+      }
+      poolCard={poolInfoCard}
+    >
         <div style={OVERVIEW_GRID}>
           {/* 上行：集群概览 | CPU+内存 | GPU */}
           <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
@@ -767,8 +790,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
             </Col>
           </Row>
         </div>
-      )}
-    </PageDetailSection>
+    </OverviewDashboardLayout>
   );
 };
 

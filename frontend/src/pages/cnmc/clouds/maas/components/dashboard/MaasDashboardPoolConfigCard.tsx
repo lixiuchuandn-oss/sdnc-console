@@ -6,12 +6,15 @@ import type { Cloud } from '../../../../pools/lib/poolProviders';
 import { resolvePoolTypeLabel } from '../../../../pools/lib/poolProviders';
 import { formatMaasDateTime, maskMaasApiKey } from '../../lib/maasPoolConfigFormat';
 import { MAAS_CONFIG_SECTION_ID } from '../../lib/maasDashboardUtils';
+import { MaasToolbarRefresh } from '../../lib/maasToolbar';
 
 type Props = {
   cloud: Cloud | null;
+  loading?: boolean;
+  onRefresh?: () => void;
 };
 
-const MaasDashboardPoolConfigCard: React.FC<Props> = ({ cloud }) => {
+const MaasDashboardPoolConfigCard: React.FC<Props> = ({ cloud, loading, onRefresh }) => {
   const cfg = useMemo(() => (cloud?.config || {}) as Record<string, unknown>, [cloud]);
 
   return (
@@ -19,7 +22,12 @@ const MaasDashboardPoolConfigCard: React.FC<Props> = ({ cloud }) => {
       <OverviewCard
         title="资源池信息"
         icon={overviewTitleIcon(<DashboardOutlined />)}
-        style={{ marginTop: 16 }}
+        extra={
+          onRefresh ? (
+            <MaasToolbarRefresh loading={loading} onRefresh={onRefresh} />
+          ) : undefined
+        }
+        style={{ marginBottom: 16 }}
         bodyStyle={{ padding: '16px 20px' }}
       >
         <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="middle">

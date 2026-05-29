@@ -1,13 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Tag, Descriptions, Row, App, Divider, Button } from 'antd';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { Tag, Descriptions, Row, App, Divider, Alert } from 'antd';
 import { useSearchParams } from 'react-router-dom';
-import { DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined, ReloadOutlined } from '@ant-design/icons';
+import { DashboardOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
-import PageDetailSection from '../../../../components/PageDetailSection';
-import { OverviewCard, OverviewMetricCard, overviewTitleIcon } from '../../../../components/overview';
+import { OverviewCard, OverviewDashboardLayout, OverviewMetricCard, OverviewPoolRefreshButton, overviewTitleIcon } from '../../../../components/overview';
 import { normalizeHwPoolTabParam, type HwPoolTabKey } from '../../../../layouts/admin/hw/hwPoolSidebar';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
-import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics } from '../../../../services/huaweiApi';
+import { fetchCloudById, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
+import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics, fetchHuaweiImages, fetchHuaweiKeypairs, fetchHuaweiRds } from '../../../../services/huaweiApi';
 import VpcCreateModal from './modals/VpcCreateModal';
 import SubnetCreateModal from './modals/SubnetCreateModal';
 import SubnetEditModal from './modals/SubnetEditModal';
@@ -29,7 +28,7 @@ import EipSection, { Icon as EipIcon, Label as EipLabel } from './sections/EipSe
 import LoadBalancerSection, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSection';
 import NatGatewaySection, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySection';
 import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
-import SnapshotSection from './sections/SnapshotSection';
+import SnapshotSection, { Icon as SnapshotIcon } from './sections/SnapshotSection';
 import ImagesSection, { Icon as ImageIcon, Label as ImageLabel } from './sections/ImagesSection';
 import KeyPairsSection, { Icon as KeyPairIcon, Label as KeyPairLabel } from './sections/KeyPairsSection';
 import RdsSection, { Icon as RdsIcon, Label as RdsLabel } from './sections/RdsSection';
@@ -89,8 +88,9 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [eipManageSelId, setEipManageSelId] = useState<string>('');
 
   const [sgCreateOpen, setSgCreateOpen] = useState<boolean>(false);
-  const [, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [overviewLoading, setOverviewLoading] = useState<boolean>(true);
+  const overviewReadyRef = useRef(false);
+  const [overviewError, setOverviewError] = useState<string>('');
 
   const refreshMonitor = useCallback(async () => {
     const iid = vmDetail?.id || vmDetail?.InstanceId; if (!iid) return;
@@ -174,14 +174,16 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     } catch (e:any) { message.error(e?.message || '加载路由条目失败'); return []; }
   };
 
-  const loadAll = async () => {
-    setLoading(true);
+  const loadAll = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) {
+      setOverviewLoading(true);
+      setOverviewError('');
+    }
     try {
-      const cloudsRes = await fetchClouds();
-      const cloudList: any[] = Array.isArray(cloudsRes) ? cloudsRes : (Array.isArray(cloudsRes?.data) ? cloudsRes.data : []);
-      setCloud((cloudList || []).find((c:any)=> String(c.id) === String(cloudId)) || null);
+      const cloudRes = await fetchCloudById(cloudId, { skipCache: !opts?.silent });
+      setCloud(cloudRes || null);
 
-      const [vpcJson, ecsJson, subnetJson, sgJson, eipJson, slbJson, natJson, rtJson, diskJson, snapJson] = await Promise.all([
+      const [vpcJson, ecsJson, subnetJson, sgJson, eipJson, slbJson, natJson, rtJson, diskJson, snapJson, imgJson, kpJson, rdsJson] = await Promise.all([
         fetchCloudProviderVpcs(cloudId),
         fetchCloudProviderEcs(cloudId),
         fetchCloudProviderSubnets(cloudId),
@@ -192,6 +194,9 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
         fetchCloudProviderRouteTables(cloudId).catch(()=>null),
         fetchCloudProviderDisks(cloudId).catch(()=>null),
         fetchCloudProviderSnapshots(cloudId).catch(()=>null),
+        fetchHuaweiImages(cloudId, { imagetype: 'gold' }).catch(()=>null),
+        fetchHuaweiKeypairs(cloudId).catch(()=>null),
+        fetchHuaweiRds(cloudId).catch(()=>null),
       ]);
 
       const vpcList: any[] = (vpcJson?.data?.vpcs) || (vpcJson?.vpcs) || [];
@@ -204,6 +209,10 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       const rtList: any[] = (rtJson?.data?.route_tables) || (rtJson?.route_tables) || (rtJson?.data?.routetables) || (rtJson?.routetables) || [];
       const diskList: any[] = (diskJson?.data?.volumes) || (diskJson?.volumes) || [];
       const snapList: any[] = (snapJson?.data?.snapshots) || (snapJson?.snapshots) || [];
+      const imgList: any[] = (imgJson?.data?.images) || (imgJson?.images) || [];
+      const kpRaw: any[] = (kpJson?.data?.keypairs) || (kpJson?.keypairs) || [];
+      const kpList: any[] = Array.isArray(kpRaw) ? kpRaw.map((x: any) => x?.keypair || x) : [];
+      const rdsList: any[] = (rdsJson?.data?.instances) || (rdsJson?.instances) || [];
 
       setVpcs(Array.isArray(vpcList) ? vpcList : []);
       setSubnets(Array.isArray(subnetList) ? subnetList : []);
@@ -215,26 +224,27 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
       setRouteTables(Array.isArray(rtList) ? rtList : []);
       setDisks(Array.isArray(diskList) ? diskList : []);
       setSnapshots(Array.isArray(snapList) ? snapList : []);
+      setImages(Array.isArray(imgList) ? imgList : []);
+      setKeyPairs(Array.isArray(kpList) ? kpList : []);
+      setRds(Array.isArray(rdsList) ? rdsList : []);
+      overviewReadyRef.current = true;
       
     } catch (e: any) {
-      message.error(e?.message || '查询华为云资源失败');
-      setVpcs([]); setSubnets([]); setEcs([]); setSecGroups([]); setEips([]); setSlbs([]); setNatGateways([]); setRouteTables([]); setDisks([]); setSnapshots([]);
+      if (!opts?.silent) {
+        const msg = e?.message || '查询华为云资源失败';
+        setOverviewError(msg);
+        message.error(msg);
+        if (!overviewReadyRef.current) {
+          setVpcs([]); setSubnets([]); setEcs([]); setSecGroups([]); setEips([]); setSlbs([]); setNatGateways([]); setRouteTables([]); setDisks([]); setSnapshots([]);
+          setImages([]); setKeyPairs([]); setRds([]);
+        }
+      }
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setOverviewLoading(false);
     }
-  };
+  }, [cloudId, message]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (cloudId) loadAll(); }, [cloudId]);
-
-  const handleOverviewRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await loadAll();
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  useEffect(() => { if (cloudId) void loadAll(); }, [cloudId, loadAll]);
 
   useEffect(() => {
     if (!searchParams.get('tab')) {
@@ -246,7 +256,13 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
     <OverviewCard
       title="资源池信息"
       icon={overviewTitleIcon(<DashboardOutlined />)}
-      style={{ marginTop: 16 }}
+      extra={
+        <OverviewPoolRefreshButton
+          loading={overviewLoading}
+          onRefresh={() => void loadAll()}
+        />
+      }
+      style={{ marginBottom: 16 }}
       bodyStyle={{ padding: '16px 20px' }}
     >
       <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="middle">
@@ -272,31 +288,31 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           label: '资源总览',
           icon: <DashboardOutlined />,
           children: (
-            <PageDetailSection
-              asCard={false}
-              showHeaderTitle
-              icon={<DashboardOutlined />}
-              title={cloud?.name || '资源总览'}
-              extra={
-                <div className="toolbar-actions">
-                  <Button icon={<ReloadOutlined />} loading={refreshing} onClick={() => void handleOverviewRefresh()} />
-                </div>
+            <OverviewDashboardLayout
+              loading={overviewLoading}
+              alerts={
+                overviewError ? (
+                  <Alert type="error" message="查询失败" description={overviewError} showIcon style={{ marginBottom: 16 }} />
+                ) : null
               }
+              poolCard={hwInfoCard}
             >
               <Row gutter={[16, 16]}>
-                <OverviewMetricCard title="ECS 实例数" icon={overviewTitleIcon(<CloudServerOutlined />)} value={ecs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="VPC 数量" icon={overviewTitleIcon(<ClusterOutlined />)} value={vpcs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="子网" icon={overviewTitleIcon(<NodeIndexOutlined />)} value={subnets.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="安全组" icon={overviewTitleIcon(<SafetyCertificateOutlined />)} value={secGroups.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="EIP" icon={overviewTitleIcon(<GlobalOutlined />)} value={eips.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="负载均衡" icon={overviewTitleIcon(<DeploymentUnitOutlined />)} value={slbs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="NAT 网关" icon={overviewTitleIcon(<SwapOutlined />)} value={natGateways.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="路由表" icon={overviewTitleIcon(<BranchesOutlined />)} value={routeTables.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="云盘" icon={overviewTitleIcon(<HddOutlined />)} value={disks.length} col={{ xs: 24, sm: 12, lg: 6 }} />
-                <OverviewMetricCard title="快照" icon={overviewTitleIcon(<CameraOutlined />)} value={snapshots.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="云主机" icon={overviewTitleIcon(EcsIcon)} value={ecs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="VPC" icon={overviewTitleIcon(VpcIcon)} value={vpcs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="子网" icon={overviewTitleIcon(SubnetIcon)} value={subnets.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="安全组" icon={overviewTitleIcon(SgIcon)} value={secGroups.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="EIP" icon={overviewTitleIcon(EipIcon)} value={eips.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="负载均衡" icon={overviewTitleIcon(SlbIcon)} value={slbs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="NAT 网关" icon={overviewTitleIcon(NatIcon)} value={natGateways.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="路由表" icon={overviewTitleIcon(RtIcon)} value={routeTables.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="云盘" icon={overviewTitleIcon(DiskIcon)} value={disks.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="快照" icon={overviewTitleIcon(SnapshotIcon)} value={snapshots.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="镜像" icon={overviewTitleIcon(ImageIcon)} value={images.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="SSH 密钥对" icon={overviewTitleIcon(KeyPairIcon)} value={keyPairs.length} col={{ xs: 24, sm: 12, lg: 6 }} />
+                <OverviewMetricCard title="RDS" icon={overviewTitleIcon(RdsIcon)} value={rds.length} col={{ xs: 24, sm: 12, lg: 6 }} />
               </Row>
-              {hwInfoCard}
-            </PageDetailSection>
+            </OverviewDashboardLayout>
           )
         },
         {
