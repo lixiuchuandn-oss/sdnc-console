@@ -16,6 +16,8 @@ export interface VMStatusSegment {
 export interface VMInstancesSummary {
   total: number;
   segments: VMStatusSegment[];
+  namespaceSummary: Array<{ name: string; value: number }>;
+  nodeSummary: Array<{ name: string; value: number }>;
 }
 
 function getVMList(response: any): any[] {
@@ -51,6 +53,8 @@ function isPaused(vmi: any): boolean {
 export function parseVMInstancesToStatusCounts(vmResponse: any, vmiResponse?: any): VMInstancesSummary {
   const vmList = getVMList(vmResponse).filter((vm) => !isRecycleBinVm(vm));
   const vmiList = getVMIList(vmiResponse);
+  const namespaceCounter = new Map<string, number>();
+  const nodeCounter = new Map<string, number>();
   
   // 创建 VMI 映射表，key 为 namespace/name
   const vmiMap = new Map<string, any>();
@@ -81,6 +85,16 @@ export function parseVMInstancesToStatusCounts(vmResponse: any, vmiResponse?: an
     const name = vm?.metadata?.name || '';
     const vmiKey = `${namespace}/${name}`;
     const vmi = vmiMap.get(vmiKey);
+    const namespaceName = namespace || 'default';
+    namespaceCounter.set(namespaceName, (namespaceCounter.get(namespaceName) ?? 0) + 1);
+
+    const nodeName =
+      vmi?.status?.nodeName ||
+      vm?.status?.nodeName ||
+      vm?.metadata?.labels?.['kubevirt.io/nodeName'] ||
+      vm?.metadata?.labels?.['harvesterhci.io/nodeName'] ||
+      '未分配节点';
+    nodeCounter.set(nodeName, (nodeCounter.get(nodeName) ?? 0) + 1);
 
     if (vmi) {
       // 如果存在 VMI，说明虚拟机正在运行
@@ -108,5 +122,15 @@ export function parseVMInstancesToStatusCounts(vmResponse: any, vmiResponse?: an
     }
   }
 
-  return { total: vmList.length, segments };
+  const toSortedPairs = (counter: Map<string, number>): Array<{ name: string; value: number }> =>
+    [...counter.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, value]) => ({ name, value }));
+
+  return {
+    total: vmList.length,
+    segments,
+    namespaceSummary: toSortedPairs(namespaceCounter),
+    nodeSummary: toSortedPairs(nodeCounter),
+  };
 }

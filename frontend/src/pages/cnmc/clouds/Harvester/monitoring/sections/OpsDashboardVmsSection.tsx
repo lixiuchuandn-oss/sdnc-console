@@ -1,10 +1,10 @@
 /**
- * 运维监控大盘 · 云主机资源视图
+ * 运维监控大盘 · 云主机概览
  *
- * 与 Grafana 的差异：
- * - `$count` 模板变量改为顶部 `<Select>`（5 / 10 / 20，默认 10），通过 `expandPromql` 注入到 PromQL。
- * - `bargauge` 类型用本地新增的 `MetricBarGauge` 复刻：按 max 取百分比、按阈值（65% / 90%）离散染色。
- * 面板按计算 / 存储 / 网络分组展示（与集群、节点资源视图一致）；每组内每行最多 3 个 panel（`lg=8`）。
+ * 顶部展示集群云主机实例统计（与集群概览 CPU/内存/磁盘卡片同布局）；下方为 Prometheus TopN 面板。
+ * - `$count` 模板变量改为 TopN `<Select>`（5 / 10 / 20，默认 10），通过 `expandPromql` 注入到 PromQL。
+ * - `bargauge` 类型用 `MetricBarGauge`：按 max 取百分比、按阈值（65% / 90%）离散染色。
+ * 面板按计算 / 存储 / 网络分组展示。
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Col, Row, Select, Space, Typography } from 'antd';
@@ -13,9 +13,14 @@ import MetricPanelExpandButton from '../components/MetricPanelExpandButton';
 import MetricPanelPreviewModal from '../components/MetricPanelPreviewModal';
 import MetricTimeSeriesChart, { type MetricSeriesInput } from '../components/MetricTimeSeriesChart';
 import MetricBarGauge, { type BarGaugeThresholdStep } from '../components/MetricBarGauge';
+import OpsDashboardVmStatusCard from '../components/OpsDashboardVmStatusCard';
+import OpsDashboardVmNamespaceCard from '../components/OpsDashboardVmNamespaceCard';
+import OpsDashboardVmNodeCard from '../components/OpsDashboardVmNodeCard';
+import { MonitoringOverviewLanesProvider, useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
 import { usePromQueries, type PromQueryDef, type PromQueryResult } from '../hooks/usePromQueries';
 import { useVmDisplayNameMap } from '../hooks/useVmDisplayNameMap';
 import { resolveVmMetricLegendName } from '../lib/vmDisplayNames';
+import { parseVMInstancesToStatusCounts } from '../lib/vmInstances';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
 
@@ -29,8 +34,38 @@ const PANEL_HEIGHT = 340;
 const CHART_HEIGHT = 260;
 const PREVIEW_CHART_HEIGHT = 480;
 const BARGAUGE_MAX_HEIGHT = 260;
+const OVERVIEW_CARD_ROW_HEIGHT = 220;
 const COUNT_OPTIONS = [5, 10, 20] as const;
 const DEFAULT_COUNT = 10;
+
+const OVERVIEW_CARD_COL_FILL_STYLE: React.CSSProperties = {
+  display: 'flex',
+  minHeight: 0,
+  minWidth: 0,
+  width: '100%',
+  height: OVERVIEW_CARD_ROW_HEIGHT,
+};
+
+function VmOverviewSummaryRow({ height = OVERVIEW_CARD_ROW_HEIGHT }: { height?: number }) {
+  const slow = useMonitoringOverviewSlowLane();
+  const summary = useMemo(
+    () => parseVMInstancesToStatusCounts(slow.virtualMachines ?? null, slow.vmInstances ?? null),
+    [slow.virtualMachines, slow.vmInstances],
+  );
+  return (
+    <Row gutter={[16, 16]} style={{ width: '100%' }}>
+      <Col xs={24} md={8} lg={8} style={OVERVIEW_CARD_COL_FILL_STYLE}>
+        <OpsDashboardVmStatusCard summary={summary} loading={slow.loading} height={height} />
+      </Col>
+      <Col xs={24} md={8} lg={8} style={OVERVIEW_CARD_COL_FILL_STYLE}>
+        <OpsDashboardVmNamespaceCard summary={summary} loading={slow.loading} height={height} />
+      </Col>
+      <Col xs={24} md={8} lg={8} style={OVERVIEW_CARD_COL_FILL_STYLE}>
+        <OpsDashboardVmNodeCard summary={summary} loading={slow.loading} height={height} />
+      </Col>
+    </Row>
+  );
+}
 
 interface PanelQueryDef {
   key: string;
@@ -129,7 +164,8 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     kind: 'timeseries',
     id: 'vm-storage-read',
     title: '存储读流量',
-    description: 'TopN VM 的磁盘读字节速率：irate(kubevirt_vmi_storage_read_traffic_bytes_total[5m])，按 VM × drive 一条线',
+    description:
+      '按磁盘读取速度从高到低展示读取最活跃的云主机（数量由上方「TopN 数量」决定）；每条线代表一台云主机的一块磁盘，数值表示每秒从磁盘读取的数据量；读取突增常见于启动、加载程序或批量读盘等操作。',
     unit: 'bytesRate',
     yMin: 0,
     showLegend: true,
@@ -292,6 +328,7 @@ function renderTimeSeriesPanel(
   chartMax: number,
   legendNameResolver?: VmLegendNameResolver,
   height: number = CHART_HEIGHT,
+  loading = false,
 ): React.ReactNode {
   const groups: MetricSeriesInput[] = panel.queries.map((q) => ({
     name: q.legend,
@@ -310,6 +347,7 @@ function renderTimeSeriesPanel(
       showLegend={panel.showLegend}
       stack={panel.stack}
       legendNameResolver={legendNameResolver}
+      loading={loading}
     />
   );
 }
@@ -339,8 +377,9 @@ function renderVmsPanelBody(
   chartMin: number,
   chartMax: number,
   legendNameResolver: VmLegendNameResolver,
-  options?: { chartHeight?: number; barGaugeMaxHeight?: number },
+  options?: { chartHeight?: number; barGaugeMaxHeight?: number; loading?: boolean },
 ): React.ReactNode {
+  const loading = options?.loading ?? false;
   switch (panel.kind) {
     case 'timeseries':
       return renderTimeSeriesPanel(
@@ -350,6 +389,7 @@ function renderVmsPanelBody(
         chartMax,
         legendNameResolver,
         options?.chartHeight,
+        loading,
       );
     case 'bargauge':
       return renderBarGaugePanel(
@@ -435,6 +475,20 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      {aggregateError ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="部分面板加载失败"
+          description={aggregateError}
+          style={{ whiteSpace: 'pre-wrap' }}
+        />
+      ) : null}
+
+      <MonitoringOverviewLanesProvider key={`${cloudId}-${reloadToken}`} cloudId={cloudId}>
+        <VmOverviewSummaryRow height={OVERVIEW_CARD_ROW_HEIGHT} />
+      </MonitoringOverviewLanesProvider>
+
       <Space size={12} wrap align="center">
         <Typography.Text strong>TopN 数量</Typography.Text>
         <Select<number>
@@ -445,15 +499,6 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           onChange={(v) => setCount(Number(v))}
         />
       </Space>
-      {aggregateError ? (
-        <Alert
-          type="warning"
-          showIcon
-          message="部分面板加载失败"
-          description={aggregateError}
-          style={{ whiteSpace: 'pre-wrap' }}
-        />
-      ) : null}
       {vmNamesError ? (
         <Alert
           type="info"
@@ -484,7 +529,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
                     height={PANEL_HEIGHT}
                     bodyPadding={12}
                   >
-                    {renderVmsPanelBody(panel, results, chartMin, chartMax, legendNameResolver)}
+                    {renderVmsPanelBody(panel, results, chartMin, chartMax, legendNameResolver, { loading })}
                   </MetricPanelCard>
                 </Col>
               );
@@ -505,6 +550,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           ? renderVmsPanelBody(previewPanel, results, chartMin, chartMax, legendNameResolver, {
               chartHeight: PREVIEW_CHART_HEIGHT,
               barGaugeMaxHeight: PREVIEW_CHART_HEIGHT,
+              loading: previewPanelLoading,
             })
           : null}
       </MetricPanelPreviewModal>

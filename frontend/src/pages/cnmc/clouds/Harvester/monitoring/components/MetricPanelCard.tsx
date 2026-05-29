@@ -1,10 +1,13 @@
 /**
  * 监控大盘单个面板容器：标题（带可选 Tooltip） + loading + error + empty + 自定义内容。
  * 与 Grafana 单个 panel 类似，但是 Ant Design Card 风格，统一边距/卡片角。
+ *
+ * ECharts 异步模式：loading 时仍挂载 children（图表先 init，数据后 setOption），
+ * 不在外层用 Skeleton 挡住图表；空态仅在「非 loading 且无数据」时展示。
  */
 import React from 'react';
 import { QuestionCircleOutlined } from '@ant-design/icons';
-import { Alert, Card, Empty, Skeleton, Space, Typography } from 'antd';
+import { Alert, Card, Empty, Space, Typography } from 'antd';
 import { MonitoringPopover } from './MonitoringPopover';
 
 export interface MetricPanelCardProps {
@@ -56,9 +59,7 @@ const MetricPanelCard: React.FC<MetricPanelCardProps> = ({
   let body: React.ReactNode;
   if (error) {
     body = <Alert type="error" showIcon message={error} />;
-  } else if (loading && (isEmpty ?? true)) {
-    body = <Skeleton active paragraph={{ rows: 4 }} />;
-  } else if (isEmpty) {
+  } else if (!loading && isEmpty) {
     body = (
       <div
         style={{

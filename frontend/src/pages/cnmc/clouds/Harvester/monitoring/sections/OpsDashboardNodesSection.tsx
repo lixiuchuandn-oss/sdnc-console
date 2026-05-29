@@ -374,6 +374,7 @@ function renderTimeSeriesPanel(
   results: Record<string, PromQueryResult>,
   chartMin: number,
   chartMax: number,
+  loading = false,
 ): React.ReactNode {
   const groups: MetricSeriesInput[] = panel.queries.map((q) => ({
     name: q.legend,
@@ -395,11 +396,16 @@ function renderTimeSeriesPanel(
       secondaryUnit={panel.secondaryUnit}
       secondaryYMin={panel.secondaryYMin}
       secondaryYMax={panel.secondaryYMax}
+      loading={loading}
     />
   );
 }
 
-function renderGaugePanel(panel: GaugePanelDef, results: Record<string, PromQueryResult>): React.ReactNode {
+function renderGaugePanel(
+  panel: GaugePanelDef,
+  results: Record<string, PromQueryResult>,
+  loading = false,
+): React.ReactNode {
   const series = results[composeKey(panel.id, panel.query.key)]?.series ?? [];
   return (
     <MetricGauge
@@ -409,6 +415,7 @@ function renderGaugePanel(panel: GaugePanelDef, results: Record<string, PromQuer
       unit={panel.unit}
       thresholds={panel.thresholds}
       height={CHART_HEIGHT}
+      loading={loading}
     />
   );
 }
@@ -584,10 +591,10 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
                 let body: React.ReactNode;
                 switch (panel.kind) {
                   case 'timeseries':
-                    body = renderTimeSeriesPanel(panel, results, chartMin, chartMax);
+                    body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, loading);
                     break;
                   case 'gauge':
-                    body = renderGaugePanel(panel, results);
+                    body = renderGaugePanel(panel, results, loading);
                     break;
                   case 'diskSpaceTable':
                     body = renderDiskSpaceTablePanel(panel, results);

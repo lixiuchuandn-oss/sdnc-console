@@ -5,13 +5,15 @@
  * - 时间轴按 chartMin/chartMax 锚定，无数据时也能画出空轴；tooltip 多 series 合并
  * - Y 轴按整图最大值统一量级；tooltip 每条线按当前点 raw 值各自 format（对齐 Grafana）
  * - 通过 legendFormatter 把 labels 拼成 Grafana legend 风格（{{ instance }} → 实际值）
+ * - 异步数据：先 init 空轴/空 series，Prometheus 返回后 option 变更触发 setOption；loading 时 showLoading
  *
  * 设计参考：Harvester/ecs/drawers/vm-detail/tabs/VmPerformance.tsx 的 getOption / getByteRateOption。
  */
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { useEChartsLoading } from '../hooks/useEChartsLoading';
 import { legendNameFromLabels } from '../lib/legendLabels';
 import { formatValue, pickSeriesScale, type UnitKind } from '../lib/unit';
 import type { PromSeries } from '../hooks/usePromQueries';
@@ -57,6 +59,8 @@ export interface MetricTimeSeriesChartProps {
     labels: Record<string, string>,
     fallback: string,
   ) => string;
+  /** 异步拉取中：图表先挂载空轴，由 ECharts showLoading 覆盖；数据到达后 setOption 更新 */
+  loading?: boolean;
 }
 
 const DEFAULT_COLORS = [
@@ -95,6 +99,7 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
   secondaryYMin,
   secondaryYMax,
   legendNameResolver,
+  loading = false,
 }) => {
   /** 把所有 series 展开到一个数组，便于 ECharts 合并 */
   const flatSeries = useMemo<FlatSeries[]>(() => {
@@ -247,9 +252,16 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReactEChartsCore>(null);
 
-  const resizeChart = () => {
+  const resizeChart = useCallback(() => {
     chartRef.current?.getEchartsInstance()?.resize();
-  };
+  }, []);
+
+  const { onChartReady: onChartLoadingReady } = useEChartsLoading(chartRef, loading);
+
+  const handleChartReady = useCallback(() => {
+    resizeChart();
+    onChartLoadingReady();
+  }, [resizeChart, onChartLoadingReady]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -259,7 +271,7 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [resizeChart]);
 
   return (
     <div ref={wrapRef} style={{ width: '100%', minWidth: 0, height }}>
@@ -269,7 +281,7 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
         style={{ height: '100%', width: '100%' }}
         notMerge
         lazyUpdate
-        onChartReady={resizeChart}
+        onChartReady={handleChartReady}
       />
     </div>
   );

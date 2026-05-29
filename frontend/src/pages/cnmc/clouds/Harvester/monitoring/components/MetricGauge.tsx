@@ -4,9 +4,11 @@
  * - 支持按阈值上色（与 Grafana steps 一致：value 升序，落在哪段就显示哪段颜色）
  * - 单位按 raw 值传，组件内决定显示文本（默认 fixed(1) + 单位后缀，如 `78.2 %`）
  */
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
+import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { useEChartsLoading } from '../hooks/useEChartsLoading';
 import type { PromSeries } from '../hooks/usePromQueries';
 
 export interface GaugeThresholdStep {
@@ -29,6 +31,8 @@ export interface MetricGaugeProps {
   height?: number;
   /** Detail 文字大小，默认 22 */
   detailFontSize?: number;
+  /** 异步拉取中：先挂载 gauge 壳，数据到达后 setOption 更新指针 */
+  loading?: boolean;
 }
 
 const DEFAULT_THRESHOLDS: GaugeThresholdStep[] = [
@@ -57,6 +61,7 @@ const MetricGauge: React.FC<MetricGaugeProps> = ({
   thresholds = DEFAULT_THRESHOLDS,
   height = 240,
   detailFontSize = 22,
+  loading = false,
 }) => {
   const currentValue = useMemo(() => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -123,7 +128,23 @@ const MetricGauge: React.FC<MetricGaugeProps> = ({
     };
   }, [currentValue, min, max, axisLineColor, unit, detailFontSize]);
 
-  return <ReactECharts option={option} style={{ height, width: '100%' }} notMerge lazyUpdate />;
+  const chartRef = useRef<ReactEChartsCore>(null);
+  const { onChartReady: onChartLoadingReady } = useEChartsLoading(chartRef, loading);
+
+  const handleChartReady = useCallback(() => {
+    onChartLoadingReady();
+  }, [onChartLoadingReady]);
+
+  return (
+    <ReactECharts
+      ref={chartRef}
+      option={option}
+      style={{ height, width: '100%' }}
+      notMerge
+      lazyUpdate
+      onChartReady={handleChartReady}
+    />
+  );
 };
 
 export default MetricGauge;

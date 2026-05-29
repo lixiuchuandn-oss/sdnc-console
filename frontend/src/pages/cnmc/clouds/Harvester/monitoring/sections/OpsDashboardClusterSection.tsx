@@ -328,6 +328,7 @@ function renderClusterTimeSeriesChart(
   chartMin: number,
   chartMax: number,
   height: number,
+  loading = false,
 ): React.ReactNode {
   return (
     <MetricTimeSeriesChart
@@ -339,6 +340,7 @@ function renderClusterTimeSeriesChart(
       yMin={panel.yMin}
       yMax={panel.yMax}
       showLegend={panel.showLegend}
+      loading={loading}
     />
   );
 }
@@ -443,7 +445,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
                     height={PANEL_HEIGHT}
                     bodyPadding={12}
                   >
-                    {renderClusterTimeSeriesChart(panel, groups, chartMin, chartMax, CHART_HEIGHT)}
+                    {renderClusterTimeSeriesChart(panel, groups, chartMin, chartMax, CHART_HEIGHT, panelLoading)}
                   </MetricPanelCard>
                 </Col>
               );
@@ -467,6 +469,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
               chartMin,
               chartMax,
               PREVIEW_CHART_HEIGHT,
+              previewPanelData.loading,
             )
           : null}
       </MetricPanelPreviewModal>

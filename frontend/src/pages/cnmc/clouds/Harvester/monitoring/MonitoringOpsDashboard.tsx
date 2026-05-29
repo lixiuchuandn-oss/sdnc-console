@@ -14,7 +14,7 @@ import {
 import { useAutoRefresh } from './hooks/useAutoRefresh';
 import OpsDashboardClusterSection from './sections/OpsDashboardClusterSection';
 import OpsDashboardVmsSection from './sections/OpsDashboardVmsSection';
-import OpsDashboardVmsOverviewSection from './sections/OpsDashboardVmsOverviewSection';
+import OpsDashboardVmsDetailSection from './sections/OpsDashboardVmsDetailSection';
 import OpsDashboardNodesSection from './sections/OpsDashboardNodesSection';
 import '../../Cloudmap/pool/styles/layout.css';
 import {
@@ -27,7 +27,7 @@ import {
   CLUSTER_RESOURCES_VIEW,
   NODES_OVERVIEW_VIEW,
   VMS_OVERVIEW_VIEW,
-  VMS_RESOURCES_VIEW,
+  VMS_DETAIL_VIEW,
   type OpsDashboardView,
   type OpsDashboardViewDef,
 } from './lib/opsDashboardViews';
@@ -64,9 +64,9 @@ const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId
     switch (activeView) {
       case NODES_OVERVIEW_VIEW:
         return <OpsDashboardNodesSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />;
-      case VMS_RESOURCES_VIEW:
+      case VMS_DETAIL_VIEW:
         return (
-          <OpsDashboardVmsOverviewSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />
+          <OpsDashboardVmsDetailSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />
         );
       case VMS_OVERVIEW_VIEW:
         return <OpsDashboardVmsSection cloudId={cloudId} resolved={resolved} reloadToken={reloadToken} />;

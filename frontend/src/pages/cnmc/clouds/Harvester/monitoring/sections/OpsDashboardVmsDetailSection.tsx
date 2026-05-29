@@ -289,6 +289,7 @@ function renderTimeSeriesPanel(
   chartMin: number,
   chartMax: number,
   legendNameResolver?: VmLegendNameResolver,
+  loading = false,
 ): React.ReactNode {
   const groups: MetricSeriesInput[] = panel.queries.map((q) => ({
     name: q.legend,
@@ -307,6 +308,7 @@ function renderTimeSeriesPanel(
       showLegend={panel.showLegend}
       stack={panel.stack}
       legendNameResolver={legendNameResolver}
+      loading={loading}
     />
   );
 }
@@ -431,7 +433,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
               let body: React.ReactNode;
               switch (panel.kind) {
                 case 'timeseries':
-                  body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, legendNameResolver);
+                  body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, legendNameResolver, loading);
                   break;
                 case 'bargauge':
                   body = renderBarGaugePanel(panel, results, legendNameResolver);

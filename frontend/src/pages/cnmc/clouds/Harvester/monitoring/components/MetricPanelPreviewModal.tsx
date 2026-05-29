@@ -1,9 +1,10 @@
 /**
  * 监控面板「大图」预览弹窗：放大展示图表等内容，loading / error / empty 与 MetricPanelCard 一致。
+ * ECharts 异步模式：Modal 展开后挂载图表实例，数据到达后 setOption 更新（不用 Skeleton 挡住图表）。
  */
 import React, { useEffect, useState } from 'react';
 import { QuestionCircleOutlined } from '@ant-design/icons';
-import { Alert, Empty, Modal, Skeleton, Space, Typography } from 'antd';
+import { Alert, Empty, Modal, Space, Typography } from 'antd';
 import { MonitoringPopover } from './MonitoringPopover';
 
 const PREVIEW_CHART_WRAP_STYLE: React.CSSProperties = {
@@ -59,16 +60,16 @@ const MetricPanelPreviewModal: React.FC<MetricPanelPreviewModalProps> = ({
   let body: React.ReactNode;
   if (error) {
     body = <Alert type="error" showIcon message={error} />;
-  } else if (loading && (isEmpty ?? true)) {
-    body = <Skeleton active paragraph={{ rows: 6 }} />;
-  } else if (isEmpty) {
+  } else if (!chartReady) {
+    body = <div style={{ minHeight: 320 }} />;
+  } else if (!loading && isEmpty) {
     body = (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320 }}>
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
       </div>
     );
   } else {
-    body = chartReady ? <div style={PREVIEW_CHART_WRAP_STYLE}>{children}</div> : <Skeleton active paragraph={{ rows: 6 }} />;
+    body = <div style={PREVIEW_CHART_WRAP_STYLE}>{children}</div>;
   }
 
   return (
