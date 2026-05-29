@@ -5,6 +5,8 @@ import {
   normalizeDeviceNames,
   type CephHarvesterAddonFormValues,
 } from '../../lib/cephHarvesterAddon';
+import { formatCephStorageNetworkSummary } from '../../lib/cephStorageNetwork';
+import type { CephStorageNetworkResponse } from '../../../../../../../services/cephApi';
 import {
   formatBindingLabel,
   formatCompressionLabel,
@@ -14,6 +16,7 @@ import {
 type ConfigSummaryDescriptionsProps = {
   values: CephHarvesterAddonFormValues;
   blockDevicesRaw: unknown;
+  storageNetwork?: CephStorageNetworkResponse | null;
   column?: 1 | 2;
   size?: 'small' | 'default' | 'middle';
 };
@@ -21,6 +24,7 @@ type ConfigSummaryDescriptionsProps = {
 const ConfigSummaryDescriptions: React.FC<ConfigSummaryDescriptionsProps> = ({
   values,
   blockDevicesRaw,
+  storageNetwork,
   column = 2,
   size = 'small',
 }) => {
@@ -61,6 +65,11 @@ const ConfigSummaryDescriptions: React.FC<ConfigSummaryDescriptionsProps> = ({
       <Descriptions.Item label="在线扩容">
         {values?.storageClass?.allowVolumeExpansion ? '允许' : '禁止'}
       </Descriptions.Item>
+      {storageNetwork !== undefined ? (
+        <Descriptions.Item label="专用存储网" span={column === 1 ? 1 : 2}>
+          {formatCephStorageNetworkSummary(storageNetwork)}
+        </Descriptions.Item>
+      ) : null}
     </Descriptions>
   );
 };

@@ -565,6 +565,26 @@ export function validateRunningClusterConfigChange(
   return null;
 }
 
+/**
+ * 节点级元数据盘须显式指定 databaseSizeMB（规则须与 frontend `cephHarvesterAddonMetadataValidation.ts` 同步）。
+ */
+export function validateMetadataDeviceConfig(
+  config: CephHarvesterAddonValuesConfig,
+): string | null {
+  const byNode = nodeLayoutByNode(config);
+  for (const [nodeName, layout] of byNode) {
+    const metadataDevice = String(layout.metadataDevice ?? '').trim();
+    if (!metadataDevice) continue;
+    const osdCount = layout.devices.size;
+    if (osdCount === 0) continue;
+    const dbMb = layout.databaseSizeMB;
+    if (dbMb == null || dbMb <= 0) {
+      return `节点 ${nodeName} 已选择元数据盘，须填写每盘缓存区大小；留空可能导致元数据盘被占满，后续无法扩容 OSD。`;
+    }
+  }
+  return null;
+}
+
 export function resolveApplyConfigFromInput(
   input: CephHarvesterAddonApplyInput,
 ): CephHarvesterAddonValuesConfig {
@@ -786,6 +806,20 @@ export async function applyHarvesterRookCephAddon(
     const changeError = validateRunningClusterConfigChange(runningConfig, nextConfig);
     if (changeError) {
       const err = new Error(changeError);
+      (err as any).status = 400;
+      throw err;
+    }
+    const metadataError = validateMetadataDeviceConfig(nextConfig);
+    if (metadataError) {
+      const err = new Error(metadataError);
+      (err as any).status = 400;
+      throw err;
+    }
+  } else if (!input.valuesContent || !String(input.valuesContent).trim()) {
+    const nextConfig = resolveApplyConfigFromInput(input);
+    const metadataError = validateMetadataDeviceConfig(nextConfig);
+    if (metadataError) {
+      const err = new Error(metadataError);
       (err as any).status = 400;
       throw err;
     }

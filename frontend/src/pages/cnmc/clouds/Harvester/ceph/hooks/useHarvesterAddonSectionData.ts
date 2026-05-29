@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormInstance } from 'antd/es/form';
 import {
   fetchCephHarvesterAddon,
+  fetchCephStorageNetwork,
   type CephHarvesterAddonStatusResponse,
+  type CephStorageNetworkResponse,
 } from '../../../../../../services/cephApi';
 import { fetchBlockDevices, fetchNodeResources } from '../../../../../../services/monitoringApi';
 import {
@@ -45,6 +47,7 @@ export function useHarvesterAddonSectionData({
   const [status, setStatus] = useState<CephHarvesterAddonStatusResponse | null>(null);
   const [nodeOptions, setNodeOptions] = useState<{ label: string; value: string }[]>([]);
   const [blockDevicesRaw, setBlockDevicesRaw] = useState<unknown>(null);
+  const [storageNetwork, setStorageNetwork] = useState<CephStorageNetworkResponse | null>(null);
 
   const pollRef = useRef<number | null>(null);
   const prevPhaseRef = useRef<CephHarvesterAddonStatusResponse['phase'] | null>(null);
@@ -101,18 +104,19 @@ export function useHarvesterAddonSectionData({
 
   const loadStatus = useCallback(
     async (force?: boolean, opts?: { silent?: boolean }) => {
-      if (!cloudId) return;
+      if (!cloudId) return null;
       if (!opts?.silent) setStatusLoading(true);
       try {
         const res = await fetchCephHarvesterAddon(cloudId, { force: !!force });
         if (!res.ok || !res.data) {
           setStatus(null);
           prevPhaseRef.current = null;
-          return;
+          return null;
         }
         notifyDeployedIfNeeded(res.data.phase);
         setStatus(res.data);
         applyStatusToForm(res.data);
+        return res.data;
       } finally {
         if (!opts?.silent) setStatusLoading(false);
       }
@@ -120,12 +124,30 @@ export function useHarvesterAddonSectionData({
     [applyStatusToForm, cloudId, notifyDeployedIfNeeded],
   );
 
+  const loadStorageNetwork = useCallback(async (force?: boolean) => {
+    if (!cloudId) return;
+    const res = await fetchCephStorageNetwork(cloudId, { force: force !== false });
+    if (res.ok && res.data) {
+      setStorageNetwork(res.data);
+    } else {
+      setStorageNetwork(null);
+    }
+  }, [cloudId]);
+
   const reloadSection = useCallback(
     async (force?: boolean) => {
       const shouldForce = force !== false;
-      await Promise.all([loadStatus(shouldForce), loadMeta(shouldForce)]);
+      const [statusData] = await Promise.all([
+        loadStatus(shouldForce),
+        loadMeta(shouldForce),
+      ]);
+      if (isCephHarvesterAddonRunning(statusData)) {
+        await loadStorageNetwork(shouldForce);
+      } else {
+        setStorageNetwork(null);
+      }
     },
-    [loadMeta, loadStatus],
+    [loadMeta, loadStatus, loadStorageNetwork],
   );
 
   const sectionOnRefresh = useMemo(
@@ -184,6 +206,14 @@ export function useHarvesterAddonSectionData({
   const isRunningCluster = isCephHarvesterAddonRunning(status);
   const baselineConfig = isRunningCluster ? status?.config ?? null : null;
 
+  useEffect(() => {
+    if (!cloudId || !isRunningCluster) {
+      setStorageNetwork(null);
+      return;
+    }
+    void loadStorageNetwork(true);
+  }, [cloudId, isRunningCluster, loadStorageNetwork]);
+
   return {
     formInitKey,
     setFormInitKey,
@@ -201,5 +231,6 @@ export function useHarvesterAddonSectionData({
     prevPhaseRef,
     isRunningCluster,
     baselineConfig,
+    storageNetwork,
   };
 }

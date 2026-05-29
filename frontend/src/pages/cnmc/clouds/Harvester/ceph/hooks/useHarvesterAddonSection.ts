@@ -10,8 +10,10 @@ import {
 } from '../sections/harvesterAddon/addonUiConstants';
 import { runHarvesterSectionRefresh, type HarvesterSectionOnRefresh } from '../lib/cephSectionRefresh';
 import {
+  createMetadataDeviceSizeLookup,
   formValuesToApplyConfig,
   validateAddonConfig,
+  validateNodeMetadataDeviceRows,
   validateRunningClusterConfigChange,
 } from '../lib/cephHarvesterAddon';
 import { summarizeNodeDevices, type HarvesterAddonFormValues } from './harvesterAddonFormTypes';
@@ -69,6 +71,11 @@ export function useHarvesterAddonSection({
     return form.getFieldsValue(true) as HarvesterAddonFormValues;
   }, [form]);
 
+  const lookupMetadataDeviceSizeMB = useMemo(
+    () => createMetadataDeviceSizeLookup(data.blockDevicesRaw),
+    [data.blockDevicesRaw],
+  );
+
   const validateWizardStep = useCallback(
     async (step: number) => {
       if (step === 0) {
@@ -94,6 +101,17 @@ export function useHarvesterAddonSection({
         if (summary.duplicateNodeNames.length > 0) {
           throw new Error('同一节点请勿添加多行，请合并数据盘选择');
         }
+        const metadataPaths = nodes.flatMap((row, index) => {
+          if (!String(row?.metadataDevice ?? '').trim()) return [];
+          return [['cephCluster', 'nodes', index, 'databaseSizeMB'] as const];
+        });
+        if (metadataPaths.length > 0) {
+          await form.validateFields(metadataPaths);
+        }
+        const metadataError = validateNodeMetadataDeviceRows(nodes, lookupMetadataDeviceSizeMB);
+        if (metadataError) {
+          throw new Error(metadataError);
+        }
         return;
       }
       if (step === 2) {
@@ -114,7 +132,7 @@ export function useHarvesterAddonSection({
         ]);
       }
     },
-    [form, storageNetworkRef],
+    [form, lookupMetadataDeviceSizeMB, storageNetworkRef],
   );
 
   const handleNext = useCallback(async () => {
@@ -226,7 +244,9 @@ export function useHarvesterAddonSection({
       }
 
       const config = formValuesToApplyConfig(values);
-      const validationError = validateAddonConfig(config);
+      const validationError = validateAddonConfig(config, {
+        lookupMetadataDeviceSizeMB,
+      });
       if (validationError) {
         message.warning(validationError);
         if (!data.isRunningCluster) setCurrentStep(1);
@@ -271,6 +291,7 @@ export function useHarvesterAddonSection({
     cloudId,
     data,
     getWizardFormValues,
+    lookupMetadataDeviceSizeMB,
     onDeployed,
     storageNetworkRef,
     submitAdminPassword,
@@ -302,6 +323,7 @@ export function useHarvesterAddonSection({
     formDisabled,
     configLocked,
     baselineConfig: data.baselineConfig,
+    storageNetwork: data.storageNetwork,
     submitActionLabel,
     submitRiskItems,
     submitConfirmReady,

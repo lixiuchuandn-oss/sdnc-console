@@ -1,6 +1,7 @@
 import {
   defaultCephHarvesterAddonValuesConfig,
   parseHarvesterRookCephAddonStatus,
+  validateMetadataDeviceConfig,
   validateRunningClusterConfigChange,
   type CephHarvesterAddonValuesConfig,
 } from './cephHarvesterAddon';
@@ -107,5 +108,20 @@ describe('validateRunningClusterConfigChange', () => {
       2,
     );
     expect(validateRunningClusterConfigChange(before, after)).toMatch(/副本数/);
+  });
+});
+
+describe('validateMetadataDeviceConfig', () => {
+  it('requires databaseSizeMB when metadata device is configured', () => {
+    const cfg = configWithNodes([{ nodeName: 'n1', deviceName: 'sdb' }]);
+    cfg.cephCluster.nodes[0].metadataDevice = 'nvme0n1';
+    expect(validateMetadataDeviceConfig(cfg)).toMatch(/须填写每盘缓存区大小/);
+  });
+
+  it('passes when metadata device and databaseSizeMB are both set', () => {
+    const cfg = configWithNodes([{ nodeName: 'n1', deviceName: 'sdb' }]);
+    cfg.cephCluster.nodes[0].metadataDevice = 'nvme0n1';
+    cfg.cephCluster.nodes[0].databaseSizeMB = 81920;
+    expect(validateMetadataDeviceConfig(cfg)).toBeNull();
   });
 });
