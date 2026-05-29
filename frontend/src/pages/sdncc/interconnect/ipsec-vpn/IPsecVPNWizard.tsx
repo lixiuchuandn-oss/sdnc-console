@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Col, Descriptions, Divider, Form, Input, Radio, Row, Select, Space, Spin, Steps, Switch, Tabs, message, Checkbox } from 'antd';
+import React, { useEffect, useState } from 'react';
+import { Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space, Steps, Switch, Tabs, message, Checkbox } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { createIPsecVPN, API_BASE_URL, apiRequest, apiPost, apiPatch, getAuthHeaders } from '../../../../services/api';
-import { ReloadOutlined, CheckCircleOutlined, LoadingOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { API_BASE_URL, apiRequest, apiPost, getAuthHeaders } from '../../../../services/api';
+import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
 // Tabs 用于配置预览，保持与 SRv6 创建页一致

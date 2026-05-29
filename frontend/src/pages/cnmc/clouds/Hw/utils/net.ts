@@ -1,4 +1,3 @@
-import { App } from 'antd';
 
 export const ipv4ToNum = (ip: string): number => ip.split('.').reduce((acc: number, n: string) => (acc << 8) + (parseInt(n) || 0), 0) >>> 0;
 

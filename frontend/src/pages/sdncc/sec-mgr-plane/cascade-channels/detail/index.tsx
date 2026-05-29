@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Form, Input, message, Modal, Select } from 'antd';
+import { Form, message, Modal, Select } from 'antd';
 import { BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
 import { attachVpcToCen, fetchCenAttachments, fetchCens, fetchTenants, fetchCsmElementGroups, fetchServices, fetchCloudProviderEcs } from '../../../../../services/api';

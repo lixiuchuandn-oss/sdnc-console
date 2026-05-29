@@ -1,14 +1,12 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Dropdown, Card, Space, Button, Input, Select, Tabs, Descriptions, Row, Col, Statistic, Form, Drawer, Modal, InputNumber, App, Tooltip, Alert, DatePicker, Divider } from 'antd';
+import { Table, Tag, Dropdown, Card, Button, Descriptions, Row, Col, Statistic, App, Divider } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { HomeOutlined, CloudUploadOutlined, ReloadOutlined, ArrowLeftOutlined, MoreOutlined, EditOutlined, DeleteOutlined, CheckOutlined, CloseOutlined, PlayCircleOutlined, PoweroffOutlined, CopyOutlined, EyeOutlined, DashboardOutlined, LineChartOutlined, WindowsOutlined, CodeOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
+import { HomeOutlined, CloudUploadOutlined, MoreOutlined, DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
-import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderEcsVncUrl, createCloudProviderRouteTable, updateCloudProviderRouteTable, associateCloudProviderRouteTable, deleteCloudProviderRouteTable, fetchCloudProviderRouteEntries, modCloudProviderRouteEntry, deleteCloudProviderRouteEntry, deleteCloudProviderVpc, startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs } from '../../../../services/api';
-import { showCloudProviderVpc, showCloudProviderSecurityGroup, deleteHuaweiCloudSecurityGroup, createHuaweiCloudSecurityGroupRule, deleteHuaweiCloudSecurityGroupRule, updateHuaweiCloudSecurityGroupRule, fetchHuaweiEcsMetrics, fetchHuaweiEcsAuditLogs, fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, bindHuaweiEip, unbindHuaweiEip, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, deleteHuaweiCloudSubnet as deleteCloudProviderSubnet } from '../../../../services/huaweiApi';
-import StdSideDrawer from '../../../../components/StdSideDrawer';
-import { statusTag, EllipsisText, SubResourceCard, collectIpv4FromAddresses, collectInstanceIpv4 } from './components/Common';
-import { normalizeErr } from './utils/net';
+import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
+import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics } from '../../../../services/huaweiApi';
+import { statusTag } from './components/Common';
 // force update
 import VpcCreateModal from './modals/VpcCreateModal';
 import SubnetCreateModal from './modals/SubnetCreateModal';
@@ -21,7 +19,6 @@ import RouteEntryCreateDrawer from './drawers/RouteEntryCreateDrawer';
 import RouteEntryManageDrawer from './drawers/RouteEntryManageDrawer';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
 import SecurityGroupRefsModal from './modals/SecurityGroupRefsModal';
-import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
 import RouteTableAssociateModal from './modals/RouteTableAssociateModal';
 import EcsSection, { Icon as EcsIcon, Label as EcsLabel } from './sections/EcsSection';
 import VpcSection, { Icon as VpcIcon, Label as VpcLabel } from './sections/VpcSection';
@@ -31,8 +28,7 @@ import RouteTableSection, { Icon as RtIcon, Label as RtLabel } from './sections/
 import EipSection, { Icon as EipIcon, Label as EipLabel } from './sections/EipSection';
 import LoadBalancerSection, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSection';
 import NatGatewaySection, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySection';
-import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
-import SnapshotSection, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSection';
+import { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
 import VmDetailModal from './modals/VmDetailModal';
 import ResourceDetailModal from './modals/ResourceDetailModal';
 import RouteTableSubnetsViewModal from './modals/RouteTableSubnetsViewModal';

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Descriptions, Tag, Input, Button, Space } from 'antd';
+import { Descriptions, Tag } from 'antd';
 import { SCENARIOS } from '../constants';
 import { fetchCsmVRouters, detectCsmPoolId } from '../../../../../../services/api';
 

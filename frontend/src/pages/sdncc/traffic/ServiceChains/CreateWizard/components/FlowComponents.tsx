@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Input, Popover, Tag, Select } from 'antd';
 import { 
-  EditOutlined, 
-  GlobalOutlined, 
-  DatabaseOutlined,
-  CloudServerOutlined,
-  PartitionOutlined,
-  EnvironmentOutlined,
+  EditOutlined,
   MoreOutlined,
   DeleteOutlined
 } from '@ant-design/icons';
@@ -14,8 +9,7 @@ import {
   Handle, 
   Position, 
   getBezierPath, 
-  EdgeProps,
-  Node
+  EdgeProps
 } from 'react-flow-renderer';
 
 // Custom edge with particle animation

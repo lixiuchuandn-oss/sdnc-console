@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState, useTransition, useDeferredValue } from 'react';
-import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Table, Divider } from 'antd';
-import { ArrowLeftOutlined, ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
+import { ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
-import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, upsertVrCache, getVR2Config } from '../../../../services/virtualRouterApi';
+import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
 import { apiRequest, apiPost } from '../../../../services/api';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回

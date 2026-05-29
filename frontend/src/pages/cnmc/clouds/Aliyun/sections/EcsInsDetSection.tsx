@@ -1,5 +1,5 @@
 import React from 'react';
-import { App, Button, Descriptions, Modal, Space, Tag } from 'antd';
+import { App, Button, Descriptions, Modal, Space } from 'antd';
 import { DesktopOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined } from '@ant-design/icons';
 import { startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs, fetchAliyunEcsVncUrl } from '../../../../../services/aliyunApi';
 import { statusTag, collectIpv4FromAddresses } from '../../Hw/components/Common';

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Tag, Button, Space, Select, message, Tooltip, Badge, Typography, Form, Input } from 'antd';
-import { SearchOutlined, PlusOutlined, LinkOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import { Table, Tag, Button, Space, Select, message, Badge, Typography, Form, Input } from 'antd';
+import { SearchOutlined, PlusOutlined, LinkOutlined } from '@ant-design/icons';
 import SharedToolbar from '../../../../../components/SharedToolbar';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import { fetchSaseDiscoveredAssets } from '../../../../../services/api';

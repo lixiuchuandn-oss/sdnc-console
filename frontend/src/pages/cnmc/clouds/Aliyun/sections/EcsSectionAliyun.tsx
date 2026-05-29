@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Dropdown, Input, Modal, Select, Table, Switch, Space, Typography } from 'antd';
-import { MoreOutlined, ReloadOutlined, EllipsisOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { App, Button, Input, Modal, Select, Table, Space, Typography } from 'antd';
+import { ReloadOutlined, CloudServerOutlined } from '@ant-design/icons';
 import { API_BASE_URL } from '../../../../../services/api';
 import { startAliyunEcs, stopAliyunEcs, rebootAliyunEcs, deleteAliyunEcs, fetchAliyunEcsVncUrl } from '../../../../../services/aliyunApi';
 import PageDetailSection, { LiveSwitch, RowActionsButton } from '../../../../../components/PageDetailSection';

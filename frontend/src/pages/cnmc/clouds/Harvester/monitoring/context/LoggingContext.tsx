@@ -4,7 +4,6 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
 import { LOGGING_NS, LOG_SCOPE_CLUSTER, LOG_SCOPE_NAMESPACE, LOG_SCOPE_MAP } from '../constants';
 

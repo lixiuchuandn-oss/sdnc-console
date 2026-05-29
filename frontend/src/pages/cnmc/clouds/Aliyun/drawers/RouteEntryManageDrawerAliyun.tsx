@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState } from 'react';
-import { App, Button, Dropdown, Form, Input, Select, Table, Modal, Tag, Space } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, PlusOutlined, DeleteOutlined, ImportOutlined } from '@ant-design/icons';
+import { App, Button, Form, Input, Select, Table, Modal, Tag } from 'antd';
+import { ReloadOutlined, PlusOutlined, DeleteOutlined, ImportOutlined } from '@ant-design/icons';
 import StdSideDrawer from '../../../../../components/StdSideDrawer';
 import { RowActionsButton } from '../../../../../components/PageDetailSection';
 import { fetchCloudProviderRouteEntries, deleteCloudProviderRouteEntry } from '../../../../../services/aliyunApi';

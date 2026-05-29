@@ -2,8 +2,8 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { Button, Form, message, Steps, Card, Row, Col, Space, Divider, Modal } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
-import { fetchSecurityZones, createServiceChain } from '../../../../../services/trafficOrchestration';
-import { fetchTenants, fetchOrganizationsByTenant, fetchClouds, fetchCsmElementGroups, fetchCsmAssets, fetchCsmServiceChains, createCsmServiceChainRaw } from '../../../../../services/api';
+import { createServiceChain } from '../../../../../services/trafficOrchestration';
+import { fetchTenants, fetchOrganizationsByTenant, fetchClouds, fetchCsmElementGroups, createCsmServiceChainRaw } from '../../../../../services/api';
 import { listSecurityDomains } from '../../../../../services/securityDomainApi';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { csmPoolPathForTab } from '../../../../../layouts/admin/csm/csmPoolSidebar';
@@ -18,8 +18,7 @@ import {
 // Constants and Types
 import { 
   SECURITY_SERVICES, 
-  initialNodes, 
-  SCENARIOS 
+  initialNodes 
 } from './constants';
 
 

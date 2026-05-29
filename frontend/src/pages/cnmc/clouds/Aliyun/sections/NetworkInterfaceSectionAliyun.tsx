@@ -3,7 +3,6 @@ import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Form, Checkbo
 import { ReloadOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis, updateCloudProviderEni, associateAliyunEip, unassociateAliyunEip } from '../../../../../services/aliyunApi';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 
 type Props = {
   cloudId: string;

@@ -1,11 +1,11 @@
 import React from 'react';
-import { App, Button, Descriptions, Divider, Modal, Row, Col, Space, Table, Tabs, Tag, Card, Alert, DatePicker, InputNumber, Select, Input } from 'antd';
+import { App, Button, Descriptions, Modal, Row, Col, Space, Table, Tabs, Card, Alert, DatePicker, InputNumber, Select, Input } from 'antd';
 import ReactECharts from 'echarts-for-react';
-import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, CopyOutlined, EyeOutlined, AuditOutlined } from '@ant-design/icons';
+import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, AuditOutlined } from '@ant-design/icons';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
 import { statusTag, EllipsisText, collectIpv4FromAddresses } from './components/Common';
 import { startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl, fetchCloudProviderEips, fetchCloudProviderEcs } from '../../../../services/api';
-import { fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../../services/huaweiApi';
+import { fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../../services/huaweiApi';
 
 type EcsDetailHwProps = {
   cloudId: string;

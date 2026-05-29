@@ -12,9 +12,7 @@ import DiskSectionAliyun, { Icon as DiskIcon, Label as DiskLabel } from './secti
 import LoadBalancerSectionAliyun, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSectionAliyun';
 import NatGatewaySectionAliyun, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySectionAliyun';
 import RouteTableSectionAliyun, { Icon as RouteTableIcon, Label as RouteTableLabel } from './sections/RouteTableSectionAliyun';
-import SnapshotSectionAliyun, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSectionAliyun';
 // import disk section
-import { statusTag, collectIpv4FromAddresses } from '../Hw/components/Common';
 import { fetchClouds } from '../../../../services/api';
 import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches } from '../../../../services/aliyunApi';
 import EcsInsDetSection from './sections/EcsInsDetSection';
