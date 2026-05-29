@@ -1,13 +1,13 @@
 import React from 'react';
 import { theme } from 'antd';
 import { OverviewMetricCard } from '../../../../../components/overview';
-import type { MaasDashTwoToneIcon } from '../lib/maasDashboardStatIcons';
+import type { MaasDashStatIconComp } from '../lib/maasDashboardStatIcons';
 import { maasStatPrefix } from '../lib/maasDashboardStatTheme';
 
 type Props = {
   title: string;
-  /** 概览统计卡双色图标（与 titleIcon 二选一） */
-  icon?: MaasDashTwoToneIcon;
+  /** 概览统计卡图标（与 titleIcon 二选一） */
+  icon?: MaasDashStatIconComp;
   /** 自定义标题区图标（Region 配置等） */
   titleIcon?: React.ReactNode;
   value: number | string;

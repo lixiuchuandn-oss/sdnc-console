@@ -1,6 +1,7 @@
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Alert, Card, Col, Row, Skeleton, Typography } from 'antd';
+import { DashboardOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import { maasPoolPathForTab } from '../../../../../layouts/admin/maas/maasPoolSidebar';
 import MaasDashboardControllersBlock from '../components/dashboard/MaasDashboardControllersBlock';
@@ -47,6 +48,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
     <PageDetailSection
       asCard={false}
       showHeaderTitle
+      icon={<DashboardOutlined />}
       title={data?.region?.name || cloud?.name || '资源概览'}
       extra={
         <div className="toolbar-actions">

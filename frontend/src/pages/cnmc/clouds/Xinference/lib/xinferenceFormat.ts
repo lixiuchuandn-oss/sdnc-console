@@ -1,3 +1,4 @@
+import { overviewRiskColor } from '../../../../../components/overview';
 import type { XinferenceClusterSummary } from '../../../../../services/xinferenceApi';
 
 export function fmtNum(v: number | null | undefined, digits = 2): string {
@@ -27,10 +28,9 @@ export function fmtCommit(commit?: string): string {
   return commit.length > 12 ? `${commit.slice(0, 12)}…` : commit;
 }
 
+/** 利用率风险色：统一复用全站概览风险色（≥90 红 / ≥70 橙 / 否则绿，antd 语义色） */
 export function getRiskColor(percent: number): string {
-  if (percent >= 90) return '#ef4444';
-  if (percent >= 70) return '#f59e0b';
-  return '#22C55E';
+  return overviewRiskColor(percent);
 }
 
 export type XinferenceClusterAggregate = {

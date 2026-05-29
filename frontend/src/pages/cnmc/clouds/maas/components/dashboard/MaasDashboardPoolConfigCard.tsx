@@ -1,14 +1,11 @@
 import React, { useMemo } from 'react';
-import { Card, Descriptions, Typography } from 'antd';
+import { Descriptions, Typography } from 'antd';
+import { DashboardOutlined } from '@ant-design/icons';
+import { OverviewCard, overviewTitleIcon } from '../../../../../../components/overview';
 import type { Cloud } from '../../../../pools/lib/poolProviders';
 import { resolvePoolTypeLabel } from '../../../../pools/lib/poolProviders';
 import { formatMaasDateTime, maskMaasApiKey } from '../../lib/maasPoolConfigFormat';
 import { MAAS_CONFIG_SECTION_ID } from '../../lib/maasDashboardUtils';
-import {
-  MAAS_OVERVIEW_CARD_BODY_STYLES,
-  MAAS_OVERVIEW_CARD_HEADER_STYLES,
-  MAAS_OVERVIEW_CARD_SHADOW,
-} from '../../lib/maasOverviewCardStyles';
 
 type Props = {
   cloud: Cloud | null;
@@ -18,17 +15,14 @@ const MaasDashboardPoolConfigCard: React.FC<Props> = ({ cloud }) => {
   const cfg = useMemo(() => (cloud?.config || {}) as Record<string, unknown>, [cloud]);
 
   return (
-    <Card
-      id={MAAS_CONFIG_SECTION_ID}
-      title="Tower 资源池"
-      size="small"
-      style={{ marginTop: 16, boxShadow: MAAS_OVERVIEW_CARD_SHADOW }}
-      styles={{
-        header: MAAS_OVERVIEW_CARD_HEADER_STYLES,
-        body: MAAS_OVERVIEW_CARD_BODY_STYLES,
-      }}
-    >
-      <Descriptions column={{ xs: 1, sm: 2 }} size="middle">
+    <div id={MAAS_CONFIG_SECTION_ID}>
+      <OverviewCard
+        title="资源池信息"
+        icon={overviewTitleIcon(<DashboardOutlined />)}
+        style={{ marginTop: 16 }}
+        bodyStyle={{ padding: '16px 20px' }}
+      >
+        <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} size="middle">
         <Descriptions.Item label="名称">{cloud?.name || '—'}</Descriptions.Item>
         <Descriptions.Item label="类型">
           {resolvePoolTypeLabel(String(cloud?.type || ''))}
@@ -55,10 +49,11 @@ const MaasDashboardPoolConfigCard: React.FC<Props> = ({ cloud }) => {
           {formatMaasDateTime(cloud?.updatedAt)}
         </Descriptions.Item>
       </Descriptions>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 12 }}>
-        凭证保存在 Tower <code>config.apiKey</code>，由后端 OAuth1 PLAINTEXT 代理访问 MAAS API v2。
-      </Typography.Paragraph>
-    </Card>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 12 }}>
+          凭证保存在 Tower <code>config.apiKey</code>，由后端 OAuth1 PLAINTEXT 代理访问 MAAS API v2。
+        </Typography.Paragraph>
+      </OverviewCard>
+    </div>
   );
 };
 

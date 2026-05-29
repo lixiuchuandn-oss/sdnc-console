@@ -1,8 +1,10 @@
 import React from 'react';
-import { HddTwoTone } from '@ant-design/icons';
+import { HddOutlined } from '@ant-design/icons';
 import {
+  OVERVIEW_COLORS,
   OverviewCard,
   OverviewStatusBar,
+  overviewTitleIcon,
   type OverviewStatusSegment,
 } from '../../../../../../components/overview';
 import type { MaasDashboardResponse } from '../../../../../../services/maasApi';
@@ -38,25 +40,25 @@ const MaasDashboardMachineStatusCard: React.FC<Props> = ({
   });
 
   const segments: OverviewStatusSegment[] = [
-    mk('ready', '可用', m?.ready ?? 0, '#52c41a', 'ready'),
-    mk('deployed', '运行中', m?.deployed ?? 0, '#1677ff', 'deployed'),
+    mk('ready', '可用', m?.ready ?? 0, OVERVIEW_COLORS.success, 'ready'),
+    mk('deployed', '运行中', m?.deployed ?? 0, OVERVIEW_COLORS.primary, 'deployed'),
     mk(
       'provisioning',
       '进行中',
       m?.provisioning ?? 0,
-      '#faad14',
+      OVERVIEW_COLORS.warning,
       'provisioning',
     ),
-    mk('error', '异常', m?.error ?? 0, '#ff4d4f', 'error'),
+    mk('error', '异常', m?.error ?? 0, OVERVIEW_COLORS.error, 'error'),
     mk('other', '其它', m?.other ?? 0, '#bfbfbf', 'other'),
   ];
 
   return (
     <OverviewCard
       title="机器状态分布"
-      icon={<HddTwoTone style={{ fontSize: 20 }} />}
+      icon={overviewTitleIcon(<HddOutlined />)}
       extra={
-        <span style={{ fontSize: 12, color: 'rgba(0,0,0,.45)' }}>
+        <span style={{ fontSize: 12, color: OVERVIEW_COLORS.textSecondary }}>
           共 {connected ? (m?.total ?? 0) : '—'} 台
         </span>
       }
