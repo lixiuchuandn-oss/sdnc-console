@@ -32,12 +32,10 @@ import { PLATFORMS, PLATFORM_LABELS, GROUPS } from '../../constants/navigation';
 import { routeSpecs } from '../../routes/RouteSpec';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 import { iconOf } from '../../components/PageContainer';
-import { apiPost, apiRequest } from '../../services/api';
-import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
+import { apiRequest } from '../../services/api';
 import {
   DEFAULT_ADMIN_PASSWORD_POLICY,
   validateAdminPasswordClient,
-  type AdminPasswordPolicy,
 } from '../../utils/adminPasswordPolicy';
 import {
   CLOUD_RESOURCE_POOLS_CREATE_WRITE,
@@ -90,7 +88,10 @@ import {
   pickDefaultPoolId,
   resolveDefaultPool,
   sidebarForPath,
+  type PageSearchEntry,
 } from './lib/adminLayoutNav';
+import { useGlobalSearch } from './hooks/useGlobalSearch';
+import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
 
 const { Content } = Layout;
 
@@ -118,18 +119,11 @@ const NAV_DIVIDER_COLOR = 'rgb(200, 207, 218)';
 /** 无资源池时强弹向导：本会话用户点「稍后接入」后不再自动弹出 */
 const MUST_BIND_POOL_DISMISS_KEY = 'adminLayout.mustBindPoolPromptDismissed';
 
-type PageSearchEntry = {
-  path: string;
-  title: string;
-  icon: React.ReactNode;
-  label: string;
-  group: string;
-};
 
 const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, refreshUser } = useAuth();
+  const { user, logout } = useAuth();
   const userPermissions = useMemo(
     () => (user?.permissions && Array.isArray(user.permissions) ? user.permissions : []),
     [user?.permissions],
@@ -137,7 +131,6 @@ const AdminLayout: React.FC = () => {
   const { hasFeature } = useLicense();
   const { settings, loading: settingsLoading } = useSettings();
   const { message } = App.useApp();
-  const [changePasswordForm] = Form.useForm();
 
   const [collapsed, setCollapsed] = useState(false);
   const [activeSidebarKey, setActiveSidebarKey] = useState('/admin/cen_compute');
@@ -146,13 +139,16 @@ const AdminLayout: React.FC = () => {
   const lastSidebarAutoExpandSigRef = useRef<string>('');
   /** 池详情 URL 已有 cloudId 但顶栏列表尚未含该池时，触发一次列表刷新（避免侧栏空白直至手动刷新） */
   const poolNavMissingListRefetchKeyRef = useRef('');
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchText, setSearchText] = useState('');
-  const [searchActiveIndex, setSearchActiveIndex] = useState(0);
-  const searchActiveIndexRef = useRef(0);
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [changePasswordSaving, setChangePasswordSaving] = useState(false);
-  const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
+  const {
+    changePasswordForm,
+    changePasswordOpen,
+    setChangePasswordOpen,
+    changePasswordSaving,
+    adminPwdPolicy,
+    forcePasswordChange,
+    openChangePassword,
+    submitChangePassword,
+  } = useAdminPasswordGate();
 
   const [summaryClouds, setSummaryClouds] = useState<Cloud[]>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
@@ -167,42 +163,6 @@ const AdminLayout: React.FC = () => {
   /** 顶栏云列表请求世代：新请求开始 +1；仅当完成时 gen 仍等于 ref 才写回 state，避免慢请求覆盖快请求、或登出后旧请求写回 */
   const summaryLoadGenRef = useRef(0);
 
-  const forcePasswordChange = user?.mustChangePassword === true && user?.role !== 'tenant';
-
-  useEffect(() => {
-    getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
-  }, []);
-
-  useEffect(() => {
-    if (forcePasswordChange) {
-      changePasswordForm.resetFields();
-      setChangePasswordOpen(true);
-    }
-  }, [forcePasswordChange, user?.id, changePasswordForm]);
-
-  const openChangePassword = () => {
-    changePasswordForm.resetFields();
-    setChangePasswordOpen(true);
-  };
-
-  const submitChangePassword = async () => {
-    try {
-      const values = await changePasswordForm.validateFields();
-      setChangePasswordSaving(true);
-      await apiPost('/api/users/me/password', {
-        oldPassword: String(values.oldPassword || ''),
-        newPassword: String(values.newPassword || ''),
-      });
-      await refreshUser();
-      message.success('密码修改成功');
-      setChangePasswordOpen(false);
-    } catch (e: any) {
-      if (Array.isArray(e?.errorFields) && e.errorFields.length > 0) return;
-      message.error(e?.message || '修改密码失败');
-    } finally {
-      setChangePasswordSaving(false);
-    }
-  };
 
   /** super_admin 全放行；其余按路径 required action 与 permissions 校验 */
   const canAccessPath = useCallback((p: string): boolean => {
@@ -803,63 +763,15 @@ const AdminLayout: React.FC = () => {
     return opts;
   }, [visibleCenters]);
 
-  const filteredSearchList = useMemo(() => {
-    const kw = String(searchText || '').toLowerCase().trim();
-    const base = pageSearchEntries;
-    if (!kw) return base.slice(0, 12);
-    return base.filter((e) => e.title.toLowerCase().includes(kw));
-  }, [pageSearchEntries, searchText]);
-
-  useEffect(() => {
-    searchActiveIndexRef.current = searchActiveIndex;
-  }, [searchActiveIndex]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setSearchOpen(true);
-        setSearchText('');
-        setSearchActiveIndex(0);
-      }
-      if (searchOpen) {
-        if (e.key === 'Escape') {
-          setSearchOpen(false);
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSearchActiveIndex(i => {
-            const newIndex = Math.min(i + 1, Math.max(filteredSearchList.length - 1, 0));
-            searchActiveIndexRef.current = newIndex;
-            return newIndex;
-          });
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSearchActiveIndex(i => {
-            const newIndex = Math.max(i - 1, 0);
-            searchActiveIndexRef.current = newIndex;
-            return newIndex;
-          });
-        }
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const sel = filteredSearchList[searchActiveIndexRef.current];
-          if (sel) {
-            const path = sel.path;
-            const pure = String(path || '').split('?')[0];
-            navigateToAdminContent(path);
-            if (pure !== '/console') {
-              setActiveSidebarKey(sidebarForPath(path));
-            }
-            setSearchOpen(false);
-          }
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [searchOpen, filteredSearchList, navigateToAdminContent]);
+  const {
+    searchOpen,
+    setSearchOpen,
+    searchText,
+    setSearchText,
+    searchActiveIndex,
+    setSearchActiveIndex,
+    filteredSearchList,
+  } = useGlobalSearch({ pageSearchEntries, navigateToAdminContent, setActiveSidebarKey });
 
   useEffect(() => {
     if (rancherClusterSidebarCenter) {

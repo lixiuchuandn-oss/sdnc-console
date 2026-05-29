@@ -165,3 +165,11 @@ export function sidebarForPath(p: string): string {
   }
   return '/admin/cen_compute';
 }
+
+export type PageSearchEntry = {
+  path: string;
+  title: string;
+  icon: React.ReactNode;
+  label: string;
+  group: string;
+};
