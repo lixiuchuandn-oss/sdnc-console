@@ -72,10 +72,20 @@ export type NodeDetailAlloc = {
   capacityMemory?: string;
 };
 
+/** 各上游调用耗时（ms），用于定位「慢在哪条」——pods 通常是大头 */
+export type NodeResourceUsageTimings = {
+  metricsMs: number;
+  podsMs: number;
+  nodesMs: number;
+  totalMs: number;
+  cached?: boolean;
+};
+
 export type NodeResourceUsageResult = {
   metrics: Record<string, NodeMetricUsage>;
   requests: Record<string, NodeRequests>;
   detail: Record<string, NodeDetailAlloc>;
+  _timings: NodeResourceUsageTimings;
 };
 
 function listItems(payload: unknown): unknown[] {
@@ -83,18 +93,42 @@ function listItems(payload: unknown): unknown[] {
   return Array.isArray(items) ? items : [];
 }
 
+/** 短 TTL 服务端缓存：轮询/重复进入不再每次回源集群；显式 force 绕过并刷新 */
+const NODE_USAGE_CACHE_TTL_MS = 12_000;
+const nodeUsageCache = new Map<string, { ts: number; data: NodeResourceUsageResult }>();
+
 /** 服务端读取 metrics/nodes/pods 并按节点聚合 used/requests/allocatable/capacity */
-export async function getHarvesterNodeResourceUsage(cloud: Cloud): Promise<NodeResourceUsageResult> {
+export async function getHarvesterNodeResourceUsage(
+  cloud: Cloud,
+  opts?: { force?: boolean },
+): Promise<NodeResourceUsageResult> {
+  const cacheKey = String(cloud.id || cloud.endpoint || '');
+  if (!opts?.force && cacheKey) {
+    const hit = nodeUsageCache.get(cacheKey);
+    if (hit && Date.now() - hit.ts < NODE_USAGE_CACHE_TTL_MS) {
+      return { ...hit.data, _timings: { ...hit.data._timings, cached: true } };
+    }
+  }
+
   const insecure = !!(cloud.config as { ignoreTls?: boolean })?.ignoreTls;
   const secret = cloud.secretKey || '';
-  const get = (p: string) =>
-    requestJson('GET', buildK8sTarget(cloud, p), secret, insecure, undefined).catch(() => null);
+  const timed = async (p: string): Promise<{ data: unknown; ms: number }> => {
+    const t0 = Date.now();
+    const data = await requestJson('GET', buildK8sTarget(cloud, p), secret, insecure, undefined).catch(
+      () => null,
+    );
+    return { data, ms: Date.now() - t0 };
+  };
 
-  const [metricsRes, podsRes, nodesRes] = await Promise.all([
-    get('/apis/metrics.k8s.io/v1beta1/nodes'),
-    get('/api/v1/pods?allNamespaces=true'),
-    get('/api/v1/nodes'),
+  const startedAt = Date.now();
+  const [metricsT, podsT, nodesT] = await Promise.all([
+    timed('/apis/metrics.k8s.io/v1beta1/nodes'),
+    timed('/api/v1/pods?allNamespaces=true'),
+    timed('/api/v1/nodes'),
   ]);
+  const metricsRes = metricsT.data;
+  const podsRes = podsT.data;
+  const nodesRes = nodesT.data;
 
   const metrics: Record<string, NodeMetricUsage> = {};
   for (const it of listItems(metricsRes)) {
@@ -156,5 +190,19 @@ export async function getHarvesterNodeResourceUsage(cloud: Cloud): Promise<NodeR
     }
   }
 
-  return { metrics, requests, detail };
+  const result: NodeResourceUsageResult = {
+    metrics,
+    requests,
+    detail,
+    _timings: {
+      metricsMs: metricsT.ms,
+      podsMs: podsT.ms,
+      nodesMs: nodesT.ms,
+      totalMs: Date.now() - startedAt,
+    },
+  };
+  if (cacheKey) {
+    nodeUsageCache.set(cacheKey, { ts: Date.now(), data: result });
+  }
+  return result;
 }
