@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Alert, Spin, Typography } from 'antd';
+import { Alert, Card, Col, Row, Skeleton, Typography } from 'antd';
 import PageDetailSection from '../../../../../components/PageDetailSection';
 import { maasPoolPathForTab } from '../../../../../layouts/admin/maas/maasPoolSidebar';
 import MaasDashboardClusterBar from '../components/dashboard/MaasDashboardClusterBar';
@@ -73,39 +73,76 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
           style={{ marginBottom: 16 }}
         />
       ) : null}
-      <Spin spinning={loading}>
-        <MaasDashboardClusterBar
-          data={data}
-          cloud={cloud}
-          loading={loading}
-          connected={connected}
-          onRefresh={() => void load()}
-        />
-        <MaasDashboardMetricRow
-          data={data}
-          connected={connected}
-          machines={machines}
-          regionCtrl={regionCtrl}
-          rackCtrl={rackCtrl}
-          onGoTab={goTab}
-        />
-        <MaasDashboardMachineStatusCard
-          connected={connected}
-          machines={machines}
-          onGoTab={goTab}
-        />
-        <MaasDashboardEventsCard
-          data={data}
-          connected={connected}
-          machines={machines}
-        />
-        <MaasDashboardPoolConfigCard cloud={cloud} />
-        <MaasDashboardControllersBlock
-          connected={connected}
-          regionCtrl={regionCtrl}
-          rackCtrl={rackCtrl}
-        />
-      </Spin>
+      {loading && !data ? (
+        <div>
+          <Card
+            size="small"
+            className="overview-card"
+            style={{ marginBottom: 16 }}
+            styles={{ body: { padding: '14px 16px' } }}
+          >
+            <Skeleton.Button active style={{ width: 320, height: 22 }} />
+          </Card>
+          <Row gutter={[16, 16]}>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Col key={i} xs={24} sm={12} lg={6} style={{ display: 'flex' }}>
+                <Card
+                  size="small"
+                  className="overview-card"
+                  style={{ width: '100%' }}
+                >
+                  <Skeleton.Button
+                    active
+                    size="small"
+                    style={{ width: 92, height: 14 }}
+                  />
+                  <div style={{ marginTop: 14 }}>
+                    <Skeleton.Button
+                      active
+                      size="large"
+                      style={{ width: 72, height: 32 }}
+                    />
+                  </div>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </div>
+      ) : (
+        <>
+          <MaasDashboardClusterBar
+            data={data}
+            cloud={cloud}
+            loading={loading}
+            connected={connected}
+            onRefresh={() => void load()}
+          />
+          <MaasDashboardMetricRow
+            data={data}
+            connected={connected}
+            machines={machines}
+            regionCtrl={regionCtrl}
+            rackCtrl={rackCtrl}
+            onGoTab={goTab}
+          />
+          <MaasDashboardMachineStatusCard
+            connected={connected}
+            machines={machines}
+            onGoTab={goTab}
+          />
+          <MaasDashboardEventsCard
+            data={data}
+            connected={connected}
+            machines={machines}
+          />
+          <MaasDashboardPoolConfigCard cloud={cloud} />
+          <MaasDashboardControllersBlock
+            connected={connected}
+            regionCtrl={regionCtrl}
+            rackCtrl={rackCtrl}
+          />
+        </>
+      )}
     </PageDetailSection>
   );
 };
