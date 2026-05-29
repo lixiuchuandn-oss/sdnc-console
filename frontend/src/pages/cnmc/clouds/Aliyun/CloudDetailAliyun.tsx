@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { App, Alert, Button, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
+import { Alert, Modal, Descriptions, Row, Col, Card, Statistic } from 'antd';
 import { CloudUploadOutlined, DashboardOutlined, HomeOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { useNavigate } from 'react-router-dom';
@@ -13,11 +13,8 @@ import LoadBalancerSectionAliyun, { Icon as SlbIcon, Label as SlbLabel } from '.
 import NatGatewaySectionAliyun, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySectionAliyun';
 import RouteTableSectionAliyun, { Icon as RouteTableIcon, Label as RouteTableLabel } from './sections/RouteTableSectionAliyun';
 import SnapshotSectionAliyun, { Icon as SnapshotIcon, Label as SnapshotLabel } from './sections/SnapshotSectionAliyun';
-// import disk section
-import { statusTag, collectIpv4FromAddresses } from '../Hw/components/Common';
 import { fetchClouds } from '../../../../services/api';
 import { fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderDisks, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderSnapshots, fetchCloudProviderVSwitches } from '../../../../services/aliyunApi';
-import EcsInsDetSection from './sections/EcsInsDetSection';
 import SecurityGroupDetailModalAliyun from './modals/SecurityGroupDetailModalAliyun';
 import RouteTableCreateModalAliyun from './modals/RouteTableCreateModalAliyun';
 import RouteTableAssociateModalAliyun from './modals/RouteTableAssociateModalAliyun';
@@ -31,7 +28,6 @@ type CloudDetailAliyunProps = {
 
 const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const navigate = useNavigate();
-  const { message } = App.useApp();
   const [error, setError] = useState<string>('');
   const [cloud, setCloud] = useState<any>(null);
   const [ecs, setEcs] = useState<any[]>([]);
@@ -45,8 +41,6 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
   const [routeTables, setRouteTables] = useState<any[]>([]);
   const [snapshots, setSnapshots] = useState<any[]>([]);
 
-  const [vmDetailOpen, setVmDetailOpen] = useState<boolean>(false);
-  const [vmDetail, setVmDetail] = useState<any | null>(null);
   const [sgDetailOpen, setSgDetailOpen] = useState<boolean>(false);
   const [sgDetailData, setSgDetailData] = useState<any | null>(null);
   const [sgDetailTab, setSgDetailTab] = useState<string | undefined>(undefined);
@@ -224,7 +218,6 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
               cloudId={cloudId}
               ecs={ecs}
               onRefreshAll={loadAll}
-              onOpenVmDetail={(vm: any) => { setVmDetail(vm); setVmDetailOpen(true); }}
               showLog={showLog}
               raw={rawEcs}
             />
@@ -395,16 +388,6 @@ const CloudDetailAliyun: React.FC<CloudDetailAliyunProps> = ({ cloudId }) => {
         <Alert type="error" message="查询失败" description={error} style={{ marginBottom: 16 }} showIcon />
       )}
       
-      <Modal
-        open={vmDetailOpen}
-        width={900}
-        title="实例详情"
-        onCancel={() => { setVmDetailOpen(false); setVmDetail(null); }}
-        footer={<Button onClick={() => { setVmDetailOpen(false); setVmDetail(null); }}>关闭</Button>}
-      >
-        {vmDetail && (<EcsInsDetSection cloudId={cloudId} instance={vmDetail} eips={eips} onRefreshAll={loadAll} />)}
-      </Modal>
-
       <SecurityGroupDetailModalAliyun
         open={sgDetailOpen}
         onCancel={() => { setSgDetailOpen(false); setSgDetailTab(undefined); }}
