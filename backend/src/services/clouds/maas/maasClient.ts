@@ -25,7 +25,9 @@ export type MaasMachineOp =
   | 'power_on'
   | 'power_off'
   | 'power_cycle'
-  | 'mark_broken';
+  | 'mark_broken'
+  | 'mark_fixed'
+  | 'abort';
 
 /** endpoint 须以 `/MAAS` 结尾；仅去掉末尾 `/`，不自动补全路径 */
 export function normalizeMaasEndpoint(raw: string): string | null {
@@ -117,11 +119,24 @@ export function extractMaasList(data: unknown): Record<string, unknown>[] {
   return [];
 }
 
+/** application/x-www-form-urlencoded：数组值（如多个 mac_addresses）按 MAAS 约定重复同名键 */
+function encodeMaasForm(body: Record<string, string | string[]>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(body)) {
+    if (Array.isArray(v)) {
+      v.forEach((item) => sp.append(k, item));
+    } else {
+      sp.append(k, v);
+    }
+  }
+  return sp.toString();
+}
+
 export async function maasRequest(
   ctx: MaasHttpContext,
   method: 'GET' | 'POST' | 'DELETE',
   fullPath: string,
-  opts?: { timeout?: number; body?: Record<string, string> },
+  opts?: { timeout?: number; body?: Record<string, string | string[]> },
 ): Promise<MaasHttpResult> {
   const url = `${ctx.baseUrl}${fullPath.startsWith('/') ? fullPath : `/${fullPath}`}`;
   const agent = httpsAgent(ctx, url);
@@ -136,7 +151,7 @@ export async function maasRequest(
           : {}),
       },
       ...(method === 'POST' && opts?.body
-        ? { data: new URLSearchParams(opts.body).toString() }
+        ? { data: encodeMaasForm(opts.body) }
         : {}),
       ...(agent ? { httpsAgent: agent } : {}),
       timeout: opts?.timeout ?? 25_000,
@@ -539,4 +554,74 @@ export async function maasMachineOperation(
     message: '操作已提交',
     data: res.data,
   };
+}
+
+export async function maasDeleteMachine(
+  ctx: MaasHttpContext,
+  systemId: string,
+): Promise<{ ok: boolean; message: string }> {
+  const sid = encodeURIComponent(systemId);
+  const res = await maasRequest(ctx, 'DELETE', `/api/2.0/machines/${sid}/`, { timeout: 60_000 });
+  if (res.status === 401) {
+    return { ok: false, message: '认证失败：MAAS API Key 无效或已过期' };
+  }
+  if (res.status === 409) {
+    return { ok: false, message: res.message || '当前状态不允许删除该机器' };
+  }
+  if (!res.ok) {
+    return { ok: false, message: res.message || '删除机器失败' };
+  }
+  return { ok: true, message: '机器已删除' };
+}
+
+export type MaasCreateMachineParams = {
+  architecture: string;
+  macAddresses: string[];
+  powerType: string;
+  powerParameters?: Record<string, string>;
+  hostname?: string;
+  domain?: string;
+  zone?: string;
+  pool?: string;
+  /** 纳管入库后是否自动 commission（MAAS 默认 true） */
+  commission?: boolean;
+};
+
+export async function maasCreateMachine(
+  ctx: MaasHttpContext,
+  params: MaasCreateMachineParams,
+): Promise<{ ok: boolean; message: string; data?: unknown }> {
+  const macs = (params.macAddresses || []).map((m) => m.trim()).filter(Boolean);
+  if (!params.architecture?.trim()) {
+    return { ok: false, message: '缺少架构（architecture）' };
+  }
+  if (!macs.length) {
+    return { ok: false, message: '至少需要一个 MAC 地址' };
+  }
+  if (!params.powerType?.trim()) {
+    return { ok: false, message: '缺少电源类型（power_type）' };
+  }
+  const form: Record<string, string | string[]> = {
+    architecture: params.architecture.trim(),
+    mac_addresses: macs,
+    power_type: params.powerType.trim(),
+  };
+  if (params.hostname?.trim()) form.hostname = params.hostname.trim();
+  if (params.domain?.trim()) form.domain = params.domain.trim();
+  if (params.zone?.trim()) form.zone = params.zone.trim();
+  if (params.pool?.trim()) form.pool = params.pool.trim();
+  if (params.commission != null) form.commission = params.commission ? 'true' : 'false';
+  for (const [k, v] of Object.entries(params.powerParameters || {})) {
+    if (v != null && String(v).trim() !== '') {
+      form[`power_parameters_${k}`] = String(v).trim();
+    }
+  }
+  const res = await maasRequest(ctx, 'POST', '/api/2.0/machines/', { body: form, timeout: 60_000 });
+  if (res.status === 401) {
+    return { ok: false, message: '认证失败：MAAS API Key 无效或已过期' };
+  }
+  if (!res.ok) {
+    return { ok: false, message: res.message || '添加机器失败' };
+  }
+  return { ok: true, message: '机器已添加，MAAS 将开始纳管', data: res.data };
 }
