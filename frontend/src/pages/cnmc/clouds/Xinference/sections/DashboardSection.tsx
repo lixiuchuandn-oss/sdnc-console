@@ -1,16 +1,29 @@
 /**
  * Xinference 资源池 · 仪表板
  * 布局：两行视口网格（上 3 : 下 2），对齐 Cloudmap 监控概览。
+ * 卡片外壳统一使用共享 components/overview（OverviewCard）；刷新遵循 stale-while-revalidate。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Card, Col, Empty, List, Progress, Row, Spin, Typography } from 'antd';
+import {
+  Alert,
+  Button,
+  Col,
+  Empty,
+  List,
+  Progress,
+  Row,
+  Skeleton,
+  Typography,
+} from 'antd';
 import {
   ApiOutlined,
   CloudServerOutlined,
   ClusterOutlined,
   DatabaseOutlined,
+  ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
+import { OverviewCard } from '../../../../../components/overview';
 import {
   fetchXinferenceClusterInfo,
   type XinferenceClusterInfo,
@@ -19,8 +32,6 @@ import {
 } from '../../../../../services/xinferenceApi';
 import {
   aggregateClusterMetrics,
-  DASHBOARD_CARD_HEADER_STYLE,
-  DASHBOARD_CARD_SHADOW,
   fmtGiB,
   fmtMiB,
   fmtNum,
@@ -34,12 +45,15 @@ type Props = {
 
 const CARD_GAP = 16;
 
+/** 仪表板自动轮询间隔，与其它概览页一致 */
+const DASHBOARD_POLL_MS = 30_000;
+
 const OVERVIEW_GRID: React.CSSProperties = {
   display: 'grid',
   gridTemplateRows: 'minmax(0, 3fr) minmax(0, 2fr)',
   gap: CARD_GAP,
-  height: 'calc(100vh - 152px)',
-  minHeight: 420,
+  height: 'calc(100vh - 200px)',
+  minHeight: 400,
   boxSizing: 'border-box',
   position: 'relative',
 };
@@ -105,29 +119,10 @@ const RING_STROKE = 8;
 /** 仪表板横向进度条粗细（antd Progress line） */
 const PROGRESS_BAR_STROKE = 12;
 
-function dashCardStyle(): React.CSSProperties {
-  return {
-    ...CARD_FILL,
-    boxShadow: DASHBOARD_CARD_SHADOW,
-    display: 'flex',
-    flexDirection: 'column',
-  };
-}
-
-function CardTitle({
-  icon,
-  label,
-}: {
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-      {icon}
-      <span style={{ fontSize: 16 }}>{label}</span>
-    </span>
-  );
-}
+const EXTRA_TEXT_STYLE: React.CSSProperties = {
+  fontSize: 13,
+  color: '#94a3b8',
+};
 
 function MetricRing({
   percent,
@@ -143,7 +138,9 @@ function MetricRing({
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
   return (
-    <div style={{ position: 'relative', flexShrink: 0, width: size, height: size }}>
+    <div
+      style={{ position: 'relative', flexShrink: 0, width: size, height: size }}
+    >
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
         <circle
           cx={size / 2}
@@ -176,8 +173,12 @@ function MetricRing({
           justifyContent: 'center',
         }}
       >
-        <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1 }}>{fmtNum(percent)}%</span>
-        <span style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{label}</span>
+        <span style={{ fontSize: 18, fontWeight: 600, lineHeight: 1 }}>
+          {fmtNum(percent)}%
+        </span>
+        <span style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+          {label}
+        </span>
       </div>
     </div>
   );
@@ -225,44 +226,47 @@ function SupervisorPanel({
       : '—';
 
   return (
-    <Card
-      size="small"
-      title={
-        <CardTitle
-          icon={<ThunderboltOutlined style={{ color: '#64748b', fontSize: 20 }} />}
-          label="主管"
-        />
-      }
+    <OverviewCard
+      title="主管"
+      icon={<ThunderboltOutlined style={{ color: '#64748b' }} />}
       extra={
-        <span style={{ fontSize: 13, color: '#94a3b8' }} title={typeof nodeExtra === 'string' ? nodeExtra : undefined}>
+        <span
+          style={EXTRA_TEXT_STYLE}
+          title={typeof nodeExtra === 'string' ? nodeExtra : undefined}
+        >
           {nodeExtra}
         </span>
       }
-      styles={{
-        header: DASHBOARD_CARD_HEADER_STYLE,
-        body: {
-          flex: 1,
-          minHeight: 0,
-          padding: '16px 20px',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-        },
+      style={CARD_FILL}
+      bodyStyle={{
+        flex: 1,
+        minHeight: 0,
+        padding: '16px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
       }}
-      style={dashCardStyle()}
     >
       <SplitMetricRow label="版本" value={fmtVersionRelease(versionRelease)} />
       {fields.map((f, i) => (
-        <SplitMetricRow key={f.label} label={f.label} value={f.value} border={i < fields.length - 1} />
+        <SplitMetricRow
+          key={f.label}
+          label={f.label}
+          value={f.value}
+          border={i < fields.length - 1}
+        />
       ))}
-    </Card>
+    </OverviewCard>
   );
 }
 
 function WorkerListMetric({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+      <Typography.Text
+        type="secondary"
+        style={{ fontSize: 12, display: 'block' }}
+      >
         {label}
       </Typography.Text>
       <Typography.Text style={{ fontSize: 13 }}>{value}</Typography.Text>
@@ -271,32 +275,34 @@ function WorkerListMetric({ label, value }: { label: string; value: string }) {
 }
 
 /** 工作节点：每台一条 List 项 */
-function WorkersListPanel({ workers }: { workers: XinferenceClusterNodeDetail[] }) {
+function WorkersListPanel({
+  workers,
+}: {
+  workers: XinferenceClusterNodeDetail[];
+}) {
   return (
-    <Card
-      size="small"
-      title={
-        <CardTitle icon={<ClusterOutlined style={{ color: '#1677ff', fontSize: 20 }} />} label="工作节点" />
-      }
+    <OverviewCard
+      title="工作节点"
+      icon={<ClusterOutlined style={{ color: '#1677ff' }} />}
       extra={
-        <span style={{ fontSize: 13, color: '#94a3b8' }}>
+        <span style={EXTRA_TEXT_STYLE}>
           {workers.length > 0 ? `共 ${workers.length} 台` : '无节点'}
         </span>
       }
-      styles={{
-        header: DASHBOARD_CARD_HEADER_STYLE,
-        body: {
-          flex: 1,
-          minHeight: 0,
-          padding: workers.length > 0 ? '8px 12px 12px' : '24px 16px',
-          display: 'flex',
-          flexDirection: 'column',
-        },
+      style={CARD_FILL}
+      bodyStyle={{
+        flex: 1,
+        minHeight: 0,
+        padding: workers.length > 0 ? '8px 12px 12px' : '24px 16px',
+        display: 'flex',
+        flexDirection: 'column',
       }}
-      style={dashCardStyle()}
     >
       {workers.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无工作节点" />
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description="暂无工作节点"
+        />
       ) : (
         <List
           dataSource={workers}
@@ -309,7 +315,11 @@ function WorkersListPanel({ workers }: { workers: XinferenceClusterNodeDetail[] 
             return (
               <List.Item style={WORKER_NODE_ITEM}>
                 <List.Item.Meta
-                  avatar={<ClusterOutlined style={{ color: '#1677ff', fontSize: 20 }} />}
+                  avatar={
+                    <ClusterOutlined
+                      style={{ color: '#1677ff', fontSize: 20 }}
+                    />
+                  }
                   title={
                     <Typography.Text strong ellipsis={{ tooltip: title }}>
                       {title}
@@ -356,7 +366,7 @@ function WorkersListPanel({ workers }: { workers: XinferenceClusterNodeDetail[] 
           }}
         />
       )}
-    </Card>
+    </OverviewCard>
   );
 }
 
@@ -365,25 +375,39 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    if (!poolId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setErr(null);
-    try {
-      setInfo(await fetchXinferenceClusterInfo(poolId, { skipCache: true }));
-    } catch (e: unknown) {
-      setInfo(null);
-      setErr(e instanceof Error ? e.message : '加载仪表板失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [poolId]);
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!poolId) {
+        setLoading(false);
+        return;
+      }
+      if (!opts?.silent) {
+        setLoading(true);
+        setErr(null);
+      }
+      try {
+        const next = await fetchXinferenceClusterInfo(poolId, {
+          skipCache: true,
+        });
+        setInfo(next);
+      } catch (e: unknown) {
+        // 失败不清空：保留上次数据，仅前台加载时提示错误
+        if (!opts?.silent)
+          setErr(e instanceof Error ? e.message : '加载仪表板失败');
+      } finally {
+        if (!opts?.silent) setLoading(false);
+      }
+    },
+    [poolId],
+  );
 
   useEffect(() => {
     void load();
+    const timer = window.setInterval(
+      () => void load({ silent: true }),
+      DASHBOARD_POLL_MS,
+    );
+    return () => window.clearInterval(timer);
   }, [load]);
 
   const agg = useMemo(
@@ -406,48 +430,116 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
 
   return (
     <>
-      {err && <Alert type="error" message={err} showIcon style={{ marginBottom: CARD_GAP }} />}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 12,
+        }}
+      >
+        <Typography.Title level={5} style={{ margin: 0 }}>
+          资源概览
+        </Typography.Title>
+        <div className="toolbar-actions">
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={() => void load()}
+          />
+        </div>
+      </div>
+
+      {err && (
+        <Alert
+          type="error"
+          message={err}
+          showIcon
+          style={{ marginBottom: CARD_GAP }}
+        />
+      )}
       {(info?.modelsError || info?.versionError) && (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: CARD_GAP }}
           message="部分数据拉取失败"
-          description={[info?.versionError, info?.modelsError].filter(Boolean).join('；')}
+          description={[info?.versionError, info?.modelsError]
+            .filter(Boolean)
+            .join('；')}
         />
       )}
 
-      <Spin spinning={loading}>
+      {loading && !info ? (
+        <div style={OVERVIEW_GRID}>
+          <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
+            {[0, 1, 2].map((i) => (
+              <Col key={i} xs={24} lg={8} style={COL_FILL}>
+                <OverviewCard
+                  style={CARD_FILL}
+                  bodyStyle={{ flex: 1, minHeight: 0, padding: '16px 20px' }}
+                >
+                  <Skeleton active paragraph={{ rows: 4 }} />
+                </OverviewCard>
+              </Col>
+            ))}
+          </Row>
+          <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
+            {[0, 1].map((i) => (
+              <Col key={i} xs={24} lg={12} style={COL_FILL}>
+                <OverviewCard
+                  style={CARD_FILL}
+                  bodyStyle={{ flex: 1, minHeight: 0, padding: '16px 20px' }}
+                >
+                  <Skeleton active paragraph={{ rows: 5 }} />
+                </OverviewCard>
+              </Col>
+            ))}
+          </Row>
+        </div>
+      ) : (
         <div style={OVERVIEW_GRID}>
           {/* 上行：集群概览 | CPU+内存 | GPU */}
           <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH}>
             <Col xs={24} lg={8} style={COL_FILL}>
-              <Card
-                size="small"
-                title={
-                  <CardTitle
-                    icon={<CloudServerOutlined style={{ color: '#1677ff', fontSize: 20 }} />}
-                    label="集群概览"
-                  />
-                }
-                styles={{
-                  header: DASHBOARD_CARD_HEADER_STYLE,
-                  body: CARD_BODY_CENTER,
-                }}
-                style={dashCardStyle()}
+              <OverviewCard
+                title="集群概览"
+                icon={<CloudServerOutlined style={{ color: '#1677ff' }} />}
+                style={CARD_FILL}
+                bodyStyle={CARD_BODY_CENTER}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 28,
+                  }}
+                >
                   <Progress
                     type="circle"
-                    percent={agg.nodeCount > 0 ? Math.round((agg.workerCount / agg.nodeCount) * 100) : 0}
+                    percent={
+                      agg.nodeCount > 0
+                        ? Math.round((agg.workerCount / agg.nodeCount) * 100)
+                        : 0
+                    }
                     size={140}
                     strokeWidth={8}
                     strokeColor="#1677ff"
                     trailColor="#f0f0f0"
                     format={() => (
                       <div style={{ lineHeight: 1.15, textAlign: 'center' }}>
-                        <span style={{ fontSize: 28, fontWeight: 600 }}>{agg.nodeCount}</span>
-                        <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                        <span style={{ fontSize: 28, fontWeight: 600 }}>
+                          {agg.nodeCount}
+                        </span>
+                        <Typography.Text
+                          type="secondary"
+                          style={{
+                            display: 'block',
+                            fontSize: 12,
+                            marginTop: 4,
+                          }}
+                        >
                           集群节点
                         </Typography.Text>
                       </div>
@@ -478,48 +570,59 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
                         color: '#22c55e',
                       },
                     ].map((item) => (
-                      <div key={item.label} style={{ ...METRIC_TILE, textAlign: 'center' }}>
-                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      <div
+                        key={item.label}
+                        style={{ ...METRIC_TILE, textAlign: 'center' }}
+                      >
+                        <Typography.Text
+                          type="secondary"
+                          style={{ fontSize: 12 }}
+                        >
                           {item.label}
                         </Typography.Text>
-                        <div style={{ fontSize: 22, fontWeight: 600, color: item.color, marginTop: 4 }}>
+                        <div
+                          style={{
+                            fontSize: 22,
+                            fontWeight: 600,
+                            color: item.color,
+                            marginTop: 4,
+                          }}
+                        >
                           {item.value}
                         </div>
                       </div>
                     ))}
                   </div>
                 </div>
-              </Card>
+              </OverviewCard>
             </Col>
 
             <Col xs={24} lg={8} style={COL_FILL}>
               <div style={{ ...CARD_FILL, gap: CARD_GAP }}>
-                <Card
-                  size="small"
-                  title={
-                    <CardTitle
-                      icon={<ThunderboltOutlined style={{ color: '#1677ff', fontSize: 20 }} />}
-                      label="CPU"
-                    />
-                  }
+                <OverviewCard
+                  title="CPU"
+                  icon={<ThunderboltOutlined style={{ color: '#1677ff' }} />}
                   extra={
-                    <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                    <span style={EXTRA_TEXT_STYLE}>
                       共 {fmtNum(agg.cpuCount, 0)} 核
                     </span>
                   }
-                  styles={{
-                    header: DASHBOARD_CARD_HEADER_STYLE,
-                    body: METRIC_CARD_BODY,
-                  }}
                   style={{
                     flex: 1,
                     minHeight: 0,
-                    boxShadow: DASHBOARD_CARD_SHADOW,
                     display: 'flex',
                     flexDirection: 'column',
                   }}
+                  bodyStyle={METRIC_CARD_BODY}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 14,
+                      width: '100%',
+                    }}
+                  >
                     <MetricRing percent={cpuPercent} label="使用率" size={92} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <SplitMetricRow
@@ -533,36 +636,42 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
                       />
                     </div>
                   </div>
-                </Card>
+                </OverviewCard>
 
-                <Card
-                  size="small"
-                  title={
-                    <CardTitle
-                      icon={<DatabaseOutlined style={{ color: '#1677ff', fontSize: 20 }} />}
-                      label="内存"
-                    />
+                <OverviewCard
+                  title="内存"
+                  icon={<DatabaseOutlined style={{ color: '#1677ff' }} />}
+                  extra={
+                    <span style={EXTRA_TEXT_STYLE}>
+                      共 {fmtGiB(agg.memTotalBytes)}
+                    </span>
                   }
-                  extra={<span style={{ fontSize: 13, color: '#94a3b8' }}>共 {fmtGiB(agg.memTotalBytes)}</span>}
-                  styles={{
-                    header: DASHBOARD_CARD_HEADER_STYLE,
-                    body: METRIC_CARD_BODY,
-                  }}
                   style={{
                     flex: 1,
                     minHeight: 0,
-                    boxShadow: DASHBOARD_CARD_SHADOW,
                     display: 'flex',
                     flexDirection: 'column',
                   }}
+                  bodyStyle={METRIC_CARD_BODY}
                 >
                   <div style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'baseline',
+                        marginBottom: 8,
+                      }}
+                    >
                       <Typography.Text strong style={{ fontSize: 18 }}>
                         {fmtNum(memPercent)}%
                       </Typography.Text>
-                      <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-                        已用 {fmtGiB(agg.memUsedBytes)} / {fmtGiB(agg.memTotalBytes)}
+                      <Typography.Text
+                        type="secondary"
+                        style={{ fontSize: 13 }}
+                      >
+                        已用 {fmtGiB(agg.memUsedBytes)} /{' '}
+                        {fmtGiB(agg.memTotalBytes)}
                       </Typography.Text>
                     </div>
                     <Progress
@@ -571,36 +680,53 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
                       showInfo={false}
                       strokeWidth={PROGRESS_BAR_STROKE}
                     />
-                    <Typography.Text type="secondary" style={{ fontSize: 13, display: 'block', marginTop: 8 }}>
+                    <Typography.Text
+                      type="secondary"
+                      style={{ fontSize: 13, display: 'block', marginTop: 8 }}
+                    >
                       可用 {fmtGiB(memAvail)}
                     </Typography.Text>
                   </div>
-                </Card>
+                </OverviewCard>
               </div>
             </Col>
 
             <Col xs={24} lg={8} style={COL_FILL}>
-              <Card
-                size="small"
-                title={
-                  <CardTitle icon={<ApiOutlined style={{ color: '#1677ff', fontSize: 20 }} />} label="GPU" />
+              <OverviewCard
+                title="GPU"
+                icon={<ApiOutlined style={{ color: '#1677ff' }} />}
+                extra={
+                  <span style={EXTRA_TEXT_STYLE}>共 {agg.gpuCount} 块</span>
                 }
-                extra={<span style={{ fontSize: 13, color: '#94a3b8' }}>共 {agg.gpuCount} 块</span>}
-                styles={{
-                  header: DASHBOARD_CARD_HEADER_STYLE,
-                  body: METRIC_CARD_BODY,
-                }}
-                style={dashCardStyle()}
+                style={CARD_FILL}
+                bodyStyle={METRIC_CARD_BODY}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, width: '100%' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                    width: '100%',
+                  }}
+                >
                   <MetricRing percent={gpuPercent} label="GPU 负载" size={92} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <SplitMetricRow label="显存已用" value={fmtMiB(agg.gpuVramUsedBytes)} />
-                    <SplitMetricRow label="显存总量" value={fmtMiB(agg.gpuVramTotalBytes)} />
-                    <SplitMetricRow label="显存使用率" value={`${fmtNum(vramPercent)}%`} border={false} />
+                    <SplitMetricRow
+                      label="显存已用"
+                      value={fmtMiB(agg.gpuVramUsedBytes)}
+                    />
+                    <SplitMetricRow
+                      label="显存总量"
+                      value={fmtMiB(agg.gpuVramTotalBytes)}
+                    />
+                    <SplitMetricRow
+                      label="显存使用率"
+                      value={`${fmtNum(vramPercent)}%`}
+                      border={false}
+                    />
                   </div>
                 </div>
-              </Card>
+              </OverviewCard>
             </Col>
           </Row>
 
@@ -611,10 +737,22 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
                 summary={info?.supervisor}
                 versionRelease={info?.supervisor?.versionRelease}
                 fields={[
-                  { label: 'CPU 使用率', value: `${fmtNum(info?.supervisor?.cpuUsagePercent)}%` },
-                  { label: 'CPU 总数', value: fmtNum(info?.supervisor?.cpuCount, 0) },
-                  { label: '内存已用', value: fmtGiB(info?.supervisor?.memUsedBytes) },
-                  { label: '内存总量', value: fmtGiB(info?.supervisor?.memTotalBytes) },
+                  {
+                    label: 'CPU 使用率',
+                    value: `${fmtNum(info?.supervisor?.cpuUsagePercent)}%`,
+                  },
+                  {
+                    label: 'CPU 总数',
+                    value: fmtNum(info?.supervisor?.cpuCount, 0),
+                  },
+                  {
+                    label: '内存已用',
+                    value: fmtGiB(info?.supervisor?.memUsedBytes),
+                  },
+                  {
+                    label: '内存总量',
+                    value: fmtGiB(info?.supervisor?.memTotalBytes),
+                  },
                 ]}
               />
             </Col>
@@ -623,7 +761,7 @@ const DashboardSection: React.FC<Props> = ({ poolId }) => {
             </Col>
           </Row>
         </div>
-      </Spin>
+      )}
     </>
   );
 };

@@ -88,7 +88,9 @@ export function aggregateClusterMetrics(
   const gpuVramUsedBytes = w?.gpuVramUsedBytes ?? null;
   const gpuVramTotalBytes = w?.gpuVramTotalBytes ?? null;
   const gpuVramUsagePercent =
-    gpuVramUsedBytes != null && gpuVramTotalBytes != null && gpuVramTotalBytes > 0
+    gpuVramUsedBytes != null &&
+    gpuVramTotalBytes != null &&
+    gpuVramTotalBytes > 0
       ? (gpuVramUsedBytes / gpuVramTotalBytes) * 100
       : null;
 
@@ -107,11 +109,3 @@ export function aggregateClusterMetrics(
     gpuVramUsagePercent,
   };
 }
-
-export const DASHBOARD_CARD_SHADOW = '0 4px 12px rgba(0,0,0,0.08)';
-
-export const DASHBOARD_CARD_HEADER_STYLE = {
-  padding: '16px 20px',
-  height: 60,
-  minHeight: 60,
-} as const;
