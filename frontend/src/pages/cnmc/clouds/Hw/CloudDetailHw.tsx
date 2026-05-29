@@ -30,6 +30,7 @@ import SnapshotSection from './sections/SnapshotSection';
 import ImagesSection, { Icon as ImageIcon, Label as ImageLabel } from './sections/ImagesSection';
 import KeyPairsSection, { Icon as KeyPairIcon, Label as KeyPairLabel } from './sections/KeyPairsSection';
 import RdsSection, { Icon as RdsIcon, Label as RdsLabel } from './sections/RdsSection';
+import MonitorAlarmSection, { Icon as MonitorIcon, Label as MonitorLabel } from './sections/MonitorAlarmSection';
 import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
 import EcsCreateModal from './modals/EcsCreateModal';
 import VmDetailModal from './modals/VmDetailModal';
@@ -512,6 +513,14 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           count: rds.length,
           children: (
             <RdsSection cloudId={cloudId} rds={rds} vpcs={vpcs} subnets={subnets} secGroups={secGroups} onSetRds={(list)=> setRds(list)} onRefreshAll={loadAll} />
+          )
+        },
+        {
+          key: 'monitor',
+          label: MonitorLabel,
+          icon: MonitorIcon,
+          children: (
+            <MonitorAlarmSection cloudId={cloudId} ecs={ecs} />
           )
         },
       ]}

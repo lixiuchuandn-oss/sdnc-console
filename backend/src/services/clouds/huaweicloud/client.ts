@@ -1495,6 +1495,42 @@ export async function huaweiDeleteServers(opts: HuaweiClientOptions, serverIds: 
   }, 'HuaweiCloud 删除实例失败');
 }
 
+// ===== CES 告警规则 =====
+export async function huaweiListAlarms(opts: HuaweiClientOptions): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'GET',
+    url: '/V1.0/{project_id}/alarms',
+    pathParams: { project_id: opts.projectId },
+    queryParams: { limit: '100' },
+  }, 'HuaweiCloud 查询告警规则失败');
+}
+
+export async function huaweiCreateAlarm(opts: HuaweiClientOptions, alarm: any): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'POST',
+    url: '/V1.0/{project_id}/alarms',
+    pathParams: { project_id: opts.projectId },
+    data: alarm,
+  }, 'HuaweiCloud 创建告警规则失败');
+}
+
+export async function huaweiDeleteAlarm(opts: HuaweiClientOptions, alarmId: string): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'DELETE',
+    url: '/V1.0/{project_id}/alarms/{alarm_id}',
+    pathParams: { project_id: opts.projectId, alarm_id: alarmId },
+  }, 'HuaweiCloud 删除告警规则失败');
+}
+
+export async function huaweiSetAlarmAction(opts: HuaweiClientOptions, alarmId: string, enabled: boolean): Promise<any> {
+  return huaweiHcSend(opts, buildCesEndpoint(opts.region), {
+    method: 'PUT',
+    url: '/V1.0/{project_id}/alarms/{alarm_id}/action',
+    pathParams: { project_id: opts.projectId, alarm_id: alarmId },
+    data: { alarm_enabled: enabled },
+  }, 'HuaweiCloud 启停告警规则失败');
+}
+
 // ===== RDS 云数据库 =====
 function buildRdsEndpoint(region: string): string {
   return `https://rds.${region}.myhuaweicloud.com`;

@@ -138,6 +138,26 @@ export const restartHuaweiRds = async (cloudId: string, dbInstanceId: string) =>
   return await apiPost(`/api/clouds/${cloudId}/resources/rds/${encodeURIComponent(dbInstanceId)}/restart`, {});
 };
 
+// ===== CES 告警规则（华为云）=====
+export const fetchHuaweiAlarms = async (cloudId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/monitor/alarms`);
+};
+export const createHuaweiAlarm = async (
+  cloudId: string,
+  payload: {
+    alarmName: string; namespace: string; metricName: string; instanceId?: string; dimensionName?: string;
+    period?: number; filter?: string; comparisonOperator?: string; threshold?: number; unit?: string; count?: number; alarmLevel?: number;
+  },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/monitor/alarms`, payload);
+};
+export const setHuaweiAlarmAction = async (cloudId: string, alarmId: string, enabled: boolean) => {
+  return await apiPatch(`/api/clouds/${cloudId}/resources/monitor/alarms/${encodeURIComponent(alarmId)}/action`, { enabled });
+};
+export const deleteHuaweiAlarm = async (cloudId: string, alarmId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/monitor/alarms/${encodeURIComponent(alarmId)}`);
+};
+
 // 云资源池：查询单个 VPC（华为云）
 export const showCloudProviderVpc = async (cloudId: string, vpcId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpcs/${encodeURIComponent(vpcId)}`);

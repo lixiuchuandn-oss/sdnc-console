@@ -71,6 +71,10 @@ import {
   huaweiCreateDbInstance,
   huaweiDeleteDbInstance,
   huaweiRestartDbInstance,
+  huaweiListAlarms,
+  huaweiCreateAlarm,
+  huaweiDeleteAlarm,
+  huaweiSetAlarmAction,
 } from '../../../services/clouds/huaweicloud/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
@@ -2591,6 +2595,116 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
       } catch (error: any) {
         if (res.headersSent) return;
         return res.status(500).json({ message: '删除DNAT规则失败', error: error.message });
+      }
+    },
+  );
+
+  // ===== 池级监控告警（CES）=====
+  router.get(
+    '/:id/resources/monitor/alarms',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiListAlarms({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+        res.json({ message: '查询成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '查询告警规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 创建告警规则
+  router.post(
+    '/:id/resources/monitor/alarms',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const b = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        if (!b.alarmName || !b.namespace || !b.metricName)
+          return res.status(400).json({ message: '缺少 alarmName / namespace / metricName' });
+        const dimensions = Array.isArray(b.dimensions) && b.dimensions.length
+          ? b.dimensions
+          : (b.instanceId ? [{ name: b.dimensionName || 'instance_id', value: b.instanceId }] : []);
+        const alarm: any = {
+          alarm_name: b.alarmName,
+          alarm_enabled: b.alarmEnabled !== false,
+          metric: { namespace: b.namespace, metric_name: b.metricName, dimensions },
+          condition: {
+            period: Number(b.period || 300),
+            filter: b.filter || 'average',
+            comparison_operator: b.comparisonOperator || '>',
+            value: Number(b.threshold ?? 80),
+            unit: b.unit || '%',
+            count: Number(b.count || 3),
+          },
+          alarm_action_enabled: false,
+        };
+        if (b.alarmLevel) alarm.alarm_level = Number(b.alarmLevel);
+        const data = await huaweiCreateAlarm({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, alarm);
+        res.json({ message: '创建成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '创建告警规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 启停告警规则
+  router.patch(
+    '/:id/resources/monitor/alarms/:alarmId/action',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, alarmId } = req.params;
+        const { enabled } = (req.body || {}) as any;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiSetAlarmAction({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, alarmId, enabled !== false);
+        res.json({ message: '操作成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '启停告警规则失败', error: error.message });
+      }
+    },
+  );
+
+  // 删除告警规则
+  router.delete(
+    '/:id/resources/monitor/alarms/:alarmId',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id, alarmId } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!isHuawei(cloud)) return next();
+        const projectId = (cloud.config as any)?.projectId;
+        if (!cloud.accessKey || !cloud.secretKey || !projectId)
+          return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
+        const data = await huaweiDeleteAlarm({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, alarmId);
+        res.json({ message: '删除成功', data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        return res.status(500).json({ message: '删除告警规则失败', error: error.message });
       }
     },
   );
