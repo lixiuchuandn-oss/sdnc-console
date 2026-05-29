@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Table, Modal, Space, Form, InputNumber, Select } from 'antd';
-import { GlobalOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Input, Table, Modal, Space, Form, InputNumber, Select, Tooltip, Typography } from 'antd';
+import { GlobalOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import {
   fetchCloudProviderEips,
@@ -122,10 +122,36 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
   }, [eips, keyword]);
 
   const columns = useMemo(() => ([
-    { title: '公网IP/ID', key: 'ip_id', render: (_: any, r: any) => (<span>{r?.IpAddress || r?.public_ip_address || '-'}<br />{r?.AllocationId || r?.id || '-'}</span>) },
-    { title: '绑定实例/端口', key: 'bind', render: (_: any, r: any) => { const inst = r?.InstanceId || r?.instance_id || ''; const port = r?.PortId || r?.port_id || ''; return (<span>{inst || '-'}<br />{port || '-'}</span>); } },
-    { title: '状态', key: 'status', render: (_: any, r: any) => statusTag(r?.Status || r?.status) },
-    { title: '操作', key: 'actions', fixed: 'right', width: 80, render: (_: any, r: any) => {
+    {
+      title: '公网 IP / ID', key: 'ip_id', fixed: 'left' as const, width: 220,
+      render: (_: any, r: any) => {
+        const ip = r?.IpAddress || r?.public_ip_address || '-';
+        const id = r?.AllocationId || r?.id || '-';
+        const bw = r?.Bandwidth;
+        return (
+          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+            <Typography.Text strong copyable={ip !== '-' ? { text: ip } : false}>{ip}{bw ? `（${bw}Mbps）` : ''}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={id !== '-' ? { text: id } : false}>{id}</Typography.Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '绑定实例', key: 'bind', width: 220,
+      render: (_: any, r: any) => {
+        const inst = r?.InstanceId || r?.instance_id || '';
+        const type = r?.InstanceType || '';
+        if (!inst) return <Typography.Text type="secondary">未绑定</Typography.Text>;
+        return (
+          <Space direction="vertical" size={0}>
+            <Typography.Text copyable={{ text: inst }} ellipsis={{ tooltip: inst }} style={{ maxWidth: 180 }}>{inst}</Typography.Text>
+            {type && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{type}</Typography.Text>}
+          </Space>
+        );
+      },
+    },
+    { title: '状态', key: 'status', width: 110, render: (_: any, r: any) => statusTag(r?.Status || r?.status) },
+    { title: '操作', key: 'actions', fixed: 'right' as const, width: 80, render: (_: any, r: any) => {
       const bound = !!(r?.InstanceId || r?.instance_id);
       const status = String(r?.Status || r?.status || '');
       const items: any[] = [{ key: 'detail', label: '详情' }];
@@ -166,21 +192,22 @@ const EipSectionAliyun: React.FC<EipSectionAliyunProps> = ({ cloudId, eips, onSe
       icon={Icon}
       toolbarLeft={(
         <>
-          <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
+          <Input className="toolbar-search" prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} placeholder="IP / ID / 实例" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+          <button type="button" className="toolbar-reset-btn" onClick={() => setKeyword('')}>重置</button>
         </>
       )}
       toolbarRight={(
-        <Space>
+        <div className="toolbar-actions">
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { allocForm.resetFields(); allocForm.setFieldsValue({ bandwidth: 5, internetChargeType: 'PayByTraffic' }); setAllocOpen(true); }}>申请 EIP</Button>
-          <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading} />
-        </Space>
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={refresh} loading={loading} /></Tooltip>
+        </div>
       )}
       asCard={false}
     >
-      <Table loading={loading} rowKey={(r: any) => r.AllocationId || r.id} dataSource={filteredEips} columns={columns as any} pagination={{
+      <Table className="std-table" bordered={false} loading={loading} rowKey={(r: any) => r.AllocationId || r.id} dataSource={filteredEips} columns={columns as any} pagination={{
         size: 'small',
         showTotal: (total) => `共 ${total} 条`,
-      }} scroll={{ x: 800 }} />
+      }} scroll={{ x: true }} />
       {!!showLog && (
         <div style={{ marginTop: 12 }}>
           <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(raw, null, 2)}</pre>

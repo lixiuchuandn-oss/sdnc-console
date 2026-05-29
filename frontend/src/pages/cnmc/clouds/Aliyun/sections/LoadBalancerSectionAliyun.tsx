@@ -1,11 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Space, Table } from 'antd';
-import { MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, Input, Select, Space, Table, Tooltip, Typography } from 'antd';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { DeploymentUnitOutlined } from '@ant-design/icons';
 import { fetchCloudProviderLoadBalancers } from '../../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 
 type LoadBalancerSectionAliyunProps = {
   cloudId: string;
@@ -16,10 +15,24 @@ type LoadBalancerSectionAliyunProps = {
   onOpenDetail: (type: string, title: string, data: any) => void;
 };
 
-const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, subnets, onSetSlbs, onOpenDetail }) => {
+const parseSlbList = (json: any): any[] =>
+  (json?.data?.LoadBalancers?.LoadBalancer) || (json?.LoadBalancers?.LoadBalancer) || (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
+
+const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ cloudId, slbs, vpcs, onSetSlbs, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState<boolean>(false);
+
+  const refresh = async () => {
+    if (!cloudId) return;
+    setLoading(true);
+    try {
+      const json = await fetchCloudProviderLoadBalancers(cloudId);
+      onSetSlbs(parseSlbList(json));
+    } catch (e: any) { message.error(e?.message || '刷新失败'); }
+    finally { setLoading(false); }
+  };
 
   const filtered = useMemo(() => {
     const list = Array.isArray(slbs) ? slbs : [];
@@ -36,54 +49,95 @@ const LoadBalancerSectionAliyun: React.FC<LoadBalancerSectionAliyunProps> = ({ c
   const tagText = (r: any) => tagsToText(r?.Tags?.Tag || r?.tags);
 
   const columns = useMemo(() => ([
-    { title: '名称/ID', key: 'name_id', render: (_: any, r: any) => (<span>{r?.LoadBalancerName || r?.name || '-'}<br />{r?.LoadBalancerId || r?.id || '-'}</span>), sorter: (a: any, b: any) => { const an = String(a?.LoadBalancerName || a?.name || ''); const bn = String(b?.LoadBalancerName || b?.name || ''); const cmp = an.localeCompare(bn); if (cmp !== 0) return cmp; return String(a?.LoadBalancerId || a?.id || '').localeCompare(String(b?.LoadBalancerId || b?.id || '')); } },
-    { title: '地址', key: 'address', render: (_: any, r: any) => r?.Address || r?.vip_address || '-', sorter: (a: any, b: any) => String(a?.Address || a?.vip_address || '').localeCompare(String(b?.Address || b?.vip_address || '')) },
-    { title: '所属VPC', key: 'vpc', ellipsis: true, render: (_: any, r: any) => { const vid = r?.VpcId || r?.vpc_id || ''; const vn = (vpcs || []).find((v: any) => String(v?.VpcId || v?.id || '') === String(vid || '')); return vn?.VpcName || vn?.name || vid || '-'; } },
-    { title: '标签', key: 'tags', ellipsis: true, render: (_: any, r: any) => tagText(r) },
-    { title: '状态', key: 'status', render: (_: any, r: any) => { const t = r?.LoadBalancerStatus || r?.status; return statusTag(t); }, sorter: (a: any, b: any) => String(a?.LoadBalancerStatus || a?.status || '').localeCompare(String(b?.LoadBalancerStatus || b?.status || '')) },
-    { title: '操作', key: 'actions', render: (_: any, r: any) => {
-      const items = [{ key: 'detail', label: '详情' }];
-      return (
-        <RowActionsButton
-          items={items}
-          onClick={async ({ key }: { key: string }) => {
-            if (key === 'detail') { const name = r?.LoadBalancerName || r?.name || '-'; const id = r?.LoadBalancerId || r?.id || '-'; onOpenDetail('slb', `负载均衡 ${name}（${id}）`, r); }
-          }}
-        />
-      );
-    } },
+    {
+      title: '名称/ID', key: 'name_id', fixed: 'left' as const, width: 240,
+      sorter: (a: any, b: any) => String(a?.LoadBalancerName || a?.name || '').localeCompare(String(b?.LoadBalancerName || b?.name || '')),
+      render: (_: any, r: any) => {
+        const name = r?.LoadBalancerName || r?.name || '-';
+        const id = r?.LoadBalancerId || r?.id || '-';
+        return (
+          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+            <Typography.Text strong ellipsis={{ tooltip: name }}>{name}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={id !== '-' ? { text: id } : false}>{id}</Typography.Text>
+          </Space>
+        );
+      },
+    },
+    {
+      title: '服务地址', key: 'address', width: 180,
+      render: (_: any, r: any) => {
+        const addr = r?.Address || r?.vip_address || '';
+        const type = r?.AddressType || r?.address_type;
+        if (!addr) return '-';
+        return (
+          <Space direction="vertical" size={0}>
+            <Typography.Text copyable={{ text: addr }}>{addr}</Typography.Text>
+            {type && <Typography.Text type="secondary" style={{ fontSize: 12 }}>{type === 'internet' ? '公网' : type === 'intranet' ? '私网' : type}</Typography.Text>}
+          </Space>
+        );
+      },
+    },
+    {
+      title: '所属 VPC', key: 'vpc', width: 200, ellipsis: true,
+      render: (_: any, r: any) => {
+        const vid = r?.VpcId || r?.vpc_id || '';
+        const vn = (vpcs || []).find((v: any) => String(v?.VpcId || v?.id || '') === String(vid || ''));
+        const name = vn?.VpcName || vn?.name || vid;
+        return name ? <Typography.Text type="secondary" ellipsis={{ tooltip: name }}>{name}</Typography.Text> : '-';
+      },
+    },
+    { title: '标签', key: 'tags', width: 160, ellipsis: true, render: (_: any, r: any) => tagText(r) || '-' },
+    { title: '状态', key: 'status', width: 110, render: (_: any, r: any) => statusTag(r?.LoadBalancerStatus || r?.status) },
+    {
+      title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
+      render: (_: any, r: any) => {
+        const items = [{ key: 'detail', label: '详情' }];
+        return (
+          <RowActionsButton
+            items={items}
+            onClick={async ({ key }: { key: string }) => {
+              if (key === 'detail') { const name = r?.LoadBalancerName || r?.name || '-'; const id = r?.LoadBalancerId || r?.id || '-'; onOpenDetail('slb', `负载均衡 ${name}（${id}）`, r); }
+            }}
+          />
+        );
+      },
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ]), [vpcs, onOpenDetail]);
+
+  const statusOptions = useMemo(() => Array.from(new Set((slbs || []).map((r: any) => String(r?.LoadBalancerStatus || r?.status || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s })), [slbs]);
 
   return (
     <PageDetailSection
       title={Label}
       icon={Icon}
       toolbarLeft={(
-        <Space size={8}>
-          <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
-          <Select placeholder="选择状态" allowClear value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }} options={[...Array.from(new Set((slbs || []).map((r: any) => String(r?.LoadBalancerStatus || r?.status || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
-        </Space>
+        <>
+          <Input className="toolbar-search" prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} placeholder="名称 / ID / 地址" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+          <Select className="toolbar-filter-sm" placeholder="状态" allowClear value={statusFilter} onChange={setStatusFilter} options={statusOptions} dropdownMatchSelectWidth={false} />
+          <button type="button" className="toolbar-reset-btn" onClick={() => { setKeyword(''); setStatusFilter(undefined); }}>重置</button>
+        </>
       )}
       toolbarRight={(
-        <ResourceActionsDropdown
-          items={[{ key: 'refresh', label: '刷新' }]}
-          onClick={async ({ key }) => {
-            if (key === 'refresh') {
-              try {
-                const json = await fetchCloudProviderLoadBalancers(cloudId).catch(() => null);
-                const slbList: any[] = (json?.LoadBalancers?.LoadBalancer) || (json?.data?.loadbalancers) || (json?.loadbalancers) || [];
-                onSetSlbs(Array.isArray(slbList) ? slbList : []);
-              } catch (e: any) { message.error(e?.message || '刷新失败'); }
-            }
-          }}
-        />
+        <div className="toolbar-actions">
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} /></Tooltip>
+        </div>
       )}
       asCard={false}
     >
-      <Table rowKey={(r: any) => r?.LoadBalancerId || r?.id} dataSource={filtered} columns={columns as any} pagination={{
-        size: 'small',
-        showTotal: (total) => `共 ${total} 条`,
-      }} />
+      <Table
+        className="std-table"
+        bordered={false}
+        rowKey={(r: any) => r?.LoadBalancerId || r?.id}
+        dataSource={filtered}
+        columns={columns as any}
+        loading={loading}
+        scroll={{ x: true }}
+        pagination={{
+          size: 'small',
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+      />
     </PageDetailSection>
   );
 };

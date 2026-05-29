@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Table, Space, Typography, Badge, Tag, Modal, Form } from 'antd';
+import { App, Button, Input, Select, Table, Space, Tooltip, Typography, Badge, Tag, Modal, Form } from 'antd';
 import { CameraOutlined, ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   fetchCloudProviderSnapshots,
@@ -154,6 +154,7 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
     { 
       title: '快照信息', 
       key: 'info', 
+      fixed: 'left' as const,
       width: 240,
       sorter: (a: any, b: any) => {
         const an = String(a?.SnapshotName || a?.name || '');
@@ -236,7 +237,7 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
     { 
       title: '操作', 
       key: 'actions', 
-      fixed: 'right',
+      fixed: 'right' as const,
       width: 80,
       render: (_: any, r: any) => {
         const items = [
@@ -285,40 +286,33 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
       title={Label}
       icon={Icon}
       toolbarLeft={(
-        <Space wrap>
-          <Input 
+        <>
+          <Input
+            className="toolbar-search"
             prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            placeholder="搜索名称/ID/磁盘ID" 
-            allowClear 
-            value={keyword} 
-            onChange={(e) => setKeyword(e.target.value)} 
-            style={{ width: 220 }} 
+            placeholder="名称 / ID / 磁盘ID"
+            allowClear
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
           />
-          <Select 
-            placeholder="状态" 
-            allowClear 
-            value={statusFilter} 
-            onChange={setStatusFilter} 
-            style={{ width: 120 }} 
-            options={statusOptions} 
-            dropdownMatchSelectWidth={false}
-          />
-          <Select 
-            placeholder="类型" 
-            allowClear 
-            value={typeFilter} 
-            onChange={setTypeFilter} 
-            style={{ width: 120 }} 
+          <Select className="toolbar-filter-sm" placeholder="状态" allowClear value={statusFilter} onChange={setStatusFilter} options={statusOptions} dropdownMatchSelectWidth={false} />
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="类型"
+            allowClear
+            value={typeFilter}
+            onChange={setTypeFilter}
             options={[
               { label: '自动快照', value: 'auto' },
               { label: '手动快照', value: 'user' }
             ]}
             dropdownMatchSelectWidth={false}
           />
-        </Space>
+          <button type="button" className="toolbar-reset-btn" onClick={() => { setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); }}>重置</button>
+        </>
       )}
       toolbarRight={(
-        <Space>
+        <div className="toolbar-actions">
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -326,12 +320,14 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
           >
             创建快照
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} />
-        </Space>
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={load} loading={loading} /></Tooltip>
+        </div>
       )}
       asCard={false}
     >
       <Table 
+        className="std-table"
+        bordered={false}
         loading={loading}
         rowKey={(r: any) => r?.SnapshotId || r?.id} 
         dataSource={filtered} 
@@ -340,7 +336,7 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }} 
-        scroll={{ x: 1000 }}
+        scroll={{ x: true }}
       />
 
       <Modal

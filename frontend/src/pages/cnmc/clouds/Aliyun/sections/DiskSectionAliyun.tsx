@@ -1,5 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { App, Button, Space, Table, Modal, Input, InputNumber, Form, AutoComplete, Select, Tag, Badge, Typography } from 'antd';
+import { App, Button, Space, Table, Modal, Input, InputNumber, Form, AutoComplete, Select, Tag, Badge, Tooltip, Typography } from 'antd';
 import { ReloadOutlined, HddOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 import {
@@ -379,7 +379,8 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, ecs, onS
     { 
       title: '磁盘', 
       key: 'info', 
-      width: 220,
+      fixed: 'left' as const,
+      width: 240,
       render: (_: any, r: any) => {
         const name = getDiskName(r) || '-';
         const id = getDiskId(r) || '-';
@@ -559,55 +560,33 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, ecs, onS
   return (
     <PageDetailSection
       toolbarLeft={(
-        <Space wrap>
-          <Input 
-            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} 
-            placeholder="搜索名称/ID" 
-            allowClear 
-            value={keyword} 
-            onChange={e => setKeyword(e.target.value)} 
-            style={{ width: 200 }} 
-          />
-          <Select 
-            placeholder="状态" 
-            allowClear 
-            value={statusFilter} 
-            onChange={setStatusFilter} 
-            options={statusOptions} 
-            style={{ width: 120 }} 
-            dropdownMatchSelectWidth={false}
-          />
-          <Select 
-            placeholder="磁盘类型" 
-            allowClear 
-            value={categoryFilter} 
-            onChange={setCategoryFilter} 
-            options={categoryOptions} 
-            style={{ width: 140 }} 
-            dropdownMatchSelectWidth={false}
-          />
-          <Select
-            placeholder="付费类型"
+        <>
+          <Input
+            className="toolbar-search"
+            prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+            placeholder="名称 / ID"
             allowClear
-            value={payTypeFilter}
-            onChange={setPayTypeFilter}
-            options={payTypeOptions}
-            style={{ width: 120 }}
+            value={keyword}
+            onChange={e => setKeyword(e.target.value)}
           />
-        </Space>
+          <Select className="toolbar-filter-sm" placeholder="状态" allowClear value={statusFilter} onChange={setStatusFilter} options={statusOptions} dropdownMatchSelectWidth={false} />
+          <Select className="toolbar-filter-sm" placeholder="磁盘类型" allowClear value={categoryFilter} onChange={setCategoryFilter} options={categoryOptions} dropdownMatchSelectWidth={false} />
+          <Select className="toolbar-filter-sm" placeholder="付费类型" allowClear value={payTypeFilter} onChange={setPayTypeFilter} options={payTypeOptions} dropdownMatchSelectWidth={false} />
+          <button type="button" className="toolbar-reset-btn" onClick={() => { setKeyword(''); setStatusFilter(undefined); setCategoryFilter(undefined); setPayTypeFilter(undefined); }}>重置</button>
+        </>
       )}
       toolbarRight={(
-        <Space>
+        <div className="toolbar-actions">
           {!iid && (
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建云盘</Button>
           )}
-          <Button icon={<ReloadOutlined />} onClick={async () => { await load(); if (onRefreshAll) await onRefreshAll(); }} />
-        </Space>
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} loading={loading} onClick={async () => { await load(); if (onRefreshAll) await onRefreshAll(); }} /></Tooltip>
+        </div>
       )}
     >
       <Table
+        className="std-table"
         bordered={false}
-        tableLayout="auto"
         loading={loading}
         rowKey={(r: any, idx: number | undefined) => String(getDiskId(r) || idx || 0)}
         columns={columns as any}
@@ -616,7 +595,7 @@ const DiskSectionAliyun: React.FC<Props> = ({ cloudId, instance, disks, ecs, onS
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        scroll={{ x: 1100 }}
+        scroll={{ x: true }}
       />
 
       <Modal
