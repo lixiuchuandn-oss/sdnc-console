@@ -4,6 +4,7 @@ import { SwapOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { fetchCloudProviderNatGateways } from '../../../../../services/aliyunApi';
 import { statusTag, tagsToText } from '../../Hw/components/Common';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
+import NatRulesDrawerAliyun from '../drawers/NatRulesDrawerAliyun';
 
 type NatGatewaySectionAliyunProps = {
   cloudId: string;
@@ -18,11 +19,12 @@ type NatGatewaySectionAliyunProps = {
 const parseNatList = (json: any): any[] =>
   (json?.data?.NatGateways?.NatGateway) || (json?.NatGateways?.NatGateway) || (json?.data?.nat_gateways) || (json?.nat_gateways) || [];
 
-const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloudId, natGateways, vpcs, onSetNatGateways, onOpenDetail }) => {
+const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloudId, natGateways, eips, vpcs, subnets, onSetNatGateways, onOpenDetail }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
+  const [drawerNat, setDrawerNat] = useState<any | null>(null);
 
   const refresh = async () => {
     if (!cloudId) return;
@@ -78,11 +80,15 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
     {
       title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
       render: (_: any, r: any) => {
-        const items = [{ key: 'detail', label: '详情' }];
+        const items = [
+          { key: 'rules', label: 'SNAT/DNAT 规则' },
+          { key: 'detail', label: '详情(JSON)' },
+        ];
         return (
           <RowActionsButton
             items={items}
             onClick={async ({ key }: { key: string }) => {
+              if (key === 'rules') { setDrawerNat(r); return; }
               if (key === 'detail') { const name = r?.Name || r?.name || '-'; const id = r?.NatGatewayId || r?.id || '-'; onOpenDetail('nat', `NAT网关 ${name}（${id}）`, r); }
             }}
           />
@@ -124,6 +130,14 @@ const NatGatewaySectionAliyun: React.FC<NatGatewaySectionAliyunProps> = ({ cloud
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
+      />
+      <NatRulesDrawerAliyun
+        open={!!drawerNat}
+        cloudId={cloudId}
+        nat={drawerNat}
+        eips={eips}
+        vswitches={subnets}
+        onClose={() => setDrawerNat(null)}
       />
     </PageDetailSection>
   );

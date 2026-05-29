@@ -40,6 +40,13 @@ export const deleteCloudProviderVSwitch = async (cloudId: string, vswitchId: str
 export const fetchCloudProviderVpnGateways = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/vpn-gateways`);
 };
+export const fetchCloudProviderVpnConnections = async (cloudId: string, vpnGatewayId?: string) => {
+  const qs = vpnGatewayId ? `?vpnGatewayId=${encodeURIComponent(vpnGatewayId)}` : '';
+  return await apiRequest(`/api/clouds/${cloudId}/resources/vpn-connections${qs}`);
+};
+export const deleteCloudProviderVpnGateway = async (cloudId: string, vpnGatewayId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/vpn-gateways/${encodeURIComponent(vpnGatewayId)}`);
+};
 
 // 云资源池：查询阿里云 弹性网卡（ENI）列表（支持按 VPC/VSwitch/ECS 过滤）
 export const fetchCloudProviderEnis = async (cloudId: string, params?: { vpcId?: string; vSwitchId?: string; instanceId?: string } & Record<string, any>) => {
@@ -189,8 +196,51 @@ export const fetchCloudProviderLoadBalancers = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/loadbalancers`);
 };
 
+// ===== SLB 详情/后端/健康/监听器 =====
+export const fetchCloudProviderLoadBalancerDetail = async (cloudId: string, lbId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}`);
+};
+export const fetchCloudProviderLoadBalancerHealth = async (cloudId: string, lbId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/health`);
+};
+export const addCloudProviderBackendServers = async (cloudId: string, lbId: string, servers: Array<{ serverId: string; weight?: number }>) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/backend-servers`, { servers });
+};
+export const removeCloudProviderBackendServers = async (cloudId: string, lbId: string, serverIds: string[]) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/backend-servers`, { serverIds });
+};
+export const operateCloudProviderListener = async (cloudId: string, lbId: string, port: number, op: 'start' | 'stop' | 'delete', protocol?: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/loadbalancers/${encodeURIComponent(lbId)}/listeners/${port}/${op}`, protocol ? { protocol } : {});
+};
+
 export const fetchCloudProviderNatGateways = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/nat-gateways`);
+};
+
+// ===== NAT SNAT/DNAT 规则 =====
+export const fetchCloudProviderSnatEntries = async (cloudId: string, snatTableId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/nat-gateways/snat-entries?snatTableId=${encodeURIComponent(snatTableId)}`);
+};
+export const createCloudProviderSnatEntry = async (
+  cloudId: string,
+  payload: { snatTableId: string; snatIp: string; sourceVSwitchId?: string; sourceCIDR?: string; snatEntryName?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/nat-gateways/snat-entries`, payload);
+};
+export const deleteCloudProviderSnatEntry = async (cloudId: string, snatTableId: string, snatEntryId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/snat-entries`, { snatTableId, snatEntryId });
+};
+export const fetchCloudProviderForwardEntries = async (cloudId: string, forwardTableId: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/nat-gateways/forward-entries?forwardTableId=${encodeURIComponent(forwardTableId)}`);
+};
+export const createCloudProviderForwardEntry = async (
+  cloudId: string,
+  payload: { forwardTableId: string; externalIp: string; externalPort?: string; internalIp: string; internalPort?: string; ipProtocol: string; forwardEntryName?: string },
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/nat-gateways/forward-entries`, payload);
+};
+export const deleteCloudProviderForwardEntry = async (cloudId: string, forwardTableId: string, forwardEntryId: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/nat-gateways/forward-entries`, { forwardTableId, forwardEntryId });
 };
 
 export const fetchCloudProviderRouteTables = async (cloudId: string) => {
