@@ -94,7 +94,7 @@ export const fetchHuaweiEcsAuditTraces = async (cloudId: string, instanceId: str
 
 export const fetchHuaweiPorts = async (cloudId: string, params?: { deviceId?: string }) => {
   const qs: string[] = [];
-  if (params?.deviceId) qs.push(`device_id=${encodeURIComponent(params.deviceId)}`);
+  if (params?.deviceId) qs.push(`deviceId=${encodeURIComponent(params.deviceId)}`);
   const endpoint = `/api/clouds/${cloudId}/resources/ports${qs.length ? ('?' + qs.join('&')) : ''}`;
   return await apiRequest(endpoint);
 };

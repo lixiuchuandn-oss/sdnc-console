@@ -1,13 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { Table, Tag, Dropdown, Card, Button, Descriptions, Row, Col, Statistic, App, Divider } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Tag, Card, Descriptions, Row, Col, Statistic, App, Divider } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { HomeOutlined, CloudUploadOutlined, MoreOutlined, DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
+import { HomeOutlined, CloudUploadOutlined, DashboardOutlined, CloudServerOutlined, ClusterOutlined, SafetyCertificateOutlined, GlobalOutlined, DeploymentUnitOutlined, SwapOutlined, NodeIndexOutlined, HddOutlined, CameraOutlined, BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import { fetchClouds, fetchCloudProviderVpcs, fetchCloudProviderEcs, fetchCloudProviderSubnets, fetchCloudProviderSecurityGroups, fetchCloudProviderEips, fetchCloudProviderLoadBalancers, fetchCloudProviderNatGateways, fetchCloudProviderRouteTables, fetchCloudProviderDisks, fetchCloudProviderSnapshots, fetchCloudProviderRouteEntries } from '../../../../services/api';
 import { fetchHuaweiPorts, fetchHuaweiCesMetrics, fetchHuaweiCesAvailableMetrics } from '../../../../services/huaweiApi';
-import { statusTag } from './components/Common';
-// force update
 import VpcCreateModal from './modals/VpcCreateModal';
 import SubnetCreateModal from './modals/SubnetCreateModal';
 import SubnetEditModal from './modals/SubnetEditModal';
@@ -28,7 +25,9 @@ import RouteTableSection, { Icon as RtIcon, Label as RtLabel } from './sections/
 import EipSection, { Icon as EipIcon, Label as EipLabel } from './sections/EipSection';
 import LoadBalancerSection, { Icon as SlbIcon, Label as SlbLabel } from './sections/LoadBalancerSection';
 import NatGatewaySection, { Icon as NatIcon, Label as NatLabel } from './sections/NatGatewaySection';
-import { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
+import DiskSection, { Icon as DiskIcon, Label as DiskLabel } from './sections/DiskSection';
+import SnapshotSection from './sections/SnapshotSection';
+import SecurityGroupCreateModal from './modals/SecurityGroupCreateModal';
 import VmDetailModal from './modals/VmDetailModal';
 import ResourceDetailModal from './modals/ResourceDetailModal';
 import RouteTableSubnetsViewModal from './modals/RouteTableSubnetsViewModal';
@@ -77,7 +76,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [eipManageBusy, setEipManageBusy] = useState<boolean>(false);
   const [eipManageSelId, setEipManageSelId] = useState<string>('');
 
-  const [_sgCreateOpen, _setSgCreateOpen] = useState<boolean>(false);
+  const [sgCreateOpen, setSgCreateOpen] = useState<boolean>(false);
   const [, setLoading] = useState(false);
 
   const refreshMonitor = useCallback(async () => {
@@ -125,7 +124,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
   const [vpcCreateOpen, setVpcCreateOpen] = useState(false);
   const [subnetCreateOpen, setSubnetCreateOpen] = useState(false);
   const [subnetEditOpen, setSubnetEditOpen] = useState(false);
-  const [subnetEditTarget, _setSubnetEditTarget] = useState<any | null>(null);
+  const [subnetEditTarget, setSubnetEditTarget] = useState<any | null>(null);
   const [rtAssocOpen, setRtAssocOpen] = useState(false);
   const [routeDrawerOpen, setRouteDrawerOpen] = useState(false);
   const [rtEntryOpen, setRtEntryOpen] = useState(false);
@@ -214,47 +213,6 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (cloudId) loadAll(); }, [cloudId]);
-
-  const diskColumns = useMemo(() => ([
-    { title: '名称', dataIndex: 'name', key: 'name', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.name||'').localeCompare(String(b?.name||'')) },
-    { title: 'ID', dataIndex: 'id', key: 'id', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.id||'').localeCompare(String(b?.id||'')) },
-    { title: '容量/类型', key: 'size_type', render: (_:any, r:any): React.ReactNode => { const size=r?.size; const tp=r?.volume_type; const sTxt=(size!=null&&size!=='')? `${size}GB`:'-'; const tTxt=tp||'-'; return `${sTxt}（${tTxt}）`; }, sorter: (a:any,b:any)=> Number(a?.size||0)-Number(b?.size||0) },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s:string)=> statusTag(s), sorter: (a:any,b:any)=> String(a?.status||'').localeCompare(String(b?.status||'')) },
-    { title: '挂载实例/设备', key: 'attach', ellipsis: true, render: (_:any, r:any): React.ReactNode => { const atts: any[] = Array.isArray(r?.attachments)? r?.attachments : []; const list = atts.map((a:any)=> `${a?.server_id || a?.instance_id || '-'}（${a?.device || '-'}）`).filter(Boolean); return list.length? list.join('；') : '-'; } },
-    { title: '可用区/加密', key: 'az_enc', render: (_:any, r:any): React.ReactNode => { const az=r?.availability_zone||r?.zone||r?.ZoneId||'-'; const enc = r?.encrypted===true ? '是' : r?.encrypted===false ? '否' : '-'; return `${az}；加密: ${enc}`; } },
-    { title: '标签', key: 'tags', ellipsis: true, render: (_:any, r:any)=> { const tags=r?.tags; const pairs: string[]=[]; if (Array.isArray(tags)) { for (const t of tags){ const k=t?.key??t?.Key; const v=t?.value??t?.Value; if(k!=null&&v!=null) pairs.push(`${k}=${v}`);} } else if (tags && typeof tags==='object'){ for(const k of Object.keys(tags)){ const v=(tags as any)[k]; if(v!=null) pairs.push(`${k}=${v}`);} } return pairs.length? pairs.join('；'):'-'; } },
-    { title: '操作', key: 'actions', render: (_: any, r: any) => {
-      const items = [ { key: 'detail', label: '详情' } ];
-      return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
-            if (key === 'detail') { const name=r?.name||'-'; const id=r?.id||'-'; setDetailTitle(`云盘 ${name}（${id}）`); setDetailData(r); setDetailType('disk'); setDetailOpen(true); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
-      );
-    } },
-  ]), []);
-
-  const snapshotColumns = useMemo(() => ([
-    { title: '名称', dataIndex: 'name', key: 'name', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.name||'').localeCompare(String(b?.name||'')) },
-    { title: 'ID', dataIndex: 'id', key: 'id', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.id||'').localeCompare(String(b?.id||'')) },
-    { title: '源磁盘', dataIndex: 'volume_id', key: 'src', render: (t:string)=> t || '-', sorter: (a:any,b:any)=> String(a?.volume_id||'').localeCompare(String(b?.volume_id||'')) },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s:string)=> statusTag(s), sorter: (a:any,b:any)=> String(a?.status||'').localeCompare(String(b?.status||'')) },
-    { title: '操作', key: 'actions', render: (_: any, r: any) => {
-      const items = [ { key: 'detail', label: '详情' } ];
-      return (
-        <Dropdown
-          menu={{ items, onClick: async ({ key }) => {
-            if (key === 'detail') { const name=r?.name||'-'; const id=r?.id||'-'; setDetailTitle(`快照 ${name}（${id}）`); setDetailData(r); setDetailType('snapshot'); setDetailOpen(true); }
-          } }}
-        >
-          <Button type="link" icon={<MoreOutlined />} />
-        </Dropdown>
-      );
-    } },
-  ]), []);
 
   return (
     <PageDetailContainer
@@ -405,6 +363,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               onSetSubnets={(list)=> setSubnets(list)}
               onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
               onOpenCreate={()=> { setSubnetCreateOpen(true); }}
+              onOpenEdit={(subnet)=> { setSubnetEditTarget(subnet); setSubnetEditOpen(true); }}
             />
           )
         },
@@ -422,6 +381,7 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
               onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
               onOpenRuleDrawer={(sg)=> { setSgRuleTarget(sg); setSgRuleDrawerOpen(true); }}
               onOpenRefsDrawer={(sg)=> { setSgRefsTarget(sg); setSgRefsDrawerOpen(true); }}
+              onOpenCreate={()=> { setSgCreateOpen(true); }}
             />
           )
         },
@@ -499,32 +459,31 @@ const CloudDetailHw: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           count: disks.length,
           children: (
             <>
-              <Table
-                bordered
-                tableLayout="auto"
-                size="middle"
-                className="vr-table vr-table--middle"
-                rowKey={(r:any)=> r?.id || r?.VolumeId || r?.volume_id || ''}
-                columns={diskColumns as ColumnsType<any>}
-                dataSource={disks}
-                pagination={{ pageSize: 10 }}
+              <DiskSection
+                cloudId={cloudId}
+                disks={disks}
+                onSetDisks={(list)=> setDisks(list)}
+                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
               />
               <Divider />
-              <Table
-                bordered
-                tableLayout="auto"
-                size="middle"
-                className="vr-table vr-table--middle"
-                rowKey={(r:any)=> r?.id || r?.SnapshotId || ''}
-                columns={snapshotColumns as ColumnsType<any>}
-                dataSource={snapshots}
-                pagination={{ pageSize: 10 }}
+              <SnapshotSection
+                cloudId={cloudId}
+                snapshots={snapshots}
+                onSetSnapshots={(list)=> setSnapshots(list)}
+                onOpenDetail={(type, title, data)=> { setDetailTitle(title); setDetailType(type); setDetailData(data); setDetailOpen(true); }}
               />
             </>
           )
         },
       ]}
     >
+
+      <SecurityGroupCreateModal
+        open={sgCreateOpen}
+        cloudId={cloudId}
+        onClose={()=> setSgCreateOpen(false)}
+        onSuccess={(list)=> { if (Array.isArray(list)) setSecGroups(list); setSgCreateOpen(false); }}
+      />
 
       <SecurityGroupRuleManageDrawer
         open={sgRuleDrawerOpen}
