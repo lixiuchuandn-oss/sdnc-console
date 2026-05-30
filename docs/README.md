@@ -11,6 +11,7 @@
 
 | 文档 | 说明 |
 |------|------|
+| [ci.md](./ci.md) | **CI 与合入门禁**：Actions job、本地复现、Branch protection 勾选清单 |
 | [code-quality.md](./code-quality.md) | **代码质量**（§1～§9 合入清单；§10～§12 可选评分；五十条附录） |
 | [frontend-layout.md](./frontend-layout.md) | **前端布局**：壳层、三层容器、侧栏与 Tab；列表 **§5.1**、工具栏 **§5.2**（样板 **VmSection**） |
 | [cloudmap-pool-rbac.md](./cloudmap-pool-rbac.md) | **Cloudmap 池 RBAC**：以页面为实体（入口 / 展示 / 操作） |
