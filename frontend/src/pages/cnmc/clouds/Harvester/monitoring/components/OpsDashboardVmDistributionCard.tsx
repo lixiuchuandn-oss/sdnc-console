@@ -125,6 +125,7 @@ const OpsDashboardVmDistributionCard: React.FC<OpsDashboardVmDistributionCardPro
     <OpsDashboardOverviewCard
       title={title}
       icon={icon}
+      extra={extraText ?? `共 ${total} 台`}
       loading={loading}
       height={height}
     >

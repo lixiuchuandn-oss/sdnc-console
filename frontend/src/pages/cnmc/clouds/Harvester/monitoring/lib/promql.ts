@@ -11,6 +11,11 @@
 
 export type PromVarMap = Record<string, string | number>;
 
+/** 构造 Grafana `${var}` 占位字面量，供面板 PromQL 静态配置引用 */
+export function promqlVar(name: string): string {
+  return String.raw`\$\{${name}\}`;
+}
+
 /** 把 `$xxx` 或 `${xxx}` 替换为 `vars[xxx]`；未提供的变量保留原文，方便排查 */
 export function expandPromql(expr: string, vars: PromVarMap = {}): string {
   if (!expr) return '';

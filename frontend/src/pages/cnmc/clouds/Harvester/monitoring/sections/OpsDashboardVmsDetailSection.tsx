@@ -19,6 +19,7 @@ import { useVmDisplayNameMap } from '../hooks/useVmDisplayNameMap';
 import { resolveVmMetricLegendName } from '../lib/vmDisplayNames';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
+import { promqlVar } from '../lib/promql';
 
 export interface OpsDashboardVmsSectionProps {
   cloudId: string;
@@ -31,6 +32,8 @@ const CHART_HEIGHT = 260;
 const BARGAUGE_MAX_HEIGHT = 260;
 const COUNT_OPTIONS = [5, 10, 20] as const;
 const DEFAULT_COUNT = 10;
+const PROM_VAR_COUNT = promqlVar('count');
+const PROM_VAR_VM_SELECTOR = promqlVar('vm_selector');
 
 interface PanelQueryDef {
   key: string;
@@ -94,7 +97,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
       {
         key: 'A',
         expr:
-          'topk(${count}, (avg(rate(kubevirt_vmi_vcpu_seconds_total${vm_selector}[5m])) by (domain, name)) / 1000)',
+          `topk(${PROM_VAR_COUNT}, (avg(rate(kubevirt_vmi_vcpu_seconds_total${PROM_VAR_VM_SELECTOR}[5m])) by (domain, name)) / 1000)`,
         legend: '{{name}}',
       },
     ],
@@ -114,7 +117,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
       {
         key: 'A',
         expr:
-          'topk(${count}, ((kubevirt_vmi_memory_available_bytes${vm_selector} - kubevirt_vmi_memory_unused_bytes${vm_selector}) / kubevirt_vmi_memory_available_bytes${vm_selector}))',
+          `topk(${PROM_VAR_COUNT}, ((kubevirt_vmi_memory_available_bytes${PROM_VAR_VM_SELECTOR} - kubevirt_vmi_memory_unused_bytes${PROM_VAR_VM_SELECTOR}) / kubevirt_vmi_memory_available_bytes${PROM_VAR_VM_SELECTOR}))`,
         legend: '{{name}}',
       },
     ],
@@ -137,7 +140,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_storage_read_traffic_bytes_total${vm_selector}[5m])))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_storage_read_traffic_bytes_total${PROM_VAR_VM_SELECTOR}[5m])))`,
         legend: '{{name}}: {{drive}}',
       },
     ],
@@ -154,7 +157,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_storage_write_traffic_bytes_total${vm_selector}[5m])))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_storage_write_traffic_bytes_total${PROM_VAR_VM_SELECTOR}[5m])))`,
         legend: '{{name}}: {{drive}}',
       },
     ],
@@ -177,7 +180,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_network_receive_bytes_total${vm_selector}[5m])*8))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_network_receive_bytes_total${PROM_VAR_VM_SELECTOR}[5m])*8))`,
         legend: '{{name}}',
       },
     ],
@@ -194,7 +197,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_network_transmit_bytes_total${vm_selector}[5m])*8))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_network_transmit_bytes_total${PROM_VAR_VM_SELECTOR}[5m])*8))`,
         legend: '{{name}}',
       },
     ],
@@ -214,7 +217,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     col: { xs: 24, lg: 12 },
     query: {
       key: 'A',
-      expr: 'topk(${count}, (delta(kubevirt_vmi_network_receive_packets_total${vm_selector}[2h])))',
+      expr: `topk(${PROM_VAR_COUNT}, (delta(kubevirt_vmi_network_receive_packets_total${PROM_VAR_VM_SELECTOR}[2h])))`,
       legend: '{{name}}',
     },
   },
@@ -233,7 +236,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     col: { xs: 24, lg: 12 },
     query: {
       key: 'A',
-      expr: 'topk(${count}, (delta(kubevirt_vmi_network_transmit_packets_total${vm_selector}[2h])))',
+      expr: `topk(${PROM_VAR_COUNT}, (delta(kubevirt_vmi_network_transmit_packets_total${PROM_VAR_VM_SELECTOR}[2h])))`,
       legend: '{{name}}',
     },
   },
