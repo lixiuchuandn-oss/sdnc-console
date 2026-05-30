@@ -74,14 +74,14 @@ const TenantConsoleHeader: React.FC<TenantConsoleHeaderProps> = ({
                 </span>
                 {user.tenantName && (
                   <Tooltip title={`当前租户: ${user.tenantName}`}>
-                    <Tag bordered={false} className="tenant-console-header__tag tenant-console-header__tag--tenant">
+                    <Tag color="blue" className="tenant-console-header__tag">
                       <span className="tenant-console-header__tag-text">{user.tenantName}</span>
                     </Tag>
                   </Tooltip>
                 )}
                 {user.organizationName && (
                   <Tooltip title={`当前组织: ${user.organizationName}`}>
-                    <Tag bordered={false} className="tenant-console-header__tag tenant-console-header__tag--org">
+                    <Tag color="blue" className="tenant-console-header__tag">
                       <span className="tenant-console-header__tag-text">{user.organizationName}</span>
                     </Tag>
                   </Tooltip>

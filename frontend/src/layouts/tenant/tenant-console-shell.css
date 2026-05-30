@@ -156,22 +156,7 @@
 
 .tenant-console-header__tag {
   margin: 0;
-  font-size: 11px;
-  line-height: 20px;
-  padding: 0 8px;
-  border-radius: 4px;
-}
-
-.tenant-console-header__tag--tenant {
-  background: rgba(22, 119, 255, 0.08);
-  color: rgba(0, 0, 0, 0.88);
-  border: 1px solid rgba(22, 119, 255, 0.35);
-}
-
-.tenant-console-header__tag--org {
-  background: rgba(250, 173, 20, 0.1);
-  color: rgba(0, 0, 0, 0.88);
-  border: 1px solid rgba(250, 173, 20, 0.45);
+  max-width: 100%;
 }
 
 .tenant-console-header__tag-text {
