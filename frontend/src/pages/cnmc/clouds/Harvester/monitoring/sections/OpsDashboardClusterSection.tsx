@@ -14,7 +14,8 @@ import OpsDashboardClusterCpuCard from '../components/OpsDashboardClusterCpuCard
 import OpsDashboardClusterDiskCard from '../components/OpsDashboardClusterDiskCard';
 import OpsDashboardClusterMemoryCard from '../components/OpsDashboardClusterMemoryCard';
 import { MonitoringOverviewLanesProvider } from '../MonitoringOverviewLanesContext';
-import { usePromQueries, type PromQueryDef } from '../hooks/usePromQueries';
+import { usePromQueries, type PromQueryDef, resolveChartTimeBoundsMs } from '../hooks/usePromQueries';
+import { derivePanelLoadState } from '../lib/panelLoadState';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
 
@@ -303,12 +304,12 @@ function buildPanelSeriesGroups(
   results: ReturnType<typeof usePromQueries>['results'],
 ): {
   groups: MetricSeriesInput[];
-  loading: boolean;
+  initialLoading: boolean;
   error?: string;
   isEmpty: boolean;
 } {
   const panelResults = panel.queries.map((q) => results[composeKey(panel.id, q.key)]);
-  const loading = panelResults.some((r) => r?.loading === true);
+  const { initialLoading } = derivePanelLoadState(panelResults);
   const panelErrors = panelResults.map((r) => r?.error).filter((m): m is string => Boolean(m));
   const error = panelErrors.length === panel.queries.length ? panelErrors.join('\n') : undefined;
   const isEmpty = panelResults.every(
@@ -319,7 +320,7 @@ function buildPanelSeriesGroups(
     color: q.color,
     data: panelResults[idx]?.series ?? [],
   }));
-  return { groups, loading, error, isEmpty };
+  return { groups, initialLoading, error, isEmpty };
 }
 
 function renderClusterTimeSeriesChart(
@@ -367,7 +368,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
     [resolved.rateInterval, resolved.intervalStr],
   );
 
-  const { results, error: aggregateError } = usePromQueries({
+  const { results, fetchedWindow, error: aggregateError } = usePromQueries({
     cloudId,
     queries,
     start: resolved.start,
@@ -377,8 +378,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
     reloadToken,
   });
 
-  const chartMin = resolved.start * 1000;
-  const chartMax = resolved.end * 1000;
+  const { chartMin, chartMax } = resolveChartTimeBoundsMs(resolved, fetchedWindow);
 
   const previewPanel = useMemo(
     () => (previewPanelId ? ALL_CLUSTER_PANELS.find((p) => p.id === previewPanelId) ?? null : null),
@@ -402,7 +402,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
         />
       ) : null}
 
-      <MonitoringOverviewLanesProvider key={`${cloudId}-${reloadToken}`} cloudId={cloudId}>
+      <MonitoringOverviewLanesProvider cloudId={cloudId}>
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={8} style={OVERVIEW_CARD_COL_FILL_STYLE}>
             <OpsDashboardClusterCpuCard height={OVERVIEW_CARD_ROW_HEIGHT} />
@@ -428,7 +428,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
           </Typography.Title>
           <Row gutter={[16, 16]}>
             {group.panels.map((panel) => {
-              const { groups, loading: panelLoading, error: panelError, isEmpty } = buildPanelSeriesGroups(
+              const { groups, initialLoading, error: panelError, isEmpty } = buildPanelSeriesGroups(
                 panel,
                 results,
               );
@@ -439,13 +439,13 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
                     title={panel.title}
                     description={panel.description}
                     extra={<MetricPanelExpandButton onClick={() => setPreviewPanelId(panel.id)} />}
-                    loading={panelLoading}
+                    loading={initialLoading}
                     error={panelError}
-                    isEmpty={!panelLoading && isEmpty}
+                    isEmpty={isEmpty}
                     height={PANEL_HEIGHT}
                     bodyPadding={12}
                   >
-                    {renderClusterTimeSeriesChart(panel, groups, chartMin, chartMax, CHART_HEIGHT, panelLoading)}
+                    {renderClusterTimeSeriesChart(panel, groups, chartMin, chartMax, CHART_HEIGHT, initialLoading)}
                   </MetricPanelCard>
                 </Col>
               );
@@ -458,9 +458,9 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
         onClose={() => setPreviewPanelId(null)}
         title={previewPanel?.title}
         description={previewPanel?.description}
-        loading={previewPanelData?.loading}
+        loading={previewPanelData?.initialLoading}
         error={previewPanelData?.error}
-        isEmpty={previewPanelData != null && !previewPanelData.loading && previewPanelData.isEmpty}
+        isEmpty={previewPanelData != null && !previewPanelData.initialLoading && previewPanelData.isEmpty}
       >
         {previewPanel && previewPanelData
           ? renderClusterTimeSeriesChart(
@@ -469,7 +469,7 @@ const OpsDashboardClusterSection: React.FC<OpsDashboardClusterSectionProps> = ({
               chartMin,
               chartMax,
               PREVIEW_CHART_HEIGHT,
-              previewPanelData.loading,
+              previewPanelData.initialLoading,
             )
           : null}
       </MetricPanelPreviewModal>

@@ -17,7 +17,8 @@ import OpsDashboardVmStatusCard from '../components/OpsDashboardVmStatusCard';
 import OpsDashboardVmNamespaceCard from '../components/OpsDashboardVmNamespaceCard';
 import OpsDashboardVmNodeCard from '../components/OpsDashboardVmNodeCard';
 import { MonitoringOverviewLanesProvider, useMonitoringOverviewSlowLane } from '../MonitoringOverviewLanesContext';
-import { usePromQueries, type PromQueryDef, type PromQueryResult } from '../hooks/usePromQueries';
+import { usePromQueries, type PromQueryDef, type PromQueryResult, resolveChartTimeBoundsMs } from '../hooks/usePromQueries';
+import { derivePanelLoadState } from '../lib/panelLoadState';
 import { useVmDisplayNameMap } from '../hooks/useVmDisplayNameMap';
 import { resolveVmMetricLegendName } from '../lib/vmDisplayNames';
 import { parseVMInstancesToStatusCounts } from '../lib/vmInstances';
@@ -296,10 +297,8 @@ function collectPanelResults(
   }
 }
 
-function isPanelLoading(panel: VmsPanelDef, results: Record<string, PromQueryResult>): boolean {
-  const list = collectPanelResults(panel, results);
-  if (list.length === 0) return true;
-  return list.some((r) => r?.loading === true);
+function getPanelLoadState(panel: VmsPanelDef, results: Record<string, PromQueryResult>) {
+  return derivePanelLoadState(collectPanelResults(panel, results));
 }
 
 function panelErrorMsg(panel: VmsPanelDef, results: Record<string, PromQueryResult>): string | undefined {
@@ -429,10 +428,8 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
   const [count, setCount] = useState<number>(DEFAULT_COUNT);
   const [previewPanelId, setPreviewPanelId] = useState<string | null>(null);
 
-  const { nameMap, loading: vmNamesLoading, error: vmNamesError } = useVmDisplayNameMap(
-    cloudId,
-    reloadToken,
-  );
+  const { nameMap, initialLoading: vmNamesInitialLoading, error: vmNamesError } =
+    useVmDisplayNameMap(cloudId, reloadToken);
 
   const globalVars = useMemo(
     () => ({
@@ -443,7 +440,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
     [resolved.rateInterval, resolved.intervalStr, count],
   );
 
-  const { results, error: aggregateError } = usePromQueries({
+  const { results, fetchedWindow, error: aggregateError } = usePromQueries({
     cloudId,
     queries: ALL_QUERIES,
     start: resolved.start,
@@ -458,20 +455,19 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
     [nameMap],
   );
 
-  const chartMin = resolved.start * 1000;
-  const chartMax = resolved.end * 1000;
+  const { chartMin, chartMax } = resolveChartTimeBoundsMs(resolved, fetchedWindow);
 
   const previewPanel = useMemo(
     () => (previewPanelId ? ALL_VMS_PANELS.find((p) => p.id === previewPanelId) ?? null : null),
     [previewPanelId],
   );
 
-  const previewPanelLoading = previewPanel
-    ? isPanelLoading(previewPanel, results) || vmNamesLoading
-    : false;
+  const previewLoadState = previewPanel ? getPanelLoadState(previewPanel, results) : null;
+  const previewPanelInitialLoading =
+    previewLoadState != null && (previewLoadState.initialLoading || vmNamesInitialLoading);
   const previewPanelError = previewPanel ? panelErrorMsg(previewPanel, results) : undefined;
   const previewPanelEmpty =
-    previewPanel != null && !previewPanelLoading && isPanelEmpty(previewPanel, results);
+    previewPanel != null && !previewPanelInitialLoading && isPanelEmpty(previewPanel, results);
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -485,7 +481,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
         />
       ) : null}
 
-      <MonitoringOverviewLanesProvider key={`${cloudId}-${reloadToken}`} cloudId={cloudId}>
+      <MonitoringOverviewLanesProvider cloudId={cloudId}>
         <VmOverviewSummaryRow height={OVERVIEW_CARD_ROW_HEIGHT} />
       </MonitoringOverviewLanesProvider>
 
@@ -514,22 +510,25 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           </Typography.Title>
           <Row gutter={[16, 16]}>
             {group.panels.map((panel) => {
-              const loading = isPanelLoading(panel, results) || vmNamesLoading;
+              const promLoad = getPanelLoadState(panel, results);
+              const initialLoading = promLoad.initialLoading || vmNamesInitialLoading;
               const error = panelErrorMsg(panel, results);
-              const empty = !loading && isPanelEmpty(panel, results);
+              const empty = !initialLoading && isPanelEmpty(panel, results);
               return (
                 <Col key={panel.id} xs={panel.col.xs} lg={panel.col.lg}>
                   <MetricPanelCard
                     title={panel.title}
                     description={panel.description}
                     extra={<MetricPanelExpandButton onClick={() => setPreviewPanelId(panel.id)} />}
-                    loading={loading}
+                    loading={initialLoading}
                     error={error}
                     isEmpty={empty}
                     height={PANEL_HEIGHT}
                     bodyPadding={12}
                   >
-                    {renderVmsPanelBody(panel, results, chartMin, chartMax, legendNameResolver, { loading })}
+                    {renderVmsPanelBody(panel, results, chartMin, chartMax, legendNameResolver, {
+                      loading: promLoad.initialLoading,
+                    })}
                   </MetricPanelCard>
                 </Col>
               );
@@ -542,7 +541,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
         onClose={() => setPreviewPanelId(null)}
         title={previewPanel?.title}
         description={previewPanel?.description}
-        loading={previewPanelLoading}
+        loading={previewPanelInitialLoading}
         error={previewPanelError}
         isEmpty={previewPanelEmpty}
       >
@@ -550,7 +549,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           ? renderVmsPanelBody(previewPanel, results, chartMin, chartMax, legendNameResolver, {
               chartHeight: PREVIEW_CHART_HEIGHT,
               barGaugeMaxHeight: PREVIEW_CHART_HEIGHT,
-              loading: previewPanelLoading,
+              loading: previewLoadState?.initialLoading ?? false,
             })
           : null}
       </MetricPanelPreviewModal>

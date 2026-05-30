@@ -1,8 +1,9 @@
 /**
  * 运维监控大盘 · 概览卡片统一外壳（集群 CPU/内存/磁盘、云主机分布）
+ * 加载态由内部 ECharts showLoading 负责，外层不叠加 Spin。
  */
 import React from 'react';
-import { Card, Spin } from 'antd';
+import { Card } from 'antd';
 import {
   OPS_OVERVIEW_CARD_BODY_STYLE,
   OPS_OVERVIEW_CARD_HEADER_STYLE,
@@ -15,6 +16,7 @@ export interface OpsDashboardOverviewCardProps {
   title: React.ReactNode;
   icon: React.ReactNode;
   extra?: React.ReactNode;
+  /** 保留供子组件（ECharts）判断首次加载；本壳层不渲染 Spin */
   loading?: boolean;
   height?: number;
   children: React.ReactNode;
@@ -24,7 +26,6 @@ const OpsDashboardOverviewCard: React.FC<OpsDashboardOverviewCardProps> = ({
   title,
   icon,
   extra,
-  loading = false,
   height = 220,
   children,
 }) => (
@@ -43,9 +44,7 @@ const OpsDashboardOverviewCard: React.FC<OpsDashboardOverviewCardProps> = ({
     }}
     style={{ ...OPS_OVERVIEW_CARD_STYLE, height }}
   >
-    <Spin spinning={loading} style={{ width: '100%', flex: 1, minHeight: 0 }}>
-      {children}
-    </Spin>
+    {children}
   </Card>
 );
 

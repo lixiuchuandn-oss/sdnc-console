@@ -53,7 +53,23 @@ const OpsDashboardClusterMetricCard: React.FC<OpsDashboardClusterMetricCardProps
   const clampedPercent = Math.min(100, Math.max(0, usagePercent));
   const remainPercent = Math.max(0, 100 - clampedPercent);
 
+  const chartEvents = useMemo(
+    () => ({
+      legendselectchanged: (params: { selected?: Record<string, boolean> }) => {
+        if (params.selected?.['可用'] !== false && params.selected?.['已使用'] !== false) return;
+        const chart = chartRef.current?.getEchartsInstance();
+        chart?.dispatchAction({ type: 'legendSelect', name: '可用', selected: true });
+        chart?.dispatchAction({ type: 'legendSelect', name: '已使用', selected: true });
+      },
+    }),
+    [],
+  );
+
   const option = useMemo<EChartsOption>(() => {
+    const visualData = [
+      { name: '已使用', value: clampedPercent, itemStyle: { color: barColor } },
+      { name: '可用', value: remainPercent, itemStyle: { color: '#e5e7eb' } },
+    ];
     return {
       animation: false,
       tooltip: {
@@ -66,11 +82,32 @@ const OpsDashboardClusterMetricCard: React.FC<OpsDashboardClusterMetricCardProps
           type: 'pie',
           radius: ['58%', '78%'],
           center: ['50%', '50%'],
+          silent: true,
           label: { show: false },
           labelLine: { show: false },
+          data: visualData,
+        },
+        {
+          type: 'pie',
+          radius: ['58%', '78%'],
+          center: ['50%', '50%'],
+          selectedMode: false,
+          label: { show: false },
+          labelLine: { show: false },
+          emphasis: { scale: false },
           data: [
-            { name: '已使用', value: clampedPercent, itemStyle: { color: barColor } },
-            { name: '可用', value: remainPercent, itemStyle: { color: '#e5e7eb' } },
+            {
+              name: '已使用',
+              value: clampedPercent,
+              itemStyle: { color: 'rgba(0,0,0,0)' },
+              emphasis: { itemStyle: { color: 'rgba(0,0,0,0)' } },
+            },
+            {
+              name: '可用',
+              value: remainPercent,
+              itemStyle: { color: 'rgba(0,0,0,0)' },
+              emphasis: { itemStyle: { color: 'rgba(0,0,0,0)' } },
+            },
           ],
         },
       ],
@@ -102,6 +139,7 @@ const OpsDashboardClusterMetricCard: React.FC<OpsDashboardClusterMetricCardProps
             style={{ width: OPS_OVERVIEW_RING_SIZE, height: OPS_OVERVIEW_RING_SIZE }}
             notMerge
             lazyUpdate
+            onEvents={chartEvents}
             onChartReady={handleChartReady}
           />
           <div

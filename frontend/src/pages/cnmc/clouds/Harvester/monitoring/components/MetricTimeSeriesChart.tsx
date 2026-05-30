@@ -221,13 +221,14 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
           smooth: !step,
           step: step ? ('end' as const) : false,
           symbol: 'none',
-          sampling: 'lttb',
           lineStyle: { width: 1.5 },
           itemStyle: { color: s.color },
           areaStyle: area ? { opacity: 0.12 } : undefined,
           yAxisIndex: s.yAxisIndex,
           stack: stack ? (s.yAxisIndex === 1 ? 'right' : 'left') : undefined,
-          data: s.data.map(([ts, v]) => [ts, v / divider] as [number, number]),
+          data: s.data
+            .filter(([ts]) => (min == null || ts >= min) && (max == null || ts <= max))
+            .map(([ts, v]) => [ts, v / divider] as [number, number]),
         };
       }),
     };

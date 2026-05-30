@@ -1,7 +1,7 @@
 /**
  * 拉取云主机实例列表，构建 Prometheus name → 云主机名称 映射（与 ECS 列表同源）。
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import {
   buildVmPrometheusNameToDisplayNameMap,
@@ -12,20 +12,29 @@ import {
 export function useVmDisplayNameMap(cloudId: string, reloadToken: number) {
   const [nameMap, setNameMap] = useState<Record<string, string>>({});
   const [vmOptions, setVmOptions] = useState<VmSelectOption[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const hasLoadedRef = useRef(false);
 
   useEffect(() => {
     if (!cloudId) {
       setNameMap({});
       setVmOptions([]);
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
       setError(undefined);
+      hasLoadedRef.current = false;
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
+    const isRefresh = hasLoadedRef.current;
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setInitialLoading(true);
+    }
     setError(undefined);
 
     fetchCloudProviderEcs(cloudId, true)
@@ -33,15 +42,21 @@ export function useVmDisplayNameMap(cloudId: string, reloadToken: number) {
         if (cancelled) return;
         setNameMap(buildVmPrometheusNameToDisplayNameMap(res));
         setVmOptions(buildVmSelectOptions(res));
+        hasLoadedRef.current = true;
       })
       .catch((e: unknown) => {
         if (cancelled) return;
-        setNameMap({});
-        setVmOptions([]);
+        if (!isRefresh) {
+          setNameMap({});
+          setVmOptions([]);
+        }
         setError(e instanceof Error ? e.message : '云主机列表加载失败');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setInitialLoading(false);
+          setRefreshing(false);
+        }
       });
 
     return () => {
@@ -49,5 +64,16 @@ export function useVmDisplayNameMap(cloudId: string, reloadToken: number) {
     };
   }, [cloudId, reloadToken]);
 
-  return { nameMap, vmOptions, loading, error };
+  useEffect(() => {
+    hasLoadedRef.current = false;
+  }, [cloudId]);
+
+  return {
+    nameMap,
+    vmOptions,
+    loading: initialLoading,
+    initialLoading,
+    refreshing,
+    error,
+  };
 }

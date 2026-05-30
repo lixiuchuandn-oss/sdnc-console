@@ -2,8 +2,8 @@
  * 监控大盘单个面板容器：标题（带可选 Tooltip） + loading + error + empty + 自定义内容。
  * 与 Grafana 单个 panel 类似，但是 Ant Design Card 风格，统一边距/卡片角。
  *
- * ECharts 异步模式：loading 时仍挂载 children（图表先 init，数据后 setOption），
- * 不在外层用 Skeleton 挡住图表；空态仅在「非 loading 且无数据」时展示。
+ * ECharts 异步模式：首次 loading 时仍挂载 children，由图表内 showLoading 表示加载态；
+ * 外层不再叠加 Spin，避免双重 loading。轮询刷新不 Spin，仅更新图表数据。
  */
 import React from 'react';
 import { QuestionCircleOutlined } from '@ant-design/icons';
@@ -16,6 +16,7 @@ export interface MetricPanelCardProps {
   description?: React.ReactNode;
   /** 标题右侧自定义工具栏（如时间下拉、状态切换） */
   extra?: React.ReactNode;
+  /** 首次加载（仅用于空态判断；图表面板由 ECharts showLoading 展示加载态） */
   loading?: boolean;
   /** 错误信息：传入即覆盖 children，展示错误条 */
   error?: string;
@@ -33,7 +34,7 @@ const MetricPanelCard: React.FC<MetricPanelCardProps> = ({
   title,
   description,
   extra,
-  loading,
+  loading = false,
   error,
   isEmpty,
   emptyDescription = '暂无数据',

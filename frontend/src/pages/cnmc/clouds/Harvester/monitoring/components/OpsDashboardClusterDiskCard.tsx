@@ -9,6 +9,7 @@ import type { PromSeries } from '../hooks/usePromQueries';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
 import { formatMemoryForDisplay } from '../lib/nodeResourceMetrics';
 import { opsOverviewUsageColor } from '../lib/opsDashboardOverviewCardLayout';
+import { derivePanelLoadState } from '../lib/panelLoadState';
 import OpsDashboardClusterMetricCard from './OpsDashboardClusterMetricCard';
 
 /** 与 cattle-monitoring-system/node-filesystem-custom-rules 告警规则一致 */
@@ -54,7 +55,7 @@ const OpsDashboardClusterDiskCard: React.FC<OpsDashboardClusterDiskCardProps> = 
     [resolved.rateInterval, resolved.intervalStr],
   );
 
-  const { results, loading } = usePromQueries({
+  const { results } = usePromQueries({
     cloudId,
     queries: diskQueries,
     start: resolved.start,
@@ -63,6 +64,8 @@ const OpsDashboardClusterDiskCard: React.FC<OpsDashboardClusterDiskCardProps> = 
     globalVars,
     reloadToken,
   });
+
+  const { initialLoading } = derivePanelLoadState([results.total, results.avail]);
 
   const { totalDiskBytes, usedDiskBytes, usagePercent } = useMemo(() => {
     const total = pickLastScalar(results.total?.series);
@@ -78,7 +81,7 @@ const OpsDashboardClusterDiskCard: React.FC<OpsDashboardClusterDiskCardProps> = 
     <OpsDashboardClusterMetricCard
       title="集群磁盘"
       icon={<HddOutlined style={{ color: '#1677ff', fontSize: 18 }} />}
-      loading={loading}
+      loading={initialLoading}
       height={height}
       usagePercent={usagePercent}
       rows={[

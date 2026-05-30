@@ -15,7 +15,8 @@ import MetricPanelCard from '../components/MetricPanelCard';
 import MetricTimeSeriesChart, { type MetricSeriesInput } from '../components/MetricTimeSeriesChart';
 import MetricGauge from '../components/MetricGauge';
 import MetricDiskSpaceTable from '../components/MetricDiskSpaceTable';
-import { usePromQueries, type PromQueryDef, type PromQueryResult } from '../hooks/usePromQueries';
+import { usePromQueries, type PromQueryDef, type PromQueryResult, resolveChartTimeBoundsMs } from '../hooks/usePromQueries';
+import { derivePanelLoadState } from '../lib/panelLoadState';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
 import { fetchMetricRange } from '../../../../../../services/monitoringApi';
@@ -350,10 +351,8 @@ function collectPanelResults(
   }
 }
 
-function isPanelLoading(panel: NodesPanelDef, results: Record<string, PromQueryResult>): boolean {
-  const list = collectPanelResults(panel, results);
-  if (list.length === 0) return true;
-  return list.some((r) => r?.loading === true);
+function getPanelLoadState(panel: NodesPanelDef, results: Record<string, PromQueryResult>) {
+  return derivePanelLoadState(collectPanelResults(panel, results));
 }
 
 function panelErrorMsg(panel: NodesPanelDef, results: Record<string, PromQueryResult>): string | undefined {
@@ -512,7 +511,7 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
   /** 没选定 instance 时不发出业务查询，避免 PromQL 含字面 `$instance` 失败 */
   const effectiveQueries = useMemo(() => (instance ? ALL_QUERIES : []), [instance]);
 
-  const { results, error: aggregateError } = usePromQueries({
+  const { results, fetchedWindow, error: aggregateError } = usePromQueries({
     cloudId,
     queries: effectiveQueries,
     start: resolved.start,
@@ -522,8 +521,7 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
     reloadToken,
   });
 
-  const chartMin = resolved.start * 1000;
-  const chartMax = resolved.end * 1000;
+  const { chartMin, chartMax } = resolveChartTimeBoundsMs(resolved, fetchedWindow);
 
   const instanceOptions = useMemo(
     () => instances.map((inst) => ({ value: inst, label: inst })),
@@ -584,17 +582,17 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
             </Typography.Title>
             <Row gutter={[16, 16]}>
               {group.panels.map((panel) => {
-                const loading = isPanelLoading(panel, results);
+                const { initialLoading } = getPanelLoadState(panel, results);
                 const error = panelErrorMsg(panel, results);
-                const empty = !loading && isPanelEmpty(panel, results);
+                const empty = !initialLoading && isPanelEmpty(panel, results);
                 const height = panel.kind === 'diskSpaceTable' ? TABLE_PANEL_HEIGHT : PANEL_HEIGHT;
                 let body: React.ReactNode;
                 switch (panel.kind) {
                   case 'timeseries':
-                    body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, loading);
+                    body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, initialLoading);
                     break;
                   case 'gauge':
-                    body = renderGaugePanel(panel, results, loading);
+                    body = renderGaugePanel(panel, results, initialLoading);
                     break;
                   case 'diskSpaceTable':
                     body = renderDiskSpaceTablePanel(panel, results);
@@ -605,7 +603,7 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
                     <MetricPanelCard
                       title={panel.title}
                       description={panel.description}
-                      loading={loading}
+                      loading={initialLoading}
                       error={error}
                       isEmpty={empty}
                       height={height}

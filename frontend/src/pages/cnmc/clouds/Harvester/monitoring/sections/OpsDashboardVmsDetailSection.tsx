@@ -13,7 +13,8 @@ import { Alert, Col, Row, Select, Space, Typography } from 'antd';
 import MetricPanelCard from '../components/MetricPanelCard';
 import MetricTimeSeriesChart, { type MetricSeriesInput } from '../components/MetricTimeSeriesChart';
 import MetricBarGauge, { type BarGaugeThresholdStep } from '../components/MetricBarGauge';
-import { usePromQueries, type PromQueryDef, type PromQueryResult } from '../hooks/usePromQueries';
+import { usePromQueries, type PromQueryDef, type PromQueryResult, resolveChartTimeBoundsMs } from '../hooks/usePromQueries';
+import { derivePanelLoadState } from '../lib/panelLoadState';
 import { useVmDisplayNameMap } from '../hooks/useVmDisplayNameMap';
 import { resolveVmMetricLegendName } from '../lib/vmDisplayNames';
 import type { UnitKind } from '../lib/unit';
@@ -258,10 +259,8 @@ function collectPanelResults(
   }
 }
 
-function isPanelLoading(panel: VmsPanelDef, results: Record<string, PromQueryResult>): boolean {
-  const list = collectPanelResults(panel, results);
-  if (list.length === 0) return true;
-  return list.some((r) => r?.loading === true);
+function getPanelLoadState(panel: VmsPanelDef, results: Record<string, PromQueryResult>) {
+  return derivePanelLoadState(collectPanelResults(panel, results));
 }
 
 function panelErrorMsg(panel: VmsPanelDef, results: Record<string, PromQueryResult>): string | undefined {
@@ -358,10 +357,8 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
 }) => {
   const [count, setCount] = useState<number>(DEFAULT_COUNT);
 
-  const { nameMap, loading: vmNamesLoading, error: vmNamesError } = useVmDisplayNameMap(
-    cloudId,
-    reloadToken,
-  );
+  const { nameMap, initialLoading: vmNamesInitialLoading, error: vmNamesError } =
+    useVmDisplayNameMap(cloudId, reloadToken);
 
   const globalVars = useMemo(
     () => ({
@@ -373,7 +370,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
     [resolved.rateInterval, resolved.intervalStr, count],
   );
 
-  const { results, error: aggregateError } = usePromQueries({
+  const { results, fetchedWindow, error: aggregateError } = usePromQueries({
     cloudId,
     queries: ALL_QUERIES,
     start: resolved.start,
@@ -388,8 +385,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
     [nameMap],
   );
 
-  const chartMin = resolved.start * 1000;
-  const chartMax = resolved.end * 1000;
+  const { chartMin, chartMax } = resolveChartTimeBoundsMs(resolved, fetchedWindow);
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -427,13 +423,21 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
           </Typography.Title>
           <Row gutter={[16, 16]}>
             {group.panels.map((panel) => {
-              const loading = isPanelLoading(panel, results) || vmNamesLoading;
+              const promLoad = getPanelLoadState(panel, results);
+              const initialLoading = promLoad.initialLoading || vmNamesInitialLoading;
               const error = panelErrorMsg(panel, results);
-              const empty = !loading && isPanelEmpty(panel, results);
+              const empty = !initialLoading && isPanelEmpty(panel, results);
               let body: React.ReactNode;
               switch (panel.kind) {
                 case 'timeseries':
-                  body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, legendNameResolver, loading);
+                  body = renderTimeSeriesPanel(
+                    panel,
+                    results,
+                    chartMin,
+                    chartMax,
+                    legendNameResolver,
+                    promLoad.initialLoading,
+                  );
                   break;
                 case 'bargauge':
                   body = renderBarGaugePanel(panel, results, legendNameResolver);
@@ -444,7 +448,7 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
                   <MetricPanelCard
                     title={panel.title}
                     description={panel.description}
-                    loading={loading}
+                    loading={initialLoading}
                     error={error}
                     isEmpty={empty}
                     height={PANEL_HEIGHT}
