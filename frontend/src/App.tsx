@@ -9,6 +9,7 @@ import { LicenseProvider } from './contexts/LicenseContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
+import TenantConsoleRoute from './components/TenantConsoleRoute';
 import { routeSpecs } from './routes/RouteSpec';
 import Login from './pages/auth/Login';
 import AdminLogin from './pages/auth/AdminLogin';
@@ -99,7 +100,16 @@ const AppRoutes: React.FC = () => {
         <Route path="/clouds/:id/instances/create" element={<PrivateRoute><VmCreateWizardModal /></PrivateRoute>} />
 
         {/* Admin area */}
-        <Route path={TENANT_CLOUD_CONSOLE_PATH} element={<AdminRoute><TenantConsoleLayout /></AdminRoute>}>
+        <Route
+          path={TENANT_CLOUD_CONSOLE_PATH}
+          element={
+            <PrivateRoute>
+              <TenantConsoleRoute>
+                <TenantConsoleLayout />
+              </TenantConsoleRoute>
+            </PrivateRoute>
+          }
+        >
           <Route index element={<CloudConsolePage />} />
         </Route>
 

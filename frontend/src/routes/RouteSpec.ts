@@ -42,8 +42,12 @@ export interface RouteSpec {
   /** 为 true 时：首页顺位跳过 `requiredActions` 的 RBAC 检查（仍校验授权类字段） */
   homePageSkipPermissionCheck?: boolean;
   /**
+   * 租户控制台入口（/console）：由账号类型或 TenantConsoleRoute 守卫，不参与 AdminRoute 路径→RBAC 映射。
+   */
+  tenantAccountEntry?: boolean;
+  /**
    * `cloudmap-pool`：仅用于 Cloudmap 资源池侧栏与面包屑元数据；
-   * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（`clouds.console:read`）。
+   * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（各 Tab 的 poolPageAction）。
    */
   navScope?: 'default' | 'cloudmap-pool';
   /** Cloudmap 池侧栏分组标题（中文） */
@@ -59,13 +63,10 @@ export interface RouteSpec {
 function toCloudmapPoolRouteSpec(
   r: (typeof CLOUDMAP_POOL_NAV_ROWS)[number],
 ): RouteSpec {
-  const page = r.poolPageAction ?? 'clouds.console:read';
-  const write =
-    page === 'clouds.console:read'
-      ? 'clouds.console:write'
-      : page.endsWith(':read')
-        ? `${page.slice(0, -(':read'.length))}:write`
-        : 'clouds.console:write';
+  const page = r.poolPageAction ?? 'clouds.ecs:read';
+  const write = page.endsWith(':read')
+    ? `${page.slice(0, -':read'.length)}:write`
+    : 'clouds.ecs:write';
   return {
     id: r.id,
     path: `/admin/clouds/:cloudId/${r.pathSuffix}`,
@@ -182,9 +183,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: 'Rancher 集群工作台',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -197,9 +198,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: '华为云资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -212,9 +213,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: '阿里云资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -227,9 +228,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: 'Rancher 资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -242,9 +243,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: 'Xinference 资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -257,9 +258,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: 'MAAS 裸金属资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -272,9 +273,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: 'CSM 资源池跳转',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -290,14 +291,8 @@ export const routeSpecs: RouteSpec[] = [
     icon: 'DesktopOutlined',
     /** 不进入管理端侧栏；路由仍由 `App.tsx` 注册，`/console` 可照常访问 */
     hidden: true,
-    requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
-    },
+    tenantAccountEntry: true,
     order: 10,
-    /** 默认授权即可；不按多云 License 门控，仅 RBAC */
-    homePagePriority: 3
   },
 
   // Group: 租户管理
@@ -370,9 +365,9 @@ export const routeSpecs: RouteSpec[] = [
     group: '租户控制台',
     hidden: true,
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
+      page: 'clouds.ecs:read',
+      read: 'clouds.ecs:read',
+      write: 'clouds.ecs:write'
     }
   },
   {
@@ -385,9 +380,9 @@ export const routeSpecs: RouteSpec[] = [
     group: '租户控制台',
     hidden: true,
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
+      page: 'clouds.ecs:read',
+      read: 'clouds.ecs:read',
+      write: 'clouds.ecs:write'
     }
   },
   {

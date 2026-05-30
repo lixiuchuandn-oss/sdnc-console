@@ -62,28 +62,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
 
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':read') &&
-    !isCloudsContainersResourceBase(base) &&
-    !isCloudsDashboardOrPoolsResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
-
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':write') &&
-    !isCloudsContainersResourceBase(base) &&
-    !isCloudsDashboardOrPoolsResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
-
   if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
       return true;
@@ -169,12 +147,6 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     requiredFeature: 'platform.multi-cloud',
   },
   {
-    id: 'console',
-    homePagePriority: 3,
-    path: '/console',
-    pageAction: 'clouds.console:read',
-  },
-  {
     id: 'tenants-list',
     homePagePriority: 4,
     path: '/admin/tenants',
@@ -237,10 +209,28 @@ export async function resolveAdminDefaultHome(
   favoritePoolIdOverride?: string,
 ): Promise<AdminDefaultHomePayload> {
   const r = String(role || '').toLowerCase();
-  const isSystemAdminRole = r === 'super_admin' || r === 'admin';
   const fav = await resolveEffectiveFavoritePoolId(favoritePoolIdOverride);
   const status = licenseService.getStatus();
   const licenseFeatures = status.payload?.features ? [...status.payload.features] : [];
+
+  if (r === 'tenant') {
+    return {
+      defaultPath: '/console',
+      favoritePoolId: fav,
+      licenseFeatures,
+      steps: [
+        {
+          id: 'tenant-console-direct',
+          homePagePriority: -2,
+          templatePath: '/console',
+          resolvedPath: '/console',
+          outcome: 'matched',
+          reason: 'tenant_account_type',
+        },
+      ],
+    };
+  }
+
   const hasFeature = (f: string) => hasLicenseFeature(f);
 
   const steps: AdminHomeResolutionStep[] = [];
@@ -252,15 +242,6 @@ export async function resolveAdminDefaultHome(
       templatePath: spec.path,
       rbacAction: spec.homePageSkipPermissionCheck ? null : spec.pageAction,
     };
-
-    if (isSystemAdminRole && spec.path === '/console') {
-      steps.push({
-        ...baseStep,
-        outcome: 'skipped',
-        reason: 'system_admin_skip_console',
-      });
-      continue;
-    }
 
     if (spec.homePageAllowedRoles?.length) {
       if (!spec.homePageAllowedRoles.includes(r)) {

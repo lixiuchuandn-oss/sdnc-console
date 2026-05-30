@@ -1,4 +1,5 @@
 import { normalizeRoleGrantIds } from './roleGrantNormalize';
+import { stripTenantConsoleUmbrellaPermissions } from './tenantConsoleUmbrellaPermissions';
 import type { RBACRole } from '../types';
 
 /** 与 backend seeders/initRoles、orgManageConstants 保持一致 */
@@ -41,12 +42,12 @@ function parseRoleActionAtoms(role: RBACRole): string[] {
 export function resolveTenantRootBoundaryActionAtoms(roles: RBACRole[]): string[] {
   const root = findTenantRootBuiltinRole(roles);
   if (!root) return [];
-  return normalizeRoleGrantIds(parseRoleActionAtoms(root));
+  return stripTenantConsoleUmbrellaPermissions(normalizeRoleGrantIds(parseRoleActionAtoms(root)));
 }
 
 /** 保存租户自定义角色时，剔除超出边界的权限 */
 export function clampActionsToTenantBoundary(ids: string[], boundary: string[]): string[] {
-  if (!boundary.length) return ids;
+  if (!boundary.length) return stripTenantConsoleUmbrellaPermissions(ids);
   const allowed = new Set(boundary);
-  return ids.filter((id) => allowed.has(id));
+  return stripTenantConsoleUmbrellaPermissions(ids.filter((id) => allowed.has(id)));
 }

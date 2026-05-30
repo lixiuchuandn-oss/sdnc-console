@@ -6,6 +6,11 @@ import { ALL_PERMISSIONS } from '../constants/permissions';
 import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
 import { expandLegacyBackupSchedulePermissions } from '../constants/cbrSchedulePermissionLegacy';
+import {
+  parseRolePermissionsJson,
+  stripTenantConsoleUmbrellaPermissions,
+  isTenantConsoleUmbrellaPermission,
+} from '../constants/tenantConsolePermissionLegacy';
 import { logger } from '../utils/logger';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
 
@@ -98,6 +103,7 @@ function isTenantRootBuiltinCloudPermission(permission: string): boolean {
   if (base === 'clouds.subnets') return false;
   if (permission === 'clouds.images:write') return false;
   if (permission === 'clouds.subnets.flat:write') return false;
+  if (isTenantConsoleUmbrellaPermission(permission)) return false;
   return true;
 }
 
@@ -110,6 +116,25 @@ export function buildTenantRootBuiltinPermissions(
     if (matchesExcludedPrefix(base, TENANT_ROOT_NON_CNMC_PREFIXES)) return false;
     return isTenantRootBuiltinCloudPermission(p);
   });
+}
+
+/** 存量全 scope 角色：移除已废弃的 clouds.console:* umbrella 权限 */
+export async function migrateAllRolesRemoveConsoleUmbrella(): Promise<number> {
+  const repo = AppDataSource.getRepository(RBACRole);
+  const rows = await repo.find();
+  let changed = 0;
+  for (const row of rows) {
+    const current = parseRolePermissionsJson(row.permissions);
+    const next = stripTenantConsoleUmbrellaPermissions(current);
+    if (next.length === current.length) continue;
+    row.permissions = JSON.stringify(next);
+    await repo.save(row);
+    changed += 1;
+  }
+  if (changed > 0) {
+    rolesLog.info(`已从 ${changed} 个角色中移除 clouds.console:* 权限`);
+  }
+  return changed;
 }
 
 export async function initializeRoles() {
@@ -176,7 +201,8 @@ export async function initializeRoles() {
     // 权限设计（与 PermissionChecker / accessMapping、前端 poolNavGroup 一致）：
     // - 顶栏平台：不含租户管理、SDN 控制台、云安全中心、系统设置（tenants/networks/secops/system 等）
     // - CNMC：不含多云管理、资源总览、云监控、集群、日志管理分组
-    // - 资源控制台：保留 clouds.console:*（VNC/SSH、租户侧 ECS 等对权限数组字面 includes 校验）
+    // - 租户控制台入口由账号类型（tenant）判定，不再授予 clouds.console:*
+    // - 云主机/存储等写操作按 clouds.ecs:write 等 poolPageAction 校验
     // - 镜像：仅 clouds.images:read，不含 clouds.images:write
     // - 扁平网络：仅 clouds.subnets.flat:read；不含流量镜像/安全组/EIP/SNAT/DNAT
     // - 虚拟网元：不含 clouds.vne（虚拟路由器）
@@ -358,6 +384,8 @@ export async function initializeRoles() {
         await repo.save(role);
       }
     }
+
+    await migrateAllRolesRemoveConsoleUmbrella();
 
   } catch (error) {
     rolesLog.error('初始化角色失败:', error instanceof Error ? error.message : String(error));

@@ -157,7 +157,7 @@ export function createApiPermissionMiddleware(options?: {
     
     let actionBase: string;
     if (isConsolePath) {
-      actionBase = 'clouds.console';
+      actionBase = 'clouds.ecs';
     } else {
       // 从新权限注册表解析；失败时用容器子路径兜底（如 containerd-registry/insecure）
       const permissionId =

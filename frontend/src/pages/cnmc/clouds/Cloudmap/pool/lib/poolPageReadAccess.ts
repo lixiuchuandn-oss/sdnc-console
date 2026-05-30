@@ -50,9 +50,8 @@ export const RESOURCE_HUB_SUB_ORDER: readonly CloudmapResourceSubKey[] = [
 ];
 
 export function poolPageWriteAction(readAction: string): string {
-  if (readAction === 'clouds.console:read') return 'clouds.console:write';
   if (readAction.endsWith(':read')) return `${readAction.slice(0, -':read'.length)}:write`;
-  return 'clouds.console:write';
+  return 'clouds.ecs:write';
 }
 
 export function getPoolPageMeta(pathSuffix: string): PoolPageRowMeta | undefined {
@@ -68,7 +67,7 @@ export function isPoolPageDisplayOnly(pathSuffix: string): boolean {
 }
 
 /**
- * 池内主页面读权限（严格）：租户控制台用；不用 clouds.console / clouds:read 兜底。
+ * 池内主页面读权限（严格）：租户控制台用；不用 clouds:read 兜底。
  */
 export function checkPoolPageReadPerm(permissions: string[], requiredRead: string): boolean {
   const perms = permissions ?? [];

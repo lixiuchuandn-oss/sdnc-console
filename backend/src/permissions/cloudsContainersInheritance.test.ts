@@ -27,9 +27,9 @@ describe('clouds:read/write covers clouds.containers.*', () => {
     expect(hasPermissionForAction(cloudsReadOnly, 'clouds.containers.jobs:write')).toBe(false);
   });
 
-  it('clouds.console:read still does not cover container sub-domains', () => {
-    const consoleRead = ['clouds.console:read'];
-    expect(permissionChecker.check(consoleRead, 'clouds.containers.workloads:read')).toBe(false);
-    expect(permissionChecker.check(consoleRead, 'clouds.ecs:read')).toBe(true);
+  it('clouds.console:read no longer exists in permission registry', () => {
+    expect(permissionChecker.check(['clouds.ecs:read'], 'clouds.containers.workloads:read')).toBe(
+      false,
+    );
   });
 });

@@ -30,6 +30,7 @@ import {
   fetchCloudOr404,
   ensureProvider,
   isNamespaceAllowed,
+  rejectUnlessTenantWrite,
 } from '../harvester.direct.helpers';
 
 function extractVmNetworks(body: any): any[] | null {
@@ -131,10 +132,7 @@ export async function harvesterEcsCreateHandler(req: Request, res: Response) {
 
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -208,10 +206,7 @@ export async function harvesterEcsUpdateHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -288,10 +283,7 @@ export async function harvesterVmUpdateSpecHandler(req: Request, res: Response) 
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -365,10 +357,7 @@ export async function harvesterVmPatchHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -438,8 +427,7 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
 
     if (isTenant) {
       const p = (req as any).user?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({ message: 'Permission denied: Requires clouds.console:write' });
+      if (!rejectUnlessTenantWrite(res, p)) return;
 
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
       const where: any = { tenantId: (req as any).user.tenantId, cloudId: id, status: 'active' };

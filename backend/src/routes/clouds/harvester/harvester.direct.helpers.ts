@@ -24,6 +24,7 @@ import { Response } from 'express';
 import { AppDataSource } from '../../../config/database';
 import { Cloud } from '../../../entities/Cloud';
 import { UserSpace } from '../../../entities/UserSpace';
+import { checkPermission } from '../../../permissions';
 
 /**
  * 校验目标命名空间是否在允许的列表中
@@ -341,5 +342,24 @@ export const resolveVMStatus = (vm: any, vmi: any): string => {
   }
 
   return status;
+};
+
+/**
+ * 租户账号写操作门控：按 poolPageAction（默认 clouds.ecs:write）校验，不再要求 clouds.console:write。
+ * @returns true 表示已授权；false 表示已写入 403 响应
+ */
+export function rejectUnlessTenantWrite(
+  res: Response,
+  permissions: unknown,
+  requiredWrite = 'clouds.ecs:write',
+): boolean {
+  const perms = Array.isArray(permissions) ? permissions : [];
+  if (checkPermission(perms, requiredWrite)) {
+    return true;
+  }
+  res.status(403).json({
+    message: `Permission denied: Requires ${requiredWrite}`,
+  });
+  return false;
 };
 

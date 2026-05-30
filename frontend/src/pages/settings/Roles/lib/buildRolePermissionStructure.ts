@@ -4,7 +4,6 @@ import {
   getGroupFromDefinition,
   getFeatureFromDefinition,
   getPlatformFromDefinition,
-  sortCloudmapFeatures,
   sortByResourceConsoleFeatureOrder,
   sortMergedPlatformEntryDrawerFeatures,
   buildCloudmapPoolNavDrawerSections,
@@ -73,7 +72,12 @@ export type BuildRolePermissionStructureInput = {
 export function buildRolePermissionStructure(
   input: BuildRolePermissionStructureInput,
 ): RolePermissionPlatform[] {
-  const { actionAtoms, backendSupportsSubnetSplit, permVerb, permissionDefinitions } = input;
+  const {
+    actionAtoms,
+    backendSupportsSubnetSplit,
+    permVerb,
+    permissionDefinitions,
+  } = input;
   const allActionsForStructure = expandActionAtomsForDrawer(actionAtoms, backendSupportsSubnetSplit);
   const actionSet = new Set(allActionsForStructure);
 
@@ -136,16 +140,16 @@ export function buildRolePermissionStructure(
             ([feature, perms]) => toFeatureItem(feature, perms),
           );
 
-          if (group === '多云管理' || group === '租户控制台') {
+          if (group === '多云管理') {
             return [
               {
                 group,
-                features:
-                  group === '多云管理'
-                    ? sortMergedPlatformEntryDrawerFeatures(rawFeatures)
-                    : sortCloudmapFeatures(rawFeatures),
+                features: sortMergedPlatformEntryDrawerFeatures(rawFeatures),
               },
             ];
+          }
+          if (group === '租户控制台') {
+            return [];
           }
 
           if (group !== 'Cloudmap资源池') {

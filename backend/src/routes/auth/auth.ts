@@ -16,6 +16,7 @@ import {
 } from '../../services/loginLockoutService';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import { resolveAdminDefaultHome } from '../../services/AdminDefaultHomeService';
+import { stripTenantConsoleUmbrellaPermissions } from '../../constants/tenantConsolePermissionLegacy';
 import {
   getLoginPublicKey,
   resolvePasswordFromLoginBody,
@@ -239,13 +240,12 @@ router.post('/login', async (req: Request, res: Response) => {
            }
         }
         
-        // 租户用户额外添加默认权限
-        if (role === 'tenant') {
-          permissions = permissions.concat(['clouds.console:read']);
-        }
-        
+        // 租户控制台入口改由账号类型判定；不再默认注入 clouds.console:read
         // Deduplicate
         permissions = Array.from(new Set(permissions));
+        if (role === 'tenant') {
+          permissions = stripTenantConsoleUmbrellaPermissions(permissions);
+        }
       } catch (e) {
         authLog.warn(`Failed to fetch permissions for ${role} user`, e instanceof Error ? e.message : String(e));
       }
@@ -296,6 +296,7 @@ router.post('/login', async (req: Request, res: Response) => {
       email: loginUser.email,
       fullName: loginUser.fullName,
       role,
+      accountType: role === 'tenant' ? 'tenant' : 'system',
       tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
       permissions,
     };
@@ -311,11 +312,16 @@ router.post('/login', async (req: Request, res: Response) => {
     const adminDefaultHome =
       role === 'sase_device' ? undefined : await resolveAdminDefaultHome(permissions, role);
 
+    if (role === 'tenant') {
+      userPayload.defaultPath = adminDefaultHome?.defaultPath ?? '/console';
+    }
+
     res.json({
       message: '登录成功',
       token,
       user: userPayload,
       adminDefaultHome,
+      defaultPath: adminDefaultHome?.defaultPath,
     });
   } catch (error: any) {
     res.status(500).json({ message: '登录失败', error: error.message });

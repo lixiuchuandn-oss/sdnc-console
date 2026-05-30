@@ -7,6 +7,7 @@ import { Spin } from 'antd';
 import { routeSpecs } from '../routes/RouteSpec';
 import { fetchAdminDefaultHomeFromApi } from '../utils/adminHome';
 import { canAccessAdminPath, findFirstAccessibleAdminPath, normalizeAdminPath } from '../utils/adminAccessFallback';
+import { isTenantAccount, resolveTenantConsolePath } from '../utils/accountType';
 
 interface AdminRouteProps {
   children: React.ReactNode;
@@ -106,6 +107,10 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
 
   if (!user) {
     return <Navigate to="/admin/login" replace />;
+  }
+
+  if (isTenantAccount(user)) {
+    return <Navigate to={resolveTenantConsolePath()} replace />;
   }
 
   if (!pathAccessible && accessResolveState === 'resolving') {

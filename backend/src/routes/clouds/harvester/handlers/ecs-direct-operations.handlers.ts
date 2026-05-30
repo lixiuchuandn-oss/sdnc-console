@@ -45,6 +45,7 @@ import {
   ensureProvider,
   resolveVMStatus,
   isNamespaceAllowed,
+  rejectUnlessTenantWrite,
 } from '../harvester.direct.helpers';
 
 /**
@@ -548,10 +549,7 @@ export async function harvesterEcsRemoveVolumeHandler(req: Request, res: Respons
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;

@@ -168,7 +168,7 @@ export function getPlatformFromDefinition(
 /**
  * 资源池管理功能权限在角色配置中的展示顺序（本数组为设计源；整改后端时请让
  * backend/src/constants/permissions.ts 中 PERMISSION_GROUPS.CNMC['Cloudmap资源池'] 与
- * ALL_PERMISSIONS 中的 clouds.* 前缀与此处一致；权限分组「租户控制台」见 CLOUDMAP_FEATURE_ORDER）
+ * ALL_PERMISSIONS 中的 clouds.* 前缀与此处一致）
  */
 /** 角色配置抽屉内权限卡片关键字匹配（含 resourcePrefix / 权限 ID） */
 export function permissionFeatureMatchesKeyword(
@@ -490,18 +490,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.log-configs',
 ];
 
-/** 权限分组「租户控制台」内功能展示顺序（与 PERMISSION_GROUPS.CNMC['租户控制台'] 一致） */
-export const CLOUDMAP_FEATURE_ORDER: readonly string[] = ['clouds.console'];
-
-function cloudmapFeatureOrderIndex(prefix: string): number {
-  const i = CLOUDMAP_FEATURE_ORDER.indexOf(prefix);
-  return i === -1 ? 999 : i;
-}
-
-export function sortCloudmapFeatures<T extends { resourcePrefix: string }>(features: T[]): T[] {
-  return [...features].sort((a, b) => cloudmapFeatureOrderIndex(a.resourcePrefix) - cloudmapFeatureOrderIndex(b.resourcePrefix));
-}
-
 /** 聚合/父级权限：资源池总权限（覆盖所有 clouds.*） */
 export const RESOURCE_CONSOLE_PARENT_PREFIXES = new Set<string>([
   // 资源池总权限也作为“平台入口能力”中的卡片展示
@@ -676,8 +664,7 @@ export function hasContainerSubWritePermission(
   const writeAction = CLOUD_CONTAINER_TAB_WRITE[tab];
   return (
     hasPermissionForAction(perms, writeAction) ||
-    hasPermissionForAction(perms, 'clouds:write') ||
-    hasPermissionForAction(perms, 'clouds.console:write')
+    hasPermissionForAction(perms, 'clouds:write')
   );
 }
 

@@ -494,7 +494,7 @@ export class PermissionRegistry {
           }
           // 控制台相关
           else if (parts.some(p => p === 'vnc' || p === 'console' || p === 'ssh' || p === 'vnc-url')) {
-            permissionBase = 'clouds.console';
+            permissionBase = 'clouds.ecs';
           }
           // 其他资源类型：基于资源类型名称推断
           else {

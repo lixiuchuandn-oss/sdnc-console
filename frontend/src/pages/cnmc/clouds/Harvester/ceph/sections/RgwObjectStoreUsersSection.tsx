@@ -64,7 +64,7 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
   const [keyword, setKeyword] = useState('');
 
   const canWrite = useMemo(
-    () => checkPerm('clouds.console:write') || checkPerm('clouds:write'),
+    () => checkPerm('clouds.storage-rgw-users:write') || checkPerm('clouds:write'),
     [checkPerm],
   );
 

@@ -26,7 +26,6 @@
  * 1. CNMC 平台（多云管理）
  *    - 多云管理：平台级页面（多云总览、资源池列表等）
  *    - Cloudmap资源池：池内 Tab / clouds.* 细粒度原子（抽屉按侧栏 poolNavGroup 展示）
- *    - 租户控制台：租户云资源控制台（clouds.console）
  * 
  * 1b. TENANTS 平台 - 租户管理（与 CNMC 顶栏入口并列）
  *    - 租户管理：租户、组织、租户组织用户、用户空间等权限
@@ -335,10 +334,6 @@ export const ALL_PERMISSIONS = [
   'clouds.log-configs:read',   // 日志采集配置列表 - 查看
   'clouds.log-configs:write',  // 日志采集配置管理 - 创建/编辑/删除
   
-  // 租户控制台（页面）
-  'clouds.console:read',
-  'clouds.console:write',
-
   // 云桌面（网关配置、云桌面用户、VM 分配；统一权限）
   'clouds.desktop:read',
   'clouds.desktop:write',
@@ -509,7 +504,6 @@ export const PERMISSION_GROUPS = {
   // CNMC 平台
   CNMC: {
     '多云管理': ['clouds', 'clouds.dashboard', 'clouds.resource-pools'],
-    '租户控制台': ['clouds.console'],
     'Cloudmap资源池': [
       'clouds.ecs',
       'clouds.desktop',
@@ -698,9 +692,6 @@ export function getGroupByPermission(permission: string): string | null {
   
   // CNMC / 资源池
   if (prefix.startsWith('clouds')) {
-    if (prefix === 'clouds.console') {
-      return '租户控制台';
-    }
     if (prefix === 'clouds' || prefix === 'clouds.dashboard' || prefix === 'clouds.resource-pools') {
       return '多云管理';
     }

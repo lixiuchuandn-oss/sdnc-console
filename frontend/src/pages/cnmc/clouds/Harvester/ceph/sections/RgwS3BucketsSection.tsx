@@ -75,7 +75,7 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({
   const [clientGwMap, setClientGwMap] = useState<Record<string, RgwS3GatewayPayload>>({});
 
   const canWrite = useMemo(
-    () => checkPerm('clouds.console:write') || checkPerm('clouds:write'),
+    () => checkPerm('clouds.storage-s3-buckets:write') || checkPerm('clouds:write'),
     [checkPerm],
   );
 

@@ -29,6 +29,7 @@ import {
   checkTenantAccess,
   resolveTenantVmId,
   ensureProvider,
+  rejectUnlessTenantWrite,
 } from '../harvester.direct.helpers';
 import { cleanupVmDesktopResources } from '../../../../services/remote/guacamole/guacamoleAssignment';
 
@@ -47,10 +48,7 @@ export async function harvesterEcsStartHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -96,10 +94,7 @@ export async function harvesterEcsStopHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -146,10 +141,7 @@ export async function harvesterEcsRebootHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -195,10 +187,7 @@ export async function harvesterEcsSoftRebootHandler(req: Request, res: Response)
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -243,10 +232,7 @@ export async function harvesterEcsPauseHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -291,10 +277,7 @@ export async function harvesterEcsUnpauseHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
@@ -340,10 +323,7 @@ export async function harvesterEcsDeleteHandler(req: Request, res: Response) {
         .json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;

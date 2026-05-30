@@ -29,6 +29,7 @@ import {
   resolveTenantRootBoundaryActionAtoms,
   shouldUseTenantPermissionBoundary,
 } from './lib/builtinRolePermissionView';
+import { stripTenantConsoleUmbrellaPermissions } from './lib/tenantConsoleUmbrellaPermissions';
 import { useRoleListColumns } from './lib/useRoleListColumns';
 
 const AccessRolesPage: React.FC = () => {
@@ -80,8 +81,10 @@ const AccessRolesPage: React.FC = () => {
   /** 系统角色用全量 actions；租户角色仅用内置云租户根用户权限范围建树 */
   const drawerStructureActionAtoms = useMemo(() => {
     if (!grantOpen) return [];
+    let atoms: string[];
     if (grantTarget && shouldUseTenantPermissionBoundary(grantTarget)) {
-      return tenantRootBoundaryAtoms.length > 0 ? tenantRootBoundaryAtoms : actionAtoms;
+      atoms = tenantRootBoundaryAtoms.length > 0 ? tenantRootBoundaryAtoms : actionAtoms;
+      return stripTenantConsoleUmbrellaPermissions(atoms);
     }
     return actionAtoms;
   }, [grantOpen, grantTarget, tenantRootBoundaryAtoms, actionAtoms]);
@@ -105,6 +108,7 @@ const AccessRolesPage: React.FC = () => {
     backendSupportsSubnetSplitForDrawer,
     permVerb,
     permissionDefinitions,
+    grantTarget,
   ]);
 
   const permissionStructure = useMemo(
@@ -232,7 +236,9 @@ const AccessRolesPage: React.FC = () => {
           isTenantScopeRole(grantTarget) && tenantRootBoundaryAtoms.length > 0
             ? clampActionsToTenantBoundary(targetKeys, tenantRootBoundaryAtoms)
             : targetKeys;
-        const permissionsToSave = normalizeForBackendSave(boundedKeys);
+        const permissionsToSave = stripTenantConsoleUmbrellaPermissions(
+          normalizeForBackendSave(boundedKeys),
+        );
         await apiPatch(`/api/system/rbac/roles/${grantTarget.id}/permissions`, {
           permissions: permissionsToSave,
         });
@@ -262,7 +268,7 @@ const AccessRolesPage: React.FC = () => {
         return;
       }
       setGrantTarget(target);
-      let ids = normalizeRoleGrantIds(target.actions || []);
+      let ids = stripTenantConsoleUmbrellaPermissions(normalizeRoleGrantIds(target.actions || []));
       const boundary = resolveTenantRootBoundaryActionAtoms(roles);
       if (isTenantScopeRole(target) && boundary.length > 0) {
         ids = clampActionsToTenantBoundary(ids, boundary);

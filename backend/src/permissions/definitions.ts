@@ -94,7 +94,6 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.log-targets': '日志采集对象',
   'clouds.log-receivers': '日志接收端',
   'clouds.log-configs': '日志采集配置',
-  'clouds.console': '租户控制台',
   'clouds.desktop': '云桌面',
   
   // TENANTS - 租户管理
@@ -189,8 +188,6 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.vm-backup-snapshots:write': '创建、删除云主机快照及从快照恢复',
   'clouds.schedules:read': '查看虚拟机定时备份策略列表',
   'clouds.schedules:write': '创建、编辑、删除定时备份策略',
-  'clouds.console:read': '访问租户控制台',
-  'clouds.console:write': '在租户控制台中执行操作',
   'clouds.desktop:read': '查看云桌面网关、云桌面用户及 VM 云桌面分配',
   'clouds.desktop:write': '管理云桌面网关、云桌面用户及 VM 云桌面分配',
   'clouds.containers.workloads:read': '查看容器工作负载（Deployment/StatefulSet/DaemonSet）',
@@ -291,7 +288,6 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
     base.startsWith('clouds.vm-create-wizard') ||
     base.startsWith('clouds.vm-quick-create') ||
     base.startsWith('clouds.containers') ||
-    base === 'clouds.console' ||
     base.startsWith('harbor.')
   ) {
     category = 'compute';
@@ -309,7 +305,7 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
   const inherits: string[] = [];
   
   // 层级继承：clouds.ecs:read / clouds.containers.*:read 等均继承 clouds:read
-  if (base.includes('.') && base !== 'clouds.console') {
+  if (base.includes('.')) {
     const segments = base.split('.');
     if (segments.length >= 2) {
       const parentBase = segments[0];
