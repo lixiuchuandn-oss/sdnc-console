@@ -57,11 +57,12 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
   const loadProbe = useCallback(
     async (live: boolean) => {
       if (!cloudId || !cr) return;
+      const configName = String(cr.metadata?.name || '').trim();
       setProbeLoading(true);
       setProbeError(null);
       try {
-        const res = (await (live && canSync
-          ? syncAswCtlSwitchesToInventory(cloudId)
+        const res = (await (live && canSync && configName
+          ? syncAswCtlSwitchesToInventory(cloudId, { name: configName })
           : fetchAswCtlSwitchesSummary(cloudId))) as AswCtlSwitchesSummaryResponse;
         const items = Array.isArray(res?.items) ? res.items : [];
         setProbeRecord(matchAswProbeRecordByCr(items, cr));
@@ -255,7 +256,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
         <Button
           size="small"
           loading={probeLoading}
-          onClick={() => void loadProbe(canSync)}
+          onClick={() => void loadProbe(!!canSync)}
         >
           {canSync ? '探测刷新' : '刷新'}
         </Button>

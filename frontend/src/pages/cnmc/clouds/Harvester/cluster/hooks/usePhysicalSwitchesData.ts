@@ -18,11 +18,7 @@ import {
   probeMetaFromSummaryResponse,
   type PhysicalSwitchProbeMeta,
 } from '../lib/physicalSwitchesSectionUtils';
-
-export type LoadPhysicalSwitchesOpts = {
-  liveProbe?: boolean;
-  withServiceMonitor?: boolean;
-};
+import { matchAswProbeRecordByCr } from '../lib/physicalSwitchRecordUtils';
 
 export function usePhysicalSwitchesData(
   cloudId: string,
@@ -36,7 +32,9 @@ export function usePhysicalSwitchesData(
   const [serviceMonitorLoading, setServiceMonitorLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [probeLoading, setProbeLoading] = useState(false);
+  const [probingSwitchName, setProbingSwitchName] = useState<string | null>(null);
   const [hsmMonitorModalOpen, setHsmMonitorModalOpen] = useState(false);
+  const [hsmMonitorSwitchName, setHsmMonitorSwitchName] = useState<string | null>(null);
 
   const loadSwitchConfigs = useCallback(async () => {
     if (!canRead) return;
@@ -50,76 +48,88 @@ export function usePhysicalSwitchesData(
     }
   }, [canRead, cloudId]);
 
-  const loadProbeSummary = useCallback(
-    async (live: boolean) => {
-      if (!canRead) return;
-      try {
-        const res =
-          live && canManageSwitchCr
-            ? await syncAswCtlSwitchesToInventory(cloudId)
-            : await fetchAswCtlSwitchesSummary(cloudId);
-        setProbeItems(Array.isArray(res?.items) ? res.items : []);
-        setProbeMeta(probeMetaFromSummaryResponse(res ?? {}));
-        if (live && canManageSwitchCr) {
-          message.success('HSM 探测完成');
-        }
-      } catch (e) {
-        setProbeItems([]);
-        setProbeMeta({});
-        if (live) {
-          message.error(apiErrorMessage(e, 'HSM 探测数据加载失败'));
-        }
-        throw e;
-      }
-    },
-    [canManageSwitchCr, canRead, cloudId],
-  );
-
-  const loadServiceMonitor = useCallback(async () => {
+  const loadProbeSummary = useCallback(async () => {
     if (!canRead) return;
-    setServiceMonitorLoading(true);
     try {
-      const res = await probeAswCtlConnection(cloudId, {});
-      const aggregate = aswCtlProbeAggregateFromResponse(res);
-      setServiceMonitorRows(
-        aggregate ? buildHmsServiceProbeRows(res, aggregate) : [],
-      );
-    } catch {
-      setServiceMonitorRows([]);
-    } finally {
-      setServiceMonitorLoading(false);
+      const res = await fetchAswCtlSwitchesSummary(cloudId);
+      setProbeItems(Array.isArray(res?.items) ? res.items : []);
+      setProbeMeta(probeMetaFromSummaryResponse(res ?? {}));
+    } catch (e) {
+      setProbeItems([]);
+      setProbeMeta({});
+      throw e;
     }
   }, [canRead, cloudId]);
 
-  const loadAll = useCallback(
-    async (opts?: LoadPhysicalSwitchesOpts) => {
-      if (!canRead) return;
-      const liveProbe = !!opts?.liveProbe;
-      const withServiceMonitor = !!opts?.withServiceMonitor;
-      setLoading(true);
-      if (liveProbe) setProbeLoading(true);
+  const loadAll = useCallback(async () => {
+    if (!canRead) return;
+    setLoading(true);
+    try {
+      await Promise.all([
+        loadSwitchConfigs(),
+        loadProbeSummary().catch(() => undefined),
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }, [canRead, loadProbeSummary, loadSwitchConfigs]);
+
+  const runSwitchHsmProbe = useCallback(
+    async (switchName: string, cr?: HmsSwitchCr | null) => {
+      const name = String(switchName || '').trim();
+      if (!canManageSwitchCr || !name) return;
+      if (probingSwitchName) {
+        message.warning('已有探测进行中，请稍候');
+        return;
+      }
+      setHsmMonitorSwitchName(name);
+      setHsmMonitorModalOpen(true);
+      setProbingSwitchName(name);
+      setProbeLoading(true);
+      setServiceMonitorLoading(true);
       try {
-        const tasks: Promise<unknown>[] = [
-          loadSwitchConfigs(),
-          loadProbeSummary(liveProbe).catch(() => undefined),
-        ];
-        if (withServiceMonitor) {
-          tasks.push(loadServiceMonitor());
-        }
-        await Promise.all(tasks);
+        const [syncRes, probeRes] = await Promise.all([
+          syncAswCtlSwitchesToInventory(cloudId, { name }),
+          probeAswCtlConnection(cloudId, { name }),
+        ]);
+        setProbeItems(Array.isArray(syncRes?.items) ? syncRes.items : []);
+        setProbeMeta(probeMetaFromSummaryResponse(syncRes ?? {}));
+        const probeItemsList = Array.isArray(probeRes?.items) ? probeRes.items : [];
+        const aggregate = aswCtlProbeAggregateFromResponse(probeRes);
+        const matchedCr =
+          cr ||
+          hmsSwitchConfigs.find((item) => String(item.metadata?.name || '').trim() === name) ||
+          null;
+        const row =
+          (matchedCr ? matchAswProbeRecordByCr(probeItemsList, matchedCr) : null) ||
+          aggregate;
+        setServiceMonitorRows(buildHmsServiceProbeRows(probeRes, row));
+        message.success('HSM 探测完成');
+      } catch (e) {
+        setServiceMonitorRows([]);
+        message.error(apiErrorMessage(e, 'HSM 探测失败'));
       } finally {
-        setLoading(false);
         setProbeLoading(false);
+        setServiceMonitorLoading(false);
+        setProbingSwitchName(null);
       }
     },
-    [canRead, loadProbeSummary, loadServiceMonitor, loadSwitchConfigs],
+    [canManageSwitchCr, cloudId, hmsSwitchConfigs, probingSwitchName],
   );
 
-  const handleHsmProbe = useCallback(async () => {
-    if (!canManageSwitchCr) return;
-    setHsmMonitorModalOpen(true);
-    await loadAll({ liveProbe: true, withServiceMonitor: true });
-  }, [canManageSwitchCr, loadAll]);
+  const handleSwitchHsmProbe = useCallback(
+    (cr: HmsSwitchCr) => {
+      const name = String(cr.metadata?.name || '').trim();
+      if (!name) return;
+      void runSwitchHsmProbe(name, cr);
+    },
+    [runSwitchHsmProbe],
+  );
+
+  const handleHsmMonitorReprobe = useCallback(() => {
+    if (!hsmMonitorSwitchName) return;
+    void runSwitchHsmProbe(hsmMonitorSwitchName);
+  }, [hsmMonitorSwitchName, runSwitchHsmProbe]);
 
   useEffect(() => {
     void loadAll();
@@ -133,9 +143,12 @@ export function usePhysicalSwitchesData(
     serviceMonitorLoading,
     loading,
     probeLoading,
+    probingSwitchName,
     hsmMonitorModalOpen,
     setHsmMonitorModalOpen,
+    hsmMonitorSwitchName,
     loadAll,
-    handleHsmProbe,
+    handleSwitchHsmProbe,
+    handleHsmMonitorReprobe,
   };
 }

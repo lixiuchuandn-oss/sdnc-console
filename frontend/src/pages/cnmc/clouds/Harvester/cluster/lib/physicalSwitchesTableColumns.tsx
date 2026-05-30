@@ -2,7 +2,9 @@ import React from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import { Tag } from 'antd';
 import type { HmsSwitchCr } from 'services/harvester/cluster';
-import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
+import ResourceActionsDropdown, {
+  type ResourceActionItem,
+} from 'components/ResourceActionsDropdown';
 import {
   HmsProbeDimTag,
   resolveHmsProbeDimState,
@@ -13,16 +15,28 @@ import type { SwitchTableRow } from './physicalSwitchesSectionUtils';
 export type PhysicalSwitchesTableActions = {
   canRead: boolean;
   canManageSwitchCr: boolean;
+  probingSwitchName?: string | null;
   onDetail: (cr: HmsSwitchCr) => void;
   onYaml: (cr: HmsSwitchCr) => void;
   onEdit: (cr: HmsSwitchCr) => void;
   onDelete: (cr: HmsSwitchCr) => void;
+  onHsmProbe: (cr: HmsSwitchCr) => void;
 };
 
 export function buildPhysicalSwitchesTableColumns(
   actions: PhysicalSwitchesTableActions,
 ): ColumnsType<SwitchTableRow> {
-  const { canRead, canManageSwitchCr, onDetail, onYaml, onEdit, onDelete } = actions;
+  const {
+    canRead,
+    canManageSwitchCr,
+    probingSwitchName,
+    onDetail,
+    onYaml,
+    onEdit,
+    onDelete,
+    onHsmProbe,
+  } = actions;
+  const probeBusy = !!probingSwitchName;
 
   return [
     {
@@ -107,12 +121,7 @@ export function buildPhysicalSwitchesTableColumns(
       key: 'actions',
       fixed: 'right',
       render: (_: unknown, r) => {
-        const items: Array<{
-          key: string;
-          label: string;
-          onClick: () => void;
-          danger?: boolean;
-        }> = [];
+        const items: ResourceActionItem[] = [];
         if (canRead) {
           items.push(
             { key: 'detail', label: '查看详情', onClick: () => onDetail(r) },
@@ -120,7 +129,15 @@ export function buildPhysicalSwitchesTableColumns(
           );
         }
         if (canManageSwitchCr) {
+          const configName = String(r.metadata?.name || '').trim();
+          const rowProbing = probeBusy && configName === probingSwitchName;
           items.push(
+            {
+              key: 'hsm-probe',
+              label: rowProbing ? 'HSM 探测中…' : 'HSM 探测',
+              disabled: !configName || probeBusy,
+              onClick: () => onHsmProbe(r),
+            },
             { key: 'edit', label: '编辑交换机', onClick: () => onEdit(r) },
             { key: 'delete', label: '删除', danger: true, onClick: () => onDelete(r) },
           );

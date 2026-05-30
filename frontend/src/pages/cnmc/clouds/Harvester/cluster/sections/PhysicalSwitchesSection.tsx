@@ -55,10 +55,13 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     serviceMonitorLoading,
     loading,
     probeLoading,
+    probingSwitchName,
     hsmMonitorModalOpen,
     setHsmMonitorModalOpen,
+    hsmMonitorSwitchName,
     loadAll,
-    handleHsmProbe,
+    handleSwitchHsmProbe,
+    handleHsmMonitorReprobe,
   } = usePhysicalSwitchesData(cloudId, canRead, canManageSwitchCr);
 
   const {
@@ -138,18 +141,22 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       buildPhysicalSwitchesTableColumns({
         canRead,
         canManageSwitchCr,
+        probingSwitchName,
         onDetail: openDetailDrawer,
         onYaml: openSwitchYamlDrawer,
         onEdit: openEditSwitchCr,
         onDelete: handleDeleteSwitchCr,
+        onHsmProbe: handleSwitchHsmProbe,
       }),
     [
       canRead,
       canManageSwitchCr,
+      probingSwitchName,
       openDetailDrawer,
       openSwitchYamlDrawer,
       openEditSwitchCr,
       handleDeleteSwitchCr,
+      handleSwitchHsmProbe,
     ],
   );
 
@@ -170,6 +177,11 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
           : null;
     return (
       <>
+        {hsmMonitorSwitchName ? (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            探测对象：{hsmMonitorSwitchName}
+          </Typography.Text>
+        ) : null}
         {sourceLabel ? (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             实例数据：{sourceLabel}
@@ -186,6 +198,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       </>
     );
   }, [
+    hsmMonitorSwitchName,
     hmsSwitchConfigs.length,
     matchedProbeCount,
     probeMeta.cacheSyncedAt,
@@ -230,18 +243,9 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       toolbarRight={
         <div className="toolbar-actions">
           {canManageSwitchCr ? (
-            <>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSwitchCr}>
-                添加交换机
-              </Button>
-              <Button
-                icon={<RadarChartOutlined />}
-                loading={probeLoading || serviceMonitorLoading}
-                onClick={() => void handleHsmProbe()}
-              >
-                HSM 探测
-              </Button>
-            </>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSwitchCr}>
+              添加交换机
+            </Button>
           ) : null}
           <TableColumnSettingsButton
             allColumns={allColumns}
@@ -298,7 +302,8 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
                 type="primary"
                 icon={<RadarChartOutlined />}
                 loading={probeLoading || serviceMonitorLoading}
-                onClick={() => void handleHsmProbe()}
+                disabled={!hsmMonitorSwitchName}
+                onClick={() => void handleHsmMonitorReprobe()}
               >
                 重新探测
               </Button>

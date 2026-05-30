@@ -257,13 +257,25 @@ function resolveAswCtlRouting(cloud: { endpoint?: string; config?: any }): AswCt
   };
 }
 
+function northPathWithSwitchName(
+  pathAfterPrefix: string,
+  northPrefix: string,
+  switchName?: string,
+): string {
+  const base = northApiPathWithPrefix(pathAfterPrefix, northPrefix);
+  const name = switchName != null ? String(switchName).trim() : '';
+  if (!name) return base;
+  return `${base}?${new URLSearchParams({ name }).toString()}`;
+}
+
 async function fetchAswCtlSwitchRow(
   ep: NormalizedAswEndpoint,
   insecureTls: boolean,
   rowId: string,
   northPrefix: string,
+  switchName?: string,
 ): Promise<AswCtlSwitchRow> {
-  const path = (seg: string) => northApiPathWithPrefix(seg, northPrefix);
+  const path = (seg: string) => northPathWithSwitchName(seg, northPrefix, switchName);
   const [healthRes, infoRes, ifRes, perfRes, profRes, vlanRes] = await Promise.all([
     aswCtlProbeHealth(ep.baseUrl, ep.apiKey, insecureTls),
     aswCtlGetJson(
@@ -447,10 +459,13 @@ export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response
 /**
  * POST /:id/resources/harvester/asw-ctl/sync
  * 使用资源池已保存的 `config.aswCtl`（与 GET 列表同源），实时探测 HSM/ASW-CTL，成功后写入 SQLite 并返回与 GET switches 对齐的列表字段。
+ * 可选 `?name=`（Switch CR 配置名称）：仅探测指定交换机，北向请求附带同名 query，入库时合并而非覆盖其它实例。
  */
 export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const switchName =
+      typeof req.query.name === 'string' ? req.query.name.trim() : '';
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
@@ -470,12 +485,21 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
     const ep = endpoints[0]!;
     const northPrefix = routed.northPrefix;
 
-    const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, 'sync', northPrefix);
-    const items = expandAswCtlSwitchRowToInstances(aggregate, ep);
+    const aggregate = await fetchAswCtlSwitchRow(
+      ep,
+      insecureTls,
+      'sync',
+      northPrefix,
+      switchName || undefined,
+    );
+    const probedItems = expandAswCtlSwitchRowToInstances(aggregate, ep);
 
-    await persistAswCtlSwitchInventory(id, items);
+    await persistAswCtlSwitchInventory(id, probedItems, {
+      merge: !!switchName,
+    });
 
-    const syncedAt = new Date().toISOString();
+    const { items, syncedAt: loadedSyncedAt } = await loadAswCtlSwitchInventory(id);
+    const syncedAt = loadedSyncedAt || new Date().toISOString();
     const first = items[0] as any;
     return res.json({
       configured: true,
@@ -512,6 +536,8 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
 export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    const switchName =
+      typeof req.query.name === 'string' ? req.query.name.trim() : '';
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
@@ -528,7 +554,13 @@ export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
     const ep = { ...routed.endpoints[0]! };
     const northPrefix = routed.northPrefix;
 
-    const aggregate = await fetchAswCtlSwitchRow(ep, insecureTls, 'probe', northPrefix);
+    const aggregate = await fetchAswCtlSwitchRow(
+      ep,
+      insecureTls,
+      'probe',
+      northPrefix,
+      switchName || undefined,
+    );
     const items = expandAswCtlSwitchRowToInstances(aggregate, ep);
 
     return res.json({
