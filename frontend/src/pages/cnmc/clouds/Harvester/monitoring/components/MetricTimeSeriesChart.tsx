@@ -173,8 +173,9 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
         : { show: false },
       tooltip: {
         trigger: 'axis',
-        confine: true,
+        /** 挂到 body 且不限于图表/plot 区域，多 series 时可溢出 panel 展示完整内容 */
         appendToBody: true,
+        confine: false,
         formatter: (params: any) => {
           const list = Array.isArray(params) ? params : [params];
           if (list.length === 0) return '';
