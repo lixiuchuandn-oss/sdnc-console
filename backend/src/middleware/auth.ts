@@ -115,6 +115,9 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
           perms = ['*'];
         }
       } catch {}
+      if (decoded.role === 'tenant') {
+        perms = stripTenantConsoleUmbrellaPermissions(perms);
+      }
       (user as any).permissions = Array.from(new Set(perms));
       // console.log('[AuthMiddleware] Final permissions for user:', user.username, (user as any).permissions);
     } catch {}

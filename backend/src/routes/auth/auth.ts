@@ -16,6 +16,7 @@ import {
 } from '../../services/loginLockoutService';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import { resolveAdminDefaultHome } from '../../services/AdminDefaultHomeService';
+import { stripTenantConsoleUmbrellaPermissions } from '../../constants/tenantConsolePermissionLegacy';
 import {
   getLoginPublicKey,
   resolvePasswordFromLoginBody,
@@ -242,6 +243,9 @@ router.post('/login', async (req: Request, res: Response) => {
         // 租户控制台入口改由账号类型判定；不再默认注入 clouds.console:read
         // Deduplicate
         permissions = Array.from(new Set(permissions));
+        if (role === 'tenant') {
+          permissions = stripTenantConsoleUmbrellaPermissions(permissions);
+        }
       } catch (e) {
         authLog.warn(`Failed to fetch permissions for ${role} user`, e instanceof Error ? e.message : String(e));
       }

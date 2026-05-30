@@ -6,6 +6,10 @@ import { ALL_PERMISSIONS } from '../constants/permissions';
 import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
 import { expandLegacyBackupSchedulePermissions } from '../constants/cbrSchedulePermissionLegacy';
+import {
+  parseRolePermissionsJson,
+  stripTenantConsoleUmbrellaPermissions,
+} from '../constants/tenantConsolePermissionLegacy';
 import { logger } from '../utils/logger';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
 
@@ -111,6 +115,25 @@ export function buildTenantRootBuiltinPermissions(
     if (matchesExcludedPrefix(base, TENANT_ROOT_NON_CNMC_PREFIXES)) return false;
     return isTenantRootBuiltinCloudPermission(p);
   });
+}
+
+/** 存量 tenant scope 角色：移除已废弃的 clouds.console:* umbrella 权限 */
+export async function migrateTenantRolesRemoveConsoleUmbrella(): Promise<number> {
+  const repo = AppDataSource.getRepository(RBACRole);
+  const rows = await repo.find({ where: { scope: 'tenant' } });
+  let changed = 0;
+  for (const row of rows) {
+    const current = parseRolePermissionsJson(row.permissions);
+    const next = stripTenantConsoleUmbrellaPermissions(current);
+    if (next.length === current.length) continue;
+    row.permissions = JSON.stringify(next);
+    await repo.save(row);
+    changed += 1;
+  }
+  if (changed > 0) {
+    rolesLog.info(`已从 ${changed} 个租户 scope 角色中移除 clouds.console:* 权限`);
+  }
+  return changed;
 }
 
 export async function initializeRoles() {
@@ -360,6 +383,8 @@ export async function initializeRoles() {
         await repo.save(role);
       }
     }
+
+    await migrateTenantRolesRemoveConsoleUmbrella();
 
   } catch (error) {
     rolesLog.error('初始化角色失败:', error instanceof Error ? error.message : String(error));

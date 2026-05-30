@@ -47,6 +47,16 @@ describe('builtinRolePermissionView', () => {
     ]);
   });
 
+  it('strips clouds.console from clamp boundary result', () => {
+    const boundary = ['clouds.ecs:read', 'clouds.ecs:write'];
+    expect(
+      clampActionsToTenantBoundary(
+        ['clouds.console:read', 'clouds.ecs:read', 'tenants:read'],
+        boundary,
+      ),
+    ).toEqual(['clouds.ecs:read']);
+  });
+
   it('clamps save payload to boundary', () => {
     const boundary = ['clouds.ecs:read', 'clouds.ecs:write'];
     expect(
