@@ -24,6 +24,7 @@ import { resolveVmMetricLegendName } from '../lib/vmDisplayNames';
 import { parseVMInstancesToStatusCounts } from '../lib/vmInstances';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
+import { promqlVar } from '../lib/promql';
 
 export interface OpsDashboardVmsSectionProps {
   cloudId: string;
@@ -38,6 +39,7 @@ const BARGAUGE_MAX_HEIGHT = 260;
 const OVERVIEW_CARD_ROW_HEIGHT = 220;
 const COUNT_OPTIONS = [5, 10, 20] as const;
 const DEFAULT_COUNT = 10;
+const PROM_VAR_COUNT = promqlVar('count');
 
 const OVERVIEW_CARD_COL_FILL_STYLE: React.CSSProperties = {
   display: 'flex',
@@ -120,7 +122,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     id: 'vm-cpu-usage',
     title: 'CPU利用率(%)',
     description:
-      '按 CPU 占用从高到低展示最繁忙的云主机（数量由上方「TopN 数量」决定）。每条线代表一台虚拟机，数值越高表示该云主机算力占用越多；若长期接近 100%，可能影响虚拟机内应用响应速度。',
+      '按 CPU 占用从高到低展示最繁忙的云主机（数量由上方「TopN 数量」决定）。每条线代表一台云主机，数值越高表示该云主机算力占用越多；若长期接近 100%，可能影响云主机内应用响应速度。',
     unit: 'percent01',
     yMin: 0,
     stack: true,
@@ -130,7 +132,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
       {
         key: 'A',
         expr:
-          'topk(${count}, (avg(rate(kubevirt_vmi_vcpu_seconds_total[5m])) by (domain, name)) / 1000)',
+          `topk(${PROM_VAR_COUNT}, (avg(rate(kubevirt_vmi_vcpu_seconds_total[5m])) by (domain, name)) / 1000)`,
         legend: '{{name}}',
       },
     ],
@@ -140,7 +142,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     id: 'vm-memory-usage',
     title: '内存使用率(%)',
     description:
-      '按内存占用从高到低展示最吃内存的云主机（数量由上方「TopN 数量」决定）。每条线代表一台虚拟机，数值为「已用内存 ÷ 分配给该机的可用内存」；越高表示内存越紧，长期接近 100% 时应用可能变慢或出现内存不足风险。',
+      '按内存占用从高到低展示最吃内存的云主机（数量由上方「TopN 数量」决定）。每条线代表一台云主机，数值为「已用内存 ÷ 分配给该机的可用内存」；越高表示内存越紧，长期接近 100% 时应用可能变慢或出现内存不足风险。',
     unit: 'percent01',
     yMin: 0,
     stack: true,
@@ -150,7 +152,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
       {
         key: 'A',
         expr:
-          'topk(${count}, ((kubevirt_vmi_memory_available_bytes - kubevirt_vmi_memory_unused_bytes) / kubevirt_vmi_memory_available_bytes))',
+          `topk(${PROM_VAR_COUNT}, ((kubevirt_vmi_memory_available_bytes - kubevirt_vmi_memory_unused_bytes) / kubevirt_vmi_memory_available_bytes))`,
         legend: '{{name}}',
       },
     ],
@@ -174,7 +176,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_storage_read_traffic_bytes_total[5m])))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_storage_read_traffic_bytes_total[5m])))`,
         legend: '{{name}}: {{drive}}',
       },
     ],
@@ -192,7 +194,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_storage_write_traffic_bytes_total[5m])))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_storage_write_traffic_bytes_total[5m])))`,
         legend: '{{name}}: {{drive}}',
       },
     ],
@@ -207,7 +209,8 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     kind: 'timeseries',
     id: 'vm-network-receive',
     title: '网络入站速率',
-    description: 'TopN VM 的网卡入流量（bit/s）：irate(kubevirt_vmi_network_receive_bytes_total[5m]) × 8',
+    description:
+      '按入站网速从高到低展示网络最繁忙的云主机（数量由上方「TopN 数量」决定）；每条线代表一台云主机从外部接收数据的速率；数值越高表示该机正在承接更多下行流量，可用于发现带宽占用大户或异常入站。',
     unit: 'bitsRate',
     yMin: 0,
     showLegend: true,
@@ -215,7 +218,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_network_receive_bytes_total[5m])*8))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_network_receive_bytes_total[5m])*8))`,
         legend: '{{name}}',
       },
     ],
@@ -224,7 +227,8 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     kind: 'timeseries',
     id: 'vm-network-transmit',
     title: '网络出站速率',
-    description: 'TopN VM 的网卡出流量（bit/s）：irate(kubevirt_vmi_network_transmit_bytes_total[5m]) × 8',
+    description:
+      '按出站网速从高到低展示对外发送数据最多的云主机（数量由上方「TopN 数量」决定）；每条线代表一台云主机向外发送数据的速率；数值越高表示该机上行带宽占用越多，长期偏高时可关注是否存在大量对外传输或异常外联。',
     unit: 'bitsRate',
     yMin: 0,
     showLegend: true,
@@ -232,7 +236,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     queries: [
       {
         key: 'A',
-        expr: 'topk(${count}, (irate(kubevirt_vmi_network_transmit_bytes_total[5m])*8))',
+        expr: `topk(${PROM_VAR_COUNT}, (irate(kubevirt_vmi_network_transmit_bytes_total[5m])*8))`,
         legend: '{{name}}',
       },
     ],
@@ -241,7 +245,8 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     kind: 'bargauge',
     id: 'vm-network-receive-pkts-2h',
     title: '网络入包（过去 2 小时）',
-    description: '过去 2 小时网卡入向数据包总数：delta(kubevirt_vmi_network_receive_packets_total[2h])，按 max 取相对百分比（65%/90% 阈值）',
+    description:
+      '统计过去 2 小时内各云主机接收的网络数据包数量，并按多少从高到低排列（数量由上方「TopN 数量」决定）；条形越长表示收到的数据包越多；颜色随相对高低变化（绿色较低、黄色中等、红色偏高），便于快速识别入站通信最活跃的主机。',
     unit: 'short',
     thresholds: [
       { percent: 0, color: '#52c41a' },
@@ -252,7 +257,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     col: { xs: 24, lg: 12 },
     query: {
       key: 'A',
-      expr: 'topk(${count}, (delta(kubevirt_vmi_network_receive_packets_total[2h])))',
+      expr: `topk(${PROM_VAR_COUNT}, (delta(kubevirt_vmi_network_receive_packets_total[2h])))`,
       legend: '{{name}}',
     },
   },
@@ -260,7 +265,8 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     kind: 'bargauge',
     id: 'vm-network-transmit-pkts-2h',
     title: '网络出包（过去 2 小时）',
-    description: '过去 2 小时网卡出向数据包总数：delta(kubevirt_vmi_network_transmit_packets_total[2h])，按 max 取相对百分比（65%/90% 阈值）',
+    description:
+      '统计过去 2 小时内各云主机发出的网络数据包数量，并按多少从高到低排列（数量由上方「TopN 数量」决定）；条形越长表示发出的数据包越多；颜色随相对高低变化（绿色较低、黄色中等、红色偏高），便于快速识别对外通信最活跃的主机。',
     unit: 'short',
     thresholds: [
       { percent: 0, color: '#52c41a' },
@@ -271,7 +277,7 @@ const VMS_PANEL_GROUPS: VmsPanelGroup[] = [
     col: { xs: 24, lg: 12 },
     query: {
       key: 'A',
-      expr: 'topk(${count}, (delta(kubevirt_vmi_network_transmit_packets_total[2h])))',
+      expr: `topk(${PROM_VAR_COUNT}, (delta(kubevirt_vmi_network_transmit_packets_total[2h])))`,
       legend: '{{name}}',
     },
   },
