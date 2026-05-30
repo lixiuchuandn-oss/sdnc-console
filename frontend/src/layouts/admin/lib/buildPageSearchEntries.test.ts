@@ -6,7 +6,7 @@ function center(
   label: string,
   items: AdminSidebarCenter['items'],
 ): AdminSidebarCenter {
-  return { key, label, icon: null, items };
+  return { key, label, items };
 }
 
 describe('buildPageSearchEntries', () => {

@@ -1,4 +1,5 @@
 import React from 'react';
+import type { MenuProps } from 'antd';
 import { Button, Dropdown, Switch } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
 
@@ -23,15 +24,15 @@ export const LiveSwitch: React.FC<{
 );
 
 export const RowActionsButton: React.FC<{
-  items: any[];
+  items: MenuProps['items'];
   onClick?: (info: { key: string }) => void;
-  buttonProps?: any;
+  buttonProps?: React.ComponentProps<typeof Button>;
 }> = ({ items, onClick, buttonProps }) => (
   <Dropdown
     menu={{
       items,
-      onClick: ({ key }) => {
-        onClick?.({ key });
+      onClick: ({ key }: { key: string }) => {
+        onClick?.({ key: String(key) });
       },
     }}
   >

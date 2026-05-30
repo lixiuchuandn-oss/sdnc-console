@@ -108,7 +108,6 @@ const AccessRolesPage: React.FC = () => {
     backendSupportsSubnetSplitForDrawer,
     permVerb,
     permissionDefinitions,
-    grantTarget,
   ]);
 
   const permissionStructure = useMemo(

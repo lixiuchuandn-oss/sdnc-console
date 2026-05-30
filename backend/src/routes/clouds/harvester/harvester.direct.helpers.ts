@@ -361,5 +361,5 @@ export function rejectUnlessTenantWrite(
     message: `Permission denied: Requires ${requiredWrite}`,
   });
   return false;
-};
+}
 

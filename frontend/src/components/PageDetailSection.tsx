@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
 import { AppstoreOutlined } from '@ant-design/icons';
 import { Card, theme } from 'antd';
-import SharedToolbarComponent from '../SharedToolbar';
-import { createChildNormalizer } from './normalizeChildren';
-import { buildSectionDisplayIcon, PageDetailSectionHeader } from './SectionHeader';
-import type { PageDetailSectionProps } from './types';
+import SharedToolbarComponent from './SharedToolbar';
+import { createChildNormalizer } from './pageDetailSection/normalizeChildren';
+import { buildSectionDisplayIcon, PageDetailSectionHeader } from './pageDetailSection/SectionHeader';
+import type { PageDetailSectionProps } from './pageDetailSection/types';
 
-export type { PageDetailSectionProps } from './types';
-export { LiveSwitch, RowActionsButton } from './extras';
+export type { PageDetailSectionProps } from './pageDetailSection/types';
+export { LiveSwitch, RowActionsButton } from './pageDetailSection/extras';
 
 const PageDetailSection: React.FC<PageDetailSectionProps> = ({
   title,

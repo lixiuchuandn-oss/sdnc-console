@@ -3,7 +3,7 @@ import { CodeOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { GROUPS, PLATFORMS, PLATFORM_LABELS } from '../../../constants/navigation';
 import { routeSpecs } from '../../../routes/RouteSpec';
 import { iconOf } from '../../../utils/iconOf';
-import type { AdminSidebarCenter } from '../AdminSidebar';
+import type { AdminMenuItem, AdminSidebarCenter } from '../AdminSidebar';
 import { buildGroupMenuChildren } from './adminLayoutNav';
 
 function platformCenterKey(pf: string): string {
@@ -72,15 +72,16 @@ export function buildAdminPlatformCenters(): AdminSidebarCenter[] {
   });
 }
 
-type MenuItemLike = {
-  key?: string;
-  label?: React.ReactNode;
-  icon?: React.ReactNode;
-  requiredFeature?: string;
-  children?: MenuItemLike[];
-};
+function menuItemKey(item: AdminMenuItem): string {
+  return String(item.key ?? '');
+}
 
-function stripRequiredFeature(item: MenuItemLike): MenuItemLike {
+function menuItemRequiredFeature(item: AdminMenuItem): string | undefined {
+  const rf = item.requiredFeature;
+  return typeof rf === 'string' ? rf : undefined;
+}
+
+function stripRequiredFeature(item: AdminMenuItem): AdminMenuItem {
   const { requiredFeature: _requiredFeature, ...rest } = item;
   if (rest.children) {
     return { ...rest, children: rest.children.map(stripRequiredFeature) };
@@ -116,15 +117,18 @@ export function filterVisibleAdminCenters(
             children: (p.children || [])
               .filter(
                 (it) =>
-                  canAccessPath(String(it.key || '')) &&
-                  (!it.requiredFeature || hasFeature(it.requiredFeature)),
+                  canAccessPath(menuItemKey(it)) &&
+                  (!menuItemRequiredFeature(it) || hasFeature(menuItemRequiredFeature(it)!)),
               )
               .map(stripRequiredFeature),
           };
         })
         .filter((p) => {
           if (p.children) return (p.children || []).length > 0;
-          return canAccessPath(String(p.key || '')) && (!p.requiredFeature || hasFeature(p.requiredFeature));
+          return (
+            canAccessPath(menuItemKey(p)) &&
+            (!menuItemRequiredFeature(p) || hasFeature(menuItemRequiredFeature(p)!))
+          );
         })
         .map(stripRequiredFeature),
     }))

@@ -83,8 +83,16 @@ export class InheritanceEngine {
     // 遍历所有权限定义，检查其继承的权限是否在用户权限列表中
     this.registry.getAll().forEach(def => {
       const inherited = this.getInheritedPermissions(def.id);
-      // 如果用户拥有的权限中，有任何一个是被检查权限的父权限，则用户拥有该权限
-      if (inherited.some(perm => permSet.has(perm))) {
+      const [, defVerb] = def.id.split(':');
+      const hasCompatibleGrant = inherited.some((perm) => {
+        if (!permSet.has(perm)) return false;
+        if (defVerb === 'write') {
+          const [, permVerb] = perm.split(':');
+          return permVerb === 'write' || permVerb === 'admin' || perm.endsWith(':*');
+        }
+        return true;
+      });
+      if (hasCompatibleGrant) {
         implied.push(def.id);
       }
     });

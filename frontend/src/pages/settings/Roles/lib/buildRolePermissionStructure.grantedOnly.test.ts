@@ -16,10 +16,12 @@ describe('buildRolePermissionStructure granted-only atoms', () => {
     expect(groupNames.some((g) => g === '云主机' || g.includes('云主机'))).toBe(true);
 
     const flatGroup = cnmc!.groups.find((g) => g.group === '扁平网络');
-    if (flatGroup && 'features' in flatGroup) {
-      const prefixes = flatGroup.features.map((f) => f.resourcePrefix);
-      expect(prefixes).toContain('clouds.subnets.flat');
-      expect(prefixes).not.toContain('clouds.eips.flat');
-    }
+    expect(flatGroup).toBeDefined();
+    expect(flatGroup && 'features' in flatGroup).toBe(true);
+    const prefixes = (flatGroup as { features: { resourcePrefix: string }[] }).features.map(
+      (f) => f.resourcePrefix,
+    );
+    expect(prefixes).toContain('clouds.subnets.flat');
+    expect(prefixes).not.toContain('clouds.eips.flat');
   });
 });

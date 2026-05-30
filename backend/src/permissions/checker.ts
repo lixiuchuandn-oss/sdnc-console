@@ -32,6 +32,14 @@ function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
 }
 
+/** write 所需权限不能仅凭 inherited 链上的 :read 父权限满足（如 clouds:read 不隐含 container write） */
+function inheritedGrantMatchesRequiredVerb(userPerm: string, required: string): boolean {
+  const [, reqVerb] = String(required || '').split(':');
+  if (reqVerb !== 'write') return true;
+  const [, heldVerb] = String(userPerm || '').split(':');
+  return heldVerb === 'write' || heldVerb === 'admin' || String(userPerm || '').endsWith(':*');
+}
+
 export class PermissionChecker {
   private registry: PermissionRegistry;
   private inheritanceEngine: InheritanceEngine;
@@ -168,7 +176,12 @@ export class PermissionChecker {
 
     // 5. 继承检查：检查用户权限是否包含所需权限的父权限
     const inherited = this.inheritanceEngine.getInheritedPermissions(required);
-    if (inherited.some(perm => permissions.includes(perm))) {
+    if (
+      inherited.some(
+        (perm) =>
+          permissions.includes(perm) && inheritedGrantMatchesRequiredVerb(perm, required),
+      )
+    ) {
       return true;
     }
 

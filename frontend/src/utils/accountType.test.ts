@@ -20,10 +20,8 @@ describe('accountType', () => {
   it('canAccessTenantConsole — 方案 A：仅 tenant 账号', () => {
     expect(canAccessTenantConsole({ role: 'tenant' })).toBe(true);
     expect(canAccessTenantConsole({ role: 'super_admin' })).toBe(false);
-    expect(canAccessTenantConsole({ role: 'admin', permissions: [] })).toBe(false);
-    expect(
-      canAccessTenantConsole({ role: 'admin', permissions: ['clouds.console:read'] }),
-    ).toBe(false);
+    expect(canAccessTenantConsole({ role: 'admin' })).toBe(false);
+    expect(canAccessTenantConsole({ role: 'admin', accountType: 'system' })).toBe(false);
   });
 
   it('resolvePostLoginPath', () => {
