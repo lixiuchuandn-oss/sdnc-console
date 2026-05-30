@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { Spin } from 'antd';
+import { Button, Space, Spin } from 'antd';
 import { useAuth } from '../contexts/AuthContext';
 import { canAccessTenantConsole, isTenantAccount } from '../utils/accountType';
 
@@ -38,36 +38,12 @@ const TenantConsoleRoute: React.FC<TenantConsoleRouteProps> = ({ children }) => 
         }}
       >
         <div style={{ fontSize: 18, color: '#595959' }}>当前账号无权访问租户控制台</div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 12 }}>
+        <Space wrap>
           {!isTenantAccount(user) && (
-            <button
-              type="button"
-              style={{
-                padding: '6px 12px',
-                border: '1px solid #d9d9d9',
-                borderRadius: 6,
-                background: '#fff',
-                cursor: 'pointer',
-              }}
-              onClick={() => navigate('/admin')}
-            >
-              返回管理后台
-            </button>
+            <Button onClick={() => navigate('/admin')}>返回管理后台</Button>
           )}
-          <button
-            type="button"
-            style={{
-              padding: '6px 12px',
-              border: '1px solid #d9d9d9',
-              borderRadius: 6,
-              background: '#fff',
-              cursor: 'pointer',
-            }}
-            onClick={logout}
-          >
-            退出登录
-          </button>
-        </div>
+          <Button onClick={logout}>退出登录</Button>
+        </Space>
       </div>
     );
   }

@@ -2,20 +2,15 @@
  * 租户云资源控制台 — 独立 Layout（深色顶栏 + 全宽内容区），与 AdminLayout 分离。
  * 样式：`tenant-console-shell.css`。侧栏状态见 `TenantConsoleSiderContext.tsx`。
  */
-import React, { useEffect, useState } from 'react';
-import { Layout, Menu, Button, Divider, Tag, App, Tooltip, Modal, Form, Input } from 'antd';
+import React, { useState } from 'react';
+import { Layout, Menu, Button, Divider, Tag, Tooltip } from 'antd';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { DesktopOutlined, UserOutlined, ExportOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
-import { apiPost } from '../../services/api';
-import { getPublicAdminPasswordPolicy } from '../../services/systemApi';
-import {
-  DEFAULT_ADMIN_PASSWORD_POLICY,
-  validateAdminPasswordClient,
-  type AdminPasswordPolicy,
-} from '../../utils/adminPasswordPolicy';
 import { renderMarkdownBold } from '../../utils/markdown';
+import ChangePasswordModal from '../shared/ChangePasswordModal';
+import { useChangePasswordGate } from '../shared/hooks/useChangePasswordGate';
 import './tenant-console-shell.css';
 import {
   TenantConsoleHeaderSlotProvider,
@@ -42,7 +37,7 @@ const TenantConsoleHeader: React.FC<{
 
   const handleLogout = () => {
     logout();
-    navigate('/admin/login');
+    navigate('/login');
   };
 
   return (
@@ -244,112 +239,33 @@ const TenantConsoleProductSider: React.FC = () => {
 };
 
 const TenantConsoleLayout: React.FC = () => {
-  const { user, refreshUser } = useAuth();
-  const { message } = App.useApp();
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const [changePasswordSaving, setChangePasswordSaving] = useState(false);
-  const [changePasswordForm] = Form.useForm();
-  const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
-
-  const forcePasswordChange = user?.mustChangePassword === true;
-
-  useEffect(() => {
-    getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
-  }, []);
-
-  useEffect(() => {
-    if (forcePasswordChange) {
-      changePasswordForm.resetFields();
-      setChangePasswordOpen(true);
-    }
-  }, [forcePasswordChange, user?.id, changePasswordForm]);
-
-  const openChangePassword = () => {
-    changePasswordForm.resetFields();
-    setChangePasswordOpen(true);
-  };
-
-  const submitChangePassword = async () => {
-    try {
-      const values = await changePasswordForm.validateFields();
-      setChangePasswordSaving(true);
-      await apiPost('/api/users/me/password', {
-        oldPassword: String(values.oldPassword || ''),
-        newPassword: String(values.newPassword || ''),
-      });
-      await refreshUser();
-      message.success('密码修改成功');
-      setChangePasswordOpen(false);
-    } catch (e: any) {
-      if (Array.isArray(e?.errorFields) && e.errorFields.length > 0) return;
-      message.error(e?.message || '修改密码失败');
-    } finally {
-      setChangePasswordSaving(false);
-    }
-  };
+  const { user } = useAuth();
+  const {
+    changePasswordForm,
+    changePasswordOpen,
+    setChangePasswordOpen,
+    changePasswordSaving,
+    adminPwdPolicy,
+    forcePasswordChange,
+    openChangePassword,
+    submitChangePassword,
+  } = useChangePasswordGate('tenant');
 
   return (
     <TenantConsoleHeaderSlotProvider>
       <TenantConsoleSiderProvider>
         <Layout style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <TenantConsoleHeader openChangePassword={openChangePassword} />
-          <Modal
-            title={forcePasswordChange ? '密码已过期，请修改密码' : '修改密码'}
+          <ChangePasswordModal
             open={changePasswordOpen}
-            centered
-            onCancel={() => {
-              if (!forcePasswordChange) setChangePasswordOpen(false);
-            }}
+            forcePasswordChange={forcePasswordChange}
+            saving={changePasswordSaving}
+            form={changePasswordForm}
+            policy={adminPwdPolicy}
+            username={user?.username}
             onOk={submitChangePassword}
-            confirmLoading={changePasswordSaving}
-            okText="确认修改"
-            cancelText="取消"
-            closable={!forcePasswordChange}
-            maskClosable={!forcePasswordChange}
-            destroyOnHidden
-          >
-            <Form form={changePasswordForm} layout="vertical">
-              <Form.Item
-                label="原密码"
-                name="oldPassword"
-                rules={[{ required: true, message: '请输入原密码' }]}
-              >
-                <Input.Password autoComplete="current-password" />
-              </Form.Item>
-              <Form.Item
-                label="新密码"
-                name="newPassword"
-                rules={[
-                  { required: true, message: '请输入新密码' },
-                  {
-                    validator: async (_, v) => {
-                      const pol = adminPwdPolicy || DEFAULT_ADMIN_PASSWORD_POLICY;
-                      const err = validateAdminPasswordClient(pol, String(v || ''), user?.username);
-                      if (err) throw new Error(err);
-                    },
-                  },
-                ]}
-              >
-                <Input.Password autoComplete="new-password" />
-              </Form.Item>
-              <Form.Item
-                label="确认新密码"
-                name="confirmPassword"
-                dependencies={['newPassword']}
-                rules={[
-                  { required: true, message: '请再次输入新密码' },
-                  ({ getFieldValue }) => ({
-                    validator(_, value) {
-                      if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                      return Promise.reject(new Error('两次输入的新密码不一致'));
-                    },
-                  }),
-                ]}
-              >
-                <Input.Password autoComplete="new-password" />
-              </Form.Item>
-            </Form>
-          </Modal>
+            onClose={() => setChangePasswordOpen(false)}
+          />
           <Layout
             style={{
               flex: 1,
