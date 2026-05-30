@@ -53,6 +53,9 @@ const TenantConsoleSider: React.FC<TenantConsoleSiderProps> = ({ collapsed }) =>
         theme="dark"
         mode="inline"
         selectedKeys={model.selectedKeys}
+        openKeys={model.openKeys}
+        defaultOpenKeys={model.defaultOpenKeys}
+        onOpenChange={model.onOpenChange}
         items={model.items}
         onClick={model.onClick}
         inlineCollapsed={collapsed}

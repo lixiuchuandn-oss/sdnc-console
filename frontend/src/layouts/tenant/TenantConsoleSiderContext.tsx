@@ -3,6 +3,9 @@ import type { MenuProps } from 'antd';
 
 export type TenantConsoleSiderModel = {
   selectedKeys: string[];
+  openKeys?: string[];
+  defaultOpenKeys?: string[];
+  onOpenChange?: (keys: string[]) => void;
   items: MenuProps['items'];
   onClick: NonNullable<MenuProps['onClick']>;
   width?: number;

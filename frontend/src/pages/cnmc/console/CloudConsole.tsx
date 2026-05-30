@@ -1,13 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { Select, Alert, App, Spin, Layout } from 'antd';
 import type { MenuProps } from 'antd';
-import {
-  ApartmentOutlined,
-  AppstoreOutlined,
-  CloudServerOutlined,
-  DatabaseOutlined,
-  NodeIndexOutlined,
-} from '@ant-design/icons';
 import PageContainer from '../../../components/PageContainer';
 import { useAuth } from '../../../contexts/AuthContext';
 import { isSystemNamespace } from '../../../utils/harvesterUtils';
@@ -70,15 +63,19 @@ import CloudConsoleDatabasePanel, {
   type CloudConsoleDatabaseCategory,
   type CloudConsoleDatabaseResource,
 } from './sections/CloudConsoleDatabasePanel';
-import { useLicense } from '../../../contexts/LicenseContext';
 import { shouldMergePublicScenarioForTenantConsole } from './lib/tenantConsolePaths';
 import { useTenantConsoleHeaderSlot } from '../../../contexts/TenantConsoleHeaderSlotContext';
 import { useTenantConsoleSider } from '../../../layouts/tenant';
 import { useTenantConsolePermissions } from './hooks/useTenantConsolePermissions';
 import {
   TENANT_CONSOLE_RESOURCES_NEEDING_ECS,
-  type TenantConsoleLeftNavKey,
 } from './lib/tenantConsolePageAccess';
+import {
+  buildTenantConsoleSiderItems,
+  getTenantConsoleOpenKeysForSelection,
+  getTenantConsoleSelectedLeafKey,
+  resolveTenantConsoleSiderLeaf,
+} from './lib/tenantConsoleSiderNav';
 import { createBackupsTabOnRefresh } from '../clouds/Cloudmap/pool/loaders/backupsRefresh';
 
 const { Content } = Layout;
@@ -123,8 +120,6 @@ type ConsoleLeftNavKey = 'host' | 'container' | 'flat' | 'vpc' | 'rds';
 const CloudConsolePage: React.FC = () => {
   const { user } = useAuth();
   const { message } = App.useApp();
-  const { hasFeature } = useLicense();
-  const ovnVpcEnabled = hasFeature('network.ovn.vpc');
 
   const {
     canAccessLeftNav,
@@ -133,6 +128,7 @@ const CloudConsolePage: React.FC = () => {
     firstAccessibleLeftNav,
     pickFirstMainResourceForScope,
     pickFirstContainerResource,
+    ovnVpcEnabled,
   } = useTenantConsolePermissions();
 
   /** 租户控制台：为 GET 附加 mergePublicScenarioNamespaces；非租户不传（后端保持兼容） */
@@ -226,6 +222,7 @@ const CloudConsolePage: React.FC = () => {
   const [nodeValue, setNodeValue] = useState<string | undefined>(undefined);
 
   const [consoleLeftNavKey, setConsoleLeftNavKey] = useState<ConsoleLeftNavKey>('host');
+  const [siderOpenKeys, setSiderOpenKeys] = useState<string[]>(['host']);
 
   const [databaseCategory, setDatabaseCategory] = useState<CloudConsoleDatabaseCategory>('rds');
   const [databaseResource, setDatabaseResource] = useState<CloudConsoleDatabaseResource>('mysql');
@@ -237,19 +234,6 @@ const CloudConsolePage: React.FC = () => {
   /** 避免「列表为空 + loading 结束」时 VM 拉取 effect 反复触发导致无限 GET */
   const ecsBootstrapTicketRef = useRef('');
   const ecsRdsBootstrapTicketRef = useRef('');
-
-  const leftNavMenuItems: MenuProps['items'] = useMemo(() => {
-    const all: MenuProps['items'] = [
-      { key: 'host', icon: <CloudServerOutlined />, label: '云主机' },
-      { key: 'container', icon: <AppstoreOutlined />, label: '容器服务' },
-      { key: 'flat', icon: <NodeIndexOutlined />, label: '扁平网络' },
-      { key: 'vpc', icon: <ApartmentOutlined />, label: 'VPC网络' },
-      { key: 'rds', icon: <DatabaseOutlined />, label: '云数据库' },
-    ];
-    return (all || []).filter(
-      (it) => it && 'key' in it && canAccessLeftNav(it.key as TenantConsoleLeftNavKey),
-    );
-  }, [canAccessLeftNav]);
 
   const applyMainResourceKey = useCallback(
     (resourceKey: string) => {
@@ -278,35 +262,66 @@ const CloudConsolePage: React.FC = () => {
       setHarvesterCategory('compute');
       setHarvesterResource(resourceKey);
     },
-    [setHarvesterCategory, setHarvesterResource],
+    [],
   );
 
-  const handleLeftNavClick = useCallback<NonNullable<MenuProps['onClick']>>(
-    (e) => {
-      const key = e.key as ConsoleLeftNavKey;
-      setConsoleLeftNavKey(key);
-      if (key === 'host') {
-        const res = pickFirstMainResourceForScope('host') ?? 'vm';
-        applyMainResourceKey(res);
-      } else if (key === 'container') {
-        const res = pickFirstContainerResource() ?? 'ctr-workloads';
-        setContainerCategory('ctr-run');
-        setContainerResource(res);
-      } else if (key === 'flat') {
-        const res = pickFirstMainResourceForScope('flat') ?? 'flat-subnet';
-        applyMainResourceKey(res);
-      } else if (key === 'vpc') {
-        const res = pickFirstMainResourceForScope('vpc') ?? 'vpc-subnet';
-        applyMainResourceKey(res);
+  const applySiderLeafSelection = useCallback(
+    (leafKey: string) => {
+      const resolved = resolveTenantConsoleSiderLeaf(leafKey);
+      if (!resolved) return;
+      const { leftNavKey, category, resource } = resolved;
+      setConsoleLeftNavKey(leftNavKey);
+      setSiderOpenKeys((prev) => [...new Set([...prev, ...getTenantConsoleOpenKeysForSelection(leftNavKey)])]);
+      if (leftNavKey === 'container') {
+        setContainerCategory(category);
+        setContainerResource(resource);
+        return;
       }
+      if (leftNavKey === 'rds') {
+        setDatabaseCategory(category as CloudConsoleDatabaseCategory);
+        setDatabaseResource(resource as CloudConsoleDatabaseResource);
+        return;
+      }
+      applyMainResourceKey(resource);
     },
+    [applyMainResourceKey],
+  );
+
+  const siderMenuItems: MenuProps['items'] = useMemo(
+    () =>
+      buildTenantConsoleSiderItems({
+        canAccessLeftNav,
+        canAccessMainResource,
+        canAccessContainerResource,
+        canAccessDatabase: canAccessLeftNav('rds'),
+        ovnVpcEnabled,
+      }),
     [
-      pickFirstMainResourceForScope,
-      pickFirstContainerResource,
-      applyMainResourceKey,
-      setContainerCategory,
-      setContainerResource,
+      canAccessLeftNav,
+      canAccessMainResource,
+      canAccessContainerResource,
+      ovnVpcEnabled,
     ],
+  );
+
+  const siderSelectedKey = useMemo(
+    () =>
+      getTenantConsoleSelectedLeafKey({
+        leftNavKey: consoleLeftNavKey,
+        harvesterResource,
+        containerResource,
+        databaseResource,
+      }),
+    [consoleLeftNavKey, harvesterResource, containerResource, databaseResource],
+  );
+
+  const handleSiderMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    (e) => {
+      const key = String(e.key);
+      if (['host', 'container', 'flat', 'vpc', 'rds'].includes(key)) return;
+      applySiderLeafSelection(key);
+    },
+    [applySiderLeafSelection],
   );
 
   /** 无当前侧栏权限时落到首个可访问产品域（与池内 pathSync fallback 一致） */
@@ -315,6 +330,7 @@ const CloudConsolePage: React.FC = () => {
     const fallback = firstAccessibleLeftNav;
     if (!fallback) return;
     setConsoleLeftNavKey(fallback);
+    setSiderOpenKeys(getTenantConsoleOpenKeysForSelection(fallback));
     if (fallback === 'host') {
       applyMainResourceKey(pickFirstMainResourceForScope('host') ?? 'vm');
     } else if (fallback === 'container') {
@@ -324,6 +340,9 @@ const CloudConsolePage: React.FC = () => {
       applyMainResourceKey(pickFirstMainResourceForScope('flat') ?? 'flat-subnet');
     } else if (fallback === 'vpc') {
       applyMainResourceKey(pickFirstMainResourceForScope('vpc') ?? 'vpc-subnet');
+    } else if (fallback === 'rds') {
+      setDatabaseCategory('rds');
+      setDatabaseResource('mysql');
     }
   }, [
     consoleLeftNavKey,
@@ -332,9 +351,13 @@ const CloudConsolePage: React.FC = () => {
     pickFirstMainResourceForScope,
     pickFirstContainerResource,
     applyMainResourceKey,
-    setContainerCategory,
-    setContainerResource,
   ]);
+
+  useEffect(() => {
+    setSiderOpenKeys((prev) => [
+      ...new Set([...prev, ...getTenantConsoleOpenKeysForSelection(consoleLeftNavKey)]),
+    ]);
+  }, [consoleLeftNavKey]);
 
   /** 当前选中资源池是否为 Cloudmap（列表已过滤为仅 Cloudmap，此处用于行为分支） */
   const isCloudmap = useMemo(() => {
@@ -359,17 +382,21 @@ const CloudConsolePage: React.FC = () => {
       return;
     }
     setTenantConsoleSiderModel({
-      selectedKeys: [consoleLeftNavKey],
-      items: leftNavMenuItems,
-      onClick: handleLeftNavClick,
+      selectedKeys: [siderSelectedKey],
+      openKeys: siderOpenKeys,
+      onOpenChange: setSiderOpenKeys,
+      items: siderMenuItems,
+      onClick: handleSiderMenuClick,
+      width: 240,
     });
     return () => setTenantConsoleSiderModel(null);
   }, [
     isCloudmap,
     currentCloudId,
-    consoleLeftNavKey,
-    leftNavMenuItems,
-    handleLeftNavClick,
+    siderSelectedKey,
+    siderOpenKeys,
+    siderMenuItems,
+    handleSiderMenuClick,
     setTenantConsoleSiderModel,
   ]);
 
@@ -1248,6 +1275,7 @@ const CloudConsolePage: React.FC = () => {
       setHarvesterCategory('compute');
       setHarvesterResource('vm');
       setConsoleLeftNavKey('host');
+      setSiderOpenKeys(['host']);
       setNsValue(undefined);
       setNodeValue(undefined);
 
