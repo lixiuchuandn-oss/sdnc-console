@@ -239,11 +239,7 @@ router.post('/login', async (req: Request, res: Response) => {
            }
         }
         
-        // 租户用户额外添加默认权限
-        if (role === 'tenant') {
-          permissions = permissions.concat(['clouds.console:read']);
-        }
-        
+        // 租户控制台入口改由账号类型判定；不再默认注入 clouds.console:read
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {

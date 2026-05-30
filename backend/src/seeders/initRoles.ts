@@ -98,6 +98,7 @@ function isTenantRootBuiltinCloudPermission(permission: string): boolean {
   if (base === 'clouds.subnets') return false;
   if (permission === 'clouds.images:write') return false;
   if (permission === 'clouds.subnets.flat:write') return false;
+  if (base === 'clouds.console') return false;
   return true;
 }
 
@@ -176,7 +177,8 @@ export async function initializeRoles() {
     // 权限设计（与 PermissionChecker / accessMapping、前端 poolNavGroup 一致）：
     // - 顶栏平台：不含租户管理、SDN 控制台、云安全中心、系统设置（tenants/networks/secops/system 等）
     // - CNMC：不含多云管理、资源总览、云监控、集群、日志管理分组
-    // - 资源控制台：保留 clouds.console:*（VNC/SSH、租户侧 ECS 等对权限数组字面 includes 校验）
+    // - 租户控制台入口由账号类型（tenant）判定，不再授予 clouds.console:*
+    // - 云主机/存储等写操作按 clouds.ecs:write 等 poolPageAction 校验
     // - 镜像：仅 clouds.images:read，不含 clouds.images:write
     // - 扁平网络：仅 clouds.subnets.flat:read；不含流量镜像/安全组/EIP/SNAT/DNAT
     // - 虚拟网元：不含 clouds.vne（虚拟路由器）

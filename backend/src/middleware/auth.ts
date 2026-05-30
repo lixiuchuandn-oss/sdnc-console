@@ -111,9 +111,6 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         }
       }
       try {
-        if (decoded.role === 'tenant') {
-          perms = perms.concat(['clouds.console:read']);
-        }
         if ((user as any).role === 'super_admin') {
           perms = ['*'];
         }
