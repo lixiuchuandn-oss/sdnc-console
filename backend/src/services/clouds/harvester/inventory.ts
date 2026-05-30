@@ -589,16 +589,6 @@ export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
 
   invLog.debug(`${cloud.name}: 虚拟机同步完成，共 ${items.length} 条`);
 
-  // Calculate origin for view links fallback
-  const base = (cloud.endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-
   const repo = AppDataSource.getRepository(HarvesterVmInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid,

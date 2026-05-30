@@ -1,5 +1,4 @@
 import http from 'http';
-import https from 'https';
 import jwt from 'jsonwebtoken';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { AppDataSource } from '../config/database';
@@ -286,8 +285,6 @@ export function createKvPodExecWss() {
 
       let lastError: Error | null = null;
       let lastErrorCode: number | null = null;
-      let lastErrorReason: string = '';
-      let chosenUrl: string | null = null;
       
       // 尝试所有候选 URL 和协议组合
       for (const wsUrl of candidates) {
@@ -356,14 +353,12 @@ export function createKvPodExecWss() {
               
               if (connectResult.success && connectResult.ws) {
                 targetWs = connectResult.ws;
-                chosenUrl = wsUrl;
                 selectedProtocol = protocols.length > 0 ? protocols[0] : undefined;
                 console.log(`[PodExec] ✓ 连接成功: ${protocols.join(',') || '(none)'}`);
                 break;
               } else {
                 lastError = connectResult.error || new Error('Unknown error');
                 lastErrorCode = connectResult.code || null;
-                lastErrorReason = connectResult.reason || '';
                 
                 // 503 错误特殊处理：记录更多信息
                 if (connectResult.code === 503 || lastError?.message?.includes('503')) {

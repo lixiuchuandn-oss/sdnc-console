@@ -491,7 +491,7 @@ const updateHarvesterVMSpecInternal = async (
   /** 更换系统镜像成功后待删除的旧根盘 PVC（须在 VM PATCH 成功后再删） */
   let pendingReinstallOldClaims: string[] = [];
   /** 待删除的旧根盘 DataVolume（仅删 DV 资源，不当作 PVC 名） */
-  let pendingReinstallOldDataVolumes: string[] = [];
+  const pendingReinstallOldDataVolumes: string[] = [];
 
   // [性能优化] 最小 Patch 策略
   // ---------------------------------------------------------
@@ -1506,7 +1506,7 @@ const updateHarvesterVMSpecInternal = async (
   // 复刻 Harvester 逻辑：通过 Annotation harvesterhci.io/enableCPUAndMemoryHotplug 判断
   const isHotPlugByAnnotation = supportCPUAndMemoryHotplug(current);
   const currentCpu = current?.spec?.template?.spec?.domain?.cpu || {};
-  const currentSockets = currentCpu.sockets || 1;
+  const _currentSockets = currentCpu.sockets || 1;
   
   // CPU热扩容判断：
   // 1. 如果明确传递 enableHotPlug=true，说明要开启热扩容
@@ -1517,7 +1517,7 @@ const updateHarvesterVMSpecInternal = async (
   
   const currentMemory = current?.spec?.template?.spec?.domain?.memory || {};
   const currentMaxGuest = currentMemory.maxGuest;
-  const currentGuest = currentMemory.guest;
+  const _currentGuest = currentMemory.guest;
   
   // 内存热扩容判断：
   // [Harvester 兼容] 复刻 Harvester 逻辑：通过 Annotation 判断

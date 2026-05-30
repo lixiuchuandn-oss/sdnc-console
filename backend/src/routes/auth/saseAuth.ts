@@ -10,7 +10,7 @@ const router = Router();
 
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password, device_fingerprint, tenant_id, org_id, vm_id, display_name } =
+    const { username, password, device_fingerprint, tenant_id: _tenant_id, org_id: _org_id, vm_id, display_name } =
       req.body || {};
 
     // 模式1：账号密码登录（返回租户与组织信息）

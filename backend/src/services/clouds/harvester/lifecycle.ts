@@ -39,10 +39,9 @@
  */
 
 import { HarvesterTestParams } from './types';
-import { requestJson, getJsonOnce } from './utils';
+import { requestJson } from './utils';
 import { getSystemSetting } from '../../../config/systemSettings';
 import { listHarvesterVMsStandard, getHarvesterVM } from './vm';
-import { updateHarvesterVMSpec } from './vm_update';
 import { deleteHarvesterPVC } from './storage';
 
 /**
@@ -473,7 +472,6 @@ const isVmStoppedLike = (vm: any) => {
 const patchVmDisableAutoStart = async (
   {
     origin,
-    endpoint,
     token,
     insecure,
     namespace,

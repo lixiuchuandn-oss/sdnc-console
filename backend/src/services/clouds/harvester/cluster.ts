@@ -99,7 +99,7 @@ export const listHarvesterNodesStandard = async ({
   }
   
   // [集群ID获取] 尝试获取 Cluster ID (部分 API 路径需要)
-  const clusterId = await (async () => {
+  const _clusterId = await (async () => {
     try {
       const url = `${origin}/v3/clusters`;
       const json = await getJsonOnce(url, token, insecure, true);
@@ -156,7 +156,7 @@ export const listHarvesterNodesStandard = async ({
   const items = Array.isArray(json?.data) ? json?.data : (Array.isArray(json?.items) ? json?.items : []);
 
   /** Harvester 将 `harvesterhci.io/cpu-manager-update-status` 写在 **core/v1 Node** 上；Steve `/v1/nodes` 常为 Host CR，缺注解会导致「CPU 管理」误判。按节点名合并 api/v1 注解。 */
-  let k8sCoreAnnotationsByNodeName = new Map<string, Record<string, string>>();
+  const k8sCoreAnnotationsByNodeName = new Map<string, Record<string, string>>();
   try {
     const k8sNodes = await listK8sNodesRaw({ endpoint, token, insecure });
     (Array.isArray(k8sNodes) ? k8sNodes : []).forEach((kn: any) => {
@@ -569,15 +569,6 @@ export const getHarvesterCapabilities = async ({
   recommendedMachineType: string;
   version?: string;
 }> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-
   // [架构检测] Detect Architecture from Nodes
   let architecture = 'amd64'; // default
   try {

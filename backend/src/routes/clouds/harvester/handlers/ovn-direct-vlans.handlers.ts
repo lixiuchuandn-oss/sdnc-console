@@ -36,7 +36,7 @@ function getDisplayNameFromAnnotations(name: string, annotations: any, keys: str
 export async function harvesterVlanListHandler(
   req: any,
   res: Response,
-  next: any,
+  _next: any,
 ) {
   try {
     const { id } = req.params;
@@ -95,7 +95,7 @@ export async function harvesterVlanListHandler(
 export async function harvesterVlanCreateHandler(
   req: any,
   res: Response,
-  next: any,
+  _next: any,
 ) {
   try {
     const { id } = req.params;

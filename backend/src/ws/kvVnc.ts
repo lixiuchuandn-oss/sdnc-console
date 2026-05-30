@@ -12,7 +12,7 @@ export function createKvVncWss() {
   const wss = new WebSocketServer({ 
     noServer: true,
     perMessageDeflate: false,
-    handleProtocols: (protocols, req) => {
+    handleProtocols: (protocols, _req) => {
       console.log('[KvVnc] handleProtocols:', [...protocols]);
       try {
         const protoList = Array.from(protocols);
@@ -97,7 +97,7 @@ export function createKvVncWss() {
         origin = base.replace(/\/v[0-9].*$/, '');
       }
       const scheme = origin.startsWith('https') ? 'wss' : 'ws';
-      const host = origin.replace(/^https?\:\/\//, '');
+      const host = origin.replace(/^https?:\/\//, '');
       let clusterId: string | null = null;
       try {
         const clusters = await getJsonOnce(

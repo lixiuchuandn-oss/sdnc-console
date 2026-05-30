@@ -68,7 +68,7 @@ function convertRsakeyDerToOpenSsh(pkcs1Der: Buffer): string {
   }
   
   function readDerInteger(buf: Buffer): Buffer {
-    const tag = buf[offset++]; // 0x02
+    const _tag = buf[offset++]; // 0x02
     const len = readDerLength(buf);
     return buf.slice(offset, offset += len);
   }
@@ -77,8 +77,8 @@ function convertRsakeyDerToOpenSsh(pkcs1Der: Buffer): string {
   offset = 0;
   
   // Skip SEQUENCE tag and length
-  const seqTag = pkcs1Der[offset++]; // 0x30
-  const seqLen = readDerLength(pkcs1Der);
+  const _seqTag = pkcs1Der[offset++]; // 0x30
+  const _seqLen = readDerLength(pkcs1Der);
   
   const modulus = readDerInteger(pkcs1Der);
   const exponent = readDerInteger(pkcs1Der);

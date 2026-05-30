@@ -58,7 +58,7 @@ const buildDockerConfigJson = (
 const getHarvesterClient = (cloud: Cloud) => {
   const insecure = !!(cloud.config as any)?.ignoreTls;
   const token = cloud.secretKey || '';
-  let base = cloud.endpoint || '';
+  const base = cloud.endpoint || '';
 
   // 提取 origin（去除版本后缀）
   let origin = base.replace(/\/+$/, '');

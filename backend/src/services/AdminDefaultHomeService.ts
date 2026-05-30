@@ -40,11 +40,11 @@ export type AdminDefaultHomePayload = {
   steps: AdminHomeResolutionStep[];
 };
 
-function isCloudsContainersResourceBase(resourceBase: string): boolean {
+function _isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
 
-function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+function _isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
 }
 

@@ -7,10 +7,9 @@ import { Cloud, CloudType, CloudStatus } from '../entities/Cloud';
 import { CloudInstanceInventory } from '../entities/CloudInstanceInventory';
 import { HarvesterVmInventory } from '../entities/harvester/HarvesterVmInventory';
 import { HarvesterVmiInventory } from '../entities/harvester/HarvesterVmiInventory';
-import { ResourcePoolAssignment } from '../entities/ResourcePoolAssignment';
 import { UserSpace } from '../entities/UserSpace';
 import { AuthRequest } from '../middleware/auth';
-import { User, UserRole } from '../entities/User';
+import { User } from '../entities/User';
 import { syncKubevirtVms, syncKubevirtVmis } from '../services/clouds/harvester/inventory';
 import { licenseService } from '../services/LicenseService';
 import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
@@ -277,7 +276,7 @@ const fetchCloudOr404 = async (id: string, res: Response) => {
 };
 
 // 校验 Cloud 是否属于指定 provider，避免错误地在不兼容云类型上执行操作
-const ensureProvider = (cloud: any, provider: string, res: Response, msg: string) => {
+const _ensureProvider = (cloud: any, provider: string, res: Response, msg: string) => {
   if (String(cloud?.config?.provider || '').toLowerCase() !== String(provider).toLowerCase()) {
     res.status(400).json({ message: msg });
     return false;
@@ -378,7 +377,6 @@ const checkAdminPermission = createApiPermissionMiddleware({
 import {
   testAliyunConnection,
   callAliyunEcs,
-  callAliyunSlb,
   callAliyunVpc,
   callAliyunCms,
 } from '../services/clouds/aliyun/client';
@@ -387,19 +385,10 @@ import {
   testHuaweiConnection,
   huaweiListVpcs,
   huaweiListServers,
-  huaweiListSnapshots,
-  huaweiListSubnets,
-  huaweiListRouteTables,
 } from '../services/clouds/huaweicloud/client';
 import {
   testHarvesterConnection,
   listHarvesterVMsStandard,
-  harvesterStartVM,
-  harvesterStopVM,
-  harvesterRebootVM,
-  harvesterDeleteVM,
-  listKubeOvnVpcs,
-  listKubeOvnSubnets,
 } from '../services/clouds/harvester/client';
 import { listCsmVms, csmRequest } from '../services/clouds/csm/client';
 import { registerCsmRoutes } from './clouds/csm';
@@ -1439,8 +1428,8 @@ router.get(
         await vmiRepo.createQueryBuilder().delete().from(HarvesterVmiInventory).execute();
       }
       let inv = await invRepo.find();
-      let vmInv = await vmRepo.find();
-      let vmiInv = await vmiRepo.find();
+      const vmInv = await vmRepo.find();
+      const _vmiInv = await vmiRepo.find();
       const targetCloudId =
         typeof (req.query as any)?.cloudId === 'string'
           ? String((req.query as any).cloudId)
@@ -1679,7 +1668,7 @@ router.get(
                     (acc: any[], v: any) => acc.concat(Array.isArray(v) ? v : [v]),
                     [],
                   );
-              const floats: string[] = (addrItems || [])
+              const _floats: string[] = (addrItems || [])
                 .filter(
                   (a: any) =>
                     String((a && (a['OS-EXT-IPS:type'] || a.type)) || '').toLowerCase() ===

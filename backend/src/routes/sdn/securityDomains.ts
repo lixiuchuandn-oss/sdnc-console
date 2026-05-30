@@ -5,7 +5,6 @@ import { SecurityDomain } from '../../entities/SecurityDomain';
 import { Cloud } from '../../entities/Cloud';
 import { VpcNetwork } from '../../entities/VpcNetwork';
 import { CenAttachment } from '../../entities/CenAttachment';
-import { CloudEnterpriseNetwork } from '../../entities/CloudEnterpriseNetwork';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { CloudInstanceInventory } from '../../entities/CloudInstanceInventory';
 import { NATRule } from '../../entities/vRouter/NATRule';
@@ -14,7 +13,6 @@ import { ServiceCatalog } from '../../entities/ServiceCatalog';
 import { ServiceChain } from '../../entities/ServiceChain';
 import { Tenant } from '../../entities/Tenant';
 import { Organization } from '../../entities/Organization';
-import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
@@ -1385,9 +1383,9 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
     (!entity.cidr || entity.cidr.trim() === '')
   ) {
     try {
-      let targetVpcId = entity.vpcId;
+      const targetVpcId = entity.vpcId;
       const vpcRepo = AppDataSource.getRepository(VpcNetwork);
-      const localVpc = await vpcRepo.findOne({ where: { id: entity.vpcId } });
+      const _localVpc = await vpcRepo.findOne({ where: { id: entity.vpcId } });
 
       const resp: any = await callAliyunVpc({
         ...creds,

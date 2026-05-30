@@ -1,7 +1,6 @@
 import { HarvesterTestParams } from './types';
-import { getJsonOnce, requestJson, requestOnce } from './utils';
-import { getHarvesterSettingValue } from './cluster';
-import { createHarvesterSecret, createHarvesterPVCVolume, deleteHarvesterPVC, updatePVCSpec } from './storage';
+import { getJsonOnce, requestJson } from './utils';
+import { createHarvesterSecret } from './storage';
 import { buildHarvesterVmRowIps } from './vmIpMerge';
 
 /**
@@ -709,7 +708,7 @@ export const createHarvesterVM = async (
       try {
           const patchUrl = `${url}/${encodeURIComponent(vm.metadata.name)}`;
           // 使用 JSON Patch 添加 finalizer
-          const patchBody = [
+          const _patchBody = [
               {
                   op: createdFinalizers.length > 0 ? "add" : "add", 
                   path: "/metadata/finalizers/-", // append
@@ -849,7 +848,7 @@ export const patchHarvesterVM = async (
  * @returns VNC WebSocket 反向代理使用的 URL 字符串
  */
 export const getHarvesterVmVncUrl = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
+  { endpoint, token: _token, insecure: _insecure = false }: HarvesterTestParams,
   namespace: string,
   name: string,
 ): Promise<string> => {

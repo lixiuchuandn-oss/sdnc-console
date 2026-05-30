@@ -20,7 +20,7 @@ function defaultPaths(): StoragePaths {
   };
 }
 
-let storage: StoragePaths = defaultPaths();
+const storage: StoragePaths = defaultPaths();
 
 try {
   if (fs.existsSync(legacyDifyCfgPath)) {

@@ -78,7 +78,7 @@ function parseStorageClassNumberOfReplicas(sc: any): number | null {
 // 监控概览 Handlers
 export async function harvesterMonitoringStorageNodesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -160,7 +160,7 @@ export async function harvesterMonitoringCephRookBundleHandler(req: Request, res
 
 export async function harvesterMonitoringCephClustersHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -210,7 +210,7 @@ export async function harvesterMonitoringCephClustersHandler(req: Request, res: 
 
 export async function harvesterMonitoringNodeResourcesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -229,7 +229,7 @@ export async function harvesterMonitoringNodeResourcesHandler(req: Request, res:
 
 export async function harvesterMonitoringNodeMetricsHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -248,7 +248,7 @@ export async function harvesterMonitoringNodeMetricsHandler(req: Request, res: R
 
 export async function harvesterMonitoringVirtualMachinesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -267,7 +267,7 @@ export async function harvesterMonitoringVirtualMachinesHandler(req: Request, re
 
 export async function harvesterMonitoringVirtualMachineInstancesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -286,7 +286,7 @@ export async function harvesterMonitoringVirtualMachineInstancesHandler(req: Req
 
 export async function harvesterMonitoringBlockDevicesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 

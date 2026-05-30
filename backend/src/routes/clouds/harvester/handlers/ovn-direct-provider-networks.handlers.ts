@@ -81,7 +81,7 @@ export async function harvesterProviderNetworkListHandler(
 export async function harvesterProviderNetworkCreateHandler(
   req: any,
   res: Response,
-  next: any,
+  _next: any,
 ) {
   try {
     const { id } = req.params;

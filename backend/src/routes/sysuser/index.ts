@@ -60,7 +60,7 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
     const rbacRoleRepository = AppDataSource.getRepository(RBACRole);
 
     /** userId -> 该用户在 rbac 中的角色（真实权限来源，TenantUser.role 字段仅为占位） */
-    let assignmentsByUser = new Map<string, RoleAssignment[]>();
+    const assignmentsByUser = new Map<string, RoleAssignment[]>();
     let rbacRoleMap = new Map<string, RBACRole>();
     if (userIds.length > 0) {
       const assignments = await assignmentRepository.find({

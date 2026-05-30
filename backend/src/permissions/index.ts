@@ -8,7 +8,6 @@
  * 4. 权限定义和规则
  */
 
-import { PermissionDefinition } from './types';
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
 import { PermissionChecker } from './checker';

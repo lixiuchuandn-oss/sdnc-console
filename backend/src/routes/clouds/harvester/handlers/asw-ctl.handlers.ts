@@ -10,7 +10,6 @@ import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
 import {
   aswCtlGetJson,
   aswCtlProbeHealth,
-  normalizeAswCtlApiKeySecret,
   resolveAswCtlApiKeySecret,
   harvesterControlPlaneOrigin,
   northApiPathWithPrefix,

@@ -218,7 +218,7 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
 export async function harvesterImageDetailHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
@@ -273,7 +273,7 @@ export async function harvesterImageDetailHandler(req: Request, res: Response) {
 export async function harvesterImageCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const {
       namespace,
       name,
@@ -282,7 +282,7 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
       url,
       diskFormat,
       targetStorageClassName,
-      storageClassParameters,
+      _storageClassParameters,
     } = (req.body || {}) as any;
     
     if (!namespace || !(name || displayName))
@@ -476,7 +476,7 @@ export async function harvesterImagePatchHandler(req: Request, res: Response) {
 export async function harvesterImageUpdateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const { displayName, retry, targetStorageClassName, storageClassParameters } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
@@ -949,7 +949,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     const imageTypeLabel: 'iso' | 'disk' | undefined =
       uploadDiskFormat === 'iso' ? 'iso' : uploadDiskFormat === 'qcow2' ? 'disk' : undefined;
     const uploadStorageProfile = await resolveVmImageStorageProfile(harvesterConn(cloud));
-    let uploadByteTotal = resolveImageUploadByteTotal(task, body);
+    const uploadByteTotal = resolveImageUploadByteTotal(task, body);
     assertCdiCompatibleUploadSize(uploadByteTotal, uploadStorageProfile);
     if (uploadByteTotal > 0 && task.fileSize !== uploadByteTotal) {
       task.fileSize = uploadByteTotal;

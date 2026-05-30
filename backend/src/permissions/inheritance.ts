@@ -8,7 +8,7 @@
  */
 
 import { PermissionRegistry } from './registry';
-import { InheritanceRule, PermissionDefinition } from './types';
+import { InheritanceRule } from './types';
 
 export class InheritanceEngine {
   private rules: InheritanceRule[];
@@ -164,7 +164,7 @@ export class InheritanceEngine {
       .forEach(rule => {
         const { from, to } = rule.verb!;
         if (verb === to) {
-          const fromPerm = `${base}:${from}`;
+          const _fromPerm = `${base}:${from}`;
           // 注意：这里不直接返回，而是在检查时判断用户是否有 from 权限
           // 因为这是反向继承（write 包含 read），需要在检查时特殊处理
         }

@@ -86,7 +86,7 @@ export async function harvesterSnapshotListHandler(req: Request, res: Response) 
 export async function harvesterSnapshotDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const opts = {
@@ -99,11 +99,7 @@ export async function harvesterSnapshotDeleteHandler(req: Request, res: Response
       await deleteHarvesterVirtualMachineSnapshot(opts, namespace, name);
     } catch (e: any) {
       if (Number(e?.status) === 404 || String(e?.message).includes('404')) {
-        try {
-          await deleteHarvesterVolumeSnapshot(opts, namespace, name);
-        } catch (e2: any) {
-          throw e2;
-        }
+        await deleteHarvesterVolumeSnapshot(opts, namespace, name);
       } else {
         throw e;
       }

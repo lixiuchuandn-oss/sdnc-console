@@ -269,7 +269,7 @@ export class RecycleBinTaskService {
 
     rbLog.debug(`云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
 
-    let scanned = recycleBinVms.length;
+    const scanned = recycleBinVms.length;
     let shutdown = 0;
     let failed = 0;
     let skipped = 0;
@@ -583,7 +583,7 @@ export class RecycleBinTaskService {
     rbLog.debug(`云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
 
     const now = new Date();
-    let scanned = recycleBinVms.length;
+    const scanned = recycleBinVms.length;
     let deleted = 0;
     let failed = 0;
     let skipped = 0;

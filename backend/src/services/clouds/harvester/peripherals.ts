@@ -180,7 +180,7 @@ export const listHarvesterGpuResources = async ({
         it?.status?.deviceId || it?.spec?.deviceId || it?.deviceId || '',
       ).toLowerCase();
       const state = it?.metadata?.state || it?.state || null;
-      const tp: 'passthrough' = 'passthrough';
+      const tp = 'passthrough' as const;
       return {
         resourceName: rn,
         type: tp,

@@ -36,7 +36,7 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
 
     let repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
 
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     const reqAny = req as any;
     const isTenant =
       reqAny.user?.role === 'tenant' ||
@@ -195,7 +195,7 @@ export async function harvesterNamespaceDetailHandler(req: Request, res: Respons
       return res.status(403).json({ message: '禁止删除系统或公共命名空间' });
     }
 
-    const insecure = !!(cloud.config as any)?.ignoreTls;
+    const _insecure = !!(cloud.config as any)?.ignoreTls;
 
     const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
     const item = await repo.findOne({
@@ -221,7 +221,7 @@ export async function harvesterNamespaceDetailHandler(req: Request, res: Respons
 export async function harvesterNamespaceUpdateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, name } = req.params;
+    const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -308,7 +308,7 @@ export async function harvesterNamespaceUpdateHandler(req: Request, res: Respons
 export async function harvesterNamespaceCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id } = req.params;
+    const { id: _id } = req.params;
     
     // [系统命名空间保护] 禁止创建系统/受保护的命名空间
     const namespaceName = req.body?.metadata?.name || req.body?.name;

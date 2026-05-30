@@ -655,7 +655,7 @@ router.get('/registries/:id/projects/:project/repositories/:repo/artifacts/:ref'
     }
 
     const { id, project, repo, ref } = req.params;
-    const { withTag, withLabel, withScanOverview } = req.query;
+    const { withTag: _withTag, withLabel: _withLabel, withScanOverview: _withScanOverview } = req.query;
     
     const result = await getHarborService(id);
     if (!result) {
@@ -730,7 +730,7 @@ router.get('/registries/:id/projects/:project/repositories/:repo/artifacts/:ref/
     }
 
     const { id, project, repo, ref } = req.params;
-    const { page, pageSize } = req.query;
+    const { page: _page, pageSize: _pageSize } = req.query;
     
     const result = await getHarborService(id);
     if (!result) {

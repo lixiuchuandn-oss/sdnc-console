@@ -467,7 +467,7 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
     )}/virtualmachinetemplates/${encodeURIComponent(name)}`;
     const template = await getJsonOnce(tplUrl, cloud.secretKey || '', insecure);
 
-    let defaultVersionId: string | undefined =
+    const defaultVersionId: string | undefined =
       template?.spec?.defaultVersionId || template?.status?.defaultVersionId || template?.status?.defaultVersion;
     if (!defaultVersionId) return res.status(400).json({ message: '模板缺少默认版本信息' });
 
@@ -725,7 +725,7 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
     }
 
     const vmNamespace = vm.metadata?.namespace || namespace;
-    const vmName = vm.metadata?.name || name;
+    const _vmName = vm.metadata?.name || name;
     const body = req.body || {};
 
     const targetNamespace =

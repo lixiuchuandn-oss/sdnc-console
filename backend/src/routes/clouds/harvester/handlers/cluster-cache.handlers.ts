@@ -54,7 +54,7 @@ export async function harvesterNodeListHandler(req: Request, res: Response) {
     const items = dbItems.map((item: any) => {
       const n = item.rawData || {};
       // rawData 中包含入库用的 hmsNics / hmsHardware；对外响应统一为 nics / hardware
-      const { hmsNics, hmsHardware, ...restRaw } = n || {};
+      const { hmsNics: _hmsNics, hmsHardware: _hmsHardware, ...restRaw } = n || {};
       const name = n?.metadata?.name || n?.name || item.name || '';
       const viewUrl = name
         ? `${origin}/api/v1/nodes/${encodeURIComponent(name)}`
@@ -96,7 +96,7 @@ export async function harvesterNodeListHandler(req: Request, res: Response) {
 export async function harvesterNodeDetailHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, name } = req.params;
+    const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
     // [基础 URL 解析]

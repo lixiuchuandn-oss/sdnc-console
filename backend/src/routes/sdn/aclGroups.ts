@@ -4,7 +4,7 @@ import { ACLGroup } from '../../entities/vRouter/ACLGroup';
 import { ACLRule } from '../../entities/vRouter/ACLRule';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { ACLGroupBinding } from '../../entities/vRouter/ACLGroupBinding';
-import { IsNull, In } from 'typeorm';
+import { In } from 'typeorm';
 
 export const aclGroupRoutes = Router();
 const groupRepo = () => AppDataSource.getRepository(ACLGroup);

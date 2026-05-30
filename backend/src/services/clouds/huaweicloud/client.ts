@@ -3,7 +3,6 @@ import {
   VpcClient,
   ListVpcsRequest,
   ListSubnetsRequest,
-  ListPortsRequest,
   ListRouteTablesRequest,
   CreateRouteTableRequest,
   CreateRoutetableReqBody,
@@ -653,12 +652,12 @@ export async function huaweiBatchQueryCesMetricData(
     try {
       const resp = err?.response;
       const data = resp?.data;
-      let code =
+      const code =
         err?.errorCode ||
         err?.code ||
         resp?.status ||
         (typeof data === 'object' ? data?.code || data?.error_code : undefined);
-      let message =
+      const message =
         err?.message ||
         err?.errorMsg ||
         (typeof data === 'object' ? data?.details || data?.error_msg : undefined) ||

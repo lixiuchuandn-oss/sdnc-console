@@ -78,7 +78,7 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
 
     const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
 
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     let tenantNamespace: string | undefined;
     const reqAny = req as any;
     const isTenantUser =

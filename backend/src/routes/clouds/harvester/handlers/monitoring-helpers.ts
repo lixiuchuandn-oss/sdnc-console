@@ -4,11 +4,8 @@
  */
 
 import { Response } from 'express';
-import { AppDataSource } from '../../../../config/database';
-import { Cloud } from '../../../../entities/Cloud';
-import { UserSpace } from '../../../../entities/UserSpace';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-import { checkTenantAccess, ensureProvider } from '../harvester.direct.helpers';
+import { checkTenantAccess } from '../harvester.direct.helpers';
 import yaml from 'js-yaml';
 
 // 常量

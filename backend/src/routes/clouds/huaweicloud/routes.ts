@@ -1242,7 +1242,7 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
           .filter(Boolean);
         const overlapsLocal = locals.some((l) => {
           const [lip, lmask] = String(l).split('/');
-          const [dip, dmask] = String(dst).split('/');
+          const [dip, _dmask] = String(dst).split('/');
           const toNum = (ip: string) =>
             ip.split('.').reduce((acc, n) => (acc << 8) + (parseInt(n) || 0), 0);
           const ln = toNum(lip || '0.0.0.0');

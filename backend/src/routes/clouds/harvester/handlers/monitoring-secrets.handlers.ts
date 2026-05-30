@@ -23,7 +23,7 @@ export async function harvesterMonitoringSecretsListHandler(req: Request, res: R
   try {
     const { id } = req.params;
     const namespace = String(req.query?.namespace ?? 'cattle-monitoring-system').trim();
-    const datasource = String(req.query?.datasource ?? 'prometheus').trim().toLowerCase();
+    const _datasource = String(req.query?.datasource ?? 'prometheus').trim().toLowerCase();
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
       namespaces: [namespace],
       forbiddenMessage: '无权访问该命名空间下的密钥对象',

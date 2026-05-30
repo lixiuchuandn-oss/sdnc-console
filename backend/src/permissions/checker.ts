@@ -24,11 +24,11 @@ import {
 } from '../constants/cbrSchedulePermissionLegacy';
 
 /** 容器子域须显式子域 atoms；历史 `clouds.containers:*` 仍兼容 */
-function isCloudsContainersResourceBase(resourceBase: string): boolean {
+function _isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
 
-function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+function _isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
 }
 
