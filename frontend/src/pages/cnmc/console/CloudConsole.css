@@ -1,6 +1,6 @@
 /**
- * 云资源控制台（租户内层）：工作区滚动与占位态。
- * 外层白底卡片由 TenantConsoleLayout Content 提供，此处不再叠 margin / 灰底 / 内卡片。
+ * 云资源控制台（租户内层）：工作区滚动 + panel 内边距。
+ * 外层白底卡片由 TenantConsoleLayout Content 提供；Section 无边距，由 .cloud-console-panel-root 统一 padding。
  */
 
 .cloud-console-workspace {
@@ -14,8 +14,11 @@
 
 .cloud-console-panel-root {
   box-sizing: border-box;
+  height: 100%;
   min-height: 0;
   min-width: 0;
+  background: var(--ant-color-bg-container, #fff);
+  padding: 16px;
 }
 
 .cloud-console-content-placeholder {
