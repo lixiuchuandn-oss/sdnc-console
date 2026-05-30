@@ -6,11 +6,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLicense } from '../../contexts/LicenseContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../../utils/accessMapping';
-import {
-  CLOUD_RESOURCE_POOLS_CREATE_WRITE,
-  CLOUD_RESOURCE_POOLS_READ,
-  CLOUD_RESOURCE_POOLS_WRITE,
-} from '../../constants/cloudPermissions';
 import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import './admin-shell.css';
@@ -19,6 +14,7 @@ import { ADMIN_HEADER_HEIGHT_PX } from './lib/adminLayoutNav';
 import AdminChangePasswordModal from './AdminChangePasswordModal';
 import AdminGlobalSearchModal from './AdminGlobalSearchModal';
 import { useGlobalSearch } from './hooks/useGlobalSearch';
+import { useAdminPoolAccess } from './hooks/useAdminPoolAccess';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
 import { useAdminPlatformMenu } from './hooks/useAdminPlatformMenu';
 import { useHeaderPoolStrip } from './hooks/useHeaderPoolStrip';
@@ -91,40 +87,12 @@ const AdminLayout: React.FC = () => {
     [user],
   );
 
-  const canReadPools = useMemo(() => {
-    if (!user) return false;
-    if (String(user.role || '').toLowerCase() === 'super_admin') return true;
-    const perms = Array.isArray(user.permissions) ? user.permissions : [];
-    return (
-      hasPermissionForAction(perms, CLOUD_RESOURCE_POOLS_READ) ||
-      hasPermissionForAction(perms, 'clouds:read') ||
-      hasPermissionForAction(perms, 'clouds:write')
-    );
-  }, [user]);
-
   const hasPoolManagementLicense = hasFeature('platform.multi-cloud');
 
-  const headerPoolOverviewEnabled = useMemo(() => {
-    if (!user) return false;
-    if (String(user.role || '').toLowerCase() === 'super_admin') return true;
-    const perms = Array.isArray(user.permissions) ? user.permissions : [];
-    if (hasPoolManagementLicense) return canReadPools;
-    return (
-      hasPermissionForAction(perms, 'clouds.ecs:read') ||
-      hasPermissionForAction(perms, 'clouds.ecs:write')
-    );
-  }, [user, hasPoolManagementLicense, canReadPools]);
-
-  const canWritePools = useMemo(() => {
-    if (!user) return false;
-    if (String(user.role || '').toLowerCase() === 'super_admin') return true;
-    const perms = Array.isArray(user.permissions) ? user.permissions : [];
-    return (
-      hasPermissionForAction(perms, CLOUD_RESOURCE_POOLS_CREATE_WRITE) ||
-      hasPermissionForAction(perms, CLOUD_RESOURCE_POOLS_WRITE) ||
-      hasPermissionForAction(perms, 'clouds:write')
-    );
-  }, [user]);
+  const { canWritePools, headerPoolOverviewEnabled } = useAdminPoolAccess(
+    user,
+    hasPoolManagementLicense,
+  );
 
   const navigateToAdminContent = useCallback(
     (path: string) => {

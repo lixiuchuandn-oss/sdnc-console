@@ -8,7 +8,7 @@ import { useLocation } from 'react-router-dom';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { iconOf } from '../utils/iconOf';
 import type { PageContainerProps } from './pageContainer/types';
-import { usePageRouteMeta } from './pageContainer/routeMeta';
+import { usePageRouteMeta } from './pageRouteMeta/routeMeta';
 import {
   useColumnControllerContent,
   useFilteredTableColumns,
