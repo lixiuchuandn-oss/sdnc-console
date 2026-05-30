@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { Select, Alert, App, Spin, Layout } from 'antd';
+import { Select, Alert, App, Spin } from 'antd';
 import type { MenuProps } from 'antd';
 import PageContainer from '../../../components/PageContainer';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -77,8 +77,6 @@ import {
   resolveTenantConsoleSiderLeaf,
 } from './lib/tenantConsoleSiderNav';
 import { createBackupsTabOnRefresh } from '../clouds/Cloudmap/pool/loaders/backupsRefresh';
-
-const { Content } = Layout;
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
 
@@ -1696,11 +1694,9 @@ const CloudConsolePage: React.FC = () => {
       asCard={false}
       hideHeader
       pagePadding={0}
-      style={{ height: '100%' }}
+      style={{ height: '100%', minHeight: 0 }}
     >
-      <Layout className="cloud-console-layout">
-        <Layout className="cloud-console-inner">
-          <Content className="cloud-console-content-antd">
+      <div className="cloud-console-workspace">
           {error && (
             <div className="cloud-console-content-placeholder">
               <Alert message={error} type="error" showIcon />
@@ -1874,9 +1870,7 @@ const CloudConsolePage: React.FC = () => {
               />
             </div>
           )}
-          </Content>
-        </Layout>
-      </Layout>
+      </div>
     </PageContainer>
   );
 };

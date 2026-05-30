@@ -16,6 +16,12 @@
   box-sizing: border-box;
 }
 
+.tenant-console-content > * {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
 /* ---- Sider ---- */
 
 .tenant-console-sider.ant-layout-sider {
@@ -68,6 +74,19 @@
   overflow-x: hidden;
   overflow-y: auto;
   border-inline-end: none !important;
+}
+
+/* SubMenu 内类目分组之间的分隔线，提升可读性 */
+.tenant-console-sider-menu.ant-menu-dark .ant-menu-sub .ant-menu-item-group:not(:first-child) {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.tenant-console-sider-menu.ant-menu-dark .ant-menu-sub .ant-menu-item-group-title {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 /* ---- Header ---- */
