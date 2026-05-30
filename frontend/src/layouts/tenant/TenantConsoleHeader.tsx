@@ -1,27 +1,34 @@
 import React from 'react';
-import { Button, Divider, Layout, Tag, Tooltip } from 'antd';
+import { Button, Divider, Layout, Tag, Tooltip, theme } from 'antd';
+import { ExportOutlined, LockOutlined, MenuFoldOutlined, MenuUnfoldOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { DesktopOutlined, ExportOutlined, LockOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useSettings } from '../../contexts/SettingsContext';
 import { useTenantConsoleHeaderSlot } from '../../contexts/TenantConsoleHeaderSlotContext';
-import { renderMarkdownBold } from '../../utils/markdown';
 
 const { Header } = Layout;
 
-const TENANT_HEADER_BG = '#001529';
-const TENANT_HEADER_FG = 'rgba(255,255,255,0.85)';
+/** 与 Ant Design Layout Demo 顶栏高度一致（折叠按钮 64×64） */
+export const TENANT_CONSOLE_HEADER_HEIGHT_PX = 64;
 
-export const TENANT_CONSOLE_HEADER_HEIGHT_PX = 50;
-
-const TenantConsoleHeader: React.FC<{
+type TenantConsoleHeaderProps = {
   openChangePassword: () => void;
-}> = ({ openChangePassword }) => {
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  showCollapseToggle: boolean;
+};
+
+const TenantConsoleHeader: React.FC<TenantConsoleHeaderProps> = ({
+  openChangePassword,
+  collapsed,
+  onToggleCollapsed,
+  showCollapseToggle,
+}) => {
   const navigate = useNavigate();
-  const { settings, loading: settingsLoading } = useSettings();
   const { user, logout } = useAuth();
   const { centerSlot } = useTenantConsoleHeaderSlot();
-  const headerTitle = settingsLoading ? '' : String(settings.headerTitle ?? '');
+  const {
+    token: { colorBgContainer },
+  } = theme.useToken();
 
   const handleLogout = () => {
     logout();
@@ -30,160 +37,76 @@ const TenantConsoleHeader: React.FC<{
 
   return (
     <Header
+      className="tenant-console-header"
       style={{
-        background: TENANT_HEADER_BG,
-        color: TENANT_HEADER_FG,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 20px',
-        position: 'sticky',
-        top: 0,
-        zIndex: 1000,
+        padding: 0,
+        background: colorBgContainer,
         height: TENANT_CONSOLE_HEADER_HEIGHT_PX,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.28)',
-        borderBottom: '1px solid rgba(255,255,255,0.12)',
+        lineHeight: `${TENANT_CONSOLE_HEADER_HEIGHT_PX}px`,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: '100%', flexShrink: 0 }}>
-        {settings.headerIcon ? (
-          <img src={settings.headerIcon} alt="Logo" style={{ height: 28, width: 'auto', display: 'block' }} />
-        ) : (
-          <DesktopOutlined style={{ color: TENANT_HEADER_FG, fontSize: 18 }} />
-        )}
-        <span
-          style={{
-            fontSize: 14,
-            lineHeight: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            color: TENANT_HEADER_FG,
-          }}
-        >
-          {renderMarkdownBold(headerTitle)}
-        </span>
-      </div>
-
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: 'flex',
-          justifyContent: 'flex-start',
-          alignItems: 'center',
-          padding: centerSlot ? '0 12px 0 0' : '0 12px',
-          marginLeft: centerSlot ? 12 : 0,
-        }}
-      >
-        {centerSlot}
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%', flexShrink: 0 }}>
-        {user && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-              <UserOutlined style={{ fontSize: 16, color: TENANT_HEADER_FG }} />
-              <span
-                style={{
-                  fontSize: 14,
-                  maxWidth: 160,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  color: TENANT_HEADER_FG,
-                }}
-              >
-                {(() => {
-                  const full = String(user.fullName || '').trim();
-                  const shouldUseUsername = !full || /\?/.test(full);
-                  return shouldUseUsername ? user.username || '' : full;
-                })()}
-              </span>
-
-              {user.tenantName && (
-                <Tooltip title={`当前租户: ${user.tenantName}`}>
-                  <Tag
-                    bordered={false}
-                    style={{
-                      margin: 0,
-                      fontSize: 11,
-                      lineHeight: '20px',
-                      padding: '0 8px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      borderRadius: 4,
-                      background: 'rgba(255, 255, 255, 0.08)',
-                      color: TENANT_HEADER_FG,
-                      border: '1px solid rgba(125, 178, 255, 0.42)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        maxWidth: 140,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {user.tenantName}
-                    </span>
-                  </Tag>
-                </Tooltip>
-              )}
-
-              {user.organizationName && (
-                <Tooltip title={`当前组织: ${user.organizationName}`}>
-                  <Tag
-                    bordered={false}
-                    style={{
-                      margin: 0,
-                      fontSize: 11,
-                      lineHeight: '20px',
-                      padding: '0 8px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      borderRadius: 4,
-                      background: 'rgba(255, 255, 255, 0.08)',
-                      color: TENANT_HEADER_FG,
-                      border: '1px solid rgba(255, 214, 140, 0.4)',
-                    }}
-                  >
-                    <span
-                      style={{
-                        maxWidth: 160,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {user.organizationName}
-                    </span>
-                  </Tag>
-                </Tooltip>
-              )}
-            </div>
-
-            <Divider type="vertical" style={{ height: 24, margin: 0, borderColor: 'rgba(255,255,255,0.35)' }} />
-
-            <Tooltip title="修改密码">
-              <Button
-                type="text"
-                className="tenant-console-header-action-btn"
-                icon={<LockOutlined style={{ color: TENANT_HEADER_FG, fontSize: 16 }} />}
-                onClick={openChangePassword}
-                aria-label="修改密码"
-              />
-            </Tooltip>
-
+      <div className="tenant-console-header__inner">
+        <div className="tenant-console-header__left">
+          {showCollapseToggle && (
             <Button
               type="text"
-              className="tenant-console-header-action-btn"
-              icon={<ExportOutlined style={{ color: TENANT_HEADER_FG, fontSize: 16 }} />}
-              onClick={handleLogout}
-              aria-label="退出登录"
+              className="tenant-console-header__collapse-btn"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
             />
-          </div>
-        )}
+          )}
+        </div>
+
+        <div className="tenant-console-header__center">{centerSlot}</div>
+
+        <div className="tenant-console-header__right">
+          {user && (
+            <>
+              <div className="tenant-console-header__user">
+                <UserOutlined className="tenant-console-header__user-icon" />
+                <span className="tenant-console-header__username">
+                  {(() => {
+                    const full = String(user.fullName || '').trim();
+                    const shouldUseUsername = !full || /\?/.test(full);
+                    return shouldUseUsername ? user.username || '' : full;
+                  })()}
+                </span>
+                {user.tenantName && (
+                  <Tooltip title={`当前租户: ${user.tenantName}`}>
+                    <Tag bordered={false} className="tenant-console-header__tag tenant-console-header__tag--tenant">
+                      <span className="tenant-console-header__tag-text">{user.tenantName}</span>
+                    </Tag>
+                  </Tooltip>
+                )}
+                {user.organizationName && (
+                  <Tooltip title={`当前组织: ${user.organizationName}`}>
+                    <Tag bordered={false} className="tenant-console-header__tag tenant-console-header__tag--org">
+                      <span className="tenant-console-header__tag-text">{user.organizationName}</span>
+                    </Tag>
+                  </Tooltip>
+                )}
+              </div>
+              <Divider type="vertical" className="tenant-console-header__divider" />
+              <Tooltip title="修改密码">
+                <Button
+                  type="text"
+                  className="tenant-console-header__action-btn"
+                  icon={<LockOutlined />}
+                  onClick={openChangePassword}
+                  aria-label="修改密码"
+                />
+              </Tooltip>
+              <Button
+                type="text"
+                className="tenant-console-header__action-btn"
+                icon={<ExportOutlined />}
+                onClick={handleLogout}
+                aria-label="退出登录"
+              />
+            </>
+          )}
+        </div>
       </div>
     </Header>
   );
