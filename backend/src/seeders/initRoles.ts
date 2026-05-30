@@ -137,11 +137,6 @@ export async function migrateAllRolesRemoveConsoleUmbrella(): Promise<number> {
   return changed;
 }
 
-/** @deprecated 使用 migrateAllRolesRemoveConsoleUmbrella */
-export async function migrateTenantRolesRemoveConsoleUmbrella(): Promise<number> {
-  return migrateAllRolesRemoveConsoleUmbrella();
-}
-
 export async function initializeRoles() {
   try {
     const repo = AppDataSource.getRepository(RBACRole);

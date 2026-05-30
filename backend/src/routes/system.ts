@@ -28,7 +28,6 @@ import { expandLegacyContainerParentPermissions } from '../constants/containerPe
 import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
 import {
   parseRolePermissionsJson,
-  stripTenantConsoleUmbrellaIfTenantScope,
   stripTenantConsoleUmbrellaPermissions,
 } from '../constants/tenantConsolePermissionLegacy';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
@@ -390,7 +389,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
         scope: r.scope,
         status: r.status,
         permissions: r.permissions,
-        actions: stripTenantConsoleUmbrellaIfTenantScope(r.scope, Array.isArray(actions) ? actions : []),
+        actions: stripTenantConsoleUmbrellaPermissions(Array.isArray(actions) ? actions : []),
         groups: [], // Calculated on frontend
         conditions,
         createdAt: r.createdAt,
@@ -422,8 +421,7 @@ router.post('/rbac/roles', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const existed = await repo.findOne({ where: { name } });
     if (existed) return res.status(400).json({ message: '角色名称已存在' });
-    const normalizedPermissions = stripTenantConsoleUmbrellaIfTenantScope(
-      scope,
+    const normalizedPermissions = stripTenantConsoleUmbrellaPermissions(
       Array.isArray(permissions) ? permissions : [],
     );
     const row = repo.create({
@@ -465,16 +463,14 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     row.status = status ?? row.status;
     if (!permissions) {
       const current = parseRolePermissionsJson(row.permissions);
-      const stripped = stripTenantConsoleUmbrellaIfTenantScope(row.scope, current);
+      const stripped = stripTenantConsoleUmbrellaPermissions(current);
       if (stripped.length !== current.length) {
         row.permissions = JSON.stringify(stripped);
       }
     }
     if (permissions) {
       try {
-        const effectiveScope = row.scope;
-        const normalized = stripTenantConsoleUmbrellaIfTenantScope(
-          effectiveScope,
+        const normalized = stripTenantConsoleUmbrellaPermissions(
           Array.isArray(permissions) ? permissions : [],
         );
         row.permissions = JSON.stringify(normalized);
@@ -506,7 +502,7 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     if (!row) return res.status(404).json({ message: '角色不存在' });
     try {
       const expanded = expandLegacyContainerParentPermissions(expandObsoleteFipsToEips(permissions));
-      const normalized = stripTenantConsoleUmbrellaIfTenantScope(row.scope, expanded);
+      const normalized = stripTenantConsoleUmbrellaPermissions(expanded);
       row.permissions = JSON.stringify(normalized);
       const saved = await repo.save(row);
       res.json(saved);
