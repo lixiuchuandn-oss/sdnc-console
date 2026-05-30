@@ -11,7 +11,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSettings } from '../../contexts/SettingsContext';
-import { fetchAdminDefaultHomeFromApi } from '../../utils/adminHome';
+import { resolvePostLoginPath } from '../../utils/accountType';
 import { renderMarkdownBold } from '../../utils/markdown';
 import { useLoginPageHeroStyle } from './loginPageHeroStyle';
 import './Login.css';
@@ -49,8 +49,8 @@ const Login: React.FC = () => {
         message.error('请使用管理员登录地址');
         navigate('/admin/login');
       } else {
-        const home = await fetchAdminDefaultHomeFromApi();
-        navigate(String(home?.defaultPath || '/admin/coming-soon').trim() || '/admin/coming-soon');
+        message.success('登录成功');
+        navigate(resolvePostLoginPath(loggedInUser));
       }
     } catch (error) {
       const until = getLockedUntilFromLoginError(error);

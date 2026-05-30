@@ -42,6 +42,10 @@ export interface RouteSpec {
   /** 为 true 时：首页顺位跳过 `requiredActions` 的 RBAC 检查（仍校验授权类字段） */
   homePageSkipPermissionCheck?: boolean;
   /**
+   * 租户控制台入口（/console）：由账号类型或 TenantConsoleRoute 守卫，不参与 AdminRoute 路径→RBAC 映射。
+   */
+  tenantAccountEntry?: boolean;
+  /**
    * `cloudmap-pool`：仅用于 Cloudmap 资源池侧栏与面包屑元数据；
    * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（`clouds.console:read`）。
    */
@@ -290,6 +294,7 @@ export const routeSpecs: RouteSpec[] = [
     icon: 'DesktopOutlined',
     /** 不进入管理端侧栏；路由仍由 `App.tsx` 注册，`/console` 可照常访问 */
     hidden: true,
+    tenantAccountEntry: true,
     requiredActions: {
       page: 'clouds.console:read',
       read: 'clouds.console:read',

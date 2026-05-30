@@ -17,6 +17,7 @@ import {
  */
 const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }> => {
   return routeSpecs
+    .filter((spec) => !spec.tenantAccountEntry)
     .map((spec) => ({
       path: spec.path,
       action: spec.requiredActions?.page,
@@ -38,9 +39,7 @@ const generateMappingFromRouteSpecs = (): Array<{ path: string; action: string }
  * - 资源池列表 `/admin/clouds` 与 Cloudmap 池内路径均在 RouteSpec 中配置 requiredActions（列表为 resource-pools，池内为 console）
  */
 const MANUAL_MAPPINGS: Array<{ path: string; action: string }> = [
-  // 租户控制台旧入口：仅重定向到 /console，仍需与 clouds.console 权限对齐
-  { path: '/admin/clouds/console', action: 'clouds.console:read' },
-  { path: '/admin/clouds/ecs', action: 'clouds.console:read' },
+  // 旧版租户控制台入口：重定向至 /console；权限由 TenantConsoleRoute / 账号类型判定
 ];
 
 /**

@@ -296,6 +296,7 @@ router.post('/login', async (req: Request, res: Response) => {
       email: loginUser.email,
       fullName: loginUser.fullName,
       role,
+      accountType: role === 'tenant' ? 'tenant' : 'system',
       tenantRole: role === 'tenant' ? (loginUser as TenantUser).role : undefined,
       permissions,
     };
@@ -311,11 +312,16 @@ router.post('/login', async (req: Request, res: Response) => {
     const adminDefaultHome =
       role === 'sase_device' ? undefined : await resolveAdminDefaultHome(permissions, role);
 
+    if (role === 'tenant') {
+      userPayload.defaultPath = adminDefaultHome?.defaultPath ?? '/console';
+    }
+
     res.json({
       message: '登录成功',
       token,
       user: userPayload,
       adminDefaultHome,
+      defaultPath: adminDefaultHome?.defaultPath,
     });
   } catch (error: any) {
     res.status(500).json({ message: '登录失败', error: error.message });

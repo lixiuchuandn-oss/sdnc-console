@@ -237,10 +237,29 @@ export async function resolveAdminDefaultHome(
   favoritePoolIdOverride?: string,
 ): Promise<AdminDefaultHomePayload> {
   const r = String(role || '').toLowerCase();
-  const isSystemAdminRole = r === 'super_admin' || r === 'admin';
   const fav = await resolveEffectiveFavoritePoolId(favoritePoolIdOverride);
   const status = licenseService.getStatus();
   const licenseFeatures = status.payload?.features ? [...status.payload.features] : [];
+
+  if (r === 'tenant') {
+    return {
+      defaultPath: '/console',
+      favoritePoolId: fav,
+      licenseFeatures,
+      steps: [
+        {
+          id: 'tenant-console-direct',
+          homePagePriority: -2,
+          templatePath: '/console',
+          resolvedPath: '/console',
+          outcome: 'matched',
+          reason: 'tenant_account_type',
+        },
+      ],
+    };
+  }
+
+  const isSystemAdminRole = r === 'super_admin' || r === 'admin';
   const hasFeature = (f: string) => hasLicenseFeature(f);
 
   const steps: AdminHomeResolutionStep[] = [];

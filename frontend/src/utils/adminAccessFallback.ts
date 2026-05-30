@@ -4,6 +4,7 @@
  */
 import { routeSpecs, type RouteSpec } from '../routes/RouteSpec';
 import { hasPermissionForAction } from './accessMapping';
+import { canAccessTenantConsole, isTenantAccount } from './accountType';
 
 export function normalizeAdminPath(p: string): string {
   const pure = String(p || '').split('?')[0].trim();
@@ -40,6 +41,8 @@ export function canAccessAdminPath(
   const pure = normalizeAdminPath(pathname);
   const role = String(user.role || '').toLowerCase();
   if (role === 'super_admin') return true;
+  if (pure === '/console' && canAccessTenantConsole(user)) return true;
+  if (isTenantAccount(user)) return false;
   if (pure === '/admin/welcome' && role === 'admin') return true;
   if (pure === '/admin/coming-soon' && (role === 'admin' || role === 'super_admin')) return true;
   if ((pure === '/admin' || pure === '/admin/') && role === 'admin') return true;

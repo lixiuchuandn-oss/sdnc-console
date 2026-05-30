@@ -11,6 +11,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { ADMIN_HOME_BASE, fetchAdminDefaultHomeFromApi } from '../../utils/adminHome';
+import { isTenantAccount, resolvePostLoginPath } from '../../utils/accountType';
 import { useSettings } from '../../contexts/SettingsContext';
 import { renderMarkdownBold } from '../../utils/markdown';
 import { useLoginPageHeroStyle } from './loginPageHeroStyle';
@@ -45,6 +46,11 @@ const AdminLogin: React.FC = () => {
       setLockUntil(null);
       setLoginErrorHint(null);
       message.success('登录成功');
+      if (isTenantAccount(loggedInUser)) {
+        navigate(resolvePostLoginPath(loggedInUser));
+        return;
+      }
+
       const role = String((loggedInUser as any)?.role || '').toLowerCase();
 
       // 系统管理员：先进 `/admin`，由 `AdminHomeGate` 请求 `GET /api/auth/admin-default-home` 落地
