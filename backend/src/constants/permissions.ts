@@ -164,7 +164,7 @@ export const ALL_PERMISSIONS = [
   'clouds.namespaces:read',    // 命名空间列表 - 查看
   'clouds.namespaces:write',   // 命名空间管理 - 创建/编辑/删除
 
-  // 容器服务（Harvester/K8s：按子域授权；历史 clouds.containers:* 运行时仍覆盖各子域）
+  // 容器服务（Harvester/K8s：可按子域细粒度授权；clouds:read/write 亦覆盖；历史 clouds.containers:* 仍兼容）
   'clouds.containers.workloads:read',
   'clouds.containers.workloads:write',
   'clouds.containers.pods:read',

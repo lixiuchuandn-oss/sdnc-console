@@ -6,13 +6,111 @@ import { ALL_PERMISSIONS } from '../constants/permissions';
 import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
 import { expandLegacyBackupSchedulePermissions } from '../constants/cbrSchedulePermissionLegacy';
+import { logger } from '../utils/logger';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
+
+const rolesLog = logger.child('RolesSeed');
 
 // 使用统一的权限原子定义
 const CURATED_PERMISSIONS = [...ALL_PERMISSIONS];
 
 /** 已废弃：平台超级权限仅由 User.super_admin 表达，不再使用同名 RBAC 角色 */
 const DEPRECATED_SUPER_RBAC_NAMES = ['超级管理员', 'Super Admin'] as const;
+
+/** 云租户根用户：不含顶栏平台（租户管理 / SDN / 云安全 / 系统设置） */
+const TENANT_ROOT_NON_CNMC_PREFIXES = [
+  'tenants',
+  'organizations',
+  'tenant-users',
+  'networks',
+  'security',
+  'secops',
+  'system',
+  'users',
+] as const;
+
+/**
+ * 云租户根用户：CNMC 内排除的分组（与前端 poolNavGroup / PERMISSION_GROUPS 对齐）
+ * - 多云管理、资源总览、云监控、集群、日志管理
+ */
+const TENANT_ROOT_CNMC_EXCLUDED_PREFIXES = [
+  'clouds.dashboard',
+  'clouds.resource-pools',
+  'clouds.monitoring.overview',
+  'clouds.dc-topology',
+  'clouds.net-topology',
+  'clouds.alerts',
+  'clouds.alert-rules',
+  'clouds.alert-policies',
+  'clouds.alert-receivers',
+  'clouds.alert-secrets',
+  'clouds.log-targets',
+  'clouds.log-receivers',
+  'clouds.log-configs',
+  'clouds.desktop',
+  // poolNavGroup「集群」
+  'clouds.cluster-nodes',
+  'clouds.namespaces',
+  'clouds.cluster-networks',
+  'clouds.provider-networks',
+  'clouds.subnets.public',
+  'clouds.vlans',
+  'clouds.nads',
+  'clouds.load-balancers',
+  'clouds.ip-pools',
+  'clouds.storage-dashboard',
+  'clouds.storage-addon',
+  'clouds.unified-storage-pools',
+  'clouds.storage-classes',
+  'clouds.storage-rbd-mirror',
+  'clouds.storage-s3-buckets',
+  'clouds.storage-rgw-users',
+  'clouds.storage-object-gateway',
+  'clouds.storage-cosi',
+  'clouds.gpus',
+  'clouds.usb-devices',
+  'clouds.pci-devices',
+  // poolNavGroup「扁平网络」：除扁平子网只读外，其余默认不授权
+  'clouds.traffic-mirroring.flat',
+  'clouds.security-groups.flat',
+  'clouds.eips.flat',
+  'clouds.snat.flat',
+  'clouds.dnat.flat',
+  // poolNavGroup「虚拟网元」：虚拟路由器
+  'clouds.vne',
+] as const;
+
+function permissionBase(permission: string): string {
+  return permission.split(':')[0];
+}
+
+function matchesExcludedPrefix(base: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((pfx) => base === pfx || base.startsWith(`${pfx}.`));
+}
+
+/** 是否纳入「云租户根用户」内置 clouds.* 权限 */
+function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+  const base = permissionBase(permission);
+  if (permission === 'clouds:read' || permission === 'clouds:write') return false;
+  if (!base.startsWith('clouds.')) return false;
+  if (matchesExcludedPrefix(base, TENANT_ROOT_CNMC_EXCLUDED_PREFIXES)) return false;
+  // 子网汇总权会在角色抽屉拆成 vpc/flat/public，勿授予 write（否则扁平子网「读写」被误勾）
+  if (base === 'clouds.subnets') return false;
+  if (permission === 'clouds.images:write') return false;
+  if (permission === 'clouds.subnets.flat:write') return false;
+  return true;
+}
+
+/** 云租户根用户内置权限列表（供种子与手动同步脚本共用） */
+export function buildTenantRootBuiltinPermissions(
+  allPermissions: readonly string[] = ALL_PERMISSIONS,
+): string[] {
+  return allPermissions.filter((p) => {
+    const base = permissionBase(p);
+    if (matchesExcludedPrefix(base, TENANT_ROOT_NON_CNMC_PREFIXES)) return false;
+    return isTenantRootBuiltinCloudPermission(p);
+  });
+}
 
 export async function initializeRoles() {
   try {
@@ -47,8 +145,18 @@ export async function initializeRoles() {
             status: spec.status,
           }),
         );
+        rolesLog.info(`已创建预置角色「${spec.name}」，权限 ${spec.permissions.length} 条`);
         return;
       }
+
+      let prevCount = 0;
+      try {
+        const parsed = JSON.parse(String(existed.permissions || '[]'));
+        prevCount = Array.isArray(parsed) ? parsed.length : 0;
+      } catch {
+        prevCount = 0;
+      }
+      const permsChanged = String(existed.permissions || '') !== nextPerms;
 
       // 已存在则更新（确保权限配置跟随代码版本演进）
       existed.description = spec.description;
@@ -56,36 +164,29 @@ export async function initializeRoles() {
       existed.permissions = nextPerms;
       existed.status = spec.status;
       await repo.save(existed);
+
+      if (permsChanged) {
+        rolesLog.info(
+          `已更新预置角色「${spec.name}」权限：${prevCount} → ${spec.permissions.length} 条`,
+        );
+      }
     };
 
     // 1. 云租户根用户
-    // 权限设计（与 PermissionChecker / accessMapping 一致）：
-    // - 资源总览、资源池管理、Cloudmap 运维视图切换：不包含（与原逻辑一致）
-    // - 监控与日志：不包含 clouds.alerts*、clouds.log* 相关权限
-    // - 资源控制台：clouds.console:read + clouds.console:write（VNC/SSH、租户侧 ECS 接口等对权限数组做字面 includes 校验）
-    // - 镜像：仅 clouds.images:read，不包含 clouds.images:write（租户侧镜像仅查看，不上传/删除）
-    // - 其余 clouds.* 细分资源：保留显式 read/write（如 clouds.ecs:write），与「其他云资源读写」一致
+    // 权限设计（与 PermissionChecker / accessMapping、前端 poolNavGroup 一致）：
+    // - 顶栏平台：不含租户管理、SDN 控制台、云安全中心、系统设置（tenants/networks/secops/system 等）
+    // - CNMC：不含多云管理、资源总览、云监控、集群、日志管理分组
+    // - 资源控制台：保留 clouds.console:*（VNC/SSH、租户侧 ECS 等对权限数组字面 includes 校验）
+    // - 镜像：仅 clouds.images:read，不含 clouds.images:write
+    // - 扁平网络：仅 clouds.subnets.flat:read；不含流量镜像/安全组/EIP/SNAT/DNAT
+    // - 虚拟网元：不含 clouds.vne（虚拟路由器）
+    // - 其余 clouds.*（云主机、云存储、VPC 网络等）：保留显式 read/write
     await ensureRole({
       name: '云租户根用户',
       description:
-        '租户管理员：资源控制台可访问与操作；镜像仅查看；其余云资源按各细分权限读写。',
+        '租户管理员：不含租户/SDN/安全/系统设置等平台入口；CNMC 不含多云管理、资源总览、云监控、集群、日志管理；扁平网络仅扁平子网只读；不含虚拟路由器；资源控制台可访问与操作；镜像仅查看。',
       scope: 'tenant',
-      permissions: [
-        ...CURATED_PERMISSIONS.filter(
-          (p) =>
-            p.startsWith('clouds.') &&
-            !p.startsWith('clouds.dashboard:') &&
-            !p.startsWith('clouds.resource-pools:') &&
-            !p.startsWith('clouds.alerts:') &&
-            !p.startsWith('clouds.desktop:') &&
-            !p.startsWith('clouds.log') &&
-            p !== 'clouds:read' &&
-            p !== 'clouds:write' &&
-            p !== 'clouds.images:write',
-        ),
-        'networks.vpcs:read',
-        'networks.vpcs:write',
-      ],
+      permissions: buildTenantRootBuiltinPermissions(CURATED_PERMISSIONS),
       status: 'active',
     });
 
@@ -259,6 +360,7 @@ export async function initializeRoles() {
     }
 
   } catch (error) {
-    console.error('初始化角色失败:', error);
+    rolesLog.error('初始化角色失败:', error instanceof Error ? error.message : String(error));
+    throw error;
   }
 }

@@ -30,6 +30,9 @@ const { Text } = Typography;
 
 type Props = {
   open: boolean;
+  title?: string;
+  /** 租户角色等场景的说明文案 */
+  scopeHint?: string;
   canEdit: boolean;
   kw: string;
   permVerb: RolePermVerbFilter;
@@ -260,6 +263,8 @@ const PlatformPermissionPanel: React.FC<PlatformPermissionPanelProps> = ({
 
 const RolePermissionDrawer: React.FC<Props> = ({
   open,
+  title = '配置权限',
+  scopeHint,
   canEdit,
   kw,
   permVerb,
@@ -501,7 +506,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
 
   return (
     <Drawer
-      title="配置权限"
+      title={title}
       placement="right"
       width={1280}
       open={open}
@@ -521,6 +526,11 @@ const RolePermissionDrawer: React.FC<Props> = ({
       }
     >
       <Flex vertical gap={G} style={{ flex: 1, minHeight: 0 }}>
+        {scopeHint ? (
+          <Text type="secondary" style={{ fontSize: 13 }}>
+            {scopeHint}
+          </Text>
+        ) : null}
         <Flex wrap="wrap" gap={G} align="center" justify="space-between">
           <Flex wrap="wrap" gap={G} align="center" flex={1} style={{ minWidth: 280 }}>
             <Segmented

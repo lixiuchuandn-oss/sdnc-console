@@ -147,8 +147,8 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.dashboard:read': '访问多云总览页面',
   'clouds.resource-pools:read': '进入资源池管理列表与资源池详情页',
   'clouds.resource-pools:write': '创建、编辑、删除资源池（接入配置等）',
-  'clouds:read': '云资源全量查看（含算网存等 clouds.* 读能力；不含容器子域，容器须单独授权）',
-  'clouds:write': '云资源全量管理（含算网存等 clouds.* 写能力；不含容器子域，容器须单独授权）',
+  'clouds:read': '云资源全量查看（含算网存、容器等全部 clouds.* 读能力）',
+  'clouds:write': '云资源全量管理（含算网存、容器等全部 clouds.* 写能力）',
   'clouds.ecs:read': '查看云主机列表和详情',
   'clouds.ecs:write': '创建、启动、停止、删除云主机',
   'clouds.vm-create-wizard:write': '使用虚拟机创建向导（分步创建云主机）',
@@ -308,12 +308,10 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
   // 生成继承关系
   const inherits: string[] = [];
   
-  // 层级继承：clouds.ecs:read 继承 clouds:read（容器子域除外）
+  // 层级继承：clouds.ecs:read / clouds.containers.*:read 等均继承 clouds:read
   if (base.includes('.') && base !== 'clouds.console') {
     const segments = base.split('.');
-    const skipCloudsDomainForContainers =
-      segments[0] === 'clouds' && segments[1] === 'containers';
-    if (segments.length >= 2 && !skipCloudsDomainForContainers) {
+    if (segments.length >= 2) {
       const parentBase = segments[0];
       const parentPerm = `${parentBase}:${verb}`;
       if (ALL_PERMISSIONS.includes(parentPerm as any)) {

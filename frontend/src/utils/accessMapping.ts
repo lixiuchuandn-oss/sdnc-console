@@ -2,7 +2,6 @@ import { routeSpecs } from '../routes/RouteSpec';
 import { POOL_PAGE_IMPLIED_READ_BASES } from '../pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess';
 import { unifiedStorageReadGranted } from '../pages/cnmc/clouds/Cloudmap/pool/lib/clusterPageAccess';
 import { isUnifiedStorageReadBase } from '../constants/unifiedStoragePermissions';
-import { isCloudsContainersResourceBase } from './permissionUtils';
 import {
   cbrBackupScheduleAliasSatisfied,
   isCbrBackupScheduleResourceBase,
@@ -122,23 +121,15 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   
   // clouds.console:* 仅作用于 console 本身；不再继承其它 clouds.* 资源。
 
-  // clouds:write 包含 clouds.*:write（不含容器子域，与 clouds.console 对齐）
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':write') &&
-    !isCloudsContainersResourceBase(base)
-  ) {
+  // clouds:write 包含 clouds.*:write（含 clouds.containers.*）
+  if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
       return true;
     }
   }
 
-  // clouds:read|write 覆盖 clouds.*:read（不含容器子域；容器须显式子域 atom 或历史总权）
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':read') &&
-    !isCloudsContainersResourceBase(base)
-  ) {
+  // clouds:read|write 覆盖 clouds.*:read（含 clouds.containers.*）
+  if (base.startsWith('clouds.') && act.endsWith(':read')) {
     if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
       return true;
     }

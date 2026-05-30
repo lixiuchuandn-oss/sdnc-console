@@ -23,7 +23,7 @@ import {
   isCbrBackupScheduleResourceBase,
 } from '../constants/cbrSchedulePermissionLegacy';
 
-/** `clouds.console:*` / `clouds:read` 的宽松继承不包含容器子域（须显式子域 atoms；历史 `clouds.containers:*` 仍兼容） */
+/** `clouds.console:*` 的宽松继承不包含容器子域（须显式子域 atoms；历史 `clouds.containers:*` 仍兼容） */
 function isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
