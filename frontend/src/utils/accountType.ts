@@ -25,7 +25,7 @@ export function isTenantAccount(
 
 /** 方案 A：/console 仅租户账号（role=tenant / accountType=tenant）可进入 */
 export function canAccessTenantConsole(
-  user: { role?: string; accountType?: AccountType | string; permissions?: string[] } | null | undefined,
+  user: { role?: string; accountType?: AccountType | string } | null | undefined,
 ): boolean {
   if (!user) return false;
   return isTenantAccount(user);
@@ -45,7 +45,5 @@ export function resolvePostLoginPath(user: {
   const explicit = String(user.defaultPath || '').trim();
   if (explicit.startsWith('/')) return explicit;
   if (isTenantAccount(user)) return resolveTenantConsolePath();
-  const role = String(user.role || '').toLowerCase();
-  if (role === 'super_admin' || role === 'admin') return '/admin';
   return '/admin';
 }
