@@ -4,9 +4,9 @@
  * 导致 Select 被卸载、切换不生效。
  */
 import React from 'react';
-import { Button, Dropdown, Layout, Select, Space, Spin, Tag } from 'antd';
+import { Button, Dropdown, Layout, Select, Space, Spin, Tag, Tooltip } from 'antd';
 import type { NavigateFunction } from 'react-router-dom';
-import { HomeFilled, ApiFilled, LogoutOutlined, UserOutlined } from '@ant-design/icons';
+import { HomeFilled, ApiFilled, LogoutOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
 import type { AdminSidebarCenter } from './AdminSidebar';
 import { type Cloud, isCsmCloud } from '../../pages/cnmc/pools/lib/poolProviders';
 import { renderMarkdownBold } from '../../utils/markdown';
@@ -51,6 +51,8 @@ export type AdminStandardHeaderProps = {
   openChangePassword: () => void;
   handleLogout: () => void;
   openDefaultPoolWizardAction: () => void;
+  /** 打开全局页面搜索（与 Ctrl+K 同源） */
+  onOpenGlobalSearch: () => void;
 };
 
 function AdminStandardHeader({
@@ -71,6 +73,7 @@ function AdminStandardHeader({
   openChangePassword,
   handleLogout,
   openDefaultPoolWizardAction,
+  onOpenGlobalSearch,
 }: AdminStandardHeaderProps) {
   const headerColor = settings.headerColor?.trim();
   const headerColorEnd = settings.headerColorEnd?.trim();
@@ -208,6 +211,15 @@ function AdminStandardHeader({
         </div>
       </div>
       <div className="admin-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 16, height: '100%', flexShrink: 0 }}>
+        <Tooltip title="搜索页面 (Ctrl+K)">
+          <Button
+            type="text"
+            className="admin-header-search-btn"
+            icon={<SearchOutlined style={{ color: '#fff', fontSize: 16 }} />}
+            aria-label="搜索页面"
+            onClick={onOpenGlobalSearch}
+          />
+        </Tooltip>
         {user && (
           <>
             <div className="admin-header-user-strip" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px 12px', maxWidth: 520, minWidth: 0 }}>
