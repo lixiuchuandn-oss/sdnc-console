@@ -10,6 +10,7 @@
  * 说明：服务拓扑、Service 与多资源联动视图放在资源池详情页更合适；控制台以列表与常用操作为主。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
+import { Empty } from 'antd';
 import { checkPoolPageReadPerm } from '../../clouds/Cloudmap/pool/lib/poolPageReadAccess';
 import {
   CLOUD_CONTAINER_TAB_WRITE,
@@ -17,10 +18,9 @@ import {
   type ContainerTabPermissionKey,
 } from '../../../../utils/permissionUtils';
 import { canAccessTenantConsoleContainerResource } from '../lib/tenantConsolePageAccess';
+import { CONTAINER_NAV_CATEGORIES, type NavCategory } from '../lib/tenantConsoleSiderNav';
 import { ContainerOperationsGate } from '../../clouds/Harvester/containers/ContainerOperationsContext';
 import { pickFirstNamespaceRecordByScenario } from '../../../../utils/harvesterUtils';
-import { Tabs, Empty, Dropdown, Space } from 'antd';
-import { CaretDownFilled } from '@ant-design/icons';
 import { useAuth } from '../../../../contexts/AuthContext';
 import ServicesSection from '../../clouds/Harvester/containers/sections/ServicesSection';
 import {
@@ -35,44 +35,7 @@ import {
   IngressesSection,
 } from '../../clouds/Harvester/containers';
 
-type NavResource = { key: string; label: string };
-
-type NavCategory = {
-  key: string;
-  label: string;
-  resources: NavResource[];
-};
-
-const CONTAINER_TAB_CONFIG: NavCategory[] = [
-  {
-    key: 'ctr-run',
-    label: '运行',
-    resources: [
-      { key: 'ctr-workloads', label: '工作负载' },
-      { key: 'ctr-pods', label: 'Pod' },
-      { key: 'ctr-jobs', label: '任务' },
-    ],
-  },
-  {
-    key: 'ctr-svc',
-    label: '网络',
-    resources: [
-      { key: 'ctr-services', label: 'Service' },
-      { key: 'ctr-ingresses', label: 'Ingress' },
-      { key: 'ctr-gateway', label: '网关路由' },
-    ],
-  },
-  {
-    key: 'ctr-cfg',
-    label: '配置',
-    resources: [
-      { key: 'ctr-configs', label: '配置与密钥' },
-      { key: 'ctr-registries', label: '镜像仓库' },
-      { key: 'ctr-pdbs', label: 'Pod中断保护' },
-      { key: 'ctr-netpol', label: '网络策略' },
-    ],
-  },
-];
+const CONTAINER_TAB_CONFIG: NavCategory[] = CONTAINER_NAV_CATEGORIES;
 
 export interface CloudConsoleContainerPanelProps {
   cloudId: string;
@@ -231,14 +194,6 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
       setActiveResource((cat?.resources[0]?.key ?? '') as string);
     }
   }, [activeCategory, activeResource, containerTabConfig, setActiveResource]);
-
-  const getDefaultResource = useCallback(
-    (catKey: string) => {
-      const cat = containerTabConfig.find((c) => c.key === catKey);
-      return cat?.resources[0]?.key ?? '';
-    },
-    [containerTabConfig],
-  );
 
   const renderContent = useCallback(() => {
     if (!canAccessContainerResource(activeResource)) {
@@ -459,57 +414,6 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     canAccessContainerResource,
   ]);
 
-  const tabItems = useMemo(() => {
-    return containerTabConfig.map((cat) => {
-      const isActive = cat.key === activeCategory;
-      const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel =
-        cat.resources.find((r) => r.key === currentResKey)?.label ??
-        cat.resources[0].label;
-
-      return {
-        key: cat.key,
-        label: (
-          <Space size={4} align="center">
-            <span>
-              {cat.label} {currentResLabel}
-            </span>
-            <Dropdown
-              menu={{
-                items: cat.resources.map((res) => ({
-                  key: res.key,
-                  label: res.label,
-                  onClick: (e: { domEvent: { stopPropagation: () => void } }) => {
-                    e.domEvent.stopPropagation();
-                    setActiveCategory(cat.key);
-                    setActiveResource(res.key);
-                  },
-                })),
-                selectedKeys: [isActive ? activeResource : ''],
-              }}
-              trigger={['click']}
-            >
-              <span
-                onClick={(e) => e.stopPropagation()}
-                className="cloud-console-main-panel-dropdown-trigger"
-              >
-                <CaretDownFilled style={{ fontSize: 12 }} />
-              </span>
-            </Dropdown>
-          </Space>
-        ),
-        children: <div>{isActive ? renderContent() : null}</div>,
-      };
-    });
-  }, [
-    activeCategory,
-    activeResource,
-    setActiveCategory,
-    setActiveResource,
-    renderContent,
-    containerTabConfig,
-  ]);
-
   if (containerTabConfig.length === 0) {
     return (
       <div className="cloud-console-panel-root">
@@ -520,17 +424,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
 
   return (
     <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
-      <div className="cloud-console-panel-root">
-        <Tabs
-          type="card"
-          activeKey={activeCategory}
-          onChange={(key) => {
-            setActiveCategory(key);
-            setActiveResource(getDefaultResource(key));
-          }}
-          items={tabItems}
-        />
-      </div>
+      <div className="cloud-console-panel-root">{renderContent()}</div>
     </ContainerOperationsGate>
   );
 };

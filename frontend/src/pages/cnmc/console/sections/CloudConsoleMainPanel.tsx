@@ -4,8 +4,7 @@
  * 数据由上层 `CloudConsole.tsx` 拉取后注入；本组件只负责导航与渲染子模块。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Tabs, Empty, Dropdown, Space } from 'antd';
-import { CaretDownFilled } from '@ant-design/icons';
+import { Empty } from 'antd';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
@@ -26,14 +25,11 @@ import DnatSection from '../../clouds/Harvester/kube-ovn/sections/DnatSection';
 import VpcsSection from '../../clouds/Harvester/kube-ovn/sections/VpcsSection';
 import UnderlaySubnetsSection from '../../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 import type { BackupsSectionOnRefresh } from '../../clouds/Cloudmap/pool/loaders/backupsRefresh';
-
-type NavResource = { key: string; label: string };
-
-type NavCategory = {
-  key: string;
-  label: string;
-  resources: NavResource[];
-};
+import {
+  buildMainNavCategories,
+  type NavCategory,
+  type NavResource,
+} from '../lib/tenantConsoleSiderNav';
 
 /** 左侧导航决定的顶部类目范围：`host`=云主机/云盘/整机，`flat`/`vpc`=对应网络，`all`=不过滤（兼容旧用法） */
 export type CloudConsoleLeftNavScope = 'host' | 'flat' | 'vpc' | 'all';
@@ -189,63 +185,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     });
   }, [namespaces]);
 
-  const fullTabConfig = useMemo((): NavCategory[] => {
-    const base: NavCategory[] = [
-      {
-        key: 'compute',
-        label: '云主机',
-        resources: [
-          { key: 'vm', label: '实例' },
-          { key: 'recycle-bin', label: '回收站' },
-          { key: 'template', label: '模板' },
-          { key: 'image', label: '镜像' },
-          { key: 'ssh', label: 'SSH密钥' },
-          { key: 'cloudinit', label: 'CloudInit 配置' },
-        ],
-      },
-      {
-        key: 'storage',
-        label: '云盘',
-        resources: [
-          { key: 'volume', label: '实例' },
-          { key: 'volume-snapshot', label: '快照' },
-        ],
-      },
-      {
-        key: 'backup',
-        label: '整机',
-        resources: [
-          { key: 'snapshot', label: '快照' },
-          { key: 'backup', label: '备份' },
-          { key: 'schedule', label: '定时策略' },
-        ],
-      },
-      {
-        key: 'flatnet',
-        label: '扁平',
-        resources: [{ key: 'flat-subnet', label: '子网' }],
-      },
-    ];
-    if (ovnVpcEnabled) {
-      base.push(
-        {
-          key: 'vpc-net',
-          label: 'VPC',
-          resources: [{ key: 'vpc-subnet', label: '网络' }],
-        },
-        {
-          key: 'vpc-nat',
-          label: 'NAT',
-          resources: [
-            { key: 'eip', label: 'EIP' },
-            { key: 'snat', label: 'SNAT' },
-            { key: 'dnat', label: 'DNAT' },
-          ],
-        },
-      );
-    }
-    return base;
-  }, [ovnVpcEnabled]);
+  const fullTabConfig = useMemo((): NavCategory[] => buildMainNavCategories(ovnVpcEnabled), [ovnVpcEnabled]);
 
   const filterResourcesByPerm = useCallback(
     (resources: NavResource[]) => {
@@ -325,14 +265,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
       setActiveResource('flat-subnet');
     }
   }, [activeResource, setActiveResource]);
-
-  const getDefaultResource = useCallback(
-    (catKey: string) => {
-      const cat = tabConfig.find((c) => c.key === catKey);
-      return cat?.resources[0]?.key ?? '';
-    },
-    [tabConfig],
-  );
 
   const renderContent = useCallback(() => {
     if (canAccessMainResource && !canAccessMainResource(activeResource)) {
@@ -619,46 +551,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     canAccessMainResource,
   ]);
 
-  const tabItems = useMemo(() => {
-    return tabConfig.map((cat) => {
-      const isActive = cat.key === activeCategory;
-      const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel =
-        cat.resources.find((r) => r.key === currentResKey)?.label ?? cat.resources[0].label;
-
-      return {
-        key: cat.key,
-        label: (
-          <Space size={4} align="center">
-            <span>
-              {cat.label} {currentResLabel}
-            </span>
-            <Dropdown
-              menu={{
-                items: cat.resources.map((res) => ({
-                  key: res.key,
-                  label: res.label,
-                  onClick: (e: { domEvent: { stopPropagation: () => void } }) => {
-                    e.domEvent.stopPropagation();
-                    setActiveCategory(cat.key);
-                    setActiveResource(res.key);
-                  },
-                })),
-                selectedKeys: [isActive ? activeResource : ''],
-              }}
-              trigger={['click']}
-            >
-              <span onClick={(e) => e.stopPropagation()} className="cloud-console-main-panel-dropdown-trigger">
-                <CaretDownFilled style={{ fontSize: 12 }} />
-              </span>
-            </Dropdown>
-          </Space>
-        ),
-        children: <div>{isActive ? renderContent() : null}</div>,
-      };
-    });
-  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, renderContent]);
-
   if (tabConfig.length === 0) {
     return (
       <div className="cloud-console-panel-root">
@@ -673,19 +565,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     );
   }
 
-  return (
-    <div className="cloud-console-panel-root">
-      <Tabs
-        type="card"
-        activeKey={activeCategory}
-        onChange={(key) => {
-          setActiveCategory(key);
-          setActiveResource(getDefaultResource(key));
-        }}
-        items={tabItems}
-      />
-    </div>
-  );
+  return <div className="cloud-console-panel-root">{renderContent()}</div>;
 };
 
 export default CloudConsoleMainPanel;
