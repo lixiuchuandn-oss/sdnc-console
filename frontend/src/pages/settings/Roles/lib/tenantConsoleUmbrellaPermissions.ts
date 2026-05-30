@@ -1,4 +1,4 @@
-/** 租户 scope 角色不再配置 clouds.console umbrella（入口由账号类型判定） */
+/** 已废弃的 clouds.console:* umbrella 权限（/console 仅 tenant 账号；全平台 strip） */
 export const TENANT_CONSOLE_UMBRELLA_ACTIONS = [
   'clouds.console:read',
   'clouds.console:write',

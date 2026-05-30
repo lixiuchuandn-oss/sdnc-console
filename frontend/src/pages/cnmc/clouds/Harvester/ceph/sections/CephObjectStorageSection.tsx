@@ -95,7 +95,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
 
   const canWriteStores = useMemo(() => {
     if (!checkPerm) return false;
-    return checkPerm('clouds.console:write') || checkPerm('clouds:write');
+    return checkPerm('clouds.storage-object-gateway:write') || checkPerm('clouds:write');
   }, [checkPerm]);
 
   const loadGatewayMap = useCallback(

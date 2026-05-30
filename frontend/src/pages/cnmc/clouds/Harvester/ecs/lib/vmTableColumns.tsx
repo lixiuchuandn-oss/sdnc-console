@@ -115,11 +115,7 @@ export function buildVmTableColumns(actions: VmTableActions): ColumnsType<any> {
           const hasEcsWrite =
             hasPermissionForAction(perms, "clouds.ecs:write") ||
             hasPermissionForAction(perms, "clouds:write");
-          const hasConsoleRead = hasPermissionForAction(
-            perms,
-            "clouds.console:read",
-          );
-          const hasAnyPermission = hasEcsRead || hasEcsWrite || hasConsoleRead;
+          const hasAnyPermission = hasEcsRead || hasEcsWrite;
 
           return (
             <span style={{ display: "flex", alignItems: "center", gap: 6 }}>

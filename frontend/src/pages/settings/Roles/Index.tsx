@@ -101,7 +101,6 @@ const AccessRolesPage: React.FC = () => {
       backendSupportsSubnetSplit: backendSupportsSubnetSplitForDrawer,
       permVerb,
       permissionDefinitions,
-      hideTenantConsoleGroup: Boolean(grantTarget && isTenantScopeRole(grantTarget)),
     });
   }, [
     grantOpen,

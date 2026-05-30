@@ -1,4 +1,4 @@
-/** 租户控制台入口已改由账号类型判定；租户 scope 角色不再配置 umbrella 权限 */
+/** 已废弃的 clouds.console:* umbrella 权限（/console 仅 tenant 账号；全平台 strip） */
 export const TENANT_CONSOLE_UMBRELLA_ACTIONS = [
   'clouds.console:read',
   'clouds.console:write',
@@ -16,12 +16,19 @@ export function stripTenantConsoleUmbrellaPermissions(permissions: string[]): st
   return permissions.filter((p) => !TENANT_CONSOLE_UMBRELLA_SET.has(p) && !isTenantConsoleUmbrellaPermission(p));
 }
 
+export function stripConsoleUmbrellaFromRolePermissions(
+  _scope: string | undefined,
+  permissions: string[],
+): string[] {
+  return stripTenantConsoleUmbrellaPermissions(permissions);
+}
+
+/** @deprecated 使用 stripConsoleUmbrellaFromRolePermissions */
 export function stripTenantConsoleUmbrellaIfTenantScope(
   scope: string | undefined,
   permissions: string[],
 ): string[] {
-  if (String(scope || '') !== 'tenant') return permissions;
-  return stripTenantConsoleUmbrellaPermissions(permissions);
+  return stripConsoleUmbrellaFromRolePermissions(scope, permissions);
 }
 
 export function parseRolePermissionsJson(raw: string | null | undefined): string[] {

@@ -118,10 +118,10 @@ export function buildTenantRootBuiltinPermissions(
   });
 }
 
-/** 存量 tenant scope 角色：移除已废弃的 clouds.console:* umbrella 权限 */
-export async function migrateTenantRolesRemoveConsoleUmbrella(): Promise<number> {
+/** 存量全 scope 角色：移除已废弃的 clouds.console:* umbrella 权限 */
+export async function migrateAllRolesRemoveConsoleUmbrella(): Promise<number> {
   const repo = AppDataSource.getRepository(RBACRole);
-  const rows = await repo.find({ where: { scope: 'tenant' } });
+  const rows = await repo.find();
   let changed = 0;
   for (const row of rows) {
     const current = parseRolePermissionsJson(row.permissions);
@@ -132,9 +132,14 @@ export async function migrateTenantRolesRemoveConsoleUmbrella(): Promise<number>
     changed += 1;
   }
   if (changed > 0) {
-    rolesLog.info(`已从 ${changed} 个租户 scope 角色中移除 clouds.console:* 权限`);
+    rolesLog.info(`已从 ${changed} 个角色中移除 clouds.console:* 权限`);
   }
   return changed;
+}
+
+/** @deprecated 使用 migrateAllRolesRemoveConsoleUmbrella */
+export async function migrateTenantRolesRemoveConsoleUmbrella(): Promise<number> {
+  return migrateAllRolesRemoveConsoleUmbrella();
 }
 
 export async function initializeRoles() {
@@ -385,7 +390,7 @@ export async function initializeRoles() {
       }
     }
 
-    await migrateTenantRolesRemoveConsoleUmbrella();
+    await migrateAllRolesRemoveConsoleUmbrella();
 
   } catch (error) {
     rolesLog.error('初始化角色失败:', error instanceof Error ? error.message : String(error));

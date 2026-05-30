@@ -8,10 +8,7 @@ interface TenantConsoleRouteProps {
   children: React.ReactNode;
 }
 
-/**
- * 租户云资源控制台路由守卫：入口按账号类型（tenant）或系统侧 clouds.console 权限放行，
- * 不再依赖 AdminRoute 对 clouds.console:read 的统一路径映射。
- */
+/** 租户云资源控制台路由守卫：/console 仅 tenant 账号类型可进入 */
 const TenantConsoleRoute: React.FC<TenantConsoleRouteProps> = ({ children }) => {
   const { user, loading, logout } = useAuth();
   const navigate = useNavigate();

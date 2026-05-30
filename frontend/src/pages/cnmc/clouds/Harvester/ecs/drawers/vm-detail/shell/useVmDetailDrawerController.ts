@@ -97,7 +97,6 @@ export function useVmDetailDrawerController({
   }, [perms]);
   const hasConsoleWrite = useMemo(() => {
     return (
-      hasPermissionForAction(perms, "clouds.console:write") ||
       hasPermissionForAction(perms, "clouds.ecs:write") ||
       hasPermissionForAction(perms, "clouds:write")
     );

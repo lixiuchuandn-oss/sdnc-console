@@ -4,7 +4,6 @@ import {
   getGroupFromDefinition,
   getFeatureFromDefinition,
   getPlatformFromDefinition,
-  sortCloudmapFeatures,
   sortByResourceConsoleFeatureOrder,
   sortMergedPlatformEntryDrawerFeatures,
   buildCloudmapPoolNavDrawerSections,
@@ -67,8 +66,6 @@ export type BuildRolePermissionStructureInput = {
   backendSupportsSubnetSplit: boolean;
   permVerb: RolePermVerbFilter;
   permissionDefinitions: PermissionDefinition[];
-  /** 租户 scope 角色抽屉：不展示「租户控制台 / clouds.console」分组 */
-  hideTenantConsoleGroup?: boolean;
 };
 
 /** 平台 → 业务域 → 权限卡片（仅抽屉打开时调用） */
@@ -80,7 +77,6 @@ export function buildRolePermissionStructure(
     backendSupportsSubnetSplit,
     permVerb,
     permissionDefinitions,
-    hideTenantConsoleGroup,
   } = input;
   const allActionsForStructure = expandActionAtomsForDrawer(actionAtoms, backendSupportsSubnetSplit);
   const actionSet = new Set(allActionsForStructure);
@@ -144,19 +140,16 @@ export function buildRolePermissionStructure(
             ([feature, perms]) => toFeatureItem(feature, perms),
           );
 
-          if (group === '多云管理' || group === '租户控制台') {
-            if (hideTenantConsoleGroup && group === '租户控制台') {
-              return [];
-            }
+          if (group === '多云管理') {
             return [
               {
                 group,
-                features:
-                  group === '多云管理'
-                    ? sortMergedPlatformEntryDrawerFeatures(rawFeatures)
-                    : sortCloudmapFeatures(rawFeatures),
+                features: sortMergedPlatformEntryDrawerFeatures(rawFeatures),
               },
             ];
+          }
+          if (group === '租户控制台') {
+            return [];
           }
 
           if (group !== 'Cloudmap资源池') {

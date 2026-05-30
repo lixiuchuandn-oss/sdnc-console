@@ -16,7 +16,7 @@ export type CloudmapPoolNavRow = {
   poolNavSubgroup?: string;
   /** 功能开关：无此 feature 时侧栏隐藏该项 */
   requiredFeature?: string;
-  /** 池内页 `requiredActions.page`；缺省为 `clouds.console:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
+  /** 池内页 `requiredActions.page`；缺省为 `clouds.ecs:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
   poolPageAction?: string;
   /** 侧栏可见：满足其一即可（仅运维告警等入口；抽屉仍以 `poolPageAction` 为主卡片） */
   poolPageReadAnyOf?: readonly string[];

@@ -58,12 +58,12 @@ export function usePoolsListPage() {
   const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
   const canSetDefaultPool = canWriteClouds;
   const canAccessPoolDetail = useMemo(() => {
-    if (hasPermissionForAction(perms, 'clouds.console:read')) return true;
     return CLOUDMAP_POOL_NAV_ROWS.some((row) => {
       if (row.poolPageReadAnyOf?.length) {
         return row.poolPageReadAnyOf.some((act) => hasPermissionForAction(perms, act));
       }
-      return hasPermissionForAction(perms, row.poolPageAction ?? 'clouds.console:read');
+      if (!row.poolPageAction) return false;
+      return hasPermissionForAction(perms, row.poolPageAction);
     });
   }, [perms]);
 

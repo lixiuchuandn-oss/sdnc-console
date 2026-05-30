@@ -23,7 +23,7 @@ import {
   isCbrBackupScheduleResourceBase,
 } from '../constants/cbrSchedulePermissionLegacy';
 
-/** `clouds.console:*` 的宽松继承不包含容器子域（须显式子域 atoms；历史 `clouds.containers:*` 仍兼容） */
+/** 容器子域须显式子域 atoms；历史 `clouds.containers:*` 仍兼容 */
 function isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
@@ -121,33 +121,6 @@ export class PermissionChecker {
         if (permissions.includes(`${domainFeature}:*`)) {
           return true;
         }
-      }
-    }
-
-    // 4. 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，且不含 dashboard/resource-pools）
-    if (
-      base &&
-      base.startsWith('clouds.') &&
-      verb === 'read' &&
-      base !== 'clouds' &&
-      !isCloudsContainersResourceBase(base) &&
-      !isCloudsDashboardOrPoolsResourceBase(base)
-    ) {
-      if (permissions.includes('clouds.console:read') || permissions.includes('clouds.console:write')) {
-        return true;
-      }
-    }
-
-    // 4b. 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，且不含 dashboard/resource-pools）
-    if (
-      base &&
-      base.startsWith('clouds.') &&
-      verb === 'write' &&
-      !isCloudsContainersResourceBase(base) &&
-      !isCloudsDashboardOrPoolsResourceBase(base)
-    ) {
-      if (permissions.includes('clouds.console:write')) {
-        return true;
       }
     }
 

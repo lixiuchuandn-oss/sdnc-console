@@ -62,28 +62,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
 
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':read') &&
-    !isCloudsContainersResourceBase(base) &&
-    !isCloudsDashboardOrPoolsResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
-
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':write') &&
-    !isCloudsContainersResourceBase(base) &&
-    !isCloudsDashboardOrPoolsResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
-
   if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
       return true;
@@ -167,12 +145,6 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     path: '/admin/clouds',
     pageAction: 'clouds.resource-pools:read',
     requiredFeature: 'platform.multi-cloud',
-  },
-  {
-    id: 'console',
-    homePagePriority: 3,
-    path: '/console',
-    pageAction: 'clouds.console:read',
   },
   {
     id: 'tenants-list',
@@ -259,7 +231,6 @@ export async function resolveAdminDefaultHome(
     };
   }
 
-  const isSystemAdminRole = r === 'super_admin' || r === 'admin';
   const hasFeature = (f: string) => hasLicenseFeature(f);
 
   const steps: AdminHomeResolutionStep[] = [];
@@ -271,15 +242,6 @@ export async function resolveAdminDefaultHome(
       templatePath: spec.path,
       rbacAction: spec.homePageSkipPermissionCheck ? null : spec.pageAction,
     };
-
-    if (isSystemAdminRole && spec.path === '/console') {
-      steps.push({
-        ...baseStep,
-        outcome: 'skipped',
-        reason: 'system_admin_skip_console',
-      });
-      continue;
-    }
 
     if (spec.homePageAllowedRoles?.length) {
       if (!spec.homePageAllowedRoles.includes(r)) {

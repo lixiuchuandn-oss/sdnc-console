@@ -2,13 +2,12 @@ import { buildRolePermissionStructure } from './buildRolePermissionStructure';
 import { stripTenantConsoleUmbrellaPermissions } from './tenantConsoleUmbrellaPermissions';
 
 describe('tenantConsoleUmbrellaPermissions in role drawer', () => {
-  it('hides 租户控制台 group for tenant scope drawer', () => {
+  it('always hides deprecated 租户控制台 group', () => {
     const structure = buildRolePermissionStructure({
       actionAtoms: ['clouds.console:read', 'clouds.console:write', 'clouds.ecs:read'],
       backendSupportsSubnetSplit: true,
       permVerb: '全部',
       permissionDefinitions: [],
-      hideTenantConsoleGroup: true,
     });
     const cnmc = structure.find((p) => p.platform === 'CNMC');
     expect(cnmc).toBeDefined();

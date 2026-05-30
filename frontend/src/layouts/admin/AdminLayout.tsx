@@ -127,7 +127,7 @@ const AdminLayout: React.FC = () => {
   const hasPoolManagementLicense = hasFeature('platform.multi-cloud');
 
   /**
-   * 顶栏进入池内总览：有多云管理授权时沿用原 pools 读权限；否则仅要求控制台读权限（与未授权场景一致）。
+   * 顶栏进入池内总览：有多云管理授权时沿用原 pools 读权限；否则要求 clouds.ecs 读权限。
    */
   const headerPoolOverviewEnabled = useMemo(() => {
     if (!user) return false;
@@ -137,8 +137,8 @@ const AdminLayout: React.FC = () => {
       return canReadPools;
     }
     return (
-      hasPermissionForAction(perms, 'clouds.console:read') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds.ecs:read') ||
+      hasPermissionForAction(perms, 'clouds.ecs:write')
     );
   }, [user, hasPoolManagementLicense, canReadPools]);
 

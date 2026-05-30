@@ -490,8 +490,8 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.log-configs',
 ];
 
-/** 权限分组「租户控制台」内功能展示顺序（与 PERMISSION_GROUPS.CNMC['租户控制台'] 一致） */
-export const CLOUDMAP_FEATURE_ORDER: readonly string[] = ['clouds.console'];
+/** 权限分组「租户控制台」已废弃；保留空数组以兼容排序逻辑 */
+export const CLOUDMAP_FEATURE_ORDER: readonly string[] = [];
 
 function cloudmapFeatureOrderIndex(prefix: string): number {
   const i = CLOUDMAP_FEATURE_ORDER.indexOf(prefix);
@@ -676,8 +676,7 @@ export function hasContainerSubWritePermission(
   const writeAction = CLOUD_CONTAINER_TAB_WRITE[tab];
   return (
     hasPermissionForAction(perms, writeAction) ||
-    hasPermissionForAction(perms, 'clouds:write') ||
-    hasPermissionForAction(perms, 'clouds.console:write')
+    hasPermissionForAction(perms, 'clouds:write')
   );
 }
 

@@ -17,13 +17,13 @@ describe('accountType', () => {
     expect(isTenantAccount({ role: 'admin' })).toBe(false);
   });
 
-  it('canAccessTenantConsole — 策略 B', () => {
+  it('canAccessTenantConsole — 方案 A：仅 tenant 账号', () => {
     expect(canAccessTenantConsole({ role: 'tenant' })).toBe(true);
-    expect(canAccessTenantConsole({ role: 'super_admin' })).toBe(true);
+    expect(canAccessTenantConsole({ role: 'super_admin' })).toBe(false);
     expect(canAccessTenantConsole({ role: 'admin', permissions: [] })).toBe(false);
     expect(
       canAccessTenantConsole({ role: 'admin', permissions: ['clouds.console:read'] }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('resolvePostLoginPath', () => {

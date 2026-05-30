@@ -2,7 +2,6 @@
  * 登录身份：租户账号（TenantUser）与系统账号（User 表）分流。
  * 与 RBAC RoleAssignment.userType 不同——后者表示角色作用域。
  */
-import { hasPermissionForAction } from './accessMapping';
 import { TENANT_CLOUD_CONSOLE_PATH } from '../pages/cnmc/console/lib/tenantConsolePaths';
 
 export type AccountType = 'tenant' | 'system';
@@ -24,19 +23,12 @@ export function isTenantAccount(
   return resolveAccountType(user) === 'tenant';
 }
 
-/** 策略 B：租户账号直达；系统 super_admin 或持有 clouds.console:read 可进入 */
+/** 方案 A：/console 仅租户账号（role=tenant / accountType=tenant）可进入 */
 export function canAccessTenantConsole(
   user: { role?: string; accountType?: AccountType | string; permissions?: string[] } | null | undefined,
 ): boolean {
   if (!user) return false;
-  const role = String(user.role || '').toLowerCase();
-  if (role === 'super_admin') return true;
-  if (isTenantAccount(user)) return true;
-  const perms = Array.isArray(user.permissions) ? user.permissions : [];
-  return (
-    hasPermissionForAction(perms, 'clouds.console:read') ||
-    hasPermissionForAction(perms, 'clouds.console:write')
-  );
+  return isTenantAccount(user);
 }
 
 export function resolveTenantConsolePath(): string {

@@ -118,8 +118,6 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
   
-  // clouds.console:* 仅作用于 console 本身；不再继承其它 clouds.* 资源。
-
   // clouds:write 包含 clouds.*:write（含 clouds.containers.*）
   if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
