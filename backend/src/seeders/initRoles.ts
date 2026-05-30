@@ -9,6 +9,7 @@ import { expandLegacyBackupSchedulePermissions } from '../constants/cbrScheduleP
 import {
   parseRolePermissionsJson,
   stripTenantConsoleUmbrellaPermissions,
+  isTenantConsoleUmbrellaPermission,
 } from '../constants/tenantConsolePermissionLegacy';
 import { logger } from '../utils/logger';
 // 新增/改名预置角色时须同步 constants/rbacBuiltInRoles.ts 中的 BUILT_IN_RBAC_ROLE_NAMES
@@ -102,7 +103,7 @@ function isTenantRootBuiltinCloudPermission(permission: string): boolean {
   if (base === 'clouds.subnets') return false;
   if (permission === 'clouds.images:write') return false;
   if (permission === 'clouds.subnets.flat:write') return false;
-  if (base === 'clouds.console') return false;
+  if (isTenantConsoleUmbrellaPermission(permission)) return false;
   return true;
 }
 
