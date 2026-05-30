@@ -1,5 +1,5 @@
 /**
- * 运维监控大盘 · 节点视图（对齐 Grafana 仪表盘 `Node Exporter / Nodes`，uid=efn3nhjgavzlse）。
+ * 运维监控大盘 · 节点视图（对齐 Grafana 仪表盘 `Node Exporter / Nodes`）。
  *
  * 与 Grafana 的差异：
  * - 顶部 `Instance` 模板变量由后端 Prometheus `query_range` 取 `node_uname_info` 标签实现，
@@ -15,7 +15,8 @@ import MetricPanelCard from '../components/MetricPanelCard';
 import MetricTimeSeriesChart, { type MetricSeriesInput } from '../components/MetricTimeSeriesChart';
 import MetricGauge from '../components/MetricGauge';
 import MetricDiskSpaceTable from '../components/MetricDiskSpaceTable';
-import { usePromQueries, type PromQueryDef, type PromQueryResult } from '../hooks/usePromQueries';
+import { usePromQueries, type PromQueryDef, type PromQueryResult, resolveChartTimeBoundsMs } from '../hooks/usePromQueries';
+import { derivePanelLoadState } from '../lib/panelLoadState';
 import type { UnitKind } from '../lib/unit';
 import type { ResolvedTimeRange } from '../hooks/useDashboardTimeRange';
 import { fetchMetricRange } from '../../../../../../services/monitoringApi';
@@ -106,8 +107,8 @@ const NODES_PANEL_GROUPS: NodesPanelGroup[] = [
     panels: [
       {
         kind: 'timeseries',
-        id: 'cpu-usage',
-        title: 'CPU 使用率',
+        id: 'node-cpu-utilization',
+        title: '节点CPU利用率(%)',
         description:
           '每个 CPU 核的非空闲占比，sum without (mode) 排除 idle/iowait/steal 后除以总核数；按 cpu 堆叠，总高度对应整机 CPU 利用率',
         unit: 'percent01',
@@ -350,10 +351,8 @@ function collectPanelResults(
   }
 }
 
-function isPanelLoading(panel: NodesPanelDef, results: Record<string, PromQueryResult>): boolean {
-  const list = collectPanelResults(panel, results);
-  if (list.length === 0) return true;
-  return list.some((r) => r?.loading === true);
+function getPanelLoadState(panel: NodesPanelDef, results: Record<string, PromQueryResult>) {
+  return derivePanelLoadState(collectPanelResults(panel, results));
 }
 
 function panelErrorMsg(panel: NodesPanelDef, results: Record<string, PromQueryResult>): string | undefined {
@@ -374,6 +373,7 @@ function renderTimeSeriesPanel(
   results: Record<string, PromQueryResult>,
   chartMin: number,
   chartMax: number,
+  loading = false,
 ): React.ReactNode {
   const groups: MetricSeriesInput[] = panel.queries.map((q) => ({
     name: q.legend,
@@ -395,11 +395,16 @@ function renderTimeSeriesPanel(
       secondaryUnit={panel.secondaryUnit}
       secondaryYMin={panel.secondaryYMin}
       secondaryYMax={panel.secondaryYMax}
+      loading={loading}
     />
   );
 }
 
-function renderGaugePanel(panel: GaugePanelDef, results: Record<string, PromQueryResult>): React.ReactNode {
+function renderGaugePanel(
+  panel: GaugePanelDef,
+  results: Record<string, PromQueryResult>,
+  loading = false,
+): React.ReactNode {
   const series = results[composeKey(panel.id, panel.query.key)]?.series ?? [];
   return (
     <MetricGauge
@@ -409,6 +414,7 @@ function renderGaugePanel(panel: GaugePanelDef, results: Record<string, PromQuer
       unit={panel.unit}
       thresholds={panel.thresholds}
       height={CHART_HEIGHT}
+      loading={loading}
     />
   );
 }
@@ -505,7 +511,7 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
   /** 没选定 instance 时不发出业务查询，避免 PromQL 含字面 `$instance` 失败 */
   const effectiveQueries = useMemo(() => (instance ? ALL_QUERIES : []), [instance]);
 
-  const { results, error: aggregateError } = usePromQueries({
+  const { results, fetchedWindow, error: aggregateError } = usePromQueries({
     cloudId,
     queries: effectiveQueries,
     start: resolved.start,
@@ -515,8 +521,7 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
     reloadToken,
   });
 
-  const chartMin = resolved.start * 1000;
-  const chartMax = resolved.end * 1000;
+  const { chartMin, chartMax } = resolveChartTimeBoundsMs(resolved, fetchedWindow);
 
   const instanceOptions = useMemo(
     () => instances.map((inst) => ({ value: inst, label: inst })),
@@ -577,17 +582,17 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
             </Typography.Title>
             <Row gutter={[16, 16]}>
               {group.panels.map((panel) => {
-                const loading = isPanelLoading(panel, results);
+                const { initialLoading } = getPanelLoadState(panel, results);
                 const error = panelErrorMsg(panel, results);
-                const empty = !loading && isPanelEmpty(panel, results);
+                const empty = !initialLoading && isPanelEmpty(panel, results);
                 const height = panel.kind === 'diskSpaceTable' ? TABLE_PANEL_HEIGHT : PANEL_HEIGHT;
                 let body: React.ReactNode;
                 switch (panel.kind) {
                   case 'timeseries':
-                    body = renderTimeSeriesPanel(panel, results, chartMin, chartMax);
+                    body = renderTimeSeriesPanel(panel, results, chartMin, chartMax, initialLoading);
                     break;
                   case 'gauge':
-                    body = renderGaugePanel(panel, results);
+                    body = renderGaugePanel(panel, results, initialLoading);
                     break;
                   case 'diskSpaceTable':
                     body = renderDiskSpaceTablePanel(panel, results);
@@ -598,7 +603,7 @@ const OpsDashboardNodesSection: React.FC<OpsDashboardNodesSectionProps> = ({
                     <MetricPanelCard
                       title={panel.title}
                       description={panel.description}
-                      loading={loading}
+                      loading={initialLoading}
                       error={error}
                       isEmpty={empty}
                       height={height}

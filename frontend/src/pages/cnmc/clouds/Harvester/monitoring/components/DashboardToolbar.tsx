@@ -6,7 +6,7 @@ import React, { useCallback, useMemo } from 'react';
 import { DownOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Button, Dropdown, Space } from 'antd';
 import type { MenuProps } from 'antd';
-import MonitoringTooltip, { MonitoringPopover } from './MonitoringTooltip';
+import { MonitoringPopover } from './MonitoringPopover';
 import {
   OPS_DASHBOARD_TIME_RANGE_OPTIONS,
   type DashboardTimeRangeOption,
@@ -81,16 +81,6 @@ const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
 
   return (
     <Space size={8}>
-      {showTimeRange ? (
-        <Dropdown menu={rangeMenu} trigger={['click']}>
-          <MonitoringTooltip title={`时间范围：最近 ${rangeLabel}`}>
-            <Button>
-              {`最近 ${rangeLabel}`}
-              <DownOutlined />
-            </Button>
-          </MonitoringTooltip>
-        </Dropdown>
-      ) : null}
       <MonitoringPopover title={manualRefreshTooltip}>
         <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading} />
       </MonitoringPopover>
@@ -104,6 +94,16 @@ const DashboardToolbar: React.FC<DashboardToolbarProps> = ({
           </Button>
         </MonitoringPopover>
       </Dropdown>
+      {showTimeRange ? (
+        <Dropdown menu={rangeMenu} trigger={['click']}>
+          <MonitoringPopover title={`时间范围：最近 ${rangeLabel}`}>
+            <Button>
+              {`最近 ${rangeLabel}`}
+              <DownOutlined />
+            </Button>
+          </MonitoringPopover>
+        </Dropdown>
+      ) : null}
     </Space>
   );
 };

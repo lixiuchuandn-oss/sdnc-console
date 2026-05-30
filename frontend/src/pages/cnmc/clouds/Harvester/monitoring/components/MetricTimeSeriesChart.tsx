@@ -3,14 +3,19 @@
  * - 输入 N 条 series（来自 usePromQueries.results[key].series）
  * - 自动按整体最大值挑单位（bytes / bytesRate / pps / iops / percent01…）
  * - 时间轴按 chartMin/chartMax 锚定，无数据时也能画出空轴；tooltip 多 series 合并
+ * - Y 轴按整图最大值统一量级；tooltip 每条线按当前点 raw 值各自 format（对齐 Grafana）
  * - 通过 legendFormatter 把 labels 拼成 Grafana legend 风格（{{ instance }} → 实际值）
+ * - 异步数据：先 init 空轴/空 series，Prometheus 返回后 option 变更触发 setOption；loading 时 showLoading
  *
  * 设计参考：Harvester/ecs/drawers/vm-detail/tabs/VmPerformance.tsx 的 getOption / getByteRateOption。
  */
-import React, { useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
+import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { pickSeriesScale, type UnitKind } from '../lib/unit';
+import { useEChartsLoading } from '../hooks/useEChartsLoading';
+import { legendNameFromLabels } from '../lib/legendLabels';
+import { formatValue, pickSeriesScale, type UnitKind } from '../lib/unit';
 import type { PromSeries } from '../hooks/usePromQueries';
 
 export interface MetricSeriesInput {
@@ -48,6 +53,14 @@ export interface MetricTimeSeriesChartProps {
   /** 右 Y 轴 raw 最小值 / 最大值 */
   secondaryYMin?: number;
   secondaryYMax?: number;
+  /** 自定义 legend 名（如将 Prometheus name 映射为云主机名称） */
+  legendNameResolver?: (
+    template: string,
+    labels: Record<string, string>,
+    fallback: string,
+  ) => string;
+  /** 异步拉取中：图表先挂载空轴，由 ECharts showLoading 覆盖；数据到达后 setOption 更新 */
+  loading?: boolean;
 }
 
 const DEFAULT_COLORS = [
@@ -62,21 +75,6 @@ const DEFAULT_COLORS = [
   '#2f54eb',
   '#a0d911',
 ];
-
-/**
- * Legend 渲染规则（对齐 Grafana）：
- * - `template` 非空：含 `{{ label }}` 就展开标签值，否则原样输出（**字面 legend 不再回退到 labels**）。
- * - `template` 为空：才回退到常见标签 instance / pod / node / namespace，最后再到 `fallback`。
- */
-function legendNameFromLabels(template: string | undefined, labels: Record<string, string>, fallback: string): string {
-  if (!template) {
-    return labels.instance || labels.pod || labels.node || labels.namespace || fallback;
-  }
-  if (template.includes('{{')) {
-    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, name) => labels[name] ?? '');
-  }
-  return template;
-}
 
 interface FlatSeries {
   name: string;
@@ -100,6 +98,8 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
   secondaryUnit,
   secondaryYMin,
   secondaryYMax,
+  legendNameResolver,
+  loading = false,
 }) => {
   /** 把所有 series 展开到一个数组，便于 ECharts 合并 */
   const flatSeries = useMemo<FlatSeries[]>(() => {
@@ -108,7 +108,10 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
       const axis: 0 | 1 = g.yAxisIndex === 1 ? 1 : 0;
       g.data.forEach((s, si) => {
         const fallback = g.data.length === 1 ? g.name : `${g.name} #${si + 1}`;
-        const seriesName = legendNameFromLabels(g.name, s.metric, fallback);
+        const labels = s.metric ?? {};
+        const seriesName = legendNameResolver
+          ? legendNameResolver(g.name, labels, fallback)
+          : legendNameFromLabels(g.name, labels, fallback);
         arr.push({
           name: seriesName,
           data: s.values,
@@ -118,7 +121,7 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
       });
     });
     return arr;
-  }, [groups]);
+  }, [groups, legendNameResolver]);
 
   const leftValues = useMemo(
     () => flatSeries.filter((s) => s.yAxisIndex === 0).flatMap((s) => s.data.map((d) => d[1] || 0)),
@@ -157,7 +160,7 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
 
     return {
       animation: false,
-      grid: { left: 56, right: rightYAxis ? 56 : 16, top: showLegend ? 32 : 12, bottom: 32 },
+      grid: { left: 8, right: rightYAxis ? 8 : 8, top: showLegend ? 32 : 12, bottom: 28, containLabel: true },
       legend: showLegend
         ? {
             type: 'scroll',
@@ -170,8 +173,9 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
         : { show: false },
       tooltip: {
         trigger: 'axis',
-        confine: true,
+        /** 挂到 body 且不限于图表/plot 区域，多 series 时可溢出 panel 展示完整内容 */
         appendToBody: true,
+        confine: false,
         formatter: (params: any) => {
           const list = Array.isArray(params) ? params : [params];
           if (list.length === 0) return '';
@@ -181,8 +185,13 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
           const lines = list.map((p: any) => {
             const idx = Number(p.seriesIndex);
             const fs = flatSeries[idx];
-            const sc = fs?.yAxisIndex === 1 && rightScale ? rightScale : leftScale;
-            return `${p.marker} ${p.seriesName}: ${Number(p.value?.[1] ?? 0).toFixed(2)}${sc.unit ? ` ${sc.unit}` : ''}`;
+            const useRight = fs?.yAxisIndex === 1 && rightScale;
+            const sc = useRight ? rightScale! : leftScale;
+            const unitKind = useRight && secondaryUnit ? secondaryUnit : unit;
+            const scaled = Number(p.value?.[1] ?? 0);
+            const raw = scaled * sc.divider;
+            const { text } = formatValue(raw, unitKind);
+            return `${p.marker} ${p.seriesName}: ${text}`;
           });
           return [label, ...lines].join('<br/>');
         },
@@ -213,13 +222,14 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
           smooth: !step,
           step: step ? ('end' as const) : false,
           symbol: 'none',
-          sampling: 'lttb',
           lineStyle: { width: 1.5 },
           itemStyle: { color: s.color },
           areaStyle: area ? { opacity: 0.12 } : undefined,
           yAxisIndex: s.yAxisIndex,
           stack: stack ? (s.yAxisIndex === 1 ? 'right' : 'left') : undefined,
-          data: s.data.map(([ts, v]) => [ts, v / divider] as [number, number]),
+          data: s.data
+            .filter(([ts]) => (min == null || ts >= min) && (max == null || ts <= max))
+            .map(([ts, v]) => [ts, v / divider] as [number, number]),
         };
       }),
     };
@@ -237,9 +247,46 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
     area,
     showLegend,
     stack,
+    unit,
+    secondaryUnit,
   ]);
 
-  return <ReactECharts option={option} style={{ height, width: '100%' }} notMerge lazyUpdate />;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ReactEChartsCore>(null);
+
+  const resizeChart = useCallback(() => {
+    chartRef.current?.getEchartsInstance()?.resize();
+  }, []);
+
+  const { onChartReady: onChartLoadingReady } = useEChartsLoading(chartRef, loading);
+
+  const handleChartReady = useCallback(() => {
+    resizeChart();
+    onChartLoadingReady();
+  }, [resizeChart, onChartLoadingReady]);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      resizeChart();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [resizeChart]);
+
+  return (
+    <div ref={wrapRef} style={{ width: '100%', minWidth: 0, height }}>
+      <ReactECharts
+        ref={chartRef}
+        option={option}
+        style={{ height: '100%', width: '100%' }}
+        notMerge
+        lazyUpdate
+        onChartReady={handleChartReady}
+      />
+    </div>
+  );
 };
 
 export default MetricTimeSeriesChart;

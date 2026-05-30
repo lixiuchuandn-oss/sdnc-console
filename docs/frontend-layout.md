@@ -146,7 +146,7 @@
 | `components/` | 域内 | 域内复用块（非全站级） |
 | `lib/` | 域内 | 导航、格式化、常量（如 `poolDetailNav.ts`、`maasPoolTabs.ts`） |
 
-**全站复用**（跨平台）：`frontend/src/components/`（`CodeEditor`、`MonitoringTooltip`、`PageContainer` 等）。
+**全站复用**（跨平台）：`frontend/src/components/`（`CodeEditor`、`MonitoringPopover`、`PageContainer` 等）。
 
 **禁止**：
 

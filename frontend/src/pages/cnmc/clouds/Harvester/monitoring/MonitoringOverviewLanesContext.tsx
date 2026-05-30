@@ -14,7 +14,7 @@ import {
 import { OVERVIEW_POLL_ERROR_MS, OVERVIEW_POLL_FAST_MS, OVERVIEW_POLL_SLOW_MS } from './lib/overviewPolling';
 
 export interface MonitoringOverviewFastLaneState extends MonitoringOverviewFastLaneData {
-  /** 核心或附加任一进行中（整块快车道维度） */
+  /** 核心或附加任一首次加载中 */
   loading: boolean;
   /** 节点 / 指标 / Longhorn（CPU·内存·主机卡只看此项） */
   coreLoading: boolean;

@@ -61,6 +61,24 @@ export interface UsePromQueriesResult {
   error?: string;
   /** 以 query.key 为键 */
   results: Record<string, PromQueryResult>;
+  /** 当前 results 对应的 query_range 窗口；刷新完成前保持上一轮，避免 X 轴与数据错位 */
+  fetchedWindow: PromQueryTimeWindow | null;
+}
+
+export interface PromQueryTimeWindow {
+  /** Unix 秒 */
+  start: number;
+  /** Unix 秒 */
+  end: number;
+}
+
+/** 图表 X 轴与已成功拉取的数据窗口对齐；首次加载前回退到 resolved */
+export function resolveChartTimeBoundsMs(
+  resolved: { start: number; end: number },
+  fetchedWindow: PromQueryTimeWindow | null,
+): { chartMin: number; chartMax: number } {
+  const window = fetchedWindow ?? resolved;
+  return { chartMin: window.start * 1000, chartMax: window.end * 1000 };
 }
 
 function parseValues(raw: PrometheusQueryRangeResponse | null): PromSeries[] {
@@ -96,6 +114,7 @@ export function usePromQueries({
   const [results, setResults] = useState<Record<string, PromQueryResult>>(EMPTY_RESULTS);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | undefined>();
+  const [fetchedWindow, setFetchedWindow] = useState<PromQueryTimeWindow | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
 
   /** 序列化稳定 key，避免对象引用变化重复请求 */
@@ -107,6 +126,7 @@ export function usePromQueries({
       setResults(EMPTY_RESULTS);
       setLoading(false);
       setError(undefined);
+      setFetchedWindow(null);
       return undefined;
     }
     if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || step <= 0) {
@@ -165,6 +185,7 @@ export function usePromQueries({
       });
       setLoading(false);
       setError(errs.length > 0 ? errs.join('\n') : undefined);
+      setFetchedWindow({ start, end });
     });
 
     return () => {
@@ -174,5 +195,5 @@ export function usePromQueries({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudId, queriesKey, start, end, step, varsKey, reloadToken]);
 
-  return { loading, error, results };
+  return { loading, error, results, fetchedWindow };
 }

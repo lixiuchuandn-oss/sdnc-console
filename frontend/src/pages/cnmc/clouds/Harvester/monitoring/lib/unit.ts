@@ -6,6 +6,7 @@
  * - short：紧凑大数（K、M、G）
  * - duration：秒 → 秒/分/时/天
  * - pps / iops / reqps：原样保留
+ * - count：无量纲计数/指数（如系统负载 load average，与阿里云监控一致，轴上不缀单位）
  * 对应 Grafana 仪表盘里的 unit：`bytes`、`percentunit`、`s`、`pps`、`short` 等。
  */
 export type UnitKind =
@@ -114,7 +115,9 @@ export function formatValue(rawValue: number, kind: UnitKind = 'short'): Formatt
     case 'reqps':
       return { value: v, text: `${fixed(v)} req/s`, unit: 'req/s' };
     case 'count':
-      return { value: v, text: `${Math.round(v)}`, unit: '' };
+      return { value: v, text: `${fixed(v, 2)}`, unit: '' };
+    case 'none':
+      return { value: v, text: `${fixed(v, 2)}`, unit: '' };
     case 'short':
     default: {
       const step = pickStep(v, SHORT_STEPS);
@@ -151,6 +154,10 @@ export function pickSeriesScale(values: number[], kind: UnitKind): { unit: strin
     }
     case 'percent01':
       divider = 0.01;
+      break;
+    case 'none':
+    case 'count':
+      divider = 1;
       break;
     default:
       divider = 1;

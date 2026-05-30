@@ -10,6 +10,7 @@
  */
 import React, { useMemo } from 'react';
 import { Typography } from 'antd';
+import { legendNameFromLabels } from '../lib/legendLabels';
 import { formatValue, type UnitKind } from '../lib/unit';
 import type { PromSeries } from '../hooks/usePromQueries';
 
@@ -30,6 +31,12 @@ export interface MetricBarGaugeProps {
   rowHeight?: number;
   /** 列表区最大高度（超出滚动），默认 280 */
   maxHeight?: number;
+  /** 自定义 legend 名（如将 Prometheus name 映射为云主机名称） */
+  legendNameResolver?: (
+    template: string,
+    labels: Record<string, string>,
+    fallback: string,
+  ) => string;
 }
 
 const DEFAULT_THRESHOLDS: BarGaugeThresholdStep[] = [
@@ -43,16 +50,6 @@ function pickLast(series: PromSeries): number | undefined {
   const last = series.values[series.values.length - 1];
   const v = Number(last?.[1]);
   return Number.isFinite(v) ? v : undefined;
-}
-
-function legendNameFromLabels(template: string | undefined, labels: Record<string, string>, fallback: string): string {
-  if (!template) {
-    return labels.name || labels.instance || labels.pod || labels.namespace || fallback;
-  }
-  if (template.includes('{{')) {
-    return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_m, name) => labels[name] ?? '');
-  }
-  return template;
 }
 
 function pickThresholdColor(percent: number, thresholds: BarGaugeThresholdStep[]): string {
@@ -70,20 +67,26 @@ const MetricBarGauge: React.FC<MetricBarGaugeProps> = ({
   legendTemplate,
   rowHeight = 22,
   maxHeight = 280,
+  legendNameResolver,
 }) => {
   const rows = useMemo(() => {
     const items = series
       .map((s, idx) => {
         const v = pickLast(s);
         const fallback = `series ${idx + 1}`;
+        const labels = s.metric ?? {};
+        const template = legendTemplate ?? '';
+        const name = legendNameResolver
+          ? legendNameResolver(template, labels, fallback)
+          : legendNameFromLabels(legendTemplate, labels, fallback);
         return {
-          name: legendNameFromLabels(legendTemplate, s.metric ?? {}, fallback),
+          name,
           value: Number.isFinite(v as number) ? (v as number) : 0,
         };
       })
       .sort((a, b) => b.value - a.value);
     return items;
-  }, [series, legendTemplate]);
+  }, [series, legendTemplate, legendNameResolver]);
 
   const max = rows[0]?.value ?? 0;
   const labelWidth = useMemo(() => {
