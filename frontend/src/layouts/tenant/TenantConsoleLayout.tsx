@@ -63,12 +63,14 @@ function TenantConsoleLayoutFrame() {
         <Content
           className="tenant-console-content"
           style={{
-            margin: '24px 16px',
+            margin: 16,
             padding: 0,
             minHeight: 280,
             flex: 1,
             minWidth: 0,
-            overflow: 'auto',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
             background: colorBgContainer,
             borderRadius: borderRadiusLG,
           }}

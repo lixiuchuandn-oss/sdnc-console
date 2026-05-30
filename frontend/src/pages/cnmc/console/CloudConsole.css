@@ -1,30 +1,48 @@
 /**
- * 云资源控制台（租户内层）：内层 Layout / Content、顶栏可用区下拉等。
- * 租户侧栏在 TenantConsoleLayout（antd Sider + Menu，无单独样式表）。
+ * 云资源控制台（租户内层）：工作区滚动与占位态。
+ * 外层白底卡片由 TenantConsoleLayout Content 提供，此处不再叠 margin / 灰底 / 内卡片。
  */
 
-/* -------------------------------------------------------------------------- */
-/* Layout shell                                                               */
-/* -------------------------------------------------------------------------- */
-
-.cloud-console-layout.ant-layout {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* 右侧列：灰底由 layout token 铺满，主内容白底由 Content 的 margin 露出灰边 */
-.cloud-console-inner.ant-layout {
+.cloud-console-workspace {
+  box-sizing: border-box;
   flex: 1;
-  min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  background: var(--ant-color-bg-layout);
+  min-width: 0;
+  overflow: auto;
+  background: transparent;
 }
 
-/* -------------------------------------------------------------------------- */
+.cloud-console-panel-root {
+  box-sizing: border-box;
+  min-height: 0;
+  min-width: 0;
+}
+
+.cloud-console-content-placeholder {
+  box-sizing: border-box;
+  padding: 24px;
+}
+
+/* 滚动条 */
+.cloud-console-workspace ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.cloud-console-workspace ::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.cloud-console-workspace ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cloud-console-workspace .vr-table {
+  font-size: 12px;
+}
+
 /* 顶栏可用区：复合框（类 Input prefix + 无框 Select） */
-/* -------------------------------------------------------------------------- */
 
 .cloud-console-header-az-combo {
   display: inline-flex;
@@ -81,90 +99,4 @@
 .cloud-console-header-az-select.ant-select-disabled .ant-select-selector {
   background: transparent !important;
   color: rgba(0, 0, 0, 0.25) !important;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 主内容区：与灰底间距；白底与内边距由 .cloud-console-panel-root             */
-/* -------------------------------------------------------------------------- */
-
-.cloud-console-content-antd.ant-layout-content {
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  overflow: auto;
-  margin: 8px;
-  padding: 0;
-  background: transparent;
-  border-radius: 8px;
-}
-
-.cloud-console-panel-root {
-  box-sizing: border-box;
-  height: 100%;
-  min-height: 0;
-  /* 与 Tabs 同层 flex 链上允许收缩，宽表交由 Table.scroll.x 在容器内横向滚动 */
-  min-width: 0;
-  background: var(--ant-color-bg-container, #fff);
-  padding: 8px;
-}
-
-.cloud-console-panel-root .ant-tabs-content-holder,
-.cloud-console-panel-root .ant-tabs-tabpane {
-  min-width: 0;
-}
-
-.cloud-console-content-placeholder {
-  box-sizing: border-box;
-  padding: 24px 32px;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 滚动条（主内容 + 租户侧栏） */
-/* -------------------------------------------------------------------------- */
-
-.cloud-console-content-antd ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.cloud-console-content-antd ::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 3px;
-}
-
-.cloud-console-content-antd ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 控制台内表格（PageDetailSection 等挂载的 vr-table） */
-/* -------------------------------------------------------------------------- */
-
-.cloud-console-layout .vr-table,
-.cloud-console-content-antd .vr-table {
-  font-size: 12px;
-}
-
-/* -------------------------------------------------------------------------- */
-/* 主面板 Segmented + 下拉合并展示 */
-/* -------------------------------------------------------------------------- */
-
-.cloud-console-main-panel-dropdown-trigger {
-  cursor: pointer;
-  padding: 2px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  color: rgba(0, 0, 0, 0.35);
-  transition: background-color 0.15s ease;
-}
-
-.cloud-console-main-panel-dropdown-trigger .anticon {
-  line-height: 0;
-  display: block;
-}
-
-.cloud-console-main-panel-dropdown-trigger:hover {
-  background: rgba(0, 0, 0, 0.06);
 }
