@@ -123,7 +123,7 @@ export const listHarvesterNADsStandard = async ({
     try {
       json = await getJsonOnce(url, token, insecure, true);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        const _count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
         break;
       }
     } catch (e: any) {
@@ -152,7 +152,7 @@ export const listHarvesterNADsStandard = async ({
         try {
           json = await getJsonOnce(u, token, insecure, true);
           if (json) {
-             const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+             const _count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
              break;
           }
         } catch (e: any) {
@@ -325,7 +325,7 @@ export const listKubeOvnSubnets = async ({
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        const _count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
         break;
       }
     } catch (e: any) {
@@ -401,7 +401,7 @@ export const listKubeOvnVpcs = async ({
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        const _count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
         break;
       }
     } catch (e: any) {

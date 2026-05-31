@@ -4,7 +4,6 @@ import {
   getHarvesterNamespaceRaw,
   isProtectedNamespace,
 } from '../../services/clouds/harvester/client';
-import { listHarvesterPVCRaw } from '../../services/clouds/harvester/storage';
 import { getJsonOnce } from '../../services/clouds/harvester/utils';
 import {
   KUBE_OVN_BUILTIN_VPC_NAMES,

@@ -59,7 +59,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
     }
 
     const items = await repo.find({ where: { cloudId: id } });
-    const list = items.map((i) => i.rawData);
+    const _list = items.map((i) => i.rawData);
 
     let claims: any[] = [];
     try {
@@ -102,7 +102,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
     };
 
     // [修复] 查询所有VM，检查GPU资源的实际使用情况，并记录挂载到的VM信息
-    let vmsUsingGpuResources = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
+    const vmsUsingGpuResources = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
     try {
       const allVms = await listKubevirtVMsRaw({
         endpoint: cloud.endpoint,
@@ -297,7 +297,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
 export async function harvesterGpuClaimListHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
     const items = await listHarvesterPciDeviceClaims({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
@@ -314,7 +314,7 @@ export async function harvesterGpuClaimListHandler(req: Request, res: Response) 
 export async function harvesterGpuClaimDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, name } = req.params;
+    const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
     const data = await deleteHarvesterPciDeviceClaim(
@@ -367,7 +367,7 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
     });
 
     // [修复] 查询所有VM，检查USB资源的实际使用情况
-    let vmsUsingUsbResources = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
+    const vmsUsingUsbResources = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
     const usbResourceNameToName = new Map<string, string>();
     const usbNameToResourceName = new Map<string, string>();
     const dbItemsForMapping = await repo.find({ where: { cloudId: id } });
@@ -541,7 +541,7 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
 export async function harvesterUsbDeviceClaimCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, name } = req.params;
+    const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const reqAny = req as any;
     const userName = String(reqAny?.user?.username || reqAny?.user?.fullName || reqAny?.user?.name || reqAny?.body?.userName || 'admin').trim();
@@ -567,7 +567,7 @@ export async function harvesterUsbDeviceClaimCreateHandler(req: Request, res: Re
 export async function harvesterUsbDeviceClaimDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, name } = req.params;
+    const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const data = await deleteHarvesterUsbDeviceClaim(

@@ -77,7 +77,7 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
     const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
     const reqAny = req as any;
 
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     let tenantNamespace: string | undefined;
     const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';

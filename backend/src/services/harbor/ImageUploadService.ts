@@ -110,7 +110,7 @@ export class ImageUploadService {
 
       // 4. 构建 skopeo 命令
       // 移除 URL 中的协议前缀（如果有）
-      let harborUrl = harbor.url.replace(/^https?:\/\//, '');
+      const harborUrl = harbor.url.replace(/^https?:\/\//, '');
       const targetUrl = `${harborUrl}/${project}/${repository}:${tag}`;
       const creds = `${harbor.username}:${decryptedPassword}`;
 
@@ -173,8 +173,6 @@ export class ImageUploadService {
         errorMessage = '临时文件创建失败';
       } else if (error.message?.includes('manifest unknown')) {
         errorMessage = '镜像格式不正确或不支持';
-      } else if (error.message?.includes('skopeo')) {
-        errorMessage = `镜像推送失败: ${error.message}`;
       }
       
       return {

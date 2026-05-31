@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AppDataSource } from '../../config/database';
-import { NATRule, NATType } from '../../entities/vRouter/NATRule';
+import { NATRule } from '../../entities/vRouter/NATRule';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { vrController } from '../../services/vrouter/vrController';
 
@@ -36,7 +36,7 @@ const saveVRConfigToDB = async (uuid: string, config: any) => {
 
 const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj;
+  const { msg: _msg, code: _code, report_config_status: _report_config_status, updateDate: _updateDate, createDate: _createDate, _id, requestId: _requestId, ...rest } = obj;
   return rest;
 };
 

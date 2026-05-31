@@ -160,7 +160,7 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
 
             if (endpoint && token) {
               for (const ns of namespacesToCreate) {
-                const scenario: 'tenant' = 'tenant';
+                const scenario = 'tenant' as const;
                 const annotations = {
                   'tower.io/tenant': tenantName,
                   'tower.io/organization': organization.name,

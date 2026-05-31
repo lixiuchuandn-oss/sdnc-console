@@ -310,7 +310,7 @@ export function isCephVmBackupResource(item: any): boolean {
 
 export function isCephVmRestoreResource(item: any): boolean {
   const kind = String(item?.kind || '').toLowerCase();
-  const api = String(item?.apiVersion || '').toLowerCase();
+  const _api = String(item?.apiVersion || '').toLowerCase();
   return kind === 'cephvmrestore' || String(item?.metadata?.annotations?.['tower.io/restoreBackend'] || '') === 'ceph';
 }
 

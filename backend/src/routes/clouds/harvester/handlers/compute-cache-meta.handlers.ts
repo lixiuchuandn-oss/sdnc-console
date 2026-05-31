@@ -107,7 +107,7 @@ export async function harvesterSshKeyListHandler(req: Request, res: Response) {
 export async function harvesterSshKeyCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const { namespace, name, publicKey, annotations } = req.body;
     
     const insecure = !!(cloud.config as any)?.ignoreTls;
@@ -172,7 +172,7 @@ export async function harvesterSshKeyCreateHandler(req: Request, res: Response) 
 export async function harvesterSshKeyDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     
     const insecure = !!(cloud.config as any)?.ignoreTls;
     

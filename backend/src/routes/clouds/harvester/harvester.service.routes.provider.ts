@@ -142,7 +142,7 @@ export function registerHarvesterServiceRoutesProvider(
   checkAdminPermission: RequestHandler
 ) {
   // Logging Handlers 映射
-  const loggingHandlers = {
+  const _loggingHandlers = {
     harvester: null as any,
     cloudmap: null as any,
     'cloudmap.private': null as any,

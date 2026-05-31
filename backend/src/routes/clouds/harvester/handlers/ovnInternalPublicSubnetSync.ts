@@ -176,7 +176,7 @@ export async function upsertOvnInternalForPublicSubnet(params: {
     throw new Error(`VPC ${KUBE_OVN_FLAT_VPC} 不存在或无法读取`);
   }
 
-  let extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
+  const extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
     ? [...vpc.spec.extraExternalSubnets]
     : [];
   if (!extra.includes(subnetName)) {
@@ -246,7 +246,7 @@ export async function upsertVpcPolicyDstRouteForExternalSubnet(params: {
     throw new Error(`VPC ${vpcName} 不存在或无法读取`);
   }
 
-  let extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
+  const extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
     ? [...vpc.spec.extraExternalSubnets]
     : [];
   if (!extra.includes(externalSubnetName)) {

@@ -79,8 +79,8 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
       return prefixBlacklist.some((p) => ns.startsWith(p));
     };
 
-    let vmWhere: any = { cloudId: id };
-    let vmiWhere: any = { cloudId: id };
+    const vmWhere: any = { cloudId: id };
+    const vmiWhere: any = { cloudId: id };
     let validNamespaces: string[] | null = null;
 
     const reqAny = req as any;

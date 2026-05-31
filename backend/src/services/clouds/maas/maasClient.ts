@@ -384,7 +384,7 @@ export async function listMaasSubnets(ctx: MaasHttpContext): Promise<{
   };
 }
 
-function machineStatusCode(m: Record<string, unknown>): number | null {
+function _machineStatusCode(m: Record<string, unknown>): number | null {
   const s = m.status;
   if (typeof s === 'number') return s;
   if (typeof s === 'string' && /^\d+$/.test(s)) return Number(s);

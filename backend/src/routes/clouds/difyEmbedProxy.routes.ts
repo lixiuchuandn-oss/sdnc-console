@@ -5,7 +5,6 @@ import { Cloud } from '../../entities/Cloud';
 import type { AuthRequest } from '../../middleware/auth';
 import { logger } from '../../utils/logger';
 import {
-  buildDifyEmbedProxyPrefix,
   getTowerPublicOrigin,
   resolveDifyConsoleForCloud,
 } from '../../services/clouds/dify/difyPoolConsole';

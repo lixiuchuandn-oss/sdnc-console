@@ -30,7 +30,7 @@ import {
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
 } from '../../../../services/clouds/harvester/client';
-import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
+import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 export async function harvesterVolumeListHandler(req: Request, res: Response) {
   try {
@@ -40,7 +40,7 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
     const reqAny = req as any;
 
     const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';
     const isTenant = isTenantUser || isTenantRole;
@@ -349,7 +349,7 @@ export async function harvesterVolumeCreateHandler(req: Request, res: Response) 
 export async function harvesterVolumeDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
     const data = await deleteHarvesterPVC(
@@ -439,7 +439,7 @@ export async function harvesterLonghornVolumeDeleteHandler(req: Request, res: Re
 export async function harvesterVolumeUpdateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const { sizeGi, size, accessModes, volumeMode, storageClassName, annotations, labels } =
       (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
@@ -522,7 +522,7 @@ export async function harvesterVolumeUpdateHandler(req: Request, res: Response) 
 export async function harvesterVolumeCloneHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const {
       targetNamespace,
       newName,
@@ -572,7 +572,7 @@ export async function harvesterVolumeCloneHandler(req: Request, res: Response) {
 export async function harvesterVolumeExportImageHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const { displayName, targetStorageClassName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
@@ -651,7 +651,7 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
 export async function harvesterVolumeSnapshotCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const { name, snapshotClassName, alias } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
@@ -732,7 +732,7 @@ export async function harvesterVolumeSnapshotCreateHandler(req: Request, res: Re
 export async function harvesterVmAddVolumeHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, instanceId } = req.params;
+    const { id: _id, instanceId } = req.params;
     const { name, bus, pvcNamespace, pvcName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
@@ -754,7 +754,7 @@ export async function harvesterVmAddVolumeHandler(req: Request, res: Response) {
 export async function harvesterVmAddVolumeDirectHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const { diskName, bus, pvcNamespace, pvcName, name: bodyName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     
@@ -777,7 +777,7 @@ export async function harvesterVmAddVolumeDirectHandler(req: Request, res: Respo
 export async function harvesterVmRemoveVolumeHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, instanceId } = req.params;
+    const { id: _id, instanceId } = req.params;
     const { name } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     

@@ -7,7 +7,7 @@
  */
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import https from 'https';
-import { HarborRegistry, HarborStatus } from '../../entities/harbor/HarborRegistry';
+import { HarborRegistry } from '../../entities/harbor/HarborRegistry';
 import { logger } from '../../utils/logger';
 
 const harborLog = logger.child('HarborProxy');

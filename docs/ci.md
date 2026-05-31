@@ -67,7 +67,7 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
 
 | 项 | 现状 | 后续 |
 |----|------|------|
-| 后端 ESLint warning | CI 允许（仅 error 失败） | 逐步清零后改为 `--max-warnings=0` |
+| 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致） | 保持为零；新增 warning 将失败 CI |
 | Prettier | 仅 pre-commit lint-staged | 可选加 `prettier --check` job |
 | E2E / 冒烟 | 无 | 关键路径另线补充 |
 

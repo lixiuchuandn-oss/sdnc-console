@@ -250,7 +250,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
  * 注意：不再硬编码 API 路径，改为完全依赖路径推断机制
  * 路径推断在 registry.ts 的 resolveFromApi 中实现
  */
-function generateApiPatterns(permissionId: string): Array<{ method: string; pathPattern: string }> {
+function _generateApiPatterns(_permissionId: string): Array<{ method: string; pathPattern: string }> {
   // 不再硬编码，完全依赖路径推断
   return [];
 }

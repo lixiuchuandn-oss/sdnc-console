@@ -33,7 +33,6 @@ import {
   DINGTALK_RECEIVER,
   WEBSITE_RECEIVER,
   DINGTALK_WEBHOOK_BASE,
-  isUnreachableError,
   requireTenantAccessForMonitoring,
   parseQueryArray,
   removeDingtalkConfigMapTarget,

@@ -155,7 +155,7 @@ export async function harvesterNadDetailHandler(req: Request, res: Response) {
 export async function harvesterNadCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const namespace = req.body.namespace || req.body.metadata?.namespace;
 
     if (!namespace) {

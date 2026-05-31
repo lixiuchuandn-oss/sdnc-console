@@ -24,7 +24,6 @@ import {
   syncHarvesterCloudInits,
   syncHarvesterLoadBalancerIPPools,
   syncHarvesterPciDevices,
-  syncHarvesterCapabilities,
   syncHarvesterServices,
   syncKubeOvnEips,
   syncKubeOvnFips,

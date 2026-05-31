@@ -9,7 +9,6 @@ import { PrometheusRulesGroup } from '../../../../entities/monitoring/Prometheus
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import { ensureProvider, normalizeOrigin } from './monitoring-helpers';
 import {
-  PAGESIZE,
   EXCLUDE,
   ALERTMANAGER_PATH,
   ANNOTATION_ALIAS,
@@ -18,14 +17,13 @@ import {
   isUnreachableError,
   isWebsiteReceiverInMonitoringNs,
   getTenantAccessForMonitoring,
-  extractAlertNamesFromSpec,
 } from './monitoring-helpers';
 
 const PROMETHEUSRULES_PATH = 'v1/harvester/monitoring.coreos.com.prometheusrules';
 const PROMETHEUSRULES_EXCLUDE =
   'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&labelSelector=app.kubernetes.io/rule-type=custom-rules';
 const MONITORING_PROMETHEUS_CANDIDATE_PATHS = ['v1/harvester/monitoring.coreos.com.prometheuses'];
-const MONITORING_ALERTMANAGER_CANDIDATE_PATHS = ['v1/harvester/monitoring.coreos.com.alertmanagers'];
+const _MONITORING_ALERTMANAGER_CANDIDATE_PATHS = ['v1/harvester/monitoring.coreos.com.alertmanagers'];
 const MONITORING_SERVICE_MONITOR_PATH = 'v1/harvester/monitoring.coreos.com.servicemonitors';
 const MONITORING_POD_MONITOR_PATH = 'v1/harvester/monitoring.coreos.com.podmonitors';
 const MONITORING_POD_CANDIDATE_PATHS = ['v1/harvester/core.pods', 'v1/harvester/core.v1.pods'];
@@ -262,7 +260,7 @@ export async function harvesterMonitoringPrometheusRulesHandler(req: Request, re
 
     try {
       const repo = AppDataSource.getRepository(PrometheusRulesGroup);
-      let row = await repo.findOne({ where: { cloudId: id } });
+      const row = await repo.findOne({ where: { cloudId: id } });
       if (row) {
         row.data = JSON.stringify(rulesGroupMap);
         await repo.save(row);
@@ -373,7 +371,7 @@ export async function harvesterMonitoringPrometheusRuleUpdateHandler(req: Reques
       ).trim();
       if (groupAliasName) {
         const repo = AppDataSource.getRepository(PrometheusRulesGroup);
-        let row = await repo.findOne({ where: { cloudId: id } });
+        const row = await repo.findOne({ where: { cloudId: id } });
         const rulesGroupMap: Record<string, string> = row?.data ? JSON.parse(row.data) : {};
         rulesGroupMap[ruleName] = groupAliasName;
         if (row) {
@@ -420,7 +418,7 @@ export async function harvesterMonitoringPrometheusRulesGroupsHandler(req: Reque
 
 export async function harvesterMonitoringVmCustomRulesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 

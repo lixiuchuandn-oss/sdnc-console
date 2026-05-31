@@ -24,11 +24,11 @@
  * - networking.k8s.io/v1: Ingress
  * ==============================================================================
  */
-import { Router, Response, json } from 'express';
+import { Router, Response } from 'express';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { getJsonOnce, requestJson } from '../../../services/clouds/harvester/utils';
 import { syncHarvesterServices, syncHarvesterIngresses } from '../../../services/clouds/harvester/inventory';
-import { isSystemNamespaceName, isSystemResource } from '../../../services/clouds/harvester/namespace';
+import { isSystemResource } from '../../../services/clouds/harvester/namespace';
 
 /**
  * [内存缓存] 简单的 TTL 缓存，用于优化 Secret 等资源的查询性能
@@ -4690,7 +4690,7 @@ export const registerHarvesterContainerRoutes = (
 };
 
 // 辅助函数：带额外 headers 的请求
-async function requestJsonWithHeaders(
+async function _requestJsonWithHeaders(
   method: string,
   url: string,
   token: string,

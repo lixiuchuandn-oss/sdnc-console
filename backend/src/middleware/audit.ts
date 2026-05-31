@@ -45,7 +45,7 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
 
     // 1. Harvester VM Lifecycle Actions (Start, Stop, Reboot, etc.)
     // Pattern: /api/clouds/:cloudId/resources/ecs/:instanceId/:action
-    const vmActionRegex = /\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/;
+    const vmActionRegex = /\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/;
     const vmActionMatch = path.match(vmActionRegex);
     if (vmActionMatch && method === 'POST') {
       action = `${vmActionMatch[2].toUpperCase()}_VM`;
@@ -53,28 +53,28 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
       resourceId = vmActionMatch[1];
     } 
     // 2. VM Volume Attach/Detach
-    else if (path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)\/volumes\/(attach|detach)/) && method === 'POST') {
-      const match = path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)\/volumes\/(attach|detach)/)!;
+    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/volumes\/(attach|detach)/) && method === 'POST') {
+      const match = path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/volumes\/(attach|detach)/)!;
       action = `${match[2].toUpperCase()}_VOLUME_VM`;
       resourceType = 'VM';
       resourceId = match[1];
     }
     // 3. VM Migration Abort
-    else if (path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)\/migrate\/abort/) && method === 'POST') {
-      const match = path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)\/migrate\/abort/)!;
+    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/migrate\/abort/) && method === 'POST') {
+      const match = path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/migrate\/abort/)!;
       action = 'ABORT_MIGRATION_VM';
       resourceType = 'VM';
       resourceId = match[1];
     }
     // 4. VM CRUD (Create, Update, Delete)
-    else if (path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)$/)) {
-      const match = path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs\/([^\/]+)$/)!;
+    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)$/)) {
+      const match = path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)$/)!;
       resourceType = 'VM';
       resourceId = match[1];
       if (method === 'DELETE') action = 'DELETE_VM';
       else if (method === 'PUT') action = 'UPDATE_VM';
     }
-    else if (path.match(/\/api\/clouds\/[^\/]+\/resources\/ecs$/) && method === 'POST') {
+    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs$/) && method === 'POST') {
       action = 'CREATE_VM';
       resourceType = 'VM';
     }

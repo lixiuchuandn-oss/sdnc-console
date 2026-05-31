@@ -18,7 +18,6 @@ import {
   listCsmVRPageList,
   createCsmServiceChainRawBody,
   getCsmPoolInfo,
-  csmSsoLogin,
   csmAdminLogin,
   csmRequest,
   csmPreAuthLogin,
@@ -378,7 +377,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
           ignoreTls: !!(cloud as any)?.config?.ignoreTls,
         };
 
-        const queryObj: any = {};
+        const _queryObj: any = {};
         // Add any specific query params for hosts if needed
 
         const items = await listCsmHosts(config);
@@ -658,7 +657,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       const loginU = username;
       const loginP = String(passwordRaw || 'cloudmap').trim();
       const loginPath = '/user/customUser';
-      const loginReq = {
+      const _loginReq = {
         method: 'POST',
         path: loginPath,
         webPort,
@@ -670,7 +669,7 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       } catch (e) {
         csmHttpLog.warn('SSO pre-login failed', errBrief(e));
       }
-      const loginResp = {
+      const _loginResp = {
         cookie: loginCookie,
         message: loginCookie ? 'Login success' : 'Login failed',
       };
