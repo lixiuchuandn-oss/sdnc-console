@@ -6,13 +6,13 @@
 
 ## 阶段总览
 
-| 阶段   | 目标                                  | 状态                                                                            |
-| ------ | ------------------------------------- | ------------------------------------------------------------------------------- |
-| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                  |
-| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                  |
-| **P2** | 巨型文件按主题拆分                    | 待排期                                                                          |
+| 阶段   | 目标                                  | 状态                                                                              |
+| ------ | ------------------------------------- | --------------------------------------------------------------------------------- |
+| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                    |
+| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                    |
+| **P2** | 巨型文件按主题拆分                    | 待排期                                                                            |
 | **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 RoutePanel 改为 `React.lazy`（见 `lazyPoolPanels.tsx`） |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：`backend/src` + `docs/` 已格式化并 CI；`frontend/src` 与 E2E 待办 |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：`backend/src` + `docs/` 已格式化并 CI；`frontend/src` 与 E2E 待办   |
 
 ### Prettier 范围说明
 
