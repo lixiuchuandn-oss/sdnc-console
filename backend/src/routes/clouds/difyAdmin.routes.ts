@@ -72,10 +72,14 @@ export function attachDifyAdminRoutes(router: Router, perm: RequestHandler): voi
     }
   });
 
-  router.post('/:id/xinference/dify/admin-logout', perm, async (req: AuthRequest, res: Response) => {
-    const cloud = await fetchEdgePoolOr404(req.params.id, res);
-    if (!cloud) return;
-    clearDifyAdminSession(cloud.id);
-    res.json({ ok: true });
-  });
+  router.post(
+    '/:id/xinference/dify/admin-logout',
+    perm,
+    async (req: AuthRequest, res: Response) => {
+      const cloud = await fetchEdgePoolOr404(req.params.id, res);
+      if (!cloud) return;
+      clearDifyAdminSession(cloud.id);
+      res.json({ ok: true });
+    },
+  );
 }

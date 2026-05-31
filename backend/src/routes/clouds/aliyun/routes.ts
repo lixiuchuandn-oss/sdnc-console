@@ -1,7 +1,13 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../../config/database';
 import { Cloud } from '../../../entities/Cloud';
-import { callAliyunEcs, callAliyunVpc, callAliyunCms, callAliyunSlb, callAliyunRds } from '../../../services/clouds/aliyun/client';
+import {
+  callAliyunEcs,
+  callAliyunVpc,
+  callAliyunCms,
+  callAliyunSlb,
+  callAliyunRds,
+} from '../../../services/clouds/aliyun/client';
 
 const fetchCloudOr404 = async (id: string, res: Response) => {
   const repo = AppDataSource.getRepository(Cloud);
@@ -1272,7 +1278,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
             extraParams[`EgressAclEntries.${n}.NetworkAclEntryName`] = e?.name || '';
             extraParams[`EgressAclEntries.${n}.Policy`] = e?.policy || 'accept';
             extraParams[`EgressAclEntries.${n}.Protocol`] = e?.protocol || 'all';
-            extraParams[`EgressAclEntries.${n}.DestinationCidrIp`] = e?.destinationCidrIp || '0.0.0.0/0';
+            extraParams[`EgressAclEntries.${n}.DestinationCidrIp`] =
+              e?.destinationCidrIp || '0.0.0.0/0';
             extraParams[`EgressAclEntries.${n}.Port`] = e?.port || '-1/-1';
             if (e?.description) extraParams[`EgressAclEntries.${n}.Description`] = e.description;
           });
@@ -1379,13 +1386,14 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey)
           return res.status(400).json({ message: '本期仅支持阿里云资源查询' });
         const all = await aggregatePaged(
-          (extra) => callAliyunVpc({
-            accessKeyId: cloud.accessKey,
-            accessKeySecret: cloud.secretKey,
-            regionId: cloud.region,
-            action: 'DescribeEipAddresses',
-            extraParams: extra,
-          } as any),
+          (extra) =>
+            callAliyunVpc({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: cloud.region,
+              action: 'DescribeEipAddresses',
+              extraParams: extra,
+            } as any),
           (resp) => resp?.EipAddresses?.EipAddress || resp?.data?.EipAddresses?.EipAddress,
         );
         const data = { EipAddresses: { EipAddress: all } };
@@ -1631,7 +1639,10 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         const arr = Array.isArray(servers) ? servers : [];
         if (arr.length === 0) return res.status(400).json({ message: '缺少后端服务器列表' });
-        const backend = arr.map((s: any) => ({ ServerId: s?.serverId, Weight: String(s?.weight ?? 100) }));
+        const backend = arr.map((s: any) => ({
+          ServerId: s?.serverId,
+          Weight: String(s?.weight ?? 100),
+        }));
         const result = await callAliyunSlb({
           accessKeyId: cloud.accessKey,
           accessKeySecret: cloud.secretKey,
@@ -1698,7 +1709,10 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         };
         const action = actionMap[String(op)];
         if (!action) return res.status(400).json({ message: '不支持的操作' });
-        const extraParams: Record<string, any> = { LoadBalancerId: lbId, ListenerPort: Number(port) };
+        const extraParams: Record<string, any> = {
+          LoadBalancerId: lbId,
+          ListenerPort: Number(port),
+        };
         if (protocol) extraParams.ListenerProtocol = protocol;
         const result = await callAliyunSlb({
           accessKeyId: cloud.accessKey,
@@ -1795,7 +1809,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         const protocol = String(b.protocol || '').toLowerCase();
         const listenerPort = Number(b.listenerPort);
         const backendServerPort = Number(b.backendServerPort || b.listenerPort);
-        if (!protocol || !listenerPort) return res.status(400).json({ message: '缺少 protocol 或 listenerPort' });
+        if (!protocol || !listenerPort)
+          return res.status(400).json({ message: '缺少 protocol 或 listenerPort' });
         const actionMap: Record<string, string> = {
           tcp: 'CreateLoadBalancerTCPListener',
           udp: 'CreateLoadBalancerUDPListener',
@@ -1815,7 +1830,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
           extraParams.HealthCheck = b.healthCheck || 'on';
         }
         if (protocol === 'https') {
-          if (!b.serverCertificateId) return res.status(400).json({ message: 'HTTPS 监听器需 serverCertificateId' });
+          if (!b.serverCertificateId)
+            return res.status(400).json({ message: 'HTTPS 监听器需 serverCertificateId' });
           extraParams.ServerCertificateId = b.serverCertificateId;
         }
         await callAliyunSlb({
@@ -1831,7 +1847,11 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
           accessKeySecret: cloud.secretKey,
           regionId: cloud.region,
           action: 'StartLoadBalancerListener',
-          extraParams: { LoadBalancerId: lbId, ListenerPort: listenerPort, ListenerProtocol: protocol },
+          extraParams: {
+            LoadBalancerId: lbId,
+            ListenerPort: listenerPort,
+            ListenerProtocol: protocol,
+          },
         } as any).catch(() => undefined);
         res.json({ message: '创建监听器成功' });
       } catch (error: any) {
@@ -1884,7 +1904,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         const arr = Array.isArray(rules) ? rules : [];
-        if (!listenerPort || arr.length === 0) return res.status(400).json({ message: '缺少 listenerPort 或规则列表' });
+        if (!listenerPort || arr.length === 0)
+          return res.status(400).json({ message: '缺少 listenerPort 或规则列表' });
         const ruleList = arr.map((r: any) => ({
           RuleName: r?.ruleName,
           Domain: r?.domain,
@@ -1896,7 +1917,11 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
           accessKeySecret: cloud.secretKey,
           regionId: cloud.region,
           action: 'CreateRules',
-          extraParams: { LoadBalancerId: lbId, ListenerPort: Number(listenerPort), RuleList: JSON.stringify(ruleList) },
+          extraParams: {
+            LoadBalancerId: lbId,
+            ListenerPort: Number(listenerPort),
+            RuleList: JSON.stringify(ruleList),
+          },
         } as any);
         res.json({ message: '创建成功', data: result });
       } catch (error: any) {
@@ -1976,8 +2001,12 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!serverCertificate || !privateKey) return res.status(400).json({ message: '缺少证书内容或私钥' });
-        const extraParams: Record<string, any> = { ServerCertificate: serverCertificate, PrivateKey: privateKey };
+        if (!serverCertificate || !privateKey)
+          return res.status(400).json({ message: '缺少证书内容或私钥' });
+        const extraParams: Record<string, any> = {
+          ServerCertificate: serverCertificate,
+          PrivateKey: privateKey,
+        };
         if (name) extraParams.ServerCertificateName = name;
         const result = await callAliyunSlb({
           accessKeyId: cloud.accessKey,
@@ -2117,7 +2146,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { snatTableId, snatIp, sourceVSwitchId, sourceCIDR, snatEntryName } = (req.body || {}) as any;
+        const { snatTableId, snatIp, sourceVSwitchId, sourceCIDR, snatEntryName } = (req.body ||
+          {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isAliyun(cloud)) return next();
@@ -2157,7 +2187,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!snatTableId || !snatEntryId) return res.status(400).json({ message: '缺少 snatTableId 或 snatEntryId' });
+        if (!snatTableId || !snatEntryId)
+          return res.status(400).json({ message: '缺少 snatTableId 或 snatEntryId' });
         const result = await callAliyunVpc({
           accessKeyId: cloud.accessKey,
           accessKeySecret: cloud.secretKey,
@@ -2209,7 +2240,15 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { forwardTableId, externalIp, externalPort, internalIp, internalPort, ipProtocol, forwardEntryName } = (req.body || {}) as any;
+        const {
+          forwardTableId,
+          externalIp,
+          externalPort,
+          internalIp,
+          internalPort,
+          ipProtocol,
+          forwardEntryName,
+        } = (req.body || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isAliyun(cloud)) return next();
@@ -2254,7 +2293,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!forwardTableId || !forwardEntryId) return res.status(400).json({ message: '缺少 forwardTableId 或 forwardEntryId' });
+        if (!forwardTableId || !forwardEntryId)
+          return res.status(400).json({ message: '缺少 forwardTableId 或 forwardEntryId' });
         const result = await callAliyunVpc({
           accessKeyId: cloud.accessKey,
           accessKeySecret: cloud.secretKey,
@@ -2343,7 +2383,11 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
           accessKeySecret: cloud.secretKey,
           regionId: cloud.region,
           action: 'DescribeVpnConnections',
-          extraParams: { PageNumber: 1, PageSize: 50, ...(vpnGatewayId ? { VpnGatewayId: vpnGatewayId } : {}) },
+          extraParams: {
+            PageNumber: 1,
+            PageSize: 50,
+            ...(vpnGatewayId ? { VpnGatewayId: vpnGatewayId } : {}),
+          },
         } as any);
         res.json({ message: '查询成功', data });
       } catch (error: any) {
@@ -2388,7 +2432,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { vpcId, vSwitchId, name, bandwidth, instanceChargeType, vpnType, enableIpsec } = (req.body || {}) as any;
+        const { vpcId, vSwitchId, name, bandwidth, instanceChargeType, vpnType, enableIpsec } =
+          (req.body || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isAliyun(cloud)) return next();
@@ -2513,14 +2558,17 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { vpnGatewayId, customerGatewayId, name, localSubnet, remoteSubnet } = (req.body || {}) as any;
+        const { vpnGatewayId, customerGatewayId, name, localSubnet, remoteSubnet } = (req.body ||
+          {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!vpnGatewayId || !customerGatewayId || !localSubnet || !remoteSubnet)
-          return res.status(400).json({ message: '缺少 vpnGatewayId / customerGatewayId / localSubnet / remoteSubnet' });
+          return res.status(400).json({
+            message: '缺少 vpnGatewayId / customerGatewayId / localSubnet / remoteSubnet',
+          });
         const extraParams: Record<string, any> = {
           VpnGatewayId: vpnGatewayId,
           CustomerGatewayId: customerGatewayId,
@@ -3076,13 +3124,14 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         const all = await aggregatePaged(
-          (extra) => callAliyunRds({
-            accessKeyId: cloud.accessKey,
-            accessKeySecret: cloud.secretKey,
-            regionId: cloud.region,
-            action: 'DescribeDBInstances',
-            extraParams: extra,
-          } as any),
+          (extra) =>
+            callAliyunRds({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: cloud.region,
+              action: 'DescribeDBInstances',
+              extraParams: extra,
+            } as any),
           (resp) => resp?.Items?.DBInstance || resp?.data?.Items?.DBInstance,
         );
         const data = { Items: { DBInstance: all } };
@@ -3134,7 +3183,9 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!b.engine || !b.engineVersion || !b.dbInstanceClass || !b.dbInstanceStorage)
-          return res.status(400).json({ message: '缺少必要参数：engine / engineVersion / dbInstanceClass / dbInstanceStorage' });
+          return res.status(400).json({
+            message: '缺少必要参数：engine / engineVersion / dbInstanceClass / dbInstanceStorage',
+          });
         const extraParams: Record<string, any> = {
           Engine: b.engine,
           EngineVersion: b.engineVersion,
@@ -3257,14 +3308,20 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id, dbInstanceId } = req.params;
-        const { accountName, accountPassword, accountType, accountDescription } = (req.body || {}) as any;
+        const { accountName, accountPassword, accountType, accountDescription } = (req.body ||
+          {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!accountName || !accountPassword) return res.status(400).json({ message: '缺少 accountName 或 accountPassword' });
-        const extraParams: Record<string, any> = { DBInstanceId: dbInstanceId, AccountName: accountName, AccountPassword: accountPassword };
+        if (!accountName || !accountPassword)
+          return res.status(400).json({ message: '缺少 accountName 或 accountPassword' });
+        const extraParams: Record<string, any> = {
+          DBInstanceId: dbInstanceId,
+          AccountName: accountName,
+          AccountPassword: accountPassword,
+        };
         if (accountType) extraParams.AccountType = accountType;
         if (accountDescription) extraParams.AccountDescription = accountDescription;
         const data = await rdsAction(cloud, 'CreateAccount', extraParams);
@@ -3288,7 +3345,10 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await rdsAction(cloud, 'DeleteAccount', { DBInstanceId: dbInstanceId, AccountName: accountName });
+        const data = await rdsAction(cloud, 'DeleteAccount', {
+          DBInstanceId: dbInstanceId,
+          AccountName: accountName,
+        });
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3311,7 +3371,11 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!accountPassword) return res.status(400).json({ message: '缺少新密码' });
-        const data = await rdsAction(cloud, 'ResetAccountPassword', { DBInstanceId: dbInstanceId, AccountName: accountName, AccountPassword: accountPassword });
+        const data = await rdsAction(cloud, 'ResetAccountPassword', {
+          DBInstanceId: dbInstanceId,
+          AccountName: accountName,
+          AccountPassword: accountPassword,
+        });
         res.json({ message: '重置成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3355,7 +3419,11 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!dbName) return res.status(400).json({ message: '缺少 dbName' });
-        const extraParams: Record<string, any> = { DBInstanceId: dbInstanceId, DBName: dbName, CharacterSetName: characterSetName || 'utf8' };
+        const extraParams: Record<string, any> = {
+          DBInstanceId: dbInstanceId,
+          DBName: dbName,
+          CharacterSetName: characterSetName || 'utf8',
+        };
         if (dbDescription) extraParams.DBDescription = dbDescription;
         const data = await rdsAction(cloud, 'CreateDatabase', extraParams);
         res.json({ message: '创建成功', data });
@@ -3378,7 +3446,10 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await rdsAction(cloud, 'DeleteDatabase', { DBInstanceId: dbInstanceId, DBName: dbName });
+        const data = await rdsAction(cloud, 'DeleteDatabase', {
+          DBInstanceId: dbInstanceId,
+          DBName: dbName,
+        });
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3399,7 +3470,9 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await rdsAction(cloud, 'DescribeDBInstanceIPArrayList', { DBInstanceId: dbInstanceId });
+        const data = await rdsAction(cloud, 'DescribeDBInstanceIPArrayList', {
+          DBInstanceId: dbInstanceId,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3422,7 +3495,10 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!securityIps) return res.status(400).json({ message: '缺少 securityIps' });
-        const extraParams: Record<string, any> = { DBInstanceId: dbInstanceId, SecurityIps: securityIps };
+        const extraParams: Record<string, any> = {
+          DBInstanceId: dbInstanceId,
+          SecurityIps: securityIps,
+        };
         if (groupName) extraParams.DBInstanceIPArrayName = groupName;
         const data = await rdsAction(cloud, 'ModifySecurityIps', extraParams);
         res.json({ message: '修改成功', data });
@@ -3446,8 +3522,12 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!dbInstanceClass && !dbInstanceStorage) return res.status(400).json({ message: '请提供目标规格或存储' });
-        const extraParams: Record<string, any> = { DBInstanceId: dbInstanceId, PayType: 'Postpaid' };
+        if (!dbInstanceClass && !dbInstanceStorage)
+          return res.status(400).json({ message: '请提供目标规格或存储' });
+        const extraParams: Record<string, any> = {
+          DBInstanceId: dbInstanceId,
+          PayType: 'Postpaid',
+        };
         if (dbInstanceClass) extraParams.DBInstanceClass = dbInstanceClass;
         if (dbInstanceStorage) extraParams.DBInstanceStorage = Number(dbInstanceStorage);
         const data = await rdsAction(cloud, 'ModifyDBInstanceSpec', extraParams);
@@ -3471,7 +3551,11 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await rdsAction(cloud, 'DescribeBackups', { DBInstanceId: dbInstanceId, PageSize: 30, PageNumber: 1 });
+        const data = await rdsAction(cloud, 'DescribeBackups', {
+          DBInstanceId: dbInstanceId,
+          PageSize: 30,
+          PageNumber: 1,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3513,7 +3597,9 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        const data = await rdsAction(cloud, 'DescribeDBInstanceNetInfo', { DBInstanceId: dbInstanceId });
+        const data = await rdsAction(cloud, 'DescribeDBInstanceNetInfo', {
+          DBInstanceId: dbInstanceId,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -3535,7 +3621,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!connectionStringPrefix) return res.status(400).json({ message: '缺少 connectionStringPrefix' });
+        if (!connectionStringPrefix)
+          return res.status(400).json({ message: '缺少 connectionStringPrefix' });
         const data = await rdsAction(cloud, 'AllocateInstancePublicConnection', {
           DBInstanceId: dbInstanceId,
           ConnectionStringPrefix: connectionStringPrefix,
@@ -3622,9 +3709,12 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!b.ruleName || !b.namespace || !b.metricName || !b.resources)
-          return res.status(400).json({ message: '缺少 ruleName / namespace / metricName / resources' });
+          return res
+            .status(400)
+            .json({ message: '缺少 ruleName / namespace / metricName / resources' });
         const ruleId = b.ruleId || `tower_${Date.now()}`;
-        const resources = typeof b.resources === 'string' ? b.resources : JSON.stringify(b.resources);
+        const resources =
+          typeof b.resources === 'string' ? b.resources : JSON.stringify(b.resources);
         const extraParams: Record<string, any> = {
           RuleId: ruleId,
           RuleName: b.ruleName,
@@ -3695,8 +3785,13 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!isAliyun(cloud)) return next();
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
-        if (!namespace || !metricName) return res.status(400).json({ message: '缺少 namespace 或 metricName' });
-        const extraParams: Record<string, any> = { Namespace: namespace, MetricName: metricName, Length: 100 };
+        if (!namespace || !metricName)
+          return res.status(400).json({ message: '缺少 namespace 或 metricName' });
+        const extraParams: Record<string, any> = {
+          Namespace: namespace,
+          MetricName: metricName,
+          Length: 100,
+        };
         if (dimensions) extraParams.Dimensions = dimensions;
         const data = await callAliyunCms({
           accessKeyId: cloud.accessKey,
@@ -3966,13 +4061,14 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey)
           return res.status(400).json({ message: '缺少阿里云访问密钥' });
         const all = await aggregatePaged(
-          (extra) => callAliyunEcs({
-            accessKeyId: cloud.accessKey,
-            accessKeySecret: cloud.secretKey,
-            regionId: cloud.region,
-            action: 'DescribeSnapshots',
-            extraParams: extra,
-          } as any),
+          (extra) =>
+            callAliyunEcs({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: cloud.region,
+              action: 'DescribeSnapshots',
+              extraParams: extra,
+            } as any),
           (resp) => resp?.Snapshots?.Snapshot || resp?.data?.Snapshots?.Snapshot,
         );
         res.json({ message: '查询成功', data: { Snapshots: { Snapshot: all } } });
@@ -4061,13 +4157,14 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (owner) baseParams.ImageOwnerAlias = owner;
         if (osType) baseParams.OSType = osType;
         const all = await aggregatePaged(
-          (extra) => callAliyunEcs({
-            accessKeyId: cloud.accessKey,
-            accessKeySecret: cloud.secretKey,
-            regionId: cloud.region,
-            action: 'DescribeImages',
-            extraParams: { ...baseParams, ...extra },
-          } as any),
+          (extra) =>
+            callAliyunEcs({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: cloud.region,
+              action: 'DescribeImages',
+              extraParams: { ...baseParams, ...extra },
+            } as any),
           (resp) => resp?.Images?.Image || resp?.data?.Images?.Image,
           Number(pageSize) || 100,
         );
@@ -4210,13 +4307,14 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         const all = await aggregatePaged(
-          (extra) => callAliyunEcs({
-            accessKeyId: cloud.accessKey,
-            accessKeySecret: cloud.secretKey,
-            regionId: cloud.region,
-            action: 'DescribeKeyPairs',
-            extraParams: extra,
-          } as any),
+          (extra) =>
+            callAliyunEcs({
+              accessKeyId: cloud.accessKey,
+              accessKeySecret: cloud.secretKey,
+              regionId: cloud.region,
+              action: 'DescribeKeyPairs',
+              extraParams: extra,
+            } as any),
           (resp) => resp?.KeyPairs?.KeyPair || resp?.data?.KeyPairs?.KeyPair,
         );
         const data = { KeyPairs: { KeyPair: all } };
@@ -4329,7 +4427,9 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !cloud.region)
           return res.status(400).json({ message: '缺少阿里云访问密钥或地域信息' });
         if (!b.imageId || !b.instanceType || !b.securityGroupId || !b.vSwitchId)
-          return res.status(400).json({ message: '缺少必要参数：imageId / instanceType / securityGroupId / vSwitchId' });
+          return res.status(400).json({
+            message: '缺少必要参数：imageId / instanceType / securityGroupId / vSwitchId',
+          });
         const extraParams: Record<string, any> = {
           ImageId: b.imageId,
           InstanceType: b.instanceType,
@@ -4345,7 +4445,8 @@ export const registerAliyunRoutes = (router: Router, checkAdminPermission: any) 
         if (b.keyPairName) extraParams.KeyPairName = b.keyPairName;
         if (b.systemDiskCategory) extraParams['SystemDisk.Category'] = b.systemDiskCategory;
         if (b.systemDiskSize) extraParams['SystemDisk.Size'] = Number(b.systemDiskSize);
-        if (b.internetMaxBandwidthOut != null) extraParams.InternetMaxBandwidthOut = Number(b.internetMaxBandwidthOut);
+        if (b.internetMaxBandwidthOut != null)
+          extraParams.InternetMaxBandwidthOut = Number(b.internetMaxBandwidthOut);
         if (b.internetChargeType) extraParams.InternetChargeType = b.internetChargeType;
         if (String(extraParams.InstanceChargeType) === 'PrePaid' && b.period) {
           extraParams.Period = Number(b.period);

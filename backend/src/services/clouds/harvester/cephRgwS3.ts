@@ -37,7 +37,9 @@ export function assertSafeS3Endpoint(endpoint: string): void {
     const url = new URL(e);
     const host = url.hostname.toLowerCase();
     if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-      throw Object.assign(new Error('禁止将 localhost 作为 RGW endpoint（请使用集群可达地址）'), { status: 400 });
+      throw Object.assign(new Error('禁止将 localhost 作为 RGW endpoint（请使用集群可达地址）'), {
+        status: 400,
+      });
     }
   } catch (err: any) {
     if (err?.status === 400) throw err;
@@ -54,7 +56,10 @@ export type RgwS3GatewayPartial = {
 
 export function parseRgwS3GatewayPartial(body: unknown): RgwS3GatewayPartial {
   const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-  const c = b.connection && typeof b.connection === 'object' ? (b.connection as Record<string, unknown>) : b;
+  const c =
+    b.connection && typeof b.connection === 'object'
+      ? (b.connection as Record<string, unknown>)
+      : b;
   const endpoint = normalizeEndpoint(String(c.endpoint ?? '').trim());
   const region = String(c.region ?? '').trim() || 'us-east-1';
   const forcePathStyle = c.forcePathStyle !== false;
@@ -67,16 +72,22 @@ export function parseRgwS3GatewayPartial(body: unknown): RgwS3GatewayPartial {
 
 export function parseRgwS3Connection(body: unknown): RgwS3ConnectionInput {
   const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-  const c = b.connection && typeof b.connection === 'object' ? (b.connection as Record<string, unknown>) : b;
+  const c =
+    b.connection && typeof b.connection === 'object'
+      ? (b.connection as Record<string, unknown>)
+      : b;
   const endpoint = normalizeEndpoint(String(c.endpoint ?? '').trim());
   const accessKeyId = String(c.accessKeyId ?? '').trim();
   const secretAccessKey = String(c.secretAccessKey ?? '');
   const region = String(c.region ?? '').trim() || 'us-east-1';
   const forcePathStyle = c.forcePathStyle !== false;
   if (!endpoint || !accessKeyId || !secretAccessKey) {
-    throw Object.assign(new Error('缺少 connection：endpoint、accessKeyId、secretAccessKey 为必填'), {
-      status: 400,
-    });
+    throw Object.assign(
+      new Error('缺少 connection：endpoint、accessKeyId、secretAccessKey 为必填'),
+      {
+        status: 400,
+      },
+    );
   }
   assertSafeS3Endpoint(endpoint);
   return { endpoint, accessKeyId, secretAccessKey, region, forcePathStyle };
@@ -104,9 +115,7 @@ export async function rgwListBuckets(conn: RgwS3ConnectionInput) {
     })) || [];
   return {
     buckets,
-    owner: out.Owner
-      ? { displayName: out.Owner.DisplayName, id: out.Owner.ID }
-      : undefined,
+    owner: out.Owner ? { displayName: out.Owner.DisplayName, id: out.Owner.ID } : undefined,
   };
 }
 

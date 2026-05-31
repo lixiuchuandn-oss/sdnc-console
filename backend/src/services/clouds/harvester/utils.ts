@@ -174,7 +174,8 @@ const translateErrorMessage = (error: any): string => {
       ? `Harvester 集群响应异常：${kubeDetail}`
       : '服务器内部错误：Harvester 集群响应异常';
   }
-  if (status === 502 || status === 503 || status === 504) return '网关错误：无法连接到 Harvester 控制平面';
+  if (status === 502 || status === 503 || status === 504)
+    return '网关错误：无法连接到 Harvester 控制平面';
 
   if (kubeDetail) return kubeDetail;
 
@@ -243,7 +244,9 @@ export const requestOnce = (target: string, token: string, insecure: boolean = f
         req.destroy(new Error('timeout'));
       } catch {}
     });
-    req.on('error', (err: any) => resolve({ ok: false, error: translateErrorMessage(err), code: err?.code }));
+    req.on('error', (err: any) =>
+      resolve({ ok: false, error: translateErrorMessage(err), code: err?.code }),
+    );
     req.end();
   });
 };
@@ -264,12 +267,12 @@ export const getJsonOnce = async (
   insecure: boolean = false,
   silent: boolean = false,
   retryCount = 3,
-  timeout: number = 30000
+  timeout: number = 30000,
 ): Promise<any> => {
   try {
     const agent = getAgent(target, insecure);
     const isHttp = target.startsWith('http:');
-    
+
     const res = await axios.get(target, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -282,27 +285,33 @@ export const getJsonOnce = async (
     });
     return res.data;
   } catch (error: any) {
-    const isNetworkError = error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'EPIPE';
+    const isNetworkError =
+      error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'EPIPE';
     if (isNetworkError && retryCount > 0) {
-        if (!silent)
-          computeApiLog.warn(`Network error ${error.code} for ${target}, retrying (${retryCount} left)...`);
-        await new Promise(r => setTimeout(r, 500));
-        return getJsonOnce(target, token, insecure, silent, retryCount - 1, timeout);
+      if (!silent)
+        computeApiLog.warn(
+          `Network error ${error.code} for ${target}, retrying (${retryCount} left)...`,
+        );
+      await new Promise((r) => setTimeout(r, 500));
+      return getJsonOnce(target, token, insecure, silent, retryCount - 1, timeout);
     }
 
     if (axios.isAxiosError(error)) {
-        if (error.response) {
-            if (!silent) {
-                computeApiLog.error(`Request failed for ${target}: ${error.response.status}`);
-            }
-            throw {
-                status: error.response.status,
-                body: typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data),
-                message: translateErrorMessage({ status: error.response.status, message: error.message })
-            };
-        } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-             throw { message: translateErrorMessage({ code: 'ETIMEDOUT' }) };
+      if (error.response) {
+        if (!silent) {
+          computeApiLog.error(`Request failed for ${target}: ${error.response.status}`);
         }
+        throw {
+          status: error.response.status,
+          body:
+            typeof error.response.data === 'string'
+              ? error.response.data
+              : JSON.stringify(error.response.data),
+          message: translateErrorMessage({ status: error.response.status, message: error.message }),
+        };
+      } else if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        throw { message: translateErrorMessage({ code: 'ETIMEDOUT' }) };
+      }
     }
     throw { ...error, message: translateErrorMessage(error) };
   }
@@ -343,10 +352,7 @@ export function logVmWatchStreamError(kind: 'vm' | 'vmi', err: any) {
   const label = kind === 'vm' ? '虚拟机' : 'VMI';
   const detail = { code: err?.code, message: err?.message };
   if (isBenignWatchDisconnect(err)) {
-    watchLog.debug(
-      `${label} 监听中断（多为页面关闭、网络重置或上游结束）`,
-      detail,
-    );
+    watchLog.debug(`${label} 监听中断（多为页面关闭、网络重置或上游结束）`, detail);
   } else {
     watchLog.error(`${label} 监听异常`, err);
   }
@@ -380,7 +386,7 @@ export const watchJsonStream = (
       if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
         if (!aborted && onError) onError(new Error(`HTTP 状态异常: ${res.statusCode}`));
         // [资源释放] 消费剩余数据以避免内存泄漏，然后销毁连接
-        res.resume(); 
+        res.resume();
         return;
       }
 
@@ -393,7 +399,7 @@ export const watchJsonStream = (
         const lines = buffer.split('\n');
         // [粘包处理] 保留最后一行不完整的数据在 buffer 中，等待下一次 chunk 拼接
         buffer = lines.pop() || '';
-        
+
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
@@ -407,10 +413,10 @@ export const watchJsonStream = (
       res.on('end', () => {
         watchLog.debug('响应流已结束', target);
         if (buffer.trim()) {
-           try {
-             const json = JSON.parse(buffer);
-             callback(json);
-           } catch {}
+          try {
+            const json = JSON.parse(buffer);
+            callback(json);
+          } catch {}
         }
         if (!aborted && onError) onError(new Error('监听流已结束'));
       });
@@ -424,14 +430,14 @@ export const watchJsonStream = (
   });
   req.end();
   watchLog.debug('请求已发出', target);
-  
+
   return {
     abort: () => {
       try {
         aborted = true;
         req.destroy();
       } catch {}
-    }
+    },
   };
 };
 
@@ -464,27 +470,27 @@ export const requestJson = (
   return new Promise<any>((resolve, reject) => {
     // 允许 body 为 null (无请求体)
     const data = body !== undefined ? Buffer.from(JSON.stringify(body)) : undefined;
-    
+
     // 如果 body 是数组，data 也是 buffer。
     // 问题在于 headers 的构建方式。
-    
+
     const mod = getRequestModule(target);
     const agent = getAgent(target, insecure);
-    
+
     const defaultHeaders: any = {
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
     };
-    
+
     // 合并自定义 Header
     const finalHeaders = { ...defaultHeaders, ...(customHeaders || {}) };
 
     // 仅当有请求体时设置 Content-Type 和 Length (如果未被 customHeaders 覆盖)
     if (data) {
-        if (!finalHeaders['Content-Type']) {
-            finalHeaders['Content-Type'] = 'application/json';
-        }
-        finalHeaders['Content-Length'] = String(data.length);
+      if (!finalHeaders['Content-Type']) {
+        finalHeaders['Content-Type'] = 'application/json';
+      }
+      finalHeaders['Content-Length'] = String(data.length);
     }
 
     const req = mod.request(
@@ -502,7 +508,7 @@ export const requestJson = (
           const buffer = Buffer.concat(chunks);
           const text = buffer.toString('utf-8');
           const status = res.statusCode || 0;
-          
+
           if (status >= 200 && status < 300) {
             try {
               resolve(JSON.parse(text));
@@ -512,8 +518,10 @@ export const requestJson = (
           } else {
             // 尝试解析错误体中的 JSON
             let errorBody = text;
-            try { errorBody = JSON.parse(text); } catch {}
-            
+            try {
+              errorBody = JSON.parse(text);
+            } catch {}
+
             reject({
               status,
               body: errorBody,

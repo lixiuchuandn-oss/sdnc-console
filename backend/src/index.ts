@@ -91,7 +91,17 @@ app.use(
   cors({
     origin: true,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Expires', 'tonce', 'X-File-Name', 'X-File-Size'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Cache-Control',
+      'Pragma',
+      'Expires',
+      'tonce',
+      'X-File-Name',
+      'X-File-Size',
+    ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 );
@@ -99,15 +109,20 @@ app.use(
 // 通用中间件：
 // 1) compression：开启响应压缩，但显式跳过 SSE（服务器推送）接口，
 //    避免对 text/event-stream 进行压缩导致长连接异常
-app.use(compression({
-  filter: (req, res) => {
-    if (req.headers['accept'] === 'text/event-stream' || res.getHeader('Content-Type') === 'text/event-stream') {
-      return false;
-    }
-    // fallback to standard filter function
-    return compression.filter(req, res);
-  }
-}));
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (
+        req.headers['accept'] === 'text/event-stream' ||
+        res.getHeader('Content-Type') === 'text/event-stream'
+      ) {
+        return false;
+      }
+      // fallback to standard filter function
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // Helmet 安全头：
 // - 关闭默认的 CSP 与 crossOriginEmbedderPolicy，避免在引入第三方脚本/地图等外部资源时产生过多限制
@@ -130,7 +145,6 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(auditMiddleware);
-
 
 // 静态文件托管：
 // - 只要检测到 public 目录存在，就对外提供静态文件访问（前端构建产物）
@@ -196,7 +210,10 @@ const sendHarvesterImageUploaderTool = (req: express.Request, res: express.Respo
         }
       });
     } else {
-      logger.warn('工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:', toolPath);
+      logger.warn(
+        '工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:',
+        toolPath,
+      );
       res
         .status(404)
         .type('text/plain; charset=utf-8')
@@ -351,7 +368,7 @@ AppDataSource.initialize()
     await initializeAdmin();
     // 初始化默认角色
     await initializeRoles();
-    
+
     // 初始化数据库表（如果不存在则创建）
     try {
       const {
@@ -379,7 +396,8 @@ AppDataSource.initialize()
     }
 
     try {
-      const { mergeSecurityDomainCategoryLegacy } = await import('./utils/mergeSecurityDomainCategoryLegacy');
+      const { mergeSecurityDomainCategoryLegacy } =
+        await import('./utils/mergeSecurityDomainCategoryLegacy');
       await mergeSecurityDomainCategoryLegacy(AppDataSource);
     } catch (e) {
       logger.warn('安全域 category 历史数据合并失败:', e);
@@ -404,10 +422,10 @@ AppDataSource.initialize()
       logger.warn('启动 VR 列表同步任务失败:', e);
     }
 
-
     // 启动回收站定时任务
     try {
-      const { RecycleBinTaskService } = await import('./services/clouds/harvester/RecycleBinTaskService');
+      const { RecycleBinTaskService } =
+        await import('./services/clouds/harvester/RecycleBinTaskService');
       // 延迟 15s 启动，避免和启动时的数据库操作冲突
       setTimeout(() => {
         logger.info('启动回收站定时任务服务');
@@ -429,7 +447,8 @@ AppDataSource.initialize()
 
     // 启动 Harbor 项目同步任务
     try {
-      const { harborProjectSyncService } = await import('./services/harbor/HarborProjectSyncService');
+      const { harborProjectSyncService } =
+        await import('./services/harbor/HarborProjectSyncService');
       harborProjectSyncService.startSync();
     } catch (e) {
       logger.error('启动 Harbor 项目同步任务失败:', e);
@@ -464,7 +483,7 @@ AppDataSource.initialize()
     } catch (e: any) {
       logger.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
     }
-    
+
     // 初始化 Pod 日志 WebSocket 服务
     let kvPodLogWss: any = null;
     try {
@@ -489,7 +508,7 @@ AppDataSource.initialize()
     server.on('upgrade', (req, socket, head) => {
       const pathname = req.url || '';
       // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
-      
+
       if (pathname.startsWith('/ws/kv-pod-exec')) {
         if (kvPodExecWss) {
           kvPodExecWss.handleUpgrade(req, socket, head, (ws: any) => {
@@ -538,7 +557,10 @@ AppDataSource.initialize()
     const listenHost = process.env.LISTEN_HOST?.trim();
     if (listenHost) {
       server.listen(PORT, listenHost, () => {
-        logger.info(`后端服务运行在 ${listenHost}:${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+        logger.info(
+          `后端服务运行在 ${listenHost}:${PORT}`,
+          `NODE_ENV=${process.env.NODE_ENV ?? ''}`,
+        );
       });
     } else {
       server.listen(PORT, () => {

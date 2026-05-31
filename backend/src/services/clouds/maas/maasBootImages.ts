@@ -100,8 +100,7 @@ export function normalizeMaasBootResource(
   const status = resolveImageStatus(statusSource);
   const deployable = status === 'ready' && raw.last_deployable !== false;
   const title =
-    String(raw.title ?? '').trim() ||
-    (name ? name.replace(/\//g, ' ') : `${osystem} ${distro}`);
+    String(raw.title ?? '').trim() || (name ? name.replace(/\//g, ' ') : `${osystem} ${distro}`);
   const size_bytes = detail ? extractSizeBytesFromDetail(detail) : 0;
 
   return {

@@ -6,11 +6,7 @@
 import { Request, Response } from 'express';
 import { getHarvesterCapabilities } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
-import {
-  checkTenantAccess,
-  fetchCloudOr404,
-  ensureProvider,
-} from '../harvester.direct.helpers';
+import { checkTenantAccess, fetchCloudOr404, ensureProvider } from '../harvester.direct.helpers';
 
 /**
  * [GET] /:id/resources/harvester/capabilities
@@ -20,8 +16,7 @@ export async function harvesterCapabilitiesDirectHandler(req: Request, res: Resp
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -51,8 +46,7 @@ export async function harvesterStorageClassDetailHandler(req: Request, res: Resp
   try {
     const { id, name } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;

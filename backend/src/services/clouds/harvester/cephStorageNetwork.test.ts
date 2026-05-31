@@ -18,7 +18,9 @@ describe('cephStorageNetwork', () => {
   });
 
   it('rejects invalid vlan or missing fields', () => {
-    expect(parseCephStorageNetworkValue('{"vlan":0,"clusterNetwork":"a","range":"1.2.3.4/24"}')).toBeNull();
+    expect(
+      parseCephStorageNetworkValue('{"vlan":0,"clusterNetwork":"a","range":"1.2.3.4/24"}'),
+    ).toBeNull();
     expect(parseCephStorageNetworkValue('{}')).toBeNull();
   });
 

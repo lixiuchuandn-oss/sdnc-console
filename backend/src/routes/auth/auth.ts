@@ -134,7 +134,10 @@ router.post('/login', async (req: Request, res: Response) => {
     if (adminCandidate) {
       const passwordMatch = await bcrypt.compare(password, adminCandidate.password);
       if (process.env.NODE_ENV === 'development') {
-        authLog.debug('管理员密码验证:', { username: adminCandidate.username, match: passwordMatch });
+        authLog.debug('管理员密码验证:', {
+          username: adminCandidate.username,
+          match: passwordMatch,
+        });
       }
       if (passwordMatch) {
         loginUser = adminCandidate;
@@ -154,7 +157,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
     if (!loginUser) {
       if (process.env.NODE_ENV === 'development') {
-        console.log('[Login] 登录失败: 用户名或密码错误', { username, hasAdmin: !!adminCandidate, hasTenant: !!tenantCandidate });
+        console.log('[Login] 登录失败: 用户名或密码错误', {
+          username,
+          hasAdmin: !!adminCandidate,
+          hasTenant: !!tenantCandidate,
+        });
       }
       const failResult = recordLoginFailure(username);
       if (failResult.locked) {
@@ -166,10 +173,7 @@ router.post('/login', async (req: Request, res: Response) => {
         });
       }
       const remain = failResult.remainingAttempts;
-      const failMsg =
-        remain > 0
-          ? `用户名或密码错误，还可尝试 ${remain} 次`
-          : '用户名或密码错误';
+      const failMsg = remain > 0 ? `用户名或密码错误，还可尝试 ${remain} 次` : '用户名或密码错误';
       return res.status(401).json({
         message: failMsg,
         remainingAttempts: remain,
@@ -202,9 +206,9 @@ router.post('/login', async (req: Request, res: Response) => {
 
     // 更新最后登录
     (loginUser as any).lastLoginAt = new Date();
-    
+
     let permissions: string[] = [];
-    
+
     // 如果是超级管理员，直接赋予所有权限
     if (role === 'super_admin') {
       permissions = ['*'];
@@ -214,7 +218,7 @@ router.post('/login', async (req: Request, res: Response) => {
         const assignRepo = AppDataSource.getRepository(RoleAssignment);
         const roleRepo = AppDataSource.getRepository(RBACRole);
         const userType = role === 'tenant' ? 'tenant' : 'system';
-        
+
         // 权限完全由 RoleAssignment 计算
         const assigns = await assignRepo.find({
           where: { userType, userId: loginUser.id },
@@ -223,23 +227,23 @@ router.post('/login', async (req: Request, res: Response) => {
 
         // Fetch all roles and merge permissions
         if (roleIds.length > 0) {
-           const roles = await roleRepo.find({ where: { id: In(roleIds) } });
-           for (const r of roles) {
-             // 只聚合活跃角色的权限，过滤掉禁用角色
-             if (r.status !== 'active') {
-               continue;
-             }
-             if (r.permissions) {
-               try {
-                 const raw = JSON.parse(r.permissions);
-                 if (Array.isArray(raw)) {
-                   permissions = permissions.concat(raw);
-                 }
-               } catch {}
-             }
-           }
+          const roles = await roleRepo.find({ where: { id: In(roleIds) } });
+          for (const r of roles) {
+            // 只聚合活跃角色的权限，过滤掉禁用角色
+            if (r.status !== 'active') {
+              continue;
+            }
+            if (r.permissions) {
+              try {
+                const raw = JSON.parse(r.permissions);
+                if (Array.isArray(raw)) {
+                  permissions = permissions.concat(raw);
+                }
+              } catch {}
+            }
+          }
         }
-        
+
         // 租户控制台入口改由账号类型判定；不再默认注入 clouds.console:read
         // Deduplicate
         permissions = Array.from(new Set(permissions));
@@ -247,10 +251,13 @@ router.post('/login', async (req: Request, res: Response) => {
           permissions = stripTenantConsoleUmbrellaPermissions(permissions);
         }
       } catch (e) {
-        authLog.warn(`Failed to fetch permissions for ${role} user`, e instanceof Error ? e.message : String(e));
+        authLog.warn(
+          `Failed to fetch permissions for ${role} user`,
+          e instanceof Error ? e.message : String(e),
+        );
       }
     }
-    
+
     // 保存用户（更新最后登录时间）
     try {
       if (role === 'tenant') {
@@ -286,7 +293,10 @@ router.post('/login', async (req: Request, res: Response) => {
         if (fullUser?.tenant?.name) tenantName = fullUser.tenant.name;
         if (fullUser?.organization?.name) organizationName = fullUser.organization.name;
       } catch (e) {
-        authLog.warn('Failed to fetch tenant/org names for login response', e instanceof Error ? e.message : String(e));
+        authLog.warn(
+          'Failed to fetch tenant/org names for login response',
+          e instanceof Error ? e.message : String(e),
+        );
       }
     }
 

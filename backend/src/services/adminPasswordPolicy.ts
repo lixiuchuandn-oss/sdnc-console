@@ -39,14 +39,14 @@ function inferPasswordComplexityEnabled(j: Partial<AdminPasswordPolicy>): boolea
   if (j.passwordComplexityEnabled !== undefined) {
     return Boolean(j.passwordComplexityEnabled);
   }
-  return Boolean(
-    j.requireUppercase || j.requireLowercase || j.requireDigit || j.requireSpecial,
-  );
+  return Boolean(j.requireUppercase || j.requireLowercase || j.requireDigit || j.requireSpecial);
 }
 
 function normalizePolicyFields(j: Partial<AdminPasswordPolicy>): AdminPasswordPolicy {
   const complexityOn = inferPasswordComplexityEnabled(j);
-  const minLength = complexityOn ? PASSWORD_COMPLEXITY_ON_MIN_LENGTH : PASSWORD_COMPLEXITY_OFF_MIN_LENGTH;
+  const minLength = complexityOn
+    ? PASSWORD_COMPLEXITY_ON_MIN_LENGTH
+    : PASSWORD_COMPLEXITY_OFF_MIN_LENGTH;
   return {
     passwordComplexityEnabled: complexityOn,
     minLength,
@@ -108,7 +108,9 @@ export function validatePasswordAgainstPolicy(
 ): { ok: true } | { ok: false; message: string } {
   const p = String(password ?? '');
   const complexityOn = Boolean(policy.passwordComplexityEnabled);
-  const minLen = complexityOn ? PASSWORD_COMPLEXITY_ON_MIN_LENGTH : PASSWORD_COMPLEXITY_OFF_MIN_LENGTH;
+  const minLen = complexityOn
+    ? PASSWORD_COMPLEXITY_ON_MIN_LENGTH
+    : PASSWORD_COMPLEXITY_OFF_MIN_LENGTH;
 
   if (p.length < minLen) {
     return {

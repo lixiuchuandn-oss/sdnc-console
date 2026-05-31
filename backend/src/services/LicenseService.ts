@@ -11,9 +11,9 @@ const licenseLog = logger.child('License');
 const DATA_DIR = path.join(process.cwd(), 'data');
 const INSTALL_ID_FILE = path.join(DATA_DIR, 'install.id');
 const PREFERRED_LICENSE_FILE = process.env.LICENSE_FILE_PATH
-  ? (path.isAbsolute(process.env.LICENSE_FILE_PATH)
-      ? process.env.LICENSE_FILE_PATH
-      : path.join(process.cwd(), process.env.LICENSE_FILE_PATH))
+  ? path.isAbsolute(process.env.LICENSE_FILE_PATH)
+    ? process.env.LICENSE_FILE_PATH
+    : path.join(process.cwd(), process.env.LICENSE_FILE_PATH)
   : path.join(DATA_DIR, 'license.key');
 
 const LICENSE_READ_CANDIDATES = process.env.LICENSE_FILE_PATH
@@ -34,9 +34,9 @@ if (dotenvPath) {
 }
 
 const LICENSE_SECRET_FILE = process.env.LICENSE_SECRET_FILE_PATH
-  ? (path.isAbsolute(process.env.LICENSE_SECRET_FILE_PATH)
-      ? process.env.LICENSE_SECRET_FILE_PATH
-      : path.join(process.cwd(), process.env.LICENSE_SECRET_FILE_PATH))
+  ? path.isAbsolute(process.env.LICENSE_SECRET_FILE_PATH)
+    ? process.env.LICENSE_SECRET_FILE_PATH
+    : path.join(process.cwd(), process.env.LICENSE_SECRET_FILE_PATH)
   : path.join(DATA_DIR, 'license.secret');
 
 const getLicenseSecret = (): string | undefined => {
@@ -67,20 +67,24 @@ export const getInstallId = (): string => {
       if (v) return v;
     }
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    const v = (crypto as any).randomUUID ? (crypto as any).randomUUID() : crypto.randomBytes(16).toString('hex');
+    const v = (crypto as any).randomUUID
+      ? (crypto as any).randomUUID()
+      : crypto.randomBytes(16).toString('hex');
     fs.writeFileSync(INSTALL_ID_FILE, v, 'utf-8');
     return v;
   } catch {
     // 退化策略：内存生成（不落盘），防止接口不可用
-    return (crypto as any).randomUUID ? (crypto as any).randomUUID() : crypto.randomBytes(16).toString('hex');
+    return (crypto as any).randomUUID
+      ? (crypto as any).randomUUID()
+      : crypto.randomBytes(16).toString('hex');
   }
 };
 
 export interface LicensePayload {
-  iss: string;       // Issuer
-  sub: string;       // Subject (Customer Name)
-  iat: number;       // Issued At
-  exp: number;       // Expiration Time
+  iss: string; // Issuer
+  sub: string; // Subject (Customer Name)
+  iat: number; // Issued At
+  exp: number; // Expiration Time
   type: 'trial' | 'standard' | 'enterprise';
   features: string[]; // Enabled features
   limits: {
@@ -128,22 +132,22 @@ class LicenseService {
           iss: 'ComputeTower System',
           sub: 'Default User',
           iat: Math.floor(Date.now() / 1000),
-          exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 默认一年有效期? 或者永久?
+          exp: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60, // 默认一年有效期? 或者永久?
           type: 'trial',
           features: ['platform.default', 'sys.rbac-advanced'],
           limits: {
             maxNodes: 10,
             maxVms: 50,
-            maxCloudAccounts: 1
-          }
+            maxCloudAccounts: 1,
+          },
         };
-        
-        this.currentStatus = { 
-          status: 'valid', 
-          active: true, 
+
+        this.currentStatus = {
+          status: 'valid',
+          active: true,
           message: '默认授权 (Default License)',
           payload: defaultPayload,
-          daysRemaining: 365
+          daysRemaining: 365,
         };
         return;
       }
@@ -159,7 +163,7 @@ class LicenseService {
             iss: 'ComputeTower System',
             sub: 'Default User',
             iat: Math.floor(Date.now() / 1000),
-            exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60),
+            exp: Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60,
             type: 'trial',
             features: ['platform.default', 'sys.rbac-advanced'],
             limits: { maxNodes: 10, maxVms: 50, maxCloudAccounts: 1 },
@@ -172,7 +176,11 @@ class LicenseService {
       this.verifyLicense();
     } catch (error) {
       console.error('Failed to load license:', error);
-      this.currentStatus = { status: 'invalid', active: false, message: 'Failed to read license file' };
+      this.currentStatus = {
+        status: 'invalid',
+        active: false,
+        message: 'Failed to read license file',
+      };
     }
   }
 
@@ -187,7 +195,11 @@ class LicenseService {
 
     const licenseSecret = getLicenseSecret();
     if (!licenseSecret) {
-      this.currentStatus = { status: 'invalid', active: false, message: 'LICENSE_SECRET is not configured' };
+      this.currentStatus = {
+        status: 'invalid',
+        active: false,
+        message: 'LICENSE_SECRET is not configured',
+      };
       return;
     }
 
@@ -212,25 +224,29 @@ class LicenseService {
       }
 
       if (payload.exp < now) {
-        this.currentStatus = { 
-          status: 'expired', 
-          active: false, 
-          payload, 
+        this.currentStatus = {
+          status: 'expired',
+          active: false,
+          payload,
           daysRemaining,
-          message: '授权已过期' 
+          message: '授权已过期',
         };
       } else {
-        this.currentStatus = { 
-          status: 'valid', 
-          active: true, 
-          payload, 
+        this.currentStatus = {
+          status: 'valid',
+          active: true,
+          payload,
           daysRemaining,
-          message: '授权有效' 
+          message: '授权有效',
         };
       }
     } catch (error: any) {
       licenseLog.error('License verification failed:', error?.message ?? String(error));
-      this.currentStatus = { status: 'invalid', active: false, message: `Invalid license: ${error.message}` };
+      this.currentStatus = {
+        status: 'invalid',
+        active: false,
+        message: `Invalid license: ${error.message}`,
+      };
     }
   }
 
@@ -240,13 +256,15 @@ class LicenseService {
   public getStatus(): LicenseStatus {
     // 每次获取时重新检查过期时间（防止内存状态长期未更新导致过期未感知）
     if (this.currentStatus.status === 'valid' && this.currentStatus.payload) {
-        const now = Math.floor(Date.now() / 1000);
-        if (this.currentStatus.payload.exp < now) {
-            this.currentStatus.status = 'expired';
-            this.currentStatus.active = false;
-            this.currentStatus.message = 'License expired';
-        }
-        this.currentStatus.daysRemaining = Math.ceil((this.currentStatus.payload.exp - now) / (24 * 60 * 60));
+      const now = Math.floor(Date.now() / 1000);
+      if (this.currentStatus.payload.exp < now) {
+        this.currentStatus.status = 'expired';
+        this.currentStatus.active = false;
+        this.currentStatus.message = 'License expired';
+      }
+      this.currentStatus.daysRemaining = Math.ceil(
+        (this.currentStatus.payload.exp - now) / (24 * 60 * 60),
+      );
     }
     return { ...this.currentStatus };
   }
@@ -264,7 +282,7 @@ class LicenseService {
 
       // 1. 预验证
       const payload = jwt.verify(licenseKey, licenseSecret) as LicensePayload;
-      
+
       // 2. 检查是否过期（防止导入已过期的 License）
       const now = Math.floor(Date.now() / 1000);
       if (payload.exp < now) {
@@ -281,7 +299,7 @@ class LicenseService {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
       fs.writeFileSync(PREFERRED_LICENSE_FILE, licenseKey);
-      
+
       // 4. 更新内存状态
       this.currentLicense = licenseKey;
       this.verifyLicense();

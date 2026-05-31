@@ -3,11 +3,7 @@ import { HarvesterAswCtlSwitchInventory } from '../../../entities/harvester/Harv
 
 function hostFromSwitchRow(row: any): string {
   const h =
-    row?.info?.host ||
-    row?.interfaces?.host ||
-    row?.performance?.host ||
-    row?.vlans?.host ||
-    '';
+    row?.info?.host || row?.interfaces?.host || row?.performance?.host || row?.vlans?.host || '';
   const s = h != null ? String(h).trim() : '';
   return s;
 }

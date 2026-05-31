@@ -139,7 +139,7 @@ import {
 
 export function registerHarvesterServiceRoutesProvider(
   router: Router,
-  checkAdminPermission: RequestHandler
+  checkAdminPermission: RequestHandler,
 ) {
   // Logging Handlers 映射
   const _loggingHandlers = {
@@ -324,40 +324,128 @@ export function registerHarvesterServiceRoutesProvider(
 
   // Logging Routes
   // ClusterFlow
-  router.get('/:id/logging/clusterflows', checkAdminPermission, createProviderRouter(clusterFlowListHandlers));
-  router.get('/:id/logging/clusterflows/:name', checkAdminPermission, createProviderRouter(clusterFlowDetailHandlers));
-  router.post('/:id/logging/clusterflows', checkAdminPermission, createProviderRouter(clusterFlowCreateHandlers));
-  router.put('/:id/logging/clusterflows/:name', checkAdminPermission, createProviderRouter(clusterFlowUpdateHandlers));
-  router.delete('/:id/logging/clusterflows/:name', checkAdminPermission, createProviderRouter(clusterFlowDeleteHandlers));
+  router.get(
+    '/:id/logging/clusterflows',
+    checkAdminPermission,
+    createProviderRouter(clusterFlowListHandlers),
+  );
+  router.get(
+    '/:id/logging/clusterflows/:name',
+    checkAdminPermission,
+    createProviderRouter(clusterFlowDetailHandlers),
+  );
+  router.post(
+    '/:id/logging/clusterflows',
+    checkAdminPermission,
+    createProviderRouter(clusterFlowCreateHandlers),
+  );
+  router.put(
+    '/:id/logging/clusterflows/:name',
+    checkAdminPermission,
+    createProviderRouter(clusterFlowUpdateHandlers),
+  );
+  router.delete(
+    '/:id/logging/clusterflows/:name',
+    checkAdminPermission,
+    createProviderRouter(clusterFlowDeleteHandlers),
+  );
 
   // ClusterOutput
-  router.get('/:id/logging/clusteroutputs', checkAdminPermission, createProviderRouter(clusterOutputListHandlers));
-  router.get('/:id/logging/clusteroutputs/:name', checkAdminPermission, createProviderRouter(clusterOutputDetailHandlers));
-  router.post('/:id/logging/clusteroutputs', checkAdminPermission, createProviderRouter(clusterOutputCreateHandlers));
-  router.put('/:id/logging/clusteroutputs/:name', checkAdminPermission, createProviderRouter(clusterOutputUpdateHandlers));
-  router.delete('/:id/logging/clusteroutputs/:name', checkAdminPermission, createProviderRouter(clusterOutputDeleteHandlers));
+  router.get(
+    '/:id/logging/clusteroutputs',
+    checkAdminPermission,
+    createProviderRouter(clusterOutputListHandlers),
+  );
+  router.get(
+    '/:id/logging/clusteroutputs/:name',
+    checkAdminPermission,
+    createProviderRouter(clusterOutputDetailHandlers),
+  );
+  router.post(
+    '/:id/logging/clusteroutputs',
+    checkAdminPermission,
+    createProviderRouter(clusterOutputCreateHandlers),
+  );
+  router.put(
+    '/:id/logging/clusteroutputs/:name',
+    checkAdminPermission,
+    createProviderRouter(clusterOutputUpdateHandlers),
+  );
+  router.delete(
+    '/:id/logging/clusteroutputs/:name',
+    checkAdminPermission,
+    createProviderRouter(clusterOutputDeleteHandlers),
+  );
 
   // Templates
-  router.get('/:id/logging/templates', checkAdminPermission, createProviderRouter(loggingTemplateHandlers));
+  router.get(
+    '/:id/logging/templates',
+    checkAdminPermission,
+    createProviderRouter(loggingTemplateHandlers),
+  );
 
   // Flow (Namespace Scoped)
   router.get('/:id/logging/flows', checkAdminPermission, createProviderRouter(flowListHandlers));
-  router.get('/:id/logging/flows/:namespace/:name', checkAdminPermission, createProviderRouter(flowDetailHandlers));
+  router.get(
+    '/:id/logging/flows/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(flowDetailHandlers),
+  );
   router.post('/:id/logging/flows', checkAdminPermission, createProviderRouter(flowCreateHandlers));
-  router.put('/:id/logging/flows/:namespace/:name', checkAdminPermission, createProviderRouter(flowUpdateHandlers));
-  router.delete('/:id/logging/flows/:namespace/:name', checkAdminPermission, createProviderRouter(flowDeleteHandlers));
+  router.put(
+    '/:id/logging/flows/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(flowUpdateHandlers),
+  );
+  router.delete(
+    '/:id/logging/flows/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(flowDeleteHandlers),
+  );
 
   // Output (Namespace Scoped)
-  router.get('/:id/logging/outputs', checkAdminPermission, createProviderRouter(outputListHandlers));
-  router.get('/:id/logging/outputs/:namespace', checkAdminPermission, createProviderRouter(outputListByNamespaceHandlers));
-  router.get('/:id/logging/outputs/:namespace/:name', checkAdminPermission, createProviderRouter(outputDetailHandlers));
-  router.post('/:id/logging/outputs', checkAdminPermission, createProviderRouter(outputCreateHandlers));
-  router.put('/:id/logging/outputs/:namespace/:name', checkAdminPermission, createProviderRouter(outputUpdateHandlers));
-  router.delete('/:id/logging/outputs/:namespace/:name', checkAdminPermission, createProviderRouter(outputDeleteHandlers));
+  router.get(
+    '/:id/logging/outputs',
+    checkAdminPermission,
+    createProviderRouter(outputListHandlers),
+  );
+  router.get(
+    '/:id/logging/outputs/:namespace',
+    checkAdminPermission,
+    createProviderRouter(outputListByNamespaceHandlers),
+  );
+  router.get(
+    '/:id/logging/outputs/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(outputDetailHandlers),
+  );
+  router.post(
+    '/:id/logging/outputs',
+    checkAdminPermission,
+    createProviderRouter(outputCreateHandlers),
+  );
+  router.put(
+    '/:id/logging/outputs/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(outputUpdateHandlers),
+  );
+  router.delete(
+    '/:id/logging/outputs/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(outputDeleteHandlers),
+  );
 
   // VM Pod & Events
-  router.get('/:id/logging/harvester/vm-pod', checkAdminPermission, createProviderRouter(vmPodHandlers));
-  router.get('/:id/logging/harvester/events', checkAdminPermission, createProviderRouter(eventsHandlers));
+  router.get(
+    '/:id/logging/harvester/vm-pod',
+    checkAdminPermission,
+    createProviderRouter(vmPodHandlers),
+  );
+  router.get(
+    '/:id/logging/harvester/events',
+    checkAdminPermission,
+    createProviderRouter(eventsHandlers),
+  );
 
   // Monitoring Handlers 映射
   const monitoringOverviewHandlers = {
@@ -669,7 +757,11 @@ export function registerHarvesterServiceRoutesProvider(
   });
 
   // Ceph（Rook 控制面：只读 bundle + Steve CRUD）
-  router.get('/:id/ceph/rook/bundle', checkAdminPermission, createProviderRouter(cephRookBundleHandlers));
+  router.get(
+    '/:id/ceph/rook/bundle',
+    checkAdminPermission,
+    createProviderRouter(cephRookBundleHandlers),
+  );
   router.get(
     '/:id/ceph/harvester-addon',
     checkAdminPermission,
@@ -875,9 +967,21 @@ export function registerHarvesterServiceRoutesProvider(
 
   // Monitoring Routes
   // Overview
-  router.get('/:id/monitoring/storage-nodes', checkAdminPermission, createProviderRouter(monitoringOverviewHandlers));
-  router.get('/:id/monitoring/ceph-clusters', checkAdminPermission, createProviderRouter(monitoringCephClustersHandlers));
-  router.get('/:id/monitoring/ceph-resources', checkAdminPermission, createProviderRouter(monitoringCephRookBundleHandlers));
+  router.get(
+    '/:id/monitoring/storage-nodes',
+    checkAdminPermission,
+    createProviderRouter(monitoringOverviewHandlers),
+  );
+  router.get(
+    '/:id/monitoring/ceph-clusters',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephClustersHandlers),
+  );
+  router.get(
+    '/:id/monitoring/ceph-resources',
+    checkAdminPermission,
+    createProviderRouter(monitoringCephRookBundleHandlers),
+  );
   router.get(
     '/:id/monitoring/ceph-dashboard/summary',
     checkAdminPermission,
@@ -903,17 +1007,53 @@ export function registerHarvesterServiceRoutesProvider(
     checkAdminPermission,
     createProviderRouter(monitoringCephDashboardProxyHandlers),
   );
-  router.get('/:id/monitoring/node-resources', checkAdminPermission, createProviderRouter(monitoringNodeResourcesHandlers));
-  router.get('/:id/monitoring/node-metrics', checkAdminPermission, createProviderRouter(monitoringNodeMetricsHandlers));
-  router.get('/:id/monitoring/virtualmachines', checkAdminPermission, createProviderRouter(monitoringVirtualMachinesHandlers));
-  router.get('/:id/monitoring/virtualmachineinstances', checkAdminPermission, createProviderRouter(monitoringVirtualMachineInstancesHandlers));
-  router.get('/:id/monitoring/blockdevices', checkAdminPermission, createProviderRouter(monitoringBlockDevicesHandlers));
-  router.get('/:id/monitoring/metric-range', checkAdminPermission, createProviderRouter(monitoringMetricRangeHandlers));
-  router.get('/:id/monitoring/allowed-namespaces', checkAdminPermission, createProviderRouter(monitoringAllowedNamespacesHandlers));
+  router.get(
+    '/:id/monitoring/node-resources',
+    checkAdminPermission,
+    createProviderRouter(monitoringNodeResourcesHandlers),
+  );
+  router.get(
+    '/:id/monitoring/node-metrics',
+    checkAdminPermission,
+    createProviderRouter(monitoringNodeMetricsHandlers),
+  );
+  router.get(
+    '/:id/monitoring/virtualmachines',
+    checkAdminPermission,
+    createProviderRouter(monitoringVirtualMachinesHandlers),
+  );
+  router.get(
+    '/:id/monitoring/virtualmachineinstances',
+    checkAdminPermission,
+    createProviderRouter(monitoringVirtualMachineInstancesHandlers),
+  );
+  router.get(
+    '/:id/monitoring/blockdevices',
+    checkAdminPermission,
+    createProviderRouter(monitoringBlockDevicesHandlers),
+  );
+  router.get(
+    '/:id/monitoring/metric-range',
+    checkAdminPermission,
+    createProviderRouter(monitoringMetricRangeHandlers),
+  );
+  router.get(
+    '/:id/monitoring/allowed-namespaces',
+    checkAdminPermission,
+    createProviderRouter(monitoringAllowedNamespacesHandlers),
+  );
 
   // Rules
-  router.get('/:id/monitoring/alerts-rules', checkAdminPermission, createProviderRouter(monitoringAlertsRulesHandlers));
-  router.get('/:id/monitoring/access-management', checkAdminPermission, createProviderRouter(monitoringAccessManagementHandlers));
+  router.get(
+    '/:id/monitoring/alerts-rules',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertsRulesHandlers),
+  );
+  router.get(
+    '/:id/monitoring/access-management',
+    checkAdminPermission,
+    createProviderRouter(monitoringAccessManagementHandlers),
+  );
   router.get(
     '/:id/monitoring/access-management/prometheus/:namespace/:name',
     checkAdminPermission,
@@ -934,7 +1074,11 @@ export function registerHarvesterServiceRoutesProvider(
     checkAdminPermission,
     createProviderRouter(monitoringPrometheusTargetsHandlers),
   );
-  router.get('/:id/monitoring/prometheusrules', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesHandlers));
+  router.get(
+    '/:id/monitoring/prometheusrules',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusRulesHandlers),
+  );
   router.get(
     '/:id/monitoring/prometheusrules/:namespace/:name',
     checkAdminPermission,
@@ -945,28 +1089,100 @@ export function registerHarvesterServiceRoutesProvider(
     checkAdminPermission,
     createProviderRouter(monitoringPrometheusRuleUpdateHandlers),
   );
-  router.get('/:id/monitoring/prometheusrules-groups', checkAdminPermission, createProviderRouter(monitoringPrometheusRulesGroupsHandlers));
-  router.get('/:id/monitoring/prometheusrules/vm-custom-rules', checkAdminPermission, createProviderRouter(monitoringVmCustomRulesHandlers));
+  router.get(
+    '/:id/monitoring/prometheusrules-groups',
+    checkAdminPermission,
+    createProviderRouter(monitoringPrometheusRulesGroupsHandlers),
+  );
+  router.get(
+    '/:id/monitoring/prometheusrules/vm-custom-rules',
+    checkAdminPermission,
+    createProviderRouter(monitoringVmCustomRulesHandlers),
+  );
 
   // Alertmanager Policies
-  router.get('/:id/monitoring/alertmanagerconfigs', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsHandlers));
-  router.get('/:id/monitoring/alertmanagerconfigs/policy-receivers', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsPolicyReceiversHandlers));
-  router.get('/:id/monitoring/alertmanagerconfigs/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsDetailHandlers));
-  router.post('/:id/monitoring/alertmanagerconfigs', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsCreateHandlers));
-  router.put('/:id/monitoring/alertmanagerconfigs/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsUpdateHandlers));
-  router.delete('/:id/monitoring/alertmanagerconfigs/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsDeleteHandlers));
+  router.get(
+    '/:id/monitoring/alertmanagerconfigs',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsHandlers),
+  );
+  router.get(
+    '/:id/monitoring/alertmanagerconfigs/policy-receivers',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsPolicyReceiversHandlers),
+  );
+  router.get(
+    '/:id/monitoring/alertmanagerconfigs/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsDetailHandlers),
+  );
+  router.post(
+    '/:id/monitoring/alertmanagerconfigs',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsCreateHandlers),
+  );
+  router.put(
+    '/:id/monitoring/alertmanagerconfigs/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsUpdateHandlers),
+  );
+  router.delete(
+    '/:id/monitoring/alertmanagerconfigs/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsDeleteHandlers),
+  );
 
   // Alertmanager Receivers
-  router.get('/:id/monitoring/alertmanagerconfigs/receivers', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsReceiversHandlers));
-  router.get('/:id/monitoring/alertmanagerconfigs/receivers/check', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsReceiversCheckHandlers));
-  router.post('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsReceiversCreateUpdateHandlers));
-  router.delete('/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringAlertmanagerConfigsReceiversDeleteHandlers));
+  router.get(
+    '/:id/monitoring/alertmanagerconfigs/receivers',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsReceiversHandlers),
+  );
+  router.get(
+    '/:id/monitoring/alertmanagerconfigs/receivers/check',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsReceiversCheckHandlers),
+  );
+  router.post(
+    '/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsReceiversCreateUpdateHandlers),
+  );
+  router.delete(
+    '/:id/monitoring/alertmanagerconfigs/receivers/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringAlertmanagerConfigsReceiversDeleteHandlers),
+  );
 
   // Secrets & ConfigMaps
-  router.get('/:id/monitoring/secrets', checkAdminPermission, createProviderRouter(monitoringSecretsListHandlers));
-  router.get('/:id/monitoring/secrets/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringSecretsDetailHandlers));
-  router.post('/:id/monitoring/secrets', checkAdminPermission, createProviderRouter(monitoringSecretsCreateHandlers));
-  router.put('/:id/monitoring/secrets/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringSecretsUpdateHandlers));
-  router.delete('/:id/monitoring/secrets/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringSecretsDeleteHandlers));
-  router.get('/:id/monitoring/configmaps/:namespace/:name', checkAdminPermission, createProviderRouter(monitoringConfigMapsDetailHandlers));
+  router.get(
+    '/:id/monitoring/secrets',
+    checkAdminPermission,
+    createProviderRouter(monitoringSecretsListHandlers),
+  );
+  router.get(
+    '/:id/monitoring/secrets/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringSecretsDetailHandlers),
+  );
+  router.post(
+    '/:id/monitoring/secrets',
+    checkAdminPermission,
+    createProviderRouter(monitoringSecretsCreateHandlers),
+  );
+  router.put(
+    '/:id/monitoring/secrets/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringSecretsUpdateHandlers),
+  );
+  router.delete(
+    '/:id/monitoring/secrets/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringSecretsDeleteHandlers),
+  );
+  router.get(
+    '/:id/monitoring/configmaps/:namespace/:name',
+    checkAdminPermission,
+    createProviderRouter(monitoringConfigMapsDetailHandlers),
+  );
 }

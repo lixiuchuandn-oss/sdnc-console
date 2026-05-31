@@ -7,16 +7,17 @@
 
 import { Response } from 'express';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-import { checkTenantAccess, fetchCloudOr404, ensureProvider, isNamespaceAllowed } from '../harvester.direct.helpers';
+import {
+  checkTenantAccess,
+  fetchCloudOr404,
+  ensureProvider,
+  isNamespaceAllowed,
+} from '../harvester.direct.helpers';
 
 /**
  * GET /:id/resources/nads - 获取 NAD 列表（直连查询）
  */
-export async function harvesterNadDirectListHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterNadDirectListHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
@@ -44,8 +45,8 @@ export async function harvesterNadDirectListHandler(
     const rawItems = Array.isArray(json?.data)
       ? json?.data
       : Array.isArray(json?.items)
-      ? json?.items
-      : [];
+        ? json?.items
+        : [];
     let items = rawItems;
     if (isTenant) {
       if (tenantNamespace) {
@@ -56,9 +57,7 @@ export async function harvesterNadDirectListHandler(
         items = [];
       }
     } else if (tenantNamespace) {
-      items = items.filter((i: any) =>
-        isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-      );
+      items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
     }
 
     res.json({ message: '查询成功', data: { items } });
@@ -74,11 +73,7 @@ export async function harvesterNadDirectListHandler(
 /**
  * GET /:id/resources/harvester/nads/:namespace/:name - 获取 NAD 详情（直连查询）
  */
-export async function harvesterNadDirectDetailHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterNadDirectDetailHandler(req: any, res: Response, next: any) {
   try {
     const { id, namespace, name } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);

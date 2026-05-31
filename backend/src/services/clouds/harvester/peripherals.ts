@@ -66,7 +66,9 @@ export const listHarvesterGpuResources = async ({
   }
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -121,8 +123,8 @@ export const listHarvesterGpuResources = async ({
       name: d?.mdevName || d?.deviceName || d?.description,
       raw: d,
       links: {
-          view: `${origin}/apis/kubevirt.io/v1/namespaces/harvester-system/kubevirts/kubevirt`
-      }
+        view: `${origin}/apis/kubevirt.io/v1/namespaces/harvester-system/kubevirts/kubevirt`,
+      },
     }))
     .filter((x: any) => !!x.resourceName);
   const pciDevCandidates = [
@@ -196,8 +198,8 @@ export const listHarvesterGpuResources = async ({
         deviceId,
         state,
         links: {
-            view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`
-        }
+          view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`,
+        },
       };
     })
     .filter((x: any) => !!x.resourceName);
@@ -240,10 +242,12 @@ export const listHarvesterPciDevices = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -289,7 +293,7 @@ export const listHarvesterPciDevices = async ({
     : Array.isArray(pciJson?.items)
       ? pciJson?.items
       : [];
-  
+
   return (pciItems || []).map((it: any) => {
     const rn = it?.status?.resourceName || it?.spec?.resourceName || it?.resourceName || '';
     const node = it?.status?.nodeName || it?.spec?.nodeName || it?.nodeName || '';
@@ -313,7 +317,7 @@ export const listHarvesterPciDevices = async ({
     const deviceId = String(
       it?.status?.deviceId || it?.spec?.deviceId || it?.deviceId || '',
     ).toLowerCase();
-    
+
     return {
       resourceName: rn,
       nodeName: node,
@@ -326,8 +330,8 @@ export const listHarvesterPciDevices = async ({
       raw: it,
       uid: it?.metadata?.uid,
       links: {
-          view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`
-      }
+        view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`,
+      },
     };
   });
 };
@@ -360,7 +364,9 @@ export const listHarvesterUsbResources = async ({
   }
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -406,10 +412,18 @@ export const listHarvesterUsbResources = async ({
           if (nm.startsWith('d-')) return false;
           const rn = String(d?.status?.resourceName || d?.spec?.resourceName || '').trim();
           const vid = String(
-            d?.status?.vendorID || d?.status?.vendorId || d?.spec?.vendorID || d?.spec?.vendorId || '',
+            d?.status?.vendorID ||
+              d?.status?.vendorId ||
+              d?.spec?.vendorID ||
+              d?.spec?.vendorId ||
+              '',
           ).trim();
           const pid = String(
-            d?.status?.productID || d?.status?.productId || d?.spec?.productID || d?.spec?.productId || '',
+            d?.status?.productID ||
+              d?.status?.productId ||
+              d?.spec?.productID ||
+              d?.spec?.productId ||
+              '',
           ).trim();
           return Boolean(rn || (vid && pid));
         })
@@ -538,12 +552,18 @@ export function buildHarvesterPciDeviceClaimIndex(claims: any[]): {
       if (on) claimMap.set(on, c);
     });
     const pciDeviceName = String(
-      c?.status?.pciDeviceName || c?.spec?.pciDeviceName || c?.spec?.pciDevice || c?.spec?.deviceName || '',
+      c?.status?.pciDeviceName ||
+        c?.spec?.pciDeviceName ||
+        c?.spec?.pciDevice ||
+        c?.spec?.deviceName ||
+        '',
     ).trim();
     if (pciDeviceName) claimMap.set(pciDeviceName, c);
     const rn = String(c?.spec?.resourceName || c?.resourceName || '').trim();
     const node = String(c?.spec?.nodeName || c?.nodeName || '').trim();
-    const addr = String(c?.spec?.pciAddress || c?.spec?.address || c?.pciAddress || c?.address || '').trim();
+    const addr = String(
+      c?.spec?.pciAddress || c?.spec?.address || c?.pciAddress || c?.address || '',
+    ).trim();
     if (rn && node && addr) claimByKey.set(`${node}|${rn}|${addr}`, c);
   });
   return { claimMap, claimByKey };
@@ -561,7 +581,9 @@ export function findHarvesterPciClaimForPciRow(
   const rn = String(
     raw?.status?.resourceName || raw?.spec?.resourceName || r?.resourceName || '',
   ).trim();
-  const node = String(r?.nodeName || r?.node || raw?.status?.nodeName || raw?.spec?.nodeName || '').trim();
+  const node = String(
+    r?.nodeName || r?.node || raw?.status?.nodeName || raw?.spec?.nodeName || '',
+  ).trim();
   const addr = String(
     r?.pciAddress ||
       r?.address ||
@@ -583,11 +605,17 @@ export function findHarvesterPciClaimForPciRow(
 export function harvesterPciDeviceClaimPassthroughEnabled(claim: any): boolean {
   if (!claim) return false;
   const s = claim?.status || {};
-  if (s.passthroughEnabled === true || String(s.passthroughEnabled).toLowerCase() === 'true') return true;
+  if (s.passthroughEnabled === true || String(s.passthroughEnabled).toLowerCase() === 'true')
+    return true;
   const conds = Array.isArray(s.conditions) ? s.conditions : [];
   for (const c of conds) {
-    const t = String(c?.type || '').replace(/\s+/g, '').toLowerCase();
-    if ((t === 'passthroughenabled' || t === 'enabled') && String(c?.status || '').toLowerCase() === 'true') {
+    const t = String(c?.type || '')
+      .replace(/\s+/g, '')
+      .toLowerCase();
+    if (
+      (t === 'passthroughenabled' || t === 'enabled') &&
+      String(c?.status || '').toLowerCase() === 'true'
+    ) {
       return true;
     }
   }
@@ -610,7 +638,9 @@ export const listHarvesterPciDeviceClaims = async ({
 
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -676,7 +706,9 @@ export const listHarvesterUsbDeviceClaims = async ({
 
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -742,7 +774,9 @@ export const createHarvesterUsbDeviceClaim = async (
 
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -785,15 +819,23 @@ export const createHarvesterUsbDeviceClaim = async (
 
   const uid = String(device?.metadata?.uid || '').trim();
   const nodeName = String(device?.status?.nodeName || device?.spec?.nodeName || '').trim();
-  const pciAddress = String(device?.status?.pciAddress || device?.status?.address || device?.spec?.pciAddress || device?.spec?.address || '').trim();
+  const pciAddress = String(
+    device?.status?.pciAddress ||
+      device?.status?.address ||
+      device?.spec?.pciAddress ||
+      device?.spec?.address ||
+      '',
+  ).trim();
 
   const ownerReferences = uid
-    ? [{
-        apiVersion: String(device?.apiVersion || 'devices.harvesterhci.io/v1beta1'),
-        kind: 'USBDevice',
-        name,
-        uid,
-      }]
+    ? [
+        {
+          apiVersion: String(device?.apiVersion || 'devices.harvesterhci.io/v1beta1'),
+          kind: 'USBDevice',
+          name,
+          uid,
+        },
+      ]
     : undefined;
 
   const payload: any = {
@@ -850,7 +892,9 @@ export const deleteHarvesterUsbDeviceClaim = async (
 
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -906,7 +950,9 @@ export const deleteHarvesterPciDeviceClaim = async (
 
   let clusterId: string | null = null;
   try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(() => null);
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
     const cItems = Array.isArray((clusters as any)?.data)
       ? (clusters as any)?.data
       : Array.isArray((clusters as any)?.items)
@@ -954,4 +1000,3 @@ export const deleteHarvesterPciDeviceClaim = async (
   if (lastErr) throw lastErr;
   return { message: 'Not found', name };
 };
-

@@ -46,7 +46,10 @@ export async function harvesterLbListHandler(req: any, res: Response, next: any)
     let whereCondition: any = { cloudId: id };
     if (isTenant) {
       const allowedNamespaces = tenantNamespace
-        ? tenantNamespace.split(',').map((s: string) => s.trim()).filter(Boolean)
+        ? tenantNamespace
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
         : [];
       whereCondition = await buildTenantNamespaceInventoryWhere(id, allowedNamespaces, {
         mergePublicScenarioNamespaces: mergePublicScenarioNamespacesFromQuery(req),
@@ -75,7 +78,9 @@ export async function harvesterLbListHandler(req: any, res: Response, next: any)
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: '查询 Harvester 负载均衡失败', error: error.body || error.message });
+    res
+      .status(500)
+      .json({ message: '查询 Harvester 负载均衡失败', error: error.body || error.message });
   }
 }
 
@@ -121,9 +126,13 @@ export async function harvesterServiceDirectListHandler(req: any, res: Response,
     });
     let filteredItems = items;
     if (isTenant) {
-      filteredItems = tenantNamespace ? items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace)) : [];
+      filteredItems = tenantNamespace
+        ? items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace))
+        : [];
     } else if (tenantNamespace) {
-      filteredItems = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
+      filteredItems = items.filter((i: any) =>
+        isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
+      );
     }
     res.json({ message: '查询成功', data: { items: filteredItems } });
   } catch (error: any) {
@@ -146,7 +155,9 @@ export async function harvesterLbDeleteHandler(req: any, res: Response, next: an
     const data = await requestJson('DELETE', url, cloud.secretKey || '', insecure);
     return res.json({ message: '删除成功', data });
   } catch (error: any) {
-    res.status(500).json({ message: `删除负载均衡失败 | ${error.body || error.message}`, error: error.body });
+    res
+      .status(500)
+      .json({ message: `删除负载均衡失败 | ${error.body || error.message}`, error: error.body });
   }
 }
 
@@ -163,7 +174,10 @@ export async function harvesterIpPoolListHandler(req: any, res: Response, next: 
     let whereCondition: any = { cloudId: id };
     if (isTenant) {
       const allowedNamespaces = tenantNamespace
-        ? tenantNamespace.split(',').map((s: string) => s.trim()).filter(Boolean)
+        ? tenantNamespace
+            .split(',')
+            .map((s: string) => s.trim())
+            .filter(Boolean)
         : [];
       whereCondition = await buildTenantNamespaceInventoryWhere(id, allowedNamespaces, {
         mergePublicScenarioNamespaces: mergePublicScenarioNamespacesFromQuery(req),
@@ -220,7 +234,10 @@ export async function harvesterIpPoolCreateHandler(req: any, res: Response, next
     };
     payload.spec.ranges = [];
     if (req.body.spec?.cidrs && Array.isArray(req.body.spec.cidrs)) {
-      payload.spec.ranges = req.body.spec.cidrs.map((cidr: string) => ({ subnet: cidr, type: 'cidr' }));
+      payload.spec.ranges = req.body.spec.cidrs.map((cidr: string) => ({
+        subnet: cidr,
+        type: 'cidr',
+      }));
     } else if (req.body.spec?.ranges && Array.isArray(req.body.spec.ranges)) {
       payload.spec.ranges = req.body.spec.ranges.map((r: any) => ({
         rangeStart: r.start,
@@ -268,7 +285,9 @@ export async function harvesterIpPoolCreateHandler(req: any, res: Response, next
     }
     return res.json({ message: '创建成功', data });
   } catch (error: any) {
-    res.status(500).json({ message: `创建 IP 池失败 | ${error.body || error.message}`, error: error.body });
+    res
+      .status(500)
+      .json({ message: `创建 IP 池失败 | ${error.body || error.message}`, error: error.body });
   }
 }
 
@@ -286,6 +305,8 @@ export async function harvesterIpPoolDeleteHandler(req: any, res: Response, next
     const data = await requestJson('DELETE', url, cloud.secretKey || '', insecure);
     return res.json({ message: '删除成功', data });
   } catch (error: any) {
-    res.status(500).json({ message: `删除 IP 池失败 | ${error.body || error.message}`, error: error.body });
+    res
+      .status(500)
+      .json({ message: `删除 IP 池失败 | ${error.body || error.message}`, error: error.body });
   }
 }

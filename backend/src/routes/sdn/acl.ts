@@ -37,7 +37,16 @@ const _saveVRConfigToDB = async (uuid: string, config: any) => {
 
 const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { msg: _msg, code: _code, report_config_status: _report_config_status, updateDate: _updateDate, createDate: _createDate, _id, requestId: _requestId, ...rest } = obj;
+  const {
+    msg: _msg,
+    code: _code,
+    report_config_status: _report_config_status,
+    updateDate: _updateDate,
+    createDate: _createDate,
+    _id,
+    requestId: _requestId,
+    ...rest
+  } = obj;
   return rest;
 };
 
@@ -80,20 +89,20 @@ aclRoutes.post('/', async (req, res, next) => {
       res.status(400).json({ message: 'Missing required fields' });
       return;
     }
-    
+
     // Strict enforcement: Rules must belong to a group
     // The preferred way is POST /api/acl-groups/:id/rules, but if this endpoint is used, groupId is required.
     const { groupId } = req.body;
     if (!groupId) {
-       res.status(400).json({ message: 'Rules must belong to an ACL Group (groupId is required)' });
-       return;
+      res.status(400).json({ message: 'Rules must belong to an ACL Group (groupId is required)' });
+      return;
     }
 
     const item = repo().create({
       name,
       description,
       vrId,
-      groupId, 
+      groupId,
       priority: Number(priority) || 100,
       action: action || ACLAction.PERMIT,
       protocol: protocol || ACLProtocol.ANY,

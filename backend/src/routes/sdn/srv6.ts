@@ -11,7 +11,16 @@ const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 /** 与 IPsec deploy 一致：去掉包装字段后再下发 CSMctl */
 const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { msg: _msg, code: _code, report_config_status: _report_config_status, updateDate: _updateDate, createDate: _createDate, _id, requestId: _requestId, ...rest } = obj;
+  const {
+    msg: _msg,
+    code: _code,
+    report_config_status: _report_config_status,
+    updateDate: _updateDate,
+    createDate: _createDate,
+    _id,
+    requestId: _requestId,
+    ...rest
+  } = obj;
   return rest;
 };
 

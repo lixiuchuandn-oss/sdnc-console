@@ -27,7 +27,8 @@ try {
     const raw = fs.readFileSync(legacyDifyCfgPath, 'utf-8');
     const json = JSON.parse(raw) as Partial<StoragePaths>;
     if (json.logsDir && typeof json.logsDir === 'string') storage.logsDir = json.logsDir;
-    if (json.reportsDir && typeof json.reportsDir === 'string') storage.reportsDir = json.reportsDir;
+    if (json.reportsDir && typeof json.reportsDir === 'string')
+      storage.reportsDir = json.reportsDir;
   }
 } catch {
   /* ignore */

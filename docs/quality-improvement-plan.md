@@ -6,21 +6,18 @@
 
 ## 阶段总览
 
-| 阶段 | 目标 | 状态 |
-|------|------|------|
-| **P0** | 后端 ESLint warning → 0 | 已完成（`cursor/backend-eslint-cleanup-c3e5`） |
-| **P1** | CI 后端 lint 改为 `--max-warnings=0` | 已完成（`backend/package.json`、`docs/ci.md`） |
-| **P2** | 巨型文件按主题拆分 | 待排期 |
-| **P3** | 前端 bundle 分析与 code splitting | 待排期 |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | 待排期（见 **Prettier 前置条件**） |
+| 阶段   | 目标                                  | 状态                                                                            |
+| ------ | ------------------------------------- | ------------------------------------------------------------------------------- |
+| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                  |
+| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                  |
+| **P2** | 巨型文件按主题拆分                    | 待排期                                                                          |
+| **P3** | 前端 bundle 分析与 code splitting     | 待排期                                                                          |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：`backend/src` + `docs/` 已格式化并 CI；`frontend/src` 与 E2E 待办 |
 
-### Prettier 前置条件（P4 启动前）
+### Prettier 范围说明
 
-全仓 `prettier --write` 会把多行 `useMemo` / `useEffect` 的依赖数组拆行，使原有的 `eslint-disable-next-line react-hooks/exhaustive-deps` **不再作用在 ESLint 报错行**，`main` 上前端 `--max-warnings=0` 会新增约数十条 hooks 警告。建议：
-
-1. **先合并** P0/P1（PR #76）；
-2. **再开** 独立 PR：仅 `backend/src` + `docs/` 格式化并加 CI，或格式化 `frontend/src` 时同步修正 hooks 抑制注释；
-3. **勿** 在未处理上述问题前对全仓启用 `prettier --check` CI。
+- **已纳入 CI**：`backend/src/**/*.ts`、`docs/**/*.md`（`npm run format:check`）
+- **仍仅 lint-staged**：`frontend/src`（全仓 `prettier --write` 会破坏部分 `eslint-disable-next-line react-hooks/exhaustive-deps` 的行对齐，须单独 PR 处理）
 
 ---
 
@@ -59,13 +56,13 @@ npx tsc
 
 按「改动频率 × 行数」优先，每次只拆一个主题，保证 PR 可审。
 
-| 优先级 | 文件（约行数） | 建议拆法 |
-|--------|----------------|----------|
-| 1 | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | 按资源类型拆 `*.cache.container.*.routes.ts` 或迁入 `handlers/` |
-| 2 | `routes/clouds/aliyun/routes.ts` (~4.5k) | 按产品（ECS/VPC/RDS…）拆 `aliyun/*.routes.ts` |
-| 3 | `services/clouds/harvester/vm_update.ts` (~2.3k) | 按操作（patch/disks/network）拆 `vm_update/*.ts` |
-| 4 | `frontend/.../WorkloadForm.tsx` (~7.5k) | 表单子组件 + `hooks/useWorkloadForm*.ts` |
-| 5 | `frontend/.../JobsSection.tsx` (~2.1k) | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/` |
+| 优先级 | 文件（约行数）                                                      | 建议拆法                                                        |
+| ------ | ------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | 按资源类型拆 `*.cache.container.*.routes.ts` 或迁入 `handlers/` |
+| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | 按产品（ECS/VPC/RDS…）拆 `aliyun/*.routes.ts`                   |
+| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | 按操作（patch/disks/network）拆 `vm_update/*.ts`                |
+| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                        |
+| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                   |
 
 ### 单 PR 检查项
 
@@ -86,10 +83,10 @@ npx tsc
 
 ## P4：CI 增强
 
-| 项 | 命令 | 说明 |
-|----|------|------|
-| Prettier | `npx prettier --check "src/**/*.{ts,tsx,json,md,css}"` | 与 lint-staged 对齐 |
-| 冒烟 | 登录 + Cloudmap 单 Tab + VM 列表 | 可用 Playwright 或内部脚本，另开 workflow |
+| 项       | 命令                                                   | 说明                                      |
+| -------- | ------------------------------------------------------ | ----------------------------------------- |
+| Prettier | `npx prettier --check "src/**/*.{ts,tsx,json,md,css}"` | 与 lint-staged 对齐                       |
+| 冒烟     | 登录 + Cloudmap 单 Tab + VM 列表                       | 可用 Playwright 或内部脚本，另开 workflow |
 
 ---
 

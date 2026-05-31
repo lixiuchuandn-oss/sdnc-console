@@ -31,11 +31,11 @@ export async function harvesterNadListHandler(req: Request, res: Response) {
 
     const repo = AppDataSource.getRepository(KubevirtNadInventory);
     let whereCondition: any = { cloudId: id };
-    
+
     const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';
     const isTenant = isTenantUser || isTenantRole;
-    
+
     if (isTenant) {
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
       const where: any = {
@@ -48,10 +48,13 @@ export async function harvesterNadListHandler(req: Request, res: Response) {
       }
       const us = await userSpaceRepo.findOne({ where });
       if (!us) return res.json({ message: '查询成功', data: { items: [] } });
-      
+
       if (us.namespace) {
-        const allowed = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
-        
+        const allowed = us.namespace
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
         if (reqAny.user.organizationId) {
           const orgNs = `ns-${reqAny.user.organizationId}`;
           if (!allowed.includes(orgNs)) {
@@ -64,7 +67,7 @@ export async function harvesterNadListHandler(req: Request, res: Response) {
             }
           }
         }
-        
+
         whereCondition = await buildTenantNamespaceInventoryWhere(id, allowed, {
           mergePublicScenarioNamespaces: mergePublicScenarioNamespacesFromQuery(req),
         });
@@ -81,7 +84,7 @@ export async function harvesterNadListHandler(req: Request, res: Response) {
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
     const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
-    
+
     if (shouldSync) {
       try {
         await syncHarvesterNads(cloud, insecure);
@@ -135,12 +138,7 @@ export async function harvesterNadDetailHandler(req: Request, res: Response) {
       }
     } catch (e) {}
 
-    const data = await requestJson(
-      'GET',
-      cloud.endpoint + path,
-      cloud.secretKey || '',
-      insecure,
-    );
+    const data = await requestJson('GET', cloud.endpoint + path, cloud.secretKey || '', insecure);
 
     res.json(data);
   } catch (error: any) {
@@ -184,10 +182,7 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
     if (!nadPayload.metadata.labels) nadPayload.metadata.labels = {};
     nadPayload.metadata.labels['tower.io/creator'] = 'compute-tower';
 
-    console.log(
-      `[NAD Create] Payload for ${namespace}:`,
-      JSON.stringify(nadPayload, null, 2),
-    );
+    console.log(`[NAD Create] Payload for ${namespace}:`, JSON.stringify(nadPayload, null, 2));
 
     const candidates = [
       `${endpoint}/apis/k8s.cni.cncf.io/v1/namespaces/${nsEncoded}/network-attachment-definitions`,
@@ -204,13 +199,7 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
     let createdData: any = null;
     for (const url of candidates) {
       try {
-        const data = await requestJson(
-          'POST',
-          url,
-          cloud.secretKey || '',
-          insecure,
-          nadPayload,
-        );
+        const data = await requestJson('POST', url, cloud.secretKey || '', insecure, nadPayload);
         createdData = data;
         success = true;
         break;
@@ -236,9 +225,7 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
       console.error(
         `[NAD Create Error] All candidates failed. Namespace: ${namespace}. Last Error: ${lastError?.message}`,
       );
-      const lastErrorDetail = lastError?.body
-        ? ` Details: ${lastError.body}`
-        : '';
+      const lastErrorDetail = lastError?.body ? ` Details: ${lastError.body}` : '';
       throw new Error(
         `Harvester API 404 Not Found. 无法找到有效的创建路径 (尝试了标准K8s API和Rancher API)。请检查命名空间 '${namespace}' 是否存在。${lastErrorDetail}`,
       );
@@ -250,7 +237,7 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
         const repo = AppDataSource.getRepository(KubevirtNadInventory);
         const uid = createdData.metadata?.uid || createdData.id || '';
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        
+
         if (existing) {
           // 更新现有记录
           existing.name = createdData.metadata?.name || '';
@@ -266,7 +253,9 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
           existing.annotations = createdData.metadata?.annotations;
           existing.rawData = createdData;
           await repo.save(existing);
-          console.log(`[NAD-Create] 网络已更新，cloudId: ${cloud.id}, name: ${createdData.metadata?.name}`);
+          console.log(
+            `[NAD-Create] 网络已更新，cloudId: ${cloud.id}, name: ${createdData.metadata?.name}`,
+          );
         } else {
           // 插入新记录
           const entity = repo.create({
@@ -288,7 +277,9 @@ export async function harvesterNadCreateHandler(req: Request, res: Response) {
             rawData: createdData,
           });
           await repo.save(entity);
-          console.log(`[NAD-Create] 网络已入库，cloudId: ${cloud.id}, name: ${createdData.metadata?.name}`);
+          console.log(
+            `[NAD-Create] 网络已入库，cloudId: ${cloud.id}, name: ${createdData.metadata?.name}`,
+          );
         }
       } catch (e: any) {
         console.error('[NAD-Create] 入库网络失败:', e?.message || e);
@@ -328,11 +319,7 @@ export async function harvesterNadDeleteHandler(req: Request, res: Response) {
       const ns = String(namespace || '').trim();
       const nadName = String(name || '').trim();
       const targetRef = `${ns}/${nadName}`.toLowerCase();
-      const usingVms = findVmDisplayNamesUsingMultusNetwork(
-        vms,
-        targetRef,
-        nadName.toLowerCase(),
-      );
+      const usingVms = findVmDisplayNamesUsingMultusNetwork(vms, targetRef, nadName.toLowerCase());
       if (usingVms.length > 0) {
         return res.status(409).json({
           message: `无法删除 NAD：仍被虚拟机使用：${usingVms.slice(0, 5).join('，')}${
@@ -363,11 +350,7 @@ export async function harvesterNadDeleteHandler(req: Request, res: Response) {
     for (const url of candidates) {
       if (!url.includes('/apis/k8s.cni.cncf.io/')) continue;
       try {
-        const current = await getJsonOnce(
-          url,
-          cloud.secretKey || '',
-          insecure,
-        );
+        const current = await getJsonOnce(url, cloud.secretKey || '', insecure);
         const finalizers = current?.metadata?.finalizers;
         if (!Array.isArray(finalizers) || !finalizers.includes(managedFinalizer)) {
           continue;
@@ -381,14 +364,9 @@ export async function harvesterNadDeleteHandler(req: Request, res: Response) {
             op: 'remove',
             path: `/metadata/finalizers/${index}`,
           }));
-          await requestJson(
-            'PATCH',
-            url,
-            cloud.secretKey || '',
-            insecure,
-            patchOps,
-            { 'Content-Type': 'application/json-patch+json' },
-          );
+          await requestJson('PATCH', url, cloud.secretKey || '', insecure, patchOps, {
+            'Content-Type': 'application/json-patch+json',
+          });
         }
       } catch {}
     }
@@ -409,9 +387,7 @@ export async function harvesterNadDeleteHandler(req: Request, res: Response) {
     }
 
     if (success) {
-      syncHarvesterNads(cloud, insecure).catch((e) =>
-        console.error('Background sync failed', e),
-      );
+      syncHarvesterNads(cloud, insecure).catch((e) => console.error('Background sync failed', e));
       return res.json({ message: '删除成功' });
     }
 

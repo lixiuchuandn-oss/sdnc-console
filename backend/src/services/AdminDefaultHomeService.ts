@@ -74,12 +74,23 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
     }
   }
 
-  if (base.startsWith('clouds.containers.') && base !== 'clouds.containers' && act.endsWith(':read')) {
-    if (permsArray.includes('clouds.containers:read') || permsArray.includes('clouds.containers:write')) {
+  if (
+    base.startsWith('clouds.containers.') &&
+    base !== 'clouds.containers' &&
+    act.endsWith(':read')
+  ) {
+    if (
+      permsArray.includes('clouds.containers:read') ||
+      permsArray.includes('clouds.containers:write')
+    ) {
       return true;
     }
   }
-  if (base.startsWith('clouds.containers.') && base !== 'clouds.containers' && act.endsWith(':write')) {
+  if (
+    base.startsWith('clouds.containers.') &&
+    base !== 'clouds.containers' &&
+    act.endsWith(':write')
+  ) {
     if (permsArray.includes('clouds.containers:write')) {
       return true;
     }

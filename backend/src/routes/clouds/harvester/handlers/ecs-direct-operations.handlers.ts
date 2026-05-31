@@ -10,7 +10,7 @@
  * - 迁移操作：迁移、取消迁移
  * - 硬件资源：GPU、USB 资源查询
  * - 聚合查询：VM 聚合详情
- * 
+ *
  * 注意：生命周期操作已迁移到 ecs-lifecycle.handlers.ts
  *       CRUD 操作已迁移到 ecs-crud.handlers.ts
  * ==============================================================================
@@ -54,14 +54,8 @@ import {
 export async function harvesterEcsStreamHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
-    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(
-      req,
-      id,
-    );
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const allowNamespace = (ns: string | undefined) => {
       if (!ns) return false;
@@ -148,10 +142,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
       } catch {}
     };
 
-    const sendItem = (
-      key: string,
-      eventType: 'vm_created' | 'vm_status' = 'vm_status',
-    ) => {
+    const sendItem = (key: string, eventType: 'vm_created' | 'vm_status' = 'vm_status') => {
       const vm = vmCache.get(key);
       if (!vm) return;
       const vmi = vmiCache.get(key);
@@ -177,19 +168,14 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
         links: { view: viewUrl },
         ...vm,
         vmi,
-        _rv: `${vm.metadata?.resourceVersion || ''}|${
-          vmi?.metadata?.resourceVersion || ''
-        }`,
+        _rv: `${vm.metadata?.resourceVersion || ''}|${vmi?.metadata?.resourceVersion || ''}`,
       };
 
       if (eventType === 'vm_created') {
         send('vm_created', { item });
       } else {
-        const status = String(
-          item.status?.printableStatus || item.status?.phase || '',
-        );
-        const nodeName =
-          item.vmi?.status?.nodeName || item.status?.nodeName || '';
+        const status = String(item.status?.printableStatus || item.status?.phase || '');
+        const nodeName = item.vmi?.status?.nodeName || item.status?.nodeName || '';
         const ips: string[] = [];
         if (item.vmi?.status?.interfaces) {
           item.vmi.status.interfaces.forEach((i: any) => {
@@ -281,9 +267,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
           links: { view: viewUrl },
           ...vm,
           vmi,
-          _rv: `${vm.metadata?.resourceVersion || ''}|${
-            vmi?.metadata?.resourceVersion || ''
-          }`,
+          _rv: `${vm.metadata?.resourceVersion || ''}|${vmi?.metadata?.resourceVersion || ''}`,
         });
       }
       send('vms', { items: initialItems });
@@ -324,8 +308,7 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
               send('vm_deleted', { iid: obj.metadata?.uid });
             } else {
               vmCache.set(key, obj);
-              const eventType =
-                event.type === 'ADDED' ? 'vm_created' : 'vm_status';
+              const eventType = event.type === 'ADDED' ? 'vm_created' : 'vm_status';
               sendItem(key, eventType);
             }
           },
@@ -437,16 +420,13 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
   } catch (error: any) {
     try {
       if (!res.headersSent) {
-        res
-          .status(500)
-          .json({ message: 'Stream error', error: error.message });
+        res.status(500).json({ message: 'Stream error', error: error.message });
       } else {
         res.end();
       }
     } catch {}
   }
 }
-
 
 /**
  * GET /:id/resources/ecs/:instanceId/vnc-url - 获取 VNC URL
@@ -455,14 +435,8 @@ export async function harvesterEcsVncUrlHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(
-      reqAny,
-      id,
-    );
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
@@ -474,9 +448,7 @@ export async function harvesterEcsVncUrlHandler(req: Request, res: Response) {
 
     const { namespace } = (req as any).query as any;
 
-    const cleanName = instanceId.includes('/')
-      ? instanceId.split('/')[1]
-      : instanceId;
+    const cleanName = instanceId.includes('/') ? instanceId.split('/')[1] : instanceId;
 
     const url = await getHarvesterVmVncUrl(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -500,24 +472,15 @@ export async function harvesterEcsAddVolumeHandler(req: Request, res: Response) 
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const data = await harvesterAddVolumeToVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -541,12 +504,8 @@ export async function harvesterEcsRemoveVolumeHandler(req: Request, res: Respons
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
       if (!rejectUnlessTenantWrite(res, p)) return;
@@ -556,13 +515,8 @@ export async function harvesterEcsRemoveVolumeHandler(req: Request, res: Respons
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const data = await harvesterRemoveVolumeFromVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -588,32 +542,20 @@ export async function harvesterEcsMigrateHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace, isTenant } = await checkTenantAccess(
-      reqAny,
-      id,
-    );
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied' });
+    const { allowed, namespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied' });
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Provider mismatch')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      namespace,
-      instanceId,
-      cloud,
-      isTenant,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(namespace, instanceId, cloud, isTenant);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const result = await harvesterMigrateVM(
       {
         endpoint: cloud.endpoint || (cloud.config as any)?.endpoint,
         token: cloud.secretKey || (cloud.config as any)?.token,
-        insecure:
-          !!(cloud.config as any)?.ignoreTls ||
-          !!(cloud.config as any)?.insecure,
+        insecure: !!(cloud.config as any)?.ignoreTls || !!(cloud.config as any)?.insecure,
       },
       resolvedId,
       req.body.targetNode,
@@ -643,32 +585,20 @@ export async function harvesterEcsAbortMigrationHandler(req: Request, res: Respo
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace, isTenant } = await checkTenantAccess(
-      reqAny,
-      id,
-    );
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied' });
+    const { allowed, namespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied' });
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Provider mismatch')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      namespace,
-      instanceId,
-      cloud,
-      isTenant,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(namespace, instanceId, cloud, isTenant);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const result = await harvesterAbortMigration(
       {
         endpoint: cloud.endpoint || (cloud.config as any)?.endpoint,
         token: cloud.secretKey || (cloud.config as any)?.token,
-        insecure:
-          !!(cloud.config as any)?.ignoreTls ||
-          !!(cloud.config as any)?.insecure,
+        insecure: !!(cloud.config as any)?.ignoreTls || !!(cloud.config as any)?.insecure,
       },
       resolvedId,
     );
@@ -687,21 +617,10 @@ export async function harvesterGpuResourcesHandler(req: Request, res: Response) 
     const { id } = req.params;
     const reqAny = req as any;
     const { allowed } = await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = (req as any).cloud;
-    if (
-      !ensureProvider(
-        cloud,
-        'harvester',
-        res,
-        '仅支持 Harvester 资源查询',
-      )
-    )
-      return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const items = await listHarvesterGpuResources({
@@ -727,21 +646,10 @@ export async function harvesterUsbResourcesHandler(req: Request, res: Response) 
     const { id } = req.params;
     const reqAny = req as any;
     const { allowed } = await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = (req as any).cloud;
-    if (
-      !ensureProvider(
-        cloud,
-        'harvester',
-        res,
-        '仅支持 Harvester 资源查询',
-      )
-    )
-      return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const items = await listHarvesterUsbResources({
@@ -766,20 +674,11 @@ export async function harvesterMigrationsDirectHandler(req: Request, res: Respon
   try {
     const { id } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
     if (!allowed) return res.status(403).json({ message: 'Access denied' });
 
     const cloud = (req as any).cloud;
-    if (
-      !ensureProvider(
-        cloud,
-        'harvester',
-        res,
-        '仅支持 Harvester 资源查询',
-      )
-    )
-      return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
@@ -810,16 +709,11 @@ export async function harvesterMigrationsDirectHandler(req: Request, res: Respon
           .filter(Boolean);
         nsList.push(...allowedNs);
       } else {
-        const repo =
-          AppDataSource.getRepository(HarvesterNamespaceInventory);
+        const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
         const dbItems = await repo.find({ where: { cloudId: id } });
         nsList.push(
           ...dbItems
-            .map((i) =>
-              String(
-                i?.name || i?.rawData?.metadata?.name || '',
-              ).trim(),
-            )
+            .map((i) => String(i?.name || i?.rawData?.metadata?.name || '').trim())
             .filter(Boolean),
         );
       }
@@ -829,12 +723,7 @@ export async function harvesterMigrationsDirectHandler(req: Request, res: Respon
           ns,
         )}/virtualmachineinstancemigrations`;
         try {
-          const rawNs = await getJsonOnce(
-            nsUrl,
-            cloud.secretKey || '',
-            insecure,
-            true,
-          );
+          const rawNs = await getJsonOnce(nsUrl, cloud.secretKey || '', insecure, true);
           const arr = Array.isArray(rawNs?.items) ? rawNs.items : [];
           if (arr.length > 0) items.push(...arr);
         } catch (eNs: any) {}
@@ -848,9 +737,7 @@ export async function harvesterMigrationsDirectHandler(req: Request, res: Respon
         .filter(Boolean);
       if (allowedNs.length > 0) {
         items = items.filter((m: any) =>
-          allowedNs.includes(
-            String(m?.metadata?.namespace || '').trim(),
-          ),
+          allowedNs.includes(String(m?.metadata?.namespace || '').trim()),
         );
       } else {
         items = [];
@@ -869,7 +756,7 @@ export async function harvesterMigrationsDirectHandler(req: Request, res: Respon
 
 /**
  * POST /:id/resources/harvester/vms/:namespace/:name/action - 执行 VM 操作（热插拔等）
- * 
+ *
  * 支持的 action：
  * - addNic, removeNic, findHotunpluggableNics (网卡热插拔)
  * - addVolume, removeVolume (数据盘热插拔)
@@ -887,12 +774,8 @@ export async function harvesterVmActionHandler(req: Request, res: Response) {
     }
 
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     if (isTenant) {
       const validNamespaces = tenantNamespace
@@ -921,13 +804,7 @@ export async function harvesterVmActionHandler(req: Request, res: Response) {
     const targetUrl = `${origin}/v1/harvester/kubevirt.io.virtualmachine/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}?action=${encodeURIComponent(action)}`;
 
     // 转发请求到 Harvester API
-    const data = await requestJson(
-      'POST',
-      targetUrl,
-      cloud.secretKey || '',
-      insecure,
-      req.body,
-    );
+    const data = await requestJson('POST', targetUrl, cloud.secretKey || '', insecure, req.body);
 
     res.json({ message: '操作成功', data });
   } catch (error: any) {
@@ -949,29 +826,28 @@ export async function harvesterEcsAggregatedHandler(req: Request, res: Response)
     const { id, namespace, name } = req.params;
     const reqAny = req as any;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
-    
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
-    
+
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
+
     if (isTenant && tenantNamespace && !isNamespaceAllowed(tenantNamespace, namespace)) {
       return res.status(403).json({ message: 'Access denied to this namespace' });
     }
-    
+
     const cloud = (req as any).cloud;
-    
+
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await getHarvesterVMAggregated(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
-      name
+      name,
     );
     res.json({ data });
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({
       message: error.message || 'Failed to fetch aggregated VM details',
-      error: error.body || error.message
+      error: error.body || error.message,
     });
   }
 }

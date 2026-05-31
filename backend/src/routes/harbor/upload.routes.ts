@@ -1,8 +1,8 @@
 /**
  * Harbor 镜像上传路由
- * 
+ *
  * 处理镜像文件上传并推送到 Harbor 仓库。
- * 
+ *
  * @see ImageUploadService
  */
 import { Router, Request, Response } from 'express';
@@ -39,7 +39,7 @@ console.log('uploadRoutes 已加载');
 /**
  * POST /api/harbor/registries/:id/images/upload
  * 上传镜像到 Harbor
- * 
+ *
  * Request Body (multipart/form-data):
  * - file: 镜像 tar 文件
  * - project: Harbor 项目名称
@@ -51,8 +51,15 @@ router.post(
   authMiddleware,
   upload.single('file'),
   async (req: Request, res: Response) => {
-    console.log('收到上传请求: path=', req.path, 'params=', req.params, 'body keys=', Object.keys(req.body));
-    
+    console.log(
+      '收到上传请求: path=',
+      req.path,
+      'params=',
+      req.params,
+      'body keys=',
+      Object.keys(req.body),
+    );
+
     try {
       const { id } = req.params;
       const { project, repository, tag } = req.body;
@@ -105,7 +112,7 @@ router.post(
       }
 
       console.log(
-        `开始上传镜像: harbor=${id}, project=${cleanProject}, repository=${cleanRepository}, tag=${cleanTag}, size=${file.size}`
+        `开始上传镜像: harbor=${id}, project=${cleanProject}, repository=${cleanRepository}, tag=${cleanTag}, size=${file.size}`,
       );
 
       // 执行上传
@@ -129,55 +136,47 @@ router.post(
         message: error.message || '镜像上传失败',
       });
     }
-  }
+  },
 );
 
 /**
  * GET /api/harbor/registries/:id/images/upload/check
  * 检查上传环境是否就绪
  */
-router.get(
-  '/:id/images/upload/check',
-  authMiddleware,
-  async (req: Request, res: Response) => {
-    try {
-      const skopeoStatus = await imageUploadService.checkSkopeoAvailable();
-      
-      res.json({
-        skopeo: skopeoStatus,
-        maxSize: '2GB',
-        supportedFormats: ['.tar'],
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
+router.get('/:id/images/upload/check', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const skopeoStatus = await imageUploadService.checkSkopeoAvailable();
+
+    res.json({
+      skopeo: skopeoStatus,
+      maxSize: '2GB',
+      supportedFormats: ['.tar'],
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
-);
+});
 
 /**
  * POST /api/harbor/registries/:id/images/upload/cleanup
  * 清理临时文件（管理员功能）
  */
-router.post(
-  '/:id/images/upload/cleanup',
-  authMiddleware,
-  async (req: Request, res: Response) => {
-    try {
-      const result = await imageUploadService.cleanupTmpFiles();
-      res.json({
-        success: true,
-        ...result,
-      });
-    } catch (error: any) {
-      res.status(500).json({
-        success: false,
-        message: error.message,
-      });
-    }
+router.post('/:id/images/upload/cleanup', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const result = await imageUploadService.cleanupTmpFiles();
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
-);
+});
 
 export { router as uploadRoutes };

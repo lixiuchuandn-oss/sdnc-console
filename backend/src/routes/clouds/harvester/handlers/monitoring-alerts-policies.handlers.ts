@@ -61,7 +61,8 @@ function validateUpsertPayload(body: UpsertRequestBody): {
   if (body.kind || body.apiVersion || body.spec) {
     return {
       ok: false,
-      error: '告警通知策略接口已切换为结构化 payload（name/namespace/aliasName/description/receivers/alertNames），请勿直接提交 AlertmanagerConfig CR',
+      error:
+        '告警通知策略接口已切换为结构化 payload（name/namespace/aliasName/description/receivers/alertNames），请勿直接提交 AlertmanagerConfig CR',
     };
   }
   const name = String(body?.name ?? '').trim();
@@ -106,12 +107,15 @@ async function fetchReceiverIndex(
   try {
     const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
     const items: any[] = Array.isArray(raw?.data) ? raw.data : [];
-    const filtered = namespaces && namespaces.length > 0
-      ? items.filter((it: any) => {
-          const ns = (it?.data?.metadata?.namespace ?? it?.metadata?.namespace ?? '').toString().trim();
-          return namespaces!.includes(ns);
-        })
-      : items;
+    const filtered =
+      namespaces && namespaces.length > 0
+        ? items.filter((it: any) => {
+            const ns = (it?.data?.metadata?.namespace ?? it?.metadata?.namespace ?? '')
+              .toString()
+              .trim();
+            return namespaces!.includes(ns);
+          })
+        : items;
     return buildReceiverRefIndexFromReceiverCRs(filtered);
   } catch (e) {
     console.warn('[monitoring/policies] fetch receiver index failed:', e);
@@ -133,7 +137,7 @@ export async function harvesterMonitoringAlertmanagerConfigsHandler(req: Request
     const conn = { origin, token: cloud.secretKey || '', insecure };
     const url = `${origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
     const raw = await getJsonOnce(url, conn.token, conn.insecure, true);
-    let list: any[] = Array.isArray(raw?.data) ? raw.data : (Array.isArray(raw) ? raw : []);
+    let list: any[] = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : [];
 
     // 过滤掉接收器 CR（带 label monitoring-receiver=true 或历史共享 CR）
     list = list.filter((item: any) => {
@@ -167,7 +171,9 @@ export async function harvesterMonitoringAlertmanagerConfigsHandler(req: Request
     );
 
     // 联表 receivers 的 receiverType / aliasName
-    const involvedNamespaces = Array.from(new Set(policies.map((p) => p.namespace))).filter(Boolean);
+    const involvedNamespaces = Array.from(new Set(policies.map((p) => p.namespace))).filter(
+      Boolean,
+    );
     const receiverIndex = await fetchReceiverIndex(
       conn,
       involvedNamespaces.length > 0 ? involvedNamespaces : null,
@@ -191,7 +197,10 @@ export async function harvesterMonitoringAlertmanagerConfigsHandler(req: Request
   }
 }
 
-export async function harvesterMonitoringAlertmanagerConfigsPolicyReceiversHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsPolicyReceiversHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id } = req.params;
     const namespace = (req.query?.namespace ?? '').toString().trim();
@@ -218,7 +227,8 @@ export async function harvesterMonitoringAlertmanagerConfigsPolicyReceiversHandl
       const ns = (inner?.metadata?.namespace ?? '').toString().trim();
       if (isMonitoringReceiverConfigMeta(inner?.metadata ?? {})) continue;
       if (namespace && ns !== namespace) continue;
-      if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) continue;
+      if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns))
+        continue;
       const route = inner?.spec?.route ?? {};
       const refs = collectReceiverNamesFromRoute(route);
       if (refs.includes(specReceiverName)) {
@@ -233,10 +243,15 @@ export async function harvesterMonitoringAlertmanagerConfigsPolicyReceiversHandl
   }
 }
 
-export async function harvesterMonitoringAlertmanagerConfigsDetailHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsDetailHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id, namespace, name } = req.params;
-    const tenant = await requireTenantAccessForMonitoring(req as any, res, id, { namespaces: [namespace] });
+    const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
+      namespaces: [namespace],
+    });
     if (!tenant) return;
 
     const cloud = (req as any).cloud;
@@ -252,7 +267,8 @@ export async function harvesterMonitoringAlertmanagerConfigsDetailHandler(req: R
 
     // 同步拉同命名空间的通知对象 CR 用于 join
     const receiverIndex = await fetchReceiverIndex(conn, [namespace]);
-    const inner = (raw as any)?.data && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+    const inner =
+      (raw as any)?.data && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
 
     if (isMonitoringReceiverConfigMeta(inner?.metadata ?? {})) {
       return res.status(404).json({ message: '该资源是通知对象而非通知策略' });
@@ -269,7 +285,10 @@ export async function harvesterMonitoringAlertmanagerConfigsDetailHandler(req: R
   }
 }
 
-export async function harvesterMonitoringAlertmanagerConfigsCreateHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsCreateHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id } = req.params;
     const valid = validateUpsertPayload(req.body as UpsertRequestBody);
@@ -321,7 +340,10 @@ export async function harvesterMonitoringAlertmanagerConfigsCreateHandler(req: R
   }
 }
 
-export async function harvesterMonitoringAlertmanagerConfigsUpdateHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsUpdateHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id, namespace, name } = req.params;
     const valid = validateUpsertPayload(req.body as UpsertRequestBody);
@@ -353,7 +375,10 @@ export async function harvesterMonitoringAlertmanagerConfigsUpdateHandler(req: R
     let existing: any = null;
     try {
       const raw = await getJsonOnce(`${origin}/${path}`, conn.token, insecure, true);
-      existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+      existing =
+        (raw as any)?.data != null && typeof (raw as any).data === 'object'
+          ? (raw as any).data
+          : raw;
     } catch (e: any) {
       const status = Number((e as any)?.status ?? (e as any)?.statusCode ?? 0);
       if (status === 404) return res.status(404).json({ message: '未找到该通知策略' });
@@ -367,7 +392,13 @@ export async function harvesterMonitoringAlertmanagerConfigsUpdateHandler(req: R
     // 用 payload 携带的 resourceVersion 覆盖（如果有）；否则用既有的
     const cr = buildAlertmanagerConfigCRFromPolicyPayload(payload, existing);
     const finalPayload = { ...cr, spec: normalizePolicySpec(cr.spec) };
-    const updated = await requestJson('PUT', `${origin}/${path}`, conn.token, insecure, finalPayload);
+    const updated = await requestJson(
+      'PUT',
+      `${origin}/${path}`,
+      conn.token,
+      insecure,
+      finalPayload,
+    );
 
     const receiverIndex = await fetchReceiverIndex(conn, [namespace]);
     const base = buildAlertmanagerPolicyFromCR(updated);
@@ -380,7 +411,10 @@ export async function harvesterMonitoringAlertmanagerConfigsUpdateHandler(req: R
   }
 }
 
-export async function harvesterMonitoringAlertmanagerConfigsDeleteHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsDeleteHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id, namespace, name } = req.params;
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {

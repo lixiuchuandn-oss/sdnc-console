@@ -18,7 +18,9 @@ describe('clouds:read/write covers clouds.containers.*', () => {
   });
 
   it('clouds:read does not imply container write', () => {
-    expect(permissionChecker.check(cloudsReadOnly, 'clouds.containers.workloads:write')).toBe(false);
+    expect(permissionChecker.check(cloudsReadOnly, 'clouds.containers.workloads:write')).toBe(
+      false,
+    );
   });
 
   it('AdminDefaultHomeService hasPermissionForAction aligns with checker', () => {

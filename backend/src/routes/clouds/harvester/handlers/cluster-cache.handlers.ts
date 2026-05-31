@@ -1,6 +1,6 @@
 /**
  * Harvester Cluster Handlers
- * 
+ *
  * 从 harvester.cache.cluster.routes.ts 中提取的 Cluster 相关业务逻辑
  */
 
@@ -56,9 +56,7 @@ export async function harvesterNodeListHandler(req: Request, res: Response) {
       // rawData 中包含入库用的 hmsNics / hmsHardware；对外响应统一为 nics / hardware
       const { hmsNics: _hmsNics, hmsHardware: _hmsHardware, ...restRaw } = n || {};
       const name = n?.metadata?.name || n?.name || item.name || '';
-      const viewUrl = name
-        ? `${origin}/api/v1/nodes/${encodeURIComponent(name)}`
-        : undefined;
+      const viewUrl = name ? `${origin}/api/v1/nodes/${encodeURIComponent(name)}` : undefined;
       return {
         ...restRaw,
         // 兼容：HMS 入库到 rawData；对外字段名稳定
@@ -88,7 +86,7 @@ export async function harvesterNodeListHandler(req: Request, res: Response) {
 
 /**
  * GET /:id/resources/harvester/nodes/:name - 获取单个节点详情
- * 
+ *
  * [实现原理]
  * 由于 Harvester/Rancher API 路径结构复杂 (可能包含 cluster ID)，
  * 此接口尝试通过多种可能的 URL 路径去探测节点详情。
@@ -98,7 +96,7 @@ export async function harvesterNodeDetailHandler(req: Request, res: Response) {
     const cloud = (req as any).cloud;
     const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     // [基础 URL 解析]
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -108,7 +106,7 @@ export async function harvesterNodeDetailHandler(req: Request, res: Response) {
     } catch {
       origin = base.replace(/\/v[0-9].*$/, '');
     }
-    
+
     // [动态 ClusterID 获取] 尝试获取 Rancher 下游集群 ID
     // 优先匹配 'local' 集群，否则取第一个集群
     let clusterId: string | null = null;
@@ -122,21 +120,16 @@ export async function harvesterNodeDetailHandler(req: Request, res: Response) {
       const arr = Array.isArray(clusters?.data)
         ? clusters?.data
         : Array.isArray(clusters?.items)
-        ? clusters?.items
-        : [];
-      const local = arr.find(
-        (c: any) =>
-          String(c?.id || c?.Id || '').toLowerCase() === 'local',
-      );
+          ? clusters?.items
+          : [];
+      const local = arr.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
       const any = arr[0];
-      clusterId = String(
-        local?.id || local?.Id || any?.id || any?.Id || '',
-      )
+      clusterId = String(local?.id || local?.Id || any?.id || any?.Id || '')
         .trim()
         .toLowerCase();
       if (!clusterId) clusterId = null;
     } catch {}
-    
+
     // [路径探测] 构造候选 URL 列表
     // 1. Rancher Proxy 路径 (含 clusterId)
     // 2. 标准 K8s API 路径
@@ -153,18 +146,13 @@ export async function harvesterNodeDetailHandler(req: Request, res: Response) {
       `${origin}/v1/harvester/api/v1/nodes/${encodeURIComponent(name)}`,
       `${origin}/v1/core.v1.nodes/${encodeURIComponent(name)}`,
     ];
-    
+
     // [请求重试] 依次尝试候选 URL 直到成功
     let json: any = null;
     let lastErr: any = null;
     for (const url of candidates) {
       try {
-        json = await getJsonOnce(
-          url,
-          cloud.secretKey || '',
-          insecure,
-          true,
-        );
+        json = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
         if (json) break;
       } catch (e: any) {
         lastErr = e;
@@ -185,7 +173,7 @@ export async function harvesterHealthHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     // [实时调用] 调用 SDK 进行健康检查
     const data = await harvesterHealthCheck({
       endpoint: cloud.endpoint,

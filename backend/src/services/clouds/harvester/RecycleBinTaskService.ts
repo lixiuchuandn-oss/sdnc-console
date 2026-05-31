@@ -3,18 +3,18 @@
  * 服务名称: 回收站定时任务服务 (Recycle Bin Task Service)
  * 文件路径: backend/src/services/clouds/harvester/RecycleBinTaskService.ts
  * ==============================================================================
- * 
+ *
  * [功能描述]
  * 提供回收站虚拟机的定时任务管理，包括：
  * 1. 定时关机任务：扫描回收站中运行的虚拟机并自动关机
  * 2. 定时清理任务：删除过期的虚拟机
- * 
+ *
  * [设计要点]
  * - 采用单例模式，防止在同一进程内启动多个任务循环
  * - 使用系统设置读取配置（关机间隔、保留时长）
  * - 记录每次关机操作到数据库，便于查询和审计
  * - 单个虚拟机操作失败不影响其他虚拟机
- * 
+ *
  * ==============================================================================
  */
 
@@ -68,14 +68,14 @@ export class RecycleBinTaskService {
 
   /**
    * 启动定时任务
-   * 
+   *
    * 行为说明：
    * - 立即执行一次关机任务和清理任务
    * - 之后根据配置的间隔定时执行
    */
   public startTasks() {
     rbLog.info('启动回收站定时任务...');
-    
+
     // 立即执行一次关机任务
     this.shutdownRunningVmsInRecycleBin().catch((err) => {
       rbLog.error('初始关机任务失败:', summarizeRbErr(err));
@@ -129,7 +129,7 @@ export class RecycleBinTaskService {
     // 读取配置：默认 24 小时（每天一次）
     const intervalHours = parseInt(
       getSystemSetting('harvester.recycle_bin.cleanup_interval_hours') || '24',
-      10
+      10,
     );
     const intervalMs = Math.max(1, intervalHours) * 60 * 60 * 1000; // 至少 1 小时
 
@@ -141,7 +141,7 @@ export class RecycleBinTaskService {
         rbLog.error('定时清理任务失败:', summarizeRbErr(err));
       });
     }, intervalMs);
-    
+
     rbLog.debug(`清理定时任务已启动，将在 ${intervalHours} 小时后执行下一次扫描`);
   }
 
@@ -158,7 +158,7 @@ export class RecycleBinTaskService {
     // 读取配置：默认 1 小时
     const intervalHours = parseInt(
       getSystemSetting('harvester.recycle_bin.shutdown_interval_hours') || '1',
-      10
+      10,
     );
     const intervalMs = Math.max(1, intervalHours) * 60 * 60 * 1000; // 至少 1 小时
 
@@ -170,7 +170,7 @@ export class RecycleBinTaskService {
         rbLog.error('定时关机任务失败:', summarizeRbErr(err));
       });
     }, intervalMs);
-    
+
     rbLog.debug(`定时任务已启动，将在 ${intervalHours} 小时后执行下一次扫描`);
   }
 
@@ -190,7 +190,7 @@ export class RecycleBinTaskService {
     try {
       const cloudRepo = AppDataSource.getRepository(Cloud);
       const allClouds = await cloudRepo.find();
-      
+
       // 过滤出 Harvester 相关的云平台
       const clouds = allClouds.filter((cloud) => {
         const provider = String(cloud.config?.provider || '').toLowerCase();
@@ -261,10 +261,7 @@ export class RecycleBinTaskService {
     const recycleBinVms = vms.filter((vm: any) => {
       const finalizers = vm?.metadata?.finalizers || [];
       const labels = vm?.metadata?.labels || {};
-      return (
-        finalizers.includes(recycleBinFinalizer) ||
-        labels['tower.io/recycle-bin'] === 'true'
-      );
+      return finalizers.includes(recycleBinFinalizer) || labels['tower.io/recycle-bin'] === 'true';
     });
 
     rbLog.debug(`云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
@@ -315,7 +312,7 @@ export class RecycleBinTaskService {
     cloud: Cloud,
     vm: any,
     params: HarvesterTestParams,
-    taskId: string
+    taskId: string,
   ): Promise<'success' | 'failed' | 'skipped'> {
     const namespace = vm?.metadata?.namespace || '';
     const name = vm?.metadata?.name || '';
@@ -376,7 +373,9 @@ export class RecycleBinTaskService {
         taskId,
       });
 
-      rbLog.debug(`成功关闭回收站中的虚拟机: ${cloud.name}/${instanceId} (原状态: ${previousStatus})`);
+      rbLog.debug(
+        `成功关闭回收站中的虚拟机: ${cloud.name}/${instanceId} (原状态: ${previousStatus})`,
+      );
 
       return 'success';
     } catch (err: any) {
@@ -402,7 +401,10 @@ export class RecycleBinTaskService {
   /**
    * 是否在最近一个「关机任务间隔」窗口内已有同实例的「已为停止」跳过记录（防定时任务重复写库）
    */
-  private async hasRecentSkippedAlreadyStoppedRecord(cloudId: string, instanceId: string): Promise<boolean> {
+  private async hasRecentSkippedAlreadyStoppedRecord(
+    cloudId: string,
+    instanceId: string,
+  ): Promise<boolean> {
     const intervalHours = parseInt(
       getSystemSetting('harvester.recycle_bin.shutdown_interval_hours') || '1',
       10,
@@ -441,7 +443,6 @@ export class RecycleBinTaskService {
     return 'unknown';
   }
 
-
   /**
    * 记录关机操作到数据库
    */
@@ -457,7 +458,7 @@ export class RecycleBinTaskService {
       previousStatus?: string;
       errorMessage?: string;
       taskId?: string;
-    }
+    },
   ) {
     try {
       const recordRepo = AppDataSource.getRepository(RecycleBinShutdownRecord);
@@ -503,7 +504,7 @@ export class RecycleBinTaskService {
     try {
       const cloudRepo = AppDataSource.getRepository(Cloud);
       const allClouds = await cloudRepo.find();
-      
+
       // 过滤出 Harvester 相关的云平台
       const clouds = allClouds.filter((cloud) => {
         const provider = String(cloud.config?.provider || '').toLowerCase();
@@ -574,10 +575,7 @@ export class RecycleBinTaskService {
     const recycleBinVms = vms.filter((vm: any) => {
       const finalizers = vm?.metadata?.finalizers || [];
       const labels = vm?.metadata?.labels || {};
-      return (
-        finalizers.includes(recycleBinFinalizer) ||
-        labels['tower.io/recycle-bin'] === 'true'
-      );
+      return finalizers.includes(recycleBinFinalizer) || labels['tower.io/recycle-bin'] === 'true';
     });
 
     rbLog.debug(`云平台 ${cloud.name}: 回收站中有 ${recycleBinVms.length} 台虚拟机`);
@@ -615,7 +613,7 @@ export class RecycleBinTaskService {
     vm: any,
     params: HarvesterTestParams,
     taskId: string,
-    now: Date
+    now: Date,
   ): Promise<'success' | 'failed' | 'skipped'> {
     const namespace = vm?.metadata?.namespace || '';
     const name = vm?.metadata?.name || '';
@@ -630,7 +628,7 @@ export class RecycleBinTaskService {
     // 检查过期时间
     const annotations = vm?.metadata?.annotations || {};
     const expiresAtStr = annotations['tower.io/deletion-expires'];
-    
+
     if (!expiresAtStr) {
       // 没有过期时间注解，检查是否有删除时间注解（兼容旧数据）
       const scheduledAtStr = annotations['tower.io/deletion-scheduled'];
@@ -643,7 +641,7 @@ export class RecycleBinTaskService {
       const scheduledAt = new Date(scheduledAtStr);
       const defaultRetentionDays = parseInt(
         getSystemSetting('harvester.recycle_bin.retention_days') || '7',
-        10
+        10,
       );
       const expiresAt = new Date(scheduledAt);
       expiresAt.setDate(expiresAt.getDate() + defaultRetentionDays);

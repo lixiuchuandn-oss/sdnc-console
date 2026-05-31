@@ -1,8 +1,8 @@
 /**
  * Harbor 实例管理路由
- * 
+ *
  * 实现 Harbor 实例的 CRUD API 和测试连接功能。
- * 
+ *
  * @see design/harbor-integration-design.md 第三章
  */
 import { Router, Response } from 'express';
@@ -13,10 +13,7 @@ import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
 
 /** 容器页「镜像仓库」角色常授 clouds.containers.registries:*，与 harbor:registry:* 对齐 */
-function canManageHarborRegistry(
-  perms: string[],
-  action: 'create' | 'update' | 'delete',
-): boolean {
+function canManageHarborRegistry(perms: string[], action: 'create' | 'update' | 'delete'): boolean {
   const harborPerm =
     action === 'create'
       ? 'harbor:registry:create'
@@ -52,7 +49,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const repo = AppDataSource.getRepository(HarborRegistry);
     const { isBuiltIn, tenantId } = req.query || {};
-    
+
     const where: any = {};
     if (isBuiltIn !== undefined) {
       where.isBuiltIn = isBuiltIn === 'true';
@@ -60,7 +57,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (tenantId) {
       where.tenantId = tenantId;
     }
-    
+
     const registries = await repo.find({
       where,
       order: { createdAt: 'DESC' },
@@ -85,21 +82,21 @@ router.get('/', async (req: AuthRequest, res: Response) => {
  */
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions) 
-      ? (req.user as any).permissions 
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any).permissions
       : [];
     if (!canManageHarborRegistry(perms, 'create')) {
       return res.status(403).json({ message: '权限不足' });
     }
 
     const { name, url, username, password, insecure, isBuiltIn, tenantId, metadata } = req.body;
-    
+
     if (!name?.trim() || !url?.trim() || !username?.trim() || !password?.trim()) {
       return res.status(400).json({ message: '缺少必填字段：name, url, username, password' });
     }
 
     const repo = AppDataSource.getRepository(HarborRegistry);
-    
+
     // 检查名称是否已存在
     const existing = await repo.findOne({ where: { name } });
     if (existing) {
@@ -130,7 +127,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     });
 
     const saved = await repo.save(registry);
-    
+
     harborLog.info(`创建 Harbor 实例: ${name} (${saved.id})`);
 
     res.status(201).json({
@@ -149,7 +146,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 /**
  * 测试 Harbor 连接
  * POST /api/harbor/registries/:id/test
- * 
+ *
  * 注意：此路由必须在 /:id 路由之前定义，否则 Express 会将 'test' 当作 id 参数
  */
 router.post('/:id/test', async (req: AuthRequest, res: Response) => {
@@ -157,7 +154,7 @@ router.post('/:id/test', async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(HarborRegistry);
     const registry = await repo.findOne({ where: { id } });
-    
+
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -165,7 +162,7 @@ router.post('/:id/test', async (req: AuthRequest, res: Response) => {
     // 解密密码进行测试
     const { password: testPassword } = req.body;
     let passwordToUse = decryptPassword(registry.password);
-    
+
     // 如果前端传了新密码（测试未保存的配置）
     if (testPassword?.trim()) {
       passwordToUse = testPassword;
@@ -216,7 +213,7 @@ router.get('/:id/systeminfo', async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(HarborRegistry);
     const registry = await repo.findOne({ where: { id } });
-    
+
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -238,10 +235,11 @@ router.get('/:id/systeminfo', async (req: AuthRequest, res: Response) => {
 router.post('/:id/sync-projects', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    
-    const { harborProjectSyncService } = await import('../../services/harbor/HarborProjectSyncService');
+
+    const { harborProjectSyncService } =
+      await import('../../services/harbor/HarborProjectSyncService');
     const result = await harborProjectSyncService.refreshHarborProjects(id);
-    
+
     res.json({
       message: '项目同步成功',
       data: result,
@@ -260,7 +258,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(HarborRegistry);
-    
+
     const registry = await repo.findOne({ where: { id } });
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
@@ -290,8 +288,8 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
  */
 router.put('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions) 
-      ? (req.user as any).permissions 
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any).permissions
       : [];
     if (!canManageHarborRegistry(perms, 'update')) {
       return res.status(403).json({ message: '权限不足' });
@@ -299,10 +297,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     const { id } = req.params;
     const { name, url, username, password, insecure, metadata } = req.body;
-    
+
     const repo = AppDataSource.getRepository(HarborRegistry);
     const registry = await repo.findOne({ where: { id } });
-    
+
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -336,7 +334,7 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     HarborProxyService.clearInstance(id);
 
     const saved = await repo.save(registry);
-    
+
     harborLog.info(`更新 Harbor 实例: ${saved.name} (${id})`);
 
     res.json({
@@ -358,8 +356,8 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
  */
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions) 
-      ? (req.user as any).permissions 
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any).permissions
       : [];
     if (!canManageHarborRegistry(perms, 'delete')) {
       return res.status(403).json({ message: '权限不足' });
@@ -368,7 +366,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const repo = AppDataSource.getRepository(HarborRegistry);
     const registry = await repo.findOne({ where: { id } });
-    
+
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -386,7 +384,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     HarborProxyService.clearInstance(id);
 
     await repo.remove(registry);
-    
+
     harborLog.info(`删除 Harbor 实例: ${registry.name} (${id})`);
 
     res.json({ message: '删除成功' });

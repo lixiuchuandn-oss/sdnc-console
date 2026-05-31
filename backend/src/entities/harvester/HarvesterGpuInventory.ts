@@ -16,12 +16,12 @@ export class HarvesterGpuInventory {
   @Column({ type: 'text' })
   cloudId!: string;
 
-  // GPU might not have a UID in the same sense if it's just a Node status item, 
+  // GPU might not have a UID in the same sense if it's just a Node status item,
   // but if we treat each card as an item, we need a unique key.
   // Harvester uses PCI address or similar.
   @Index()
   @Column({ type: 'text' })
-  uid!: string; 
+  uid!: string;
 
   @Column({ type: 'text' })
   name!: string; // Display name or Device Name

@@ -1,18 +1,22 @@
 /**
  * 权限定义数据
- * 
+ *
  * 将现有的权限字符串转换为完整的权限定义，包含元数据和 API 映射
  */
 
 import { PermissionDefinition } from './types';
-import { ALL_PERMISSIONS, getPlatformByPermission, getGroupByPermission } from '../constants/permissions';
+import {
+  ALL_PERMISSIONS,
+  getPlatformByPermission,
+  getGroupByPermission,
+} from '../constants/permissions';
 
 /**
  * 权限名称映射（用于生成显示名称）
  */
 const PERMISSION_NAMES: Record<string, string> = {
   // CNMC - 多云管理（平台页）/ Cloudmap 池内 / 租户控制台
-  'clouds': '云资源全量权限',
+  clouds: '云资源全量权限',
   'clouds.dashboard': '多云总览',
   'clouds.resource-pools': '资源池管理',
   'clouds.ecs': '云主机管理',
@@ -95,13 +99,13 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.log-receivers': '日志接收端',
   'clouds.log-configs': '日志采集配置',
   'clouds.desktop': '云桌面',
-  
+
   // TENANTS - 租户管理
-  'tenants': '租户管理',
-  'organizations': '组织管理',
+  tenants: '租户管理',
+  organizations: '组织管理',
   'tenant-users': '组织用户管理',
-  'users': '用户管理',
-  
+  users: '用户管理',
+
   // CNMC - 权限管控
   'system.roles': '角色管理',
   'system.roles.assignments': '授予用户',
@@ -112,26 +116,26 @@ const PERMISSION_NAMES: Record<string, string> = {
   'system.upgrade': '离线版本升级',
   'system.license': '授权管理',
   'system.integration': '高级集成',
-  
+
   // SDNCC - 安全管理面
   'networks.security-domain': '安全域',
   'networks.cen': '云企业网',
   'networks.cen.attachments': 'CEN连接',
   'security.services': '安全服务',
   'security.apps': '安全应用',
-  
+
   // SDNCC - 跨域互联
   'networks.srv6': 'SRv6网络',
   'networks.vr-config': 'VR配置',
   'networks.acl': '访问控制列表',
   'networks.ipsec': 'IPsecVPN',
   'networks.nat': 'NAT网关',
-  
+
   // CNSOC - 态势中心
   'secops.dashboard': '安全态势总览',
   'secops.alerts': '安全告警',
   'secops.rules': '安全规则',
-  
+
   // Harbor - 镜像仓库
   'harbor.registry': 'Harbor 实例',
   'harbor.project': 'Harbor 项目',
@@ -174,8 +178,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'clouds.security-groups.vpc:write': '管理 VPC 安全组及规则',
   'clouds.subnets:read':
     '查看全部 Kube-OVN 子网类型（VPC / 扁平 / 公共）；仅授子类型权限时仅能访问对应类型',
-  'clouds.subnets:write':
-    '管理全部 Kube-OVN 子网类型；仅授子类型权限时仅能操作对应类型',
+  'clouds.subnets:write': '管理全部 Kube-OVN 子网类型；仅授子类型权限时仅能操作对应类型',
   'clouds.subnets.vpc:read': '查看 VPC 子网（tower.io/subnet-type=vpc）',
   'clouds.subnets.vpc:write': '创建、编辑、删除 VPC 子网',
   'clouds.subnets.flat:read': '查看扁平子网（tower.io/subnet-type=flat）',
@@ -222,7 +225,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'system.roles:write': '创建、编辑、删除角色',
   'system.upgrade:read': '查看当前运行版本与最近一次离线升级记录',
   'system.upgrade:write': '上传离线 zip 包并合并 public/server 进行版本更新',
-  
+
   // SDNCC - 跨域互联
   'networks.vr-config:read': '查看 VR 实例列表',
   'networks.vr-config:write': '创建、编辑、删除 VR 实例',
@@ -230,7 +233,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'networks.ipsec:write': '创建、编辑、删除 IPsec VPN 连接',
   'networks.nat:read': '查看 NAT 网关列表',
   'networks.nat:write': '创建、编辑、删除 NAT 网关规则',
-  
+
   // Harbor - 镜像仓库
   'harbor.registry:read': '查看 Harbor 实例列表',
   'harbor.registry:create': '创建 Harbor 实例',
@@ -246,11 +249,13 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
 
 /**
  * 生成权限的 API 路径模式
- * 
+ *
  * 注意：不再硬编码 API 路径，改为完全依赖路径推断机制
  * 路径推断在 registry.ts 的 resolveFromApi 中实现
  */
-function _generateApiPatterns(_permissionId: string): Array<{ method: string; pathPattern: string }> {
+function _generateApiPatterns(
+  _permissionId: string,
+): Array<{ method: string; pathPattern: string }> {
   // 不再硬编码，完全依赖路径推断
   return [];
 }
@@ -303,7 +308,7 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
 
   // 生成继承关系
   const inherits: string[] = [];
-  
+
   // 层级继承：clouds.ecs:read / clouds.containers.*:read 等均继承 clouds:read
   if (base.includes('.')) {
     const segments = base.split('.');
@@ -327,7 +332,7 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
   // 如果无法识别平台，使用默认值（向后兼容）
   // 注意：这不应该发生，但如果发生了，使用 CNMC 作为默认值
   const finalPlatform = platform || 'CNMC';
-  
+
   // 如果无法识别分组，使用默认值
   const finalGroup = group || '其他';
 
@@ -348,6 +353,6 @@ function generatePermissionDefinition(permissionId: string): PermissionDefinitio
 /**
  * 所有权限定义
  */
-export const PERMISSION_DEFINITIONS: PermissionDefinition[] = ALL_PERMISSIONS.map(perm => 
-  generatePermissionDefinition(perm as string)
+export const PERMISSION_DEFINITIONS: PermissionDefinition[] = ALL_PERMISSIONS.map((perm) =>
+  generatePermissionDefinition(perm as string),
 );

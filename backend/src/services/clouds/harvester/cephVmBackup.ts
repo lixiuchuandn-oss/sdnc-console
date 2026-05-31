@@ -76,7 +76,7 @@ export function shouldFallbackToCephVmBackup(error: any): boolean {
     text.includes('rook-ceph') ||
     text.includes('rbd.csi.ceph.com') ||
     text.includes('cephfs.csi.ceph.com') ||
-    text.includes('provisioner') && text.includes('ceph')
+    (text.includes('provisioner') && text.includes('ceph'))
   );
 }
 
@@ -98,7 +98,9 @@ async function listVmBoundPvcs(
     const labels = pvc?.metadata?.labels || {};
     if (labels['harvesterhci.io/vmName'] === vmName) return true;
     if (labels['kubevirt.io/vm'] === vmName) return true;
-    const owners = Array.isArray(pvc?.metadata?.ownerReferences) ? pvc.metadata.ownerReferences : [];
+    const owners = Array.isArray(pvc?.metadata?.ownerReferences)
+      ? pvc.metadata.ownerReferences
+      : [];
     if (owners.some((o: any) => o?.kind === 'VirtualMachine' && o?.name === vmName)) return true;
     const claim = String(pvc?.metadata?.name || '');
     return claim === vmName || claim.startsWith(`${vmName}-`);
@@ -117,7 +119,9 @@ async function vmUsesCephFromDisks(
     if (sc && (await storageKindFromClassName(params, sc)) === 'ceph') return true;
   }
 
-  const vols = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
+  const vols = Array.isArray(vm?.spec?.template?.spec?.volumes)
+    ? vm.spec.template.spec.volumes
+    : [];
   const claimNames = new Set<string>();
   for (const vol of vols) {
     const claim = String(vol?.persistentVolumeClaim?.claimName || '').trim();
@@ -137,7 +141,9 @@ async function vmUsesCephFromDisks(
     if (!pvc) continue;
     const sc = storageClassNameFromPvc(pvc);
     if (sc && (await storageKindFromClassName(params, sc)) === 'ceph') return true;
-    const prov = String(pvc?.metadata?.annotations?.['volume.kubernetes.io/storage-provisioner'] || '');
+    const prov = String(
+      pvc?.metadata?.annotations?.['volume.kubernetes.io/storage-provisioner'] || '',
+    );
     if (classifyVmImageStorageKindFromProvisioner(prov) === 'ceph') return true;
   }
   return false;
@@ -200,7 +206,9 @@ export async function vmShouldUseCephVmBackup(
   };
 
   if (await considerImageId(vm?.metadata?.annotations?.['harvesterhci.io/imageId'])) return true;
-  if (await considerImageId(vm?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'])) {
+  if (
+    await considerImageId(vm?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId'])
+  ) {
     return true;
   }
 
@@ -311,7 +319,10 @@ export function isCephVmBackupResource(item: any): boolean {
 export function isCephVmRestoreResource(item: any): boolean {
   const kind = String(item?.kind || '').toLowerCase();
   const _api = String(item?.apiVersion || '').toLowerCase();
-  return kind === 'cephvmrestore' || String(item?.metadata?.annotations?.['tower.io/restoreBackend'] || '') === 'ceph';
+  return (
+    kind === 'cephvmrestore' ||
+    String(item?.metadata?.annotations?.['tower.io/restoreBackend'] || '') === 'ceph'
+  );
 }
 
 /** VirtualMachineRestore 因找不到 VirtualMachineBackup 失败时，改走 CephVmRestore */
@@ -431,10 +442,7 @@ export async function findCephVmBackupByName(
 export function resolveCephBackupSourceVm(backupRecord: any, cephRaw?: any): string {
   const raw = cephRaw || backupRecord?.rawData || backupRecord;
   return String(
-    backupRecord?.sourceVm ||
-      raw?.spec?.sourceVm ||
-      raw?.spec?.source?.name ||
-      '',
+    backupRecord?.sourceVm || raw?.spec?.sourceVm || raw?.spec?.source?.name || '',
   ).trim();
 }
 
@@ -510,7 +518,9 @@ export async function createHarvesterCephVmBackup(
       if (Number(e?.status) === 404) continue;
     }
   }
-  throw lastErr || new Error('创建 CephVmBackup 失败：集群未安装 hms.rivercloud.com CephVmBackup CRD');
+  throw (
+    lastErr || new Error('创建 CephVmBackup 失败：集群未安装 hms.rivercloud.com CephVmBackup CRD')
+  );
 }
 
 export async function deleteHarvesterCephVmBackup(
@@ -603,5 +613,7 @@ export async function createHarvesterCephVmRestore(
       if (Number(e?.status) === 404) continue;
     }
   }
-  throw lastErr || new Error('创建 CephVmRestore 失败：集群未安装 hms.rivercloud.com CephVmRestore CRD');
+  throw (
+    lastErr || new Error('创建 CephVmRestore 失败：集群未安装 hms.rivercloud.com CephVmRestore CRD')
+  );
 }

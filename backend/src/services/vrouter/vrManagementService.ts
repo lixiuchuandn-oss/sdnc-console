@@ -95,10 +95,7 @@ export const vrManagementService = {
       deviceRecord.data = JSON.stringify(record);
       await deviceRepo.save(deviceRecord);
     } catch (e) {
-      vrMgmLog.error(
-        'Failed to sync to VrCacheDevice',
-        e instanceof Error ? e.message : String(e),
-      );
+      vrMgmLog.error('Failed to sync to VrCacheDevice', e instanceof Error ? e.message : String(e));
     }
 
     return {
@@ -112,4 +109,3 @@ export const vrManagementService = {
     };
   },
 };
-

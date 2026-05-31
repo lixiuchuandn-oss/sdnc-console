@@ -10,7 +10,6 @@ export const ipsecRoutes = Router();
 const repo = () => AppDataSource.getRepository(IPsecVPN);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 
-
 // Helper to save config to DB
 const saveVRConfigToDB = async (uuid: string, config: any) => {
   let record = await vrConfigRepo().findOne({ where: { uuid } });
@@ -28,7 +27,16 @@ const saveVRConfigToDB = async (uuid: string, config: any) => {
 
 const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { msg: _msg, code: _code, report_config_status: _report_config_status, updateDate: _updateDate, createDate: _createDate, _id, requestId: _requestId, ...rest } = obj;
+  const {
+    msg: _msg,
+    code: _code,
+    report_config_status: _report_config_status,
+    updateDate: _updateDate,
+    createDate: _createDate,
+    _id,
+    requestId: _requestId,
+    ...rest
+  } = obj;
   return rest;
 };
 
@@ -275,8 +283,6 @@ ipsecRoutes.get('/', async (req, res, next) => {
       }
     }
 
-
-
     const merged: any[] = [];
     // 1. Merge DB rows with Device data
     for (const row of list) {
@@ -342,7 +348,8 @@ ipsecRoutes.get('/', async (req, res, next) => {
             obj.ipsecOutPackets = stats.outPackets;
             obj.ipsecUpdateDate = stats.updateDate;
             const totalPackets = Number(stats.inPackets || 0) + Number(stats.outPackets || 0);
-            obj.status = (totalPackets > 0 || stats.updateDate) ? IPsecStatus.ACTIVE : IPsecStatus.INACTIVE;
+            obj.status =
+              totalPackets > 0 || stats.updateDate ? IPsecStatus.ACTIVE : IPsecStatus.INACTIVE;
           }
           merged.push(obj);
         }
@@ -525,9 +532,9 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
     // Determine ike_local_ip
     const finalLocalIp = getVrWanIp(localExtended);
     if (finalLocalIp) {
-        console.log(`[IPSEC] Using Local WAN IP from VRCacheExtended: ${finalLocalIp}`);
+      console.log(`[IPSEC] Using Local WAN IP from VRCacheExtended: ${finalLocalIp}`);
     } else {
-        console.warn(`[IPSEC] Local VR Cache IP missing in VRCacheExtended for ${localVrId}`);
+      console.warn(`[IPSEC] Local VR Cache IP missing in VRCacheExtended for ${localVrId}`);
     }
 
     // Determine ike_remote_ip
@@ -544,7 +551,7 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
         finalRemoteIp = extendedPeerIp;
         console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalRemoteIp}`);
       }
-      
+
       try {
         const peerRecord = await vrConfigRepo().findOne({ where: { uuid: peerVrId } });
         if (peerRecord && peerRecord.config_json) {
@@ -610,9 +617,9 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
 
         const finalPeerLocalIp = getVrWanIp(peerExtended);
         if (finalPeerLocalIp) {
-            console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
+          console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
         } else {
-            console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
+          console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
         }
 
         let finalPeerRemoteIp = finalLocalIp; // Use the already resolved local IP from cache
@@ -620,8 +627,8 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
           finalPeerRemoteIp = '0.0.0.0';
         } else if (localVrWanEIP) {
           finalPeerRemoteIp = localVrWanEIP;
-        } 
-        
+        }
+
         if (!finalPeerRemoteIp) {
           sendError(400, '无法获取本端公网IP');
           return;
@@ -1104,9 +1111,9 @@ ipsecRoutes.post('/', async (req, res, next) => {
 
         const finalPeerLocalIp = getVrWanIp(peerExtended);
         if (finalPeerLocalIp) {
-            console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
+          console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
         } else {
-            console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
+          console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
         }
 
         let finalPeerRemoteIp = finalLocalIp; // Use the already resolved local IP from cache
@@ -1114,10 +1121,10 @@ ipsecRoutes.post('/', async (req, res, next) => {
           finalPeerRemoteIp = '0.0.0.0';
         } else if (localVrWanEIP) {
           finalPeerRemoteIp = localVrWanEIP;
-        } 
-        
+        }
+
         if (!finalPeerRemoteIp) {
-           finalPeerRemoteIp = getVrWanIp(localExtended);
+          finalPeerRemoteIp = getVrWanIp(localExtended);
         }
 
         if (!finalPeerRemoteIp) {

@@ -1,6 +1,6 @@
 /**
  * Harvester Snapshots Handlers
- * 
+ *
  * 从 harvester.cache.storage.routes.ts 中提取的 Snapshots 相关业务逻辑
  */
 
@@ -23,10 +23,11 @@ export async function harvesterSnapshotListHandler(req: Request, res: Response) 
 
     const repo = AppDataSource.getRepository(HarvesterSnapshotInventory);
     let whereCondition: any = { cloudId: id };
-    
-    const isTenant = reqAny.user?.role === 'tenant' || 
-                     (reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
-    
+
+    const isTenant =
+      reqAny.user?.role === 'tenant' ||
+      (reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
+
     if (isTenant) {
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
       const us = await userSpaceRepo.findOne({
@@ -61,7 +62,7 @@ export async function harvesterSnapshotListHandler(req: Request, res: Response) 
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
     const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
-    
+
     if (shouldSync) {
       try {
         await syncHarvesterSnapshots(cloud, insecure);

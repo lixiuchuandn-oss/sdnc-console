@@ -6,9 +6,8 @@ import path from 'path';
  * @param moduleDirname 调用方 `__dirname`（`index.ts` 为 `dist/src`；`OfflineUpgradeService` 为 `dist/src/services`）
  */
 export function resolveStaticPublicRoot(moduleDirname: string): string {
-  const indexEquivalentDir = path.basename(moduleDirname) === 'services'
-    ? path.join(moduleDirname, '..')
-    : moduleDirname;
+  const indexEquivalentDir =
+    path.basename(moduleDirname) === 'services' ? path.join(moduleDirname, '..') : moduleDirname;
   const nestedPublicPath = path.join(indexEquivalentDir, '../public');
   const appRootPublicPath = path.join(indexEquivalentDir, '../../public');
   if (fs.existsSync(appRootPublicPath)) return appRootPublicPath;

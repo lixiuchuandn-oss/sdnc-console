@@ -26,7 +26,9 @@ export async function assignVmToDesktopUsers(input: AssignVmDesktopInput): Promi
   assigned: string[];
   removed: string[];
 }> {
-  const ids = Array.from(new Set((input.desktopUserIds || []).map((x) => String(x).trim()).filter(Boolean)));
+  const ids = Array.from(
+    new Set((input.desktopUserIds || []).map((x) => String(x).trim()).filter(Boolean)),
+  );
   const conn = await ensureVmGuacamoleConnection({
     cloudId: input.cloudId,
     namespace: input.namespace,

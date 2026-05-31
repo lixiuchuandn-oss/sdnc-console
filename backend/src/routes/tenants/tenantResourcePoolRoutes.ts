@@ -144,7 +144,9 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
 
         targetNamespace = namespacesToCreate.join(',');
 
-        tenantLog.debug(`Harvester/Cloudmap 资源池需确保 Namespace: ${namespacesToCreate.join(', ')}`);
+        tenantLog.debug(
+          `Harvester/Cloudmap 资源池需确保 Namespace: ${namespacesToCreate.join(', ')}`,
+        );
 
         for (const pool of harvesterPools) {
           try {
@@ -172,18 +174,19 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
                 };
 
                 try {
-                  await createHarvesterNamespace(
-                    { endpoint, token, insecure },
-                    ns,
-                    annotations,
-                    { scenario, addFinalizer: true, bindingLabels },
-                  );
+                  await createHarvesterNamespace({ endpoint, token, insecure }, ns, annotations, {
+                    scenario,
+                    addFinalizer: true,
+                    bindingLabels,
+                  });
                   tenantLog.info(
                     `已在资源池 ${pool.name} 中自动创建/确认 Namespace: ${ns} (场景: ${scenario})`,
                   );
 
                   try {
-                    const existing = await nsRepo.findOne({ where: { cloudId: pool.id, name: ns } });
+                    const existing = await nsRepo.findOne({
+                      where: { cloudId: pool.id, name: ns },
+                    });
                     if (!existing) {
                       await nsRepo.save({
                         cloudId: pool.id,
@@ -206,11 +209,10 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
                   if (isConflict) {
                     tenantLog.debug(`Namespace ${ns} 已存在于资源池 ${pool.name}`);
                     try {
-                      await patchHarvesterNamespaceMetadata(
-                        { endpoint, token, insecure },
-                        ns,
-                        { labels: bindingLabels, annotations },
-                      );
+                      await patchHarvesterNamespaceMetadata({ endpoint, token, insecure }, ns, {
+                        labels: bindingLabels,
+                        annotations,
+                      });
                     } catch (patchErr: any) {
                       tenantLog.warn(
                         `补齐 Namespace ${ns} 标签/注解失败:`,
@@ -254,7 +256,9 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
         });
 
         if (existingAssignment) {
-          tenantLog.info(`资源池已绑定到该组织，跳过重复创建: org=${orgId} cloud=${resourcePoolId}`);
+          tenantLog.info(
+            `资源池已绑定到该组织，跳过重复创建: org=${orgId} cloud=${resourcePoolId}`,
+          );
           const existingRpa = await rpaRepository.findOne({
             where: { organizationId: orgId, cloudId: resourcePoolId },
           });
@@ -452,10 +456,16 @@ export function registerTenantResourcePoolRoutes(router: Router): void {
       });
       res.json(normalized);
     } catch (error) {
-      tenantLog.error('获取资源池分配失败:', error instanceof Error ? error.message : String(error));
+      tenantLog.error(
+        '获取资源池分配失败:',
+        error instanceof Error ? error.message : String(error),
+      );
       res.status(500).json({ message: '获取资源池分配失败' });
     }
   });
 
-  router.delete('/organizations/:orgId/resource-pools/:poolId', handleDeleteOrganizationResourcePool);
+  router.delete(
+    '/organizations/:orgId/resource-pools/:poolId',
+    handleDeleteOrganizationResourcePool,
+  );
 }

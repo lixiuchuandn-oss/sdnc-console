@@ -51,9 +51,7 @@ function extractInstanceSlices(data: any): AswInstanceSlice[] {
     return arr.map((x: any, i: number) => {
       const lines = Array.isArray(x?.lines) ? x.lines : [];
       const inferredOk =
-        typeof x?.ok === 'boolean'
-          ? x.ok
-          : lines.some((ln: any) => ln?.ok === true);
+        typeof x?.ok === 'boolean' ? x.ok : lines.some((ln: any) => ln?.ok === true);
       return {
         host: normalizeSwitchHost(x?.host, i),
         ok: inferredOk,
@@ -65,9 +63,7 @@ function extractInstanceSlices(data: any): AswInstanceSlice[] {
   if (hTop) {
     const lines = Array.isArray(data.lines) ? data.lines : [];
     const inferredOk =
-      typeof data.ok === 'boolean'
-        ? data.ok
-        : lines.some((ln: any) => ln?.ok === true);
+      typeof data.ok === 'boolean' ? data.ok : lines.some((ln: any) => ln?.ok === true);
     return [
       {
         host: hTop,
@@ -237,7 +233,10 @@ function legacyEndpointsCount(cfg: unknown): number {
 }
 
 /** 固定走资源池 API Endpoint + `/v1/hms`；密钥默认 testkey。 */
-function resolveAswCtlRouting(cloud: { endpoint?: string; config?: any }): AswCtlRouteResolved | null {
+function resolveAswCtlRouting(cloud: {
+  endpoint?: string;
+  config?: any;
+}): AswCtlRouteResolved | null {
   const origin = harvesterControlPlaneOrigin(String(cloud.endpoint || ''));
   if (!origin) return null;
   const cfg = cloud.config?.aswCtl;
@@ -463,8 +462,7 @@ export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response
 export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const switchName =
-      typeof req.query.name === 'string' ? req.query.name.trim() : '';
+    const switchName = typeof req.query.name === 'string' ? req.query.name.trim() : '';
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
@@ -535,8 +533,7 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
 export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const switchName =
-      typeof req.query.name === 'string' ? req.query.name.trim() : '';
+    const switchName = typeof req.query.name === 'string' ? req.query.name.trim() : '';
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;

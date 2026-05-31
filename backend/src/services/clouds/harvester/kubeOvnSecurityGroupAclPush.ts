@@ -36,7 +36,9 @@ function nadRefMatchesSubnet(netName: string, subnetName: string): boolean {
 }
 
 function normalizeIpv4(ip: unknown): string | null {
-  const raw = String(ip ?? '').trim().split('/')[0];
+  const raw = String(ip ?? '')
+    .trim()
+    .split('/')[0];
   if (!raw || !/^\d{1,3}(\.\d{1,3}){3}$/.test(raw)) return null;
   return raw;
 }
@@ -66,8 +68,15 @@ export function findVmIpv4OnFlatSubnet(
   vmiLike?: Record<string, unknown> | null,
 ): string | null {
   const row = vmLike as HarvesterVmInventory & { rawData?: unknown };
-  const raw = row?.rawData !== undefined && row?.rawData !== null ? row.rawData : (vmLike as Record<string, unknown>);
-  const vmiRow = vmiLike as (HarvesterVmiInventory & { rawData?: unknown }) | Record<string, unknown> | null | undefined;
+  const raw =
+    row?.rawData !== undefined && row?.rawData !== null
+      ? row.rawData
+      : (vmLike as Record<string, unknown>);
+  const vmiRow = vmiLike as
+    | (HarvesterVmiInventory & { rawData?: unknown })
+    | Record<string, unknown>
+    | null
+    | undefined;
   const vmiRaw =
     vmiRow && typeof vmiRow === 'object' && 'rawData' in vmiRow && (vmiRow as any).rawData != null
       ? (vmiRow as any).rawData
@@ -144,7 +153,9 @@ export async function pushFlatSubnetAclsFromTowerSecurityGroups(
   cloud: Cloud,
   cloudId: string,
   subnetName: string,
-): Promise<{ ok: true; expandedCount: number; keptCount: number } | { ok: false; message: string }> {
+): Promise<
+  { ok: true; expandedCount: number; keptCount: number } | { ok: false; message: string }
+> {
   const subnet = String(subnetName || '').trim();
   if (!subnet) {
     sgAclLog.warn('push 跳过: 子网名为空', { cloudId });
@@ -166,14 +177,16 @@ export async function pushFlatSubnetAclsFromTowerSecurityGroups(
     endpointHost = '(unparsed)';
   }
 
-  sgAclLog.info('安全组 ACL 下发开始（与「扁平子网-编辑 ACL」不同：此处由规则×成员展开后合并写入 Subnet）', {
-    cloudId,
-    subnet,
-    apiBase,
-    endpointHost,
-    note:
-      '扁平子网编辑 ACL = 直接 PUT Subnet.spec.acls；安全组 = Tower DB 规则+成员 → 展开为每成员 IP 的 ACL 再 PUT',
-  });
+  sgAclLog.info(
+    '安全组 ACL 下发开始（与「扁平子网-编辑 ACL」不同：此处由规则×成员展开后合并写入 Subnet）',
+    {
+      cloudId,
+      subnet,
+      apiBase,
+      endpointHost,
+      note: '扁平子网编辑 ACL = 直接 PUT Subnet.spec.acls；安全组 = Tower DB 规则+成员 → 展开为每成员 IP 的 ACL 再 PUT',
+    },
+  );
 
   const getUrl = `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnet)}`;
   let current: any;
@@ -330,11 +343,9 @@ export async function pushFlatSubnetAclsFromTowerSecurityGroups(
   }
 
   try {
-    await updateHarvesterSubnet(
-      { endpoint: cloud.endpoint, token, insecure },
-      subnet,
-      { acls: parsed.value },
-    );
+    await updateHarvesterSubnet({ endpoint: cloud.endpoint, token, insecure }, subnet, {
+      acls: parsed.value,
+    });
     sgAclLog.info('安全组 ACL 下发成功', {
       cloudId,
       subnet,

@@ -10,7 +10,9 @@ function normalizeOrigin(endpoint: string): string {
     const u = new URL(endpoint);
     return `${u.protocol}//${u.host}`;
   } catch {
-    return String(endpoint || '').replace(/\/+$/, '').replace(/\/v[0-9].*$/, '');
+    return String(endpoint || '')
+      .replace(/\/+$/, '')
+      .replace(/\/v[0-9].*$/, '');
   }
 }
 
@@ -267,9 +269,7 @@ export function parseRookCephAddonValuesContent(
   }
 }
 
-function groupNodesForValues(
-  nodes: CephHarvesterAddonNodeDevice[],
-): {
+function groupNodesForValues(nodes: CephHarvesterAddonNodeDevice[]): {
   name: string;
   devices: { name: string }[];
   config: { metadataDevice: string; databaseSizeMB?: number };
@@ -314,9 +314,7 @@ function groupNodesForValues(
 }
 
 /** 由结构化配置生成 hms-ceph Helm values YAML */
-export function buildRookCephAddonValuesFromConfig(
-  input: CephHarvesterAddonValuesConfig,
-): string {
+export function buildRookCephAddonValuesFromConfig(input: CephHarvesterAddonValuesConfig): string {
   const defaults = defaultCephHarvesterAddonValuesConfig(input.replicaSize);
   const cfg: CephHarvesterAddonValuesConfig = {
     ...defaults,
@@ -373,7 +371,11 @@ export function buildRookCephAddonValuesFromConfig(
       storage: {
         useAllNodes: explicitNodes ? false : useAllNodes,
         useAllDevices: explicitNodes ? false : useAllDevices,
-        ...(explicitNodes ? { nodes: storageNodes } : storageNodes.length > 0 ? { nodes: storageNodes } : {}),
+        ...(explicitNodes
+          ? { nodes: storageNodes }
+          : storageNodes.length > 0
+            ? { nodes: storageNodes }
+            : {}),
       },
       config: {
         osdsPerDevice: cfg.cephCluster.osdsPerDevice,
@@ -679,12 +681,9 @@ export function parseHarvesterRookCephAddonStatus(raw: unknown): CephHarvesterAd
   const inProgress = condByType.get('InProgress');
   const completed = condByType.get('Completed');
   const deployStatusLower = deployStatus.toLowerCase();
-  const wasDeployed =
-    deployStatus === 'AddonDeploySuccessful' || completed?.status === 'True';
+  const wasDeployed = deployStatus === 'AddonDeploySuccessful' || completed?.status === 'True';
   const addonDisabled =
-    !enabled ||
-    deployStatusLower.includes('disabled') ||
-    deployStatus === 'AddonDisabled';
+    !enabled || deployStatusLower.includes('disabled') || deployStatus === 'AddonDisabled';
 
   let phase: CephHarvesterAddonStatus['phase'] = 'unknown';
   let message = deployStatus || 'Addon 已存在';

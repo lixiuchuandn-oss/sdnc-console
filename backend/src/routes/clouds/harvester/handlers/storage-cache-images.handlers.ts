@@ -128,8 +128,7 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
           { tenantId, cloudId: id, status: 'active', organizationId: null },
         ],
       });
-      const us =
-        matches.find((m) => m.organizationId === reqAny.user.organizationId) ?? matches[0];
+      const us = matches.find((m) => m.organizationId === reqAny.user.organizationId) ?? matches[0];
 
       if (!us) {
         return res.json({ message: '查询成功', data: { items: [] } });
@@ -141,7 +140,10 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
       const organizationId = reqAny.user.organizationId as string | undefined;
 
       if (us.namespace) {
-        const allowed = us.namespace.split(',').map((s) => s.trim()).filter(Boolean);
+        const allowed = us.namespace
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
 
         if (organizationId) {
           const orgNs = `ns-${organizationId}`;
@@ -284,12 +286,12 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
       targetStorageClassName,
       _storageClassParameters,
     } = (req.body || {}) as any;
-    
+
     if (!namespace || !(name || displayName))
       return res.status(400).json({ message: '缺少必填参数：namespace、name 或 displayName' });
-    
+
     const displayStr = displayName || name || 'image';
-    
+
     const existingRepo = AppDataSource.getRepository(HarvesterImageInventory);
     const existingImage = await existingRepo.findOne({
       where: {
@@ -297,11 +299,13 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
         displayName: displayStr,
       },
     });
-    
+
     if (existingImage) {
-      return res.status(500).json({ message: `创建镜像失败:镜像名称${displayStr}已存在，请更换镜像名称再试` });
+      return res
+        .status(500)
+        .json({ message: `创建镜像失败:镜像名称${displayStr}已存在，请更换镜像名称再试` });
     }
-    
+
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -319,19 +323,25 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     )}/virtualmachineimages`;
     const diskFmtLower = String(diskFormat || '').toLowerCase();
     const imageTypeLabel: 'iso' | 'disk' | undefined =
-      diskFmtLower === 'iso' ? 'iso' : diskFmtLower === 'qcow2' || diskFmtLower === 'raw' ? 'disk' : undefined;
+      diskFmtLower === 'iso'
+        ? 'iso'
+        : diskFmtLower === 'qcow2' || diskFmtLower === 'raw'
+          ? 'disk'
+          : undefined;
     const storageProfile = await resolveVmImageStorageProfile(
       harvesterConn(cloud),
       targetStorageClassName,
     );
     const scName = storageProfile.storageClassName;
-    const { labels: createLabels, annotations: createAnnotations } = vmImageHarvesterMetadataLikeUi({
-      displayName: displayStr,
-      imageTypeLabel,
-      imageNameForAnnotation: displayStr,
-      storageClassName: scName,
-      storageProfile,
-    });
+    const { labels: createLabels, annotations: createAnnotations } = vmImageHarvesterMetadataLikeUi(
+      {
+        displayName: displayStr,
+        imageTypeLabel,
+        imageNameForAnnotation: displayStr,
+        storageClassName: scName,
+        storageProfile,
+      },
+    );
     const body = {
       apiVersion: 'harvesterhci.io/v1beta1',
       kind: 'VirtualMachineImage',
@@ -356,14 +366,14 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     } catch {
       json = await requestJson('POST', urlV1, cloud.secretKey || '', insecure, body);
     }
-    
+
     // [数据同步] 创建成功后，直接使用返回的数据入库
     if (json && json.metadata && json.metadata.uid) {
       try {
         const repo = AppDataSource.getRepository(HarvesterImageInventory);
         const uid = json.metadata.uid;
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        
+
         if (existing) {
           // 更新现有记录
           existing.name = json.metadata?.name || '';
@@ -376,7 +386,9 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
           existing.annotations = json.metadata?.annotations;
           existing.rawData = json;
           await repo.save(existing);
-          console.log(`[Image-Create] 镜像已更新，cloudId: ${cloud.id}, name: ${json.metadata?.name}`);
+          console.log(
+            `[Image-Create] 镜像已更新，cloudId: ${cloud.id}, name: ${json.metadata?.name}`,
+          );
         } else {
           // 插入新记录
           const entity = repo.create({
@@ -393,30 +405,44 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
             rawData: json,
           });
           await repo.save(entity);
-          console.log(`[Image-Create] 镜像已入库，cloudId: ${cloud.id}, name: ${json.metadata?.name}`);
+          console.log(
+            `[Image-Create] 镜像已入库，cloudId: ${cloud.id}, name: ${json.metadata?.name}`,
+          );
         }
       } catch (e: any) {
         console.error('[Image-Create] 入库镜像失败:', e?.message || e);
         // 入库失败不影响创建操作的成功返回
       }
     } else if (json && json.metadata && !json.metadata.uid) {
-      console.warn(`[Image-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${json.metadata?.name || name}`);
+      console.warn(
+        `[Image-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${json.metadata?.name || name}`,
+      );
     }
-    
+
     res.json({ message: '创建成功', data: json });
   } catch (error: any) {
     if (res.headersSent) return;
     const body = (req.body || {}) as any;
     const displayStr = body.displayName || body.name || 'image';
-    
+
     console.error('[Image-Create] 创建镜像失败，详细错误:', JSON.stringify(error, null, 2));
-    
+
     const errorMsg = error.message || String(error);
-    const errorBody = error.body ? (typeof error.body === 'object' ? JSON.stringify(error.body) : String(error.body)) : '';
+    const errorBody = error.body
+      ? typeof error.body === 'object'
+        ? JSON.stringify(error.body)
+        : String(error.body)
+      : '';
     const combinedError = (errorMsg + ' ' + errorBody).toLowerCase();
-    
-    if (combinedError.includes('already exists') || combinedError.includes('镜像名称') || (combinedError.includes('name') && combinedError.includes('exist'))) {
-      res.status(500).json({ message: `创建镜像失败:镜像名称${displayStr}已存在，请更换镜像名称再试` });
+
+    if (
+      combinedError.includes('already exists') ||
+      combinedError.includes('镜像名称') ||
+      (combinedError.includes('name') && combinedError.includes('exist'))
+    ) {
+      res
+        .status(500)
+        .json({ message: `创建镜像失败:镜像名称${displayStr}已存在，请更换镜像名称再试` });
     } else {
       res.status(500).json({ message: '创建镜像失败', error: errorMsg });
     }
@@ -433,7 +459,10 @@ export async function harvesterImagePatchHandler(req: Request, res: Response) {
     const { id, namespace, name } = req.params;
     const payload = req.body;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    const contentType = String(req.headers['content-type'] || 'application/merge-patch+json').split(';')[0].trim() || 'application/merge-patch+json';
+    const contentType =
+      String(req.headers['content-type'] || 'application/merge-patch+json')
+        .split(';')[0]
+        .trim() || 'application/merge-patch+json';
 
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -477,9 +506,10 @@ export async function harvesterImageUpdateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
     const { id: _id, namespace, name } = req.params;
-    const { displayName, retry, targetStorageClassName, storageClassParameters } = (req.body || {}) as any;
+    const { displayName, retry, targetStorageClassName, storageClassParameters } = (req.body ||
+      {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
     try {
@@ -521,7 +551,7 @@ export async function harvesterImageDeleteHandler(req: Request, res: Response) {
     const cloud = (req as any).cloud;
     const { id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
     try {
@@ -534,11 +564,11 @@ export async function harvesterImageDeleteHandler(req: Request, res: Response) {
       namespace,
     )}/${encodeURIComponent(name)}`;
     await requestJson('DELETE', url, cloud.secretKey || '', insecure, undefined);
-    
+
     // 同步删除本地数据库中的镜像记录
     const repo = AppDataSource.getRepository(HarvesterImageInventory);
     await repo.delete({ cloudId: id, namespace, name });
-    
+
     res.json({ message: '删除成功' });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -567,7 +597,10 @@ function abortUploadTask(taskId: string) {
   if (c && !c.signal.aborted) c.abort();
 }
 
-async function throwIfUploadCancelled(taskId: string, abortController: AbortController): Promise<void> {
+async function throwIfUploadCancelled(
+  taskId: string,
+  abortController: AbortController,
+): Promise<void> {
   if (abortController.signal.aborted) {
     const err: any = new Error('CANCELLED');
     err.code = 'ERR_CANCELED';
@@ -623,11 +656,7 @@ function formatImageUploadTaskError(e: any): string {
   if (axios.isAxiosError(e) && e.response) {
     const data = e.response.data;
     const detail =
-      typeof data === 'string'
-        ? data
-        : data != null
-          ? JSON.stringify(data)
-          : e.message;
+      typeof data === 'string' ? data : data != null ? JSON.stringify(data) : e.message;
     return `Harvester 上传失败 HTTP ${e.response.status}: ${String(detail).slice(0, 800)}`;
   }
   if (e?.status && e?.body != null) {
@@ -847,20 +876,20 @@ async function updateTaskProgress(
   Object.assign(t, patch);
   t.updatedAt = new Date();
   const saved = await repo.save(t);
-  
+
   // 同步更新镜像库存记录的进度
   if (patch.progress !== undefined && t.cloudId && t.namespace && t.createdImageName) {
     try {
       const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
       await imageRepo.update(
         { cloudId: t.cloudId, namespace: t.namespace, name: t.createdImageName },
-        { progress: patch.progress }
+        { progress: patch.progress },
       );
     } catch (e) {
       console.warn('Failed to update image inventory progress', e);
     }
   }
-  
+
   return saved;
 }
 
@@ -956,13 +985,15 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       await repo.save(task);
     }
     const uploadScName = uploadStorageProfile.storageClassName;
-    const { labels: uploadLabels, annotations: uploadAnnotations } = vmImageHarvesterMetadataLikeUi({
-      displayName: displayLabel,
-      imageTypeLabel,
-      imageNameForAnnotation: task.filename || displayLabel,
-      storageClassName: uploadScName,
-      storageProfile: uploadStorageProfile,
-    });
+    const { labels: uploadLabels, annotations: uploadAnnotations } = vmImageHarvesterMetadataLikeUi(
+      {
+        displayName: displayLabel,
+        imageTypeLabel,
+        imageNameForAnnotation: task.filename || displayLabel,
+        storageClassName: uploadScName,
+        storageProfile: uploadStorageProfile,
+      },
+    );
     const payload = {
       apiVersion: 'harvesterhci.io/v1beta1',
       kind: 'VirtualMachineImage',
@@ -1007,7 +1038,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     // 兼容不同 Harvester 版本：创建响应可能没有立即返回 upload URL，需要轮询详情
     const createdImageName = created?.metadata?.name || '';
     const createdImageNamespace = created?.metadata?.namespace || task.namespace;
-    
+
     // 保存创建的镜像名称到任务记录，以便后续同步进度
     if (createdImageName) {
       task.createdImageName = createdImageName;
@@ -1144,8 +1175,10 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
           ? Readable.from(
               (async function* () {
                 for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0) await throwIfUploadCancelled(taskId, abortController);
-                  const n = typeof chunk === 'string' ? Buffer.byteLength(chunk) : (chunk?.length || 0);
+                  if (++chunkCount % 32 === 0)
+                    await throwIfUploadCancelled(taskId, abortController);
+                  const n =
+                    typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
                   sent += n;
                   const now = Date.now();
                   if (now - lastUpdateAt > 500) {
@@ -1167,8 +1200,10 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
           : Readable.from(
               (async function* () {
                 for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0) await throwIfUploadCancelled(taskId, abortController);
-                  const n = typeof chunk === 'string' ? Buffer.byteLength(chunk) : (chunk?.length || 0);
+                  if (++chunkCount % 32 === 0)
+                    await throwIfUploadCancelled(taskId, abortController);
+                  const n =
+                    typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
                   sent += n;
                   const now = Date.now();
                   if (now - lastUpdateAt > 500) {
@@ -1377,7 +1412,10 @@ async function runImageUploadTask(taskId: string, cloud: any, filePath: string) 
 export async function harvesterImageUploadProxyHandler(req: Request, res: Response) {
   imageTaskUpload.single('file')(req, res, async (err: any) => {
     try {
-      if (err) return res.status(400).json({ message: '文件接收失败', error: err?.message || String(err) });
+      if (err)
+        return res
+          .status(400)
+          .json({ message: '文件接收失败', error: err?.message || String(err) });
       const { id } = req.params;
       const userId = String((req as any)?.user?.id || '');
       if (!userId) return res.status(401).json({ message: '未登录或用户无效' });
@@ -1453,7 +1491,8 @@ export async function harvesterImageUploadTokenHandler(req: Request, res: Respon
       expirationSeconds: expRaw,
     } = (req.body || {}) as any;
     const namespace = (String(nsRaw || 'default').trim() || 'default') as string;
-    const serviceAccountName = (String(saRaw || 'image-uploader').trim() || 'image-uploader') as string;
+    const serviceAccountName = (String(saRaw || 'image-uploader').trim() ||
+      'image-uploader') as string;
     let expirationSeconds = Math.floor(Number(expRaw) || 300);
     if (expirationSeconds < 60) expirationSeconds = 60;
     if (expirationSeconds > 600) expirationSeconds = 600;
@@ -1596,12 +1635,11 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
     res.status(500).json({
       message: '创建上传任务失败',
       error: detail,
-      hint:
-        /no metadata for/i.test(detail)
-          ? '后端未加载 ImageUploadTask 实体，请重新编译并重启服务'
-          : /no column named/i.test(detail) || /has no column/i.test(detail)
-            ? 'image_upload_tasks 表结构过旧；已尝试自动补列仍失败，请重启后端或执行 ALTER TABLE 补列'
-            : undefined,
+      hint: /no metadata for/i.test(detail)
+        ? '后端未加载 ImageUploadTask 实体，请重新编译并重启服务'
+        : /no column named/i.test(detail) || /has no column/i.test(detail)
+          ? 'image_upload_tasks 表结构过旧；已尝试自动补列仍失败，请重启后端或执行 ALTER TABLE 补列'
+          : undefined,
     });
   }
 }
@@ -1620,7 +1658,8 @@ export async function harvesterImageUploadTaskGetHandler(req: Request, res: Resp
     const repo = AppDataSource.getRepository(ImageUploadTask);
     const task = await repo.findOne({ where: { id: taskId, cloudId: id } });
     if (!task) return res.status(404).json({ message: '任务不存在' });
-    if (!isAdmin && task.createdBy !== userId) return res.status(403).json({ message: '无权访问该任务' });
+    if (!isAdmin && task.createdBy !== userId)
+      return res.status(403).json({ message: '无权访问该任务' });
     res.json({ message: '查询成功', data: sanitizeTask(task) });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -1666,8 +1705,12 @@ export async function harvesterImageUploadTaskDeleteHandler(req: Request, res: R
     const repo = AppDataSource.getRepository(ImageUploadTask);
     const task = await repo.findOne({ where: { id: taskId, cloudId: id } });
     if (!task) return res.status(404).json({ message: '任务不存在' });
-    if (!isAdmin && task.createdBy !== userId) return res.status(403).json({ message: '无权删除该任务' });
-    if (['pending', 'ingesting', 'proxying'].includes(task.taskStatus) || imageUploadInFlight.has(task.id)) {
+    if (!isAdmin && task.createdBy !== userId)
+      return res.status(403).json({ message: '无权删除该任务' });
+    if (
+      ['pending', 'ingesting', 'proxying'].includes(task.taskStatus) ||
+      imageUploadInFlight.has(task.id)
+    ) {
       return res.status(409).json({ message: '任务正在执行，暂不允许删除' });
     }
     await repo.delete({ id: task.id });
@@ -1691,7 +1734,8 @@ export async function harvesterImageUploadTaskCancelHandler(req: Request, res: R
     const repo = AppDataSource.getRepository(ImageUploadTask);
     const task = await repo.findOne({ where: { id: taskId, cloudId: id } });
     if (!task) return res.status(404).json({ message: '任务不存在' });
-    if (!isAdmin && task.createdBy !== userId) return res.status(403).json({ message: '无权操作该任务' });
+    if (!isAdmin && task.createdBy !== userId)
+      return res.status(403).json({ message: '无权操作该任务' });
     if (!['pending', 'ingesting', 'proxying', 'failed'].includes(task.taskStatus)) {
       return res.status(409).json({ message: '任务当前状态不允许取消' });
     }
@@ -1730,7 +1774,10 @@ function parseOctetStreamUploadSizeHeaders(req: Request): number {
 }
 
 /** application/octet-stream：先落盘再异步代传 Harvester（与 multipart file 路径一致） */
-async function handleHarvesterImageUploadTaskOctetStream(req: Request, res: Response): Promise<void> {
+async function handleHarvesterImageUploadTaskOctetStream(
+  req: Request,
+  res: Response,
+): Promise<void> {
   const { id, taskId } = req.params;
   const user = (req as any)?.user;
   const userId = String(user?.id || '');
@@ -1804,7 +1851,10 @@ async function handleHarvesterImageUploadTaskOctetStream(req: Request, res: Resp
  * - multipart field=file：兼容旧版浏览器 / 桌面工具（multer 落盘后再代传）。
  */
 export async function harvesterImageUploadTaskFileHandler(req: Request, res: Response) {
-  const rawCt = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+  const rawCt = String(req.headers['content-type'] || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
   if (rawCt === 'application/octet-stream') {
     try {
       await handleHarvesterImageUploadTaskOctetStream(req, res);
@@ -1822,7 +1872,10 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
 
   imageTaskUpload.single('file')(req, res, async (err: any) => {
     try {
-      if (err) return res.status(400).json({ message: '文件接收失败', error: err?.message || String(err) });
+      if (err)
+        return res
+          .status(400)
+          .json({ message: '文件接收失败', error: err?.message || String(err) });
       const { id, taskId } = req.params;
       const user = (req as any)?.user;
       const userId = String(user?.id || '');
@@ -1836,7 +1889,8 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
       const repo = AppDataSource.getRepository(ImageUploadTask);
       const task = await repo.findOne({ where: { id: taskId, cloudId: id } });
       if (!task) return res.status(404).json({ message: '任务不存在' });
-      if (!isAdmin && task.createdBy !== userId) return res.status(403).json({ message: '无权操作该任务' });
+      if (!isAdmin && task.createdBy !== userId)
+        return res.status(403).json({ message: '无权操作该任务' });
       if (!['pending', 'failed'].includes(task.taskStatus)) {
         return res.status(409).json({ message: '任务当前状态不允许上传文件' });
       }
@@ -1868,5 +1922,3 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
     }
   });
 }
-
-

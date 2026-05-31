@@ -12,9 +12,9 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
   res.on('finish', () => {
     // Skip if it's a 404 (route not found) usually not worth auditing as an "operation"
     // unless it's a security scan attempt. For now, let's keep it.
-    
+
     const success = res.statusCode >= 200 && res.statusCode < 400;
-    
+
     // Sanitize request body
     const details = {
       path: req.path,
@@ -29,11 +29,11 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
     if (details.body.token) details.body.token = '***';
     if (details.body.confirmPassword) details.body.confirmPassword = '***';
     if (details.body.newPassword) details.body.newPassword = '***';
-    
+
     // Construct action name
     // e.g., POST /api/vms -> CREATE VM (heuristic)
     let action = `${req.method} ${req.path}`;
-    
+
     // Try to determine resource type/id
     // This is heuristic and might need refinement
     let resourceType = 'UNKNOWN';
@@ -45,22 +45,31 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
 
     // 1. Harvester VM Lifecycle Actions (Start, Stop, Reboot, etc.)
     // Pattern: /api/clouds/:cloudId/resources/ecs/:instanceId/:action
-    const vmActionRegex = /\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/;
+    const vmActionRegex =
+      /\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/(start|stop|reboot|softreboot|pause|unpause|migrate|restore)/;
     const vmActionMatch = path.match(vmActionRegex);
     if (vmActionMatch && method === 'POST') {
       action = `${vmActionMatch[2].toUpperCase()}_VM`;
       resourceType = 'VM';
       resourceId = vmActionMatch[1];
-    } 
+    }
     // 2. VM Volume Attach/Detach
-    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/volumes\/(attach|detach)/) && method === 'POST') {
-      const match = path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/volumes\/(attach|detach)/)!;
+    else if (
+      path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/volumes\/(attach|detach)/) &&
+      method === 'POST'
+    ) {
+      const match = path.match(
+        /\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/volumes\/(attach|detach)/,
+      )!;
       action = `${match[2].toUpperCase()}_VOLUME_VM`;
       resourceType = 'VM';
       resourceId = match[1];
     }
     // 3. VM Migration Abort
-    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/migrate\/abort/) && method === 'POST') {
+    else if (
+      path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/migrate\/abort/) &&
+      method === 'POST'
+    ) {
       const match = path.match(/\/api\/clouds\/[^/]+\/resources\/ecs\/([^/]+)\/migrate\/abort/)!;
       action = 'ABORT_MIGRATION_VM';
       resourceType = 'VM';
@@ -73,8 +82,7 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
       resourceId = match[1];
       if (method === 'DELETE') action = 'DELETE_VM';
       else if (method === 'PUT') action = 'UPDATE_VM';
-    }
-    else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs$/) && method === 'POST') {
+    } else if (path.match(/\/api\/clouds\/[^/]+\/resources\/ecs$/) && method === 'POST') {
       action = 'CREATE_VM';
       resourceType = 'VM';
     }
@@ -82,39 +90,32 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
     else {
       // Example: /api/vms/:id
       // parts: ['', 'api', 'vms', '123']
-      const parts = req.path.split('/').filter(p => p);
-      
+      const parts = req.path.split('/').filter((p) => p);
+
       if (parts.length > 0) {
-         const lastPart = parts[parts.length - 1];
-         // Check if last part looks like a UUID or ID (simple check: length > 10 or numeric)
-         // This is a rough guess.
-         const isId = lastPart.length > 20 || /^\d+$/.test(lastPart);
-         
-         if (isId) {
-             resourceId = lastPart;
-             // The part before ID is likely the resource type
-             if (parts.length > 1) {
-                 resourceType = parts[parts.length - 2].toUpperCase();
-             }
-         } else {
-             resourceType = lastPart.toUpperCase();
-         }
+        const lastPart = parts[parts.length - 1];
+        // Check if last part looks like a UUID or ID (simple check: length > 10 or numeric)
+        // This is a rough guess.
+        const isId = lastPart.length > 20 || /^\d+$/.test(lastPart);
+
+        if (isId) {
+          resourceId = lastPart;
+          // The part before ID is likely the resource type
+          if (parts.length > 1) {
+            resourceType = parts[parts.length - 2].toUpperCase();
+          }
+        } else {
+          resourceType = lastPart.toUpperCase();
+        }
       }
-      
+
       // Normalize resource type (remove 'API' if present)
       if (resourceType === 'API' && parts.length > 1) {
-          resourceType = parts[1].toUpperCase();
+        resourceType = parts[1].toUpperCase();
       }
     }
 
-    logOperation(
-      req,
-      action,
-      JSON.stringify(details),
-      success,
-      resourceType,
-      resourceId
-    );
+    logOperation(req, action, JSON.stringify(details), success, resourceType, resourceId);
   });
 
   next();

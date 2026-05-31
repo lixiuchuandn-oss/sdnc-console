@@ -76,7 +76,11 @@ export function normalizeAswCtlApiKeySecret(raw: unknown): string | undefined {
     if (t.length >= 2) {
       const a = t[0];
       const b = t[t.length - 1];
-      if ((a === '"' && b === '"') || (a === "'" && b === "'") || (a === '\u201c' && b === '\u201d')) {
+      if (
+        (a === '"' && b === '"') ||
+        (a === "'" && b === "'") ||
+        (a === '\u201c' && b === '\u201d')
+      ) {
         return t.slice(1, -1).trim();
       }
     }
@@ -125,7 +129,9 @@ export function getAswCtlNorthApiPrefix(): string {
 }
 
 function normalizeNorthPrefix(raw: string): string {
-  let p = String(raw || '').trim().replace(/\/+$/, '');
+  let p = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!p.startsWith('/')) p = `/${p}`;
   return p;
 }
@@ -191,8 +197,7 @@ function aswCtlNodeGet(
       return;
     }
     const isHttps = u.protocol === 'https:';
-    const port =
-      u.port !== '' ? parseInt(u.port, 10) : isHttps ? 443 : 80;
+    const port = u.port !== '' ? parseInt(u.port, 10) : isHttps ? 443 : 80;
     const pathQuery = `${u.pathname}${u.search}`;
 
     const base: http.RequestOptions = {
@@ -311,8 +316,7 @@ export async function aswCtlGetText(
   insecureTls = false,
   timeoutMs = 15000,
 ): Promise<
-  | { ok: true; data: string }
-  | { ok: false; status?: number; data?: string; message: string }
+  { ok: true; data: string } | { ok: false; status?: number; data?: string; message: string }
 > {
   const root = sanitizeAswCtlBaseUrl(baseUrl);
   if (!root) {
@@ -321,8 +325,7 @@ export async function aswCtlGetText(
   const p = path.startsWith('/') ? path : `/${path}`;
   const url = `${root}${p}`;
   const k = normalizeAswCtlApiKeySecret(apiKey);
-  const acceptYaml =
-    'application/yaml, text/yaml;q=0.9, text/plain;q=0.8, */*;q=0.5';
+  const acceptYaml = 'application/yaml, text/yaml;q=0.9, text/plain;q=0.8, */*;q=0.5';
   const baseHeaders: Record<string, string> = { Accept: acceptYaml };
 
   try {
@@ -397,8 +400,7 @@ export async function aswCtlProbeHealth(
   }
   return {
     ok: null,
-    message:
-      '未提供 /healthz、/health、/ready 或 /live（不影响交换机业务探测）',
+    message: '未提供 /healthz、/health、/ready 或 /live（不影响交换机业务探测）',
   };
 }
 
@@ -421,9 +423,7 @@ export function normalizeAswCtlEndpointsAll(cfg: unknown): NormalizedAswEndpoint
     eps.forEach((raw, i) => {
       if (!raw || typeof raw !== 'object') return;
       const e = raw as Record<string, unknown>;
-      const baseUrl = sanitizeAswCtlBaseUrl(
-        String(e.baseUrl || e.url || '').trim(),
-      );
+      const baseUrl = sanitizeAswCtlBaseUrl(String(e.baseUrl || e.url || '').trim());
       if (!baseUrl) return;
       const name = String(e.name || e.label || `交换机-${i + 1}`).trim();
       const apiKey = normalizeAswCtlApiKeySecret(e.apiKey);
@@ -431,9 +431,7 @@ export function normalizeAswCtlEndpointsAll(cfg: unknown): NormalizedAswEndpoint
     });
     return out;
   }
-  const baseUrl = sanitizeAswCtlBaseUrl(
-    String(c.baseUrl || c.url || '').trim(),
-  );
+  const baseUrl = sanitizeAswCtlBaseUrl(String(c.baseUrl || c.url || '').trim());
   if (!baseUrl) return [];
   const name = String(c.name || 'ASW-CTL').trim();
   const apiKey = normalizeAswCtlApiKeySecret(c.apiKey);

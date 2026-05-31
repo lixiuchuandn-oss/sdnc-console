@@ -20,8 +20,7 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
   try {
     const { id, namespace, name } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, namespace)) {
       return res.status(403).json({ message: 'Access denied to this namespace' });
@@ -56,8 +55,7 @@ export async function harvesterVolumeCloneHandler(req: Request, res: Response) {
   try {
     const { id, namespace, name } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, namespace)) {
       return res.status(403).json({ message: 'Access denied to source namespace' });
@@ -97,8 +95,7 @@ export async function harvesterVolumeExportImageLegacyHandler(req: Request, res:
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -141,8 +138,7 @@ export async function harvesterVolumeCloneLegacyHandler(req: Request, res: Respo
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;

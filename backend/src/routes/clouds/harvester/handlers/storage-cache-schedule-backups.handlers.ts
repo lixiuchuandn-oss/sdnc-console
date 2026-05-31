@@ -64,11 +64,7 @@ async function resolveScheduleUseCeph(
   return !!ceph;
 }
 
-function persistScheduleVmBackupInventory(
-  cloud: any,
-  payloadNamespace: string,
-  result: any,
-) {
+function persistScheduleVmBackupInventory(cloud: any, payloadNamespace: string, result: any) {
   const fields = scheduleInventoryFieldsFromRaw(result);
   const repo = AppDataSource.getRepository(HarvesterScheduleVmBackupInventory);
   const uid = result.metadata?.uid || result.id || '';
@@ -113,8 +109,8 @@ export async function harvesterScheduleBackupListHandler(req: Request, res: Resp
 
     let whereCondition: any = { cloudId: id };
     const isTenant =
-      ((req as any).user?.role === 'tenant') ||
-      (((req as any).user?.tenantId) && ((req as any).user?.role !== 'sase_device'));
+      (req as any).user?.role === 'tenant' ||
+      ((req as any).user?.tenantId && (req as any).user?.role !== 'sase_device');
     if (isTenant) {
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
       const us = await userSpaceRepo.findOne({
@@ -145,7 +141,9 @@ export async function harvesterScheduleBackupListHandler(req: Request, res: Resp
         if (count === 0) throw e;
       }
     } else if (String(skipSync) === 'true') {
-      console.log(`[ScheduleVmBackup-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`);
+      console.log(
+        `[ScheduleVmBackup-Query] 跳过全量同步（创建后刷新），直接查询数据库，cloudId: ${id}`,
+      );
     }
 
     const items = await repo.find({ where: whereCondition });

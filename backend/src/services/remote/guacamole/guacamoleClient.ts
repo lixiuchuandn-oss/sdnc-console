@@ -10,7 +10,9 @@ export type GuacamoleTokenCache = {
 const tokenCache = new Map<string, GuacamoleTokenCache>();
 
 function normalizeBaseUrl(raw: string): string {
-  let url = String(raw || '').trim().replace(/\/+$/, '');
+  let url = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!url) throw new Error('缺少云桌面网关地址');
   if (!/^https?:\/\//i.test(url)) {
     url = `http://${url}`;
@@ -53,9 +55,7 @@ export async function fetchGuacamoleTokenForCredentials(
       validateStatus: () => true,
     });
     if (res.status !== 200 || !res.data?.authToken) {
-      throw new Error(
-        res.data?.message || res.data?.error || `云桌面网关认证失败 (${res.status})`,
-      );
+      throw new Error(res.data?.message || res.data?.error || `云桌面网关认证失败 (${res.status})`);
     }
     tokenCache.set(cacheKey, {
       token: String(res.data.authToken),
