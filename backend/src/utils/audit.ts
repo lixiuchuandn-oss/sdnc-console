@@ -11,9 +11,8 @@ export const logOperation = async (
   details: string,
   success: boolean = true,
   resourceType?: string,
-  resourceId?: string
+  resourceId?: string,
 ) => {
-
   try {
     const user = (req as any).user;
     const ipAddress = req.ip || req.socket.remoteAddress;
@@ -40,9 +39,10 @@ export const logOperation = async (
     const operator = user ? `${user.username} (${user.id})` : 'unknown';
     const time = new Date().toISOString();
     towerAuditLog.debug(`[${time}] [${operator}] [${action}] ${details} [Success: ${success}]`);
-
   } catch (error) {
-    towerAuditLog.error('Failed to save audit log:', error instanceof Error ? error.message : String(error));
+    towerAuditLog.error(
+      'Failed to save audit log:',
+      error instanceof Error ? error.message : String(error),
+    );
   }
 };
-

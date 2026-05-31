@@ -13,10 +13,7 @@ export async function getPublicScenarioNamespaceNames(cloudId: string): Promise<
   const names: string[] = [];
   for (const row of rows) {
     const labels = row.rawData?.metadata?.labels ?? row.labels ?? {};
-    if (
-      String(labels[TOWER_SCENARIO_LABEL] ?? '').toLowerCase() === 'public' &&
-      row.name
-    ) {
+    if (String(labels[TOWER_SCENARIO_LABEL] ?? '').toLowerCase() === 'public' && row.name) {
       names.push(row.name);
     }
   }

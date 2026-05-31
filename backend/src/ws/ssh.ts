@@ -37,7 +37,7 @@ export function createSshWsServer() {
       if (!token) throw new Error('缺少 token');
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      
+
       assertLegacyConsoleWsAccess(decoded);
     } catch (err: any) {
       ws.send(JSON.stringify({ type: 'error', message: err?.message || '鉴权失败' }));

@@ -10,11 +10,19 @@ import {
   normalizeGuacamoleBaseInput,
   testGuacamoleInstance,
 } from '../../services/remote/guacamole/guacamoleClient';
+import { getPoolGatewayAccess } from '../../services/remote/guacamole/guacamoleSession';
 import {
-  getPoolGatewayAccess,
-} from '../../services/remote/guacamole/guacamoleSession';
-import { syncAllCloudDesktopUsers, createCloudDesktopUser, updateCloudDesktopUser, deleteCloudDesktopUser, sanitizeCloudDesktopUser, resolveDefaultGuacamoleInstance } from '../../services/remote/guacamole/cloudDesktopUser';
-import { assignVmToDesktopUsers, listVmDesktopAssignments } from '../../services/remote/guacamole/guacamoleAssignment';
+  syncAllCloudDesktopUsers,
+  createCloudDesktopUser,
+  updateCloudDesktopUser,
+  deleteCloudDesktopUser,
+  sanitizeCloudDesktopUser,
+  resolveDefaultGuacamoleInstance,
+} from '../../services/remote/guacamole/cloudDesktopUser';
+import {
+  assignVmToDesktopUsers,
+  listVmDesktopAssignments,
+} from '../../services/remote/guacamole/guacamoleAssignment';
 import { CloudDesktopUser } from '../../entities/CloudDesktopUser';
 import {
   checkTenantAccess,
@@ -381,7 +389,11 @@ router.post('/assignments', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: 'desktop_user_ids 须为数组' });
     }
 
-    const { allowed, namespace: tenantNs, isTenant } = await checkTenantAccess(req, String(cloudId));
+    const {
+      allowed,
+      namespace: tenantNs,
+      isTenant,
+    } = await checkTenantAccess(req, String(cloudId));
     if (!allowed) {
       return res.status(403).json({ message: '无权访问该资源池' });
     }

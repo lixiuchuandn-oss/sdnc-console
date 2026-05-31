@@ -124,7 +124,6 @@ export class CloudSyncService {
           cloudSyncLog.error(`同步云 ${cloud.name} (${cloud.id}) 时出错:`, summarizeSyncError(err));
         }
       }
-      
     } catch (err) {
       cloudSyncLog.error('同步任务发生严重错误:', summarizeSyncError(err));
     } finally {
@@ -209,12 +208,12 @@ export class CloudSyncService {
     ) {
       // ---------------------------Harvester / Cloudmap私有云 / Cloudmap边缘云同步逻辑-----------------------------------
       const insecure = !!(cloud.config as any)?.ignoreTls;
-      
+
       // 1. 同步各类资源清单到数据库 (VM, VMI, Nodes, Storage, LoadBalancers)
       // 并直接获取数量，避免重复查询数据库
       cloud.vmCount = await syncKubevirtVms(cloud, insecure);
       cloud.runningVmCount = await syncKubevirtVmis(cloud, insecure);
-  
+
       await syncHarvesterNodes(cloud, insecure);
       await syncHarvesterStorageClasses(cloud, insecure);
       await syncHarvesterLoadBalancers(cloud, insecure);

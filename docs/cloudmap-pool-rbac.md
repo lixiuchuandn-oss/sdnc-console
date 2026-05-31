@@ -11,11 +11,11 @@
 
 每个 Cloudmap 池内**主页面**（侧栏一片叶子 Tab）在权限上是一张独立卡片，卡片内只描述三类能力：
 
-| 维度 | 含义 | 何时需要「依赖」 |
-|------|------|------------------|
-| **入口门控** | 用户能否进入该 Tab / 路由 | 仅本页 `poolPageAction:read`（勾选 write 时自动带 read，见 §5） |
-| **页面数据展示** | 进页后为渲染 UI 需要读哪些数据 | **仅当**展示需要读**其它业务域**的数据时，在本页下声明**隐式读**；否则**不写任何依赖** |
-| **操作功能** | 页内创建 / 编辑 / 删除 / 同步等 | **仅当**操作需要**写其它业务域**时，在本页下声明**跨域写**；否则只用本页 `:write` |
+| 维度             | 含义                            | 何时需要「依赖」                                                                       |
+| ---------------- | ------------------------------- | -------------------------------------------------------------------------------------- |
+| **入口门控**     | 用户能否进入该 Tab / 路由       | 仅本页 `poolPageAction:read`（勾选 write 时自动带 read，见 §5）                        |
+| **页面数据展示** | 进页后为渲染 UI 需要读哪些数据  | **仅当**展示需要读**其它业务域**的数据时，在本页下声明**隐式读**；否则**不写任何依赖** |
+| **操作功能**     | 页内创建 / 编辑 / 删除 / 同步等 | **仅当**操作需要**写其它业务域**时，在本页下声明**跨域写**；否则只用本页 `:write`      |
 
 **核心句：没跨域，就不造依赖逻辑。**
 
@@ -32,14 +32,14 @@
 
 Cloudmap 池内 UI 在权限设计上分为下列类型。**A–D 为授权原子相关**；**E–F 为导航/抽屉归类**；页内普通详情抽屉**不算**独立类型。
 
-| 代号 | 类型 | 有无 `poolPageAction` | 代码 / 配置落点 | 说明 |
-|------|------|----------------------|-----------------|------|
-| **A** | **Hub 壳** | 无 | `CloudmapPoolNavKey`（如 `resource_hub`、`cluster`、`compute`）；路由 `tab/innerSeg` | 侧栏一级 Tab + 内菜单容器；**本身不是**权限实体，下面挂若干 **B/C** 页面实体 |
-| **B** | **页面实体 · 纯展示** | 有 read | `poolPageDisplayOnly: true` | 仅有入口 read；抽屉 checkbox 文案为「只读」；页内无 write 门控 |
-| **C** | **页面实体 · 可操作** | 有 read + write | 有 `poolPageAction` 且未标 `displayOnly` | 列表/表单 CRUD；写操作走本页 `:write` 或 `canWritePoolPage` |
-| **D** | **附加能力** | 独立 action | `POOL_NAV_GROUP_ATTACHED_PREFIXES`；抽屉 `capabilityKind: 'attached'` | 不进侧栏（创建向导、快捷入口等）；**独立授权**，不随父列表页 write 自动获得 |
-| **E** | **分组门控** | 无（非原子） | `useCloudmapPoolPermissions` · `canViewClusterGroup` 等 | 决定侧栏一级 Tab **是否展示**（子页权限 OR）；抽屉**无**对应总卡 |
-| **F** | **组内孤儿** | 有，但无侧栏叶 | `buildCloudmapPoolNavDrawerSections` · orphan 输入 | 抽屉有卡、侧栏无叶；**存量兼容**；新功能应避免新增 |
+| 代号  | 类型                  | 有无 `poolPageAction` | 代码 / 配置落点                                                                      | 说明                                                                         |
+| ----- | --------------------- | --------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| **A** | **Hub 壳**            | 无                    | `CloudmapPoolNavKey`（如 `resource_hub`、`cluster`、`compute`）；路由 `tab/innerSeg` | 侧栏一级 Tab + 内菜单容器；**本身不是**权限实体，下面挂若干 **B/C** 页面实体 |
+| **B** | **页面实体 · 纯展示** | 有 read               | `poolPageDisplayOnly: true`                                                          | 仅有入口 read；抽屉 checkbox 文案为「只读」；页内无 write 门控               |
+| **C** | **页面实体 · 可操作** | 有 read + write       | 有 `poolPageAction` 且未标 `displayOnly`                                             | 列表/表单 CRUD；写操作走本页 `:write` 或 `canWritePoolPage`                  |
+| **D** | **附加能力**          | 独立 action           | `POOL_NAV_GROUP_ATTACHED_PREFIXES`；抽屉 `capabilityKind: 'attached'`                | 不进侧栏（创建向导、快捷入口等）；**独立授权**，不随父列表页 write 自动获得  |
+| **E** | **分组门控**          | 无（非原子）          | `useCloudmapPoolPermissions` · `canViewClusterGroup` 等                              | 决定侧栏一级 Tab **是否展示**（子页权限 OR）；抽屉**无**对应总卡             |
+| **F** | **组内孤儿**          | 有，但无侧栏叶        | `buildCloudmapPoolNavDrawerSections` · orphan 输入                                   | 抽屉有卡、侧栏无叶；**存量兼容**；新功能应避免新增                           |
 
 ### 2.1 与 §1 三维度的关系
 
@@ -47,32 +47,32 @@ Cloudmap 池内 UI 在权限设计上分为下列类型。**A–D 为授权原�
 
 下列为**正交维度**（不单独构成新页面类型）：
 
-| 维度 | 说明 | 示例 |
-|------|------|------|
-| **展示是否跨域读** | 无 → 不写依赖；有 → 挂在本页 `POOL_PAGE_IMPLIED_READ_BASES` | 集群总览：无；网络拓扑：有 |
-| **操作是否跨域写** | 无 → 仅本页 `:write`；有 → 在本页文档与 Section 显式声明 | 机房拓扑写布局：本页 write；不要求 `cluster-networks:write` |
-| **License 门控** | 与 B/C 正交；先过 License 再过 RBAC | `kube_ovn` 组 · `network.ovn.vpc` |
-| **租户 vs 管理端** | 同一 `poolPageAction`；租户用 `checkPoolPageReadPerm` 更严 | 控制台与池内对齐同一原子 |
+| 维度               | 说明                                                        | 示例                                                        |
+| ------------------ | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| **展示是否跨域读** | 无 → 不写依赖；有 → 挂在本页 `POOL_PAGE_IMPLIED_READ_BASES` | 集群总览：无；网络拓扑：有                                  |
+| **操作是否跨域写** | 无 → 仅本页 `:write`；有 → 在本页文档与 Section 显式声明    | 机房拓扑写布局：本页 write；不要求 `cluster-networks:write` |
+| **License 门控**   | 与 B/C 正交；先过 License 再过 RBAC                         | `kube_ovn` 组 · `network.ovn.vpc`                           |
+| **租户 vs 管理端** | 同一 `poolPageAction`；租户用 `checkPoolPageReadPerm` 更严  | 控制台与池内对齐同一原子                                    |
 
 ### 2.2 不算独立页面类型
 
-| UI 形态 | 权限归属 |
-|---------|----------|
-| **页内详情抽屉 / 弹窗**（VM 详情、卷详情等） | 继承**父列表页（C）**的 read/write，不单独占原子 |
-| **D · 附加能力** | 与上表不同：有**独立** action（如 `clouds.vm-create-wizard:write`） |
-| **Cloudmap 池外页面**（设置、租户、SDN 等） | 走 `RouteSpec.requiredActions`，不在本 Taxonomy 内 |
+| UI 形态                                      | 权限归属                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------- |
+| **页内详情抽屉 / 弹窗**（VM 详情、卷详情等） | 继承**父列表页（C）**的 read/write，不单独占原子                    |
+| **D · 附加能力**                             | 与上表不同：有**独立** action（如 `clouds.vm-create-wizard:write`） |
+| **Cloudmap 池外页面**（设置、租户、SDN 等）  | 走 `RouteSpec.requiredActions`，不在本 Taxonomy 内                  |
 
 ### 2.3 类型对照示例
 
-| 侧栏 | 类型 | 备注 |
-|------|------|------|
-| 资源总览（一级 Tab） | **A** Hub | 壳 |
-| 资源总览 → 集群总览 | **B** | `poolPageDisplayOnly` |
-| 资源总览 → 机房拓扑 | **C** | 有 write；展示含跨域读 |
-| 资源总览 → 网络拓扑 | **B** | 无 write；展示含跨域读 |
-| 弹性计算 → 云主机 | **C** | 标准列表页 |
-| 弹性计算 · 创建向导 | **D** | `vm-create-wizard` |
-| 集群（一级 Tab 是否可见） | **E** | `canViewClusterGroup` |
+| 侧栏                      | 类型      | 备注                   |
+| ------------------------- | --------- | ---------------------- |
+| 资源总览（一级 Tab）      | **A** Hub | 壳                     |
+| 资源总览 → 集群总览       | **B**     | `poolPageDisplayOnly`  |
+| 资源总览 → 机房拓扑       | **C**     | 有 write；展示含跨域读 |
+| 资源总览 → 网络拓扑       | **B**     | 无 write；展示含跨域读 |
+| 弹性计算 → 云主机         | **C**     | 标准列表页             |
+| 弹性计算 · 创建向导       | **D**     | `vm-create-wizard`     |
+| 集群（一级 Tab 是否可见） | **E**     | `canViewClusterGroup`  |
 
 ---
 
@@ -87,9 +87,9 @@ Cloudmap 池内 UI 在权限设计上分为下列类型。**A–D 为授权原�
 
 ### 3.2 主页面（B/C）vs 附加能力（D）
 
-| 类型 | 配置 | 说明 |
-|------|------|------|
-| **主页面（B/C）** | `poolPageAction` | 侧栏叶子 Tab；一片叶子一张抽屉卡 |
+| 类型              | 配置                                 | 说明                                                                                                              |
+| ----------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| **主页面（B/C）** | `poolPageAction`                     | 侧栏叶子 Tab；一片叶子一张抽屉卡                                                                                  |
 | **附加能力（D）** | 独立 action（如 `vm-create-wizard`） | 抽屉单独一张卡；排在**同组无 subgroup 主页面之后**、**二级 subgroup（如「高级配置」）之前**；不污染主列表页 write |
 
 ### 3.3 容器服务 · orphan（F 存量）
@@ -112,12 +112,12 @@ Cloudmap 池内 UI 在权限设计上分为下列类型。**A–D 为授权原�
 
 **前端**：`frontend/src/pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess.ts`
 
-| 函数 | 用途 |
-|------|------|
-| `canAccessPoolPage` | 管理端 / 池内：能否进入某叶子页 |
-| `canWritePoolPage` | 页内写操作；`poolPageDisplayOnly` 页恒 false |
-| `checkPoolPageReadPerm` | **租户控制台**严格读（不用 `clouds:read` 兜底） |
-| `expandRoleGrantOnCheck` | 角色抽屉：勾选 write 时自动带上同资源 read |
+| 函数                     | 用途                                            |
+| ------------------------ | ----------------------------------------------- |
+| `canAccessPoolPage`      | 管理端 / 池内：能否进入某叶子页                 |
+| `canWritePoolPage`       | 页内写操作；`poolPageDisplayOnly` 页恒 false    |
+| `checkPoolPageReadPerm`  | **租户控制台**严格读（不用 `clouds:read` 兜底） |
+| `expandRoleGrantOnCheck` | 角色抽屉：勾选 write 时自动带上同资源 read      |
 
 **后端**：`backend/src/permissions/checker.ts` + `backend/src/constants/poolPageImpliedReads.ts`
 
@@ -147,19 +147,19 @@ Cloudmap 池内 UI 在权限设计上分为下列类型。**A–D 为授权原�
 
 ### 6.1 集群总览（B · 纯展示）
 
-| 维度 | 内容 |
-|------|------|
-| 入口 | `clouds.monitoring.overview:read` |
+| 维度 | 内容                                                      |
+| ---- | --------------------------------------------------------- |
+| 入口 | `clouds.monitoring.overview:read`                         |
 | 展示 | 监控聚合；**无跨域读依赖**（`poolPageDisplayOnly: true`） |
-| 操作 | 无写操作 |
+| 操作 | 无写操作                                                  |
 
 ### 6.2 机房拓扑（C · 可操作）
 
-| 维度 | 内容 |
-|------|------|
-| 入口 | `clouds.dc-topology:read` |
+| 维度 | 内容                                                                                                                                                |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 入口 | `clouds.dc-topology:read`                                                                                                                           |
 | 展示 | 机柜布局只读视图；选节点/交换机清单需**本页隐式读**：`cluster-nodes`、`cluster-networks`（见 `POOL_PAGE_IMPLIED_READ_BASES['clouds.dc-topology']`） |
-| 操作 | `clouds.dc-topology:write`（机柜 / 插板等）；**不**要求 `cluster-networks:write` |
+| 操作 | `clouds.dc-topology:write`（机柜 / 插板等）；**不**要求 `cluster-networks:write`                                                                    |
 
 池层加载：`loaders/pathResource/resourceHubPathLoads.ts` · `datacenter_topology`（ASW 同步 `skipSync: true`）。
 
@@ -167,11 +167,11 @@ Section 写门控：`Harvester/hsm/sections/DatacenterTopologySection.tsx` → `
 
 ### 6.3 网络拓扑（B · 纯展示 + 跨域读）
 
-| 维度 | 内容 |
-|------|------|
-| 入口 | `clouds.net-topology:read`（`canViewNetworkTopology` / `canAccessPoolPage`） |
+| 维度 | 内容                                                                                                                                 |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 入口 | `clouds.net-topology:read`（`canViewNetworkTopology` / `canAccessPoolPage`）                                                         |
 | 展示 | 拓扑图需**本页隐式读**：物理网络、集群网络、VLAN、节点、公共子网、NAD 等（见 `POOL_PAGE_IMPLIED_READ_BASES['clouds.net-topology']`） |
-| 操作 | 无写操作（`poolPageDisplayOnly: true`） |
+| 操作 | 无写操作（`poolPageDisplayOnly: true`）                                                                                              |
 
 **不要**用集群 Tab 的 `canReadNetworkScope`（VPC/扁平/物理网络等聚合布尔）作为网络拓扑进门条件；进门只认本页 token。
 
@@ -181,18 +181,18 @@ Section 写门控：`Harvester/hsm/sections/DatacenterTopologySection.tsx` → `
 
 侧栏仍为 **运维监控 / 运维告警 / 接入管理** 三片叶子（**不改 URL、不改页内 Tab**）。子能力用 **F · 组内孤儿** 进抽屉，不新增侧栏项。
 
-| 侧栏叶子 | 类型 | 入口 `poolPageAction` |
-|----------|------|------------------------|
-| 运维监控 | **C** | `clouds.monitoring.overview:read`（与资源总览「集群总览」同 API 权限基；抽屉标题仍用侧栏名） |
+| 侧栏叶子 | 类型  | 入口 `poolPageAction`                                                                                          |
+| -------- | ----- | -------------------------------------------------------------------------------------------------------------- |
+| 运维监控 | **C** | `clouds.monitoring.overview:read`（与资源总览「集群总览」同 API 权限基；抽屉标题仍用侧栏名）                   |
 | 运维告警 | **C** | 抽屉主卡 `clouds.alerts:read`；侧栏可见另支持 `poolPageReadAnyOf`（告警子域 read 任一即可进门，页内 Tab 不变） |
-| 接入管理 | **C** | `clouds.alerts:read` |
+| 接入管理 | **C** | `clouds.alerts:read`                                                                                           |
 
-| 抽屉孤儿（无侧栏叶） | 入口 read | 运行时门控 |
-|---------------------|-----------|------------|
-| 告警规则 | `clouds.alert-rules:read` | 运维告警页内「告警规则」；直达 `monitoring_alerts/alert-rules` |
-| 告警通知策略 | `clouds.alert-policies:read` | 页内「通知策略」 |
-| 告警通知对象 | `clouds.alert-receivers:read` | 页内「通知对象」 |
-| 告警密钥 | `clouds.alert-secrets:read` | 页内「通知密钥」 |
+| 抽屉孤儿（无侧栏叶） | 入口 read                     | 运行时门控                                                     |
+| -------------------- | ----------------------------- | -------------------------------------------------------------- |
+| 告警规则             | `clouds.alert-rules:read`     | 运维告警页内「告警规则」；直达 `monitoring_alerts/alert-rules` |
+| 告警通知策略         | `clouds.alert-policies:read`  | 页内「通知策略」                                               |
+| 告警通知对象         | `clouds.alert-receivers:read` | 页内「通知对象」                                               |
+| 告警密钥             | `clouds.alert-secrets:read`   | 页内「通知密钥」                                               |
 
 告警分组与告警规则共用 `clouds.alert-rules:read`。门控实现：`Harvester/monitoring/lib/monitoringPageAccess.ts`；池路由：`Cloudmap/pool/panels/monitoring_alerts/index.tsx`。
 
@@ -202,16 +202,16 @@ Section 写门控：`Harvester/hsm/sections/DatacenterTopologySection.tsx` → `
 
 侧栏仍为 **节点 / 网络 / 存储服务 / 直通设备** 等叶子（**不改 URL、不改页内 Tab**）。存储服务 8 叶不再共用单一 read。
 
-| 侧栏叶子（`cluster/...`） | 入口 `poolPageAction` |
-|---------------------------|------------------------|
-| 仪表板 | `clouds.storage-dashboard:read` |
-| 统一存储配置 | `clouds.storage-addon:read` |
-| 统一存储池 | `clouds.unified-storage-pools:read` |
-| 远程备份 | `clouds.storage-rbd-mirror:read` |
-| S3 存储桶 | `clouds.storage-s3-buckets:read` |
-| RGW 用户密钥 | `clouds.storage-rgw-users:read` |
-| 对象网关 | `clouds.storage-object-gateway:read` |
-| COSI 驱动 | `clouds.storage-cosi:read` |
+| 侧栏叶子（`cluster/...`）   | 入口 `poolPageAction`                    |
+| --------------------------- | ---------------------------------------- |
+| 仪表板                      | `clouds.storage-dashboard:read`          |
+| 统一存储配置                | `clouds.storage-addon:read`              |
+| 统一存储池                  | `clouds.unified-storage-pools:read`      |
+| 远程备份                    | `clouds.storage-rbd-mirror:read`         |
+| S3 存储桶                   | `clouds.storage-s3-buckets:read`         |
+| RGW 用户密钥                | `clouds.storage-rgw-users:read`          |
+| 对象网关                    | `clouds.storage-object-gateway:read`     |
+| COSI 驱动                   | `clouds.storage-cosi:read`               |
 | 其它（节点、NAD、存储类等） | 各页独立原子（见 `cloudmapPoolNavRows`） |
 
 - **整组进门**：`canViewClusterGroup` = 任一集群叶子可读（`clusterPageAccess.ts`），**不用** `clouds:read` / `ecs:read` 兜底。
@@ -236,17 +236,17 @@ Section 写门控：`Harvester/hsm/sections/DatacenterTopologySection.tsx` → `
 
 ## 8. 源码映射（速查）
 
-| 职责 | 路径 |
-|------|------|
-| 页配置（入口 action） | `frontend/src/routes/cloudmapPoolNavRows.ts` |
-| 运行时门控 | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess.ts` |
-| 隐式读（前端） | 同上 `POOL_PAGE_IMPLIED_READ_BASES` + `accessMapping.ts` |
-| 隐式读（后端） | `backend/src/constants/poolPageImpliedReads.ts` + `checker.ts` |
-| 附加能力（D）配置 | `frontend/src/utils/permissionUtils.ts` · `POOL_NAV_GROUP_ATTACHED_PREFIXES` |
-| 分组门控（E） | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/hooks/useCloudmapPoolPermissions.ts` |
-| 权限抽屉 UI | `frontend/src/pages/settings/Roles/components/RolePermissionDrawer.tsx` |
-| 池层 Tab 加载 | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/loaders/` |
-| 池刷新约定 | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/README.md` |
+| 职责                  | 路径                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------- |
+| 页配置（入口 action） | `frontend/src/routes/cloudmapPoolNavRows.ts`                                       |
+| 运行时门控            | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/lib/poolPageReadAccess.ts`           |
+| 隐式读（前端）        | 同上 `POOL_PAGE_IMPLIED_READ_BASES` + `accessMapping.ts`                           |
+| 隐式读（后端）        | `backend/src/constants/poolPageImpliedReads.ts` + `checker.ts`                     |
+| 附加能力（D）配置     | `frontend/src/utils/permissionUtils.ts` · `POOL_NAV_GROUP_ATTACHED_PREFIXES`       |
+| 分组门控（E）         | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/hooks/useCloudmapPoolPermissions.ts` |
+| 权限抽屉 UI           | `frontend/src/pages/settings/Roles/components/RolePermissionDrawer.tsx`            |
+| 池层 Tab 加载         | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/loaders/`                            |
+| 池刷新约定            | `frontend/src/pages/cnmc/clouds/Cloudmap/pool/README.md`                           |
 
 ---
 

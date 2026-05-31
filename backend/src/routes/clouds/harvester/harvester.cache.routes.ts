@@ -31,10 +31,7 @@ import {
 /**
  * 注册 Harvester 缓存路由
  */
-export const registerHarvesterRoutes = (
-  router: Router,
-  checkAdminPermission: any,
-) => {
+export const registerHarvesterRoutes = (router: Router, checkAdminPermission: any) => {
   // API 代理：转发请求到 Harvester/K8s API
   router.all(
     '/:id/resources/harvester/proxy',
@@ -49,8 +46,7 @@ export const registerHarvesterRoutes = (
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
-        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next))
-          return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
 
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -78,7 +74,7 @@ export const registerHarvesterRoutes = (
           target,
           cloud.secretKey || '',
           insecure,
-          req.method === 'POST' || req.method === 'PUT' ? req.body : undefined
+          req.method === 'POST' || req.method === 'PUT' ? req.body : undefined,
         );
         res.json(data);
       } catch (error: any) {
@@ -88,7 +84,7 @@ export const registerHarvesterRoutes = (
           error: error.message || String(error),
         });
       }
-    }
+    },
   );
 
   // 节点 CPU/内存资源聚合：服务端读取 metrics/nodes/全量 Pod 并聚合，仅回小结果，
@@ -161,7 +157,7 @@ export const registerHarvesterRoutes = (
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
   registerHarvesterCacheRoutesProvider(router, checkAdminPermission);
-  
+
   // 注册容器资源路由（独立模块）
   registerHarvesterContainerRoutes(router, checkAdminPermission);
 };

@@ -19,17 +19,13 @@ import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
  * 2. 如果无记录或请求参数 force=true，调用 syncKubevirtMigrations 同步最新数据
  * 3. 如果同步失败且本地无数据，抛出异常；否则降级返回旧数据
  */
-export async function harvesterMigrationListHandler(
-  req: Request,
-  res: Response,
-) {
+export async function harvesterMigrationListHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const { force } = req.query;
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询'))
-      return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const repo = AppDataSource.getRepository(HarvesterMigrationInventory);

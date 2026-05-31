@@ -23,13 +23,7 @@ const LEVEL_RANK: Record<LogLevel, number> = {
 
 function parseLogLevel(): LogLevel {
   const raw = (process.env.LOG_LEVEL || 'info').toLowerCase();
-  if (
-    raw === 'silent' ||
-    raw === 'error' ||
-    raw === 'warn' ||
-    raw === 'info' ||
-    raw === 'debug'
-  ) {
+  if (raw === 'silent' || raw === 'error' || raw === 'warn' || raw === 'info' || raw === 'debug') {
     return raw;
   }
   return 'info';

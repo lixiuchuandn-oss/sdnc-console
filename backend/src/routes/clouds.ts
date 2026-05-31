@@ -181,8 +181,7 @@ const testCloudConnectionUnified = async (args: {
                 : [];
             rancherClusters = items.map((c) => {
               const cid = String(c?.id || c?.Id || '').trim();
-              const name =
-                String(c?.name || c?.Name || cid || '').trim() || cid || '—';
+              const name = String(c?.name || c?.Name || cid || '').trim() || cid || '—';
               const state = String(c?.state || c?.State || '').trim() || 'unknown';
               const k8s =
                 c?.version?.gitVersion ||
@@ -196,8 +195,7 @@ const testCloudConnectionUnified = async (args: {
                 kubernetesVersion: String(k8s || '').trim() || undefined,
               };
             });
-            const want = String(args.config?.clusterId || '')
-              .trim();
+            const want = String(args.config?.clusterId || '').trim();
             if (want) {
               const found = rancherClusters.some((c) => c.id === want);
               if (!found) {
@@ -232,8 +230,7 @@ const testCloudConnectionUnified = async (args: {
       }
       return { ok: false, message: `Rancher 连接失败: HTTP ${res.status}` };
     } catch (err: any) {
-      const m =
-        err?.response?.data?.message || err?.message || 'Rancher 连接失败';
+      const m = err?.response?.data?.message || err?.message || 'Rancher 连接失败';
       return { ok: false, message: `连接失败: ${m}` };
     }
   }
@@ -1006,7 +1003,7 @@ router.get('/', createApiPermissionMiddleware(), async (req: AuthRequest, res: R
     // - 当用户为租户用户（拥有 tenantId 且角色不是 sase_device）或角色为 'tenant' 时，
     //   仅返回其所属租户下处于 active 状态的 UserSpace 所关联的 Cloud。
     const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
-    
+
     if (isTenantUser || (req.user as any)?.role === 'tenant') {
       const tenantId = (req.user as any).tenantId;
       // 只有在拿到有效 tenantId 的情况下才做过滤；如果角色为 'tenant' 却没有 tenantId，
@@ -1016,8 +1013,8 @@ router.get('/', createApiPermissionMiddleware(), async (req: AuthRequest, res: R
         const userSpaces = await userSpaceRepo.find({
           where: { tenantId, status: 'active' },
         });
-        const allowedCloudIds = userSpaces.map(us => us.cloudId);
-        clouds = clouds.filter(c => allowedCloudIds.includes(c.id));
+        const allowedCloudIds = userSpaces.map((us) => us.cloudId);
+        clouds = clouds.filter((c) => allowedCloudIds.includes(c.id));
       }
     }
 
@@ -1046,12 +1043,14 @@ router.post(
       // Check if multi-cloud feature is enabled
       const isMultiCloud = features.includes('platform.multi-cloud');
       // Default max accounts is 1 if not specified in license
-      const maxAccounts = limits?.maxCloudAccounts || 1; 
+      const maxAccounts = limits?.maxCloudAccounts || 1;
 
       // 1. Check max accounts limit
       const currentCount = await cloudRepository.count();
       if (currentCount >= maxAccounts) {
-        return res.status(403).json({ message: `已达到最大云资源连接数限制 (${maxAccounts})。请联系管理员升级授权。` });
+        return res
+          .status(403)
+          .json({ message: `已达到最大云资源连接数限制 (${maxAccounts})。请联系管理员升级授权。` });
       }
 
       // 2. 未启用多云时仅允许 CloudMap 类资源池（默认授权、导入授权但未含 platform.multi-cloud 均适用）
@@ -1059,7 +1058,9 @@ router.post(
       if (!isMultiCloud) {
         const allowedWithoutMultiCloud = ['cloudmap.private', 'cloudmap.edge', 'cloudmap.csm'];
         if (!allowedWithoutMultiCloud.includes(provider)) {
-          return res.status(403).json({ message: '当前授权仅支持接入 CloudMap 类型的资源池。需接入多云资源请升级授权。' });
+          return res.status(403).json({
+            message: '当前授权仅支持接入 CloudMap 类型的资源池。需接入多云资源请升级授权。',
+          });
         }
       }
 
@@ -1123,151 +1124,175 @@ router.post(
 );
 
 // 预创建连接测试（不保存云资源）
-router.post('/test-connection', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const { provider, accessKey, secretKey, region, endpoint, config } = (req.body || {}) as any;
-    const r = await testCloudConnectionUnified({
-      provider,
-      accessKey,
-      secretKey,
-      region,
-      endpoint,
-      config,
-    });
-    res.json({
-      ok: !!r.ok,
-      message: r.message || (r.ok ? '连接成功' : '连接失败'),
-      ...(r.data ? { data: r.data } : {}),
-    });
-  } catch (error: any) {
-    res.status(500).json({ ok: false, message: error?.message || '连接测试失败' });
-  }
-});
+router.post(
+  '/test-connection',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { provider, accessKey, secretKey, region, endpoint, config } = (req.body || {}) as any;
+      const r = await testCloudConnectionUnified({
+        provider,
+        accessKey,
+        secretKey,
+        region,
+        endpoint,
+        config,
+      });
+      res.json({
+        ok: !!r.ok,
+        message: r.message || (r.ok ? '连接成功' : '连接失败'),
+        ...(r.data ? { data: r.data } : {}),
+      });
+    } catch (error: any) {
+      res.status(500).json({ ok: false, message: error?.message || '连接测试失败' });
+    }
+  },
+);
 
 // 获取标准化查询指令
-router.get('/:id/query-commands', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { types } = req.query; // e.g. types=vpc,vm or types[]=vpc&types[]=vm
+router.get(
+  '/:id/query-commands',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { types } = req.query; // e.g. types=vpc,vm or types[]=vpc&types[]=vm
 
-    const typeList = Array.isArray(types)
-      ? types
-      : String(types || '')
-          .split(',')
-          .filter(Boolean);
-    const result: any = { resourcePoolId: id };
+      const typeList = Array.isArray(types)
+        ? types
+        : String(types || '')
+            .split(',')
+            .filter(Boolean);
+      const result: any = { resourcePoolId: id };
 
-    // 默认查询所有类型
-    const queryAll = typeList.length === 0;
+      // 默认查询所有类型
+      const queryAll = typeList.length === 0;
 
-    if (queryAll || typeList.includes('vpc')) {
-      try {
-        result.vpcQuery = await standardResourceService.assembleVpcQuery(id);
-      } catch (e: any) {
-        result.vpcQuery = { error: e.message };
+      if (queryAll || typeList.includes('vpc')) {
+        try {
+          result.vpcQuery = await standardResourceService.assembleVpcQuery(id);
+        } catch (e: any) {
+          result.vpcQuery = { error: e.message };
+        }
       }
-    }
 
-    if (queryAll || typeList.includes('vm')) {
-      try {
-        result.vmQuery = await standardResourceService.assembleVmQuery(id);
-      } catch (e: any) {
-        result.vmQuery = { error: e.message };
+      if (queryAll || typeList.includes('vm')) {
+        try {
+          result.vmQuery = await standardResourceService.assembleVmQuery(id);
+        } catch (e: any) {
+          result.vmQuery = { error: e.message };
+        }
       }
-    }
 
-    res.json({ message: 'Success', data: result });
-  } catch (error: any) {
-    res.status(500).json({ message: '获取查询指令失败', error: error.message });
-  }
-});
+      res.json({ message: 'Success', data: result });
+    } catch (error: any) {
+      res.status(500).json({ message: '获取查询指令失败', error: error.message });
+    }
+  },
+);
 
 // 获取指定云资源的 VPC 列表 (标准化接口)
-router.get('/:id/resources/vpcs', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const cloud = await fetchCloudOr404(req.params.id, res);
-    if (!cloud) return;
-    const vpcs = await fetchVpcsForCloud(cloud);
-    res.json(vpcs);
-  } catch (error: any) {
-    res.status(500).json({ message: '获取VPC列表失败', error: error.message });
-  }
-});
+router.get(
+  '/:id/resources/vpcs',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const vpcs = await fetchVpcsForCloud(cloud);
+      res.json(vpcs);
+    } catch (error: any) {
+      res.status(500).json({ message: '获取VPC列表失败', error: error.message });
+    }
+  },
+);
 
 // 获取指定云资源的 ECS 实例列表 (标准化接口)
 // 【迁移示例】使用新的权限体系中间件
-router.get('/:id/resources/ecs', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const cloud = await fetchCloudOr404(req.params.id, res);
-    if (!cloud) return;
-    const instances = await fetchInstancesForCloud(cloud);
-    res.json(instances);
-  } catch (error: any) {
-    res.status(500).json({ message: '获取实例列表失败', error: error.message });
-  }
-});
+router.get(
+  '/:id/resources/ecs',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cloud = await fetchCloudOr404(req.params.id, res);
+      if (!cloud) return;
+      const instances = await fetchInstancesForCloud(cloud);
+      res.json(instances);
+    } catch (error: any) {
+      res.status(500).json({ message: '获取实例列表失败', error: error.message });
+    }
+  },
+);
 
 // 测试云资源连接
-router.post('/:id/test', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params;
+router.post(
+  '/:id/test',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
 
-    const cloudRepository = AppDataSource.getRepository(Cloud);
-    const cloud = await cloudRepository.findOne({ where: { id } });
-    if (!cloud) return res.status(404).json({ message: '云资源不存在' });
-    const r = await testCloudConnectionUnified({
-      provider: cloud.config?.provider,
-      accessKey: cloud.accessKey,
-      secretKey: cloud.secretKey,
-      region: cloud.region,
-      endpoint: cloud.endpoint,
-      config: cloud.config,
-    });
-    const ok = !!r.ok;
-    cloud.status = ok ? CloudStatus.ONLINE : CloudStatus.OFFLINE;
-    cloud.lastTestAt = new Date();
-    await cloudRepository.save(cloud);
-    res.json({
-      message: ok ? '连接测试成功' : r.message || '连接测试失败',
-      status: cloud.status,
-      lastTestAt: cloud.lastTestAt,
-    });
-  } catch (error: any) {
-    res.status(500).json({ message: '连接测试失败', error: error.message });
-  }
-});
+      const cloudRepository = AppDataSource.getRepository(Cloud);
+      const cloud = await cloudRepository.findOne({ where: { id } });
+      if (!cloud) return res.status(404).json({ message: '云资源不存在' });
+      const r = await testCloudConnectionUnified({
+        provider: cloud.config?.provider,
+        accessKey: cloud.accessKey,
+        secretKey: cloud.secretKey,
+        region: cloud.region,
+        endpoint: cloud.endpoint,
+        config: cloud.config,
+      });
+      const ok = !!r.ok;
+      cloud.status = ok ? CloudStatus.ONLINE : CloudStatus.OFFLINE;
+      cloud.lastTestAt = new Date();
+      await cloudRepository.save(cloud);
+      res.json({
+        message: ok ? '连接测试成功' : r.message || '连接测试失败',
+        status: cloud.status,
+        lastTestAt: cloud.lastTestAt,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: '连接测试失败', error: error.message });
+    }
+  },
+);
 
 // 手动同步云资源
-router.post('/:id/sync', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const { id } = req.params;
-    const cloud = await fetchCloudOr404(id, res);
-    if (!cloud) return;
+router.post(
+  '/:id/sync',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const cloud = await fetchCloudOr404(id, res);
+      if (!cloud) return;
 
-    const providerRaw = String(cloud.config?.provider || '');
-    const provider = providerRaw.toLowerCase();
+      const providerRaw = String(cloud.config?.provider || '');
+      const provider = providerRaw.toLowerCase();
 
-    if (
-      provider === 'harvester' ||
-      provider === 'cloudmap.private' ||
-      provider === 'cloudmap.edge'
-    ) {
-      const insecure = !!(cloud.config as any)?.ignoreTls;
-      // 同步 VM 和 VMI
-      await syncKubevirtVms(cloud, insecure);
-      await syncKubevirtVmis(cloud, insecure);
-      
-      res.json({ message: '同步成功' });
-    } else {
-      // 对于其他云厂商，触发 Inventory 刷新逻辑 (复用 inventory 接口的部分逻辑)
-      // 目前主要响应 Harvester 的需求，其他云直接返回成功即可
-      res.json({ message: '该云类型已触发后台同步' });
+      if (
+        provider === 'harvester' ||
+        provider === 'cloudmap.private' ||
+        provider === 'cloudmap.edge'
+      ) {
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        // 同步 VM 和 VMI
+        await syncKubevirtVms(cloud, insecure);
+        await syncKubevirtVmis(cloud, insecure);
+
+        res.json({ message: '同步成功' });
+      } else {
+        // 对于其他云厂商，触发 Inventory 刷新逻辑 (复用 inventory 接口的部分逻辑)
+        // 目前主要响应 Harvester 的需求，其他云直接返回成功即可
+        res.json({ message: '该云类型已触发后台同步' });
+      }
+    } catch (error: any) {
+      cloudRouteLog.error(`Sync cloud ${req.params.id} failed:`, error?.message ?? String(error));
+      res.status(500).json({ message: '同步失败', error: error.message });
     }
-  } catch (error: any) {
-    cloudRouteLog.error(`Sync cloud ${req.params.id} failed:`, error?.message ?? String(error));
-    res.status(500).json({ message: '同步失败', error: error.message });
-  }
-});
+  },
+);
 
 // 更新云资源
 router.put('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
@@ -1367,29 +1392,33 @@ router.delete('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, 
 
 export { router as cloudRoutes };
 // 聚合：查询全部资源池的云主机列表（统一实例模型）
-router.get('/resources/ecs-all', createApiPermissionMiddleware(), async (req: AuthRequest, res: Response) => {
-  try {
-    const cloudRepository = AppDataSource.getRepository(Cloud);
-    const clouds = await cloudRepository.find();
+router.get(
+  '/resources/ecs-all',
+  createApiPermissionMiddleware(),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const cloudRepository = AppDataSource.getRepository(Cloud);
+      const clouds = await cloudRepository.find();
 
-    const items: any[] = [];
-    for (const cloud of clouds) {
-      try {
-        const instances = await fetchInstancesForCloud(cloud);
-        items.push(...instances);
-      } catch (e) {
-        cloudRouteLog.warn(
-          `Failed to fetch instances for cloud ${cloud.name}:`,
-          e instanceof Error ? e.message : String(e),
-        );
+      const items: any[] = [];
+      for (const cloud of clouds) {
+        try {
+          const instances = await fetchInstancesForCloud(cloud);
+          items.push(...instances);
+        } catch (e) {
+          cloudRouteLog.warn(
+            `Failed to fetch instances for cloud ${cloud.name}:`,
+            e instanceof Error ? e.message : String(e),
+          );
+        }
       }
-    }
 
-    res.json({ message: '查询成功', data: items });
-  } catch (error: any) {
-    res.status(500).json({ message: '查询全部云主机失败', error: error.message });
-  }
-});
+      res.json({ message: '查询成功', data: items });
+    } catch (error: any) {
+      res.status(500).json({ message: '查询全部云主机失败', error: error.message });
+    }
+  },
+);
 
 // 库存：查询已入库的云主机（必要时刷新）
 router.get(
@@ -1435,7 +1464,8 @@ router.get(
           ? String((req.query as any).cloudId)
           : undefined;
       const hasTarget = targetCloudId
-        ? inv.some((x) => x.cloudId === targetCloudId) || vmInv.some((x) => x.cloudId === targetCloudId)
+        ? inv.some((x) => x.cloudId === targetCloudId) ||
+          vmInv.some((x) => x.cloudId === targetCloudId)
         : inv.length > 0 || vmInv.length > 0;
       const needRefresh = !hasTarget || String(req.query.refresh || '').toLowerCase() === 'true';
       const slow = String((req.query as any)?.slow || '').toLowerCase() === 'true';
@@ -1563,7 +1593,7 @@ router.get(
               });
             }
           }
-          
+
           const seenIds = new Set<string>();
           for (const r of Array.isArray(list) ? list : []) {
             const base = {
@@ -1847,8 +1877,8 @@ router.get(
         }
         inv = await invRepo.find();
       }
-      
-      const cloudMap = new Map(cloudsAll.map(c => [c.id, c]));
+
+      const cloudMap = new Map(cloudsAll.map((c) => [c.id, c]));
 
       const dataInv = (
         targetCloudId ? (inv || []).filter((i) => i.cloudId === targetCloudId) : inv || []
@@ -1894,53 +1924,52 @@ router.get(
       const vms = await vmRepo.find();
       const vmis = await vmiRepo.find();
       const vmiByName = new Map<string, HarvesterVmiInventory>();
-      vmis.forEach(v => vmiByName.set(`${v.cloudId}/${v.namespace}/${v.name}`, v));
+      vmis.forEach((v) => vmiByName.set(`${v.cloudId}/${v.namespace}/${v.name}`, v));
 
-      const dataKv = (
-        targetCloudId ? vms.filter((i) => i.cloudId === targetCloudId) : vms
-      ).map((i) => {
+      const dataKv = (targetCloudId ? vms.filter((i) => i.cloudId === targetCloudId) : vms).map(
+        (i) => {
           const c = cloudMap.get(i.cloudId);
           const provider = (c?.config as any)?.provider || 'harvester';
           const vmi = vmiByName.get(`${i.cloudId}/${i.namespace}/${i.name}`);
-          
+
           // Determine Status
           let status = 'Unknown';
           if (vmi) {
-             status = vmi.phase || 'Unknown';
-             if (String(status).toLowerCase() === 'running') status = 'Running';
+            status = vmi.phase || 'Unknown';
+            if (String(status).toLowerCase() === 'running') status = 'Running';
           } else {
-             // If no VMI, check if it's supposed to be running
-             if (i.running) status = 'Starting'; 
-             else status = 'Stopped';
-             
-             if (i.runStrategy === 'Halted') status = 'Stopped';
-             if (i.runStrategy === 'Always') status = 'Starting'; // If VMI missing
-             if (i.runStrategy === 'RerunOnFailure') status = 'Starting';
+            // If no VMI, check if it's supposed to be running
+            if (i.running) status = 'Starting';
+            else status = 'Stopped';
+
+            if (i.runStrategy === 'Halted') status = 'Stopped';
+            if (i.runStrategy === 'Always') status = 'Starting'; // If VMI missing
+            if (i.runStrategy === 'RerunOnFailure') status = 'Starting';
           }
-          
+
           // Memory extraction from template
           let memGb: number | undefined = undefined;
           try {
-             const dom = i.template?.spec?.domain;
-             const mem = dom?.resources?.requests?.memory || dom?.resources?.limits?.memory;
-             if (mem) {
-                 const m = String(mem).trim();
-                 if (m.endsWith('Gi')) memGb = parseFloat(m);
-                 else if (m.endsWith('Mi')) memGb = parseFloat(m) / 1024;
-                 else if (m.endsWith('Ki')) memGb = parseFloat(m) / (1024 * 1024);
-                 else if (!isNaN(parseFloat(m))) memGb = parseFloat(m) / (1024*1024*1024);
-             }
+            const dom = i.template?.spec?.domain;
+            const mem = dom?.resources?.requests?.memory || dom?.resources?.limits?.memory;
+            if (mem) {
+              const m = String(mem).trim();
+              if (m.endsWith('Gi')) memGb = parseFloat(m);
+              else if (m.endsWith('Mi')) memGb = parseFloat(m) / 1024;
+              else if (m.endsWith('Ki')) memGb = parseFloat(m) / (1024 * 1024);
+              else if (!isNaN(parseFloat(m))) memGb = parseFloat(m) / (1024 * 1024 * 1024);
+            }
           } catch {}
-          
+
           if (memGb !== undefined) {
             memGb = Math.round(memGb * 100) / 100;
           }
-          
+
           // CPU extraction
           let cpuCores: number | undefined = undefined;
           try {
-             const dom = i.template?.spec?.domain;
-             cpuCores = dom?.cpu?.cores;
+            const dom = i.template?.spec?.domain;
+            cpuCores = dom?.cpu?.cores;
           } catch {}
 
           return {
@@ -1958,18 +1987,19 @@ router.get(
             createdAt: i.creationTimestamp,
             updatedAt: i.updatedAt,
             extra: {
-                namespace: i.namespace,
-                nodeName: vmi?.nodeName,
-                networks: vmi?.interfaces || [], 
-                Interfaces: vmi?.interfaces,
-                labels: i.labels,
-                annotations: i.annotations,
+              namespace: i.namespace,
+              nodeName: vmi?.nodeName,
+              networks: vmi?.interfaces || [],
+              Interfaces: vmi?.interfaces,
+              labels: i.labels,
+              annotations: i.annotations,
             },
             cpu: cpuCores,
             memoryGb: memGb,
             caps: { 'compute.instanceType': true, 'compute.zone': true, 'network.vpc': true },
           };
-      });
+        },
+      );
 
       res.json({ message: '查询成功', data: [...dataInv, ...dataKv] });
     } catch (error: any) {
@@ -2049,19 +2079,14 @@ router.get(
         res.status(400).json({ message: '仅 Rancher 资源池支持该接口' });
         return;
       }
-      let base = String(
-        (cloud as any).endpoint || (cloud as any).config?.rancherUrl || '',
-      )
+      let base = String((cloud as any).endpoint || (cloud as any).config?.rancherUrl || '')
         .trim()
         .replace(/\/+$/, '');
       if (base && !/^https?:\/\//i.test(base)) {
         base = `https://${base}`;
       }
       const token = String(
-        cloud.secretKey ||
-          (cloud as any).config?.apiToken ||
-          (cloud as any).config?.token ||
-          '',
+        cloud.secretKey || (cloud as any).config?.apiToken || (cloud as any).config?.token || '',
       ).trim();
       const insecure = !!(cloud.config as any)?.ignoreTls;
       if (!base || !token) {
@@ -2098,8 +2123,7 @@ router.get(
           : [];
       const clusters = items.map((c) => {
         const cid = String(c?.id || c?.Id || '').trim();
-        const name =
-          String(c?.name || c?.Name || cid || '').trim() || cid || '—';
+        const name = String(c?.name || c?.Name || cid || '').trim() || cid || '—';
         const state = String(c?.state || c?.State || '').trim() || 'unknown';
         const k8s =
           c?.version?.gitVersion ||
@@ -2117,10 +2141,7 @@ router.get(
     } catch (error: any) {
       cloudRouteLog.error('Rancher clusters list failed', error?.message ?? String(error));
       res.status(500).json({
-        message:
-          error?.response?.data?.message ||
-          error?.message ||
-          '获取 Rancher 集群列表失败',
+        message: error?.response?.data?.message || error?.message || '获取 Rancher 集群列表失败',
       });
     }
   },

@@ -15,9 +15,9 @@ export async function harvesterCephStorageNetworkGetHandler(req: Request, res: R
     const cloud = (req as { cloud?: unknown }).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
-    const effective = await fetchCephStorageNetworkEffective(cloud as Parameters<
-      typeof fetchCephStorageNetworkEffective
-    >[0]);
+    const effective = await fetchCephStorageNetworkEffective(
+      cloud as Parameters<typeof fetchCephStorageNetworkEffective>[0],
+    );
     res.json({
       ...effective,
       _tower: { api: 'ceph', resource: 'storage-network' },

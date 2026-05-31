@@ -1,29 +1,25 @@
 /**
  * Harvester Peripherals Handlers
- * 
+ *
  * 从 harvester.cache.peripherals.routes.ts 中提取的 Peripherals 相关业务逻辑
  */
 
 import { Request, Response } from 'express';
 import { AppDataSource } from '../../../../config/database';
-import {
-  HarvesterGpuInventory,
-} from '../../../../entities/harvester/HarvesterGpuInventory';
+import { HarvesterGpuInventory } from '../../../../entities/harvester/HarvesterGpuInventory';
 import { HarvesterPciDeviceInventory } from '../../../../entities/harvester/HarvesterPciDeviceInventory';
-import {
-  HarvesterUsbInventory,
-} from '../../../../entities/harvester/HarvesterUsbInventory';
+import { HarvesterUsbInventory } from '../../../../entities/harvester/HarvesterUsbInventory';
 import {
   syncHarvesterGpus,
   syncHarvesterPciDevices,
   syncHarvesterUsbResources,
 } from '../../../../services/clouds/harvester/inventory';
-import { 
-  createHarvesterUsbDeviceClaim, 
-  deleteHarvesterPciDeviceClaim, 
-  deleteHarvesterUsbDeviceClaim, 
-  listHarvesterPciDeviceClaims, 
-  listHarvesterUsbDeviceClaims, 
+import {
+  createHarvesterUsbDeviceClaim,
+  deleteHarvesterPciDeviceClaim,
+  deleteHarvesterUsbDeviceClaim,
+  listHarvesterPciDeviceClaims,
+  listHarvesterUsbDeviceClaims,
   listK8sNodesRaw,
   buildHarvesterPciDeviceClaimIndex,
   findHarvesterPciClaimForPciRow,
@@ -63,13 +59,21 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
 
     let claims: any[] = [];
     try {
-      claims = await listHarvesterPciDeviceClaims({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      claims = await listHarvesterPciDeviceClaims({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
     } catch {}
     const { claimMap, claimByKey } = buildHarvesterPciDeviceClaimIndex(claims);
 
     let nodes: any[] = [];
     try {
-      nodes = await listK8sNodesRaw({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      nodes = await listK8sNodesRaw({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
     } catch {}
     const quotaByNodeResource = new Map<string, { capacity?: number; allocatable?: number }>();
     const parseNum = (v: any) => {
@@ -95,14 +99,21 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
 
     const findClaimForRow = (r: any) => {
       const raw = r?.raw || r;
-      const rn = String(r?.resourceName || raw?.status?.resourceName || raw?.spec?.resourceName || '').trim();
-      const node = String(r?.nodeName || r?.node || raw?.status?.nodeName || raw?.spec?.nodeName || '').trim();
+      const rn = String(
+        r?.resourceName || raw?.status?.resourceName || raw?.spec?.resourceName || '',
+      ).trim();
+      const node = String(
+        r?.nodeName || r?.node || raw?.status?.nodeName || raw?.spec?.nodeName || '',
+      ).trim();
       const claim = findHarvesterPciClaimForPciRow(r, claimMap, claimByKey);
       return { claim, rn, node };
     };
 
     // [修复] 查询所有VM，检查GPU资源的实际使用情况，并记录挂载到的VM信息
-    const vmsUsingGpuResources = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
+    const vmsUsingGpuResources = new Map<
+      string,
+      { vmName: string; vmNamespace: string; vmDisplayName: string }
+    >();
     try {
       const allVms = await listKubevirtVMsRaw({
         endpoint: cloud.endpoint,
@@ -112,17 +123,19 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
       (Array.isArray(allVms) ? allVms : []).forEach((vm: any) => {
         const domain = vm?.spec?.template?.spec?.domain || vm?.spec?.domain;
         if (!domain) return;
-        
+
         const vmName = String(vm?.metadata?.name || '').trim();
         const vmNamespace = String(vm?.metadata?.namespace || '').trim();
         const vmDisplayName = vm?.metadata?.annotations?.['tower.io/alias'] || vmName;
-        
+
         if (!vmName || !vmNamespace) return;
-        
+
         // 获取VM的节点信息
         const nodeSelector = vm?.spec?.template?.spec?.nodeSelector || {};
-        const vmNodeName = String(nodeSelector['kubernetes.io/hostname'] || vm?.status?.nodeName || '').trim();
-        
+        const vmNodeName = String(
+          nodeSelector['kubernetes.io/hostname'] || vm?.status?.nodeName || '',
+        ).trim();
+
         // 检查 vGPU (gpus)
         const gpus = Array.isArray(domain?.devices?.gpus) ? domain.devices.gpus : [];
         gpus.forEach((gpu: any) => {
@@ -135,9 +148,11 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
             }
           }
         });
-        
+
         // 检查直通GPU (hostDevices)
-        const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
+        const hostDevices = Array.isArray(domain?.devices?.hostDevices)
+          ? domain.devices.hostDevices
+          : [];
         hostDevices.forEach((hd: any) => {
           const rn = String(hd?.deviceName || '').trim();
           if (!rn) return;
@@ -165,21 +180,31 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
         usedByNodeResource.set(key, (usedByNodeResource.get(key) || 0) + 1);
       }
     });
-    
+
     const claimedGpusByNodeResource = new Map<string, Set<string>>();
     (Array.isArray(items) ? items.map((i) => i.rawData) : []).forEach((r: any) => {
       const { claim, rn, node } = findClaimForRow(r);
       if (claim && rn && node) {
         const key = `${node}|${rn}`;
         if (!vmsUsingGpuResources.has(key)) {
-          const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences) ? claim.metadata.ownerReferences : [];
+          const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences)
+            ? claim.metadata.ownerReferences
+            : [];
           const hasVmOwner = ownerRefs.some((o: any) => {
             const kind = String(o?.kind || '').toLowerCase();
             return kind === 'virtualmachine' || kind === 'vm';
           });
-          
+
           if (hasVmOwner) {
-            const addr = String(r?.pciAddress || r?.address || r?.raw?.status?.pciAddress || r?.raw?.status?.address || r?.raw?.spec?.pciAddress || r?.raw?.spec?.address || '').trim();
+            const addr = String(
+              r?.pciAddress ||
+                r?.address ||
+                r?.raw?.status?.pciAddress ||
+                r?.raw?.status?.address ||
+                r?.raw?.spec?.pciAddress ||
+                r?.raw?.spec?.address ||
+                '',
+            ).trim();
             const devName = String(r?.raw?.metadata?.name || r?.name || '').trim();
             const uniqueId = addr || devName || `${key}-${Math.random()}`;
             if (!claimedGpusByNodeResource.has(key)) {
@@ -190,7 +215,7 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
         }
       }
     });
-    
+
     claimedGpusByNodeResource.forEach((gpuSet, key) => {
       const count = gpuSet.size;
       usedByNodeResource.set(key, (usedByNodeResource.get(key) || 0) + count);
@@ -207,10 +232,12 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
         vmInfo = vmsUsingGpuResources.get(rn);
       }
       const claimedByVm = !!vmInfo;
-      
+
       let claimedByClaim = false;
       if (claim) {
-        const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences) ? claim.metadata.ownerReferences : [];
+        const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences)
+          ? claim.metadata.ownerReferences
+          : [];
         const hasVmOwner = ownerRefs.some((o: any) => {
           const kind = String(o?.kind || '').toLowerCase();
           return kind === 'virtualmachine' || kind === 'vm';
@@ -221,7 +248,9 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
       const claimedBy = claim?.spec?.userName || claim?.userName || '';
       const claimName = claim?.metadata?.name || claim?.name || '';
       const claimNamespace = claim?.metadata?.namespace || claim?.namespace || '';
-      const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences) ? claim.metadata.ownerReferences : [];
+      const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences)
+        ? claim.metadata.ownerReferences
+        : [];
       const bindingTargets = ownerRefs
         .map((o: any) => ({
           apiVersion: o?.apiVersion,
@@ -232,19 +261,25 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
         .filter((x: any) => x?.kind && x?.name);
       const bindingTo = vmInfo
         ? `VM:${vmInfo.vmDisplayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`
-        : (bindingTargets.length > 0
+        : bindingTargets.length > 0
           ? bindingTargets.map((x: any) => `${x.kind}:${x.name}`).join(', ')
-          : (claimName ? `PCIDeviceClaim:${claimName}` : (claimedBy ? `user:${claimedBy}` : '')));
-      const claimRaw = claim ? {
-        apiVersion: claim?.apiVersion,
-        kind: claim?.kind,
-        metadata: claim?.metadata,
-        spec: claim?.spec,
-        status: claim?.status,
-      } : null;
+          : claimName
+            ? `PCIDeviceClaim:${claimName}`
+            : claimedBy
+              ? `user:${claimedBy}`
+              : '';
+      const claimRaw = claim
+        ? {
+            apiVersion: claim?.apiVersion,
+            kind: claim?.kind,
+            metadata: claim?.metadata,
+            spec: claim?.spec,
+            status: claim?.status,
+          }
+        : null;
       const quota = node && rn ? quotaByNodeResource.get(`${node}|${rn}`) : undefined;
       const allocatable = quota?.allocatable;
-      const used = node && rn ? (usedByNodeResource.get(`${node}|${rn}`) || 0) : 0;
+      const used = node && rn ? usedByNodeResource.get(`${node}|${rn}`) || 0 : 0;
       const free = typeof allocatable === 'number' ? Math.max(allocatable - used, 0) : undefined;
       return {
         ...r,
@@ -255,23 +290,20 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
         bindingTo,
         bindingTargets,
         claimRaw,
-        vmInfo: vmInfo ? {
-          vmName: vmInfo.vmName,
-          vmNamespace: vmInfo.vmNamespace,
-          vmDisplayName: vmInfo.vmDisplayName,
-        } : undefined,
+        vmInfo: vmInfo
+          ? {
+              vmName: vmInfo.vmName,
+              vmNamespace: vmInfo.vmNamespace,
+              vmDisplayName: vmInfo.vmDisplayName,
+            }
+          : undefined,
         quota: quota ? { ...quota, used, free } : undefined,
       };
     });
 
     const normalizeGpuPciClass = (row: any) => {
       const raw = row?.raw || row;
-      return String(
-        row?.classId ??
-          raw?.status?.classId ??
-          raw?.spec?.classId ??
-          '',
-      )
+      return String(row?.classId ?? raw?.status?.classId ?? raw?.spec?.classId ?? '')
         .toLowerCase()
         .replace(/^0x/, '');
     };
@@ -299,8 +331,12 @@ export async function harvesterGpuClaimListHandler(req: Request, res: Response) 
     const cloud = (req as any).cloud;
     const { id: _id } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
-    const items = await listHarvesterPciDeviceClaims({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+
+    const items = await listHarvesterPciDeviceClaims({
+      endpoint: cloud.endpoint,
+      token: cloud.secretKey || '',
+      insecure,
+    } as any);
     res.json({ message: '查询成功', data: { items } });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -316,7 +352,7 @@ export async function harvesterGpuClaimDeleteHandler(req: Request, res: Response
     const cloud = (req as any).cloud;
     const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await deleteHarvesterPciDeviceClaim(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       name,
@@ -353,7 +389,11 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
 
     let claims: any[] = [];
     try {
-      claims = await listHarvesterUsbDeviceClaims({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      claims = await listHarvesterUsbDeviceClaims({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
     } catch {}
     const claimMap = new Map<string, any>();
     (Array.isArray(claims) ? claims : []).forEach((c: any) => {
@@ -367,7 +407,10 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
     });
 
     // [修复] 查询所有VM，检查USB资源的实际使用情况
-    const vmsUsingUsbResources = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
+    const vmsUsingUsbResources = new Map<
+      string,
+      { vmName: string; vmNamespace: string; vmDisplayName: string }
+    >();
     const usbResourceNameToName = new Map<string, string>();
     const usbNameToResourceName = new Map<string, string>();
     const dbItemsForMapping = await repo.find({ where: { cloudId: id } });
@@ -379,7 +422,7 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
         usbNameToResourceName.set(devName, rn);
       }
     });
-    
+
     try {
       const allVms = await listKubevirtVMsRaw({
         endpoint: cloud.endpoint,
@@ -395,9 +438,11 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
         const vmDisplayName = vm?.metadata?.annotations?.['tower.io/alias'] || vmName;
 
         if (!vmName || !vmNamespace) return;
-        
+
         // 检查USB设备 (hostDevices中的USB)
-        const hostDevices = Array.isArray(domain?.devices?.hostDevices) ? domain.devices.hostDevices : [];
+        const hostDevices = Array.isArray(domain?.devices?.hostDevices)
+          ? domain.devices.hostDevices
+          : [];
         hostDevices.forEach((hd: any) => {
           const deviceNameInVm = String(hd?.deviceName || '').trim();
           if (!deviceNameInVm) return;
@@ -458,10 +503,12 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
         vmInfo = vmsUsingUsbResources.get(`kubevirt.io/${devName}`);
       }
       const claimedByVm = !!vmInfo;
-      
+
       let claimedByClaim = false;
       if (claim) {
-        const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences) ? claim.metadata.ownerReferences : [];
+        const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences)
+          ? claim.metadata.ownerReferences
+          : [];
         const hasVmOwner = ownerRefs.some((o: any) => {
           const kind = String(o?.kind || '').toLowerCase();
           return kind === 'virtualmachine' || kind === 'vm';
@@ -469,7 +516,9 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
         claimedByClaim = hasVmOwner;
       }
       const claimed = claimedByClaim || claimedByVm;
-      const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences) ? claim?.metadata?.ownerReferences : [];
+      const ownerRefs = Array.isArray(claim?.metadata?.ownerReferences)
+        ? claim?.metadata?.ownerReferences
+        : [];
       const bindingTargets = ownerRefs
         .map((o: any) => ({
           apiVersion: o?.apiVersion,
@@ -480,9 +529,13 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
         .filter((x: any) => x?.kind && x?.name);
       const bindingTo = vmInfo
         ? `VM:${vmInfo.vmDisplayName} (${vmInfo.vmNamespace}/${vmInfo.vmName})`
-        : (bindingTargets.length > 0
+        : bindingTargets.length > 0
           ? bindingTargets.map((x: any) => `${x.kind}:${x.name}`).join(', ')
-          : (claim?.metadata?.name ? `USBDeviceClaim:${claim.metadata.name}` : (claim?.spec?.userName ? `user:${claim.spec.userName}` : '')));
+          : claim?.metadata?.name
+            ? `USBDeviceClaim:${claim.metadata.name}`
+            : claim?.spec?.userName
+              ? `user:${claim.spec.userName}`
+              : '';
       return {
         resourceName: i.resourceName,
         name: i.name,
@@ -513,11 +566,13 @@ export async function harvesterUsbDeviceListHandler(req: Request, res: Response)
         claimNamespace: claim?.metadata?.namespace || claim?.namespace || '',
         bindingTargets,
         bindingTo,
-        vmInfo: vmInfo ? {
-          vmName: vmInfo.vmName,
-          vmNamespace: vmInfo.vmNamespace,
-          vmDisplayName: vmInfo.vmDisplayName,
-        } : undefined,
+        vmInfo: vmInfo
+          ? {
+              vmName: vmInfo.vmName,
+              vmNamespace: vmInfo.vmNamespace,
+              vmDisplayName: vmInfo.vmDisplayName,
+            }
+          : undefined,
         nodeName: (i.rawData as any)?.status?.nodeName || (i.rawData as any)?.spec?.nodeName,
         pciAddress:
           (i.rawData as any)?.status?.pciAddress ||
@@ -544,7 +599,13 @@ export async function harvesterUsbDeviceClaimCreateHandler(req: Request, res: Re
     const { id: _id, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const reqAny = req as any;
-    const userName = String(reqAny?.user?.username || reqAny?.user?.fullName || reqAny?.user?.name || reqAny?.body?.userName || 'admin').trim();
+    const userName = String(
+      reqAny?.user?.username ||
+        reqAny?.user?.fullName ||
+        reqAny?.user?.name ||
+        reqAny?.body?.userName ||
+        'admin',
+    ).trim();
 
     const data = await createHarvesterUsbDeviceClaim(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -622,7 +683,10 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
 
     let busyPciCrNames = new Set<string>();
     let vms: any[] = [];
-    let pciVmUsage = new Map<string, { vmName: string; vmNamespace: string; vmDisplayName: string }>();
+    let pciVmUsage = new Map<
+      string,
+      { vmName: string; vmNamespace: string; vmDisplayName: string }
+    >();
     try {
       vms = await listKubevirtVMsRaw({
         endpoint: cloud.endpoint,
@@ -632,7 +696,10 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
       busyPciCrNames = collectAllocatedPciDeviceCrNamesFromVms(vms);
       pciVmUsage = buildPciDeviceVmUsageMapFromVms(vms);
     } catch (e: any) {
-      console.warn('[harvesterPciDeviceListHandler] list VMs for pci allocation scan failed:', e?.message || e);
+      console.warn(
+        '[harvesterPciDeviceListHandler] list VMs for pci allocation scan failed:',
+        e?.message || e,
+      );
     }
 
     const list = items.map((i) => {

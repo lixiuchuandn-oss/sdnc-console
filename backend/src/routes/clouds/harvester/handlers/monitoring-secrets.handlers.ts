@@ -23,7 +23,9 @@ export async function harvesterMonitoringSecretsListHandler(req: Request, res: R
   try {
     const { id } = req.params;
     const namespace = String(req.query?.namespace ?? 'cattle-monitoring-system').trim();
-    const _datasource = String(req.query?.datasource ?? 'prometheus').trim().toLowerCase();
+    const _datasource = String(req.query?.datasource ?? 'prometheus')
+      .trim()
+      .toLowerCase();
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
       namespaces: [namespace],
       forbiddenMessage: '无权访问该命名空间下的密钥对象',
@@ -92,7 +94,9 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
       return res.status(404).json({ message: '密钥不存在' });
     }
     if (item?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
-      return res.status(400).json({ message: '该密钥不是告警接收器密钥（缺少 monitoring-receiver-secret 标签）' });
+      return res
+        .status(400)
+        .json({ message: '该密钥不是告警接收器密钥（缺少 monitoring-receiver-secret 标签）' });
     }
     res.json({
       name: (item?.metadata?.name ?? item?.name ?? '').toString().trim(),
@@ -154,7 +158,10 @@ export async function harvesterMonitoringSecretsCreateHandler(req: Request, res:
   } catch (e: any) {
     if (res.headersSent) return;
     const status = (e as any).status ?? (e as any)?.statusCode ?? 500;
-    const errMsg = (e as any).message || (typeof (e as any).body === 'string' ? (e as any).body : '') || '创建密钥失败';
+    const errMsg =
+      (e as any).message ||
+      (typeof (e as any).body === 'string' ? (e as any).body : '') ||
+      '创建密钥失败';
     res.status(status).json({ message: errMsg });
   }
 }
@@ -178,7 +185,12 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const getPath = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const existingRaw = await getJsonOnce(`${origin}/${getPath}`, cloud.secretKey || '', insecure, true);
+    const existingRaw = await getJsonOnce(
+      `${origin}/${getPath}`,
+      cloud.secretKey || '',
+      insecure,
+      true,
+    );
     const existing =
       (existingRaw as any)?.data != null &&
       typeof (existingRaw as any).data === 'object' &&
@@ -211,7 +223,10 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
         name,
         namespace,
         resourceVersion: existing.metadata?.resourceVersion,
-        labels: { ...(existing.metadata?.labels || {}), [MONITORING_RECEIVER_SECRET_LABEL]: 'true' },
+        labels: {
+          ...(existing.metadata?.labels || {}),
+          [MONITORING_RECEIVER_SECRET_LABEL]: 'true',
+        },
         annotations: mergedAnnotations,
       },
       data: body?.data && typeof body.data === 'object' ? body.data : existing?.data || {},
@@ -222,7 +237,10 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
   } catch (e: any) {
     if (res.headersSent) return;
     const status = (e as any).status ?? (e as any)?.statusCode ?? 500;
-    const errMsg = (e as any).message || (typeof (e as any).body === 'string' ? (e as any).body : '') || '更新密钥失败';
+    const errMsg =
+      (e as any).message ||
+      (typeof (e as any).body === 'string' ? (e as any).body : '') ||
+      '更新密钥失败';
     res.status(status).json({ message: errMsg });
   }
 }
@@ -245,17 +263,27 @@ export async function harvesterMonitoringSecretsDeleteHandler(req: Request, res:
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const getPath = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const existingRaw = await getJsonOnce(`${origin}/${getPath}`, cloud.secretKey || '', insecure, true);
+    const existingRaw = await getJsonOnce(
+      `${origin}/${getPath}`,
+      cloud.secretKey || '',
+      insecure,
+      true,
+    );
     const existing =
       (existingRaw as any)?.data != null &&
       typeof (existingRaw as any).data === 'object' &&
       (existingRaw as any).data?.metadata != null
         ? (existingRaw as any).data
         : existingRaw;
-    if (existing?.metadata && existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
+    if (
+      existing?.metadata &&
+      existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true'
+    ) {
       return res.status(400).json({ message: '该密钥不是告警接收器密钥，无法通过此接口删除' });
     }
-    const targetBinding = (existing?.metadata?.annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '').toString().trim();
+    const targetBinding = (existing?.metadata?.annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '')
+      .toString()
+      .trim();
     if (targetBinding) {
       return res.status(400).json({
         message: `该告警密钥已被通知对象引用（${targetBinding}），请先解除关联后再删除`,
@@ -266,7 +294,10 @@ export async function harvesterMonitoringSecretsDeleteHandler(req: Request, res:
   } catch (e: any) {
     if (res.headersSent) return;
     const status = (e as any).status ?? (e as any)?.statusCode ?? 500;
-    const errMsg = (e as any).message || (typeof (e as any).body === 'string' ? (e as any).body : '') || '删除密钥失败';
+    const errMsg =
+      (e as any).message ||
+      (typeof (e as any).body === 'string' ? (e as any).body : '') ||
+      '删除密钥失败';
     res.status(status).json({ message: errMsg });
   }
 }
@@ -294,7 +325,8 @@ export async function harvesterMonitoringConfigMapsDetailHandler(req: Request, r
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${CONFIGMAPS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
+    const excludeQs =
+      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
     const url = `${origin}/${path}?${excludeQs}`;
     const data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     res.json(data);

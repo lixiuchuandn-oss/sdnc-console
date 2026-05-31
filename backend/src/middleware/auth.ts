@@ -28,7 +28,10 @@ function isMustChangePasswordAllowedRoute(req: Request): boolean {
   ) {
     return true;
   }
-  if (method === 'GET' && (pathname === '/api/system/rbac/roles' || pathname.startsWith('/api/system/rbac/assignments'))) {
+  if (
+    method === 'GET' &&
+    (pathname === '/api/system/rbac/roles' || pathname.startsWith('/api/system/rbac/assignments'))
+  ) {
     return true;
   }
   return false;

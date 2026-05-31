@@ -11,7 +11,7 @@ export const TOWER_NAMESPACE_MANAGED_FINALIZER = 'tower.io/managed';
 export const isProtectedNamespace = (name: string): boolean => {
   if (!name) return false;
   const lower = name.toLowerCase();
-  
+
   // Exact match blacklist (System & Public namespaces)
   const exactBlacklist = [
     'default',
@@ -30,7 +30,7 @@ export const isProtectedNamespace = (name: string): boolean => {
     'fleet-default',
     'fleet-local',
     'cloud-public',
-    'harvester-public'
+    'harvester-public',
   ];
   if (exactBlacklist.includes(lower)) return true;
 
@@ -44,16 +44,18 @@ export const isProtectedNamespace = (name: string): boolean => {
     'cluster',
     'local',
     'ingress',
-    'user-' // Keep user- with hyphen as specific backend rule
+    'user-', // Keep user- with hyphen as specific backend rule
   ];
-  return prefixBlacklist.some(p => lower.startsWith(p));
+  return prefixBlacklist.some((p) => lower.startsWith(p));
 };
 
 /**
  * 与前端 `harvesterUtils.isPublicNamespace` 一致：列表 excludeSystem 时仍返回这些名字
  */
 export const isPublicNamespaceName = (name: string): boolean => {
-  const n = String(name || '').trim().toLowerCase();
+  const n = String(name || '')
+    .trim()
+    .toLowerCase();
   return ['cloud-public', 'default', 'harvester-public'].includes(n);
 };
 
@@ -61,7 +63,9 @@ export const isPublicNamespaceName = (name: string): boolean => {
  * 与前端 `harvesterUtils.isSystemNamespace` 一致（前缀判定）
  */
 export const isSystemNamespaceName = (name: string): boolean => {
-  const n = String(name || '').trim().toLowerCase();
+  const n = String(name || '')
+    .trim()
+    .toLowerCase();
   if (!n) return false;
   const prefixes = [
     'cattle',
@@ -98,11 +102,15 @@ export const isSystemNamespaceName = (name: string): boolean => {
 /** 与前端 `harvesterUtils.namespaceSectionType` 一致的业务分类 */
 export type NamespaceBusinessSectionKind = 'system' | 'public' | 'tenant' | 'admin' | 'unlabeled';
 
-export function namespaceBusinessSectionKindFromInventoryRaw(raw: any): NamespaceBusinessSectionKind {
+export function namespaceBusinessSectionKindFromInventoryRaw(
+  raw: any,
+): NamespaceBusinessSectionKind {
   const name = String(raw?.metadata?.name || raw?.name || '').trim();
   if (!name) return 'unlabeled';
   if (isSystemNamespaceName(name)) return 'system';
-  const scenario = String(raw?.metadata?.labels?.['tower.io/scenario'] || '').trim().toLowerCase();
+  const scenario = String(raw?.metadata?.labels?.['tower.io/scenario'] || '')
+    .trim()
+    .toLowerCase();
   if (scenario === 'public') return 'public';
   if (scenario === 'tenant') return 'tenant';
   if (scenario === 'admin') return 'admin';
@@ -236,14 +244,14 @@ export const createHarvesterNamespace = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const url = `${origin}/api/v1/namespaces`;
-  
+
   // 构建标签：标识是平台创建的命名空间（与虚拟机统一）
   const labels: Record<string, string> = {
     'kubernetes.io/metadata.name': name,
     'tower.io/managed': 'true', // 标识是 Tower 平台管理的命名空间
     'tower.io/creator': 'compute-tower', // 标识资源归属（与虚拟机统一）
   };
-  
+
   // 根据场景添加标签
   if (options?.scenario === 'public') {
     labels['tower.io/scenario'] = 'public';
@@ -256,12 +264,12 @@ export const createHarvesterNamespace = async (
   if (options?.bindingLabels) {
     Object.assign(labels, options.bindingLabels);
   }
-  
+
   // 构建注解：合并用户提供的注解
   const finalAnnotations: Record<string, string> = {
     ...annotations,
   };
-  
+
   // 如果没有提供场景信息，尝试从注解中推断
   if (!options?.scenario && annotations) {
     if (name === 'cloud-public' || annotations['tower.io/public']) {
@@ -270,7 +278,7 @@ export const createHarvesterNamespace = async (
       labels['tower.io/scenario'] = 'tenant';
     }
   }
-  
+
   const body = {
     apiVersion: 'v1',
     kind: 'Namespace',
@@ -280,9 +288,11 @@ export const createHarvesterNamespace = async (
       annotations: finalAnnotations,
       // 添加终结器，防止命名空间被意外删除（与虚拟机统一）
       // 终结器会在命名空间删除时被调用，可以用于清理资源
-      ...(options?.addFinalizer !== false ? {
-        finalizers: [TOWER_NAMESPACE_MANAGED_FINALIZER],
-      } : {}),
+      ...(options?.addFinalizer !== false
+        ? {
+            finalizers: [TOWER_NAMESPACE_MANAGED_FINALIZER],
+          }
+        : {}),
     },
   } as any;
   return requestJson('POST', url, token, insecure, body);
@@ -400,10 +410,7 @@ export const listHarvesterNamespacesRaw = async ({
         : [];
     return items;
   } catch (e) {
-    console.warn(
-      '[listHarvesterNamespacesRaw] Steve API failed, falling back to K8s API:',
-      e,
-    );
+    console.warn('[listHarvesterNamespacesRaw] Steve API failed, falling back to K8s API:', e);
     const k8sUrl = `${origin}/api/v1/namespaces`;
     const json = await getJsonOnce(k8sUrl, token, insecure);
     const items = Array.isArray(json?.items) ? json.items : [];
@@ -432,4 +439,3 @@ export const getHarvesterNamespaceRaw = async (
   const url = `${origin}/api/v1/namespaces/${encodeURIComponent(name)}`;
   return getJsonOnce(url, token, insecure);
 };
-

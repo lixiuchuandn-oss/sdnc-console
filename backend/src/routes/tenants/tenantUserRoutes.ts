@@ -19,7 +19,10 @@ export function registerTenantUserRoutes(router: Router): void {
 
       res.json(users);
     } catch (error) {
-      tenantLog.error('获取租户用户列表失败:', error instanceof Error ? error.message : String(error));
+      tenantLog.error(
+        '获取租户用户列表失败:',
+        error instanceof Error ? error.message : String(error),
+      );
       res.status(500).json({ message: '获取租户用户列表失败' });
     }
   });

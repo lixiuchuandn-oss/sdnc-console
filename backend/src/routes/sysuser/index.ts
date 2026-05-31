@@ -139,7 +139,10 @@ router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
 
     res.json(enrichedUsers);
   } catch (error) {
-    sysUserLog.error('获取租户用户列表失败:', error instanceof Error ? error.message : String(error));
+    sysUserLog.error(
+      '获取租户用户列表失败:',
+      error instanceof Error ? error.message : String(error),
+    );
     res.status(500).json({ message: '获取租户用户列表失败' });
   }
 });
@@ -156,28 +159,31 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
     if ((req.user as any).isTenantUser || (req.user as any).role === 'tenant') {
       // tenant user already populated in authMiddleware
       const tu = req.user as any;
-      
+
       // Fetch full tenant/org info
       let tenantName = undefined;
       let organizationName = undefined;
       try {
-          const tenantRepo = AppDataSource.getRepository(TenantUser);
-          const fullUser = await tenantRepo.findOne({
-              where: { id: tu.id },
-              relations: ['tenant', 'organization']
-          });
-          tenantName = fullUser?.tenant?.name;
-          organizationName = fullUser?.organization?.name;
+        const tenantRepo = AppDataSource.getRepository(TenantUser);
+        const fullUser = await tenantRepo.findOne({
+          where: { id: tu.id },
+          relations: ['tenant', 'organization'],
+        });
+        tenantName = fullUser?.tenant?.name;
+        organizationName = fullUser?.organization?.name;
       } catch (e) {
-          sysUserLog.warn('Failed to fetch tenant/org info', e instanceof Error ? e.message : String(e));
+        sysUserLog.warn(
+          'Failed to fetch tenant/org info',
+          e instanceof Error ? e.message : String(e),
+        );
       }
-      
+
       let permissions: string[] = [];
       try {
         const trId = tu.role;
         const assignRepo = AppDataSource.getRepository(RoleAssignment);
         const roleRepo = AppDataSource.getRepository(RBACRole);
-        
+
         // 1. Get explicit assignments
         const assigns = await assignRepo.find({
           where: { userType: 'tenant', userId: tu.id },
@@ -186,30 +192,33 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
 
         // 2. Include primary role if it's a UUID (custom role)
         if (trId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trId)) {
-           if (!roleIds.includes(trId)) {
-             roleIds.push(trId);
-           }
+          if (!roleIds.includes(trId)) {
+            roleIds.push(trId);
+          }
         }
 
         // 3. Fetch all roles and merge permissions
         if (roleIds.length > 0) {
-           const roles = await roleRepo.find({ where: { id: In(roleIds) } });
-           for (const r of roles) {
-             if (r.permissions) {
-               try {
-                 const raw = JSON.parse(r.permissions);
-                 if (Array.isArray(raw)) {
-                   permissions = permissions.concat(raw);
-                 }
-               } catch {}
-             }
-           }
+          const roles = await roleRepo.find({ where: { id: In(roleIds) } });
+          for (const r of roles) {
+            if (r.permissions) {
+              try {
+                const raw = JSON.parse(r.permissions);
+                if (Array.isArray(raw)) {
+                  permissions = permissions.concat(raw);
+                }
+              } catch {}
+            }
+          }
         }
-        
+
         // Deduplicate
         permissions = Array.from(new Set(permissions));
       } catch (e) {
-        sysUserLog.warn('Failed to fetch permissions for tenant user', e instanceof Error ? e.message : String(e));
+        sysUserLog.warn(
+          'Failed to fetch permissions for tenant user',
+          e instanceof Error ? e.message : String(e),
+        );
       }
 
       resp = {
@@ -236,7 +245,9 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
       });
       if (!user) return res.status(404).json({ message: '用户不存在' });
       // 使用 authMiddleware 已经计算好的 permissions（包含 super_admin 的 ['*']）
-      const permissions = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
+      const permissions = Array.isArray((req.user as any).permissions)
+        ? (req.user as any).permissions
+        : [];
       resp = {
         id: user.id,
         username: user.username,
@@ -345,8 +356,11 @@ router.post('/me/password', async (req: AuthRequest, res: Response) => {
 router.put('/:id/status', async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: '未授权' });
-    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
-    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
+    const perms: string[] = Array.isArray((req.user as any).permissions)
+      ? (req.user as any).permissions
+      : [];
+    if (!checkPermission(perms, 'users:write'))
+      return res.status(403).json({ message: '权限不足' });
 
     const { id } = req.params;
     const { status } = req.body;
@@ -375,20 +389,27 @@ router.put('/:id/status', async (req: AuthRequest, res: Response) => {
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: '未授权' });
-    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
-    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
+    const perms: string[] = Array.isArray((req.user as any).permissions)
+      ? (req.user as any).permissions
+      : [];
+    if (!checkPermission(perms, 'users:write'))
+      return res.status(403).json({ message: '权限不足' });
     const { username, email, password, fullName, role } = req.body;
     if (!username?.trim() || !email?.trim() || !password?.trim() || !fullName?.trim()) {
       return res.status(400).json({ message: '缺少必填字段：username/email/password/fullName' });
     }
     if (role && String(role) !== UserRole.ADMIN) {
-      return res.status(400).json({ message: '创建系统用户时不允许指定为超级管理员，请先创建管理员后再按需赋权' });
+      return res
+        .status(400)
+        .json({ message: '创建系统用户时不允许指定为超级管理员，请先创建管理员后再按需赋权' });
     }
     const userRepository = AppDataSource.getRepository(User);
     const existed = await userRepository.findOne({ where: [{ username }, { email }] });
     if (existed) return res.status(400).json({ message: '用户名或邮箱已存在' });
     const policy = getAdminPasswordPolicy();
-    const pv = validatePasswordAgainstPolicy(String(password), policy, { username: String(username) });
+    const pv = validatePasswordAgainstPolicy(String(password), policy, {
+      username: String(username),
+    });
     if (!pv.ok) {
       return res.status(400).json({ message: pv.message });
     }
@@ -403,15 +424,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       passwordChangedAt: policy.requirePasswordChangeOnFirstLogin ? null : now,
     });
     const saved = await userRepository.save(user);
-    res
-      .status(201)
-      .json({
-        id: saved.id,
-        username: saved.username,
-        email: saved.email,
-        fullName: saved.fullName,
-        role: saved.role,
-      });
+    res.status(201).json({
+      id: saved.id,
+      username: saved.username,
+      email: saved.email,
+      fullName: saved.fullName,
+      role: saved.role,
+    });
   } catch (e: any) {
     res.status(500).json({ message: '创建用户失败', error: String(e) });
   }
@@ -421,8 +440,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: '未授权' });
-    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
-    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
+    const perms: string[] = Array.isArray((req.user as any).permissions)
+      ? (req.user as any).permissions
+      : [];
+    if (!checkPermission(perms, 'users:write'))
+      return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const userRepository = AppDataSource.getRepository(User);
     const user = await userRepository.findOne({ where: { id } });
@@ -454,8 +476,11 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 const updateUserHandler = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ message: '未授权' });
-    const perms: string[] = Array.isArray((req.user as any).permissions) ? (req.user as any).permissions : [];
-    if (!checkPermission(perms, 'users:write')) return res.status(403).json({ message: '权限不足' });
+    const perms: string[] = Array.isArray((req.user as any).permissions)
+      ? (req.user as any).permissions
+      : [];
+    if (!checkPermission(perms, 'users:write'))
+      return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { username, email, fullName, role, status, password } = req.body as any;
     const userRepository = AppDataSource.getRepository(User);
@@ -482,7 +507,9 @@ const updateUserHandler = async (req: AuthRequest, res: Response) => {
     if (status) user.status = status;
     if (password && String(password).trim()) {
       const policy = getAdminPasswordPolicy();
-      const pv = validatePasswordAgainstPolicy(String(password).trim(), policy, { username: user.username });
+      const pv = validatePasswordAgainstPolicy(String(password).trim(), policy, {
+        username: user.username,
+      });
       if (!pv.ok) {
         return res.status(400).json({ message: pv.message });
       }

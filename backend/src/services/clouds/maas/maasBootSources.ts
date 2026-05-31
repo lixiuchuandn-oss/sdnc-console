@@ -77,7 +77,13 @@ export async function listMaasBootSources(
 export async function createMaasBootSourceSelection(
   ctx: MaasHttpContext,
   sourceId: string | number,
-  params: { os: string; release: string; arches?: string[]; subarches?: string[]; labels?: string[] },
+  params: {
+    os: string;
+    release: string;
+    arches?: string[];
+    subarches?: string[];
+    labels?: string[];
+  },
 ): Promise<{ ok: boolean; message: string; data?: unknown }> {
   if (!params.os?.trim()) return { ok: false, message: '缺少操作系统（os）' };
   if (!params.release?.trim()) return { ok: false, message: '缺少版本（release）' };

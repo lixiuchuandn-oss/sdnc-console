@@ -286,7 +286,9 @@ export function attachMaasRoutes(router: Router, perm: RequestHandler): void {
       if (!ctx) return;
       const result = await startMaasImagesSyncV2(ctx);
       if (!result.ok) {
-        res.status(result.message.includes('已在运行') ? 409 : 502).json({ message: result.message });
+        res
+          .status(result.message.includes('已在运行') ? 409 : 502)
+          .json({ message: result.message });
         return;
       }
       res.json({ ok: true, message: result.message });

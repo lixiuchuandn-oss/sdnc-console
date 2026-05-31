@@ -11,7 +11,11 @@ import {
   IAM_USER_SPACE_KIND,
   IAM_USER_SPACE_PLURAL,
 } from './iamCrdConstants';
-import { getJsonOnce, requestJson, resolveHarvesterCloudKubeToken } from '../clouds/harvester/utils';
+import {
+  getJsonOnce,
+  requestJson,
+  resolveHarvesterCloudKubeToken,
+} from '../clouds/harvester/utils';
 
 type CloudLike = {
   endpoint?: string;
@@ -20,7 +24,9 @@ type CloudLike = {
 };
 
 function harvesterApiRoots(endpoint: string): string[] {
-  const base = String(endpoint || '').trim().replace(/\/+$/, '');
+  const base = String(endpoint || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!base) return [];
 
   let origin = base;
@@ -278,7 +284,10 @@ async function upsertClusterCr(
     );
   }
 
-  const collectionUrls = buildCandidateUrls(String(cloud.endpoint || ''), iamCollectionPath(plural));
+  const collectionUrls = buildCandidateUrls(
+    String(cloud.endpoint || ''),
+    iamCollectionPath(plural),
+  );
   return requestFirstOk(collectionUrls, token, insecure, (url) =>
     requestJson('POST', url, token, insecure, manifest),
   );
@@ -302,7 +311,9 @@ export async function listIamCrItems(cloud: CloudLike, plural: string): Promise<
   }
 
   if (lastErr?.status === 404) {
-    throw Object.assign(new Error('集群未安装 IAM CRD（iam.tower.io），无法读取租户数据'), { status: 502 });
+    throw Object.assign(new Error('集群未安装 IAM CRD（iam.tower.io），无法读取租户数据'), {
+      status: 502,
+    });
   }
   if (lastErr) throw lastErr;
   throw new Error('IAM CRD API 不可用');
@@ -324,11 +335,7 @@ export async function upsertOrganizationCrd(
   return upsertClusterCr(cloud, IAM_ORGANIZATION_PLURAL, input.id, manifest);
 }
 
-export async function deleteIamCrd(
-  cloud: CloudLike,
-  plural: string,
-  name: string,
-): Promise<void> {
+export async function deleteIamCrd(cloud: CloudLike, plural: string, name: string): Promise<void> {
   const token = resolveHarvesterCloudKubeToken(cloud);
   const insecure = !!cloud.config?.ignoreTls;
   const nameTrim = String(name || '').trim();
@@ -361,6 +368,9 @@ export async function deleteTenantCrd(cloud: CloudLike, tenantId: string): Promi
   return deleteIamCrd(cloud, IAM_TENANT_PLURAL, tenantId);
 }
 
-export async function deleteOrganizationCrd(cloud: CloudLike, organizationId: string): Promise<void> {
+export async function deleteOrganizationCrd(
+  cloud: CloudLike,
+  organizationId: string,
+): Promise<void> {
   return deleteIamCrd(cloud, IAM_ORGANIZATION_PLURAL, organizationId);
 }

@@ -23,7 +23,9 @@ const PROMETHEUSRULES_PATH = 'v1/harvester/monitoring.coreos.com.prometheusrules
 const PROMETHEUSRULES_EXCLUDE =
   'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&labelSelector=app.kubernetes.io/rule-type=custom-rules';
 const MONITORING_PROMETHEUS_CANDIDATE_PATHS = ['v1/harvester/monitoring.coreos.com.prometheuses'];
-const _MONITORING_ALERTMANAGER_CANDIDATE_PATHS = ['v1/harvester/monitoring.coreos.com.alertmanagers'];
+const _MONITORING_ALERTMANAGER_CANDIDATE_PATHS = [
+  'v1/harvester/monitoring.coreos.com.alertmanagers',
+];
 const MONITORING_SERVICE_MONITOR_PATH = 'v1/harvester/monitoring.coreos.com.servicemonitors';
 const MONITORING_POD_MONITOR_PATH = 'v1/harvester/monitoring.coreos.com.podmonitors';
 const MONITORING_POD_CANDIDATE_PATHS = ['v1/harvester/core.pods', 'v1/harvester/core.v1.pods'];
@@ -92,7 +94,7 @@ async function getJsonListByCandidatePaths(
   origin: string,
   cloud: any,
   insecure: boolean,
-  paths: string[]
+  paths: string[],
 ): Promise<any[]> {
   let lastNon404Err: any = null;
   for (const p of paths) {
@@ -114,7 +116,9 @@ async function getJsonListByCandidatePaths(
 export async function harvesterMonitoringAlertsRulesHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const datasource = String(req.query?.datasource ?? 'prometheus').trim().toLowerCase();
+    const datasource = String(req.query?.datasource ?? 'prometheus')
+      .trim()
+      .toLowerCase();
     if (datasource && datasource !== 'prometheus') {
       return res.status(400).json({ message: '暂不支持的数据源，当前仅支持 prometheus' });
     }
@@ -142,12 +146,17 @@ export async function harvesterMonitoringAlertsRulesHandler(req: Request, res: R
 
     if (!tenant.isAdmin && tenant.namespaces.length > 0) {
       const allowedSet = new Set(tenant.namespaces);
-      list = list.filter((item: any) => allowedSet.has(String(item?.labels?.namespace ?? '').trim()));
+      list = list.filter((item: any) =>
+        allowedSet.has(String(item?.labels?.namespace ?? '').trim()),
+      );
     }
-    const namespaceParam = String((req.query?.namespace ?? req.query?.filter ?? '')).trim();
+    const namespaceParam = String(req.query?.namespace ?? req.query?.filter ?? '').trim();
     if (namespaceParam) {
       const allowedNs = new Set(
-        namespaceParam.split(/[,，\s]+/).map((s: string) => s.trim()).filter(Boolean)
+        namespaceParam
+          .split(/[,，\s]+/)
+          .map((s: string) => s.trim())
+          .filter(Boolean),
       );
       if (allowedNs.size > 0) {
         list = list.filter((item: any) => {
@@ -173,7 +182,7 @@ export async function harvesterMonitoringAlertsRulesHandler(req: Request, res: R
       const start = (page - 1) * pageSize;
       list = list.slice(start, start + pageSize);
       res.json(hasAutoRefreshParam ? { data: list, total, autoRefreshMs } : { data: list, total });
-    } else {  
+    } else {
       res.json(hasAutoRefreshParam ? { data: list, total, autoRefreshMs } : list);
     }
   } catch (e: any) {
@@ -181,22 +190,28 @@ export async function harvesterMonitoringAlertsRulesHandler(req: Request, res: R
       const hasPagination = req.query?.page !== undefined || req.query?.pageSize !== undefined;
       const hasAutoRefreshParam = req.query?.autoRefreshMs !== undefined;
       const autoRefreshMs = normalizeAutoRefreshMs(req.query?.autoRefreshMs);
-      return res.status(200).json(
-        hasPagination || hasAutoRefreshParam
-          ? { data: [], total: 0, ...(hasAutoRefreshParam ? { autoRefreshMs } : {}) }
-          : []
-      );
+      return res
+        .status(200)
+        .json(
+          hasPagination || hasAutoRefreshParam
+            ? { data: [], total: 0, ...(hasAutoRefreshParam ? { autoRefreshMs } : {}) }
+            : [],
+        );
     }
     if (res.headersSent) return;
     const status = (e as any).status || 500;
-    res.status(status).json({ message: e?.message || '请求站内告警列表失败，请检查告警组件的健康状态' });
+    res
+      .status(status)
+      .json({ message: e?.message || '请求站内告警列表失败，请检查告警组件的健康状态' });
   }
 }
 
 export async function harvesterMonitoringPrometheusRulesHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const datasource = String(req.query?.datasource ?? '').trim().toLowerCase();
+    const datasource = String(req.query?.datasource ?? '')
+      .trim()
+      .toLowerCase();
     if (datasource !== 'prometheus') {
       return res.status(400).json({ message: '此接口仅支持 datasource=prometheus' });
     }
@@ -215,7 +230,9 @@ export async function harvesterMonitoringPrometheusRulesHandler(req: Request, re
 
     if (!tenant.isAdmin && tenant.namespaces.length > 0) {
       const allowedSet = new Set(tenant.namespaces);
-      data = data.filter((item: any) => allowedSet.has(String(item?.metadata?.namespace ?? '').trim()));
+      data = data.filter((item: any) =>
+        allowedSet.has(String(item?.metadata?.namespace ?? '').trim()),
+      );
     }
 
     const rulesGroupMap: Record<string, string> = {};
@@ -279,7 +296,7 @@ export async function harvesterMonitoringPrometheusRulesHandler(req: Request, re
           : String(raw ?? '')
               .split(',')
               .map((s) => s.trim())
-              .filter(Boolean)
+              .filter(Boolean),
       );
       if (alertNamesSet.size > 0) {
         const filtered = rules.filter((r) => alertNamesSet.has(r.name));
@@ -307,7 +324,8 @@ export async function harvesterMonitoringPrometheusRuleDetailHandler(req: Reques
 
     const ns = String(namespace ?? '').trim();
     const ruleName = String(name ?? '').trim();
-    if (!ns || !ruleName) return res.status(400).json({ message: '缺少 namespace 或 prometheusrule 名称' });
+    if (!ns || !ruleName)
+      return res.status(400).json({ message: '缺少 namespace 或 prometheusrule 名称' });
 
     if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) {
       return res.status(403).json({ message: '您没有该命名空间的访问权限' });
@@ -319,7 +337,8 @@ export async function harvesterMonitoringPrometheusRuleDetailHandler(req: Reques
       'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state';
     const url = `${origin}/${PROMETHEUSRULES_PATH}/${encodeURIComponent(ns)}/${encodeURIComponent(ruleName)}?${exclude}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
-    const item = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+    const item =
+      (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
     res.json(item);
   } catch (e: any) {
     if (isUnreachableError(e)) return res.status(200).json({});
@@ -340,14 +359,17 @@ export async function harvesterMonitoringPrometheusRuleUpdateHandler(req: Reques
 
     const ns = String(namespace ?? '').trim();
     const ruleName = String(name ?? '').trim();
-    if (!ns || !ruleName) return res.status(400).json({ message: '缺少 namespace 或 prometheusrule 名称' });
+    if (!ns || !ruleName)
+      return res.status(400).json({ message: '缺少 namespace 或 prometheusrule 名称' });
 
     if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) {
       return res.status(403).json({ message: '您没有该命名空间的访问权限' });
     }
 
     const payload =
-      req.body && typeof req.body === 'object' ? { ...(req.body as Record<string, unknown>) } : null;
+      req.body && typeof req.body === 'object'
+        ? { ...(req.body as Record<string, unknown>) }
+        : null;
     if (!payload) return res.status(400).json({ message: '请求体必须为 PrometheusRule CR 对象' });
 
     const metadata =
@@ -367,7 +389,7 @@ export async function harvesterMonitoringPrometheusRuleUpdateHandler(req: Reques
 
     try {
       const groupAliasName = String(
-        (payload.metadata as any)?.annotations?.[ANNOTATION_ALIAS] ?? ''
+        (payload.metadata as any)?.annotations?.[ANNOTATION_ALIAS] ?? '',
       ).trim();
       if (groupAliasName) {
         const repo = AppDataSource.getRepository(PrometheusRulesGroup);
@@ -397,7 +419,9 @@ export async function harvesterMonitoringPrometheusRuleUpdateHandler(req: Reques
 export async function harvesterMonitoringPrometheusRulesGroupsHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const datasource = String(req.query?.datasource ?? '').trim().toLowerCase();
+    const datasource = String(req.query?.datasource ?? '')
+      .trim()
+      .toLowerCase();
     if (datasource !== 'prometheus') {
       return res.status(400).json({ message: '此接口仅支持 datasource=prometheus' });
     }
@@ -424,8 +448,14 @@ export async function harvesterMonitoringVmCustomRulesHandler(req: Request, res:
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
-    const exclude = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&exclude=metadata.labels&exclude=metadata.annotations';
-    const data = await getJsonOnce(`${origin}/${PROMETHEUSRULE_VM}?limit=-1&${exclude}`, cloud.secretKey || '', insecure, true);
+    const exclude =
+      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&exclude=metadata.labels&exclude=metadata.annotations';
+    const data = await getJsonOnce(
+      `${origin}/${PROMETHEUSRULE_VM}?limit=-1&${exclude}`,
+      cloud.secretKey || '',
+      insecure,
+      true,
+    );
     res.json(data);
   } catch (e: any) {
     if (isUnreachableError(e)) return res.status(200).json({});
@@ -446,7 +476,8 @@ export async function harvesterMonitoringPrometheusDetailHandler(req: Request, r
 
     const ns = String(namespace || '').trim();
     const promName = String(name || '').trim();
-    if (!ns || !promName) return res.status(400).json({ message: '缺少 namespace 或 prometheus 名称' });
+    if (!ns || !promName)
+      return res.status(400).json({ message: '缺少 namespace 或 prometheus 名称' });
 
     if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) {
       return res.status(403).json({ message: '您没有该命名空间的访问权限' });
@@ -458,7 +489,12 @@ export async function harvesterMonitoringPrometheusDetailHandler(req: Request, r
     const promRaw = await getJsonOnce(promUrl, cloud.secretKey || '', insecure, true);
     const promObj = promRaw?.data ?? promRaw ?? {};
 
-    const podList = await getJsonListByCandidatePaths(origin, cloud, insecure, MONITORING_POD_CANDIDATE_PATHS);
+    const podList = await getJsonListByCandidatePaths(
+      origin,
+      cloud,
+      insecure,
+      MONITORING_POD_CANDIDATE_PATHS,
+    );
     const pods = normalizeList(podList)
       .filter((pod: any) => {
         const podNs = String(pod?.metadata?.namespace ?? '').trim();
@@ -466,16 +502,28 @@ export async function harvesterMonitoringPrometheusDetailHandler(req: Request, r
         const labels = (pod?.metadata?.labels ?? {}) as Record<string, string>;
         const labelProm = String(labels.prometheus ?? '').trim();
         const labelOperatorProm = String(labels['operator.prometheus.io/name'] ?? '').trim();
-        const labelName = String(labels['app.kubernetes.io/name'] ?? '').trim().toLowerCase();
+        const labelName = String(labels['app.kubernetes.io/name'] ?? '')
+          .trim()
+          .toLowerCase();
         const labelInstance = String(labels['app.kubernetes.io/instance'] ?? '').trim();
         const byDirectLabel = labelProm === promName || labelOperatorProm === promName;
-        const byAppLabels = labelName === 'prometheus' && (labelInstance === promName || labelInstance.includes(promName));
+        const byAppLabels =
+          labelName === 'prometheus' &&
+          (labelInstance === promName || labelInstance.includes(promName));
         return byDirectLabel || byAppLabels;
       })
       .map((pod: any) => {
-        const containerStatuses = Array.isArray(pod?.status?.containerStatuses) ? pod.status.containerStatuses : [];
-        const ready = containerStatuses.length > 0 ? containerStatuses.every((cs: any) => cs?.ready === true) : false;
-        const restartCount = containerStatuses.reduce((sum: number, cs: any) => sum + Number(cs?.restartCount ?? 0), 0);
+        const containerStatuses = Array.isArray(pod?.status?.containerStatuses)
+          ? pod.status.containerStatuses
+          : [];
+        const ready =
+          containerStatuses.length > 0
+            ? containerStatuses.every((cs: any) => cs?.ready === true)
+            : false;
+        const restartCount = containerStatuses.reduce(
+          (sum: number, cs: any) => sum + Number(cs?.restartCount ?? 0),
+          0,
+        );
         return {
           name: String(pod?.metadata?.name ?? '').trim(),
           namespace: String(pod?.metadata?.namespace ?? '').trim(),
@@ -511,10 +559,13 @@ export async function harvesterMonitoringPrometheusUpdateHandler(req: Request, r
 
     const ns = String(namespace ?? '').trim();
     const promName = String(name ?? '').trim();
-    if (!ns || !promName) return res.status(400).json({ message: '缺少 namespace 或 prometheus 名称' });
+    if (!ns || !promName)
+      return res.status(400).json({ message: '缺少 namespace 或 prometheus 名称' });
 
     const payload =
-      req.body && typeof req.body === 'object' ? { ...(req.body as Record<string, unknown>) } : null;
+      req.body && typeof req.body === 'object'
+        ? { ...(req.body as Record<string, unknown>) }
+        : null;
     if (!payload) return res.status(400).json({ message: '请求体必须为 Prometheus CR 对象' });
 
     const metadata =
@@ -551,14 +602,20 @@ export async function harvesterMonitoringAlertmanagerDetailHandler(req: Request,
 
     const ns = String(namespace ?? '').trim();
     const alertmanagerName = String(name ?? '').trim();
-    if (!ns || !alertmanagerName) return res.status(400).json({ message: '缺少 namespace 或 alertmanager 名称' });
+    if (!ns || !alertmanagerName)
+      return res.status(400).json({ message: '缺少 namespace 或 alertmanager 名称' });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const amUrl = `${origin}/v1/harvester/monitoring.coreos.com.alertmanagers/${encodeURIComponent(ns)}/${encodeURIComponent(alertmanagerName)}?${EXCLUDE}`;
     const amObj = await getJsonOnce(amUrl, cloud.secretKey || '', insecure, true);
 
-    const allPods = await getJsonListByCandidatePaths(origin, cloud, insecure, MONITORING_POD_CANDIDATE_PATHS);
+    const allPods = await getJsonListByCandidatePaths(
+      origin,
+      cloud,
+      insecure,
+      MONITORING_POD_CANDIDATE_PATHS,
+    );
     const pods = allPods
       .filter((item: any) => {
         const meta = item?.metadata ?? {};
@@ -568,7 +625,8 @@ export async function harvesterMonitoringAlertmanagerDetailHandler(req: Request,
         const labelAlertmanager = String(labels.alertmanager ?? '').trim();
         const labelOperatorName = String(labels['operator.prometheus.io/name'] ?? '').trim();
         const podName = String(meta?.name ?? '').trim();
-        if (labelAlertmanager === alertmanagerName || labelOperatorName === alertmanagerName) return true;
+        if (labelAlertmanager === alertmanagerName || labelOperatorName === alertmanagerName)
+          return true;
         return podName.startsWith(`alertmanager-${alertmanagerName}-`);
       })
       .map((item: any) => {
@@ -576,7 +634,10 @@ export async function harvesterMonitoringAlertmanagerDetailHandler(req: Request,
         const st = item?.status ?? {};
         const statuses = Array.isArray(st?.containerStatuses) ? st.containerStatuses : [];
         const ready = statuses.length > 0 ? statuses.every((c: any) => !!c?.ready) : false;
-        const restartCount = statuses.reduce((sum: number, c: any) => sum + Number(c?.restartCount ?? 0), 0);
+        const restartCount = statuses.reduce(
+          (sum: number, c: any) => sum + Number(c?.restartCount ?? 0),
+          0,
+        );
         return {
           name: String(meta?.name ?? '').trim(),
           namespace: String(meta?.namespace ?? '').trim(),
@@ -612,18 +673,30 @@ export async function harvesterMonitoringAccessManagementHandler(req: Request, r
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
-    const [prometheusList, serviceMonitorList, podMonitorList, statefulSetList] = await Promise.all([
-      getJsonListByCandidatePaths(origin, cloud, insecure, MONITORING_PROMETHEUS_CANDIDATE_PATHS),
-      getJsonListByCandidatePaths(origin, cloud, insecure, [MONITORING_SERVICE_MONITOR_PATH]),
-      getJsonListByCandidatePaths(origin, cloud, insecure, [MONITORING_POD_MONITOR_PATH]),
-      getJsonListByCandidatePaths(origin, cloud, insecure, MONITORING_STATEFULSET_CANDIDATE_PATHS),
-    ]);
+    const [prometheusList, serviceMonitorList, podMonitorList, statefulSetList] = await Promise.all(
+      [
+        getJsonListByCandidatePaths(origin, cloud, insecure, MONITORING_PROMETHEUS_CANDIDATE_PATHS),
+        getJsonListByCandidatePaths(origin, cloud, insecure, [MONITORING_SERVICE_MONITOR_PATH]),
+        getJsonListByCandidatePaths(origin, cloud, insecure, [MONITORING_POD_MONITOR_PATH]),
+        getJsonListByCandidatePaths(
+          origin,
+          cloud,
+          insecure,
+          MONITORING_STATEFULSET_CANDIDATE_PATHS,
+        ),
+      ],
+    );
 
-    const nsAllowed = !tenant.isAdmin && tenant.namespaces.length > 0 ? new Set(tenant.namespaces) : null;
+    const nsAllowed =
+      !tenant.isAdmin && tenant.namespaces.length > 0 ? new Set(tenant.namespaces) : null;
     const filterByTenantNs = (items: any[]) =>
-      nsAllowed ? items.filter((x) => nsAllowed.has(String(x?.metadata?.namespace ?? '').trim())) : items;
+      nsAllowed
+        ? items.filter((x) => nsAllowed.has(String(x?.metadata?.namespace ?? '').trim()))
+        : items;
 
-    const evaluatePrometheusHealthByStatefulSet = (status: any): {
+    const evaluatePrometheusHealthByStatefulSet = (
+      status: any,
+    ): {
       healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
       healthReason: string;
       replicas: number;
@@ -695,7 +768,9 @@ export async function harvesterMonitoringAccessManagementHandler(req: Request, r
         if (!sel || typeof sel !== 'object') return '';
         const ml = sel?.matchLabels;
         if (ml && typeof ml === 'object') {
-          return Object.entries(ml).map(([k, v]) => `${k}=${v}`).join(',');
+          return Object.entries(ml)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(',');
         }
         return '';
       };
@@ -708,7 +783,9 @@ export async function harvesterMonitoringAccessManagementHandler(req: Request, r
         if (stsName === statefulSetName && stsNs === namespace) return true;
 
         const labels = (sts?.metadata?.labels ?? {}) as Record<string, string>;
-        const labelProm = String(labels['operator.prometheus.io/name'] ?? labels.prometheus ?? '').trim();
+        const labelProm = String(
+          labels['operator.prometheus.io/name'] ?? labels.prometheus ?? '',
+        ).trim();
         return stsNs === namespace && labelProm === name;
       });
 
@@ -749,7 +826,10 @@ export async function harvesterMonitoringAccessManagementHandler(req: Request, r
         serviceMonitorSelector: selectorToText(spec.serviceMonitorSelector),
         podMonitorSelector: selectorToText(spec.podMonitorSelector),
         createdAt: String(item?.metadata?.creationTimestamp ?? '').trim(),
-        labels: item?.metadata?.labels && typeof item.metadata.labels === 'object' ? item.metadata.labels : {},
+        labels:
+          item?.metadata?.labels && typeof item.metadata.labels === 'object'
+            ? item.metadata.labels
+            : {},
         healthStatus: healthBySts.healthStatus,
         healthReason: healthBySts.healthReason,
       };
@@ -759,7 +839,10 @@ export async function harvesterMonitoringAccessManagementHandler(req: Request, r
       type: 'ServiceMonitor',
       name: String(item?.metadata?.name ?? '').trim(),
       namespace: String(item?.metadata?.namespace ?? '').trim(),
-      labels: item?.metadata?.labels && typeof item.metadata.labels === 'object' ? item.metadata.labels : {},
+      labels:
+        item?.metadata?.labels && typeof item.metadata.labels === 'object'
+          ? item.metadata.labels
+          : {},
       endpointsCount: Array.isArray(item?.spec?.endpoints) ? item.spec.endpoints.length : 0,
       selector: item?.spec?.selector ?? {},
       createdAt: String(item?.metadata?.creationTimestamp ?? '').trim(),
@@ -769,8 +852,13 @@ export async function harvesterMonitoringAccessManagementHandler(req: Request, r
       type: 'PodMonitor',
       name: String(item?.metadata?.name ?? '').trim(),
       namespace: String(item?.metadata?.namespace ?? '').trim(),
-      labels: item?.metadata?.labels && typeof item.metadata.labels === 'object' ? item.metadata.labels : {},
-      endpointsCount: Array.isArray(item?.spec?.podMetricsEndpoints) ? item.spec.podMetricsEndpoints.length : 0,
+      labels:
+        item?.metadata?.labels && typeof item.metadata.labels === 'object'
+          ? item.metadata.labels
+          : {},
+      endpointsCount: Array.isArray(item?.spec?.podMetricsEndpoints)
+        ? item.spec.podMetricsEndpoints.length
+        : 0,
       selector: item?.spec?.selector ?? {},
       createdAt: String(item?.metadata?.creationTimestamp ?? '').trim(),
     }));
@@ -806,17 +894,22 @@ export async function harvesterMonitoringPrometheusTargetsHandler(req: Request, 
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
-    const search = String(req.query?.search ?? '').trim().toLowerCase();
+    const search = String(req.query?.search ?? '')
+      .trim()
+      .toLowerCase();
     const targetsPath = `api/v1/namespaces/${encodeURIComponent(CATTLE_MONITORING_SYSTEM_NS)}/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/targets`;
     const url = `${origin}/${targetsPath}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     const activeTargets = Array.isArray(raw?.data?.activeTargets) ? raw.data.activeTargets : [];
 
-    const nsAllowed = !tenant.isAdmin && tenant.namespaces.length > 0 ? new Set(tenant.namespaces) : null;
+    const nsAllowed =
+      !tenant.isAdmin && tenant.namespaces.length > 0 ? new Set(tenant.namespaces) : null;
     const list: PrometheusTarget[] = activeTargets
       .map((item: any): PrometheusTarget => {
         const labels = item?.labels && typeof item.labels === 'object' ? item.labels : {};
-        const healthRaw = String(item?.health ?? '').trim().toLowerCase();
+        const healthRaw = String(item?.health ?? '')
+          .trim()
+          .toLowerCase();
         const normalizedHealth =
           healthRaw === 'up' ? 'up' : healthRaw === 'down' ? 'down' : healthRaw || 'unknown';
         const rawDuration = Number(item?.lastScrapeDuration ?? 0);
@@ -888,7 +981,8 @@ export async function harvesterMonitoringPrometheusTargetsHandler(req: Request, 
         tasksByJob.set(taskKey, bucket);
       } else {
         if (!bucket.task.service && target.service) bucket.task.service = target.service;
-        if (!bucket.task.scrapePool && target.scrapePool) bucket.task.scrapePool = target.scrapePool;
+        if (!bucket.task.scrapePool && target.scrapePool)
+          bucket.task.scrapePool = target.scrapePool;
       }
 
       const endpointKey = target.endpoint || '__unknown_endpoint__';

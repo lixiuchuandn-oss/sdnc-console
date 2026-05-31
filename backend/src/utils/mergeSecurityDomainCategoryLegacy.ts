@@ -7,9 +7,10 @@ import { logger } from './logger';
  */
 export async function mergeSecurityDomainCategoryLegacy(dataSource: DataSource): Promise<void> {
   try {
-    const rows: { id: string; category: string | null; subType: string | null }[] = await dataSource.query(
-      `SELECT id, category, subType FROM security_domains WHERE subType IS NOT NULL AND TRIM(subType) != ''`,
-    );
+    const rows: { id: string; category: string | null; subType: string | null }[] =
+      await dataSource.query(
+        `SELECT id, category, subType FROM security_domains WHERE subType IS NOT NULL AND TRIM(subType) != ''`,
+      );
     for (const r of rows) {
       const c = String(r.category || '').trim();
       if (c.includes(':')) continue;
@@ -19,7 +20,10 @@ export async function mergeSecurityDomainCategoryLegacy(dataSource: DataSource):
         .filter(Boolean)[0];
       if (!c || !first) continue;
       const merged = `${c}:${first}`;
-      await dataSource.query(`UPDATE security_domains SET category = ? WHERE id = ?`, [merged, r.id]);
+      await dataSource.query(`UPDATE security_domains SET category = ? WHERE id = ?`, [
+        merged,
+        r.id,
+      ]);
     }
     logger.info(`[security_domains] 已合并旧版 category/subType（处理 ${rows.length} 条候选）`);
   } catch (e: any) {

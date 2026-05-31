@@ -2,10 +2,7 @@
  * 定时策略权限合并：`clouds.schedules` 为权威 ID，`clouds.backup-schedules` 仅运行时/库内兼容。
  */
 
-import {
-  CBR_BACKUP_SCHEDULES_BASE,
-  LEGACY_CBR_BACKUP_SCHEDULES_BASE,
-} from './cbrPermissionBases';
+import { CBR_BACKUP_SCHEDULES_BASE, LEGACY_CBR_BACKUP_SCHEDULES_BASE } from './cbrPermissionBases';
 
 export const CBR_BACKUP_SCHEDULE_RESOURCE_BASES = new Set<string>([
   CBR_BACKUP_SCHEDULES_BASE,

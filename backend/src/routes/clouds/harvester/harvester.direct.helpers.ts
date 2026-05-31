@@ -39,9 +39,7 @@ export const isNamespaceAllowed = (
 ): boolean => {
   if (!allowedNamespacesStr) return false;
   if (!targetNamespace) return false;
-  const allowed = allowedNamespacesStr
-    .split(',')
-    .map((s) => s.trim().toLowerCase());
+  const allowed = allowedNamespacesStr.split(',').map((s) => s.trim().toLowerCase());
   return allowed.includes(targetNamespace.toLowerCase());
 };
 
@@ -62,8 +60,7 @@ export const checkTenantAccess = async (
   cloudId: string,
 ): Promise<{ allowed: boolean; namespace?: string; isTenant?: boolean }> => {
   // [Tenant Identification] 识别当前用户是否为租户身份
-  const isTenantUser =
-    (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
+  const isTenantUser = (req.user as any)?.tenantId && (req.user as any)?.role !== 'sase_device';
   const isTenantRole = req.user?.role === 'tenant';
   const isTenant = !!(isTenantUser || isTenantRole);
 
@@ -147,9 +144,7 @@ export const resolveTenantVmId = async (
   // [Format Parsing] 处理 "namespace/name" 格式
   if (instanceId.includes('/') || instanceId.includes(':')) {
     const [ns] = instanceId.split(/[/:/]/);
-    const validNamespaces = tenantNamespace
-      ? tenantNamespace.split(',').map((s) => s.trim())
-      : [];
+    const validNamespaces = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()) : [];
     // [Access Validation] 校验命名空间白名单
     if (!validNamespaces.includes(ns)) {
       return {
@@ -221,8 +216,7 @@ export function findVmDisplayNamesUsingMultusNetwork(
       return baseName === targetRef || baseName.endsWith(`/${nameLower}`);
     });
     if (matched) {
-      const alias =
-        vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || '';
+      const alias = vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || '';
       const t = String(alias).trim();
       if (t) out.push(t);
     }
@@ -251,7 +245,9 @@ export const ensureProvider = (
   msg: string,
   next?: any,
 ) => {
-  const actual = String(cloud?.config?.provider || '').toLowerCase().trim();
+  const actual = String(cloud?.config?.provider || '')
+    .toLowerCase()
+    .trim();
   const isHarvesterLike =
     actual === 'harvester' ||
     actual === 'cloudmap' ||
@@ -295,7 +291,7 @@ export const resolveVMStatus = (vm: any, vmi: any): string => {
   // 注意：如果 migrationState.Completed === true，说明迁移已完成，不应该返回 'Migrating'
   const migrationState = vmi?.status?.migrationState;
   const migrationAnnotation = vmi?.metadata?.annotations?.['harvesterhci.io/migrationState'];
-  
+
   // 检查是否真的在迁移中（排除已完成的迁移）
   if (migrationState) {
     // 如果 migrationState.completed 或 migrationState.Completed 为 true，说明迁移已完成，不应该显示为迁移中
@@ -317,10 +313,7 @@ export const resolveVMStatus = (vm: any, vmi: any): string => {
     status = vm.status.printableStatus;
   } else if (vmi?.status?.phase) {
     status = vmi.status.phase;
-  } else if (
-    vm?.spec?.running === false ||
-    vm?.spec?.runStrategy === 'Halted'
-  ) {
+  } else if (vm?.spec?.running === false || vm?.spec?.runStrategy === 'Halted') {
     status = 'Stopped';
   } else if (
     vm?.spec?.running === true ||
@@ -362,4 +355,3 @@ export function rejectUnlessTenantWrite(
   });
   return false;
 }
-

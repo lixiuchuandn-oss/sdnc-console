@@ -22,7 +22,7 @@ export function createVncWsServer() {
       if (!token) throw new Error('缺少 token');
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      
+
       assertLegacyConsoleWsAccess(decoded);
     } catch (err: any) {
       // 由于 noVNC 期待纯二进制流，这里仅关闭连接并设置关闭原因，避免发送 JSON 文本

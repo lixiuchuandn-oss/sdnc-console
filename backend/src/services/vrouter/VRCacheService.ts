@@ -1,9 +1,5 @@
 import { AppDataSource } from '../../config/database';
-import {
-  fetchAllVR1RowsFromCsm,
-  fetchAllVR3RowsFromCsm,
-  type CsmVrBizError,
-} from './vrController';
+import { fetchAllVR1RowsFromCsm, fetchAllVR3RowsFromCsm, type CsmVrBizError } from './vrController';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
@@ -76,15 +72,11 @@ export class VRCacheService {
   public startSyncJob(intervalMs: number = 300000) {
     vrCacheLog.info('启动后台同步任务...');
 
-    this.syncAll().catch((err) =>
-      vrCacheLog.error('初始同步失败', summarizeVrCacheError(err)),
-    );
+    this.syncAll().catch((err) => vrCacheLog.error('初始同步失败', summarizeVrCacheError(err)));
 
     if (this.timer) clearInterval(this.timer);
     this.timer = setInterval(() => {
-      this.syncAll().catch((err) =>
-        vrCacheLog.error('定时同步失败', summarizeVrCacheError(err)),
-      );
+      this.syncAll().catch((err) => vrCacheLog.error('定时同步失败', summarizeVrCacheError(err)));
     }, intervalMs);
   }
 
@@ -320,4 +312,3 @@ export class VRCacheService {
     }
   }
 }
-

@@ -99,7 +99,12 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
 
       if (reqAny.user.organizationId) {
         const orgNs = `ns-${reqAny.user.organizationId}`;
-        const nsList = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()).filter(Boolean) : [];
+        const nsList = tenantNamespace
+          ? tenantNamespace
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
         if (!nsList.includes(orgNs)) {
           nsList.push(orgNs);
           tenantNamespace = nsList.join(',');

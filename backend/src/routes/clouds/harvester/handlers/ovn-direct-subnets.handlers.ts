@@ -3,7 +3,10 @@ import { AppDataSource } from '../../../../config/database';
 import { KubeOvnSubnetInventory } from '../../../../entities/kubeovn/KubeOvnSubnetInventory';
 import { KubevirtNadInventory } from '../../../../entities/kubevirt/KubevirtNadInventory';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-import { updateHarvesterSubnet, listKubeOvnEips } from '../../../../services/clouds/harvester/client';
+import {
+  updateHarvesterSubnet,
+  listKubeOvnEips,
+} from '../../../../services/clouds/harvester/client';
 import { syncKubeOvnSubnets } from '../../../../services/clouds/harvester/inventory';
 import { deleteKubeOvnClusterCr, getOriginFromEndpoint } from './ovn-direct-eip-fip-nat.handlers';
 import {
@@ -216,9 +219,7 @@ function validateFlatSubnetExcludeIpsPayload(
       },
     };
   }
-  const curCidr = String(
-    currentSubnet?.spec?.cidrBlock ?? currentSubnet?.spec?.cidr ?? '',
-  ).trim();
+  const curCidr = String(currentSubnet?.spec?.cidrBlock ?? currentSubnet?.spec?.cidr ?? '').trim();
   const nextCidr = Object.prototype.hasOwnProperty.call(body, 'cidrBlock')
     ? String((body as any).cidrBlock ?? '').trim()
     : Object.prototype.hasOwnProperty.call(body, 'cidr')
@@ -349,7 +350,11 @@ async function removeTowerManagedFinalizerFromResourceUrl(
   } catch (e: any) {
     const st = Number(e?.status ?? 0);
     if (st === 404) return;
-    console.warn(`${logPrefix} 移除 tower.io/managed 失败（仍将尝试 DELETE）:`, resourceUrl, e?.message || e);
+    console.warn(
+      `${logPrefix} 移除 tower.io/managed 失败（仍将尝试 DELETE）:`,
+      resourceUrl,
+      e?.message || e,
+    );
   }
 }
 
@@ -357,10 +362,7 @@ async function removeTowerManagedFinalizerFromResourceUrl(
 // HTTP 处理器：子网列表（GET）、创建（POST）
 // =============================================================================
 
-export async function harvesterSubnetDirectListHandler(
-  req: any,
-  res: Response,
-) {
+export async function harvesterSubnetDirectListHandler(req: any, res: Response) {
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
@@ -374,8 +376,7 @@ export async function harvesterSubnetDirectListHandler(
     const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
     const count = await repo.count({ where: { cloudId: id } });
 
-    const shouldSync =
-      count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+    const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
     if (shouldSync) {
       await syncKubeOvnSubnets(cloud, insecure);
     } else if (String(skipSync) === 'true') {
@@ -383,27 +384,30 @@ export async function harvesterSubnetDirectListHandler(
     }
 
     const dbItems = await repo.find({ where: { cloudId: id } });
-    const items = dbItems.map((item) => item.rawData || {
-      metadata: {
-        name: item.name,
-        uid: item.uid,
-        labels: item.labels,
-        annotations: item.annotations,
-      },
-      spec: {
-        vpc: item.vpc,
-        cidrBlock: item.cidr,
-        gateway: item.gateway,
-        protocol: item.protocol,
-        vlan: item.rawData?.spec?.vlan || '',
-        provider: item.rawData?.spec?.provider || '',
-        excludeIps: item.rawData?.spec?.excludeIps || [],
-      },
-      status: {
-        v4AvailableIPs: item.availableIps,
-        availableIPs: item.availableIps,
-      },
-    });
+    const items = dbItems.map(
+      (item) =>
+        item.rawData || {
+          metadata: {
+            name: item.name,
+            uid: item.uid,
+            labels: item.labels,
+            annotations: item.annotations,
+          },
+          spec: {
+            vpc: item.vpc,
+            cidrBlock: item.cidr,
+            gateway: item.gateway,
+            protocol: item.protocol,
+            vlan: item.rawData?.spec?.vlan || '',
+            provider: item.rawData?.spec?.provider || '',
+            excludeIps: item.rawData?.spec?.excludeIps || [],
+          },
+          status: {
+            v4AvailableIPs: item.availableIps,
+            availableIPs: item.availableIps,
+          },
+        },
+    );
 
     try {
       const nadRepo = AppDataSource.getRepository(KubevirtNadInventory);
@@ -432,16 +436,11 @@ export async function harvesterSubnetDirectListHandler(
   }
 }
 
-export async function harvesterSubnetDirectCreateHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterSubnetDirectCreateHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const {
       name,
@@ -514,25 +513,18 @@ export async function harvesterSubnetDirectCreateHandler(
         : KUBE_OVN_PUBLIC_VPC;
     const targetVpc = vpc || defaultVpcForNew;
 
-    if (
-      isVpcBusinessKubeOvnSubnetIntent(subnetTypeForVpc, targetVpc) &&
-      denyOvnVpcLicense(res)
-    ) {
+    if (isVpcBusinessKubeOvnSubnetIntent(subnetTypeForVpc, targetVpc) && denyOvnVpcLicense(res)) {
       return;
     }
 
     try {
       const subnetListUrl = `${apiBase}/apis/kubeovn.io/v1/subnets`;
-      const existing = await getJsonOnce(
-        subnetListUrl,
-        cloud.secretKey || '',
-        insecure,
-      );
+      const existing = await getJsonOnce(subnetListUrl, cloud.secretKey || '', insecure);
       const items: any[] = Array.isArray(existing?.items)
         ? existing.items
         : Array.isArray(existing?.data)
-        ? existing.data
-        : [];
+          ? existing.data
+          : [];
       const reqRange = ipv4CidrToUint32Range(String(cidrBlock || '').trim());
       if (reqRange) {
         for (const s of items) {
@@ -543,7 +535,9 @@ export async function harvesterSubnetDirectCreateHandler(
           if (r && ipv4Uint32RangesOverlap(reqRange, r)) {
             const conflictName = s?.metadata?.name || s?.name;
             if (conflictName) {
-              const conflictAlias = String(s?.metadata?.annotations?.['tower.io/alias'] ?? '').trim();
+              const conflictAlias = String(
+                s?.metadata?.annotations?.['tower.io/alias'] ?? '',
+              ).trim();
               const conflictShown =
                 conflictAlias && conflictAlias !== conflictName
                   ? `${conflictAlias}（${conflictName}）`
@@ -594,7 +588,9 @@ export async function harvesterSubnetDirectCreateHandler(
      */
     const logicalProvider = `${nadName}.${nadNamespace}.ovn`;
     /** 注解 tower.io/subnet-type：flat→扁平子网，public→公共子网，vpc→VPC 子网（与前端产品名一致） */
-    const subnetTypeAnn = String(annotations?.['tower.io/subnet-type'] || '').trim().toLowerCase();
+    const subnetTypeAnn = String(annotations?.['tower.io/subnet-type'] || '')
+      .trim()
+      .toLowerCase();
     const isUnderlayFlatOrPublic = subnetTypeAnn === 'flat' || subnetTypeAnn === 'public';
     const providerNetworkHint =
       typeof providerFromBody === 'string' && providerFromBody.trim().length > 0
@@ -623,11 +619,16 @@ export async function harvesterSubnetDirectCreateHandler(
       const cidrStr = String(cidrBlock || '').trim();
       if (!ipv4CidrToUint32Range(cidrStr)) {
         if (!res.headersSent) {
-          res.status(400).json({ message: '公共子网 CIDR 无效，无法同步 ovn-internal', code: 'INVALID_SUBNET_CIDR' });
+          res.status(400).json({
+            message: '公共子网 CIDR 无效，无法同步 ovn-internal',
+            code: 'INVALID_SUBNET_CIDR',
+          });
         }
         return;
       }
-      const routeAnnRaw = String(mergedAnnotations[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] ?? '').trim();
+      const routeAnnRaw = String(
+        mergedAnnotations[OVN_INTERNAL_ROUTE_CIDR_ANNOTATION] ?? '',
+      ).trim();
       const routeCidr = routeAnnRaw || '0.0.0.0/0';
       if (!ipv4CidrToUint32Range(routeCidr)) {
         if (!res.headersSent) {
@@ -660,9 +661,7 @@ export async function harvesterSubnetDirectCreateHandler(
     }
     {
       const subnetOvnScope: OvnNetworkScope =
-        subnetTypeAnn === 'vpc' &&
-        String(targetVpc).trim() !== '' &&
-        !isUnderlayVpcName(targetVpc)
+        subnetTypeAnn === 'vpc' && String(targetVpc).trim() !== '' && !isUnderlayVpcName(targetVpc)
           ? 'vpc'
           : 'underlay';
       mergedAnnotations[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] = subnetOvnScope;
@@ -834,12 +833,7 @@ export async function harvesterSubnetDirectCreateHandler(
       return;
     }
 
-    const natOutgoingVal =
-      natOutgoing !== undefined
-        ? natOutgoing
-        : nat !== undefined
-          ? nat
-          : true;
+    const natOutgoingVal = natOutgoing !== undefined ? natOutgoing : nat !== undefined ? nat : true;
 
     const payload = {
       apiVersion: 'kubeovn.io/v1',
@@ -908,9 +902,9 @@ export async function harvesterSubnetDirectCreateHandler(
             availableIps: (() => {
               const raw =
                 result.status?.v4AvailableIPs ??
-                  result.status?.v4availableIPs ??
-                  result.status?.availableIPs ??
-                  result.status?.availableIps;
+                result.status?.v4availableIPs ??
+                result.status?.availableIPs ??
+                result.status?.availableIps;
               if (raw === undefined || raw === null) return undefined;
               const n = Number(raw);
               return Number.isFinite(n) ? Math.round(n) : undefined;
@@ -973,17 +967,15 @@ function wouldChangeFlatSubnetCidrGatewayVlan(
   current: any,
   body: Record<string, unknown>,
 ): boolean {
-  const curCidr = String(
-    current?.spec?.cidrBlock ?? current?.spec?.cidr ?? '',
-  ).trim();
+  const curCidr = String(current?.spec?.cidrBlock ?? current?.spec?.cidr ?? '').trim();
   const curGw = String(current?.spec?.gateway ?? '').trim();
   const curVlan = normalizeVlanForSubnetCompare(current?.spec?.vlan);
 
   const nextCidr = Object.prototype.hasOwnProperty.call(body, 'cidrBlock')
     ? String((body as any).cidrBlock ?? '').trim()
     : Object.prototype.hasOwnProperty.call(body, 'cidr')
-    ? String((body as any).cidr ?? '').trim()
-    : curCidr;
+      ? String((body as any).cidr ?? '').trim()
+      : curCidr;
   const nextGw = Object.prototype.hasOwnProperty.call(body, 'gateway')
     ? String((body as any).gateway ?? '').trim()
     : curGw;
@@ -998,11 +990,7 @@ function wouldChangeFlatSubnetCidrGatewayVlan(
 // HTTP 处理器：子网更新（PUT/PATCH）、删除（DELETE）
 // =============================================================================
 
-export async function harvesterSubnetDirectUpdateHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterSubnetDirectUpdateHandler(req: any, res: Response, next: any) {
   try {
     const { id, name } = req.params;
     const subnetName = String(name ?? '').trim();
@@ -1014,8 +1002,7 @@ export async function harvesterSubnetDirectUpdateHandler(
       return;
     }
     const { allowed } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -1037,7 +1024,11 @@ export async function harvesterSubnetDirectUpdateHandler(
 
     // 校验 EIP：仅非 lrp 类型占用时禁止修改网段相关字段
     try {
-      const eips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      const eips = await listKubeOvnEips({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
       const blocking = eipsReferencingSubnetExcludingLrp(eips, subnetName);
       if (blocking.length > 0) {
         const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
@@ -1062,7 +1053,9 @@ export async function harvesterSubnetDirectUpdateHandler(
     }
 
     const currentAnn = (currentSubnet?.metadata?.annotations || {}) as Record<string, string>;
-    const typeBefore = String(currentAnn['tower.io/subnet-type'] ?? '').trim().toLowerCase();
+    const typeBefore = String(currentAnn['tower.io/subnet-type'] ?? '')
+      .trim()
+      .toLowerCase();
     const vpcBefore = String(currentSubnet?.spec?.vpc ?? '').trim();
     if (typeBefore === 'public' && vpcBefore === KUBE_OVN_PUBLIC_VPC) {
       const blockedSpecKeys = ['cidrBlock', 'cidr', 'gateway', 'vlan', 'excludeIps'];
@@ -1167,7 +1160,9 @@ export async function harvesterSubnetDirectUpdateHandler(
 
     {
       const annAfter = data?.metadata?.annotations || {};
-      const typeAfter = String(annAfter['tower.io/subnet-type'] ?? '').trim().toLowerCase();
+      const typeAfter = String(annAfter['tower.io/subnet-type'] ?? '')
+        .trim()
+        .toLowerCase();
       const vpcAfter = String(data?.spec?.vpc ?? '').trim();
       if (typeAfter === 'public' && vpcAfter === KUBE_OVN_PUBLIC_VPC) {
         const prevRc = ovnInternalRouteCidrFromSubnet(currentSubnet);
@@ -1175,7 +1170,11 @@ export async function harvesterSubnetDirectUpdateHandler(
         const newGw = String(data?.spec?.gateway ?? '').trim();
         const routeChanged = prevGateway !== newGw || prevRc !== newRc;
         await upsertOvnInternalForPublicSubnet({
-          harvesterParams: { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+          harvesterParams: {
+            endpoint: cloud.endpoint,
+            token: cloud.secretKey || '',
+            insecure,
+          } as any,
           subnetName,
           gateway: newGw,
           routeCidr: newRc,
@@ -1194,16 +1193,11 @@ export async function harvesterSubnetDirectUpdateHandler(
   }
 }
 
-export async function harvesterSubnetDirectDeleteHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterSubnetDirectDeleteHandler(req: any, res: Response, next: any) {
   try {
     const { id, name } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -1280,7 +1274,11 @@ export async function harvesterSubnetDirectDeleteHandler(
     let snapshotEips: any[] = [];
     let lrpEipsToDelete: any[] = [];
     try {
-      snapshotEips = await listKubeOvnEips({ endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any);
+      snapshotEips = await listKubeOvnEips({
+        endpoint: cloud.endpoint,
+        token: cloud.secretKey || '',
+        insecure,
+      } as any);
       const blocking = eipsReferencingSubnetExcludingLrp(snapshotEips, name);
       if (blocking.length > 0) {
         const names = blocking.map((e) => e?.metadata?.name || e?.name).filter(Boolean);
@@ -1295,7 +1293,9 @@ export async function harvesterSubnetDirectDeleteHandler(
       lrpEipsToDelete = (Array.isArray(snapshotEips) ? snapshotEips : []).filter((eip) => {
         const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
         if (String(sub || '').trim() !== name) return false;
-        const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+        const t = String(eip?.spec?.type ?? eip?.type ?? '')
+          .trim()
+          .toLowerCase();
         return t === 'lrp';
       });
     } catch (e) {
@@ -1308,7 +1308,14 @@ export async function harvesterSubnetDirectDeleteHandler(
         const eipName = String(lrpEip?.metadata?.name || lrpEip?.name || '').trim();
         if (eipName) {
           try {
-            await deleteKubeOvnClusterCr(origin, cloud.secretKey || '', insecure, 'ovneips', 'ovn-eips', eipName);
+            await deleteKubeOvnClusterCr(
+              origin,
+              cloud.secretKey || '',
+              insecure,
+              'ovneips',
+              'ovn-eips',
+              eipName,
+            );
             console.info('[DeleteSubnet] Deleted LRP EIP:', eipName);
           } catch (delErr) {
             console.warn('[DeleteSubnet] Failed to delete LRP EIP:', eipName, delErr);
@@ -1357,9 +1364,7 @@ export async function harvesterSubnetDirectDeleteHandler(
 
     try {
       const encName = encodeURIComponent(name);
-      const typeBefore = String(
-        subnetBefore?.metadata?.annotations?.['tower.io/subnet-type'] ?? '',
-      )
+      const typeBefore = String(subnetBefore?.metadata?.annotations?.['tower.io/subnet-type'] ?? '')
         .trim()
         .toLowerCase();
       let nadNs = 'default';
@@ -1432,19 +1437,15 @@ export async function harvesterSubnetDirectDeleteHandler(
 
 /**
  * 检测指定 IP 是否已被该子网中的 Pod 使用
- * 
+ *
  * Kube-OVN IP 注解格式：
  * - ovn.kubernetes.io/ip_address: 主 IP（单网络模式）
  * - <subnet-name>.<namespace>.ovn.kubernetes.io/ip_address: 多网络模式下的子网 IP
- * 
+ *
  * 路由：GET /api/clouds/:id/resources/subnets/:namespace/:name/check-ip?ip=172.16.2.1
  * 返回：{ used: boolean, usedBy?: string }
  */
-export async function harvesterSubnetCheckIpHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterSubnetCheckIpHandler(req: any, res: Response, next: any) {
   try {
     const { id, namespace, name } = req.params;
     const { ip } = req.query;
@@ -1498,11 +1499,11 @@ export async function harvesterSubnetCheckIpHandler(
     // Kube-OVN 子网通过 spec.namespaces 字段指定关联的命名空间
     // 如果子网没有指定 namespaces，则查询所有命名空间的 Pod
     let targetNamespaces: string[] = [];
-    
+
     try {
       const subnetUrl = `${apiBase}/apis/kubeovn.io/v1/subnets/${encodeURIComponent(subnetName)}`;
       const subnetObj = await getJsonOnce(subnetUrl, token, insecure, true);
-      
+
       if (subnetObj?.spec?.namespaces && Array.isArray(subnetObj.spec.namespaces)) {
         targetNamespaces = subnetObj.spec.namespaces
           .map((ns: string) => String(ns || '').trim())

@@ -265,7 +265,10 @@ export async function harvesterMonitoringVirtualMachinesHandler(req: Request, re
   }
 }
 
-export async function harvesterMonitoringVirtualMachineInstancesHandler(req: Request, res: Response) {
+export async function harvesterMonitoringVirtualMachineInstancesHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id: _id } = req.params;
     const cloud = (req as any).cloud;
@@ -333,7 +336,9 @@ export async function harvesterMonitoringMetricRangeHandler(req: Request, res: R
     res.json(data);
   } catch (e: any) {
     if (isUnreachableError(e)) {
-      return res.status(200).json({ status: 'success', data: { resultType: 'matrix', result: [] } });
+      return res
+        .status(200)
+        .json({ status: 'success', data: { resultType: 'matrix', result: [] } });
     }
     if (res.headersSent) return;
     const status = (e as any).status || 500;

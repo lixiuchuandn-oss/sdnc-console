@@ -15,36 +15,30 @@ import { checkTenantAccess } from './harvester.direct.helpers';
 /**
  * 注册 Harvester 直连路由
  */
-export const registerHarvesterDirectRoutes = (
-  router: Router,
-  checkAdminPermission: any,
-) => {
+export const registerHarvesterDirectRoutes = (router: Router, checkAdminPermission: any) => {
   // 注册所有直连资源路由（VM、Network、Storage 等）
   registerHarvesterDirectRoutesProvider(router, checkAdminPermission);
 
   // 调试接口：用于验证租户权限上下文解析结果
-  router.get(
-    '/:id/debug-access',
-    async (req: any, res: Response) => {
-      try {
-        const { id } = req.params;
-        const access = await checkTenantAccess(req, id);
-        res.json({
-          user: {
-            id: req.user?.id,
-            username: req.user?.username,
-            role: req.user?.role,
-            tenantId: req.user?.tenantId,
-            organizationId: req.user?.organizationId,
-          },
-          access,
-          query: {
-            cloudId: id,
-          },
-        });
-      } catch (e: any) {
-        res.status(500).json({ error: e.message });
-      }
-    },
-  );
+  router.get('/:id/debug-access', async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const access = await checkTenantAccess(req, id);
+      res.json({
+        user: {
+          id: req.user?.id,
+          username: req.user?.username,
+          role: req.user?.role,
+          tenantId: req.user?.tenantId,
+          organizationId: req.user?.organizationId,
+        },
+        access,
+        query: {
+          cloudId: id,
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
 };

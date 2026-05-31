@@ -151,8 +151,7 @@ function defaultVariantScore(architecture: string): number {
 
 function pickDefaultVariant(items: MaasImageNormalized[]): MaasImageNormalized {
   return [...items].sort((a, b) => {
-    const scoreDiff =
-      defaultVariantScore(b.architecture) - defaultVariantScore(a.architecture);
+    const scoreDiff = defaultVariantScore(b.architecture) - defaultVariantScore(a.architecture);
     if (scoreDiff !== 0) return scoreDiff;
     return b.size_bytes - a.size_bytes;
   })[0];
@@ -223,10 +222,17 @@ function isBootResourceListItemDeployable(item: Record<string, unknown>): boolea
     const entries = Array.isArray(sets)
       ? sets
       : Object.values(sets as Record<string, Record<string, unknown>>);
-    if (entries.some((s) => s && typeof s === 'object' && (s as Record<string, unknown>).complete === true)) {
+    if (
+      entries.some(
+        (s) => s && typeof s === 'object' && (s as Record<string, unknown>).complete === true,
+      )
+    ) {
       return true;
     }
-    if (entries.length > 0 && entries.every((s) => (s as Record<string, unknown>)?.complete === false)) {
+    if (
+      entries.length > 0 &&
+      entries.every((s) => (s as Record<string, unknown>)?.complete === false)
+    ) {
       return false;
     }
   }

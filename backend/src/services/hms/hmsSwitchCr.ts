@@ -1,4 +1,8 @@
-import { getJsonOnce, requestJson, resolveHarvesterCloudKubeToken } from '../clouds/harvester/utils';
+import {
+  getJsonOnce,
+  requestJson,
+  resolveHarvesterCloudKubeToken,
+} from '../clouds/harvester/utils';
 
 export const HMS_SWITCH_API_GROUP = 'hms.rivercloud.com';
 export const HMS_SWITCH_API_VERSION = 'v1';
@@ -28,7 +32,9 @@ export type HmsSwitchCrBody = {
 };
 
 function harvesterApiRoots(endpoint: string): string[] {
-  const base = String(endpoint || '').trim().replace(/\/+$/, '');
+  const base = String(endpoint || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!base) return [];
 
   let origin = base;
@@ -63,9 +69,7 @@ function buildCandidateUrls(endpoint: string, pathSuffix: string): string[] {
 
 function normalizeStringList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .map((x) => String(x ?? '').trim())
-    .filter(Boolean);
+  return raw.map((x) => String(x ?? '').trim()).filter(Boolean);
 }
 
 function normalizeCommandList(raw: unknown): string[] {
@@ -82,10 +86,8 @@ export function buildHmsSwitchCrManifest(name: string, specInput: HmsSwitchCrSpe
   const port = Number.isFinite(portNum) && portNum > 0 ? portNum : 22;
   const dialTimeoutNum = Number(specInput.dialTimeout);
   const execTimeoutNum = Number(specInput.execTimeout);
-  const dialTimeout =
-    Number.isFinite(dialTimeoutNum) && dialTimeoutNum > 0 ? dialTimeoutNum : 15;
-  const execTimeout =
-    Number.isFinite(execTimeoutNum) && execTimeoutNum > 0 ? execTimeoutNum : 15;
+  const dialTimeout = Number.isFinite(dialTimeoutNum) && dialTimeoutNum > 0 ? dialTimeoutNum : 15;
+  const execTimeout = Number.isFinite(execTimeoutNum) && execTimeoutNum > 0 ? execTimeoutNum : 15;
 
   const spec: Record<string, unknown> = {
     hosts,

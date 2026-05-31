@@ -37,8 +37,5 @@ export function hasLegacyOrUmbrellaUnifiedStorageGrant(
       permissions.includes(UMBRELLA_WRITE)
     );
   }
-  return (
-    permissions.includes(LEGACY_CEPH_WRITE) ||
-    permissions.includes(UMBRELLA_WRITE)
-  );
+  return permissions.includes(LEGACY_CEPH_WRITE) || permissions.includes(UMBRELLA_WRITE);
 }

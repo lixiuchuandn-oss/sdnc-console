@@ -19,12 +19,12 @@
 └──────────────┴──────────────────────────────────────────────┘
 ```
 
-| 层级 | 路径 | 职责 |
-|------|------|------|
-| 应用布局 | `layouts/admin/AdminLayout.tsx` | 顶栏 + 侧栏 + 内容区；按 URL 切换**平台导航**或**资源池/集群上下文侧栏** |
-| 侧栏装配 | `layouts/admin/AdminSidebar.tsx` | 菜单 `selectedKeys` 与 `navigate(key)`；菜单项 `key` 为完整路径（可含 `?tab=`） |
-| 路由声明 | `routes/RouteSpec.ts` + `App.tsx` | `platform`、`group`、`requiredActions`；与权限映射一致 |
-| 页面容器 | `components/PageContainer.tsx` 等 | 页面内标题、工具栏、面包屑、Tab、表格 |
+| 层级     | 路径                              | 职责                                                                            |
+| -------- | --------------------------------- | ------------------------------------------------------------------------------- |
+| 应用布局 | `layouts/admin/AdminLayout.tsx`   | 顶栏 + 侧栏 + 内容区；按 URL 切换**平台导航**或**资源池/集群上下文侧栏**        |
+| 侧栏装配 | `layouts/admin/AdminSidebar.tsx`  | 菜单 `selectedKeys` 与 `navigate(key)`；菜单项 `key` 为完整路径（可含 `?tab=`） |
+| 路由声明 | `routes/RouteSpec.ts` + `App.tsx` | `platform`、`group`、`requiredActions`；与权限映射一致                          |
+| 页面容器 | `components/PageContainer.tsx` 等 | 页面内标题、工具栏、面包屑、Tab、表格                                           |
 
 **原则**：布局壳在 `layouts/` 与 `components/`；业务数据与区块在 `pages/<platform>/` 的 `sections/` / `drawers/` / `modals/`。
 
@@ -34,11 +34,11 @@
 
 全站列表页、详情页、详情内 Tab 区块须按下列分工选用，**禁止**在业务页重复造一套「标题 + 工具栏 + 白卡片」骨架。
 
-| 组件 | 路径 | 适用场景 |
-|------|------|----------|
-| **`PageContainer`** | `components/PageContainer.tsx` | **列表/管理页**（单表或单主内容）：资源池列表、设置列表等；可内置 `tableProps`、Tab、列展示 |
-| **`PageDetailContainer`** | `components/PageDetailContainer.tsx` | **详情页外壳**：资源详情、带总览折叠区或 **Ant Design Tabs** 的详情；可提供 `onBack`、面包屑、`overviewContent` |
-| **`PageDetailSection`** | `components/PageDetailSection.tsx` | **详情内的数据区块**：某 Tab 下「虚拟机列表」「卷列表」等；标题 + `toolbarLeft`/`toolbarRight` + `onRefresh` + 子内容 |
+| 组件                      | 路径                                 | 适用场景                                                                                                              |
+| ------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| **`PageContainer`**       | `components/PageContainer.tsx`       | **列表/管理页**（单表或单主内容）：资源池列表、设置列表等；可内置 `tableProps`、Tab、列展示                           |
+| **`PageDetailContainer`** | `components/PageDetailContainer.tsx` | **详情页外壳**：资源详情、带总览折叠区或 **Ant Design Tabs** 的详情；可提供 `onBack`、面包屑、`overviewContent`       |
+| **`PageDetailSection`**   | `components/PageDetailSection.tsx`   | **详情内的数据区块**：某 Tab 下「虚拟机列表」「卷列表」等；标题 + `toolbarLeft`/`toolbarRight` + `onRefresh` + 子内容 |
 
 ### 2.1 组合方式
 
@@ -91,17 +91,17 @@
 
 ### 2.3 常用 props 约定
 
-| 组件 | 属性 | 说明 |
-|------|------|------|
-| `PageDetailContainer` | `hideHeader` | 池内多 Tab 由侧栏驱动时，避免重复大标题 |
-| `PageDetailContainer` | `asCard={false}` | 内容区不再包一层 Card，由 `PageDetailSection` 各自成卡 |
-| `PageDetailContainer` | `rootStyle` / `contentWrapperStyle` | 监控/拓扑等需 **占满视口高度** 时使用 |
-| `PageDetailSection` | `toolbarLeft` / `toolbarRight` | 筛选与操作区；内部由 **`SharedToolbar`** 排版（见 **§5.2**） |
-| `PageDetailSection` | `toolbarGapLeft` / `toolbarGapRight` | 默认 **`8`**，与 `Space size` 一致 |
-| `PageDetailSection` | `onRefresh` | 传入时由 `SharedToolbar` 渲染刷新钮并传 **`true`**；Harvester 池可改用手动刷新钮 + **`createHarvesterToolbarRefresh`**（VmSection） |
-| `PageDetailSection` | `primaryAction` / `batchActions` / `columnsConfig` | 右侧标准动作（主按钮 → 批量 `…` → 列展示 → 刷新），不必手写 |
-| `PageDetailSection` | `RowActionsButton` | 行操作列下拉（导出同文件） |
-| `PageContainer` | `toolbarLeft` + `primaryAction` 等 | 工具栏容器类名 **`page-container-toolbar`**，间距约定同 **§5.2** |
+| 组件                  | 属性                                               | 说明                                                                                                                                |
+| --------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `PageDetailContainer` | `hideHeader`                                       | 池内多 Tab 由侧栏驱动时，避免重复大标题                                                                                             |
+| `PageDetailContainer` | `asCard={false}`                                   | 内容区不再包一层 Card，由 `PageDetailSection` 各自成卡                                                                              |
+| `PageDetailContainer` | `rootStyle` / `contentWrapperStyle`                | 监控/拓扑等需 **占满视口高度** 时使用                                                                                               |
+| `PageDetailSection`   | `toolbarLeft` / `toolbarRight`                     | 筛选与操作区；内部由 **`SharedToolbar`** 排版（见 **§5.2**）                                                                        |
+| `PageDetailSection`   | `toolbarGapLeft` / `toolbarGapRight`               | 默认 **`8`**，与 `Space size` 一致                                                                                                  |
+| `PageDetailSection`   | `onRefresh`                                        | 传入时由 `SharedToolbar` 渲染刷新钮并传 **`true`**；Harvester 池可改用手动刷新钮 + **`createHarvesterToolbarRefresh`**（VmSection） |
+| `PageDetailSection`   | `primaryAction` / `batchActions` / `columnsConfig` | 右侧标准动作（主按钮 → 批量 `…` → 列展示 → 刷新），不必手写                                                                         |
+| `PageDetailSection`   | `RowActionsButton`                                 | 行操作列下拉（导出同文件）                                                                                                          |
+| `PageContainer`       | `toolbarLeft` + `primaryAction` 等                 | 工具栏容器类名 **`page-container-toolbar`**，间距约定同 **§5.2**                                                                    |
 
 ---
 
@@ -116,12 +116,12 @@
 
 进入特定资源池或集群工作台时，`AdminLayout` 用 **`contextualPoolSidebar`** **替换**平台侧栏（顶栏平台下拉 selectedKeys 置空）。
 
-| 场景 | URL 模式 | 侧栏配置位置 |
-|------|----------|----------------|
-| Cloudmap / Harvester 池 | `/admin/clouds/:id/...` | `layouts/admin/cloudmap/`、`cloudmapPoolNavRows` |
-| 厂商资源池（华为/阿里/Rancher/Xinference/MAAS 等） | `/admin/clouds/vendor/<slug>/:id?tab=` | `layouts/admin/<vendor>/` 或 `pages/.../lib/poolDetailNav.ts` |
-| CSM 安全资源池 | `/admin/security/traffic/csm-pools/:id` | `layouts/admin/csm/csmPoolSidebar.ts` |
-| Rancher 集群工作台 | `/admin/clouds/:poolId/clusters/:clusterId` | `layouts/admin/rancher/rancherClusterSidebar.ts` |
+| 场景                                               | URL 模式                                    | 侧栏配置位置                                                  |
+| -------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------- |
+| Cloudmap / Harvester 池                            | `/admin/clouds/:id/...`                     | `layouts/admin/cloudmap/`、`cloudmapPoolNavRows`              |
+| 厂商资源池（华为/阿里/Rancher/Xinference/MAAS 等） | `/admin/clouds/vendor/<slug>/:id?tab=`      | `layouts/admin/<vendor>/` 或 `pages/.../lib/poolDetailNav.ts` |
+| CSM 安全资源池                                     | `/admin/security/traffic/csm-pools/:id`     | `layouts/admin/csm/csmPoolSidebar.ts`                         |
+| Rancher 集群工作台                                 | `/admin/clouds/:poolId/clusters/:clusterId` | `layouts/admin/rancher/rancherClusterSidebar.ts`              |
 
 **约定**：
 
@@ -138,13 +138,13 @@
 
 ## 4. 业务域内 UI 落位
 
-| 类型 | 目录 | 用途 |
-|------|------|------|
-| `sections/` | 域内 | Tab 主内容、列表+工具栏（根节点多为 `PageDetailSection`） |
-| `drawers/` | 域内 | 侧滑详情、复杂只读/编辑（如 VM 详情壳） |
-| `modals/` | 域内 | 对话框、向导（如 `CloudWizard`、部署/创建） |
-| `components/` | 域内 | 域内复用块（非全站级） |
-| `lib/` | 域内 | 导航、格式化、常量（如 `poolDetailNav.ts`、`maasPoolTabs.ts`） |
+| 类型          | 目录 | 用途                                                           |
+| ------------- | ---- | -------------------------------------------------------------- |
+| `sections/`   | 域内 | Tab 主内容、列表+工具栏（根节点多为 `PageDetailSection`）      |
+| `drawers/`    | 域内 | 侧滑详情、复杂只读/编辑（如 VM 详情壳）                        |
+| `modals/`     | 域内 | 对话框、向导（如 `CloudWizard`、部署/创建）                    |
+| `components/` | 域内 | 域内复用块（非全站级）                                         |
+| `lib/`        | 域内 | 导航、格式化、常量（如 `poolDetailNav.ts`、`maasPoolTabs.ts`） |
 
 **全站复用**（跨平台）：`frontend/src/components/`（`CodeEditor`、`MonitoringPopover`、`PageContainer` 等）。
 
@@ -159,13 +159,13 @@
 
 与 **`AGENTS.md` · 开发规范 · 数据展示与刷新** 一致，布局相关要点：
 
-| 场景 | 要求 |
-|------|------|
-| `PageDetailSection` / `PageContainer` 工具栏刷新 | `onRefresh` 须触发**真实对端拉取**；GET 使用 **`skipCache: true`** |
-| Harvester Cloudmap 池 Section | 使用 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**，禁止裸 `onRefresh(true)` |
-| 列表 `Table` | 见 **§5.1**（结构 + 样式）；样板 **`VmSection`** |
-| 列表工具栏 | 见 **§5.2**（布局 + `global-new.css` 工具栏类）；样板 **`VmSection`** |
-| 加载态 | 表格用 **`loading`**；其它区域直接用 **`antd` `Skeleton`** |
+| 场景                                             | 要求                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `PageDetailSection` / `PageContainer` 工具栏刷新 | `onRefresh` 须触发**真实对端拉取**；GET 使用 **`skipCache: true`**                                |
+| Harvester Cloudmap 池 Section                    | 使用 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**，禁止裸 `onRefresh(true)` |
+| 列表 `Table`                                     | 见 **§5.1**（结构 + 样式）；样板 **`VmSection`**                                                  |
+| 列表工具栏                                       | 见 **§5.2**（布局 + `global-new.css` 工具栏类）；样板 **`VmSection`**                             |
+| 加载态                                           | 表格用 **`loading`**；其它区域直接用 **`antd` `Skeleton`**                                        |
 
 ### 5.1 列表表格（`.std-table`，样板：VmSection）
 
@@ -173,27 +173,27 @@
 
 #### 结构与 Ant Design 属性
 
-| 项 | 约定 |
-|----|------|
-| 类名 | **`className="std-table"`**（必选） |
-| 边框模式 | **`bordered={false}`**（显式写出或与默认一致）；**禁止**对标准列表开 `bordered`（全网格竖线/外框与全站行分隔线冲突） |
-| 横向滚动 | **`scroll={{ x: true }}`**（有 `fixed` 列时必选） |
-| 表格密度 | **勿**给 `Table` 设 `size="small"`（除非产品明确要求）；分页可用 `pagination={{ size: 'small', showTotal: … }}`（VmSection 即如此） |
+| 项       | 约定                                                                                                                                                                   |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 类名     | **`className="std-table"`**（必选）                                                                                                                                    |
+| 边框模式 | **`bordered={false}`**（显式写出或与默认一致）；**禁止**对标准列表开 `bordered`（全网格竖线/外框与全站行分隔线冲突）                                                   |
+| 横向滚动 | **`scroll={{ x: true }}`**（有 `fixed` 列时必选）                                                                                                                      |
+| 表格密度 | **勿**给 `Table` 设 `size="small"`（除非产品明确要求）；分页可用 `pagination={{ size: 'small', showTotal: … }}`（VmSection 即如此）                                    |
 | 首列冻结 | 主标识列（名称 / System ID 等）**`fixed: 'left'`**；有 **`rowSelection`** 时，多选列由 antd 置于最左，主标识列仍须 `fixed: 'left'`（与 VmSection「云主机名称」列一致） |
-| 操作列 | 有行级操作时末列 **`fixed: 'right'`**，配合 **`ResourceActionsDropdown`** / **`RowActionsButton`** 等同域既有组件 |
-| 列宽 | 列上**原则上不写**固定 `width`；超长主字段可用列级 **`ellipsis: true`** + Tooltip（见 VmSection 名称列） |
-| 列展示 | 列数较多的大表可接 **`useTableColumnSettings`** + **`TableColumnSettingsButton`**；`fixed` 列在列展示中**不可关闭**（见 `AGENTS.md`） |
+| 操作列   | 有行级操作时末列 **`fixed: 'right'`**，配合 **`ResourceActionsDropdown`** / **`RowActionsButton`** 等同域既有组件                                                      |
+| 列宽     | 列上**原则上不写**固定 `width`；超长主字段可用列级 **`ellipsis: true`** + Tooltip（见 VmSection 名称列）                                                               |
+| 列展示   | 列数较多的大表可接 **`useTableColumnSettings`** + **`TableColumnSettingsButton`**；`fixed` 列在列展示中**不可关闭**（见 `AGENTS.md`）                                  |
 
 #### 边框与单元格视觉（由 `global-new.css` 统一，业务勿覆盖）
 
-| 项 | 约定 |
-|----|------|
-| 行分隔 | 仅 **横向** 底边：`border-bottom: 1px solid #e5e6eb`（表头、表体单元格均由 `.std-table` 统一） |
-| 竖线 / 表格外框 | **无**（不启用 `bordered`，不在页面内对 `.std-table .ant-table-cell` 写 `border-inline` / 外框） |
-| 表头字重 | **正常**（`font-weight: normal`），不靠加粗表头区分层级 |
-| 单元格 | 默认 **`padding: 12px 16px`**、**`font-size: 14px`**、**`white-space: nowrap`**；需多行展示时在单元格**子节点**设 `white-space: normal` |
-| 行悬停 | **`background-color: #f2f3f5`**（`.std-table` 已定义，勿在单页用内联样式盖掉） |
-| 空表 | 无数据时由 `.ant-table-empty` 规则收束宽度，避免「空表仍出现横向滚动条」（见 `global-new.css` 注释） |
+| 项              | 约定                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 行分隔          | 仅 **横向** 底边：`border-bottom: 1px solid #e5e6eb`（表头、表体单元格均由 `.std-table` 统一）                                          |
+| 竖线 / 表格外框 | **无**（不启用 `bordered`，不在页面内对 `.std-table .ant-table-cell` 写 `border-inline` / 外框）                                        |
+| 表头字重        | **正常**（`font-weight: normal`），不靠加粗表头区分层级                                                                                 |
+| 单元格          | 默认 **`padding: 12px 16px`**、**`font-size: 14px`**、**`white-space: nowrap`**；需多行展示时在单元格**子节点**设 `white-space: normal` |
+| 行悬停          | **`background-color: #f2f3f5`**（`.std-table` 已定义，勿在单页用内联样式盖掉）                                                          |
+| 空表            | 无数据时由 `.ant-table-empty` 规则收束宽度，避免「空表仍出现横向滚动条」（见 `global-new.css` 注释）                                    |
 
 #### 代码摘要（与 VmSection 一致）
 
@@ -221,22 +221,22 @@
 
 #### 整体布局
 
-| 项 | 约定 |
-|----|------|
-| 容器 | 详情区块：**`SharedToolbar`**（`className="shared-toolbar"`）；列表页：**`page-container-toolbar`** |
-| 结构 | **左**：筛选 / 搜索；**右**：`marginLeft: 'auto'` 对齐的操作区（`Space` **`size={8}`**，`wrap` 允许换行） |
-| 与表格间距 | 工具栏 **`margin-bottom: 16px`**（`SharedToolbar` / `page-container-toolbar` 已内置） |
-| 对齐 | 控件与按钮 **底对齐**（`align-items: flex-end` 或 `center`）；多行筛选时 **行间距 8px**（`.toolbar-container` 的 `row-gap` / `column-gap`） |
+| 项         | 约定                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 容器       | 详情区块：**`SharedToolbar`**（`className="shared-toolbar"`）；列表页：**`page-container-toolbar`**                                         |
+| 结构       | **左**：筛选 / 搜索；**右**：`marginLeft: 'auto'` 对齐的操作区（`Space` **`size={8}`**，`wrap` 允许换行）                                   |
+| 与表格间距 | 工具栏 **`margin-bottom: 16px`**（`SharedToolbar` / `page-container-toolbar` 已内置）                                                       |
+| 对齐       | 控件与按钮 **底对齐**（`align-items: flex-end` 或 `center`）；多行筛选时 **行间距 8px**（`.toolbar-container` 的 `row-gap` / `column-gap`） |
 
 #### 左侧筛选区（`toolbarLeft`）
 
-| 控件 | className / 写法 | 说明 |
-|------|------------------|------|
-| 关键字 | **`toolbar-search`** | `Input` 或 `Input.Search`；**`allowClear`**；后缀搜索图标颜色 **`rgba(0,0,0,.45)`**（VmSection 用 `suffix={<SearchOutlined … />}`） |
-| 常规下拉 | **`toolbar-filter`** | 宽度约 **200px**（状态、类型等） |
-| 紧凑下拉 | **`toolbar-filter-sm`** | 宽度约 **140px**（命名空间、节点等短标签） |
-| 带 Label 的表单行 | 外包 **`toolbar-container`** | 用于 `PageContainer` 左栏 `Form`；Label **14px**，表单项 **`margin-bottom: 0`** |
-| 重置 | **`toolbar-reset-btn`** | **原生 `<button type="button">`** 文字链样式（非 `antd` `Button`）；高度 **32px**，主题色文字，清空左侧筛选 |
+| 控件              | className / 写法             | 说明                                                                                                                                |
+| ----------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 关键字            | **`toolbar-search`**         | `Input` 或 `Input.Search`；**`allowClear`**；后缀搜索图标颜色 **`rgba(0,0,0,.45)`**（VmSection 用 `suffix={<SearchOutlined … />}`） |
+| 常规下拉          | **`toolbar-filter`**         | 宽度约 **200px**（状态、类型等）                                                                                                    |
+| 紧凑下拉          | **`toolbar-filter-sm`**      | 宽度约 **140px**（命名空间、节点等短标签）                                                                                          |
+| 带 Label 的表单行 | 外包 **`toolbar-container`** | 用于 `PageContainer` 左栏 `Form`；Label **14px**，表单项 **`margin-bottom: 0`**                                                     |
+| 重置              | **`toolbar-reset-btn`**      | **原生 `<button type="button">`** 文字链样式（非 `antd` `Button`）；高度 **32px**，主题色文字，清空左侧筛选                         |
 
 `PageDetailSection` 在 **`autoStyleInputs={true}`**（默认）时会对未带 class 的 `Input.Search` / `Select` 自动设宽约 **240 / 200px**；与 VmSection 一样显式加 **`toolbar-search` / `toolbar-filter*`** 时，以 **global CSS 类**为准。
 
@@ -291,12 +291,12 @@
 
 ## 6. 特殊布局场景
 
-| 场景 | 建议 |
-|------|------|
+| 场景                | 建议                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------- |
 | 全屏拓扑 / 监控嵌入 | `PageDetailContainer` + `hideHeader` + `rootStyle`/`contentWrapperStyle` 撑满高度；子组件内部滚动 |
-| 向导 / 多步表单 | `modals/` 内 `Modal` + `Steps`，不占用 `PageDetailContainer` Tabs |
-| 租户控制台 | 独立布局或简化头；见 `pages/cnmc/console/` |
-| 登录 / 欢迎页 | 不使用三层容器；独立页面 |
+| 向导 / 多步表单     | `modals/` 内 `Modal` + `Steps`，不占用 `PageDetailContainer` Tabs                                 |
+| 租户控制台          | 独立布局或简化头；见 `pages/cnmc/console/`                                                        |
+| 登录 / 欢迎页       | 不使用三层容器；独立页面                                                                          |
 
 ---
 
@@ -314,10 +314,10 @@
 
 ## 8. 相关文档索引
 
-| 文档 | 内容 |
-|------|------|
-| **`AGENTS.md`** | 强制约定摘要、Harvester 落位索引、API |
-| **`frontend/src/STRUCTURE.md`** | `pages/` 平台划分、`sections` 角色 |
-| **`docs/code-quality.md`** | 合入前自查 |
-| **`docs/cloudmap-pool-rbac.md`** | 池内页权限 |
-| **`frontend/.../Cloudmap/pool/README.md`** | 池刷新与 Tab 装配样板 |
+| 文档                                       | 内容                                  |
+| ------------------------------------------ | ------------------------------------- |
+| **`AGENTS.md`**                            | 强制约定摘要、Harvester 落位索引、API |
+| **`frontend/src/STRUCTURE.md`**            | `pages/` 平台划分、`sections` 角色    |
+| **`docs/code-quality.md`**                 | 合入前自查                            |
+| **`docs/cloudmap-pool-rbac.md`**           | 池内页权限                            |
+| **`frontend/.../Cloudmap/pool/README.md`** | 池刷新与 Tab 装配样板                 |

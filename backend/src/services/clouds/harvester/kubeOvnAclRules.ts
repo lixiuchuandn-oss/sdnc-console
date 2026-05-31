@@ -24,7 +24,8 @@ export function parseKubeOvnAclRulesInput(
   const out: KubeOvnAclRuleRow[] = [];
   for (let i = 0; i < raw.length; i++) {
     const row = raw[i];
-    if (!row || typeof row !== 'object') return { ok: false, message: `${arrayLabel}[${i}] 须为对象` };
+    if (!row || typeof row !== 'object')
+      return { ok: false, message: `${arrayLabel}[${i}] 须为对象` };
     const o = row as Record<string, unknown>;
     const action = String(o.action ?? '').trim();
     const direction = String(o.direction ?? '').trim();

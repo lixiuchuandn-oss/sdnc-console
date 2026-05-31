@@ -90,12 +90,12 @@ export async function ensureRecycleBinTables() {
 
     // 检查表是否存在
     const tableExists = await AppDataSource.query(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='recycle_bin_shutdown_records'`
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='recycle_bin_shutdown_records'`,
     );
 
     if (tableExists.length === 0) {
       dbLog.info('创建回收站关机记录表...');
-      
+
       // 创建表
       await AppDataSource.query(`
         CREATE TABLE "recycle_bin_shutdown_records" (
@@ -119,17 +119,17 @@ export async function ensureRecycleBinTables() {
         CREATE INDEX "IDX_recycle_bin_shutdown_records_cloudId_namespace_name" 
         ON "recycle_bin_shutdown_records" ("cloudId", "namespace", "name")
       `);
-      
+
       await AppDataSource.query(`
         CREATE INDEX "IDX_recycle_bin_shutdown_records_shutdownAt" 
         ON "recycle_bin_shutdown_records" ("shutdownAt")
       `);
-      
+
       await AppDataSource.query(`
         CREATE INDEX "IDX_recycle_bin_shutdown_records_status" 
         ON "recycle_bin_shutdown_records" ("status")
       `);
-      
+
       await AppDataSource.query(`
         CREATE INDEX "IDX_recycle_bin_shutdown_records_cloudId" 
         ON "recycle_bin_shutdown_records" ("cloudId")
@@ -450,10 +450,7 @@ export async function ensureDatacenterTopologyTables() {
       dbLog.info('机房拓扑表创建成功');
     }
   } catch (error) {
-    dbLog.error(
-      '机房拓扑表初始化失败:',
-      error instanceof Error ? error.message : String(error),
-    );
+    dbLog.error('机房拓扑表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -513,7 +510,8 @@ export async function ensureUsersPasswordChangedAtColumn() {
       return;
     }
     const cols = await AppDataSource.query(`PRAGMA table_info(users)`);
-    const has = Array.isArray(cols) && cols.some((c: { name?: string }) => c.name === 'passwordChangedAt');
+    const has =
+      Array.isArray(cols) && cols.some((c: { name?: string }) => c.name === 'passwordChangedAt');
     if (!has) {
       dbLog.info('为 users 表添加 passwordChangedAt 列...');
       await AppDataSource.query(`ALTER TABLE "users" ADD COLUMN "passwordChangedAt" datetime`);
@@ -601,10 +599,7 @@ export async function ensureHarborTables() {
       dbLog.info('harbor_projects 表创建成功');
     }
   } catch (error) {
-    dbLog.error(
-      'Harbor 表初始化失败:',
-      error instanceof Error ? error.message : String(error),
-    );
+    dbLog.error('Harbor 表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -759,10 +754,7 @@ export async function ensureGuacamoleTables() {
       `);
     }
   } catch (error) {
-    dbLog.error(
-      '云桌面网关表初始化失败:',
-      error instanceof Error ? error.message : String(error),
-    );
+    dbLog.error('云桌面网关表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }

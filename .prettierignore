@@ -1,0 +1,10 @@
+**/node_modules/**
+**/build/**
+**/dist/**
+**/coverage/**
+**/.git/**
+**/public/**
+**/data/**
+**/*.sqlite
+**/package-lock.json
+frontend/**

@@ -48,7 +48,12 @@ export async function harvesterCephRookClusterGetHandler(req: Request, res: Resp
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookGetOne(cloud, CEPH_ROOK_STEVE.clusters, req.params.namespace, req.params.name);
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.clusters,
+      req.params.namespace,
+      req.params.name,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -60,7 +65,13 @@ export async function harvesterCephRookClusterReplaceHandler(req: Request, res: 
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookReplace(cloud, CEPH_ROOK_STEVE.clusters, req.params.namespace, req.params.name, req.body);
+    const data = await rookReplace(
+      cloud,
+      CEPH_ROOK_STEVE.clusters,
+      req.params.namespace,
+      req.params.name,
+      req.body,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -72,7 +83,13 @@ export async function harvesterCephRookClusterPatchHandler(req: Request, res: Re
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookPatchMerge(cloud, CEPH_ROOK_STEVE.clusters, req.params.namespace, req.params.name, req.body);
+    const data = await rookPatchMerge(
+      cloud,
+      CEPH_ROOK_STEVE.clusters,
+      req.params.namespace,
+      req.params.name,
+      req.body,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -86,7 +103,12 @@ export async function harvesterCephRookBlockPoolGetHandler(req: Request, res: Re
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookGetOne(cloud, CEPH_ROOK_STEVE.blockPools, req.params.namespace, req.params.name);
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.blockPools,
+      req.params.namespace,
+      req.params.name,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -109,7 +131,13 @@ export async function harvesterCephRookBlockPoolReplaceHandler(req: Request, res
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookReplace(cloud, CEPH_ROOK_STEVE.blockPools, req.params.namespace, req.params.name, req.body);
+    const data = await rookReplace(
+      cloud,
+      CEPH_ROOK_STEVE.blockPools,
+      req.params.namespace,
+      req.params.name,
+      req.body,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -139,7 +167,12 @@ export async function harvesterCephRookBlockPoolDeleteHandler(req: Request, res:
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookDelete(cloud, CEPH_ROOK_STEVE.blockPools, req.params.namespace, req.params.name);
+    const data = await rookDelete(
+      cloud,
+      CEPH_ROOK_STEVE.blockPools,
+      req.params.namespace,
+      req.params.name,
+    );
     respondDelete(res, data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -153,7 +186,12 @@ export async function harvesterCephRookFilesystemGetHandler(req: Request, res: R
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookGetOne(cloud, CEPH_ROOK_STEVE.filesystems, req.params.namespace, req.params.name);
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.filesystems,
+      req.params.namespace,
+      req.params.name,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -176,7 +214,13 @@ export async function harvesterCephRookFilesystemReplaceHandler(req: Request, re
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookReplace(cloud, CEPH_ROOK_STEVE.filesystems, req.params.namespace, req.params.name, req.body);
+    const data = await rookReplace(
+      cloud,
+      CEPH_ROOK_STEVE.filesystems,
+      req.params.namespace,
+      req.params.name,
+      req.body,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -206,7 +250,12 @@ export async function harvesterCephRookFilesystemDeleteHandler(req: Request, res
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookDelete(cloud, CEPH_ROOK_STEVE.filesystems, req.params.namespace, req.params.name);
+    const data = await rookDelete(
+      cloud,
+      CEPH_ROOK_STEVE.filesystems,
+      req.params.namespace,
+      req.params.name,
+    );
     respondDelete(res, data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -220,7 +269,12 @@ export async function harvesterCephRookObjectStoreGetHandler(req: Request, res: 
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookGetOne(cloud, CEPH_ROOK_STEVE.objectStores, req.params.namespace, req.params.name);
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.objectStores,
+      req.params.namespace,
+      req.params.name,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -279,7 +333,12 @@ export async function harvesterCephRookObjectStoreDeleteHandler(req: Request, re
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookDelete(cloud, CEPH_ROOK_STEVE.objectStores, req.params.namespace, req.params.name);
+    const data = await rookDelete(
+      cloud,
+      CEPH_ROOK_STEVE.objectStores,
+      req.params.namespace,
+      req.params.name,
+    );
     respondDelete(res, data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -376,7 +435,12 @@ export async function harvesterCephRookRadosNamespaceGetHandler(req: Request, re
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookGetOne(cloud, CEPH_ROOK_STEVE.radosNamespaces, req.params.namespace, req.params.name);
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.radosNamespaces,
+      req.params.namespace,
+      req.params.name,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -435,7 +499,12 @@ export async function harvesterCephRookRadosNamespaceDeleteHandler(req: Request,
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookDelete(cloud, CEPH_ROOK_STEVE.radosNamespaces, req.params.namespace, req.params.name);
+    const data = await rookDelete(
+      cloud,
+      CEPH_ROOK_STEVE.radosNamespaces,
+      req.params.namespace,
+      req.params.name,
+    );
     respondDelete(res, data);
   } catch (e: any) {
     sendSteveErr(res, e);
@@ -449,7 +518,12 @@ export async function harvesterCephRookRbdMirrorGetHandler(req: Request, res: Re
   if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
   if (!requireNsName(req, res)) return;
   try {
-    const data = await rookGetOne(cloud, CEPH_ROOK_STEVE.rbdMirrors, req.params.namespace, req.params.name);
+    const data = await rookGetOne(
+      cloud,
+      CEPH_ROOK_STEVE.rbdMirrors,
+      req.params.namespace,
+      req.params.name,
+    );
     res.json(data);
   } catch (e: any) {
     sendSteveErr(res, e);

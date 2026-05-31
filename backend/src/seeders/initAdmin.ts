@@ -102,7 +102,7 @@ export async function initializeAdmin() {
           passwordChangedAt: now,
         });
         const savedSysAdmin = await userRepository.save(sysAdmin);
-        
+
         // 分配角色
         const assignment = assignmentRepository.create({
           roleId: policyAdminRole.id,
@@ -151,7 +151,7 @@ export async function initializeAdmin() {
           passwordChangedAt: now,
         });
         const savedAuditor = await userRepository.save(auditor);
-        
+
         // 分配角色
         const assignment = assignmentRepository.create({
           roleId: auditorRole.id,
@@ -200,7 +200,7 @@ export async function initializeAdmin() {
           passwordChangedAt: now,
         });
         const savedSecAdmin = await userRepository.save(secAdmin);
-        
+
         // 分配角色
         const assignment = assignmentRepository.create({
           roleId: opsRole.id,

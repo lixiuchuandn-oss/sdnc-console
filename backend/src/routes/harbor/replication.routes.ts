@@ -1,8 +1,8 @@
 /**
  * Harbor 复制规则路由
- * 
+ *
  * 实现 Harbor 复制规则的管理 API，包括策略列表、创建、执行记录和手动触发。
- * 
+ *
  * @see HarborProxyService
  */
 import { Router, Response } from 'express';
@@ -143,88 +143,97 @@ router.post('/registries/:id/replication/executions', async (req: AuthRequest, r
  * 获取单个复制规则详情
  * GET /api/harbor/registries/:id/replication/policies/:policyId
  */
-router.get('/registries/:id/replication/policies/:policyId', async (req: AuthRequest, res: Response) => {
-  try {
-    const { id, policyId } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
+router.get(
+  '/registries/:id/replication/policies/:policyId',
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id, policyId } = req.params;
+      const repo = AppDataSource.getRepository(HarborRegistry);
+      const harbor = await repo.findOne({ where: { id } });
 
-    if (!harbor) {
-      return res.status(404).json({ message: 'Harbor 实例不存在' });
+      if (!harbor) {
+        return res.status(404).json({ message: 'Harbor 实例不存在' });
+      }
+
+      const proxy = HarborProxyService.getInstance(harbor);
+      const policy = await proxy.getReplicationPolicy(Number(policyId));
+
+      res.json({ message: '查询成功', data: policy });
+    } catch (error: any) {
+      harborLog.error('获取复制规则详情失败:', error.message);
+      res.status(500).json({ message: '获取复制规则详情失败', error: error.message });
     }
-
-    const proxy = HarborProxyService.getInstance(harbor);
-    const policy = await proxy.getReplicationPolicy(Number(policyId));
-
-    res.json({ message: '查询成功', data: policy });
-  } catch (error: any) {
-    harborLog.error('获取复制规则详情失败:', error.message);
-    res.status(500).json({ message: '获取复制规则详情失败', error: error.message });
-  }
-});
+  },
+);
 
 /**
  * 更新复制规则
  * PUT /api/harbor/registries/:id/replication/policies/:policyId
  */
-router.put('/registries/:id/replication/policies/:policyId', async (req: AuthRequest, res: Response) => {
-  try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.registry:update')) {
-      return res.status(403).json({ message: '权限不足' });
+router.put(
+  '/registries/:id/replication/policies/:policyId',
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const perms: string[] = Array.isArray((req.user as any)?.permissions)
+        ? (req.user as any).permissions
+        : [];
+      if (!checkPermission(perms, 'harbor.registry:update')) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { id, policyId } = req.params;
+      const repo = AppDataSource.getRepository(HarborRegistry);
+      const harbor = await repo.findOne({ where: { id } });
+
+      if (!harbor) {
+        return res.status(404).json({ message: 'Harbor 实例不存在' });
+      }
+
+      const proxy = HarborProxyService.getInstance(harbor);
+      const result = await proxy.updateReplicationPolicy(Number(policyId), req.body);
+
+      harborLog.info(`更新复制规则: harbor=${id}, policyId=${policyId}`);
+      res.json({ message: '更新成功', data: result });
+    } catch (error: any) {
+      harborLog.error('更新复制规则失败:', error.message);
+      res.status(500).json({ message: '更新复制规则失败', error: error.message });
     }
-
-    const { id, policyId } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
-
-    if (!harbor) {
-      return res.status(404).json({ message: 'Harbor 实例不存在' });
-    }
-
-    const proxy = HarborProxyService.getInstance(harbor);
-    const result = await proxy.updateReplicationPolicy(Number(policyId), req.body);
-
-    harborLog.info(`更新复制规则: harbor=${id}, policyId=${policyId}`);
-    res.json({ message: '更新成功', data: result });
-  } catch (error: any) {
-    harborLog.error('更新复制规则失败:', error.message);
-    res.status(500).json({ message: '更新复制规则失败', error: error.message });
-  }
-});
+  },
+);
 
 /**
  * 删除复制规则
  * DELETE /api/harbor/registries/:id/replication/policies/:policyId
  */
-router.delete('/registries/:id/replication/policies/:policyId', async (req: AuthRequest, res: Response) => {
-  try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.registry:delete')) {
-      return res.status(403).json({ message: '权限不足' });
+router.delete(
+  '/registries/:id/replication/policies/:policyId',
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const perms: string[] = Array.isArray((req.user as any)?.permissions)
+        ? (req.user as any).permissions
+        : [];
+      if (!checkPermission(perms, 'harbor.registry:delete')) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { id, policyId } = req.params;
+      const repo = AppDataSource.getRepository(HarborRegistry);
+      const harbor = await repo.findOne({ where: { id } });
+
+      if (!harbor) {
+        return res.status(404).json({ message: 'Harbor 实例不存在' });
+      }
+
+      const proxy = HarborProxyService.getInstance(harbor);
+      await proxy.deleteReplicationPolicy(Number(policyId));
+
+      harborLog.info(`删除复制规则: harbor=${id}, policyId=${policyId}`);
+      res.json({ message: '删除成功' });
+    } catch (error: any) {
+      harborLog.error('删除复制规则失败:', error.message);
+      res.status(500).json({ message: '删除复制规则失败', error: error.message });
     }
-
-    const { id, policyId } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
-
-    if (!harbor) {
-      return res.status(404).json({ message: 'Harbor 实例不存在' });
-    }
-
-    const proxy = HarborProxyService.getInstance(harbor);
-    await proxy.deleteReplicationPolicy(Number(policyId));
-
-    harborLog.info(`删除复制规则: harbor=${id}, policyId=${policyId}`);
-    res.json({ message: '删除成功' });
-  } catch (error: any) {
-    harborLog.error('删除复制规则失败:', error.message);
-    res.status(500).json({ message: '删除复制规则失败', error: error.message });
-  }
-});
+  },
+);
 
 export { router as replicationRoutes };

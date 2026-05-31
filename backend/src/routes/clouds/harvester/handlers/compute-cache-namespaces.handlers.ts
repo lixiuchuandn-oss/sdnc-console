@@ -1,6 +1,6 @@
 /**
  * Harvester Namespaces Handlers
- * 
+ *
  * 从 harvester.cache.namespace.routes.ts 中提取的 Namespaces 相关业务逻辑
  */
 
@@ -41,7 +41,7 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
     const isTenant =
       reqAny.user?.role === 'tenant' ||
       (reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
-    
+
     // [租户隔离] 命名空间可见性过滤
     // 1. 租户只能看到分配给自己的 Namespace (UserSpace.namespace)。
     // 2. 包含自动修复逻辑：如果租户所属 Organization 的 Namespace 不在列表中，自动添加并更新 DB。
@@ -105,7 +105,7 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
         if (!uniqueNamespaces.has(orgNs)) {
           uniqueNamespaces.add(orgNs);
           // Update the first matching UserSpace record
-          const firstMatch = matches.find(m => m.organizationId === userOrgId) || matches[0];
+          const firstMatch = matches.find((m) => m.organizationId === userOrgId) || matches[0];
           if (firstMatch) {
             const nsList = Array.from(uniqueNamespaces);
             firstMatch.namespace = nsList.join(',');
@@ -136,19 +136,19 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
       try {
         // 如果强制刷新，等待一小段时间确保远程 API 已更新（特别是刚创建的资源）
         if (String(force) === 'true') {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
         }
         await syncHarvesterNamespaces(cloud, insecure);
         // 同步完成后，重新获取 repository 实例确保使用最新的数据库连接
         // 注意：对于租户用户，whereCondition 已经包含了授权限制，所以只会返回授权的命名空间
-        console.log(`[Namespace-Refresh] 同步完成，whereCondition:`, JSON.stringify(whereCondition));
+        console.log(
+          `[Namespace-Refresh] 同步完成，whereCondition:`,
+          JSON.stringify(whereCondition),
+        );
         // 同步后重新获取 repository，确保查询使用最新数据
         repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
       } catch (e: any) {
-        console.warn(
-          'Sync Namespaces failed, falling back to empty/stale',
-          e,
-        );
+        console.warn('Sync Namespaces failed, falling back to empty/stale', e);
         if (count === 0) throw e;
       }
     } else if (String(skipSync) === 'true') {
@@ -156,9 +156,12 @@ export async function harvesterNamespaceListHandler(req: Request, res: Response)
     }
 
     const items = await repo.find({ where: whereCondition });
-    console.log(`[Namespace-Refresh] 查询结果数量: ${items.length}, whereCondition:`, JSON.stringify(whereCondition));
+    console.log(
+      `[Namespace-Refresh] 查询结果数量: ${items.length}, whereCondition:`,
+      JSON.stringify(whereCondition),
+    );
     let list = items.map((i) => i.rawData);
-    
+
     // excludeSystem=true：与前端 harvesterUtils 系统/公共语义对齐（见 namespace.shouldHideNamespaceWhenExcludeSystem）
     if (String(excludeSystem) === 'true') {
       list = list.filter((item: any) => {
@@ -189,7 +192,7 @@ export async function harvesterNamespaceDetailHandler(req: Request, res: Respons
   try {
     const cloud = (req as any).cloud;
     const { id, name } = req.params;
-    
+
     // 禁止删除系统或公共命名空间
     if (isProtectedNamespace(name)) {
       return res.status(403).json({ message: '禁止删除系统或公共命名空间' });
@@ -203,9 +206,7 @@ export async function harvesterNamespaceDetailHandler(req: Request, res: Respons
     });
 
     if (!item || !item.rawData) {
-      return res
-        .status(404)
-        .json({ message: '命名空间不存在或未同步到本地数据库' });
+      return res.status(404).json({ message: '命名空间不存在或未同步到本地数据库' });
     }
 
     res.json({ message: '查询成功', data: item.rawData });
@@ -243,22 +244,15 @@ export async function harvesterNamespaceUpdateHandler(req: Request, res: Respons
     let lastErr: any = null;
     let success = false;
     const patchBody =
-      req.body && Object.keys(req.body).length > 0
-        ? req.body
-        : { metadata: { labels: {} } };
+      req.body && Object.keys(req.body).length > 0 ? req.body : { metadata: { labels: {} } };
 
     // [多路径兼容] 尝试多种 API 路径
     // Harvester 版本差异可能导致 API 路径不同 (K8s 原生 vs Rancher 代理)。
     for (const url of candidates) {
       try {
-        json = await requestJson(
-          'PATCH',
-          url,
-          cloud.secretKey || '',
-          insecure,
-          patchBody,
-          { 'Content-Type': 'application/merge-patch+json' },
-        );
+        json = await requestJson('PATCH', url, cloud.secretKey || '', insecure, patchBody, {
+          'Content-Type': 'application/merge-patch+json',
+        });
         success = true;
         break;
       } catch (e: any) {
@@ -276,15 +270,11 @@ export async function harvesterNamespaceUpdateHandler(req: Request, res: Respons
       const status = Number(lastErr?.status || 0);
       const lower = String(lastErr?.message || '').toLowerCase();
       let msg = '更新命名空间失败';
-      if (status === 403 || lower.includes('forbidden'))
-        msg = '更新失败：权限不足（403）';
+      if (status === 403 || lower.includes('forbidden')) msg = '更新失败：权限不足（403）';
       else if (status === 404 || lower.includes('not found'))
         msg = '更新失败：命名空间不存在（404）';
-      else if (status === 422 || lower.includes('invalid'))
-        msg = '更新失败：参数非法（422）';
-      return res
-        .status(500)
-        .json({ message: msg, error: lastErr?.message });
+      else if (status === 422 || lower.includes('invalid')) msg = '更新失败：参数非法（422）';
+      return res.status(500).json({ message: msg, error: lastErr?.message });
     }
 
     // [数据同步] 更新成功后立即同步数据库，确保更新后的命名空间数据立即可见
@@ -309,16 +299,16 @@ export async function harvesterNamespaceCreateHandler(req: Request, res: Respons
   try {
     const cloud = (req as any).cloud;
     const { id: _id } = req.params;
-    
+
     // [系统命名空间保护] 禁止创建系统/受保护的命名空间
     const namespaceName = req.body?.metadata?.name || req.body?.name;
     if (namespaceName && isProtectedNamespace(namespaceName)) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         message: '禁止创建系统或受保护的命名空间',
-        error: `命名空间 "${namespaceName}" 是系统命名空间，不能用于用户资源`
+        error: `命名空间 "${namespaceName}" 是系统命名空间，不能用于用户资源`,
       });
     }
-    
+
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;
@@ -342,13 +332,7 @@ export async function harvesterNamespaceCreateHandler(req: Request, res: Respons
 
     for (const url of candidates) {
       try {
-        json = await requestJson(
-          'POST',
-          url,
-          cloud.secretKey || '',
-          insecure,
-          req.body,
-        );
+        json = await requestJson('POST', url, cloud.secretKey || '', insecure, req.body);
         success = true;
         break;
       } catch (e: any) {
@@ -366,24 +350,20 @@ export async function harvesterNamespaceCreateHandler(req: Request, res: Respons
       const status = Number(lastErr?.status || 0);
       const lower = String(lastErr?.message || '').toLowerCase();
       let msg = '创建命名空间失败';
-      if (status === 403 || lower.includes('forbidden'))
-        msg = '创建失败：权限不足（403）';
+      if (status === 403 || lower.includes('forbidden')) msg = '创建失败：权限不足（403）';
       else if (status === 409 || lower.includes('already exists'))
         msg = '创建失败：命名空间已存在（409）';
-      else if (status === 422 || lower.includes('invalid'))
-        msg = '创建失败：参数非法（422）';
-      return res
-        .status(500)
-        .json({ message: msg, error: lastErr?.message });
+      else if (status === 422 || lower.includes('invalid')) msg = '创建失败：参数非法（422）';
+      return res.status(500).json({ message: msg, error: lastErr?.message });
     }
-    
+
     // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法：使用返回的数据，无需延迟和全量同步）
     if (json && json.metadata) {
       try {
         const repo = AppDataSource.getRepository(HarvesterNamespaceInventory);
         const name = json.metadata?.name || '';
         const existing = await repo.findOne({ where: { cloudId: cloud.id, name } });
-        
+
         if (existing) {
           // 更新现有记录
           existing.labels = json.metadata?.labels;
@@ -410,7 +390,7 @@ export async function harvesterNamespaceCreateHandler(req: Request, res: Respons
         // 入库失败不影响创建操作的成功返回
       }
     }
-    
+
     res.json({ message: '创建成功', data: json });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -425,7 +405,7 @@ export async function harvesterNamespaceDeleteHandler(req: Request, res: Respons
   try {
     const cloud = (req as any).cloud;
     const { id, name } = req.params;
-    
+
     // [安全检查] 禁止删除系统或公共命名空间
     if (isProtectedNamespace(name)) {
       return res.status(403).json({
@@ -469,36 +449,30 @@ export async function harvesterNamespaceDeleteHandler(req: Request, res: Respons
       const vms: any[] = Array.isArray(ecsList?.items)
         ? ecsList.items
         : Array.isArray(ecsList?.data)
-        ? ecsList.data
-        : [];
-      const inNs = vms.filter(
-        (vm: any) =>
-          (vm?.metadata?.namespace || vm?.namespace) === name,
-      );
+          ? ecsList.data
+          : [];
+      const inNs = vms.filter((vm: any) => (vm?.metadata?.namespace || vm?.namespace) === name);
       if (inNs.length > 0) {
         const names = inNs
           .map(
             (vm: any) =>
-              vm?.metadata?.annotations?.['tower.io/alias'] ||
-              vm?.metadata?.name ||
-              vm?.name,
+              vm?.metadata?.annotations?.['tower.io/alias'] || vm?.metadata?.name || vm?.name,
           )
           .filter((n: any) => typeof n === 'string' && n.trim().length > 0);
-        return res
-          .status(409)
-          .json({
-            message: `不能删除此命名空间，因为存在虚拟机 ${names
-              .slice(0, 5)
-              .join('，')}${names.length > 5 ? ' 等' : ''}`,
-            error: '命名空间内存在虚拟机，请先删除或迁移虚拟机后再删除命名空间',
-          });
+        return res.status(409).json({
+          message: `不能删除此命名空间，因为存在虚拟机 ${names
+            .slice(0, 5)
+            .join('，')}${names.length > 5 ? ' 等' : ''}`,
+          error: '命名空间内存在虚拟机，请先删除或迁移虚拟机后再删除命名空间',
+        });
       }
     } catch (e: any) {
       // [Fail-Safe] VM 占用检查失败时，直接终止删除操作，防止误删
       console.error('[DeleteNamespace] VM usage check failed:', e?.message || e);
       return res.status(503).json({
         message: '无法完成命名空间删除操作：虚拟机占用检查失败',
-        error: '系统无法验证命名空间内是否存在虚拟机，为安全起见已终止删除操作。请检查资源池连接状态后重试。',
+        error:
+          '系统无法验证命名空间内是否存在虚拟机，为安全起见已终止删除操作。请检查资源池连接状态后重试。',
         details: e?.message || String(e),
       });
     }
@@ -513,12 +487,7 @@ export async function harvesterNamespaceDeleteHandler(req: Request, res: Respons
     let success = false;
     for (const url of candidates) {
       try {
-        json = await requestJson(
-          'DELETE',
-          url,
-          cloud.secretKey || '',
-          insecure,
-        );
+        json = await requestJson('DELETE', url, cloud.secretKey || '', insecure);
         success = true;
         break;
       } catch (e: any) {
@@ -535,9 +504,7 @@ export async function harvesterNamespaceDeleteHandler(req: Request, res: Respons
       }
     }
     if (!success && lastErr) {
-      return res
-        .status(500)
-        .json({ message: '删除命名空间失败', error: lastErr?.message });
+      return res.status(500).json({ message: '删除命名空间失败', error: lastErr?.message });
     }
     res.json({ message: '删除成功', data: json });
   } catch (error: any) {

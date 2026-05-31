@@ -1,7 +1,4 @@
-import {
-  buildClientUrl,
-  guacamoleRequest,
-} from './guacamoleClient';
+import { buildClientUrl, guacamoleRequest } from './guacamoleClient';
 import type { GuacamoleInstance } from '../../../entities/GuacamoleInstance';
 
 export type UpsertConnectionParams = {
@@ -102,12 +99,7 @@ export async function upsertGuacamoleConnection(
     return connId;
   }
 
-  const created = await guacamoleRequest<{ identifier?: string }>(
-    instance,
-    'POST',
-    basePath,
-    body,
-  );
+  const created = await guacamoleRequest<{ identifier?: string }>(instance, 'POST', basePath, body);
   const newId = String(created?.identifier || '').trim();
   if (!newId) {
     throw new Error('云桌面网关未返回连接标识');
@@ -120,11 +112,7 @@ export async function deleteGuacamoleConnection(
   connectionId: string,
 ): Promise<void> {
   const ds = instance.dataSource || 'postgresql';
-  await guacamoleRequest(
-    instance,
-    'DELETE',
-    `/session/data/${ds}/connections/${connectionId}`,
-  );
+  await guacamoleRequest(instance, 'DELETE', `/session/data/${ds}/connections/${connectionId}`);
 }
 
 export { buildClientUrl };
