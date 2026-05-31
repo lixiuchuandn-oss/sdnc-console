@@ -12,7 +12,15 @@
 | **P1** | CI 后端 lint 改为 `--max-warnings=0` | 已完成（`backend/package.json`、`docs/ci.md`） |
 | **P2** | 巨型文件按主题拆分 | 待排期 |
 | **P3** | 前端 bundle 分析与 code splitting | 待排期 |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | 待排期 |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | 待排期（见 **Prettier 前置条件**） |
+
+### Prettier 前置条件（P4 启动前）
+
+全仓 `prettier --write` 会把多行 `useMemo` / `useEffect` 的依赖数组拆行，使原有的 `eslint-disable-next-line react-hooks/exhaustive-deps` **不再作用在 ESLint 报错行**，`main` 上前端 `--max-warnings=0` 会新增约数十条 hooks 警告。建议：
+
+1. **先合并** P0/P1（PR #76）；
+2. **再开** 独立 PR：仅 `backend/src` + `docs/` 格式化并加 CI，或格式化 `frontend/src` 时同步修正 hooks 抑制注释；
+3. **勿** 在未处理上述问题前对全仓启用 `prettier --check` CI。
 
 ---
 
