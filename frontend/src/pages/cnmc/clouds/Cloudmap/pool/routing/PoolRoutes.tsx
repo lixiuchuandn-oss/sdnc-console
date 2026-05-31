@@ -25,7 +25,7 @@ import {
   ResourceOverviewDatacenterTopologyPanel,
   ResourceOverviewMonitoringPanel,
   ResourceOverviewNetworkTopologyPanel,
-} from '../panels';
+} from './lazyPoolPanels';
 import { CLOUDMAP_RESOURCE_SUB_KEYS, type CloudmapResourceSubKey } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { useCloudmapPoolDetail } from './PoolDetailContext';
 
