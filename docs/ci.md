@@ -71,11 +71,11 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
 
 ## 4. 已知差异与后续收紧
 
-| 项                  | 现状                                             | 后续                             |
-| ------------------- | ------------------------------------------------ | -------------------------------- |
-| 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致） | 保持为零                         |
+| 项                  | 现状                                             | 后续                                                                         |
+| ------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------- |
+| 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致） | 保持为零                                                                     |
 | Prettier            | CI 校验 **`backend/src`** + **`docs/`**          | `frontend/` 仍靠 lint-staged；全仓前端格式化见 `quality-improvement-plan.md` |
-| E2E / 冒烟          | 无                                               | 关键路径另线补充                 |
+| E2E / 冒烟          | 无                                               | 关键路径另线补充                                                             |
 
 **在 `main` CI 全绿且团队习惯走 PR 之前，不要先开严格的 Required checks**，否则容易全员合不进去。
 
