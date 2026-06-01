@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Space, Select, Switch, Popover, Checkbox } from 'antd';
 import { ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../components/LazyReactECharts';
 import { fetchAliyunEcsMetrics } from '../../../../../services/aliyunApi';
 type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: (force?: boolean) => void | Promise<void>; };
 const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, onRefresh }) => {
@@ -91,7 +91,7 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, onRefre
           style={{ overflow: 'hidden' }}
           extra={<span style={{ fontSize: 12, color: '#8c8c8c' }}>当前 {formatNum(Number(cur))} · 最小 {formatNum(Number(min))} · 最大 {formatNum(Number(max))}</span>}
         >
-          <ReactECharts notMerge lazyUpdate option={optionsFor(m.key, m.label, m.unit)} style={{ width: '100%', height: 220 }} />
+          <LazyReactECharts notMerge lazyUpdate option={optionsFor(m.key, m.label, m.unit)} style={{ width: '100%', height: 220 }} />
         </Card>
       );
     });

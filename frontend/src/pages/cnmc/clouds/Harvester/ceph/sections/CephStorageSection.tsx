@@ -18,7 +18,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import type { EChartsOption, LineSeriesOption } from 'echarts';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../../components/LazyReactECharts';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { fetchCephRookBundle } from '../../../../../../services/cephApi';
 import {
@@ -847,7 +847,7 @@ const CephStorageSection: React.FC<CephStorageSectionProps> = ({ cloudId, onInit
                   <MetricCard title={cephDashboardCardTitle(FundTwoTone, '存储容量趋势')}>
                     <div style={{ width: '100%', minHeight: poolUsageTrendOption ? 260 : undefined }}>
                       {poolUsageTrendOption ? (
-                        <ReactECharts
+                        <LazyReactECharts
                           option={poolUsageTrendOption}
                           notMerge
                           lazyUpdate

@@ -6,13 +6,13 @@
 
 ## 阶段总览
 
-| 阶段   | 目标                                  | 状态                                                                              |
-| ------ | ------------------------------------- | --------------------------------------------------------------------------------- |
-| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                    |
-| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                    |
-| **P2** | 巨型文件按主题拆分                    | 待排期                                                                            |
-| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 RoutePanel 改为 `React.lazy`（见 `lazyPoolPanels.tsx`） |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：`backend/src` + `docs/` 已格式化并 CI；`frontend/src` 与 E2E 待办   |
+| 阶段   | 目标                                  | 状态                                                                                              |
+| ------ | ------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                                    |
+| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                                    |
+| **P2** | 巨型文件按主题拆分                    | **首期**：`harvester.cache.container-shared.ts` + `harvester.cache.container-workloads.routes.ts` |
+| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载             |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health)`** workflow（`GET /health`）                     |
 
 ### Prettier 范围说明
 
@@ -56,13 +56,13 @@ npx tsc
 
 按「改动频率 × 行数」优先，每次只拆一个主题，保证 PR 可审。
 
-| 优先级 | 文件（约行数）                                                      | 建议拆法                                                        |
-| ------ | ------------------------------------------------------------------- | --------------------------------------------------------------- |
-| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | 按资源类型拆 `*.cache.container.*.routes.ts` 或迁入 `handlers/` |
-| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | 按产品（ECS/VPC/RDS…）拆 `aliyun/*.routes.ts`                   |
-| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | 按操作（patch/disks/network）拆 `vm_update/*.ts`                |
-| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                        |
-| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                   |
+| 优先级 | 文件（约行数）                                                      | 建议拆法                                                                                      |
+| ------ | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | **已拆首期**：`container-shared.ts`、`container-workloads.routes.ts`；后续 Pod/Job 等按节继续 |
+| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | 按产品（ECS/VPC/RDS…）拆 `aliyun/*.routes.ts`                                                 |
+| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | 按操作（patch/disks/network）拆 `vm_update/*.ts`                                              |
+| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                                                      |
+| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                                                 |
 
 ### 单 PR 检查项
 

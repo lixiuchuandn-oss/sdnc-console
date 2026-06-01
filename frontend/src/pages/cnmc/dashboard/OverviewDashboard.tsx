@@ -24,7 +24,7 @@ import {
   UserOutlined,
   WarningFilled,
 } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../components/LazyReactECharts';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../../contexts/AuthContext';
@@ -345,7 +345,7 @@ const OverviewDashboard: React.FC = () => {
                     <Spin size="large" />
                   </div>
                 ) : providerData.length > 0 ? (
-                  <ReactECharts
+                  <LazyReactECharts
                     option={providerChartOption}
                     style={{ width: '100%', height: '100%', minHeight: 320 }}
                     className="chart-wrapper"

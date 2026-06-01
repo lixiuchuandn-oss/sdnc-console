@@ -1,0 +1,54 @@
+name: Smoke
+
+# API 健康检查：构建后端并探活 GET /health（不依赖外部云）。
+# 本地复现见 docs/ci.md · docs/contributing.md
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke (API health)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build backend
+        run: npx tsc
+      - name: Start server and probe /health
+        env:
+          NODE_ENV: development
+          PORT: 5099
+          DB_SYNC: 'true'
+          JWT_SECRET: ci-smoke-secret
+          LOGIN_ALLOW_PLAINT_PASSWORD: '1'
+        run: |
+          node dist/src/index.js &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -sf "http://127.0.0.1:5099/health" >/dev/null; then
+              curl -sf "http://127.0.0.1:5099/health"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server did not become healthy in time"
+          exit 1
