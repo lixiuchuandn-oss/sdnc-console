@@ -121,17 +121,16 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           
           const hasError = steps.some((s: any) => s.status === 'error');
           
-          if (hasError) {
-            Modal.warning({
-              title: '安装结果',
-              content: (
-                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
-                  {resultText}
-                </pre>
-              ),
-            });
-          } else {
-            message.success('NGINX Gateway Fabric 安装成功');
+          Modal[hasError ? 'warning' : 'info']({
+            title: '安装结果',
+            content: (
+              <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                {resultText}
+              </pre>
+            ),
+          });
+          
+          if (!hasError) {
             onRefresh(true);
           }
         } catch (error: any) {
@@ -425,8 +424,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       key: 'status',
       render: (status: any) => {
         const conditions = status?.conditions || [];
-        const ready = conditions?.find((c: any) => c.type === 'Ready');
-        const isReady = ready?.status === 'True';
+        // Gateway API 使用 Programmed condition 表示就绪状态
+        const programmed = conditions?.find((c: any) => c.type === 'Programmed');
+        const accepted = conditions?.find((c: any) => c.type === 'Accepted');
+        const isReady = programmed?.status === 'True' && accepted?.status === 'True';
         
         // 收集所有 condition 信息
         const conditionDetails = conditions?.map((c: any) => ({
@@ -437,7 +438,8 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         })) || [];
 
         // 获取失败原因
-        const notReadyReason = !isReady && ready ? (ready.reason || ready.message || '未知原因') : null;
+        const notReadyCondition = programmed?.status !== 'True' ? programmed : (accepted?.status !== 'True' ? accepted : null);
+        const notReadyReason = !isReady && notReadyCondition ? (notReadyCondition.reason || notReadyCondition.message || '未知原因') : null;
         
         const content = (
           <div style={{ maxWidth: 400 }}>
@@ -456,10 +458,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           <Popover content={content} title="条件详情" trigger="hover">
             <span style={{ cursor: 'pointer' }}>
               {isReady ? (
-                <Tag color="green">Ready</Tag>
+                <Tag color="green">就绪</Tag>
               ) : (
                 <Tag color="orange">
-                  Not Ready
+                  未就绪
                   {notReadyReason && (
                     <Tooltip title={notReadyReason}>
                       <InfoCircleOutlined style={{ marginLeft: 4 }} />

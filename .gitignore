@@ -65,6 +65,8 @@ design/
 harvester-master/
 1.md
 2.md
+.playwright-cli/
+temp_*.py
 docs/harbor-api-2.13.0-swagger.yaml
 docs/harbor-api-2.13.0-reference.md
 docs/harvester-api-reference.md
