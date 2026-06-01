@@ -7,7 +7,7 @@ import {
 
 const STORAGE_KEY = 'tower:harvester_ops_dashboard_view_order';
 
-/** 将持久化的 key 列表与目录合并，补全新增视图、剔除已下线 key */
+/** 将持久化的 key 列表与目录合并，补全新增视图、剔除已下线 key；status 始终以 catalog 为准 */
 export function mergeOpsDashboardViewOrder(
   savedKeys: unknown,
   catalog: OpsDashboardViewDef[] = OPS_DASHBOARD_VIEW_CATALOG,

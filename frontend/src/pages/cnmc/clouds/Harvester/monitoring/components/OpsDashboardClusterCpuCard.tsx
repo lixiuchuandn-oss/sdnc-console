@@ -8,6 +8,8 @@ import { aggregateNodeMetrics, aggregateNodeResources } from '../lib/nodeResourc
 import { opsOverviewUsageColor } from '../lib/opsDashboardOverviewCardLayout';
 import OpsDashboardClusterMetricCard from './OpsDashboardClusterMetricCard';
 
+const HEIGHT_SIZE = 220;
+
 function formatCpuCores(cores: number): string {
   if (cores >= 1) return `${Math.round(cores * 100) / 100} 核`;
   if (cores > 0) return `${(cores * 1000).toFixed(0)} m核`;
@@ -18,7 +20,7 @@ export interface OpsDashboardClusterCpuCardProps {
   height?: number;
 }
 
-const OpsDashboardClusterCpuCard: React.FC<OpsDashboardClusterCpuCardProps> = ({ height = 220 }) => {
+const OpsDashboardClusterCpuCard: React.FC<OpsDashboardClusterCpuCardProps> = ({ height = HEIGHT_SIZE }) => {
   const fast = useMonitoringOverviewFastLane();
   const loading = fast.coreLoading;
 
