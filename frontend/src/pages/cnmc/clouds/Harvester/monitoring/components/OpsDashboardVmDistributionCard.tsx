@@ -151,7 +151,7 @@ const OpsDashboardVmDistributionCard: React.FC<OpsDashboardVmDistributionCardPro
                 height: OPS_OVERVIEW_RING_SIZE,
               }}
             >
-              <ReactECharts
+              <LazyReactECharts
                 ref={chartRef}
                 option={option}
                 style={{ width: OPS_OVERVIEW_RING_SIZE, height: OPS_OVERVIEW_RING_SIZE }}
