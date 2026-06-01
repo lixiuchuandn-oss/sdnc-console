@@ -10,7 +10,6 @@ import https from 'https';
 import os from 'os';
 import path from 'path';
 import { Readable, Transform } from 'stream';
-import { pipeline } from 'stream/promises';
 
 import { Request, Response } from 'express';
 import multer from 'multer';
@@ -721,49 +720,6 @@ function withUploadSizeQuery(uploadTarget: string, byteSize: number): string {
   }
 }
 
-/** 将 application/octet-stream 请求体落盘（与 multer 路径一致，避免创建镜像轮询期间不读 body） */
-async function ingestOctetStreamToTempFile(
-  req: Request,
-  destPath: string,
-  expectedSize: number,
-  taskId: string,
-  abortController: AbortController,
-): Promise<void> {
-  bindClientDisconnectAbort(req, abortController);
-  let received = 0;
-  let lastUpdateAt = 0;
-  const counter = new Transform({
-    transform(chunk, _encoding, callback) {
-      if (abortController.signal.aborted) {
-        callback(new Error('CANCELLED'));
-        return;
-      }
-      const n = chunk.length || Buffer.byteLength(chunk);
-      received += n;
-      const now = Date.now();
-      if (now - lastUpdateAt > 400) {
-        lastUpdateAt = now;
-        const ingestProgress =
-          expectedSize > 0 ? clampProgress((received / expectedSize) * 100) : 0;
-        void updateTaskProgress(taskId, {
-          ingestProgress,
-          bytesUploaded: received,
-          progress: Math.max(0, Math.min(5, Math.floor(ingestProgress * 0.05))),
-        }).catch(() => {
-          /* ignore progress DB noise */
-        });
-      }
-      callback(null, chunk);
-    },
-  });
-  await pipeline(req, counter, fs.createWriteStream(destPath));
-  await updateTaskProgress(taskId, {
-    ingestProgress: 100,
-    bytesUploaded: expectedSize > 0 ? Math.min(received, expectedSize) : received,
-    progress: 5,
-  });
-}
-
 function harvesterConn(cloud: any) {
   return {
     endpoint: cloud.endpoint,
@@ -1288,7 +1244,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       rawIn.pipe(progressStream);
       if (total < 1) {
         throw new Error(
-          '无法确定镜像文件大小，CDI 直传需要有效的 Content-Length（请确认文件已完整落盘）',
+          '无法确定镜像文件大小，CDI 直传需要有效的 Content-Length（请确认 X-File-Size 或 Content-Length 请求头）',
         );
       }
       try {
@@ -1773,7 +1729,7 @@ function parseOctetStreamUploadSizeHeaders(req: Request): number {
   return fromMeta || fromLen;
 }
 
-/** application/octet-stream：先落盘再异步代传 Harvester（与 multipart file 路径一致） */
+/** application/octet-stream：校验任务并启动不落盘代传；字节转发至 Harvester 完成后由 onProxyComplete 返回 202 */
 async function handleHarvesterImageUploadTaskOctetStream(
   req: Request,
   res: Response,
@@ -1807,47 +1763,32 @@ async function handleHarvesterImageUploadTaskOctetStream(
   if (fileSize > 0) task.fileSize = fileSize;
   task.taskStatus = 'ingesting';
   task.phase = 'ingesting';
-  task.ingestProgress = 0;
-  task.progress = 0;
+  task.ingestProgress = 100;
+  task.progress = 1;
   task.bytesUploaded = 0;
   task.startedAt = task.startedAt || new Date();
   task.errorCode = undefined;
   task.errorMessage = undefined;
   await repo.save(task);
 
-  const tempPath = path.join(imageTaskTempRoot, `${task.id}-${Date.now()}`);
-  const ingestAbort = new AbortController();
-  try {
-    await ingestOctetStreamToTempFile(req, tempPath, fileSize, task.id, ingestAbort);
-  } catch (e: any) {
-    try {
-      if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-    } catch {
-      /* ignore */
-    }
-    if (isCancelError(e)) return;
-    throw new Error(formatImageUploadTaskError(e) || '接收镜像文件失败');
-  }
-
-  const writtenSize = fs.statSync(tempPath).size || 0;
-  task.fileSize = writtenSize;
-  task.ingestProgress = 100;
-  task.progress = 5;
-  await repo.save(task);
-
-  void runImageUploadTask(task.id, cloud, tempPath).catch((err) => {
-    console.warn('[image-upload-task-octet]', task.id, err?.message || err);
-  });
-
-  res.status(202).json({
-    message: '文件已接收，任务执行中',
-    data: { taskId: task.id, status: 'ingesting', phase: 'ingesting' },
+  await runImageUploadTaskWithBody(task.id, cloud, {
+    byteTotal: fileSize,
+    preferredBasename: filename,
+    createBodyReadable: () => req,
+    bindRequestStream: req,
+    onProxyComplete: async () => {
+      res.status(202).json({
+        message: '文件已接收，任务执行中',
+        data: { taskId: task.id, status: 'proxying', phase: 'proxying' },
+      });
+    },
   });
 }
 
 /**
  * POST /:id/resources/harvester/images/upload-tasks/:taskId/file - 上传文件并异步执行
- * - Content-Type: application/octet-stream：元数据由 X-File-Name / X-File-Size 提供；先落盘再异步代传 Harvester，接收完成后返回 202。
+ * - Content-Type: application/octet-stream：请求体为原始流，元数据由 X-File-Name / X-File-Size 提供，Tower 不落盘直传 Harvester；
+ *   字节全部转发完成后返回 202，导入进度仍由任务轮询展示。
  * - multipart field=file：兼容旧版浏览器 / 桌面工具（multer 落盘后再代传）。
  */
 export async function harvesterImageUploadTaskFileHandler(req: Request, res: Response) {

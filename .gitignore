@@ -47,6 +47,7 @@ coverage/
 /backend/uploads/
 /backend/tests/
 /backend/scripts/
+/backend/keys/license-signing-private.pem
 /backend/verify_acl.js
 /backend/public/
 

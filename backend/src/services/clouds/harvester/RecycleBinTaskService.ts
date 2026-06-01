@@ -23,7 +23,7 @@ import { Cloud } from '../../../entities/Cloud';
 import { RecycleBinShutdownRecord } from '../../../entities/harvester/RecycleBinShutdownRecord';
 import { getSystemSetting } from '../../../config/systemSettings';
 import { listKubevirtVMsRaw } from './vm';
-import { harvesterEnsureVmStopped, harvesterForceDeleteVM } from './lifecycle';
+import { harvesterEnsureVmStopped, harvesterForceDeleteVM, isVmNeedsShutdown } from './lifecycle';
 import { HarvesterTestParams } from './types';
 import { logger } from '../../../utils/logger';
 import { cleanupVmDesktopResources } from '../../remote/guacamole/guacamoleAssignment';
@@ -43,11 +43,6 @@ function summarizeRbErr(err: unknown): string {
 const getVmStatusLower = (vm: any): string => {
   const status = vm?.status?.printableStatus || vm?.status?.phase || vm?.Status || '';
   return String(status).toLowerCase();
-};
-
-const isVmRunningLike = (vm: any): boolean => {
-  const status = getVmStatusLower(vm);
-  return status === 'running' || status === 'starting' || vm?.spec?.running === true;
 };
 
 export class RecycleBinTaskService {
@@ -327,9 +322,9 @@ export class RecycleBinTaskService {
 
     // 检查虚拟机状态（使用与 lifecycle.ts 一致的判断逻辑）
     const status = this.getVmStatus(vm);
-    const isRunning = isVmRunningLike(vm);
+    const needsShutdown = isVmNeedsShutdown(vm);
 
-    if (!isRunning) {
+    if (!needsShutdown) {
       // 已停止时写一条「跳过」便于审计；同一实例在「关机任务间隔」内不重复插入，避免每小时一条撑爆表
       rbLog.debug(`虚拟机已停止，跳过关机: ${cloud.name}/${instanceId} (状态: ${status})`);
       const dup = await this.hasRecentSkippedAlreadyStoppedRecord(cloud.id, instanceId);
@@ -351,7 +346,9 @@ export class RecycleBinTaskService {
 
     // 记录关机前的状态
     const previousStatus = status;
-    rbLog.debug(`发现运行中的回收站虚拟机: ${cloud.name}/${instanceId} (状态: ${previousStatus})`);
+    rbLog.debug(
+      `发现需关机的回收站虚拟机: ${cloud.name}/${instanceId} (状态: ${previousStatus})`,
+    );
 
     // 执行关机
     try {

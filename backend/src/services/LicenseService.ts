@@ -3,6 +3,10 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+import {
+  getLicenseVerifyPublicKey,
+  LICENSE_JWT_ALGORITHM,
+} from '../config/licenseSigning';
 import { logger } from '../utils/logger';
 
 const licenseLog = logger.child('License');
@@ -33,27 +37,88 @@ if (dotenvPath) {
   dotenv.config();
 }
 
-const LICENSE_SECRET_FILE = process.env.LICENSE_SECRET_FILE_PATH
-  ? path.isAbsolute(process.env.LICENSE_SECRET_FILE_PATH)
-    ? process.env.LICENSE_SECRET_FILE_PATH
-    : path.join(process.cwd(), process.env.LICENSE_SECRET_FILE_PATH)
-  : path.join(DATA_DIR, 'license.secret');
-
-const getLicenseSecret = (): string | undefined => {
-  if (process.env.LICENSE_SECRET) return process.env.LICENSE_SECRET;
-  try {
-    if (fs.existsSync(LICENSE_SECRET_FILE)) {
-      const s = fs.readFileSync(LICENSE_SECRET_FILE, 'utf-8').trim();
-      if (s) return s;
-    }
-    fs.mkdirSync(path.dirname(LICENSE_SECRET_FILE), { recursive: true });
-    const s = crypto.randomBytes(32).toString('base64url');
-    fs.writeFileSync(LICENSE_SECRET_FILE, s, 'utf-8');
-    return s;
-  } catch {
-    return undefined;
+/** 去掉首尾空白、换行折行、BOM；从整段文本中提取 eyJ 开头的 JWT */
+export function normalizeLicenseKey(input: string): string {
+  let s = String(input ?? '')
+    .trim()
+    .replace(/^\uFEFF/, '');
+  if (!s) return s;
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
   }
-};
+  const compact = s.replace(/\s/g, '');
+  const jwtOnly = compact.match(/^(eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/);
+  if (jwtOnly) return jwtOnly[1];
+  const embedded = compact.match(/(eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
+  if (embedded) return embedded[1];
+  return compact;
+}
+
+/** 激活/更新授权时的用户可见错误文案 */
+function formatLicenseActivateError(raw: string): string {
+  const msg = String(raw || '').trim();
+  const lower = msg.toLowerCase();
+  if (lower.includes('invalid algorithm')) {
+    return '授权更新失败，授权码不匹配';
+  }
+  const stripped = msg
+    .replace(/^激活失败[：:]\s*/gi, '')
+    .replace(/^activation failed[：:]\s*/gi, '');
+  if (msg.startsWith('授权更新失败')) return msg;
+  return stripped ? `授权更新失败：${stripped}` : '授权更新失败';
+}
+
+function assertLicenseKeyLooksLikeJwt(token: string): void {
+  const uuidOnly =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
+  if (uuidOnly) {
+    throw new Error(
+      '您填写的是「平台唯一安装 ID」，不是 License Key。请粘贴以 eyJ 开头的完整授权字符串，或上传 .key 文件',
+    );
+  }
+  const parts = token.split('.');
+  if (parts.length !== 3 || !token.startsWith('eyJ')) {
+    throw new Error(
+      'License Key 格式不正确：须为单行 JWT（以 eyJ 开头、中间两个点分成三段）。请从签发结果完整复制，勿含 --- 等分隔行',
+    );
+  }
+}
+
+function verifyLicenseJwt(token: string): LicensePayload {
+  const normalized = normalizeLicenseKey(token);
+  assertLicenseKeyLooksLikeJwt(normalized);
+  const publicKey = getLicenseVerifyPublicKey();
+  let payload: LicensePayload;
+  try {
+    payload = jwt.verify(normalized, publicKey, {
+      algorithms: [LICENSE_JWT_ALGORITHM],
+    }) as LicensePayload;
+  } catch (e: any) {
+    const errMsg = String(e?.message || '');
+    const lower = errMsg.toLowerCase();
+    if (lower.includes('jwt malformed')) {
+      throw new Error(
+        'License Key 无法解析为 JWT，请检查是否完整复制（一行、无换行截断）或是否已升级到 1.0.3',
+      );
+    }
+    if (lower.includes('invalid algorithm')) {
+      throw new Error(formatLicenseActivateError(errMsg));
+    }
+    throw e;
+  }
+
+  const boundId = payload.instanceId?.trim();
+  if (!boundId) {
+    throw new Error('授权缺少平台安装 ID 绑定');
+  }
+  if (boundId !== getInstallId()) {
+    throw new Error('授权中的平台安装 ID 与当前环境不一致');
+  }
+  return payload;
+}
 
 /**
  * 获取或生成本机唯一安装 ID（用于离线授权绑定）
@@ -152,7 +217,7 @@ class LicenseService {
         return;
       }
 
-      const content = fs.readFileSync(existingLicenseFile, 'utf-8').trim();
+      const content = normalizeLicenseKey(fs.readFileSync(existingLicenseFile, 'utf-8'));
       if (!content) {
         this.currentLicense = null;
         this.currentStatus = {
@@ -193,35 +258,10 @@ class LicenseService {
       return;
     }
 
-    const licenseSecret = getLicenseSecret();
-    if (!licenseSecret) {
-      this.currentStatus = {
-        status: 'invalid',
-        active: false,
-        message: 'LICENSE_SECRET is not configured',
-      };
-      return;
-    }
-
     try {
-      const payload = jwt.verify(this.currentLicense, licenseSecret) as LicensePayload;
+      const payload = verifyLicenseJwt(this.currentLicense);
       const now = Math.floor(Date.now() / 1000);
       const daysRemaining = Math.ceil((payload.exp - now) / (24 * 60 * 60));
-
-      // 若授权中包含 instanceId 绑定字段，则强制校验与本机 installId 一致
-      if (payload.instanceId) {
-        const localId = getInstallId();
-        if (payload.instanceId !== localId) {
-          this.currentStatus = {
-            status: 'invalid',
-            active: false,
-            payload,
-            daysRemaining,
-            message: '授权中的平台安装 ID 与当前环境不一致，无法使用本授权',
-          };
-          return;
-        }
-      }
 
       if (payload.exp < now) {
         this.currentStatus = {
@@ -275,39 +315,28 @@ class LicenseService {
    */
   public activate(licenseKey: string): LicenseStatus {
     try {
-      const licenseSecret = getLicenseSecret();
-      if (!licenseSecret) {
-        throw new Error('LICENSE_SECRET is not configured');
-      }
+      const normalizedKey = normalizeLicenseKey(licenseKey);
+      const payload = verifyLicenseJwt(normalizedKey);
 
-      // 1. 预验证
-      const payload = jwt.verify(licenseKey, licenseSecret) as LicensePayload;
-
-      // 2. 检查是否过期（防止导入已过期的 License）
       const now = Math.floor(Date.now() / 1000);
       if (payload.exp < now) {
         throw new Error('该授权已过期，无法激活');
-      }
-
-      // 绑定安装 ID 的授权必须在写入前与当前环境一致（避免先覆盖文件再发现无效）
-      if (payload.instanceId && payload.instanceId !== getInstallId()) {
-        throw new Error('授权中的平台安装 ID 与当前环境不一致，无法激活');
       }
 
       // 3. 写入文件
       if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
-      fs.writeFileSync(PREFERRED_LICENSE_FILE, licenseKey);
+      fs.writeFileSync(PREFERRED_LICENSE_FILE, normalizedKey);
 
       // 4. 更新内存状态
-      this.currentLicense = licenseKey;
+      this.currentLicense = normalizedKey;
       this.verifyLicense();
 
       return this.getStatus();
     } catch (error: any) {
       const msg = String(error?.message || error || '未知错误');
-      throw new Error(msg.startsWith('Activation failed:') ? msg : `激活失败：${msg}`);
+      throw new Error(formatLicenseActivateError(msg));
     }
   }
 

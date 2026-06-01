@@ -78,6 +78,13 @@ const BlockDeviceCardGrid: React.FC<BlockDeviceCardGridProps> = ({
             key={opt.blockDeviceCrName || `${opt.nodeName}:${opt.value}:${opt.devPath}`}
             title={blockDeviceOptionTooltip(opt)}
             placement="topLeft"
+            styles={{
+              body: {
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxWidth: 400,
+              },
+            }}
           >
             <Card
               size="small"
