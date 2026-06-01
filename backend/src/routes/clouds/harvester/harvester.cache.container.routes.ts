@@ -2214,6 +2214,78 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
 
         const results: { step: string; status: string; message?: string }[] = [];
 
+        // Step 0: 创建本地镜像仓库（如果不存在）
+        let localRegistryExists = false;
+        try {
+          const registryServiceUrl = `${origin}/api/v1/namespaces/default/services/docker-registry`;
+          try {
+            await getJsonOnce(registryServiceUrl, token, insecure, true);
+            localRegistryExists = true;
+            results.push({ step: '检查本地镜像仓库', status: 'skipped', message: '已存在' });
+          } catch (e) {
+            // 创建 PVC
+            try {
+              const pvcUrl = `${origin}/api/v1/namespaces/default/persistentvolumeclaims`;
+              const pvcBody = {
+                apiVersion: 'v1',
+                kind: 'PersistentVolumeClaim',
+                metadata: { name: 'docker-registry-pvc', namespace: 'default' },
+                spec: {
+                  accessModes: ['ReadWriteOnce'],
+                  resources: { requests: { storage: '10Gi' } },
+                },
+              };
+              await requestJson('POST', pvcUrl, token, insecure, pvcBody);
+            } catch (pvcErr: any) {
+              // 忽略
+            }
+
+            // 创建 Deployment
+            const deployUrl = `${origin}/apis/apps/v1/namespaces/default/deployments`;
+            const deployBody = {
+              apiVersion: 'apps/v1',
+              kind: 'Deployment',
+              metadata: { name: 'docker-registry', namespace: 'default' },
+              spec: {
+                replicas: 1,
+                selector: { matchLabels: { app: 'docker-registry' } },
+                template: {
+                  metadata: { labels: { app: 'docker-registry' } },
+                  spec: {
+                    containers: [{
+                      name: 'registry',
+                      image: 'docker.io/library/registry:2',
+                      ports: [{ containerPort: 5000 }],
+                      volumeMounts: [{ name: 'registry-storage', mountPath: '/var/lib/registry' }],
+                    }],
+                    volumes: [{ name: 'registry-storage', persistentVolumeClaim: { claimName: 'docker-registry-pvc' } }],
+                  },
+                },
+              },
+            };
+            await requestJson('POST', deployUrl, token, insecure, deployBody);
+
+            // 创建 Service (NodePort 30500)
+            const serviceUrl = `${origin}/api/v1/namespaces/default/services`;
+            const serviceBody = {
+              apiVersion: 'v1',
+              kind: 'Service',
+              metadata: { name: 'docker-registry', namespace: 'default' },
+              spec: {
+                type: 'NodePort',
+                selector: { app: 'docker-registry' },
+                ports: [{ port: 5000, targetPort: 5000, nodePort: 30500 }],
+              },
+            };
+            await requestJson('POST', serviceUrl, token, insecure, serviceBody);
+
+            localRegistryExists = true;
+            results.push({ step: '创建本地镜像仓库', status: 'success', message: 'docker-registry:30500' });
+          }
+        } catch (error: any) {
+          results.push({ step: '创建本地镜像仓库', status: 'error', message: error.message });
+        }
+
         // Step 1: 创建命名空间
         try {
           const nsUrl = `${origin}/api/v1/namespaces`;
