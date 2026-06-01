@@ -1,0 +1,81 @@
+name: Smoke
+
+# API 冒烟：GET /health、POST /api/auth/login、受保护 GET /api/auth/admin-default-home（不依赖外部云）。
+# 本地复现见 docs/ci.md · docs/contributing.md
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Smoke (API health + auth)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build backend
+        run: npx tsc
+      - name: Start server and probe health + login
+        env:
+          NODE_ENV: development
+          PORT: 5099
+          DB_SYNC: 'true'
+          JWT_SECRET: ci-smoke-secret
+          LOGIN_ALLOW_PLAINT_PASSWORD: '1'
+        run: |
+          node dist/src/index.js &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          BASE="http://127.0.0.1:5099"
+          for i in $(seq 1 60); do
+            if curl -sf "${BASE}/health" >/dev/null; then
+              break
+            fi
+            if [ "$i" -eq 60 ]; then
+              echo "Server did not become healthy in time"
+              exit 1
+            fi
+            sleep 2
+          done
+          curl -sf "${BASE}/health"
+          echo ""
+
+          LOGIN_BODY='{"username":"admin","password":"admin123"}'
+          LOGIN_RESP=$(curl -sf -X POST "${BASE}/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d "${LOGIN_BODY}")
+          node -e "
+            const j = JSON.parse(process.argv[1]);
+            if (!j.token || typeof j.token !== 'string') {
+              console.error('login response missing token:', j);
+              process.exit(1);
+            }
+            if (!j.user || j.user.username !== 'admin') {
+              console.error('unexpected login user:', j.user);
+              process.exit(1);
+            }
+            console.log('login ok:', j.user.username, j.user.role);
+          " "${LOGIN_RESP}"
+
+          TOKEN=$(node -e "console.log(JSON.parse(process.argv[1]).token)" "${LOGIN_RESP}")
+          curl -sf -H "Authorization: Bearer ${TOKEN}" "${BASE}/api/auth/admin-default-home"
+          echo ""
+          echo "smoke: health + login + admin-default-home OK"

@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Tree, Input, Empty, Spin, Typography, Tag, message, Space, Tooltip, Popconfirm, Dropdown, Button } from 'antd';
+import { Tree, Input, Empty, Spin, Typography, Tag, message, Space, Tooltip, Button } from 'antd';
 import { 
   DockerOutlined, 
   TagOutlined, 
@@ -26,10 +26,8 @@ import {
   ReloadOutlined,
   LinkOutlined,
   CopyOutlined,
-  DeleteOutlined,
-  MoreOutlined,
 } from '@ant-design/icons';
-import type { TreeDataNode, TreeProps, MenuProps } from 'antd';
+import type { TreeDataNode, TreeProps } from 'antd';
 import { getRegistryCatalog, getRegistryTags } from '../../../../../../services/harvesterApi';
 
 const { Text } = Typography;
@@ -74,19 +72,6 @@ interface ExtendedTreeDataNode extends TreeDataNode {
   tag?: string;
   isLeaf?: boolean;
 }
-
-/**
- * 解析服务器地址，提取主机名
- */
-const parseServerHost = (server: string): string => {
-  try {
-    const url = new URL(server);
-    return url.host;
-  } catch {
-    // 如果不是有效 URL，直接返回原值
-    return server.replace(/^https?:\/\//, '').replace(/\/$/, '');
-  }
-};
 
 /**
  * RegistryBrowser 组件

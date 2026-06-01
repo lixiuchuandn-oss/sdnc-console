@@ -3,11 +3,7 @@ import { HarvesterAswCtlSwitchInventory } from '../../../entities/harvester/Harv
 
 function hostFromSwitchRow(row: any): string {
   const h =
-    row?.info?.host ||
-    row?.interfaces?.host ||
-    row?.performance?.host ||
-    row?.vlans?.host ||
-    '';
+    row?.info?.host || row?.interfaces?.host || row?.performance?.host || row?.vlans?.host || '';
   const s = h != null ? String(h).trim() : '';
   return s;
 }
@@ -18,11 +14,14 @@ function hostFromSwitchRow(row: any): string {
 export async function persistAswCtlSwitchInventory(
   cloudId: string,
   items: any[],
+  opts?: { merge?: boolean },
 ): Promise<void> {
   if (!cloudId) return;
   const repo = AppDataSource.getRepository(HarvesterAswCtlSwitchInventory);
   if (!items.length) {
-    await repo.delete({ cloudId });
+    if (!opts?.merge) {
+      await repo.delete({ cloudId });
+    }
     return;
   }
   const now = new Date();
@@ -76,10 +75,12 @@ export async function persistAswCtlSwitchInventory(
     }
   }
 
-  const all = await repo.find({ where: { cloudId } });
-  for (const r of all) {
-    if (!seen.has(r.switchHost)) {
-      await repo.delete({ id: r.id });
+  if (!opts?.merge) {
+    const all = await repo.find({ where: { cloudId } });
+    for (const r of all) {
+      if (!seen.has(r.switchHost)) {
+        await repo.delete({ id: r.id });
+      }
     }
   }
 }

@@ -1,6 +1,6 @@
 /**
  * Harvester ECS (虚拟机) Handlers
- * 
+ *
  * 从 harvester.cache.vm.routes.ts 中提取的 ECS 相关业务逻辑
  */
 
@@ -79,8 +79,8 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
       return prefixBlacklist.some((p) => ns.startsWith(p));
     };
 
-    let vmWhere: any = { cloudId: id };
-    let vmiWhere: any = { cloudId: id };
+    const vmWhere: any = { cloudId: id };
+    const vmiWhere: any = { cloudId: id };
     let validNamespaces: string[] | null = null;
 
     const reqAny = req as any;
@@ -137,7 +137,7 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
         if (!uniqueNamespaces.has(orgNs)) {
           uniqueNamespaces.add(orgNs);
           // Update the first matching UserSpace record
-          const firstMatch = matches.find(m => m.organizationId === userOrgId) || matches[0];
+          const firstMatch = matches.find((m) => m.organizationId === userOrgId) || matches[0];
           if (firstMatch) {
             const nsList = Array.from(uniqueNamespaces);
             firstMatch.namespace = nsList.join(',');
@@ -209,7 +209,8 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
       const vmi = vmiMap.get(`${namespace}/${name}`);
 
       const viewUrl =
-        item.view || `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
+        item.view ||
+        `${origin}/apis/kubevirt.io/v1/namespaces/${namespace}/virtualmachines/${name}`;
 
       const status = vm?.status?.printableStatus || vm?.status?.phase || 'Unknown';
 

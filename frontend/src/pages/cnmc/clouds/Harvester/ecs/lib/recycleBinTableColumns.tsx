@@ -8,6 +8,7 @@ import { cnVmStatus } from 'utils/harvesterUtils';
 import { formatStorageSize } from './storageSize';
 import type { VmListSafeRead } from './vmSafeRead';
 import { formatVmListTimestamp } from './vmSectionActions';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export const HARVESTER_RECYCLE_BIN_TABLE_SETTINGS_KEY = 'harvester_recycle_bin_table';
 
@@ -250,35 +251,39 @@ export function buildRecycleBinTableColumns(
         </span>
       ),
     },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right',
-      render: (_: any, r: any) => {
-        const items: any[] = [
-          { key: 'restore', label: '恢复', onClick: () => onRestore(r) },
-          ...(!isTenant
-            ? [
+    ...((hasRecycleBinWrite || !isTenant)
+      ? ([
+          {
+            title: '操作',
+            key: 'actions',
+            fixed: 'right' as const,
+            render: (_: any, r: any) => {
+              const items: any[] = [
+                { key: 'restore', label: '恢复', onClick: () => onRestore(r) },
+                ...(!isTenant
+                  ? [
+                      { type: 'divider' },
+                      { key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) },
+                    ]
+                  : []),
                 { type: 'divider' },
-                { key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) },
-              ]
-            : []),
-          { type: 'divider' },
-          { key: 'force_delete', label: '彻底删除', danger: true, onClick: () => onForceDelete(r) },
-        ];
-        return (
-          <span>
-            <ResourceActionsDropdown
-              items={items}
-              buttonProps={{
-                className: 'row-actions-trigger',
-                style: { margin: 0 },
-                disabled: !hasRecycleBinWrite,
-              }}
-            />
-          </span>
-        );
-      },
-    },
+                { key: 'force_delete', label: '彻底删除', danger: true, onClick: () => onForceDelete(r) },
+              ];
+              const filteredItems = filterMenuItemsForReadOnly(items, hasRecycleBinWrite);
+              return (
+                <span>
+                  <ResourceActionsDropdown
+                    items={filteredItems}
+                    buttonProps={{
+                      className: 'row-actions-trigger',
+                      style: { margin: 0 },
+                    }}
+                  />
+                </span>
+              );
+            },
+          },
+        ] as ColumnsType<any>)
+      : []),
   ];
 }

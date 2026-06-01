@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Drawer, Tabs, Descriptions, Tag, Button, Space } from 'antd';
+import React, { useState, useCallback } from 'react';
+import { Drawer, Tabs, Descriptions, Button, Space } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import JsonHighlight from './JsonHighlight';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';

@@ -56,7 +56,7 @@ export function filterSwitchTableRows(
     const name = String(r.metadata?.name || '').toLowerCase();
     const host = String(r.spec?.primaryHost || r.spec?.hosts?.[0] || '').toLowerCase();
     const profile = String(r.spec?.deviceProfile || '').toLowerCase();
-    const model = switchProbeProductModel(r._probe).toLowerCase();
+    const model = switchProbeProductModel(r._probe, r.spec?.vendor).toLowerCase();
     return (
       name.includes(kw) ||
       host.includes(kw) ||

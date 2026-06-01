@@ -5,6 +5,8 @@ import { getPublicAdminAuthConfig } from '../services/systemApi';
 import { usePageIdleLogout } from '../hooks/usePageIdleLogout';
 import { getToken, setToken as saveToken, removeToken } from '../utils/tokenStorage';
 import { buildLoginRequestBody } from '../utils/loginPasswordCipher';
+import type { AccountType } from '../utils/accountType';
+import { resolveAccountType } from '../utils/accountType';
 
 /**
  * 用户对象
@@ -16,6 +18,10 @@ interface User {
   email: string;
   fullName: string;
   role: 'super_admin' | 'admin' | 'tenant';
+  /** 登录身份：tenant（TenantUser）| system（User 表） */
+  accountType?: AccountType;
+  /** 登录响应推荐落地路径（租户为 /console） */
+  defaultPath?: string;
   tenantRole?: string;
   status: 'active' | 'inactive' | 'suspended';
   permissions?: string[];
@@ -254,23 +260,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       saveToken(data.token);
       setToken(data.token);
 
+      const normalizedUser = {
+        ...data.user,
+        accountType: data.user?.accountType ?? resolveAccountType(data.user),
+        defaultPath: data.user?.defaultPath ?? data.defaultPath,
+      };
+
       // 优先使用后端返回的计算好的权限
-      if (Array.isArray(data.user.permissions) && data.user.permissions.length > 0) {
-        setUser(data.user);
-        return data.user;
+      if (Array.isArray(normalizedUser.permissions) && normalizedUser.permissions.length > 0) {
+        setUser(normalizedUser);
+        return normalizedUser;
       }
 
       // 如果是超级管理员，直接赋予所有权限
-      if (data.user.role === 'super_admin') {
-        const withPerms = { ...data.user, permissions: ['*'] };
+      if (normalizedUser.role === 'super_admin') {
+        const withPerms = { ...normalizedUser, permissions: ['*'] };
         setUser(withPerms);
         return withPerms;
       }
 
       try {
         // 与初始化相同：基于分配关系聚合角色权限
-        const userType = data.user.role === 'tenant' ? 'tenant' : 'system';
-        const assignRes = await fetch(`${API_BASE_URL}/api/system/rbac/assignments?userType=${encodeURIComponent(userType)}&userId=${encodeURIComponent(data.user.id)}`, {
+        const userType = normalizedUser.role === 'tenant' ? 'tenant' : 'system';
+        const assignRes = await fetch(`${API_BASE_URL}/api/system/rbac/assignments?userType=${encodeURIComponent(userType)}&userId=${encodeURIComponent(normalizedUser.id)}`, {
           headers: { 'Authorization': `Bearer ${data.token}` }
         });
         let perms: string[] = [];
@@ -278,8 +290,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const assignsJson = await assignRes.json();
           const roleIds: string[] = Array.isArray(assignsJson?.assignments) ? assignsJson.assignments.map((a: any) => a.roleId) : [];
           // 如果是租户用户且携带了 tenantRole，也将其视为角色 ID
-          if (data.user.tenantRole && !roleIds.includes(data.user.tenantRole)) {
-            roleIds.push(data.user.tenantRole);
+          if (normalizedUser.tenantRole && !roleIds.includes(normalizedUser.tenantRole)) {
+            roleIds.push(normalizedUser.tenantRole);
           }
           if (roleIds.length) {
             const rolesRes = await fetch(`${API_BASE_URL}/api/system/rbac/roles`, { headers: { 'Authorization': `Bearer ${data.token}` } });
@@ -296,13 +308,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             }
           }
         }
-        const withPerms = { ...data.user, permissions: Array.from(new Set(perms)) };
+        const withPerms = { ...normalizedUser, permissions: Array.from(new Set(perms)) };
         setUser(withPerms);
         return withPerms;
       } catch {
         // 权限聚合失败不阻塞登录
-        setUser(data.user);
-        return data.user;
+        setUser(normalizedUser);
+        return normalizedUser;
       }
     } catch (error) {
       throw error;

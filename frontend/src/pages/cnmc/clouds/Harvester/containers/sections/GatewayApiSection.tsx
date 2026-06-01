@@ -2,17 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { Tabs, Alert, Button, message, Tag, Table, Popconfirm, Select } from 'antd';
 import { ApiOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../../components/WriteGuard';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import {
-  checkGatewayApiStatus,
-  fetchGatewayClasses,
-  fetchGateways,
-  fetchHttpRoutes,
-  fetchGrpcRoutes,
-  createGateway,
   deleteGateway,
-  createHttpRoute,
   deleteHttpRoute,
-  createGrpcRoute,
   deleteGrpcRoute,
 } from '../../../../../../services/harvesterApi';
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal } from '../components';
@@ -54,7 +49,12 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
+  const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'gateway_api'),
+    [user?.permissions],
+  );
   const [activeSubTab, setActiveSubTab] = useState('gatewayclasses');
   
   // 创建弹窗状态
@@ -136,6 +136,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
+        hasContainersWrite ? (
         <Popconfirm
           title="确定删除此 Gateway？"
           onConfirm={() => handleDeleteGateway(record)}
@@ -146,6 +147,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             删除
           </Button>
         </Popconfirm>
+        ) : null
       ),
     },
   ];
@@ -185,6 +187,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
+        hasContainersWrite ? (
         <Popconfirm
           title="确定删除此 HTTPRoute？"
           onConfirm={() => handleDeleteHttpRoute(record)}
@@ -195,6 +198,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             删除
           </Button>
         </Popconfirm>
+        ) : null
       ),
     },
   ];
@@ -234,6 +238,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
+        hasContainersWrite ? (
         <Popconfirm
           title="确定删除此 GRPCRoute？"
           onConfirm={() => handleDeleteGrpcRoute(record)}
@@ -244,6 +249,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             删除
           </Button>
         </Popconfirm>
+        ) : null
       ),
     },
   ];
@@ -344,13 +350,15 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       label: (
         <span>
           Gateway
-          <Button
-            type="primary"
-            style={{ marginLeft: 8 }}
-            onClick={() => setGatewayModalOpen(true)}
-          >
-            创建
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button
+              type="primary"
+              style={{ marginLeft: 8 }}
+              onClick={() => setGatewayModalOpen(true)}
+            >
+              创建
+            </Button>
+          </WriteGuard>
         </span>
       ),
       children: (
@@ -373,13 +381,15 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       label: (
         <span>
           HTTP路由
-          <Button
-            type="primary"
-            style={{ marginLeft: 8 }}
-            onClick={() => setHttpRouteModalOpen(true)}
-          >
-            创建
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button
+              type="primary"
+              style={{ marginLeft: 8 }}
+              onClick={() => setHttpRouteModalOpen(true)}
+            >
+              创建
+            </Button>
+          </WriteGuard>
         </span>
       ),
       children: (
@@ -402,13 +412,15 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       label: (
         <span>
           gRPC路由
-          <Button
-            type="primary"
-            style={{ marginLeft: 8 }}
-            onClick={() => setGrpcRouteModalOpen(true)}
-          >
-            创建
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button
+              type="primary"
+              style={{ marginLeft: 8 }}
+              onClick={() => setGrpcRouteModalOpen(true)}
+            >
+              创建
+            </Button>
+          </WriteGuard>
         </span>
       ),
       children: (

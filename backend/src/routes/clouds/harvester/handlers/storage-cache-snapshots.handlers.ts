@@ -1,6 +1,6 @@
 /**
  * Harvester Snapshots Handlers
- * 
+ *
  * 从 harvester.cache.storage.routes.ts 中提取的 Snapshots 相关业务逻辑
  */
 
@@ -23,10 +23,11 @@ export async function harvesterSnapshotListHandler(req: Request, res: Response) 
 
     const repo = AppDataSource.getRepository(HarvesterSnapshotInventory);
     let whereCondition: any = { cloudId: id };
-    
-    const isTenant = reqAny.user?.role === 'tenant' || 
-                     (reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
-    
+
+    const isTenant =
+      reqAny.user?.role === 'tenant' ||
+      (reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device');
+
     if (isTenant) {
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
       const us = await userSpaceRepo.findOne({
@@ -61,7 +62,7 @@ export async function harvesterSnapshotListHandler(req: Request, res: Response) 
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
     const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
-    
+
     if (shouldSync) {
       try {
         await syncHarvesterSnapshots(cloud, insecure);
@@ -86,7 +87,7 @@ export async function harvesterSnapshotListHandler(req: Request, res: Response) 
 export async function harvesterSnapshotDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     const opts = {
@@ -99,11 +100,7 @@ export async function harvesterSnapshotDeleteHandler(req: Request, res: Response
       await deleteHarvesterVirtualMachineSnapshot(opts, namespace, name);
     } catch (e: any) {
       if (Number(e?.status) === 404 || String(e?.message).includes('404')) {
-        try {
-          await deleteHarvesterVolumeSnapshot(opts, namespace, name);
-        } catch (e2: any) {
-          throw e2;
-        }
+        await deleteHarvesterVolumeSnapshot(opts, namespace, name);
       } else {
         throw e;
       }

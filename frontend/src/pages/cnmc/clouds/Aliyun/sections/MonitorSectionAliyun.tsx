@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Space, Select, Switch, Popover, Checkbox } from 'antd';
 import { ReloadOutlined, LineChartOutlined } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../components/LazyReactECharts';
 import { fetchAliyunEcsMetrics } from '../../../../../services/aliyunApi';
 type Props = { cloudId: string; instance: any; metrics?: any[]; onRefresh?: (force?: boolean) => void | Promise<void>; };
-const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics, onRefresh }) => {
+const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, onRefresh }) => {
   const iid = String(instance?.InstanceId || instance?.id || '');
   const [loading, setLoading] = useState<boolean>(false);
   const [seriesMap, setSeriesMap] = useState<Record<string, any[]>>({});
@@ -42,11 +42,13 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics
       setSeriesMap(entries);
     } finally { setLoading(false); }
   };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadAll(); }, [cloudId, iid, period]);
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => { loadAll(); }, Math.max(period * 1000, 30000));
     return () => { clearInterval(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, period, cloudId, iid]);
   const optionsFor = (key: string, label: string, unit: string) => {
     const arr = seriesMap[key] || [];
@@ -89,7 +91,7 @@ const MonitorSectionAliyunInner: React.FC<Props> = ({ cloudId, instance, metrics
           style={{ overflow: 'hidden' }}
           extra={<span style={{ fontSize: 12, color: '#8c8c8c' }}>当前 {formatNum(Number(cur))} · 最小 {formatNum(Number(min))} · 最大 {formatNum(Number(max))}</span>}
         >
-          <ReactECharts notMerge lazyUpdate option={optionsFor(m.key, m.label, m.unit)} style={{ width: '100%', height: 220 }} />
+          <LazyReactECharts notMerge lazyUpdate option={optionsFor(m.key, m.label, m.unit)} style={{ width: '100%', height: 220 }} />
         </Card>
       );
     });

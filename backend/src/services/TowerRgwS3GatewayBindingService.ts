@@ -13,7 +13,9 @@ export type TowerRgwS3ClientGatewayStored = {
   forcePathStyle?: boolean;
 };
 
-export function readTowerRgwS3ClientByStore(config: unknown): Record<string, TowerRgwS3ClientGatewayStored> {
+export function readTowerRgwS3ClientByStore(
+  config: unknown,
+): Record<string, TowerRgwS3ClientGatewayStored> {
   const c = config && typeof config === 'object' ? (config as Record<string, unknown>) : {};
   const m = c[TOWER_RGW_S3_CLIENT_BY_STORE_KEY];
   if (!m || typeof m !== 'object' || Array.isArray(m)) return {};
@@ -42,7 +44,8 @@ export async function upsertTowerRgwS3ClientGateway(
   if (!cloud) throw Object.assign(new Error('云资源不存在'), { status: 404 });
   const ns = namespace.trim();
   const nm = objectStoreName.trim();
-  if (!ns || !nm) throw Object.assign(new Error('缺少 namespace 或 objectStoreName'), { status: 400 });
+  if (!ns || !nm)
+    throw Object.assign(new Error('缺少 namespace 或 objectStoreName'), { status: 400 });
 
   const cfg = { ...(cloud.config || {}) };
   const prev = readTowerRgwS3ClientByStore(cfg);

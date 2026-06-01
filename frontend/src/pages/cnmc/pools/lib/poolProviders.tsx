@@ -43,6 +43,7 @@ import {
   CloudUploadOutlined,
   ContainerOutlined,
   RobotOutlined,
+  HddOutlined,
 } from '@ant-design/icons';
 
 /**
@@ -62,6 +63,25 @@ export function isXinferencePoolCloud(cloud: { config?: { provider?: string }; t
   return pv === 'xinference';
 }
 
+/** 华为云资源池（config.provider/type 含 `huawei`，与 `inferPoolRouteKind` 语义一致） */
+export function isHuaweiPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const raw = String(cloud?.config?.provider ?? cloud?.type ?? '').toLowerCase().trim();
+  return raw.includes('huawei');
+}
+
+/** 阿里云资源池（config.provider/type 含 `aliyun`，与 `inferPoolRouteKind` 语义一致） */
+export function isAliyunPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const raw = String(cloud?.config?.provider ?? cloud?.type ?? '').toLowerCase().trim();
+  return raw.includes('aliyun');
+}
+
+/** MAAS 裸金属资源池（type=bare_metal + config.provider=maas） */
+export function isMaasPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
+  const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
+  const t = String(cloud?.type ?? '').toLowerCase().trim();
+  return pv === 'maas' || t === 'bare_metal';
+}
+
 /** Rancher 容器云资源池（新接入为 type=container_cloud + config.provider=rancher；历史 type=rancher；若列表无 config 则仅能用 type=container_cloud 粗判） */
 export function isRancherPoolCloud(cloud: { config?: { provider?: string }; type?: string }): boolean {
   const pv = String(cloud?.config?.provider ?? '').toLowerCase().trim();
@@ -79,6 +99,7 @@ export const CLOUD_TYPE_MAP: Record<string, string> = {
   edge: '边缘计算',
   /** Rancher 等子厂商见 config.provider，旧库可能仍为 type=rancher */
   container_cloud: '容器云',
+  bare_metal: '裸金属',
   virtualization: '虚拟化',
   object_storage: '对象存储',
   security_pool: 'SDN 业务域',
@@ -154,7 +175,7 @@ export interface Cloud {
   id: string;
   name: string;
   description: string;
-  type: 'central' | 'private' | 'edge' | 'container_cloud' | 'rancher' | 'virtualization' | 'object_storage' | 'security_pool';
+  type: 'central' | 'private' | 'edge' | 'container_cloud' | 'rancher' | 'bare_metal' | 'virtualization' | 'object_storage' | 'security_pool';
   status: 'online' | 'offline' | 'maintenance';
   region: string;
   endpoint: string;
@@ -212,7 +233,7 @@ export interface CloudProvider {
   id: string;              // 唯一标识 (e.g., 'aliyun', 'aws')
   name: string;            // 显示名称
   logo?: React.ReactNode;   // 平台图标 (可选，若为空则使用大类默认图标)
-  category: 'central' | 'private' | 'edge' | 'container_cloud' | 'virtualization' | 'object_storage' | 'sdn_security_pool'; // 分类（「容器云」下再选子厂商，如 rancher；CSM 归 SDN 业务域）
+  category: 'central' | 'private' | 'edge' | 'container_cloud' | 'bare_metal' | 'virtualization' | 'object_storage' | 'sdn_security_pool'; // 分类（「容器云」下再选子厂商；裸金属下如 maas；CSM 归 SDN 业务域）
   description: string;     // 简短描述
   fields: CloudProviderField[]; // 动态表单字段配置
 }
@@ -513,6 +534,36 @@ export const cloudProviders: CloudProvider[] = [
   },
 
   // ==============================================================================
+  // 3c. 裸金属（type bare_metal；子厂商由 id 区分，如 maas）
+  // ==============================================================================
+  {
+    id: 'maas',
+    name: 'MAAS',
+    category: 'bare_metal',
+    logo: <HddOutlined />,
+    description: 'Canonical MAAS 裸金属 Region',
+    fields: [
+      { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入资源池名称' },
+      {
+        key: 'endpoint',
+        label: 'MAAS Region 地址',
+        type: 'input',
+        required: true,
+        placeholder: 'http://10.0.0.1:5240/MAAS',
+        help: '必须以 /MAAS 结尾，例如 http://10.0.0.1:5240/MAAS',
+      },
+      {
+        key: 'apiKey',
+        label: 'API Key',
+        type: 'password',
+        required: true,
+        placeholder: 'consumer_key:token:secret',
+        help: '在 MAAS Settings → API keys 生成，格式为三段冒号分隔',
+      },
+    ],
+  },
+
+  // ==============================================================================
   // 4. 虚拟化平台 (Virtualization Platform)
   // ==============================================================================
   {
@@ -563,13 +614,13 @@ export const cloudProviders: CloudProvider[] = [
   },
   {
     id: 'ceph',
-    name: 'Ceph',
+    name: '统一存储',
     category: 'object_storage',
     logo: <DatabaseOutlined />,
-    description: 'Ceph对象存储',
+    description: '统一存储（S3 兼容对象存储）',
     fields: [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
-      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入Ceph端点' },
+      { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: '请输入统一存储端点' },
       { key: 'accessKey', label: '访问密钥', type: 'input', required: true, placeholder: '请输入访问密钥' },
       { key: 'secretKey', label: '私有密钥', type: 'password', required: true, placeholder: '请输入私有密钥' }
     ]
@@ -659,6 +710,8 @@ export const getProviderLogo = (providerId?: string, category?: string): React.R
       return <DeploymentUnitOutlined />;
     case 'container_cloud':
       return <ContainerOutlined />;
+    case 'bare_metal':
+      return <HddOutlined />;
     case 'virtualization':
       return <DesktopOutlined />;
     case 'object_storage':
@@ -721,6 +774,13 @@ export const getCredentialLabels = (provider?: string) => {
       return { akLabel: '访问密钥（可选）', skLabel: 'Rancher API 令牌', akPlaceholder: '通常留空', skPlaceholder: '请输入 Rancher API 令牌' };
     case 'xinference':
       return { akLabel: '访问密钥（可选）', skLabel: 'API 令牌', akPlaceholder: '通常留空', skPlaceholder: '集群启用认证时填写' };
+    case 'maas':
+      return {
+        akLabel: '访问密钥（不使用）',
+        skLabel: 'MAAS API Key',
+        akPlaceholder: '留空',
+        skPlaceholder: 'consumer_key:token:secret',
+      };
     default:
       return { akLabel: '访问密钥 (Access Key)', skLabel: '私有密钥 (Secret Key)', akPlaceholder: '请输入访问密钥', skPlaceholder: '请输入私有密钥' };
   }

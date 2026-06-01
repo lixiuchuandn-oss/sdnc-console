@@ -15,6 +15,10 @@ import { Modal, Form, Input, Select, message } from 'antd';
 import { createHarvesterVirtualMachineBackup } from 'services/harvester/cbr';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import {
+  buildVmBackupCreateBlockedMessage,
+  findInProgressHarvesterBackupForVm,
+} from '../lib/vmBackupReadyStatus';
 
 /**
  * 组件入参
@@ -36,6 +40,7 @@ interface Props {
   initialType?: 'backup' | 'snapshot';
   initialVm?: any;
   initialNamespace?: string;
+  backups?: unknown[];
 }
 
 const VmBackupCreateModal: React.FC<Props> = ({ 
@@ -47,7 +52,8 @@ const VmBackupCreateModal: React.FC<Props> = ({
   vms,
   initialType = 'backup',
   initialVm,
-  initialNamespace
+  initialNamespace,
+  backups,
 }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
@@ -87,6 +93,17 @@ const VmBackupCreateModal: React.FC<Props> = ({
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
+
+      const blocking = findInProgressHarvesterBackupForVm(
+        backups,
+        values.namespace,
+        values.vmName,
+      );
+      if (blocking) {
+        message.warning(buildVmBackupCreateBlockedMessage(blocking));
+        return;
+      }
+
       setLoading(true);
       
       await createHarvesterVirtualMachineBackup(

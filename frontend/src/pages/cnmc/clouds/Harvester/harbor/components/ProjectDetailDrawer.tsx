@@ -46,7 +46,7 @@ const ProjectDetailDrawer: React.FC<Props> = ({
   visible,
   harborId,
   projectName,
-  cloudId,
+  cloudId: _cloudId,
   onClose,
   onBack,
   onOpenRepository,

@@ -128,7 +128,7 @@ export function useVmDetailDrawerActions(opts: {
   const handleConsole = async () => {
     if (!hasConsoleWrite) {
       message.error(
-        "当前账号没有控制台操作权限（需要 clouds.console:write 权限）",
+        "当前账号没有控制台操作权限（需要 clouds.ecs:write 权限）",
       );
       return;
     }

@@ -7,11 +7,12 @@ import { ReloadOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/ic
 
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { deleteHarvesterSshKey } from 'services/harvester/vm';
 import { hasPermissionForAction } from 'utils/accessMapping';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
@@ -37,7 +38,6 @@ type Props = {
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
-  bordered?: boolean;
 };
 
 const SshKeysSection: React.FC<Props> = ({
@@ -46,7 +46,6 @@ const SshKeysSection: React.FC<Props> = ({
   loading,
   onRefresh,
   isTenant,
-  bordered = true,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
@@ -177,7 +176,6 @@ const SshKeysSection: React.FC<Props> = ({
     <PageDetailSection
       title="SSH 密钥 (SSH Keys)"
       asCard={false}
-      bordered={bordered}
       refreshLoading={loading}
       toolbarLeft={
         <>
@@ -214,32 +212,34 @@ const SshKeysSection: React.FC<Props> = ({
       }
       toolbarRight={
         <div className="toolbar-actions">
-          <Button
-            type="primary"
-            disabled={!hasSshKeysWrite}
-            onClick={() => {
-              if (!hasSshKeysWrite) return;
-              setCreateModalVisible(true);
-            }}
-          >
-            创建
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'delete',
-                  label: '批量删除',
-                  danger: true,
-                  disabled: !hasSshKeysWrite || selectedRowKeys.length === 0,
-                  onClick: handleBatchDelete,
-                },
-              ],
-            }}
-            trigger={['click']}
-          >
-            <Button icon={<EllipsisOutlined />} disabled={!hasSshKeysWrite || selectedRowKeys.length === 0} />
-          </Dropdown>
+          <WriteGuard canWrite={hasSshKeysWrite}>
+            <Button
+              type="primary"
+              onClick={() => {
+                setCreateModalVisible(true);
+              }}
+            >
+              创建
+            </Button>
+          </WriteGuard>
+          <WriteGuard canWrite={hasSshKeysWrite}>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'delete',
+                    label: '批量删除',
+                    danger: true,
+                    disabled: selectedRowKeys.length === 0,
+                    onClick: handleBatchDelete,
+                  },
+                ],
+              }}
+              trigger={['click']}
+            >
+              <Button icon={<EllipsisOutlined />} disabled={selectedRowKeys.length === 0} />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={TABLE_SETTINGS_KEY} />
           <Button
             icon={<ReloadOutlined />}

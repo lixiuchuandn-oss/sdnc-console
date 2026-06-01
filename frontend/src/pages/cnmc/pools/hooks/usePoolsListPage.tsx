@@ -8,11 +8,9 @@ import {
   Button,
   Dropdown,
   Form,
-  Input,
   MenuProps,
   message,
   Modal,
-  Select,
   Space,
   Tag,
   Typography,
@@ -33,6 +31,7 @@ import { fetchKubeOvnVpcs } from '../../../../services/harvesterApi';
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import type { AdminLayoutOutletContext } from '../../../../layouts/admin/adminLayoutOutletContext';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../utils/rbacUi';
 import { isMustChangePasswordApiError } from '../../../../utils/errorHandler';
 
 import {
@@ -40,7 +39,6 @@ import {
   CLOUD_TYPE_MAP,
   resolvePoolTypeLabel,
   type Cloud,
-  type CloudProvider,
   cloudProviders,
   getProviderLogo,
   getProviderName,
@@ -48,15 +46,26 @@ import {
 } from '../lib/poolProviders';
 import { CloudsFilterFormValues, matchesPoolVendor, readCloudApiErr } from '../lib/poolsListUtils';
 import { navigateToPoolDetail } from '../lib/poolDetailNav';
+import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../routes/cloudmapPoolNavRows';
 
 const { Text } = Typography;
 
 export function usePoolsListPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
   const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
-  const canSetDefaultPool = hasPermissionForAction(perms, 'system.settings:write');
+  const canSetDefaultPool = canWriteClouds;
+  const canAccessPoolDetail = useMemo(() => {
+    return CLOUDMAP_POOL_NAV_ROWS.some((row) => {
+      if (row.poolPageReadAnyOf?.length) {
+        return row.poolPageReadAnyOf.some((act) => hasPermissionForAction(perms, act));
+      }
+      if (!row.poolPageAction) return false;
+      return hasPermissionForAction(perms, row.poolPageAction);
+    });
+  }, [perms]);
 
   const [filterForm] = Form.useForm();
   const [clouds, setClouds] = useState<Cloud[]>([]);
@@ -257,13 +266,17 @@ export function usePoolsListPage() {
         fixed: 'left',
         render: (_text: string, record: Cloud) => (
           <Space size={6}>
-            <Button
-              type="link"
-              onClick={() => navigateToPoolDetail(navigate, record as unknown as Record<string, any>)}
-              style={{ padding: 0, height: 'auto' }}
-            >
-              {record.name}
-            </Button>
+            {canAccessPoolDetail ? (
+              <Button
+                type="link"
+                onClick={() => navigateToPoolDetail(navigate, record as unknown as Record<string, any>)}
+                style={{ padding: 0, height: 'auto' }}
+              >
+                {record.name}
+              </Button>
+            ) : (
+              <Text>{record.name}</Text>
+            )}
             {favoriteCloudId && String(record.id) === String(favoriteCloudId) && (
               <Tag bordered={false} color="gold" style={{ marginInlineEnd: 0 }}>
                 默认
@@ -324,22 +337,43 @@ export function usePoolsListPage() {
         align: 'center',
         render: (_: unknown, record: Cloud) => {
           const isFavorite = !!favoriteCloudId && String(record.id) === String(favoriteCloudId);
-          const items = [
-            { key: 'detail', label: '资源详情' },
-            { key: 'edit', label: '编辑信息', disabled: !canWriteClouds },
-            {
-              key: 'test',
-              label: '连接测试',
-              disabled: !canWriteClouds || testingConnection === record.id,
-            },
-            { key: 'setFavorite', label: '设为默认资源池', disabled: !canSetDefaultPool || isFavorite },
-            { key: 'unsetFavorite', label: '取消默认资源池', disabled: !canSetDefaultPool || !isFavorite },
-            { type: 'divider' as const },
-            { key: 'del', label: '删除', danger: true, disabled: !canWriteClouds },
-          ];
+          const items = filterMenuItemsForReadOnly(
+            [
+              ...(canAccessPoolDetail ? [{ key: 'detail', label: '资源详情' } as const] : []),
+              { key: 'edit', label: '编辑信息' },
+              {
+                key: 'test',
+                label: '连接测试',
+                disabled: testingConnection === record.id,
+              },
+              ...(canSetDefaultPool
+                ? [
+                    {
+                      key: 'setFavorite',
+                      label: '设为默认资源池',
+                      disabled: isFavorite,
+                    },
+                    {
+                      key: 'unsetFavorite',
+                      label: '取消默认资源池',
+                      disabled: !isFavorite,
+                    },
+                  ]
+                : []),
+              { type: 'divider' as const },
+              { key: 'del', label: '删除', danger: true },
+            ],
+            canWriteClouds,
+          );
           const onMenuClick = ({ key }: { key: string }) => {
             if (key === 'test') return void testConnection(record.id);
-            if (key === 'detail') return void navigateToPoolDetail(navigate, record as unknown as Record<string, any>);
+            if (key === 'detail') {
+              if (!canAccessPoolDetail) {
+                message.warning('无资源池内页面访问权限，无法进入资源详情');
+                return;
+              }
+              return void navigateToPoolDetail(navigate, record as unknown as Record<string, any>);
+            }
             if (key === 'edit') return void handleEdit(record);
             if (key === 'setFavorite') {
               void (async () => {
@@ -378,6 +412,7 @@ export function usePoolsListPage() {
     [
       navigate,
       canWriteClouds,
+      canAccessPoolDetail,
       canSetDefaultPool,
       favoriteCloudId,
       testingConnection,
@@ -496,15 +531,18 @@ export function usePoolsListPage() {
   }, [canWriteClouds, selectedRowKeys, fetchClouds, clouds, reloadSummaryClouds]);
 
   const bulkActionsMenu: MenuProps = {
-    items: [
-      {
-        key: 'bulkDelete',
-        label: '批量删除',
-        danger: true,
-        disabled: !canWriteClouds || selectedRowKeys.length === 0,
-        onClick: handleBulkDelete,
-      },
-    ],
+    items: filterMenuItemsForReadOnly(
+      [
+        {
+          key: 'bulkDelete',
+          label: '批量删除',
+          danger: true,
+          disabled: selectedRowKeys.length === 0,
+          onClick: handleBulkDelete,
+        },
+      ],
+      canWriteClouds,
+    ),
   };
 
   const refreshList = useCallback(() => {

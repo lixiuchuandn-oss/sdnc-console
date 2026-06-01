@@ -3,8 +3,10 @@ import { Table, Input, Descriptions, Badge, Tag, DatePicker, Form, Select, Input
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import PageContainer from '../../components/PageContainer';
+import { useAuth } from '../../contexts/AuthContext';
 import { apiRequest } from '../../services/api';
 import { getSystemSetting, updateSystemSetting } from '../../services/systemApi';
+import { hasPermissionForAction } from '../../utils/accessMapping';
 
 const { RangePicker } = DatePicker;
 
@@ -22,6 +24,10 @@ interface AuditLog {
 
 const AuditLogs: React.FC = () => {
   const { message } = App.useApp();
+  const { user } = useAuth();
+  const canWriteAudit =
+    user?.role === 'super_admin' ||
+    hasPermissionForAction((user?.permissions ?? []) as string[], 'system.audit:write');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
@@ -994,27 +1000,30 @@ const AuditLogs: React.FC = () => {
             max={3650}
             value={retentionDays}
             onChange={(v) => setRetentionDays(Number(v) || 1)}
+            disabled={!canWriteAudit}
             suffix="天"
             style={{ width: 140 }}
           />
-          <Button
-            type="primary"
-            loading={savingRetention}
-            onClick={async () => {
-              try {
-                setSavingRetention(true);
-                const value = String(Math.max(1, Math.min(3650, Number(retentionDays) || 1)));
-                await updateSystemSetting('audit.logs.retention_days', value);
-                message.success('日志存储时长已保存');
-              } catch {
-                message.error('保存日志存储时长失败');
-              } finally {
-                setSavingRetention(false);
-              }
-            }}
-          >
-            保存时长
-          </Button>
+          {canWriteAudit ? (
+            <Button
+              type="primary"
+              loading={savingRetention}
+              onClick={async () => {
+                try {
+                  setSavingRetention(true);
+                  const value = String(Math.max(1, Math.min(3650, Number(retentionDays) || 1)));
+                  await updateSystemSetting('audit.logs.retention_days', value);
+                  message.success('日志存储时长已保存');
+                } catch {
+                  message.error('保存日志存储时长失败');
+                } finally {
+                  setSavingRetention(false);
+                }
+              }}
+            >
+              保存时长
+            </Button>
+          ) : null}
         </Space>
       }
       onRefresh={() => fetchLogs(currentPage, pageSize, searchText, dateRange)}

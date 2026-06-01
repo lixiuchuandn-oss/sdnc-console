@@ -7,16 +7,17 @@
 
 import { Response } from 'express';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
-import { checkTenantAccess, fetchCloudOr404, ensureProvider, isNamespaceAllowed } from '../harvester.direct.helpers';
+import {
+  checkTenantAccess,
+  fetchCloudOr404,
+  ensureProvider,
+  isNamespaceAllowed,
+} from '../harvester.direct.helpers';
 
 /**
  * GET /:id/resources/switch-lbrules - 查询 Switch LB Rules 列表
  */
-export async function harvesterSwitchLbRuleListHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterSwitchLbRuleListHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
@@ -44,8 +45,8 @@ export async function harvesterSwitchLbRuleListHandler(
     const rawItems = Array.isArray(json?.items)
       ? json?.items
       : Array.isArray(json?.data)
-      ? json?.data
-      : [];
+        ? json?.data
+        : [];
     let items = rawItems;
     if (isTenant) {
       if (tenantNamespace) {
@@ -56,9 +57,7 @@ export async function harvesterSwitchLbRuleListHandler(
         items = [];
       }
     } else if (tenantNamespace) {
-      items = items.filter((i: any) =>
-        isNamespaceAllowed(tenantNamespace, i.metadata?.namespace),
-      );
+      items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.metadata?.namespace));
     }
 
     res.json({ message: '查询成功', data: { items } });

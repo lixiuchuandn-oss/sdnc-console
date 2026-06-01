@@ -48,6 +48,8 @@ export type CloudmapFlatNetworkRoutePanelProps = {
   rawSubnets: any;
   kubeOvnFlatEips: any[];
   kubeOvnVpcs: any[];
+  /** VPC 域 EIP，供扁平域创建公网 IP 时做跨域占用校验 */
+  kubeOvnEips?: any[];
   kubeOvnFlatSnatRules: any[];
   kubeOvnFlatDnatRules: any[];
   resourceLoading: Record<string, boolean>;
@@ -65,7 +67,6 @@ function canViewFlatInner(
   if (key === 'flat_kubeovn_eips') {
     return checkPerm('clouds.eips.flat:read') || checkPerm('clouds:read');
   }
-  if (key === 'flat_kubeovn_fips') return false;
   if (key === 'flat_kubeovn_snat') {
     return checkPerm('clouds.snat.flat:read') || checkPerm('clouds:read');
   }
@@ -95,6 +96,7 @@ const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps
     rawSubnets,
     kubeOvnFlatEips,
     kubeOvnVpcs,
+    kubeOvnEips,
     kubeOvnSubnets,
     kubeOvnFlatSnatRules,
     kubeOvnFlatDnatRules,
@@ -158,6 +160,7 @@ const CloudmapFlatNetworkRoutePanel: React.FC<CloudmapFlatNetworkRoutePanelProps
       <EipSection
         cloudId={cloudId}
         eips={kubeOvnFlatEips}
+        peerScopeEips={kubeOvnEips}
         subnets={kubeOvnSubnets}
         loading={!!resourceLoading.flatEips}
         networkScope="flat"

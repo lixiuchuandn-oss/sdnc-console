@@ -11,19 +11,14 @@ export type RancherHttpContext = {
 export function getRancherContext(cloud: Cloud): RancherHttpContext | null {
   const provider = String(cloud.config?.provider || '').toLowerCase();
   if (provider !== 'rancher') return null;
-  let base = String(
-    (cloud as any).endpoint || (cloud as any).config?.rancherUrl || '',
-  )
+  let base = String((cloud as any).endpoint || (cloud as any).config?.rancherUrl || '')
     .trim()
     .replace(/\/+$/, '');
   if (base && !/^https?:\/\//i.test(base)) {
     base = `https://${base}`;
   }
   const token = String(
-    cloud.secretKey ||
-      (cloud as any).config?.apiToken ||
-      (cloud as any).config?.token ||
-      '',
+    cloud.secretKey || (cloud as any).config?.apiToken || (cloud as any).config?.token || '',
   ).trim();
   const insecure = !!(cloud.config as any)?.ignoreTls;
   if (!base || !token) return null;
@@ -58,10 +53,7 @@ export async function rancherGet(
       return { ok: false, status: 401, message: 'Rancher 认证失败：令牌无效或已过期' };
     }
     if (res.status < 200 || res.status >= 300) {
-      const msg =
-        res.data?.message ||
-        res.data?.error ||
-        `Rancher 请求失败: HTTP ${res.status}`;
+      const msg = res.data?.message || res.data?.error || `Rancher 请求失败: HTTP ${res.status}`;
       return { ok: false, status: res.status, message: String(msg) };
     }
     return { ok: true, status: res.status, data: res.data };

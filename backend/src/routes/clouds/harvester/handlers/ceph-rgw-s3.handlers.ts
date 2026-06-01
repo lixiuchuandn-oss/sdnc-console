@@ -27,10 +27,7 @@ function sendErr(res: Response, e: unknown) {
   if (res.headersSent) return;
   const err = e as any;
   const st = typeof err?.status === 'number' ? err.status : 502;
-  const msg =
-    err?.message ||
-    err?.Message ||
-    (typeof err === 'string' ? err : 'S3 请求失败');
+  const msg = err?.message || err?.Message || (typeof err === 'string' ? err : 'S3 请求失败');
   res.status(st >= 400 && st < 600 ? st : 502).json({ message: String(msg) });
 }
 
@@ -87,7 +84,10 @@ async function fetchSteveSecretRgwKeys(
 }
 
 /** connection 含网关；若含 objectStoreUser 则由服务端读取 CR + Secret 补全 AK/SK */
-async function resolveRgwS3ConnectionInput(cloud: any, body: unknown): Promise<RgwS3ConnectionInput> {
+async function resolveRgwS3ConnectionInput(
+  cloud: any,
+  body: unknown,
+): Promise<RgwS3ConnectionInput> {
   const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
   const ouRaw = b.objectStoreUser;
   if (ouRaw && typeof ouRaw === 'object' && ouRaw !== null && !Array.isArray(ouRaw)) {
@@ -190,8 +190,7 @@ export async function harvesterCephRgwS3ListObjectsHandler(req: Request, res: Re
     const data = await rgwListObjects(conn, {
       bucket: String(b.bucket ?? ''),
       prefix: b.prefix != null ? String(b.prefix) : undefined,
-      continuationToken:
-        b.continuationToken != null ? String(b.continuationToken) : undefined,
+      continuationToken: b.continuationToken != null ? String(b.continuationToken) : undefined,
       maxKeys: typeof b.maxKeys === 'number' ? b.maxKeys : undefined,
     });
     res.json({

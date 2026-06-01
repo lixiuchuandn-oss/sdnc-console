@@ -27,7 +27,6 @@ import {
   Button,
   Space,
   Card,
-  Tag,
   Divider,
   Row,
   Col,
@@ -663,11 +662,6 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
   // 从镜像浏览器选择镜像
   const handleSelectImage = (image: string) => {
     form.setFieldsValue({ image });
-  };
-
-  // 选择预设
-  const handleSelectPreset = (value: string) => {
-    form.setFieldsValue({ schedule: value });
   };
 
   // 渲染步骤内容

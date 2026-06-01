@@ -33,7 +33,6 @@ import {
   PlusOutlined,
   MinusCircleOutlined,
   InfoCircleOutlined,
-  ApiOutlined,
 } from '@ant-design/icons';
 import { createGrpcRoute } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
@@ -330,7 +329,7 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
         <Form.List name="rules">
           {(ruleFields, { add: addRule, remove: removeRule }) => (
             <>
-              {ruleFields.map(({ key: ruleKey, name: ruleIndex, ...ruleRest }) => (
+              {ruleFields.map(({ key: ruleKey, name: ruleIndex, ..._ruleRest }) => (
                 <Card
                   key={ruleKey}
                   size="small"

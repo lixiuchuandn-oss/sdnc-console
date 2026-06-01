@@ -82,56 +82,48 @@ async function listRacksWithDevices(cloudId: string): Promise<RackRow[]> {
 export function attachDatacenterTopologyRoutes(router: Router) {
   const mw = createApiPermissionMiddleware();
 
-  router.get(
-    '/:id/datacenter-topology/racks',
-    mw,
-    async (req: AuthRequest, res: Response) => {
-      try {
-        const { id } = req.params;
-        if (!(await loadCloudOr404(id, res))) return;
-        const racks = await listRacksWithDevices(id);
-        res.json({ message: 'ok', data: { racks } });
-      } catch (e: any) {
-        res.status(500).json({ message: '查询机柜失败', error: e?.message || String(e) });
-      }
-    },
-  );
+  router.get('/:id/datacenter-topology/racks', mw, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      if (!(await loadCloudOr404(id, res))) return;
+      const racks = await listRacksWithDevices(id);
+      res.json({ message: 'ok', data: { racks } });
+    } catch (e: any) {
+      res.status(500).json({ message: '查询机柜失败', error: e?.message || String(e) });
+    }
+  });
 
-  router.post(
-    '/:id/datacenter-topology/racks',
-    mw,
-    async (req: AuthRequest, res: Response) => {
-      try {
-        const { id } = req.params;
-        if (!(await loadCloudOr404(id, res))) return;
-        const name = String((req.body as any)?.name || '').trim();
-        if (!name) return res.status(400).json({ message: '机柜名称不能为空' });
-        const maxRow: any[] = await AppDataSource.query(
-          `SELECT COALESCE(MAX(sortOrder), -1) as m FROM cloud_datacenter_racks WHERE cloudId = ?`,
-          [id],
-        );
-        const defaultNext = Number(maxRow?.[0]?.m) + 1;
-        const bodySort = (req.body as any)?.sortOrder;
-        let sortOrder: number;
-        if (bodySort !== undefined && bodySort !== null && String(bodySort).trim() !== '') {
-          const n = Number(bodySort);
-          sortOrder = Number.isFinite(n) ? Math.trunc(n) : defaultNext;
-        } else {
-          sortOrder = defaultNext;
-        }
-        const rid = randomUUID();
-        await AppDataSource.query(
-          `INSERT INTO cloud_datacenter_racks (id, cloudId, name, sortOrder) VALUES (?, ?, ?, ?)`,
-          [rid, id, name, sortOrder],
-        );
-        const racks = await listRacksWithDevices(id);
-        const created = racks.find((r) => r.id === rid);
-        res.status(201).json({ message: '已创建', data: { rack: created } });
-      } catch (e: any) {
-        res.status(500).json({ message: '创建机柜失败', error: e?.message || String(e) });
+  router.post('/:id/datacenter-topology/racks', mw, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      if (!(await loadCloudOr404(id, res))) return;
+      const name = String((req.body as any)?.name || '').trim();
+      if (!name) return res.status(400).json({ message: '机柜名称不能为空' });
+      const maxRow: any[] = await AppDataSource.query(
+        `SELECT COALESCE(MAX(sortOrder), -1) as m FROM cloud_datacenter_racks WHERE cloudId = ?`,
+        [id],
+      );
+      const defaultNext = Number(maxRow?.[0]?.m) + 1;
+      const bodySort = (req.body as any)?.sortOrder;
+      let sortOrder: number;
+      if (bodySort !== undefined && bodySort !== null && String(bodySort).trim() !== '') {
+        const n = Number(bodySort);
+        sortOrder = Number.isFinite(n) ? Math.trunc(n) : defaultNext;
+      } else {
+        sortOrder = defaultNext;
       }
-    },
-  );
+      const rid = randomUUID();
+      await AppDataSource.query(
+        `INSERT INTO cloud_datacenter_racks (id, cloudId, name, sortOrder) VALUES (?, ?, ?, ?)`,
+        [rid, id, name, sortOrder],
+      );
+      const racks = await listRacksWithDevices(id);
+      const created = racks.find((r) => r.id === rid);
+      res.status(201).json({ message: '已创建', data: { rack: created } });
+    } catch (e: any) {
+      res.status(500).json({ message: '创建机柜失败', error: e?.message || String(e) });
+    }
+  });
 
   router.patch(
     '/:id/datacenter-topology/racks/:rackId',
@@ -182,7 +174,9 @@ export function attachDatacenterTopologyRoutes(router: Router) {
           [rackId, id],
         );
         if (!rows?.length) return res.status(404).json({ message: '机柜不存在' });
-        await AppDataSource.query(`DELETE FROM cloud_datacenter_rack_devices WHERE rackId = ?`, [rackId]);
+        await AppDataSource.query(`DELETE FROM cloud_datacenter_rack_devices WHERE rackId = ?`, [
+          rackId,
+        ]);
         await AppDataSource.query(`DELETE FROM cloud_datacenter_racks WHERE id = ?`, [rackId]);
         res.json({ message: '已删除' });
       } catch (e: any) {
@@ -220,7 +214,14 @@ export function attachDatacenterTopologyRoutes(router: Router) {
         const sid = randomUUID();
         await AppDataSource.query(
           `INSERT INTO cloud_datacenter_rack_devices (id, rackId, sourceKind, refKey, customLabel, slotOrder) VALUES (?, ?, ?, ?, ?, ?)`,
-          [sid, rackId, sourceKind, refKey, customLabel, Number.isFinite(slotOrder) ? slotOrder : 0],
+          [
+            sid,
+            rackId,
+            sourceKind,
+            refKey,
+            customLabel,
+            Number.isFinite(slotOrder) ? slotOrder : 0,
+          ],
         );
         const racks = await listRacksWithDevices(id);
         const rack = racks.find((r) => r.id === rackId);
@@ -291,7 +292,9 @@ export function attachDatacenterTopologyRoutes(router: Router) {
           [deviceId, rackId, id],
         );
         if (!dr?.length) return res.status(404).json({ message: '设备不存在' });
-        await AppDataSource.query(`DELETE FROM cloud_datacenter_rack_devices WHERE id = ?`, [deviceId]);
+        await AppDataSource.query(`DELETE FROM cloud_datacenter_rack_devices WHERE id = ?`, [
+          deviceId,
+        ]);
         res.json({ message: '已删除' });
       } catch (e: any) {
         res.status(500).json({ message: '删除设备失败', error: e?.message || String(e) });

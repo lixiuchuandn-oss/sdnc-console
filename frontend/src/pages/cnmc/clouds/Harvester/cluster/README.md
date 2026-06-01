@@ -23,7 +23,9 @@
 | （顶层） | 物理节点、项目 | **`cluster/`** | `cluster_nodes`、`namespaces` |
 | `cluster_physical_network` | 物理交换机、物理网络、公共子网、VLAN | **`cluster/`** + **`kube-ovn/`** | `cluster_physical_switches`（例外自拉）、`kubeovn_public_networks`、`kubeovn_public_subnets`（自拉）、`cluster_vlans` |
 | `cluster_platform_network` | 集群网络、NAD、负载均衡、IP 池 | **`cluster/`** + **`nad/`** | `clusterNetworks`、`nads`、`load_balancers`、`ippools` |
-| `cluster_storage` | 存储池、存储类 | **`ceph/`** + **`cluster/`** | `storage_pools`（ceph 自管）、`storage_classes` |
+| `cluster_storage` | 存储容量、存储配置、存储池、存储类 | **`ceph/`** + **`cluster/`** | `overview`、`harvester_addon`、`storage_pools`（ceph 自管）、`storage_classes` |
+| `cluster_storage_block` | 远程备份（RBD Mirror） | **`ceph/`** | `rbd_mirror` |
+| `cluster_storage_object` | S3 桶、RGW 用户、对象网关、COSI | **`ceph/`** | `rgw_s3_buckets`、`rgw_users`、`object_gateways`、`cosi` |
 | `cluster_device_passthrough` | GPU、USB、PCI、SR-IOV | **`cluster/`** | `gpu`、`cluster_usb`、`cluster_pci`、`cluster_sriov` |
 
 ## 本目录角色
@@ -55,8 +57,8 @@
 | `innerActiveKey` | 实际域 | 组件位置 | 域内 README |
 |------------------|--------|----------|-------------|
 | `kubeovn_public_networks` / `kubeovn_public_subnets` / `cluster_vlans` | `kube-ovn` | `Harvester/kube-ovn/sections/` | （待补） |
-| `nads` / `load_balancers` / `ippools` | `nad` | `Harvester/nad/sections/` | （待补） |
-| `storage_pools` | `ceph` | `Harvester/ceph/sections/` | （待补） |
+| `nads` / `load_balancers` / `ippools` | `nad` | `Harvester/nad/sections/` | **`Harvester/nad/README.md`** |
+| `overview` / `harvester_addon` / `storage_pools` / `rbd_mirror` / `rgw_*` / `object_gateways` / `cosi` | `ceph` | `Harvester/ceph/sections/`（经 `panels/unified_storage`） | **`Harvester/ceph/README.md`** |
 
 改聚合子页的列表/刷新时：**池层**改 `clusterRefresh` / `clusterPathLoads`；**Section 层**到对应实现域改 Section，勿只在 `cluster/sections/` 找文件。
 
@@ -87,12 +89,15 @@
 | **Ceph `storage_pools`** | ceph 域面板/ Section 自管 |
 | **`kubeovn_public_subnets`** | Underlay 子网 Section 自拉 |
 
-### 聚合子域 · Section 层待收口
+### 聚合子域 · Section 层
 
-池层 key（如 `nads`、`cluster_vlans`）已进 **`clusterTabOnRefresh`**。下列仍待完全对齐 **`runHarvesterSectionRefresh`**，**不算 cluster 样板间完成**：
+池层 key（如 `nads`、`cluster_vlans`）已进 **`clusterTabOnRefresh`**。
 
-- **`nad/`**：`NadsSection`、`LoadBalancersSection`、`IPPoolsSection`
-- **`kube-ovn/`（cluster 导航）**：`ProviderNetworksSection` / `VlansSection` 已接池 `onRefresh` 与 shared helper；**`UnderlaySubnetsSection`** 列表主体仍 Section 自拉（见 **`Harvester/kube-ovn/README.md`** 例外）
+**`nad/`**（`NadsSection`、`LoadBalancersSection`、`IPPoolsSection`）：Section 刷新已对齐 shared helper；列表逻辑已拆 **`lib/*SectionUtils`**、**`*TableColumns`**、**`hooks/*`**（见 **`Harvester/nad/README.md`**）。`NadsSection` 另在 Section 内拉 Subnet/VM 辅助数据。
+
+**`ceph/`**（`CephPoolSection` 等）：池层 **`cephTabOnRefresh.storage_pools`** 已注入；列表仍 Section 自拉 Rook/Dashboard，工具栏/写成功须 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**（见 **`Harvester/ceph/README.md`**）。
+
+**`kube-ovn/`（cluster 导航）**：`ProviderNetworksSection` / `VlansSection` 已接池 `onRefresh` 与 shared helper；**`UnderlaySubnetsSection`** 列表主体仍 Section 自拉（见 **`Harvester/kube-ovn/README.md`** 例外）
 
 收口时：**不改导航归属、不迁目录**；在各自域内 Section 改用 shared refresh helper，父级继续注入 `clusterTabOnRefresh.*` 或 **`kubeOvnTabOnRefresh.*`**（VPC/扁平侧栏见 **`panels/kube_ovn`**）。
 

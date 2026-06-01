@@ -13,6 +13,7 @@ import {
   getTemplateNamespace,
   getTemplateScope,
 } from './templatesSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export const HARVESTER_TEMPLATES_TABLE_SETTINGS_KEY = 'harvester_templates_table';
 
@@ -95,7 +96,7 @@ export function buildTemplatesTableColumns(
     ...(!isTenant
       ? [
           {
-            title: '命名空间',
+            title: '项目',
             key: 'namespace',
             render: (_: any, r: any) => getTemplateNamespace(r) || '-',
           },
@@ -156,9 +157,10 @@ export function buildTemplatesTableColumns(
             onClick: () => onDelete(r),
           },
         );
+        const filteredItems = filterMenuItemsForReadOnly(items as any[], hasTemplatesWrite);
         return (
           <ResourceActionsDropdown
-            items={items}
+            items={filteredItems}
             buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
           />
         );

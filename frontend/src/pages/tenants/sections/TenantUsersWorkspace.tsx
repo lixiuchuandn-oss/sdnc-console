@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 租户用户列表主视图；逻辑见 `hooks/useTenantUsersPage.tsx`。
  */
 import React from 'react';
@@ -17,6 +17,8 @@ const { Option } = Select;
 const TenantUsersWorkspace: React.FC = () => {
   const {
     loading,
+    canWriteTenantUsers,
+    canWriteRoleAssignments,
     filteredUsers,
     columns,
     baseColumns,
@@ -39,7 +41,6 @@ const TenantUsersWorkspace: React.FC = () => {
     handleCreateUser,
     handleCreateTenantChange,
     editModalOpen,
-    editingUser,
     editForm,
     handleEditUser,
     closeEditModal,
@@ -105,12 +106,16 @@ const TenantUsersWorkspace: React.FC = () => {
       }
       toolbarRight={
         <div className="toolbar-actions">
-          <Button type="primary" onClick={() => setCreateModalOpen(true)}>
-            创建组织用户
-          </Button>
-          <Dropdown menu={bulkActionsMenu}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
+          {canWriteTenantUsers ? (
+            <Button type="primary" onClick={() => setCreateModalOpen(true)}>
+              创建组织用户
+            </Button>
+          ) : null}
+          {canWriteTenantUsers ? (
+            <Dropdown menu={bulkActionsMenu}>
+              <Button icon={<EllipsisOutlined />} />
+            </Dropdown>
+          ) : null}
           <TableColumnSettingsButton allColumns={baseColumns} settingsKey="tenant-users-columns" />
           <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading} />
         </div>
@@ -126,10 +131,14 @@ const TenantUsersWorkspace: React.FC = () => {
         dataSource={filteredUsers}
         rowKey="id"
         loading={loading}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: setSelectedRowKeys,
-        }}
+        rowSelection={
+          canWriteTenantUsers
+            ? {
+                selectedRowKeys,
+                onChange: setSelectedRowKeys,
+              }
+            : undefined
+        }
         pagination={{
           size: 'small',
           showSizeChanger: true,
@@ -147,6 +156,7 @@ const TenantUsersWorkspace: React.FC = () => {
         onCancel={closeCreateModal}
         onOk={() => createForm.submit()}
         okText="保存"
+        okButtonProps={{ disabled: !canWriteTenantUsers }}
         width={600}
         centered
         destroyOnHidden
@@ -208,6 +218,7 @@ const TenantUsersWorkspace: React.FC = () => {
         destroyOnClose
         onCancel={closeEditModal}
         onOk={handleEditUser}
+        okButtonProps={{ disabled: !canWriteTenantUsers }}
       >
         <Form form={editForm} layout="vertical" style={{ marginTop: 8 }}>
           <Form.Item name="username" label="用户名">
@@ -242,6 +253,7 @@ const TenantUsersWorkspace: React.FC = () => {
         open={assignRoleModalOpen}
         onOk={handleSaveRoles}
         onCancel={closeAssignRoleModal}
+        okButtonProps={{ disabled: !canWriteRoleAssignments }}
         width={700}
       >
         <Transfer
@@ -249,6 +261,7 @@ const TenantUsersWorkspace: React.FC = () => {
           titles={['可选角色', '已选角色']}
           targetKeys={roleAssignSelected}
           onChange={(nextTargetKeys) => setRoleAssignSelected(nextTargetKeys as string[])}
+          disabled={!canWriteRoleAssignments}
           render={(item) => item.name}
           rowKey={(item) => item.id}
           listStyle={{ width: 300, height: 400 }}

@@ -5,7 +5,7 @@
 
 import { Router, RequestHandler, json } from 'express';
 import { createProviderRouter } from '../middleware/provider-router';
-import { 
+import {
   harvesterVpcListHandler,
   harvesterVpcCreateHandler,
   harvesterVpcDeleteHandler,
@@ -13,7 +13,7 @@ import {
 } from './handlers/ovn-cache-vpc.handlers';
 import { harvesterEcsListHandler } from './handlers/ecs-cache-list.handlers';
 import { harvesterSubnetListHandler } from './handlers/ovn-cache-subnets.handlers';
-import { 
+import {
   harvesterNadListHandler,
   harvesterNadDetailHandler,
   harvesterNadCreateHandler,
@@ -21,7 +21,7 @@ import {
 } from './handlers/network-cache-nads.handlers';
 import { harvesterClusterNetworkListHandler } from './handlers/network-cache-cluster-networks.handlers';
 import { harvesterServiceCacheListHandler } from './handlers/network-cache-services.handlers';
-import { 
+import {
   harvesterVolumeListHandler,
   harvesterAvailableVolumeListHandler,
   harvesterVolumeDeleteHandler,
@@ -30,7 +30,7 @@ import {
   harvesterVmAddVolumeDirectHandler,
   harvesterVmRemoveVolumeHandler,
 } from './handlers/storage-cache-volumes.handlers';
-import { 
+import {
   harvesterImageListHandler,
   harvesterImageDetailHandler,
   harvesterImageCreateHandler,
@@ -47,7 +47,7 @@ import {
   harvesterImageUploadTokenHandler,
 } from './handlers/storage-cache-images.handlers';
 import { harvesterStorageClassListHandler } from './handlers/storage-cache-classes.handlers';
-import { 
+import {
   harvesterSnapshotListHandler,
   harvesterSnapshotDeleteHandler,
 } from './handlers/storage-cache-snapshots.handlers';
@@ -99,7 +99,7 @@ import { harvesterRestoreCreateHandler } from './handlers/storage-direct-restore
 
 export function registerHarvesterCacheRoutesProvider(
   router: Router,
-  checkAdminPermission: RequestHandler
+  checkAdminPermission: RequestHandler,
 ) {
   // VPC Handlers 映射
   const vpcListHandlers = {
@@ -142,39 +142,27 @@ export function registerHarvesterCacheRoutesProvider(
   };
 
   // GET /:id/resources/vpcs - 获取 VPC 列表
-  router.get(
-    '/:id/resources/vpcs',
-    checkAdminPermission,
-    createProviderRouter(vpcListHandlers)
-  );
+  router.get('/:id/resources/vpcs', checkAdminPermission, createProviderRouter(vpcListHandlers));
 
   // POST /:id/resources/vpcs - 创建 VPC
-  router.post(
-    '/:id/resources/vpcs',
-    checkAdminPermission,
-    createProviderRouter(vpcCreateHandlers)
-  );
+  router.post('/:id/resources/vpcs', checkAdminPermission, createProviderRouter(vpcCreateHandlers));
 
   // DELETE /:id/resources/vpcs/:name - 删除 VPC
   router.delete(
     '/:id/resources/vpcs/:name',
     checkAdminPermission,
-    createProviderRouter(vpcDeleteHandlers)
+    createProviderRouter(vpcDeleteHandlers),
   );
 
   // PUT /:id/resources/vpcs/:name - 更新 VPC
   router.put(
     '/:id/resources/vpcs/:name',
     checkAdminPermission,
-    createProviderRouter(vpcUpdateHandlers)
+    createProviderRouter(vpcUpdateHandlers),
   );
 
   // GET /:id/resources/ecs - 获取虚拟机列表
-  router.get(
-    '/:id/resources/ecs',
-    checkAdminPermission,
-    createProviderRouter(ecsListHandlers)
-  );
+  router.get('/:id/resources/ecs', checkAdminPermission, createProviderRouter(ecsListHandlers));
 
   // Subnets 相关路由
   const subnetListHandlers = {
@@ -187,7 +175,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/subnets',
     checkAdminPermission,
-    createProviderRouter(subnetListHandlers)
+    createProviderRouter(subnetListHandlers),
   );
 
   // NADs 相关路由
@@ -201,7 +189,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/nads',
     checkAdminPermission,
-    createProviderRouter(nadListHandlers)
+    createProviderRouter(nadListHandlers),
   );
 
   // NADs 详情、创建、删除
@@ -229,19 +217,19 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/nads/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(nadDetailHandlers)
+    createProviderRouter(nadDetailHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/nads',
     checkAdminPermission,
-    createProviderRouter(nadCreateHandlers)
+    createProviderRouter(nadCreateHandlers),
   );
 
   router.delete(
     '/:id/resources/harvester/nads/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(nadDeleteHandlers)
+    createProviderRouter(nadDeleteHandlers),
   );
 
   // Volumes 相关路由
@@ -255,7 +243,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/volumes',
     checkAdminPermission,
-    createProviderRouter(volumeListHandlers)
+    createProviderRouter(volumeListHandlers),
   );
 
   const availableVolumeListHandlers = {
@@ -268,7 +256,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/available-volumes',
     checkAdminPermission,
-    createProviderRouter(availableVolumeListHandlers)
+    createProviderRouter(availableVolumeListHandlers),
   );
 
   const volumeDeleteHandlers = {
@@ -281,7 +269,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/volumes/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(volumeDeleteHandlers)
+    createProviderRouter(volumeDeleteHandlers),
   );
 
   const longhornVolumeDeleteHandlers = {
@@ -294,7 +282,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/longhorn/volumes/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(longhornVolumeDeleteHandlers)
+    createProviderRouter(longhornVolumeDeleteHandlers),
   );
 
   const vmAddVolumeHandlers = {
@@ -307,7 +295,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/vms/:instanceId/add-volume',
     checkAdminPermission,
-    createProviderRouter(vmAddVolumeHandlers)
+    createProviderRouter(vmAddVolumeHandlers),
   );
 
   const vmAddVolumeDirectHandlers = {
@@ -320,7 +308,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/add-volume',
     checkAdminPermission,
-    createProviderRouter(vmAddVolumeDirectHandlers)
+    createProviderRouter(vmAddVolumeDirectHandlers),
   );
 
   const vmRemoveVolumeHandlers = {
@@ -333,7 +321,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/vms/:instanceId/remove-volume',
     checkAdminPermission,
-    createProviderRouter(vmRemoveVolumeHandlers)
+    createProviderRouter(vmRemoveVolumeHandlers),
   );
 
   // Images 相关路由
@@ -347,7 +335,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/images',
     checkAdminPermission,
-    createProviderRouter(imageListHandlers)
+    createProviderRouter(imageListHandlers),
   );
 
   const imageUploadProxyHandlers = {
@@ -359,7 +347,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/images/upload-proxy',
     checkAdminPermission,
-    createProviderRouter(imageUploadProxyHandlers)
+    createProviderRouter(imageUploadProxyHandlers),
   );
 
   const imageUploadTokenHandlers = {
@@ -371,7 +359,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/images/upload-token',
     checkAdminPermission,
-    createProviderRouter(imageUploadTokenHandlers)
+    createProviderRouter(imageUploadTokenHandlers),
   );
 
   // upload-tasks 必须放在 :namespace/:name 之前，避免被详情路由吞掉
@@ -384,7 +372,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/images/upload-tasks',
     checkAdminPermission,
-    createProviderRouter(imageUploadTaskCreateHandlers)
+    createProviderRouter(imageUploadTaskCreateHandlers),
   );
 
   const imageUploadTaskListHandlers = {
@@ -396,7 +384,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/images/upload-tasks',
     checkAdminPermission,
-    createProviderRouter(imageUploadTaskListHandlers)
+    createProviderRouter(imageUploadTaskListHandlers),
   );
 
   const imageUploadTaskGetHandlers = {
@@ -408,7 +396,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/images/upload-tasks/:taskId',
     checkAdminPermission,
-    createProviderRouter(imageUploadTaskGetHandlers)
+    createProviderRouter(imageUploadTaskGetHandlers),
   );
 
   const imageUploadTaskDeleteHandlers = {
@@ -420,7 +408,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/images/upload-tasks/:taskId',
     checkAdminPermission,
-    createProviderRouter(imageUploadTaskDeleteHandlers)
+    createProviderRouter(imageUploadTaskDeleteHandlers),
   );
 
   const imageUploadTaskFileHandlers = {
@@ -432,7 +420,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/images/upload-tasks/:taskId/file',
     checkAdminPermission,
-    createProviderRouter(imageUploadTaskFileHandlers)
+    createProviderRouter(imageUploadTaskFileHandlers),
   );
 
   const imageUploadTaskCancelHandlers = {
@@ -444,7 +432,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/images/upload-tasks/:taskId/cancel',
     checkAdminPermission,
-    createProviderRouter(imageUploadTaskCancelHandlers)
+    createProviderRouter(imageUploadTaskCancelHandlers),
   );
 
   const imageDetailHandlers = {
@@ -457,7 +445,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(imageDetailHandlers)
+    createProviderRouter(imageDetailHandlers),
   );
 
   const imageCreateHandlers = {
@@ -470,7 +458,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/images',
     checkAdminPermission,
-    createProviderRouter(imageCreateHandlers)
+    createProviderRouter(imageCreateHandlers),
   );
 
   const imageUpdateHandlers = {
@@ -483,7 +471,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.put(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(imageUpdateHandlers)
+    createProviderRouter(imageUpdateHandlers),
   );
 
   const imagePatchHandlers = {
@@ -497,7 +485,7 @@ export function registerHarvesterCacheRoutesProvider(
     '/:id/resources/harvester/images/:namespace/:name/patch',
     checkAdminPermission,
     json({ type: ['application/json-patch+json', 'application/merge-patch+json'] }),
-    createProviderRouter(imagePatchHandlers)
+    createProviderRouter(imagePatchHandlers),
   );
 
   const imageDeleteHandlers = {
@@ -510,7 +498,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/images/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(imageDeleteHandlers)
+    createProviderRouter(imageDeleteHandlers),
   );
 
   // Storage Classes 相关路由
@@ -524,7 +512,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/storage-classes',
     checkAdminPermission,
-    createProviderRouter(storageClassListHandlers)
+    createProviderRouter(storageClassListHandlers),
   );
 
   // Snapshots 相关路由
@@ -538,7 +526,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/snapshots',
     checkAdminPermission,
-    createProviderRouter(snapshotListHandlers)
+    createProviderRouter(snapshotListHandlers),
   );
 
   const snapshotDeleteHandlers = {
@@ -551,7 +539,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/snapshots/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(snapshotDeleteHandlers)
+    createProviderRouter(snapshotDeleteHandlers),
   );
 
   // Cluster Networks 相关路由
@@ -565,7 +553,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/cluster-networks',
     checkAdminPermission,
-    createProviderRouter(clusterNetworkListHandlers)
+    createProviderRouter(clusterNetworkListHandlers),
   );
 
   // Services 相关路由
@@ -579,7 +567,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/services',
     checkAdminPermission,
-    createProviderRouter(serviceListHandlers)
+    createProviderRouter(serviceListHandlers),
   );
 
   // Namespaces 相关路由
@@ -628,37 +616,37 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/public-namespace-names',
     checkAdminPermission,
-    createProviderRouter(publicNamespaceNamesHandlers)
+    createProviderRouter(publicNamespaceNamesHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/namespaces',
     checkAdminPermission,
-    createProviderRouter(namespaceListHandlers)
+    createProviderRouter(namespaceListHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/namespaces/:name',
     checkAdminPermission,
-    createProviderRouter(namespaceDetailHandlers)
+    createProviderRouter(namespaceDetailHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/namespaces',
     checkAdminPermission,
-    createProviderRouter(namespaceCreateHandlers)
+    createProviderRouter(namespaceCreateHandlers),
   );
 
   router.patch(
     '/:id/resources/harvester/namespaces/:name',
     checkAdminPermission,
-    createProviderRouter(namespaceUpdateHandlers)
+    createProviderRouter(namespaceUpdateHandlers),
   );
 
   router.delete(
     '/:id/resources/harvester/namespaces/:name',
     checkAdminPermission,
-    createProviderRouter(namespaceDeleteHandlers)
+    createProviderRouter(namespaceDeleteHandlers),
   );
 
   // Migrations 相关路由
@@ -672,7 +660,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/migrations',
     checkAdminPermission,
-    createProviderRouter(migrationListHandlers)
+    createProviderRouter(migrationListHandlers),
   );
 
   // Cluster 相关路由
@@ -707,25 +695,25 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/nodes',
     checkAdminPermission,
-    createProviderRouter(nodeListHandlers)
+    createProviderRouter(nodeListHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/nodes/:name',
     checkAdminPermission,
-    createProviderRouter(nodeDetailHandlers)
+    createProviderRouter(nodeDetailHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/health',
     checkAdminPermission,
-    createProviderRouter(healthHandlers)
+    createProviderRouter(healthHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/capabilities',
     checkAdminPermission,
-    createProviderRouter(capabilitiesHandlers)
+    createProviderRouter(capabilitiesHandlers),
   );
 
   // Meta 相关路由
@@ -767,31 +755,31 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/sshkeys',
     checkAdminPermission,
-    createProviderRouter(sshKeyListHandlers)
+    createProviderRouter(sshKeyListHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/sshkeys',
     checkAdminPermission,
-    createProviderRouter(sshKeyCreateHandlers)
+    createProviderRouter(sshKeyCreateHandlers),
   );
 
   router.delete(
     '/:id/resources/harvester/sshkeys/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(sshKeyDeleteHandlers)
+    createProviderRouter(sshKeyDeleteHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/cloudinits',
     checkAdminPermission,
-    createProviderRouter(cloudInitListHandlers)
+    createProviderRouter(cloudInitListHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/templates',
     checkAdminPermission,
-    createProviderRouter(templateListHandlers)
+    createProviderRouter(templateListHandlers),
   );
 
   // Peripherals 相关路由
@@ -805,7 +793,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/gpus',
     checkAdminPermission,
-    createProviderRouter(gpuListHandlers)
+    createProviderRouter(gpuListHandlers),
   );
 
   const gpuClaimListHandlers = {
@@ -818,7 +806,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/gpu-claims',
     checkAdminPermission,
-    createProviderRouter(gpuClaimListHandlers)
+    createProviderRouter(gpuClaimListHandlers),
   );
 
   const gpuClaimDeleteHandlers = {
@@ -831,7 +819,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/gpu-claims/:name',
     checkAdminPermission,
-    createProviderRouter(gpuClaimDeleteHandlers)
+    createProviderRouter(gpuClaimDeleteHandlers),
   );
 
   const usbDeviceListHandlers = {
@@ -844,7 +832,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/usb-devices',
     checkAdminPermission,
-    createProviderRouter(usbDeviceListHandlers)
+    createProviderRouter(usbDeviceListHandlers),
   );
 
   const usbDeviceClaimCreateHandlers = {
@@ -857,7 +845,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/usb-devices/:name/claim',
     checkAdminPermission,
-    createProviderRouter(usbDeviceClaimCreateHandlers)
+    createProviderRouter(usbDeviceClaimCreateHandlers),
   );
 
   const usbDeviceClaimDeleteHandlers = {
@@ -870,7 +858,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.delete(
     '/:id/resources/harvester/usb-devices/:name/claim',
     checkAdminPermission,
-    createProviderRouter(usbDeviceClaimDeleteHandlers)
+    createProviderRouter(usbDeviceClaimDeleteHandlers),
   );
 
   const pciDeviceListHandlers = {
@@ -883,7 +871,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/pci-devices',
     checkAdminPermission,
-    createProviderRouter(pciDeviceListHandlers)
+    createProviderRouter(pciDeviceListHandlers),
   );
 
   // ECS Detail 相关路由
@@ -897,7 +885,7 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/vms/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(vmDetailHandlers)
+    createProviderRouter(vmDetailHandlers),
   );
 
   // Backups 相关路由
@@ -925,19 +913,19 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/backups',
     checkAdminPermission,
-    createProviderRouter(backupListHandlers)
+    createProviderRouter(backupListHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/virtualmachinebackups/:namespace',
     checkAdminPermission,
-    createProviderRouter(backupCreateHandlers)
+    createProviderRouter(backupCreateHandlers),
   );
 
   router.delete(
     '/:id/resources/harvester/backups/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(backupDeleteHandlers)
+    createProviderRouter(backupDeleteHandlers),
   );
 
   // Schedule Backups 相关路由
@@ -979,31 +967,31 @@ export function registerHarvesterCacheRoutesProvider(
   router.get(
     '/:id/resources/harvester/schedulevmbackups',
     checkAdminPermission,
-    createProviderRouter(scheduleBackupListHandlers)
+    createProviderRouter(scheduleBackupListHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/schedulevmbackups',
     checkAdminPermission,
-    createProviderRouter(scheduleBackupCreateHandlers)
+    createProviderRouter(scheduleBackupCreateHandlers),
   );
 
   router.patch(
     '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(scheduleBackupUpdateHandlers)
+    createProviderRouter(scheduleBackupUpdateHandlers),
   );
 
   router.put(
     '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(scheduleBackupPutHandlers)
+    createProviderRouter(scheduleBackupPutHandlers),
   );
 
   router.delete(
     '/:id/resources/harvester/schedulevmbackups/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(scheduleBackupDeleteHandlers)
+    createProviderRouter(scheduleBackupDeleteHandlers),
   );
 
   // Restores 相关路由
@@ -1017,6 +1005,6 @@ export function registerHarvesterCacheRoutesProvider(
   router.post(
     '/:id/resources/harvester/virtualmachinerestores/:namespace',
     checkAdminPermission,
-    createProviderRouter(restoreCreateHandlers)
+    createProviderRouter(restoreCreateHandlers),
   );
 }

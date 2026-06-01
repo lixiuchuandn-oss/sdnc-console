@@ -126,7 +126,7 @@ saseGatewayRoutes.post('/report-assets', async (req, res) => {
           const query: any = { vrUuid: vr_unique_id, ip };
           query.port = port || null; // Match specific port or no port (null)
 
-          let existing = await assetRepo().findOne({ where: query });
+          const existing = await assetRepo().findOne({ where: query });
 
           if (existing) {
             existing.lastSeen = new Date();

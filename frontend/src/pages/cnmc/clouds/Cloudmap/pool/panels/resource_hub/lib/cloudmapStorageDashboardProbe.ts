@@ -1,4 +1,4 @@
-/** Steve / 后端封装：根据 CephCluster 列表探测应展示 Ceph 还是 Longhorn 存储总览 */
+/** Steve / 后端封装：根据统一存储集群列表探测应展示统一存储还是 Longhorn 存储总览 */
 export type StorageDashboardBackend = 'ceph' | 'longhorn' | 'forbidden';
 
 export function interpretCephClusterProbe(payload: unknown): StorageDashboardBackend {

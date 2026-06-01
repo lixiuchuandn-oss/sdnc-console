@@ -6,12 +6,16 @@
  */
 import React, { useMemo, useState, useCallback } from 'react';
 import { Table, Tag, Button, message, Input, Modal, Select, App, Form, Tooltip, Switch } from 'antd';
-import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { IngressFormModal, YamlEditModal } from '../components';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import { deleteHarvesterIngress, fetchHarvesterIngressDetail, updateHarvesterIngress, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
 
@@ -68,7 +72,12 @@ const IngressesSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
   const { message: antMessage } = App.useApp();
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'ingresses'),
+    [user?.permissions],
+  );
   const [aliasForm] = Form.useForm<{ alias?: string }>();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   // 关键字搜索（名称 / 命名空间）
@@ -183,12 +192,6 @@ const IngressesSection: React.FC<Props> = ({
   const handleEdit = (record: any) => {
     setEditingRecord(record);
     setEditModalOpen(true);
-  };
-  
-  // YAML 编辑
-  const handleYamlEdit = (record: any) => {
-    setYamlEditingRecord(record);
-    setYamlModalOpen(true);
   };
   
   // 加载 YAML 内容
@@ -311,7 +314,7 @@ const IngressesSection: React.FC<Props> = ({
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={[
+            items={filterMenuItemsForReadOnly([
               {
                 key: 'edit',
                 label: '编辑',
@@ -344,7 +347,7 @@ const IngressesSection: React.FC<Props> = ({
                   });
                 }
               }
-            ]}
+            ], hasContainersWrite)}
           />
         );
       },
@@ -397,13 +400,15 @@ const IngressesSection: React.FC<Props> = ({
               style={{ marginRight: 8 }}
             />
           )}
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateModalOpen(true)}
-          >
-            创建
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateModalOpen(true)}
+            >
+              创建
+            </Button>
+          </WriteGuard>
           <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading}>刷新</Button>
         </div>
       }

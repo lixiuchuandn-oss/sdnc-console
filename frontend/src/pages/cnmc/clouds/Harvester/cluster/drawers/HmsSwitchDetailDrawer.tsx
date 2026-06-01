@@ -12,6 +12,7 @@ import type {
   AswCtlSwitchProbeRecord,
   AswCtlSwitchesSummaryResponse,
 } from 'services/harvester/types/aswProbe';
+import { formatHmsDeviceProfileLabel } from '../lib/hmsSwitchCrForm';
 import PhysicalSwitchProbeTabs from '../components/PhysicalSwitchProbeTabs';
 import {
   hmsSwitchCrManagementHost,
@@ -57,11 +58,12 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
   const loadProbe = useCallback(
     async (live: boolean) => {
       if (!cloudId || !cr) return;
+      const configName = String(cr.metadata?.name || '').trim();
       setProbeLoading(true);
       setProbeError(null);
       try {
-        const res = (await (live && canSync
-          ? syncAswCtlSwitchesToInventory(cloudId)
+        const res = (await (live && canSync && configName
+          ? syncAswCtlSwitchesToInventory(cloudId, { name: configName })
           : fetchAswCtlSwitchesSummary(cloudId))) as AswCtlSwitchesSummaryResponse;
         const items = Array.isArray(res?.items) ? res.items : [];
         setProbeRecord(matchAswProbeRecordByCr(items, cr));
@@ -103,10 +105,10 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
     if (!probeRecord) return '';
     return (
       parseSwitchDisplayNameFromInfoLines(probeRecord.info?.lines) ||
-      parseSwitchProductModelFromInfoLines(probeRecord.info?.lines) ||
+      parseSwitchProductModelFromInfoLines(probeRecord.info?.lines, { vendor: cr?.spec?.vendor }) ||
       ''
     );
-  }, [probeRecord]);
+  }, [probeRecord, cr?.spec?.vendor]);
 
   const tabItems = useMemo(() => {
     if (!cr) return [];
@@ -133,7 +135,9 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
               {backupHosts.length > 0 ? backupHosts.join('、') : '—'}
             </Descriptions.Item>
             <Descriptions.Item label="厂商">{spec.vendor || '—'}</Descriptions.Item>
-            <Descriptions.Item label="设备模板">{spec.deviceProfile || '—'}</Descriptions.Item>
+            <Descriptions.Item label="设备模板">
+              {formatHmsDeviceProfileLabel(spec.deviceProfile)}
+            </Descriptions.Item>
             <Descriptions.Item label="SSH 用户">{spec.user || 'root'}</Descriptions.Item>
             <Descriptions.Item label="SSH 端口">{spec.port ?? 22}</Descriptions.Item>
             <Descriptions.Item label="密码">
@@ -218,9 +222,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
             {!probeLoading && probeRecord ? (
               <>
                 {runtimeTitle ? (
-                  <Typography.Text type="secondary">
-                    设备标识：{runtimeTitle}
-                  </Typography.Text>
+                  <Typography.Text type="secondary">设备标识：{runtimeTitle}</Typography.Text>
                 ) : null}
                 <PhysicalSwitchProbeTabs record={probeRecord} />
               </>
@@ -252,17 +254,17 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
       onClose={onClose}
       destroyOnHidden
       extra={
-        <Button
-          size="small"
-          loading={probeLoading}
-          onClick={() => void loadProbe(canSync)}
-        >
+        <Button size="small" loading={probeLoading} onClick={() => void loadProbe(!!canSync)}>
           {canSync ? '探测刷新' : '刷新'}
         </Button>
       }
     >
       {cr ? (
-        <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as typeof activeTab)} items={tabItems} />
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as typeof activeTab)}
+          items={tabItems}
+        />
       ) : null}
     </Drawer>
   );

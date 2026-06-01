@@ -8,6 +8,10 @@ import { AppDataSource } from '../config/database';
 import { Cloud } from '../entities/Cloud';
 import { getSystemSetting } from '../config/systemSettings';
 import { licenseService } from './LicenseService';
+import {
+  cbrBackupScheduleAliasSatisfied,
+  isCbrBackupScheduleResourceBase,
+} from '../constants/cbrSchedulePermissionLegacy';
 
 export type AdminHomeStepOutcome = 'matched' | 'skipped';
 
@@ -36,8 +40,12 @@ export type AdminDefaultHomePayload = {
   steps: AdminHomeResolutionStep[];
 };
 
-function isCloudsContainersResourceBase(resourceBase: string): boolean {
+function _isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
+}
+
+function _isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
 }
 
 /** 与 `frontend/src/utils/accessMapping.ts` 中 `hasPermissionForAction` 对齐 */
@@ -45,7 +53,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (!act) return false;
   const permsArray = perms || [];
   const base = act.split(':')[0];
-  const isDashboardOrPools = base === 'clouds.dashboard' || base === 'clouds.resource-pools';
   const segments = base.split('.');
   const hasDomainPrefix = segments.length >= 2 ? `${segments[0]}.${segments[1]}` : null;
 
@@ -54,28 +61,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (permsArray.includes(act.replace(':read', ':write'))) return true;
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
-
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':read') &&
-    !isDashboardOrPools &&
-    !isCloudsContainersResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:read') || permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
-
-  if (
-    base.startsWith('clouds.') &&
-    act.endsWith(':write') &&
-    !isDashboardOrPools &&
-    !isCloudsContainersResourceBase(base)
-  ) {
-    if (permsArray.includes('clouds.console:write')) {
-      return true;
-    }
-  }
 
   if (base.startsWith('clouds.') && act.endsWith(':write')) {
     if (permsArray.includes('clouds:write')) {
@@ -89,15 +74,39 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
     }
   }
 
-  if (base.startsWith('clouds.containers.') && base !== 'clouds.containers' && act.endsWith(':read')) {
-    if (permsArray.includes('clouds.containers:read') || permsArray.includes('clouds.containers:write')) {
+  if (
+    base.startsWith('clouds.containers.') &&
+    base !== 'clouds.containers' &&
+    act.endsWith(':read')
+  ) {
+    if (
+      permsArray.includes('clouds.containers:read') ||
+      permsArray.includes('clouds.containers:write')
+    ) {
       return true;
     }
   }
-  if (base.startsWith('clouds.containers.') && base !== 'clouds.containers' && act.endsWith(':write')) {
+  if (
+    base.startsWith('clouds.containers.') &&
+    base !== 'clouds.containers' &&
+    act.endsWith(':write')
+  ) {
     if (permsArray.includes('clouds.containers:write')) {
       return true;
     }
+  }
+
+  if (base === 'clouds.vm-backup-snapshots') {
+    if (permsArray.includes('clouds.backups:read') || permsArray.includes('clouds.backups:write')) {
+      return true;
+    }
+  }
+  if (
+    isCbrBackupScheduleResourceBase(base) &&
+    (act.endsWith(':read') || act.endsWith(':write')) &&
+    cbrBackupScheduleAliasSatisfied(permsArray, base, act.endsWith(':write') ? 'write' : 'read')
+  ) {
+    return true;
   }
 
   return false;
@@ -121,7 +130,7 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     id: 'cloudmap-pool-rh-overview',
     homePagePriority: -1,
     path: '/admin/clouds/:cloudId/resource_hub/overview',
-    pageAction: 'clouds.console:read',
+    pageAction: 'clouds.monitoring.overview:read',
     homePageReplaceParamFrom: 'favoriteCloudId',
     homePageAllowedRoles: ['super_admin', 'admin'],
   },
@@ -147,12 +156,6 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     path: '/admin/clouds',
     pageAction: 'clouds.resource-pools:read',
     requiredFeature: 'platform.multi-cloud',
-  },
-  {
-    id: 'console',
-    homePagePriority: 3,
-    path: '/console',
-    pageAction: 'clouds.console:read',
   },
   {
     id: 'tenants-list',
@@ -217,10 +220,28 @@ export async function resolveAdminDefaultHome(
   favoritePoolIdOverride?: string,
 ): Promise<AdminDefaultHomePayload> {
   const r = String(role || '').toLowerCase();
-  const isSystemAdminRole = r === 'super_admin' || r === 'admin';
   const fav = await resolveEffectiveFavoritePoolId(favoritePoolIdOverride);
   const status = licenseService.getStatus();
   const licenseFeatures = status.payload?.features ? [...status.payload.features] : [];
+
+  if (r === 'tenant') {
+    return {
+      defaultPath: '/console',
+      favoritePoolId: fav,
+      licenseFeatures,
+      steps: [
+        {
+          id: 'tenant-console-direct',
+          homePagePriority: -2,
+          templatePath: '/console',
+          resolvedPath: '/console',
+          outcome: 'matched',
+          reason: 'tenant_account_type',
+        },
+      ],
+    };
+  }
+
   const hasFeature = (f: string) => hasLicenseFeature(f);
 
   const steps: AdminHomeResolutionStep[] = [];
@@ -232,15 +253,6 @@ export async function resolveAdminDefaultHome(
       templatePath: spec.path,
       rbacAction: spec.homePageSkipPermissionCheck ? null : spec.pageAction,
     };
-
-    if (isSystemAdminRole && spec.path === '/console') {
-      steps.push({
-        ...baseStep,
-        outcome: 'skipped',
-        reason: 'system_admin_skip_console',
-      });
-      continue;
-    }
 
     if (spec.homePageAllowedRoles?.length) {
       if (!spec.homePageAllowedRoles.includes(r)) {

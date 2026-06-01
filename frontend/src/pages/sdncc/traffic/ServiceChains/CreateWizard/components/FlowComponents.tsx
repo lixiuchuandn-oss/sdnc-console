@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Input, Popover, Tag, Select } from 'antd';
 import { 
-  EditOutlined, 
-  GlobalOutlined, 
-  DatabaseOutlined,
-  CloudServerOutlined,
-  PartitionOutlined,
-  EnvironmentOutlined,
+  EditOutlined,
   MoreOutlined,
   DeleteOutlined
 } from '@ant-design/icons';
@@ -14,8 +9,7 @@ import {
   Handle, 
   Position, 
   getBezierPath, 
-  EdgeProps,
-  Node
+  EdgeProps
 } from 'react-flow-renderer';
 
 // Custom edge with particle animation
@@ -290,7 +284,7 @@ export const EndNode = ({ data }: any) => {
 export const ServiceNode = ({ data }: any) => {
   const instanceCount = data.instanceCount || 1;
   
-  const content = (
+  const _content = (
     <div style={{ width: 260 }}>
       <div style={{ 
         padding: '8px 12px', 

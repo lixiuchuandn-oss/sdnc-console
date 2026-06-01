@@ -90,12 +90,12 @@ export async function ensureRecycleBinTables() {
 
     // 检查表是否存在
     const tableExists = await AppDataSource.query(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='recycle_bin_shutdown_records'`
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='recycle_bin_shutdown_records'`,
     );
 
     if (tableExists.length === 0) {
       dbLog.info('创建回收站关机记录表...');
-      
+
       // 创建表
       await AppDataSource.query(`
         CREATE TABLE "recycle_bin_shutdown_records" (
@@ -119,17 +119,17 @@ export async function ensureRecycleBinTables() {
         CREATE INDEX "IDX_recycle_bin_shutdown_records_cloudId_namespace_name" 
         ON "recycle_bin_shutdown_records" ("cloudId", "namespace", "name")
       `);
-      
+
       await AppDataSource.query(`
         CREATE INDEX "IDX_recycle_bin_shutdown_records_shutdownAt" 
         ON "recycle_bin_shutdown_records" ("shutdownAt")
       `);
-      
+
       await AppDataSource.query(`
         CREATE INDEX "IDX_recycle_bin_shutdown_records_status" 
         ON "recycle_bin_shutdown_records" ("status")
       `);
-      
+
       await AppDataSource.query(`
         CREATE INDEX "IDX_recycle_bin_shutdown_records_cloudId" 
         ON "recycle_bin_shutdown_records" ("cloudId")
@@ -450,10 +450,7 @@ export async function ensureDatacenterTopologyTables() {
       dbLog.info('机房拓扑表创建成功');
     }
   } catch (error) {
-    dbLog.error(
-      '机房拓扑表初始化失败:',
-      error instanceof Error ? error.message : String(error),
-    );
+    dbLog.error('机房拓扑表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -513,7 +510,8 @@ export async function ensureUsersPasswordChangedAtColumn() {
       return;
     }
     const cols = await AppDataSource.query(`PRAGMA table_info(users)`);
-    const has = Array.isArray(cols) && cols.some((c: { name?: string }) => c.name === 'passwordChangedAt');
+    const has =
+      Array.isArray(cols) && cols.some((c: { name?: string }) => c.name === 'passwordChangedAt');
     if (!has) {
       dbLog.info('为 users 表添加 passwordChangedAt 列...');
       await AppDataSource.query(`ALTER TABLE "users" ADD COLUMN "passwordChangedAt" datetime`);
@@ -601,10 +599,162 @@ export async function ensureHarborTables() {
       dbLog.info('harbor_projects 表创建成功');
     }
   } catch (error) {
-    dbLog.error(
-      'Harbor 表初始化失败:',
-      error instanceof Error ? error.message : String(error),
+    dbLog.error('Harbor 表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+/** 云桌面网关：Guacamole 实例与 Connection 映射表 */
+export async function ensureGuacamoleTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过云桌面网关表检查');
+      return;
+    }
+
+    const instExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='guacamole_instances'`,
     );
+    if (!Array.isArray(instExists) || instExists.length === 0) {
+      dbLog.info('创建 guacamole_instances 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "guacamole_instances" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "name" varchar(100) NOT NULL,
+          "baseUrl" varchar(512) NOT NULL,
+          "username" varchar(100) NOT NULL,
+          "passwordEncrypted" varchar(512) NOT NULL,
+          "dataSource" varchar(64) NOT NULL DEFAULT 'postgresql',
+          "isDefault" boolean NOT NULL DEFAULT 0,
+          "status" varchar(32) NOT NULL DEFAULT 'unknown',
+          "lastTestAt" datetime,
+          "lastTestMessage" varchar,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_guacamole_instances_name" ON "guacamole_instances" ("name")
+      `);
+      dbLog.info('guacamole_instances 表创建成功');
+    }
+
+    const mapExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='guacamole_connection_maps'`,
+    );
+    if (!Array.isArray(mapExists) || mapExists.length === 0) {
+      dbLog.info('创建 guacamole_connection_maps 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "guacamole_connection_maps" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "instanceId" varchar NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "resourceType" varchar(32) NOT NULL,
+          "resourceKey" varchar(512) NOT NULL,
+          "connectionName" varchar(256) NOT NULL,
+          "guacConnectionId" varchar(64) NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_guacamole_connection_maps_resource"
+        ON "guacamole_connection_maps" ("cloudId", "resourceType", "resourceKey")
+      `);
+      dbLog.info('guacamole_connection_maps 表创建成功');
+    }
+
+    const userBindExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='guacamole_user_bindings'`,
+    );
+    if (!Array.isArray(userBindExists) || userBindExists.length === 0) {
+      dbLog.info('创建 guacamole_user_bindings 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "guacamole_user_bindings" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "instanceId" varchar NOT NULL,
+          "platformUserId" varchar NOT NULL,
+          "guacamoleUsername" varchar(128) NOT NULL,
+          "passwordEncrypted" varchar(512) NOT NULL,
+          "status" varchar(32) NOT NULL DEFAULT 'active',
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_guacamole_user_bindings_instance_user"
+        ON "guacamole_user_bindings" ("instanceId", "platformUserId")
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_guacamole_user_bindings_instance_guac_user"
+        ON "guacamole_user_bindings" ("instanceId", "guacamoleUsername")
+      `);
+      dbLog.info('guacamole_user_bindings 表创建成功');
+    }
+
+    const desktopUserExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_desktop_users'`,
+    );
+    if (!Array.isArray(desktopUserExists) || desktopUserExists.length === 0) {
+      dbLog.info('创建 cloud_desktop_users 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_desktop_users" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "username" varchar(64) NOT NULL,
+          "fullName" varchar(100) NOT NULL,
+          "email" varchar(100),
+          "status" varchar NOT NULL DEFAULT 'active',
+          "guacamoleUsername" varchar(128) NOT NULL,
+          "instanceId" varchar,
+          "syncStatus" varchar(32) NOT NULL DEFAULT 'pending',
+          "lastSyncAt" datetime,
+          "lastSyncMessage" text,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_desktop_users_username" ON "cloud_desktop_users" ("username")
+      `);
+      dbLog.info('cloud_desktop_users 表创建成功');
+    }
+
+    const assignExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='guacamole_desktop_assignments'`,
+    );
+    if (!Array.isArray(assignExists) || assignExists.length === 0) {
+      dbLog.info('创建 guacamole_desktop_assignments 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "guacamole_desktop_assignments" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "desktopUserId" varchar NOT NULL,
+          "instanceId" varchar NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "resourceType" varchar(32) NOT NULL,
+          "resourceKey" varchar(512) NOT NULL,
+          "guacConnectionId" varchar(64) NOT NULL,
+          "assignedByUserId" varchar,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_guacamole_desktop_assignments_unique"
+        ON "guacamole_desktop_assignments" ("desktopUserId", "cloudId", "resourceType", "resourceKey")
+      `);
+      dbLog.info('guacamole_desktop_assignments 表创建成功');
+    }
+
+    const instCols = await AppDataSource.query(`PRAGMA table_info(guacamole_instances)`);
+    const colNames = Array.isArray(instCols) ? instCols.map((c: any) => c.name) : [];
+    if (!colNames.includes('desktopUserPasswordEncrypted')) {
+      dbLog.info('guacamole_instances 增加 desktopUserPasswordEncrypted 列...');
+      await AppDataSource.query(`
+        ALTER TABLE "guacamole_instances" ADD COLUMN "desktopUserPasswordEncrypted" varchar(512)
+      `);
+    }
+  } catch (error) {
+    dbLog.error('云桌面网关表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }

@@ -59,8 +59,8 @@ const StepOthers: React.FC<StepOthersProps> = ({
   form,
   usbResources,
   reloadUsbResources,
-  sshKeyOptions,
-  reloadSshKeys,
+  sshKeyOptions: _sshKeyOptions,
+  reloadSshKeys: _reloadSshKeys,
 }) => {
   return (
     <>
@@ -155,7 +155,7 @@ const StepOthers: React.FC<StepOthersProps> = ({
                 <Typography.Text type="secondary">未检测到允许的 USB 资源，请检查 KubeVirt 的 permittedHostDevices.usb 设置</Typography.Text>
               </div>
             ) : null}
-            {fields.map(({ key, name }, idx) => (
+            {fields.map(({ key, name }) => (
               <Row key={key} gutter={12} style={{ marginBottom: 8 }}>
                 <Col span={22}>
                   <Form.Item name={[name]} rules={[{ required: true, message: '请选择 USB 设备' }]}>

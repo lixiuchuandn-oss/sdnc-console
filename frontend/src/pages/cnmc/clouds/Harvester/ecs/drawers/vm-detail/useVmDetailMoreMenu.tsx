@@ -61,8 +61,6 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     isStopped,
     isMigrating,
     isCdromBoot,
-    onBackup,
-    onSnapshot,
     onClone,
     onMigrate,
     onDelete,
@@ -72,7 +70,6 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     handleAbortMigration,
     handleStop,
     setDiagnosisDrawerOpen,
-    setRealtimeLogsDrawerOpen,
     setNodeSchedulingOpen,
     setNodeAffinityOpen,
     setVmPolicyManageOpen,
@@ -82,8 +79,8 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
   } = ctx;
 
   return useMemo(
-    () =>
-      [
+    () => {
+      const items: MenuProps["items"] = [
         {
           key: "clone",
           label: "克隆",
@@ -303,7 +300,39 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
             onDelete && onDelete(vmData);
           },
         },
-      ] as MenuProps["items"],
+      ] as MenuProps["items"];
+
+      if (hasEcsWrite) return items;
+
+      const readonlyKeys = new Set(["sub_diagnosis"]);
+      const compact = (src: MenuProps["items"]): MenuProps["items"] => {
+        const out: NonNullable<MenuProps["items"]> = [];
+        for (const it of src || []) {
+          if (!it) continue;
+          if (typeof it === "object" && "type" in it && it.type === "divider") {
+            const prev = out[out.length - 1] as any;
+            if (!out.length || (prev && prev.type === "divider")) continue;
+            out.push(it);
+            continue;
+          }
+          out.push(it);
+        }
+        while (out.length) {
+          const last = out[out.length - 1] as any;
+          if (last && last.type === "divider") out.pop();
+          else break;
+        }
+        return out;
+      };
+
+      return compact(
+        (items || []).filter((it) => {
+          if (!it || typeof it !== "object" || !("key" in it)) return false;
+          const k = String((it as any).key || "");
+          return readonlyKeys.has(k);
+        }),
+      );
+    },
     [
       vmData,
       hasEcsWrite,
@@ -311,8 +340,6 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
       isStopped,
       isMigrating,
       isCdromBoot,
-      onBackup,
-      onSnapshot,
       onClone,
       onMigrate,
       onDelete,
@@ -322,7 +349,6 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
       handleAbortMigration,
       handleStop,
       setDiagnosisDrawerOpen,
-      setRealtimeLogsDrawerOpen,
       setNodeSchedulingOpen,
       setNodeAffinityOpen,
       setVmPolicyManageOpen,

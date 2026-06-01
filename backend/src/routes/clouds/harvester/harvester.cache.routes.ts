@@ -11,10 +11,12 @@
  */
 import { Router, Response } from 'express';
 import { requestJson } from '../../../services/clouds/harvester/utils';
+import { getHarvesterNodeResourceUsage } from '../../../services/clouds/harvester/nodeResourceUsage';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { registerHarvesterCacheRoutesProvider } from './harvester.cache.routes.provider';
 import { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
 import {
+  harvesterAswCtlDeviceProfilesHandler,
   harvesterAswCtlProbeHandler,
   harvesterAswCtlSwitchesHandler,
   harvesterAswCtlSyncHandler,
@@ -30,10 +32,7 @@ import {
 /**
  * 注册 Harvester 缓存路由
  */
-export const registerHarvesterRoutes = (
-  router: Router,
-  checkAdminPermission: any,
-) => {
+export const registerHarvesterRoutes = (router: Router, checkAdminPermission: any) => {
   // API 代理：转发请求到 Harvester/K8s API
   router.all(
     '/:id/resources/harvester/proxy',
@@ -48,8 +47,7 @@ export const registerHarvesterRoutes = (
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
-        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next))
-          return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
 
         const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -77,7 +75,7 @@ export const registerHarvesterRoutes = (
           target,
           cloud.secretKey || '',
           insecure,
-          req.method === 'POST' || req.method === 'PUT' ? req.body : undefined
+          req.method === 'POST' || req.method === 'PUT' ? req.body : undefined,
         );
         res.json(data);
       } catch (error: any) {
@@ -87,7 +85,31 @@ export const registerHarvesterRoutes = (
           error: error.message || String(error),
         });
       }
-    }
+    },
+  );
+
+  // 节点 CPU/内存资源聚合：服务端读取 metrics/nodes/全量 Pod 并聚合，仅回小结果，
+  // 避免把全集群 Pod 列表传回浏览器（物理节点列表 CPU/内存列刷新慢的根因）
+  router.get(
+    '/:id/resources/harvester/node-resource-usage',
+    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      try {
+        const { id } = req.params;
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester', next)) return;
+        const force = req.query?.force === 'true' || req.query?.force === '1';
+        const data = await getHarvesterNodeResourceUsage(cloud, { force });
+        res.json({ ok: true, ...data });
+      } catch (error: any) {
+        if (res.headersSent) return;
+        res.status(500).json({
+          message: '聚合节点资源失败',
+          error: error?.message || String(error),
+        });
+      }
+    },
   );
 
   // 物理交换机 / HSM：默认同资源池 API Endpoint；可选 config.aswCtl 覆盖
@@ -95,6 +117,11 @@ export const registerHarvesterRoutes = (
     '/:id/resources/harvester/asw-ctl/switches',
     checkAdminPermission,
     harvesterAswCtlSwitchesHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/asw-ctl/device-profiles',
+    checkAdminPermission,
+    harvesterAswCtlDeviceProfilesHandler,
   );
   router.post(
     '/:id/resources/harvester/asw-ctl/sync',
@@ -136,7 +163,7 @@ export const registerHarvesterRoutes = (
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
   registerHarvesterCacheRoutesProvider(router, checkAdminPermission);
-  
+
   // 注册容器资源路由（独立模块）
   registerHarvesterContainerRoutes(router, checkAdminPermission);
 };

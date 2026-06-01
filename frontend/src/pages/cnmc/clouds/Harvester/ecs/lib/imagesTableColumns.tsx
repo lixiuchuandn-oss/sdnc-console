@@ -16,6 +16,7 @@ import {
   getImageStatusText,
   type ImageListRecord,
 } from './imagesSectionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type ImagesTableActions = {
   isTenant: boolean;
@@ -102,7 +103,7 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
     ...(!isTenant
       ? [
           {
-            title: '命名空间',
+            title: '项目',
             key: 'namespace',
             render: (_: unknown, r: ImageListRecord) => getImageRowNamespace(r),
           },
@@ -203,8 +204,8 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
 
         return (
           <ResourceActionsDropdown
-            buttonProps={{ className: 'row-actions-trigger', disabled: !hasImagesWrite }}
-            items={[
+            buttonProps={{ className: 'row-actions-trigger' }}
+            items={filterMenuItemsForReadOnly([
               ...(!isTenant
                 ? [{ key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }]
                 : []),
@@ -230,7 +231,7 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
                     },
                   }),
               },
-            ]}
+            ], hasImagesWrite)}
           />
         );
       },

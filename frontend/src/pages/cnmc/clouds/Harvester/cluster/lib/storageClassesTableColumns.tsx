@@ -46,7 +46,7 @@ export function buildStorageClassesTableColumns(
       render: (_: unknown, r) => {
         const label = storageClassBackendPoolLabel(r);
         const tip =
-          '来自 StorageClass 的 parameters（如 RBD 的 pool）；若无 pool 字段（例如 Longhorn）则与 Ceph 块池无直接对应。';
+          '来自 StorageClass 的 parameters（如 RBD 的 pool）；若无 pool 字段（例如 Longhorn）则与统一存储块池无直接对应。';
         return label ? (
           <span title={label}>{label}</span>
         ) : (

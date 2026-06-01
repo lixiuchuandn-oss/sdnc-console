@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Table, Modal, Space, Typography, Tag, Select } from 'antd';
+import React, { useCallback, useMemo, useState } from 'react';
+import { App, Button, Input, Table, Modal, Space, Tooltip, Typography, Tag, Select } from 'antd';
 import { ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups, deleteCloudProviderSecurityGroup } from '../../../../../services/securityGroups';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
@@ -53,7 +53,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
     });
   }, [secGroups, keyword, typeFilter, vpcFilter]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!cloudId) return;
     setLoading(true);
     try {
@@ -66,12 +66,13 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
     } finally {
       setLoading(false);
     }
-  };
+  }, [cloudId, message, onSetSecGroups]);
 
   const columns = useMemo(() => [
     { 
       title: '名称/ID', 
       key: 'info', 
+      fixed: 'left' as const,
       width: 240,
       sorter: (a: any, b: any) => {
         const an = String(a?.SecurityGroupName || a?.name || '');
@@ -176,7 +177,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
     { 
       title: '操作', 
       key: 'actions', 
-      fixed: 'right',
+      fixed: 'right' as const,
       width: 80,
       render: (_: any, r: any) => {
         const items = [
@@ -240,47 +241,42 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
       title={Label}
       icon={Icon}
       toolbarLeft={(
-        <Space wrap>
-          <Input 
+        <>
+          <Input
+            className="toolbar-search"
             prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            placeholder="搜索名称/ID/描述" 
-            allowClear 
-            value={keyword} 
-            onChange={(e) => setKeyword(e.target.value)} 
-            style={{ width: 220 }} 
+            placeholder="名称 / ID / 描述"
+            allowClear
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
           />
-          <Select 
-            placeholder="类型" 
-            allowClear 
-            value={typeFilter} 
-            onChange={setTypeFilter} 
-            style={{ width: 140 }} 
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="类型"
+            allowClear
+            value={typeFilter}
+            onChange={setTypeFilter}
             options={[
               { label: '普通安全组', value: 'normal' },
               { label: '企业级安全组', value: 'enterprise' }
             ]}
             dropdownMatchSelectWidth={false}
           />
-          <Select 
-            placeholder="所属VPC" 
-            allowClear 
-            value={vpcFilter} 
-            onChange={setVpcFilter} 
-            style={{ width: 160 }} 
-            options={vpcOptions}
-            dropdownMatchSelectWidth={false}
-          />
-        </Space>
+          <Select className="toolbar-filter-sm" placeholder="所属 VPC" allowClear value={vpcFilter} onChange={setVpcFilter} options={vpcOptions} dropdownMatchSelectWidth={false} />
+          <button type="button" className="toolbar-reset-btn" onClick={() => { setKeyword(''); setTypeFilter(undefined); setVpcFilter(undefined); }}>重置</button>
+        </>
       )}
       toolbarRight={(
-        <Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>新建</Button>
-          <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading} />
-        </Space>
+        <div className="toolbar-actions">
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>新建安全组</Button>
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={refresh} loading={loading} /></Tooltip>
+        </div>
       )}
       asCard={false}
     >
       <Table
+        className="std-table"
+        bordered={false}
         loading={loading}
         rowKey={(r: any) => r?.SecurityGroupId || r?.id}
         columns={columns as any}
@@ -289,7 +285,7 @@ const SecurityGroupSectionAliyun: React.FC<Props> = ({ cloudId, secGroups, vpcs,
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }}
-        scroll={{ x: 1000 }}
+        scroll={{ x: true }}
       />
       {!!showLog && (
         <div style={{ marginTop: 12 }}>

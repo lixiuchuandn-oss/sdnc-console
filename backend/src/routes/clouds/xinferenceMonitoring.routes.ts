@@ -3,7 +3,10 @@ import { AppDataSource } from '../../config/database';
 import { Cloud } from '../../entities/Cloud';
 import { AuthRequest } from '../../middleware/auth';
 import { logger } from '../../utils/logger';
-import { getXinferenceContext, xinferenceGet } from '../../services/clouds/xinference/xinferenceClient';
+import {
+  getXinferenceContext,
+  xinferenceGet,
+} from '../../services/clouds/xinference/xinferenceClient';
 
 const log = logger.child('XinferenceMonitoring');
 
@@ -85,38 +88,41 @@ function buildMonitoringUiConfig(
  * 代理 Xinference GET /v1/cluster/ui_config，并合并资源池 config 中的 Grafana 覆盖配置。
  */
 export function attachXinferenceMonitoringRoutes(router: Router, perm: RequestHandler): void {
-  router.get('/:id/xinference/monitoring/ui-config', perm, async (req: AuthRequest, res: Response) => {
-    try {
-      const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
-      if (!cloud) return;
-      const ctx = getXinferenceContext(cloud);
-      if (!ctx) {
-        res.status(400).json({ message: '缺少 Xinference 服务地址' });
-        return;
-      }
+  router.get(
+    '/:id/xinference/monitoring/ui-config',
+    perm,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
+        if (!cloud) return;
+        const ctx = getXinferenceContext(cloud);
+        if (!ctx) {
+          res.status(400).json({ message: '缺少 Xinference 服务地址' });
+          return;
+        }
 
-      const cfg = (cloud.config && typeof cloud.config === 'object' ? cloud.config : {}) as Record<
-        string,
-        unknown
-      >;
+        const cfg = (
+          cloud.config && typeof cloud.config === 'object' ? cloud.config : {}
+        ) as Record<string, unknown>;
 
-      const r = await xinferenceGet(ctx, '/v1/cluster/ui_config');
-      let uiRaw: Record<string, unknown> = {};
-      let uiConfigError: string | undefined;
-      if (r.ok && r.data && typeof r.data === 'object') {
-        uiRaw = r.data as Record<string, unknown>;
-      } else if (!r.ok) {
-        uiConfigError = r.message || '拉取 Xinference 监控配置失败';
-      }
+        const r = await xinferenceGet(ctx, '/v1/cluster/ui_config');
+        let uiRaw: Record<string, unknown> = {};
+        let uiConfigError: string | undefined;
+        if (r.ok && r.data && typeof r.data === 'object') {
+          uiRaw = r.data as Record<string, unknown>;
+        } else if (!r.ok) {
+          uiConfigError = r.message || '拉取 Xinference 监控配置失败';
+        }
 
-      const body = buildMonitoringUiConfig(uiRaw, cfg, ctx.origin);
-      if (uiConfigError) {
-        body.uiConfigError = uiConfigError;
+        const body = buildMonitoringUiConfig(uiRaw, cfg, ctx.origin);
+        if (uiConfigError) {
+          body.uiConfigError = uiConfigError;
+        }
+        res.json(body);
+      } catch (error: any) {
+        log.error('monitoring ui-config failed', error?.message ?? String(error));
+        res.status(500).json({ message: error?.message || '获取监控配置失败' });
       }
-      res.json(body);
-    } catch (error: any) {
-      log.error('monitoring ui-config failed', error?.message ?? String(error));
-      res.status(500).json({ message: error?.message || '获取监控配置失败' });
-    }
-  });
+    },
+  );
 }

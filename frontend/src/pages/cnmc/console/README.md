@@ -4,7 +4,7 @@
 
 - **路由**：`/console`（租户专用；旧入口 `/admin/clouds/console` 重定向至此，见 `lib/tenantConsolePaths.ts`）。
 - **与管理员侧**：管理员多从资源池详情进入；租户日常以本控制台为主。数据范围（如 `mergePublicScenarioNamespaces`）见 `CloudConsole.tsx`。
-- **RBAC**：与 Cloudmap 池内 `poolPageAction` 对齐，见 `deployment/docs/specs/cloudmap-pool-page-rbac.md` 与 `lib/tenantConsolePageAccess.ts`。
+- **RBAC**：与 Cloudmap 池内 `poolPageAction` 对齐，见 `docs/cloudmap-pool-rbac.md` 与 `lib/tenantConsolePageAccess.ts`。
 
 ## 目录结构（对齐 `frontend/src/STRUCTURE.md`）
 

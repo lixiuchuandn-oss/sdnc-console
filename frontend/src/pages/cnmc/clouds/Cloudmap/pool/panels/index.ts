@@ -16,6 +16,7 @@ export { default as CloudmapCloudDatabaseRoutePanel } from './paas_databases';
 export { default as CloudmapOniaasNetworkRoutePanel } from './oniaas_network';
 export { default as CloudmapContainersRoutePanel } from './containers';
 export { default as CloudmapStorageRoutePanel } from './storage';
+export { default as CloudmapUnifiedStorageRoutePanel } from './unified_storage';
 export { default as CloudmapObjectStorageRoutePanel } from './object_storage';
 export { default as CloudmapBackupsRoutePanel } from './backups';
 export { default as CloudmapFlatNetworkRoutePanel } from './flat_network';

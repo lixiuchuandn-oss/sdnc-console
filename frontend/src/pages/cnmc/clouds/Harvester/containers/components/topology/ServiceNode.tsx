@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { CloudServerOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { CloudServerOutlined } from '@ant-design/icons';
 import './TopologyNodeStyles.css';
 
 export interface ServiceNodeData {

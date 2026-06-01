@@ -28,17 +28,17 @@ export function getLoginCipherMaxAgeMs(): number {
 
 /** 客户端时间领先服务器时的容差（毫秒）；`LOGIN_CIPHER_MAX_CLOCK_SKEW_MS` */
 export function getLoginCipherMaxClockSkewMs(): number {
-  return parsePositiveIntEnv(process.env.LOGIN_CIPHER_MAX_CLOCK_SKEW_MS) ?? DEFAULT_CIPHER_MAX_CLOCK_SKEW_MS;
+  return (
+    parsePositiveIntEnv(process.env.LOGIN_CIPHER_MAX_CLOCK_SKEW_MS) ??
+    DEFAULT_CIPHER_MAX_CLOCK_SKEW_MS
+  );
 }
 
 /** nonce 去重 TTL（毫秒）；默认 ≥ maxAge + maxSkew */
 export function getLoginCipherNonceTtlMs(): number {
   const fromEnv = parsePositiveIntEnv(process.env.LOGIN_CIPHER_NONCE_TTL_MS);
   if (fromEnv != null) return fromEnv;
-  return Math.max(
-    DEFAULT_NONCE_TTL_MS,
-    getLoginCipherMaxAgeMs() + getLoginCipherMaxClockSkewMs(),
-  );
+  return Math.max(DEFAULT_NONCE_TTL_MS, getLoginCipherMaxAgeMs() + getLoginCipherMaxClockSkewMs());
 }
 
 type LoginCipherPayload = {

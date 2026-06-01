@@ -34,12 +34,16 @@ import {
   Form,
   Switch,
 } from 'antd';
-import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchHarvesterPDBDetail,
@@ -105,20 +109,6 @@ const calculateAge = (timestamp?: string) => {
 const formatIntOrString = (value: any): string => {
   if (value === undefined || value === null) return '-';
   return String(value);
-};
-
-/**
- * 格式化选择器
- */
-const formatSelector = (selector: any): string => {
-  if (!selector) return '-';
-  
-  const matchLabels = selector.matchLabels || {};
-  const labels = Object.entries(matchLabels)
-    .map(([k, v]) => `${k}=${v}`)
-    .join(', ');
-  
-  return labels || '-';
 };
 
 /**
@@ -364,6 +354,11 @@ const PDBSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'pdbs'),
+    [user?.permissions],
+  );
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -719,7 +714,7 @@ const PDBSection: React.FC<Props> = ({
       fixed: 'right' as const,
       render: (_: any, record: any) => (
         <ResourceActionsDropdown
-          items={[
+          items={filterMenuItemsForReadOnly([
             {
               key: 'detail',
               label: '查看详情',
@@ -741,12 +736,13 @@ const PDBSection: React.FC<Props> = ({
               tooltip: getSystemResourceProtectionHint(record),
               onClick: () => handleDelete(record),
             },
-          ]}
+          ], hasContainersWrite)}
           buttonProps={{ className: 'row-actions-trigger' }}
         />
       ),
     },
-  ], [handleDelete, handleViewYaml]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
 
   // 使用 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_pdb_table');
@@ -822,10 +818,13 @@ const PDBSection: React.FC<Props> = ({
                 style={{ marginRight: 8 }}
               />
             )}
-            <Button type="primary" onClick={() => setCreateModalVisible(true)}>
-              创建保护规则
-            </Button>
-            <Dropdown
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button type="primary" onClick={() => setCreateModalVisible(true)}>
+                创建保护规则
+              </Button>
+            </WriteGuard>
+            {hasContainersWrite ? (
+              <Dropdown
               menu={{
                 items: [
                   {
@@ -846,7 +845,8 @@ const PDBSection: React.FC<Props> = ({
               disabled={selectedKeys.length === 0}
             >
               <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
-            </Dropdown>
+              </Dropdown>
+            ) : null}
             <TableColumnSettingsButton
               allColumns={allColumns}
               settingsKey="harvester_pdb_table"
@@ -872,10 +872,14 @@ const PDBSection: React.FC<Props> = ({
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={pdbTableScroll}
-          rowSelection={{
-            selectedRowKeys: selectedKeys,
-            onChange: (keys) => setSelectedKeys(keys),
-          }}
+          rowSelection={
+            hasContainersWrite
+              ? {
+                  selectedRowKeys: selectedKeys,
+                  onChange: (keys) => setSelectedKeys(keys),
+                }
+              : undefined
+          }
         />
       </PageDetailSection>
 

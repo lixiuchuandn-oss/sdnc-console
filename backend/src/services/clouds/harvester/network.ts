@@ -67,10 +67,7 @@ export const updateHarvesterSubnet = async (
 
   /** 与 Kube-OVN CRD 一致：仅保留 spec.enableDHCP，去掉历史误写字段 */
   if (updated.spec && typeof updated.spec === 'object') {
-    if (
-      updated.spec.enableDHCP === undefined &&
-      updated.spec.enableDhcp !== undefined
-    ) {
+    if (updated.spec.enableDHCP === undefined && updated.spec.enableDhcp !== undefined) {
       updated.spec.enableDHCP = !!updated.spec.enableDhcp;
     }
     delete updated.spec.enableDhcp;
@@ -107,7 +104,7 @@ export const listHarvesterNADsStandard = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   // 尝试不同的 API 路径 (兼容不同 Harvester 版本)
   const candidates = [
     `${origin}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions`,
@@ -123,7 +120,11 @@ export const listHarvesterNADsStandard = async ({
     try {
       json = await getJsonOnce(url, token, insecure, true);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        const _count = Array.isArray(json?.items)
+          ? json.items.length
+          : Array.isArray(json?.data)
+            ? json.data.length
+            : 0;
         break;
       }
     } catch (e: any) {
@@ -152,8 +153,12 @@ export const listHarvesterNADsStandard = async ({
         try {
           json = await getJsonOnce(u, token, insecure, true);
           if (json) {
-             const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
-             break;
+            const _count = Array.isArray(json?.items)
+              ? json.items.length
+              : Array.isArray(json?.data)
+                ? json.data.length
+                : 0;
+            break;
           }
         } catch (e: any) {
           lastErr = e;
@@ -168,7 +173,7 @@ export const listHarvesterNADsStandard = async ({
     const s = Number((lastErr as any)?.status || 0);
     const m = String((lastErr as any)?.message || '').toLowerCase();
     const b = String((lastErr as any)?.body || '').toLowerCase();
-    
+
     // 只有在最终完全失败时，才打印警告日志
     console.warn(`[Harvester-API] NAD列表所有路径均获取失败: 最终错误=${m} 状态码=${s}`);
 
@@ -193,8 +198,8 @@ export const listHarvesterNADsStandard = async ({
   return arr.map((nad: any) => ({
     ...nad, // 保留原始数据
     links: {
-      view: `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nad?.metadata?.namespace || nad?.namespace || ''}/network-attachment-definitions/${nad?.metadata?.name || nad?.name || ''}`
-    }
+      view: `${origin}/apis/k8s.cni.cncf.io/v1/namespaces/${nad?.metadata?.namespace || nad?.namespace || ''}/network-attachment-definitions/${nad?.metadata?.name || nad?.name || ''}`,
+    },
   }));
 };
 
@@ -217,9 +222,7 @@ export const listHarvesterClusterNetworks = async ({
   }
 
   // 尝试不同的 API 路径
-  const candidates = [
-    `${origin}/apis/network.harvesterhci.io/v1beta1/clusternetworks`,
-  ];
+  const candidates = [`${origin}/apis/network.harvesterhci.io/v1beta1/clusternetworks`];
   let json: any = null;
   let lastErr: any = null;
 
@@ -238,7 +241,7 @@ export const listHarvesterClusterNetworks = async ({
     const s = Number((lastErr as any)?.status || 0);
     const m = String((lastErr as any)?.message || '').toLowerCase();
     const b = String((lastErr as any)?.body || '').toLowerCase();
-    
+
     console.warn(`[Harvester-API] ClusterNetwork列表获取失败: 最终错误=${m} 状态码=${s}`);
 
     if (s === 401 || m.includes('unauthorized') || b.includes('unauthorized')) return [];
@@ -255,8 +258,8 @@ export const listHarvesterClusterNetworks = async ({
   return items.map((cn: any) => ({
     ...cn,
     links: {
-      view: `${origin}/apis/network.harvesterhci.io/v1beta1/clusternetworks/${cn?.metadata?.name || cn?.name || ''}`
-    }
+      view: `${origin}/apis/network.harvesterhci.io/v1beta1/clusternetworks/${cn?.metadata?.name || cn?.name || ''}`,
+    },
   }));
 };
 
@@ -296,7 +299,11 @@ export const listHarvesterClusterNetworkConfigs = async ({
     return [];
   }
 
-  const items = Array.isArray(json?.items) ? json?.items : (Array.isArray(json?.data) ? json?.data : []);
+  const items = Array.isArray(json?.items)
+    ? json?.items
+    : Array.isArray(json?.data)
+      ? json?.data
+      : [];
   return items;
 };
 
@@ -316,16 +323,20 @@ export const listKubeOvnSubnets = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [`${origin}/apis/kubeovn.io/v1/subnets`];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        const _count = Array.isArray(json?.items)
+          ? json.items.length
+          : Array.isArray(json?.data)
+            ? json.data.length
+            : 0;
         break;
       }
     } catch (e: any) {
@@ -333,7 +344,7 @@ export const listKubeOvnSubnets = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
@@ -342,13 +353,13 @@ export const listKubeOvnSubnets = async ({
     if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
     throw lastErr;
   }
-  
+
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)
       ? json?.data
       : [];
-      
+
   return items.map((s: any) => ({
     ...s, // 保留原始数据
     name: s?.metadata?.name || s?.name || '',
@@ -359,19 +370,15 @@ export const listKubeOvnSubnets = async ({
     gateway: s?.spec?.gateway || s?.spec?.gateway || '',
     protocol: s?.spec?.protocol || 'IPV4',
     nat: !!(s?.spec?.natOutgoing || s?.spec?.nat),
-    allowDhcp: !!(
-      s?.spec?.enableDHCP ??
-      s?.spec?.enableDhcp ??
-      s?.spec?.allowDhcp
-    ),
+    allowDhcp: !!(s?.spec?.enableDHCP ?? s?.spec?.enableDhcp ?? s?.spec?.allowDhcp),
     private: !!s?.spec?.private,
     namespaces: Array.isArray(s?.spec?.namespaces) ? s.spec.namespaces : [],
     provider: s?.spec?.provider || '',
     vlan: s?.spec?.vlanID || s?.spec?.vlan || '',
     excludeIps: s?.spec?.excludeIps || [],
     links: {
-      view: `${origin}/apis/kubeovn.io/v1/subnets/${s?.metadata?.name || s?.name || ''}`
-    }
+      view: `${origin}/apis/kubeovn.io/v1/subnets/${s?.metadata?.name || s?.name || ''}`,
+    },
   }));
 };
 
@@ -392,16 +399,20 @@ export const listKubeOvnVpcs = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [`${origin}/apis/kubeovn.io/v1/vpcs`];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
       if (json) {
-        const count = Array.isArray(json?.items) ? json.items.length : (Array.isArray(json?.data) ? json.data.length : 0);
+        const _count = Array.isArray(json?.items)
+          ? json.items.length
+          : Array.isArray(json?.data)
+            ? json.data.length
+            : 0;
         break;
       }
     } catch (e: any) {
@@ -409,7 +420,7 @@ export const listKubeOvnVpcs = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
@@ -418,7 +429,7 @@ export const listKubeOvnVpcs = async ({
     if (s === 404 || m.includes('not found') || b.includes('not found')) return [];
     throw lastErr;
   }
-  
+
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)
@@ -432,7 +443,7 @@ export const listKubeOvnVpcs = async ({
   } catch (e) {
     console.warn('[listKubeOvnVpcs] Failed to fetch subnets for CIDR mapping:', e);
   }
-  
+
   // 构建 VPC -> CIDR[] 映射表
   const vpcCidrs = new Map<string, string[]>();
   for (const s of subnets) {
@@ -456,8 +467,8 @@ export const listKubeOvnVpcs = async ({
       staticRoutes: Array.isArray(v?.spec?.staticRoutes) ? v.spec.staticRoutes.length : 0,
       createdAt: v?.metadata?.creationTimestamp || '',
       links: {
-        view: `${origin}/apis/kubeovn.io/v1/vpcs/${v?.metadata?.name || v?.name || ''}`
-      }
+        view: `${origin}/apis/kubeovn.io/v1/vpcs/${v?.metadata?.name || v?.name || ''}`,
+      },
     };
   });
 };
@@ -478,7 +489,7 @@ export const listHarvesterLoadBalancers = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   // 兼容不同的 LoadBalancer API 组/版本
   const candidates = [
     `${origin}/v1/harvester/loadbalancer.harvesterhci.io.loadbalancers`,
@@ -486,7 +497,7 @@ export const listHarvesterLoadBalancers = async ({
   ];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -496,14 +507,14 @@ export const listHarvesterLoadBalancers = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
     if (s === 404 || m.includes('not found')) return [];
     throw lastErr;
   }
-  
+
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)
@@ -568,7 +579,7 @@ export const createKubeOvnProviderNetwork = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/provider-networks`;
-  
+
   const metadata: Record<string, unknown> = {
     name: payload.name,
   };
@@ -588,7 +599,7 @@ export const createKubeOvnProviderNetwork = async (
       defaultInterface: payload.defaultInterface,
       customInterfaces: payload.customInterfaces || [],
       exchangeLinkName: payload.exchangeLinkName || false,
-    }
+    },
   };
 
   return await requestJson('POST', url, token, insecure, body);
@@ -650,7 +661,7 @@ export const createKubeOvnVlan = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/vlans`;
-  
+
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'Vlan',
@@ -660,7 +671,7 @@ export const createKubeOvnVlan = async (
     spec: payload.spec || {
       id: payload.id || 0,
       provider: payload.provider,
-    }
+    },
   };
 
   return await requestJson('POST', url, token, insecure, body);
@@ -683,7 +694,7 @@ export const createKubeOvnSubnet = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/subnets`;
-  
+
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'Subnet',
@@ -701,7 +712,7 @@ export const createKubeOvnSubnet = async (
       vlan: payload.vlan || '',
       protocol: payload.protocol || 'IPv4',
       namespaces: payload.namespaces || [],
-    }
+    },
   };
 
   return await requestJson('POST', url, token, insecure, body);
@@ -724,7 +735,7 @@ export const createKubeOvnEip = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/ovn-eips`;
-  
+
   const body = {
     apiVersion: 'kubeovn.io/v1',
     kind: 'OvnEip',
@@ -735,7 +746,7 @@ export const createKubeOvnEip = async (
       externalSubnet: payload.externalSubnet,
       v4Ip: payload.v4Ip,
       v6Ip: payload.v6Ip,
-    }
+    },
   };
 
   return await requestJson('POST', url, token, insecure, body);
@@ -758,7 +769,7 @@ export const createKubeOvnVpc = async (
   }
 
   const url = `${origin}/apis/kubeovn.io/v1/vpcs`;
-  
+
   // [Feature] 平台托管标记 (Platform Managed)
   // 添加 tower.io/managed Finalizer 和 tower.io/creator 标签，与虚拟机保持一致
   const finalizers = ['tower.io/managed'];
@@ -766,7 +777,7 @@ export const createKubeOvnVpc = async (
     'tower.io/creator': 'compute-tower',
     ...(payload.labels || {}),
   };
-  
+
   const mergedVpcAnnotations: Record<string, string> = {
     ...(payload.annotations && typeof payload.annotations === 'object' ? payload.annotations : {}),
   };
@@ -791,7 +802,7 @@ export const createKubeOvnVpc = async (
       staticRoutes: payload.staticRoutes || [],
       /** 默认开启外网能力；调用方可传 false 关闭 */
       enableExternal: typeof payload?.enableExternal === 'boolean' ? payload.enableExternal : true,
-    }
+    },
   };
 
   return await requestJson('POST', url, token, insecure, body);
@@ -864,7 +875,7 @@ export const updateKubeOvnVpc = async (
 
   // 2. Merge Payload
   const { annotations, ...specPayload } = payload;
-  
+
   const updated = {
     ...current,
     metadata: {
@@ -872,12 +883,12 @@ export const updateKubeOvnVpc = async (
       annotations: {
         ...(current.metadata?.annotations || {}),
         ...(annotations || {}),
-      }
+      },
     },
     spec: {
       ...current.spec,
       ...specPayload,
-    }
+    },
   };
 
   // 3. Execute Update (PUT)
@@ -904,7 +915,7 @@ export const createHarvesterLoadBalancer = async (
   const ns = payload.namespace || 'default';
   // 优先使用 v1beta1 API
   const url = `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(ns)}/loadbalancers`;
-  
+
   // 构造标准 K8s CRD Payload
   const body = {
     apiVersion: 'loadbalancer.harvesterhci.io/v1beta1',
@@ -916,13 +927,13 @@ export const createHarvesterLoadBalancer = async (
       labels: payload.labels,
     },
     spec: payload.spec || {
-        description: payload.description,
-        ipam: payload.ipam || 'pool', // default to pool
-        listeners: payload.listeners || [],
-                workloadType: payload.workloadType || 'vm',
-                backendServerSelector: payload.backendServerSelector || {},
-                healthCheck: payload.healthCheck, // optional
-            }
+      description: payload.description,
+      ipam: payload.ipam || 'pool', // default to pool
+      listeners: payload.listeners || [],
+      workloadType: payload.workloadType || 'vm',
+      backendServerSelector: payload.backendServerSelector || {},
+      healthCheck: payload.healthCheck, // optional
+    },
   };
 
   return await requestJson('POST', url, token, insecure, body);
@@ -944,11 +955,11 @@ export const listKubeOvnEips = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-eips`];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -957,13 +968,13 @@ export const listKubeOvnEips = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     if (s !== 404 && s !== 401) throw lastErr;
     return [];
   }
-  
+
   return Array.isArray(json?.items) ? json.items : [];
 };
 
@@ -983,11 +994,11 @@ export const listKubeOvnFips = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-fips`];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -996,13 +1007,13 @@ export const listKubeOvnFips = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     if (s !== 404 && s !== 401) throw lastErr;
     return [];
   }
-  
+
   return Array.isArray(json?.items) ? json.items : [];
 };
 
@@ -1022,11 +1033,11 @@ export const listKubeOvnSnatRules = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-snat-rules`];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -1035,13 +1046,13 @@ export const listKubeOvnSnatRules = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     if (s !== 404 && s !== 401) throw lastErr;
     return [];
   }
-  
+
   return Array.isArray(json?.items) ? json.items : [];
 };
 
@@ -1061,11 +1072,11 @@ export const listKubeOvnDnatRules = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [`${origin}/apis/kubeovn.io/v1/ovn-dnat-rules`];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -1074,17 +1085,15 @@ export const listKubeOvnDnatRules = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     if (s !== 404 && s !== 401) throw lastErr;
     return [];
   }
-  
+
   return Array.isArray(json?.items) ? json.items : [];
 };
-
-
 
 /**
  * 获取 Harvester 负载均衡 IP 池 (Load Balancer IP Pools)
@@ -1102,14 +1111,14 @@ export const listHarvesterLoadBalancerIPPools = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const candidates = [
     `${origin}/v1/harvester/loadbalancer.harvesterhci.io.ippools`,
     `${origin}/apis/loadbalancer.harvesterhci.io/v1beta1/ippools`,
   ];
   let json: any = null;
   let lastErr: any = null;
-  
+
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure);
@@ -1118,7 +1127,7 @@ export const listHarvesterLoadBalancerIPPools = async ({
       lastErr = e;
     }
   }
-  
+
   if (!json && lastErr) {
     const s = Number(lastErr?.status || 0);
     const m = String(lastErr?.message || '').toLowerCase();
@@ -1126,7 +1135,7 @@ export const listHarvesterLoadBalancerIPPools = async ({
     // Allow partial failure
     return [];
   }
-  
+
   const items = Array.isArray(json?.items)
     ? json?.items
     : Array.isArray(json?.data)

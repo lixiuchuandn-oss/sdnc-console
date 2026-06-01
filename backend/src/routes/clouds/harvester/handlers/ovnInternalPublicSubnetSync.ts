@@ -11,7 +11,10 @@
  * - VPC：最后一条引用某外网子网的 VPC 域 EIP（按 annotations 所选业务 VPC）；与 ovn-internal 分离处理。
  */
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
-import { updateKubeOvnVpc, type HarvesterTestParams } from '../../../../services/clouds/harvester/client';
+import {
+  updateKubeOvnVpc,
+  type HarvesterTestParams,
+} from '../../../../services/clouds/harvester/client';
 import {
   KUBE_OVN_FLAT_VPC,
   KUBE_OVN_PUBLIC_VPC,
@@ -38,10 +41,13 @@ export const TOWER_IO_VPC_ANNOTATION = 'tower.io/vpc';
 
 /** ovn-internal 静态路由 policyDst 的 cidr：优先注解可访问范围，否则兼容旧数据用子网 spec.cidrBlock */
 export function ovnInternalRouteCidrFromSubnet(
-  subnet: {
-    metadata?: { annotations?: Record<string, unknown> };
-    spec?: { cidrBlock?: string; cidr?: string };
-  } | null | undefined,
+  subnet:
+    | {
+        metadata?: { annotations?: Record<string, unknown> };
+        spec?: { cidrBlock?: string; cidr?: string };
+      }
+    | null
+    | undefined,
 ): string {
   const fromAnn = String(
     (subnet?.metadata?.annotations as Record<string, unknown> | undefined)?.[
@@ -60,15 +66,19 @@ export function eipsReferencingSubnetExcludingLrp(eips: any[], subnetName: strin
   return (Array.isArray(eips) ? eips : []).filter((eip) => {
     const sub = eip?.spec?.externalSubnet || eip?.externalSubnet;
     if (String(sub || '').trim() !== n) return false;
-    const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+    const t = String(eip?.spec?.type ?? eip?.type ?? '')
+      .trim()
+      .toLowerCase();
     return t !== 'lrp';
   });
 }
 
-export function isPublicSubnetOnOvnCluster(subnet: {
-  metadata?: { annotations?: Record<string, string> };
-  spec?: { vpc?: string };
-} | null): boolean {
+export function isPublicSubnetOnOvnCluster(
+  subnet: {
+    metadata?: { annotations?: Record<string, string> };
+    spec?: { vpc?: string };
+  } | null,
+): boolean {
   const st = String(subnet?.metadata?.annotations?.['tower.io/subnet-type'] ?? '')
     .trim()
     .toLowerCase();
@@ -86,7 +96,9 @@ export async function hasAnyUnderlayEipReferencingPublicOvnSubnet(
   const origin = originFromEndpoint(endpoint || '');
   const subnetCache = new Map<string, boolean>();
   for (const eip of items) {
-    const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+    const t = String(eip?.spec?.type ?? eip?.type ?? '')
+      .trim()
+      .toLowerCase();
     if (t === 'lrp') continue;
     const ann = (eip?.metadata?.annotations ?? {}) as Record<string, unknown>;
     const scope = String(ann[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '')
@@ -119,10 +131,17 @@ export function hasAnyVpcScopedEipWithExternalSubnet(eips: any[], vpcName: strin
   const vpc = String(vpcName || '').trim();
   if (!vpc) return false;
   for (const eip of Array.isArray(eips) ? eips : []) {
-    const t = String(eip?.spec?.type ?? eip?.type ?? '').trim().toLowerCase();
+    const t = String(eip?.spec?.type ?? eip?.type ?? '')
+      .trim()
+      .toLowerCase();
     if (t === 'lrp') continue;
     const ann = (eip?.metadata?.annotations ?? {}) as Record<string, unknown>;
-    if (String(ann[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '').trim().toLowerCase() !== 'vpc') continue;
+    if (
+      String(ann[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '')
+        .trim()
+        .toLowerCase() !== 'vpc'
+    )
+      continue;
     if (String(ann[TOWER_IO_VPC_ANNOTATION] ?? '').trim() !== vpc) continue;
     const sn = String(eip?.spec?.externalSubnet ?? '').trim();
     if (!sn || sn === 'external') continue;
@@ -160,7 +179,15 @@ export async function upsertOvnInternalForPublicSubnet(params: {
   /** 传入时与 extraExternalSubnets/staticRoutes 一并写入 ovn-internal VPC spec */
   setEnableExternal?: boolean;
 }): Promise<void> {
-  const { harvesterParams, subnetName, gateway, routeCidr, prevGateway, prevRouteCidr, setEnableExternal } = params;
+  const {
+    harvesterParams,
+    subnetName,
+    gateway,
+    routeCidr,
+    prevGateway,
+    prevRouteCidr,
+    setEnableExternal,
+  } = params;
   const { endpoint, token, insecure = false } = harvesterParams;
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -176,7 +203,7 @@ export async function upsertOvnInternalForPublicSubnet(params: {
     throw new Error(`VPC ${KUBE_OVN_FLAT_VPC} 不存在或无法读取`);
   }
 
-  let extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
+  const extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
     ? [...vpc.spec.extraExternalSubnets]
     : [];
   if (!extra.includes(subnetName)) {
@@ -230,7 +257,8 @@ export async function upsertVpcPolicyDstRouteForExternalSubnet(params: {
   /** 传入时与 extraExternalSubnets/staticRoutes 一并写入该业务 VPC spec（如首条 VPC 域 EIP 时 true） */
   setEnableExternal?: boolean;
 }): Promise<void> {
-  const { harvesterParams, vpcName, externalSubnetName, gateway, routeCidr, setEnableExternal } = params;
+  const { harvesterParams, vpcName, externalSubnetName, gateway, routeCidr, setEnableExternal } =
+    params;
   const { endpoint, token, insecure = false } = harvesterParams;
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -246,7 +274,7 @@ export async function upsertVpcPolicyDstRouteForExternalSubnet(params: {
     throw new Error(`VPC ${vpcName} 不存在或无法读取`);
   }
 
-  let extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
+  const extra: string[] = Array.isArray(vpc.spec.extraExternalSubnets)
     ? [...vpc.spec.extraExternalSubnets]
     : [];
   if (!extra.includes(externalSubnetName)) {

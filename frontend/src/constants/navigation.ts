@@ -10,7 +10,8 @@
 export type Platform = 'CNMC' | 'TENANTS' | 'SDNCC' | 'CNSOC' | 'SETTINGS' | '全部';
 
 export type Group = 
-  | '平台入口能力'
+  | '多云管理'
+  | 'Cloudmap资源池'
   | '云主机'
   | '存储与备份'
   | '基础网络'
@@ -22,8 +23,7 @@ export type Group =
   | '监控'
   | '日志'
   | '其他资源'
-  | '资源池管理' 
-  | '资源控制台'
+  | '租户控制台'
   | '租户管理' 
   | '售卖管理' 
   | '权限管控' 
@@ -48,7 +48,7 @@ export const PLATFORMS: Platform[] = ['全部', 'CNMC', 'TENANTS', 'SDNCC', 'CNS
 
 // 平台显示名称映射
 export const PLATFORM_LABELS: Record<Platform, string> = {
-  'CNMC': '资源池管理',
+  'CNMC': '多云管理',
   'TENANTS': '租户管理',
   'SDNCC': 'SDN控制台',
   'CNSOC': '云安全中心',
@@ -59,7 +59,9 @@ export const PLATFORM_LABELS: Record<Platform, string> = {
 // 分组排序定义 (Sidebar 使用此顺序渲染分组)
 export const GROUPS: Group[] = [
   '全部',
-  '平台入口能力',
+  '多云管理',
+  '租户控制台',
+  'Cloudmap资源池',
   '云主机',
   '存储与备份',
   '基础网络',
@@ -71,8 +73,6 @@ export const GROUPS: Group[] = [
   '监控',
   '日志',
   '其他资源',
-  '资源池管理',
-  '资源控制台',
   '租户管理',
   '售卖管理',
   '权限管控',

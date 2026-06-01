@@ -12,7 +12,7 @@ export interface PermissionDefinition {
   name: string;            // 显示名称，如 '云主机'
   description: string;      // 描述
   platform: string;        // 平台，如 'CNMC'
-  group: string;           // 分组，如 '资源池管理'、'资源控制台'（控制台权限子组）
+  group: string;           // 分组，如 '资源池管理'、'租户控制台'
   category: string;        // 分类
   verb: 'read' | 'write';  // 操作类型
   inherits?: string[];     // 继承的权限

@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useState, useMemo } from 'react';
-import { Drawer, Typography, Space, Tag, Button, message, Divider, Alert, Select, Input, Segmented, Form } from 'antd';
+import { Drawer, Typography, Space, Tag, Button, message, Divider, Alert, Select, Input, Segmented } from 'antd';
 import { 
   CheckCircleOutlined, 
   CopyOutlined, 
@@ -185,17 +185,6 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
       });
     }
   }, [registries, onRegistryChange]);
-
-  // 获取数据源图标
-  const getDataSourceIcon = useMemo(() => {
-    const icons: Record<DataSourceType, React.ReactNode> = {
-      manual: <EditOutlined />,
-      secrets: <FolderOutlined />,
-      local: <DockerOutlined />,
-      harbor: <CloudServerOutlined />,
-    };
-    return icons[dataSource];
-  }, [dataSource]);
 
   // 渲染数据源内容
   const renderDataSourceContent = useMemo(() => {

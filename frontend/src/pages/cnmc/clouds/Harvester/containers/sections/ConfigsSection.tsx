@@ -18,12 +18,16 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Table, Tabs, Segmented, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Modal, Switch, Spin, Tooltip, Form } from 'antd';
-import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { EyeInvisibleOutlined, KeyOutlined, FileTextOutlined, SearchOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { ConfigMapForm, SecretForm } from '../components';
 import CodeEditor, { detectLanguage } from '../../../../../../components/CodeEditor';
@@ -134,8 +138,8 @@ const ConfigMapDetailDrawer: React.FC<{
   
   // 注意：所有 hooks 必须在条件返回之前调用
   const metadata = configmap?.metadata || {};
-  const data = configmap?.data || {};
-  const binaryData = configmap?.binaryData || {};
+  const data = useMemo(() => configmap?.data || {}, [configmap?.data]);
+  const binaryData = useMemo(() => configmap?.binaryData || {}, [configmap?.binaryData]);
   const dataKeys = useMemo(() => Object.keys(data), [data]);
   const binaryDataKeys = useMemo(() => Object.keys(binaryData), [binaryData]);
   const allKeys = useMemo(() => [...dataKeys, ...binaryDataKeys], [dataKeys, binaryDataKeys]);
@@ -184,7 +188,7 @@ const ConfigMapDetailDrawer: React.FC<{
         ),
       };
     });
-  }, [data, binaryData, dataKeys, binaryDataKeys]);
+  }, [data, binaryData, binaryDataKeys, allKeys]);
   
   return (
     <Drawer
@@ -274,7 +278,7 @@ const SecretDetailDrawer: React.FC<{
   // 注意：所有 hooks 必须在条件返回之前调用
   const metadata = secret?.metadata || {};
   const type = secret?.type || 'Opaque';
-  const data = secret?.data || {};
+  const data = useMemo(() => secret?.data || {}, [secret?.data]);
   const dataKeys = useMemo(() => {
     const keys = Object.keys(data);
     // Basic Auth 类型：确保 username 在前，password 在后
@@ -533,13 +537,14 @@ const ConfigMapTable: React.FC<{
   nsValue?: string;
   onNsChange: (v?: string) => void;
   onCreateClick: () => void;
+  hasContainersWrite: boolean;
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
   checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, onCreateClick, hasContainersWrite, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -773,10 +778,16 @@ const ConfigMapTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [handleViewDetail, handleDelete, handleViewYaml, modal, onEditClick, checkResourceInUse, hasContainersWrite]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -827,9 +838,11 @@ const ConfigMapTable: React.FC<{
               style={{ marginRight: 8 }}
             />
           )}
-          <Button type="primary" onClick={onCreateClick}>
-            创建 ConfigMap
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button type="primary" onClick={onCreateClick}>
+              创建 ConfigMap
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-configmaps"
@@ -851,10 +864,14 @@ const ConfigMapTable: React.FC<{
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          hasContainersWrite
+            ? {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+            : undefined
+        }
       />
       
       {/* ConfigMap 详情抽屉 */}
@@ -943,13 +960,14 @@ const SecretTable: React.FC<{
   typeFilter?: string;
   onTypeChange: (type?: string) => void;
   onCreateClick: () => void;
+  hasContainersWrite: boolean;
   onRefresh: (force?: boolean) => void;
   onEditClick: (record: any) => void;
   checkResourceInUse: (resourceType: 'configmap' | 'secret', resourceName: string, namespace: string) => { inUse: boolean; usedBy: string[] };
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
-}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
+}> = ({ data, loading, cloudId, namespacesOptions, nsValue, onNsChange, typeFilter, onTypeChange, onCreateClick, hasContainersWrite, onRefresh, onEditClick, checkResourceInUse, showAllSwitch, queryAll, onQueryAllChange }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -1211,10 +1229,16 @@ const SecretTable: React.FC<{
           },
         ];
         
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleViewDetail, handleDelete, handleViewYaml, handleOpenAliasModal, modal, onEditClick]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [handleViewDetail, handleDelete, handleViewYaml, modal, onEditClick, checkResourceInUse, hasContainersWrite]);
   
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -1276,9 +1300,11 @@ const SecretTable: React.FC<{
               style={{ marginRight: 8 }}
             />
           )}
-          <Button type="primary" onClick={onCreateClick}>
-            创建 Secret
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button type="primary" onClick={onCreateClick}>
+              创建 Secret
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-secrets"
@@ -1300,10 +1326,14 @@ const SecretTable: React.FC<{
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-        rowSelection={{
-          selectedRowKeys: selectedKeys,
-          onChange: setSelectedKeys,
-        }}
+        rowSelection={
+          hasContainersWrite
+            ? {
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+              }
+            : undefined
+        }
       />
       
       {/* Secret 详情抽屉 */}
@@ -1400,7 +1430,12 @@ const ConfigsSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'configs'),
+    [user?.permissions],
+  );
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
   
@@ -1589,6 +1624,7 @@ const ConfigsSection: React.FC<Props> = ({
             nsValue={nsValue}
             onNsChange={onNsChange}
             onCreateClick={handleCreateConfigMap}
+            hasContainersWrite={hasContainersWrite}
             onRefresh={onRefresh}
             onEditClick={handleEditConfigMap}
             checkResourceInUse={checkResourceInUse}
@@ -1608,6 +1644,7 @@ const ConfigsSection: React.FC<Props> = ({
             typeFilter={secretTypeFilter}
             onTypeChange={setSecretTypeFilter}
             onCreateClick={handleCreateSecret}
+            hasContainersWrite={hasContainersWrite}
             onRefresh={onRefresh}
             onEditClick={handleEditSecret}
             checkResourceInUse={checkResourceInUse}

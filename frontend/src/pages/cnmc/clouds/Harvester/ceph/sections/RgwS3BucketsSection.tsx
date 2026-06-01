@@ -11,7 +11,6 @@ import {
   Popconfirm,
   Select,
   Space,
-  Spin,
   Table,
   Typography,
 } from 'antd';
@@ -30,10 +29,17 @@ import {
 } from '../../../../../../services/cephApi';
 import { normalizeCephBundle } from '../lib/cephStorage';
 import { objectStoreUserGatewayStoreKey, objectStoreUserSelectOptions } from '../lib/rgwRookHints';
+import {
+  createHarvesterToolbarRefresh,
+  mergeCephSectionOnRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/cephSectionRefresh';
 
 export type RgwS3BucketsSectionProps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
 type BucketRow = { name: string; creationDate?: string };
@@ -46,7 +52,11 @@ function parseOsUserKey(key: string | undefined): RgwS3ObjectStoreUserRef | null
   return { namespace: key.slice(0, i), name: key.slice(i + 1) };
 }
 
-const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, checkPerm }) => {
+const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({
+  cloudId,
+  checkPerm,
+  onRefresh,
+}) => {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [buckets, setBuckets] = useState<BucketRow[]>([]);
@@ -65,7 +75,7 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
   const [clientGwMap, setClientGwMap] = useState<Record<string, RgwS3GatewayPayload>>({});
 
   const canWrite = useMemo(
-    () => checkPerm('clouds.console:write') || checkPerm('clouds:write'),
+    () => checkPerm('clouds.storage-s3-buckets:write') || checkPerm('clouds:write'),
     [checkPerm],
   );
 
@@ -79,11 +89,11 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
     [cloudId],
   );
 
-  const loadRookBundle = useCallback(async () => {
+  const loadRookBundle = useCallback(async (force?: boolean) => {
     if (!cloudId) return;
     setRookLoading(true);
     try {
-      const res = await fetchCephRookBundle(cloudId, { force: true });
+      const res = await fetchCephRookBundle(cloudId, { force: force !== false });
       if (!res.ok || !res.data) {
         setObjectStoreUsers([]);
         if (res.error) message.warning(`未能加载 Rook 聚合：${res.error}`);
@@ -174,6 +184,21 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
     [buildS3ProxyArgs, cloudId, loadGatewayMap, message],
   );
 
+  const sectionOnRefresh = useMemo(
+    () => mergeCephSectionOnRefresh((force) => loadBuckets(force !== false), onRefresh),
+    [loadBuckets, onRefresh],
+  );
+
+  const handleRefreshRook = useMemo(
+    () => createHarvesterToolbarRefresh((force) => loadRookBundle(force !== false)),
+    [loadRookBundle],
+  );
+
+  const handleRefreshBuckets = useMemo(
+    () => createHarvesterToolbarRefresh(sectionOnRefresh),
+    [sectionOnRefresh],
+  );
+
   const openObjects = useCallback((bucket: string) => {
     setObjectsBucket(bucket);
     setObjectsRows([]);
@@ -231,11 +256,11 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
       message.success('存储桶已创建');
       setCreateOpen(false);
       setCreateName('');
-      await loadBuckets();
+      await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
     } finally {
       setCreateLoading(false);
     }
-  }, [buildS3ProxyArgs, cloudId, createName, loadBuckets, message]);
+  }, [buildS3ProxyArgs, cloudId, createName, message, sectionOnRefresh]);
 
   const columns: ColumnsType<BucketRow> = useMemo(
     () => [
@@ -279,7 +304,7 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
                     return;
                   }
                   message.success('已删除');
-                  await loadBuckets();
+                  await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
                 }}
               >
                 <Button type="link" size="small" danger>
@@ -291,7 +316,7 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
         ),
       },
     ],
-    [buildS3ProxyArgs, canWrite, cloudId, loadBuckets, message, openObjects],
+    [buildS3ProxyArgs, canWrite, cloudId, message, openObjects, sectionOnRefresh],
   );
 
   const objColumns: ColumnsType<ObjRow> = useMemo(
@@ -363,10 +388,10 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({ cloudId, chec
         }
         toolbarRight={
           <>
-            <Button icon={<ReloadOutlined />} onClick={() => void loadRookBundle()} loading={rookLoading}>
+            <Button icon={<ReloadOutlined />} onClick={handleRefreshRook} loading={rookLoading}>
               刷新 Rook
             </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => void loadBuckets(true)} loading={loading}>
+            <Button icon={<ReloadOutlined />} onClick={handleRefreshBuckets} loading={loading}>
               刷新列表
             </Button>
             {canWrite ? (

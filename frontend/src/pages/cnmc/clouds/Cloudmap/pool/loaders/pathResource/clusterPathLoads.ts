@@ -18,7 +18,7 @@ import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** Cloudmap `panels/cluster` 子路径按需加载（节点/命名空间/GPU/USB/PCI/存储/VLAN/网络等） */
+/** Cloudmap `panels/cluster` ??????????????????????????????/GPU/USB/PCI/?????/VLAN/???????? */
 export async function tryLoadClusterTab(
   key: string,
   force: boolean,
@@ -30,7 +30,6 @@ export async function tryLoadClusterTab(
     checkPerm,
     loadResource,
     loadedRef,
-    setResourceLoading,
     canReadLoadBalancers,
     setHarvesterNamespacesForManagement,
     setHarvesterNamespaces,
@@ -61,7 +60,7 @@ export async function tryLoadClusterTab(
   switch (key) {
     case 'kubeovn_public_subnets':
       if (checkPerm('clouds.networks:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
-        loadResource(
+        await loadResource(
           'subnets',
           () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -82,30 +81,29 @@ export async function tryLoadClusterTab(
         checkPerm('clouds.namespaces:read') ||
         checkPerm('clouds.ecs:read')
       ) {
-        setResourceLoading((prev) => ({ ...prev, namespaces: true }));
-        try {
-          const json = await fetchHarvesterNamespaces(cloudId, true, false, false);
-          const list: any[] = Array.isArray((json as any)?.data?.items)
-            ? (json as any).data.items
-            : Array.isArray((json as any)?.items)
-              ? (json as any).items
-              : [];
-          setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
-          const filtered = list.filter((ns: any) => {
-            const name = ns?.metadata?.name || ns?.name;
-            return name && !isSystemNamespace(name);
-          });
-          setHarvesterNamespaces(filtered);
-        } catch (e) {
-          console.warn('Failed to load namespaces for management', e);
-        } finally {
-          setResourceLoading((prev) => ({ ...prev, namespaces: false }));
-        }
+        await loadResource(
+          'namespaces',
+          () => fetchHarvesterNamespaces(cloudId, true, false, false),
+          (json) => {
+            const list: any[] = Array.isArray((json as any)?.data?.items)
+              ? (json as any).data.items
+              : Array.isArray((json as any)?.items)
+                ? (json as any).items
+                : [];
+            setHarvesterNamespacesForManagement(Array.isArray(list) ? list : []);
+            const filtered = list.filter((ns: any) => {
+              const name = ns?.metadata?.name || ns?.name;
+              return name && !isSystemNamespace(name);
+            });
+            setHarvesterNamespaces(filtered);
+          },
+          force,
+        );
       }
       return true;
     case 'gpu':
       if (checkPerm('clouds.gpus:read') || checkPerm('clouds.ecs:read')) {
-        loadResource(
+        await loadResource(
           'gpu',
           () => fetchHarvesterGpuResources(cloudId, force),
           (json) => {
@@ -126,7 +124,7 @@ export async function tryLoadClusterTab(
         checkPerm('clouds.usb-devices:read') ||
         checkPerm('clouds.ecs:read')
       ) {
-        loadResource(
+        await loadResource(
           'usbDevices',
           () => fetchHarvesterUsbResources(cloudId, force),
           (json) => {
@@ -147,7 +145,7 @@ export async function tryLoadClusterTab(
         checkPerm('clouds.pci-devices:read') ||
         checkPerm('clouds.ecs:read')
       ) {
-        loadResource(
+        await loadResource(
           'pciDevices',
           () => fetchHarvesterPciDevices(cloudId, force),
           (json) => {
@@ -168,7 +166,7 @@ export async function tryLoadClusterTab(
         checkPerm('clouds.pci-devices:read') ||
         checkPerm('clouds.ecs:read')
       ) {
-        loadResource(
+        await loadResource(
           'pciDevices',
           () => fetchHarvesterPciDevices(cloudId, force),
           (json) => {
@@ -186,7 +184,7 @@ export async function tryLoadClusterTab(
       return true;
     case 'load_balancers':
       if (canReadLoadBalancers) {
-        loadResource(
+        await loadResource(
           'loadBalancers',
           () => fetchHarvesterLoadBalancers(cloudId, force),
           (json) => {
@@ -205,7 +203,7 @@ export async function tryLoadClusterTab(
         checkPerm('clouds.vlans:read') ||
         checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
       ) {
-        loadResource(
+        await loadResource(
           'vlans',
           () => fetchKubeOvnVlans(cloudId, force, skipSync),
           (json) => {
@@ -220,7 +218,7 @@ export async function tryLoadClusterTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'kubeOvnProviderNetworks',
           () => fetchKubeOvnProviderNetworks(cloudId, force, skipSync),
           (json) => {
@@ -235,7 +233,7 @@ export async function tryLoadClusterTab(
       return true;
     case 'nads':
       if (checkPerm('clouds.nads:read')) {
-        loadResource(
+        await loadResource(
           'nads',
           () => fetchHarvesterNads(cloudId, force, skipSync),
           (json) => {
@@ -250,8 +248,8 @@ export async function tryLoadClusterTab(
       }
       return true;
     case 'ippools':
-      if (checkPerm('clouds.nads:read')) {
-        loadResource(
+      if (checkPerm('clouds.ip-pools:read')) {
+        await loadResource(
           'ippools',
           () => fetchHarvesterIPPools(cloudId, force),
           (json) => {
@@ -267,7 +265,7 @@ export async function tryLoadClusterTab(
       return true;
     case 'clusterNetworks':
       if (checkPerm('clouds.cluster-networks:read')) {
-        loadResource(
+        await loadResource(
           'clusterNetworks',
           () => fetchHarvesterClusterNetworks(cloudId, force),
           (json) => {
@@ -286,7 +284,7 @@ export async function tryLoadClusterTab(
         checkPerm('clouds.cluster-nodes:read') ||
         checkPerm('clouds.ecs:read')
       ) {
-        loadResource(
+        await loadResource(
           'nodes',
           () => fetchHarvesterNodes(cloudId, force),
           (json) => {
@@ -300,15 +298,13 @@ export async function tryLoadClusterTab(
       return true;
     case 'cluster_physical_switches':
       return true;
-    case 'storage_pools':
-      return true;
     case 'storage_classes':
       if (
         checkPerm('clouds.storage-classes:read') ||
         checkPerm('clouds.ecs:read') ||
         checkPerm('clouds:read')
       ) {
-        loadResource(
+        await loadResource(
           'storageClasses',
           () => fetchHarvesterStorageClasses(cloudId, force),
           (json) => {
@@ -325,7 +321,7 @@ export async function tryLoadClusterTab(
       return true;
     case 'kubeovn_public_networks':
       if (checkPerm(CLOUD_PROVIDER_NETWORKS_READ)) {
-        loadResource(
+        await loadResource(
           'providerNetworksTab',
           async () => {
             const [pnRes, vlanRes] = await Promise.all([

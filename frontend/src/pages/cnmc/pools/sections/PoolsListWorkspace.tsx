@@ -6,6 +6,7 @@ import { Button, Col, Dropdown, Form, Input, Row, Select, Table } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageContainer from '../../../../components/PageContainer';
+import WriteGuard from '../../../../components/WriteGuard';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
 import CloudEditModal from '../../clouds/Harvester/ecs/modals/CloudEditModal';
 import CloudWizard from '../modals/CloudWizard';
@@ -147,12 +148,16 @@ export default function PoolsListWorkspace() {
       }
       toolbarRight={
         <div className="toolbar-actions">
-          <Button type="primary" disabled={!canWriteClouds} onClick={() => setWizardVisible(true)}>
-            新增资源池
-          </Button>
-          <Dropdown menu={bulkActionsMenu}>
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
+          <WriteGuard canWrite={canWriteClouds}>
+            <Button type="primary" onClick={() => setWizardVisible(true)}>
+              新增资源池
+            </Button>
+          </WriteGuard>
+          <WriteGuard canWrite={canWriteClouds}>
+            <Dropdown menu={bulkActionsMenu}>
+              <Button icon={<EllipsisOutlined />} />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={tableColumns} settingsKey="clouds-list" />
           <Button icon={<ReloadOutlined />} onClick={refreshList} />
         </div>

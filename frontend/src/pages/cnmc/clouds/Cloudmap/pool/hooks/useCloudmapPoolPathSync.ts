@@ -12,6 +12,7 @@ import {
   cloudmapRemapDroppedPoolLeafPath,
   cloudmapNavUsesPoolInnerPath,
   cloudmapDefaultPoolInnerSeg,
+  isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
   type CloudmapPoolNavKey,
   type CloudmapResourceSubKey,
@@ -22,6 +23,7 @@ export type UseCloudmapPoolPathSyncParams = {
   locationPathname: string;
   navigate: NavigateFunction;
   canViewClusterGroup: boolean;
+  resolveClusterPoolInnerAccess: (requested: string) => string | null;
   canViewComputeGroup: boolean;
   resolveResourceHubSubAccess: (requested: CloudmapResourceSubKey) => CloudmapResourceSubKey | null;
   canViewMonitoringTab: boolean;
@@ -29,6 +31,7 @@ export type UseCloudmapPoolPathSyncParams = {
   canViewCloudDatabaseTab: boolean;
   canViewOniaasNetworkTab: boolean;
   canViewCephGroup: boolean;
+  canViewUnifiedStorageGroup: boolean;
   canViewObjectStorageGroup: boolean;
   setActiveTabKey: (tab: string) => void;
   setResourceHubSubKey: (sub: CloudmapResourceSubKey) => void;
@@ -40,6 +43,7 @@ export function useCloudmapPoolPathSync({
   locationPathname,
   navigate,
   canViewClusterGroup,
+  resolveClusterPoolInnerAccess,
   canViewComputeGroup,
   resolveResourceHubSubAccess,
   canViewMonitoringTab,
@@ -47,6 +51,7 @@ export function useCloudmapPoolPathSync({
   canViewCloudDatabaseTab,
   canViewOniaasNetworkTab,
   canViewCephGroup,
+  canViewUnifiedStorageGroup,
   canViewObjectStorageGroup,
   setActiveTabKey,
   setResourceHubSubKey,
@@ -102,7 +107,23 @@ export function useCloudmapPoolPathSync({
       return;
     }
 
-    if (p.tab === 'object_storage' && !canViewObjectStorageGroup) {
+    if (p.tab === 'unified_storage') {
+      const inner =
+        p.poolInnerSeg && isClusterCephPoolInnerSeg(p.poolInnerSeg)
+          ? p.poolInnerSeg
+          : 'overview';
+      navigate(cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: inner }), {
+        replace: true,
+      });
+      return;
+    }
+
+    if (
+      p.tab === 'cluster' &&
+      p.poolInnerSeg &&
+      isClusterCephPoolInnerSeg(p.poolInnerSeg) &&
+      !canViewUnifiedStorageGroup
+    ) {
       const hub = resolveResourceHubSubAccess('overview');
       if (hub) {
         navigate(cloudmapPathForNav(cloudId, 'resource_hub', { resourceHubSub: hub }), {
@@ -122,13 +143,40 @@ export function useCloudmapPoolPathSync({
     if (cloudmapNavUsesPoolInnerPath(p.tab)) {
       const inner = p.poolInnerSeg;
       if (!inner || !isValidCloudmapPoolInnerSeg(p.tab, inner)) {
+        const defaultSeg =
+          p.tab === 'cluster'
+            ? resolveClusterPoolInnerAccess(
+                cloudmapDefaultPoolInnerSeg('cluster'),
+              ) ?? cloudmapDefaultPoolInnerSeg(p.tab)
+            : cloudmapDefaultPoolInnerSeg(p.tab);
         navigate(
           cloudmapPathForNav(cloudId, p.tab, {
-            poolInnerSeg: cloudmapDefaultPoolInnerSeg(p.tab),
+            poolInnerSeg: defaultSeg,
           }),
           { replace: true },
         );
         return;
+      }
+      if (p.tab === 'cluster') {
+        const resolved = resolveClusterPoolInnerAccess(inner);
+        if (!resolved) {
+          if (canViewComputeGroup) {
+            navigate(
+              cloudmapPathForNav(cloudId, 'compute', {
+                poolInnerSeg: cloudmapDefaultPoolInnerSeg('compute'),
+              }),
+              { replace: true },
+            );
+          }
+          return;
+        }
+        if (resolved !== inner) {
+          navigate(
+            cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved }),
+            { replace: true },
+          );
+          return;
+        }
       }
       handleTabChangeRef.current(inner);
     }
@@ -171,6 +219,7 @@ export function useCloudmapPoolPathSync({
     locationPathname,
     cloudId,
     canViewClusterGroup,
+  resolveClusterPoolInnerAccess,
     canViewComputeGroup,
     resolveResourceHubSubAccess,
     canViewMonitoringTab,
@@ -178,6 +227,7 @@ export function useCloudmapPoolPathSync({
     canViewCloudDatabaseTab,
     canViewOniaasNetworkTab,
     canViewCephGroup,
+    canViewUnifiedStorageGroup,
     canViewObjectStorageGroup,
     navigate,
     setActiveTabKey,

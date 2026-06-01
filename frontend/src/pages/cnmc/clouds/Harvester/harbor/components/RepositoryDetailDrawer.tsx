@@ -38,7 +38,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
   harborId,
   projectName,
   repository,
-  cloudId,
+  cloudId: _cloudId,
   onClose,
   onBack,
 }) => {

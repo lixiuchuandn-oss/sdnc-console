@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 租户列表主视图；逻辑见 `hooks/useTenantsPage.tsx`。
  */
 import React, { useState } from 'react';
@@ -13,6 +13,7 @@ const TenantsWorkspace: React.FC = () => {
   const [repairModalOpen, setRepairModalOpen] = useState(false);
   const {
     loading,
+    canWriteTenants,
     filteredTenants,
     tenantColumns,
     selectedTenantRowKeys,
@@ -69,31 +70,37 @@ const TenantsWorkspace: React.FC = () => {
           </button>
         </Form>
         <div className="toolbar-actions">
-          <Button type="primary" onClick={openCreateTenantModal}>
-            添加租户
-          </Button>
-          <Button onClick={() => setRepairModalOpen(true)}>
-            租户数据修复
-          </Button>
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'batchDelete',
-                  label: '批量删除',
-                  danger: true,
-                  disabled: selectedTenantRowKeys.length === 0,
+          {canWriteTenants ? (
+            <Button type="primary" onClick={openCreateTenantModal}>
+              添加租户
+            </Button>
+          ) : null}
+          {canWriteTenants ? (
+            <Button onClick={() => setRepairModalOpen(true)}>
+              租户数据修复
+            </Button>
+          ) : null}
+          {canWriteTenants ? (
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'batchDelete',
+                    label: '批量删除',
+                    danger: true,
+                    disabled: selectedTenantRowKeys.length === 0,
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'batchDelete') {
+                    handleBatchDeleteTenants();
+                  }
                 },
-              ],
-              onClick: ({ key }) => {
-                if (key === 'batchDelete') {
-                  handleBatchDeleteTenants();
-                }
-              },
-            }}
-          >
-            <Button icon={<EllipsisOutlined />} />
-          </Dropdown>
+              }}
+            >
+              <Button icon={<EllipsisOutlined />} />
+            </Dropdown>
+          ) : null}
           <Button icon={<ReloadOutlined />} onClick={() => fetchTenants(true)} loading={loading} />
         </div>
       </div>
@@ -106,10 +113,14 @@ const TenantsWorkspace: React.FC = () => {
             columns={tenantColumns}
             dataSource={filteredTenants}
             rowKey="id"
-            rowSelection={{
-              selectedRowKeys: selectedTenantRowKeys,
-              onChange: (keys) => setSelectedTenantRowKeys(keys as string[]),
-            }}
+            rowSelection={
+              canWriteTenants
+                ? {
+                    selectedRowKeys: selectedTenantRowKeys,
+                    onChange: (keys) => setSelectedTenantRowKeys(keys as string[]),
+                  }
+                : undefined
+            }
             pagination={{
               size: 'small',
               showTotal: (total) => `共 ${total} 条`,

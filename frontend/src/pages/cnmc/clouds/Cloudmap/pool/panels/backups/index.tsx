@@ -1,8 +1,17 @@
-import React from 'react';
+/**
+ * Cloudmap 详情 — 云备份（CBR）：侧栏路径驱动，刷新经 `backupsRefresh` → `loadTabResource`。
+ */
+import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import BackupsSection from '../../../../Harvester/cbr/sections/BackupsSection';
 import ScheduleVmBackupsSection from '../../../../Harvester/cbr/sections/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from '../../../../Harvester/cbr/sections/VmRestoreTasksSection';
+import { createBackupsTabOnRefresh } from '../../loaders/backupsRefresh';
+import {
+  canReadBackupSchedules,
+  canReadVmBackupSnapshots,
+  canReadVmBackups,
+} from '../../../../Harvester/cbr/lib/cbrPermissions';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -23,6 +32,12 @@ const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   );
 };
 
+const BACKUPS_POOL_TABS = new Set([
+  'backups',
+  'vm_snapshots',
+  'schedule_vm_backups',
+]);
+
 export type CloudmapBackupsRoutePanelProps = {
   cloudId: string;
   isTenant: boolean;
@@ -34,9 +49,6 @@ export type CloudmapBackupsRoutePanelProps = {
     skipSync?: boolean,
   ) => Promise<void>;
   innerActiveKey: string;
-  setResourceLoading: React.Dispatch<
-    React.SetStateAction<Record<string, boolean>>
-  >;
   ecs: any[];
   harvesterBackups: any[];
   harvesterNamespaces: any[];
@@ -49,15 +61,11 @@ export type CloudmapBackupsRoutePanelProps = {
 };
 
 function canViewBackupsInner(key: string, checkPerm: (a: string) => boolean): boolean {
-  if (key === 'backups' || key === 'vm_snapshots' || key === 'schedule_vm_backups') {
-    return checkPerm('clouds.backups:read') || checkPerm('clouds:read');
-  }
+  if (key === 'backups') return canReadVmBackups(checkPerm);
+  if (key === 'vm_snapshots') return canReadVmBackupSnapshots(checkPerm);
+  if (key === 'schedule_vm_backups') return canReadBackupSchedules(checkPerm);
   if (key === 'vm_restores') {
-    return (
-      checkPerm('clouds.restore-tasks:read') ||
-      checkPerm('clouds.backups:read') ||
-      checkPerm('clouds:read')
-    );
+    return checkPerm('clouds.restore-tasks:read') || checkPerm('clouds:read');
   }
   return false;
 }
@@ -81,6 +89,23 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
     rawScheduleVmBackups,
   } = props;
 
+  const backupsTabOnRefresh = useMemo(() => {
+    const deps = { loadTabResource };
+    return {
+      backups: createBackupsTabOnRefresh('backups', deps),
+      vm_snapshots: createBackupsTabOnRefresh('vm_snapshots', deps),
+      schedule_vm_backups: createBackupsTabOnRefresh(
+        'schedule_vm_backups',
+        deps,
+      ),
+    };
+  }, [loadTabResource]);
+
+  useEffect(() => {
+    if (!BACKUPS_POOL_TABS.has(innerActiveKey)) return;
+    void loadTabResource('backups', false);
+  }, [innerActiveKey, cloudId, loadTabResource]);
+
   if (!canViewBackupsInner(innerActiveKey, checkPerm)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
@@ -92,9 +117,7 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
           cloudId={cloudId}
           backups={harvesterBackups}
           loading={resourceLoading.backups}
-          onRefresh={(force = true, skipSync = false) => {
-            void loadTabResource('backups', force, skipSync);
-          }}
+          onRefresh={backupsTabOnRefresh.backups}
           namespaces={harvesterNamespaces}
           vms={ecs}
           type="backup"
@@ -110,9 +133,7 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
           cloudId={cloudId}
           backups={harvesterBackups}
           loading={resourceLoading.backups}
-          onRefresh={(force = true, skipSync = false) => {
-            void loadTabResource('backups', force, skipSync);
-          }}
+          onRefresh={backupsTabOnRefresh.vm_snapshots}
           namespaces={harvesterNamespaces}
           vms={ecs}
           type="snapshot"
@@ -128,9 +149,7 @@ const CloudmapBackupsRoutePanel: React.FC<CloudmapBackupsRoutePanelProps> = (
           cloudId={cloudId}
           data={harvesterScheduleVmBackups}
           loading={resourceLoading.scheduleVmBackups}
-          onRefresh={(force = true, skipSync = false) => {
-            void loadTabResource('backups', force, skipSync);
-          }}
+          onRefresh={backupsTabOnRefresh.schedule_vm_backups}
           vms={ecs}
         />
         <DebugJSON data={rawScheduleVmBackups} show={showLog} />

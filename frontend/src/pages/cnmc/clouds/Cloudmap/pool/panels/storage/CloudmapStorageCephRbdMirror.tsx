@@ -6,10 +6,17 @@ import { useCephBlockBundleLoad } from '../../../../Harvester/ceph/sections/bloc
 import { useCephBlockYamlDrawer } from '../../../../Harvester/ceph/sections/block/useCephBlockYamlDrawer';
 import CephBlockCrYamlDrawer from '../../../../Harvester/ceph/sections/block/CephBlockCrYamlDrawer';
 import CephBlockRbdMirrorPane from '../../../../Harvester/ceph/sections/block/CephBlockRbdMirrorPane';
+import type { CephSectionOnRefresh } from '../../loaders/cephRefresh';
 
-export type CloudmapStorageCephRbdMirrorProps = { cloudId: string };
+export type CloudmapStorageCephRbdMirrorProps = {
+  cloudId: string;
+  onRefresh?: CephSectionOnRefresh;
+};
 
-const CloudmapStorageCephRbdMirror: React.FC<CloudmapStorageCephRbdMirrorProps> = ({ cloudId }) => {
+const CloudmapStorageCephRbdMirror: React.FC<CloudmapStorageCephRbdMirrorProps> = ({
+  cloudId,
+  onRefresh,
+}) => {
   const { loading, mirrorRows, load } = useCephBlockBundleLoad(cloudId);
   const yaml = useCephBlockYamlDrawer(cloudId);
 
@@ -19,6 +26,7 @@ const CloudmapStorageCephRbdMirror: React.FC<CloudmapStorageCephRbdMirrorProps> 
         loading={loading}
         mirrorRows={mirrorRows}
         load={load}
+        onRefresh={onRefresh}
         openYamlDrawer={(t) => yaml.openYamlDrawer(t)}
       />
       <CephBlockCrYamlDrawer

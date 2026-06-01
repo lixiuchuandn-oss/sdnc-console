@@ -5,6 +5,11 @@ import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from '../../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../../components/ResourceActionsDropdown';
 import type { CephRbdMirrorRow } from '../../lib/cephBlockStorage';
+import {
+  createHarvesterToolbarRefresh,
+  mergeCephSectionOnRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../../lib/cephSectionRefresh';
 import type { CephBlockYamlTarget } from './useCephBlockYamlDrawer';
 
 export type CephBlockRbdMirrorPaneProps = {
@@ -12,6 +17,7 @@ export type CephBlockRbdMirrorPaneProps = {
   mirrorRows: CephRbdMirrorRow[];
   load: (force?: boolean) => Promise<void>;
   openYamlDrawer: (t: CephBlockYamlTarget) => Promise<void>;
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
 const CephBlockRbdMirrorPane: React.FC<CephBlockRbdMirrorPaneProps> = ({
@@ -19,8 +25,19 @@ const CephBlockRbdMirrorPane: React.FC<CephBlockRbdMirrorPaneProps> = ({
   mirrorRows,
   load,
   openYamlDrawer,
+  onRefresh,
 }) => {
   const [mirrorQ, setMirrorQ] = useState('');
+
+  const sectionOnRefresh = useMemo(
+    () => mergeCephSectionOnRefresh(load, onRefresh),
+    [load, onRefresh],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionOnRefresh),
+    [sectionOnRefresh],
+  );
 
   const filteredMirrors = useMemo(() => {
     const q = mirrorQ.trim().toLowerCase();
@@ -77,7 +94,7 @@ const CephBlockRbdMirrorPane: React.FC<CephBlockRbdMirrorPaneProps> = ({
         </>
       }
       toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={() => void load(true)} loading={loading} />
+        <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
       }
     >
       <Table<CephRbdMirrorRow>

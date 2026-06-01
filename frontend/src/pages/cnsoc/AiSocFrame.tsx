@@ -11,7 +11,7 @@ const AiSocFrame: React.FC<Props> = ({ path }) => {
   const [baseUrl, setBaseUrl] = useState<string>('');
   const [loading, setLoading] = useState(true);
   // Default to fixed 1500px height as requested to prevent internal scrolling
-  const [iframeHeight, setIframeHeight] = useState<string | number>(1500);
+  const [iframeHeight] = useState<string | number>(1500);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {

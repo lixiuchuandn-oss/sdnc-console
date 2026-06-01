@@ -10,7 +10,6 @@ export const ipsecRoutes = Router();
 const repo = () => AppDataSource.getRepository(IPsecVPN);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 
-
 // Helper to save config to DB
 const saveVRConfigToDB = async (uuid: string, config: any) => {
   let record = await vrConfigRepo().findOne({ where: { uuid } });
@@ -28,7 +27,16 @@ const saveVRConfigToDB = async (uuid: string, config: any) => {
 
 const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj;
+  const {
+    msg: _msg,
+    code: _code,
+    report_config_status: _report_config_status,
+    updateDate: _updateDate,
+    createDate: _createDate,
+    _id,
+    requestId: _requestId,
+    ...rest
+  } = obj;
   return rest;
 };
 
@@ -275,8 +283,6 @@ ipsecRoutes.get('/', async (req, res, next) => {
       }
     }
 
-
-
     const merged: any[] = [];
     // 1. Merge DB rows with Device data
     for (const row of list) {
@@ -342,7 +348,8 @@ ipsecRoutes.get('/', async (req, res, next) => {
             obj.ipsecOutPackets = stats.outPackets;
             obj.ipsecUpdateDate = stats.updateDate;
             const totalPackets = Number(stats.inPackets || 0) + Number(stats.outPackets || 0);
-            obj.status = (totalPackets > 0 || stats.updateDate) ? IPsecStatus.ACTIVE : IPsecStatus.INACTIVE;
+            obj.status =
+              totalPackets > 0 || stats.updateDate ? IPsecStatus.ACTIVE : IPsecStatus.INACTIVE;
           }
           merged.push(obj);
         }
@@ -464,7 +471,7 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
       localVrLanName,
       peerVrWanName,
       peerVrLanName,
-      localVrWanIP,
+      _localVrWanIP,
       localVrLanIP,
       peerVrLanIP,
       peerVrWanEIP,
@@ -486,7 +493,7 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
 
     sendProgress(1, '开始更新本端VR配置');
 
-    const skipPush = true;
+    const _skipPush = true;
 
     // 1. Get current config from DB Cache
     let currentConfig: any;
@@ -520,14 +527,14 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
       console.warn('[IPSEC] Failed to fetch VRCacheExtended', e);
     }
 
-    const originalConfig = JSON.parse(JSON.stringify(stripMeta(currentConfig)));
+    const _originalConfig = JSON.parse(JSON.stringify(stripMeta(currentConfig)));
 
     // Determine ike_local_ip
     const finalLocalIp = getVrWanIp(localExtended);
     if (finalLocalIp) {
-        console.log(`[IPSEC] Using Local WAN IP from VRCacheExtended: ${finalLocalIp}`);
+      console.log(`[IPSEC] Using Local WAN IP from VRCacheExtended: ${finalLocalIp}`);
     } else {
-        console.warn(`[IPSEC] Local VR Cache IP missing in VRCacheExtended for ${localVrId}`);
+      console.warn(`[IPSEC] Local VR Cache IP missing in VRCacheExtended for ${localVrId}`);
     }
 
     // Determine ike_remote_ip
@@ -544,7 +551,7 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
         finalRemoteIp = extendedPeerIp;
         console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalRemoteIp}`);
       }
-      
+
       try {
         const peerRecord = await vrConfigRepo().findOne({ where: { uuid: peerVrId } });
         if (peerRecord && peerRecord.config_json) {
@@ -608,11 +615,11 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
               : { ipsec: [] };
         }
 
-        let finalPeerLocalIp = getVrWanIp(peerExtended);
+        const finalPeerLocalIp = getVrWanIp(peerExtended);
         if (finalPeerLocalIp) {
-            console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
+          console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
         } else {
-            console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
+          console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
         }
 
         let finalPeerRemoteIp = finalLocalIp; // Use the already resolved local IP from cache
@@ -620,8 +627,8 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
           finalPeerRemoteIp = '0.0.0.0';
         } else if (localVrWanEIP) {
           finalPeerRemoteIp = localVrWanEIP;
-        } 
-        
+        }
+
         if (!finalPeerRemoteIp) {
           sendError(400, '无法获取本端公网IP');
           return;
@@ -757,7 +764,7 @@ ipsecRoutes.delete('/:id', async (req, res) => {
       try {
         const localRecord = await vrConfigRepo().findOne({ where: { uuid: localVrId } });
         if (localRecord && localRecord.config_json) {
-          let config = JSON.parse(localRecord.config_json);
+          const config = JSON.parse(localRecord.config_json);
           if (config.ipsec && Array.isArray(config.ipsec)) {
             const initialLength = config.ipsec.length;
             config.ipsec = config.ipsec.filter(
@@ -806,7 +813,7 @@ ipsecRoutes.delete('/:id', async (req, res) => {
       try {
         const peerRecord = await vrConfigRepo().findOne({ where: { uuid: peerVrId } });
         if (peerRecord && peerRecord.config_json) {
-          let config = JSON.parse(peerRecord.config_json);
+          const config = JSON.parse(peerRecord.config_json);
           if (config.ipsec && Array.isArray(config.ipsec)) {
             const initialLength = config.ipsec.length;
             config.ipsec = config.ipsec.filter(
@@ -911,9 +918,9 @@ ipsecRoutes.post('/', async (req, res, next) => {
       localVrLanName,
       peerVrWanName,
       peerVrLanName,
-      localVrWanIP,
-      localVrLanIP,
-      peerVrLanIP,
+      _localVrWanIP,
+      _localVrLanIP,
+      _peerVrLanIP,
       peerVrWanEIP,
     } = req.body || {};
 
@@ -931,7 +938,7 @@ ipsecRoutes.post('/', async (req, res, next) => {
 
     sendProgress(1, '开始下发本端VR配置');
 
-    const skipPush = true; // Always save to DB only (Step 3 Requirement)
+    const _skipPush = true; // Always save to DB only (Step 3 Requirement)
 
     // 1. Get current config from DB Cache (Priority) to ensure consistency and avoid device read errors
     let currentConfig: any;
@@ -1102,11 +1109,11 @@ ipsecRoutes.post('/', async (req, res, next) => {
 
         if (!peerConfig) peerConfig = { ipsec: [] };
 
-        let finalPeerLocalIp = getVrWanIp(peerExtended);
+        const finalPeerLocalIp = getVrWanIp(peerExtended);
         if (finalPeerLocalIp) {
-            console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
+          console.log(`[IPSEC] Using Peer WAN IP from VRCacheExtended: ${finalPeerLocalIp}`);
         } else {
-            console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
+          console.warn(`[IPSEC] Peer VR Cache IP missing in VRCacheExtended for ${peerVrId}`);
         }
 
         let finalPeerRemoteIp = finalLocalIp; // Use the already resolved local IP from cache
@@ -1114,10 +1121,10 @@ ipsecRoutes.post('/', async (req, res, next) => {
           finalPeerRemoteIp = '0.0.0.0';
         } else if (localVrWanEIP) {
           finalPeerRemoteIp = localVrWanEIP;
-        } 
-        
+        }
+
         if (!finalPeerRemoteIp) {
-           finalPeerRemoteIp = getVrWanIp(localExtended);
+          finalPeerRemoteIp = getVrWanIp(localExtended);
         }
 
         if (!finalPeerRemoteIp) {
@@ -1252,7 +1259,7 @@ ipsecRoutes.get('/deploy/preview', async (req: Request, res: Response, next: Nex
     const record = await vrConfigRepo().findOne({ where: { uuid: vrId } });
     if (!record || !record.config_json) throw new Error('VR config not found in DB');
 
-    let config = JSON.parse(record.config_json);
+    const config = JSON.parse(record.config_json);
 
     // Apply sanitization logic to show exactly what will be sent
     if (config.ipsec && Array.isArray(config.ipsec)) {
@@ -1273,7 +1280,7 @@ ipsecRoutes.get('/deploy/preview', async (req: Request, res: Response, next: Nex
 });
 
 // Manual Deployment Step 2 & 5: Push Config to CSMCTL
-ipsecRoutes.post('/deploy/push', async (req: Request, res: Response, next: NextFunction) => {
+ipsecRoutes.post('/deploy/push', async (req: Request, res: Response, _next: NextFunction) => {
   try {
     const { vrId } = req.body;
     if (!vrId) throw new Error('Missing vrId');
@@ -1282,7 +1289,7 @@ ipsecRoutes.post('/deploy/push', async (req: Request, res: Response, next: NextF
     const record = await vrConfigRepo().findOne({ where: { uuid: vrId } });
     if (!record || !record.config_json) throw new Error('VR config not found in DB');
 
-    let config = JSON.parse(record.config_json);
+    const config = JSON.parse(record.config_json);
 
     if (config.ipsec && Array.isArray(config.ipsec)) {
       config.ipsec.forEach((item: any) => {
@@ -1319,7 +1326,7 @@ ipsecRoutes.post('/deploy/push', async (req: Request, res: Response, next: NextF
 });
 
 // Manual Deployment Step 3 & 6: Verify
-ipsecRoutes.get('/deploy/verify', async (req: Request, res: Response, next: NextFunction) => {
+ipsecRoutes.get('/deploy/verify', async (req: Request, res: Response, _next: NextFunction) => {
   try {
     const { vrId } = req.query;
     if (!vrId || typeof vrId !== 'string') throw new Error('Missing vrId');

@@ -5,7 +5,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 云存储域：`storage/rbd_mirror | volumes | snapshots` */
+/** 云存储域：`storage/volumes | snapshots` */
 export async function tryLoadStorageTab(
   key: string,
   force: boolean,
@@ -25,11 +25,9 @@ export async function tryLoadStorageTab(
   } = deps;
 
   switch (key) {
-    case 'rbd_mirror':
-      return true;
     case 'volumes':
       if (checkPerm('clouds.disks:read')) {
-        loadResource(
+        await loadResource(
           'volumes',
           () => fetchHarvesterVolumes(cloudId, force),
           (json) => {
@@ -45,7 +43,7 @@ export async function tryLoadStorageTab(
         );
       }
       if (checkPerm('clouds.ecs:read')) {
-        loadResource(
+        await loadResource(
           'ecs',
           () => fetchCloudProviderEcs(cloudId, force),
           (json) => {
@@ -64,7 +62,7 @@ export async function tryLoadStorageTab(
       return true;
     case 'snapshots':
       if (checkPerm('clouds.snapshots:read')) {
-        loadResource(
+        await loadResource(
           'snapshots',
           () => fetchHarvesterSnapshots(cloudId, force),
           (json) => {

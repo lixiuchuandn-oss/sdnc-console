@@ -27,7 +27,11 @@ function isFlatSubnetRow(inv: KubeOvnSubnetInventory): boolean {
     inv.annotations ||
     (inv.rawData?.metadata?.annotations as Record<string, string> | undefined) ||
     {};
-  return String(ann[SUBNET_TYPE_KEY] || '').trim().toLowerCase() === 'flat';
+  return (
+    String(ann[SUBNET_TYPE_KEY] || '')
+      .trim()
+      .toLowerCase() === 'flat'
+  );
 }
 
 const K8S_DNS_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
@@ -42,11 +46,7 @@ function validateGroupName(name: string): string | null {
   return null;
 }
 
-function mapSgToDto(
-  g: KubeOvnSecurityGroup,
-  ruleCount: number,
-  memberCount: number,
-) {
+function mapSgToDto(g: KubeOvnSecurityGroup, ruleCount: number, memberCount: number) {
   return {
     id: g.id,
     name: g.name,
@@ -54,8 +54,7 @@ function mapSgToDto(
     subnetName: g.subnetName,
     ruleCount,
     memberCount,
-    updatedAt:
-      g.updatedAt instanceof Date ? g.updatedAt.toISOString() : String(g.updatedAt ?? ''),
+    updatedAt: g.updatedAt instanceof Date ? g.updatedAt.toISOString() : String(g.updatedAt ?? ''),
   };
 }
 
@@ -76,8 +75,7 @@ function mapMemberToDto(m: KubeOvnSecurityGroupMember) {
     id: m.id,
     vmNamespace: m.vmNamespace,
     vmName: m.vmName,
-    createdAt:
-      m.createdAt instanceof Date ? m.createdAt.toISOString() : String(m.createdAt ?? ''),
+    createdAt: m.createdAt instanceof Date ? m.createdAt.toISOString() : String(m.createdAt ?? ''),
   };
 }
 
@@ -222,7 +220,9 @@ export async function kubeOvnSecurityGroupReplaceRulesHandler(req: any, res: Res
     const sgOut = refreshed || sg;
     const memCnt = await memberRepo().count({ where: { securityGroupId: sg.id } });
 
-    let aclPush: { ok: boolean; message?: string; expandedCount?: number; keptCount?: number } | undefined;
+    let aclPush:
+      | { ok: boolean; message?: string; expandedCount?: number; keptCount?: number }
+      | undefined;
     if (isHarvesterLikeCloud(cloud)) {
       const pushRes = await pushFlatSubnetAclsFromTowerSecurityGroups(cloud, id, sg.subnetName);
       aclPush = pushRes.ok
@@ -292,9 +292,7 @@ export async function kubeOvnSecurityGroupUpdateHandler(req: any, res: Response)
     if (Object.prototype.hasOwnProperty.call(body, 'description')) {
       const d = body.description;
       sg.description =
-        d === null || d === undefined || String(d).trim() === ''
-          ? undefined
-          : String(d).trim();
+        d === null || d === undefined || String(d).trim() === '' ? undefined : String(d).trim();
     }
 
     await sgRepo().save(sg);
@@ -326,13 +324,20 @@ export async function kubeOvnSecurityGroupDeleteHandler(req: any, res: Response)
     await ruleRepo().delete({ securityGroupId: sg.id });
     await sgRepo().delete({ id: sg.id, cloudId: id });
 
-    let aclPush: { ok: boolean; message?: string; expandedCount?: number; keptCount?: number } | undefined;
+    let aclPush:
+      | { ok: boolean; message?: string; expandedCount?: number; keptCount?: number }
+      | undefined;
     if (isHarvesterLikeCloud(cloud)) {
       const pushRes = await pushFlatSubnetAclsFromTowerSecurityGroups(cloud, id, subnetName);
       aclPush = pushRes.ok
         ? { ok: true, expandedCount: pushRes.expandedCount, keptCount: pushRes.keptCount }
         : { ok: false, message: pushRes.message };
-      sgApiLog.info('deleteSecurityGroup 后子网 ACL 重算', { cloudId: id, sgId, subnetName, aclPush });
+      sgApiLog.info('deleteSecurityGroup 后子网 ACL 重算', {
+        cloudId: id,
+        sgId,
+        subnetName,
+        aclPush,
+      });
     } else {
       sgApiLog.warn('deleteSecurityGroup 后跳过 ACL 下发', {
         cloudId: id,
@@ -372,7 +377,9 @@ export async function kubeOvnSecurityGroupCreateHandler(req: any, res: Response)
       return res.status(400).json({ message: `子网不存在或未同步到 Tower：${subnetName}` });
     }
     if (!isFlatSubnetRow(inv)) {
-      return res.status(400).json({ message: '安全组仅支持注解 tower.io/subnet-type=flat 的扁平子网' });
+      return res
+        .status(400)
+        .json({ message: '安全组仅支持注解 tower.io/subnet-type=flat 的扁平子网' });
     }
 
     const dup = await sgRepo().findOne({ where: { cloudId: id, subnetName, name } });
@@ -432,7 +439,9 @@ export async function kubeOvnSecurityGroupAddMembersHandler(req: any, res: Respo
     }
 
     if (rawItems.length === 0) {
-      return res.status(400).json({ message: '请提供成员列表 items[{ vmNamespace, vmName }] 或单个 vmNamespace + vmName' });
+      return res.status(400).json({
+        message: '请提供成员列表 items[{ vmNamespace, vmName }] 或单个 vmNamespace + vmName',
+      });
     }
     if (rawItems.length > 100) {
       return res.status(400).json({ message: '单次最多添加 100 个成员' });
@@ -480,7 +489,9 @@ export async function kubeOvnSecurityGroupAddMembersHandler(req: any, res: Respo
     } catch (e: any) {
       const m = String(e?.message || '');
       if (m.startsWith('DUPLICATE:')) {
-        return res.status(409).json({ message: `虚拟机已在该安全组中：${m.slice('DUPLICATE:'.length)}` });
+        return res
+          .status(409)
+          .json({ message: `虚拟机已在该安全组中：${m.slice('DUPLICATE:'.length)}` });
       }
       throw e;
     }
@@ -493,13 +504,20 @@ export async function kubeOvnSecurityGroupAddMembersHandler(req: any, res: Respo
     const sgOut = refreshed || sg;
     const ruleCount = await ruleRepo().count({ where: { securityGroupId: sg.id } });
 
-    let aclPush: { ok: boolean; message?: string; expandedCount?: number; keptCount?: number } | undefined;
+    let aclPush:
+      | { ok: boolean; message?: string; expandedCount?: number; keptCount?: number }
+      | undefined;
     if (isHarvesterLikeCloud(cloud)) {
       const pushRes = await pushFlatSubnetAclsFromTowerSecurityGroups(cloud, id, sg.subnetName);
       aclPush = pushRes.ok
         ? { ok: true, expandedCount: pushRes.expandedCount, keptCount: pushRes.keptCount }
         : { ok: false, message: pushRes.message };
-      sgApiLog.info('addMembers 后子网 ACL 下发', { cloudId: id, sgId, subnetName: sg.subnetName, aclPush });
+      sgApiLog.info('addMembers 后子网 ACL 下发', {
+        cloudId: id,
+        sgId,
+        subnetName: sg.subnetName,
+        aclPush,
+      });
     } else {
       sgApiLog.warn('addMembers 后跳过 ACL 下发（非 Harvester/Cloudmap 类 provider）', {
         cloudId: id,
@@ -534,7 +552,8 @@ export async function kubeOvnSecurityGroupRemoveMemberHandler(req: any, res: Res
     if (!sg) return res.status(404).json({ message: '安全组不存在' });
 
     const del = await memberRepo().delete({ id: memberId, securityGroupId: sg.id });
-    if ((del.affected ?? 0) < 1) return res.status(404).json({ message: '成员不存在或不属于该安全组' });
+    if ((del.affected ?? 0) < 1)
+      return res.status(404).json({ message: '成员不存在或不属于该安全组' });
 
     await sgRepo().update({ id: sg.id }, { updatedAt: new Date() });
 
@@ -546,13 +565,20 @@ export async function kubeOvnSecurityGroupRemoveMemberHandler(req: any, res: Res
     const sgOut = refreshed || sg;
     const ruleCount = await ruleRepo().count({ where: { securityGroupId: sg.id } });
 
-    let aclPush: { ok: boolean; message?: string; expandedCount?: number; keptCount?: number } | undefined;
+    let aclPush:
+      | { ok: boolean; message?: string; expandedCount?: number; keptCount?: number }
+      | undefined;
     if (isHarvesterLikeCloud(cloud)) {
       const pushRes = await pushFlatSubnetAclsFromTowerSecurityGroups(cloud, id, sg.subnetName);
       aclPush = pushRes.ok
         ? { ok: true, expandedCount: pushRes.expandedCount, keptCount: pushRes.keptCount }
         : { ok: false, message: pushRes.message };
-      sgApiLog.info('removeMember 后子网 ACL 下发', { cloudId: id, sgId, subnetName: sg.subnetName, aclPush });
+      sgApiLog.info('removeMember 后子网 ACL 下发', {
+        cloudId: id,
+        sgId,
+        subnetName: sg.subnetName,
+        aclPush,
+      });
     } else {
       sgApiLog.warn('removeMember 后跳过 ACL 下发（非 Harvester/Cloudmap 类 provider）', {
         cloudId: id,

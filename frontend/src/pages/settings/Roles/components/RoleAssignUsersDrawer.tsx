@@ -43,11 +43,12 @@ const drawerStyles: DrawerProps['styles'] = {
 type Props = {
   open: boolean;
   target: RBACRole | null;
+  canWrite?: boolean;
   onClose: () => void;
   onSaved?: () => void;
 };
 
-const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved }) => {
+const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false, onClose, onSaved }) => {
   const { modal } = App.useApp();
   const [users, setUsers] = useState<SysUser[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -280,6 +281,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: unknown, row: SysUser) => {
+        if (!canWrite) return <Text type="secondary">—</Text>;
         const id = String(row.id);
         if (row.builtIn) {
           return (
@@ -300,6 +302,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
       },
     });
     return cols;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renderOtherRolesCell, handleRemove]);
 
   const candidateColumns = useMemo(() => {
@@ -337,14 +340,17 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
       width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
-      render: (_: unknown, row: SysUser) => (
-        <Button type="link" size="small" onClick={() => handleAdd(String(row.id))}>
-          加入
-        </Button>
-      ),
+      render: (_: unknown, row: SysUser) =>
+        canWrite ? (
+          <Button type="link" size="small" onClick={() => handleAdd(String(row.id))}>
+            加入
+          </Button>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
     });
     return cols;
-  }, [renderOtherRolesCell, handleAdd]);
+  }, [canWrite, renderOtherRolesCell, handleAdd]);
 
   const safeClose = React.useCallback(() => {
     if (!dirty) {
@@ -361,6 +367,10 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
   }, [dirty, delta.needAdd.length, delta.needRemove.length, modal, onClose]);
 
   const handleSave = React.useCallback(async () => {
+    if (!canWrite) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     if (!target) return;
     if (!delta.needAdd.length && !delta.needRemove.length) {
       message.info('没有变更，无需保存');
@@ -388,7 +398,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
     } finally {
       setSaving(false);
     }
-  }, [target, delta, onClose, onSaved]);
+  }, [canWrite, target, delta, onClose, onSaved]);
 
   const memberInRoleCount = activeUsers.filter((u) => selected.includes(String(u.id))).length;
 
@@ -409,14 +419,16 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, onClose, onSaved
       footer={
         <Flex justify="flex-end" gap={G}>
           <Button onClick={safeClose}>取消</Button>
-          <Button
-            type="primary"
-            onClick={handleSave}
-            loading={saving}
-            disabled={!dirty}
-          >
-            {dirty ? `保存（+${delta.needAdd.length} / -${delta.needRemove.length}）` : '无变更'}
-          </Button>
+          {canWrite ? (
+            <Button
+              type="primary"
+              onClick={handleSave}
+              loading={saving}
+              disabled={!dirty}
+            >
+              {dirty ? `保存（+${delta.needAdd.length} / -${delta.needRemove.length}）` : '无变更'}
+            </Button>
+          ) : null}
         </Flex>
       }
     >

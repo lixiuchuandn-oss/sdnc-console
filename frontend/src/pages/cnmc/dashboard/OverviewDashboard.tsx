@@ -24,7 +24,7 @@ import {
   UserOutlined,
   WarningFilled,
 } from '@ant-design/icons';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../components/LazyReactECharts';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../../../contexts/AuthContext';
@@ -40,6 +40,7 @@ import { getProviderChartOption } from './chartUtils';
 import './Dashboard.css';
 import { isCsmCloud } from '../pools/lib/poolProviders';
 import { navigateToPoolDetail } from '../pools/lib/poolDetailNav';
+import { OverviewMetricCard, OverviewSectionSpin } from '../../../components/overview';
 
 function pickSettledResult<T>(result: PromiseSettledResult<T>, fallback: T): T {
   return result.status === 'fulfilled' ? result.value : fallback;
@@ -72,10 +73,6 @@ const DASH_CARD_BODY_STANDARD = {
 
 /** 概览区各 Card的 styles（header + body），避免在 JSX 里堆对象 */
 const DASH_CARD_STYLES = {
-  kpi: {
-    header: DASH_CARD_HEADER_STYLES,
-    body: { ...DASH_CARD_BODY_STANDARD, justifyContent: 'center' as const },
-  },
   chart: {
     header: DASH_CARD_HEADER_STYLES,
     body: { ...DASH_CARD_BODY_STANDARD },
@@ -128,52 +125,6 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   'cloudmap.csm': 'CSM（SDN 业务域）',
   Unknown: '未知厂商',
 };
-
-type KPICardProps = {
-  title: string;
-  value: React.ReactNode;
-  total: React.ReactNode;
-  icon: React.ReactNode;
-  loading: boolean;
-  color?: string;
-};
-
-const KPICard: React.FC<KPICardProps> = ({
-  title,
-  value,
-  total,
-  icon,
-  loading,
-  color = '#1677ff',
-}) => (
-  <Card
-    size="small"
-    className="dashboard-overview-metric-card"
-    title={
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ color, fontSize: 20, display: 'inline-flex', lineHeight: 1 }}>{icon}</span>
-        <span style={{ fontSize: 16 }}>{title}</span>
-      </span>
-    }
-    styles={DASH_CARD_STYLES.kpi}
-    style={{
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      boxShadow: DASH_CARD_SHADOW,
-    }}
-  >
-    <Spin spinning={loading}>
-      <div className="kpi-value-section-v2">
-        <span className="kpi-value-v2" style={{ color }}>
-          {value}
-        </span>
-        <span className="kpi-divider-v2">/</span>
-        <span className="kpi-total-v2">{total ?? '-'}</span>
-      </div>
-    </Spin>
-  </Card>
-);
 
 const MATRIX_ARRAY = [...Array(100)];
 
@@ -336,48 +287,42 @@ const OverviewDashboard: React.FC = () => {
 
   return (
     <div className="dashboard-modern">
+      <OverviewSectionSpin loading={statsLoading || chartsLoading}>
       <Row gutter={[16, 16]} className="kpi-row dashboard-overview-row" align="stretch">
-        <Col xs={24} sm={12} lg={6}>
-          <KPICard
-            title="纳管云资源"
-            value={cloudStats.online}
-            total={cloudStats.total}
-            loading={statsLoading}
-            color="#1677ff"
-            icon={<CloudServerOutlined />}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <KPICard
-            title="运行中实例"
-            value={instanceStats.running}
-            total={instanceStats.total}
-            loading={statsLoading}
-            color="#1677ff"
-            icon={<DesktopOutlined />}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <KPICard
-            title="活跃用户"
-            value={stats.newUserCount || 0}
-            total={stats.totalUserCount || 0}
-            loading={statsLoading}
-            color="#1677ff"
-            icon={<TeamOutlined />}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <KPICard
-            title="24h 告警"
-            value={criticalAlertsCount}
-            total={alarmCount}
-            loading={chartsLoading}
-            color={alarmCount > 0 ? '#ff4d4f' : '#1677ff'}
-            icon={<BellOutlined />}
-          />
-        </Col>
+        <OverviewMetricCard
+          title="纳管云资源"
+          value={cloudStats.online}
+          total={cloudStats.total}
+          valueColor="#1677ff"
+          icon={<CloudServerOutlined style={{ color: '#1677ff' }} />}
+          col={{ xs: 24, sm: 12, lg: 6 }}
+        />
+        <OverviewMetricCard
+          title="运行中实例"
+          value={instanceStats.running}
+          total={instanceStats.total}
+          valueColor="#1677ff"
+          icon={<DesktopOutlined style={{ color: '#1677ff' }} />}
+          col={{ xs: 24, sm: 12, lg: 6 }}
+        />
+        <OverviewMetricCard
+          title="活跃用户"
+          value={stats.newUserCount || 0}
+          total={stats.totalUserCount || 0}
+          valueColor="#1677ff"
+          icon={<TeamOutlined style={{ color: '#1677ff' }} />}
+          col={{ xs: 24, sm: 12, lg: 6 }}
+        />
+        <OverviewMetricCard
+          title="24h 告警"
+          value={criticalAlertsCount}
+          total={alarmCount}
+          valueColor={alarmCount > 0 ? '#ff4d4f' : '#1677ff'}
+          icon={<BellOutlined style={{ color: alarmCount > 0 ? '#ff4d4f' : '#1677ff' }} />}
+          col={{ xs: 24, sm: 12, lg: 6 }}
+        />
       </Row>
+      </OverviewSectionSpin>
 
       <Row gutter={[16, 16]} className="charts-row dashboard-overview-row" align="stretch">
         <Col xs={24} lg={6} style={CHART_COL_OUTER_STYLE}>
@@ -400,7 +345,7 @@ const OverviewDashboard: React.FC = () => {
                     <Spin size="large" />
                   </div>
                 ) : providerData.length > 0 ? (
-                  <ReactECharts
+                  <LazyReactECharts
                     option={providerChartOption}
                     style={{ width: '100%', height: '100%', minHeight: 320 }}
                     className="chart-wrapper"

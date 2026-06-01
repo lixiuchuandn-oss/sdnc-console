@@ -23,7 +23,7 @@ const AddVRInstance: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
 
-  const onFinish = (values: any) => {
+  const onFinish = (_values: any) => {
     setLoading(true);
     // 模拟保存操作
     setTimeout(() => {
@@ -33,7 +33,7 @@ const AddVRInstance: React.FC = () => {
     }, 1000);
   };
 
-  const onFinishFailed = (errorInfo: any) => {
+  const onFinishFailed = (_errorInfo: any) => {
     message.error('请检查表单填写是否正确');
   };
 

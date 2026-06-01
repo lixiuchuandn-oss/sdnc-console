@@ -1,7 +1,7 @@
 import http from 'http';
 import jwt from 'jsonwebtoken';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
-import { UserRole } from '../entities/User';
+import { assertLegacyConsoleWsAccess } from './wsConsoleAccess';
 import net from 'net';
 
 // 该服务充当 WebSockify：将浏览器的 WebSocket 二进制数据原样转发到后端 TCP（VNC/RFB 端口），并将 TCP 数据原样回传至浏览器。
@@ -22,15 +22,8 @@ export function createVncWsServer() {
       if (!token) throw new Error('缺少 token');
       const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      
-      const isSuper = decoded.role === UserRole.SUPER_ADMIN;
-      // 如果不是超级管理员，必须拥有 clouds.console:write 权限
-      if (!isSuper) {
-        const perms: string[] = Array.isArray(decoded.permissions) ? decoded.permissions : [];
-        if (!perms.includes('clouds.console:write')) {
-          throw new Error('权限不足: 缺少 clouds.console:write');
-        }
-      }
+
+      assertLegacyConsoleWsAccess(decoded);
     } catch (err: any) {
       // 由于 noVNC 期待纯二进制流，这里仅关闭连接并设置关闭原因，避免发送 JSON 文本
       try {

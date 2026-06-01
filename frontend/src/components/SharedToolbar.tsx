@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Space, Button, Dropdown, Modal, Checkbox, Tooltip, Divider } from 'antd';
+import { Space, Button, Dropdown, Modal, Checkbox, Tooltip } from 'antd';
 import { ReloadOutlined, SettingOutlined, EllipsisOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 

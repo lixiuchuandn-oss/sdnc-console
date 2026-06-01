@@ -23,7 +23,9 @@ export async function harvesterMonitoringSecretsListHandler(req: Request, res: R
   try {
     const { id } = req.params;
     const namespace = String(req.query?.namespace ?? 'cattle-monitoring-system').trim();
-    const datasource = String(req.query?.datasource ?? 'prometheus').trim().toLowerCase();
+    const _datasource = String(req.query?.datasource ?? 'prometheus')
+      .trim()
+      .toLowerCase();
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
       namespaces: [namespace],
       forbiddenMessage: '无权访问该命名空间下的密钥对象',
@@ -46,6 +48,10 @@ export async function harvesterMonitoringSecretsListHandler(req: Request, res: R
       name: (item?.metadata?.name ?? item?.name ?? '').toString().trim(),
       data: item?.data && typeof item.data === 'object' ? item.data : {},
       type: (item?.type ?? 'Opaque').toString(),
+      annotations:
+        item?.metadata?.annotations && typeof item.metadata.annotations === 'object'
+          ? item.metadata.annotations
+          : {},
     }));
     res.json(secretList);
   } catch (e: any) {
@@ -60,7 +66,7 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
   try {
     const { id, namespace, name } = req.params;
     if (!namespace || !name) {
-      return res.status(400).json({ message: '命名空间与密钥名称不能为空' });
+      return res.status(400).json({ message: '命名空间与密钥标识不能为空' });
     }
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
       namespaces: [namespace],
@@ -75,7 +81,7 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
     const excludeQs =
-      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state&exclude=metadata.annotations';
+      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.relationships&exclude=metadata.fields&exclude=metadata.state';
     const url = `${origin}/${path}?${excludeQs}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     const item =
@@ -88,13 +94,19 @@ export async function harvesterMonitoringSecretsDetailHandler(req: Request, res:
       return res.status(404).json({ message: '密钥不存在' });
     }
     if (item?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
-      return res.status(400).json({ message: '该密钥不是告警接收器密钥（缺少 monitoring-receiver-secret 标签）' });
+      return res
+        .status(400)
+        .json({ message: '该密钥不是告警接收器密钥（缺少 monitoring-receiver-secret 标签）' });
     }
     res.json({
       name: (item?.metadata?.name ?? item?.name ?? '').toString().trim(),
       namespace: (item?.metadata?.namespace ?? '').toString().trim(),
       data: item?.data && typeof item.data === 'object' ? item.data : {},
       type: (item?.type ?? 'Opaque').toString(),
+      annotations:
+        item?.metadata?.annotations && typeof item.metadata.annotations === 'object'
+          ? item.metadata.annotations
+          : {},
     });
   } catch (e: any) {
     if (isUnreachableError(e)) return res.status(200).json({});
@@ -124,6 +136,10 @@ export async function harvesterMonitoringSecretsCreateHandler(req: Request, res:
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
+    const requestAnnotations =
+      body?.metadata?.annotations && typeof body.metadata.annotations === 'object'
+        ? body.metadata.annotations
+        : undefined;
     const payload = {
       apiVersion: 'v1',
       kind: 'Secret',
@@ -132,6 +148,7 @@ export async function harvesterMonitoringSecretsCreateHandler(req: Request, res:
         name,
         namespace,
         labels: { ...(body?.metadata?.labels || {}), [MONITORING_RECEIVER_SECRET_LABEL]: 'true' },
+        ...(requestAnnotations ? { annotations: { ...requestAnnotations } } : {}),
       },
       data: body?.data && typeof body.data === 'object' ? body.data : {},
     };
@@ -141,7 +158,10 @@ export async function harvesterMonitoringSecretsCreateHandler(req: Request, res:
   } catch (e: any) {
     if (res.headersSent) return;
     const status = (e as any).status ?? (e as any)?.statusCode ?? 500;
-    const errMsg = (e as any).message || (typeof (e as any).body === 'string' ? (e as any).body : '') || '创建密钥失败';
+    const errMsg =
+      (e as any).message ||
+      (typeof (e as any).body === 'string' ? (e as any).body : '') ||
+      '创建密钥失败';
     res.status(status).json({ message: errMsg });
   }
 }
@@ -165,7 +185,12 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const getPath = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const existingRaw = await getJsonOnce(`${origin}/${getPath}`, cloud.secretKey || '', insecure, true);
+    const existingRaw = await getJsonOnce(
+      `${origin}/${getPath}`,
+      cloud.secretKey || '',
+      insecure,
+      true,
+    );
     const existing =
       (existingRaw as any)?.data != null &&
       typeof (existingRaw as any).data === 'object' &&
@@ -178,6 +203,17 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
     if (existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
       return res.status(400).json({ message: '该密钥不是告警接收器密钥，无法通过此接口修改' });
     }
+    const existingAnnotations =
+      existing?.metadata?.annotations && typeof existing.metadata.annotations === 'object'
+        ? existing.metadata.annotations
+        : {};
+    const requestAnnotations =
+      body?.metadata?.annotations && typeof body.metadata.annotations === 'object'
+        ? body.metadata.annotations
+        : undefined;
+    const mergedAnnotations = requestAnnotations
+      ? { ...existingAnnotations, ...requestAnnotations }
+      : existingAnnotations;
     const payload = {
       apiVersion: 'v1',
       kind: 'Secret',
@@ -187,7 +223,11 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
         name,
         namespace,
         resourceVersion: existing.metadata?.resourceVersion,
-        labels: { ...(existing.metadata?.labels || {}), [MONITORING_RECEIVER_SECRET_LABEL]: 'true' },
+        labels: {
+          ...(existing.metadata?.labels || {}),
+          [MONITORING_RECEIVER_SECRET_LABEL]: 'true',
+        },
+        annotations: mergedAnnotations,
       },
       data: body?.data && typeof body.data === 'object' ? body.data : existing?.data || {},
     };
@@ -197,7 +237,10 @@ export async function harvesterMonitoringSecretsUpdateHandler(req: Request, res:
   } catch (e: any) {
     if (res.headersSent) return;
     const status = (e as any).status ?? (e as any)?.statusCode ?? 500;
-    const errMsg = (e as any).message || (typeof (e as any).body === 'string' ? (e as any).body : '') || '更新密钥失败';
+    const errMsg =
+      (e as any).message ||
+      (typeof (e as any).body === 'string' ? (e as any).body : '') ||
+      '更新密钥失败';
     res.status(status).json({ message: errMsg });
   }
 }
@@ -220,17 +263,27 @@ export async function harvesterMonitoringSecretsDeleteHandler(req: Request, res:
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const getPath = `${SECRETS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const existingRaw = await getJsonOnce(`${origin}/${getPath}`, cloud.secretKey || '', insecure, true);
+    const existingRaw = await getJsonOnce(
+      `${origin}/${getPath}`,
+      cloud.secretKey || '',
+      insecure,
+      true,
+    );
     const existing =
       (existingRaw as any)?.data != null &&
       typeof (existingRaw as any).data === 'object' &&
       (existingRaw as any).data?.metadata != null
         ? (existingRaw as any).data
         : existingRaw;
-    if (existing?.metadata && existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true') {
+    if (
+      existing?.metadata &&
+      existing?.metadata?.labels?.[MONITORING_RECEIVER_SECRET_LABEL] !== 'true'
+    ) {
       return res.status(400).json({ message: '该密钥不是告警接收器密钥，无法通过此接口删除' });
     }
-    const targetBinding = (existing?.metadata?.annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '').toString().trim();
+    const targetBinding = (existing?.metadata?.annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '')
+      .toString()
+      .trim();
     if (targetBinding) {
       return res.status(400).json({
         message: `该告警密钥已被通知对象引用（${targetBinding}），请先解除关联后再删除`,
@@ -241,7 +294,10 @@ export async function harvesterMonitoringSecretsDeleteHandler(req: Request, res:
   } catch (e: any) {
     if (res.headersSent) return;
     const status = (e as any).status ?? (e as any)?.statusCode ?? 500;
-    const errMsg = (e as any).message || (typeof (e as any).body === 'string' ? (e as any).body : '') || '删除密钥失败';
+    const errMsg =
+      (e as any).message ||
+      (typeof (e as any).body === 'string' ? (e as any).body : '') ||
+      '删除密钥失败';
     res.status(status).json({ message: errMsg });
   }
 }
@@ -269,7 +325,8 @@ export async function harvesterMonitoringConfigMapsDetailHandler(req: Request, r
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const path = `${CONFIGMAPS_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-    const excludeQs = 'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
+    const excludeQs =
+      'exclude=metadata.managedFields&exclude=metadata.ownerReferences&exclude=metadata.annotations';
     const url = `${origin}/${path}?${excludeQs}`;
     const data = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     res.json(data);

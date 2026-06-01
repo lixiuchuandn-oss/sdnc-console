@@ -178,16 +178,16 @@ export async function repairTenantDataFromCloud(cloudId: string): Promise<Tenant
       }
     }
 
-    const orgIds = [...organizationCrById.keys()].filter((id) => tenantIds.has(crdRefName(organizationCrById.get(id)?.spec?.tenantRef)));
+    const orgIds = [...organizationCrById.keys()].filter((id) =>
+      tenantIds.has(crdRefName(organizationCrById.get(id)?.spec?.tenantRef)),
+    );
     const sortedOrgIds = orgIds.sort((a, b) => {
       const la = Number(organizationCrById.get(a)?.spec?.level ?? 0);
       const lb = Number(organizationCrById.get(b)?.spec?.level ?? 0);
       return la - lb;
     });
 
-    const existingOrgs = orgIds.length
-      ? await orgRepo.find({ where: { id: In(orgIds) } })
-      : [];
+    const existingOrgs = orgIds.length ? await orgRepo.find({ where: { id: In(orgIds) } }) : [];
     const existingOrgById = new Map(existingOrgs.map((o) => [o.id, o]));
 
     for (const orgId of sortedOrgIds) {

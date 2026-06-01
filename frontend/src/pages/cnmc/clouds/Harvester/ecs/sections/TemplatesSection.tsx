@@ -6,6 +6,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Input, Button, Select, message, App, Modal, Switch, Dropdown, Tooltip } from 'antd';
 import { ReloadOutlined, ExclamationCircleOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import HarvesterTemplateDetailDrawer from '../../shared/components/HarvesterTemplateDetailDrawer';
@@ -16,7 +17,7 @@ import {
   runHarvesterSectionRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { createHarvesterVmFromTemplate } from 'services/harvester/vm';
 import { deleteHarvesterResourceByLink } from 'services/harvester/resource';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -48,7 +49,6 @@ interface Props {
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
-  bordered?: boolean;
   workspaceVmNamespace?: string;
 }
 
@@ -58,7 +58,6 @@ const TemplatesSection: React.FC<Props> = ({
   loading,
   onRefresh,
   isTenant = false,
-  bordered = true,
 }) => {
   const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
@@ -253,6 +252,7 @@ const TemplatesSection: React.FC<Props> = ({
 
   return (
     <PageDetailSection
+      asCard={false}
       toolbarLeft={
         <>
           <Input
@@ -267,7 +267,7 @@ const TemplatesSection: React.FC<Props> = ({
             <Select
               allowClear
               showSearch
-              placeholder="命名空间"
+              placeholder="项目"
               value={selectedNamespace || undefined}
               onChange={(v) => setSelectedNamespace((v as string) || '')}
               options={namespaceOptions}
@@ -300,46 +300,38 @@ const TemplatesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Tooltip
-            title={
-              !hasTemplatesWrite
-                ? undefined
-                : selectedRowKeys.length === 0
-                  ? '请先选择模板'
-                  : undefined
-            }
-          >
-            <span>
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: [
-                    {
-                      key: 'batchDelete',
-                      label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
-                      disabled: !hasTemplatesWrite || selectedRowKeys.length === 0,
+          <WriteGuard canWrite={hasTemplatesWrite}>
+            <Tooltip
+              title={selectedRowKeys.length === 0 ? '请先选择模板' : undefined}
+            >
+              <span>
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: [
+                      {
+                        key: 'batchDelete',
+                        label: <span style={{ color: '#ff4d4f' }}>批量删除</span>,
+                        disabled: selectedRowKeys.length === 0,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (selectedRowKeys.length === 0) {
+                        message.warning('请先选择模板');
+                        return;
+                      }
+                      if (key === 'batchDelete') handleBatchDelete();
                     },
-                  ],
-                  onClick: ({ key }) => {
-                    if (!hasTemplatesWrite) {
-                      message.error('无权限执行批量操作');
-                      return;
-                    }
-                    if (selectedRowKeys.length === 0) {
-                      message.warning('请先选择模板');
-                      return;
-                    }
-                    if (key === 'batchDelete') handleBatchDelete();
-                  },
-                }}
-              >
-                <Button
-                  icon={<EllipsisOutlined />}
-                  disabled={!hasTemplatesWrite || selectedRowKeys.length === 0}
-                />
-              </Dropdown>
-            </span>
-          </Tooltip>
+                  }}
+                >
+                  <Button
+                    icon={<EllipsisOutlined />}
+                    disabled={selectedRowKeys.length === 0}
+                  />
+                </Dropdown>
+              </span>
+            </Tooltip>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey={HARVESTER_TEMPLATES_TABLE_SETTINGS_KEY}

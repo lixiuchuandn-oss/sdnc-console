@@ -47,8 +47,7 @@ export async function fetchHmsNodeNics(params: {
   }
 
   const insecure =
-    params?.insecure ??
-    String(process.env.HMS_IGNORE_TLS ?? 'true').toLowerCase() === 'true';
+    params?.insecure ?? String(process.env.HMS_IGNORE_TLS ?? 'true').toLowerCase() === 'true';
   const timeoutMs = params?.timeoutMs ?? Number(process.env.HMS_TIMEOUT_MS ?? 15000);
 
   const url = `${origin}/v1/hms/node/nics`;
@@ -80,4 +79,3 @@ export async function fetchHmsNodeNics(params: {
   }
   return out;
 }
-

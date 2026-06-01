@@ -1,6 +1,6 @@
 /**
  * 权限定义中心 - 统一导出
- * 
+ *
  * 这是新的权限体系的核心入口，提供：
  * 1. 权限注册表（PermissionRegistry）
  * 2. 权限继承引擎（InheritanceEngine）
@@ -8,7 +8,6 @@
  * 4. 权限定义和规则
  */
 
-import { PermissionDefinition } from './types';
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
 import { PermissionChecker } from './checker';
@@ -63,6 +62,13 @@ export function hasAllPermissions(permissions: string[], required: string[]): bo
 export function resolvePermissionFromApi(method: string, path: string): string | null {
   return permissionRegistry.resolveFromApi(method, path);
 }
+
+export {
+  mapHarvesterContainerSubPathToPermissionBase,
+  mapHarvesterContainerApiPathToPermissionBase,
+  resolveHarvesterContainerProxyPermissionFromBody,
+  resolveHarvesterContainerUrlPermission,
+} from './registry';
 
 // 导出中间件
 export * from './middleware';

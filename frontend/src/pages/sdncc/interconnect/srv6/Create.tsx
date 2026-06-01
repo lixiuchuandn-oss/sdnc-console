@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState, useTransition, useDeferredValue } from 'react';
-import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Table, Divider } from 'antd';
-import { ArrowLeftOutlined, ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
+import { ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
-import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, upsertVrCache, getVR2Config } from '../../../../services/virtualRouterApi';
+import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
 import { apiRequest, apiPost } from '../../../../services/api';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
@@ -52,7 +52,7 @@ const SRv6CreatePage: React.FC = () => {
   const [current, setCurrent] = useState<number>(0);
   const [mode, setMode] = useState<'标准' | '高可用' | undefined>('标准');
   const [formValues, setFormValues] = useState<any>({});
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [peConfigs, setPeConfigs] = useState<{ peA?: any; peB?: any }>({});
   const [ceConfigs, setCeConfigs] = useState<{ ceA?: any; ceB?: any }>({});
   /** 第 3 步：已创建隧道记录并写入平台 VR配置库 */
@@ -647,7 +647,7 @@ const SRv6CreatePage: React.FC = () => {
   };
   const stripMeta = (obj: any) => {
     if (!obj || typeof obj !== 'object') return obj;
-    const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj as any;
+    const { msg: _msg, code: _code, report_config_status: _report_config_status, updateDate: _updateDate, createDate: _createDate, _id, requestId: _requestId, ...rest } = obj as any;
     return rest;
   };
   const expandForPreview = (cleaned: any) => {
@@ -803,7 +803,7 @@ const SRv6CreatePage: React.FC = () => {
   }, [vrs, rolesMap]);
 
   // 简易视图：将 VR 列表映射为表格行，显示名称/角色/UUID/状态
-  const vrsView = useMemo(() => {
+  const _vrsView = useMemo(() => {
     return (vrs || []).map((r: any, idx: number) => {
       const uuid = r?.uuid;
       const name = getVRLabel(r);
@@ -943,7 +943,7 @@ const SRv6CreatePage: React.FC = () => {
     };
   };
 
-  // 计算注入邻居后的预览配置
+  // 计算注入邻居后的预览配置（复用 buildInjectedPeConfig：SID/64 + VRF ::/0 双路由）
   const peAInjected = useMemo(() => buildInjectedPeConfig('peA'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
   const peAPreviewCfg = peAInjected.preview;
   const peAPreviewStorageCfg = peAInjected.storage;
@@ -960,6 +960,7 @@ const SRv6CreatePage: React.FC = () => {
     const peAInnerIp = peAInnerIf ? extractInterfaceIp(peA, peAInnerIf) : extractPortIp(peA, 1);
     const injected = ceA && peA ? injectConnectionsForCE(ceA, peAInnerIp ? { ...peA, _inner_ip_override: peAInnerIp } : peA) : ceA;
     return injected ? sanitizeForDevice(injected) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ceConfigs, peConfigs, formValues]);
 
   const ceBPreviewCfg = useMemo(() => {
@@ -969,10 +970,11 @@ const SRv6CreatePage: React.FC = () => {
     const peBInnerIp = peBInnerIf ? extractInterfaceIp(peB, peBInnerIf) : extractPortIp(peB, 1);
     const injected = ceB && peB ? injectConnectionsForCE(ceB, peBInnerIp ? { ...peB, _inner_ip_override: peBInnerIp } : peB) : ceB;
     return injected ? sanitizeForDevice(injected) : null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ceConfigs, peConfigs, formValues]);
 
   // 打开 PE 配置弹窗
-  const openPeDialog = (target: 'peA' | 'peB') => {
+  const _openPeDialog = (target: 'peA' | 'peB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
       message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);
@@ -990,7 +992,7 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   // 专家模式跳转到 VR 配置专家页
-  const goExpertMode = (target: 'peA' | 'peB') => {
+  const _goExpertMode = (target: 'peA' | 'peB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
       message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);
@@ -1092,7 +1094,8 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   const deferredValues = useDeferredValue(formValues);
-  const configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const _configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
 
   /** 仅在前两步回退时清空「已保存」标记；从下发向导回到确认页仍保留（避免重复点创建） */
   useEffect(() => {

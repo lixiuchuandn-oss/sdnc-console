@@ -3,7 +3,7 @@
  * 设计文档：plan/设计-监控服务-日志采集配置.md
  * 参考 Compute.Tower-Monitoring LogsConfigPage；节点用主项目 logging/nodes，组件复用主项目。
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Col,
@@ -27,6 +27,7 @@ import PageDetailSection from '../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../components/WriteGuard';
 import {
   fetchClusterflows,
   fetchClusterflowDetail,
@@ -67,15 +68,10 @@ import {
   LOG_SCOPE_MAP,
   GLOBAL_OUTPUT_REFS,
   LOCAL_OUTPUT_REFS,
-  ELASTICSEARCH_PROVIDER,
-  S3_PROVIDER,
-  FILE_PROVIDER,
-  KAFKA_PROVIDER,
-  FORWARD_PROVIDER,
-  SYSLOG_PROVIDER
 } from './constants';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
 
 
 
@@ -169,7 +165,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
     () => hasPermissionForAction(perms, 'clouds.log-configs:write'),
     [perms]
   );
-  const { formNamespaceOptions, namespaceLoading, isAdmin } = useLoggingContext();
+  const { formNamespaceOptions, namespaceLoading } = useLoggingContext();
   const [configList, setConfigList] = useState<ClusterFlowItem[]>([]);
   const [configLoading, setConfigLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -753,7 +749,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         fixed: 'right',
         render: (_, row) => (
           <ResourceActionsDropdown
-            items={[
+            items={filterMenuItemsForReadOnly([
               { key: 'detail', label: '详情', onClick: () => handleOpenDetail(row) },
               { key: 'edit', label: '编辑配置', disabled: !canWriteLogConfigs, onClick: () => handleOpenForm(row) },
               { type: 'divider' as const },
@@ -781,7 +777,7 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
                   });
                 },
               },
-            ]}
+            ], canWriteLogConfigs)}
           />
         ),
       },
@@ -838,9 +834,11 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
         }
         toolbarRight={
           <>
-            <Button type="primary" icon={<PlusOutlined />} disabled={!canWriteLogConfigs} onClick={() => handleOpenForm(null)}>
-              新增日志采集配置
-            </Button>
+            <WriteGuard canWrite={canWriteLogConfigs}>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => handleOpenForm(null)}>
+                新增日志采集配置
+              </Button>
+            </WriteGuard>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey="logs_config_clusterflow_table_v2" />
             <Button icon={<ReloadOutlined />} onClick={loadConfigList} loading={configLoading} />
           </>

@@ -1,8 +1,8 @@
 /**
  * Harbor 凭证同步路由
- * 
+ *
  * 实现 Harbor 凭证同步到 Harvester 集群的 API，支持创建和更新 K8s Secret。
- * 
+ *
  * @see HarborProxyService
  */
 import { Router, Response } from 'express';
@@ -31,7 +31,7 @@ const buildDockerConfigJson = (
   server: string,
   username: string,
   password: string,
-  email?: string
+  email?: string,
 ): string => {
   // 构建认证字符串: base64(username:password)
   const authString = Buffer.from(`${username}:${password}`).toString('base64');
@@ -58,7 +58,7 @@ const buildDockerConfigJson = (
 const getHarvesterClient = (cloud: Cloud) => {
   const insecure = !!(cloud.config as any)?.ignoreTls;
   const token = cloud.secretKey || '';
-  let base = cloud.endpoint || '';
+  const base = cloud.endpoint || '';
 
   // 提取 origin（去除版本后缀）
   let origin = base.replace(/\/+$/, '');
@@ -84,11 +84,9 @@ const k8sRequest = async (
   url: string,
   token: string,
   insecure: boolean,
-  data?: any
+  data?: any,
 ): Promise<any> => {
-  const httpsAgent = insecure
-    ? new https.Agent({ rejectUnauthorized: false })
-    : undefined;
+  const httpsAgent = insecure ? new https.Agent({ rejectUnauthorized: false }) : undefined;
 
   const response = await axios({
     method,
@@ -113,7 +111,7 @@ const k8sRequest = async (
 /**
  * 同步 Harbor 凭证到 Harvester 集群
  * POST /api/harbor/registries/:id/sync-secret
- * 
+ *
  * Body: {
  *   cloudId: string;      // Harvester 云资源池 ID
  *   namespace: string;    // 目标命名空间
@@ -153,7 +151,9 @@ router.post('/registries/:id/sync-secret', async (req: AuthRequest, res: Respons
       return res.status(404).json({ message: 'Harvester 云资源池不存在' });
     }
 
-    const cloudProvider = String((cloud.config as any)?.provider || '').toLowerCase().trim();
+    const cloudProvider = String((cloud.config as any)?.provider || '')
+      .toLowerCase()
+      .trim();
     const isHarvester =
       cloudProvider === 'harvester' ||
       cloudProvider === 'cloudmap' ||
@@ -217,12 +217,16 @@ router.post('/registries/:id/sync-secret', async (req: AuthRequest, res: Respons
       // 更新现有 Secret
       const updateUrl = `${client.origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets/${encodeURIComponent(finalSecretName)}`;
       result = await k8sRequest('PUT', updateUrl, client.token, client.insecure, secretBody);
-      harborLog.info(`更新凭证: harbor=${id}, cloud=${cloudId}, namespace=${namespace}, secret=${finalSecretName}`);
+      harborLog.info(
+        `更新凭证: harbor=${id}, cloud=${cloudId}, namespace=${namespace}, secret=${finalSecretName}`,
+      );
     } else {
       // 创建新 Secret
       const createUrl = `${client.origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets`;
       result = await k8sRequest('POST', createUrl, client.token, client.insecure, secretBody);
-      harborLog.info(`创建凭证: harbor=${id}, cloud=${cloudId}, namespace=${namespace}, secret=${finalSecretName}`);
+      harborLog.info(
+        `创建凭证: harbor=${id}, cloud=${cloudId}, namespace=${namespace}, secret=${finalSecretName}`,
+      );
     }
 
     res.json({
@@ -248,7 +252,7 @@ router.post('/registries/:id/sync-secret', async (req: AuthRequest, res: Respons
 /**
  * 删除已同步的 Harbor 凭证
  * DELETE /api/harbor/registries/:id/sync-secret
- * 
+ *
  * Body: {
  *   cloudId: string;      // Harvester 云资源池 ID
  *   namespace: string;    // 目标命名空间
@@ -280,7 +284,9 @@ router.delete('/registries/:id/sync-secret', async (req: AuthRequest, res: Respo
       return res.status(404).json({ message: 'Harvester 云资源池不存在' });
     }
 
-    const cloudProvider = String((cloud.config as any)?.provider || '').toLowerCase().trim();
+    const cloudProvider = String((cloud.config as any)?.provider || '')
+      .toLowerCase()
+      .trim();
     const isHarvester =
       cloudProvider === 'harvester' ||
       cloudProvider === 'cloudmap' ||
@@ -299,7 +305,9 @@ router.delete('/registries/:id/sync-secret', async (req: AuthRequest, res: Respo
     const deleteUrl = `${client.origin}/api/v1/namespaces/${encodeURIComponent(namespace)}/secrets/${encodeURIComponent(finalSecretName)}`;
     await k8sRequest('DELETE', deleteUrl, client.token, client.insecure);
 
-    harborLog.info(`删除凭证: harbor=${id}, cloud=${cloudId}, namespace=${namespace}, secret=${finalSecretName}`);
+    harborLog.info(
+      `删除凭证: harbor=${id}, cloud=${cloudId}, namespace=${namespace}, secret=${finalSecretName}`,
+    );
     res.json({ message: '凭证已删除' });
   } catch (error: any) {
     harborLog.error('删除凭证失败:', error.message);
@@ -310,7 +318,7 @@ router.delete('/registries/:id/sync-secret', async (req: AuthRequest, res: Respo
 /**
  * 获取已同步的凭证列表
  * GET /api/harbor/registries/:id/sync-secrets
- * 
+ *
  * Query: {
  *   cloudId: string;  // Harvester 云资源池 ID
  * }
@@ -332,7 +340,9 @@ router.get('/registries/:id/sync-secrets', async (req: AuthRequest, res: Respons
       return res.status(404).json({ message: 'Harvester 云资源池不存在' });
     }
 
-    const cloudProvider = String((cloud.config as any)?.provider || '').toLowerCase().trim();
+    const cloudProvider = String((cloud.config as any)?.provider || '')
+      .toLowerCase()
+      .trim();
     const isHarvester =
       cloudProvider === 'harvester' ||
       cloudProvider === 'cloudmap' ||
@@ -354,8 +364,10 @@ router.get('/registries/:id/sync-secrets', async (req: AuthRequest, res: Respons
     const harborSecrets = (result.items || [])
       .filter((item: any) => {
         const labels = item.metadata?.labels || {};
-        return labels['compute-tower.io/type'] === 'harbor-pull-secret' &&
-               labels['compute-tower.io/harbor-id'] === id;
+        return (
+          labels['compute-tower.io/type'] === 'harbor-pull-secret' &&
+          labels['compute-tower.io/harbor-id'] === id
+        );
       })
       .map((item: any) => ({
         name: item.metadata?.name,

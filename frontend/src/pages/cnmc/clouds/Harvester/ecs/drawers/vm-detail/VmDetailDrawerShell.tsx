@@ -447,150 +447,150 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           >
             <Tooltip title={undefined}>
               <span>
-                <Button
-                  className="vm-toolbar-btn"
-                  type="text"
-                  size="small"
-                  icon={
-                    <CodeOutlined
-                      style={{ color: p.isStopped ? undefined : "#1890ff" }}
-                    />
-                  }
-                  onClick={p.handleConsole}
-                  disabled={p.isStopped || !p.hasConsoleWrite}
-                  style={{ fontSize: 14 }}
-                >
-                  打开终端
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Tooltip title={undefined}>
-              <span>
-                <Button
-                  className="vm-toolbar-btn"
-                  type="text"
-                  size="small"
-                  icon={
-                    <PlayCircleOutlined
-                      style={{ color: p.isStopped ? "#1890ff" : undefined }}
-                    />
-                  }
-                  onClick={p.handleStart}
-                  disabled={!p.isStopped || !p.hasEcsWrite}
-                  style={{ fontSize: 14 }}
-                >
-                  开机
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Tooltip title={undefined}>
-              <span>
-                <Button
-                  className="vm-toolbar-btn"
-                  type="text"
-                  size="small"
-                  icon={
-                    <PoweroffOutlined
-                      style={{ color: p.isStopped ? undefined : "#1890ff" }}
-                    />
-                  }
-                  onClick={() => p.handleStop(false)}
-                  disabled={p.isStopped || !p.hasEcsWrite}
-                  style={{ fontSize: 14 }}
-                >
-                  关机
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Tooltip title={undefined}>
-              <span>
-                <Button
-                  className="vm-toolbar-btn"
-                  type="text"
-                  size="small"
-                  icon={
-                    <ReloadOutlined
-                      style={{ color: p.isStopped ? undefined : "#1890ff" }}
-                    />
-                  }
-                  onClick={p.handleReboot}
-                  disabled={p.isStopped || !p.hasEcsWrite}
-                  style={{ fontSize: 14 }}
-                >
-                  重启
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Tooltip title={undefined}>
-              <span>
-                <Button
-                  className="vm-toolbar-btn"
-                  type="text"
-                  size="small"
-                  icon={
-                    <PauseCircleOutlined
-                      style={{ color: p.isRunning ? "#1890ff" : undefined }}
-                    />
-                  }
-                  onClick={p.handlePause}
-                  disabled={!p.isRunning || !p.hasEcsWrite}
-                  style={{ fontSize: 14 }}
-                >
-                  暂停
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Tooltip title={undefined}>
-              <span>
-                <Button
-                  className="vm-toolbar-btn"
-                  type="text"
-                  size="small"
-                  icon={
-                    <PlayCircleOutlined
-                      style={{ color: p.isPaused ? "#1890ff" : undefined }}
-                    />
-                  }
-                  onClick={p.handleUnpause}
-                  disabled={!p.isPaused || !p.hasEcsWrite}
-                  style={{ fontSize: 14 }}
-                >
-                  恢复
-                </Button>
-              </span>
-            </Tooltip>
-
-            <Tooltip title={undefined}>
-              <span>
-                <Dropdown
-                  menu={{ items: resourceConfigMenuItems }}
-                  trigger={["click"]}
-                >
+                {p.hasConsoleWrite ? (
                   <Button
                     className="vm-toolbar-btn"
                     type="text"
                     size="small"
                     icon={
-                      <SlidersOutlined
-                        style={{
-                          color: p.hasEcsWrite ? "#1890ff" : undefined,
-                        }}
+                      <CodeOutlined
+                        style={{ color: p.isStopped ? undefined : "#1890ff" }}
                       />
                     }
+                    onClick={p.handleConsole}
+                    disabled={p.isStopped}
                     style={{ fontSize: 14 }}
-                    aria-haspopup="menu"
-                    aria-label="资源配置"
                   >
-                    资源配置
+                    打开终端
                   </Button>
-                </Dropdown>
+                ) : null}
               </span>
             </Tooltip>
+
+            {p.hasEcsWrite ? (
+              <>
+                <Tooltip title={undefined}>
+                  <span>
+                    <Button
+                      className="vm-toolbar-btn"
+                      type="text"
+                      size="small"
+                      icon={
+                        <PlayCircleOutlined
+                          style={{ color: p.isStopped ? "#1890ff" : undefined }}
+                        />
+                      }
+                      onClick={p.handleStart}
+                      disabled={!p.isStopped}
+                      style={{ fontSize: 14 }}
+                    >
+                      开机
+                    </Button>
+                  </span>
+                </Tooltip>
+
+                <Tooltip title={undefined}>
+                  <span>
+                    <Button
+                      className="vm-toolbar-btn"
+                      type="text"
+                      size="small"
+                      icon={
+                        <PoweroffOutlined
+                          style={{ color: p.isStopped ? undefined : "#1890ff" }}
+                        />
+                      }
+                      onClick={() => p.handleStop(false)}
+                      disabled={p.isStopped}
+                      style={{ fontSize: 14 }}
+                    >
+                      关机
+                    </Button>
+                  </span>
+                </Tooltip>
+
+                <Tooltip title={undefined}>
+                  <span>
+                    <Button
+                      className="vm-toolbar-btn"
+                      type="text"
+                      size="small"
+                      icon={
+                        <ReloadOutlined
+                          style={{ color: p.isStopped ? undefined : "#1890ff" }}
+                        />
+                      }
+                      onClick={p.handleReboot}
+                      disabled={p.isStopped}
+                      style={{ fontSize: 14 }}
+                    >
+                      重启
+                    </Button>
+                  </span>
+                </Tooltip>
+
+                <Tooltip title={undefined}>
+                  <span>
+                    <Button
+                      className="vm-toolbar-btn"
+                      type="text"
+                      size="small"
+                      icon={
+                        <PauseCircleOutlined
+                          style={{ color: p.isRunning ? "#1890ff" : undefined }}
+                        />
+                      }
+                      onClick={p.handlePause}
+                      disabled={!p.isRunning}
+                      style={{ fontSize: 14 }}
+                    >
+                      暂停
+                    </Button>
+                  </span>
+                </Tooltip>
+
+                <Tooltip title={undefined}>
+                  <span>
+                    <Button
+                      className="vm-toolbar-btn"
+                      type="text"
+                      size="small"
+                      icon={
+                        <PlayCircleOutlined
+                          style={{ color: p.isPaused ? "#1890ff" : undefined }}
+                        />
+                      }
+                      onClick={p.handleUnpause}
+                      disabled={!p.isPaused}
+                      style={{ fontSize: 14 }}
+                    >
+                      恢复
+                    </Button>
+                  </span>
+                </Tooltip>
+
+                <Tooltip title={undefined}>
+                  <span>
+                    <Dropdown
+                      menu={{ items: resourceConfigMenuItems }}
+                      trigger={["click"]}
+                    >
+                      <Button
+                        className="vm-toolbar-btn"
+                        type="text"
+                        size="small"
+                        icon={<SlidersOutlined style={{ color: "#1890ff" }} />}
+                        style={{ fontSize: 14 }}
+                        aria-haspopup="menu"
+                        aria-label="资源配置"
+                      >
+                        资源配置
+                      </Button>
+                    </Dropdown>
+                  </span>
+                </Tooltip>
+              </>
+            ) : null}
 
             <div style={{ flex: 1 }} />
 

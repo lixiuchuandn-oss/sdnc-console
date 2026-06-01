@@ -4,8 +4,7 @@
  * 数据由上层 `CloudConsole.tsx` 拉取后注入；本组件只负责导航与渲染子模块。
  */
 import React, { useCallback, useEffect, useMemo } from 'react';
-import { Tabs, Empty, Dropdown, Space } from 'antd';
-import { CaretDownFilled } from '@ant-design/icons';
+import { Empty } from 'antd';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
@@ -17,6 +16,7 @@ import VolumesSection from '../../clouds/Harvester/ebs/sections/VolumesSection';
 import ImagesSection from '../../clouds/Harvester/ecs/sections/ImagesSection';
 import BackupsSection from '../../clouds/Harvester/cbr/sections/BackupsSection';
 import ScheduleVmBackupsSection from '../../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
+import VmRestoreTasksSection from '../../clouds/Harvester/cbr/sections/VmRestoreTasksSection';
 import SnapshotsSection from '../../clouds/Harvester/ebs/sections/SnapshotsSection';
 import CloudInitsSection from '../../clouds/Harvester/ecs/sections/CloudInitsSection';
 import GpuSection from '../../clouds/Harvester/cluster/sections/GpusSection';
@@ -25,14 +25,12 @@ import SnatSection from '../../clouds/Harvester/kube-ovn/sections/SnatSection';
 import DnatSection from '../../clouds/Harvester/kube-ovn/sections/DnatSection';
 import VpcsSection from '../../clouds/Harvester/kube-ovn/sections/VpcsSection';
 import UnderlaySubnetsSection from '../../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
-
-type NavResource = { key: string; label: string };
-
-type NavCategory = {
-  key: string;
-  label: string;
-  resources: NavResource[];
-};
+import type { BackupsSectionOnRefresh } from '../../clouds/Cloudmap/pool/loaders/backupsRefresh';
+import {
+  buildMainNavCategories,
+  type NavCategory,
+  type NavResource,
+} from '../lib/tenantConsoleSiderNav';
 
 /** 左侧导航决定的顶部类目范围：`host`=云主机/云盘/整机，`flat`/`vpc`=对应网络，`all`=不过滤（兼容旧用法） */
 export type CloudConsoleLeftNavScope = 'host' | 'flat' | 'vpc' | 'all';
@@ -95,8 +93,11 @@ interface Props {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: (force?: boolean) => void;
   onRefreshSnapshots?: () => void;
-  onRefreshBackups?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
-  onRefreshSchedules?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  backupsTabOnRefresh?: {
+    backups: BackupsSectionOnRefresh;
+    vm_snapshots: BackupsSectionOnRefresh;
+    schedule_vm_backups: BackupsSectionOnRefresh;
+  };
   onRefreshCloudInits?: () => void;
   onRefreshGpus?: () => void;
   onRefreshVpcs?: () => void;
@@ -104,7 +105,6 @@ interface Props {
   onRefreshSnatRules?: (force?: boolean) => void;
   onRefreshDnatRules?: (force?: boolean, silent?: boolean) => void;
 
-  bordered?: boolean;
   showYaml?: boolean;
 }
 
@@ -158,15 +158,13 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   onRefreshStorageClasses,
   onRefreshImages,
   onRefreshSnapshots,
-  onRefreshBackups,
-  onRefreshSchedules,
+  backupsTabOnRefresh,
   onRefreshCloudInits,
   onRefreshGpus,
   onRefreshVpcs,
   onRefreshEips,
   onRefreshSnatRules,
   onRefreshDnatRules,
-  bordered = true,
   showYaml = true,
 }) => {
   const { user } = useAuth();
@@ -188,63 +186,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     });
   }, [namespaces]);
 
-  const fullTabConfig = useMemo((): NavCategory[] => {
-    const base: NavCategory[] = [
-      {
-        key: 'compute',
-        label: '云主机',
-        resources: [
-          { key: 'vm', label: '实例' },
-          { key: 'recycle-bin', label: '回收站' },
-          { key: 'template', label: '模板' },
-          { key: 'image', label: '镜像' },
-          { key: 'ssh', label: 'SSH密钥' },
-          { key: 'cloudinit', label: 'CloudInit 配置' },
-        ],
-      },
-      {
-        key: 'storage',
-        label: '云盘',
-        resources: [
-          { key: 'volume', label: '实例' },
-          { key: 'volume-snapshot', label: '快照' },
-        ],
-      },
-      {
-        key: 'backup',
-        label: '整机',
-        resources: [
-          { key: 'snapshot', label: '快照' },
-          { key: 'backup', label: '备份' },
-          { key: 'schedule', label: '定时策略' },
-        ],
-      },
-      {
-        key: 'flatnet',
-        label: '扁平',
-        resources: [{ key: 'flat-subnet', label: '子网' }],
-      },
-    ];
-    if (ovnVpcEnabled) {
-      base.push(
-        {
-          key: 'vpc-net',
-          label: 'VPC',
-          resources: [{ key: 'vpc-subnet', label: '网络' }],
-        },
-        {
-          key: 'vpc-nat',
-          label: 'NAT',
-          resources: [
-            { key: 'eip', label: 'EIP' },
-            { key: 'snat', label: 'SNAT' },
-            { key: 'dnat', label: 'DNAT' },
-          ],
-        },
-      );
-    }
-    return base;
-  }, [ovnVpcEnabled]);
+  const fullTabConfig = useMemo((): NavCategory[] => buildMainNavCategories(ovnVpcEnabled), [ovnVpcEnabled]);
 
   const filterResourcesByPerm = useCallback(
     (resources: NavResource[]) => {
@@ -325,14 +267,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     }
   }, [activeResource, setActiveResource]);
 
-  const getDefaultResource = useCallback(
-    (catKey: string) => {
-      const cat = tabConfig.find((c) => c.key === catKey);
-      return cat?.resources[0]?.key ?? '';
-    },
-    [tabConfig],
-  );
-
   const renderContent = useCallback(() => {
     if (canAccessMainResource && !canAccessMainResource(activeResource)) {
       return <Empty description="无权限访问该页面" />;
@@ -365,14 +299,13 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             onUnpause={onUnpause}
             onDelete={onDelete}
             isTenant={isTenantUser}
-            bordered={bordered}
             storageClasses={storageClasses}
             kubeSubnets={subnets}
             harvesterNads={harvesterNads}
             capabilities={harvesterCapabilities}
             onReloadQuickCreateSubnets={onRefreshVpcs}
             onReloadQuickCreateImages={onRefreshImages}
-            onBackupsInventoryChanged={onRefreshBackups}
+            onBackupsInventoryChanged={backupsTabOnRefresh?.backups}
           />
         );
       case 'recycle-bin':
@@ -397,7 +330,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             onRefresh={onRefreshTemplates}
             isTenant={isTenantUser}
             workspaceVmNamespace={isTenantUser ? nsValue : undefined}
-            bordered={bordered}
           />
         );
       case 'ssh':
@@ -408,7 +340,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshSshKeys}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'cloudinit':
@@ -444,7 +375,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'volume-snapshot':
@@ -456,7 +386,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             cloudId={cloudId}
             isTenant={isTenantUser}
             namespaces={namespaceObjects}
-            bordered={bordered}
           />
         );
       case 'image':
@@ -468,7 +397,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
 
@@ -477,13 +405,12 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           <BackupsSection
             backups={backups}
             loading={loading}
-            onRefresh={onRefreshBackups}
+            onRefresh={backupsTabOnRefresh?.vm_snapshots}
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
             type="snapshot"
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'backup':
@@ -491,12 +418,11 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           <BackupsSection
             backups={backups}
             loading={loading}
-            onRefresh={onRefreshBackups}
+            onRefresh={backupsTabOnRefresh?.backups}
             cloudId={cloudId}
             namespaces={namespaceObjects}
             vms={vms}
             isTenant={isTenantUser}
-            bordered={bordered}
           />
         );
       case 'schedule':
@@ -504,11 +430,19 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
           <ScheduleVmBackupsSection
             data={schedules}
             loading={loading}
-            onRefresh={onRefreshSchedules}
+            onRefresh={backupsTabOnRefresh?.schedule_vm_backups}
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
-            bordered={bordered}
+          />
+        );
+      case 'restore-task':
+        return (
+          <VmRestoreTasksSection
+            cloudId={cloudId}
+            isTenant={isTenantUser}
+            vms={vms}
+            allowedNamespaces={namespacesOptions}
           />
         );
 
@@ -525,7 +459,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             namespaces={filteredNamespaces}
             loading={loading}
             onRefresh={onRefreshVpcs}
-            bordered={bordered}
             showYaml={showYaml}
           />
         );
@@ -540,7 +473,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             vpcs={vpcs}
             loading={loading}
             onRefresh={onRefreshEips || (() => {})}
-            bordered={bordered}
           />
         );
       case 'snat':
@@ -554,7 +486,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             subnets={subnets}
             loading={loading}
             onRefresh={onRefreshSnatRules || (() => {})}
-            bordered={bordered}
           />
         );
       case 'dnat':
@@ -568,7 +499,6 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             subnets={subnets}
             loading={loading}
             onRefresh={onRefreshDnatRules || (() => {})}
-            bordered={bordered}
           />
         );
       default:
@@ -594,6 +524,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     snatRules,
     dnatRules,
     storageClasses,
+    harvesterNads,
     loading,
     cloudId,
     isTenantUser,
@@ -619,58 +550,16 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onRefreshStorageClasses,
     onRefreshImages,
     onRefreshSnapshots,
-    onRefreshBackups,
-    onRefreshSchedules,
+    backupsTabOnRefresh,
     onRefreshCloudInits,
     onRefreshGpus,
     onRefreshVpcs,
     onRefreshEips,
     onRefreshSnatRules,
     onRefreshDnatRules,
-    bordered,
     showYaml,
     canAccessMainResource,
   ]);
-
-  const tabItems = useMemo(() => {
-    return tabConfig.map((cat) => {
-      const isActive = cat.key === activeCategory;
-      const currentResKey = isActive ? activeResource : cat.resources[0].key;
-      const currentResLabel =
-        cat.resources.find((r) => r.key === currentResKey)?.label ?? cat.resources[0].label;
-
-      return {
-        key: cat.key,
-        label: (
-          <Space size={4} align="center">
-            <span>
-              {cat.label} {currentResLabel}
-            </span>
-            <Dropdown
-              menu={{
-                items: cat.resources.map((res) => ({
-                  key: res.key,
-                  label: res.label,
-                  onClick: (e: { domEvent: { stopPropagation: () => void } }) => {
-                    e.domEvent.stopPropagation();
-                    setActiveCategory(cat.key);
-                    setActiveResource(res.key);
-                  },
-                })),
-                selectedKeys: [isActive ? activeResource : ''],
-              }}
-              trigger={['click']}
-            >
-              <span onClick={(e) => e.stopPropagation()} className="cloud-console-main-panel-dropdown-trigger">
-                <CaretDownFilled style={{ fontSize: 12 }} />
-              </span>
-            </Dropdown>
-          </Space>
-        ),
-        children: <div>{isActive ? renderContent() : null}</div>,
-      };
-    });
-  }, [tabConfig, activeCategory, activeResource, setActiveCategory, setActiveResource, renderContent]);
 
   if (tabConfig.length === 0) {
     return (
@@ -686,19 +575,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     );
   }
 
-  return (
-    <div className="cloud-console-panel-root">
-      <Tabs
-        type="card"
-        activeKey={activeCategory}
-        onChange={(key) => {
-          setActiveCategory(key);
-          setActiveResource(getDefaultResource(key));
-        }}
-        items={tabItems}
-      />
-    </div>
-  );
+  return <div className="cloud-console-panel-root">{renderContent()}</div>;
 };
 
 export default CloudConsoleMainPanel;

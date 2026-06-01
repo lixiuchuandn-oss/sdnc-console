@@ -2,10 +2,18 @@
  * Ceph（Rook / Steve）：`/api/clouds/:id/ceph/rook/*`，与 monitoring 路径分离。
  */
 
+import type { CephHarvesterAddonValuesConfig } from '../pages/cnmc/clouds/Harvester/ceph/lib/cephHarvesterAddon';
+import type {
+  CephStorageNetworkConfig,
+  CephStorageNetworkEffective,
+} from '../pages/cnmc/clouds/Harvester/ceph/lib/cephStorageNetwork';
 import { API_BASE_URL, getAuthHeaders } from './api';
 
 const cephRookBase = (cloudId: string) =>
   `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/ceph/rook`;
+
+const cephApiBase = (cloudId: string) =>
+  `${API_BASE_URL}/api/clouds/${encodeURIComponent(cloudId)}/ceph`;
 
 async function apiGet<T = unknown>(
   url: string,
@@ -393,4 +401,82 @@ export function fetchRgwRookSecret(
   }
   const url = `${cephRgwS3Base(cloudId)}/rook-secret/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
   return apiGet(url, { signal: options?.signal, cache: 'no-store' });
+}
+
+export type CephHarvesterAddonStatusResponse = {
+  exists: boolean;
+  enabled: boolean;
+  deployStatus: string;
+  phase: 'not_installed' | 'success' | 'progress' | 'failed' | 'disabled' | 'unknown';
+  message: string;
+  valuesContent?: string | null;
+  config?: CephHarvesterAddonValuesConfig | null;
+  _tower?: { unreachable?: boolean };
+};
+
+export type CephHarvesterAddonApplyBody = {
+  config?: CephHarvesterAddonValuesConfig;
+  replicaSize?: number;
+  nodes?: {
+    nodeName: string;
+    deviceName: string;
+    metadataDevice?: string;
+    databaseSizeMB?: number;
+  }[];
+  valuesContent?: string;
+  /** 当前登录管理员密码（服务端校验，不落库） */
+  password: string;
+};
+
+/** Harvester rook-ceph Addon 状态 */
+export function fetchCephHarvesterAddon(
+  cloudId: string,
+  options?: { force?: boolean; signal?: AbortSignal },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = options?.force ? '?force=1' : '';
+  return apiGet<CephHarvesterAddonStatusResponse>(
+    `${cephApiBase(cloudId)}/harvester-addon${q}`,
+    { signal: options?.signal, cache: options?.force ? 'no-store' : 'default' },
+  );
+}
+
+/** 创建或更新并启用 rook-ceph Addon */
+export function applyCephHarvesterAddon(cloudId: string, body: CephHarvesterAddonApplyBody) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite<CephHarvesterAddonStatusResponse & { applied?: string }>(
+    `${cephApiBase(cloudId)}/harvester-addon`,
+    'POST',
+    body,
+  );
+}
+
+export type CephStorageNetworkResponse = CephStorageNetworkEffective & {
+  _tower?: { unreachable?: boolean };
+};
+
+/** 读取 Harvester Setting `ceph-storage-network`（未配置时 mode=mgmt） */
+export function fetchCephStorageNetwork(
+  cloudId: string,
+  options?: { force?: boolean; signal?: AbortSignal },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  const q = options?.force ? '?force=1' : '';
+  return apiGet<CephStorageNetworkResponse>(
+    `${cephApiBase(cloudId)}/storage-network${q}`,
+    { signal: options?.signal, cache: options?.force ? 'no-store' : 'default' },
+  );
+}
+
+/** 保存或清空 Ceph 存储网 Setting（清空后部署走管理网） */
+export function applyCephStorageNetwork(
+  cloudId: string,
+  body: { enabled: boolean; config?: CephStorageNetworkConfig | null },
+) {
+  if (!cloudId) return Promise.resolve({ data: null, ok: false, error: '缺少 cloudId' });
+  return apiWrite<CephStorageNetworkResponse>(
+    `${cephApiBase(cloudId)}/storage-network`,
+    'PUT',
+    body,
+  );
 }

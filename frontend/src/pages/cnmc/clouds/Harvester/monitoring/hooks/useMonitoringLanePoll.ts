@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 
 export interface MonitoringLanePollResult<T> {
   data: T | null;
+  /** 首次加载（尚无可用 data） */
   loading: boolean;
+  /** 后台轮询刷新中（保留已有 data，不触发 loading Spin） */
+  refreshing: boolean;
   /** 车道级错误文案（与历史 Dashboard 一致：部分接口失败仍可展示其余数据） */
   error: string | null;
 }
@@ -24,6 +27,7 @@ export function useMonitoringLanePoll<T>(
 ): MonitoringLanePollResult<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(() => !!cloudId);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchRef = useRef(fetchRound);
   fetchRef.current = fetchRound;
@@ -32,11 +36,13 @@ export function useMonitoringLanePoll<T>(
     if (!cloudId) {
       setData(null);
       setLoading(false);
+      setRefreshing(false);
       setError(null);
       return;
     }
 
     setData(null);
+    setRefreshing(false);
 
     let cancelled = false;
     const ac = new AbortController();
@@ -58,7 +64,10 @@ export function useMonitoringLanePoll<T>(
       if (cancelled) return;
       if (!isBackground) {
         setLoading(true);
+        setRefreshing(false);
         setError(null);
+      } else {
+        setRefreshing(true);
       }
 
       const startedAt = Date.now();
@@ -68,6 +77,7 @@ export function useMonitoringLanePoll<T>(
           if (cancelled || ac.signal.aborted) return;
           setData(outcome.data);
           setLoading(false);
+          setRefreshing(false);
           setError(outcome.laneError);
           const intervalMs = outcome.laneError != null ? intervalErrorMs : intervalSuccessMs;
           const delayMs = Math.max(0, intervalMs - (Date.now() - startedAt));
@@ -77,6 +87,7 @@ export function useMonitoringLanePoll<T>(
           if (cancelled || ac.signal.aborted) return;
           const msg = e instanceof Error ? e.message : String(e);
           setLoading(false);
+          setRefreshing(false);
           setError(msg);
           const delayMs = Math.max(0, intervalErrorMs - (Date.now() - startedAt));
           scheduleNext(delayMs);
@@ -92,5 +103,5 @@ export function useMonitoringLanePoll<T>(
     };
   }, [cloudId, intervalSuccessMs, intervalErrorMs]);
 
-  return { data, loading, error };
+  return { data, loading, refreshing, error };
 }

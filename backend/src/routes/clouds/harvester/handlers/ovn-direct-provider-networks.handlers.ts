@@ -22,11 +22,7 @@ function getDisplayNameFromAnnotations(name: string, annotations: any, keys: str
   return alias || name;
 }
 
-export async function harvesterProviderNetworkListHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterProviderNetworkListHandler(req: any, res: Response, next: any) {
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
@@ -41,8 +37,7 @@ export async function harvesterProviderNetworkListHandler(
     const repo = AppDataSource.getRepository(KubeOvnProviderNetworkInventory);
     const count = await repo.count({ where: { cloudId: id } });
 
-    const shouldSync =
-      count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+    const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
     if (shouldSync) {
       await syncKubeOvnProviderNetworks(cloud, insecure);
     } else if (String(skipSync) === 'true') {
@@ -50,26 +45,29 @@ export async function harvesterProviderNetworkListHandler(
     }
 
     const items = await repo.find({ where: { cloudId: id } });
-    const list = items.map((item) => item.rawData || {
-      metadata: {
-        name: item.name,
-        uid: item.uid,
-        labels: item.labels,
-        annotations: item.annotations,
-      },
-      spec: {
-        defaultInterface: item.defaultInterface,
-        customInterfaces: item.customInterfaces,
-        exchangeLinkName: item.exchangeLinkName,
-        excludeNodes: item.excludeNodes,
-      },
-      status: {
-        ready: item.ready,
-        readyNodes: item.readyNodes,
-        notReadyNodes: item.notReadyNodes,
-        vlans: item.vlans,
-      },
-    });
+    const list = items.map(
+      (item) =>
+        item.rawData || {
+          metadata: {
+            name: item.name,
+            uid: item.uid,
+            labels: item.labels,
+            annotations: item.annotations,
+          },
+          spec: {
+            defaultInterface: item.defaultInterface,
+            customInterfaces: item.customInterfaces,
+            exchangeLinkName: item.exchangeLinkName,
+            excludeNodes: item.excludeNodes,
+          },
+          status: {
+            ready: item.ready,
+            readyNodes: item.readyNodes,
+            notReadyNodes: item.notReadyNodes,
+            vlans: item.vlans,
+          },
+        },
+    );
 
     res.json({ message: '查询成功', data: { items: list } });
   } catch (error: any) {
@@ -78,11 +76,7 @@ export async function harvesterProviderNetworkListHandler(
   }
 }
 
-export async function harvesterProviderNetworkCreateHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterProviderNetworkCreateHandler(req: any, res: Response, _next: any) {
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
@@ -100,14 +94,8 @@ export async function harvesterProviderNetworkCreateHandler(
       origin = base.replace(/\/v[0-9].*$/, '');
     }
 
-    const {
-      name,
-      spec,
-      defaultInterface,
-      customInterfaces,
-      exchangeLinkName,
-      annotations,
-    } = req.body;
+    const { name, spec, defaultInterface, customInterfaces, exchangeLinkName, annotations } =
+      req.body;
     if (!name) {
       res.status(400).json({ message: '缺少必要参数: name' });
       return;
@@ -128,11 +116,7 @@ export async function harvesterProviderNetworkCreateHandler(
     }
 
     const metadata: Record<string, unknown> = { name };
-    if (
-      annotations &&
-      typeof annotations === 'object' &&
-      !Array.isArray(annotations)
-    ) {
+    if (annotations && typeof annotations === 'object' && !Array.isArray(annotations)) {
       metadata.annotations = annotations;
     }
 
@@ -214,11 +198,7 @@ export async function harvesterProviderNetworkCreateHandler(
  * DELETE /:id/resources/provider-networks/:name
  * 删除前检查是否有 VLAN 仍引用该物理网络（spec.provider）。
  */
-export async function harvesterProviderNetworkDeleteHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterProviderNetworkDeleteHandler(req: any, res: Response, next: any) {
   try {
     const { id, name } = req.params;
     const { allowed } = await checkTenantAccess(req, id);

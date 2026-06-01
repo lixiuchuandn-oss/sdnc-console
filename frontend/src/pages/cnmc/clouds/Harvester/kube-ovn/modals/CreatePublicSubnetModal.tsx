@@ -3,8 +3,7 @@ import { Form, Input, Modal, Radio, message } from 'antd';
 import { createKubeOvnSubnet } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import { CLOUD_SUBNETS_PUBLIC_WRITE } from '../../../../../../constants/cloudPermissions';
+import { hasKubeOvnPublicSubnetWrite } from '../../../../../../constants/cloudPermissions';
 import UnderlaySubnetFormFields from '../lib/UnderlaySubnetFormFields';
 import {
   SUBNET_FINALIZER,
@@ -17,6 +16,7 @@ import { defaultVlanCrNameByMinVlanId } from '../lib/vlanUtils';
 import {
   friendlyMessageIfKubeOvnGatewayNotInCidr,
   isIpv4GatewayInCidr,
+  validateFlatSubnetExcludeIpsLocal,
 } from '../lib/flatSubnetExcludeIpValidation';
 import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
 
@@ -68,14 +68,10 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const isTenantUser = useMemo(() => user?.role === 'tenant', [user?.role]);
-  const canSubmit = useMemo(() => {
-    const hasWrite =
-      hasPermissionForAction(perms, CLOUD_SUBNETS_PUBLIC_WRITE) ||
-      hasPermissionForAction(perms, 'clouds.subnets:write') ||
-      hasPermissionForAction(perms, 'clouds.vpcs:write') ||
-      hasPermissionForAction(perms, 'clouds:write');
-    return hasWrite && !isTenantUser;
-  }, [perms, isTenantUser]);
+  const canSubmit = useMemo(
+    () => hasKubeOvnPublicSubnetWrite(perms) && !isTenantUser,
+    [perms, isTenantUser],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -125,6 +121,13 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
 
         const cidrTrim = String(rest.cidrBlock ?? '').trim();
         const gwTrim = String(rest.gateway ?? '').trim();
+
+        const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrTrim, excludeIps);
+        if (!excludeLocal.ok) {
+          message.error(excludeLocal.message);
+          return;
+        }
+
         const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrTrim);
         if (gwInCidr === false) {
           message.error('创建公共子网失败：网关不在CIDR 范围内');

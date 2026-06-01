@@ -17,22 +17,17 @@ import {
   Space,
 } from 'antd';
 import { createCephBlockPoolRook, getCephBlockPoolRook, replaceCephBlockPoolRook } from '../../../../../../services/cephApi';
-import {
-  fetchCephDashboardPoolByName,
-  fetchCephPoolUiInfo,
-  updateCephDashboardPool,
-} from '../../../../../../services/monitoringApi';
-import { CEPH_RBD_QOS_FIELD_META, qosValuesFromDashboardConfigurationList } from '../lib/cephRbdPoolConfiguration';
+import { CEPH_RBD_QOS_FIELD_META } from '../lib/cephRbdPoolConfiguration';
 import {
   CEPH_POOL_APPLICATION_METADATA_SELECT_OPTIONS,
   cephPoolApplicationMetadataTokens,
+  readRookBlockPoolErasureChunks,
+  resolveRookBlockPoolStorageKind,
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 import {
-  bytesToQuotaAmountAndUnit,
   crushRuleOptionLabel,
   QUOTA_UNIT_OPTIONS,
-  quotaBytesFromAmountAndUnit,
   type QuotaUnit,
 } from '../lib/cephPoolFormUtils';
 
@@ -106,41 +101,6 @@ type RookDrawQuotaSlice = {
   quota_max_objects: number | null;
 };
 
-function sleepMs(ms: number) {
-  return new Promise<void>((r) => setTimeout(r, ms));
-}
-
-async function dashWaitForDashboardPoolSnapshot(
-  cloudId: string,
-  poolName: string,
-  options?: { maxAttempts?: number; delayMs?: number; signal?: AbortSignal },
-): Promise<{ ok: true; snapshot: Record<string, unknown> } | { ok: false; error: string }> {
-  const maxAttempts = Math.max(1, options?.maxAttempts ?? 14);
-  const delayMs = options?.delayMs ?? 650;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    if (options?.signal?.aborted) return { ok: false, error: '已取消' };
-    const res = await fetchCephDashboardPoolByName(cloudId, poolName, {
-      stats: false,
-      signal: options?.signal,
-    });
-    if (res.ok && res.data != null && isPlainRecord(res.data)) {
-      return { ok: true, snapshot: res.data as Record<string, unknown> };
-    }
-    if (attempt + 1 < maxAttempts && !options?.signal?.aborted) await sleepMs(delayMs);
-  }
-  return {
-    ok: false,
-    error: 'mgr Dashboard 暂时读不到该池（可能尚在创建或未同步）；与 Dashboard 对齐的项未能写入。',
-  };
-}
-
-function parsePoolDashboardType(raw: unknown): 'replicated' | 'erasure' {
-  if (!isPlainRecord(raw)) return 'replicated';
-  const t = String(raw.type || '').toLowerCase();
-  if (t.includes('erasur')) return 'erasure';
-  return 'replicated';
-}
-
 function topoFromBlockPoolSpec(spec: Record<string, unknown> | undefined): { fd: string; dc: string } {
   if (!spec || !isPlainRecord(spec)) return { fd: NONE_TOPOLOGY, dc: NONE_TOPOLOGY };
   const fd = typeof spec.failureDomain === 'string' ? spec.failureDomain.trim() : '';
@@ -179,6 +139,17 @@ type RookPoolUiInfo = {
   erasure_code_profiles?: unknown[];
 };
 
+const DEFAULT_ROOK_POOL_UI_INFO: RookPoolUiInfo = {
+  is_all_bluestore: true,
+  compression_modes: DEFAULT_COMPRESSION_MODES,
+  compression_algorithms: DEFAULT_COMPRESSION_ALGORITHMS,
+  crush_rules_replicated: [{ rule_name: 'replicated_rule' }],
+  crush_rules_erasure: [{ rule_name: 'erasure-code' }],
+  pg_autoscale_modes: ['off', 'on', 'warn'],
+  pg_autoscale_default_mode: 'on',
+  erasure_code_profiles: ['default'],
+};
+
 export type CephPoolRookFormModalProps = {
   open: boolean;
   mode: 'create' | 'edit';
@@ -211,37 +182,6 @@ type FormShape = {
   min_size: number;
 } & RookDrawQuotaSlice;
 
-function dashboardOptsCompressionPatch(opts: Record<string, unknown>): Pick<
-  FormShape,
-  | 'compression_mode'
-  | 'compression_algorithm'
-  | 'compression_min_kib'
-  | 'compression_max_kib'
-  | 'compression_required_ratio'
-> {
-  const cmRaw0 = String(opts.compression_mode ?? 'none').toLowerCase().trim() || 'none';
-  const cmRaw =
-    cmRaw0 === '' || cmRaw0 === 'unset'
-      ? 'none'
-      : ['none', 'passive', 'aggressive', 'force'].includes(cmRaw0)
-        ? cmRaw0
-        : cmRaw0.includes('unset')
-          ? 'none'
-          : cmRaw0;
-  const rr = opts.compression_required_ratio != null ? Number(opts.compression_required_ratio) : NaN;
-  return {
-    compression_mode: cmRaw,
-    compression_algorithm:
-      typeof opts.compression_algorithm === 'string' ? opts.compression_algorithm.trim() || 'snappy' : 'snappy',
-    compression_min_kib:
-      opts.compression_min_blob_size != null ? Number(opts.compression_min_blob_size) / 1024 : null,
-    compression_max_kib:
-      opts.compression_max_blob_size != null ? Number(opts.compression_max_blob_size) / 1024 : null,
-    compression_required_ratio:
-      Number.isFinite(rr) && rr >= 0 && rr <= 1 ? rr : null,
-  };
-}
-
 function isPlainRecord(v: unknown): v is Record<string, unknown> {
   return v != null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -255,105 +195,6 @@ function normalizeErasureProfilesFromUi(raw: unknown): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
   return out.length ? out : ['default'];
-}
-
-function buildDrawerDashboardCompressionMerge(
-  v: FormShape,
-  allBlue: boolean,
-  isEdit: boolean,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (!allBlue) return out;
-  const mode = v.compression_mode || 'none';
-  if (mode === 'none') {
-    if (isEdit) out.compression_mode = 'unset';
-    return out;
-  }
-  out.compression_mode = mode;
-  out.compression_algorithm = v.compression_algorithm;
-  if (v.compression_min_kib != null && v.compression_min_kib > 0) {
-    out.compression_min_blob_size = Math.floor(v.compression_min_kib * 1024);
-  }
-  if (v.compression_max_kib != null && v.compression_max_kib > 0) {
-    out.compression_max_blob_size = Math.floor(v.compression_max_kib * 1024);
-  }
-  if (v.compression_required_ratio != null && Number.isFinite(v.compression_required_ratio)) {
-    out.compression_required_ratio = v.compression_required_ratio;
-  }
-  return out;
-}
-
-function buildDrawerDashboardQosConf(v: FormShape): Record<string, number> | undefined {
-  if (!v.qos || v.pool_type !== 'replicated') return undefined;
-  const conf: Record<string, number> = {};
-  for (const k of Object.keys(v.qos)) {
-    const n = v.qos[k];
-    if (typeof n === 'number' && Number.isFinite(n) && n >= 0) conf[k] = Math.floor(n);
-  }
-  return Object.keys(conf).length ? conf : undefined;
-}
-
-function mergeDrawerFormIntoDashboardPoolBody(
-  snapshot: Record<string, unknown>,
-  v: FormShape,
-  opts: { isEdit: boolean; allBlue: boolean },
-): Record<string, unknown> {
-  const body: Record<string, unknown> = { ...snapshot };
-  delete body.stats;
-
-  const qb = quotaBytesFromAmountAndUnit(v.quota_amount, v.quota_unit);
-  body.quota_max_bytes = qb != null ? qb : 0;
-  const qoObj =
-    v.quota_max_objects != null && Number.isFinite(v.quota_max_objects) && v.quota_max_objects > 0
-      ? Math.floor(Number(v.quota_max_objects))
-      : 0;
-  body.quota_max_objects = qoObj;
-
-  const pgModeRaw = String(v.pg_autoscale_mode ?? '').trim().toLowerCase();
-  const snapPg =
-    snapshot.pg_autoscale_mode != null ? String(snapshot.pg_autoscale_mode).trim().toLowerCase() : '';
-  const pgMode = pgModeRaw || snapPg || 'on';
-  body.pg_autoscale_mode = pgMode;
-
-  let pgPut = Number(v.pg_num);
-  if (!Number.isFinite(pgPut) || pgPut <= 0) pgPut = 1;
-  body.pg_num = pgMode === 'on' ? 1 : Math.max(1, Math.floor(pgPut));
-
-  body.application_metadata = v.application_metadata?.length ? v.application_metadata : ['rbd'];
-
-  if (v.pool_type === 'replicated') {
-    body.rule_name = v.crush_rule?.trim() || 'replicated_rule';
-    body.size = Math.max(1, Math.floor(Number(v.size) || 1));
-    const ms = Math.max(1, Math.floor(Number(v.min_size) || 1));
-    body.min_size = Math.min(ms, Math.floor(Number(v.size)));
-  } else {
-    body.erasure_code_profile = v.erasure_code_profile?.trim() || 'default';
-    if (v.crush_rule?.trim()) body.rule_name = v.crush_rule.trim();
-    else delete body.rule_name;
-  }
-
-  Object.assign(body, buildDrawerDashboardCompressionMerge(v, opts.allBlue, opts.isEdit));
-  const conf = buildDrawerDashboardQosConf(v);
-  if (conf) body.configuration = conf;
-  else delete body.configuration;
-
-  return body;
-}
-
-async function pushDashboardPoolSyncAfterRook(
-  cloudId: string,
-  poolName: string,
-  v: FormShape,
-  opts: { isEdit: boolean; allBlue: boolean; signal?: AbortSignal },
-): Promise<{ ok: boolean; error?: string }> {
-  const waited = await dashWaitForDashboardPoolSnapshot(cloudId, poolName.trim(), {
-    signal: opts.signal,
-  });
-  if (!waited.ok) return waited;
-  const body = mergeDrawerFormIntoDashboardPoolBody(waited.snapshot, v, opts);
-  const put = await updateCephDashboardPool(cloudId, poolName.trim(), body);
-  if (!put.ok) return { ok: false, error: put.error || 'mgr Dashboard PUT 失败' };
-  return { ok: true };
 }
 
 function emptyQos(): Record<string, number> {
@@ -507,10 +348,12 @@ function parseRemoteToForm(remote: unknown): Partial<FormShape> | null {
   const apps = cephPoolApplicationMetadataTokens(spec);
   base.application_metadata = apps.length ? apps : ['rbd'];
 
-  if (ec && ec.dataChunks != null && ec.codingChunks != null) {
+  const storageKind = resolveRookBlockPoolStorageKind(spec) ?? 'replicated';
+  if (storageKind === 'erasure') {
+    const chunks = readRookBlockPoolErasureChunks(ec);
     base.pool_type = 'erasure';
-    base.data_chunks = Number(ec.dataChunks);
-    base.coding_chunks = Number(ec.codingChunks);
+    base.data_chunks = chunks?.dataChunks ?? 2;
+    base.coding_chunks = chunks?.codingChunks ?? 1;
     base.size = 3;
     base.min_size = 2;
   } else {
@@ -530,6 +373,22 @@ function parseRemoteToForm(remote: unknown): Partial<FormShape> | null {
   return base;
 }
 
+/** 编辑时锁定存储方式：创建为副本则不可改纠删码，反之亦然 */
+function poolTypeLockedFromEditRecord(record: CephPoolTableRow | null | undefined): 'replicated' | 'erasure' | null {
+  if (!record) return null;
+  if (record.poolType === '纠删码') return 'erasure';
+  if (record.poolType === '副本') return 'replicated';
+  const raw = record.detailRaw;
+  if (isPlainRecord(raw) && isPlainRecord(raw.spec)) {
+    return resolveRookBlockPoolStorageKind(raw.spec);
+  }
+  return null;
+}
+
+function poolTypeLockedFromRemote(remote: unknown, record: CephPoolTableRow | null | undefined): 'replicated' | 'erasure' | null {
+  return poolTypeLockedFromEditRecord(record) ?? (parseRemoteToForm(remote)?.pool_type ?? null);
+}
+
 const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
   open,
   mode,
@@ -545,30 +404,31 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [loadingRemote, setLoadingRemote] = useState(false);
   const [remoteCr, setRemoteCr] = useState<Record<string, unknown> | null>(null);
-  const [poolUiInfo, setPoolUiInfo] = useState<RookPoolUiInfo | null>(null);
-  const [poolUiLoading, setPoolUiLoading] = useState(false);
+  /** 编辑：与创建时一致的 pool_type，用于置灰不可切换的存储方式 */
+  const [editPoolTypeLocked, setEditPoolTypeLocked] = useState<'replicated' | 'erasure' | null>(null);
+  const poolUiInfo = DEFAULT_ROOK_POOL_UI_INFO;
   const createDefaultsAppliedRef = useRef(false);
 
   const compressionModes = useMemo(() => {
-    const m = poolUiInfo?.compression_modes;
+    const m = poolUiInfo.compression_modes;
     if (Array.isArray(m) && m.length) return m.map((x) => String(x));
     return DEFAULT_COMPRESSION_MODES;
   }, [poolUiInfo]);
 
   const compressionAlgorithms = useMemo(() => {
-    const m = poolUiInfo?.compression_algorithms;
+    const m = poolUiInfo.compression_algorithms;
     if (Array.isArray(m) && m.length) return m.map((x) => String(x));
     return DEFAULT_COMPRESSION_ALGORITHMS;
   }, [poolUiInfo]);
 
   const pgAutoscaleModes = useMemo(() => {
-    const m = poolUiInfo?.pg_autoscale_modes;
+    const m = poolUiInfo.pg_autoscale_modes;
     return Array.isArray(m) && m.length ? m.map((x) => String(x)) : ['off', 'on', 'warn'];
   }, [poolUiInfo]);
 
   const crushOptionsForType = useMemo(() => {
     const list =
-      poolTypeWatch === 'erasure' ? poolUiInfo?.crush_rules_erasure : poolUiInfo?.crush_rules_replicated;
+      poolTypeWatch === 'erasure' ? poolUiInfo.crush_rules_erasure : poolUiInfo.crush_rules_replicated;
     const rules = Array.isArray(list) ? list : [];
     const opts = rules.map((r) => {
       const vn = crushRuleOptionLabel(r);
@@ -580,7 +440,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
   }, [poolUiInfo, poolTypeWatch, crushRuleWatch]);
 
   const erasureProfileOptions = useMemo(
-    () => normalizeErasureProfilesFromUi(poolUiInfo?.erasure_code_profiles),
+    () => normalizeErasureProfilesFromUi(poolUiInfo.erasure_code_profiles),
     [poolUiInfo],
   );
 
@@ -677,34 +537,24 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
   }, [open]);
 
   useEffect(() => {
+    if (!open) {
+      setEditPoolTypeLocked(null);
+      return;
+    }
+    if (mode === 'create') {
+      setEditPoolTypeLocked(null);
+      return;
+    }
+    setEditPoolTypeLocked(poolTypeLockedFromEditRecord(editRecord));
+  }, [open, mode, editRecord]);
+
+  useEffect(() => {
     if (!open || mode !== 'create') return;
-    if (poolUiLoading) return;
     if (createDefaultsAppliedRef.current) return;
     createDefaultsAppliedRef.current = true;
     resetCreate();
     applyRookCreateDefaultsFromUi(poolUiInfo);
-  }, [open, mode, poolUiLoading, poolUiInfo, resetCreate, applyRookCreateDefaultsFromUi]);
-
-  useEffect(() => {
-    if (!open || !cloudId.trim()) {
-      setPoolUiInfo(null);
-      return;
-    }
-    const ac = new AbortController();
-    setPoolUiLoading(true);
-    void (async () => {
-      try {
-        const res = await fetchCephPoolUiInfo(cloudId, { signal: ac.signal });
-        if (ac.signal.aborted) return;
-        const d = res.data;
-        const info: RookPoolUiInfo = isPlainRecord(d) ? { ...d } : {};
-        setPoolUiInfo(info);
-      } finally {
-        if (!ac.signal.aborted) setPoolUiLoading(false);
-      }
-    })();
-    return () => ac.abort();
-  }, [open, cloudId]);
+  }, [open, mode, poolUiInfo, resetCreate, applyRookCreateDefaultsFromUi]);
 
   useEffect(() => {
     if (!open || mode !== 'edit') return;
@@ -718,71 +568,26 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
     setLoadingRemote(true);
     setRemoteCr(null);
     void (async () => {
-      const overlayFromDashboardPool = async () => {
-        if (!nm || ac.signal.aborted) return;
-        try {
-          const dq = await fetchCephDashboardPoolByName(cloudId, nm, { signal: ac.signal, stats: false });
-          if (ac.signal.aborted || !dq.ok || !isPlainRecord(dq.data)) return;
-          const raw = dq.data as Record<string, unknown>;
-          const opts =
-            isPlainRecord(raw.options) ? (raw.options as Record<string, unknown>) : {};
-          const qPart = bytesToQuotaAmountAndUnit(raw.quota_max_bytes);
-          const dashType = parsePoolDashboardType(raw);
-          const pgMode =
-            raw.pg_autoscale_mode != null ? String(raw.pg_autoscale_mode).trim().toLowerCase() : 'on';
-          const pgNumParsed = Number(raw.pg_num);
-          const qosMap = qosValuesFromDashboardConfigurationList(raw.configuration);
-
-          form.setFieldsValue({
-            quota_amount: qPart.amount,
-            quota_unit: qPart.unit,
-            quota_max_objects:
-              raw.quota_max_objects != null && Number(raw.quota_max_objects) > 0
-                ? Number(raw.quota_max_objects)
-                : null,
-            pg_autoscale_mode: pgMode,
-            pg_num:
-              Number.isFinite(pgNumParsed) && pgNumParsed > 0
-                ? pgNumParsed
-                : pgMode === 'on'
-                  ? 1
-                  : 128,
-            crush_rule: typeof raw.crush_rule === 'string' ? raw.crush_rule : '',
-            erasure_code_profile:
-              typeof raw.erasure_code_profile === 'string' ? raw.erasure_code_profile : 'default',
-            qos: qosMap,
-            ...dashboardOptsCompressionPatch(opts),
-          });
-
-          const rosterReplica = form.getFieldValue('pool_type') === 'replicated';
-          if (rosterReplica && dashType === 'replicated') {
-            const ms = Number(raw.min_size);
-            if (Number.isFinite(ms) && ms > 0) {
-              const sz = Number(form.getFieldValue('size')) || 3;
-              form.setFieldValue('min_size', Math.min(Math.floor(sz), Math.floor(ms)));
-            }
-          }
-        } catch {
-          /* mgr 不可用或池未出现在 Dashboard 时忽略 */
-        }
-      };
-
       try {
         const res = await getCephBlockPoolRook(cloudId, ns, nm, { signal: ac.signal });
         if (ac.signal.aborted) return;
         if (!res.ok || res.data == null) {
-          message.error(res.error || '加载 CephBlockPool 失败');
+          message.error(res.error || '加载存储池失败');
           const fallback = parseRemoteToForm(editRecord?.detailRaw);
-          if (fallback) form.setFieldsValue(fallback as FormShape);
+          if (fallback) {
+            form.setFieldsValue(fallback as FormShape);
+            setEditPoolTypeLocked(poolTypeLockedFromRemote(editRecord?.detailRaw, editRecord));
+          }
           setRemoteCr(null);
-          await overlayFromDashboardPool();
           return;
         }
         const data = res.data as Record<string, unknown>;
         setRemoteCr(data);
         const parsed = parseRemoteToForm(data);
-        if (parsed) form.setFieldsValue(parsed as FormShape);
-        await overlayFromDashboardPool();
+        if (parsed) {
+          form.setFieldsValue(parsed as FormShape);
+          setEditPoolTypeLocked(poolTypeLockedFromRemote(data, editRecord));
+        }
       } finally {
         if (!ac.signal.aborted) setLoadingRemote(false);
       }
@@ -816,18 +621,7 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
           message.error(res.error || '创建失败');
           return;
         }
-        const pname = v.name.trim();
         message.success('已创建存储池（Rook）');
-        const dq = await pushDashboardPoolSyncAfterRook(cloudId, pname, v, {
-          isEdit: false,
-          allBlue: effectiveAllBluestore,
-        });
-        if (!dq.ok) {
-          message.warning(
-            dq.error ||
-              '与 Ceph mgr Dashboard 对齐的配置（配额/PG/CRUSH/QoS/压缩等）未全部写入；可稍后在此池再次保存或打开 Dashboard。',
-          );
-        }
         onSuccess();
         onClose();
         return;
@@ -861,16 +655,6 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
         return;
       }
       message.success('已更新存储池（Rook）');
-      const dq = await pushDashboardPoolSyncAfterRook(cloudId, nm, v, {
-        isEdit: true,
-        allBlue: effectiveAllBluestore,
-      });
-      if (!dq.ok) {
-        message.warning(
-          dq.error ||
-            '与 Ceph mgr Dashboard 对齐的配置未能全部写入；若 mgr 未就绪可稍后在本页再次保存。',
-        );
-      }
       onSuccess();
       onClose();
     } catch {
@@ -933,10 +717,6 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
           scrollToFirstError={{ behavior: 'smooth', block: 'center' }}
           style={{ maxWidth: '100%' }}
         >
-          {poolUiLoading ? (
-            <Skeleton active paragraph={{ rows: 3 }} title={false} style={{ marginBottom: 16 }} />
-          ) : null}
-
           <Row gutter={[16, 0]}>
             <Col xs={24} md={12}>
               <Form.Item name="namespace" label="命名空间" rules={[{ required: true, message: '请填写命名空间' }]}>
@@ -950,22 +730,42 @@ const CephPoolRookFormModal: React.FC<CephPoolRookFormModalProps> = ({
             </Col>
           </Row>
 
-          <Form.Item name="pool_type" label="存储方式" rules={[{ required: true, message: '请选择存储方式' }]}>
+          <Form.Item
+            name="pool_type"
+            label="存储方式"
+            tooltip={
+              mode === 'edit' && editPoolTypeLocked
+                ? '存储池创建后不可在多副本与纠删码之间切换'
+                : undefined
+            }
+            rules={[{ required: true, message: '请选择存储方式' }]}
+          >
             <Radio.Group
               buttonStyle="solid"
               onChange={() => {
+                if (mode === 'edit' && editPoolTypeLocked) return;
                 window.setTimeout(() => {
                   const pt = form.getFieldValue('pool_type') as FormShape['pool_type'];
                   const list =
-                    pt === 'erasure' ? poolUiInfo?.crush_rules_erasure : poolUiInfo?.crush_rules_replicated;
+                    pt === 'erasure' ? poolUiInfo.crush_rules_erasure : poolUiInfo.crush_rules_replicated;
                   const row = Array.isArray(list) ? list[0] : undefined;
                   const first = row ? crushRuleOptionLabel(row) : '';
                   if (first) form.setFieldValue('crush_rule', first);
                 }, 0);
               }}
             >
-              <Radio.Button value="replicated">多副本</Radio.Button>
-              <Radio.Button value="erasure">纠删码</Radio.Button>
+              <Radio.Button
+                value="replicated"
+                disabled={mode === 'edit' && editPoolTypeLocked === 'erasure'}
+              >
+                多副本
+              </Radio.Button>
+              <Radio.Button
+                value="erasure"
+                disabled={mode === 'edit' && editPoolTypeLocked === 'replicated'}
+              >
+                纠删码
+              </Radio.Button>
             </Radio.Group>
           </Form.Item>
 

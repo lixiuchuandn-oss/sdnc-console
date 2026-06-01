@@ -5,9 +5,10 @@
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { getSystemSetting, setSystemSetting } from '../config/systemSettings';
 import { logger } from '../utils/logger';
+import { resolveStaticPublicRoot as resolveStaticPublicRootFromDir } from '../utils/resolveStaticPublicRoot';
 
 const log = logger.child('OfflineUpgrade');
 
@@ -59,12 +60,9 @@ function findBackendPackageJsonPath(): string {
   throw new Error('无法定位后端 package.json');
 }
 
-/** 与 index.ts 一致的静态资源根（前端构建产物） */
+/** 与 index.ts 静态托管目录一致（本文件在 services/ 子目录，须用共享解析） */
 function resolveStaticPublicRoot(): string {
-  const nestedPublicPath = path.join(__dirname, '../public');
-  const appRootPublicPath = path.join(__dirname, '../../public');
-  if (fs.existsSync(appRootPublicPath)) return appRootPublicPath;
-  return nestedPublicPath;
+  return resolveStaticPublicRootFromDir(__dirname);
 }
 
 /** 后端构建输出目录（backend/dist），离线包 server/ 内容合并到此 */
@@ -73,6 +71,66 @@ function resolveServerDeployRoot(): string {
   const distDir = path.join(backendRoot, 'dist');
   fs.mkdirSync(distDir, { recursive: true });
   return distDir;
+}
+
+/** 部署根目录（含 package.json、public/、dist/） */
+function resolveAppDeployRoot(): string {
+  return path.dirname(findBackendPackageJsonPath());
+}
+
+/** 整目录替换，避免 cpSync 合并残留旧前端 chunk */
+function replaceDirectoryTree(src: string, dest: string): void {
+  if (fs.existsSync(dest)) {
+    fs.rmSync(dest, { recursive: true, force: true });
+  }
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.cpSync(src, dest, { recursive: true });
+}
+
+/** dist/public 若存在会抢在应用根 public 之前被误用（见 index.ts 注释）；升级后删除 */
+function removeStaleDistPublic(): void {
+  const distPublic = path.join(resolveServerDeployRoot(), 'public');
+  if (fs.existsSync(distPublic)) {
+    fs.rmSync(distPublic, { recursive: true, force: true });
+    log.info('已删除过时的 dist/public');
+  }
+}
+
+function shouldAutoRestartAfterUpgrade(): boolean {
+  const v = process.env.TOWER_AUTO_RESTART_ON_UPGRADE?.trim().toLowerCase();
+  if (v === '0' || v === 'false' || v === 'no') return false;
+  return true;
+}
+
+function resolveAutoRestartCmd(): string {
+  const custom = process.env.TOWER_AUTO_RESTART_CMD?.trim();
+  if (custom) return custom;
+  return 'pm2 restart compute-tower';
+}
+
+/** 在 HTTP 响应返回后再重启，避免 apply 请求被进程退出打断 */
+function schedulePostUpgradeRestart(): void {
+  if (!shouldAutoRestartAfterUpgrade()) {
+    log.info('TOWER_AUTO_RESTART_ON_UPGRADE 已关闭，跳过自动重启');
+    return;
+  }
+  const cmd = resolveAutoRestartCmd();
+  const cwd = resolveAppDeployRoot();
+  setTimeout(() => {
+    try {
+      log.info('升级后自动重启:', cmd, 'cwd=', cwd);
+      const child = spawn(cmd, {
+        shell: true,
+        detached: true,
+        stdio: 'ignore',
+        cwd,
+        env: process.env,
+      });
+      child.unref();
+    } catch (e) {
+      log.warn('升级后自动重启调度失败:', e instanceof Error ? e.message : String(e));
+    }
+  }, 1000);
 }
 
 export type OfflineUpgradeStatus = {
@@ -89,7 +147,9 @@ export type OfflineUpgradeApplyResult = {
   manifestVersion?: string;
   appliedPublic: boolean;
   appliedServer: boolean;
+  /** 兼容旧前端：自动重启已调度时为 false */
   needsRestart: boolean;
+  autoRestartScheduled?: boolean;
   message: string;
 };
 
@@ -154,10 +214,14 @@ export class OfflineUpgradeService {
 
       if (hasPublic) {
         const dest = resolveStaticPublicRoot();
-        fs.mkdirSync(dest, { recursive: true });
-        fs.cpSync(publicSrc, dest, { recursive: true });
+        replaceDirectoryTree(publicSrc, dest);
+        removeStaleDistPublic();
         appliedPublic = true;
-        log.info('已合并离线包 public/ →', dest);
+        log.info('已替换离线包 public/ →', dest);
+        const stampPath = path.join(dest, '.tower-build-stamp.json');
+        if (!fs.existsSync(stampPath)) {
+          log.warn('升级后未找到 public/.tower-build-stamp.json，请确认 zip 为最新构建');
+        }
       }
 
       if (hasServer) {
@@ -166,6 +230,15 @@ export class OfflineUpgradeService {
         fs.cpSync(serverSrc, dest, { recursive: true });
         appliedServer = true;
         log.info('已合并离线包 server/ →', dest);
+        // 同步 package.json version（展示用；与 AGENTS.md 版本口径一致）
+        const pkgInZip = path.join(staging, 'package.json');
+        if (fs.existsSync(pkgInZip)) {
+          try {
+            fs.copyFileSync(pkgInZip, path.join(resolveAppDeployRoot(), 'package.json'));
+          } catch (e) {
+            log.warn('同步 package.json 失败:', e instanceof Error ? e.message : String(e));
+          }
+        }
       }
 
       const hook = process.env.TOWER_POST_UPGRADE_CMD?.trim();
@@ -179,6 +252,24 @@ export class OfflineUpgradeService {
       }
 
       const at = new Date().toISOString();
+      let stampBuiltAt: string | undefined;
+      let stampFeatures: string[] | undefined;
+      if (appliedPublic) {
+        const stampPath = path.join(resolveStaticPublicRoot(), '.tower-build-stamp.json');
+        if (fs.existsSync(stampPath)) {
+          try {
+            const st = JSON.parse(fs.readFileSync(stampPath, 'utf8')) as {
+              builtAt?: string;
+              features?: string[];
+            };
+            stampBuiltAt = st.builtAt;
+            stampFeatures = Array.isArray(st.features) ? st.features : undefined;
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
       setSystemSetting(
         LAST_KEY,
         JSON.stringify({
@@ -186,19 +277,38 @@ export class OfflineUpgradeService {
           manifestVersion,
           appliedPublic,
           appliedServer,
+          stampBuiltAt,
+          stampFeatures,
         }),
       );
 
-      const needsRestart = appliedServer;
-      const message = needsRestart
-        ? '服务端文件已更新，请重启后端进程后生效；若仅更新了前端静态资源，刷新浏览器即可。'
-        : '静态资源已更新，请刷新浏览器；若浏览器仍加载旧脚本，可强制刷新或清空缓存。';
+      const filesUpdated = appliedPublic || appliedServer;
+      const autoRestartEnabled = filesUpdated && shouldAutoRestartAfterUpgrade();
+      if (autoRestartEnabled) {
+        schedulePostUpgradeRestart();
+      }
+
+      const stampHint =
+        stampBuiltAt != null
+          ? ` 前端包构建时间：${stampBuiltAt}。`
+          : appliedPublic
+            ? ' 未检测到 public/.tower-build-stamp.json，请确认 zip 为最新构建。'
+            : '';
+      let message: string;
+      if (!filesUpdated) {
+        message = `已记录升级；请刷新浏览器。${stampHint}`;
+      } else if (autoRestartEnabled) {
+        message = `文件已更新，后台服务正在自动重启，约数秒后请刷新页面（Ctrl+F5）。${stampHint}`;
+      } else {
+        message = `文件已更新。请务必执行 pm2 restart compute-tower 后 Ctrl+F5 强刷。${stampHint}`;
+      }
 
       return {
         manifestVersion,
         appliedPublic,
         appliedServer,
-        needsRestart,
+        needsRestart: filesUpdated && !autoRestartEnabled,
+        autoRestartScheduled: autoRestartEnabled,
         message,
       };
     } finally {

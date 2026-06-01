@@ -525,7 +525,7 @@ const VmNicManageDrawer: React.FC<VmNicManageDrawerProps> = ({
     vmData?.metadata?.name || vmData?.spec?.template?.metadata?.name || "",
   ).trim();
 
-  const kubeSubnets = subnets || [];
+  const kubeSubnets = useMemo(() => subnets || [], [subnets]);
 
   /* ········································································ */
   /*  下拉选项缓存（NAD / VPC）                                                 */

@@ -11,20 +11,24 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Segmented, Modal, Form, Switch, Popconfirm, Empty, Statistic, Card, Divider, Alert, Tooltip } from 'antd';
+import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Segmented, Modal, Form, Switch, Empty, Statistic, Card, Divider, Alert, Tooltip } from 'antd';
 import { 
-  DeleteOutlined, KeyOutlined, 
-  FolderOutlined, EditOutlined, SearchOutlined, DatabaseOutlined,
-  LinkOutlined, TagOutlined,
-  CopyOutlined, GlobalOutlined, LockOutlined, UnlockOutlined, ClockCircleOutlined,
-  InfoCircleOutlined, EyeOutlined, EditTwoTone, PlusOutlined, ReloadOutlined,
+  KeyOutlined, 
+  DatabaseOutlined,
+  SearchOutlined,
+  CopyOutlined, GlobalOutlined, LockOutlined, ClockCircleOutlined,
+  InfoCircleOutlined, EditTwoTone, PlusOutlined, ReloadOutlined,
   DockerOutlined, ApiOutlined,
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   deleteHarvesterContainerResource,
@@ -43,7 +47,7 @@ import GenericRegistryDrawer from '../components/GenericRegistryDrawer';
 import HarborDetailDrawer from '../../harbor/components/HarborDetailDrawer';
 import ProjectDetailDrawer from '../../harbor/components/ProjectDetailDrawer';
 import RepositoryDetailDrawer from '../../harbor/components/RepositoryDetailDrawer';
-import type { HarborProject, HarborRepository, HarborArtifact } from '../../harbor/types';
+import type { HarborProject, HarborRepository } from '../../harbor/types';
 
 const { Text, Link } = Typography;
 
@@ -650,6 +654,7 @@ const CredentialTable: React.FC<{
   onBrowse: (secret: any) => void;
   onRefresh: (force?: boolean) => void;
   onCreateCredential: () => void;
+  hasContainersWrite: boolean;
 }> = ({
   secrets,
   loading,
@@ -665,6 +670,7 @@ const CredentialTable: React.FC<{
   onBrowse,
   onRefresh,
   onCreateCredential,
+  hasContainersWrite,
 }) => {
   const { modal, message } = App.useApp();
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
@@ -875,10 +881,16 @@ const CredentialTable: React.FC<{
             },
           },
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleOpenAliasModal, handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal, hasContainersWrite]);
 
   // 使用列设置 Hook
   const { displayColumns: credentialDisplayColumns } = useTableColumnSettings(
@@ -920,9 +932,11 @@ const CredentialTable: React.FC<{
           </button>
         </div>
         <div className="toolbar-actions">
-          <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCredential}>
-            创建凭证
-          </Button>
+          <WriteGuard canWrite={hasContainersWrite}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCredential}>
+              创建凭证
+            </Button>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={columns}
             settingsKey="harvester-containers-registries-credentials"
@@ -1020,7 +1034,7 @@ const CredentialTable: React.FC<{
  */
 const RegistriesSection: React.FC<Props> = ({
   secrets,
-  secretsWithCredentials,
+  secretsWithCredentials: _secretsWithCredentials,
   loading,
   namespacesOptions,
   cloudId,
@@ -1029,15 +1043,19 @@ const RegistriesSection: React.FC<Props> = ({
   onRefresh,
   createDefaultNamespace,
 }) => {
+  const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'registries'),
+    [user?.permissions],
+  );
   
   // Tab 状态
   const [activeTab, setActiveTab] = useState('credentials');
   
   // 凭证列表状态
   const [keyword, setKeyword] = useState('');
-  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentSecret, setCurrentSecret] = useState<any>(null);
   
@@ -1072,10 +1090,6 @@ const RegistriesSection: React.FC<Props> = ({
   // 仓库抽屉状态
   const [repoDrawerVisible, setRepoDrawerVisible] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<HarborRepository | null>(null);
-
-  // 制品抽屉状态
-  const [artifactDrawerVisible, setArtifactDrawerVisible] = useState(false);
-  const [selectedArtifact, setSelectedArtifact] = useState<HarborArtifact | null>(null);
   
   // 合并后的仓库列表（按添加时间倒序）
   const allRegistries = useMemo(() => {
@@ -1222,11 +1236,9 @@ const RegistriesSection: React.FC<Props> = ({
     setHarborDrawerVisible(false);
     setProjectDrawerVisible(false);
     setRepoDrawerVisible(false);
-    setArtifactDrawerVisible(false);
     setSelectedHarborId(null);
     setSelectedProject(null);
     setSelectedRepo(null);
-    setSelectedArtifact(null);
   }, []);
   
   // 添加/编辑仓库
@@ -1338,7 +1350,7 @@ const RegistriesSection: React.FC<Props> = ({
       saveRegistries(updated);
       message.success('仓库已删除');
     }
-  }, [cloudId, localRegistries, message]);
+  }, [localRegistries, message]);
   
   // 测试通用仓库连接
   const handleTestGenericConnection = useCallback(async (record: RegistryConfig) => {
@@ -1399,7 +1411,7 @@ const RegistriesSection: React.FC<Props> = ({
         r.id === record.id ? { ...r, status: 'unhealthy' } : r
       ));
     }
-  }, [cloudId, message]);
+  }, [message]);
   
   // 凭证创建成功回调
   const handleCredentialSuccess = useCallback(() => {
@@ -1435,7 +1447,7 @@ const RegistriesSection: React.FC<Props> = ({
       dataIndex: 'type',
       key: 'type',
       width: 120,
-      render: (type: string, record: RegistryConfig) => {
+      render: (type: string, _record: RegistryConfig) => {
         if (type === 'harbor') {
           return (
             <Space>
@@ -1544,7 +1556,12 @@ const RegistriesSection: React.FC<Props> = ({
               },
             },
           ];
-          return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+          return (
+            <ResourceActionsDropdown
+              items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+              buttonProps={{ className: 'row-actions-trigger' }}
+            />
+          );
         }
         
         // 通用仓库操作
@@ -1584,10 +1601,15 @@ const RegistriesSection: React.FC<Props> = ({
             },
           },
         ];
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
-  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, cloudId, modal]);
+  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, modal, hasContainersWrite]);
   
   // 使用列设置 Hook（镜像仓库）
   const { displayColumns: registryDisplayColumns } = useTableColumnSettings(
@@ -1623,6 +1645,7 @@ const RegistriesSection: React.FC<Props> = ({
             onBrowse={handleBrowseFromSecret}
             onRefresh={onRefresh}
             onCreateCredential={handleCreateCredential}
+            hasContainersWrite={hasContainersWrite}
           />
         ) : (
           <div key="registries">
@@ -1638,9 +1661,11 @@ const RegistriesSection: React.FC<Props> = ({
                 />
               </div>
               <div className="toolbar-actions">
-                <Button type="primary" icon={<DatabaseOutlined />} onClick={() => { setEditingRegistry(null); setAddRegistryVisible(true); }}>
-                  添加仓库
-                </Button>
+                <WriteGuard canWrite={hasContainersWrite}>
+                  <Button type="primary" icon={<DatabaseOutlined />} onClick={() => { setEditingRegistry(null); setAddRegistryVisible(true); }}>
+                    添加仓库
+                  </Button>
+                </WriteGuard>
                 <TableColumnSettingsButton
                   allColumns={registryColumns}
                   settingsKey="harvester-containers-registries"

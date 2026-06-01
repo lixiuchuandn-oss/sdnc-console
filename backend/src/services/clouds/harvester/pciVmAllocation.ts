@@ -73,9 +73,14 @@ export function buildPciDeviceVmUsageMapFromVms(vms: any[]): Map<string, PciDevi
 }
 
 /** Claim 的 ownerReferences 指向 VirtualMachine 时，从 VM 列表解析别名等信息 */
-export function tryResolveVmFromPciDeviceClaim(claim: any, vms: any[]): PciDeviceBoundVm | undefined {
+export function tryResolveVmFromPciDeviceClaim(
+  claim: any,
+  vms: any[],
+): PciDeviceBoundVm | undefined {
   if (!claim || !Array.isArray(vms)) return undefined;
-  const owners = Array.isArray(claim?.metadata?.ownerReferences) ? claim.metadata.ownerReferences : [];
+  const owners = Array.isArray(claim?.metadata?.ownerReferences)
+    ? claim.metadata.ownerReferences
+    : [];
   const claimNs = String(claim?.metadata?.namespace || '').trim();
   for (const o of owners) {
     const kind = String(o?.kind || '').toLowerCase();

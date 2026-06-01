@@ -31,20 +31,26 @@ const checkDashboardPermission = (req: AuthRequest, res: Response, next: any) =>
     const perms: string[] = Array.isArray((req.user as any)?.permissions)
       ? (req.user as any)?.permissions
       : [];
-    
+
     // 超级管理员直接通过
     if (role === UserRole.SUPER_ADMIN) {
       return next();
     }
-    
-    // 检查是否有 clouds.dashboard:read 权限
+
+    // 检查是否有 clouds.dashboard:read 权限（恢复后兼容 clouds:read / clouds:write）
     // 使用 perms.includes() 以便系统扫描器能够识别
-    if (!perms.includes('clouds.dashboard:read')) {
-      return res.status(403).json({ 
-        message: '权限不足：需要 clouds.dashboard:read 权限才能访问仪表板' 
+    const hasDashboardRead =
+      perms.includes('clouds.dashboard:read') ||
+      perms.includes('clouds.dashboard:write') ||
+      perms.includes('clouds:read') ||
+      perms.includes('clouds:write') ||
+      perms.includes('*');
+    if (!hasDashboardRead) {
+      return res.status(403).json({
+        message: '权限不足：需要 clouds.dashboard:read（或 clouds:read）权限才能访问多云总览',
       });
     }
-    
+
     next();
   } catch (error) {
     return res.status(403).json({ message: '权限检查失败' });

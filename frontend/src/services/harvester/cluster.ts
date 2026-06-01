@@ -23,18 +23,26 @@ export const fetchAswCtlSwitchesSummary = async (
  * 物理交换机：实时探测 HSM/ASW-CTL 并写入 Tower SQLite，返回与 fetchAswCtlSwitchesSummary 对齐的摘要字段（source: live）。
  * 需 clouds.cluster-networks:write（与 probe 一致）；仅读权限请用 fetchAswCtlSwitchesSummary。
  */
-export const syncAswCtlSwitchesToInventory = async (cloudId: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/asw-ctl/sync`, {});
+export const syncAswCtlSwitchesToInventory = async (
+  cloudId: string,
+  opts?: { name?: string },
+) => {
+  const name = opts?.name != null ? String(opts.name).trim() : '';
+  const qs = name ? `?name=${encodeURIComponent(name)}` : '';
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/asw-ctl/sync${qs}`, {});
 };
 
 /** 按表单草稿探测 HSM（不写库）；与线上拉取一致，始终走资源池 API Endpoint + /v1/hms */
 export const probeAswCtlConnection = async (
   cloudId: string,
-  body: { apiKey?: string; insecureTls?: boolean },
+  body: { apiKey?: string; insecureTls?: boolean; name?: string },
 ) => {
+  const name = body?.name != null ? String(body.name).trim() : '';
+  const qs = name ? `?name=${encodeURIComponent(name)}` : '';
+  const { name: _name, ...payload } = body || {};
   return await apiPost(
-    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/probe`,
-    body,
+    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/probe${qs}`,
+    payload,
   );
 };
 
@@ -43,6 +51,21 @@ export const fetchHmsSwitchCrs = async (cloudId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/hms/switches`, {
     skipCache: true,
   });
+};
+
+/** HSM 设备 CLI 模板（GET /v1/hms/device/profiles，经 Tower BFF 代理） */
+export const fetchHmsDeviceProfiles = async (
+  cloudId: string,
+  options?: { switchName?: string },
+) => {
+  const switchName = String(options?.switchName ?? '').trim();
+  const qs = switchName ? `?name=${encodeURIComponent(switchName)}` : '';
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/device-profiles${qs}`,
+    {
+      skipCache: true,
+    },
+  );
 };
 
 export const createHmsSwitchCr = async (

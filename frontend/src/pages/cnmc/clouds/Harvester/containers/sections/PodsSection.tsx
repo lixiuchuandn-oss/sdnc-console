@@ -93,17 +93,17 @@ const renderContainerStatus = (state: any) => {
 
 const isPodRunning = (pod: any): boolean => {
   const phase = pod?.status?.phase;
-  // 正在终止中的 Pod 禁用终端（deletionTimestamp 存在时 phase 仍可能为 Running）
   if (pod?.metadata?.deletionTimestamp) return false;
-  // 只有 Running 阶段才允许终端操作
-  // Pending / Failed / Succeeded / Unknown 等状态均禁用
   if (phase !== 'Running') return false;
   
-  // 检查容器是否处于崩溃重启状态（CrashLoopBackOff）
   const containerStatuses = pod?.status?.containerStatuses || [];
   for (const container of containerStatuses) {
     const waitingState = container?.state?.waiting;
     if (waitingState && waitingState.reason === 'CrashLoopBackOff') {
+      return false;
+    }
+    const terminatedState = container?.state?.terminated;
+    if (terminatedState && (terminatedState.reason === 'Error' || (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))) {
       return false;
     }
   }
@@ -112,24 +112,24 @@ const isPodRunning = (pod: any): boolean => {
 };
 
 const getTerminalDisabledReason = (pod: any): string => {
-  // 正在终止中的 Pod
   if (pod?.metadata?.deletionTimestamp) {
     return 'Pod 正在终止中，无法打开终端';
   }
   
   const phase = pod?.status?.phase;
-  
-  // 非 Running 状态
   if (phase !== 'Running') {
     return '仅 Running 状态的 Pod 可打开终端';
   }
   
-  // 崩溃重启状态
   const containerStatuses = pod?.status?.containerStatuses || [];
   for (const container of containerStatuses) {
     const waitingState = container?.state?.waiting;
     if (waitingState && waitingState.reason === 'CrashLoopBackOff') {
       return '容器处于崩溃重启状态，无法打开终端';
+    }
+    const terminatedState = container?.state?.terminated;
+    if (terminatedState && (terminatedState.reason === 'Error' || (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))) {
+      return `容器 "${container.name}" 处于错误状态，无法打开终端`;
     }
   }
   

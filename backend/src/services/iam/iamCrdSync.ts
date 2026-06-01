@@ -98,7 +98,9 @@ export async function syncIamOnResourcePoolUnbind(
     for (const org of sortedOrgs) {
       await deleteOrganizationCrd(cloud, org.id);
     }
-    iamLog.info(`租户 ${userSpace.tenantId} 在资源池 ${cloud.name} 上已无绑定，已清理 IAM Tenant/Organization CRD`);
+    iamLog.info(
+      `租户 ${userSpace.tenantId} 在资源池 ${cloud.name} 上已无绑定，已清理 IAM Tenant/Organization CRD`,
+    );
   }
 
   return { synced: true, cloudId: cloud.id, cloudName: cloud.name };

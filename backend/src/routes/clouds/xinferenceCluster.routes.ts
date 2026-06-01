@@ -53,8 +53,7 @@ export function attachXinferenceClusterRoutes(router: Router, perm: RequestHandl
       if (!clusterInfoRes.ok) {
         res.status(clusterInfoRes.status === 401 ? 401 : 502).json({
           message:
-            clusterInfoRes.message ||
-            '拉取 Xinference 集群设备信息失败（需 admin 权限 API 令牌）',
+            clusterInfoRes.message || '拉取 Xinference 集群设备信息失败（需 admin 权限 API 令牌）',
         });
         return;
       }

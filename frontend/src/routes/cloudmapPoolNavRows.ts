@@ -16,8 +16,12 @@ export type CloudmapPoolNavRow = {
   poolNavSubgroup?: string;
   /** 功能开关：无此 feature 时侧栏隐藏该项 */
   requiredFeature?: string;
-  /** 池内页 `requiredActions.page`；缺省为 `clouds.console:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
+  /** 池内页 `requiredActions.page`；缺省为 `clouds.ecs:read`（见 RouteSpec.toCloudmapPoolRouteSpec） */
   poolPageAction?: string;
+  /** 侧栏可见：满足其一即可（仅运维告警等入口；抽屉仍以 `poolPageAction` 为主卡片） */
+  poolPageReadAnyOf?: readonly string[];
+  /** 纯展示页：角色抽屉仅「只读」，不展示写权限 */
+  poolPageDisplayOnly?: boolean;
   /** 并入管理端默认首页顺位（后端 `resolveAdminDefaultHome` / RouteSpec `homePagePriority`） */
   homePagePriority?: number;
   homePageCandidate?: boolean;
@@ -37,7 +41,6 @@ const PAAS = 'cloudmap_menu_paas_databases';
 const ONIAAS = 'cloudmap_menu_oniaas_network';
 const CONT = 'cloudmap_menu_containers';
 const STOR = 'cloudmap_menu_storage';
-const OBJ = 'cloudmap_menu_object_storage';
 const BAK = 'cloudmap_menu_backups';
 const FLAT = 'cloudmap_menu_flat_network';
 const KUBE = 'cloudmap_menu_kube_ovn';
@@ -51,15 +54,19 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
   cluster_physical_network: '物理网络',
   /** GPU / USB / PCI / SR-IOV */
   cluster_device_passthrough: '直通设备',
-  /** 存储池、存储类 */
+  /** 存储容量/配置/池/类（集群 · 存储服务） */
   cluster_storage: '存储服务',
+  /** 集群 · 存储服务 · 块/RBD */
+  cluster_storage_block: '块存储',
+  /** 集群 · 存储服务 · 对象/RGW */
+  cluster_storage_object: '对象存储',
   /** SSH 密钥、CloudInit、迁移记录 */
   compute_advanced_config: '高级配置',
 };
 
 /** 并入 `routeSpecs` 的唯一表（按 `order` 升序、与侧栏分组一致） */
 export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
-  // --- 资源总览（叶子读权限见 deployment/docs/specs/cloudmap-pool-page-rbac.md）---
+  // --- 资源总览（叶子读权限见 docs/cloudmap-pool-rbac.md）---
   {
     id: 'cloudmap-pool-rh-overview',
     pathSuffix: 'resource_hub/overview',
@@ -69,6 +76,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
     poolPageAction: 'clouds.monitoring.overview:read',
+    poolPageDisplayOnly: true,
     homePagePriority: -1,
     homePageCandidate: true,
     homePageReplaceParamFrom: 'favoriteCloudId',
@@ -82,7 +90,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
-    poolPageAction: 'clouds.cluster-networks:read',
+    poolPageAction: 'clouds.dc-topology:read',
   },
   {
     id: 'cloudmap-pool-rh-network-topo',
@@ -92,69 +100,46 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'DashboardOutlined',
     poolNavGroup: '资源总览',
     poolMenuParentKey: RH,
-    poolPageAction: 'clouds.provider-networks:read',
-  },
-  {
-    id: 'cloudmap-pool-rh-ceph-overview',
-    pathSuffix: 'resource_hub/ceph_storage_overview',
-    title: '存储总览',
-    order: 13,
-    icon: 'DatabaseOutlined',
-    poolNavGroup: '资源总览',
-    poolMenuParentKey: RH,
-    routeSpecGroup: '资源总览',
-    poolPageAction: 'clouds.ceph:read',
+    poolPageAction: 'clouds.net-topology:read',
+    poolPageDisplayOnly: true,
   },
 
   // --- 监控告警 ---
   {
+    id: 'cloudmap-pool-mon-ops-alert-dashboard',
+    pathSuffix: 'monitoring_alerts/ops-alert-dashboard',
+    poolPageAction: 'clouds.alerts:read',
+    poolPageReadAnyOf: [
+      'clouds.alerts:read',
+      'clouds.alert-rules:read',
+      'clouds.alert-policies:read',
+      'clouds.alert-receivers:read',
+      'clouds.alert-secrets:read',
+    ],
+    title: '运维告警',
+    order: 20.5,
+    icon: 'AlertOutlined',
+    poolNavGroup: '云监控',
+    poolMenuParentKey: MON,
+  },
+  {
     id: 'cloudmap-pool-mon-alerts',
     pathSuffix: 'monitoring_alerts/alerts-list',
     poolPageAction: 'clouds.alerts:read',
-    title: '告警列表',
+    title: '运维监控',
     order: 20,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
   {
-    id: 'cloudmap-pool-mon-rules',
-    pathSuffix: 'monitoring_alerts/alert-rules',
-    poolPageAction: 'clouds.alert-rules:read',
-    title: '告警规则',
-    order: 21,
+    id: 'cloudmap-pool-mon-access-management',
+    pathSuffix: 'monitoring_alerts/access-management',
+    poolPageAction: 'clouds.alerts:read',
+    title: '接入管理',
+    order: 24.5,
     icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
-    poolMenuParentKey: MON,
-  },
-  {
-    id: 'cloudmap-pool-mon-policy',
-    pathSuffix: 'monitoring_alerts/notification-policy',
-    poolPageAction: 'clouds.alert-policies:read',
-    title: '告警通知策略',
-    order: 22,
-    icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
-    poolMenuParentKey: MON,
-  },
-  {
-    id: 'cloudmap-pool-mon-targets',
-    pathSuffix: 'monitoring_alerts/notification-targets',
-    poolPageAction: 'clouds.alert-receivers:read',
-    title: '告警通知对象',
-    order: 23,
-    icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
-    poolMenuParentKey: MON,
-  },
-  {
-    id: 'cloudmap-pool-mon-secrets',
-    pathSuffix: 'monitoring_alerts/alert-secrets',
-    poolPageAction: 'clouds.alert-secrets:read',
-    title: '告警密钥',
-    order: 24,
-    icon: 'AlertOutlined',
-    poolNavGroup: '监控告警',
+    poolNavGroup: '云监控',
     poolMenuParentKey: MON,
   },
 
@@ -259,7 +244,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-cluster-ippools',
     pathSuffix: 'cluster/ippools',
-    poolPageAction: 'clouds.nads:read',
+    poolPageAction: 'clouds.ip-pools:read',
     title: 'IP地址池',
     order: 35,
     icon: 'ClusterOutlined',
@@ -268,12 +253,34 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavSubgroup: 'cluster_platform_network',
   },
   {
+    id: 'cloudmap-pool-cluster-storage_overview',
+    pathSuffix: 'cluster/overview',
+    poolPageAction: 'clouds.storage-dashboard:read',
+    title: '仪表板',
+    order: 36,
+    icon: 'DatabaseOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage',
+  },
+  {
+    id: 'cloudmap-pool-cluster-harvester_addon',
+    pathSuffix: 'cluster/harvester_addon',
+    poolPageAction: 'clouds.storage-addon:read',
+    title: '统一存储配置',
+    order: 36.1,
+    icon: 'PlusCircleOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage',
+  },
+  {
     id: 'cloudmap-pool-cluster-storage_pools',
     pathSuffix: 'cluster/storage_pools',
-    poolPageAction: 'clouds.disks:read',
-    title: '存储池',
-    order: 36,
-    icon: 'ClusterOutlined',
+    poolPageAction: 'clouds.unified-storage-pools:read',
+    title: '统一存储池',
+    order: 36.2,
+    icon: 'DatabaseOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
     poolNavSubgroup: 'cluster_storage',
@@ -283,11 +290,66 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     pathSuffix: 'cluster/storage_classes',
     poolPageAction: 'clouds.storage-classes:read',
     title: '存储类',
-    order: 37,
+    order: 36.3,
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
     poolNavSubgroup: 'cluster_storage',
+  },
+  {
+    id: 'cloudmap-pool-cluster-rbd_mirror',
+    pathSuffix: 'cluster/rbd_mirror',
+    poolPageAction: 'clouds.storage-rbd-mirror:read',
+    title: '远程备份',
+    order: 36.4,
+    icon: 'DatabaseOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage_block',
+  },
+  {
+    id: 'cloudmap-pool-cluster-rgw_s3',
+    pathSuffix: 'cluster/rgw_s3_buckets',
+    poolPageAction: 'clouds.storage-s3-buckets:read',
+    title: 'S3 存储桶',
+    order: 36.5,
+    icon: 'FolderOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage_object',
+  },
+  {
+    id: 'cloudmap-pool-cluster-rgw_users',
+    pathSuffix: 'cluster/rgw_users',
+    poolPageAction: 'clouds.storage-rgw-users:read',
+    title: 'RGW 用户密钥',
+    order: 36.6,
+    icon: 'KeyOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage_object',
+  },
+  {
+    id: 'cloudmap-pool-cluster-object_gateways',
+    pathSuffix: 'cluster/object_gateways',
+    poolPageAction: 'clouds.storage-object-gateway:read',
+    title: '对象网关',
+    order: 36.7,
+    icon: 'GatewayOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage_object',
+  },
+  {
+    id: 'cloudmap-pool-cluster-cosi',
+    pathSuffix: 'cluster/cosi',
+    poolPageAction: 'clouds.storage-cosi:read',
+    title: 'COSI 驱动',
+    order: 36.8,
+    icon: 'ApiOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_storage_object',
   },
   {
     id: 'cloudmap-pool-cluster-gpu',
@@ -409,12 +471,12 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavSubgroup: 'compute_advanced_config',
   },
 
-  // --- 云数据库 ---
+  // --- 云数据库 · RDS ---
   {
     id: 'cloudmap-pool-paas-rds',
     pathSuffix: 'paas_databases/rds',
     poolPageAction: 'clouds.paas-databases:read',
-    title: '云数据库',
+    title: '云RDS',
     order: 50,
     icon: 'ConsoleSqlOutlined',
     poolNavGroup: '云数据库',
@@ -576,62 +638,6 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavGroup: '云存储',
     poolMenuParentKey: STOR,
   },
-  {
-    id: 'cloudmap-pool-stor-rbd-mirror',
-    pathSuffix: 'storage/rbd_mirror',
-    poolPageAction: 'clouds.ceph:read',
-    title: '远程备份',
-    order: 82,
-    icon: 'DatabaseOutlined',
-    poolNavGroup: '云存储',
-    poolMenuParentKey: STOR,
-  },
-
-  // --- 对象存储 ---
-  {
-    id: 'cloudmap-pool-obj-rgw-s3',
-    pathSuffix: 'object_storage/rgw_s3_buckets',
-    poolPageAction: 'clouds.ceph:read',
-    title: 'S3 存储桶',
-    order: 86,
-    icon: 'FolderOutlined',
-    poolNavGroup: '对象存储',
-    poolMenuParentKey: OBJ,
-    routeSpecGroup: '对象存储',
-  },
-  {
-    id: 'cloudmap-pool-obj-rgw-users',
-    pathSuffix: 'object_storage/rgw_users',
-    poolPageAction: 'clouds.ceph:read',
-    title: 'RGW 用户密钥',
-    order: 87,
-    icon: 'KeyOutlined',
-    poolNavGroup: '对象存储',
-    poolMenuParentKey: OBJ,
-    routeSpecGroup: '对象存储',
-  },
-  {
-    id: 'cloudmap-pool-obj-gateways',
-    pathSuffix: 'object_storage/object_gateways',
-    poolPageAction: 'clouds.ceph:read',
-    title: '对象网关',
-    order: 88,
-    icon: 'GatewayOutlined',
-    poolNavGroup: '对象存储',
-    poolMenuParentKey: OBJ,
-    routeSpecGroup: '对象存储',
-  },
-  {
-    id: 'cloudmap-pool-obj-cosi',
-    pathSuffix: 'object_storage/cosi',
-    poolPageAction: 'clouds.ceph:read',
-    title: 'COSI 驱动',
-    order: 89,
-    icon: 'ApiOutlined',
-    poolNavGroup: '对象存储',
-    poolMenuParentKey: OBJ,
-    routeSpecGroup: '对象存储',
-  },
 
   // --- 云备份 ---
   {
@@ -639,7 +645,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     pathSuffix: 'backups/backups',
     poolPageAction: 'clouds.backups:read',
     title: '云主机备份',
-    order: 90,
+    order: 91,
     icon: 'CloudDownloadOutlined',
     poolNavGroup: '云备份',
     poolMenuParentKey: BAK,
@@ -647,9 +653,9 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-snaps',
     pathSuffix: 'backups/vm_snapshots',
-    poolPageAction: 'clouds.backups:read',
+    poolPageAction: 'clouds.vm-backup-snapshots:read',
     title: '云主机快照',
-    order: 91,
+    order: 92,
     icon: 'CloudDownloadOutlined',
     poolNavGroup: '云备份',
     poolMenuParentKey: BAK,
@@ -657,9 +663,9 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
   {
     id: 'cloudmap-pool-bak-sched',
     pathSuffix: 'backups/schedule_vm_backups',
-    poolPageAction: 'clouds.backups:read',
+    poolPageAction: 'clouds.schedules:read',
     title: '定时策略',
-    order: 92,
+    order: 93,
     icon: 'CloudDownloadOutlined',
     poolNavGroup: '云备份',
     poolMenuParentKey: BAK,
@@ -669,7 +675,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     pathSuffix: 'backups/vm_restores',
     poolPageAction: 'clouds.restore-tasks:read',
     title: '恢复任务',
-    order: 93,
+    order: 94,
     icon: 'CloudDownloadOutlined',
     poolNavGroup: '云备份',
     poolMenuParentKey: BAK,
@@ -761,7 +767,6 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolMenuParentKey: KUBE,
     requiredFeature: 'network.ovn.vpc',
   },
-  /** VPC 下浮动 IP 入口已隐藏（产品配置）；扁平网络仍保留 flat_kubeovn_fips */
   {
     id: 'cloudmap-pool-ovn-snat',
     pathSuffix: 'kube_ovn/kubeovn_snat',

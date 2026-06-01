@@ -89,9 +89,7 @@ export const listHarvesterPVCRaw = async ({
  * @param params 连接参数
  * @returns Promise<any[]> 标准化卷对象数组
  */
-export const listHarvesterVolumesStandard = async (
-  params: HarvesterTestParams
-): Promise<any[]> => {
+export const listHarvesterVolumesStandard = async (params: HarvesterTestParams): Promise<any[]> => {
   const items = await listHarvesterPVCRaw(params);
   const base = (params.endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -106,13 +104,13 @@ export const listHarvesterVolumesStandard = async (
     const name = v?.metadata?.name || v?.name || '';
     const ns = v?.metadata?.namespace || v?.namespace || '';
     const viewUrl = `${origin}/api/v1/namespaces/${ns}/persistentvolumeclaims/${name}`;
-    
+
     return {
-        ...v,
-        links: {
-            ...(v.links || {}),
-            view: viewUrl
-        }
+      ...v,
+      links: {
+        ...(v.links || {}),
+        view: viewUrl,
+      },
     };
   });
 };
@@ -147,9 +145,7 @@ export function mapHarvesterPvcToAvailableVolumeItem(v: any): any {
   const workloads = v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
   const inUse =
     Array.isArray(workloads) &&
-    workloads.some(
-      (w: any) => String(w?.state || w?.podStatus || '').toLowerCase() === 'running',
-    );
+    workloads.some((w: any) => String(w?.state || w?.podStatus || '').toLowerCase() === 'running');
   const attached = state === 'attached' || inUse;
   const pvcName = v?.status?.kubernetesStatus?.pvcName || name;
   return {
@@ -167,10 +163,7 @@ export function mapHarvesterPvcToAvailableVolumeItem(v: any): any {
 /**
  * 筛选可挂到虚拟机的卷：Bound/可用阶段、无运行中 workload、未被任何 VM 引用。
  */
-export function filterHarvesterAvailableVolumeItems(
-  items: any[],
-  usedPvcSet: Set<string>,
-): any[] {
+export function filterHarvesterAvailableVolumeItems(items: any[], usedPvcSet: Set<string>): any[] {
   const blockedPhases = new Set(['lost', 'failed', 'terminating', 'pending', 'released']);
   const okPhases = new Set(['bound', 'available', 'detached', 'healthy']);
 
@@ -243,35 +236,37 @@ export const listHarvesterAvailableVolumesStandard = async (
       ? json?.items
       : [];
   const nsFilter = String(opts?.namespace || '').trim();
-  return items
-    .map((v: any) => {
-      const name =
-        v?.status?.kubernetesStatus?.volumeName || v?.name || v?.id || v?.metadata?.name || '';
-      const ns =
-        v?.status?.kubernetesStatus?.namespace || v?.metadata?.namespace || v?.namespace || '';
-      const size = v?.spec?.size || v?.size || 0;
-      const state = String(v?.status?.state || v?.state || '').toLowerCase();
-      const workloads = v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
-      const inUse =
-        Array.isArray(workloads) &&
-        workloads.some(
-          (w: any) => String(w?.state || w?.podStatus || '').toLowerCase() === 'running',
-        );
-      const attached = state === 'attached' || inUse;
-      const pvcName = v?.status?.kubernetesStatus?.pvcName || '';
-      return { 
-        name, 
-        pvcName, 
-        namespace: ns, 
-        size, 
-        state, 
-        attached,
-        workloadsStatus: workloads, // [修复] 保留 workloadsStatus 信息，用于过滤回收站虚拟机的卷
-      };
-    })
-    // [逻辑过滤] 仅保留未挂载且符合命名空间的卷
-    .filter((x: any) => !x.attached)
-    .filter((x: any) => !nsFilter || x.namespace === nsFilter);
+  return (
+    items
+      .map((v: any) => {
+        const name =
+          v?.status?.kubernetesStatus?.volumeName || v?.name || v?.id || v?.metadata?.name || '';
+        const ns =
+          v?.status?.kubernetesStatus?.namespace || v?.metadata?.namespace || v?.namespace || '';
+        const size = v?.spec?.size || v?.size || 0;
+        const state = String(v?.status?.state || v?.state || '').toLowerCase();
+        const workloads = v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
+        const inUse =
+          Array.isArray(workloads) &&
+          workloads.some(
+            (w: any) => String(w?.state || w?.podStatus || '').toLowerCase() === 'running',
+          );
+        const attached = state === 'attached' || inUse;
+        const pvcName = v?.status?.kubernetesStatus?.pvcName || '';
+        return {
+          name,
+          pvcName,
+          namespace: ns,
+          size,
+          state,
+          attached,
+          workloadsStatus: workloads, // [修复] 保留 workloadsStatus 信息，用于过滤回收站虚拟机的卷
+        };
+      })
+      // [逻辑过滤] 仅保留未挂载且符合命名空间的卷
+      .filter((x: any) => !x.attached)
+      .filter((x: any) => !nsFilter || x.namespace === nsFilter)
+  );
 };
 
 /**
@@ -327,14 +322,14 @@ export const listHarvesterStorageClassesStandard = async ({
       : [];
   return items
     .map((sc: any) => {
-        const name = sc?.metadata?.name || sc?.name || '';
-        return {
-            name,
-            provisioner: sc?.provisioner || sc?.driver || '',
-            links: {
-                view: `${origin}/apis/storage.k8s.io/v1/storageclasses/${name}`
-            }
-        };
+      const name = sc?.metadata?.name || sc?.name || '';
+      return {
+        name,
+        provisioner: sc?.provisioner || sc?.driver || '',
+        links: {
+          view: `${origin}/apis/storage.k8s.io/v1/storageclasses/${name}`,
+        },
+      };
     })
     .filter((x: any) => !!x.name);
 };
@@ -345,7 +340,8 @@ function isSystemStorageClassName(name: string): boolean {
   if (['vmstate-persistence', 'longhorn-static', 'harvester-longhorn'].includes(n)) return true;
   if (n.startsWith('image-')) return true;
   if (n.startsWith('longhorn-image-')) return true;
-  if (/^longhorn-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(n)) return true;
+  if (/^longhorn-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(n))
+    return true;
   if (n.startsWith('longhorn-') && /-[0-9]{13,}$/.test(n)) return true;
   return false;
 }
@@ -379,9 +375,7 @@ export function pickDefaultStorageClassNameFromRecords(storageClasses: any[]): s
   return storageClassRecordName(hit) || storageClassRecordName(pool[0]) || undefined;
 }
 
-async function listHarvesterStorageClassRecordsRaw(
-  params: HarvesterTestParams,
-): Promise<any[]> {
+async function listHarvesterStorageClassRecordsRaw(params: HarvesterTestParams): Promise<any[]> {
   const base = (params.endpoint || '').replace(/\/+$/, '');
   let origin = base;
   try {
@@ -407,11 +401,7 @@ async function listHarvesterStorageClassRecordsRaw(
     }
   }
   if (!json && lastErr) throw lastErr;
-  return Array.isArray(json?.data)
-    ? json.data
-    : Array.isArray(json?.items)
-      ? json.items
-      : [];
+  return Array.isArray(json?.data) ? json.data : Array.isArray(json?.items) ? json.items : [];
 }
 
 /**
@@ -425,10 +415,7 @@ export async function resolveHarvesterDefaultStorageClassName(
     const items = await listHarvesterStorageClassRecordsRaw(params);
     return pickDefaultStorageClassNameFromRecords(items) || fallback;
   } catch (e: any) {
-    harvesterStorageLog.debug(
-      '解析默认存储类失败，使用回退值',
-      e?.message ?? String(e),
-    );
+    harvesterStorageLog.debug('解析默认存储类失败，使用回退值', e?.message ?? String(e));
     return fallback;
   }
 }
@@ -461,7 +448,9 @@ export async function vmImageStorageClassParametersForName(
 export type VmImageStorageKind = 'longhorn' | 'ceph' | 'unknown';
 
 export function classifyVmImageStorageKindFromProvisioner(provisioner: string): VmImageStorageKind {
-  const pl = String(provisioner || '').trim().toLowerCase();
+  const pl = String(provisioner || '')
+    .trim()
+    .toLowerCase();
   if (!pl) return 'unknown';
   if (pl.includes('longhorn') || pl.includes('driver.longhorn.io')) return 'longhorn';
   if (
@@ -505,11 +494,20 @@ function storageClassNameFromPvcRecord(pvc: any): string {
   ).trim();
 }
 
-function classifyStorageKindFromStorageClassNameHeuristic(storageClassName: string): VmImageStorageKind {
-  const sc = String(storageClassName || '').trim().toLowerCase();
+function classifyStorageKindFromStorageClassNameHeuristic(
+  storageClassName: string,
+): VmImageStorageKind {
+  const sc = String(storageClassName || '')
+    .trim()
+    .toLowerCase();
   if (!sc) return 'unknown';
   if (sc.includes('longhorn')) return 'longhorn';
-  if (sc.includes('rook-ceph') || sc.includes('rook_ceph') || sc.includes('ceph') || sc.includes('rbd')) {
+  if (
+    sc.includes('rook-ceph') ||
+    sc.includes('rook_ceph') ||
+    sc.includes('ceph') ||
+    sc.includes('rbd')
+  ) {
     return 'ceph';
   }
   return 'unknown';
@@ -541,7 +539,9 @@ export async function resolveVolumeSnapshotClassForPvc(
       kind = await classifyVmImageStorageKindByClassName(params, sc);
       if (kind === 'unknown') kind = classifyStorageKindFromStorageClassNameHeuristic(sc);
     }
-    const prov = String(pvc?.metadata?.annotations?.['volume.kubernetes.io/storage-provisioner'] || '');
+    const prov = String(
+      pvc?.metadata?.annotations?.['volume.kubernetes.io/storage-provisioner'] || '',
+    );
     if (kind === 'unknown' && prov) kind = classifyVmImageStorageKindFromProvisioner(prov);
   } catch (e: any) {
     harvesterStorageLog.debug(
@@ -572,8 +572,9 @@ export async function resolveVmImageStorageProfile(
   const kind = await classifyVmImageStorageKindByClassName(params, storageClassName);
   const storageClassParameters =
     kind === 'longhorn'
-      ? (await vmImageStorageClassParametersForName(params, storageClassName)) ??
-        { ...DEFAULT_VM_IMAGE_LONGHORN_STORAGE_CLASS_PARAMS }
+      ? ((await vmImageStorageClassParametersForName(params, storageClassName)) ?? {
+          ...DEFAULT_VM_IMAGE_LONGHORN_STORAGE_CLASS_PARAMS,
+        })
       : undefined;
   return {
     storageClassName,
@@ -661,15 +662,15 @@ export const listHarvesterImagesRaw = async ({
 
   let candidates: string[] = [];
   if (namespace) {
-      candidates = [
-          `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${namespace}/virtualmachineimages`,
-          `${origin}/apis/harvesterhci.io/v1/namespaces/${namespace}/virtualmachineimages`,
-      ];
+    candidates = [
+      `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${namespace}/virtualmachineimages`,
+      `${origin}/apis/harvesterhci.io/v1/namespaces/${namespace}/virtualmachineimages`,
+    ];
   } else {
-      candidates = [
-          `${origin}/apis/harvesterhci.io/v1beta1/virtualmachineimages`,
-          `${origin}/apis/harvesterhci.io/v1/virtualmachineimages`,
-      ];
+    candidates = [
+      `${origin}/apis/harvesterhci.io/v1beta1/virtualmachineimages`,
+      `${origin}/apis/harvesterhci.io/v1/virtualmachineimages`,
+    ];
   }
 
   let json: any = null;
@@ -699,7 +700,7 @@ export const listHarvesterImagesRaw = async ({
     : Array.isArray(json?.items)
       ? json?.items
       : [];
-      
+
   return items;
 };
 
@@ -976,16 +977,16 @@ export const getHarvesterImage = async (
       // ignore
     }
   }
-  
+
   if (json) {
-     return {
-        name: json?.metadata?.name || json?.name || '',
-        namespace: json?.metadata?.namespace || json?.namespace || '',
-        displayName: json?.spec?.displayName || json?.spec?.name || '',
-        metadata: json?.metadata,
-        spec: json?.spec,
-        status: json?.status
-     };
+    return {
+      name: json?.metadata?.name || json?.name || '',
+      namespace: json?.metadata?.namespace || json?.namespace || '',
+      displayName: json?.spec?.displayName || json?.spec?.name || '',
+      metadata: json?.metadata,
+      spec: json?.spec,
+      status: json?.status,
+    };
   }
   return null;
 };
@@ -1081,16 +1082,16 @@ export const createVolumeSnapshot = async (
     origin = base.replace(/\/v[0-9].*$/, '');
   }
   const urlPath = `${origin}/apis/snapshot.storage.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/volumesnapshots`;
-  
+
   const metadata: any = {
     ...(opts?.name ? { name: opts.name } : { generateName: `${pvcName}-snap-` }),
     namespace,
   };
-  
+
   if (opts?.alias) {
-      metadata.annotations = {
-          'tower.io/alias': opts.alias
-      };
+    metadata.annotations = {
+      'tower.io/alias': opts.alias,
+    };
   }
 
   const resolvedSnapshotClass = await resolveVolumeSnapshotClassForPvc(
@@ -1410,8 +1411,6 @@ export const restoreVolumeSnapshot = async (
   return json;
 };
 
-
-
 /**
  * [创建命名空间]
  * 创建新的 Harvester 命名空间。
@@ -1521,13 +1520,17 @@ export const listHarvesterNamespacesRaw = async ({
   if (!json && lastErr) {
     throw lastErr;
   }
-  const items = Array.isArray(json?.items) ? json.items : (Array.isArray(json?.data) ? json.data : []);
-  
+  const items = Array.isArray(json?.items)
+    ? json.items
+    : Array.isArray(json?.data)
+      ? json.data
+      : [];
+
   return items.map((item: any) => {
     const name = item.metadata?.name || item.name;
     if (name) {
-       item.links = item.links || {};
-       item.links.view = `${origin}/api/v1/namespaces/${name}`;
+      item.links = item.links || {};
+      item.links.view = `${origin}/api/v1/namespaces/${name}`;
     }
     return item;
   });
@@ -1554,7 +1557,7 @@ export const createHarvesterVirtualMachineBackup = async (
     vmName: string;
     type: 'backup' | 'snapshot';
     alias?: string;
-  }
+  },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -1576,7 +1579,7 @@ export const createHarvesterVirtualMachineBackup = async (
       name: resourceName,
       namespace: namespace,
       annotations: {
-        'tower.io/alias': payload.name
+        'tower.io/alias': payload.name,
       },
     },
     spec: {
@@ -1586,7 +1589,7 @@ export const createHarvesterVirtualMachineBackup = async (
         kind: 'VirtualMachine',
         name: payload.vmName,
       },
-    }
+    },
   };
 
   return requestJson('POST', url, token, insecure, body);
@@ -1607,7 +1610,7 @@ export const createHarvesterVirtualMachineBackup = async (
 export const createHarvesterVirtualMachineRestore = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
-  payload: any
+  payload: any,
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -1617,7 +1620,7 @@ export const createHarvesterVirtualMachineRestore = async (
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   // Determine API Group from payload or default to harvesterhci.io
   let apiVersion = 'harvesterhci.io/v1beta1';
   if (payload?.apiVersion) {
@@ -1661,7 +1664,10 @@ export const listHarvesterVirtualMachineRestoresRaw = async ({
       }
     } catch (e: any) {
       if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
-        harvesterStorageLog.debug(`VM restore list candidate failed: ${url}`, e?.message ?? String(e));
+        harvesterStorageLog.debug(
+          `VM restore list candidate failed: ${url}`,
+          e?.message ?? String(e),
+        );
       }
     }
   }
@@ -1691,7 +1697,7 @@ export const deleteHarvesterVirtualMachineBackup = async (
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinebackups/${encodeURIComponent(name)}`;
   return requestJson('DELETE', url, token, insecure);
 };
@@ -1718,7 +1724,7 @@ export const deleteHarvesterVirtualMachineSnapshot = async (
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/virtualmachinesnapshots/${encodeURIComponent(name)}`;
   return requestJson('DELETE', url, token, insecure);
 };
@@ -1827,12 +1833,12 @@ export const listHarvesterSnapshotsStandard = async ({
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   // [版本兼容] Try v1beta1 first, then fallback to v1alpha1
   const candidates = [
     `${origin}/apis/harvesterhci.io/v1beta1/virtualmachinesnapshots`,
     `${origin}/apis/harvesterhci.io/v1alpha1/virtualmachinesnapshots`,
-    `${origin}/v1/harvester/harvesterhci.io.virtualmachinesnapshots`
+    `${origin}/v1/harvester/harvesterhci.io.virtualmachinesnapshots`,
   ];
 
   for (const url of candidates) {
@@ -1844,8 +1850,11 @@ export const listHarvesterSnapshotsStandard = async ({
     } catch (e: any) {
       // 404 means this version is not supported, continue to next
       if (Number(e?.status) !== 404 && !String(e?.message).includes('404')) {
-         // Log non-404 errors as warnings but don't crash
-         harvesterStorageLog.debug(`Snapshot list candidate failed: ${url}`, e?.message ?? String(e));
+        // Log non-404 errors as warnings but don't crash
+        harvesterStorageLog.debug(
+          `Snapshot list candidate failed: ${url}`,
+          e?.message ?? String(e),
+        );
       }
     }
   }
@@ -1919,7 +1928,7 @@ export const createHarvesterSshKey = async (
     name: string;
     publicKey: string;
     annotations?: Record<string, string>;
-  }
+  },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -1941,7 +1950,7 @@ export const createHarvesterSshKey = async (
     },
     spec: {
       publicKey: payload.publicKey,
-    }
+    },
   };
 
   return requestJson('POST', url, token, insecure, body);
@@ -1950,7 +1959,7 @@ export const createHarvesterSshKey = async (
 export const deleteHarvesterSshKey = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
-  name: string
+  name: string,
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -2008,10 +2017,7 @@ export const listHarvesterCloudInitsStandard = async ({
   }
 
   if (lastStatus && lastStatus !== 404) {
-    harvesterStorageLog.debug(
-      '获取 CloudInitTemplates 失败（非 404，已返回空列表）',
-      lastStatus,
-    );
+    harvesterStorageLog.debug('获取 CloudInitTemplates 失败（非 404，已返回空列表）', lastStatus);
   } else {
     harvesterStorageLog.debug(
       'CloudInitTemplates API 不可用或为空（404 常见于集群未注册该资源；VM 仍可使用内联 CloudInit）',
@@ -2100,7 +2106,7 @@ export const createHarvesterScheduleVmBackup = async (
     maxFailure: number;
     suspend: boolean;
     type?: 'backup' | 'snapshot';
-  }
+  },
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -2110,7 +2116,7 @@ export const createHarvesterScheduleVmBackup = async (
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const resourceName = `id-svmb-${Math.random().toString(36).substring(2, 18)}`;
   const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/schedulevmbackups`;
 
@@ -2121,8 +2127,8 @@ export const createHarvesterScheduleVmBackup = async (
       name: resourceName,
       namespace: namespace,
       annotations: {
-        'tower.io/alias': payload.name
-      }
+        'tower.io/alias': payload.name,
+      },
     },
     spec: {
       cron: payload.cron,
@@ -2133,11 +2139,11 @@ export const createHarvesterScheduleVmBackup = async (
         source: {
           apiGroup: 'kubevirt.io',
           kind: 'VirtualMachine',
-          name: payload.vmName
+          name: payload.vmName,
         },
-        type: payload.type || 'backup'
-      }
-    }
+        type: payload.type || 'backup',
+      },
+    },
   };
 
   return requestJson('POST', url, token, insecure, body);
@@ -2162,7 +2168,7 @@ export const updateHarvesterScheduleVmBackup = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   namespace: string,
   name: string,
-  payload: any
+  payload: any,
 ): Promise<any> => {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
@@ -2172,9 +2178,9 @@ export const updateHarvesterScheduleVmBackup = async (
   } catch {
     origin = base.replace(/\/v[0-9].*$/, '');
   }
-  
+
   const url = `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(namespace)}/schedulevmbackups/${encodeURIComponent(name)}`;
-  
+
   // 1. Get existing resource
   const existing = await getJsonOnce(url, token, insecure);
   if (!existing) throw new Error('ScheduleVmBackup not found');
@@ -2182,16 +2188,16 @@ export const updateHarvesterScheduleVmBackup = async (
   // 2. Merge changes
   const updated = { ...existing };
   if (!updated.spec) updated.spec = {};
-  
+
   if (payload.cron !== undefined) updated.spec.cron = payload.cron;
   if (payload.retain !== undefined) updated.spec.retain = payload.retain;
   if (payload.maxFailure !== undefined) updated.spec.maxFailure = payload.maxFailure;
   if (payload.suspend !== undefined) updated.spec.suspend = payload.suspend;
-  
+
   if (payload.annotations) {
     updated.metadata.annotations = {
       ...(updated.metadata.annotations || {}),
-      ...payload.annotations
+      ...payload.annotations,
     };
   }
 

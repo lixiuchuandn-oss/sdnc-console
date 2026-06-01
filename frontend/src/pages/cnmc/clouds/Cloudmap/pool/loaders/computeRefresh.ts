@@ -25,39 +25,39 @@ export type ComputeTabRefreshDeps = {
 export function createComputeTabOnRefresh(
   tab: ComputeInnerTabKey,
   deps: ComputeTabRefreshDeps,
-): (force?: boolean, _silent?: boolean) => void {
+): (force?: boolean, _silent?: boolean) => void | Promise<void> {
   const { loadTabResource, refreshVmSectionAuxiliaries } = deps;
 
   switch (tab) {
     case 'ecs':
-      return (force?: boolean) => {
+      return async (force?: boolean) => {
         const shouldForce = force !== false;
-        void loadTabResource('ecs', shouldForce);
+        await loadTabResource('ecs', shouldForce);
         if (shouldForce) refreshVmSectionAuxiliaries?.();
       };
     case 'recycle_bin':
-      return (force?: boolean) => {
-        void loadTabResource('ecs', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('ecs', force !== false);
       };
     case 'images':
-      return (force?: boolean) => {
-        void loadTabResource('images', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('images', force !== false);
       };
     case 'templates':
-      return () => {
-        void loadTabResource('templates', true);
+      return async () => {
+        await loadTabResource('templates', true);
       };
     case 'ssh_keys':
-      return () => {
-        void loadTabResource('ssh_keys', true);
+      return async () => {
+        await loadTabResource('ssh_keys', true);
       };
     case 'cloud_inits':
-      return () => {
-        void loadTabResource('cloud_inits', true);
+      return async () => {
+        await loadTabResource('cloud_inits', true);
       };
     case 'migrations':
-      return (force?: boolean) => {
-        void loadTabResource('migrations', force !== false);
+      return async (force?: boolean) => {
+        await loadTabResource('migrations', force !== false);
       };
     default:
       return () => {};

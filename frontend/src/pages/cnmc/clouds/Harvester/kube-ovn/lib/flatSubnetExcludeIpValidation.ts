@@ -112,7 +112,7 @@ function vmIpsAggregated(vm: any): string[] {
 
 export type FlatExcludeValidationResult = { ok: true } | { ok: false; message: string };
 
-/** 单行 IPv4 与 CIDR；含 `..` 的区间写法仅做重复项检查，交后端 / 集群 */
+/** 单行 IPv4 与 CIDR；含 `..` 的区间须起止地址均在 CIDR 内且起始 ≤ 结束 */
 export function validateFlatSubnetExcludeIpsLocal(
   cidr: string,
   excludeIps: string[],
@@ -138,7 +138,37 @@ export function validateFlatSubnetExcludeIpsLocal(
   }
 
   for (const item of excludeIps) {
-    if (item.includes('..')) continue;
+    if (item.includes('..')) {
+      const parts = item.split('..').map((s) => s.trim());
+      if (parts.length !== 2) {
+        return {
+          ok: false,
+          message: `排除 IP「${item}」格式无效（区间请使用 .. 连接两个 IPv4）`,
+        };
+      }
+      const [startIp, endIp] = parts;
+      if (!IPV4_HOST.test(startIp) || !IPV4_HOST.test(endIp)) {
+        return {
+          ok: false,
+          message: `排除 IP「${item}」不是有效的 IPv4 区间`,
+        };
+      }
+      const startN = ipv4ToLong(startIp);
+      const endN = ipv4ToLong(endIp);
+      if (startN > endN) {
+        return {
+          ok: false,
+          message: `排除 IP 区间「${item}」起始地址不能大于结束地址`,
+        };
+      }
+      if (startN < range.start || startN > range.end || endN < range.start || endN > range.end) {
+        return {
+          ok: false,
+          message: `排除 IP 区间「${item}」不在子网 CIDR「${cidrTrim}」范围内`,
+        };
+      }
+      continue;
+    }
     if (!IPV4_HOST.test(item)) {
       return {
         ok: false,

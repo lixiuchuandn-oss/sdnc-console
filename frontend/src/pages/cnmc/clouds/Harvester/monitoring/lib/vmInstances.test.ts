@@ -60,4 +60,27 @@ describe('vmInstances', () => {
     });
     expect(summary.segments.find((s) => s.key === 'other')?.value).toBe(1);
   });
+
+  it('builds namespace and node summaries', () => {
+    const summary = parseVMInstancesToStatusCounts(
+      {
+        items: [vm('vm-a', 'ns-a'), vm('vm-b', 'ns-a'), vm('vm-c', 'ns-b')],
+      },
+      {
+        items: [
+          vmi('vm-a', 'ns-a', { status: { phase: 'Running', nodeName: 'node-1' } }),
+          vmi('vm-b', 'ns-a', { status: { phase: 'Running', nodeName: 'node-2' } }),
+        ],
+      },
+    );
+    expect(summary.namespaceSummary).toEqual([
+      { name: 'ns-a', value: 2 },
+      { name: 'ns-b', value: 1 },
+    ]);
+    expect(summary.nodeSummary).toEqual([
+      { name: 'node-1', value: 1 },
+      { name: 'node-2', value: 1 },
+      { name: '未分配节点', value: 1 },
+    ]);
+  });
 });

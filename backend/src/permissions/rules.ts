@@ -95,8 +95,4 @@ export const INHERITANCE_RULES: InheritanceRule[] = [
       to: 'write',
     },
   },
-
-  // 自定义：clouds.console:read 包含所有 clouds.*:read（多云资源）
-  // 注意：这个规则在 PermissionChecker 中特殊处理，因为需要反向匹配
-  // 这里先不定义，在检查逻辑中处理
 ];

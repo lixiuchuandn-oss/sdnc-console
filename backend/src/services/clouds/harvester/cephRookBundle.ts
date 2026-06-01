@@ -13,7 +13,9 @@ function normalizeOrigin(endpoint: string): string {
     const u = new URL(endpoint);
     return `${u.protocol}//${u.host}`;
   } catch {
-    return String(endpoint || '').replace(/\/+$/, '').replace(/\/v[0-9].*$/, '');
+    return String(endpoint || '')
+      .replace(/\/+$/, '')
+      .replace(/\/v[0-9].*$/, '');
   }
 }
 
@@ -69,10 +71,19 @@ export async function fetchSteveRookListItems(
 const ROOK_STEVE_JOBS = [
   ['clusters', ['cephclusters.ceph.rook.io', 'ceph.rook.io.cephclusters']],
   ['blockPools', ['cephblockpools.ceph.rook.io', 'ceph.rook.io.cephblockpools']],
-  ['radosNamespaces', ['cephblockpoolradosnamespaces.ceph.rook.io', 'ceph.rook.io.cephblockpoolradosnamespaces']],
+  [
+    'radosNamespaces',
+    ['cephblockpoolradosnamespaces.ceph.rook.io', 'ceph.rook.io.cephblockpoolradosnamespaces'],
+  ],
   ['filesystems', ['cephfilesystems.ceph.rook.io', 'ceph.rook.io.cephfilesystems']],
-  ['filesystemSubvolumeGroups', ['cephfilesystemsubvolumegroups.ceph.rook.io', 'ceph.rook.io.cephfilesystemsubvolumegroups'],],
-  ['filesystemMirrors', ['cephfilesystemmirrors.ceph.rook.io', 'ceph.rook.io.cephfilesystemmirrors']],
+  [
+    'filesystemSubvolumeGroups',
+    ['cephfilesystemsubvolumegroups.ceph.rook.io', 'ceph.rook.io.cephfilesystemsubvolumegroups'],
+  ],
+  [
+    'filesystemMirrors',
+    ['cephfilesystemmirrors.ceph.rook.io', 'ceph.rook.io.cephfilesystemmirrors'],
+  ],
   ['nfses', ['cephnfses.ceph.rook.io', 'ceph.rook.io.cephnfses']],
   ['objectStores', ['cephobjectstores.ceph.rook.io', 'ceph.rook.io.cephobjectstores']],
   ['objectStoreUsers', ['cephobjectstoreusers.ceph.rook.io', 'ceph.rook.io.cephobjectstoreusers']],
@@ -80,7 +91,10 @@ const ROOK_STEVE_JOBS = [
   ['objectZones', ['cephobjectzones.ceph.rook.io', 'ceph.rook.io.cephobjectzones']],
   ['objectZoneGroups', ['cephobjectzonegroups.ceph.rook.io', 'ceph.rook.io.cephobjectzonegroups']],
   ['bucketTopics', ['cephbuckettopics.ceph.rook.io', 'ceph.rook.io.cephbuckettopics']],
-  ['bucketNotifications', ['cephbucketnotifications.ceph.rook.io', 'ceph.rook.io.cephbucketnotifications']],
+  [
+    'bucketNotifications',
+    ['cephbucketnotifications.ceph.rook.io', 'ceph.rook.io.cephbucketnotifications'],
+  ],
   ['cephClients', ['cephclients.ceph.rook.io', 'ceph.rook.io.cephclients']],
   ['cosiDrivers', ['cephcosidrivers.ceph.rook.io', 'ceph.rook.io.cephcosidrivers']],
   ['rbdMirrors', ['cephrbdmirrors.ceph.rook.io', 'ceph.rook.io.cephrbdmirrors']],
@@ -107,7 +121,9 @@ export function emptyCephRookBundle(): CephRookResourceBundle {
 /**
  * 拉取 Rook Ceph 相关 Steve 列表并聚合为一块 JSON（`monitoring/ceph-resources` 与 `/ceph/rook/bundle` 同源）。
  */
-export async function fetchCephRookResourceBundle(cloud: CephRookBundleCloudInput): Promise<CephRookResourceBundle> {
+export async function fetchCephRookResourceBundle(
+  cloud: CephRookBundleCloudInput,
+): Promise<CephRookResourceBundle> {
   const insecure = !!cloud.config?.ignoreTls;
   const origin = normalizeOrigin(cloud.endpoint || '');
   const token = resolveHarvesterCloudKubeToken(cloud);

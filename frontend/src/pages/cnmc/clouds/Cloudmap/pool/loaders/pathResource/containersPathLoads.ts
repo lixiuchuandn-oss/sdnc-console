@@ -62,7 +62,7 @@ export async function tryLoadContainerTab(
   switch (key) {
     case 'containers':
       if (canViewAnyContainerSubPage(checkPerm)) {
-        loadResource(
+        await loadResource(
           'deployments',
           () => fetchHarvesterDeployments(cloudId, undefined, force),
           (json) => {
@@ -71,7 +71,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'statefulsets',
           () => fetchHarvesterStatefulSets(cloudId, undefined, force),
           (json) => {
@@ -80,7 +80,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'daemonsets',
           () => fetchHarvesterDaemonSets(cloudId, undefined, force),
           (json) => {
@@ -89,7 +89,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'pods',
           () => fetchHarvesterPods(cloudId, undefined, force),
           (json) => {
@@ -98,7 +98,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'jobs',
           () => fetchHarvesterJobs(cloudId, undefined, force),
           (json) => {
@@ -107,7 +107,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'cronjobs',
           () => fetchHarvesterCronJobs(cloudId, undefined, force),
           (json) => {
@@ -116,7 +116,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'services',
           () => fetchHarvesterServices(cloudId, force),
           (json) => {
@@ -128,7 +128,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'ingresses',
           () => fetchHarvesterIngresses(cloudId, force),
           (json) => {
@@ -140,7 +140,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'configmaps',
           () => fetchHarvesterConfigMaps(cloudId, undefined, force),
           (json) => {
@@ -149,7 +149,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'secrets',
           () =>
             fetchHarvesterSecrets(cloudId, undefined, undefined, force),
@@ -159,7 +159,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'imagePullSecrets',
           () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
           (json) => {
@@ -168,7 +168,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'pdbs',
           () => fetchHarvesterPDBs(cloudId, undefined, force),
           (json) => {
@@ -177,7 +177,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'networkpolicies',
           () => fetchNetworkPolicies(cloudId, undefined, force),
           (json) => {
@@ -190,7 +190,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'workloads':
       if (canReadContainerTab(checkPerm, 'workloads')) {
-        loadResource(
+        await loadResource(
           'deployments',
           () => fetchHarvesterDeployments(cloudId, undefined, force),
           (json) => {
@@ -199,7 +199,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'statefulsets',
           () => fetchHarvesterStatefulSets(cloudId, undefined, force),
           (json) => {
@@ -208,7 +208,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'daemonsets',
           () => fetchHarvesterDaemonSets(cloudId, undefined, force),
           (json) => {
@@ -217,7 +217,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'imagePullSecrets',
           () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
           (json) => {
@@ -226,7 +226,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'secrets',
           () =>
             fetchHarvesterSecrets(cloudId, undefined, undefined, force),
@@ -240,7 +240,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'pods':
       if (canReadContainerTab(checkPerm, 'pods')) {
-        loadResource(
+        await loadResource(
           'pods',
           () => fetchHarvesterPods(cloudId, undefined, force),
           (json) => {
@@ -253,7 +253,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'jobs':
       if (canReadContainerTab(checkPerm, 'jobs')) {
-        loadResource(
+        await loadResource(
           'jobs',
           () => fetchHarvesterJobs(cloudId, undefined, force),
           (json) => {
@@ -262,7 +262,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'cronjobs',
           () => fetchHarvesterCronJobs(cloudId, undefined, force),
           (json) => {
@@ -272,7 +272,7 @@ export async function tryLoadContainerTab(
           force,
         );
         if (!loadedRef.current.has('imagePullSecrets')) {
-          loadResource(
+          await loadResource(
             'imagePullSecrets',
             () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
             (json) => {
@@ -283,7 +283,7 @@ export async function tryLoadContainerTab(
           );
         }
         if (!loadedRef.current.has('secrets')) {
-          loadResource(
+          await loadResource(
             'secrets',
             () => fetchHarvesterSecrets(cloudId),
             (json) => {
@@ -297,7 +297,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'configs':
       if (canReadContainerTab(checkPerm, 'configs')) {
-        loadResource(
+        await loadResource(
           'configmaps',
           () => fetchHarvesterConfigMaps(cloudId, undefined, force),
           (json) => {
@@ -306,7 +306,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'secrets',
           () =>
             fetchHarvesterSecrets(cloudId, undefined, undefined, force),
@@ -320,7 +320,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'ingresses':
       if (canReadContainerTab(checkPerm, 'ingresses')) {
-        loadResource(
+        await loadResource(
           'ingresses',
           () => fetchHarvesterIngresses(cloudId, force),
           (json) => {
@@ -335,12 +335,8 @@ export async function tryLoadContainerTab(
       }
       return true;
     case 'services':
-      if (
-        checkPerm('clouds.cluster-services:read') ||
-        checkPerm('clouds.services:read') ||
-        canReadContainerTab(checkPerm, 'services')
-      ) {
-        loadResource(
+      if (canReadContainerTab(checkPerm, 'services')) {
+        await loadResource(
           'services',
           () => fetchHarvesterServices(cloudId, force),
           (json) => {
@@ -364,7 +360,7 @@ export async function tryLoadContainerTab(
           setHarvesterImagePullSecrets(dockerSecrets);
           loadedRef.current.add('imagePullSecrets');
         } else {
-          loadResource(
+          await loadResource(
             'imagePullSecrets',
             () => fetchHarvesterImagePullSecrets(cloudId, undefined, force),
             (json) => {
@@ -374,20 +370,11 @@ export async function tryLoadContainerTab(
             force,
           );
         }
-        loadResource(
-          'pdbs',
-          () => fetchHarvesterPDBs(cloudId, undefined, force),
-          (json) => {
-            const list: any[] = (json as any)?.data?.items || [];
-            setHarvesterPDBs(Array.isArray(list) ? list : []);
-          },
-          force,
-        );
       }
       return true;
     case 'gateway_api':
       if (canReadContainerTab(checkPerm, 'gateway_api')) {
-        loadResource(
+        await loadResource(
           'gatewayApiStatus',
           () => checkGatewayApiStatus(cloudId),
           (json) => {
@@ -395,7 +382,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'gatewayClasses',
           () => fetchGatewayClasses(cloudId),
           (json) => {
@@ -404,7 +391,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'gateways',
           () => fetchGateways(cloudId),
           (json) => {
@@ -413,7 +400,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'httpRoutes',
           () => fetchHttpRoutes(cloudId),
           (json) => {
@@ -422,7 +409,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'grpcRoutes',
           () => fetchGrpcRoutes(cloudId),
           (json) => {
@@ -435,7 +422,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'pdbs':
       if (canReadContainerTab(checkPerm, 'pdbs')) {
-        loadResource(
+        await loadResource(
           'pdbs',
           () => fetchHarvesterPDBs(cloudId, undefined, force),
           (json) => {
@@ -448,7 +435,7 @@ export async function tryLoadContainerTab(
       return true;
     case 'networkpolicies':
       if (canReadContainerTab(checkPerm, 'networkpolicies')) {
-        loadResource(
+        await loadResource(
           'networkpolicies',
           () => fetchNetworkPolicies(cloudId, undefined, force),
           (json) => {
@@ -465,7 +452,7 @@ export async function tryLoadContainerTab(
         canReadContainerTab(checkPerm, 'ingresses') &&
         canReadContainerTab(checkPerm, 'pods')
       ) {
-        loadResource(
+        await loadResource(
           'ingresses',
           () => fetchHarvesterIngresses(cloudId, force),
           (json) => {
@@ -477,7 +464,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'services',
           () => fetchHarvesterServices(cloudId, force),
           (json) => {
@@ -489,7 +476,7 @@ export async function tryLoadContainerTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'pods',
           () => fetchHarvesterPods(cloudId, undefined, force),
           (json) => {
