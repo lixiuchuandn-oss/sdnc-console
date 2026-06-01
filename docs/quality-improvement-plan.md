@@ -10,7 +10,7 @@
 | ------ | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                        |
 | **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                        |
-| **P2** | 巨型文件按主题拆分                    | **container 已完成**（~55 行）；**aliyun 进行中**（ECS+网络；主文件 ~1.3k）           |
+| **P2** | 巨型文件按主题拆分                    | **container 已完成**；**aliyun 进行中**（+RDS；主文件 ~790 行）                       |
 | **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载 |
 | **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health)`** workflow（`GET /health`）         |
 
@@ -56,13 +56,13 @@ npx tsc
 
 按「改动频率 × 行数」优先，每次只拆一个主题，保证 PR 可审。
 
-| 优先级 | 文件（约行数）                                                      | 建议拆法                                                                            |
-| ------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | **已完成**：`shared`～`docker-registry` / `containerd-registry`；主文件 ~55 行装配  |
-| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | **进行中**：`shared`+`ecs`+`network`；主文件 ~1.3k；后续 RDS/监控/磁盘镜像/密钥对等 |
-| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | 按操作（patch/disks/network）拆 `vm_update/*.ts`                                    |
-| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                                            |
-| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                                       |
+| 优先级 | 文件（约行数）                                                      | 建议拆法                                                                           |
+| ------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | **已完成**：`shared`～`docker-registry` / `containerd-registry`；主文件 ~55 行装配 |
+| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | **进行中**：`shared`+`ecs`+`network`+`rds`；主文件 ~790 行；后续监控/存储/密钥对等 |
+| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | 按操作（patch/disks/network）拆 `vm_update/*.ts`                                   |
+| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                                           |
+| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                                      |
 
 ### 单 PR 检查项
 
