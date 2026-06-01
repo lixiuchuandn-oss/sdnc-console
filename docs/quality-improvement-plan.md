@@ -78,7 +78,7 @@ npx tsc
 1. `npx source-map-explorer 'build/static/js/*.js'`（需先 `react-scripts build`）
 2. 对 >500KB 的 chunk 做路由级 `React.lazy`
 3. 复核 `echarts`、`@ant-design/charts` 是否可按页动态 import
-4. **池内 Tab 懒加载**：`Harvester/containers/lazySections.tsx`（容器）、`Harvester/ecs/lazySections.tsx`（计算）— Cloudmap 池面板 / 租户控制台；避免未进 Tab 即拉 `WorkloadForm`、`VmSection` 等
+4. **池内 Tab 懒加载**：`containers/lazySections`、`ecs/lazySections`（Cloudmap 池）；`console/lib/lazyMainPanelSections`（租户控制台云盘/备份/网络等）— 避免未进 Tab 即拉重模块
 
 ---
 

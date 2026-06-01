@@ -9,7 +9,6 @@ import { useAuth } from '../../../../contexts/AuthContext';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
 import {
-  EcsSectionSuspense,
   LazyVmSection,
   LazyRecycleBinSection,
   LazyTemplatesSection,
@@ -17,17 +16,20 @@ import {
   LazyCloudInitsSection,
   LazyImagesSection,
 } from '../../clouds/Harvester/ecs/lazySections';
-import VolumesSection from '../../clouds/Harvester/ebs/sections/VolumesSection';
-import BackupsSection from '../../clouds/Harvester/cbr/sections/BackupsSection';
-import ScheduleVmBackupsSection from '../../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
-import VmRestoreTasksSection from '../../clouds/Harvester/cbr/sections/VmRestoreTasksSection';
-import SnapshotsSection from '../../clouds/Harvester/ebs/sections/SnapshotsSection';
-import GpuSection from '../../clouds/Harvester/cluster/sections/GpusSection';
-import EipSection from '../../clouds/Harvester/kube-ovn/sections/EipSection';
-import SnatSection from '../../clouds/Harvester/kube-ovn/sections/SnatSection';
-import DnatSection from '../../clouds/Harvester/kube-ovn/sections/DnatSection';
-import VpcsSection from '../../clouds/Harvester/kube-ovn/sections/VpcsSection';
-import UnderlaySubnetsSection from '../../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
+import {
+  ConsoleMainPanelSectionSuspense,
+  LazyVolumesSection,
+  LazySnapshotsSection,
+  LazyBackupsSection,
+  LazyScheduleVmBackupsSection,
+  LazyVmRestoreTasksSection,
+  LazyGpuSection,
+  LazyEipSection,
+  LazySnatSection,
+  LazyDnatSection,
+  LazyVpcsSection,
+  LazyUnderlaySubnetsSection,
+} from '../lib/lazyMainPanelSections';
 import type { BackupsSectionOnRefresh } from '../../clouds/Cloudmap/pool/loaders/backupsRefresh';
 import {
   buildMainNavCategories,
@@ -357,7 +359,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'gpu':
         return (
-          <GpuSection
+          <LazyGpuSection
             cloudId={cloudId}
             resources={gpus}
             loading={loading}
@@ -368,7 +370,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'volume':
         return (
-          <VolumesSection
+          <LazyVolumesSection
             volumes={volumes}
             loading={loading}
             onRefresh={onRefreshVolumes}
@@ -382,7 +384,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'volume-snapshot':
         return (
-          <SnapshotsSection
+          <LazySnapshotsSection
             snapshots={snapshots}
             loading={loading}
             onRefresh={onRefreshSnapshots}
@@ -405,7 +407,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'snapshot':
         return (
-          <BackupsSection
+          <LazyBackupsSection
             backups={backups}
             loading={loading}
             onRefresh={backupsTabOnRefresh?.vm_snapshots}
@@ -418,7 +420,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'backup':
         return (
-          <BackupsSection
+          <LazyBackupsSection
             backups={backups}
             loading={loading}
             onRefresh={backupsTabOnRefresh?.backups}
@@ -430,7 +432,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'schedule':
         return (
-          <ScheduleVmBackupsSection
+          <LazyScheduleVmBackupsSection
             data={schedules}
             loading={loading}
             onRefresh={backupsTabOnRefresh?.schedule_vm_backups}
@@ -441,7 +443,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'restore-task':
         return (
-          <VmRestoreTasksSection
+          <LazyVmRestoreTasksSection
             cloudId={cloudId}
             isTenant={isTenantUser}
             vms={vms}
@@ -451,11 +453,11 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'flat-subnet':
         return (
-          <UnderlaySubnetsSection cloudId={cloudId} mode="flat" displayMode="standard" showYaml={showYaml} />
+          <LazyUnderlaySubnetsSection cloudId={cloudId} mode="flat" displayMode="standard" showYaml={showYaml} />
         );
       case 'vpc-subnet':
         return (
-          <VpcsSection
+          <LazyVpcsSection
             cloudId={cloudId}
             vpcs={vpcs}
             subnets={subnets}
@@ -468,7 +470,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'eip':
         return (
-          <EipSection
+          <LazyEipSection
             cloudId={cloudId}
             networkScope="vpc"
             eips={eips}
@@ -480,7 +482,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'snat':
         return (
-          <SnatSection
+          <LazySnatSection
             cloudId={cloudId}
             networkScope="vpc"
             snatRules={snatRules}
@@ -493,7 +495,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'dnat':
         return (
-          <DnatSection
+          <LazyDnatSection
             cloudId={cloudId}
             networkScope="vpc"
             dnatRules={dnatRules}
@@ -580,7 +582,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
   return (
     <div className="cloud-console-panel-root">
-      <EcsSectionSuspense>{renderContent()}</EcsSectionSuspense>
+      <ConsoleMainPanelSectionSuspense>{renderContent()}</ConsoleMainPanelSectionSuspense>
     </div>
   );
 };
