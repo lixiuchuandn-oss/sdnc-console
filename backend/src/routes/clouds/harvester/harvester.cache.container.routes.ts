@@ -2238,7 +2238,55 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
           }
         }
 
-        // Step 2: 创建 Harbor 镜像拉取密钥
+        // Step 2: 创建镜像导入 Job（使用 skopeo 从可访问的仓库复制）
+        try {
+          // 先删除旧 Job
+          try {
+            const deleteJobUrl = `${origin}/apis/batch/v1/namespaces/nginx-gateway/jobs/image-import`;
+            await requestJson('DELETE', deleteJobUrl, token, insecure);
+          } catch (e) {
+            // 忽略
+          }
+
+          const jobUrl = `${origin}/apis/batch/v1/namespaces/nginx-gateway/jobs`;
+          const jobBody = {
+            apiVersion: 'batch/v1',
+            kind: 'Job',
+            metadata: {
+              name: 'image-import',
+              namespace: 'nginx-gateway',
+            },
+            spec: {
+              template: {
+                spec: {
+                  containers: [
+                    {
+                      name: 'skopeo',
+                      image: 'quay.io/skopeo/stable:latest',
+                      command: ['/bin/sh', '-c'],
+                      args: [
+                        `skopeo copy --src-tls-verify=false --dest-tls-verify=false \
+                          docker://cloudhci.harbor.local/library/nginx-gateway-fabric:1.4.0 \
+                          docker://172.16.3.79:30500/nginx-gateway-fabric:1.4.0 || \
+                        skopeo copy --src-tls-verify=false --dest-tls-verify=false \
+                          docker://10.21.33.33/library/nginx-gateway-fabric:1.4.0 \
+                          docker://172.16.3.79:30500/nginx-gateway-fabric:1.4.0 || \
+                        echo "Image copy failed, will use direct pull"`,
+                      ],
+                    },
+                  ],
+                  restartPolicy: 'OnFailure',
+                },
+              },
+            },
+          };
+          await requestJson('POST', jobUrl, token, insecure, jobBody);
+          results.push({ step: '创建镜像导入 Job', status: 'success', message: 'Job 已创建，正在复制镜像' });
+        } catch (error: any) {
+          results.push({ step: '创建镜像导入 Job', status: 'error', message: error.message });
+        }
+
+        // Step 4: 创建 Harbor 镜像拉取密钥（用于本地仓库）
         try {
           const secretUrl = `${origin}/api/v1/namespaces/nginx-gateway/secrets`;
           // Base64 编码 Docker 配置 - 使用 Harbor IP 地址
@@ -2334,7 +2382,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   containers: [
                     {
                       name: 'nginx-gateway',
-                      image: '10.21.33.33/library/nginx-gateway-fabric:1.4.0',
+                      image: '172.16.3.79:30500/nginx-gateway-fabric:1.4.0',
                       ports: [
                         { containerPort: 80, name: 'http' },
                         { containerPort: 443, name: 'https' },
@@ -2349,9 +2397,6 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                     },
                   ],
                   serviceAccountName: 'nginx-gateway',
-                  imagePullSecrets: [
-                    { name: 'harbor-registry' },
-                  ],
                 },
               },
             },
