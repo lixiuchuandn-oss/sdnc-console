@@ -2261,17 +2261,18 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                 spec: {
                   containers: [
                     {
-                      name: 'skopeo',
-                      image: 'quay.io/skopeo/stable:latest',
+                      name: 'image-copy',
+                      image: '172.16.3.79:30500/alpine:latest',
                       command: ['/bin/sh', '-c'],
                       args: [
-                        `skopeo copy --src-tls-verify=false --dest-tls-verify=false \
-                          docker://cloudhci.harbor.local/library/nginx-gateway-fabric:1.4.0 \
-                          docker://172.16.3.79:30500/nginx-gateway-fabric:1.4.0 || \
-                        skopeo copy --src-tls-verify=false --dest-tls-verify=false \
+                        `set -e
+                        apk add --no-cache curl
+                        curl -L -o /tmp/skopeo https://github.com/lework/skopeo-binary/releases/download/v1.15.2/skopeo-linux-amd64
+                        chmod +x /tmp/skopeo
+                        /tmp/skopeo copy --src-tls-verify=false --dest-tls-verify=false \
                           docker://10.21.33.33/library/nginx-gateway-fabric:1.4.0 \
-                          docker://172.16.3.79:30500/nginx-gateway-fabric:1.4.0 || \
-                        echo "Image copy failed, will use direct pull"`,
+                          docker://172.16.3.79:30500/nginx-gateway-fabric:1.4.0 && \
+                        echo "Image copy success" || echo "Image copy failed"`,
                       ],
                     },
                   ],
