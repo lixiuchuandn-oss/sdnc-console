@@ -2238,7 +2238,42 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
           }
         }
 
-        // Step 2: 创建 ServiceAccount
+        // Step 2: 创建 Harbor 镜像拉取密钥
+        try {
+          const secretUrl = `${origin}/api/v1/namespaces/nginx-gateway/secrets`;
+          // Base64 编码 Docker 配置
+          const dockerConfig = {
+            auths: {
+              'cloudhci.harbor.local': {
+                username: 'admin',
+                password: 'Harbor12345',
+                auth: Buffer.from('admin:Harbor12345').toString('base64'),
+              },
+            },
+          };
+          const secretBody = {
+            apiVersion: 'v1',
+            kind: 'Secret',
+            metadata: {
+              name: 'harbor-registry',
+              namespace: 'nginx-gateway',
+            },
+            type: 'kubernetes.io/dockerconfigjson',
+            data: {
+              '.dockerconfigjson': Buffer.from(JSON.stringify(dockerConfig)).toString('base64'),
+            },
+          };
+          await requestJson('POST', secretUrl, token, insecure, secretBody);
+          results.push({ step: '创建镜像拉取密钥', status: 'success' });
+        } catch (error: any) {
+          if ((typeof error?.body === 'string' && error.body.includes('AlreadyExists')) || error?.message?.includes('AlreadyExists')) {
+            results.push({ step: '创建镜像拉取密钥', status: 'skipped', message: '已存在' });
+          } else {
+            results.push({ step: '创建镜像拉取密钥', status: 'error', message: error.message });
+          }
+        }
+
+        // Step 3: 创建 ServiceAccount
         try {
           const saUrl = `${origin}/api/v1/namespaces/nginx-gateway/serviceaccounts`;
           const saBody = {
@@ -2314,6 +2349,9 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                     },
                   ],
                   serviceAccountName: 'nginx-gateway',
+                  imagePullSecrets: [
+                    { name: 'harbor-registry' },
+                  ],
                 },
               },
             },
