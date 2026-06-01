@@ -332,6 +332,22 @@ function filterOutSystemLrpEips(items: any[]): any[] {
   });
 }
 
+function ovnEipV4IpValue(item: any): string {
+  return String(item?.spec?.v4Ip ?? item?.status?.v4Ip ?? '').trim();
+}
+
+function ovnEipScopeDisplayLabel(scope: OvnNetworkScope): string {
+  return scope === 'vpc' ? 'VPC网络' : '扁平网络';
+}
+
+function formatOvnEipV4IpConflictMessage(existing: any): string {
+  const alias = String(existing?.metadata?.annotations?.[TOWER_IO_ALIAS] ?? '').trim();
+  const name = String(existing?.metadata?.name ?? '').trim();
+  const label = alias || name || '—';
+  const scopeLabel = ovnEipScopeDisplayLabel(resolveOvnLicenseScopeFromCr(existing));
+  return `该公网 IP 已被${scopeLabel}下的弹性公网 IP「${label}」占用，请更换其它地址或留空由系统分配`;
+}
+
 export async function harvesterOvnEipListHandler(req: any, res: Response, next: any) {
   const parsed = parseRequiredOvnNetworkScopeListQuery(req);
   if (!parsed.ok) return res.status(parsed.status).json({ message: parsed.message });
@@ -612,11 +628,32 @@ async function harvesterOvnEipCreateHandlerScoped(
       return { name: base.name, ...(Object.keys(ann).length ? { annotations: ann } : {}) };
     })();
 
+    const v4IpTrim = v4Ip != null ? String(v4Ip).trim() : '';
+    if (v4IpTrim) {
+      try {
+        const allEipsRaw = await listKubeOvnEips({
+          endpoint: cloud.endpoint,
+          token: cloud.secretKey || '',
+          insecure,
+        } as any);
+        const visible = filterOutSystemLrpEips(Array.isArray(allEipsRaw) ? allEipsRaw : []);
+        const hit = visible.find((e: any) => ovnEipV4IpValue(e) === v4IpTrim);
+        if (hit) {
+          return res.status(409).json({
+            message: formatOvnEipV4IpConflictMessage(hit),
+            code: 'EIP_V4IP_ALREADY_IN_USE',
+          });
+        }
+      } catch (prefetchErr: any) {
+        console.warn('[CreateEIP] v4Ip 占用预检失败，继续提交集群:', prefetchErr?.message || prefetchErr);
+      }
+    }
+
     const payload = {
       apiVersion: 'kubeovn.io/v1',
       kind: 'OvnEip',
       metadata,
-      spec: { externalSubnet, type: type || 'nat', ...(v4Ip ? { v4Ip } : {}) },
+      spec: { externalSubnet, type: type || 'nat', ...(v4IpTrim ? { v4Ip: v4IpTrim } : {}) },
     };
 
     let json: any = null;

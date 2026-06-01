@@ -77,6 +77,14 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     [hmsSwitchConfigs, probeItems],
   );
 
+  const profileContextSwitchName = useMemo(() => {
+    if (editingSwitchCr?.metadata?.name) {
+      return String(editingSwitchCr.metadata.name).trim();
+    }
+    const existing = hmsSwitchConfigs.find((c) => String(c?.metadata?.name || '').trim());
+    return existing ? String(existing.metadata!.name).trim() : '';
+  }, [editingSwitchCr, hmsSwitchConfigs]);
+
   const matchedProbeCount = useMemo(
     () => countMatchedProbeRows(tableRows),
     [tableRows],
@@ -268,6 +276,8 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
 
       <HmsSwitchConfigDrawer
         open={switchCrDrawerOpen}
+        cloudId={cloudId}
+        profileContextSwitchName={profileContextSwitchName}
         editing={editingSwitchCr}
         saving={configSaving}
         onClose={closeConfigDrawer}

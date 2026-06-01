@@ -506,6 +506,7 @@ const FlatNetworkRoute: React.FC = () => {
       rawSubnets={p.rawSubnets}
       kubeOvnFlatEips={p.kubeOvnFlatEips}
       kubeOvnVpcs={p.kubeOvnVpcs}
+      kubeOvnEips={p.kubeOvnEips}
       kubeOvnFlatSnatRules={p.kubeOvnFlatSnatRules}
       kubeOvnFlatDnatRules={p.kubeOvnFlatDnatRules}
       resourceLoading={p.resourceLoading}
@@ -535,6 +536,7 @@ const KubeOvnRoute: React.FC = () => {
       setKubeOvnSubnets={p.setKubeOvnSubnets}
       setRawSubnets={p.setRawSubnets}
       kubeOvnEips={p.kubeOvnEips}
+      kubeOvnFlatEips={p.kubeOvnFlatEips}
       kubeOvnSnatRules={p.kubeOvnSnatRules}
       setKubeOvnSnatRules={p.setKubeOvnSnatRules}
       setRawSnatRules={p.setRawSnatRules}

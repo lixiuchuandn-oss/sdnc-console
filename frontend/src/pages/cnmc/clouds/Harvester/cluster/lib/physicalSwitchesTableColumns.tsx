@@ -11,6 +11,7 @@ import {
   switchProbeProductModel,
 } from './hmsSwitchProbeStatus';
 import type { SwitchTableRow } from './physicalSwitchesSectionUtils';
+import { formatHmsDeviceProfileLabel } from './hmsSwitchCrForm';
 
 export type PhysicalSwitchesTableActions = {
   canRead: boolean;
@@ -59,7 +60,7 @@ export function buildPhysicalSwitchesTableColumns(
       title: '设备模板',
       key: 'deviceProfile',
       ellipsis: true,
-      render: (_: unknown, r) => r.spec?.deviceProfile || '—',
+      render: (_: unknown, r) => formatHmsDeviceProfileLabel(r.spec?.deviceProfile),
     },
     {
       title: 'SSH',
@@ -114,7 +115,7 @@ export function buildPhysicalSwitchesTableColumns(
       title: '型号',
       key: 'probeModel',
       ellipsis: true,
-      render: (_: unknown, r) => switchProbeProductModel(r._probe) || '—',
+      render: (_: unknown, r) => switchProbeProductModel(r._probe, r.spec?.vendor) || '—',
     },
     {
       title: '操作',

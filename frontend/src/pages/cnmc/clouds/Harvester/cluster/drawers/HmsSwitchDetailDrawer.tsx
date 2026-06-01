@@ -12,6 +12,7 @@ import type {
   AswCtlSwitchProbeRecord,
   AswCtlSwitchesSummaryResponse,
 } from 'services/harvester/types/aswProbe';
+import { formatHmsDeviceProfileLabel } from '../lib/hmsSwitchCrForm';
 import PhysicalSwitchProbeTabs from '../components/PhysicalSwitchProbeTabs';
 import {
   hmsSwitchCrManagementHost,
@@ -104,7 +105,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
     if (!probeRecord) return '';
     return (
       parseSwitchDisplayNameFromInfoLines(probeRecord.info?.lines) ||
-      parseSwitchProductModelFromInfoLines(probeRecord.info?.lines) ||
+      parseSwitchProductModelFromInfoLines(probeRecord.info?.lines, { vendor: cr?.spec?.vendor }) ||
       ''
     );
   }, [probeRecord]);
@@ -134,7 +135,9 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
               {backupHosts.length > 0 ? backupHosts.join('、') : '—'}
             </Descriptions.Item>
             <Descriptions.Item label="厂商">{spec.vendor || '—'}</Descriptions.Item>
-            <Descriptions.Item label="设备模板">{spec.deviceProfile || '—'}</Descriptions.Item>
+            <Descriptions.Item label="设备模板">
+              {formatHmsDeviceProfileLabel(spec.deviceProfile)}
+            </Descriptions.Item>
             <Descriptions.Item label="SSH 用户">{spec.user || 'root'}</Descriptions.Item>
             <Descriptions.Item label="SSH 端口">{spec.port ?? 22}</Descriptions.Item>
             <Descriptions.Item label="密码">

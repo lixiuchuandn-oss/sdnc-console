@@ -19,6 +19,7 @@ import {
   loadAswCtlSwitchInventory,
   persistAswCtlSwitchInventory,
 } from '../../../../services/clouds/harvester/aswCtlInventory';
+import { parseHmsDeviceProfilesPayload } from '../../../../services/clouds/harvester/hmsDeviceProfiles';
 
 /**
  * 聚合探测里每条 /v1/* JSON 的超时。
@@ -274,7 +275,7 @@ async function fetchAswCtlSwitchRow(
   switchName?: string,
 ): Promise<AswCtlSwitchRow> {
   const path = (seg: string) => northPathWithSwitchName(seg, northPrefix, switchName);
-  const [healthRes, infoRes, ifRes, perfRes, profRes, vlanRes] = await Promise.all([
+  const [healthRes, infoRes, ifRes, perfRes, vlanRes] = await Promise.all([
     aswCtlProbeHealth(ep.baseUrl, ep.apiKey, insecureTls),
     aswCtlGetJson(
       ep.baseUrl,
@@ -293,13 +294,6 @@ async function fetchAswCtlSwitchRow(
     aswCtlGetJson(
       ep.baseUrl,
       path('/switch/performance'),
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/device/profiles'),
       ep.apiKey,
       insecureTls,
       ASW_CTL_V1_JSON_TIMEOUT_MS,
@@ -385,9 +379,6 @@ async function fetchAswCtlSwitchRow(
     performanceHttpStatus,
     performanceNotApplicable,
     performanceNaMessage,
-    deviceProfiles: profRes.ok ? profRes.data : null,
-    deviceProfilesError: profRes.ok ? undefined : profRes.message,
-    deviceProfilesHttpStatus: !profRes.ok ? profRes.status : undefined,
     vlans,
     vlansError,
     vlansHttpStatus,
@@ -434,8 +425,7 @@ export async function harvesterAswCtlSwitchesHandler(req: Request, res: Response
         first?.info?.api_version ||
         first?.interfaces?.api_version ||
         first?.performance?.api_version ||
-        first?.vlans?.api_version ||
-        first?.deviceProfiles?.api_version,
+        first?.vlans?.api_version,
       onlyFirstAswCtl: legacyEps > 1,
       onlyFirstAswCtlMessage:
         legacyEps > 1
@@ -505,8 +495,7 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
         first?.info?.api_version ||
         first?.interfaces?.api_version ||
         first?.performance?.api_version ||
-        first?.vlans?.api_version ||
-        aggregate.deviceProfiles?.api_version,
+        first?.vlans?.api_version,
       onlyFirstAswCtl: legacyEps > 1,
       onlyFirstAswCtlMessage:
         legacyEps > 1
@@ -569,6 +558,98 @@ export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
     if (res.headersSent) return;
     return res.status(500).json({
       message: e?.message || 'ASW-CTL 探测失败',
+    });
+  }
+}
+
+/**
+ * GET /:id/resources/harvester/asw-ctl/device-profiles
+ * 拉取集群 HSM 设备 CLI 模板列表（北向 GET /v1/hms/device/profiles），供 Switch CR 表单「设备模板」下拉。
+ */
+export async function harvesterAswCtlDeviceProfilesHandler(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const cloud = await fetchCloudOr404(id, res);
+    if (!cloud) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
+
+    const routed = resolveAswCtlRouting(cloud);
+    if (!routed) {
+      return res.json({
+        configured: false,
+        message:
+          '未配置资源池 API Endpoint。请在资源池连接信息中填写与控制台相同的集群 API 地址。',
+        items: [],
+      });
+    }
+
+    const insecureTls = resolveAswCtlInsecureTls(cloud);
+    const ep = routed.endpoints[0]!;
+    const switchName =
+      req.query.name != null ? String(req.query.name).trim() : '';
+    // 设备模板为集群级列表；先不带 ?name=，与探测同步一致。部分环境带 API Key 时须已有 Switch 名作为上下文再重试。
+    let url = northApiPathWithPrefix('/device/profiles', routed.northPrefix);
+    let profRes = await aswCtlGetJson(
+      ep.baseUrl,
+      url,
+      ep.apiKey,
+      insecureTls,
+      ASW_CTL_V1_JSON_TIMEOUT_MS,
+    );
+
+    if (
+      !profRes.ok &&
+      switchName &&
+      /missing switch name/i.test(String(profRes.message || ''))
+    ) {
+      url = northPathWithSwitchName('/device/profiles', routed.northPrefix, switchName);
+      profRes = await aswCtlGetJson(
+        ep.baseUrl,
+        url,
+        ep.apiKey,
+        insecureTls,
+        ASW_CTL_V1_JSON_TIMEOUT_MS,
+      );
+    }
+
+    if (
+      !profRes.ok &&
+      !switchName &&
+      /missing switch name/i.test(String(profRes.message || ''))
+    ) {
+      return res.json({
+        configured: true,
+        profilesUnavailable: true,
+        needsSwitchName: true,
+        message:
+          'HMS 需要已有交换机作为上下文才能拉取设备模板；请先创建一台交换机或填写已有配置名称后重试',
+        items: [],
+      });
+    }
+
+    if (!profRes.ok) {
+      return res.json({
+        configured: true,
+        profilesUnavailable: true,
+        message: profRes.message || '拉取 HSM 设备模板失败',
+        httpStatus: profRes.status,
+        items: [],
+      });
+    }
+
+    const items = parseHmsDeviceProfilesPayload(profRes.data);
+    return res.json({
+      configured: true,
+      apiKeyConfigured: itemApiKeySent(ep),
+      sourcePath: url,
+      raw: profRes.data,
+      items,
+    });
+  } catch (e: any) {
+    if (res.headersSent) return;
+    return res.status(500).json({
+      message: e?.message || '拉取 HSM 设备模板失败',
+      items: [],
     });
   }
 }

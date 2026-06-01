@@ -1,30 +1,58 @@
-/**
- * HMS Switch CR（hms.rivercloud.com/v1 Switch）创建/编辑抽屉。
- */
-import React, { useCallback, useEffect } from 'react';
-import { Button, Card, Col, Drawer, Flex, Form, Input, InputNumber, Row, Select, Typography } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Card, Col, Drawer, Flex, Form, Input, InputNumber, Row, Select, Typography } from 'antd';
 import type { HmsSwitchCr } from 'services/harvester/cluster';
+import { fetchHmsDeviceProfiles } from 'services/harvester/cluster';
 import { getHarvesterDrawerSectionCardProps } from '../../shared/drawerSectionCard';
 import {
   HMS_SWITCH_DEFAULT_DIAL_TIMEOUT,
   HMS_SWITCH_DEFAULT_EXEC_TIMEOUT,
-  HMS_SWITCH_DEVICE_PROFILE_OPTIONS,
+  HMS_SWITCH_DEVICE_PROFILE_FALLBACK_OPTIONS,
   HMS_SWITCH_VENDOR_OPTIONS,
   hmsSwitchCrToFormValues,
   hmsSwitchFormValuesToSpec,
+  formatHmsDeviceProfileLabel,
   type HmsSwitchFormValues,
 } from '../lib/hmsSwitchCrForm';
 
 export type HmsSwitchConfigDrawerProps = {
   open: boolean;
+  cloudId: string;
+  /** 拉取 HSM 设备模板时使用的 Switch 名（编辑=当前 CR；添加=集群内已有任一台，与编辑逻辑一致） */
+  profileContextSwitchName?: string;
   editing?: HmsSwitchCr | null;
   saving?: boolean;
   onClose: () => void;
   onSubmit: (payload: { name: string; spec: Record<string, unknown> }) => Promise<void>;
 };
 
+type ProfileOption = { label: string; value: string };
+
+function mergeProfileOptions(
+  remote: ProfileOption[],
+  currentValue?: string,
+  fallback: ProfileOption[] = HMS_SWITCH_DEVICE_PROFILE_FALLBACK_OPTIONS,
+): ProfileOption[] {
+  const seen = new Set<string>();
+  const out: ProfileOption[] = [];
+  const push = (opt: ProfileOption) => {
+    const v = String(opt.value || '').trim();
+    if (!v || seen.has(v)) return;
+    seen.add(v);
+    out.push({ value: v, label: formatHmsDeviceProfileLabel(v, opt.label) });
+  };
+  for (const o of remote) push(o);
+  const cur = String(currentValue || '').trim();
+  if (cur) push({ value: cur, label: formatHmsDeviceProfileLabel(cur) });
+  if (out.length === 0) {
+    for (const o of fallback) push(o);
+  }
+  return out;
+}
+
 const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
   open,
+  cloudId,
+  profileContextSwitchName = '',
   editing,
   saving,
   onClose,
@@ -32,6 +60,13 @@ const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
 }) => {
   const [form] = Form.useForm<HmsSwitchFormValues>();
   const isEdit = !!editing?.metadata?.name;
+  const [profileOptions, setProfileOptions] = useState<ProfileOption[]>(
+    HMS_SWITCH_DEVICE_PROFILE_FALLBACK_OPTIONS,
+  );
+  const [profilesLoading, setProfilesLoading] = useState(false);
+  const [profilesError, setProfilesError] = useState<string | null>(null);
+
+  const currentDeviceProfile = Form.useWatch('deviceProfile', form);
 
   useEffect(() => {
     if (!open) return;
@@ -48,6 +83,86 @@ const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
       });
     }
   }, [open, editing, form]);
+
+  const profileLookupName = useMemo(
+    () => String(profileContextSwitchName || editing?.metadata?.name || '').trim(),
+    [profileContextSwitchName, editing],
+  );
+
+  useEffect(() => {
+    if (!open || !cloudId) {
+      setProfileOptions(HMS_SWITCH_DEVICE_PROFILE_FALLBACK_OPTIONS);
+      setProfilesError(null);
+      setProfilesLoading(false);
+      return;
+    }
+
+    const presetProfile =
+      editing?.spec?.deviceProfile != null ? String(editing.spec.deviceProfile).trim() : '';
+
+    let cancelled = false;
+    setProfilesLoading(true);
+    setProfilesError(null);
+
+    void (async () => {
+      try {
+        const res = (await fetchHmsDeviceProfiles(cloudId, {
+          switchName: profileLookupName || undefined,
+        })) as {
+            items?: ProfileOption[];
+            message?: string;
+            configured?: boolean;
+            profilesUnavailable?: boolean;
+            needsSwitchName?: boolean;
+          };
+          if (cancelled) return;
+          const remote = Array.isArray(res?.items)
+            ? res.items
+                .map((x) => ({
+                  value: String(x?.value ?? '').trim(),
+                  label: String(x?.label ?? x?.value ?? '').trim(),
+                }))
+                .filter((x) => x.value)
+            : [];
+          if (remote.length > 0) {
+            setProfileOptions(mergeProfileOptions(remote, presetProfile));
+            setProfilesError(null);
+          } else {
+            setProfileOptions(mergeProfileOptions([], presetProfile));
+            if (res?.configured === false && res?.message) {
+              setProfilesError(res.message);
+            } else if (res?.needsSwitchName) {
+              setProfilesError(null);
+            } else if (res?.profilesUnavailable && res?.message) {
+              setProfilesError(res.message);
+            } else if (remote.length === 0 && res?.configured !== false) {
+              setProfilesError('HMS 未返回可用设备模板');
+            }
+          }
+        } catch (e: unknown) {
+          if (cancelled) return;
+          const err = e as { responseData?: { message?: string }; message?: string };
+          const msg = err?.responseData?.message || err?.message || '拉取 HSM 设备模板失败';
+          if (!/missing switch name/i.test(msg)) {
+            setProfilesError(msg);
+          } else {
+            setProfilesError(null);
+          }
+          setProfileOptions(mergeProfileOptions([], presetProfile));
+        } finally {
+          if (!cancelled) setProfilesLoading(false);
+        }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, cloudId, editing, profileLookupName]);
+
+  const selectOptions = useMemo(
+    () => mergeProfileOptions(profileOptions, currentDeviceProfile),
+    [profileOptions, currentDeviceProfile],
+  );
 
   const handleFinish = useCallback(
     async (values: HmsSwitchFormValues) => {
@@ -76,6 +191,9 @@ const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
     >
       <Form form={form} layout="vertical" disabled={!!saving} onFinish={handleFinish}>
         <Flex vertical gap="middle" style={{ width: '100%' }}>
+          {profilesError ? (
+            <Alert type="warning" showIcon message={profilesError} />
+          ) : null}
           <Card title="基本信息" size="small" {...getHarvesterDrawerSectionCardProps()}>
             <Form.Item
               name="name"
@@ -113,12 +231,15 @@ const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
                 <Form.Item
                   name="deviceProfile"
                   label="设备模板"
-                  extra="HSM 内置四类 CLI 模板；留空则使用厂商默认"
+                  extra="留空则使用厂商默认"
                 >
                   <Select
                     allowClear
-                    placeholder="选择设备模板（可留空）"
-                    options={HMS_SWITCH_DEVICE_PROFILE_OPTIONS}
+                    showSearch
+                    optionFilterProp="label"
+                    loading={profilesLoading}
+                    placeholder={profilesLoading ? '正在加载设备模板…' : '选择设备模板（可留空）'}
+                    options={selectOptions}
                   />
                 </Form.Item>
               </Col>
