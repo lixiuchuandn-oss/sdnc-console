@@ -101,6 +101,33 @@ const renderListenerProtocol = (protocol: string) => {
   return <Tag color={protocolColors[protocol] || 'default'}>{protocol}</Tag>;
 };
 
+const CONDITION_TYPE_MAP: Record<string, string> = {
+  Accepted: '已接受',
+  Programmed: '已编程',
+  Ready: '就绪',
+  'gateway.networking.k8s.io/v1/GatewayConditionAccepted': '已接受',
+  'gateway.networking.k8s.io/v1/GatewayConditionProgrammed': '已编程',
+  'gateway.networking.k8s.io/v1/GatewayConditionReady': '就绪',
+};
+
+const CONDITION_REASON_MAP: Record<string, string> = {
+  Accepted: '已接受',
+  Pending: '等待中',
+  Programmed: '已编程',
+  Invalid: '无效',
+  'WaitingForController': '等待控制器',
+  'NoGatewayClassController': '无网关类控制器',
+};
+
+const renderConditionType = (type: string) => {
+  return <Text strong>{CONDITION_TYPE_MAP[type] || type}</Text>;
+};
+
+const renderConditionReason = (reason: string) => {
+  if (!reason) return '-';
+  return CONDITION_REASON_MAP[reason] || reason;
+};
+
 // ============================================================
 // 主组件
 // ============================================================
@@ -271,7 +298,7 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
                           title: '类型',
                           dataIndex: 'type',
                           width: 180,
-                          render: (v: string) => <Text strong>{v}</Text>,
+                          render: renderConditionType,
                         },
                         {
                           title: '状态',
@@ -283,7 +310,7 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
                           title: '原因',
                           dataIndex: 'reason',
                           width: 150,
-                          render: (v: string) => v || '-',
+                          render: renderConditionReason,
                         },
                         {
                           title: '消息',
@@ -299,7 +326,10 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
                           title: '最后变更',
                           dataIndex: 'lastTransitionTime',
                           width: 180,
-                          render: formatTime,
+                          render: (v: string) => {
+                            if (!v || v === '0001-01-01T00:00:00Z') return '-';
+                            return formatTime(v);
+                          },
                         },
                       ]}
                       pagination={false}

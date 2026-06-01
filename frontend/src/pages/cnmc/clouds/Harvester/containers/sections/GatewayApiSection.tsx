@@ -327,7 +327,9 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         const hasAlias = !!alias;
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{hasAlias ? alias : id}</span>
+            <a onClick={() => handleOpenGatewayDetail(record)} style={{ cursor: 'pointer' }}>
+              {hasAlias ? alias : id}
+            </a>
             <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
               <Button
                 type="text"
