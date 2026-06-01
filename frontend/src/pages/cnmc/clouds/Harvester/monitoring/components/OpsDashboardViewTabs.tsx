@@ -24,7 +24,13 @@ import {
   resetOpsDashboardViewOrder,
   saveOpsDashboardViewOrder,
 } from '../lib/opsDashboardViewOrder';
-import type { OpsDashboardView, OpsDashboardViewDef } from '../lib/opsDashboardViews';
+import {
+  filterEnabledOpsDashboardViews,
+  isOpsDashboardViewEnabled,
+  opsDashboardViewStatusLabel,
+  type OpsDashboardView,
+  type OpsDashboardViewDef,
+} from '../lib/opsDashboardViews';
 
 export interface OpsDashboardViewTabsProps {
   views: OpsDashboardViewDef[];
@@ -45,9 +51,11 @@ const OpsDashboardViewTabs: React.FC<OpsDashboardViewTabsProps> = ({
   const [visibleTabMax, setVisibleTabMax] = useState(() => loadOpsDashboardVisibleTabMax());
   const didDragRef = useRef(false);
 
+  const selectableViews = useMemo(() => filterEnabledOpsDashboardViews(views), [views]);
+
   const { primaryViews, overflowViews } = useMemo(
-    () => splitOpsDashboardViewsByVisibleMax(views, visibleTabMax),
-    [views, visibleTabMax],
+    () => splitOpsDashboardViewsByVisibleMax(selectableViews, visibleTabMax),
+    [selectableViews, visibleTabMax],
   );
 
   const isOverflowActive = useMemo(
@@ -155,6 +163,16 @@ const OpsDashboardViewTabs: React.FC<OpsDashboardViewTabsProps> = ({
     );
   };
 
+  const renderViewStatusTag = (status: OpsDashboardViewDef['status']) => (
+    <Tag
+      bordered={false}
+      color={status === 'enable' ? 'success' : 'default'}
+      style={{ marginInlineStart: 6, fontSize: 11, lineHeight: '18px' }}
+    >
+      {opsDashboardViewStatusLabel(status)}
+    </Tag>
+  );
+
   const sortPopover = (
     <div style={{ width: 300 }}>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -187,9 +205,14 @@ const OpsDashboardViewTabs: React.FC<OpsDashboardViewTabsProps> = ({
               padding: '4px 0',
             }}
           >
-            <Typography.Text ellipsis style={{ flex: 1 }}>
+            <Typography.Text
+              ellipsis
+              type={isOpsDashboardViewEnabled(view) ? undefined : 'secondary'}
+              style={{ flex: 1 }}
+            >
               {view.label}
-              {idx >= visibleTabMax ? (
+              {renderViewStatusTag(view.status)}
+              {idx >= visibleTabMax && isOpsDashboardViewEnabled(view) ? (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {' '}
                   (更多)

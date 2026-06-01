@@ -3,7 +3,7 @@
  * `GET /monitoring/metric-range` → Service Proxy → Prometheus query_range，在 Compute Tower
  * 内用 Ant Design + ECharts 自渲染。
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Space } from 'antd';
 import DashboardToolbar from './components/DashboardToolbar';
 import OpsDashboardViewTabs from './components/OpsDashboardViewTabs';
@@ -28,6 +28,8 @@ import {
   NODES_OVERVIEW_VIEW,
   VMS_OVERVIEW_VIEW,
   VMS_DETAIL_VIEW,
+  firstEnabledOpsDashboardView,
+  isOpsDashboardViewEnabled,
   type OpsDashboardView,
   type OpsDashboardViewDef,
 } from './lib/opsDashboardViews';
@@ -42,7 +44,17 @@ const MonitoringOpsDashboard: React.FC<MonitoringOpsDashboardProps> = ({ cloudId
   const [orderedViews, setOrderedViews] = useState<OpsDashboardViewDef[]>(() =>
     loadOpsDashboardViewOrder(),
   );
-  const [activeView, setActiveView] = useState<OpsDashboardView>(CLUSTER_RESOURCES_VIEW);
+  const [activeView, setActiveView] = useState<OpsDashboardView>(() => {
+    const views = loadOpsDashboardViewOrder();
+    return firstEnabledOpsDashboardView(views) ?? CLUSTER_RESOURCES_VIEW;
+  });
+
+  useEffect(() => {
+    const current = orderedViews.find((v) => v.key === activeView);
+    if (current && isOpsDashboardViewEnabled(current)) return;
+    const fallback = firstEnabledOpsDashboardView(orderedViews);
+    if (fallback && fallback !== activeView) setActiveView(fallback);
+  }, [orderedViews, activeView]);
   const {
     rangeSeconds,
     setRangeSeconds,
