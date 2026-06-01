@@ -10,7 +10,7 @@
 | ------ | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                        |
 | **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                        |
-| **P2** | 巨型文件按主题拆分                    | **进行中**：至 `networkpolicy` / `pdb`；主文件约 2.2k 行；后续 Gateway 等           |
+| **P2** | 巨型文件按主题拆分                    | **进行中**：至 `networkpolicy` / `pdb`；主文件约 2.2k 行；后续 Gateway 等             |
 | **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载 |
 | **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health)`** workflow（`GET /health`）         |
 
