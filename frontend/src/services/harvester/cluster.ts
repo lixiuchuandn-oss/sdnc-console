@@ -53,6 +53,21 @@ export const fetchHmsSwitchCrs = async (cloudId: string) => {
   });
 };
 
+/** HSM 设备 CLI 模板（GET /v1/hms/device/profiles，经 Tower BFF 代理） */
+export const fetchHmsDeviceProfiles = async (
+  cloudId: string,
+  options?: { switchName?: string },
+) => {
+  const switchName = String(options?.switchName ?? '').trim();
+  const qs = switchName ? `?name=${encodeURIComponent(switchName)}` : '';
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/asw-ctl/device-profiles${qs}`,
+    {
+      skipCache: true,
+    },
+  );
+};
+
 export const createHmsSwitchCr = async (
   cloudId: string,
   body: { name: string; spec: HmsSwitchCrSpec },

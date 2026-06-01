@@ -234,12 +234,16 @@ async function fetchAllVrRowsFromPagelist(
 }
 
 /** VR1 全部分页（Tower 缓存同步主路径） */
-export async function fetchAllVR1RowsFromCsm(pageSize: number = 1000): Promise<FetchAllVrRowsFromCsmResult> {
+export async function fetchAllVR1RowsFromCsm(
+  pageSize: number = 1000,
+): Promise<FetchAllVrRowsFromCsmResult> {
   return fetchAllVrRowsFromPagelist('VR1', getVRListMeta, pageSize);
 }
 
 /** VR3 全部分页 */
-export async function fetchAllVR3RowsFromCsm(pageSize: number = 1000): Promise<FetchAllVrRowsFromCsmResult> {
+export async function fetchAllVR3RowsFromCsm(
+  pageSize: number = 1000,
+): Promise<FetchAllVrRowsFromCsmResult> {
   return fetchAllVrRowsFromPagelist('VR3', getVR3ListMeta, pageSize);
 }
 

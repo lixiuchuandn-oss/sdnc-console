@@ -59,7 +59,10 @@ export function registerTenantCrudRoutes(router: Router): void {
       tenantLog.debug('找到资源池数量:', resourcePools.length);
       res.json(resourcePools);
     } catch (error) {
-      tenantLog.error('获取可分配资源池失败:', error instanceof Error ? error.message : String(error));
+      tenantLog.error(
+        '获取可分配资源池失败:',
+        error instanceof Error ? error.message : String(error),
+      );
       res.status(500).json({ message: '获取可分配资源池失败' });
     }
   });
@@ -168,7 +171,9 @@ export function registerTenantCrudRoutes(router: Router): void {
         });
       }
 
-      const organizations = await organizationRepository.find({ where: { tenantId: req.params.id } });
+      const organizations = await organizationRepository.find({
+        where: { tenantId: req.params.id },
+      });
       const orgIds = organizations.map((org) => org.id);
 
       const snapshot = await collectTenantDeleteBlockingSnapshot(req.params.id, orgIds);
@@ -187,7 +192,9 @@ export function registerTenantCrudRoutes(router: Router): void {
           const clouds = await cloudRepository.find({
             where: { id: In(Array.from(linkedCloudIds)) },
           });
-          poolNamesLine = [...new Set(clouds.map((c) => String(c.name ?? '').trim()).filter(Boolean))]
+          poolNamesLine = [
+            ...new Set(clouds.map((c) => String(c.name ?? '').trim()).filter(Boolean)),
+          ]
             .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
             .join('、');
         }
@@ -205,7 +212,9 @@ export function registerTenantCrudRoutes(router: Router): void {
       const tid = req.params.id;
 
       // 解除根组织指针：undefined 在 TypeORM save 中可能不会落库，必须用 NULL 更新
-      await AppDataSource.query('UPDATE tenants SET root_organization_id = NULL WHERE id = ?', [tid]);
+      await AppDataSource.query('UPDATE tenants SET root_organization_id = NULL WHERE id = ?', [
+        tid,
+      ]);
 
       // SQLite 实际外键指向 tenants 的子表（PRAGMA foreign_key_list）：须在本租户删除链路内清干净
       await AppDataSource.getRepository(ServiceChain).delete({ tenantId: tid });

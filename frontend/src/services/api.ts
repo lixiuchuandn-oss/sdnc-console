@@ -1403,6 +1403,10 @@ export const createSrv6Tunnel = async (payload: { name: string; peA: string; peB
   return await apiPost('/api/networks/srv6', payload);
 };
 
+export const updateSrv6Tunnel = async (id: string, payload: { name: string; peA: string; peB: string; ceA: string; ceB: string }) => {
+  return await apiPut(`/api/networks/srv6/${id}`, payload);
+};
+
 /** 将平台库中该 VR 的 config_json 推送到 CSMctl（与 IPsec deploy/push 一致，走服务端签名） */
 export const pushSrv6VrConfigToCsm = async (vrId: string) => {
   return await apiPost('/api/networks/srv6/deploy/push', { vrId });

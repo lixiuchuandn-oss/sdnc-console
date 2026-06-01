@@ -1,9 +1,9 @@
 /**
  * HarborRegistry - Harbor 实例配置实体
- * 
+ *
  * 用于存储 Harbor 镜像仓库的连接配置信息。
  * 支持平台内置 Harbor 和外部 Harbor 两种来源。
- * 
+ *
  * @see design/harbor-integration-design.md 第二章
  */
 import {

@@ -30,11 +30,11 @@
 
 **职责划分：**
 
-| 组件 | 职责 |
-|------|------|
-| 裸金属管理 UI | 机器列表、详情、操作入口、任务进度展示 |
-| MAAS Adapter | 认证、API 转发、可选短缓存、错误翻译、异步任务跟踪 |
-| MAAS | 裸金属全生命周期（发现、纳管、部署、电源、网络） |
+| 组件          | 职责                                               |
+| ------------- | -------------------------------------------------- |
+| 裸金属管理 UI | 机器列表、详情、操作入口、任务进度展示             |
+| MAAS Adapter  | 认证、API 转发、可选短缓存、错误翻译、异步任务跟踪 |
+| MAAS          | 裸金属全生命周期（发现、纳管、部署、电源、网络）   |
 
 平台总览页如需展示裸金属数量，可调用 Adapter 提供的统计接口，**无需**与其他云资源合并存储。
 
@@ -46,10 +46,10 @@ MAAS 提供两套北向 API，对接时需组合使用。
 
 ### 2.1 API 路径
 
-| 版本 | 基础路径 | 说明 |
-|------|----------|------|
-| v3 | `/MAAS/a/v3/` | 现代 REST API，OpenAPI 规范，**以读操作为主** |
-| v2 | `/MAAS/api/2.0/` | 传统 API，**覆盖全部生命周期写操作** |
+| 版本 | 基础路径         | 说明                                          |
+| ---- | ---------------- | --------------------------------------------- |
+| v3   | `/MAAS/a/v3/`    | 现代 REST API，OpenAPI 规范，**以读操作为主** |
+| v2   | `/MAAS/api/2.0/` | 传统 API，**覆盖全部生命周期写操作**          |
 
 **OpenAPI 文档（v3）：**
 
@@ -65,17 +65,17 @@ http://10.20.180.189:5240/MAAS
 
 ### 2.2 读 / 写分工
 
-| 场景 | 推荐 API | 示例 |
-|------|----------|------|
-| 机器列表、详情 | v3 | `GET /MAAS/a/v3/machines` |
-| 事件日志 | v3 | `GET /MAAS/a/v3/events` |
-| 网络发现 | v3 | `GET /MAAS/a/v3/discoveries` |
-| 子网 / VLAN / 域 | v3 | `GET /MAAS/a/v3/subnets` |
-| 镜像 | v3 | `GET /MAAS/a/v3/boot-resources` |
-| 标签、资源池 | v3 | `GET /MAAS/a/v3/tags` |
-| 部署、释放、纳管 | v2 | `POST /MAAS/api/2.0/machines/{system_id}/?op=deploy` |
-| 电源控制 | v2 | `POST ...?op=power_on` |
-| 磁盘 / 网卡详情 | v2 | `GET /MAAS/api/2.0/nodes/{system_id}/blockdevices/` |
+| 场景             | 推荐 API | 示例                                                 |
+| ---------------- | -------- | ---------------------------------------------------- |
+| 机器列表、详情   | v3       | `GET /MAAS/a/v3/machines`                            |
+| 事件日志         | v3       | `GET /MAAS/a/v3/events`                              |
+| 网络发现         | v3       | `GET /MAAS/a/v3/discoveries`                         |
+| 子网 / VLAN / 域 | v3       | `GET /MAAS/a/v3/subnets`                             |
+| 镜像             | v3       | `GET /MAAS/a/v3/boot-resources`                      |
+| 标签、资源池     | v3       | `GET /MAAS/a/v3/tags`                                |
+| 部署、释放、纳管 | v2       | `POST /MAAS/api/2.0/machines/{system_id}/?op=deploy` |
+| 电源控制         | v2       | `POST ...?op=power_on`                               |
+| 磁盘 / 网卡详情  | v2       | `GET /MAAS/api/2.0/nodes/{system_id}/blockdevices/`  |
 
 > **注意：** v3 的 Machines 接口当前以 `GET` 为主；commission、deploy、release 等操作必须通过 v2 完成。
 
@@ -149,20 +149,20 @@ v3 支持 Bearer Token、OAuth 及 Session 等方式，具体见 v3 OpenAPI 文�
 
 ### 4.2 功能与 API 对照
 
-| 界面功能 | MAAS API | 方法 |
-|----------|----------|------|
-| 机器列表 | `/MAAS/a/v3/machines` | GET |
-| 机器详情 | `/MAAS/a/v3/machines/{id}` | GET |
-| 硬件详情（磁盘/网卡） | `/MAAS/api/2.0/nodes/{system_id}/blockdevices/` 等 | GET |
-| 网络发现列表 | `/MAAS/a/v3/discoveries` | GET |
-| 纳管（Commission） | `/MAAS/api/2.0/machines/{system_id}/?op=commission` | POST |
-| 部署 OS | `/MAAS/api/2.0/machines/{system_id}/?op=deploy` | POST |
-| 释放 | `/MAAS/api/2.0/machines/{system_id}/?op=release` | POST |
-| 开机 / 关机 / 重启 | `?op=power_on` / `power_off` / `power_cycle` | POST |
-| 分配 | `?op=allocate` | POST |
-| 镜像列表 | `/MAAS/a/v3/boot-resources` | GET |
-| 事件 / 操作日志 | `/MAAS/a/v3/events` | GET |
-| 控制器状态 | `/MAAS/api/2.0/racks/`、`/regioncontrollers/` | GET |
+| 界面功能              | MAAS API                                            | 方法 |
+| --------------------- | --------------------------------------------------- | ---- |
+| 机器列表              | `/MAAS/a/v3/machines`                               | GET  |
+| 机器详情              | `/MAAS/a/v3/machines/{id}`                          | GET  |
+| 硬件详情（磁盘/网卡） | `/MAAS/api/2.0/nodes/{system_id}/blockdevices/` 等  | GET  |
+| 网络发现列表          | `/MAAS/a/v3/discoveries`                            | GET  |
+| 纳管（Commission）    | `/MAAS/api/2.0/machines/{system_id}/?op=commission` | POST |
+| 部署 OS               | `/MAAS/api/2.0/machines/{system_id}/?op=deploy`     | POST |
+| 释放                  | `/MAAS/api/2.0/machines/{system_id}/?op=release`    | POST |
+| 开机 / 关机 / 重启    | `?op=power_on` / `power_off` / `power_cycle`        | POST |
+| 分配                  | `?op=allocate`                                      | POST |
+| 镜像列表              | `/MAAS/a/v3/boot-resources`                         | GET  |
+| 事件 / 操作日志       | `/MAAS/a/v3/events`                                 | GET  |
+| 控制器状态            | `/MAAS/api/2.0/racks/`、`/regioncontrollers/`       | GET  |
 
 ---
 
@@ -170,18 +170,18 @@ v3 支持 Bearer Token、OAuth 及 Session 等方式，具体见 v3 OpenAPI 文�
 
 MAAS 机器状态（`NodeStatus`）及界面展示建议：
 
-| MAAS 状态 | 含义 | UI 建议标签 |
-|-----------|------|-------------|
-| NEW (0) | 新发现，未纳管 | 新建 |
-| COMMISSIONING (1) | 硬件检测中 | 纳管中 |
-| READY (4) | 可部署 | 可用 |
-| ALLOCATED (10) | 已分配 | 已分配 |
-| DEPLOYING (9) | 部署中 | 部署中 |
-| DEPLOYED (6) | 已部署 | 运行中 |
-| RELEASING (12) | 释放中 | 回收中 |
-| BROKEN (8) | 故障 | 故障 |
-| FAILED_* | 各阶段失败 | 失败 |
-| RETIRED (7) | 已退役 | 已下线 |
+| MAAS 状态         | 含义           | UI 建议标签 |
+| ----------------- | -------------- | ----------- |
+| NEW (0)           | 新发现，未纳管 | 新建        |
+| COMMISSIONING (1) | 硬件检测中     | 纳管中      |
+| READY (4)         | 可部署         | 可用        |
+| ALLOCATED (10)    | 已分配         | 已分配      |
+| DEPLOYING (9)     | 部署中         | 部署中      |
+| DEPLOYED (6)      | 已部署         | 运行中      |
+| RELEASING (12)    | 释放中         | 回收中      |
+| BROKEN (8)        | 故障           | 故障        |
+| FAILED\_\*        | 各阶段失败     | 失败        |
+| RETIRED (7)       | 已退役         | 已下线      |
 
 **主键：** 使用 MAAS 的 `system_id` 作为裸金属模块内的资源唯一标识，无需额外映射层。
 
@@ -224,19 +224,19 @@ v3 机器响应核心字段示例：
 
 以下为裸金属 UI 调用的 BFF 接口示例，非 MAAS 原生 API：
 
-| BFF 接口 | 说明 |
-|----------|------|
-| `POST /api/bm/regions` | 注册 MAAS Region（URL + API Key） |
-| `GET /api/bm/regions/{id}/machines` | 机器列表（分页、筛选） |
-| `GET /api/bm/regions/{id}/machines/{system_id}` | 机器详情 |
-| `POST /api/bm/regions/{id}/machines/{system_id}/commission` | 纳管 |
-| `POST /api/bm/regions/{id}/machines/{system_id}/deploy` | 部署 |
-| `POST /api/bm/regions/{id}/machines/{system_id}/release` | 释放 |
-| `POST /api/bm/regions/{id}/machines/{system_id}/power` | 电源操作 |
-| `GET /api/bm/regions/{id}/tasks/{task_id}` | 异步任务状态 |
-| `GET /api/bm/regions/{id}/discoveries` | 网络发现 |
-| `GET /api/bm/regions/{id}/events` | 事件日志 |
-| `GET /api/bm/regions/{id}/dashboard` | 概览统计 |
+| BFF 接口                                                    | 说明                              |
+| ----------------------------------------------------------- | --------------------------------- |
+| `POST /api/bm/regions`                                      | 注册 MAAS Region（URL + API Key） |
+| `GET /api/bm/regions/{id}/machines`                         | 机器列表（分页、筛选）            |
+| `GET /api/bm/regions/{id}/machines/{system_id}`             | 机器详情                          |
+| `POST /api/bm/regions/{id}/machines/{system_id}/commission` | 纳管                              |
+| `POST /api/bm/regions/{id}/machines/{system_id}/deploy`     | 部署                              |
+| `POST /api/bm/regions/{id}/machines/{system_id}/release`    | 释放                              |
+| `POST /api/bm/regions/{id}/machines/{system_id}/power`      | 电源操作                          |
+| `GET /api/bm/regions/{id}/tasks/{task_id}`                  | 异步任务状态                      |
+| `GET /api/bm/regions/{id}/discoveries`                      | 网络发现                          |
+| `GET /api/bm/regions/{id}/events`                           | 事件日志                          |
+| `GET /api/bm/regions/{id}/dashboard`                        | 概览统计                          |
 
 ### 6.3 异步任务处理
 
@@ -343,13 +343,13 @@ MAAS 支持 Resource Pool 与 RBAC：
 
 ## 9. 错误处理
 
-| MAAS 错误 | Adapter 处理建议 |
-|-----------|------------------|
-| 401 Unauthorized | 检查 API Key，提示重新配置 |
-| 403 Forbidden | 权限不足，展示 MAAS 返回信息 |
-| 404 Not Found | 机器已删除，刷新列表 |
-| 409 Conflict | 状态不允许该操作（如非 READY 时 deploy） |
-| 503 Service Unavailable | Region/Rack 不可用，展示控制器状态 |
+| MAAS 错误               | Adapter 处理建议                         |
+| ----------------------- | ---------------------------------------- |
+| 401 Unauthorized        | 检查 API Key，提示重新配置               |
+| 403 Forbidden           | 权限不足，展示 MAAS 返回信息             |
+| 404 Not Found           | 机器已删除，刷新列表                     |
+| 409 Conflict            | 状态不允许该操作（如非 READY 时 deploy） |
+| 503 Service Unavailable | Region/Rack 不可用，展示控制器状态       |
 
 写操作前建议 Adapter 侧做**状态前置校验**，减少无效请求。
 
@@ -357,12 +357,12 @@ MAAS 支持 Resource Pool 与 RBAC：
 
 ## 10. 实施阶段
 
-| 阶段 | 范围 | 交付物 |
-|------|------|--------|
-| **P0** | Region 配置 + 机器列表/详情（只读） | 可浏览裸金属资产 |
+| 阶段   | 范围                                | 交付物             |
+| ------ | ----------------------------------- | ------------------ |
+| **P0** | Region 配置 + 机器列表/详情（只读） | 可浏览裸金属资产   |
 | **P1** | Deploy / Release / Power + 异步任务 | 可完成基本生命周期 |
-| **P2** | Discoveries + Commission + 事件日志 | 完整纳管流程 |
-| **P3** | 镜像管理、网络配置、Dashboard 统计 | 运维完善 |
+| **P2** | Discoveries + Commission + 事件日志 | 完整纳管流程       |
+| **P3** | 镜像管理、网络配置、Dashboard 统计  | 运维完善           |
 
 ---
 
@@ -398,32 +398,32 @@ maas admin events query
 
 ## 附录 A：v3 主要只读端点速查
 
-| 路径 | 说明 |
-|------|------|
-| `/MAAS/a/v3/machines` | 机器列表 |
-| `/MAAS/a/v3/machines/{id}` | 机器详情 |
-| `/MAAS/a/v3/events` | 事件 |
-| `/MAAS/a/v3/discoveries` | 网络发现 |
-| `/MAAS/a/v3/boot-resources` | 镜像 |
-| `/MAAS/a/v3/subnets` | 子网 |
-| `/MAAS/a/v3/vlans` | VLAN |
-| `/MAAS/a/v3/tags` | 标签 |
-| `/MAAS/a/v3/resource_pools` | 资源池 |
-| `/MAAS/a/v3/zones` | 可用区 |
-| `/MAAS/a/v3/racks` | Rack 控制器 |
+| 路径                        | 说明        |
+| --------------------------- | ----------- |
+| `/MAAS/a/v3/machines`       | 机器列表    |
+| `/MAAS/a/v3/machines/{id}`  | 机器详情    |
+| `/MAAS/a/v3/events`         | 事件        |
+| `/MAAS/a/v3/discoveries`    | 网络发现    |
+| `/MAAS/a/v3/boot-resources` | 镜像        |
+| `/MAAS/a/v3/subnets`        | 子网        |
+| `/MAAS/a/v3/vlans`          | VLAN        |
+| `/MAAS/a/v3/tags`           | 标签        |
+| `/MAAS/a/v3/resource_pools` | 资源池      |
+| `/MAAS/a/v3/zones`          | 可用区      |
+| `/MAAS/a/v3/racks`          | Rack 控制器 |
 
 ## 附录 B：v2 常用写操作速查
 
-| 操作 | v2 调用方式 |
-|------|-------------|
-| Commission | `POST /api/2.0/machines/{system_id}/?op=commission` |
-| Deploy | `POST /api/2.0/machines/{system_id}/?op=deploy` |
-| Release | `POST /api/2.0/machines/{system_id}/?op=release` |
-| Allocate | `POST /api/2.0/machines/?op=allocate` |
-| Power on | `POST /api/2.0/machines/{system_id}/?op=power_on` |
-| Power off | `POST /api/2.0/machines/{system_id}/?op=power_off` |
+| 操作        | v2 调用方式                                          |
+| ----------- | ---------------------------------------------------- |
+| Commission  | `POST /api/2.0/machines/{system_id}/?op=commission`  |
+| Deploy      | `POST /api/2.0/machines/{system_id}/?op=deploy`      |
+| Release     | `POST /api/2.0/machines/{system_id}/?op=release`     |
+| Allocate    | `POST /api/2.0/machines/?op=allocate`                |
+| Power on    | `POST /api/2.0/machines/{system_id}/?op=power_on`    |
+| Power off   | `POST /api/2.0/machines/{system_id}/?op=power_off`   |
 | Mark broken | `POST /api/2.0/machines/{system_id}/?op=mark_broken` |
-| 创建机器 | `POST /api/2.0/machines/` |
+| 创建机器    | `POST /api/2.0/machines/`                            |
 
 请求体格式为 `multipart/form-data`（v2 规范），详见 [API v2 文档](../reference/api-reference/index.md)。
 
@@ -437,19 +437,19 @@ maas admin events query
 
 与 Region 接入认证保持一致，镜像模块**统一使用 v2 API + OAuth 1.0**（`config.apiKey` 拆三段），**不要**混用 v3 Bearer，避免对面再选一套认证。
 
-| 原则 | 说明 |
-|------|------|
-| 认证 | 与 Region 配置相同：`apiKey` → OAuth1 PLAINTEXT |
+| 原则     | 说明                                                                |
+| -------- | ------------------------------------------------------------------- |
+| 认证     | 与 Region 配置相同：`apiKey` → OAuth1 PLAINTEXT                     |
 | 数据来源 | MAAS `boot-resources`（已落地镜像）+ `boot-sources`（同步源与订阅） |
-| 缓存 | 列表缓存 60s；同步/上传任务期间禁用缓存 |
-| 异步 | 同步、上传均为长任务，必须任务化 + 轮询 |
+| 缓存     | 列表缓存 60s；同步/上传任务期间禁用缓存                             |
+| 异步     | 同步、上传均为长任务，必须任务化 + 轮询                             |
 
 ### 13.2 镜像在 MAAS 中的两类
 
-| 类型 | MAAS 字段 | 来源 | 界面展示 |
-|------|-----------|------|----------|
-| **同步镜像** | `rtype=0` (synced) | Ubuntu 官方 simplestreams（images.maas.io） | Ubuntu 22.04 / 24.04 等 |
-| **自定义镜像** | `rtype=2` (uploaded) | 用户上传 root.tgz 等 | 自定义名称 |
+| 类型           | MAAS 字段            | 来源                                        | 界面展示                |
+| -------------- | -------------------- | ------------------------------------------- | ----------------------- |
+| **同步镜像**   | `rtype=0` (synced)   | Ubuntu 官方 simplestreams（images.maas.io） | Ubuntu 22.04 / 24.04 等 |
+| **自定义镜像** | `rtype=2` (uploaded) | 用户上传 root.tgz 等                        | 自定义名称              |
 
 部署机器时使用 `osystem` + `distro_series`（或 `name` 如 `ubuntu/jammy`），来自 boot-resource 的 `name` 字段。
 
@@ -471,14 +471,14 @@ maas admin events query
 
 **列表字段映射（BFF → UI）：**
 
-| UI 列 | MAAS v2 字段 | 说明 |
-|-------|-------------|------|
-| 名称 | `name` + `title` | 如 `ubuntu/jammy`，展示 `Ubuntu 22.04 LTS` |
-| 架构 | `architecture` | 如 `amd64/generic` |
-| 类型 | `type` | `synced` / `uploaded` |
-| 大小 | 见 **13.3.1** | **列表接口无 size，必须调详情** |
-| 状态 | 同步任务状态 | Ready / Downloading（见 13.6） |
-| ID | `id` | 删除时使用 |
+| UI 列 | MAAS v2 字段     | 说明                                       |
+| ----- | ---------------- | ------------------------------------------ |
+| 名称  | `name` + `title` | 如 `ubuntu/jammy`，展示 `Ubuntu 22.04 LTS` |
+| 架构  | `architecture`   | 如 `amd64/generic`                         |
+| 类型  | `type`           | `synced` / `uploaded`                      |
+| 大小  | 见 **13.3.1**    | **列表接口无 size，必须调详情**            |
+| 状态  | 同步任务状态     | Ready / Downloading（见 13.6）             |
+| ID    | `id`             | 删除时使用                                 |
 
 #### 13.3.1 大小（size）怎么取 —— 必读
 
@@ -567,15 +567,15 @@ MAAS 原始列表里混有 **grub / pxelinux 等引导程序**，同一 Ubuntu �
 
 **原始 10 条 → 用户应看到约 1～3 条：**
 
-| MAAS 原始条目 | 普通用户是否展示 | 用户看到什么 |
-|---------------|------------------|--------------|
-| `grub-efi-signed/uefi` | ❌ 隐藏 | （内部引导，不展示） |
-| `pxelinux/pxe` | ❌ 隐藏 | （内部引导，不展示） |
-| `ubuntu/jammy` + `amd64/ga-22.04` | ✅ | **Ubuntu 22.04 LTS** |
-| `ubuntu/jammy` + `amd64/hwe-22.04` | ⚙️ 合并 | 同上，默认内核不单独占一行 |
-| `ubuntu/jammy` + `amd64/hwe-22.04-edge` | ⚙️ 高级 | 仅在「内核选项」里可选 |
-| `centos/centos7` | ✅ | **CentOS 7** |
-| `windows/win10` | ✅ | **Windows 10** |
+| MAAS 原始条目                           | 普通用户是否展示 | 用户看到什么               |
+| --------------------------------------- | ---------------- | -------------------------- |
+| `grub-efi-signed/uefi`                  | ❌ 隐藏          | （内部引导，不展示）       |
+| `pxelinux/pxe`                          | ❌ 隐藏          | （内部引导，不展示）       |
+| `ubuntu/jammy` + `amd64/ga-22.04`       | ✅               | **Ubuntu 22.04 LTS**       |
+| `ubuntu/jammy` + `amd64/hwe-22.04`      | ⚙️ 合并          | 同上，默认内核不单独占一行 |
+| `ubuntu/jammy` + `amd64/hwe-22.04-edge` | ⚙️ 高级          | 仅在「内核选项」里可选     |
+| `centos/centos7`                        | ✅               | **CentOS 7**               |
+| `windows/win10`                         | ✅               | **Windows 10**             |
 
 ##### 第一步：过滤 —— 只要可部署的操作系统
 
@@ -627,15 +627,15 @@ def is_deployable_os_image(item: dict) -> bool:
 
 **展示名映射（BFF 固定）：**
 
-| osystem | release | 用户看到的名称 |
-|---------|---------|----------------|
-| ubuntu | jammy | Ubuntu 22.04 LTS |
-| ubuntu | noble | Ubuntu 24.04 LTS |
-| centos | centos7 | CentOS 7 |
-| rhel | 8 | Red Hat Enterprise Linux 8 |
-| windows | win10 | Windows 10 |
-| windows | win2019 | Windows Server 2019 |
-| custom | * | 自定义名称（用 `title` 或 release） |
+| osystem | release | 用户看到的名称                      |
+| ------- | ------- | ----------------------------------- |
+| ubuntu  | jammy   | Ubuntu 22.04 LTS                    |
+| ubuntu  | noble   | Ubuntu 24.04 LTS                    |
+| centos  | centos7 | CentOS 7                            |
+| rhel    | 8       | Red Hat Enterprise Linux 8          |
+| windows | win10   | Windows 10                          |
+| windows | win2019 | Windows Server 2019                 |
+| custom  | \*      | 自定义名称（用 `title` 或 release） |
 
 Ubuntu 版本名可用 MAAS 同一逻辑：`jammy` → `22.04 LTS`（见 `format_image_title`）。
 
@@ -726,20 +726,19 @@ distro_series=jammy
 
 > 先按 `DEPLOYABLE_OS` 白名单过滤，再按 `(osystem, release)` 分组合并展示；grub/pxelinux 绝不展示；Ubuntu 多内核变体收进 `variants`，主列表只显示「Ubuntu 22.04 LTS」一行。
 
-
 前端只调 BFF，不直连 MAAS：
 
-| BFF 接口 | 方法 | 说明 |
-|----------|------|------|
-| `/api/bm/regions/{regionId}/images` | GET | 镜像列表 |
-| `/api/bm/regions/{regionId}/images/{id}` | GET | 镜像详情 |
-| `/api/bm/regions/{regionId}/images/{id}` | DELETE | 删除镜像 |
-| `/api/bm/regions/{regionId}/images/sync` | POST | 开始同步 |
-| `/api/bm/regions/{regionId}/images/sync/stop` | POST | 停止同步 |
-| `/api/bm/regions/{regionId}/images/sync/status` | GET | 是否同步中 |
-| `/api/bm/regions/{regionId}/images/upload` | POST | 创建上传任务（分片） |
-| `/api/bm/regions/{regionId}/images/selections` | GET | 同步订阅列表（管理员） |
-| `/api/bm/regions/{regionId}/images/selections` | POST | 添加订阅（如 ubuntu jammy amd64） |
+| BFF 接口                                        | 方法   | 说明                              |
+| ----------------------------------------------- | ------ | --------------------------------- |
+| `/api/bm/regions/{regionId}/images`             | GET    | 镜像列表                          |
+| `/api/bm/regions/{regionId}/images/{id}`        | GET    | 镜像详情                          |
+| `/api/bm/regions/{regionId}/images/{id}`        | DELETE | 删除镜像                          |
+| `/api/bm/regions/{regionId}/images/sync`        | POST   | 开始同步                          |
+| `/api/bm/regions/{regionId}/images/sync/stop`   | POST   | 停止同步                          |
+| `/api/bm/regions/{regionId}/images/sync/status` | GET    | 是否同步中                        |
+| `/api/bm/regions/{regionId}/images/upload`      | POST   | 创建上传任务（分片）              |
+| `/api/bm/regions/{regionId}/images/selections`  | GET    | 同步订阅列表（管理员）            |
+| `/api/bm/regions/{regionId}/images/selections`  | POST   | 添加订阅（如 ubuntu jammy amd64） |
 
 **列表响应示例（BFF 归一化）：**
 
@@ -816,13 +815,13 @@ POST {endpoint}/api/2.0/boot-sources/{source_id}/selections/
 
 添加订阅示例（`multipart/form-data`）：
 
-| 参数 | 示例 | 说明 |
-|------|------|------|
-| `os` | `ubuntu` | 操作系统 |
-| `release` | `jammy` | 版本代号 |
-| `arches` | `amd64` | 架构 |
-| `subarches` | `*` | 子架构 |
-| `labels` | `*` | 标签 |
+| 参数        | 示例     | 说明     |
+| ----------- | -------- | -------- |
+| `os`        | `ubuntu` | 操作系统 |
+| `release`   | `jammy`  | 版本代号 |
+| `arches`    | `amd64`  | 架构     |
+| `subarches` | `*`      | 子架构   |
+| `labels`    | `*`      | 标签     |
 
 ### 13.6 同步流程（交互 + 后端）
 
@@ -850,10 +849,10 @@ sequenceDiagram
 
 **UI 状态：**
 
-| `is_importing` | 展示 |
-|----------------|------|
-| `true` | 顶部进度条 + 「停止同步」按钮 |
-| `false` | 隐藏进度条，刷新列表 |
+| `is_importing` | 展示                          |
+| -------------- | ----------------------------- |
+| `true`         | 顶部进度条 + 「停止同步」按钮 |
+| `false`        | 隐藏进度条，刷新列表          |
 
 ### 13.7 上传自定义镜像（高级）
 
@@ -916,25 +915,25 @@ distro_series=jammy
 
 ### 13.9 权限与错误
 
-| 操作 | 所需 MAAS 权限 |
-|------|----------------|
-| 列表 / 详情 | 查看 Boot 实体 |
+| 操作               | 所需 MAAS 权限 |
+| ------------------ | -------------- |
+| 列表 / 详情        | 查看 Boot 实体 |
 | 同步 / 上传 / 删除 | 编辑 Boot 实体 |
 
-| 错误 | UI 提示 |
-|------|---------|
-| 磁盘空间不足 | 「Region 磁盘空间不足，无法同步镜像」 |
-| 同步进行中 | 「同步任务已在运行」 |
-| 删除被引用的镜像 | 「镜像正在使用中，无法删除」 |
+| 错误             | UI 提示                               |
+| ---------------- | ------------------------------------- |
+| 磁盘空间不足     | 「Region 磁盘空间不足，无法同步镜像」 |
+| 同步进行中       | 「同步任务已在运行」                  |
+| 删除被引用的镜像 | 「镜像正在使用中，无法删除」          |
 
 ### 13.10 实施顺序
 
-| 阶段 | 交付 |
-|------|------|
-| **M1** | 镜像列表 + 详情（只读） |
+| 阶段   | 交付                           |
+| ------ | ------------------------------ |
+| **M1** | 镜像列表 + 详情（只读）        |
 | **M2** | 触发同步 + 状态轮询 + 停止同步 |
-| **M3** | 删除镜像 + 部署页 OS 下拉联动 |
-| **M4** | 同步订阅管理 + 自定义镜像上传 |
+| **M3** | 删除镜像 + 部署页 OS 下拉联动  |
+| **M4** | 同步订阅管理 + 自定义镜像上传  |
 
 ---
 
@@ -944,13 +943,13 @@ distro_series=jammy
 
 ### 14.1 固定方案
 
-| 项 | 约定 |
-|----|------|
-| 前端接口 | `GET /api/bm/regions/{regionId}/dashboard` |
-| MAAS 认证 | 同 Region 配置：`config.apiKey` → OAuth1 |
-| MAAS API | **统一 v2**（与连通性测试、镜像、机器一致） |
-| 刷新 | 前端每 30～60s 轮询；BFF 可缓存 30s |
-| v3 | 概览阶段 **不使用** |
+| 项        | 约定                                        |
+| --------- | ------------------------------------------- |
+| 前端接口  | `GET /api/bm/regions/{regionId}/dashboard`  |
+| MAAS 认证 | 同 Region 配置：`config.apiKey` → OAuth1    |
+| MAAS API  | **统一 v2**（与连通性测试、镜像、机器一致） |
+| 刷新      | 前端每 30～60s 轮询；BFF 可缓存 30s         |
+| v3        | 概览阶段 **不使用**                         |
 
 ### 14.2 页面布局（普通用户）
 
@@ -1015,16 +1014,16 @@ distro_series=jammy
 
 全部 OAuth1，Base：`{endpoint}/api/2.0/`。
 
-| 概览字段 | MAAS 调用 | 说明 |
-|----------|-----------|------|
-| `connected` / `maas_version` | `GET version/` | 无需鉴权也可；建议带 OAuth 一并测 |
-| 机器统计 | `GET machines/` | 按 `status` 聚合（见 14.5） |
-| Region 控制器 | `GET regioncontrollers/` | 看 `service_set` 状态 |
-| Rack 控制器 | `GET rackcontrollers/` | 同上 |
-| 网络发现数量 | `GET discoveries/` | 取 `total` 或 len |
-| OS 镜像数 | `GET boot-resources/` | 经 **13.3.2 白名单+分组** 后计数 |
-| 最近动态 | `GET events/?op=query&limit=10` | 按时间倒序 |
-| 镜像同步中 | `GET boot-resources/?op=is_importing` | 返回 `true`/`false` |
+| 概览字段                     | MAAS 调用                             | 说明                              |
+| ---------------------------- | ------------------------------------- | --------------------------------- |
+| `connected` / `maas_version` | `GET version/`                        | 无需鉴权也可；建议带 OAuth 一并测 |
+| 机器统计                     | `GET machines/`                       | 按 `status` 聚合（见 14.5）       |
+| Region 控制器                | `GET regioncontrollers/`              | 看 `service_set` 状态             |
+| Rack 控制器                  | `GET rackcontrollers/`                | 同上                              |
+| 网络发现数量                 | `GET discoveries/`                    | 取 `total` 或 len                 |
+| OS 镜像数                    | `GET boot-resources/`                 | 经 **13.3.2 白名单+分组** 后计数  |
+| 最近动态                     | `GET events/?op=query&limit=10`       | 按时间倒序                        |
+| 镜像同步中                   | `GET boot-resources/?op=is_importing` | 返回 `true`/`false`               |
 
 **并行请求示例（Python）：**
 
@@ -1058,17 +1057,17 @@ async def fetch_dashboard(endpoint: str, api_key: str) -> dict:
 
 MAAS `machines[].status` 为**整数**，BFF 按下列规则汇总：
 
-| MAAS status | 值 | 归入概览桶 |
-|-------------|-----|-----------|
-| NEW | 0 | `other` |
-| COMMISSIONING, TESTING | 1, 21 | `provisioning` |
-| READY | 4 | `ready` |
-| ALLOCATED, RESERVED | 10, 5 | `ready`（或单独 `allocated`） |
-| DEPLOYING | 9 | `provisioning` |
-| DEPLOYED | 6 | `deployed` |
-| RELEASING, DISK_ERASING | 12, 14 | `provisioning` |
-| FAILED_*, BROKEN | 2,8,11,... | `error` |
-| RETIRED | 7 | `other` |
+| MAAS status             | 值         | 归入概览桶                    |
+| ----------------------- | ---------- | ----------------------------- |
+| NEW                     | 0          | `other`                       |
+| COMMISSIONING, TESTING  | 1, 21      | `provisioning`                |
+| READY                   | 4          | `ready`                       |
+| ALLOCATED, RESERVED     | 10, 5      | `ready`（或单独 `allocated`） |
+| DEPLOYING               | 9          | `provisioning`                |
+| DEPLOYED                | 6          | `deployed`                    |
+| RELEASING, DISK_ERASING | 12, 14     | `provisioning`                |
+| FAILED\_\*, BROKEN      | 2,8,11,... | `error`                       |
+| RETIRED                 | 7          | `other`                       |
 
 ```python
 PROVISIONING = {1, 9, 12, 14, 21}
@@ -1117,41 +1116,41 @@ GET /api/2.0/events/?op=query&limit=10
 
 BFF 映射为：
 
-| 字段 | 来源 |
-|------|------|
-| `time` | `created` |
-| `hostname` | `hostname` |
-| `description` | `description` |
-| `level` | `type` 或日志级别 |
+| 字段          | 来源              |
+| ------------- | ----------------- |
+| `time`        | `created`         |
+| `hostname`    | `hostname`        |
+| `description` | `description`     |
+| `level`       | `type` 或日志级别 |
 
 列表按 `created` **倒序**，最多 10 条。
 
 ### 14.8 空 Region / 异常处理
 
-| 情况 | 概览表现 |
-|------|----------|
+| 情况        | 概览表现                                                                     |
+| ----------- | ---------------------------------------------------------------------------- |
 | MAAS 连不上 | `connected: false`，卡片显示 `--`，提示检查连接配置（资源池管理中编辑/测连） |
-| 无机器 | 各计数为 0，显示「暂无机器，前往网络发现或添加机器」 |
-| 无镜像 | `os_images_count: 0`，提示「前往镜像页同步 Ubuntu」 |
-| API 401 | 同 Region 认证失败，勿缓存 |
+| 无机器      | 各计数为 0，显示「暂无机器，前往网络发现或添加机器」                         |
+| 无镜像      | `os_images_count: 0`，提示「前往镜像页同步 Ubuntu」                          |
+| API 401     | 同 Region 认证失败，勿缓存                                                   |
 
 ### 14.9 前端交互
 
-| 卡片 | 点击跳转 |
-|------|----------|
-| 机器总数 / 可用 / 运行中 / 异常 | `/machines?status=...` |
-| 网络发现 | `/discoveries` |
-| 操作系统镜像 | `/images` |
-| Region / Rack 控制器 | 概览页内锚点 `#maas-controllers`（明细表） |
+| 卡片                            | 点击跳转                                   |
+| ------------------------------- | ------------------------------------------ |
+| 机器总数 / 可用 / 运行中 / 异常 | `/machines?status=...`                     |
+| 网络发现                        | `/discoveries`                             |
+| 操作系统镜像                    | `/images`                                  |
+| Region / Rack 控制器            | 概览页内锚点 `#maas-controllers`（明细表） |
 
 ### 14.10 实施顺序
 
-| 阶段 | 内容 |
-|------|------|
+| 阶段   | 内容                                     |
+| ------ | ---------------------------------------- |
 | **D1** | `GET dashboard` + Region 信息 + 机器计数 |
-| **D2** | 控制器状态 + 最近动态 |
-| **D3** | 发现数 + OS 镜像摘要 + 同步状态 |
-| **D4** | 30s 自动刷新 + 骨架屏 |
+| **D2** | 控制器状态 + 最近动态                    |
+| **D3** | 发现数 + OS 镜像摘要 + 同步状态          |
+| **D4** | 30s 自动刷新 + 骨架屏                    |
 
 ### 14.11 给后端的一句话
 

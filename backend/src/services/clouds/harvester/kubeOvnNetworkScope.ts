@@ -102,7 +102,9 @@ export function formatTowerNamespacesAnnotation(
       if (t) set.add(t);
     }
   }
-  return Array.from(set).sort((a, b) => a.localeCompare(b)).join(',');
+  return Array.from(set)
+    .sort((a, b) => a.localeCompare(b))
+    .join(',');
 }
 
 /** 从 Vpc CR JSON（GET 响应）解析 spec.namespaces */
@@ -166,9 +168,7 @@ export function isUnderlayVpcName(vpc: string | undefined | null): boolean {
  * 无注解或非法值返回 null（不做 spec 推断）。
  */
 export function ovnNetworkScopeFromAnnotations(raw: any): OvnNetworkScope | null {
-  const v = String(
-    raw?.metadata?.annotations?.[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '',
-  )
+  const v = String(raw?.metadata?.annotations?.[TOWER_IO_OVN_NETWORK_SCOPE_ANNOTATION] ?? '')
     .trim()
     .toLowerCase();
   if (v === 'underlay' || v === 'vpc') return v;
@@ -227,8 +227,7 @@ export function inferOvnScopeFromSnatSubnetRef(
   raw: any,
   subnetVpcByName: Map<string, string | undefined>,
 ): OvnNetworkScope | 'unknown' {
-  const key =
-    raw?.spec?.vpcSubnet ?? raw?.spec?.subnet ?? raw?.spec?.subnetName;
+  const key = raw?.spec?.vpcSubnet ?? raw?.spec?.subnet ?? raw?.spec?.subnetName;
   const name = subnetRefToName(key);
   if (!name) return 'unknown';
   const vpc = subnetVpcByName.get(name);
@@ -244,10 +243,7 @@ export function ovnEipNameFromRule(raw: any): string | undefined {
 /**
  * 内部：按注解分域；无注解视为与任一侧兼容（unknown），用于 **underlay** 列表。
  */
-function filterItemsByOvnNetworkScopeAnnotation(
-  items: any[],
-  scope: OvnNetworkScope,
-): any[] {
+function filterItemsByOvnNetworkScopeAnnotation(items: any[], scope: OvnNetworkScope): any[] {
   return items.filter((item) => {
     const ann = ovnNetworkScopeFromAnnotations(item);
     if (ann === null) return true;
@@ -260,10 +256,7 @@ function filterItemsByOvnNetworkScopeAnnotation(
  * - `vpc`：仅保留注解值为 `vpc` 的 CR（无注解、underlay 均排除）。
  * - `underlay`：保留 `underlay` 与 **无注解**（unknown 归入扁平侧展示）。
  */
-export function filterItemsByOvnNetworkScopeForApi(
-  items: any[],
-  scope: OvnNetworkScope,
-): any[] {
+export function filterItemsByOvnNetworkScopeForApi(items: any[], scope: OvnNetworkScope): any[] {
   if (scope === 'vpc') {
     return items.filter((item) => ovnNetworkScopeFromAnnotations(item) === 'vpc');
   }
@@ -273,8 +266,7 @@ export function filterItemsByOvnNetworkScopeForApi(
 /** 许可证功能键：业务 VPC / VPC 子网 / VPC 域南北向 */
 export const OVN_VPC_LICENSE_FEATURE = 'network.ovn.vpc';
 
-export const OVN_VPC_LICENSE_DENIED_MESSAGE =
-  '未授权：虚拟专有云（OVN VPC）功能未启用';
+export const OVN_VPC_LICENSE_DENIED_MESSAGE = '未授权：虚拟专有云（OVN VPC）功能未启用';
 
 export function isOvnVpcLicenseEnabled(): boolean {
   return licenseService.hasFeature(OVN_VPC_LICENSE_FEATURE);
@@ -325,7 +317,9 @@ export function isVpcBusinessKubeOvnSubnetIntent(
   subnetTypeAnn: string | undefined | null,
   targetVpc: string | undefined | null,
 ): boolean {
-  const t = String(subnetTypeAnn ?? '').trim().toLowerCase();
+  const t = String(subnetTypeAnn ?? '')
+    .trim()
+    .toLowerCase();
   const vpc = String(targetVpc ?? '').trim();
   return t === 'vpc' && vpc !== '' && !isUnderlayVpcName(vpc);
 }
@@ -334,17 +328,19 @@ export function isVpcBusinessKubeOvnSubnetIntent(
 export function isVpcBusinessKubeOvnSubnetCr(raw: any): boolean {
   if (ovnNetworkScopeFromAnnotations(raw) === 'vpc') return true;
   const ann = raw?.metadata?.annotations || {};
-  const typeAnn = String(ann['tower.io/subnet-type'] ?? '').trim().toLowerCase();
+  const typeAnn = String(ann['tower.io/subnet-type'] ?? '')
+    .trim()
+    .toLowerCase();
   const vpc = String(raw?.spec?.vpc ?? '').trim();
   return isVpcBusinessKubeOvnSubnetIntent(typeAnn, vpc);
 }
 
 export function parseRequiredOvnNetworkScopeListQuery(req: {
   query?: Record<string, unknown>;
-}):
-  | { ok: true; scope: OvnNetworkScopeListQuery }
-  | { ok: false; status: number; message: string } {
-  const raw = String(req.query?.ovnNetworkScope ?? '').trim().toLowerCase();
+}): { ok: true; scope: OvnNetworkScopeListQuery } | { ok: false; status: number; message: string } {
+  const raw = String(req.query?.ovnNetworkScope ?? '')
+    .trim()
+    .toLowerCase();
   if (!raw) {
     return {
       ok: false,
@@ -365,10 +361,10 @@ export function parseRequiredOvnNetworkScopeListQuery(req: {
 /** POST 创建 OVN EIP/FIP/NAT 等：必填 `ovnNetworkScope=vpc|underlay` */
 export function parseRequiredOvnNetworkScopeCreateQuery(req: {
   query?: Record<string, unknown>;
-}):
-  | { ok: true; scope: OvnNetworkScope }
-  | { ok: false; status: number; message: string } {
-  const raw = String(req.query?.ovnNetworkScope ?? '').trim().toLowerCase();
+}): { ok: true; scope: OvnNetworkScope } | { ok: false; status: number; message: string } {
+  const raw = String(req.query?.ovnNetworkScope ?? '')
+    .trim()
+    .toLowerCase();
   if (!raw) {
     return {
       ok: false,

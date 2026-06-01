@@ -33,7 +33,6 @@ import {
   DINGTALK_RECEIVER,
   WEBSITE_RECEIVER,
   DINGTALK_WEBHOOK_BASE,
-  isUnreachableError,
   requireTenantAccessForMonitoring,
   parseQueryArray,
   removeDingtalkConfigMapTarget,
@@ -51,7 +50,11 @@ const DEFAULT_RECEIVER_NAMES = [EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEI
 const VALID_RECEIVER_TYPES = new Set<string>([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
 
 /** 历史共享 CR 的 metadata.name 集合（兼容路径使用） */
-const LEGACY_SHARED_CONFIG_NAMES = new Set<string>([EMAIL_RECEIVER, DINGTALK_RECEIVER, WEBSITE_RECEIVER]);
+const LEGACY_SHARED_CONFIG_NAMES = new Set<string>([
+  EMAIL_RECEIVER,
+  DINGTALK_RECEIVER,
+  WEBSITE_RECEIVER,
+]);
 
 function isValidReceiverType(t: string): boolean {
   return VALID_RECEIVER_TYPES.has(String(t ?? '').trim());
@@ -64,7 +67,7 @@ function isValidReceiverType(t: string): boolean {
 function buildReceiverMetadataAnnotations(
   existingAnnotations: Record<string, string> | undefined,
   bodyAnnotations: Record<string, string> | undefined,
-  receiverType: string
+  receiverType: string,
 ): Record<string, string> {
   const next: Record<string, string> = { ...(existingAnnotations || {}) };
   if (isValidReceiverType(receiverType)) {
@@ -85,7 +88,8 @@ function buildReceiverMetadataAnnotations(
 }
 
 function readReceiverAliasDescription(meta: any): { aliasName?: string; description?: string } {
-  const annotations = meta?.annotations && typeof meta.annotations === 'object' ? meta.annotations : {};
+  const annotations =
+    meta?.annotations && typeof meta.annotations === 'object' ? meta.annotations : {};
   const aliasName = String(annotations[ANNOTATION_ALIAS] ?? '').trim();
   const description = String(annotations[ANNOTATION_DESCRIPTION] ?? '').trim();
   return {
@@ -101,7 +105,9 @@ function readReceiverAliasDescription(meta: any): { aliasName?: string; descript
 function resolveRequestedReceiverType(req: Request, body: any): string {
   const q = String((req.query as any)?.receiverType ?? '').trim();
   if (q) return q;
-  const fromBody = String(body?.metadata?.annotations?.[ANNOTATION_MONITORING_RECEIVER] ?? '').trim();
+  const fromBody = String(
+    body?.metadata?.annotations?.[ANNOTATION_MONITORING_RECEIVER] ?? '',
+  ).trim();
   return fromBody;
 }
 
@@ -123,14 +129,19 @@ function collectEmailReceiverSecretTargets(receivers: any[]): Map<string, Set<st
 }
 
 function parseAnnotationTargets(value: string): Set<string> {
-  return new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+  return new Set(
+    value
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 }
 
 async function syncLinkedSecretsAnnotationForReceivers(
   conn: { origin: string; token: string; insecure: boolean },
   namespace: string,
   previousReceivers: any[],
-  nextReceivers: any[]
+  nextReceivers: any[],
 ): Promise<void> {
   const previousMap = collectEmailReceiverSecretTargets(previousReceivers);
   const nextMap = collectEmailReceiverSecretTargets(nextReceivers);
@@ -151,7 +162,9 @@ async function syncLinkedSecretsAnnotationForReceivers(
       throw e;
     }
     const secret =
-      (raw as any)?.data != null && typeof (raw as any).data === 'object' && (raw as any).data?.metadata != null
+      (raw as any)?.data != null &&
+      typeof (raw as any).data === 'object' &&
+      (raw as any).data?.metadata != null
         ? (raw as any).data
         : raw;
     if (!secret?.metadata) {
@@ -160,10 +173,13 @@ async function syncLinkedSecretsAnnotationForReceivers(
         message: `引用的告警密钥 ${namespace}/${secretName} 数据异常，无法保存通知对象`,
       });
     }
-    const annotations = secret.metadata?.annotations && typeof secret.metadata.annotations === 'object'
-      ? secret.metadata.annotations
-      : {};
-    const currentSet = parseAnnotationTargets((annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '').toString().trim());
+    const annotations =
+      secret.metadata?.annotations && typeof secret.metadata.annotations === 'object'
+        ? secret.metadata.annotations
+        : {};
+    const currentSet = parseAnnotationTargets(
+      (annotations?.[ALERTMANAGER_TARGET_ANNOTATION] ?? '').toString().trim(),
+    );
     const nextSet = new Set<string>(currentSet);
     const removedTargets = previousMap.get(secretName) ?? new Set<string>();
     const addedTargets = nextMap.get(secretName) ?? new Set<string>();
@@ -204,13 +220,18 @@ async function syncLinkedSecretsAnnotationForReceivers(
  *   - `aliasName`: 通知对象名称，来源 annotation `tower.io/alias`（与 AlertmanagerPolicy.aliasName 同口径）。
  *   - `description`: 通知对象描述，来源 annotation `tower.io/description`。
  */
-export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id } = req.params;
     const namespaces = parseQueryArray(req.query?.namespaces);
     let receiverNames = parseQueryArray(req.query?.receiverName);
     if (receiverNames.length === 0) receiverNames = [...DEFAULT_RECEIVER_NAMES];
-    const receiverNameSet = new Set(receiverNames.map((s) => String(s ?? '').trim()).filter(Boolean));
+    const receiverNameSet = new Set(
+      receiverNames.map((s) => String(s ?? '').trim()).filter(Boolean),
+    );
     const tenant = await requireTenantAccessForMonitoring(req as any, res, id, { namespaces });
     if (!tenant) return;
 
@@ -237,12 +258,18 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(req
       const name = (inner?.metadata?.name ?? '').toString().trim();
       if (!ns || !name) continue;
       if (nsFilter?.length && !nsFilter.includes(ns)) continue;
-      if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns)) continue;
+      if (!tenant.isAdmin && tenant.namespaces.length > 0 && !tenant.namespaces.includes(ns))
+        continue;
 
       const meta = inner?.metadata ?? {};
       const receiverType = resolveMonitoringReceiverType(meta);
       // 通知方式过滤：annotation/metadata.name 命中其一即放行
-      if (receiverNameSet.size > 0 && !receiverNameSet.has(receiverType) && !receiverNameSet.has(name)) continue;
+      if (
+        receiverNameSet.size > 0 &&
+        !receiverNameSet.has(receiverType) &&
+        !receiverNameSet.has(name)
+      )
+        continue;
 
       const spec = inner?.spec ?? {};
       const rawReceivers = Array.isArray(spec.receivers) ? spec.receivers : [];
@@ -281,7 +308,10 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversHandler(req
  * 兼容历史共享 CR：同时检查 `email-receiver|dingtalk-receiver|website-receiver` 这三类 CR
  *   的 spec.receivers[].name 是否包含 specReceiverName（避免与历史条目重名）。
  */
-export async function harvesterMonitoringAlertmanagerConfigsReceiversCheckHandler(req: Request, res: Response) {
+export async function harvesterMonitoringAlertmanagerConfigsReceiversCheckHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const { id } = req.params;
     const namespace = (req.query?.namespace ?? '').toString().trim();
@@ -289,7 +319,9 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCheckHandle
     if (!namespace || !specReceiverName) {
       return res.status(400).json({ message: 'namespace 与 specReceiverName 不能为空' });
     }
-    const tenant = await requireTenantAccessForMonitoring(req as any, res, id, { namespaces: [namespace] });
+    const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
+      namespaces: [namespace],
+    });
     if (!tenant) return;
 
     const cloud = (req as any).cloud;
@@ -314,11 +346,20 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCheckHandle
         for (const legacy of LEGACY_SHARED_CONFIG_NAMES) {
           try {
             const path = `${ALERTMANAGERCONFIG_BASE}/${encodeURIComponent(namespace)}/${encodeURIComponent(legacy)}`;
-            const raw = await getJsonOnce(`${origin}/${path}`, cloud.secretKey || '', insecure, true);
+            const raw = await getJsonOnce(
+              `${origin}/${path}`,
+              cloud.secretKey || '',
+              insecure,
+              true,
+            );
             const item =
-              (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+              (raw as any)?.data != null && typeof (raw as any).data === 'object'
+                ? (raw as any).data
+                : raw;
             const receivers = Array.isArray(item?.spec?.receivers) ? item.spec.receivers : [];
-            if (receivers.some((r: any) => (r?.name ?? '').toString().trim() === specReceiverName)) {
+            if (
+              receivers.some((r: any) => (r?.name ?? '').toString().trim() === specReceiverName)
+            ) {
               exists = true;
               break;
             }
@@ -380,7 +421,7 @@ function normalizeDingtalkReceiversForCR(receivers: any[], ns: string): any[] {
  */
 export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdateHandler(
   req: Request,
-  res: Response
+  res: Response,
 ) {
   try {
     const { id, namespace: ns, name } = req.params;
@@ -400,9 +441,10 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
     const body = req.body || {};
     const receiverType = resolveRequestedReceiverType(req, body);
     if (!receiverType) {
-      return res
-        .status(400)
-        .json({ message: '缺少 receiverType（query 或 body.metadata.annotations[tower.io/monitoring-receiver]）' });
+      return res.status(400).json({
+        message:
+          '缺少 receiverType（query 或 body.metadata.annotations[tower.io/monitoring-receiver]）',
+      });
     }
     if (!isValidReceiverType(receiverType)) {
       return res.status(400).json({ message: '通知方式必须是邮件、钉钉或站内信之一' });
@@ -448,7 +490,7 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
         return true;
       })
       .catch((err: any) =>
-        err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err)
+        err?.status === 404 || err?.statusCode === 404 ? false : Promise.reject(err),
       );
 
     const existing =
@@ -471,11 +513,14 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
     // 邮件接收器：维护引用 Secret 上的 ALERTMANAGER_TARGET_ANNOTATION
     if (receiverType === EMAIL_RECEIVER) {
       try {
-        await syncLinkedSecretsAnnotationForReceivers(conn, ns, existingSpecReceivers, [singleReceiver]);
+        await syncLinkedSecretsAnnotationForReceivers(conn, ns, existingSpecReceivers, [
+          singleReceiver,
+        ]);
       } catch (e: any) {
         const status = (e as any)?.status ?? (e as any)?.statusCode ?? 500;
         const msg = e?.message || '更新告警密钥关联标记失败';
-        if (status >= 500) console.error('[email-receiver] syncLinkedSecretsAnnotationForReceivers:', e);
+        if (status >= 500)
+          console.error('[email-receiver] syncLinkedSecretsAnnotationForReceivers:', e);
         return res.status(status).json({ message: msg });
       }
     }
@@ -508,7 +553,7 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
           annotations: buildReceiverMetadataAnnotations(
             undefined,
             body?.metadata?.annotations,
-            receiverType
+            receiverType,
           ),
         },
         spec: { ...(body?.spec || {}), receivers: [normalizedReceiver] },
@@ -518,7 +563,7 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
         `${conn.origin}/${ALERTMANAGERCONFIG_BASE}`,
         conn.token,
         insecure,
-        createPayload
+        createPayload,
       );
       try {
         await syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(conn, ns, [normalizedReceiver]);
@@ -542,12 +587,18 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
         annotations: buildReceiverMetadataAnnotations(
           existing.metadata?.annotations,
           body?.metadata?.annotations,
-          receiverType
+          receiverType,
         ),
       },
       spec: { ...(existing.spec || {}), receivers: [normalizedReceiver] },
     };
-    const data = await requestJson('PUT', `${conn.origin}/${path}`, conn.token, insecure, nextExisting);
+    const data = await requestJson(
+      'PUT',
+      `${conn.origin}/${path}`,
+      conn.token,
+      insecure,
+      nextExisting,
+    );
     try {
       await syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(conn, ns, [normalizedReceiver]);
     } catch (e) {
@@ -577,7 +628,7 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversCreateUpdat
  */
 export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandler(
   req: Request,
-  res: Response
+  res: Response,
 ) {
   try {
     const { id, namespace, name } = req.params;
@@ -585,7 +636,9 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
     if (!trimmedName) return res.status(400).json({ message: '通知对象标识不能为空' });
     const specReceiverNameQuery = (req.query.specReceiverName ?? '').toString().trim();
 
-    const tenant = await requireTenantAccessForMonitoring(req as any, res, id, { namespaces: [namespace] });
+    const tenant = await requireTenantAccessForMonitoring(req as any, res, id, {
+      namespaces: [namespace],
+    });
     if (!tenant) return;
 
     const cloud = (req as any).cloud;
@@ -601,7 +654,10 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
     let existing: any = null;
     try {
       const raw = await getJsonOnce(getUrl, conn.token, insecure, true);
-      existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+      existing =
+        (raw as any)?.data != null && typeof (raw as any).data === 'object'
+          ? (raw as any).data
+          : raw;
     } catch (e: any) {
       const status = Number((e as any)?.status ?? (e as any)?.statusCode ?? 0);
       if (status === 404) return res.status(404).json({ message: '未找到该通知对象' });
@@ -612,12 +668,15 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
     }
 
     const receiverType = resolveMonitoringReceiverType(existing.metadata);
-    const specReceivers: any[] = Array.isArray(existing.spec?.receivers) ? existing.spec.receivers : [];
+    const specReceivers: any[] = Array.isArray(existing.spec?.receivers)
+      ? existing.spec.receivers
+      : [];
 
     // 判定是否走「仅删 entry」分支：历史共享 CR（多条）且 query 提供 specReceiverName
     const isMultiReceiverCR = specReceivers.length > 1;
     const shouldRemoveSingleEntry =
-      isMultiReceiverCR && !!specReceiverNameQuery &&
+      isMultiReceiverCR &&
+      !!specReceiverNameQuery &&
       specReceivers.some((r: any) => (r?.name ?? '').toString().trim() === specReceiverNameQuery);
 
     // 引用校验：删除前确认目标名（整 CR 删除时为 trimmedName，删 entry 时为 specReceiverNameQuery）未被策略引用
@@ -653,14 +712,21 @@ export async function harvesterMonitoringAlertmanagerConfigsReceiversDeleteHandl
 
     if (shouldRemoveSingleEntry) {
       // 历史共享 CR：仅移除单条 entry
-      const toRemove = specReceivers.find((r: any) => (r?.name ?? '').toString().trim() === specReceiverNameQuery);
+      const toRemove = specReceivers.find(
+        (r: any) => (r?.name ?? '').toString().trim() === specReceiverNameQuery,
+      );
       const nextReceivers = specReceivers.filter(
-        (r: any) => (r?.name ?? '').toString().trim() !== specReceiverNameQuery
+        (r: any) => (r?.name ?? '').toString().trim() !== specReceiverNameQuery,
       );
       // 邮件：先同步 Secret 关联标记（删旧 entry 引用）
       if (receiverType === EMAIL_RECEIVER) {
         try {
-          await syncLinkedSecretsAnnotationForReceivers(conn, namespace, [toRemove].filter(Boolean), []);
+          await syncLinkedSecretsAnnotationForReceivers(
+            conn,
+            namespace,
+            [toRemove].filter(Boolean),
+            [],
+          );
         } catch (e) {
           console.warn('[DELETE receivers] sync secrets annotation failed:', e);
         }

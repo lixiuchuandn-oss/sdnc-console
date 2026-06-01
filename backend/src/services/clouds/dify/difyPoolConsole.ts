@@ -1,9 +1,6 @@
 import type { Response } from 'express';
 import type { Cloud } from '../../../entities/Cloud';
-import {
-  getEdgePoolXiEndpoint,
-  resolveEdgeDifyConsoleUrl,
-} from '../xinference/edgeInferencePool';
+import { getEdgePoolXiEndpoint, resolveEdgeDifyConsoleUrl } from '../xinference/edgeInferencePool';
 import { getXinferenceContext, xinferenceGet } from '../xinference/xinferenceClient';
 
 export function getTowerPublicOrigin(req: {

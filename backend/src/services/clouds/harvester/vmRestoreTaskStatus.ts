@@ -61,10 +61,14 @@ export function getHarvesterRestoreTaskStatus(raw: any): HarvesterRestoreTaskSta
   if (isFailedByConditions(raw)) return { phase: 'failed', text: '失败', progress: 0 };
   const conds: any[] = Array.isArray(raw?.status?.conditions) ? raw.status.conditions : [];
   const ready = conds.some(
-    (c: any) => String(c?.type || '').toLowerCase() === 'ready' && String(c?.status || '').toLowerCase() === 'true',
+    (c: any) =>
+      String(c?.type || '').toLowerCase() === 'ready' &&
+      String(c?.status || '').toLowerCase() === 'true',
   );
   const completed = conds.some(
-    (c: any) => String(c?.type || '').toLowerCase() === 'completed' && String(c?.status || '').toLowerCase() === 'true',
+    (c: any) =>
+      String(c?.type || '').toLowerCase() === 'completed' &&
+      String(c?.status || '').toLowerCase() === 'true',
   );
   if (ready || completed) return { phase: 'ready', text: '完成', progress: 100 };
 
@@ -75,7 +79,8 @@ export function getHarvesterRestoreTaskStatus(raw: any): HarvesterRestoreTaskSta
 
 export function isHarvesterRestoreTaskRecord(raw: any): boolean {
   const hasCloneMark =
-    !!raw?.metadata?.annotations?.['tower.io/cloneTask'] || !!raw?.metadata?.annotations?.['tower.io/clone'];
+    !!raw?.metadata?.annotations?.['tower.io/cloneTask'] ||
+    !!raw?.metadata?.annotations?.['tower.io/clone'];
   if (hasCloneMark) return false;
   const ann = raw?.metadata?.annotations || {};
   const hasRestoreMark = !!ann['tower.io/restoreTask'];

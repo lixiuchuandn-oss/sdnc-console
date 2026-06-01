@@ -37,8 +37,16 @@ import { AppDataSource } from '../../../../config/database';
 import { KubeOvnVpcInventory } from '../../../../entities/kubeovn/KubeOvnVpcInventory';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { syncKubeOvnVpcs } from '../../../../services/clouds/harvester/inventory';
-import { createKubeOvnVpc, deleteKubeOvnVpc, updateKubeOvnVpc } from '../../../../services/clouds/harvester/client';
-import { listKubeOvnSubnets, listKubeOvnEips, listKubeOvnFips } from '../../../../services/clouds/harvester/network';
+import {
+  createKubeOvnVpc,
+  deleteKubeOvnVpc,
+  updateKubeOvnVpc,
+} from '../../../../services/clouds/harvester/client';
+import {
+  listKubeOvnSubnets,
+  listKubeOvnEips,
+  listKubeOvnFips,
+} from '../../../../services/clouds/harvester/network';
 import { checkTenantAccess } from '../harvester.direct.helpers';
 import {
   getPublicScenarioNamespaceNames,
@@ -78,11 +86,10 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
 
     const repo = AppDataSource.getRepository(KubeOvnVpcInventory);
 
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     let tenantNamespace: string | undefined;
     const reqAny = req as any;
-    const isTenantUser =
-      reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
+    const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';
     const isTenant = isTenantUser || isTenantRole;
 
@@ -104,7 +111,12 @@ export async function harvesterVpcListHandler(req: Request, res: Response) {
       // Auto-Fix: Ensure organization namespace is included in UserSpace
       if (reqAny.user.organizationId) {
         const orgNs = `ns-${reqAny.user.organizationId}`;
-        const nsList = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()).filter(Boolean) : [];
+        const nsList = tenantNamespace
+          ? tenantNamespace
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
         if (!nsList.includes(orgNs)) {
           nsList.push(orgNs);
           tenantNamespace = nsList.join(',');
@@ -189,7 +201,7 @@ export async function harvesterVpcCreateHandler(req: Request, res: Response) {
 
     const data = await createKubeOvnVpc(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      req.body
+      req.body,
     );
 
     // [数据同步] 创建成功后，直接使用返回的数据入库（标准做法）
@@ -310,9 +322,7 @@ export async function harvesterVpcDeleteHandler(req: Request, res: Response) {
         error: e?.message || String(e),
       });
     }
-    const fipsOnVpc = fipItems.filter(
-      (f: any) => String(f?.spec?.vpc || '').trim() === nameTrim,
-    );
+    const fipsOnVpc = fipItems.filter((f: any) => String(f?.spec?.vpc || '').trim() === nameTrim);
     if (fipsOnVpc.length > 0) {
       const sample = fipsOnVpc
         .slice(0, 5)
@@ -366,7 +376,7 @@ export async function harvesterVpcUpdateHandler(req: Request, res: Response) {
     const data = await updateKubeOvnVpc(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       name,
-      req.body
+      req.body,
     );
 
     res.json({ message: '更新成功', data });

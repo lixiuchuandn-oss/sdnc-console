@@ -9,7 +9,10 @@ import axios from 'axios';
 import { Request, Response } from 'express';
 import { AppDataSource } from '../../../../config/database';
 import { CephMgrDashboardSnapshot } from '../../../../entities/harvester/CephMgrDashboardSnapshot';
-import { getJsonOnce, resolveHarvesterCloudKubeToken } from '../../../../services/clouds/harvester/utils';
+import {
+  getJsonOnce,
+  resolveHarvesterCloudKubeToken,
+} from '../../../../services/clouds/harvester/utils';
 import { ensureProvider, isUnreachableError, normalizeOrigin } from './monitoring-helpers';
 
 /**
@@ -53,8 +56,7 @@ function getCephDashboardLoginCredentials(): { user: string; password: string } 
     return null;
   }
   const isProd = process.env.NODE_ENV === 'production';
-  const useDemoLogin =
-    !isProd || process.env.CEPH_DASHBOARD_DEV_AUTO_LOGIN === '1';
+  const useDemoLogin = !isProd || process.env.CEPH_DASHBOARD_DEV_AUTO_LOGIN === '1';
   if (useDemoLogin) {
     return { user: CEPH_DASHBOARD_DEV_DEFAULT_USER, password: CEPH_DASHBOARD_DEV_DEFAULT_PASSWORD };
   }
@@ -81,7 +83,11 @@ async function resolveRancherK8sClusterSegment(
 ): Promise<string | null> {
   try {
     const json = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true);
-    const arr = Array.isArray(json?.data) ? json.data : Array.isArray(json?.items) ? json.items : [];
+    const arr = Array.isArray(json?.data)
+      ? json.data
+      : Array.isArray(json?.items)
+        ? json.items
+        : [];
     const local = arr.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
     const any = arr[0];
     const id = String(local?.id || local?.Id || any?.id || any?.Id || '').trim();
@@ -115,7 +121,9 @@ function buildCephDashboardProxyUrls(
   for (const seg of clusterSegments) {
     const s = String(seg || '').trim();
     if (!s) continue;
-    pathBases.push(`${origin}/k8s/clusters/${encodeURIComponent(s)}/api/v1/namespaces/${encNs}/services/`);
+    pathBases.push(
+      `${origin}/k8s/clusters/${encodeURIComponent(s)}/api/v1/namespaces/${encNs}/services/`,
+    );
   }
   pathBases.push(`${origin}/api/v1/namespaces/${encNs}/services/`);
   const urls: string[] = [];
@@ -164,7 +172,11 @@ function cephDashboardJwtFromAuthBody(body: unknown): string {
   const o = body as Record<string, unknown>;
   if (typeof o.token === 'string' && o.token.trim()) return o.token.trim();
   const d = o.data;
-  if (d != null && typeof d === 'object' && typeof (d as Record<string, unknown>).token === 'string') {
+  if (
+    d != null &&
+    typeof d === 'object' &&
+    typeof (d as Record<string, unknown>).token === 'string'
+  ) {
     const t = String((d as Record<string, unknown>).token).trim();
     if (t) return t;
   }
@@ -180,7 +192,9 @@ function cookieHeaderFromSetCookie(setCookie: string | string[] | undefined): st
 
 /** 校验并规范化经 Service 代理的 Dashboard 子路径：`api/...` 或只读 UI 助手 `ui/pool/...` */
 function normalizeCephDashboardProxyPath(raw: string): string | null {
-  const s = String(raw || '').trim().replace(/^\/+/, '');
+  const s = String(raw || '')
+    .trim()
+    .replace(/^\/+/, '');
   if (!s || s.includes('..') || /[\r\n]/.test(s)) return null;
   const lower = s.toLowerCase();
   const qIdx = s.indexOf('?');
@@ -254,7 +268,10 @@ async function loginCephDashboardForProxy(
   return null;
 }
 
-function serializeProxyRequestBody(body: unknown, contentType: string | undefined): string | undefined {
+function serializeProxyRequestBody(
+  body: unknown,
+  contentType: string | undefined,
+): string | undefined {
   if (body === undefined || body === null) return undefined;
   const ct = String(contentType || '').toLowerCase();
   if (typeof body === 'string') return body;
@@ -334,7 +351,9 @@ async function cephDashboardHttpProxy(
             transformResponse: [(d) => d],
           });
           const buf = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data || []);
-          const contentType = String(res.headers['content-type'] || 'application/octet-stream').split(';')[0].trim();
+          const contentType = String(res.headers['content-type'] || 'application/octet-stream')
+            .split(';')[0]
+            .trim();
           last = { status: res.status, contentType, raw: buf };
           if (res.status === 404) continue urlLoop;
           if (res.status === 415) continue;
@@ -486,12 +505,12 @@ async function fetchCephDashboardWithSession(
           authOk = true;
           break;
         }
-        const rawDetail =
-          typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? {});
+        const rawDetail = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? {});
         if (res.status === 400 && /invalid_credentials/i.test(rawDetail)) {
           lastErr = {
             status: 400,
-            message: 'Dashboard invalid_credentials（与 probe 一致：请使用 REST 本地密码，非浏览器 SSO）',
+            message:
+              'Dashboard invalid_credentials（与 probe 一致：请使用 REST 本地密码，非浏览器 SSO）',
             body: res.data,
           };
           authOk = false;
@@ -514,7 +533,9 @@ async function fetchCephDashboardWithSession(
       const dashboardJwt = cephDashboardJwtFromAuthBody(authRes.data);
 
       let summaryPayload: any;
-      const attemptGetSummary = async (baseHeaders: Record<string, string>): Promise<'ok' | '404' | 'fail'> => {
+      const attemptGetSummary = async (
+        baseHeaders: Record<string, string>,
+      ): Promise<'ok' | '404' | 'fail'> => {
         const getAxiosOpts = axiosOptsForDashboardUrl(getUrl, insecure);
         for (const accept of CEPH_DASHBOARD_API_ACCEPTS) {
           const getRes = await axios.get(getUrl, {
@@ -635,7 +656,14 @@ export async function fetchCephDashboardApi(
       /* 会话失败时回退为仅 Kube Token（与旧行为一致） */
     }
   }
-  return fetchCephDashboardGetKubeOnly(origin, token, insecure, namespace, apiSubPath, clusterSegments);
+  return fetchCephDashboardGetKubeOnly(
+    origin,
+    token,
+    insecure,
+    namespace,
+    apiSubPath,
+    clusterSegments,
+  );
 }
 
 type CephDashboardSummaryOverrides = {
@@ -653,12 +681,14 @@ async function fetchCephDashboardSummaryPayload(
 ): Promise<{ data: any; namespace: string; path: string }> {
   const insecure = !!(cloud.config as any)?.ignoreTls;
   const origin = normalizeOrigin(cloud.endpoint || '');
-  const token =
-    String(overrides?.kubeToken ?? '').trim() || resolveHarvesterCloudKubeToken(cloud);
+  const token = String(overrides?.kubeToken ?? '').trim() || resolveHarvesterCloudKubeToken(cloud);
   const q = (req.query || {}) as Record<string, string | undefined>;
   const namespace =
     String(
-      overrides?.namespace || q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph',
+      overrides?.namespace ||
+        q.namespace ||
+        (cloud.config as any)?.cephRookNamespace ||
+        'rook-ceph',
     ).trim() || 'rook-ceph';
   let path = String(overrides?.path || q.path || 'api/summary').trim() || 'api/summary';
   path = path.replace(/^\/+/, '');
@@ -732,16 +762,22 @@ export async function harvesterMonitoringCephDashboardSummaryHandler(req: Reques
  * Body（均为可选）：kubeToken、dashboardUsername、dashboardPassword、namespace、path
  * 用于页面显式填写与 probe 一致的 Kube Token / Dashboard 账号，避免仅依赖云平台保存的 secretKey。
  */
-export async function harvesterMonitoringCephDashboardSummaryPostHandler(req: Request, res: Response) {
+export async function harvesterMonitoringCephDashboardSummaryPostHandler(
+  req: Request,
+  res: Response,
+) {
   try {
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
-    const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+    const body =
+      req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
     const overrides: CephDashboardSummaryOverrides = {
       kubeToken: typeof body.kubeToken === 'string' ? body.kubeToken : undefined,
-      dashboardUsername: typeof body.dashboardUsername === 'string' ? body.dashboardUsername : undefined,
-      dashboardPassword: typeof body.dashboardPassword === 'string' ? body.dashboardPassword : undefined,
+      dashboardUsername:
+        typeof body.dashboardUsername === 'string' ? body.dashboardUsername : undefined,
+      dashboardPassword:
+        typeof body.dashboardPassword === 'string' ? body.dashboardPassword : undefined,
       namespace: typeof body.namespace === 'string' ? body.namespace : undefined,
       path: typeof body.path === 'string' ? body.path : undefined,
     };
@@ -749,7 +785,12 @@ export async function harvesterMonitoringCephDashboardSummaryPostHandler(req: Re
     const { data, namespace, path } = await fetchCephDashboardSummaryPayload(cloud, req, overrides);
     res.json({
       data,
-      _tower: { source: 'ceph-mgr-dashboard', proxyPath: path, namespace, credentialMode: 'request-body' },
+      _tower: {
+        source: 'ceph-mgr-dashboard',
+        proxyPath: path,
+        namespace,
+        credentialMode: 'request-body',
+      },
     });
   } catch (e: any) {
     if ((e as any)?.status === 400) {
@@ -773,7 +814,9 @@ export async function harvesterMonitoringCephDashboardSyncHandler(req: Request, 
     const origin = normalizeOrigin(cloud.endpoint || '');
     const token = resolveHarvesterCloudKubeToken(cloud);
     const q = (req.query || {}) as Record<string, string | undefined>;
-    const namespace = String(q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph').trim() || 'rook-ceph';
+    const namespace =
+      String(q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph').trim() ||
+      'rook-ceph';
     const rancherHint = String((cloud.config as any)?.rancherClusterId || '').trim() || undefined;
 
     const repo = AppDataSource.getRepository(CephMgrDashboardSnapshot);
@@ -800,8 +843,7 @@ export async function harvesterMonitoringCephDashboardSyncHandler(req: Request, 
       row.summaryJson = JSON.stringify(data);
       row.healthStatus = typeof data?.health_status === 'string' ? data.health_status : null;
       row.mgrId = typeof data?.mgr_id === 'string' ? data.mgr_id : null;
-      row.cephVersion =
-        typeof data?.version === 'string' ? data.version.slice(0, 1024) : null;
+      row.cephVersion = typeof data?.version === 'string' ? data.version.slice(0, 1024) : null;
       row.fetchError = null;
       row.lastHttpStatus = 200;
       row.fetchedAt = new Date();
@@ -843,12 +885,16 @@ export async function harvesterMonitoringCephDashboardCacheHandler(req: Request,
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
     const q = (req.query || {}) as Record<string, string | undefined>;
-    const namespace = String(q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph').trim() || 'rook-ceph';
+    const namespace =
+      String(q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph').trim() ||
+      'rook-ceph';
 
     const repo = AppDataSource.getRepository(CephMgrDashboardSnapshot);
     const row = await repo.findOne({ where: { cloudId: cloud.id, namespace } });
     if (!row) {
-      return res.status(404).json({ message: '暂无快照，请先 POST .../monitoring/ceph-dashboard/sync' });
+      return res
+        .status(404)
+        .json({ message: '暂无快照，请先 POST .../monitoring/ceph-dashboard/sync' });
     }
     let summary: unknown = null;
     if (row.summaryJson) {
@@ -911,12 +957,18 @@ export async function harvesterMonitoringCephDashboardProxyHandler(req: Request,
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
     const token = resolveHarvesterCloudKubeToken(cloud);
-    const namespace = String(q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph').trim() || 'rook-ceph';
+    const namespace =
+      String(q.namespace || (cloud.config as any)?.cephRookNamespace || 'rook-ceph').trim() ||
+      'rook-ceph';
     const rancherHint = String((cloud.config as any)?.rancherClusterId || '').trim() || undefined;
 
     let resolved: string | null = null;
     try {
-      resolved = await resolveRancherK8sClusterSegment(origin, normalizeHarvesterBearerToken(token), insecure);
+      resolved = await resolveRancherK8sClusterSegment(
+        origin,
+        normalizeHarvesterBearerToken(token),
+        insecure,
+      );
     } catch {
       resolved = null;
     }
@@ -930,7 +982,14 @@ export async function harvesterMonitoringCephDashboardProxyHandler(req: Request,
     } else {
       const creds = getCephDashboardLoginCredentials();
       if (creds) {
-        const logged = await loginCephDashboardForProxy(origin, token, insecure, namespace, creds, clusterSegments);
+        const logged = await loginCephDashboardForProxy(
+          origin,
+          token,
+          insecure,
+          namespace,
+          creds,
+          clusterSegments,
+        );
         if (logged && (logged.cookie || logged.jwt)) {
           session = logged;
           cephProxySessionCache.set(ck, {
@@ -946,8 +1005,7 @@ export async function harvesterMonitoringCephDashboardProxyHandler(req: Request,
     const ctIn =
       typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : undefined;
 
-    const payload =
-      method === 'GET' || method === 'HEAD' ? undefined : (req as any).body;
+    const payload = method === 'GET' || method === 'HEAD' ? undefined : (req as any).body;
 
     const out = await cephDashboardHttpProxy(
       origin,

@@ -251,15 +251,15 @@ export async function initializeRoles() {
       // 资源池管理 / 资源控制台：所有其他 clouds.* 权限
       ...CURATED_PERMISSIONS.filter((p) => p.startsWith('clouds.')),
       // 租户管理分组：所有权限（不包括系统用户管理 users）
-      ...CURATED_PERMISSIONS.filter((p) => 
-        p.startsWith('tenants') || 
-        p.startsWith('organizations') || 
-        p.startsWith('tenant-users')
+      ...CURATED_PERMISSIONS.filter(
+        (p) =>
+          p.startsWith('tenants') || p.startsWith('organizations') || p.startsWith('tenant-users'),
       ),
     ];
     await ensureRole({
       name: secadminRoleName,
-        description: '拥有权限管控分组（角色管理等）、资源池管理与资源控制台、租户管理分组的所有权限（不包括系统用户管理）',
+      description:
+        '拥有权限管控分组（角色管理等）、资源池管理与资源控制台、租户管理分组的所有权限（不包括系统用户管理）',
       scope: 'system',
       permissions: secadminPerms,
       status: 'active',
@@ -286,7 +286,8 @@ export async function initializeRoles() {
     ];
     await ensureRole({
       name: sysadminRoleName,
-      description: '拥有通用设置分组（界面设置、授权管理）所有权限、权限管控分组的用户管理权限、以及高级集成分组所有权限',
+      description:
+        '拥有通用设置分组（界面设置、授权管理）所有权限、权限管控分组的用户管理权限、以及高级集成分组所有权限',
       scope: 'system',
       permissions: sysadminPerms,
       status: 'active',
@@ -386,7 +387,6 @@ export async function initializeRoles() {
     }
 
     await migrateAllRolesRemoveConsoleUmbrella();
-
   } catch (error) {
     rolesLog.error('初始化角色失败:', error instanceof Error ? error.message : String(error));
     throw error;

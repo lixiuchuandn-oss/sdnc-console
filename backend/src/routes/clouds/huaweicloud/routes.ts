@@ -552,7 +552,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListFlavors({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, availabilityZone);
+        const data = await huaweiListFlavors(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          availabilityZone,
+        );
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -574,7 +577,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListAvailabilityZones({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+        const data = await huaweiListAvailabilityZones({
+          ak: cloud.accessKey,
+          sk: cloud.secretKey,
+          region: cloud.region,
+          projectId,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -597,7 +605,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListImages({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, { imagetype, osType });
+        const data = await huaweiListImages(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          { imagetype, osType },
+        );
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -619,7 +630,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListKeypairs({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+        const data = await huaweiListKeypairs({
+          ak: cloud.accessKey,
+          sk: cloud.secretKey,
+          region: cloud.region,
+          projectId,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -643,7 +659,11 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!name) return res.status(400).json({ message: '缺少密钥对名称 name' });
-        const data = await huaweiCreateKeypair({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, name, publicKey);
+        const data = await huaweiCreateKeypair(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          name,
+          publicKey,
+        );
         res.json({ message: '创建成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -665,7 +685,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeleteKeypair({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, name);
+        const data = await huaweiDeleteKeypair(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          name,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -689,22 +712,35 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!b.imageRef || !b.flavorRef || !b.vpcid || !b.subnetId)
-          return res.status(400).json({ message: '缺少必要参数：imageRef / flavorRef / vpcid / subnetId' });
+          return res
+            .status(400)
+            .json({ message: '缺少必要参数：imageRef / flavorRef / vpcid / subnetId' });
         const server: any = {
           name: b.name || `ecs-${Date.now()}`,
           imageRef: b.imageRef,
           flavorRef: b.flavorRef,
           vpcid: b.vpcid,
           nics: [{ subnet_id: b.subnetId }],
-          root_volume: { volumetype: b.rootVolumeType || 'SAS', size: Number(b.rootVolumeSize || 40) },
+          root_volume: {
+            volumetype: b.rootVolumeType || 'SAS',
+            size: Number(b.rootVolumeSize || 40),
+          },
           count: Number(b.count || 1),
         };
         if (b.availabilityZone) server.availability_zone = b.availabilityZone;
         if (b.keyName) server.key_name = b.keyName;
         if (b.adminPass) server.adminPass = b.adminPass;
-        if (Array.isArray(b.securityGroupIds) && b.securityGroupIds.length) server.security_groups = b.securityGroupIds.map((sid: string) => ({ id: sid }));
-        if (Array.isArray(b.dataVolumes) && b.dataVolumes.length) server.data_volumes = b.dataVolumes.map((d: any) => ({ volumetype: d.volumetype || 'SAS', size: Number(d.size || 10) }));
-        const data = await huaweiCreateServers({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, server);
+        if (Array.isArray(b.securityGroupIds) && b.securityGroupIds.length)
+          server.security_groups = b.securityGroupIds.map((sid: string) => ({ id: sid }));
+        if (Array.isArray(b.dataVolumes) && b.dataVolumes.length)
+          server.data_volumes = b.dataVolumes.map((d: any) => ({
+            volumetype: d.volumetype || 'SAS',
+            size: Number(d.size || 10),
+          }));
+        const data = await huaweiCreateServers(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          server,
+        );
         res.json({ message: '创建实例指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -727,7 +763,11 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeleteServers({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, [instanceId], !!deleteVolume);
+        const data = await huaweiDeleteServers(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          [instanceId],
+          !!deleteVolume,
+        );
         res.json({ message: '删除指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1242,7 +1282,7 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
           .filter(Boolean);
         const overlapsLocal = locals.some((l) => {
           const [lip, lmask] = String(l).split('/');
-          const [dip, dmask] = String(dst).split('/');
+          const [dip, _dmask] = String(dst).split('/');
           const toNum = (ip: string) =>
             ip.split('.').reduce((acc, n) => (acc << 8) + (parseInt(n) || 0), 0);
           const ln = toNum(lip || '0.0.0.0');
@@ -1367,12 +1407,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
             if (matched) target = matched;
           }
           if (!target)
-            return res
-              .status(404)
-              .json({
-                message: '未找到需要更新的路由',
-                error: `destination=${route?.destination}`,
-              });
+            return res.status(404).json({
+              message: '未找到需要更新的路由',
+              error: `destination=${route?.destination}`,
+            });
           const clean = { type: t, destination: dst, nexthop: nh, description: desc } as any;
           try {
             let data: any;
@@ -1427,12 +1465,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
           String(r?.nexthop || '') === String(oldRoute?.nexthop || '');
         const oldFull = existRoutes.find(match);
         if (!oldFull)
-          return res
-            .status(404)
-            .json({
-              message: '未找到需要更新的旧路由',
-              error: `destination=${oldRoute?.destination}, nexthop=${oldRoute?.nexthop}`,
-            });
+          return res.status(404).json({
+            message: '未找到需要更新的旧路由',
+            error: `destination=${oldRoute?.destination}, nexthop=${oldRoute?.nexthop}`,
+          });
         const tNew = String((newRoute as any)?.type || '').toLowerCase();
         const dstNew = String((newRoute as any)?.destination || '').trim();
         const nhNew = String((newRoute as any)?.nexthop || '').trim();
@@ -1674,11 +1710,20 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        if (!b.availabilityZone || !b.size) return res.status(400).json({ message: '缺少可用区或容量' });
-        const volume: any = { availability_zone: b.availabilityZone, volume_type: b.volumeType || 'SAS', size: Number(b.size), count: Number(b.count || 1) };
+        if (!b.availabilityZone || !b.size)
+          return res.status(400).json({ message: '缺少可用区或容量' });
+        const volume: any = {
+          availability_zone: b.availabilityZone,
+          volume_type: b.volumeType || 'SAS',
+          size: Number(b.size),
+          count: Number(b.count || 1),
+        };
         if (b.name) volume.name = b.name;
         if (b.description) volume.description = b.description;
-        const data = await huaweiCreateVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, volume);
+        const data = await huaweiCreateVolume(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          volume,
+        );
         res.json({ message: '创建云盘指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1700,7 +1745,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeleteVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, diskId);
+        const data = await huaweiDeleteVolume(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          diskId,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1724,7 +1772,11 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!newSize) return res.status(400).json({ message: '缺少目标容量 newSize' });
-        const data = await huaweiResizeVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, diskId, Number(newSize));
+        const data = await huaweiResizeVolume(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          diskId,
+          Number(newSize),
+        );
         res.json({ message: '扩容指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1748,7 +1800,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!instanceId) return res.status(400).json({ message: '缺少目标实例 instanceId' });
-        const data = await huaweiAttachVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, instanceId, diskId, device);
+        const data = await huaweiAttachVolume(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          instanceId,
+          diskId,
+          device,
+        );
         res.json({ message: '挂载指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1772,7 +1829,11 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!instanceId) return res.status(400).json({ message: '缺少所属实例 instanceId' });
-        const data = await huaweiDetachVolume({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, instanceId, diskId);
+        const data = await huaweiDetachVolume(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          instanceId,
+          diskId,
+        );
         res.json({ message: '卸载指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1796,7 +1857,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!diskId) return res.status(400).json({ message: '缺少源云盘 diskId' });
-        const data = await huaweiCreateSnapshot({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, diskId, name, description);
+        const data = await huaweiCreateSnapshot(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          diskId,
+          name,
+          description,
+        );
         res.json({ message: '创建快照指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -1818,7 +1884,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeleteSnapshot({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, snapshotId);
+        const data = await huaweiDeleteSnapshot(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          snapshotId,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2177,7 +2246,8 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { ipType, bandwidthName, bandwidthSize, shareType, chargeMode } = (req.body || {}) as any;
+        const { ipType, bandwidthName, bandwidthSize, shareType, chargeMode } = (req.body ||
+          {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isHuawei(cloud)) return next();
@@ -2209,7 +2279,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeletePublicip({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, eipId);
+        const data = await huaweiDeletePublicip(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          eipId,
+        );
         res.json({ message: '释放成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2457,7 +2530,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListSnatRules({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId);
+        const data = await huaweiListSnatRules(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          natGatewayId,
+        );
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2481,11 +2557,21 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!natGatewayId || !floatingIpId || (!cidr && !subnetId))
-          return res.status(400).json({ message: '缺少 natGatewayId / floatingIpId / (cidr 或 subnetId)' });
+          return res
+            .status(400)
+            .json({ message: '缺少 natGatewayId / floatingIpId / (cidr 或 subnetId)' });
         const rule: any = { nat_gateway_id: natGatewayId, floating_ip_id: floatingIpId };
-        if (subnetId) { rule.network_id = subnetId; rule.source_type = sourceType ?? 0; }
-        else { rule.cidr = cidr; rule.source_type = sourceType ?? 1; }
-        const data = await huaweiCreateSnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, rule);
+        if (subnetId) {
+          rule.network_id = subnetId;
+          rule.source_type = sourceType ?? 0;
+        } else {
+          rule.cidr = cidr;
+          rule.source_type = sourceType ?? 1;
+        }
+        const data = await huaweiCreateSnatRule(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          rule,
+        );
         res.json({ message: '创建成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2508,8 +2594,13 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        if (!natGatewayId || !snatRuleId) return res.status(400).json({ message: '缺少 natGatewayId 或 snatRuleId' });
-        const data = await huaweiDeleteSnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId, snatRuleId);
+        if (!natGatewayId || !snatRuleId)
+          return res.status(400).json({ message: '缺少 natGatewayId 或 snatRuleId' });
+        const data = await huaweiDeleteSnatRule(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          natGatewayId,
+          snatRuleId,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2532,7 +2623,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListDnatRules({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId);
+        const data = await huaweiListDnatRules(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          natGatewayId,
+        );
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2548,7 +2642,15 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
     async (req: any, res: Response, next: any) => {
       try {
         const { id } = req.params;
-        const { natGatewayId, floatingIpId, protocol, externalServicePort, internalServicePort, privateIp, portId } = (req.body || {}) as any;
+        const {
+          natGatewayId,
+          floatingIpId,
+          protocol,
+          externalServicePort,
+          internalServicePort,
+          privateIp,
+          portId,
+        } = (req.body || {}) as any;
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!isHuawei(cloud)) return next();
@@ -2566,7 +2668,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         };
         if (privateIp) rule.private_ip = privateIp;
         if (portId) rule.port_id = portId;
-        const data = await huaweiCreateDnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, rule);
+        const data = await huaweiCreateDnatRule(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          rule,
+        );
         res.json({ message: '创建成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2589,8 +2694,13 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        if (!natGatewayId || !dnatRuleId) return res.status(400).json({ message: '缺少 natGatewayId 或 dnatRuleId' });
-        const data = await huaweiDeleteDnatRule({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, natGatewayId, dnatRuleId);
+        if (!natGatewayId || !dnatRuleId)
+          return res.status(400).json({ message: '缺少 natGatewayId 或 dnatRuleId' });
+        const data = await huaweiDeleteDnatRule(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          natGatewayId,
+          dnatRuleId,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2612,7 +2722,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListAlarms({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+        const data = await huaweiListAlarms({
+          ak: cloud.accessKey,
+          sk: cloud.secretKey,
+          region: cloud.region,
+          projectId,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2637,9 +2752,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!b.alarmName || !b.namespace || !b.metricName)
           return res.status(400).json({ message: '缺少 alarmName / namespace / metricName' });
-        const dimensions = Array.isArray(b.dimensions) && b.dimensions.length
-          ? b.dimensions
-          : (b.instanceId ? [{ name: b.dimensionName || 'instance_id', value: b.instanceId }] : []);
+        const dimensions =
+          Array.isArray(b.dimensions) && b.dimensions.length
+            ? b.dimensions
+            : b.instanceId
+              ? [{ name: b.dimensionName || 'instance_id', value: b.instanceId }]
+              : [];
         const alarm: any = {
           alarm_name: b.alarmName,
           alarm_enabled: b.alarmEnabled !== false,
@@ -2655,7 +2773,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
           alarm_action_enabled: false,
         };
         if (b.alarmLevel) alarm.alarm_level = Number(b.alarmLevel);
-        const data = await huaweiCreateAlarm({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, alarm);
+        const data = await huaweiCreateAlarm(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          alarm,
+        );
         res.json({ message: '创建成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2678,7 +2799,11 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiSetAlarmAction({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, alarmId, enabled !== false);
+        const data = await huaweiSetAlarmAction(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          alarmId,
+          enabled !== false,
+        );
         res.json({ message: '操作成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2700,7 +2825,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeleteAlarm({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, alarmId);
+        const data = await huaweiDeleteAlarm(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          alarmId,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2722,7 +2850,12 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiListDbInstances({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId });
+        const data = await huaweiListDbInstances({
+          ak: cloud.accessKey,
+          sk: cloud.secretKey,
+          region: cloud.region,
+          projectId,
+        });
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2746,7 +2879,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!engine) return res.status(400).json({ message: '缺少 engine' });
-        const data = await huaweiListDatastores({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, engine);
+        const data = await huaweiListDatastores(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          engine,
+        );
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2770,7 +2906,11 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
         if (!engine) return res.status(400).json({ message: '缺少 engine' });
-        const data = await huaweiListRdsFlavors({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, engine, version);
+        const data = await huaweiListRdsFlavors(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          engine,
+          version,
+        );
         res.json({ message: '查询成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2793,8 +2933,23 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        if (!b.name || !b.engine || !b.engineVersion || !b.flavorRef || !b.volumeType || !b.volumeSize || !b.vpcId || !b.subnetId || !b.securityGroupId || !b.availabilityZone || !b.password)
-          return res.status(400).json({ message: '缺少必要参数（name/engine/engineVersion/flavorRef/volumeType/volumeSize/vpcId/subnetId/securityGroupId/availabilityZone/password）' });
+        if (
+          !b.name ||
+          !b.engine ||
+          !b.engineVersion ||
+          !b.flavorRef ||
+          !b.volumeType ||
+          !b.volumeSize ||
+          !b.vpcId ||
+          !b.subnetId ||
+          !b.securityGroupId ||
+          !b.availabilityZone ||
+          !b.password
+        )
+          return res.status(400).json({
+            message:
+              '缺少必要参数（name/engine/engineVersion/flavorRef/volumeType/volumeSize/vpcId/subnetId/securityGroupId/availabilityZone/password）',
+          });
         const instance: any = {
           name: b.name,
           datastore: { type: b.engine, version: b.engineVersion },
@@ -2809,7 +2964,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
           charge_info: { charge_mode: 'postPaid' },
         };
         if (b.port) instance.port = String(b.port);
-        const data = await huaweiCreateDbInstance({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, instance);
+        const data = await huaweiCreateDbInstance(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          instance,
+        );
         res.json({ message: '创建数据库指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2831,7 +2989,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiDeleteDbInstance({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, dbInstanceId);
+        const data = await huaweiDeleteDbInstance(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          dbInstanceId,
+        );
         res.json({ message: '删除成功', data });
       } catch (error: any) {
         if (res.headersSent) return;
@@ -2853,7 +3014,10 @@ export const registerHuaweiRoutes = (router: Router, checkAdminPermission: any) 
         const projectId = (cloud.config as any)?.projectId;
         if (!cloud.accessKey || !cloud.secretKey || !projectId)
           return res.status(400).json({ message: '缺少华为云访问密钥或项目ID（projectId）' });
-        const data = await huaweiRestartDbInstance({ ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId }, dbInstanceId);
+        const data = await huaweiRestartDbInstance(
+          { ak: cloud.accessKey, sk: cloud.secretKey, region: cloud.region, projectId },
+          dbInstanceId,
+        );
         res.json({ message: '重启指令已下发', data });
       } catch (error: any) {
         if (res.headersSent) return;

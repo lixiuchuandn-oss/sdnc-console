@@ -33,11 +33,7 @@ function getDisplayNameFromAnnotations(name: string, annotations: any, keys: str
 /**
  * GET /:id/resources/vlans - 获取 VLAN 列表
  */
-export async function harvesterVlanListHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterVlanListHandler(req: any, res: Response, _next: any) {
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
@@ -59,23 +55,26 @@ export async function harvesterVlanListHandler(
     }
 
     const items = await repo.find({ where: { cloudId: id } });
-    const list = items.map((item) => item.rawData || {
-      metadata: {
-        name: item.name,
-        uid: item.uid,
-        labels: item.labels,
-        annotations: item.annotations,
-      },
-      spec: {
-        id: item.vlanId,
-        provider: item.provider,
-        providerInterfaceName: item.providerInterfaceName,
-      },
-      status: {
-        subnets: item.subnets,
-        conflict: item.conflict,
-      },
-    });
+    const list = items.map(
+      (item) =>
+        item.rawData || {
+          metadata: {
+            name: item.name,
+            uid: item.uid,
+            labels: item.labels,
+            annotations: item.annotations,
+          },
+          spec: {
+            id: item.vlanId,
+            provider: item.provider,
+            providerInterfaceName: item.providerInterfaceName,
+          },
+          status: {
+            subnets: item.subnets,
+            conflict: item.conflict,
+          },
+        },
+    );
 
     const listForUser = list.filter((row: any) => {
       const n = String(row?.metadata?.name ?? '').trim();
@@ -92,11 +91,7 @@ export async function harvesterVlanListHandler(
 /**
  * POST /:id/resources/vlans - 创建 VLAN
  */
-export async function harvesterVlanCreateHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterVlanCreateHandler(req: any, res: Response, _next: any) {
   try {
     const { id } = req.params;
     const { allowed } = await checkTenantAccess(req, id);
@@ -128,11 +123,7 @@ export async function harvesterVlanCreateHandler(
       return;
     }
     const metadata: Record<string, unknown> = { name: nameTrim };
-    if (
-      annotations &&
-      typeof annotations === 'object' &&
-      !Array.isArray(annotations)
-    ) {
+    if (annotations && typeof annotations === 'object' && !Array.isArray(annotations)) {
       metadata.annotations = annotations;
     }
 
@@ -187,11 +178,7 @@ export async function harvesterVlanCreateHandler(
 /**
  * DELETE /:id/resources/vlans/:name - 删除 VLAN（Kube-OVN Vlan CR）
  */
-export async function harvesterVlanDeleteHandler(
-  req: any,
-  res: Response,
-  next: any,
-) {
+export async function harvesterVlanDeleteHandler(req: any, res: Response, next: any) {
   try {
     const { id, name } = req.params;
     const { allowed } = await checkTenantAccess(req, id);

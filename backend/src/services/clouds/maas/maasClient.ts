@@ -31,7 +31,9 @@ export type MaasMachineOp =
 
 /** endpoint 须以 `/MAAS` 结尾；仅去掉末尾 `/`，不自动补全路径 */
 export function normalizeMaasEndpoint(raw: string): string | null {
-  const s = String(raw || '').trim().replace(/\/+$/, '');
+  const s = String(raw || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!s) return null;
   if (!/\/MAAS$/i.test(s)) return null;
   if (!/^https?:\/\//i.test(s)) {
@@ -146,13 +148,9 @@ export async function maasRequest(
       url,
       headers: {
         Authorization: buildOAuthPlaintextHeader(ctx),
-        ...(method === 'POST'
-          ? { 'Content-Type': 'application/x-www-form-urlencoded' }
-          : {}),
+        ...(method === 'POST' ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
       },
-      ...(method === 'POST' && opts?.body
-        ? { data: encodeMaasForm(opts.body) }
-        : {}),
+      ...(method === 'POST' && opts?.body ? { data: encodeMaasForm(opts.body) } : {}),
       ...(agent ? { httpsAgent: agent } : {}),
       timeout: opts?.timeout ?? 25_000,
       validateStatus: () => true,
@@ -384,7 +382,7 @@ export async function listMaasSubnets(ctx: MaasHttpContext): Promise<{
   };
 }
 
-function machineStatusCode(m: Record<string, unknown>): number | null {
+function _machineStatusCode(m: Record<string, unknown>): number | null {
   const s = m.status;
   if (typeof s === 'number') return s;
   if (typeof s === 'string' && /^\d+$/.test(s)) return Number(s);

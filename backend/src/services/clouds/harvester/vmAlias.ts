@@ -58,13 +58,7 @@ export async function applyVmTowerAliasWhenReady(
         const patchBody = buildAliasJsonPatch(vm, trimmed);
         if (patchBody.length === 0) return true;
 
-        await patchHarvesterVM(
-          conn,
-          namespace,
-          vmName,
-          patchBody,
-          'application/json-patch+json',
-        );
+        await patchHarvesterVM(conn, namespace, vmName, patchBody, 'application/json-patch+json');
         return true;
       }
     } catch (e: any) {

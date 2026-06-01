@@ -1,6 +1,6 @@
 import React from 'react';
 import { App, Button, Descriptions, Modal, Row, Col, Space, Table, Tabs, Card, Alert, DatePicker, InputNumber, Select, Input } from 'antd';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../components/LazyReactECharts';
 import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, AuditOutlined } from '@ant-design/icons';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
 import { statusTag, EllipsisText, collectIpv4FromAddresses } from './components/Common';
@@ -397,7 +397,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                           );
                         }
                         const option:any = { grid: { left: 40, right: 20, top: 30, bottom: 30 }, tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: x.map((t:any)=> { const d = Number(t || 0); return d ? new Date(d).toLocaleTimeString() : ''; }) }, yAxis: { type: 'value', min: 0 }, series: [{ name, type: 'line', data: y, smooth: true }], title: { text: name, left: 'center', textStyle: { fontSize: 12 } } };
-                        return (<Col span={12} key={`${name}-${idx}`}><Card size="small" styles={{ body: { padding: 8 } }}><ReactECharts option={option} notMerge style={{ height: 220 }} /></Card></Col>);
+                        return (<Col span={12} key={`${name}-${idx}`}><Card size="small" styles={{ body: { padding: 8 } }}><LazyReactECharts option={option} notMerge style={{ height: 220 }} /></Card></Col>);
                       });
                       return charts.length ? charts : [<Col span={24} key="empty"><Alert type="info" message="无CES指标数据" /></Col>];
                     })()}

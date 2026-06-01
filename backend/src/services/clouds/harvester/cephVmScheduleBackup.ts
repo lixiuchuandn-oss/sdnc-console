@@ -206,7 +206,9 @@ export async function createHarvesterScheduleCephVmBackup(
   }
   throw (
     lastErr ||
-    new Error('创建 ScheduleCephVmBackup 失败：集群未安装 hms.rivercloud.com ScheduleCephVmBackup CRD')
+    new Error(
+      '创建 ScheduleCephVmBackup 失败：集群未安装 hms.rivercloud.com ScheduleCephVmBackup CRD',
+    )
   );
 }
 

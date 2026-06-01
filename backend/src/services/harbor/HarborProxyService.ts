@@ -1,13 +1,13 @@
 /**
  * HarborProxyService - Harbor API 代理服务
- * 
+ *
  * 封装 Harbor API 调用，支持认证和错误处理。
- * 
+ *
  * @see design/harbor-integration-design.md 第三章
  */
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import https from 'https';
-import { HarborRegistry, HarborStatus } from '../../entities/harbor/HarborRegistry';
+import { HarborRegistry } from '../../entities/harbor/HarborRegistry';
 import { logger } from '../../utils/logger';
 
 const harborLog = logger.child('HarborProxy');
@@ -36,15 +36,19 @@ export interface HarborSystemInfo {
 export class HarborProxyService {
   private static instances: Map<string, HarborProxyService> = new Map();
 
-  public axiosInstance: AxiosInstance;  // 改为 public 以便调试
+  public axiosInstance: AxiosInstance; // 改为 public 以便调试
   private registry: HarborRegistry;
 
   private constructor(registry: HarborRegistry) {
     this.registry = registry;
-    
+
     // 解密密码（数据库中存储的是加密后的密码）
-    const decryptedPassword = Buffer.from(registry.password, 'base64').toString().split('').reverse().join('');
-    
+    const decryptedPassword = Buffer.from(registry.password, 'base64')
+      .toString()
+      .split('')
+      .reverse()
+      .join('');
+
     // 创建 axios 实例
     this.axiosInstance = axios.create({
       baseURL: registry.url,
@@ -71,7 +75,7 @@ export class HarborProxyService {
       (error) => {
         harborLog.error('[Harbor API] Request error:', error);
         return Promise.reject(error);
-      }
+      },
     );
 
     // 响应拦截器
@@ -84,7 +88,7 @@ export class HarborProxyService {
         const msg = error.response?.data?.message || error.message || 'Unknown error';
         harborLog.error(`[Harbor API] Error: ${msg}`);
         return Promise.reject(error);
-      }
+      },
     );
   }
 
@@ -109,10 +113,12 @@ export class HarborProxyService {
    */
   public async testConnection(): Promise<HarborTestResult> {
     try {
-      harborLog.info(`开始测试连接: baseURL=${this.registry.url}, username=${this.registry.username}`);
+      harborLog.info(
+        `开始测试连接: baseURL=${this.registry.url}, username=${this.registry.username}`,
+      );
       const response = await this.axiosInstance.get('/api/v2.0/systeminfo');
       const data: HarborSystemInfo = response.data;
-      
+
       harborLog.info(`连接成功: version=${data.harbor_version}`);
       return {
         success: true,
@@ -163,7 +169,7 @@ export class HarborProxyService {
    */
   public async getProject(projectNameOrId: string | number): Promise<any> {
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}`
+      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}`,
     );
     return response.data;
   }
@@ -189,7 +195,7 @@ export class HarborProxyService {
    */
   public async deleteProject(projectNameOrId: string | number): Promise<void> {
     await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}`
+      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}`,
     );
   }
 
@@ -202,7 +208,7 @@ export class HarborProxyService {
       page?: number;
       pageSize?: number;
       q?: string;
-    }
+    },
   ): Promise<any[]> {
     const response = await this.axiosInstance.get(
       `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories`,
@@ -212,7 +218,7 @@ export class HarborProxyService {
           page_size: params?.pageSize || 100,
           ...(params?.q && { q: params.q }),
         },
-      }
+      },
     );
     return response.data;
   }
@@ -232,13 +238,10 @@ export class HarborProxyService {
   /**
    * 获取单个仓库详情
    */
-  public async getRepository(
-    projectName: string,
-    repositoryName: string
-  ): Promise<any> {
+  public async getRepository(projectName: string, repositoryName: string): Promise<any> {
     const actualRepoName = this.extractRepoName(repositoryName);
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}`,
     );
     return response.data;
   }
@@ -256,10 +259,10 @@ export class HarborProxyService {
       withTag?: boolean;
       withLabel?: boolean;
       withScanOverview?: boolean;
-    }
+    },
   ): Promise<any[]> {
     const actualRepoName = this.extractRepoName(repositoryName);
-    
+
     const response = await this.axiosInstance.get(
       `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts`,
       {
@@ -271,7 +274,7 @@ export class HarborProxyService {
           with_scan_overview: params?.withScanOverview ?? true,
           ...(params?.q && { q: params.q }),
         },
-      }
+      },
     );
     return response.data;
   }
@@ -282,11 +285,11 @@ export class HarborProxyService {
   public async getArtifact(
     projectName: string,
     repositoryName: string,
-    reference: string
+    reference: string,
   ): Promise<any> {
     const actualRepoName = this.extractRepoName(repositoryName);
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`,
     );
     return response.data;
   }
@@ -297,11 +300,11 @@ export class HarborProxyService {
   public async deleteArtifact(
     projectName: string,
     repositoryName: string,
-    reference: string
+    reference: string,
   ): Promise<void> {
     const actualRepoName = this.extractRepoName(repositoryName);
     await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`,
     );
   }
 
@@ -311,11 +314,11 @@ export class HarborProxyService {
   public async getTags(
     projectName: string,
     repositoryName: string,
-    reference: string
+    reference: string,
   ): Promise<any[]> {
     const actualRepoName = this.extractRepoName(repositoryName);
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`,
     );
     return response.data;
   }
@@ -327,12 +330,12 @@ export class HarborProxyService {
     projectName: string,
     repositoryName: string,
     reference: string,
-    tag: string
+    tag: string,
   ): Promise<void> {
     const actualRepoName = this.extractRepoName(repositoryName);
     await this.axiosInstance.post(
       `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`,
-      { name: tag }
+      { name: tag },
     );
   }
 
@@ -343,11 +346,11 @@ export class HarborProxyService {
     projectName: string,
     repositoryName: string,
     reference: string,
-    tagName: string
+    tagName: string,
   ): Promise<void> {
     const actualRepoName = this.extractRepoName(repositoryName);
     await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags/${tagName}`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags/${tagName}`,
     );
   }
 
@@ -357,11 +360,11 @@ export class HarborProxyService {
   public async triggerScan(
     projectName: string,
     repositoryName: string,
-    reference: string
+    reference: string,
   ): Promise<void> {
     const actualRepoName = this.extractRepoName(repositoryName);
     await this.axiosInstance.post(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/scan`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/scan`,
     );
   }
 
@@ -371,11 +374,11 @@ export class HarborProxyService {
   public async getVulnerabilities(
     projectName: string,
     repositoryName: string,
-    reference: string
+    reference: string,
   ): Promise<any> {
     const actualRepoName = this.extractRepoName(repositoryName);
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/additions/vulnerabilities`
+      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/additions/vulnerabilities`,
     );
     return response.data;
   }
@@ -386,24 +389,28 @@ export class HarborProxyService {
   public async getProjectMembers(projectNameOrId: string | number): Promise<any[]> {
     const url = `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members`;
     const fullUrl = `${this.registry.url}${url}`;
-    
+
     harborLog.info(`[成员API] 准备调用:`);
     harborLog.info(`  - url: ${url}`);
     harborLog.info(`  - fullUrl: ${fullUrl}`);
     harborLog.info(`  - baseURL: ${this.registry.url}`);
     harborLog.info(`  - username: ${this.registry.username}`);
     harborLog.info(`  - password_length: ${this.registry.password?.length}`);
-    harborLog.info(`  - auth_header: Basic ${Buffer.from(`${this.registry.username}:${this.registry.password}`).toString('base64').substring(0, 20)}...`);
-    
+    harborLog.info(
+      `  - auth_header: Basic ${Buffer.from(`${this.registry.username}:${this.registry.password}`).toString('base64').substring(0, 20)}...`,
+    );
+
     try {
       // 打印 axios 实例的默认配置
       harborLog.info(`[成员API] axios 默认配置:`);
       harborLog.info(`  - baseURL: ${this.axiosInstance.defaults.baseURL}`);
       harborLog.info(`  - auth: ${JSON.stringify(this.axiosInstance.defaults.auth)}`);
       harborLog.info(`  - headers: ${JSON.stringify(this.axiosInstance.defaults.headers)}`);
-      
+
       const response = await this.axiosInstance.get(url);
-      harborLog.info(`[成员API] 调用成功: status=${response.status}, data_count=${response.data?.length}`);
+      harborLog.info(
+        `[成员API] 调用成功: status=${response.status}, data_count=${response.data?.length}`,
+      );
       return response.data;
     } catch (error: any) {
       harborLog.error(`[成员API] 调用失败:`);
@@ -425,11 +432,11 @@ export class HarborProxyService {
       member_name: string;
       member_group?: boolean;
       role_id: number;
-    }
+    },
   ): Promise<any> {
     const response = await this.axiosInstance.post(
       `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members`,
-      member
+      member,
     );
     return response.data;
   }
@@ -439,10 +446,10 @@ export class HarborProxyService {
    */
   public async deleteProjectMember(
     projectNameOrId: string | number,
-    memberId: number
+    memberId: number,
   ): Promise<void> {
     await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members/${memberId}`
+      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members/${memberId}`,
     );
   }
 
@@ -451,7 +458,7 @@ export class HarborProxyService {
    */
   public async getProjectSummary(projectNameOrId: string | number): Promise<any> {
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/summary`
+      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/summary`,
     );
     return response.data;
   }
@@ -494,9 +501,7 @@ export class HarborProxyService {
    * 获取单个复制规则详情
    */
   public async getReplicationPolicy(policyId: number): Promise<any> {
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/replication/policies/${policyId}`
-    );
+    const response = await this.axiosInstance.get(`/api/v2.0/replication/policies/${policyId}`);
     return response.data;
   }
 
@@ -506,7 +511,7 @@ export class HarborProxyService {
   public async updateReplicationPolicy(policyId: number, policy: any): Promise<any> {
     const response = await this.axiosInstance.put(
       `/api/v2.0/replication/policies/${policyId}`,
-      policy
+      policy,
     );
     return response.data;
   }

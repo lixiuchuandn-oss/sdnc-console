@@ -1,6 +1,6 @@
 /**
  * 权限检查器（Permission Checker）
- * 
+ *
  * 核心功能：
  * 1. 统一的权限检查逻辑
  * 2. 支持精确匹配、继承匹配、反向继承匹配
@@ -14,21 +14,18 @@ import {
   hasLegacyOrUmbrellaUnifiedStorageGrant,
   isUnifiedStorageReadBase,
 } from '../constants/unifiedStoragePermissionBases';
-import {
-  CBR_VM_BACKUPS_BASE,
-  CBR_VM_SNAPSHOTS_BASE,
-} from '../constants/cbrPermissionBases';
+import { CBR_VM_BACKUPS_BASE, CBR_VM_SNAPSHOTS_BASE } from '../constants/cbrPermissionBases';
 import {
   cbrBackupScheduleAliasSatisfied,
   isCbrBackupScheduleResourceBase,
 } from '../constants/cbrSchedulePermissionLegacy';
 
 /** 容器子域须显式子域 atoms；历史 `clouds.containers:*` 仍兼容 */
-function isCloudsContainersResourceBase(resourceBase: string): boolean {
+function _isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
 }
 
-function isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+function _isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
 }
 
@@ -115,7 +112,7 @@ export class PermissionChecker {
       }
       // 检查 domain:* 或 domain.feature:*
       const segments = base.split('.');
-      
+
       // clouds.ecs:read -> 检查 clouds:* 或 clouds.ecs:*
       if (segments.length >= 1) {
         const domain = segments[0];
@@ -123,7 +120,7 @@ export class PermissionChecker {
           return true;
         }
       }
-      
+
       if (segments.length >= 2) {
         const domainFeature = `${segments[0]}.${segments[1]}`;
         if (permissions.includes(`${domainFeature}:*`)) {
@@ -178,8 +175,7 @@ export class PermissionChecker {
     const inherited = this.inheritanceEngine.getInheritedPermissions(required);
     if (
       inherited.some(
-        (perm) =>
-          permissions.includes(perm) && inheritedGrantMatchesRequiredVerb(perm, required),
+        (perm) => permissions.includes(perm) && inheritedGrantMatchesRequiredVerb(perm, required),
       )
     ) {
       return true;
@@ -218,8 +214,7 @@ export class PermissionChecker {
       if (verb === 'read') {
         if (
           containerSubReadBases.some(
-            (b) =>
-              permissions.includes(`${b}:read`) || permissions.includes(`${b}:write`),
+            (b) => permissions.includes(`${b}:read`) || permissions.includes(`${b}:write`),
           )
         ) {
           return true;
@@ -257,7 +252,7 @@ export class PermissionChecker {
    * @returns 是否拥有任一权限
    */
   checkAny(permissions: string[], required: string[]): boolean {
-    return required.some(perm => this.check(permissions, perm));
+    return required.some((perm) => this.check(permissions, perm));
   }
 
   /**
@@ -267,7 +262,7 @@ export class PermissionChecker {
    * @returns 是否拥有所有权限
    */
   checkAll(permissions: string[], required: string[]): boolean {
-    return required.every(perm => this.check(permissions, perm));
+    return required.every((perm) => this.check(permissions, perm));
   }
 
   /**
@@ -277,6 +272,6 @@ export class PermissionChecker {
    * @returns 缺少的权限ID列表
    */
   getMissingPermissions(permissions: string[], required: string[]): string[] {
-    return required.filter(perm => !this.check(permissions, perm));
+    return required.filter((perm) => !this.check(permissions, perm));
   }
 }

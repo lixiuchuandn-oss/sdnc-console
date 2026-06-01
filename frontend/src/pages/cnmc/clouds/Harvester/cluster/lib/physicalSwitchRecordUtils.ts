@@ -96,11 +96,58 @@ export function parseSwitchDisplayNameFromInfoLines(lines: AswCtlProbeLine[] | u
   return '';
 }
 
-/**
- * 从 info 各命令 stdout 抽取硬件型号（如华为 `display version` 中的 `HUAWEI S5720S-28P-LI-AC`；威努特 WOS 的 `WES6300 V2R01C02`）。
- */
-export function parseSwitchProductModelFromInfoLines(lines: AswCtlProbeLine[] | undefined): string {
+/** Switch CR 厂商是否为 H3C（与表单枚举一致，大小写不敏感） */
+export function isH3cSwitchVendor(vendor?: string | null): boolean {
+  return /^H3C$/i.test(String(vendor ?? '').trim());
+}
+
+function parseH3cBoardTypeFromInfoLines(lines: AswCtlProbeLine[] | undefined): string {
   if (!Array.isArray(lines)) return '';
+  for (const ln of lines) {
+    const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
+    if (!out.trim()) continue;
+    const h3cBoardType = out.match(/(?:^|\n)\s*BOARD\s+TYPE\s*[:：]\s*(\S+)/i);
+    if (h3cBoardType?.[1]) return h3cBoardType[1].trim().slice(0, 120);
+  }
+  return '';
+}
+
+function parseH3cSwitchLineModelFromInfoLines(lines: AswCtlProbeLine[] | undefined): string {
+  if (!Array.isArray(lines)) return '';
+  for (const ln of lines) {
+    const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
+    if (!out.trim()) continue;
+    const h3c = out.match(/(?:^|[\r\n])\s*H3C\s+(\S+)\s+(?:Switch|Router|Routing Switch)\b/i);
+    if (h3c?.[1]) return h3c[1].trim().slice(0, 120);
+  }
+  return '';
+}
+
+export type ParseSwitchProductModelOptions = {
+  /** Switch CR spec.vendor；为 H3C 时优先用基本信息 stdout 中的 BOARD TYPE */
+  vendor?: string | null;
+};
+
+/**
+ * 从 info 各命令 stdout 抽取硬件型号（如华为 `display version` 中的 `HUAWEI S5720S-28P-LI-AC`；
+ * H3C 且厂商为 H3C 时用 `BOARD TYPE`；威努特 WOS 的 `WES6300 V2R01C02`）。
+ */
+export function parseSwitchProductModelFromInfoLines(
+  lines: AswCtlProbeLine[] | undefined,
+  options?: ParseSwitchProductModelOptions,
+): string {
+  const vendor = options?.vendor;
+
+  if (isH3cSwitchVendor(vendor)) {
+    return (
+      parseH3cBoardTypeFromInfoLines(lines) ||
+      parseH3cSwitchLineModelFromInfoLines(lines) ||
+      ''
+    );
+  }
+
+  if (!Array.isArray(lines)) return '';
+  const vendorNorm = String(vendor ?? '').trim();
   for (const ln of lines) {
     const out = typeof ln?.stdout === 'string' ? ln.stdout : '';
     if (!out.trim()) continue;
@@ -125,10 +172,9 @@ export function parseSwitchProductModelFromInfoLines(lines: AswCtlProbeLine[] | 
       if (m && !/^VRP$/i.test(m)) return m.slice(0, 120);
     }
 
-    const h3c = out.match(/(?:^|[\r\n])\s*H3C\s+(\S+)\s+(?:Switch|Router|Routing Switch)\b/i);
-    if (h3c?.[1]) {
-      const m = h3c[1].trim();
-      if (m) return m.slice(0, 120);
+    if (!vendorNorm) {
+      const h3cLine = parseH3cSwitchLineModelFromInfoLines([ln]);
+      if (h3cLine) return h3cLine;
     }
 
     const ciscoModel = out.match(/(?:^|[\r\n])\s*Model\s+Number\s*:\s*(\S+)/i);

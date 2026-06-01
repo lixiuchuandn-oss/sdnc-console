@@ -7,7 +7,7 @@
  * 本文件包含 Harvester 虚拟机 (ECS) 的 CRUD 操作和模板相关 handlers，包括：
  * - CRUD 操作：创建、更新、PATCH
  * - 模板操作：从模板创建 VM、保存为模板
- * 
+ *
  * 从 ecs-operations.handlers.ts 和 harvester.cache.vm.routes.ts 中提取的业务逻辑
  * ==============================================================================
  */
@@ -96,12 +96,8 @@ async function assertNoDuplicateFlatSubnets(
     const raw = String(nn);
     const name = raw.includes('/') ? raw.split('/').pop() || '' : raw;
     if (!name) continue;
-    const s = subs.find(
-      (x: any) => x?.metadata?.name === name || x?.name === name,
-    );
-    const t = String(
-      s?.metadata?.annotations?.['tower.io/subnet-type'] || '',
-    )
+    const s = subs.find((x: any) => x?.metadata?.name === name || x?.name === name);
+    const t = String(s?.metadata?.annotations?.['tower.io/subnet-type'] || '')
       .trim()
       .toLowerCase();
     if (t === 'flat') names.push(name);
@@ -123,12 +119,8 @@ export async function harvesterEcsCreateHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
@@ -140,12 +132,9 @@ export async function harvesterEcsCreateHandler(req: Request, res: Response) {
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     // 前端发送完整 KubeVirt manifest：命名空间在 metadata.namespace；兼容顶层 body.namespace
-    const topNs =
-      typeof req.body?.namespace === 'string' ? req.body.namespace.trim() : '';
+    const topNs = typeof req.body?.namespace === 'string' ? req.body.namespace.trim() : '';
     const metaNs =
-      typeof req.body?.metadata?.namespace === 'string'
-        ? req.body.metadata.namespace.trim()
-        : '';
+      typeof req.body?.metadata?.namespace === 'string' ? req.body.metadata.namespace.trim() : '';
     let resolvedNs = topNs || metaNs;
 
     if (tenantNamespace) {
@@ -153,9 +142,7 @@ export async function harvesterEcsCreateHandler(req: Request, res: Response) {
 
       if (resolvedNs) {
         if (!allowedNs.includes(resolvedNs)) {
-          return res
-            .status(403)
-            .json({ message: 'Access denied to this namespace' });
+          return res.status(403).json({ message: 'Access denied to this namespace' });
         }
       } else {
         resolvedNs = allowedNs[0];
@@ -198,12 +185,8 @@ export async function harvesterEcsUpdateHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
       if (!rejectUnlessTenantWrite(res, p)) return;
@@ -217,9 +200,7 @@ export async function harvesterEcsUpdateHandler(req: Request, res: Response) {
       const allowedNs = tenantNamespace.split(',').map((s) => s.trim());
       if (req.body.namespace) {
         if (!allowedNs.includes(req.body.namespace)) {
-          return res
-            .status(403)
-            .json({ message: 'Access denied to this namespace' });
+          return res.status(403).json({ message: 'Access denied to this namespace' });
         }
       } else if (instanceId.includes('/')) {
         const [ns] = instanceId.split('/');
@@ -238,14 +219,10 @@ export async function harvesterEcsUpdateHandler(req: Request, res: Response) {
     if (tenantNamespace && instanceId.includes('/')) {
       const [ns] = instanceId.split('/');
       if (!isNamespaceAllowed(tenantNamespace, ns))
-        return res
-          .status(403)
-          .json({ message: 'Access denied to VM in other namespace' });
+        return res.status(403).json({ message: 'Access denied to VM in other namespace' });
     }
 
-    const cleanName = instanceId.includes('/')
-      ? instanceId.split('/')[1]
-      : instanceId;
+    const cleanName = instanceId.includes('/') ? instanceId.split('/')[1] : instanceId;
 
     const dup = await assertNoDuplicateFlatSubnets(cloud, extractVmNetworks(spec));
     if (!dup.ok) {
@@ -275,12 +252,8 @@ export async function harvesterVmUpdateSpecHandler(req: Request, res: Response) 
   try {
     const { id, namespace, name } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
       if (!rejectUnlessTenantWrite(res, p)) return;
@@ -292,9 +265,7 @@ export async function harvesterVmUpdateSpecHandler(req: Request, res: Response) 
 
     if (tenantNamespace) {
       if (!isNamespaceAllowed(tenantNamespace, namespace)) {
-        return res
-          .status(403)
-          .json({ message: 'Access denied to this namespace' });
+        return res.status(403).json({ message: 'Access denied to this namespace' });
       }
     }
 
@@ -326,10 +297,7 @@ export async function harvesterVmUpdateSpecHandler(req: Request, res: Response) 
         },
       );
     } catch (ignore) {
-      console.warn(
-        '[HarvesterDirect] Failed to update local cache:',
-        ignore,
-      );
+      console.warn('[HarvesterDirect] Failed to update local cache:', ignore);
     }
 
     res.json({ message: '更新成功', data });
@@ -349,12 +317,8 @@ export async function harvesterVmPatchHandler(req: Request, res: Response) {
   try {
     const { id, namespace, name } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
       if (!rejectUnlessTenantWrite(res, p)) return;
@@ -366,9 +330,7 @@ export async function harvesterVmPatchHandler(req: Request, res: Response) {
 
     if (tenantNamespace) {
       if (!isNamespaceAllowed(tenantNamespace, namespace)) {
-        return res
-          .status(403)
-          .json({ message: 'Access denied to this namespace' });
+        return res.status(403).json({ message: 'Access denied to this namespace' });
       }
     }
 
@@ -379,7 +341,7 @@ export async function harvesterVmPatchHandler(req: Request, res: Response) {
       namespace,
       name,
       req.body,
-      contentType
+      contentType,
     );
 
     try {
@@ -467,8 +429,10 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
     )}/virtualmachinetemplates/${encodeURIComponent(name)}`;
     const template = await getJsonOnce(tplUrl, cloud.secretKey || '', insecure);
 
-    let defaultVersionId: string | undefined =
-      template?.spec?.defaultVersionId || template?.status?.defaultVersionId || template?.status?.defaultVersion;
+    const defaultVersionId: string | undefined =
+      template?.spec?.defaultVersionId ||
+      template?.status?.defaultVersionId ||
+      template?.status?.defaultVersion;
     if (!defaultVersionId) return res.status(400).json({ message: '模板缺少默认版本信息' });
 
     let versionNs = namespace;
@@ -500,12 +464,20 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
     }
     if (
       cleanSpec.domain?.cpu?.dedicatedCpuPlacement === true &&
-      (cleanSpec.domain?.cpu?.cores || cleanSpec.domain?.cpu?.sockets || cleanSpec.domain?.cpu?.threads)
+      (cleanSpec.domain?.cpu?.cores ||
+        cleanSpec.domain?.cpu?.sockets ||
+        cleanSpec.domain?.cpu?.threads)
     ) {
-      if (cleanSpec.domain?.resources?.requests && (cleanSpec.domain.resources.requests as any).cpu != null) {
+      if (
+        cleanSpec.domain?.resources?.requests &&
+        (cleanSpec.domain.resources.requests as any).cpu != null
+      ) {
         delete (cleanSpec.domain.resources.requests as any).cpu;
       }
-      if (cleanSpec.domain?.resources?.limits && (cleanSpec.domain.resources.limits as any).cpu != null) {
+      if (
+        cleanSpec.domain?.resources?.limits &&
+        (cleanSpec.domain.resources.limits as any).cpu != null
+      ) {
         delete (cleanSpec.domain.resources.limits as any).cpu;
       }
     }
@@ -515,7 +487,8 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
       const annVctStr = vmTemplateMeta?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
       if ((!vctArray || vctArray.length === 0) && annVctStr) {
         const annVcts = JSON.parse(annVctStr);
-        if (Array.isArray(annVcts) && annVcts.length > 0) vctArray = JSON.parse(JSON.stringify(annVcts));
+        if (Array.isArray(annVcts) && annVcts.length > 0)
+          vctArray = JSON.parse(JSON.stringify(annVcts));
       }
     } catch {}
 
@@ -547,7 +520,11 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
             const newPvcName = buildPvcNameFromVmId(vmId, volName, suffix);
 
             const pvcNamespacesToTry = Array.from(
-              new Set([String(namespace).trim(), String(versionNs).trim(), String(targetNamespace).trim()]),
+              new Set([
+                String(namespace).trim(),
+                String(versionNs).trim(),
+                String(targetNamespace).trim(),
+              ]),
             ).filter(Boolean);
             let pvc: any = null;
             for (const nsTry of pvcNamespacesToTry) {
@@ -563,7 +540,8 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
             const pvcSpec = pvc?.spec || {};
             const pvcAnn = pvc?.metadata?.annotations || {};
             const imageId = pvcAnn['harvesterhci.io/imageId'];
-            const imageName = pvcAnn['harvesterhci.io/image-name'] || pvcAnn['harvesterhci.io/imageName'];
+            const imageName =
+              pvcAnn['harvesterhci.io/image-name'] || pvcAnn['harvesterhci.io/imageName'];
 
             if (!primaryImageId && imageId) primaryImageId = String(imageId);
             if (!primaryImageName && imageName) primaryImageName = String(imageName);
@@ -591,7 +569,11 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
             );
             await waitForPvcCreated(targetNamespace, newPvcName);
 
-            return { ...vol, persistentVolumeClaim: { claimName: newPvcName }, dataVolume: undefined };
+            return {
+              ...vol,
+              persistentVolumeClaim: { claimName: newPvcName },
+              dataVolume: undefined,
+            };
           }
 
           return vol;
@@ -605,7 +587,9 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
     try {
       if (metaClean.annotations && metaClean.annotations['harvesterhci.io/volumeClaimTemplates']) {
         try {
-          metaClean.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify(vctArray || []);
+          metaClean.annotations['harvesterhci.io/volumeClaimTemplates'] = JSON.stringify(
+            vctArray || [],
+          );
         } catch {
           delete metaClean.annotations['harvesterhci.io/volumeClaimTemplates'];
         }
@@ -654,7 +638,8 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
       },
     };
 
-    if (Array.isArray(vctArray) && vctArray.length > 0) payload.spec.volumeClaimTemplates = vctArray;
+    if (Array.isArray(vctArray) && vctArray.length > 0)
+      payload.spec.volumeClaimTemplates = vctArray;
 
     const created = await createHarvesterVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -671,7 +656,8 @@ export async function harvesterEcsCreateFromTemplateHandler(req: Request, res: R
 
     if (status === 409 && (reason === 'AlreadyExists' || msg.includes('already exists'))) {
       const attemptedNs =
-        String((req as any)?.body?.namespace || '').trim() || String((req as any)?.params?.namespace || '').trim();
+        String((req as any)?.body?.namespace || '').trim() ||
+        String((req as any)?.params?.namespace || '').trim();
       return res.status(409).json({
         message: `创建失败：资源名冲突，请重试（命名空间：${attemptedNs}）`,
         error: errorBody,
@@ -698,7 +684,9 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
       const userSpace = await userSpaceRepo.findOne({ where });
       if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
 
-      const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
+      const validNamespaces = userSpace.namespace
+        ? userSpace.namespace.split(',').map((s) => s.trim())
+        : [];
 
       if (!validNamespaces.includes(namespace)) {
         return res.status(403).json({ message: '无权访问该命名空间资源' });
@@ -725,7 +713,7 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
     }
 
     const vmNamespace = vm.metadata?.namespace || namespace;
-    const vmName = vm.metadata?.name || name;
+    const _vmName = vm.metadata?.name || name;
     const body = req.body || {};
 
     const targetNamespace =
@@ -742,22 +730,20 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
 
     // 构造新的注解对象，避免直接复制原始 VM 的所有注解（如 mac-address 等不应在模板层保留）
     const templateAnnotations: any = {};
-    
+
     // 保留描述
     const description =
-      descFromBody ||
-      vmAnnotations['description'] ||
-      vmAnnotations['harvesterhci.io/description'];
-    
+      descFromBody || vmAnnotations['description'] || vmAnnotations['harvesterhci.io/description'];
+
     if (description) {
-        templateAnnotations['harvesterhci.io/description'] = description;
+      templateAnnotations['harvesterhci.io/description'] = description;
     }
 
     // 处理别名 (Template Alias)
     if (aliasFromBody) {
-         templateAnnotations['tower.io/template-alias'] = aliasFromBody;
+      templateAnnotations['tower.io/template-alias'] = aliasFromBody;
     } else if (vmAnnotations['tower.io/template-alias']) {
-         templateAnnotations['tower.io/template-alias'] = vmAnnotations['tower.io/template-alias'];
+      templateAnnotations['tower.io/template-alias'] = vmAnnotations['tower.io/template-alias'];
     }
 
     // 保留 volumeClaimTemplates (如果存在)
@@ -771,8 +757,7 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
           // 在 Template Metadata 中也保留这个注解，以便快速查看
           templateAnnotations['harvesterhci.io/volumeClaimTemplates'] = vctRaw;
         }
-      } catch {
-      }
+      } catch {}
     }
 
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
@@ -799,8 +784,8 @@ export async function harvesterEcsSaveAsTemplateHandler(req: Request, res: Respo
         name: resourceName,
         namespace: targetNamespace,
         labels: {
-            // 仅保留必要的 Label，不复制 vmName 等特定 Label
-            'harvesterhci.io/creator': 'tower', 
+          // 仅保留必要的 Label，不复制 vmName 等特定 Label
+          'harvesterhci.io/creator': 'tower',
         },
         annotations: templateAnnotations,
       },

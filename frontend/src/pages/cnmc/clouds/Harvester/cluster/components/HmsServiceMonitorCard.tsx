@@ -136,7 +136,6 @@ export function buildHmsServiceProbeRows(
     naSummary: '未配置',
     naMessageKey: 'performanceNaMessage',
   });
-  pushDataRow('profiles', '设备 Profile', 'deviceProfilesError', 'deviceProfiles');
   pushDataRow('vlans', 'VLAN', 'vlansError', 'vlans', {
     naKey: 'vlansNotApplicable',
     naSummary: '未提供',

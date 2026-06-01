@@ -8,7 +8,7 @@
  * - 备份列表查询
  * - 创建 VM 备份/快照
  * - 删除 VM 备份
- * 
+ *
  * 从 harvester.cache.storage.routes.ts 中提取的业务逻辑
  * ==============================================================================
  */
@@ -181,7 +181,12 @@ export async function harvesterBackupCreateHandler(req: Request, res: Response) 
             `[Backup-Create] VM ${namespace}/${vmName} type=${type} Harvester VMB 拒绝 Ceph 存储，改走 CephVmBackup`,
           );
           useCephBackup = true;
-          result = await createHarvesterCephVmBackup(conn, namespace, { name, vmName, type, alias });
+          result = await createHarvesterCephVmBackup(conn, namespace, {
+            name,
+            vmName,
+            type,
+            alias,
+          });
         } else {
           throw e;
         }
@@ -200,8 +205,7 @@ export async function harvesterBackupCreateHandler(req: Request, res: Response) 
           inventoryPayload.id ||
           `${namespace}/${inventoryPayload.metadata?.name}`;
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        const sourceVm =
-          inventoryPayload.spec?.source?.name || inventoryPayload.spec?.sourceVm;
+        const sourceVm = inventoryPayload.spec?.source?.name || inventoryPayload.spec?.sourceVm;
 
         if (existing) {
           // 更新现有记录

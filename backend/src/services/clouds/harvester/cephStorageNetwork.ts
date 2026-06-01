@@ -100,9 +100,7 @@ export function isCephStorageNetworkConfigured(
   return !!config?.clusterNetwork && !!config?.range && Number.isFinite(config.vlan);
 }
 
-export function validateCephStorageNetworkConfig(
-  config: CephStorageNetworkConfig,
-): string | null {
+export function validateCephStorageNetworkConfig(config: CephStorageNetworkConfig): string | null {
   const vlan = Number(config.vlan);
   if (!Number.isFinite(vlan) || vlan < 1 || vlan > 4094) {
     return 'VLAN ID 须为 1–4094 的整数';

@@ -7,11 +7,11 @@
 
 ## 1. 触发条件
 
-| 事件 | 何时跑 |
-|------|--------|
-| `pull_request` → `main` | 开 PR、向 PR 推新 commit |
-| `push` → `main` | 直接 push 或 PR merge 后 |
-| `workflow_dispatch` | Actions 页手动「Run workflow」 |
+| 事件                    | 何时跑                         |
+| ----------------------- | ------------------------------ |
+| `pull_request` → `main` | 开 PR、向 PR 推新 commit       |
+| `push` → `main`         | 直接 push 或 PR merge 后       |
+| `workflow_dispatch`     | Actions 页手动「Run workflow」 |
 
 PR 与 push 使用**同一套 job**；差别在于 Branch protection 只会在 **合并 PR 前**拦截，不会阻止已完成的直推（见 §3）。
 
@@ -23,9 +23,24 @@ PR 与 push 使用**同一套 job**；差别在于 Branch protection 只会在 *
 
 1. `npm ci`
 2. `npx tsc --noEmit`
-3. `npm run lint`（**仅 error 失败**；warning 暂允许，见 §4）
+3. `npm run lint`（`--max-warnings=0`）
 4. `npx jest --ci`
 5. `npx tsc`（生产构建）
+
+### Format — `Format (prettier backend + docs)`
+
+1. `npm ci`（`backend/`，含 `prettier` devDependency）
+2. `npm run format:check`（`backend/src/**/*.ts` 与 `docs/**/*.md`；**不含** `frontend/`）
+
+### Smoke — `Smoke (API health + auth)`
+
+1. `npm ci` → `npx tsc`
+2. 启动 `node dist/index.js`（`PORT=5099`、`DB_SYNC=true`、`LOGIN_ALLOW_PLAINT_PASSWORD=1`）
+3. 轮询 `GET http://127.0.0.1:5099/health` 直至 200
+4. `POST /api/auth/login`（种子账户 `admin` / `admin123`），断言响应含 `token`
+5. `GET /api/auth/admin-default-home`（`Authorization: Bearer <token>`）直至 200
+
+定义：`.github/workflows/smoke.yml`
 
 ### Frontend — `Frontend (tsc / eslint / test / build)`
 
@@ -47,6 +62,7 @@ cd backend
 npm ci
 npx tsc --noEmit
 npm run lint
+npm run format:check
 npx jest --ci
 npx tsc
 
@@ -65,11 +81,11 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
 
 ## 4. 已知差异与后续收紧
 
-| 项 | 现状 | 后续 |
-|----|------|------|
-| 后端 ESLint warning | CI 允许（仅 error 失败） | 逐步清零后改为 `--max-warnings=0` |
-| Prettier | 仅 pre-commit lint-staged | 可选加 `prettier --check` job |
-| E2E / 冒烟 | 无 | 关键路径另线补充 |
+| 项                  | 现状                                                          | 后续                                                                         |
+| ------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致）              | 保持为零                                                                     |
+| Prettier            | CI 校验 **`backend/src`** + **`docs/`**                       | `frontend/` 仍靠 lint-staged；全仓前端格式化见 `quality-improvement-plan.md` |
+| E2E / 冒烟          | **`Smoke (API health + auth)`**（health + 登录 + 受保护 API） | UI 级 Playwright（Cloudmap Tab 等）另线补充                                  |
 
 **在 `main` CI 全绿且团队习惯走 PR 之前，不要先开严格的 Required checks**，否则容易全员合不进去。
 
@@ -85,7 +101,9 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
 2. **Require status checks to pass before merging**
 3. Required checks 添加（名称与 Actions job 一致）：
    - `Backend (tsc / lint / test / build)`
+   - `Format (prettier backend + docs)`
    - `Frontend (tsc / eslint / test / build)`
+   - （推荐）`Smoke (API health + auth)`
 4. **Do not allow bypassing the above settings** — 或仅保留 1 个 break-glass 账号
 5. （可选）**Require branches to be up to date before merging** — PR 与最新 `main` 不一致时要求更新后再跑 CI
 

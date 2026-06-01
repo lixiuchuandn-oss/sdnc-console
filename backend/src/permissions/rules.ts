@@ -95,5 +95,4 @@ export const INHERITANCE_RULES: InheritanceRule[] = [
       to: 'write',
     },
   },
-
 ];

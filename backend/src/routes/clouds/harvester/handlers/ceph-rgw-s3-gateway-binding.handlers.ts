@@ -16,7 +16,9 @@ function sendErr(res: Response, e: unknown) {
   if (res.headersSent) return;
   const err = e as any;
   const st = typeof err?.status === 'number' ? err.status : 500;
-  res.status(st >= 400 && st < 600 ? st : 500).json({ message: String(err?.message || err || '请求失败') });
+  res
+    .status(st >= 400 && st < 600 ? st : 500)
+    .json({ message: String(err?.message || err || '请求失败') });
 }
 
 async function respondWithFreshMap(res: Response, cloudId: string) {

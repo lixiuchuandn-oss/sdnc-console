@@ -37,12 +37,10 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
     kpiInfoTone,
     kpiIfTone,
     kpiPerfTone,
-    kpiProfileTone,
     kpiVlanTone,
     kpiInfoVal,
     kpiIfVal,
     kpiPerfVal,
-    kpiProfileVal,
     kpiVlanVal,
   } = model;
 
@@ -79,7 +77,6 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
           <Descriptions.Item label="基本信息">{statusTag(kpiInfoVal, kpiInfoTone)}</Descriptions.Item>
           <Descriptions.Item label="接口状态">{statusTag(kpiIfVal, kpiIfTone)}</Descriptions.Item>
           <Descriptions.Item label="性能探测">{statusTag(kpiPerfVal, kpiPerfTone)}</Descriptions.Item>
-          <Descriptions.Item label="设备 Profile">{statusTag(kpiProfileVal, kpiProfileTone)}</Descriptions.Item>
           <Descriptions.Item label="VLAN 查询">{statusTag(kpiVlanVal, kpiVlanTone)}</Descriptions.Item>
         </Descriptions>
       ),
@@ -119,14 +116,6 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
               showIcon
               message={`性能探测失败${r.performanceHttpStatus ? `（HTTP ${r.performanceHttpStatus}）` : ''}`}
               description={r.performanceError}
-            />
-          ) : null}
-          {r.deviceProfilesError ? (
-            <Alert
-              type="error"
-              showIcon
-              message={`设备 Profile 失败${r.deviceProfilesHttpStatus ? `（HTTP ${r.deviceProfilesHttpStatus}）` : ''}`}
-              description={r.deviceProfilesError}
             />
           ) : null}
           {r.vlansError ? (
@@ -170,27 +159,6 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
           ) : (
             <AswCliOutputCollapse title="性能/健康" lines={r.performance?.lines || []} />
           )}
-
-          {r.deviceProfilesError ? null : r.deviceProfiles != null ? (
-            <Collapse
-              size="small"
-              items={[
-                {
-                  key: 'profiles',
-                  label: 'GET /v1/device/profiles 响应',
-                  children: (
-                    <Typography.Paragraph
-                      copyable={{ text: JSON.stringify(r.deviceProfiles, null, 2) }}
-                      code
-                      style={{ marginBottom: 0, maxHeight: 360, overflow: 'auto', whiteSpace: 'pre-wrap' }}
-                    >
-                      {JSON.stringify(r.deviceProfiles, null, 2)}
-                    </Typography.Paragraph>
-                  ),
-                },
-              ]}
-            />
-          ) : null}
 
           {r.vlansError ? null : r.vlansNotApplicable ? (
             <Alert

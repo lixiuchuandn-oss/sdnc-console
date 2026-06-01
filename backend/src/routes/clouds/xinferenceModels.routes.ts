@@ -59,9 +59,7 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
         res.json({
           models: [],
           degraded: true,
-          message:
-            r.message ||
-            '运行模型列表暂时不可用（集群可能正在加载模型），请稍后刷新',
+          message: r.message || '运行模型列表暂时不可用（集群可能正在加载模型），请稍后刷新',
         });
         return;
       }
@@ -133,8 +131,7 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
         );
         if (!r.ok) {
           const detail = String(r.message || '').trim();
-          const stillRunning =
-            /still registered as running|still running/i.test(detail);
+          const stillRunning = /still registered as running|still running/i.test(detail);
           const notFound = /no instance metadata found/i.test(detail);
           if (r.status === 404 || notFound) {
             res.status(404).json({
@@ -185,11 +182,9 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
           return;
         }
 
-        const r = await xinferenceGet(
-          ctx,
-          `/v1/models/${encodeURIComponent(modelUid)}/replicas`,
-          { timeout: 15_000 },
-        );
+        const r = await xinferenceGet(ctx, `/v1/models/${encodeURIComponent(modelUid)}/replicas`, {
+          timeout: 15_000,
+        });
         if (!r.ok) {
           res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
             message: r.message || '拉取副本状态失败',
@@ -204,99 +199,114 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
     },
   );
 
-  router.get('/:id/xinference/model-registrations', perm, async (req: AuthRequest, res: Response) => {
-    try {
-      const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
-      if (!cloud) return;
-      const ctx = xinferenceCtxOr400(cloud, res);
-      if (!ctx) return;
-
-      const modelType = String(req.query.modelType || 'LLM').trim() || 'LLM';
-      const detailed = String(req.query.detailed || '').toLowerCase() === 'true';
-      const q = detailed ? '?detailed=true' : '';
-      const r = await xinferenceGet(ctx, `/v1/model_registrations/${encodeURIComponent(modelType)}${q}`, {
-        // detailed 会拉取完整规格，LLM 注册表在冷启动或模型多时可能超过 30s
-        timeout: detailed ? 180_000 : 45_000,
-      });
-      if (!r.ok) {
-        const isTimeout =
-          r.status === 0 && String(r.message || '').toLowerCase().includes('timeout');
-        res.status(r.status === 401 ? 401 : isTimeout ? 504 : 502).json({
-          message: isTimeout
-            ? '拉取模型注册表超时：Xinference 仍在扫描模型列表，请稍后点击「更新」重试'
-            : r.message || '拉取可启动模型列表失败',
-        });
-        return;
-      }
-      res.json({
-        modelType,
-        registrations: normalizeModelRegistrations(r.data),
-        raw: r.data,
-      });
-    } catch (error: any) {
-      log.error('list registrations failed', error?.message ?? String(error));
-      res.status(500).json({ message: error?.message || '拉取可启动模型列表失败' });
-    }
-  });
-
-  router.post('/:id/xinference/model-registrations/:modelType', perm, async (req: AuthRequest, res: Response) => {
-    try {
-      const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
-      if (!cloud) return;
-      const ctx = xinferenceCtxOr400(cloud, res);
-      if (!ctx) return;
-
-      const modelType = String(req.params.modelType || 'LLM').trim() || 'LLM';
-      const body = req.body && typeof req.body === 'object' ? req.body : {};
-      const persist = body.persist === true || body.persist === 'true';
-      const workerIp =
-        body.worker_ip != null && String(body.worker_ip).trim()
-          ? String(body.worker_ip).trim()
-          : body.workerIp != null && String(body.workerIp).trim()
-            ? String(body.workerIp).trim()
-            : undefined;
-
-      let modelStr: string;
-      if (typeof body.model === 'string') {
-        modelStr = body.model.trim();
-      } else if (body.model != null && typeof body.model === 'object') {
-        modelStr = JSON.stringify(body.model);
-      } else {
-        res.status(400).json({ message: '请提供 model（JSON 对象或 JSON 字符串）' });
-        return;
-      }
-      if (!modelStr) {
-        res.status(400).json({ message: 'model 不能为空' });
-        return;
-      }
+  router.get(
+    '/:id/xinference/model-registrations',
+    perm,
+    async (req: AuthRequest, res: Response) => {
       try {
-        JSON.parse(modelStr);
-      } catch {
-        res.status(400).json({ message: 'model 须为合法 JSON' });
-        return;
-      }
+        const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
+        if (!cloud) return;
+        const ctx = xinferenceCtxOr400(cloud, res);
+        if (!ctx) return;
 
-      const payload: Record<string, unknown> = { model: modelStr, persist };
-      if (workerIp) payload.worker_ip = workerIp;
-
-      const r = await xinferencePost(
-        ctx,
-        `/v1/model_registrations/${encodeURIComponent(modelType)}`,
-        payload,
-        { timeout: 120000 },
-      );
-      if (!r.ok) {
-        res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
-          message: r.message || '注册模型失败',
+        const modelType = String(req.query.modelType || 'LLM').trim() || 'LLM';
+        const detailed = String(req.query.detailed || '').toLowerCase() === 'true';
+        const q = detailed ? '?detailed=true' : '';
+        const r = await xinferenceGet(
+          ctx,
+          `/v1/model_registrations/${encodeURIComponent(modelType)}${q}`,
+          {
+            // detailed 会拉取完整规格，LLM 注册表在冷启动或模型多时可能超过 30s
+            timeout: detailed ? 180_000 : 45_000,
+          },
+        );
+        if (!r.ok) {
+          const isTimeout =
+            r.status === 0 &&
+            String(r.message || '')
+              .toLowerCase()
+              .includes('timeout');
+          res.status(r.status === 401 ? 401 : isTimeout ? 504 : 502).json({
+            message: isTimeout
+              ? '拉取模型注册表超时：Xinference 仍在扫描模型列表，请稍后点击「更新」重试'
+              : r.message || '拉取可启动模型列表失败',
+          });
+          return;
+        }
+        res.json({
+          modelType,
+          registrations: normalizeModelRegistrations(r.data),
+          raw: r.data,
         });
-        return;
+      } catch (error: any) {
+        log.error('list registrations failed', error?.message ?? String(error));
+        res.status(500).json({ message: error?.message || '拉取可启动模型列表失败' });
       }
-      res.json({ ok: true, raw: r.data ?? null });
-    } catch (error: any) {
-      log.error('register model failed', error?.message ?? String(error));
-      res.status(500).json({ message: error?.message || '注册模型失败' });
-    }
-  });
+    },
+  );
+
+  router.post(
+    '/:id/xinference/model-registrations/:modelType',
+    perm,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
+        if (!cloud) return;
+        const ctx = xinferenceCtxOr400(cloud, res);
+        if (!ctx) return;
+
+        const modelType = String(req.params.modelType || 'LLM').trim() || 'LLM';
+        const body = req.body && typeof req.body === 'object' ? req.body : {};
+        const persist = body.persist === true || body.persist === 'true';
+        const workerIp =
+          body.worker_ip != null && String(body.worker_ip).trim()
+            ? String(body.worker_ip).trim()
+            : body.workerIp != null && String(body.workerIp).trim()
+              ? String(body.workerIp).trim()
+              : undefined;
+
+        let modelStr: string;
+        if (typeof body.model === 'string') {
+          modelStr = body.model.trim();
+        } else if (body.model != null && typeof body.model === 'object') {
+          modelStr = JSON.stringify(body.model);
+        } else {
+          res.status(400).json({ message: '请提供 model（JSON 对象或 JSON 字符串）' });
+          return;
+        }
+        if (!modelStr) {
+          res.status(400).json({ message: 'model 不能为空' });
+          return;
+        }
+        try {
+          JSON.parse(modelStr);
+        } catch {
+          res.status(400).json({ message: 'model 须为合法 JSON' });
+          return;
+        }
+
+        const payload: Record<string, unknown> = { model: modelStr, persist };
+        if (workerIp) payload.worker_ip = workerIp;
+
+        const r = await xinferencePost(
+          ctx,
+          `/v1/model_registrations/${encodeURIComponent(modelType)}`,
+          payload,
+          { timeout: 120000 },
+        );
+        if (!r.ok) {
+          res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
+            message: r.message || '注册模型失败',
+          });
+          return;
+        }
+        res.json({ ok: true, raw: r.data ?? null });
+      } catch (error: any) {
+        log.error('register model failed', error?.message ?? String(error));
+        res.status(500).json({ message: error?.message || '注册模型失败' });
+      }
+    },
+  );
 
   router.get(
     '/:id/xinference/model-registrations/:modelType/:modelName',
@@ -376,7 +386,11 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
       const r = await xinferenceGet(ctx, `/v1/cache/models${q}`, { timeout: 45_000 });
       if (!r.ok) {
         if (r.status === 404) {
-          res.json({ models: [], degraded: true, message: '当前 Xinference 版本不支持 cache/models' });
+          res.json({
+            models: [],
+            degraded: true,
+            message: '当前 Xinference 版本不支持 cache/models',
+          });
           return;
         }
         res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
@@ -453,10 +467,7 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
           return;
         }
 
-        const r = await xinferenceGet(
-          ctx,
-          `/v1/models/${encodeURIComponent(modelUid)}/progress`,
-        );
+        const r = await xinferenceGet(ctx, `/v1/models/${encodeURIComponent(modelUid)}/progress`);
         if (!r.ok) {
           res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
             message: r.message || '获取启动进度失败',
@@ -511,34 +522,36 @@ export function attachXinferenceModelsRoutes(router: Router, perm: RequestHandle
     },
   );
 
-  router.delete('/:id/xinference/models/:modelUid', perm, async (req: AuthRequest, res: Response) => {
-    try {
-      const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
-      if (!cloud) return;
-      const ctx = xinferenceCtxOr400(cloud, res);
-      if (!ctx) return;
+  router.delete(
+    '/:id/xinference/models/:modelUid',
+    perm,
+    async (req: AuthRequest, res: Response) => {
+      try {
+        const cloud = await fetchXinferenceCloudOr404(req.params.id, res);
+        if (!cloud) return;
+        const ctx = xinferenceCtxOr400(cloud, res);
+        if (!ctx) return;
 
-      const modelUid = String(req.params.modelUid || '').trim();
-      if (!modelUid) {
-        res.status(400).json({ message: '缺少 modelUid' });
-        return;
-      }
+        const modelUid = String(req.params.modelUid || '').trim();
+        if (!modelUid) {
+          res.status(400).json({ message: '缺少 modelUid' });
+          return;
+        }
 
-      const r = await xinferenceDelete(
-        ctx,
-        `/v1/models/${encodeURIComponent(modelUid)}`,
-        { timeout: 120000 },
-      );
-      if (!r.ok) {
-        res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
-          message: r.message || '停止模型失败',
+        const r = await xinferenceDelete(ctx, `/v1/models/${encodeURIComponent(modelUid)}`, {
+          timeout: 120000,
         });
-        return;
+        if (!r.ok) {
+          res.status(r.status >= 400 && r.status < 600 ? r.status : 502).json({
+            message: r.message || '停止模型失败',
+          });
+          return;
+        }
+        res.json({ ok: true, modelUid });
+      } catch (error: any) {
+        log.error('terminate model failed', error?.message ?? String(error));
+        res.status(500).json({ message: error?.message || '停止模型失败' });
       }
-      res.json({ ok: true, modelUid });
-    } catch (error: any) {
-      log.error('terminate model failed', error?.message ?? String(error));
-      res.status(500).json({ message: error?.message || '停止模型失败' });
-    }
-  });
+    },
+  );
 }

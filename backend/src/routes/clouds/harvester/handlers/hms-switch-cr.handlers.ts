@@ -30,7 +30,8 @@ function handleCrError(res: Response, e: any, fallback: string) {
   const message = bodyMsg || e?.message || fallback;
   if (status === 404) {
     return res.status(404).json({
-      message: '未找到 HMS Switch CR API 或资源不存在。请确认集群已安装 HSM CRD（hms.rivercloud.com/v1 Switch）。',
+      message:
+        '未找到 HMS Switch CR API 或资源不存在。请确认集群已安装 HSM CRD（hms.rivercloud.com/v1 Switch）。',
       detail: message,
     });
   }

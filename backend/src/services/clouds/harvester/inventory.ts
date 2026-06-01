@@ -1,18 +1,18 @@
 import { AppDataSource } from '../../../config/database';
-import { HarvesterNodeInventory } from '../../../entities/harvester/HarvesterNodeInventory';// Harvester 节点资源
-import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory';// Harvester 命名空间资源
-import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';// Harvester 虚拟机资源
-import { HarvesterVmiInventory } from '../../../entities/harvester/HarvesterVmiInventory';// Harvester 虚拟机实例资源
-import { HarvesterImageInventory } from '../../../entities/harvester/HarvesterImageInventory';// Harvester 镜像资源
-import { KubevirtVolumeInventory } from '../../../entities/kubevirt/KubevirtVolumeInventory';// Kubevirt 卷资源
+import { HarvesterNodeInventory } from '../../../entities/harvester/HarvesterNodeInventory'; // Harvester 节点资源
+import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory'; // Harvester 命名空间资源
+import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory'; // Harvester 虚拟机资源
+import { HarvesterVmiInventory } from '../../../entities/harvester/HarvesterVmiInventory'; // Harvester 虚拟机实例资源
+import { HarvesterImageInventory } from '../../../entities/harvester/HarvesterImageInventory'; // Harvester 镜像资源
+import { KubevirtVolumeInventory } from '../../../entities/kubevirt/KubevirtVolumeInventory'; // Kubevirt 卷资源
 import { KubevirtStorageClassInventory } from '../../../entities/kubevirt/KubevirtStorageClassInventory';
-import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInventory';// Kubevirt NAD 资源
+import { KubevirtNadInventory } from '../../../entities/kubevirt/KubevirtNadInventory'; // Kubevirt NAD 资源
 import { KubevirtLoadBalancerInventory } from '../../../entities/kubevirt/KubevirtLoadBalancerInventory';
-import { KubeOvnVpcInventory } from '../../../entities/kubeovn/KubeOvnVpcInventory';// Kube-ovn 虚拟私有云资源
-import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory';// Kube-ovn 子网资源
-import { KubeOvnProviderNetworkInventory } from '../../../entities/kubeovn/KubeOvnProviderNetworkInventory';// Kube-ovn Provider Network 公共网络
-import { KubeOvnVlanInventory } from '../../../entities/kubeovn/KubeOvnVlanInventory';// Kube-ovn VLAN 资源
-import { HarvesterGpuInventory } from '../../../entities/harvester/HarvesterGpuInventory';// Harvester GPU 资源
+import { KubeOvnVpcInventory } from '../../../entities/kubeovn/KubeOvnVpcInventory'; // Kube-ovn 虚拟私有云资源
+import { KubeOvnSubnetInventory } from '../../../entities/kubeovn/KubeOvnSubnetInventory'; // Kube-ovn 子网资源
+import { KubeOvnProviderNetworkInventory } from '../../../entities/kubeovn/KubeOvnProviderNetworkInventory'; // Kube-ovn Provider Network 公共网络
+import { KubeOvnVlanInventory } from '../../../entities/kubeovn/KubeOvnVlanInventory'; // Kube-ovn VLAN 资源
+import { HarvesterGpuInventory } from '../../../entities/harvester/HarvesterGpuInventory'; // Harvester GPU 资源
 import { HarvesterSnapshotInventory } from '../../../entities/harvester/HarvesterSnapshotInventory';
 import { HarvesterBackupInventory } from '../../../entities/harvester/HarvesterBackupInventory';
 import { HarvesterSshKeyInventory } from '../../../entities/harvester/HarvesterSshKeyInventory';
@@ -135,13 +135,22 @@ async function withInventoryUpsertLock<T>(key: string, fn: () => Promise<T>): Pr
  * 未正确引用列名的 SQL，UUID 中的 `-` 会被解析为减号，触发 SQLITE_ERROR: near "-": syntax error。
  * 使用参数化原生 DELETE 规避（表名来自元数据，已带 @Entity 显式表名）。
  */
-async function deleteInventoryByCloudId(manager: any, entityTarget: any, cloudId: string): Promise<void> {
+async function deleteInventoryByCloudId(
+  manager: any,
+  entityTarget: any,
+  cloudId: string,
+): Promise<void> {
   const meta = manager.connection.getMetadata(entityTarget);
   const table = meta.tableName;
   await manager.query(`DELETE FROM "${table}" WHERE "cloudId" = ?`, [cloudId]);
 }
 
-const upsertItems = async (repo: any, cloudId: string, items: any[], mapper: (item: any) => any) => {
+const upsertItems = async (
+  repo: any,
+  cloudId: string,
+  items: any[],
+  mapper: (item: any) => any,
+) => {
   const targetName =
     typeof repo?.target === 'function'
       ? repo.target.name
@@ -296,14 +305,18 @@ export const syncHarvesterClusterNetworks = async (cloud: any, insecure: boolean
     } as any),
   ]);
 
-  invLog.debug(`${cloud.name}: 集群网络同步完成，共 ${items.length} 条 (配置 ${configs.length} 条)`);
+  invLog.debug(
+    `${cloud.name}: 集群网络同步完成，共 ${items.length} 条 (配置 ${configs.length} 条)`,
+  );
 
   const repo = AppDataSource.getRepository(HarvesterClusterNetworkInventory);
   await upsertItems(repo, cloud.id, items, (item) => {
     // Match Configs (VlanConfigs) by spec.clusterNetwork
     // Note: A ClusterNetwork can have multiple VlanConfigs (for different node groups)
-    const matchedConfigs = configs.filter((c: any) => c.spec?.clusterNetwork === item.metadata?.name);
-    
+    const matchedConfigs = configs.filter(
+      (c: any) => c.spec?.clusterNetwork === item.metadata?.name,
+    );
+
     // Extract Uplink info
     // Aggregate nics from all matched configs
     let uplinks: any = null;
@@ -320,7 +333,7 @@ export const syncHarvesterClusterNetworks = async (cloud: any, insecure: boolean
         nics: Array.from(allNics),
         // Use the first config's attributes as representative (usually consistent within a cluster network)
         linkAttributes: matchedConfigs[0]?.spec?.uplink?.linkAttributes,
-        bondOptions: matchedConfigs[0]?.spec?.uplink?.bondOptions
+        bondOptions: matchedConfigs[0]?.spec?.uplink?.bondOptions,
       };
     }
 
@@ -365,7 +378,11 @@ export const syncHarvesterTemplates = async (cloud: any, insecure: boolean) => {
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过模板同步 (401 未授权)`);
       return;
     }
@@ -488,7 +505,12 @@ export const syncHarvesterUsbResources = async (cloud: any, insecure: boolean) =
       (item.raw as any)?.status?.productId ||
       (item.raw as any)?.spec?.productID ||
       (item.raw as any)?.spec?.productId,
-    description: item.description || (item.raw as any)?.status?.description || (item.raw as any)?.spec?.description || (item.raw as any)?.description || item.name,
+    description:
+      item.description ||
+      (item.raw as any)?.status?.description ||
+      (item.raw as any)?.spec?.description ||
+      (item.raw as any)?.description ||
+      item.name,
     rawData: item.raw,
   }));
 };
@@ -508,7 +530,11 @@ export const syncHarvesterLoadBalancers = async (cloud: any, insecure: boolean) 
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过负载均衡器同步 (401 未授权)`);
       return;
     }
@@ -589,16 +615,6 @@ export const syncKubevirtVms = async (cloud: any, insecure: boolean) => {
 
   invLog.debug(`${cloud.name}: 虚拟机同步完成，共 ${items.length} 条`);
 
-  // Calculate origin for view links fallback
-  const base = (cloud.endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-
   const repo = AppDataSource.getRepository(HarvesterVmInventory);
   await upsertItems(repo, cloud.id, items, (item) => ({
     uid: item.metadata?.uid,
@@ -642,7 +658,9 @@ export const syncKubevirtVmis = async (cloud: any, insecure: boolean) => {
     namespace: item.metadata?.namespace,
     phase: item.status?.phase,
     nodeName: item.status?.nodeName,
-    ipAddresses: (item.status?.interfaces || []).map((i: any) => i.ipAddress).filter((i: any) => !!i),
+    ipAddresses: (item.status?.interfaces || [])
+      .map((i: any) => i.ipAddress)
+      .filter((i: any) => !!i),
     interfaces: item.status?.interfaces,
     guestOSInfo: item.status?.guestOSInfo,
     conditions: item.status?.conditions,
@@ -804,22 +822,13 @@ export const syncHarvesterGpus = async (cloud: any, insecure: boolean) => {
   const repo = AppDataSource.getRepository(HarvesterGpuInventory);
   await upsertItems(repo, cloud.id, items, (item) => {
     const rn = String(item.resourceName || '').trim();
-    const nodeName =
-      String(item.nodeName || item.node || '').trim() || '-';
-    const address = String(
-      item.address || item.pciAddress || '',
-    ).trim();
+    const nodeName = String(item.nodeName || item.node || '').trim() || '-';
+    const address = String(item.address || item.pciAddress || '').trim();
     const uid =
       String(item.uid || item.raw?.metadata?.uid || '').trim() ||
       `${rn || 'gpu'}@${nodeName}@${address || 'na'}`;
     const name =
-      String(
-        item.name ||
-          item.productName ||
-          item.metadata?.name ||
-          rn ||
-          'GPU',
-      ).trim() || 'GPU';
+      String(item.name || item.productName || item.metadata?.name || rn || 'GPU').trim() || 'GPU';
     return {
       uid,
       name,
@@ -892,8 +901,9 @@ export const syncHarvesterNodes = async (cloud: any, insecure: boolean) => {
     invLog.warn(`${cloud.name}: HMS 硬件信息获取失败（忽略，不影响节点同步）: ${e?.message || e}`);
   }
   items.forEach((it: any) => {
-    const nodeName =
-      String(it?.name || it?.metadata?.name || it?.rawData?.metadata?.name || '').trim();
+    const nodeName = String(
+      it?.name || it?.metadata?.name || it?.rawData?.metadata?.name || '',
+    ).trim();
     if (!nodeName) return;
     it.hmsNics = nicsByNode[nodeName] || [];
     it.hmsHardware = hardwareByNode[nodeName] ?? null;
@@ -940,7 +950,11 @@ export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean)
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过存储类同步 (401 未授权)`);
       return;
     }
@@ -974,7 +988,7 @@ export const syncHarvesterStorageClasses = async (cloud: any, insecure: boolean)
 export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
   let vmSnapshots: any[] = [];
   let volumeSnapshots: any[] = [];
-  
+
   // 1. Sync Virtual Machine Snapshots
   try {
     vmSnapshots = await listHarvesterVirtualMachineSnapshots({
@@ -983,7 +997,11 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过虚拟机快照同步 (401 未授权)`);
     } else {
       invLog.warn(`${cloud.name}: 虚拟机快照获取失败: ${e.message}`);
@@ -998,7 +1016,11 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过卷快照同步 (401 未授权)`);
     } else {
       invLog.warn(`${cloud.name}: 卷快照获取失败: ${e.message}`);
@@ -1006,7 +1028,9 @@ export const syncHarvesterSnapshots = async (cloud: any, insecure: boolean) => {
   }
 
   const items = [...vmSnapshots, ...volumeSnapshots];
-  invLog.debug(`${cloud.name}: 快照同步完成，共 ${items.length} 条 (VM: ${vmSnapshots.length}, Volume: ${volumeSnapshots.length})`);
+  invLog.debug(
+    `${cloud.name}: 快照同步完成，共 ${items.length} 条 (VM: ${vmSnapshots.length}, Volume: ${volumeSnapshots.length})`,
+  );
 
   // Filter out items that are marked for deletion
   const validItems = items.filter((item: any) => !item.metadata?.deletionTimestamp);
@@ -1047,7 +1071,11 @@ export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
     } as any);
     invLog.debug(`${cloud.name}: 从 Harvester API 获取到 ${items.length} 条备份`);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过备份同步 (401 未授权)`);
       return;
     }
@@ -1066,10 +1094,7 @@ export const syncHarvesterBackups = async (cloud: any, insecure: boolean) => {
     invLog.warn(`${cloud.name}: CephVmBackup 列表获取失败（忽略）:`, e?.message || e);
   }
 
-  const merged = [
-    ...items,
-    ...cephItems.map((c) => normalizeCephVmBackupForInventory(c)),
-  ];
+  const merged = [...items, ...cephItems.map((c) => normalizeCephVmBackupForInventory(c))];
 
   // Filter out items that are marked for deletion
   const validItems = merged.filter((item: any) => !item.metadata?.deletionTimestamp);
@@ -1107,7 +1132,11 @@ export const syncHarvesterSshKeys = async (cloud: any, insecure: boolean) => {
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过SSH密钥同步 (401 未授权)`);
       return;
     }
@@ -1144,7 +1173,11 @@ export const syncHarvesterCloudInits = async (cloud: any, insecure: boolean) => 
       insecure,
     } as any);
   } catch (e: any) {
-    if (Number(e?.status) === 401 || String(e?.message).includes('401') || String(e?.message).toLowerCase().includes('unauthorized')) {
+    if (
+      Number(e?.status) === 401 ||
+      String(e?.message).includes('401') ||
+      String(e?.message).toLowerCase().includes('unauthorized')
+    ) {
       invLog.warn(`${cloud.name}: 跳过CloudInit配置同步 (401 未授权)`);
       return;
     }
@@ -1221,7 +1254,7 @@ export const syncHarvesterCapabilities = async (cloud: any, insecure: boolean) =
     invLog.warn(`${cloud.name}: 功能集获取失败:`, e.message);
     return;
   }
-  
+
   invLog.debug(`${cloud.name}: 功能集同步完成，共 ${item ? 1 : 0} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterCapabilityInventory);
@@ -1489,8 +1522,8 @@ export const syncKubeOvnNatRules = async (cloud: any, insecure: boolean) => {
 
   // Combine them, marking type
   const combined = [
-    ...snatItems.map(i => ({ ...i, _type: 'SNAT' })),
-    ...dnatItems.map(i => ({ ...i, _type: 'DNAT' })),
+    ...snatItems.map((i) => ({ ...i, _type: 'SNAT' })),
+    ...dnatItems.map((i) => ({ ...i, _type: 'DNAT' })),
   ];
 
   const repo = AppDataSource.getRepository(KubeOvnNatRuleInventory);

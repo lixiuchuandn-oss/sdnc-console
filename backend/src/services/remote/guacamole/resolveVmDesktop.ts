@@ -120,9 +120,7 @@ export function extractVmIpFromAggregated(vm: any): string | null {
 
 export function extractVmOsHint(vm: any, relatedImage?: any): string {
   const guest =
-    vm?.vmi?.status?.guestOSInfo?.name ||
-    vm?.vmi?.status?.guestOSInfo?.prettyName ||
-    '';
+    vm?.vmi?.status?.guestOSInfo?.name || vm?.vmi?.status?.guestOSInfo?.prettyName || '';
   if (guest) return String(guest);
   const imgDisp =
     relatedImage?.spec?.displayName ||
@@ -134,11 +132,7 @@ export function extractVmOsHint(vm: any, relatedImage?: any): string {
 }
 
 export function isVmRunning(vm: any): boolean {
-  const phase =
-    vm?.vmi?.status?.phase ||
-    vm?.status?.printableStatus ||
-    vm?.status?.phase ||
-    '';
+  const phase = vm?.vmi?.status?.phase || vm?.status?.printableStatus || vm?.status?.phase || '';
   return String(phase).toLowerCase() === 'running';
 }
 

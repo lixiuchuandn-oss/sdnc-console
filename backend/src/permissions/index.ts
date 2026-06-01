@@ -1,6 +1,6 @@
 /**
  * 权限定义中心 - 统一导出
- * 
+ *
  * 这是新的权限体系的核心入口，提供：
  * 1. 权限注册表（PermissionRegistry）
  * 2. 权限继承引擎（InheritanceEngine）
@@ -8,7 +8,6 @@
  * 4. 权限定义和规则
  */
 
-import { PermissionDefinition } from './types';
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
 import { PermissionChecker } from './checker';

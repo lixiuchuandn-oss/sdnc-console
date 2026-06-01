@@ -24,9 +24,9 @@ import {
 } from './lib/roleGrantNormalize';
 import {
   clampActionsToTenantBoundary,
+  isBuiltInRbacRole,
   isTenantRootBuiltinRole,
-  isTenantScopeRole,
-  resolveTenantRootBoundaryActionAtoms,
+  resolveTenantRootDrawerCatalogAtoms,
   shouldUseTenantPermissionBoundary,
 } from './lib/builtinRolePermissionView';
 import { stripTenantConsoleUmbrellaPermissions } from './lib/tenantConsoleUmbrellaPermissions';
@@ -63,6 +63,8 @@ const AccessRolesPage: React.FC = () => {
   const [kw, setKw] = useState('');
   const [permVerb, setPermVerb] = useState<'全部' | 'read' | 'write'>('全部');
   const [actionAtoms, setActionAtoms] = useState<string[]>([]);
+  /** 内置云租户根用户固定目录（/rbac/actions.tenantRootBoundary），不随该角色已保存权限收缩 */
+  const [tenantRootCatalogAtoms, setTenantRootCatalogAtoms] = useState<string[]>([]);
   const [grantOpen, setGrantOpen] = useState(false);
   const [grantTarget, setGrantTarget] = useState<RBACRole | null>(null);
   const [grantSelectedIds, setGrantSelectedIds] = useState<string[]>([]);
@@ -72,19 +74,17 @@ const AccessRolesPage: React.FC = () => {
   const [assignUserTarget, setAssignUserTarget] = useState<RBACRole | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
-  /** 内置云租户根用户权限边界（租户角色配置抽屉的可选上限） */
+  /** 租户角色抽屉固定展示目录 + 可勾选上限（与种子公式一致，不随根用户已保存权限收缩） */
   const tenantRootBoundaryAtoms = useMemo(
-    () => resolveTenantRootBoundaryActionAtoms(roles),
-    [roles],
+    () => resolveTenantRootDrawerCatalogAtoms(tenantRootCatalogAtoms, actionAtoms),
+    [tenantRootCatalogAtoms, actionAtoms],
   );
 
   /** 系统角色用全量 actions；租户角色仅用内置云租户根用户权限范围建树 */
   const drawerStructureActionAtoms = useMemo(() => {
     if (!grantOpen) return [];
-    let atoms: string[];
     if (grantTarget && shouldUseTenantPermissionBoundary(grantTarget)) {
-      atoms = tenantRootBoundaryAtoms.length > 0 ? tenantRootBoundaryAtoms : actionAtoms;
-      return stripTenantConsoleUmbrellaPermissions(atoms);
+      return stripTenantConsoleUmbrellaPermissions(tenantRootBoundaryAtoms);
     }
     return actionAtoms;
   }, [grantOpen, grantTarget, tenantRootBoundaryAtoms, actionAtoms]);
@@ -135,9 +135,13 @@ const AccessRolesPage: React.FC = () => {
   useEffect(() => {
     const loadActions = async () => {
       try {
-        const json = await apiRequest('/api/system/rbac/actions', { enableCache: true });
+        const json = await apiRequest('/api/system/rbac/actions', { skipCache: true });
         const arr: string[] = Array.isArray(json?.actions) ? json.actions : [];
         setActionAtoms(arr);
+        const catalog: string[] = Array.isArray(json?.tenantRootBoundary)
+          ? json.tenantRootBoundary
+          : [];
+        setTenantRootCatalogAtoms(catalog);
       } catch {
         setActionAtoms([]);
       }
@@ -150,14 +154,13 @@ const AccessRolesPage: React.FC = () => {
       if (!canEditPermissions) {
         return;
       }
+      if (grantTarget && isBuiltInRbacRole(grantTarget)) {
+        return;
+      }
       if (checked) {
         setGrantSelectedIds((prev) => {
           let next = expandRoleGrantOnCheck(action, prev);
-          if (
-            grantTarget &&
-            isTenantScopeRole(grantTarget) &&
-            tenantRootBoundaryAtoms.length > 0
-          ) {
+          if (grantTarget && shouldUseTenantPermissionBoundary(grantTarget)) {
             next = clampActionsToTenantBoundary(next, tenantRootBoundaryAtoms);
           }
           return next;
@@ -229,10 +232,14 @@ const AccessRolesPage: React.FC = () => {
         return;
       }
       if (!grantTarget) return;
+      if (isBuiltInRbacRole(grantTarget)) {
+        message.warning('系统内置角色不允许修改权限');
+        return;
+      }
       setGrantSaving(true);
       try {
         const boundedKeys =
-          isTenantScopeRole(grantTarget) && tenantRootBoundaryAtoms.length > 0
+          shouldUseTenantPermissionBoundary(grantTarget)
             ? clampActionsToTenantBoundary(targetKeys, tenantRootBoundaryAtoms)
             : targetKeys;
         const permissionsToSave = stripTenantConsoleUmbrellaPermissions(
@@ -260,6 +267,31 @@ const AccessRolesPage: React.FC = () => {
     ],
   );
 
+  const grantDrawerCanEdit = useMemo(
+    () => canEditPermissions && !!grantTarget && !isBuiltInRbacRole(grantTarget),
+    [canEditPermissions, grantTarget],
+  );
+
+  const grantDrawerTitle = useMemo(() => {
+    if (!grantTarget) return '配置权限';
+    if (isBuiltInRbacRole(grantTarget)) return '查看权限（内置角色）';
+    if (shouldUseTenantPermissionBoundary(grantTarget)) return '配置权限（租户边界）';
+    return '配置权限';
+  }, [grantTarget]);
+
+  const grantDrawerScopeHint = useMemo(() => {
+    if (!grantTarget) return undefined;
+    if (isBuiltInRbacRole(grantTarget)) {
+      return '系统内置角色：权限由产品版本定义，仅可查看；服务重启时会与代码默认策略同步。如需裁减权限请新建自定义角色。';
+    }
+    if (shouldUseTenantPermissionBoundary(grantTarget)) {
+      return isTenantRootBuiltinRole(grantTarget)
+        ? '内置云租户根用户目录为租户角色可选上限；本角色权限不可在此修改。'
+        : '租户角色可选范围不超过内置「云租户根用户」目录；取消勾选后菜单项仍会展示';
+    }
+    return undefined;
+  }, [grantTarget]);
+
   const openAuthorize = useCallback(
     (target: RBACRole) => {
       if (!canConfigurePermissions) {
@@ -268,14 +300,13 @@ const AccessRolesPage: React.FC = () => {
       }
       setGrantTarget(target);
       let ids = stripTenantConsoleUmbrellaPermissions(normalizeRoleGrantIds(target.actions || []));
-      const boundary = resolveTenantRootBoundaryActionAtoms(roles);
-      if (isTenantScopeRole(target) && boundary.length > 0) {
-        ids = clampActionsToTenantBoundary(ids, boundary);
+      if (shouldUseTenantPermissionBoundary(target)) {
+        ids = clampActionsToTenantBoundary(ids, tenantRootBoundaryAtoms);
       }
       setGrantSelectedIds(ids);
       setGrantOpen(true);
     },
-    [canConfigurePermissions, roles],
+    [canConfigurePermissions, tenantRootBoundaryAtoms],
   );
 
   const handleDelete = useCallback(
@@ -486,17 +517,9 @@ const AccessRolesPage: React.FC = () => {
 
       <RolePermissionDrawer
         open={grantOpen}
-        title={
-          grantTarget && isTenantScopeRole(grantTarget) ? '配置权限（租户角色）' : '配置权限'
-        }
-        scopeHint={
-          grantTarget && isTenantScopeRole(grantTarget)
-            ? isTenantRootBuiltinRole(grantTarget)
-              ? '内置云租户根用户：可在下列权限范围内自定义（保存后亦作为其他租户角色的可选上限）'
-              : '可选权限不超过内置「云租户根用户」范围'
-            : undefined
-        }
-        canEdit={canEditPermissions}
+        title={grantDrawerTitle}
+        scopeHint={grantDrawerScopeHint}
+        canEdit={grantDrawerCanEdit}
         kw={kw}
         permVerb={permVerb}
         grantSelectedIds={grantSelectedIds}
@@ -505,7 +528,7 @@ const AccessRolesPage: React.FC = () => {
         onKwChange={setKw}
         onPermVerbChange={setPermVerb}
         onClearSelected={() => {
-          if (!canEditPermissions) return;
+          if (!grantDrawerCanEdit) return;
           setGrantSelectedIds([]);
         }}
         onPermissionChange={handlePermissionChange}

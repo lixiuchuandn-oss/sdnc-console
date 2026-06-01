@@ -3,7 +3,9 @@ import { Cloud } from '../../../entities/Cloud';
 import { GuacamoleInstance } from '../../../entities/GuacamoleInstance';
 import { isPoolGatewayEnabled, readPoolGatewayConfig } from './resolveVmDesktop';
 
-export async function resolveGatewayInstanceForCloud(cloud: Cloud): Promise<GuacamoleInstance | null> {
+export async function resolveGatewayInstanceForCloud(
+  cloud: Cloud,
+): Promise<GuacamoleInstance | null> {
   const repo = AppDataSource.getRepository(GuacamoleInstance);
   const poolCfg = readPoolGatewayConfig(cloud);
   if (poolCfg.instanceId) {

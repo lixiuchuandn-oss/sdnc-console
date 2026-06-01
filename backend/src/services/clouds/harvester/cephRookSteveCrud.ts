@@ -23,8 +23,14 @@ export type CephRookSteveCloudInput = {
 const CEPH_CLUSTERS = ['cephclusters.ceph.rook.io', 'ceph.rook.io.cephclusters'] as const;
 const CEPH_BLOCK_POOLS = ['cephblockpools.ceph.rook.io', 'ceph.rook.io.cephblockpools'] as const;
 const CEPH_FILESYSTEMS = ['cephfilesystems.ceph.rook.io', 'ceph.rook.io.cephfilesystems'] as const;
-const CEPH_OBJECT_STORES = ['cephobjectstores.ceph.rook.io', 'ceph.rook.io.cephobjectstores'] as const;
-const CEPH_OBJECT_STORE_USERS = ['cephobjectstoreusers.ceph.rook.io', 'ceph.rook.io.cephobjectstoreusers'] as const;
+const CEPH_OBJECT_STORES = [
+  'cephobjectstores.ceph.rook.io',
+  'ceph.rook.io.cephobjectstores',
+] as const;
+const CEPH_OBJECT_STORE_USERS = [
+  'cephobjectstoreusers.ceph.rook.io',
+  'ceph.rook.io.cephobjectstoreusers',
+] as const;
 const CEPH_RADOS_NAMESPACES = [
   'cephblockpoolradosnamespaces.ceph.rook.io',
   'ceph.rook.io.cephblockpoolradosnamespaces',
@@ -89,7 +95,11 @@ export function rookGetOne(
 }
 
 /** POST 创建（body 须含 metadata.namespace、metadata.name） */
-export function rookCreate(cloud: CephRookSteveCloudInput, paths: readonly string[], body: unknown): Promise<any> {
+export function rookCreate(
+  cloud: CephRookSteveCloudInput,
+  paths: readonly string[],
+  body: unknown,
+): Promise<any> {
   return steveRookRequest(cloud, 'POST', paths, '', body);
 }
 

@@ -24,9 +24,15 @@ type Props = {
   cloudId: string;
   isTenant?: boolean;
   vms?: unknown[];
+  allowedNamespaces?: string[];
 };
 
-const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] }) => {
+const VmRestoreTasksSection: React.FC<Props> = ({
+  cloudId,
+  isTenant,
+  vms = [],
+  allowedNamespaces = [],
+}) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
@@ -52,16 +58,17 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
         statusFilter,
         namespaceFilter,
         isTenant,
+        allowedNamespaces,
         isPublicNamespace,
       }),
-    [dataSource, isPublicNamespace, isTenant, keyword, namespaceFilter, statusFilter],
+    [allowedNamespaces, dataSource, isPublicNamespace, isTenant, keyword, namespaceFilter, statusFilter],
   );
 
   useVmRestoreTasksListPoll(filtered, onListRefresh, timerRef);
 
   const namespaceOptions = useMemo(
-    () => buildVmRestoreTaskNamespaceOptions(dataSource, { isTenant, isPublicNamespace }),
-    [dataSource, isPublicNamespace, isTenant],
+    () => buildVmRestoreTaskNamespaceOptions(dataSource, { isTenant, allowedNamespaces, isPublicNamespace }),
+    [allowedNamespaces, dataSource, isPublicNamespace, isTenant],
   );
 
   const openYamlFromTask = useCallback(
@@ -76,8 +83,8 @@ const VmRestoreTasksSection: React.FC<Props> = ({ cloudId, isTenant, vms = [] })
   );
 
   const columns = useMemo(
-    () => buildVmRestoreTasksTableColumns({ onOpenYaml: openYamlFromTask }),
-    [openYamlFromTask],
+    () => buildVmRestoreTasksTableColumns({ onOpenYaml: openYamlFromTask, isTenant }),
+    [isTenant, openYamlFromTask],
   );
 
   return (

@@ -1,9 +1,9 @@
 /**
  * ImageUploadService - 镜像上传服务
- * 
+ *
  * 使用 skopeo 工具将本地镜像推送到 Harbor 仓库。
  * 支持大文件上传、进度回调、临时文件清理。
- * 
+ *
  * @see design/harbor-integration-design.md
  */
 import { exec } from 'child_process';
@@ -38,7 +38,7 @@ export class ImageUploadService {
   private constructor() {
     this.tmpDir = path.join(os.tmpdir(), 'harbor-uploads');
     // 异步创建临时目录
-    this.ensureTmpDir().catch(err => {
+    this.ensureTmpDir().catch((err) => {
       console.error('初始化临时目录失败:', err);
     });
   }
@@ -63,13 +63,10 @@ export class ImageUploadService {
    */
   async uploadImage(
     params: UploadParams,
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
   ): Promise<UploadResult> {
     const { harborId, project, repository, tag, file } = params;
-    const tmpFilePath = path.join(
-      this.tmpDir,
-      `${Date.now()}-${file.originalname || 'image.tar'}`
-    );
+    const tmpFilePath = path.join(this.tmpDir, `${Date.now()}-${file.originalname || 'image.tar'}`);
 
     try {
       // 1. 获取 Harbor 配置
@@ -100,7 +97,7 @@ export class ImageUploadService {
       // 3. 保存临时文件
       onProgress?.(10);
       const fileBuffer = file.buffer || (file.path ? await fs.readFile(file.path) : null);
-      
+
       if (!fileBuffer) {
         return { success: false, message: '无法读取上传文件' };
       }
@@ -110,7 +107,7 @@ export class ImageUploadService {
 
       // 4. 构建 skopeo 命令
       // 移除 URL 中的协议前缀（如果有）
-      let harborUrl = harbor.url.replace(/^https?:\/\//, '');
+      const harborUrl = harbor.url.replace(/^https?:\/\//, '');
       const targetUrl = `${harborUrl}/${project}/${repository}:${tag}`;
       const creds = `${harbor.username}:${decryptedPassword}`;
 
@@ -129,7 +126,7 @@ export class ImageUploadService {
 
       // 5. 执行 skopeo 推送
       console.log(`执行 skopeo 命令: ${skopeoCmd.replace(creds, '***:***')}`);
-      
+
       const { stdout, stderr } = await execAsync(skopeoCmd, {
         maxBuffer: 1024 * 1024 * 100, // 100MB buffer
         timeout: 30 * 60 * 1000, // 30 分钟超时
@@ -158,13 +155,14 @@ export class ImageUploadService {
       };
     } catch (error: any) {
       console.error('镜像上传失败:', error);
-      
+
       // 提取更友好的错误信息
       let errorMessage = error.message || '镜像上传失败';
-      
+
       // 检查是否是 skopeo 未安装
       if (error.message?.includes("'skopeo'") || error.message?.includes('skopeo')) {
-        errorMessage = '系统未安装 skopeo 工具，无法上传镜像。请安装 skopeo: https://github.com/containers/skopeo/blob/main/install.md';
+        errorMessage =
+          '系统未安装 skopeo 工具，无法上传镜像。请安装 skopeo: https://github.com/containers/skopeo/blob/main/install.md';
       } else if (error.message?.includes('permission denied')) {
         errorMessage = '权限不足，请检查 Harbor 用户名和密码';
       } else if (error.message?.includes('connection refused')) {
@@ -173,10 +171,8 @@ export class ImageUploadService {
         errorMessage = '临时文件创建失败';
       } else if (error.message?.includes('manifest unknown')) {
         errorMessage = '镜像格式不正确或不支持';
-      } else if (error.message?.includes('skopeo')) {
-        errorMessage = `镜像推送失败: ${error.message}`;
       }
-      
+
       return {
         success: false,
         message: errorMessage,
@@ -230,7 +226,7 @@ export class ImageUploadService {
         try {
           const filePath = path.join(this.tmpDir, file);
           const stats = await fs.stat(filePath);
-          
+
           // 清理超过 24 小时的文件
           if (now - stats.mtimeMs > maxAge) {
             await fs.unlink(filePath);

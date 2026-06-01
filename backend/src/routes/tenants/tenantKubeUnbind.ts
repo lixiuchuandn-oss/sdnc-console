@@ -4,7 +4,6 @@ import {
   getHarvesterNamespaceRaw,
   isProtectedNamespace,
 } from '../../services/clouds/harvester/client';
-import { listHarvesterPVCRaw } from '../../services/clouds/harvester/storage';
 import { getJsonOnce } from '../../services/clouds/harvester/utils';
 import {
   KUBE_OVN_BUILTIN_VPC_NAMES,
@@ -24,7 +23,10 @@ const TOWER_METADATA_ALIAS = 'tower.io/alias';
 
 export type VpcUnbindConflictRow = { displayName: string; name: string; cidrBlock?: string };
 
-export function mergeVpcUnbindRowsByName(tower: VpcUnbindConflictRow[], kube: VpcUnbindConflictRow[]) {
+export function mergeVpcUnbindRowsByName(
+  tower: VpcUnbindConflictRow[],
+  kube: VpcUnbindConflictRow[],
+) {
   const seen = new Set(tower.map((r) => r.name));
   return [...tower, ...kube.filter((r) => r.name && !seen.has(r.name))];
 }
@@ -32,12 +34,7 @@ export function mergeVpcUnbindRowsByName(tower: VpcUnbindConflictRow[], kube: Vp
 /** Harvester / Cloudmap 类资源池 provider 判定（分配与解绑共用） */
 export function isHarvesterLikeCloudProvider(pv: string): boolean {
   const p = String(pv || '').toLowerCase();
-  return (
-    p === 'harvester' ||
-    p === 'cloudmap' ||
-    p === 'cloudmap.private' ||
-    p === 'cloudmap.edge'
-  );
+  return p === 'harvester' || p === 'cloudmap' || p === 'cloudmap.private' || p === 'cloudmap.edge';
 }
 
 /** Harvester：Tower `vpcs` 表 + 本地 Kube-OVN VPC 库存；与租户命名空间有交集的业务 VPC */
@@ -78,7 +75,10 @@ export async function kubeOvnInventoryVpcConflictRows(
   return out;
 }
 
-export function kubeTowerAliasDisplay(meta?: { annotations?: Record<string, string>; name?: string }) {
+export function kubeTowerAliasDisplay(meta?: {
+  annotations?: Record<string, string>;
+  name?: string;
+}) {
   if (!meta) return '—';
   const ann = meta.annotations || {};
   const a = String(ann[TOWER_METADATA_ALIAS] || '').trim();
@@ -93,10 +93,7 @@ export function kubePodWorkloadDisplayName(pod: any): string {
   if (alias) return alias;
   const lbl = meta.labels || {};
   const byLabel = String(
-    lbl['app.kubernetes.io/instance'] ||
-      lbl['app.kubernetes.io/name'] ||
-      lbl['app'] ||
-      '',
+    lbl['app.kubernetes.io/instance'] || lbl['app.kubernetes.io/name'] || lbl['app'] || '',
   ).trim();
   if (byLabel) return byLabel;
   return String(meta.name || '').trim() || '—';
@@ -108,16 +105,27 @@ export function isKubeVirtOrInfraPod(pod: any): boolean {
   if (lbl['kubevirt.io/vm'] || lbl['kubevirt.io/domain']) return true;
   if (/^virt-launcher-/i.test(nm)) return true;
   const ns = String(pod?.metadata?.namespace || '');
-  const sysNs = ['kube-system', 'cattle-system', 'cattle-dashboards', 'harvester-system', 'kube-public'];
+  const sysNs = [
+    'kube-system',
+    'cattle-system',
+    'cattle-dashboards',
+    'harvester-system',
+    'kube-public',
+  ];
   return sysNs.includes(ns);
 }
 
 export function podLooksLikeDatabase(pod: any): boolean {
-  const blob = `${JSON.stringify(pod?.metadata?.labels || {})}${pod?.metadata?.name || ''}`.toLowerCase();
+  const blob =
+    `${JSON.stringify(pod?.metadata?.labels || {})}${pod?.metadata?.name || ''}`.toLowerCase();
   return /\b(mysql|mariadb|mongo(db)?|postgres(ql)?|redis|cockroach|tidb|galera|rds)\b/.test(blob);
 }
 
-export async function listK8sPodsClusterWideRaw(endpoint: string, token: string, insecure: boolean) {
+export async function listK8sPodsClusterWideRaw(
+  endpoint: string,
+  token: string,
+  insecure: boolean,
+) {
   const base = (endpoint || '').replace(/\/+$/, '');
   let origin = base;
   try {
@@ -148,7 +156,10 @@ export async function deleteHarvesterTenantNamespacesOnOrgUnbind(opts: {
   const { endpoint, token, insecure, cloudId, organizationId } = opts;
   const publicNamespacesSet = await getPublicNamespaceNameSetForUnbind(cloudId);
   const listed = opts.namespaceCsv
-    ? opts.namespaceCsv.split(',').map((s) => s.trim()).filter(Boolean)
+    ? opts.namespaceCsv
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
     : [opts.fallbackName];
 
   const hostParams = { endpoint, token, insecure };
@@ -163,8 +174,7 @@ export async function deleteHarvesterTenantNamespacesOnOrgUnbind(opts: {
       const body = await getHarvesterNamespaceRaw(hostParams, ns);
       const meta = body?.metadata;
       const labels = meta?.labels || {};
-      const bindsOrg =
-        String(labels['tower.io/organization-id'] || '').trim() === organizationId;
+      const bindsOrg = String(labels['tower.io/organization-id'] || '').trim() === organizationId;
       const isDefaultAutoName = ns === `ns-${organizationId}`;
       if (!bindsOrg && !isDefaultAutoName) {
         tenantLog.info(

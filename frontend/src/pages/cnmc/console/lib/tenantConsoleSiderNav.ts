@@ -49,6 +49,7 @@ export const MAIN_NAV_CATEGORIES_BASE: NavCategory[] = [
       { key: 'snapshot', label: '快照' },
       { key: 'backup', label: '备份' },
       { key: 'schedule', label: '定时策略' },
+      { key: 'restore-task', label: '恢复任务' },
     ],
   },
   {
@@ -255,7 +256,7 @@ export function findCategoryForMainResource(resourceKey: string): string {
     return resourceKey === 'vpc-subnet' ? 'vpc-net' : 'vpc-nat';
   }
   if (['volume', 'volume-snapshot'].includes(resourceKey)) return 'storage';
-  if (['snapshot', 'backup', 'schedule'].includes(resourceKey)) return 'backup';
+  if (['snapshot', 'backup', 'schedule', 'restore-task'].includes(resourceKey)) return 'backup';
   return 'compute';
 }
 

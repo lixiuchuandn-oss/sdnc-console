@@ -97,7 +97,8 @@ function mergeOne(params: {
     merged._vr1_live_csm_instant = params.vr1LiveCsm;
   }
 
-  const bd = basicData && typeof basicData === 'object' && !Array.isArray(basicData) ? basicData : {};
+  const bd =
+    basicData && typeof basicData === 'object' && !Array.isArray(basicData) ? basicData : {};
   const nonEmptyKeys = Object.keys(bd).filter((k) => {
     const v = (bd as Record<string, unknown>)[k];
     return v !== null && v !== undefined && v !== '';
@@ -121,10 +122,7 @@ vrInstancesRoutes.post('/refresh', async (req, res) => {
       data: diagnostics,
     });
   } catch (err: any) {
-    vrInstHttpLog.error(
-      'Manual sync error',
-      err instanceof Error ? err.message : String(err),
-    );
+    vrInstHttpLog.error('Manual sync error', err instanceof Error ? err.message : String(err));
     res.status(500).json({ message: 'Sync failed', error: err.message });
   }
 });
@@ -136,10 +134,7 @@ vrInstancesRoutes.post('/refresh', async (req, res) => {
  */
 vrInstancesRoutes.get('/', async (req, res) => {
   try {
-    const all =
-      req.query.all === '1' ||
-      req.query.all === 'true' ||
-      req.query.all === 'yes';
+    const all = req.query.all === '1' || req.query.all === 'true' || req.query.all === 'yes';
 
     const basicRepo = AppDataSource.getRepository(VRCacheBasic);
     const extendedRepo = AppDataSource.getRepository(VRCacheExtended);
@@ -154,9 +149,7 @@ vrInstancesRoutes.get('/', async (req, res) => {
     const extendedMap = new Map(
       extendedRows.map((r) => [r.uuid, safeJsonParse(r.data, null as any)]),
     );
-    const deviceMap = new Map(
-      deviceRows.map((r) => [r.uuid, safeJsonParse(r.data, null as any)]),
-    );
+    const deviceMap = new Map(deviceRows.map((r) => [r.uuid, safeJsonParse(r.data, null as any)]));
 
     const mergedList = basicRows.map((basic) => {
       const uuid = basic.uuid;
@@ -244,9 +237,7 @@ vrInstancesRoutes.get('/:uuid/csm-live-raw', async (req, res) => {
 
     const vr3Promise = getVR3ListMeta(pageSize, pageNum).then((m) => {
       const rows = extractRows(m.payload);
-      const match = rows.find(
-        (row: any) => String(row?.uuid || row?.id || '').trim() === uuid,
-      );
+      const match = rows.find((row: any) => String(row?.uuid || row?.id || '').trim() === uuid);
       return {
         csm_path: '/V2/ctcontrol/VR3/VRConfig/list',
         csm_query: { page_size: pageSize, page_num: pageNum },
@@ -295,8 +286,7 @@ vrInstancesRoutes.get('/:uuid', async (req, res) => {
     const uuid = String(req.params.uuid || '').trim();
     if (!uuid) return res.status(400).json({ code: 400, msg: 'uuid required' });
 
-    const includeVr2 =
-      req.query.includeVr2 !== 'false' && req.query.includeVr2 !== '0';
+    const includeVr2 = req.query.includeVr2 !== 'false' && req.query.includeVr2 !== '0';
     const includeLiveVr1Raw =
       req.query.includeLiveVr1Raw === '1' || req.query.includeLiveVr1Raw === 'true';
 

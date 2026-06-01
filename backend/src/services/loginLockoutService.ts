@@ -10,7 +10,9 @@ type LockoutEntry = {
 const lockoutStore = new Map<string, LockoutEntry>();
 
 function normalizeLoginKey(username: string): string {
-  return String(username || '').trim().toLowerCase();
+  return String(username || '')
+    .trim()
+    .toLowerCase();
 }
 
 function getEntry(key: string): LockoutEntry {

@@ -30,8 +30,7 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -47,9 +46,7 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
     let filteredItems = items;
     if (isTenant) {
       filteredItems = tenantNamespace
-        ? items.filter((v: any) =>
-            isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace),
-          )
+        ? items.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace))
         : [];
     } else if (tenantNamespace) {
       filteredItems = items.filter((v: any) =>
@@ -65,14 +62,9 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
       const namespace = k8s?.namespace || v?.metadata?.namespace || '';
       const pvcName = k8s?.pvcName || '';
       const workloads =
-        k8s?.workloadsStatus ||
-        v?.status?.workloadsStatus ||
-        v?.status?.workloadStatus ||
-        [];
+        k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
       const rawNames: string[] = Array.isArray(workloads)
-        ? workloads
-            .map((w: any) => String(w?.workloadName || w?.podName || ''))
-            .filter(Boolean)
+        ? workloads.map((w: any) => String(w?.workloadName || w?.podName || '')).filter(Boolean)
         : [];
       const attachedTo: string[] = Array.from(
         new Set(
@@ -164,8 +156,7 @@ export async function harvesterAvailableVolumesDirectHandler(req: Request, res: 
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     if (isTenant && !tenantNamespace) {
       return res.json({ message: '查询成功', data: { items: [] } });
@@ -201,9 +192,7 @@ export async function harvesterAvailableVolumesDirectHandler(req: Request, res: 
 
     if (isTenant) {
       if (tenantNamespace) {
-        items = items.filter((i: any) =>
-          isNamespaceAllowed(tenantNamespace, i.namespace),
-        );
+        items = items.filter((i: any) => isNamespaceAllowed(tenantNamespace, i.namespace));
       } else {
         items = [];
       }
@@ -230,8 +219,7 @@ export async function harvesterVolumeDirectCreateHandler(req: Request, res: Resp
   try {
     const { id } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -274,8 +262,7 @@ export async function harvesterVolumeDirectDeleteHandler(req: Request, res: Resp
   try {
     const { id, name } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const { namespace } = req.query;
     const cloud = await fetchCloudOr404(id, res);
@@ -326,8 +313,7 @@ export async function harvesterVolumeDirectUpdateHandler(req: Request, res: Resp
   try {
     const { id, namespace, name } = req.params;
     const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, id);
-    if (!allowed)
-      return res.status(403).json({ message: 'Access denied to this resource pool' });
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = await fetchCloudOr404(id, res);
     if (!cloud) return;
@@ -373,10 +359,7 @@ export async function harvesterVolumeDirectUpdateHandler(req: Request, res: Resp
           sizeStr,
         );
       } catch (e) {
-        console.warn(
-          `[HarvesterDirect] Failed to sync VM volume size for PVC ${name}`,
-          e,
-        );
+        console.warn(`[HarvesterDirect] Failed to sync VM volume size for PVC ${name}`, e);
       }
     }
 

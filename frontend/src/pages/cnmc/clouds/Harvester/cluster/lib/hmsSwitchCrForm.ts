@@ -8,8 +8,33 @@ export const HMS_SWITCH_VENDOR_OPTIONS = [
   { label: '其他', value: '' },
 ];
 
-/** HSM 内置四类设备 CLI 模板（与厂商枚举一致；留空表示走厂商默认） */
-export const HMS_SWITCH_DEVICE_PROFILE_OPTIONS = HMS_SWITCH_VENDOR_OPTIONS;
+/** 设备模板拉取失败时不使用厂商枚举冒充 profile（与 HMS /device/profiles 的 value 不一致） */
+export const HMS_SWITCH_DEVICE_PROFILE_FALLBACK_OPTIONS: { label: string; value: string }[] =
+  [];
+
+/** HSM deviceProfile value → 界面展示中文 */
+const HMS_DEVICE_PROFILE_LABELS: Record<string, string> = {
+  'h3c-huawei-like': 'H3C/华为',
+  'cisco-like': '思科',
+  cisco: '思科',
+  'winicssec-wos': '威努特',
+  generic: '通用',
+  generit: '通用',
+  default: '默认',
+};
+
+export function formatHmsDeviceProfileLabel(
+  value?: string | null,
+  remoteLabel?: string | null,
+): string {
+  const v = String(value ?? '').trim();
+  if (!v) return '—';
+  const mapped = HMS_DEVICE_PROFILE_LABELS[v.toLowerCase()];
+  if (mapped) return mapped;
+  const remote = String(remoteLabel ?? '').trim();
+  if (remote && remote.toLowerCase() !== v.toLowerCase()) return remote;
+  return v;
+}
 
 export const HMS_SWITCH_DEFAULT_DIAL_TIMEOUT = 15;
 export const HMS_SWITCH_DEFAULT_EXEC_TIMEOUT = 15;

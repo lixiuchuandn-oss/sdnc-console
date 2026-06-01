@@ -47,9 +47,7 @@ router.post('/api/sign', (req, res) => {
         if (Object.keys(b).length > 0) bodyRaw = JSON.stringify(b);
       }
     }
-    const md5Body = bodyRaw
-      ? crypto.createHash('md5').update(bodyRaw).digest('hex')
-      : '';
+    const md5Body = bodyRaw ? crypto.createHash('md5').update(bodyRaw).digest('hex') : '';
 
     // 签名原始串格式：
     // METHOD|URL|TONCE|ACCESS_KEY|QUERY_PARAMS|BODY_HASH
@@ -84,8 +82,9 @@ router.all('*', async (req, res) => {
       message: 'CSMCTL_ADDRESS 未配置，请在系统设置中配置 CSMCTL 地址',
     });
   }
-  const csmAddress = (/^https?:\/\//i.test(rawAddress) ? rawAddress : `https://${rawAddress}`)
-    .replace(/\/+$/, '');
+  const csmAddress = (
+    /^https?:\/\//i.test(rawAddress) ? rawAddress : `https://${rawAddress}`
+  ).replace(/\/+$/, '');
   // 去掉末尾多余斜杠，避免与后续路由拼接时出现重复 //
   const targetBase = csmAddress;
 

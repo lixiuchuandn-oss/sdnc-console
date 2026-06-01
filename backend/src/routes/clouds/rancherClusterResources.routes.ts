@@ -637,10 +637,10 @@ export function attachRancherClusterResourceRoutes(router: Router, perm: Request
       namespace: '—',
       provisioner: prov,
       default:
-        (md.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true' ||
-        md.annotations?.['storageclass.beta.kubernetes.io/is-default-class'] === 'true' ?
-          '是' :
-          '否'),
+        md.annotations?.['storageclass.kubernetes.io/is-default-class'] === 'true' ||
+        md.annotations?.['storageclass.beta.kubernetes.io/is-default-class'] === 'true'
+          ? '是'
+          : '否',
       created: md.creationTimestamp ? String(md.creationTimestamp) : undefined,
     };
   }

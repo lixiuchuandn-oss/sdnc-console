@@ -4,11 +4,8 @@
  */
 
 import { Response } from 'express';
-import { AppDataSource } from '../../../../config/database';
-import { Cloud } from '../../../../entities/Cloud';
-import { UserSpace } from '../../../../entities/UserSpace';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-import { checkTenantAccess, ensureProvider } from '../harvester.direct.helpers';
+import { checkTenantAccess } from '../harvester.direct.helpers';
 import yaml from 'js-yaml';
 
 // 常量
@@ -16,10 +13,8 @@ export const PAGESIZE = 'pagesize=100000';
 export const EXCLUDE = 'exclude=metadata.managedFields';
 export const CATTLE_MONITORING_SYSTEM_NS = 'cattle-monitoring-system';
 export const WEBSITE_RECEIVER_NAME = 'website-receiver';
-export const ALERTMANAGER_PATH =
-  `api/v1/namespaces/${CATTLE_MONITORING_SYSTEM_NS}/services/http:rancher-monitoring-alertmanager:9093/proxy/api/v2/alerts`;
-export const PROMETHEUS_QUERY_RANGE_PATH =
-  `api/v1/namespaces/${CATTLE_MONITORING_SYSTEM_NS}/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/query_range`;
+export const ALERTMANAGER_PATH = `api/v1/namespaces/${CATTLE_MONITORING_SYSTEM_NS}/services/http:rancher-monitoring-alertmanager:9093/proxy/api/v2/alerts`;
+export const PROMETHEUS_QUERY_RANGE_PATH = `api/v1/namespaces/${CATTLE_MONITORING_SYSTEM_NS}/services/http:rancher-monitoring-prometheus:9090/proxy/api/v1/query_range`;
 
 export const DINGTALK_CONFIGMAP_NS = CATTLE_MONITORING_SYSTEM_NS;
 export const DINGTALK_CONFIGMAP_NAME = 'alertmanager-webhook-dingtalk';
@@ -63,7 +58,8 @@ export function resolveMonitoringReceiverType(meta: any): string {
 
 export const ALERTMANAGERCONFIG_BASE = 'v1/harvester/monitoring.coreos.com.alertmanagerconfigs';
 export const MONITORING_RECEIVER_LABEL_SELECTOR = 'monitoring-receiver=true';
-export const PROMETHEUSRULE_VM = 'v1/harvester/monitoring.coreos.com.prometheusrules/cattle-monitoring-system/virtual-machine-custom-rules';
+export const PROMETHEUSRULE_VM =
+  'v1/harvester/monitoring.coreos.com.prometheusrules/cattle-monitoring-system/virtual-machine-custom-rules';
 export const SECRETS_BASE = 'v1/harvester/secrets';
 export const CONFIGMAPS_BASE = 'v1/harvester/configmaps';
 
@@ -83,19 +79,21 @@ export function normalizeOrigin(endpoint: string): string {
     const u = new URL(endpoint);
     return `${u.protocol}//${u.host}`;
   } catch {
-    return String(endpoint || '').replace(/\/+$/, '').replace(/\/v[0-9].*$/, '');
+    return String(endpoint || '')
+      .replace(/\/+$/, '')
+      .replace(/\/v[0-9].*$/, '');
   }
 }
 
 // 获取租户访问权限（返回格式与 monitoring.routes.ts 一致）
 export async function getTenantAccessForMonitoring(
   req: any,
-  cloudId: string
+  cloudId: string,
 ): Promise<{ allowed: boolean; namespaces: string[]; isAdmin: boolean }> {
   const { allowed, namespace, isTenant } = await checkTenantAccess(req, cloudId);
   if (!allowed) return { allowed: false, namespaces: [], isAdmin: false };
   if (!isTenant) return { allowed: true, namespaces: [], isAdmin: true };
-  const namespaces = namespace ? namespace.split(',').map(s => s.trim()) : [];
+  const namespaces = namespace ? namespace.split(',').map((s) => s.trim()) : [];
   return { allowed: true, namespaces, isAdmin: false };
 }
 
@@ -104,7 +102,7 @@ export async function requireTenantAccessForMonitoring(
   req: any,
   res: Response,
   cloudId: string,
-  options?: { namespaces?: string[]; forbiddenMessage?: string }
+  options?: { namespaces?: string[]; forbiddenMessage?: string },
 ): Promise<{ allowed: boolean; namespaces: string[]; isAdmin: boolean } | null> {
   const tenant = await getTenantAccessForMonitoring(req, cloudId);
   if (!tenant.allowed) {
@@ -252,7 +250,10 @@ export function extractAlertNamesFromSubRouteMatchers(matchers: any): string[] {
   const matchType = String(first?.matchType ?? '').trim();
   const value = String(first?.value ?? '').trim();
   if (matchType === '=~' && value) {
-    return value.split('|').map((s: string) => s.trim()).filter(Boolean);
+    return value
+      .split('|')
+      .map((s: string) => s.trim())
+      .filter(Boolean);
   }
   return alertnameMatchers.map((m: any) => String(m?.value ?? '').trim()).filter(Boolean);
 }
@@ -279,7 +280,10 @@ export function extractAlertNamesFromPolicyCR(cr: any): string[] {
  * 新代码请使用 {@link extractAlertNamesFromPolicyCR} 或 {@link extractAlertNamesFromSubRouteMatchers}。
  * @deprecated 仅供兼容历史数据的过滤场景使用，**不要**在新结构化响应里读这个。
  */
-export function extractAlertNamesFromSpec(spec: any, annotations?: Record<string, string>): string[] {
+export function extractAlertNamesFromSpec(
+  spec: any,
+  annotations?: Record<string, string>,
+): string[] {
   const route = spec?.route ?? {};
   let routeMatchers = Array.isArray(route.matchers) ? route.matchers : [];
   if (routeMatchers.length === 0 && Array.isArray(route.routes) && route.routes.length > 0) {
@@ -313,7 +317,10 @@ export function extractAlertNamesFromSpec(spec: any, annotations?: Record<string
   if (alertnameExact) return [alertnameExact];
   const matchersStr = annotations?.matchers ?? '';
   if (typeof matchersStr === 'string' && matchersStr.trim()) {
-    return matchersStr.split(',').map((s) => s.trim()).filter(Boolean);
+    return matchersStr
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
   return [];
 }
@@ -599,7 +606,7 @@ export function buildAlertmanagerConfigCRFromPolicyPayload(
     String(payload?.subRouteRepeatInterval ?? '').trim() || DEFAULT_SUB_REPEAT_INTERVAL;
 
   const existing =
-    existingCR?.data && typeof existingCR.data === 'object' ? existingCR.data : existingCR ?? {};
+    existingCR?.data && typeof existingCR.data === 'object' ? existingCR.data : (existingCR ?? {});
   const existingMeta = existing?.metadata ?? {};
   const existingAnnotations: Record<string, string> =
     existingMeta?.annotations && typeof existingMeta.annotations === 'object'
@@ -649,7 +656,10 @@ export function buildAlertmanagerConfigCRFromPolicyPayload(
   // 顶层 route 由我们兜底字段 + 保留的 restRoute 合成；顶层 receiver 由 normalizePolicySpec 兜底为 null-receiver
   const nextRoute: Record<string, unknown> = {
     ...restRoute,
-    groupBy: Array.isArray(existingRoute?.groupBy) && existingRoute.groupBy.length ? existingRoute.groupBy : DEFAULT_GROUP_BY,
+    groupBy:
+      Array.isArray(existingRoute?.groupBy) && existingRoute.groupBy.length
+        ? existingRoute.groupBy
+        : DEFAULT_GROUP_BY,
     groupWait: String(existingRoute?.groupWait ?? '').trim() || DEFAULT_GROUP_WAIT,
     groupInterval: String(existingRoute?.groupInterval ?? '').trim() || DEFAULT_GROUP_INTERVAL,
     repeatInterval: DEFAULT_TOP_REPEAT_INTERVAL,
@@ -681,7 +691,9 @@ export function buildAlertmanagerConfigCRFromPolicyPayload(
     },
     spec: {
       ...(existing?.spec && typeof existing.spec === 'object' ? existing.spec : {}),
-      receivers: receivers.map((r) => ({ name: String(r?.name ?? '').trim() })).filter((r) => r.name),
+      receivers: receivers
+        .map((r) => ({ name: String(r?.name ?? '').trim() }))
+        .filter((r) => r.name),
       route: nextRoute,
     },
   };
@@ -694,7 +706,10 @@ export function parseQueryArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
   const s = String(value).trim();
   if (!s) return [];
-  return s.split(',').map((v) => v.trim()).filter(Boolean);
+  return s
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
 }
 
 // 钉钉相关辅助函数
@@ -705,7 +720,10 @@ export function buildDingtalkMessageTemplate(): { title: string; text: string } 
   };
 }
 
-export function buildDefaultDingtalkConfigYamlObject(): { templates: string[]; targets: Record<string, any> } {
+export function buildDefaultDingtalkConfigYamlObject(): {
+  templates: string[];
+  targets: Record<string, any>;
+} {
   return {
     templates: ['/etc/prometheus-webhook-dingtalk/templates/dingtalk.tmpl'],
     targets: {},
@@ -723,9 +741,10 @@ export function buildDingtalkTargetUrl(robotUrl: string, robotAccessToken: strin
 export function buildNextYamlFromExisting(
   existing: any,
   oldRobotAccounts: string[],
-  newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }>
+  newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }>,
 ): string {
-  const rawTargets: Record<string, { url?: string; message?: { title?: string; text?: string } }> = {};
+  const rawTargets: Record<string, { url?: string; message?: { title?: string; text?: string } }> =
+    {};
   let configYamlObject: any = buildDefaultDingtalkConfigYamlObject();
   if (existing) {
     const data = existing?.data && typeof existing.data === 'object' ? existing.data : {};
@@ -789,9 +808,11 @@ export function buildNextYamlFromExisting(
   return yaml.dump(nextConfigYamlObject, { noRefs: true, lineWidth: -1 });
 }
 
-export async function restartDingtalkWebhookDeployment(
-  conn: { origin: string; token: string; insecure: boolean }
-): Promise<void> {
+export async function restartDingtalkWebhookDeployment(conn: {
+  origin: string;
+  token: string;
+  insecure: boolean;
+}): Promise<void> {
   const namespace = DINGTALK_CONFIGMAP_NS;
   const name = DINGTALK_CONFIGMAP_NAME;
   const candidates = [
@@ -817,7 +838,9 @@ export async function restartDingtalkWebhookDeployment(
         existing = (raw as any).data;
       } else {
         existing =
-          (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+          (raw as any)?.data != null && typeof (raw as any).data === 'object'
+            ? (raw as any).data
+            : raw;
       }
       urlUsed = url;
       break;
@@ -828,7 +851,10 @@ export async function restartDingtalkWebhookDeployment(
 
   if (!existing || !urlUsed) {
     if (lastErr) {
-      console.warn('[dingtalk-receiver] restart alertmanager-webhook-dingtalk: get deployment failed:', lastErr);
+      console.warn(
+        '[dingtalk-receiver] restart alertmanager-webhook-dingtalk: get deployment failed:',
+        lastErr,
+      );
     }
     return;
   }
@@ -857,14 +883,17 @@ export async function restartDingtalkWebhookDeployment(
   try {
     await requestJson('PUT', urlUsed, conn.token, conn.insecure, patched);
   } catch (e: any) {
-    console.warn('[dingtalk-receiver] restart alertmanager-webhook-dingtalk: update deployment failed:', e);
+    console.warn(
+      '[dingtalk-receiver] restart alertmanager-webhook-dingtalk: update deployment failed:',
+      e,
+    );
   }
 }
 
 export async function syncDingtalkWebhookConfig(
   conn: { origin: string; token: string; insecure: boolean },
   oldRobotAccounts: string[],
-  newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }>
+  newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }>,
 ): Promise<void> {
   const path = `${CONFIGMAPS_BASE}/${encodeURIComponent(DINGTALK_CONFIGMAP_NS)}/${encodeURIComponent(DINGTALK_CONFIGMAP_NAME)}`;
   const getUrl = `${conn.origin}/${path}`;
@@ -875,10 +904,18 @@ export async function syncDingtalkWebhookConfig(
     const raw = await getJsonOnce(getUrl, conn.token, conn.insecure, true);
     if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as any).metadata != null) {
       existing = raw;
-    } else if ((raw as any)?.data != null && typeof (raw as any).data === 'object' && !Array.isArray((raw as any).data) && (raw as any).data?.metadata != null) {
+    } else if (
+      (raw as any)?.data != null &&
+      typeof (raw as any).data === 'object' &&
+      !Array.isArray((raw as any).data) &&
+      (raw as any).data?.metadata != null
+    ) {
       existing = (raw as any).data;
     } else {
-      existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+      existing =
+        (raw as any)?.data != null && typeof (raw as any).data === 'object'
+          ? (raw as any).data
+          : raw;
     }
   } catch {
     existing = null;
@@ -892,7 +929,13 @@ export async function syncDingtalkWebhookConfig(
       metadata: { name: DINGTALK_CONFIGMAP_NAME, namespace: DINGTALK_CONFIGMAP_NS },
       data: { [DINGTALK_CONFIG_KEY]: nextYaml },
     };
-    await requestJson('POST', `${conn.origin}/${CONFIGMAPS_BASE}`, conn.token, conn.insecure, payload);
+    await requestJson(
+      'POST',
+      `${conn.origin}/${CONFIGMAPS_BASE}`,
+      conn.token,
+      conn.insecure,
+      payload,
+    );
     await restartDingtalkWebhookDeployment(conn);
     return;
   }
@@ -906,7 +949,12 @@ export async function syncDingtalkWebhookConfig(
     const data = existing?.data && typeof existing.data === 'object' ? existing.data : {};
     const payload = {
       ...existing,
-      metadata: { ...existing.metadata, name: DINGTALK_CONFIGMAP_NAME, namespace: DINGTALK_CONFIGMAP_NS, resourceVersion },
+      metadata: {
+        ...existing.metadata,
+        name: DINGTALK_CONFIGMAP_NAME,
+        namespace: DINGTALK_CONFIGMAP_NS,
+        resourceVersion,
+      },
       data: { ...data, [DINGTALK_CONFIG_KEY]: nextYaml },
     };
     try {
@@ -917,12 +965,25 @@ export async function syncDingtalkWebhookConfig(
       const status = Number((e as any)?.status ?? (e as any)?.statusCode ?? 0);
       if (status === 409 && attempt < maxPutRetries - 1) {
         const raw = await getJsonOnce(getUrl, conn.token, conn.insecure, true);
-        if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw as any).metadata != null) {
+        if (
+          raw &&
+          typeof raw === 'object' &&
+          !Array.isArray(raw) &&
+          (raw as any).metadata != null
+        ) {
           existing = raw;
-        } else if ((raw as any)?.data != null && typeof (raw as any).data === 'object' && !Array.isArray((raw as any).data) && (raw as any).data?.metadata != null) {
+        } else if (
+          (raw as any)?.data != null &&
+          typeof (raw as any).data === 'object' &&
+          !Array.isArray((raw as any).data) &&
+          (raw as any).data?.metadata != null
+        ) {
           existing = (raw as any).data;
         } else {
-          existing = (raw as any)?.data != null && typeof (raw as any).data === 'object' ? (raw as any).data : raw;
+          existing =
+            (raw as any)?.data != null && typeof (raw as any).data === 'object'
+              ? (raw as any).data
+              : raw;
         }
         continue;
       }
@@ -933,7 +994,7 @@ export async function syncDingtalkWebhookConfig(
 
 export async function removeDingtalkConfigMapTarget(
   conn: { origin: string; token: string; insecure: boolean },
-  robotAccount: string
+  robotAccount: string,
 ): Promise<void> {
   await syncDingtalkWebhookConfig(conn, [robotAccount], []);
 }
@@ -941,9 +1002,10 @@ export async function removeDingtalkConfigMapTarget(
 export async function updateDingtalkConfigMapTargets(
   conn: { origin: string; token: string; insecure: boolean },
   namespace: string,
-  rawReceivers: any[]
+  rawReceivers: any[],
 ): Promise<void> {
-  const newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }> = [];
+  const newTargets: Array<{ robotAccount: string; robotUrl?: string; robotAccessToken?: string }> =
+    [];
   for (const r of rawReceivers || []) {
     const webhookConfigs = Array.isArray(r.webhookConfigs) ? r.webhookConfigs : [];
     const specReceiverName = (r?.name ?? '').toString().trim();
@@ -963,10 +1025,12 @@ export async function updateDingtalkConfigMapTargets(
 export async function syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(
   conn: { origin: string; token: string; insecure: boolean },
   namespace: string,
-  updatedReceivers: any[]
+  updatedReceivers: any[],
 ): Promise<void> {
   if (!Array.isArray(updatedReceivers) || updatedReceivers.length === 0) return;
-  const namesToSync = new Set(updatedReceivers.map((r: any) => (r?.name ?? '').toString().trim()).filter(Boolean));
+  const namesToSync = new Set(
+    updatedReceivers.map((r: any) => (r?.name ?? '').toString().trim()).filter(Boolean),
+  );
   if (namesToSync.size === 0) return;
   const listUrl = `${conn.origin}/${ALERTMANAGERCONFIG_BASE}?${PAGESIZE}&exclude=metadata.managedFields&exclude=metadata.ownerReferences`;
   let raw: any;
@@ -987,14 +1051,23 @@ export async function syncPoliciesReceiverSpecsAfterReceiverConfigUpdate(
     if (isMonitoringReceiverConfigMeta(inner?.metadata ?? {})) continue;
     const route = inner?.spec?.route ?? {};
     const refs = collectReceiverNamesFromRoute(route);
-    if (refs.some((rn: string) => namesToSync.has(rn))) policiesToUpdate.push({ namespace: ns, policyName });
+    if (refs.some((rn: string) => namesToSync.has(rn)))
+      policiesToUpdate.push({ namespace: ns, policyName });
   }
   const pathBase = ALERTMANAGERCONFIG_BASE;
   for (const { namespace: ns, policyName } of policiesToUpdate) {
     try {
       const getPath = `${pathBase}/${encodeURIComponent(ns)}/${encodeURIComponent(policyName)}`;
-      const policyRaw = await getJsonOnce(`${conn.origin}/${getPath}`, conn.token, conn.insecure, true);
-      const policy = (policyRaw as any)?.data != null && typeof (policyRaw as any).data === 'object' ? (policyRaw as any).data : policyRaw;
+      const policyRaw = await getJsonOnce(
+        `${conn.origin}/${getPath}`,
+        conn.token,
+        conn.insecure,
+        true,
+      );
+      const policy =
+        (policyRaw as any)?.data != null && typeof (policyRaw as any).data === 'object'
+          ? (policyRaw as any).data
+          : policyRaw;
       if (!policy?.spec?.receivers) continue;
       const receivers = Array.isArray(policy.spec.receivers) ? policy.spec.receivers : [];
       const nextReceivers = receivers.map((r: any) => {

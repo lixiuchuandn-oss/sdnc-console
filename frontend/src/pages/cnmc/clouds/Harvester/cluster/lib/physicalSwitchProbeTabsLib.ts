@@ -17,18 +17,16 @@ export type SwitchProbeDrawerModel = {
   kpiInfoTone: KpiTone;
   kpiIfTone: KpiTone;
   kpiPerfTone: KpiTone;
-  kpiProfileTone: KpiTone;
   kpiVlanTone: KpiTone;
   kpiInfoVal: string;
   kpiIfVal: string;
   kpiPerfVal: string;
-  kpiProfileVal: string;
   kpiVlanVal: string;
 };
 
 type ProbeStateOpts = {
   errorKey: keyof AswCtlSwitchProbeRecord;
-  dataKey: 'info' | 'interfaces' | 'performance' | 'vlans' | 'deviceProfiles';
+  dataKey: 'info' | 'interfaces' | 'performance' | 'vlans';
   naKey?: keyof AswCtlSwitchProbeRecord;
   naLabel?: string;
 };
@@ -66,11 +64,6 @@ export function buildSwitchProbeDrawerModel(record: AswCtlSwitchProbeRecord): Sw
         : record.performance
           ? 'ok'
           : 'muted';
-  const kpiProfileTone: KpiTone = record.deviceProfilesError
-    ? 'err'
-    : record.deviceProfiles
-      ? 'ok'
-      : 'muted';
   const kpiVlanTone: KpiTone = record.vlansError
     ? 'err'
     : record.vlansNotApplicable
@@ -89,7 +82,6 @@ export function buildSwitchProbeDrawerModel(record: AswCtlSwitchProbeRecord): Sw
     kpiInfoTone,
     kpiIfTone,
     kpiPerfTone,
-    kpiProfileTone,
     kpiVlanTone,
     kpiInfoVal: probeStateText(record, { errorKey: 'infoError', dataKey: 'info' }),
     kpiIfVal: probeStateText(record, { errorKey: 'interfacesError', dataKey: 'interfaces' }),
@@ -99,7 +91,6 @@ export function buildSwitchProbeDrawerModel(record: AswCtlSwitchProbeRecord): Sw
       naKey: 'performanceNotApplicable',
       naLabel: '未配置',
     }),
-    kpiProfileVal: probeStateText(record, { errorKey: 'deviceProfilesError', dataKey: 'deviceProfiles' }),
     kpiVlanVal: probeStateText(record, {
       errorKey: 'vlansError',
       dataKey: 'vlans',

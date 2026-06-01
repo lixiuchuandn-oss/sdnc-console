@@ -1,8 +1,8 @@
 /**
  * HarborProject - Harbor 项目缓存实体
- * 
+ *
  * 用于缓存 Harbor 中的项目信息，实现项目级别的租户隔离。
- * 
+ *
  * @see design/harbor-integration-design.md 第二章
  */
 import {

@@ -53,13 +53,13 @@
 
 **职责划分：**
 
-| 组件 | 职责 |
-|------|------|
-| 裸金属 / 虚拟机 UI | 展示资产列表；提供「远程登录」入口 |
-| MAAS Adapter | 机器生命周期、状态、IP 信息 |
-| Guacamole Adapter | Guacamole 实例管理、Connection 增删改查、生成登录 URL、权限分配 |
-| Guacamole | 协议代理（guacd），浏览器内渲染终端/桌面 |
-| guacd | 实际连接 SSH/RDP/VNC 的后端守护进程 |
+| 组件               | 职责                                                            |
+| ------------------ | --------------------------------------------------------------- |
+| 裸金属 / 虚拟机 UI | 展示资产列表；提供「远程登录」入口                              |
+| MAAS Adapter       | 机器生命周期、状态、IP 信息                                     |
+| Guacamole Adapter  | Guacamole 实例管理、Connection 增删改查、生成登录 URL、权限分配 |
+| Guacamole          | 协议代理（guacd），浏览器内渲染终端/桌面                        |
+| guacd              | 实际连接 SSH/RDP/VNC 的后端守护进程                             |
 
 > **说明：** Guacamole 不会自动发现 MAAS / 云平台中的机器。平台需在用户点击「远程登录」时，通过 Adapter 调用 Guacamole API **按需创建或复用 Connection**。
 
@@ -69,10 +69,10 @@
 
 ### 2.1 基础路径
 
-| 项 | 值 |
-|----|-----|
-| Web UI | `http://<GUAC_HOST>:8080/guacamole/` |
-| REST API | `http://<GUAC_HOST>:8080/guacamole/api` |
+| 项             | 值                                                |
+| -------------- | ------------------------------------------------- |
+| Web UI         | `http://<GUAC_HOST>:8080/guacamole/`              |
+| REST API       | `http://<GUAC_HOST>:8080/guacamole/api`           |
 | 数据源（JDBC） | `postgresql`（PostgreSQL 认证扩展安装后的固定值） |
 
 **示例 Base URL：**
@@ -83,28 +83,28 @@ http://10.20.180.190:8080/guacamole
 
 ### 2.2 核心资源
 
-| Guacamole 资源 | 说明 | 平台侧映射 |
-|----------------|------|-----------|
-| Connection | 一条远程连接（IP + 协议 + 凭据） | 一台可登录的机器 |
-| User | Guacamole 用户 | Tower **系统用户**（admin 体系）1:1 同步 |
-| UserGroup | 用户组 | **当前不用**；租户 Group 见 §15.3 后续 |
-| Permission | 用户对 Connection 的 READ 等 | admin 点「云桌面」时赋 READ |
+| Guacamole 资源 | 说明                             | 平台侧映射                               |
+| -------------- | -------------------------------- | ---------------------------------------- |
+| Connection     | 一条远程连接（IP + 协议 + 凭据） | 一台可登录的机器                         |
+| User           | Guacamole 用户                   | Tower **系统用户**（admin 体系）1:1 同步 |
+| UserGroup      | 用户组                           | **当前不用**；租户 Group 见 §15.3 后续   |
+| Permission     | 用户对 Connection 的 READ 等     | admin 点「云桌面」时赋 READ              |
 
 ### 2.3 常用 API 路径
 
 以下 `{ds}` 固定为 `postgresql`：
 
-| 操作 | 方法 | 路径 |
-|------|------|------|
-| 获取 Token | POST | `/api/tokens` |
-| 列出连接 | GET | `/api/session/data/{ds}/connections` |
-| 创建连接 | POST | `/api/session/data/{ds}/connections` |
-| 更新连接 | PUT | `/api/session/data/{ds}/connections/{id}` |
-| 删除连接 | DELETE | `/api/session/data/{ds}/connections/{id}` |
-| 连接详情 | GET | `/api/session/data/{ds}/connections/{id}` |
-| 当前用户权限 | GET | `/api/session/data/{ds}/self/effectivePermissions` |
-| 用户管理 | GET/POST | `/api/session/data/{ds}/users` |
-| 分配权限 | PATCH | `/api/session/data/{ds}/users/{username}/permissions` |
+| 操作         | 方法     | 路径                                                  |
+| ------------ | -------- | ----------------------------------------------------- |
+| 获取 Token   | POST     | `/api/tokens`                                         |
+| 列出连接     | GET      | `/api/session/data/{ds}/connections`                  |
+| 创建连接     | POST     | `/api/session/data/{ds}/connections`                  |
+| 更新连接     | PUT      | `/api/session/data/{ds}/connections/{id}`             |
+| 删除连接     | DELETE   | `/api/session/data/{ds}/connections/{id}`             |
+| 连接详情     | GET      | `/api/session/data/{ds}/connections/{id}`             |
+| 当前用户权限 | GET      | `/api/session/data/{ds}/self/effectivePermissions`    |
+| 用户管理     | GET/POST | `/api/session/data/{ds}/users`                        |
+| 分配权限     | PATCH    | `/api/session/data/{ds}/users/{username}/permissions` |
 
 官方文档：[Guacamole REST API](https://guacamole.apache.org/doc/gug/guacamole-common.html)
 
@@ -143,10 +143,10 @@ Token 有过期时间，Adapter 应实现**自动续期**（缓存 Token + 401 �
 
 ### 3.2 账号策略（当前版本）
 
-| 账号类型 | 用途 | 谁使用 |
-|----------|------|--------|
-| **服务账号**（`platform-svc`） | Tower 后端调 API：建 User、建 Connection、PATCH 赋权 | **仅后端**，不给人类登录 |
-| **admin Guacamole User** | 与 Tower 系统用户 1:1；Connection READ；`client_url` token | **平台 admin**（`super_admin` / `admin`） |
+| 账号类型                       | 用途                                                       | 谁使用                                    |
+| ------------------------------ | ---------------------------------------------------------- | ----------------------------------------- |
+| **服务账号**（`platform-svc`） | Tower 后端调 API：建 User、建 Connection、PATCH 赋权       | **仅后端**，不给人类登录                  |
+| **admin Guacamole User**       | 与 Tower 系统用户 1:1；Connection READ；`client_url` token | **平台 admin**（`super_admin` / `admin`） |
 
 **禁止（G-Admin 起）**：
 
@@ -189,24 +189,24 @@ GET  /api/session/data/postgresql/connections → 200
 
 ### 4.2 嵌入入口
 
-| 来源模块 | Tower 操作 | 谁操作 | 前置条件 |
-|----------|------------|--------|----------|
-| Cloudmap VM | 「分配云桌面」 | 具备 `clouds.desktop:write` 的平台用户 | 池已接入；VM Running；有 IP |
-| 云桌面网关门户 | 登录并打开 Connection | **云桌面用户**（统一密码） | 已被分配对应 VM |
-| MAAS 裸金属 | 「分配云桌面」（规划） | 同上 | DEPLOYED；有 IP |
-| 租户控制台 VM | — | **无云桌面** | 仍可用 KubeVirt「访问 VNC」 |
+| 来源模块       | Tower 操作             | 谁操作                                 | 前置条件                    |
+| -------------- | ---------------------- | -------------------------------------- | --------------------------- |
+| Cloudmap VM    | 「分配云桌面」         | 具备 `clouds.desktop:write` 的平台用户 | 池已接入；VM Running；有 IP |
+| 云桌面网关门户 | 登录并打开 Connection  | **云桌面用户**（统一密码）             | 已被分配对应 VM             |
+| MAAS 裸金属    | 「分配云桌面」（规划） | 同上                                   | DEPLOYED；有 IP             |
+| 租户控制台 VM  | —                      | **无云桌面**                           | 仍可用 KubeVirt「访问 VNC」 |
 
 ### 4.3 功能与 API 对照
 
-| UI 功能 | BFF 接口 | 说明 |
-|---------|----------|------|
-| 注册实例 | `POST /api/remote/guacamole/instances` | 服务账号 + 统一密码 |
-| 测试连接 | `POST .../instances/{id}/test` | 连通性 |
-| 池接入开关 | `PUT .../pools/{cloudId}/config` | `remoteDesktopGateway.enabled` |
-| 云桌面用户 CRUD | `GET|POST|PUT|DELETE .../desktop-users` | 同步到网关 |
-| 批量同步用户 | `POST .../users/sync` | 全部 active 云桌面用户 |
-| **分配 VM** | `POST .../assignments` | upsert Connection + 赋 READ |
-| 查询分配 | `GET .../assignments` | 某 VM 已分配用户列表 |
+| UI 功能         | BFF 接口                               | 说明                           |
+| --------------- | -------------------------------------- | ------------------------------ | --- | ------------------------- | ---------- |
+| 注册实例        | `POST /api/remote/guacamole/instances` | 服务账号 + 统一密码            |
+| 测试连接        | `POST .../instances/{id}/test`         | 连通性                         |
+| 池接入开关      | `PUT .../pools/{cloudId}/config`       | `remoteDesktopGateway.enabled` |
+| 云桌面用户 CRUD | `GET                                   | POST                           | PUT | DELETE .../desktop-users` | 同步到网关 |
+| 批量同步用户    | `POST .../users/sync`                  | 全部 active 云桌面用户         |
+| **分配 VM**     | `POST .../assignments`                 | upsert Connection + 赋 READ    |
+| 查询分配        | `GET .../assignments`                  | 某 VM 已分配用户列表           |
 
 ---
 
@@ -230,15 +230,15 @@ GET  /api/session/data/postgresql/connections → 200
 
 ### 5.2 Adapter 对外接口（建议）
 
-| BFF 接口 | 说明 |
-|----------|------|
-| `POST /api/remote/guacamole/instances` | 注册 Guacamole（名称、URL、服务账号） |
-| `GET /api/remote/guacamole/instances` | 实例列表 |
-| `POST /api/remote/guacamole/instances/{id}/test` | 连通性测试 |
-| `GET|POST|PUT|DELETE /api/remote/guacamole/desktop-users` | 云桌面用户 |
-| `POST /api/remote/guacamole/users/sync` | 同步全部云桌面用户 |
-| `GET|POST /api/remote/guacamole/assignments` | 查询 / 分配 VM 连接 |
-| `GET|PUT /api/remote/guacamole/pools/{cloudId}/...` | 池接入状态与开关 |
+| BFF 接口                                         | 说明                                           |
+| ------------------------------------------------ | ---------------------------------------------- | ------------------- | ------------------------------------------- | ---------- |
+| `POST /api/remote/guacamole/instances`           | 注册 Guacamole（名称、URL、服务账号）          |
+| `GET /api/remote/guacamole/instances`            | 实例列表                                       |
+| `POST /api/remote/guacamole/instances/{id}/test` | 连通性测试                                     |
+| `GET                                             | POST                                           | PUT                 | DELETE /api/remote/guacamole/desktop-users` | 云桌面用户 |
+| `POST /api/remote/guacamole/users/sync`          | 同步全部云桌面用户                             |
+| `GET                                             | POST /api/remote/guacamole/assignments`        | 查询 / 分配 VM 连接 |
+| `GET                                             | PUT /api/remote/guacamole/pools/{cloudId}/...` | 池接入状态与开关    |
 
 ### 5.3 创建远程会话 — 请求 / 响应
 
@@ -280,12 +280,12 @@ POST /api/remote/guacamole/sessions
 
 ### 5.4 Connection 命名与去重（固定方案）
 
-| 字段 | 规则 |
-|------|------|
+| 字段              | 规则                                                                                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Connection `name` | `vm/{资源池名}/{项目名}/{别名(id)}/{ip}`，如 `vm/华东资源池/default/生产Web(id-vm-01)/192.168.1.10`；无别名时为 `vm/.../id-vm-01/192.168.1.10` |
-| 去重 | 创建前先 `GET .../connections`，按 `name` 查找；存在则 `PUT` 更新参数 |
-| 父级 | 当前 `parentIdentifier: "ROOT"`；租户 Group 见 §15.3 |
-| 赋权 | upsert 后 `PATCH .../users/{admin_guac_user}/permissions` 添加 `connectionPermissions/{id}` = `READ` |
+| 去重              | 创建前先 `GET .../connections`，按 `name` 查找；存在则 `PUT` 更新参数                                                                          |
+| 父级              | 当前 `parentIdentifier: "ROOT"`；租户 Group 见 §15.3                                                                                           |
+| 赋权              | upsert 后 `PATCH .../users/{admin_guac_user}/permissions` 添加 `connectionPermissions/{id}` = `READ`                                           |
 
 ### 5.5 client URL 生成
 
@@ -342,11 +342,11 @@ sequenceDiagram
 
 Adapter 根据 MAAS 返回的 `osystem` / 平台配置选择协议：
 
-| MAAS osystem / 条件 | 协议 | 默认端口 |
-|---------------------|------|----------|
-| `ubuntu`, `centos`, `rhel`, `debian`, `custom`（Linux） | `ssh` | 22 |
-| `windows`, `win2022`, `win2019` 等 | `rdp` | 3389 |
-| 用户手动指定 | 按请求 | 自定义 |
+| MAAS osystem / 条件                                     | 协议   | 默认端口 |
+| ------------------------------------------------------- | ------ | -------- |
+| `ubuntu`, `centos`, `rhel`, `debian`, `custom`（Linux） | `ssh`  | 22       |
+| `windows`, `win2022`, `win2019` 等                      | `rdp`  | 3389     |
+| 用户手动指定                                            | 按请求 | 自定义   |
 
 ```python
 LINUX_OS = {"ubuntu", "centos", "rhel", "debian", "fedora", "suse"}
@@ -359,23 +359,23 @@ def resolve_protocol(osystem: str, override: str | None = None) -> str:
 
 ### 6.3 凭据来源（优先级）
 
-| 优先级 | 来源 | 说明 |
-|--------|------|------|
-| 1 | 部署时写入 MAAS 的 SSH Key | SSH 公钥认证，Guacamole 配 `private-key` 参数 |
-| 2 | 平台密钥库 | 按 `resource_id` 取解密后的密码 |
-| 3 | MAAS 部署参数 | 若 deploy 时指定了 user-data 中的默认用户 |
-| 4 | 用户临时输入 | 弹窗让用户输入密码（不落库，仅当次写入 Connection） |
+| 优先级 | 来源                       | 说明                                                |
+| ------ | -------------------------- | --------------------------------------------------- |
+| 1      | 部署时写入 MAAS 的 SSH Key | SSH 公钥认证，Guacamole 配 `private-key` 参数       |
+| 2      | 平台密钥库                 | 按 `resource_id` 取解密后的密码                     |
+| 3      | MAAS 部署参数              | 若 deploy 时指定了 user-data 中的默认用户           |
+| 4      | 用户临时输入               | 弹窗让用户输入密码（不落库，仅当次写入 Connection） |
 
 **推荐：** SSH 优先公钥；RDP 从密钥库或当次输入，**避免**把密码持久写入 Guacamole DB。
 
 ### 6.4 「远程登录」按钮可用条件
 
-| 条件 | 说明 |
-|------|------|
-| MAAS `status == 6`（DEPLOYED） | 未部署完成不可登录 |
-| 有有效 IP | `ip_addresses[0]` 或 `fqdn` 可解析 |
-| 目标端口可达 | 可选：Adapter 预检 TCP 22/3389 |
-| 已配置 Guacamole 实例 | Region 设置中关联 `guacamole_instance_id` |
+| 条件                           | 说明                                      |
+| ------------------------------ | ----------------------------------------- |
+| MAAS `status == 6`（DEPLOYED） | 未部署完成不可登录                        |
+| 有有效 IP                      | `ip_addresses[0]` 或 `fqdn` 可解析        |
+| 目标端口可达                   | 可选：Adapter 预检 TCP 22/3389            |
+| 已配置 Guacamole 实例          | Region 设置中关联 `guacamole_instance_id` |
 
 按钮不可用时的提示：
 
@@ -554,11 +554,11 @@ def build_client_url(connection_id: str) -> str:
 
 ### 9.2 平台权限（当前版本）
 
-| 能力 | 权限 |
-|------|------|
-| 查看网关、云桌面用户、分配情况 | `clouds.desktop:read` |
-| 管理网关、用户、VM 分配 | `clouds.desktop:write` |
-| 租户（TenantUser） | **不可用**；API 403；UI 无入口 |
+| 能力                           | 权限                           |
+| ------------------------------ | ------------------------------ |
+| 查看网关、云桌面用户、分配情况 | `clouds.desktop:read`          |
+| 管理网关、用户、VM 分配        | `clouds.desktop:write`         |
+| 租户（TenantUser）             | **不可用**；API 403；UI 无入口 |
 
 RBAC 原子归属 **CNMC · Cloudmap资源池 · 云主机**；系统设置侧栏 **云桌面 → 云桌面网关** 同样受 `clouds.desktop` 约束。
 
@@ -566,39 +566,39 @@ RBAC 原子归属 **CNMC · Cloudmap资源池 · 云主机**；系统设置侧�
 
 ## 10. 错误处理
 
-| Guacamole 错误 | 含义 | Adapter 处理 |
-|----------------|------|-------------|
-| 401 + invalid credentials | Token 过期或账号错误 | 重新获取 Token；提示检查实例配置 |
-| 403 | 无 Connection 权限 | 检查服务账号是否为管理员 |
-| 404 | Connection 不存在 | 重建 Connection |
-| 500 INTERNAL_ERROR | 常见：DB 权限、guacd 不可达 | 查 Guacamole / PostgreSQL / guacd 日志 |
-| 连接超时（客户端） | guacd 无法连目标 IP:port | 提示检查防火墙、机器是否 DEPLOYED |
+| Guacamole 错误            | 含义                        | Adapter 处理                           |
+| ------------------------- | --------------------------- | -------------------------------------- |
+| 401 + invalid credentials | Token 过期或账号错误        | 重新获取 Token；提示检查实例配置       |
+| 403                       | 无 Connection 权限          | 检查服务账号是否为管理员               |
+| 404                       | Connection 不存在           | 重建 Connection                        |
+| 500 INTERNAL_ERROR        | 常见：DB 权限、guacd 不可达 | 查 Guacamole / PostgreSQL / guacd 日志 |
+| 连接超时（客户端）        | guacd 无法连目标 IP:port    | 提示检查防火墙、机器是否 DEPLOYED      |
 
-| 业务错误 | 提示 |
-|----------|------|
-| 机器非 DEPLOYED | 「请先完成部署」 |
-| 无 IP | 「暂无可用 IP」 |
-| 端口不通 | 「无法连接 SSH/RDP 端口，请检查网络」 |
+| 业务错误        | 提示                                  |
+| --------------- | ------------------------------------- |
+| 机器非 DEPLOYED | 「请先完成部署」                      |
+| 无 IP           | 「暂无可用 IP」                       |
+| 端口不通        | 「无法连接 SSH/RDP 端口，请检查网络」 |
 
 ---
 
 ## 11. 实施阶段
 
-| 阶段 | 范围 | 交付物 |
-|------|------|--------|
-| **G0** ✅ | 云桌面网关注册 + 连通性测试 | 设置页可保存并验证 |
-| **G-Users** ✅ | 云桌面用户 + 统一密码 + 同步 | `cloud_desktop_users` |
-| **G-Assign** ✅ | VM「分配云桌面」 | `POST /assignments` |
-| **G1** | MAAS 裸金属分配 | 与 VM 同模型 |
-| **G3** | Release 自动清理 Connection | 无孤儿连接 |
+| 阶段            | 范围                         | 交付物                |
+| --------------- | ---------------------------- | --------------------- |
+| **G0** ✅       | 云桌面网关注册 + 连通性测试  | 设置页可保存并验证    |
+| **G-Users** ✅  | 云桌面用户 + 统一密码 + 同步 | `cloud_desktop_users` |
+| **G-Assign** ✅ | VM「分配云桌面」             | `POST /assignments`   |
+| **G1**          | MAAS 裸金属分配              | 与 VM 同模型          |
+| **G3**          | Release 自动清理 Connection  | 无孤儿连接            |
 
 与 MAAS 对接阶段对齐建议：
 
-| MAAS 阶段 | Guacamole 阶段 |
-|-----------|----------------|
-| P0 机器列表只读 | — |
+| MAAS 阶段           | Guacamole 阶段          |
+| ------------------- | ----------------------- |
+| P0 机器列表只读     | —                       |
 | P1 Deploy / Release | G0 + G1（远程登录可用） |
-| P2 完整纳管 | G3（释放清理） |
+| P2 完整纳管         | G3（释放清理）          |
 
 ---
 
@@ -655,30 +655,30 @@ Connection（按需 upsert）── PATCH READ ──► 云桌面用户（Guaca
 cloud_desktop_users ◄──────────────────────────┘
 ```
 
-| 账号 | 用途 |
-|------|------|
-| **服务账号** | 仅 Tower 后端调 REST；不给人类登录 |
-| **云桌面用户** | 独立实体，**不能登录 Tower**；网关统一密码；仅见已分配 Connection |
-| **Tower 系统用户** | 在 VM 列表执行「分配云桌面」；**不**自动创建 Guacamole 账号 |
+| 账号               | 用途                                                              |
+| ------------------ | ----------------------------------------------------------------- |
+| **服务账号**       | 仅 Tower 后端调 REST；不给人类登录                                |
+| **云桌面用户**     | 独立实体，**不能登录 Tower**；网关统一密码；仅见已分配 Connection |
+| **Tower 系统用户** | 在 VM 列表执行「分配云桌面」；**不**自动创建 Guacamole 账号       |
 
 ### 15.2 Tower 侧数据模型
 
-| 表 / 实体 | 用途 |
-|-----------|------|
-| `guacamole_instances` | 网关 URL、服务账号、**云桌面用户统一密码**（加密） |
-| `cloud_desktop_users` | 云桌面用户；`guacamoleUsername`；同步状态 |
-| `guacamole_desktop_assignments` | VM ↔ 云桌面用户 ↔ `guacConnectionId` |
-| `guacamole_connection_maps` | `cloudId` + VM → Connection |
-| `guacamole_user_bindings` | **已废弃**（早期 admin 自服务） |
+| 表 / 实体                       | 用途                                               |
+| ------------------------------- | -------------------------------------------------- |
+| `guacamole_instances`           | 网关 URL、服务账号、**云桌面用户统一密码**（加密） |
+| `cloud_desktop_users`           | 云桌面用户；`guacamoleUsername`；同步状态          |
+| `guacamole_desktop_assignments` | VM ↔ 云桌面用户 ↔ `guacConnectionId`               |
+| `guacamole_connection_maps`     | `cloudId` + VM → Connection                        |
+| `guacamole_user_bindings`       | **已废弃**（早期 admin 自服务）                    |
 
 ### 15.3 主流程
 
-| 步骤 | 行为 |
-|------|------|
-| 1 | 系统设置注册网关 + 配置统一密码 + 池接入 |
-| 2 | 用户 → 云桌面用户：新建 / 同步到网关 |
-| 3 | VM 列表 → 分配云桌面：选用户 + Guest 凭据 → `POST /assignments` |
-| 4 | 云桌面用户浏览器打开网关 URL，统一密码登录，打开 Connection |
+| 步骤 | 行为                                                            |
+| ---- | --------------------------------------------------------------- |
+| 1    | 系统设置注册网关 + 配置统一密码 + 池接入                        |
+| 2    | 用户 → 云桌面用户：新建 / 同步到网关                            |
+| 3    | VM 列表 → 分配云桌面：选用户 + Guest 凭据 → `POST /assignments` |
+| 4    | 云桌面用户浏览器打开网关 URL，统一密码登录，打开 Connection     |
 
 ### 15.4 赋权 API（仍由服务账号代发）
 
@@ -691,32 +691,32 @@ curl -X PATCH ".../users/{guacamoleUsername}/permissions" \
 
 ### 15.5 待办（G3+）
 
-| 项 | 说明 |
-|----|------|
+| 项                    | 说明                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
 | ~~VM 删除 / Release~~ | ✅ `cleanupVmDesktopResources`：revoke READ + 删 Connection + 清理 assignment（删除/强制删除/回收站过期清理） |
-| MAAS 裸金属 | 复用 assignments 模型 |
-| G-Embed | Tower 内嵌客户端（可选） |
+| MAAS 裸金属           | 复用 assignments 模型                                                                                         |
+| G-Embed               | Tower 内嵌客户端（可选）                                                                                      |
 
 ---
 
 ## 附录 A：Guacamole API 速查
 
-| 路径 | 说明 |
-|------|------|
-| `POST /api/tokens` | 登录，获取 authToken |
-| `GET /api/session/data/postgresql/connections` | 连接列表 |
-| `POST /api/session/data/postgresql/connections` | 创建连接 |
-| `PUT /api/session/data/postgresql/connections/{id}` | 更新连接 |
-| `DELETE /api/session/data/postgresql/connections/{id}` | 删除连接 |
-| `GET /api/session/data/postgresql/users` | 用户列表 |
+| 路径                                                   | 说明                 |
+| ------------------------------------------------------ | -------------------- |
+| `POST /api/tokens`                                     | 登录，获取 authToken |
+| `GET /api/session/data/postgresql/connections`         | 连接列表             |
+| `POST /api/session/data/postgresql/connections`        | 创建连接             |
+| `PUT /api/session/data/postgresql/connections/{id}`    | 更新连接             |
+| `DELETE /api/session/data/postgresql/connections/{id}` | 删除连接             |
+| `GET /api/session/data/postgresql/users`               | 用户列表             |
 
 ## 附录 B：协议参数速查
 
-| 协议 | 必填 parameters |
-|------|-----------------|
-| ssh | hostname, port, username + (password 或 private-key) |
-| rdp | hostname, port, username, password；建议 ignore-cert=true |
-| vnc | hostname, port, password |
+| 协议 | 必填 parameters                                           |
+| ---- | --------------------------------------------------------- |
+| ssh  | hostname, port, username + (password 或 private-key)      |
+| rdp  | hostname, port, username, password；建议 ignore-cert=true |
+| vnc  | hostname, port, password                                  |
 
 ## 附录 C：给后端的一句话
 

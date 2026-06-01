@@ -20,14 +20,15 @@ function defaultPaths(): StoragePaths {
   };
 }
 
-let storage: StoragePaths = defaultPaths();
+const storage: StoragePaths = defaultPaths();
 
 try {
   if (fs.existsSync(legacyDifyCfgPath)) {
     const raw = fs.readFileSync(legacyDifyCfgPath, 'utf-8');
     const json = JSON.parse(raw) as Partial<StoragePaths>;
     if (json.logsDir && typeof json.logsDir === 'string') storage.logsDir = json.logsDir;
-    if (json.reportsDir && typeof json.reportsDir === 'string') storage.reportsDir = json.reportsDir;
+    if (json.reportsDir && typeof json.reportsDir === 'string')
+      storage.reportsDir = json.reportsDir;
   }
 } catch {
   /* ignore */

@@ -1,6 +1,6 @@
 /**
  * 权限注册表（Permission Registry）
- * 
+ *
  * 核心功能：
  * 1. 管理所有权限定义
  * 2. 从 API 路径解析权限
@@ -221,7 +221,7 @@ export class PermissionRegistry {
 
   constructor(definitions: PermissionDefinition[]) {
     this.definitions = new Map();
-    definitions.forEach(def => {
+    definitions.forEach((def) => {
       this.definitions.set(def.id, def);
     });
 
@@ -279,7 +279,7 @@ export class PermissionRegistry {
   private inferPermissionFromPath(method: string, path: string): string | null {
     // 移除查询参数
     const cleanPath = path.split('?')[0].toLowerCase();
-    
+
     // 只处理 /api 开头的路径
     if (!cleanPath.startsWith('/api/')) {
       return null;
@@ -287,7 +287,7 @@ export class PermissionRegistry {
 
     // 移除 /api 前缀
     const apiPath = cleanPath.replace(/^\/api\//, '');
-    const parts = apiPath.split('/').filter(p => p && p !== 'api');
+    const parts = apiPath.split('/').filter((p) => p && p !== 'api');
 
     if (parts.length === 0) {
       return null;
@@ -305,7 +305,7 @@ export class PermissionRegistry {
     if (firstPart === 'system') {
       if (parts.length >= 2) {
         const secondPart = parts[1];
-        
+
         // system/rbac/roles -> system.roles
         if (secondPart === 'rbac') {
           if (parts.length >= 3) {
@@ -359,7 +359,7 @@ export class PermissionRegistry {
     else if (firstPart === 'clouds') {
       if (parts.length >= 3 && parts[1] !== 'resources') {
         // /api/clouds/:id/... -> 需要进一步判断
-        const resourcePart = parts.find(p => p === 'resources');
+        const resourcePart = parts.find((p) => p === 'resources');
         if (resourcePart && parts.indexOf(resourcePart) < parts.length - 1) {
           const ri = parts.indexOf(resourcePart);
           const seg1 = parts[ri + 1];
@@ -414,13 +414,13 @@ export class PermissionRegistry {
             const harvesterIndex = parts.indexOf('harvester');
             if (harvesterIndex >= 0 && harvesterIndex < parts.length - 1) {
               const harvesterResourceType = parts[harvesterIndex + 1];
-              
+
               // 处理嵌套路径，如 /api/clouds/:id/resources/harvester/longhorn/volumes/...
               let actualResourceType = harvesterResourceType;
               if (harvesterResourceType === 'longhorn' && harvesterIndex + 2 < parts.length) {
                 actualResourceType = parts[harvesterIndex + 2];
               }
-              
+
               // 根据资源类型映射权限
               if (actualResourceType === 'volumes' || actualResourceType === 'available-volumes') {
                 permissionBase = 'clouds.disks';
@@ -446,14 +446,24 @@ export class PermissionRegistry {
                 permissionBase = 'clouds.sshkeys';
               } else if (actualResourceType === 'snapshots') {
                 permissionBase = 'clouds.snapshots';
-              } else if (actualResourceType === 'loadbalancers' || actualResourceType === 'load-balancers') {
+              } else if (
+                actualResourceType === 'loadbalancers' ||
+                actualResourceType === 'load-balancers'
+              ) {
                 // Harvester 负载均衡独立权限
                 permissionBase = 'clouds.load-balancers';
               } else if (actualResourceType === 'storage-classes') {
                 permissionBase = 'clouds.storage-classes';
-              } else if (actualResourceType === 'nodes') {
+              } else if (
+                actualResourceType === 'nodes' ||
+                actualResourceType === 'node-resource-usage'
+              ) {
                 permissionBase = 'clouds.cluster-nodes';
-              } else if (actualResourceType === 'gpus' || actualResourceType === 'gpu' || actualResourceType === 'gpu-claims') {
+              } else if (
+                actualResourceType === 'gpus' ||
+                actualResourceType === 'gpu' ||
+                actualResourceType === 'gpu-claims'
+              ) {
                 permissionBase = 'clouds.gpus';
               } else if (actualResourceType === 'usb-devices' || actualResourceType === 'usb') {
                 permissionBase = 'clouds.usb-devices';
@@ -480,20 +490,28 @@ export class PermissionRegistry {
                 permissionBase = 'clouds.templates';
               } else if (actualResourceType === 'cloud-inits') {
                 permissionBase = 'clouds.cloudinits';
-              } else if (actualResourceType === 'migrations' || actualResourceType === 'migrations-direct') {
+              } else if (
+                actualResourceType === 'migrations' ||
+                actualResourceType === 'migrations-direct'
+              ) {
                 permissionBase = 'clouds.migrations';
               } else if (actualResourceType === 'services') {
                 // 旧缓存路由 /harvester/services；与 containers/services 同权
                 permissionBase = 'clouds.containers.services';
-              } else if (actualResourceType === 'health' || actualResourceType === 'capabilities' ||
-                         actualResourceType === 'proxy') {
+              } else if (
+                actualResourceType === 'health' ||
+                actualResourceType === 'capabilities' ||
+                actualResourceType === 'proxy'
+              ) {
                 // 集群状态/代理等能力继续复用 ecs 权限
                 permissionBase = 'clouds.ecs';
               }
             }
           }
           // 控制台相关
-          else if (parts.some(p => p === 'vnc' || p === 'console' || p === 'ssh' || p === 'vnc-url')) {
+          else if (
+            parts.some((p) => p === 'vnc' || p === 'console' || p === 'ssh' || p === 'vnc-url')
+          ) {
             permissionBase = 'clouds.ecs';
           }
           // 其他资源类型：基于资源类型名称推断
@@ -552,14 +570,14 @@ export class PermissionRegistry {
    * 按平台获取权限
    */
   getByPlatform(platform: string): PermissionDefinition[] {
-    return this.getAll().filter(p => p.platform === platform);
+    return this.getAll().filter((p) => p.platform === platform);
   }
 
   /**
    * 按分组获取权限
    */
   getByGroup(group: string): PermissionDefinition[] {
-    return this.getAll().filter(p => p.group === group);
+    return this.getAll().filter((p) => p.group === group);
   }
 
   /**
@@ -575,9 +593,9 @@ export class PermissionRegistry {
   private buildApiMapping(): void {
     this.apiMapping = new Map();
 
-    this.definitions.forEach(def => {
+    this.definitions.forEach((def) => {
       if (def.apiPatterns) {
-        def.apiPatterns.forEach(pattern => {
+        def.apiPatterns.forEach((pattern) => {
           const key = `${pattern.method.toUpperCase()}:${pattern.pathPattern}`;
           this.apiMapping.set(key, def.id);
         });
@@ -590,7 +608,7 @@ export class PermissionRegistry {
    */
   private matchApiPattern(patternKey: string, method: string, path: string): boolean {
     const [patternMethod, patternPath] = patternKey.split(':', 2);
-    
+
     // 方法匹配
     if (patternMethod !== '*' && patternMethod !== method) {
       return false;
@@ -620,8 +638,8 @@ export class PermissionRegistry {
     // 将通配符模式转换为正则表达式
     // 例如：/api/clouds/*/resources/ecs -> /api/clouds/.*/resources/ecs
     const regexPattern = pattern
-      .replace(/\*/g, '.*')  // * 匹配任意字符
-      .replace(/\//g, '\\/')  // 转义斜杠
+      .replace(/\*/g, '.*') // * 匹配任意字符
+      .replace(/\//g, '\\/') // 转义斜杠
       .replace(/\?/g, '\\?'); // 转义问号
 
     try {

@@ -77,7 +77,7 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
     const repo = AppDataSource.getRepository(KubeOvnSubnetInventory);
     const reqAny = req as any;
 
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     let tenantNamespace: string | undefined;
     const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';
@@ -99,7 +99,12 @@ export async function harvesterSubnetListHandler(req: Request, res: Response) {
 
       if (reqAny.user.organizationId) {
         const orgNs = `ns-${reqAny.user.organizationId}`;
-        const nsList = tenantNamespace ? tenantNamespace.split(',').map((s) => s.trim()).filter(Boolean) : [];
+        const nsList = tenantNamespace
+          ? tenantNamespace
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
         if (!nsList.includes(orgNs)) {
           nsList.push(orgNs);
           tenantNamespace = nsList.join(',');

@@ -91,7 +91,10 @@ export function attachDifySsoRoutes(router: Router, perm: RequestHandler): void 
         edgeBundle: true,
       });
     } catch (error: unknown) {
-      log.error('edge dify sso-redirect failed', error instanceof Error ? error.message : String(error));
+      log.error(
+        'edge dify sso-redirect failed',
+        error instanceof Error ? error.message : String(error),
+      );
       res.status(500).json({
         message: error instanceof Error ? error.message : '生成 Dify 跳转链接失败',
       });

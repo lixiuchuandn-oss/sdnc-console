@@ -37,9 +37,13 @@ export async function syncCloudDesktopUserToGuacamole(
   instance?: GuacamoleInstance | null,
 ): Promise<CloudDesktopUser> {
   const repo = AppDataSource.getRepository(CloudDesktopUser);
-  const inst = instance || (user.instanceId
-    ? await AppDataSource.getRepository(GuacamoleInstance).findOne({ where: { id: user.instanceId } })
-    : await resolveDefaultGuacamoleInstance());
+  const inst =
+    instance ||
+    (user.instanceId
+      ? await AppDataSource.getRepository(GuacamoleInstance).findOne({
+          where: { id: user.instanceId },
+        })
+      : await resolveDefaultGuacamoleInstance());
 
   if (!inst) {
     user.syncStatus = 'failed';

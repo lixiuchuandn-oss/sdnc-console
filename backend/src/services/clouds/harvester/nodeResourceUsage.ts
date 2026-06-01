@@ -114,9 +114,13 @@ export async function getHarvesterNodeResourceUsage(
   const secret = cloud.secretKey || '';
   const timed = async (p: string): Promise<{ data: unknown; ms: number }> => {
     const t0 = Date.now();
-    const data = await requestJson('GET', buildK8sTarget(cloud, p), secret, insecure, undefined).catch(
-      () => null,
-    );
+    const data = await requestJson(
+      'GET',
+      buildK8sTarget(cloud, p),
+      secret,
+      insecure,
+      undefined,
+    ).catch(() => null);
     return { data, ms: Date.now() - t0 };
   };
 
