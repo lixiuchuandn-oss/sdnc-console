@@ -2,7 +2,7 @@
  * 运维监控大盘 · 云主机分布概览（环形图 + 明细列表，与集群概览卡片统一布局）
  */
 import React, { useCallback, useMemo, useRef } from 'react';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../../components/LazyReactECharts';
 import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { Typography } from 'antd';
@@ -147,7 +147,7 @@ const OpsDashboardVmDistributionCard: React.FC<OpsDashboardVmDistributionCardPro
               height: OPS_OVERVIEW_RING_SIZE,
             }}
           >
-            <ReactECharts
+            <LazyReactECharts
               ref={chartRef}
               option={option}
               style={{ width: OPS_OVERVIEW_RING_SIZE, height: OPS_OVERVIEW_RING_SIZE }}
