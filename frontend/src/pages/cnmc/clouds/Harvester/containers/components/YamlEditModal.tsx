@@ -30,6 +30,7 @@ export interface YamlEditModalProps {
   onSaveYaml: (yaml: string) => Promise<void>; // 保存 YAML 内容
   onCancel: () => void;
   onSuccess: () => void;
+  readOnly?: boolean; // 只读模式（查看 YAML）
 }
 
 const YamlEditModal: React.FC<YamlEditModalProps> = ({
@@ -44,6 +45,7 @@ const YamlEditModal: React.FC<YamlEditModalProps> = ({
   onSaveYaml,
   onCancel,
   onSuccess,
+  readOnly = false,
 }) => {
   const { message } = App.useApp();
   const [yamlContent, setYamlContent] = useState('');
@@ -123,7 +125,7 @@ const YamlEditModal: React.FC<YamlEditModalProps> = ({
         </div>
       ) : (
         <>
-          {hasChanges && (
+          {!readOnly && hasChanges && (
             <Alert
               type="warning"
               showIcon
@@ -133,26 +135,31 @@ const YamlEditModal: React.FC<YamlEditModalProps> = ({
           )}
           <YamlEditor
             value={yamlContent}
-            onChange={(val: string) => setYamlContent(val)}
+            onChange={readOnly ? undefined : (val: string) => setYamlContent(val)}
             placeholder="YAML 内容"
             minHeight={400}
             maxHeight={500}
+            readOnly={readOnly}
           />
           <div style={{ marginTop: 16, textAlign: 'right' }}>
             <Space>
-              <Button icon={<ReloadOutlined />} onClick={handleReset} disabled={!hasChanges}>
-                重置
-              </Button>
-              <Button onClick={onCancel}>取消</Button>
-              <Button
-                type="primary"
-                icon={<SaveOutlined />}
-                onClick={handleSave}
-                loading={saving}
-                disabled={!hasChanges}
-              >
-                保存
-              </Button>
+              {!readOnly && (
+                <Button icon={<ReloadOutlined />} onClick={handleReset} disabled={!hasChanges}>
+                  重置
+                </Button>
+              )}
+              <Button onClick={onCancel}>{readOnly ? '关闭' : '取消'}</Button>
+              {!readOnly && (
+                <Button
+                  type="primary"
+                  icon={<SaveOutlined />}
+                  onClick={handleSave}
+                  loading={saving}
+                  disabled={!hasChanges}
+                >
+                  保存
+                </Button>
+              )}
             </Space>
           </div>
         </>

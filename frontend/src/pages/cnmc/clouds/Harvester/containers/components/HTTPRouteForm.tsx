@@ -34,7 +34,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { createHttpRoute } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -150,8 +150,11 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
       apiVersion: 'gateway.networking.k8s.io/v1',
       kind: 'HTTPRoute',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('httproute'),
         namespace: values.namespace,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       spec: {},
     };
@@ -229,6 +232,7 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('httproute'),
         parentRefs: [{}],
         rules: [{ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{}] }],
       }}
@@ -239,10 +243,9 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
           <Col span={12}>
             <Form.Item
               name="name"
-              label="名称"
+              label="别名"
               rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                { required: true, message: '请输入别名' },
               ]}
             >
               <Input placeholder="如: my-httproute" />
