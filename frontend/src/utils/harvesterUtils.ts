@@ -324,6 +324,12 @@ export const HARVESTER_CR_METADATA_ENTITY = {
   networkpolicy: 'np',
   /** 容器资源 - ImagePullSecret（镜像仓库凭证） */
   imagepullsecret: 'imgsc',
+  /** 容器资源 - Gateway */
+  gateway: 'gw',
+  /** 容器资源 - HTTPRoute */
+  httproute: 'hr',
+  /** 容器资源 - GRPCRoute */
+  grpcroute: 'gr',
 } as const;
 
 export type HarvesterCrMetadataNameKind = keyof typeof HARVESTER_CR_METADATA_ENTITY;

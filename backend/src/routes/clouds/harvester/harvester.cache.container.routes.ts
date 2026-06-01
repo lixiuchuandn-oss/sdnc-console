@@ -3298,6 +3298,36 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
   );
 
   /**
+   * [API] 删除 GatewayClass
+   * DELETE /:id/resources/harvester/containers/gatewayclasses/:name
+   */
+  router.delete(
+    '/:id/resources/harvester/containers/gatewayclasses/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, name } = req.params;
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+
+        const origin = extractOrigin(base);
+        const url = `${origin}/apis/gateway.networking.k8s.io/v1/gatewayclasses/${encodeURIComponent(name)}`;
+
+        await requestJson('DELETE', url, token, insecure);
+        res.json({ message: '删除成功' });
+      } catch (error: any) {
+        res.status(500).json({ message: '删除 GatewayClass 失败', error: error.message });
+      }
+    },
+  );
+
+  /**
    * [API] 获取 Gateway 列表
    * GET /:id/resources/harvester/containers/gateways
    * Query: namespace (可选)
@@ -3411,6 +3441,46 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
         console.error('[Gateway 创建] 错误:', error);
         const errorMsg = error?.body || error?.message || '创建 Gateway 失败';
         res.status(error?.status || 500).json({ message: '创建 Gateway 失败', error: errorMsg });
+      }
+    },
+  );
+
+  /**
+   * [API] 更新 Gateway (YAML 编辑)
+   * PUT /:id/resources/harvester/containers/gateways/:namespace/:name
+   * Body: 完整的 Gateway JSON 对象
+   */
+  router.put(
+    '/:id/resources/harvester/containers/gateways/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const body = req.body;
+
+        if (!body) {
+          return res.status(400).json({ message: '缺少请求体' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+
+        const origin = extractOrigin(base);
+        const url = `${origin}/apis/gateway.networking.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/gateways/${encodeURIComponent(name)}`;
+
+        console.log('[Gateway 更新] URL:', url);
+        const result = await requestJson('PUT', url, token, insecure, body);
+
+        res.json({ message: '更新 Gateway 成功', data: result });
+      } catch (error: any) {
+        console.error('[Gateway 更新] 错误:', error);
+        const errorMsg = error?.body || error?.message || '更新 Gateway 失败';
+        res.status(error?.status || 500).json({ message: '更新 Gateway 失败', error: errorMsg });
       }
     },
   );
@@ -3565,6 +3635,46 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
   );
 
   /**
+   * [API] 更新 HTTPRoute (YAML 编辑)
+   * PUT /:id/resources/harvester/containers/httproutes/:namespace/:name
+   * Body: 完整的 HTTPRoute JSON 对象
+   */
+  router.put(
+    '/:id/resources/harvester/containers/httproutes/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const body = req.body;
+
+        if (!body) {
+          return res.status(400).json({ message: '缺少请求体' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+
+        const origin = extractOrigin(base);
+        const url = `${origin}/apis/gateway.networking.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/httproutes/${encodeURIComponent(name)}`;
+
+        console.log('[HTTPRoute 更新] URL:', url);
+        const result = await requestJson('PUT', url, token, insecure, body);
+
+        res.json({ message: '更新 HTTPRoute 成功', data: result });
+      } catch (error: any) {
+        console.error('[HTTPRoute 更新] 错误:', error);
+        const errorMsg = error?.body || error?.message || '更新 HTTPRoute 失败';
+        res.status(error?.status || 500).json({ message: '更新 HTTPRoute 失败', error: errorMsg });
+      }
+    },
+  );
+
+  /**
    * [API] 删除 HTTPRoute
    * DELETE /:id/resources/harvester/containers/httproutes/:namespace/:name
    */
@@ -3709,6 +3819,46 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
         console.error('[GRPCRoute 创建] 错误:', error);
         const errorMsg = error?.body || error?.message || '创建 GRPCRoute 失败';
         res.status(error?.status || 500).json({ message: '创建 GRPCRoute 失败', error: errorMsg });
+      }
+    },
+  );
+
+  /**
+   * [API] 更新 GRPCRoute (YAML 编辑)
+   * PUT /:id/resources/harvester/containers/grpcroutes/:namespace/:name
+   * Body: 完整的 GRPCRoute JSON 对象
+   */
+  router.put(
+    '/:id/resources/harvester/containers/grpcroutes/:namespace/:name',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+        const body = req.body;
+
+        if (!body) {
+          return res.status(400).json({ message: '缺少请求体' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+
+        const origin = extractOrigin(base);
+        const url = `${origin}/apis/gateway.networking.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/grpcroutes/${encodeURIComponent(name)}`;
+
+        console.log('[GRPCRoute 更新] URL:', url);
+        const result = await requestJson('PUT', url, token, insecure, body);
+
+        res.json({ message: '更新 GRPCRoute 成功', data: result });
+      } catch (error: any) {
+        console.error('[GRPCRoute 更新] 错误:', error);
+        const errorMsg = error?.body || error?.message || '更新 GRPCRoute 失败';
+        res.status(error?.status || 500).json({ message: '更新 GRPCRoute 失败', error: errorMsg });
       }
     },
   );
