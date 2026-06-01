@@ -58,6 +58,9 @@ coverage/
 /frontend/.env
 /frontend/.env*
 
+# --- e2e 自动化（不进业务仓库，与 backend/tests 同理；测试代码在 e2e/ 内单独 git 维护）---
+/e2e/
+
 # --- 本地任务 / 草稿 / 外部快照 ---
 do/
 plan/

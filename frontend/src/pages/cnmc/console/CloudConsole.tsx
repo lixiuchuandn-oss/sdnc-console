@@ -252,7 +252,7 @@ const CloudConsolePage: React.FC = () => {
         setHarvesterResource(resourceKey);
         return;
       }
-      if (['snapshot', 'backup', 'schedule'].includes(resourceKey)) {
+      if (['snapshot', 'backup', 'schedule', 'restore-task'].includes(resourceKey)) {
         setHarvesterCategory('backup');
         setHarvesterResource(resourceKey);
         return;
@@ -348,6 +348,22 @@ const CloudConsolePage: React.FC = () => {
     firstAccessibleLeftNav,
     pickFirstMainResourceForScope,
     pickFirstContainerResource,
+    applyMainResourceKey,
+  ]);
+
+  /** 当前主面板资源无读权限时，落到同域首个可访问页面（如云主机域仅有备份权时不应停在 vm） */
+  useEffect(() => {
+    if (consoleLeftNavKey === 'container' || consoleLeftNavKey === 'rds') return;
+    if (canAccessMainResource(harvesterResource)) return;
+    const scope: 'host' | 'flat' | 'vpc' =
+      consoleLeftNavKey === 'flat' ? 'flat' : consoleLeftNavKey === 'vpc' ? 'vpc' : 'host';
+    const next = pickFirstMainResourceForScope(scope);
+    if (next) applyMainResourceKey(next);
+  }, [
+    consoleLeftNavKey,
+    harvesterResource,
+    canAccessMainResource,
+    pickFirstMainResourceForScope,
     applyMainResourceKey,
   ]);
 
@@ -660,9 +676,13 @@ const CloudConsolePage: React.FC = () => {
 
       if (filtered.length === 0) {
         setError('当前未找到 Cloudmap 资源池，请先在「资源池管理」中创建');
+      } else {
+        setError(null);
       }
-    } catch (e) {
-      // ignore
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error ? e.message : typeof e === 'string' ? e : '加载资源池失败';
+      setError(msg.includes('403') || msg.includes('权限') ? '无法加载资源池列表，请确认账号已授予控制台页面读权限' : msg);
     } finally {
       setCloudsLoading(false);
     }
@@ -1268,12 +1288,21 @@ const CloudConsolePage: React.FC = () => {
       setCtrGrpcRoutes([]);
       setCtrResourceLoading({});
       setContainerCategory('ctr-run');
-      setContainerResource('ctr-workloads');
-      
-      setHarvesterCategory('compute');
-      setHarvesterResource('vm');
-      setConsoleLeftNavKey('host');
-      setSiderOpenKeys(['host']);
+      setContainerResource(pickFirstContainerResource() ?? 'ctr-workloads');
+
+      const nav = firstAccessibleLeftNav ?? 'host';
+      setConsoleLeftNavKey(nav);
+      setSiderOpenKeys(getTenantConsoleOpenKeysForSelection(nav));
+      if (nav === 'host') {
+        applyMainResourceKey(pickFirstMainResourceForScope('host') ?? 'vm');
+      } else if (nav === 'flat') {
+        applyMainResourceKey(pickFirstMainResourceForScope('flat') ?? 'flat-subnet');
+      } else if (nav === 'vpc') {
+        applyMainResourceKey(pickFirstMainResourceForScope('vpc') ?? 'vpc-subnet');
+      } else {
+        setHarvesterCategory('compute');
+        setHarvesterResource('vm');
+      }
       setNsValue(undefined);
       setNodeValue(undefined);
 
@@ -1411,6 +1440,9 @@ const CloudConsolePage: React.FC = () => {
       case 'schedule':
         if (!canAccessMainResource('schedule')) break;
         loadBackupsTabResource(currentCloudId, true);
+        break;
+      case 'restore-task':
+        if (!canAccessMainResource('restore-task')) break;
         break;
       case 'vpc-subnet':
         if (!canAccessMainResource('vpc-subnet')) break;

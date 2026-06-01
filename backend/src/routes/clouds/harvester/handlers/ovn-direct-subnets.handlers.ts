@@ -121,7 +121,8 @@ function kubeOvnEipPublicDisplayLabels(blocking: any[]): string[] {
  *    - 成功返回后写入 KubeOvnSubnetInventory（异步失败仅打日志，不推翻集群已创建资源）。
  *
  *10) 失败与回滚
- *    - 若 Subnet POST 失败，且本轮曾新创建 NAD（createdNewNad），则尝试按候选路径 DELETE 同名 NAD，避免留下孤立 NAD。
+ *    - 若 Subnet POST 失败，且本轮曾新创建 NAD（createdNewNad），则先移除 tower.io/managed finalizer，
+ *      再按候选路径 DELETE 同名 NAD（与删除子网时的 NAD 清理一致），并清理 Tower NAD 库存缓存，避免孤立 NAD。
  *
  * ---------------------------------------------------------------------------
  * 子网类型（注解 tower.io/subnet-type）与产品含义 — 简表
@@ -876,11 +877,45 @@ export async function harvesterSubnetDirectCreateHandler(req: any, res: Response
         `${apiBase}/v1/harvester/k8s.cni.cncf.io.network-attachment-definitions/${nadNamespace}/${encName}`,
         `${apiBase}/v1/harvester/k8s.cni.cncf.io.networkattachmentdefinitions/${nadNamespace}/${encName}`,
       ];
+      let nadRolledBack = false;
       for (const nadDelUrl of rollbackNadUrls) {
         try {
+          await removeTowerManagedFinalizerFromResourceUrl(
+            nadDelUrl,
+            cloud.secretKey || '',
+            insecure,
+            '[CreateSubnet/RollbackNAD]',
+          );
           await requestJson('DELETE', nadDelUrl, cloud.secretKey || '', insecure);
+          nadRolledBack = true;
           break;
-        } catch {}
+        } catch (delErr: any) {
+          const st = Number(delErr?.status ?? 0);
+          if (st === 404) {
+            nadRolledBack = true;
+            break;
+          }
+        }
+      }
+      if (nadRolledBack) {
+        try {
+          const nadRepo = AppDataSource.getRepository(KubevirtNadInventory);
+          await nadRepo.delete({ cloudId: cloud.id, name, namespace: nadNamespace });
+        } catch (nadInvErr) {
+          console.warn(
+            '[CreateSubnet/RollbackNAD] Failed to remove NAD inventory cache row:',
+            nadInvErr,
+          );
+        }
+        console.info(
+          '[CreateSubnet/RollbackNAD] 子网创建失败，已回滚删除新创建的 NAD:',
+          `${nadNamespace}/${name}`,
+        );
+      } else {
+        console.warn(
+          '[CreateSubnet/RollbackNAD] 子网创建失败，但回滚删除 NAD 未成功:',
+          `${nadNamespace}/${name}`,
+        );
       }
     };
 

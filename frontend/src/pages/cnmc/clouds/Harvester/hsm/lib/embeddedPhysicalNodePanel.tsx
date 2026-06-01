@@ -262,7 +262,7 @@ function NicFrontBay({
           {nic?.mac ? <div>MAC：{nic.mac}</div> : null}
           {stateRaw || vis.label ? <div>状态：{stateRaw || vis.label}</div> : null}
           {line4Traffic ? <div>流量：{line4Traffic}</div> : null}
-          {nic?.usedByHarvester ? <div>已被 Harvester 占用</div> : null}
+          {nic?.usedByHarvester ? <div>已被资源池占用</div> : null}
           {lldpRow && Object.keys(lldpRow).length > 0 ? (
             <>
               <div>LLDP</div>

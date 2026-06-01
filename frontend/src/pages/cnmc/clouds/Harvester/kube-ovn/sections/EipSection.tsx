@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   KUBE_OVN_PUBLIC_VPC,
   SUBNET_TYPE_ANNOTATION_KEY,
@@ -15,6 +15,7 @@ import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import {
   createCloudProviderOvnEip,
   deleteCloudProviderOvnEip,
+  fetchCloudProviderOvnEips,
   uiNetworkScopeToCloudOvn,
 } from '../../../../../../services/harvesterApi';
 import MetadataModal from '../modals/MetadataModal';
@@ -26,6 +27,11 @@ import {
   buildPublicSubnetNameToVpcNameMap,
   getOvnEipBoundVpcName,
 } from '../lib/kubeOvnEipVpcHelpers';
+import {
+  findOvnEipStaticIpConflict,
+  formatOvnEipStaticIpConflictMessage,
+  ovnEipNetworkScopeLabels,
+} from '../lib/kubeOvnEipStaticIpConflict';
 import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
@@ -69,6 +75,8 @@ interface EipSectionProps extends BaseSectionProps {
   /** VPC 分域创建/列表展示：传 Kube-OVN VPC 列表 */
   vpcs?: any[];
   networkScope?: 'flat' | 'vpc';
+  /** 对端域 EIP 缓存（扁平↔VPC）；缺省时打开创建弹窗会拉取 */
+  peerScopeEips?: any[];
 }
 
 export const EipSection: React.FC<EipSectionProps> = ({
@@ -79,6 +87,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
   loading,
   onRefresh,
   networkScope,
+  peerScopeEips,
 }) => {
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -105,6 +114,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
   }, [networkScope, perms, hasVpcsWrite]);
   const [isCreateVisible, setIsCreateVisible] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [peerEipsLoaded, setPeerEipsLoaded] = useState<any[]>([]);
   const [form] = Form.useForm();
   const [metadataRecord, setMetadataRecord] = useState<any>(null);
   
@@ -207,6 +217,46 @@ export const EipSection: React.FC<EipSectionProps> = ({
     return Array.from(set);
   }, [eips]);
 
+  const effectivePeerEips = useMemo(() => {
+    if (Array.isArray(peerScopeEips) && peerScopeEips.length > 0) return peerScopeEips;
+    return peerEipsLoaded;
+  }, [peerScopeEips, peerEipsLoaded]);
+
+  const scopeLabels = useMemo(() => ovnEipNetworkScopeLabels(networkScope), [networkScope]);
+
+  useEffect(() => {
+    if (!isCreateVisible || (networkScope !== 'flat' && networkScope !== 'vpc')) {
+      setPeerEipsLoaded([]);
+      return;
+    }
+    const peerScope = networkScope === 'flat' ? 'vpc' : 'flat';
+    let cancelled = false;
+    void (async () => {
+      try {
+        const json = await fetchCloudProviderOvnEips(cloudId, true, peerScope);
+        const list = (json as any)?.data?.items;
+        if (!cancelled) setPeerEipsLoaded(Array.isArray(list) ? list : []);
+      } catch {
+        if (!cancelled) setPeerEipsLoaded([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreateVisible, networkScope, cloudId]);
+
+  const findStaticIpConflict = useCallback(
+    (v4: string) =>
+      findOvnEipStaticIpConflict(
+        v4,
+        eips,
+        effectivePeerEips,
+        scopeLabels.local,
+        scopeLabels.peer,
+      ),
+    [eips, effectivePeerEips, scopeLabels.local, scopeLabels.peer],
+  );
+
   const handleCreate = async () => {
     if (!hasEipWrite) {
       message.error('无权限执行该操作');
@@ -224,13 +274,9 @@ export const EipSection: React.FC<EipSectionProps> = ({
       }
       const v4 = String(values.v4Ip ?? '').trim();
       if (v4) {
-        const owner = (Array.isArray(eips) ? eips : []).find((ex: any) => {
-          const ip = String(ex?.spec?.v4Ip ?? ex?.status?.v4Ip ?? '').trim();
-          return ip && ip === v4;
-        });
-        if (owner) {
-          const disp = ovnDisplayName(owner);
-          message.error(`该公网 IP 已被 「${disp}」占用，请更换其它地址或留空由系统分配`);
+        const conflict = findStaticIpConflict(v4);
+        if (conflict) {
+          message.error(formatOvnEipStaticIpConflictMessage(conflict));
           return;
         }
       }
@@ -704,11 +750,10 @@ export const EipSection: React.FC<EipSectionProps> = ({
                   if (!ipv4InCidr(raw, cidr)) {
                     throw new Error(`IP 须落在公共子网网段 ${cidr} 内`);
                   }
-                  // 排除列表仅限制自动分配，不限制用户手动指定的 IP
-                  // const excluded = s ? normalizeExcludeIps(s) : [];
-                  // if (excluded.length > 0 && ipv4ExcludedBy(excluded, raw)) {
-                  //   throw new Error('IP 位于该公共子网的排除列表/范围内，请选择其它地址');
-                  // }
+                  const conflict = findStaticIpConflict(raw);
+                  if (conflict) {
+                    throw new Error(formatOvnEipStaticIpConflictMessage(conflict));
+                  }
                 },
               }),
             ]}

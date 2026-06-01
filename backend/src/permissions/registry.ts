@@ -454,7 +454,10 @@ export class PermissionRegistry {
                 permissionBase = 'clouds.load-balancers';
               } else if (actualResourceType === 'storage-classes') {
                 permissionBase = 'clouds.storage-classes';
-              } else if (actualResourceType === 'nodes') {
+              } else if (
+                actualResourceType === 'nodes' ||
+                actualResourceType === 'node-resource-usage'
+              ) {
                 permissionBase = 'clouds.cluster-nodes';
               } else if (
                 actualResourceType === 'gpus' ||

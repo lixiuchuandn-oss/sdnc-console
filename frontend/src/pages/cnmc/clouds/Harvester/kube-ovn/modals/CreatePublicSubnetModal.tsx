@@ -16,6 +16,7 @@ import { defaultVlanCrNameByMinVlanId } from '../lib/vlanUtils';
 import {
   friendlyMessageIfKubeOvnGatewayNotInCidr,
   isIpv4GatewayInCidr,
+  validateFlatSubnetExcludeIpsLocal,
 } from '../lib/flatSubnetExcludeIpValidation';
 import { formatKubeOvnFriendlyError } from '../../../../../../utils/kubeOvnFriendlyError';
 
@@ -120,6 +121,13 @@ const CreatePublicSubnetModal: React.FC<CreatePublicSubnetModalProps> = ({
 
         const cidrTrim = String(rest.cidrBlock ?? '').trim();
         const gwTrim = String(rest.gateway ?? '').trim();
+
+        const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrTrim, excludeIps);
+        if (!excludeLocal.ok) {
+          message.error(excludeLocal.message);
+          return;
+        }
+
         const gwInCidr = isIpv4GatewayInCidr(gwTrim, cidrTrim);
         if (gwInCidr === false) {
           message.error('创建公共子网失败：网关不在CIDR 范围内');

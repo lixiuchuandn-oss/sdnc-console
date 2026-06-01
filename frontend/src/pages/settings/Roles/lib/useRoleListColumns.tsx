@@ -4,6 +4,7 @@ import { Tag, Typography } from 'antd';
 import type { App } from 'antd';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import type { RBACRole } from '../types';
+import { isBuiltInRbacRole } from './builtinRolePermissionView';
 import { getRolePermissionCount } from './getRolePermissionCount';
 
 const { Text, Link } = Typography;
@@ -121,7 +122,7 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
               ? [
                   {
                     key: 'auth',
-                    label: '配置权限',
+                    label: isBuiltInRbacRole(row) ? '查看权限' : '配置权限',
                     onClick: () => onAuthorize(row),
                   },
                 ]
