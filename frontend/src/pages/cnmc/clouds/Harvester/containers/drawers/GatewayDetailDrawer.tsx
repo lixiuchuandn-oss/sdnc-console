@@ -282,7 +282,7 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
                 <Card
                   title={
                     <Space>
-                      <span>Conditions</span>
+                      <span>状态条件</span>
                       <Tooltip title="Gateway 的状态条件，反映 Gateway 的当前状态">
                         <InfoCircleOutlined style={{ color: 'rgba(0,0,0,.45)' }} />
                       </Tooltip>
@@ -343,7 +343,7 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
                 <Card
                   title={
                     <Space>
-                      <span>Listeners</span>
+                      <span>监听器</span>
                       <Tooltip title="Gateway 监听器配置，定义端口、协议和路由规则">
                         <InfoCircleOutlined style={{ color: 'rgba(0,0,0,.45)' }} />
                       </Tooltip>
@@ -421,7 +421,7 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
                 <Card
                   title={
                     <Space>
-                      <span>Addresses</span>
+                      <span>地址</span>
                       <Tooltip title="Gateway 的网络地址配置">
                         <InfoCircleOutlined style={{ color: 'rgba(0,0,0,.45)' }} />
                       </Tooltip>
