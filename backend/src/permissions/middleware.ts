@@ -192,13 +192,9 @@ export function createApiPermissionMiddleware(options?: {
       if (actionBase === 'clouds.resource-pools' && isRead) {
         if (isCloudPoolListOrMetaReadPath(fullPath, method)) {
           const u = req.user as { role?: string; tenantId?: string; permissions?: string[] };
-          const isTenantUser =
-            u?.role === 'tenant' || (!!u?.tenantId && u?.role !== 'sase_device');
+          const isTenantUser = u?.role === 'tenant' || (!!u?.tenantId && u?.role !== 'sase_device');
           const userPerms = Array.isArray(u?.permissions) ? u.permissions : [];
-          if (
-            isTenantUser &&
-            hasAnyTenantCloudConsolePagePermission(userPerms)
-          ) {
+          if (isTenantUser && hasAnyTenantCloudConsolePagePermission(userPerms)) {
             const tenantCloudPerms = userPerms.filter(
               (p) =>
                 String(p).startsWith('clouds.') && !isTenantConsoleUmbrellaPermission(String(p)),

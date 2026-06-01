@@ -6,13 +6,13 @@
 
 ## 阶段总览
 
-| 阶段   | 目标                                  | 状态                                                                                      |
-| ------ | ------------------------------------- | ----------------------------------------------------------------------------------------- |
-| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                            |
-| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                            |
-| **P2** | 巨型文件按主题拆分                    | **JobsSection 等已完成**；**WorkloadForm** 首期 + 子编辑器（`workloadForm/editors/`）已拆 |
-| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载     |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health + auth)`**（health + 登录 + 受保护 API）  |
+| 阶段   | 目标                                  | 状态                                                                                                 |
+| ------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                                       |
+| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                                       |
+| **P2** | 巨型文件按主题拆分                    | **JobsSection 等已完成**；**WorkloadForm** 首期 + 子编辑器（`workloadForm/editors/`）已拆            |
+| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：`lazyPoolPanels`；`LazyReactECharts`；容器 Tab **`lazySections`**（按 Section 懒加载） |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health + auth)`**（health + 登录 + 受保护 API）             |
 
 ### Prettier 范围说明
 
@@ -78,6 +78,7 @@ npx tsc
 1. `npx source-map-explorer 'build/static/js/*.js'`（需先 `react-scripts build`）
 2. 对 >500KB 的 chunk 做路由级 `React.lazy`
 3. 复核 `echarts`、`@ant-design/charts` 是否可按页动态 import
+4. **容器域**：`Harvester/containers/lazySections.tsx` — Cloudmap 容器面板 / 租户控制台容器页按 Tab 懒加载 Section（避免未进 Tab 即拉 `WorkloadForm` 等）
 
 ---
 
