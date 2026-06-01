@@ -444,15 +444,6 @@ const getVmStatusLower = (vm: any) => {
   return String(vm?.status?.printableStatus || vm?.status?.phase || '').toLowerCase();
 };
 
-// 判断 VM 是否处于“看起来正在运行/正在启动”的状态
-// 这里同时参考：
-// - status.printableStatus / status.phase
-// - spec.running（有些 VM 会用这个布尔字段表示开关机意图）
-const isVmRunningLike = (vm: any) => {
-  const status = getVmStatusLower(vm);
-  return status === 'running' || status === 'starting' || vm?.spec?.running === true;
-};
-
 /** 回收站入站 / 纠偏关机：暂停(Paused)≠已停止，须一并下发 stop */
 export const isVmNeedsShutdown = (vm: any) => {
   const status = getVmStatusLower(vm);

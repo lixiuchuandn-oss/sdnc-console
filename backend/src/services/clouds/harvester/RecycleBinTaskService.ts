@@ -39,12 +39,6 @@ function summarizeRbErr(err: unknown): string {
   return e?.message || String(err);
 }
 
-// 判断 VM 是否处于运行状态（与 lifecycle.ts 中的逻辑保持一致）
-const getVmStatusLower = (vm: any): string => {
-  const status = vm?.status?.printableStatus || vm?.status?.phase || vm?.Status || '';
-  return String(status).toLowerCase();
-};
-
 export class RecycleBinTaskService {
   private static instance: RecycleBinTaskService;
   private shutdownTimer: NodeJS.Timeout | null = null;
