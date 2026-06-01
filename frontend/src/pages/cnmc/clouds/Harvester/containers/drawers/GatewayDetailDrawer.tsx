@@ -28,7 +28,6 @@ import {
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
-  MinusCircleOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
