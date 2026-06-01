@@ -1976,6 +1976,17 @@ export const updateGateway = async (cloudId: string, namespace: string, name: st
 };
 
 /**
+ * 获取 Gateway 相关的 Kubernetes Events
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @returns Promise<any> Events 列表
+ */
+export const fetchGatewayEvents = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/events`);
+};
+
+/**
  * 获取 HTTPRoute 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选)

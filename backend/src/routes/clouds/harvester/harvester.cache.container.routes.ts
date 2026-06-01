@@ -1742,9 +1742,9 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
   );
 
   /**
-   * [API] 删除 Gateway
-   * DELETE /:id/resources/harvester/containers/gateways/:namespace/:name
-   */
+    * [API] 删除 Gateway
+    * DELETE /:id/resources/harvester/containers/gateways/:namespace/:name
+    */
   router.delete(
     '/:id/resources/harvester/containers/gateways/:namespace/:name',
     checkAdminPermission,
@@ -1768,6 +1768,48 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
         res.json({ message: '删除 Gateway 成功', data: result });
       } catch (error: any) {
         res.status(500).json({ message: '删除 Gateway 失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 获取 Gateway 相关的 Kubernetes Events
+   * GET /:id/resources/harvester/containers/gateways/:namespace/:name/events
+   */
+  router.get(
+    '/:id/resources/harvester/containers/gateways/:namespace/:name/events',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id, namespace, name } = req.params;
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+
+        const url =
+          buildK8sUrl(base, '/api/v1/events', namespace) +
+          `?fieldSelector=involvedObject.name=${encodeURIComponent(name)},involvedObject.kind=Gateway`;
+
+        console.log(`[Gateway Events] Fetching events from: ${url}`);
+
+        const result = await getJsonOnce(url, token, insecure, true);
+        const items = result?.items || [];
+
+        items.sort((a: any, b: any) => {
+          const timeA = new Date(a?.lastTimestamp || a?.eventTime || 0).getTime();
+          const timeB = new Date(b?.lastTimestamp || b?.eventTime || 0).getTime();
+          return timeB - timeA;
+        });
+
+        res.json({ message: '查询成功', data: { items } });
+      } catch (error: any) {
+        console.error(`[Gateway Events] Error:`, error);
+        res.status(500).json({ message: '获取 Gateway 事件失败', error: error.message });
       }
     },
   );

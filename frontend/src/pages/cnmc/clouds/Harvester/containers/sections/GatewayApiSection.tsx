@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Alert, Button, message, Tag, Table, Select, Input, Modal, Tooltip, Form, Segmented } from 'antd';
-import { ExclamationCircleOutlined, SearchOutlined, ReloadOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
+import { Alert, Button, message, Tag, Table, Select, Input, Modal, Tooltip, Form, Segmented, Popover, Descriptions } from 'antd';
+import { ExclamationCircleOutlined, SearchOutlined, ReloadOutlined, PlusOutlined, EditTwoTone, InfoCircleOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -23,6 +23,7 @@ import {
   updateGrpcRoute,
 } from '../../../../../../services/harvesterApi';
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal, YamlEditModal } from '../components';
+import { GatewayDetailDrawer } from '../drawers/GatewayDetailDrawer';
 
 interface GatewayApiSectionProps {
   cloudId: string;
@@ -88,6 +89,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   // YAML 编辑状态
   const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
   const [yamlEditingType, setYamlEditingType] = useState<'gateway' | 'httproute' | 'grpcroute' | null>(null);
+
+  // Gateway 详情抽屉状态
+  const [gatewayDetailOpen, setGatewayDetailOpen] = useState(false);
+  const [gatewayDetailRecord, setGatewayDetailRecord] = useState<any>(null);
 
   // 检查 Gateway API 是否已安装
   const isInstalled = gatewayApiStatus?.installed ?? false;
@@ -303,6 +308,12 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     },
   ];
 
+  // 打开 Gateway 详情抽屉
+  const handleOpenGatewayDetail = useCallback((record: any) => {
+    setGatewayDetailRecord(record);
+    setGatewayDetailOpen(true);
+  }, []);
+
   // Gateway 表格列
   const gatewayColumns = [
     {
@@ -358,13 +369,55 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     },
     {
       title: '状态',
-      dataIndex: ['status', 'conditions'],
+      dataIndex: ['status'],
       key: 'status',
-      render: (conditions: any[]) => {
-        const ready = conditions?.find(c => c.type === 'Ready');
-        return ready?.status === 'True' 
-          ? <Tag color="green">Ready</Tag>
-          : <Tag color="orange">Not Ready</Tag>;
+      render: (status: any) => {
+        const conditions = status?.conditions || [];
+        const ready = conditions?.find((c: any) => c.type === 'Ready');
+        const isReady = ready?.status === 'True';
+        
+        // 收集所有 condition 信息
+        const conditionDetails = conditions?.map((c: any) => ({
+          type: c.type,
+          status: c.status,
+          reason: c.reason,
+          message: c.message,
+        })) || [];
+
+        // 获取失败原因
+        const notReadyReason = !isReady && ready ? (ready.reason || ready.message || '未知原因') : null;
+        
+        const content = (
+          <div style={{ maxWidth: 400 }}>
+            <Descriptions column={1} size="small">
+              {conditionDetails.map((c: any, idx: number) => (
+                <Descriptions.Item key={idx} label={c.type}>
+                  <Tag color={c.status === 'True' ? 'green' : 'orange'}>{c.status}</Tag>
+                  {c.reason && <span style={{ marginLeft: 8, color: '#666' }}>{c.reason}</span>}
+                </Descriptions.Item>
+              ))}
+            </Descriptions>
+          </div>
+        );
+
+        return (
+          <Popover content={content} title="条件详情" trigger="hover">
+            <span style={{ cursor: 'pointer' }}>
+              {isReady ? (
+                <Tag color="green">Ready</Tag>
+              ) : (
+                <Tag color="orange">
+                  Not Ready
+                  {notReadyReason && (
+                    <Tooltip title={notReadyReason}>
+                      <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                    </Tooltip>
+                  )}
+                </Tag>
+              )}
+            </span>
+          </Popover>
+        );
       },
     },
     {
@@ -388,8 +441,13 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             buttonProps={{ className: 'row-actions-trigger' }}
             items={filterMenuItemsForReadOnly([
               {
-                key: 'yaml',
-                label: 'YAML 编辑',
+                key: 'view-detail',
+                label: '查看详情',
+                onClick: () => handleOpenGatewayDetail(record),
+              },
+              {
+                key: 'view-yaml',
+                label: '查看 YAML',
                 onClick: () => handleOpenYamlEdit(record, 'gateway'),
               },
               {
@@ -1113,11 +1171,14 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         </Form>
       </Modal>
 
-      {/* YAML 编辑弹窗 */}
+      {/* YAML 查看/编辑弹窗 */}
       {yamlEditingRecord && yamlEditingType && (
         <YamlEditModal
           visible={true}
-          title={`YAML 编辑 - ${yamlEditingType === 'gateway' ? 'Gateway' : yamlEditingType === 'httproute' ? 'HTTPRoute' : 'GRPCRoute'}/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`}
+          title={yamlEditingType === 'gateway' 
+            ? `查看 YAML - Gateway/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`
+            : `YAML 编辑 - ${yamlEditingType === 'httproute' ? 'HTTPRoute' : 'GRPCRoute'}/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`
+          }
           cloudId={cloudId}
           namespace={yamlEditingRecord?.metadata?.namespace}
           name={yamlEditingRecord?.metadata?.name}
@@ -1126,8 +1187,20 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           onSaveYaml={handleSaveYaml}
           onCancel={handleCloseYamlEdit}
           onSuccess={handleYamlEditSuccess}
+          readOnly={yamlEditingType === 'gateway'}
         />
       )}
+
+      {/* Gateway 详情抽屉 */}
+      <GatewayDetailDrawer
+        open={gatewayDetailOpen}
+        onClose={() => {
+          setGatewayDetailOpen(false);
+          setGatewayDetailRecord(null);
+        }}
+        gateway={gatewayDetailRecord}
+        cloudId={cloudId}
+      />
     </PageDetailSection>
   );
 };
