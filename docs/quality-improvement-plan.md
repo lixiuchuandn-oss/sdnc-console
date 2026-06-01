@@ -6,13 +6,13 @@
 
 ## 阶段总览
 
-| 阶段   | 目标                                  | 状态                                                                                  |
-| ------ | ------------------------------------- | ------------------------------------------------------------------------------------- |
-| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                        |
-| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                        |
-| **P2** | 巨型文件按主题拆分                    | **JobsSection 等已完成**；**WorkloadForm** 首期（types/validators/utils）已拆         |
-| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载 |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health)`** workflow（`GET /health`）         |
+| 阶段   | 目标                                  | 状态                                                                                      |
+| ------ | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                            |
+| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                            |
+| **P2** | 巨型文件按主题拆分                    | **JobsSection 等已完成**；**WorkloadForm** 首期 + 子编辑器（`workloadForm/editors/`）已拆 |
+| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载     |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health)`** workflow（`GET /health`）             |
 
 ### Prettier 范围说明
 
@@ -56,13 +56,13 @@ npx tsc
 
 按「改动频率 × 行数」优先，每次只拆一个主题，保证 PR 可审。
 
-| 优先级 | 文件（约行数）                                                      | 建议拆法                                                                                 |
-| ------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | **已完成**：`shared`～`docker-registry` / `containerd-registry`；主文件 ~55 行装配       |
-| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | **已完成**：`shared`～`ecs-support` 七个子模块；主文件 ~17 行装配                        |
-| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | **已完成**：`vm_update/`（`applySimple`/`applyComplex`/`internal` ~80 行等）             |
-| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | **进行中**：`workloadForm/`（types/constants/validators 等）；主文件 ~6.6k；子编辑器待拆 |
-| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | **已完成**：`lib/jobs/*`、`components/jobs/*`；`sections/JobsSection.tsx` ~110 行        |
+| 优先级 | 文件（约行数）                                                      | 建议拆法                                                                                                                      |
+| ------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | **已完成**：`shared`～`docker-registry` / `containerd-registry`；主文件 ~55 行装配                                            |
+| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | **已完成**：`shared`～`ecs-support` 七个子模块；主文件 ~17 行装配                                                             |
+| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | **已完成**：`vm_update/`（`applySimple`/`applyComplex`/`internal` ~80 行等）                                                  |
+| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | **已完成**：`workloadForm/` + `editors/`（ResourceInput、Env/Volumes/Probe、亲和/容忍、DNS 等）；主文件 ~3.7k；可选再抽 hooks |
+| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | **已完成**：`lib/jobs/*`、`components/jobs/*`；`sections/JobsSection.tsx` ~110 行                                             |
 
 ### 单 PR 检查项
 
