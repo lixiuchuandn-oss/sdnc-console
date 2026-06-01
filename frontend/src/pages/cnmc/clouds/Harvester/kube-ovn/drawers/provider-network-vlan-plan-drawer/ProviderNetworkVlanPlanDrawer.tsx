@@ -36,6 +36,7 @@ import CreatePublicSubnetModal from '../../modals/CreatePublicSubnetModal';
 import { SUBNET_TYPE_ANNOTATION_KEY, TOWER_ALIAS_ANNOTATION } from '../../lib/kubeOvnSubnetConstants';
 import UnderlaySubnetFormFields from '../../lib/UnderlaySubnetFormFields';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../../lib/flatSubnetNatDeleteGuard';
+import { validateFlatSubnetExcludeIpsLocal } from '../../lib/flatSubnetExcludeIpValidation';
 import { getHarvesterDrawerSectionCardProps } from '../../../shared/drawerSectionCard';
 
 /**
@@ -388,6 +389,12 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
+      const cidrForExclude = String(rest.cidrBlock ?? editingSubnet?.cidr ?? '').trim();
+      const excludeLocal = validateFlatSubnetExcludeIpsLocal(cidrForExclude, excludeIps);
+      if (!excludeLocal.ok) {
+        message.error(`更新失败：${excludeLocal.message}`);
+        return;
+      }
 
       const payload = {
         ...rest,

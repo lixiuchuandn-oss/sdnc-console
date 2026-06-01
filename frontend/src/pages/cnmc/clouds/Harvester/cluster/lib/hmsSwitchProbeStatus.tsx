@@ -58,9 +58,12 @@ export function hmsServiceHealthState(
   return 'none';
 }
 
-export function switchProbeProductModel(probe: AswCtlSwitchProbeRecord | null | undefined): string {
+export function switchProbeProductModel(
+  probe: AswCtlSwitchProbeRecord | null | undefined,
+  vendor?: string | null,
+): string {
   if (!probe) return '';
-  return parseSwitchProductModelFromInfoLines(probe.info?.lines) || '';
+  return parseSwitchProductModelFromInfoLines(probe.info?.lines, { vendor }) || '';
 }
 
 export function switchProbeMatchedHost(probe: AswCtlSwitchProbeRecord | null | undefined): string {

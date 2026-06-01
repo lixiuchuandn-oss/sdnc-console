@@ -16,6 +16,7 @@ import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { registerHarvesterCacheRoutesProvider } from './harvester.cache.routes.provider';
 import { registerHarvesterContainerRoutes } from './harvester.cache.container.routes';
 import {
+  harvesterAswCtlDeviceProfilesHandler,
   harvesterAswCtlProbeHandler,
   harvesterAswCtlSwitchesHandler,
   harvesterAswCtlSyncHandler,
@@ -116,6 +117,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     '/:id/resources/harvester/asw-ctl/switches',
     checkAdminPermission,
     harvesterAswCtlSwitchesHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/asw-ctl/device-profiles',
+    checkAdminPermission,
+    harvesterAswCtlDeviceProfilesHandler,
   );
   router.post(
     '/:id/resources/harvester/asw-ctl/sync',
