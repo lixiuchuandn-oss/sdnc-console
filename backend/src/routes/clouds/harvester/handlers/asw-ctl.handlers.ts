@@ -379,6 +379,7 @@ async function fetchAswCtlSwitchRow(
     performanceHttpStatus,
     performanceNotApplicable,
     performanceNaMessage,
+    deviceProfiles: null,
     vlans,
     vlansError,
     vlansHttpStatus,
@@ -578,16 +579,14 @@ export async function harvesterAswCtlDeviceProfilesHandler(req: Request, res: Re
     if (!routed) {
       return res.json({
         configured: false,
-        message:
-          '未配置资源池 API Endpoint。请在资源池连接信息中填写与控制台相同的集群 API 地址。',
+        message: '未配置资源池 API Endpoint。请在资源池连接信息中填写与控制台相同的集群 API 地址。',
         items: [],
       });
     }
 
     const insecureTls = resolveAswCtlInsecureTls(cloud);
     const ep = routed.endpoints[0]!;
-    const switchName =
-      req.query.name != null ? String(req.query.name).trim() : '';
+    const switchName = req.query.name != null ? String(req.query.name).trim() : '';
     // 设备模板为集群级列表；先不带 ?name=，与探测同步一致。部分环境带 API Key 时须已有 Switch 名作为上下文再重试。
     let url = northApiPathWithPrefix('/device/profiles', routed.northPrefix);
     let profRes = await aswCtlGetJson(
@@ -598,11 +597,7 @@ export async function harvesterAswCtlDeviceProfilesHandler(req: Request, res: Re
       ASW_CTL_V1_JSON_TIMEOUT_MS,
     );
 
-    if (
-      !profRes.ok &&
-      switchName &&
-      /missing switch name/i.test(String(profRes.message || ''))
-    ) {
+    if (!profRes.ok && switchName && /missing switch name/i.test(String(profRes.message || ''))) {
       url = northPathWithSwitchName('/device/profiles', routed.northPrefix, switchName);
       profRes = await aswCtlGetJson(
         ep.baseUrl,
@@ -613,11 +608,7 @@ export async function harvesterAswCtlDeviceProfilesHandler(req: Request, res: Re
       );
     }
 
-    if (
-      !profRes.ok &&
-      !switchName &&
-      /missing switch name/i.test(String(profRes.message || ''))
-    ) {
+    if (!profRes.ok && !switchName && /missing switch name/i.test(String(profRes.message || ''))) {
       return res.json({
         configured: true,
         profilesUnavailable: true,

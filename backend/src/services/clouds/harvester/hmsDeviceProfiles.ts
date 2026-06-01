@@ -2,6 +2,21 @@
 
 export type HmsDeviceProfileOption = { value: string; label: string };
 
+const PROFILE_METADATA_KEYS = new Set([
+  'api_version',
+  'apiVersion',
+  'configured',
+  'data',
+  'items',
+  'message',
+  'needsSwitchName',
+  'profile_list',
+  'profiles',
+  'profilesUnavailable',
+  'raw',
+  'sourcePath',
+]);
+
 export function parseHmsDeviceProfilesPayload(data: unknown): HmsDeviceProfileOption[] {
   if (data == null) return [];
   const seen = new Set<string>();
@@ -33,7 +48,7 @@ export function parseHmsDeviceProfilesPayload(data: unknown): HmsDeviceProfileOp
         o.label ?? o.displayName ?? o.display_name ?? o.name ?? o.id,
       );
     }
-    return out.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+    return out;
   }
 
   if (typeof data !== 'object') return out;
@@ -48,5 +63,22 @@ export function parseHmsDeviceProfilesPayload(data: unknown): HmsDeviceProfileOp
     }
   }
 
-  return out.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
+  for (const [key, value] of Object.entries(root)) {
+    if (PROFILE_METADATA_KEYS.has(key)) continue;
+    if (typeof value === 'string') {
+      push(key, value);
+      continue;
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const item = value as Record<string, unknown>;
+      push(
+        item.value ?? item.id ?? item.key ?? item.profile ?? item.name ?? key,
+        item.label ?? item.displayName ?? item.display_name ?? item.name ?? key,
+      );
+      continue;
+    }
+    push(key);
+  }
+
+  return out;
 }

@@ -645,7 +645,10 @@ async function harvesterOvnEipCreateHandlerScoped(
           });
         }
       } catch (prefetchErr: any) {
-        console.warn('[CreateEIP] v4Ip 占用预检失败，继续提交集群:', prefetchErr?.message || prefetchErr);
+        console.warn(
+          '[CreateEIP] v4Ip 占用预检失败，继续提交集群:',
+          prefetchErr?.message || prefetchErr,
+        );
       }
     }
 
