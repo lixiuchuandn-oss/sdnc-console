@@ -1,20 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Empty } from 'antd';
+import { ContainerOperationsGate } from '../../../../Harvester/containers';
 import {
-  WorkloadsSection,
-  PodsSection,
-  JobsSection,
-  ConfigsSection,
-  RegistriesSection,
-  GatewayApiSection,
-  PDBSection,
-  NetworkPoliciesSection,
-  ServiceTopologySection,
-  IngressesSection,
-  ContainerOperationsGate,
-} from '../../../../Harvester/containers';
+  ContainerSectionSuspense,
+  LazyWorkloadsSection,
+  LazyPodsSection,
+  LazyJobsSection,
+  LazyServicesSection,
+  LazyIngressesSection,
+  LazyGatewayApiSection,
+  LazyServiceTopologySection,
+  LazyPDBSection,
+  LazyNetworkPoliciesSection,
+  LazyConfigsSection,
+  LazyRegistriesSection,
+} from '../../../../Harvester/containers/lazySections';
 import { canReadContainerTab, canWriteContainerTab } from '../../../../../../../utils/permissionUtils';
-import ServicesSection from '../../../../Harvester/containers/sections/ServicesSection';
 import {
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
@@ -235,7 +236,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
 
   if (innerActiveKey === 'workloads') {
     content = (
-      <WorkloadsSection
+      <LazyWorkloadsSection
         deployments={filterByTenantNs(harvesterDeployments)}
         statefulsets={filterByTenantNs(harvesterStatefulSets)}
         daemonsets={filterByTenantNs(harvesterDaemonSets)}
@@ -263,7 +264,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'pods') {
     content = (
-      <PodsSection
+      <LazyPodsSection
         pods={filterByTenantNs(harvesterPods)}
         loading={resourceLoading.pods}
         namespacesOptions={namespacesOptions}
@@ -284,7 +285,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'jobs') {
     content = (
-      <JobsSection
+      <LazyJobsSection
         jobs={filterByTenantNs(harvesterJobs)}
         cronjobs={filterByTenantNs(harvesterCronJobs)}
         loading={resourceLoading.jobs || resourceLoading.cronjobs}
@@ -302,7 +303,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'services') {
     content = (
-      <ServicesSection
+      <LazyServicesSection
         cloudId={cloudId}
         services={filterByTenantNs(harvesterServices)}
         loading={resourceLoading.services}
@@ -316,7 +317,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'ingresses') {
     content = (
-      <IngressesSection
+      <LazyIngressesSection
         cloudId={cloudId}
         ingresses={filterByTenantNs(harvesterIngresses)}
         loading={resourceLoading.ingresses}
@@ -333,7 +334,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'gateway_api') {
     content = (
-      <GatewayApiSection
+      <LazyGatewayApiSection
         cloudId={cloudId}
         gatewayApiStatus={gatewayApiStatus}
         gatewayClasses={gatewayClasses}
@@ -352,7 +353,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'service_topology') {
     content = (
-      <ServiceTopologySection
+      <LazyServiceTopologySection
         cloudId={cloudId}
         ingresses={filterByTenantNs(harvesterIngresses)}
         services={filterByTenantNs(harvesterServices)}
@@ -376,7 +377,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'pdbs') {
     content = (
-      <PDBSection
+      <LazyPDBSection
         pdbs={filterByTenantNs(harvesterPDBs)}
         loading={resourceLoading.pdbs}
         namespacesOptions={namespacesOptions}
@@ -391,7 +392,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'networkpolicies') {
     content = (
-      <NetworkPoliciesSection
+      <LazyNetworkPoliciesSection
         networkPolicies={filterByTenantNs(harvesterNetworkPolicies)}
         loading={resourceLoading.networkpolicies}
         namespacesOptions={namespacesOptions}
@@ -406,7 +407,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'configs') {
     content = (
-      <ConfigsSection
+      <LazyConfigsSection
         configmaps={filterByTenantNs(harvesterConfigMaps)}
         secrets={filterByTenantNs(harvesterSecrets)}
         loading={resourceLoading.configmaps || resourceLoading.secrets}
@@ -425,7 +426,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'registries') {
     content = (
-      <RegistriesSection
+      <LazyRegistriesSection
         secrets={filterByTenantNs(harvesterImagePullSecrets)}
         secretsWithCredentials={filterByTenantNs(harvesterSecrets)}
         loading={resourceLoading.imagePullSecrets}
@@ -440,7 +441,11 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     content = <Empty description="未知页面" style={{ marginTop: 48 }} />;
   }
 
-  return <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>{content}</ContainerOperationsGate>;
+  return (
+    <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
+      <ContainerSectionSuspense>{content}</ContainerSectionSuspense>
+    </ContainerOperationsGate>
+  );
 };
 
 export default CloudmapContainersRoutePanel;

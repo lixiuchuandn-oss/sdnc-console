@@ -20,20 +20,21 @@ import {
 import { canAccessTenantConsoleContainerResource } from '../lib/tenantConsolePageAccess';
 import { CONTAINER_NAV_CATEGORIES, type NavCategory } from '../lib/tenantConsoleSiderNav';
 import { ContainerOperationsGate } from '../../clouds/Harvester/containers/ContainerOperationsContext';
+import {
+  ContainerSectionSuspense,
+  LazyWorkloadsSection,
+  LazyPodsSection,
+  LazyJobsSection,
+  LazyServicesSection,
+  LazyIngressesSection,
+  LazyGatewayApiSection,
+  LazyConfigsSection,
+  LazyRegistriesSection,
+  LazyPDBSection,
+  LazyNetworkPoliciesSection,
+} from '../../clouds/Harvester/containers/lazySections';
 import { pickFirstNamespaceRecordByScenario } from '../../../../utils/harvesterUtils';
 import { useAuth } from '../../../../contexts/AuthContext';
-import ServicesSection from '../../clouds/Harvester/containers/sections/ServicesSection';
-import {
-  WorkloadsSection,
-  PodsSection,
-  JobsSection,
-  ConfigsSection,
-  RegistriesSection,
-  GatewayApiSection,
-  PDBSection,
-  NetworkPoliciesSection,
-  IngressesSection,
-} from '../../clouds/Harvester/containers';
 
 const CONTAINER_TAB_CONFIG: NavCategory[] = CONTAINER_NAV_CATEGORIES;
 
@@ -208,7 +209,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
     switch (activeResource) {
       case 'ctr-workloads':
         return (
-          <WorkloadsSection
+          <LazyWorkloadsSection
             deployments={deployments}
             statefulsets={statefulsets}
             daemonsets={daemonsets}
@@ -230,7 +231,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-pods':
         return (
-          <PodsSection
+          <LazyPodsSection
             pods={pods}
             loading={!!resourceLoading.pods}
             namespacesOptions={namespacesOptions}
@@ -248,7 +249,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-jobs':
         return (
-          <JobsSection
+          <LazyJobsSection
             jobs={jobs}
             cronjobs={cronjobs}
             loading={jobLoading}
@@ -264,7 +265,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-services':
         return (
-          <ServicesSection
+          <LazyServicesSection
             cloudId={cloudId}
             services={services}
             loading={!!resourceLoading.services}
@@ -279,7 +280,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-ingresses':
         return (
-          <IngressesSection
+          <LazyIngressesSection
             cloudId={cloudId}
             ingresses={ingresses}
             loading={!!resourceLoading.ingresses}
@@ -293,7 +294,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-gateway':
         return (
-          <GatewayApiSection
+          <LazyGatewayApiSection
             cloudId={cloudId}
             gatewayApiStatus={gatewayApiStatus}
             gatewayClasses={gatewayClasses}
@@ -313,7 +314,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-configs':
         return (
-          <ConfigsSection
+          <LazyConfigsSection
             configmaps={configmaps}
             secrets={secrets}
             loading={
@@ -329,7 +330,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-registries':
         return (
-          <RegistriesSection
+          <LazyRegistriesSection
             secrets={imagePullSecrets}
             secretsWithCredentials={secrets}
             loading={!!resourceLoading.imagePullSecrets}
@@ -343,7 +344,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-pdbs':
         return (
-          <PDBSection
+          <LazyPDBSection
             pdbs={pdbs}
             loading={!!resourceLoading.pdbs}
             namespacesOptions={namespacesOptions}
@@ -356,7 +357,7 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
         );
       case 'ctr-netpol':
         return (
-          <NetworkPoliciesSection
+          <LazyNetworkPoliciesSection
             networkPolicies={networkpolicies}
             loading={!!resourceLoading.networkpolicies}
             namespacesOptions={namespacesOptions}
@@ -424,7 +425,9 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
 
   return (
     <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
-      <div className="cloud-console-panel-root">{renderContent()}</div>
+      <div className="cloud-console-panel-root">
+        <ContainerSectionSuspense>{renderContent()}</ContainerSectionSuspense>
+      </div>
     </ContainerOperationsGate>
   );
 };
