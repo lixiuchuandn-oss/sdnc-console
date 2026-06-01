@@ -112,10 +112,24 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           console.log('[安装 NGINX Gateway] 结果:', result);
           
           const steps = result?.results || [];
+          
+          // 显示详细结果
+          const resultText = steps.map((s: any) => {
+            const statusIcon = s.status === 'success' ? '✅' : s.status === 'error' ? '❌' : '⏭️';
+            return `${statusIcon} ${s.step}: ${s.message || s.status}`;
+          }).join('\n');
+          
           const hasError = steps.some((s: any) => s.status === 'error');
           
           if (hasError) {
-            message.warning('安装完成，但部分步骤失败，请查看控制台');
+            Modal.warning({
+              title: '安装结果',
+              content: (
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                  {resultText}
+                </pre>
+              ),
+            });
           } else {
             message.success('NGINX Gateway Fabric 安装成功');
             onRefresh(true);
