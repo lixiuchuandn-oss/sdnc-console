@@ -2192,6 +2192,167 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
     },
   );
 
+  /**
+   * [API] 安装 NGINX Gateway Fabric
+   * POST /:id/resources/harvester/containers/gateway/install-nginx-controller
+   */
+  router.post(
+    '/:id/resources/harvester/containers/gateway/install-nginx-controller',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
+
+        const insecure = !!(cloud.config as any)?.ignoreTls;
+        const token = cloud.secretKey || '';
+        const base = cloud.endpoint || '';
+        const origin = extractOrigin(base);
+
+        const results: { step: string; status: string; message?: string }[] = [];
+
+        // Step 1: 创建命名空间
+        try {
+          const nsUrl = `${origin}/api/v1/namespaces`;
+          const nsBody = {
+            apiVersion: 'v1',
+            kind: 'Namespace',
+            metadata: {
+              name: 'nginx-gateway',
+              labels: {
+                'app.kubernetes.io/name': 'nginx-gateway',
+                'app.kubernetes.io/part-of': 'nginx-gateway-fabric',
+              },
+            },
+          };
+          await requestJson('POST', nsUrl, token, insecure, nsBody);
+          results.push({ step: '创建命名空间 nginx-gateway', status: 'success' });
+        } catch (error: any) {
+          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+            results.push({ step: '创建命名空间 nginx-gateway', status: 'skipped', message: '命名空间已存在' });
+          } else {
+            results.push({ step: '创建命名空间 nginx-gateway', status: 'error', message: error.message });
+          }
+        }
+
+        // Step 2: 创建 ServiceAccount
+        try {
+          const saUrl = `${origin}/api/v1/namespaces/nginx-gateway/serviceaccounts`;
+          const saBody = {
+            apiVersion: 'v1',
+            kind: 'ServiceAccount',
+            metadata: {
+              name: 'nginx-gateway',
+              namespace: 'nginx-gateway',
+            },
+          };
+          await requestJson('POST', saUrl, token, insecure, saBody);
+          results.push({ step: '创建 ServiceAccount', status: 'success' });
+        } catch (error: any) {
+          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+            results.push({ step: '创建 ServiceAccount', status: 'skipped', message: '已存在' });
+          } else {
+            results.push({ step: '创建 ServiceAccount', status: 'error', message: error.message });
+          }
+        }
+
+        // Step 3: 部署 NGINX Gateway Fabric
+        try {
+          const deployUrl = `${origin}/apis/apps/v1/namespaces/nginx-gateway/deployments`;
+          const deployBody = {
+            apiVersion: 'apps/v1',
+            kind: 'Deployment',
+            metadata: {
+              name: 'nginx-gateway',
+              namespace: 'nginx-gateway',
+              labels: {
+                'app.kubernetes.io/name': 'nginx-gateway',
+                'app.kubernetes.io/part-of': 'nginx-gateway-fabric',
+              },
+            },
+            spec: {
+              replicas: 1,
+              selector: {
+                matchLabels: {
+                  'app.kubernetes.io/name': 'nginx-gateway',
+                },
+              },
+              template: {
+                metadata: {
+                  labels: {
+                    'app.kubernetes.io/name': 'nginx-gateway',
+                  },
+                },
+                spec: {
+                  containers: [
+                    {
+                      name: 'nginx-gateway',
+                      image: 'ghcr.io/nginxinc/nginx-gateway-fabric:1.4.0',
+                      ports: [
+                        { containerPort: 80, name: 'http' },
+                        { containerPort: 443, name: 'https' },
+                      ],
+                      env: [
+                        { name: 'GATEWAY_CONTROLLER_NAME', value: 'nginx.org/gateway-controller' },
+                      ],
+                      resources: {
+                        limits: { memory: '256Mi' },
+                        requests: { cpu: '100m', memory: '128Mi' },
+                      },
+                    },
+                  ],
+                  serviceAccountName: 'nginx-gateway',
+                },
+              },
+            },
+          };
+          await requestJson('POST', deployUrl, token, insecure, deployBody);
+          results.push({ step: '部署 NGINX Gateway Fabric', status: 'success' });
+        } catch (error: any) {
+          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+            results.push({ step: '部署 NGINX Gateway Fabric', status: 'skipped', message: '部署已存在' });
+          } else {
+            results.push({ step: '部署 NGINX Gateway Fabric', status: 'error', message: error.message });
+          }
+        }
+
+        // Step 4: 创建 GatewayClass
+        try {
+          const gcUrl = `${origin}/apis/gateway.networking.k8s.io/v1/gatewayclasses`;
+          const gcBody = {
+            apiVersion: 'gateway.networking.k8s.io/v1',
+            kind: 'GatewayClass',
+            metadata: {
+              name: 'nginx',
+            },
+            spec: {
+              controllerName: 'nginx.org/gateway-controller',
+            },
+          };
+          await requestJson('POST', gcUrl, token, insecure, gcBody);
+          results.push({ step: '创建 GatewayClass (nginx)', status: 'success' });
+        } catch (error: any) {
+          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+            results.push({ step: '创建 GatewayClass (nginx)', status: 'skipped', message: 'GatewayClass 已存在' });
+          } else {
+            results.push({ step: '创建 GatewayClass (nginx)', status: 'error', message: error.message });
+          }
+        }
+
+        res.json({
+          message: 'NGINX Gateway Fabric 安装完成',
+          results,
+        });
+      } catch (error: any) {
+        console.error('[安装 NGINX Gateway Fabric] 错误:', error);
+        res.status(500).json({ message: '安装失败', error: error.message });
+      }
+    },
+  );
+
   // ============================================================
   // [CRUD 操作] 通过代理转发
   // ============================================================

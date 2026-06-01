@@ -2098,6 +2098,15 @@ export const updateGrpcRoute = async (cloudId: string, namespace: string, name: 
   return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
 };
 
+/**
+ * 安装 NGINX Gateway Fabric
+ * @param cloudId 云环境 ID
+ * @returns Promise<any> 安装结果
+ */
+export const installNginxGatewayFabric = async (cloudId: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/gateway/install-nginx-controller`);
+};
+
 // ============================================================
 // Service/Ingress 扩展 API (创建/更新/删除)
 // ============================================================

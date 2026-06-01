@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Alert, Button, message, Tag, Table, Select, Input, Modal, Tooltip, Form, Segmented, Popover, Descriptions } from 'antd';
-import { ExclamationCircleOutlined, SearchOutlined, ReloadOutlined, PlusOutlined, EditTwoTone, InfoCircleOutlined } from '@ant-design/icons';
+import { Alert, Button, message, Tag, Table, Select, Input, Modal, Tooltip, Form, Segmented, Popover, Descriptions, Space } from 'antd';
+import { ExclamationCircleOutlined, SearchOutlined, ReloadOutlined, PlusOutlined, EditTwoTone, InfoCircleOutlined, DownloadOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -21,6 +21,7 @@ import {
   updateGateway,
   updateHttpRoute,
   updateGrpcRoute,
+  installNginxGatewayFabric,
 } from '../../../../../../services/harvesterApi';
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal, YamlEditModal } from '../components';
 import { GatewayDetailDrawer } from '../drawers/GatewayDetailDrawer';
@@ -93,6 +94,41 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   // Gateway 详情抽屉状态
   const [gatewayDetailOpen, setGatewayDetailOpen] = useState(false);
   const [gatewayDetailRecord, setGatewayDetailRecord] = useState<any>(null);
+
+  // 安装 NGINX Gateway 状态
+  const [installNginxLoading, setInstallNginxLoading] = useState(false);
+
+  // 安装 NGINX Gateway Fabric
+  const handleInstallNginxGateway = useCallback(async () => {
+    Modal.confirm({
+      title: '安装 NGINX Gateway Fabric',
+      content: '将安装 NGINX Gateway Fabric 控制器到集群，包括命名空间、部署和默认 GatewayClass。是否继续？',
+      okText: '安装',
+      cancelText: '取消',
+      onOk: async () => {
+        setInstallNginxLoading(true);
+        try {
+          const result = await installNginxGatewayFabric(cloudId);
+          console.log('[安装 NGINX Gateway] 结果:', result);
+          
+          const steps = result?.results || [];
+          const hasError = steps.some((s: any) => s.status === 'error');
+          
+          if (hasError) {
+            message.warning('安装完成，但部分步骤失败，请查看控制台');
+          } else {
+            message.success('NGINX Gateway Fabric 安装成功');
+            onRefresh(true);
+          }
+        } catch (error: any) {
+          console.error('[安装 NGINX Gateway] 失败:', error);
+          message.error(error?.response?.data?.message || error?.message || '安装失败');
+        } finally {
+          setInstallNginxLoading(false);
+        }
+      },
+    });
+  }, [cloudId, onRefresh]);
 
   // 检查 Gateway API 是否已安装
   const isInstalled = gatewayApiStatus?.installed ?? false;
@@ -876,15 +912,26 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         );
       case 'gatewayclasses':
         return (
-          <WriteGuard canWrite={hasContainersWrite}>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => setGatewayClassModalOpen(true)}
-            >
-              创建
-            </Button>
-          </WriteGuard>
+          <Space>
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setGatewayClassModalOpen(true)}
+              >
+                创建
+              </Button>
+            </WriteGuard>
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button
+                icon={<DownloadOutlined />}
+                onClick={handleInstallNginxGateway}
+                loading={installNginxLoading}
+              >
+                安装 NGINX Gateway
+              </Button>
+            </WriteGuard>
+          </Space>
         );
       default:
         return null;
@@ -1105,6 +1152,8 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             <Select
               placeholder="选择控制器"
               showSearch
+              style={{ width: '100%' }}
+              popupMatchSelectWidth={400}
               options={[
                 { label: 'NGINX Gateway Fabric (nginx.org/gateway-controller)', value: 'nginx.org/gateway-controller' },
                 { label: 'Istio (istio.io/gateway-controller)', value: 'istio.io/gateway-controller' },
