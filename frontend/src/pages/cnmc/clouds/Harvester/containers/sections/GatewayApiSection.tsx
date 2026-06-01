@@ -1099,10 +1099,18 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           <Form.Item
             name="controllerName"
             label="控制器名称"
-            rules={[{ required: true, message: '请输入控制器名称' }]}
+            rules={[{ required: true, message: '请选择或输入控制器名称' }]}
             initialValue="nginx.org/gateway-controller"
           >
-            <Input placeholder="如: nginx.org/gateway-controller" />
+            <Select
+              placeholder="选择控制器"
+              showSearch
+              options={[
+                { label: 'NGINX Gateway Fabric (nginx.org/gateway-controller)', value: 'nginx.org/gateway-controller' },
+                { label: 'Istio (istio.io/gateway-controller)', value: 'istio.io/gateway-controller' },
+                { label: 'Envoy Gateway (envoyproxy.io/gateway-controller)', value: 'envoyproxy.io/gateway-controller' },
+              ]}
+            />
           </Form.Item>
           <Form.Item
             name="description"
@@ -1112,15 +1120,21 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           </Form.Item>
         </Form>
         <Alert
-          type="info"
+          type="warning"
           showIcon
-          message="GatewayClass 定义了 Gateway 的控制器实现。常见控制器包括："
+          message="使用前需先安装 Gateway 控制器"
           description={
-            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-              <li><code>nginx.org/gateway-controller</code> - NGINX Gateway Fabric</li>
-              <li><code>istio.io/gateway-controller</code> - Istio</li>
-              <li><code>envoyproxy.io/gateway-controller</code> - Envoy Gateway</li>
-            </ul>
+            <div>
+              <p style={{ margin: '0 0 8px' }}>GatewayClass 需要对应的控制器才能工作。常见控制器：</p>
+              <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
+                <li><b>NGINX Gateway Fabric</b> - <code>nginx.org/gateway-controller</code></li>
+                <li><b>Istio</b> - <code>istio.io/gateway-controller</code></li>
+                <li><b>Envoy Gateway</b> - <code>envoyproxy.io/gateway-controller</code></li>
+              </ul>
+              <p style={{ margin: 0, color: '#666' }}>
+                提示：Harvester 默认使用 Ingress-nginx（Ingress 控制器），如需使用 Gateway API 请先安装对应控制器。
+              </p>
+            </div>
           }
           style={{ marginTop: 16 }}
         />
