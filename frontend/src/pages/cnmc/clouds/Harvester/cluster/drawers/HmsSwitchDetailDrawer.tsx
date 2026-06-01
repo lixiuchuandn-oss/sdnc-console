@@ -108,7 +108,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
       parseSwitchProductModelFromInfoLines(probeRecord.info?.lines, { vendor: cr?.spec?.vendor }) ||
       ''
     );
-  }, [probeRecord]);
+  }, [probeRecord, cr?.spec?.vendor]);
 
   const tabItems = useMemo(() => {
     if (!cr) return [];
@@ -222,9 +222,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
             {!probeLoading && probeRecord ? (
               <>
                 {runtimeTitle ? (
-                  <Typography.Text type="secondary">
-                    设备标识：{runtimeTitle}
-                  </Typography.Text>
+                  <Typography.Text type="secondary">设备标识：{runtimeTitle}</Typography.Text>
                 ) : null}
                 <PhysicalSwitchProbeTabs record={probeRecord} />
               </>
@@ -256,17 +254,17 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
       onClose={onClose}
       destroyOnHidden
       extra={
-        <Button
-          size="small"
-          loading={probeLoading}
-          onClick={() => void loadProbe(!!canSync)}
-        >
+        <Button size="small" loading={probeLoading} onClick={() => void loadProbe(!!canSync)}>
           {canSync ? '探测刷新' : '刷新'}
         </Button>
       }
     >
       {cr ? (
-        <Tabs activeKey={activeTab} onChange={(k) => setActiveTab(k as typeof activeTab)} items={tabItems} />
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as typeof activeTab)}
+          items={tabItems}
+        />
       ) : null}
     </Drawer>
   );
