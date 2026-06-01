@@ -2,6 +2,8 @@
  * 容器 Tab Section 按需加载：进入 Cloudmap「容器」或租户控制台容器页时，
  * 仅加载当前 innerActiveKey / resource 对应 Section，避免一次性拉取 WorkloadForm 等重模块。
  */
+import './lazySectionsPreloadStyles';
+
 import React, { Suspense } from 'react';
 import { Spin } from 'antd';
 

@@ -4,9 +4,9 @@ import {
 } from './tenantConsolePageAccess';
 
 describe('tenantConsolePageAccess fallback', () => {
-  it('picks first host resource when vm is not granted', () => {
+  it('picks first host resource when vm is not granted (legacy clouds.backups → 快照)', () => {
     const perms = ['clouds.backups:read', 'clouds.backups:write'];
-    expect(firstAccessibleTenantConsoleMainResourceForScope(perms, 'host')).toBe('backup');
+    expect(firstAccessibleTenantConsoleMainResourceForScope(perms, 'host')).toBe('snapshot');
     expect(firstAccessibleTenantConsoleLeftNav(perms, false)).toBe('host');
   });
 
