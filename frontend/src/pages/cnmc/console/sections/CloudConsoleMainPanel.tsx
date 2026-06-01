@@ -8,17 +8,20 @@ import { Empty } from 'antd';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
-import VmSection from '../../clouds/Harvester/ecs/sections/VmSection';
-import RecycleBinSection from '../../clouds/Harvester/ecs/sections/RecycleBinSection';
-import TemplatesSection from '../../clouds/Harvester/ecs/sections/TemplatesSection';
-import SshKeysSection from '../../clouds/Harvester/ecs/sections/SshKeysSection';
+import {
+  EcsSectionSuspense,
+  LazyVmSection,
+  LazyRecycleBinSection,
+  LazyTemplatesSection,
+  LazySshKeysSection,
+  LazyCloudInitsSection,
+  LazyImagesSection,
+} from '../../clouds/Harvester/ecs/lazySections';
 import VolumesSection from '../../clouds/Harvester/ebs/sections/VolumesSection';
-import ImagesSection from '../../clouds/Harvester/ecs/sections/ImagesSection';
 import BackupsSection from '../../clouds/Harvester/cbr/sections/BackupsSection';
 import ScheduleVmBackupsSection from '../../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
 import VmRestoreTasksSection from '../../clouds/Harvester/cbr/sections/VmRestoreTasksSection';
 import SnapshotsSection from '../../clouds/Harvester/ebs/sections/SnapshotsSection';
-import CloudInitsSection from '../../clouds/Harvester/ecs/sections/CloudInitsSection';
 import GpuSection from '../../clouds/Harvester/cluster/sections/GpusSection';
 import EipSection from '../../clouds/Harvester/kube-ovn/sections/EipSection';
 import SnatSection from '../../clouds/Harvester/kube-ovn/sections/SnatSection';
@@ -277,7 +280,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     switch (activeResource) {
       case 'vm':
         return (
-          <VmSection
+          <LazyVmSection
             vms={vms}
             images={images}
             volumes={volumes}
@@ -310,7 +313,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'recycle-bin':
         return (
-          <RecycleBinSection
+          <LazyRecycleBinSection
             vms={vms}
             loading={loading}
             cloudId={cloudId}
@@ -323,7 +326,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'template':
         return (
-          <TemplatesSection
+          <LazyTemplatesSection
             cloudId={cloudId}
             templates={templates}
             loading={loading}
@@ -334,7 +337,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'ssh':
         return (
-          <SshKeysSection
+          <LazySshKeysSection
             cloudId={cloudId}
             sshKeys={sshKeys}
             loading={loading}
@@ -344,7 +347,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'cloudinit':
         return (
-          <CloudInitsSection
+          <LazyCloudInitsSection
             cloudId={cloudId}
             cloudInits={cloudInits}
             loading={loading}
@@ -390,7 +393,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'image':
         return (
-          <ImagesSection
+          <LazyImagesSection
             images={images}
             loading={loading}
             onRefresh={onRefreshImages}
@@ -575,7 +578,11 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     );
   }
 
-  return <div className="cloud-console-panel-root">{renderContent()}</div>;
+  return (
+    <div className="cloud-console-panel-root">
+      <EcsSectionSuspense>{renderContent()}</EcsSectionSuspense>
+    </div>
+  );
 };
 
 export default CloudConsoleMainPanel;
