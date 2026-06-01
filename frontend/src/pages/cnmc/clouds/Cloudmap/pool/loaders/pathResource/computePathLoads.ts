@@ -12,7 +12,7 @@ import {
 } from './computeEcsListLoad';
 import { fetchComputeMigrationsList } from './computeMigrationsLoad';
 
-/** 云主机域（`panels/compute`）：`CLOUDMAP_COMPUTE_INNER_MENU` 中按需项 */
+/** ?????`panels/compute`??`CLOUDMAP_COMPUTE_INNER_MENU` ?????*/
 export async function tryLoadComputeTab(
   key: string,
   force: boolean,
@@ -40,7 +40,7 @@ export async function tryLoadComputeTab(
   switch (key) {
     case 'ecs':
       if (checkPerm('clouds.ecs:read')) {
-        void loadResource(
+        await loadResource(
           'ecs',
           async () => {
             await syncCloudEcsBeforeLoad(cloudId, force, skipSync);
@@ -59,7 +59,7 @@ export async function tryLoadComputeTab(
         checkPerm('clouds.migrations:read') ||
         checkPerm('clouds.ecs:read')
       ) {
-        void loadResource(
+        await loadResource(
           'migrations',
           () => fetchComputeMigrationsList(cloudId, force),
           (list) => {
@@ -72,7 +72,7 @@ export async function tryLoadComputeTab(
       return true;
     case 'images':
       if (checkPerm('clouds.images:read') || checkPerm('clouds.ecs:read')) {
-        loadResource(
+        await loadResource(
           'images',
           () => fetchHarvesterImages(cloudId, force),
           (json) => {
@@ -88,7 +88,7 @@ export async function tryLoadComputeTab(
       return true;
     case 'ssh_keys':
       if (checkPerm('clouds.sshkeys:read')) {
-        loadResource(
+        await loadResource(
           'sshKeys',
           () => fetchHarvesterSshKeys(cloudId, force),
           (json) => {
@@ -104,7 +104,7 @@ export async function tryLoadComputeTab(
       return true;
     case 'cloud_inits':
       if (checkPerm('clouds.cloudinits:read')) {
-        loadResource(
+        await loadResource(
           'cloudInits',
           () => fetchHarvesterCloudInits(cloudId, force),
           (json) => {
@@ -120,7 +120,7 @@ export async function tryLoadComputeTab(
       return true;
     case 'templates':
       if (checkPerm('clouds.templates:read')) {
-        loadResource(
+        await loadResource(
           'templates',
           () => fetchHarvesterTemplates(cloudId, force, false),
           (json) => {

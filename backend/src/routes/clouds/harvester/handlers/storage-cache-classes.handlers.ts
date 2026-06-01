@@ -31,6 +31,8 @@ export async function harvesterStorageClassListHandler(req: Request, res: Respon
     res.json({ message: '查询成功', data: { items } });
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: error.message || '查询存储类失败', error: error.body || error.message });
+    res
+      .status(500)
+      .json({ message: error.message || '查询存储类失败', error: error.body || error.message });
   }
 }

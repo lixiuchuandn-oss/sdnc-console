@@ -23,8 +23,7 @@ export function createResourceHubTabOnRefresh(
   deps: ResourceHubTabRefreshDeps,
 ): ResourceHubSectionOnRefresh {
   const { loadTabResource } = deps;
-  return (force?: boolean) => {
-    const shouldForce = force !== false;
-    void loadTabResource(tab, shouldForce);
+  return async (force?: boolean) => {
+    await loadTabResource(tab, force !== false);
   };
 }

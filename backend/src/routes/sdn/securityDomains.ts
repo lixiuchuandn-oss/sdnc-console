@@ -5,7 +5,6 @@ import { SecurityDomain } from '../../entities/SecurityDomain';
 import { Cloud } from '../../entities/Cloud';
 import { VpcNetwork } from '../../entities/VpcNetwork';
 import { CenAttachment } from '../../entities/CenAttachment';
-import { CloudEnterpriseNetwork } from '../../entities/CloudEnterpriseNetwork';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { CloudInstanceInventory } from '../../entities/CloudInstanceInventory';
 import { NATRule } from '../../entities/vRouter/NATRule';
@@ -14,7 +13,6 @@ import { ServiceCatalog } from '../../entities/ServiceCatalog';
 import { ServiceChain } from '../../entities/ServiceChain';
 import { Tenant } from '../../entities/Tenant';
 import { Organization } from '../../entities/Organization';
-import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { UserSpace } from '../../entities/UserSpace';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
@@ -68,8 +66,8 @@ const transformVrFields = (obj: any) => {
         .filter((s: string) => s);
       obj[key] = arr.length > 0 ? arr[0] : '';
     } else if (Array.isArray(obj[key])) {
-       // If already array (e.g. from some other transform), take first
-       obj[key] = obj[key].length > 0 ? obj[key][0] : '';
+      // If already array (e.g. from some other transform), take first
+      obj[key] = obj[key].length > 0 ? obj[key][0] : '';
     } else if (!obj[key]) {
       obj[key] = '';
     }
@@ -263,10 +261,10 @@ router.get('/', async (req, res) => {
         const data = vrCacheMap.get(resItem.vrUuid);
         let wan = '';
         if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
-           const firstIf = data.interfaces[0];
-           if (firstIf && firstIf.ipv4_static) {
-             wan = firstIf.ipv4_static.split('/')[0];
-           }
+          const firstIf = data.interfaces[0];
+          if (firstIf && firstIf.ipv4_static) {
+            wan = firstIf.ipv4_static.split('/')[0];
+          }
         }
         const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
         if (wan) resItem.vrPublicIp = String(wan);
@@ -341,17 +339,17 @@ router.get('/:id', async (req, res) => {
         const vrCacheRepo = AppDataSource.getRepository(VRCacheExtended);
         const cache = await vrCacheRepo.findOne({ where: { uuid: result.vrUuid } });
         if (cache && cache.data) {
-           const data = JSON.parse(cache.data);
-           let wan = '';
-           if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
-              const firstIf = data.interfaces[0];
-              if (firstIf && firstIf.ipv4_static) {
-                wan = firstIf.ipv4_static.split('/')[0];
-              }
-           }
-           const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
-           if (wan) result.vrPublicIp = String(wan);
-           if (lan) result.vrPrivateIp = String(lan);
+          const data = JSON.parse(cache.data);
+          let wan = '';
+          if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
+            const firstIf = data.interfaces[0];
+            if (firstIf && firstIf.ipv4_static) {
+              wan = firstIf.ipv4_static.split('/')[0];
+            }
+          }
+          const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
+          if (wan) result.vrPublicIp = String(wan);
+          if (lan) result.vrPrivateIp = String(lan);
         }
       } catch (e) {
         console.warn('详情查询获取VR缓存失败:', e);
@@ -810,15 +808,15 @@ router.get('/:id', async (req, res) => {
         if (cachedVr && cachedVr.data) {
           const data = JSON.parse(cachedVr.data);
           let wan = '';
-          
+
           // Try to find WAN IP from interfaces (smallest PCI number -> first interface)
           if (Array.isArray(data.interfaces) && data.interfaces.length > 0) {
-             // Assume the list is already sorted by PCI/name or take the first one
-             const firstIf = data.interfaces[0];
-             if (firstIf && firstIf.ipv4_static) {
-               // ipv4_static might be "10.0.1.95/24", we need "10.0.1.95"
-               wan = firstIf.ipv4_static.split('/')[0];
-             }
+            // Assume the list is already sorted by PCI/name or take the first one
+            const firstIf = data.interfaces[0];
+            if (firstIf && firstIf.ipv4_static) {
+              // ipv4_static might be "10.0.1.95/24", we need "10.0.1.95"
+              wan = firstIf.ipv4_static.split('/')[0];
+            }
           }
 
           const lan = data.lan_ip || data.private_ip || data.lanIp || data.privateIp;
@@ -879,7 +877,8 @@ router.post('/', async (req, res) => {
     entity.resourcePool = payload.resourcePool;
     entity.tags = payload.tags;
     entity.status = payload.status || 'active';
-    (entity as any).category = (payload as any).category != null ? String((payload as any).category).trim() : undefined;
+    (entity as any).category =
+      (payload as any).category != null ? String((payload as any).category).trim() : undefined;
     entity.securityServiceIds = payload.securityServiceIds;
 
     if (ctx) {
@@ -1027,15 +1026,9 @@ router.post('/', async (req, res) => {
             try {
               const localConf = JSON.parse(vrRow.config_json);
               const wan =
-                localConf.wan_ip ||
-                localConf.public_ip ||
-                localConf.wanIp ||
-                localConf.publicIp;
+                localConf.wan_ip || localConf.public_ip || localConf.wanIp || localConf.publicIp;
               const lan =
-                localConf.lan_ip ||
-                localConf.private_ip ||
-                localConf.lanIp ||
-                localConf.privateIp;
+                localConf.lan_ip || localConf.private_ip || localConf.lanIp || localConf.privateIp;
               if (wan && !entity.vrPublicIp)
                 entity.vrPublicIp = Array.isArray(wan) ? wan.join(',') : String(wan);
               if (lan && !entity.vrPrivateIp)
@@ -1385,9 +1378,9 @@ async function fillAliyunDetails(entity: SecurityDomain, cloud: Cloud) {
     (!entity.cidr || entity.cidr.trim() === '')
   ) {
     try {
-      let targetVpcId = entity.vpcId;
+      const targetVpcId = entity.vpcId;
       const vpcRepo = AppDataSource.getRepository(VpcNetwork);
-      const localVpc = await vpcRepo.findOne({ where: { id: entity.vpcId } });
+      const _localVpc = await vpcRepo.findOne({ where: { id: entity.vpcId } });
 
       const resp: any = await callAliyunVpc({
         ...creds,

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React, { useEffect } from 'react';
 import { Form, Input, Modal } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 import type { Tenant, CreateTenantRequest } from '../../../types/tenant';
@@ -21,6 +21,23 @@ export default function TenantUpsertModal({
   onCancel,
   onFinish,
 }: TenantUpsertModalProps) {
+  const formInitialValues: CreateTenantRequest = {
+    name: editingTenant?.name ?? '',
+    description: editingTenant?.description ?? '',
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    if (editingTenant) {
+      form.setFieldsValue({
+        name: editingTenant.name ?? '',
+        description: editingTenant.description ?? '',
+      });
+      return;
+    }
+    form.resetFields();
+  }, [open, editingTenant, form]);
+
   return (
     <Modal
       open={open}
@@ -32,7 +49,14 @@ export default function TenantUpsertModal({
       onCancel={onCancel}
       onOk={() => form.submit()}
     >
-      <Form form={form} layout="vertical" onFinish={onFinish} preserve={false}>
+      <Form
+        key={editingTenant?.id || 'create-tenant'}
+        form={form}
+        layout="vertical"
+        onFinish={onFinish}
+        preserve={false}
+        initialValues={formInitialValues}
+      >
         <Form.Item label="租户名称" name="name" rules={[{ required: true, message: '请输入租户名称' }]}>
           <Input placeholder="请输入租户名称" />
         </Form.Item>

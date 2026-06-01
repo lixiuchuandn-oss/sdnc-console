@@ -766,9 +766,9 @@ export function cephPoolTableRowMatchesApplicationScope(
 }
 
 const CEPH_POOL_APP_TOKEN_ZH: Record<string, string> = {
-  rbd: 'RBD（块存储）',
-  cephfs: 'CephFS（文件存储）',
-  rgw: 'RGW（对象存储）',
+  rbd: '块存储',
+  cephfs: '文件存储',
+  rgw: '对象存储',
 };
 
 /** Pools 创建/编辑：应用类型多选选项（Dashboard 与 Rook CephBlockPool 表单共用） */
@@ -879,6 +879,55 @@ export function cephBlockPoolRowToTableRow(r: CephBlockPoolRow, rookCrRaw?: unkn
   };
 }
 
+/**
+ * 云存储「存储池」列表可见的 Rook `CephBlockPool`：
+ * - 内置 `replicapool`；
+ * - 其它带 `spec.replicated` 的块池（Tower 创建的自定义副本池）。
+ * 不展示纠删码等其它 Rook 块池；列表不依赖 mgr Dashboard。
+ */
+export function isTowerVisibleRookStoragePool(pool: unknown): boolean {
+  if (!pool || typeof pool !== 'object') return false;
+  const cr = pool as Record<string, unknown>;
+  const name =
+    typeof (cr.metadata as Record<string, unknown> | undefined)?.name === 'string'
+      ? String((cr.metadata as Record<string, unknown>).name).trim().toLowerCase()
+      : '';
+  if (name === 'replicapool') return true;
+  const spec = cr.spec;
+  if (!spec || typeof spec !== 'object') return false;
+  const rep = (spec as Record<string, unknown>).replicated;
+  return rep != null && typeof rep === 'object';
+}
+
+export type RookBlockPoolStorageKind = 'replicated' | 'erasure';
+
+/**
+ * 判定 Rook `CephBlockPool` 存储方式，与列表 `cephBlockPoolToRow` 一致：
+ * `spec.replicated` 优先于 `spec.erasureCoded`，避免 CR 残留纠删字段导致编辑误判。
+ */
+export function resolveRookBlockPoolStorageKind(spec: unknown): RookBlockPoolStorageKind | null {
+  if (!spec || typeof spec !== 'object') return null;
+  const s = spec as Record<string, unknown>;
+  if (s.replicated != null && typeof s.replicated === 'object') return 'replicated';
+  if (s.erasureCoded != null && typeof s.erasureCoded === 'object') return 'erasure';
+  return null;
+}
+
+export function readRookBlockPoolErasureChunks(
+  ec: unknown,
+): { dataChunks: number; codingChunks: number } | null {
+  if (!ec || typeof ec !== 'object') return null;
+  const e = ec as Record<string, unknown>;
+  const dcRaw = e.dataChunks ?? e.data_chunks;
+  const ccRaw = e.codingChunks ?? e.coding_chunks;
+  if (dcRaw == null || ccRaw == null) return null;
+  const dataChunks = Number(dcRaw);
+  const codingChunks = Number(ccRaw);
+  if (!Number.isFinite(dataChunks) || !Number.isFinite(codingChunks)) return null;
+  if (dataChunks < 1 || codingChunks < 1) return null;
+  return { dataChunks, codingChunks };
+}
+
 export function cephBlockPoolToRow(pool: any, index: number): CephBlockPoolRow {
   const name = typeof pool?.metadata?.name === 'string' ? pool.metadata.name : '—';
   const namespace = typeof pool?.metadata?.namespace === 'string' ? pool.metadata.namespace : '—';
@@ -887,17 +936,17 @@ export function cephBlockPoolToRow(pool: any, index: number): CephBlockPoolRow {
   const spec = pool?.spec && typeof pool.spec === 'object' ? pool.spec : {};
   const rep = (spec as any).replicated;
   const ec = (spec as any).erasureCoded;
+  const storageKind = resolveRookBlockPoolStorageKind(spec);
   let poolType = '—';
   let typeDetail = '—';
-  if (rep && typeof rep === 'object') {
+  if (storageKind === 'replicated' && rep && typeof rep === 'object') {
     poolType = '副本';
     const sz = (rep as any).size ?? (rep as any).targetSize;
     typeDetail = sz != null && sz !== '' ? String(sz) : '—';
-  } else if (ec && typeof ec === 'object') {
+  } else if (storageKind === 'erasure' && ec && typeof ec === 'object') {
     poolType = '纠删码';
-    const dc = (ec as any).dataChunks;
-    const cc = (ec as any).codingChunks;
-    typeDetail = dc != null && cc != null ? `${dc}+${cc}` : '—';
+    const chunks = readRookBlockPoolErasureChunks(ec);
+    typeDetail = chunks ? `${chunks.dataChunks}+${chunks.codingChunks}` : '—';
   }
   const fd = (spec as any).failureDomain;
   const failureDomain = typeof fd === 'string' && fd.trim() ? fd.trim() : '—';
@@ -934,8 +983,8 @@ const POOL_SCALAR_VALUE_MAP: Record<string, string> = {
   replicated: '副本',
   erasure: '纠删码',
   selfmanaged: '自管理',
-  rbd: 'RBD',
-  cephfs: 'CephFS',
+  rbd: '块存储',
+  cephfs: '文件存储',
   rgw: '对象网关',
   hashpspool: 'PG 按池哈希（hashpspool）',
   selfmanaged_snaps: '自管理快照',

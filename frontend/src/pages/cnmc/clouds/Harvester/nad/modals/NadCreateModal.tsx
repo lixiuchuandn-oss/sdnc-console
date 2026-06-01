@@ -1,23 +1,23 @@
 /**
  * Harvester - 创建网络 (NAD) 弹窗
- *
- * 负责创建 NetworkAttachmentDefinition，绑定到 Harvester ClusterNetwork：
- * - 通过 `network.harvesterhci.io/route-cluster-network` 注解关联 ClusterNetwork；
- * - 使用 bridge CNI，桥接到指定 bridge（默认 mgmt 对应 mgmt-br）；
- * - 可选配置 VLAN ID，用于为业务网络打 tag。
  */
-import React, { useState, useEffect } from 'react';
-import { Form, Input, Modal, Select, InputNumber, message, Switch, Card, Space, Divider } from 'antd';
-import { createHarvesterNad, fetchHarvesterNamespaces, fetchHarvesterClusterNetworks } from '../../../../../../services/harvesterApi';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Form, Input, Modal, Select, InputNumber, message } from 'antd';
+import {
+  createHarvesterNad,
+  fetchHarvesterClusterNetworks,
+  fetchHarvesterNamespaces,
+} from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
+import {
+  buildNadCreatePayload,
+  clusterNetworkDisplayName,
+  extractHarvesterClusterNetworkItems,
+  extractHarvesterNamespaceItems,
+  pickClusterNetworkDefault,
+  type NadCreateFormValues,
+} from '../lib/nadCreateModalUtils';
 
-/**
- * 组件入参
- * - open: 弹窗是否打开
- * - onCancel: 关闭回调
- * - onSuccess: 创建成功回调
- * - cloudId: 当前云 ID，用于调用 Harvester API
- */
 interface Props {
   open: boolean;
   onCancel: () => void;
@@ -28,146 +28,60 @@ interface Props {
 const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [namespaces, setNamespaces] = useState<any[]>([]);
-  const [clusterNetworks, setClusterNetworks] = useState<any[]>([]);
+  const [namespaces, setNamespaces] = useState<unknown[]>([]);
+  const [clusterNetworks, setClusterNetworks] = useState<unknown[]>([]);
   const [nsLoading, setNsLoading] = useState(false);
   const [cnLoading, setCnLoading] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      loadNamespaces();
-      loadClusterNetworks();
-      form.resetFields();
-      // Ensure default value is set explicitly
-      form.setFieldsValue({ clusterNetwork: 'mgmt' });
-    }
-  }, [open, cloudId]);
-
-  // 加载命名空间列表（后端已过滤系统命名空间）
-  const loadNamespaces = async () => {
+  const loadNamespaces = useCallback(async () => {
     setNsLoading(true);
     try {
-      const res = await fetchHarvesterNamespaces(cloudId, false, true); // excludeSystem=true
-      // Backend typically returns { data: [...] } or { data: { items: [...] } }
-      const items = Array.isArray(res?.data) ? res.data : (res?.data?.items || []);
-      setNamespaces(items);
+      const res = await fetchHarvesterNamespaces(cloudId, false, true);
+      setNamespaces(extractHarvesterNamespaceItems(res));
     } catch (e) {
       console.error(e);
       message.error('加载命名空间失败');
     } finally {
       setNsLoading(false);
     }
-  };
+  }, [cloudId]);
 
-  // 加载 ClusterNetwork 列表，用于绑定路由网络
-  const loadClusterNetworks = async () => {
+  const loadClusterNetworks = useCallback(async () => {
     setCnLoading(true);
     try {
       const res = await fetchHarvesterClusterNetworks(cloudId);
-      const items = res?.items || [];
+      const items = extractHarvesterClusterNetworkItems(res);
       setClusterNetworks(items);
-
-      // Auto-select valid network if default 'mgmt' is missing
-      const current = form.getFieldValue('clusterNetwork');
-      if (items.length > 0 && !items.find((i: any) => i.metadata.name === current)) {
-          form.setFieldsValue({ clusterNetwork: items[0].metadata.name });
-      }
+      const current = form.getFieldValue('clusterNetwork') as string | undefined;
+      form.setFieldsValue({ clusterNetwork: pickClusterNetworkDefault(items, current) });
     } catch (e) {
       console.error(e);
-      // Don't block UI, just log error. User can still type if we allow it or default to mgmt
       message.warning('加载集群网络列表失败');
     } finally {
       setCnLoading(false);
     }
-  };
+  }, [cloudId, form]);
 
-  /**
-   * 提交创建 NAD：
-   * - 生成 ID：使用 generateHarvesterCrMetadataName('nad')（id-nad-{11 位随机}）
-   * - 别名处理：用户输入的 name 作为别名写入 tower.io/alias 注解
-   * - 组装 CNI config（支持 bridge/macvlan 等类型，含 IPAM 配置）；
-   * - 以 k8s.cni.cncf.io.networkattachmentdefinition 类型提交给 Harvester；
-   * - 使用 annotation 将 NAD 与 ClusterNetwork 关联。
-   */
-  const handleFinish = async (values: any) => {
+  useEffect(() => {
+    if (open) {
+      void loadNamespaces();
+      void loadClusterNetworks();
+      form.resetFields();
+      form.setFieldsValue({ clusterNetwork: 'mgmt' });
+    }
+  }, [open, form, loadClusterNetworks, loadNamespaces]);
+
+  const handleFinish = async (values: NadCreateFormValues) => {
     setLoading(true);
     try {
-      const cnName = values.clusterNetwork || 'mgmt';
-      // For 'mgmt' network, the bridge is typically 'mgmt-br'. For others, use {cnName}-br convention
-      const bridgeName = cnName === 'mgmt' ? 'mgmt-br' : `${cnName}-br`;
-
-      // 生成 ID：id-nad-{11位随机字符串}
       const nadId = generateHarvesterCrMetadataName('nad');
-
-      // Construct config object for CNI (使用默认值)
-      const config: any = {
-        cniVersion: '0.3.1',
-        name: nadId, // Use generated ID as CNI config name
-        type: 'bridge',
-        promiscMode: true,
-        bridge: bridgeName,
-      };
-
-      if (values.vlanId) {
-        config.vlan = Number(values.vlanId);
-      }
-
-      if (values.enableIpam && values.ipamType) {
-        const ipamConfig: any = { type: values.ipamType };
-        if (values.ipamType === 'host-local') {
-          if (values.ipamSubnet) ipamConfig.subnet = values.ipamSubnet;
-          if (values.ipamRangeStart) ipamConfig.rangeStart = values.ipamRangeStart;
-          if (values.ipamRangeEnd) ipamConfig.rangeEnd = values.ipamRangeEnd;
-          if (values.ipamGateway) ipamConfig.gateway = values.ipamGateway;
-          if (values.ipamRoutes) {
-            try {
-              ipamConfig.routes = JSON.parse(values.ipamRoutes);
-            } catch {}
-          }
-        } else if (values.ipamType === 'dhcp') {
-          if (values.ipamDhcpRenew) ipamConfig.renew = values.ipamDhcpRenew;
-        }
-        config.ipam = ipamConfig;
-      } else {
-        config.ipam = {};
-      }
-      
-      // 构建 annotations
-      const annotations: Record<string, string> = {
-        // Standard Harvester annotation to link with ClusterNetwork
-        'network.harvesterhci.io/route-cluster-network': cnName
-        // Removed 'network.harvesterhci.io/route' annotation as we are not configuring L3 routes
-        // and sending empty strings causes validation errors (CIDR invalid)
-      };
-      
-      // 如果用户输入了别名，写入 tower.io/alias 注解
-      if (values.name && values.name.trim()) {
-        annotations['tower.io/alias'] = values.name.trim();
-      }
-      
-      // Construct NAD payload (Rancher/Steve API Style)
-      // This style uses 'type' instead of 'apiVersion/kind' and is robust for Harvester API
-      const payload = {
-        type: 'k8s.cni.cncf.io.networkattachmentdefinition',
-        metadata: {
-          name: nadId, // Use generated ID as NAD name
-          namespace: values.namespace,
-          labels: {
-            // Also add label for easier filtering
-            'network.harvesterhci.io/cluster-network': cnName
-          },
-          annotations
-        },
-        spec: {
-          config: JSON.stringify(config)
-        }
-      };
-      
+      const payload = buildNadCreatePayload(values, nadId);
       await createHarvesterNad(cloudId, payload);
       message.success('创建网络成功');
       onSuccess();
-    } catch (e: any) {
-      message.error(e.message || '创建失败');
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      message.error(err.message || '创建失败');
     } finally {
       setLoading(false);
     }
@@ -184,172 +98,64 @@ const NadCreateModal: React.FC<Props> = ({ open, onCancel, onSuccess, cloudId })
       okText="创建"
     >
       <Form form={form} layout="vertical" onFinish={handleFinish}>
-      <Form.Item
-        name="name"
-        label="别名"
-        tooltip="网络的可读别名，将写入 tower.io/alias 注解。实际 ID 会自动生成（id-nad-{随机字符串}）"
-        rules={[
-          { required: true, message: '请输入别名' }
-        ]}
-      >
-        <Input placeholder="例如: vlan-100" />
-      </Form.Item>
-
-      <Form.Item
-        name="namespace"
-        label="项目"
-        rules={[{ required: true, message: '请选择项目' }]}
-      >
-        <Select 
-          placeholder="请选择项目" 
-          showSearch 
-          loading={nsLoading}
-          optionFilterProp="children"
+        <Form.Item
+          name="name"
+          label="别名"
+          tooltip="网络的可读别名，将写入 tower.io/alias 注解。实际 ID 会自动生成（id-nad-{随机字符串}）"
+          rules={[{ required: true, message: '请输入别名' }]}
         >
-          {namespaces.map(ns => {
-            const name = ns?.metadata?.name || ns?.name;
-            return (
+          <Input placeholder="例如: vlan-100" />
+        </Form.Item>
+
+        <Form.Item
+          name="namespace"
+          label="项目"
+          rules={[{ required: true, message: '请选择项目' }]}
+        >
+          <Select placeholder="请选择项目" showSearch loading={nsLoading} optionFilterProp="children">
+            {namespaces.map((ns) => {
+              const name = (ns as { metadata?: { name?: string }; name?: string }).metadata?.name
+                || (ns as { name?: string }).name;
+              return (
                 <Select.Option key={name} value={name}>
-                {name}
+                  {name}
                 </Select.Option>
-            );
-          })}
-        </Select>
-      </Form.Item>
+              );
+            })}
+          </Select>
+        </Form.Item>
 
-      <Form.Item
-        name="vlanId"
-        label="VLAN ID"
-      >
-        <InputNumber min={1} max={4094} style={{ width: '100%' }} placeholder="请输入 1-4094 之间的 VLAN ID，留空表示不使用 VLAN" />
-      </Form.Item>
+        <Form.Item name="vlanId" label="VLAN ID">
+          <InputNumber
+            min={1}
+            max={4094}
+            style={{ width: '100%' }}
+            placeholder="请输入 1-4094 之间的 VLAN ID，留空表示不使用 VLAN"
+          />
+        </Form.Item>
 
-      <Divider orientation="left" style={{ margin: '16px 0 8px' }}>IPAM 配置</Divider>
-      
-      <Form.Item
-        name="enableIpam"
-        label="启用 IPAM"
-        valuePropName="checked"
-        tooltip="启用后可配置IP地址分配，容器从该NAD网络获取IP地址"
-        initialValue={false}
-      >
-        <Switch />
-      </Form.Item>
-
-      <Form.Item
-        noStyle
-        shouldUpdate={(prev, curr) => prev.enableIpam !== curr.enableIpam}
-      >
-        {({ getFieldValue }) => {
-          const enableIpam = getFieldValue('enableIpam');
-          if (!enableIpam) return null;
-          return (
-            <Card size="small" style={{ marginBottom: 16 }}>
-              <Form.Item
-                name="ipamType"
-                label="IPAM 类型"
-                rules={[{ required: true, message: '请选择IPAM类型' }]}
-              >
-                <Select placeholder="选择IPAM类型">
-                  <Select.Option value="host-local">host-local (本地分配)</Select.Option>
-                  <Select.Option value="dhcp">DHCP (动态分配)</Select.Option>
-                </Select>
-              </Form.Item>
-
-              <Form.Item
-                noStyle
-                shouldUpdate={(prev, curr) => prev.ipamType !== curr.ipamType}
-              >
-                {({ getFieldValue }) => {
-                  const ipamType = getFieldValue('ipamType');
-                  if (ipamType === 'host-local') {
-                    return (
-                      <>
-                        <Form.Item
-                          name="ipamSubnet"
-                          label="子网 (CIDR)"
-                          rules={[{ required: true, message: '请输入子网CIDR' }]}
-                          tooltip="例如: 10.244.1.0/24"
-                        >
-                          <Input placeholder="例如: 10.244.1.0/24" />
-                        </Form.Item>
-                        <Space style={{ width: '100%' }} size="middle">
-                          <Form.Item
-                            name="ipamRangeStart"
-                            label="起始 IP"
-                            style={{ flex: 1, marginBottom: 16 }}
-                          >
-                            <Input placeholder="例如: 10.244.1.100" />
-                          </Form.Item>
-                          <Form.Item
-                            name="ipamRangeEnd"
-                            label="结束 IP"
-                            style={{ flex: 1, marginBottom: 16 }}
-                          >
-                            <Input placeholder="例如: 10.244.1.200" />
-                          </Form.Item>
-                        </Space>
-                        <Form.Item
-                          name="ipamGateway"
-                          label="网关"
-                        >
-                          <Input placeholder="例如: 10.244.1.1" />
-                        </Form.Item>
-                        <Form.Item
-                          name="ipamRoutes"
-                          label="路由配置 (JSON)"
-                          tooltip='例如: [{"dst":"0.0.0.0/0","gw":"10.244.1.1"}]'
-                        >
-                          <Input.TextArea rows={2} placeholder='[{"dst":"0.0.0.0/0","gw":"10.244.1.1"}]' />
-                        </Form.Item>
-                      </>
-                    );
-                  }
-                  if (ipamType === 'dhcp') {
-                    return (
-                      <Form.Item
-                        name="ipamDhcpRenew"
-                        label="续租间隔 (秒)"
-                        tooltip="DHCP租约续租间隔"
-                      >
-                        <InputNumber min={60} style={{ width: '100%' }} placeholder="默认 3600" />
-                      </Form.Item>
-                    );
-                  }
-                  return null;
-                }}
-              </Form.Item>
-            </Card>
-          );
-        }}
-      </Form.Item>
-
-      <Form.Item
-        name="clusterNetwork"
-        label="集群网络 (Cluster Network)"
-        initialValue="mgmt"
-        tooltip="Harvester 集群网络名称，默认为 mgmt"
-        rules={[{ required: true, message: '请选择集群网络' }]}
-      >
-        <Select 
-          placeholder="请选择集群网络" 
-          loading={cnLoading}
+        <Form.Item
+          name="clusterNetwork"
+          label="集群网络 (Cluster Network)"
+          initialValue="mgmt"
+          tooltip="Harvester 集群网络名称，默认为 mgmt"
+          rules={[{ required: true, message: '请选择集群网络' }]}
         >
-           {clusterNetworks.length > 0 ? (
-             clusterNetworks.map(cn => {
-               const cnName = cn.metadata.name;
-               const displayName = cnName === 'mgmt' ? '管理网' : cnName;
-               return (
-                 <Select.Option key={cnName} value={cnName}>
-                   {displayName}
-                 </Select.Option>
-               );
-             })
-           ) : (
-             <Select.Option value="mgmt">管理网 (默认)</Select.Option>
-           )}
-        </Select>
-      </Form.Item>
+          <Select placeholder="请选择集群网络" loading={cnLoading}>
+            {clusterNetworks.length > 0 ? (
+              clusterNetworks.map((cn) => {
+                const cnName = (cn as { metadata: { name: string } }).metadata.name;
+                return (
+                  <Select.Option key={cnName} value={cnName}>
+                    {clusterNetworkDisplayName(cnName)}
+                  </Select.Option>
+                );
+              })
+            ) : (
+              <Select.Option value="mgmt">管理网 (默认)</Select.Option>
+            )}
+          </Select>
+        </Form.Item>
       </Form>
     </Modal>
   );

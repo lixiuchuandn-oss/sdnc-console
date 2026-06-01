@@ -26,6 +26,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { auditLogRoutes } from './routes/auditLogs';
 import { auditMiddleware } from './middleware/audit';
 import { authMiddleware } from './middleware/auth';
+import { resolveStaticPublicRoot } from './utils/resolveStaticPublicRoot';
 
 import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
@@ -66,6 +67,7 @@ import apiProxyRoutes from './routes/apiProxy';
 // Harbor 镜像仓库路由：
 // - harborRoutes：Harbor 实例管理、项目浏览、镜像管理等
 import { harborRoutes } from './routes/harbor';
+import { guacamoleRoutes } from './routes/remote/guacamole.routes';
 
 import path from 'path';
 import fs from 'fs';
@@ -89,7 +91,17 @@ app.use(
   cors({
     origin: true,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Expires', 'tonce', 'X-File-Name', 'X-File-Size'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Cache-Control',
+      'Pragma',
+      'Expires',
+      'tonce',
+      'X-File-Name',
+      'X-File-Size',
+    ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   }),
 );
@@ -97,15 +109,20 @@ app.use(
 // 通用中间件：
 // 1) compression：开启响应压缩，但显式跳过 SSE（服务器推送）接口，
 //    避免对 text/event-stream 进行压缩导致长连接异常
-app.use(compression({
-  filter: (req, res) => {
-    if (req.headers['accept'] === 'text/event-stream' || res.getHeader('Content-Type') === 'text/event-stream') {
-      return false;
-    }
-    // fallback to standard filter function
-    return compression.filter(req, res);
-  }
-}));
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (
+        req.headers['accept'] === 'text/event-stream' ||
+        res.getHeader('Content-Type') === 'text/event-stream'
+      ) {
+        return false;
+      }
+      // fallback to standard filter function
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // Helmet 安全头：
 // - 关闭默认的 CSP 与 crossOriginEmbedderPolicy，避免在引入第三方脚本/地图等外部资源时产生过多限制
@@ -129,7 +146,6 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(auditMiddleware);
 
-
 // 静态文件托管：
 // - 只要检测到 public 目录存在，就对外提供静态文件访问（前端构建产物）
 // - 兼容两种运行模式：
@@ -137,18 +153,11 @@ app.use(auditMiddleware);
 //   b) 编译后模式：dist/src/index.js → ../../public 即与 dist 同级的应用根 public
 // - 远程部署（deploy_tool）把前端解压到「应用根/public」，必须把该目录排在 dist/public 之前：
 //   否则若 backend/dist 里残留过时的 dist/public，会被整包打进 zip，运行时会错误地托管旧前端，而本地 dev 走 react-scripts 看不出问题。
-const nestedPublicPath = path.join(__dirname, '../public');
-const appRootPublicPath = path.join(__dirname, '../../public');
-let staticPath: string;
-if (fs.existsSync(appRootPublicPath)) {
-  staticPath = appRootPublicPath;
-  logger.info('静态资源目录（应用根 public，优先）:', staticPath);
-} else if (fs.existsSync(nestedPublicPath)) {
-  staticPath = nestedPublicPath;
-  logger.info('静态资源目录（相对路径）:', staticPath);
+const staticPath = resolveStaticPublicRoot(__dirname);
+if (fs.existsSync(staticPath)) {
+  logger.info('静态资源目录:', staticPath);
 } else {
-  staticPath = nestedPublicPath;
-  logger.info('静态资源目录（默认路径，可能不存在）:', staticPath);
+  logger.info('静态资源目录（可能不存在）:', staticPath);
 }
 
 // 只要最终解析出的 staticPath 存在，就开启静态托管
@@ -201,7 +210,10 @@ const sendHarvesterImageUploaderTool = (req: express.Request, res: express.Respo
         }
       });
     } else {
-      logger.warn('工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:', toolPath);
+      logger.warn(
+        '工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:',
+        toolPath,
+      );
       res
         .status(404)
         .type('text/plain; charset=utf-8')
@@ -289,6 +301,9 @@ app.use('/api/threats', threatRoutes);
 // - /api/harbor/registries：Harbor 实例管理
 app.use('/api/harbor', harborRoutes);
 
+// 云桌面网关（Guacamole BFF）
+app.use('/api/remote/guacamole', authMiddleware, guacamoleRoutes);
+
 // 健康检查：
 // - 简单返回服务状态与时间戳，供负载均衡或监控系统探活使用
 app.get('/health', (req, res) => {
@@ -353,7 +368,7 @@ AppDataSource.initialize()
     await initializeAdmin();
     // 初始化默认角色
     await initializeRoles();
-    
+
     // 初始化数据库表（如果不存在则创建）
     try {
       const {
@@ -365,6 +380,7 @@ AppDataSource.initialize()
         ensureDatacenterTopologyTables,
         ensureHarborTables,
         ensureCephMgrDashboardSnapshotTable,
+        ensureGuacamoleTables,
       } = await import('./config/database');
       await ensureRecycleBinTables();
       await ensureKubeOvnSecurityGroupTables();
@@ -374,12 +390,14 @@ AppDataSource.initialize()
       await ensureDatacenterTopologyTables();
       await ensureHarborTables();
       await ensureCephMgrDashboardSnapshotTable();
+      await ensureGuacamoleTables();
     } catch (e) {
       logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
     }
 
     try {
-      const { mergeSecurityDomainCategoryLegacy } = await import('./utils/mergeSecurityDomainCategoryLegacy');
+      const { mergeSecurityDomainCategoryLegacy } =
+        await import('./utils/mergeSecurityDomainCategoryLegacy');
       await mergeSecurityDomainCategoryLegacy(AppDataSource);
     } catch (e) {
       logger.warn('安全域 category 历史数据合并失败:', e);
@@ -404,10 +422,10 @@ AppDataSource.initialize()
       logger.warn('启动 VR 列表同步任务失败:', e);
     }
 
-
     // 启动回收站定时任务
     try {
-      const { RecycleBinTaskService } = await import('./services/clouds/harvester/RecycleBinTaskService');
+      const { RecycleBinTaskService } =
+        await import('./services/clouds/harvester/RecycleBinTaskService');
       // 延迟 15s 启动，避免和启动时的数据库操作冲突
       setTimeout(() => {
         logger.info('启动回收站定时任务服务');
@@ -429,7 +447,8 @@ AppDataSource.initialize()
 
     // 启动 Harbor 项目同步任务
     try {
-      const { harborProjectSyncService } = await import('./services/harbor/HarborProjectSyncService');
+      const { harborProjectSyncService } =
+        await import('./services/harbor/HarborProjectSyncService');
       harborProjectSyncService.startSync();
     } catch (e) {
       logger.error('启动 Harbor 项目同步任务失败:', e);
@@ -464,7 +483,7 @@ AppDataSource.initialize()
     } catch (e: any) {
       logger.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
     }
-    
+
     // 初始化 Pod 日志 WebSocket 服务
     let kvPodLogWss: any = null;
     try {
@@ -489,7 +508,7 @@ AppDataSource.initialize()
     server.on('upgrade', (req, socket, head) => {
       const pathname = req.url || '';
       // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
-      
+
       if (pathname.startsWith('/ws/kv-pod-exec')) {
         if (kvPodExecWss) {
           kvPodExecWss.handleUpgrade(req, socket, head, (ws: any) => {
@@ -538,7 +557,10 @@ AppDataSource.initialize()
     const listenHost = process.env.LISTEN_HOST?.trim();
     if (listenHost) {
       server.listen(PORT, listenHost, () => {
-        logger.info(`后端服务运行在 ${listenHost}:${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+        logger.info(
+          `后端服务运行在 ${listenHost}:${PORT}`,
+          `NODE_ENV=${process.env.NODE_ENV ?? ''}`,
+        );
       });
     } else {
       server.listen(PORT, () => {

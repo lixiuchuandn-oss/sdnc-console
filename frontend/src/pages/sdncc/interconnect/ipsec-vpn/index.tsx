@@ -122,7 +122,7 @@ const IPsecVPNPage: React.FC = () => {
     });
   };
 
-  const getActionMenu = (row: IPsecVPNRow): MenuProps['items'] => ([
+  const getActionMenu = (_row: IPsecVPNRow): MenuProps['items'] => ([
     { key: 'edit', label: '编辑' },
     { key: 'viewConfig', label: '查看本端VR配置' },
     { key: 'viewPeerConfig', label: '查看对端VR配置' },

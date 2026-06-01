@@ -27,11 +27,17 @@ export class AuditLogRetentionService {
   start(): void {
     if (this.timer) return;
     this.runOnce().catch((err) => {
-      auditRetentionLog.error('首次清理审计日志失败:', err instanceof Error ? err.message : String(err));
+      auditRetentionLog.error(
+        '首次清理审计日志失败:',
+        err instanceof Error ? err.message : String(err),
+      );
     });
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
-        auditRetentionLog.error('定时清理审计日志失败:', err instanceof Error ? err.message : String(err));
+        auditRetentionLog.error(
+          '定时清理审计日志失败:',
+          err instanceof Error ? err.message : String(err),
+        );
       });
     }, ONE_DAY_MS);
     auditRetentionLog.info('审计日志清理任务已启动（每24小时一次）');

@@ -4,9 +4,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../../../../contexts/AuthContext';
-import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
 import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
-import { filterNonSystemNamespaces } from '../lib/namespaceFilter';
 import { LOGGING_NS, LOG_SCOPE_CLUSTER, LOG_SCOPE_NAMESPACE, LOG_SCOPE_MAP } from '../constants';
 
 /**
@@ -43,7 +41,6 @@ export interface LoggingContextValue {
   setNsFilter: (v: string | undefined) => void;
   formNamespaceOptions: { label: string; value: string }[];
   loadNamespaces: () => Promise<void>;
-  loadTenantNamespaces: () => Promise<void>;
 }
 
 const LoggingContext = createContext<LoggingContextValue | null>(null);
@@ -59,31 +56,31 @@ interface LoggingProviderProps {
   children: React.ReactNode;
 }
 
+function isAdminRole(role: unknown): boolean {
+  const normalized = String(role || '').trim().toLowerCase();
+  return normalized === 'admin' || normalized === 'super_admin';
+}
+
 export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, children }) => {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isAdmin = isAdminRole(user?.role);
 
   const [namespaceList, setNamespaceList] = useState<string[]>([]);
   const [namespaceLoading, setNamespaceLoading] = useState(false);
-  const [tenantNamespaces, setTenantNamespaces] = useState<string[]>([]);
+  const [tenantNamespaces] = useState<string[]>([]);
   const [nsFilter, setNsFilter] = useState<string | undefined>();
 
   const loadNamespaces = useCallback(async () => {
     if (!cloudId) return;
     setNamespaceLoading(true);
     try {
-      const res: any = await fetchHarvesterNamespaces(cloudId);
+      const res: any = await fetchHarvesterNamespaces(cloudId, false, true, false, true);
       const items: any[] = Array.isArray(res?.data?.items) ? res.data.items : res?.data ?? res?.items ?? [];
       const raw: string[] = items
         .map((i: any) => i?.metadata?.name ?? i?.name)
         .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0);
       const unique = [...new Set(raw)];
-      // 对日志配置保留 cattle-logging-system 命名空间，其余仍按「非系统命名空间」过滤
-      let filtered = filterNonSystemNamespaces(unique);
-      if (!filtered.includes('cattle-logging-system') && unique.includes('cattle-logging-system')) {
-        filtered = [...filtered, 'cattle-logging-system'];
-      }
-      const withDefault = filtered.includes('default') ? filtered : ['default', ...filtered];
+      const withDefault = unique.includes('default') ? unique : ['default', ...unique];
       setNamespaceList(withDefault.sort());
     } catch {
       setNamespaceList([]);
@@ -92,25 +89,14 @@ export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, child
     }
   }, [cloudId]);
 
-  const loadTenantNamespaces = useCallback(async () => {
-    if (!cloudId || isAdmin) return;
-    const { data, ok } = await fetchAllowedNamespaces(cloudId);
-    if (ok && data?.namespaces) setTenantNamespaces(data.namespaces);
-    else setTenantNamespaces([]);
-  }, [cloudId, isAdmin]);
-
   useEffect(() => {
     if (cloudId && isAdmin) loadNamespaces();
   }, [cloudId, isAdmin, loadNamespaces]);
 
-  useEffect(() => {
-    if (cloudId && !isAdmin) loadTenantNamespaces();
-  }, [cloudId, isAdmin, loadTenantNamespaces]);
-
   /** 系统管理员时，命名空间筛选默认选 cattle-logging-system */
   useEffect(() => {
-    if (isAdmin && nsFilter == null && namespaceList.includes('cattle-logging-system')) {
-      setNsFilter('cattle-logging-system');
+    if (isAdmin && nsFilter == null) {
+      setNsFilter(LOGGING_NS);
     }
   }, [isAdmin, nsFilter, namespaceList]);
 
@@ -140,7 +126,6 @@ export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, child
       setNsFilter,
       formNamespaceOptions,
       loadNamespaces,
-      loadTenantNamespaces,
     }),
     [
       cloudId,
@@ -152,7 +137,6 @@ export const LoggingProvider: React.FC<LoggingProviderProps> = ({ cloudId, child
       nsFilter,
       formNamespaceOptions,
       loadNamespaces,
-      loadTenantNamespaces,
     ]
   );
 

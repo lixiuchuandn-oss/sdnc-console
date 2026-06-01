@@ -467,7 +467,7 @@ const ClusterNetworkTopologyGraph: React.FC<ClusterNetworkTopologyGraphProps> = 
       edges: edgesOut,
       flowKey,
     };
-  }, [clusterNetworks, clusterNodeRecords, defaultEdgeOpts, physicalLldpLinksProp, visualTheme]);
+  }, [clusterNetworks, clusterNodeRecords, physicalLldpLinksProp, visualTheme]);
 
   if (loading && (!clusterNetworks || clusterNetworks.length === 0)) {
     return null;

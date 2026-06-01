@@ -28,16 +28,16 @@ export function createStorageTabOnRefresh(
 
   switch (tab) {
     case 'volumes':
-      return (force?: boolean, skipSync?: boolean) => {
+      return async (force?: boolean, skipSync?: boolean) => {
         const shouldForce = force !== false;
-        void loadTabResource('volumes', shouldForce, skipSync);
+        await loadTabResource('volumes', shouldForce, skipSync);
         if (shouldForce) refreshVolumesTabAuxiliaries?.();
       };
     case 'snapshots':
-      return (force?: boolean, skipSync?: boolean) => {
-        void loadTabResource('snapshots', force !== false, skipSync);
+      return async (force?: boolean, skipSync?: boolean) => {
+        await loadTabResource('snapshots', force !== false, skipSync);
       };
     default:
-      return () => {};
+      return async () => {};
   }
 }

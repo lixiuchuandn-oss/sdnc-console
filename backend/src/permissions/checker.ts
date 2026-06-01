@@ -1,6 +1,6 @@
 /**
  * 权限检查器（Permission Checker）
- * 
+ *
  * 核心功能：
  * 1. 统一的权限检查逻辑
  * 2. 支持精确匹配、继承匹配、反向继承匹配
@@ -9,10 +9,32 @@
 
 import { PermissionRegistry } from './registry';
 import { InheritanceEngine } from './inheritance';
+import { poolPageTokenGrantsImpliedRead } from '../constants/poolPageImpliedReads';
+import {
+  hasLegacyOrUmbrellaUnifiedStorageGrant,
+  isUnifiedStorageReadBase,
+} from '../constants/unifiedStoragePermissionBases';
+import { CBR_VM_BACKUPS_BASE, CBR_VM_SNAPSHOTS_BASE } from '../constants/cbrPermissionBases';
+import {
+  cbrBackupScheduleAliasSatisfied,
+  isCbrBackupScheduleResourceBase,
+} from '../constants/cbrSchedulePermissionLegacy';
 
-/** `clouds.console:*` 的宽松继承不包含容器子域（与预置「云计算用户」等仅算网/存角色对齐；容器须显式 atoms 或 `clouds:read` / `clouds.containers:read`） */
-function isCloudsContainersResourceBase(resourceBase: string): boolean {
+/** 容器子域须显式子域 atoms；历史 `clouds.containers:*` 仍兼容 */
+function _isCloudsContainersResourceBase(resourceBase: string): boolean {
   return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
+}
+
+function _isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
+  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
+}
+
+/** write 所需权限不能仅凭 inherited 链上的 :read 父权限满足（如 clouds:read 不隐含 container write） */
+function inheritedGrantMatchesRequiredVerb(userPerm: string, required: string): boolean {
+  const [, reqVerb] = String(required || '').split(':');
+  if (reqVerb !== 'write') return true;
+  const [, heldVerb] = String(userPerm || '').split(':');
+  return heldVerb === 'write' || heldVerb === 'admin' || String(userPerm || '').endsWith(':*');
 }
 
 export class PermissionChecker {
@@ -59,6 +81,19 @@ export class PermissionChecker {
           return true;
         }
       }
+      // 云备份：历史 clouds.backups 总权仅覆盖快照子域（定时策略须显式 clouds.schedules）
+      if (base === CBR_VM_SNAPSHOTS_BASE && (verb === 'read' || verb === 'write')) {
+        if (permissions.includes(`${CBR_VM_BACKUPS_BASE}:${verb}`)) {
+          return true;
+        }
+      }
+      if (
+        isCbrBackupScheduleResourceBase(base) &&
+        (verb === 'read' || verb === 'write') &&
+        cbrBackupScheduleAliasSatisfied(permissions, base, verb)
+      ) {
+        return true;
+      }
       if (
         base.startsWith('clouds.containers.') &&
         base !== 'clouds.containers' &&
@@ -77,7 +112,7 @@ export class PermissionChecker {
       }
       // 检查 domain:* 或 domain.feature:*
       const segments = base.split('.');
-      
+
       // clouds.ecs:read -> 检查 clouds:* 或 clouds.ecs:*
       if (segments.length >= 1) {
         const domain = segments[0];
@@ -85,7 +120,7 @@ export class PermissionChecker {
           return true;
         }
       }
-      
+
       if (segments.length >= 2) {
         const domainFeature = `${segments[0]}.${segments[1]}`;
         if (permissions.includes(`${domainFeature}:*`)) {
@@ -94,28 +129,21 @@ export class PermissionChecker {
       }
     }
 
-    // 4. 特殊规则：clouds.console:read 权限包含 clouds.*:read（不含容器子域，见 isCloudsContainersResourceBase）
-    if (
-      base &&
-      base.startsWith('clouds.') &&
-      verb === 'read' &&
-      base !== 'clouds' &&
-      !isCloudsContainersResourceBase(base)
-    ) {
-      if (permissions.includes('clouds.console:read') || permissions.includes('clouds.console:write')) {
-        return true;
+    // 4b2. 统一存储：umbrella / 历史 clouds.ceph 覆盖各子域 read；write 同理
+    if (base && verb) {
+      if (verb === 'read' && isUnifiedStorageReadBase(base)) {
+        if (hasLegacyOrUmbrellaUnifiedStorageGrant(permissions, 'read')) {
+          return true;
+        }
       }
-    }
-
-    // 4b. 特殊规则：clouds.console:write 包含 clouds.*:write（不含容器子域，与 4 对称）
-    if (base && base.startsWith('clouds.') && verb === 'write' && !isCloudsContainersResourceBase(base)) {
-      if (permissions.includes('clouds.console:write')) {
-        return true;
+      if (verb === 'write' && isUnifiedStorageReadBase(base)) {
+        if (hasLegacyOrUmbrellaUnifiedStorageGrant(permissions, 'write')) {
+          return true;
+        }
       }
     }
 
     // 4c. VM 创建/变配依赖资源读权限：允许 clouds.ecs 兜底
-    // 用于保证只有 ECS 权限的角色仍可读取创建/变配所需资源（节点、存储类、命名空间、镜像、NAD、GPU/USB/PCI）
     if (verb === 'read' && base) {
       const vmDependencyReadBases = new Set([
         'clouds.cluster-nodes',
@@ -136,11 +164,20 @@ export class PermissionChecker {
           return true;
         }
       }
+
+      // 4d/4e. 池内页 token 隐式读（机房/网络拓扑等，见 poolPageImpliedReads）
+      if (poolPageTokenGrantsImpliedRead(permissions, base)) {
+        return true;
+      }
     }
 
     // 5. 继承检查：检查用户权限是否包含所需权限的父权限
     const inherited = this.inheritanceEngine.getInheritedPermissions(required);
-    if (inherited.some(perm => permissions.includes(perm))) {
+    if (
+      inherited.some(
+        (perm) => permissions.includes(perm) && inheritedGrantMatchesRequiredVerb(perm, required),
+      )
+    ) {
       return true;
     }
 
@@ -160,6 +197,51 @@ export class PermissionChecker {
       }
     }
 
+    // 8. 容器子域 ↔ 已移除的 clouds.containers 总权（双向兼容）
+    const containerSubReadBases = [
+      'clouds.containers.workloads',
+      'clouds.containers.pods',
+      'clouds.containers.jobs',
+      'clouds.containers.services',
+      'clouds.containers.ingresses',
+      'clouds.containers.gateway',
+      'clouds.containers.configs',
+      'clouds.containers.registries',
+      'clouds.containers.pdbs',
+      'clouds.containers.networkpolicies',
+    ] as const;
+    if (base === 'clouds.containers') {
+      if (verb === 'read') {
+        if (
+          containerSubReadBases.some(
+            (b) => permissions.includes(`${b}:read`) || permissions.includes(`${b}:write`),
+          )
+        ) {
+          return true;
+        }
+      }
+      if (
+        verb === 'write' &&
+        containerSubReadBases.some((b) => permissions.includes(`${b}:write`))
+      ) {
+        return true;
+      }
+    }
+
+    // 9. 历史 atom：clouds.cluster-services 已并入 clouds.containers.services
+    if (base === 'clouds.containers.services') {
+      if (
+        verb === 'read' &&
+        (permissions.includes('clouds.cluster-services:read') ||
+          permissions.includes('clouds.cluster-services:write'))
+      ) {
+        return true;
+      }
+      if (verb === 'write' && permissions.includes('clouds.cluster-services:write')) {
+        return true;
+      }
+    }
+
     return false;
   }
 
@@ -170,7 +252,7 @@ export class PermissionChecker {
    * @returns 是否拥有任一权限
    */
   checkAny(permissions: string[], required: string[]): boolean {
-    return required.some(perm => this.check(permissions, perm));
+    return required.some((perm) => this.check(permissions, perm));
   }
 
   /**
@@ -180,7 +262,7 @@ export class PermissionChecker {
    * @returns 是否拥有所有权限
    */
   checkAll(permissions: string[], required: string[]): boolean {
-    return required.every(perm => this.check(permissions, perm));
+    return required.every((perm) => this.check(permissions, perm));
   }
 
   /**
@@ -190,6 +272,6 @@ export class PermissionChecker {
    * @returns 缺少的权限ID列表
    */
   getMissingPermissions(permissions: string[], required: string[]): string[] {
-    return required.filter(perm => !this.check(permissions, perm));
+    return required.filter((perm) => !this.check(permissions, perm));
   }
 }

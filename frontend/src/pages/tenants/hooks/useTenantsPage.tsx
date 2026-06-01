@@ -1,11 +1,13 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Form, Input, message, Modal, Typography } from 'antd';
-import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Form, message, Modal, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import type { Tenant, CreateTenantRequest } from '../../../types/tenant';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { apiRequest, apiPost, apiPatch, apiDelete } from '../../../services/api';
+import { useAuth } from '../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../utils/rbacUi';
 import { parseTenantDeleteError } from '../lib/tenantDeleteErrors';
 import { countOrganizationsInTree } from '../lib/tenantOrgTree';
 import {
@@ -16,6 +18,15 @@ import {
 } from '../modals/tenantDeleteModals';
 
 export function useTenantsPage() {
+  const { user } = useAuth();
+  const userPerms = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
+  const role = String(user?.role || '').toLowerCase();
+  const canWriteTenants = role === 'super_admin' || hasPermissionForAction(userPerms, 'tenants:write');
+  const canReadOrganizations =
+    role === 'super_admin' ||
+    hasPermissionForAction(userPerms, 'organizations:read') ||
+    hasPermissionForAction(userPerms, 'organizations:write');
+
   const [loading, setLoading] = useState(false);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tenantUpsertModalOpen, setTenantUpsertModalOpen] = useState(false);
@@ -116,6 +127,10 @@ export function useTenantsPage() {
 
   const handleTenantSubmit = useCallback(
     async (values: CreateTenantRequest) => {
+      if (!canWriteTenants) {
+        message.warning('无权限执行该操作');
+        return;
+      }
       try {
         if (editingTenant) {
           await apiPatch(`/api/tenants/${editingTenant.id}`, values);
@@ -133,7 +148,7 @@ export function useTenantsPage() {
         message.error(err?.message || '操作失败');
       }
     },
-    [editingTenant, tenantForm, fetchTenants],
+    [canWriteTenants, editingTenant, tenantForm, fetchTenants],
   );
 
   const refreshTenantUserCount = useCallback(async (tenantId: string): Promise<number> => {
@@ -150,14 +165,22 @@ export function useTenantsPage() {
 
   const handleDeleteTenant = useCallback(
     async (id: string) => {
+      if (!canWriteTenants) {
+        message.warning('无权限执行该操作');
+        return;
+      }
       await apiDelete(`/api/tenants/${id}`);
       message.success('租户删除成功');
       fetchTenants(true);
     },
-    [fetchTenants],
+    [canWriteTenants, fetchTenants],
   );
 
   const handleBatchDeleteTenants = useCallback(async () => {
+    if (!canWriteTenants) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     if (selectedTenantRowKeys.length === 0) {
       message.info('请先选择要删除的租户');
       return;
@@ -216,7 +239,7 @@ export function useTenantsPage() {
         }
       },
     });
-  }, [selectedTenantRowKeys, tenants, refreshTenantUserCount, fetchTenants]);
+  }, [canWriteTenants, selectedTenantRowKeys, tenants, refreshTenantUserCount, fetchTenants]);
 
   const tenantColumns: ColumnsType<Tenant> = useMemo(
     () => [
@@ -224,18 +247,21 @@ export function useTenantsPage() {
         title: '租户',
         dataIndex: 'name',
         key: 'name',
-        render: (text: string, record: Tenant) => (
-          <a
-            className="cell-link"
-            href={`/admin/tenants/${record.id}/organizations`}
-            onClick={(e) => {
-              e.preventDefault();
-              navigate(`/admin/tenants/${record.id}/organizations`);
-            }}
-          >
-            {text}
-          </a>
-        ),
+        render: (text: string, record: Tenant) =>
+          canReadOrganizations ? (
+            <a
+              className="cell-link"
+              href={`/admin/tenants/${record.id}/organizations`}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(`/admin/tenants/${record.id}/organizations`);
+              }}
+            >
+              {text}
+            </a>
+          ) : (
+            <Typography.Text>{text}</Typography.Text>
+          ),
       },
       {
         title: 'ID',
@@ -262,22 +288,35 @@ export function useTenantsPage() {
       {
         title: '操作',
         key: 'action',
-        render: (_: unknown, record: Tenant) => (
-          <ResourceActionsDropdown
-            items={[
-              { key: 'orgManage', label: '组织管理' },
+        render: (_: unknown, record: Tenant) => {
+          const items = filterMenuItemsForReadOnly(
+            [
+              ...(canReadOrganizations ? [{ key: 'orgManage', label: '组织管理' } as const] : []),
               { key: 'edit', label: '编辑' },
               { type: 'divider', key: 'divider-before-delete' },
               { key: 'delete', label: '删除', danger: true },
-            ]}
+            ],
+            canWriteTenants,
+          );
+          if (!items.length) {
+            return <Typography.Text type="secondary">—</Typography.Text>;
+          }
+          return (
+            <ResourceActionsDropdown
+            items={items}
             onClick={({ key }) => {
               if (key === 'edit') {
+                if (!canWriteTenants) return;
                 setEditingTenant(record);
-                tenantForm.setFieldsValue(record);
+                tenantForm.setFieldsValue({
+                  name: record.name ?? '',
+                  description: record.description ?? '',
+                });
                 setTenantUpsertModalOpen(true);
                 return;
               }
               if (key === 'delete') {
+                if (!canWriteTenants) return;
                 void (async () => {
                   const n = await refreshTenantUserCount(record.id);
                   if (n < 0) {
@@ -318,20 +357,26 @@ export function useTenantsPage() {
                 return;
               }
               if (key === 'orgManage') {
+                if (!canReadOrganizations) return;
                 navigate(`/admin/tenants/${record.id}/organizations`);
               }
             }}
-          />
-        ),
+            />
+          );
+        },
       },
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       navigate,
+      canReadOrganizations,
       tenantOrgCountMap,
       tenantUserCountMap,
       tenantForm,
       refreshTenantUserCount,
       handleDeleteTenant,
+      canReadOrganizations,
+      canWriteTenants,
     ],
   );
 
@@ -380,13 +425,18 @@ export function useTenantsPage() {
   }, [filterForm]);
 
   const openCreateTenantModal = useCallback(() => {
+    if (!canWriteTenants) {
+      message.warning('无权限执行该操作');
+      return;
+    }
     setEditingTenant(null);
     tenantForm.resetFields();
     setTenantUpsertModalOpen(true);
-  }, [tenantForm]);
+  }, [canWriteTenants, tenantForm]);
 
   return {
     loading,
+    canWriteTenants,
     filteredTenants,
     tenantColumns,
     selectedTenantRowKeys,

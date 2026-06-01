@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Alert, Tooltip, Badge, Segmented } from 'antd';
+import { Button, Table, List, Modal, Form, Input, Select, message, Tag, Space, Tooltip, Badge, Segmented } from 'antd';
 import { ReloadOutlined, LayoutTwoTone, SearchOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
@@ -122,7 +122,10 @@ const ProviderNetworksSection: React.FC<Props> = ({
     setVlanPlanLockProvider(null);
   }, []);
 
-  const vlanListForAlias = isParentManaged ? (parentVlans || []) : vlans;
+  const vlanListForAlias = useMemo(
+    () => (isParentManaged ? (parentVlans || []) : vlans),
+    [isParentManaged, parentVlans, vlans],
+  );
 
   const vlanAliasMap = useMemo(() => {
     const map = new Map<string, { display: string; alias: string }>();
@@ -136,7 +139,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
     return map;
   }, [vlanListForAlias]);
 
-  const fetchData = async (force = false, skipSync = false) => {
+  const fetchData = useCallback(async (force = false, skipSync = false) => {
     try {
       const subnetRes = await fetchKubeOvnSubnets(cloudId, force, skipSync).catch(() => ({ data: { items: [] } }));
       setSubnets(Array.isArray(subnetRes?.data?.items) ? subnetRes.data.items : []);
@@ -167,9 +170,9 @@ const ProviderNetworksSection: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [cloudId, isParentManaged, onParentRefresh]);
 
-  const fetchNodesAndInterfaces = async () => {
+  const fetchNodesAndInterfaces = useCallback(async () => {
     setNodesLoading(true);
     try {
       const [nodesRes, clusterNetworksRes] = await Promise.all([
@@ -230,7 +233,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
     } finally {
       setNodesLoading(false);
     }
-  };
+  }, [cloudId]);
 
   const onDefaultInterfaceChange = (value: string) => {
     const newMap = { ...interfaceMap };
@@ -250,7 +253,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
   useEffect(() => {
     if (!cloudId || isParentManaged) return;
     fetchData();
-  }, [cloudId, isParentManaged]);
+  }, [cloudId, isParentManaged, fetchData]);
 
   useEffect(() => {
     if (!isModalVisible) return;
@@ -259,7 +262,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
     setTargetNodes([]);
     setInterfaceMap({});
     form.resetFields();
-  }, [isModalVisible, cloudId]);
+  }, [isModalVisible, cloudId, fetchNodesAndInterfaces, form]);
 
   const handleCreate = async (values: any) => {
     if (!canWriteProviderNetwork) {
@@ -358,7 +361,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
     }
   };
 
-  const handleDelete = (record: any) => {
+  const handleDelete = useCallback((record: any) => {
     if (!canWriteProviderNetwork) {
       message.error('当前账号没有物理网络管理权限');
       return;
@@ -417,7 +420,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
         }
       },
     });
-  };
+  }, [canWriteProviderNetwork, cloudId, isParentManaged, onParentRefresh, fetchData]);
 
   /** 创建弹窗内「节点网卡映射」列表：物理接口列 */
   const renderModalNodeInterfaceCell = (record: any) => {
@@ -625,7 +628,6 @@ const ProviderNetworksSection: React.FC<Props> = ({
     openVlanPlanForProvider,
     openPnYamlDrawer,
     vlanAliasMap,
-    subnets,
   ]);
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_provider_networks_table');

@@ -1,11 +1,14 @@
 import React from 'react';
 import { Empty } from 'antd';
-import MonitoringAlerts from '../../../../Harvester/monitoring/MonitoringAlerts';
+import MonitoringOpsDashboard from '../../../../Harvester/monitoring/MonitoringOpsDashboard';
+import MonitoringOpsAlertDashboard from '../../../../Harvester/monitoring/MonitoringOpsAlertDashboard';
 import MonitoringPrometheusRules from '../../../../Harvester/monitoring/MonitoringPrometheusRules';
 import MonitoringAlertNotificationPolicy from '../../../../Harvester/monitoring/MonitoringAlertNotificationPolicy';
 import MonitoringAlertNotificationTargets from '../../../../Harvester/monitoring/MonitoringAlertNotificationTargets';
 import MonitoringAlertSecrets from '../../../../Harvester/monitoring/MonitoringAlertSecrets';
+import MonitoringAccessManagement from '../../../../Harvester/monitoring/MonitoringAccessManagement';
 import { MonitoringProvider } from '../../../../Harvester/monitoring/context/MonitoringContext';
+import { canViewMonitoringSidebarLeaf } from '../../../../Harvester/monitoring/lib/monitoringPageAccess';
 
 export type CloudmapMonitoringAlertsRoutePanelProps = {
   cloudId: string;
@@ -13,29 +16,23 @@ export type CloudmapMonitoringAlertsRoutePanelProps = {
   innerActiveKey: string;
 };
 
-function canViewMonitoringInner(key: string, checkPerm: (a: string) => boolean): boolean {
-  if (key === 'alerts-list') return checkPerm('clouds.alerts:read');
-  if (key === 'alert-rules') return checkPerm('clouds.alert-rules:read');
-  if (key === 'notification-policy') return checkPerm('clouds.alert-policies:read');
-  if (key === 'notification-targets') return checkPerm('clouds.alert-receivers:read');
-  if (key === 'alert-secrets') return checkPerm('clouds.alert-secrets:read');
-  return false;
-}
-
 /** Cloudmap 池 — 监控告警（侧栏 + 路由 RoutePanel） */
 const CloudmapMonitoringAlertsRoutePanel: React.FC<CloudmapMonitoringAlertsRoutePanelProps> = ({
   cloudId,
   checkPerm,
   innerActiveKey,
 }) => {
-  if (!canViewMonitoringInner(innerActiveKey, checkPerm)) {
+  if (!canViewMonitoringSidebarLeaf(innerActiveKey, checkPerm)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
   let body: React.ReactNode;
   switch (innerActiveKey) {
+    case 'ops-alert-dashboard':
+      body = <MonitoringOpsAlertDashboard cloudId={cloudId} checkPerm={checkPerm} />;
+      break;
     case 'alerts-list':
-      body = <MonitoringAlerts cloudId={cloudId} />;
+      body = <MonitoringOpsDashboard cloudId={cloudId} />;
       break;
     case 'alert-rules':
       body = <MonitoringPrometheusRules cloudId={cloudId} />;
@@ -48,6 +45,9 @@ const CloudmapMonitoringAlertsRoutePanel: React.FC<CloudmapMonitoringAlertsRoute
       break;
     case 'alert-secrets':
       body = <MonitoringAlertSecrets cloudId={cloudId} />;
+      break;
+    case 'access-management':
+      body = <MonitoringAccessManagement cloudId={cloudId} />;
       break;
     default:
       body = <Empty description="未知页面" style={{ marginTop: 48 }} />;

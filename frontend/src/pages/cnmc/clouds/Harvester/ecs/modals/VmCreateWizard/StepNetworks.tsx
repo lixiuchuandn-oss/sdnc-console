@@ -42,7 +42,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
-import { FileSearchOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { FileSearchOutlined, MinusCircleOutlined } from '@ant-design/icons';
 import {
   ifaceTypeOption,
   NAD_MULTUS_INTERFACE_TYPES,

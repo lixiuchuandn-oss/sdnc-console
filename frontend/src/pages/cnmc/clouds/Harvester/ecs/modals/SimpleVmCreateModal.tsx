@@ -338,26 +338,6 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
       });
   }, [kubeSubnets, nadOptions, selectedFlatSubnetWatched]);
 
-  /** 按 Subnet metadata.name 缓存其 CIDR 段（用于快速创建网络选择展示/回填） */
-  const subnetIpSegmentCacheRef = useRef<Record<string, string>>({});
-  const subnetIpSegmentByName = useMemo(() => {
-    const m: Record<string, string> = {};
-    (kubeSubnets || []).forEach((x: any) => {
-      const name = String(x?.metadata?.name ?? x?.name ?? '').trim();
-      if (!name) return;
-      const cidr = subnetCidrBlock(x);
-      if (!cidr) return;
-      m[name] = cidr;
-    });
-    subnetIpSegmentCacheRef.current = { ...subnetIpSegmentCacheRef.current, ...m };
-    return subnetIpSegmentCacheRef.current;
-  }, [kubeSubnets]);
-  const selectedFlatSubnetSegment = useMemo(() => {
-    const n = String(selectedFlatSubnetWatched ?? '').trim();
-    if (!n) return '';
-    return subnetIpSegmentByName[n] || '';
-  }, [selectedFlatSubnetWatched, subnetIpSegmentByName]);
-
   const targetNamespace = useMemo(() => {
     if (!isTenant) return 'default';
     const ws = String(workspaceNamespace || '').trim();
@@ -493,15 +473,6 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
         return;
       }
 
-      const dispName = String(
-        it?.spec?.displayName ||
-          it?.metadata?.labels?.['harvesterhci.io/imageDisplayName'] ||
-          it?.metadata?.annotations?.['harvesterhci.io/image-name'] ||
-          it?.metadata?.annotations?.['field.cattle.io/displayName'] ||
-          it?.displayName ||
-          it?.name ||
-          '',
-      );
       const resolvedStorageClass = resolveImageStorageClass(it, defaultStorageClassName);
       const bootUseEfi = toBooleanStrict(values.bootUseEfi, false);
 

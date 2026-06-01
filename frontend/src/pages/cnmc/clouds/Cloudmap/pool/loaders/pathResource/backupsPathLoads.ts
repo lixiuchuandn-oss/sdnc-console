@@ -3,8 +3,13 @@ import {
   fetchHarvesterScheduleVmBackups,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
+import {
+  canReadBackupSchedules,
+  canReadVmBackupSnapshots,
+  canReadVmBackups,
+} from '../../../../Harvester/cbr/lib/cbrPermissions';
 
-/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射为 `backups` */
+/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射�?`backups` */
 export async function tryLoadBackupTab(
   key: string,
   force: boolean,
@@ -23,8 +28,10 @@ export async function tryLoadBackupTab(
     setRawScheduleVmBackups,
   } = deps;
 
-  if (checkPerm('clouds.backups:read')) {
-    loadResource(
+  const loadBackupsList =
+    canReadVmBackups(checkPerm) || canReadVmBackupSnapshots(checkPerm);
+  if (loadBackupsList) {
+    await loadResource(
       'backups',
       () => fetchHarvesterBackups(cloudId, force, skipSync),
       (json) => {
@@ -36,7 +43,9 @@ export async function tryLoadBackupTab(
       },
       force,
     );
-    loadResource(
+  }
+  if (canReadBackupSchedules(checkPerm)) {
+    await loadResource(
       'scheduleVmBackups',
       () => fetchHarvesterScheduleVmBackups(cloudId, force, skipSync),
       (json) => {

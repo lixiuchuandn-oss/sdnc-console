@@ -50,6 +50,6 @@ export async function harvesterCephRookBundleHandler(req: Request, res: Response
     }
     if (res.headersSent) return;
     const st = (e as any).status || 500;
-    res.status(st).json({ message: e?.message || '请求 Ceph Rook 聚合失败' });
+    res.status(st).json({ message: e?.message || '请求统一存储 Rook 聚合失败' });
   }
 }

@@ -10,7 +10,7 @@ import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useAuth } from 'contexts/AuthContext';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { hasPermissionForAction } from 'utils/accessMapping';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
@@ -119,7 +119,7 @@ const CloudInitsSection: React.FC<Props> = ({
             <Select
               allowClear
               showSearch
-              placeholder="命名空间"
+              placeholder="项目"
               className="toolbar-filter-sm"
               options={namespaceOptions}
               value={namespaceFilter || undefined}

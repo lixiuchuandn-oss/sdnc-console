@@ -1,6 +1,6 @@
 /**
  * Harvester Services Handlers (Cache Route)
- * 
+ *
  * 从 harvester.cache.network.routes.ts 中提取的 Services 相关业务逻辑
  * 缓存路由：从数据库查询服务列表
  */
@@ -57,9 +57,7 @@ export async function harvesterServiceCacheListHandler(req: Request, res: Respon
       });
       if (us?.namespace) {
         const allowed = us.namespace.split(',').map((s) => s.trim());
-        list = list.filter((svc: any) =>
-          allowed.includes(svc?.metadata?.namespace),
-        );
+        list = list.filter((svc: any) => allowed.includes(svc?.metadata?.namespace));
       }
     }
 

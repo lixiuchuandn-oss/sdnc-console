@@ -1,6 +1,6 @@
 /**
  * 权限继承引擎（Inheritance Engine）
- * 
+ *
  * 核心功能：
  * 1. 计算权限的继承关系
  * 2. 支持层级继承、动词继承、自定义继承
@@ -8,7 +8,7 @@
  */
 
 import { PermissionRegistry } from './registry';
-import { InheritanceRule, PermissionDefinition } from './types';
+import { InheritanceRule } from './types';
 
 export class InheritanceEngine {
   private rules: InheritanceRule[];
@@ -58,10 +58,10 @@ export class InheritanceEngine {
 
     // 递归获取父权限的继承权限
     const allInherited = new Set(inherited);
-    inherited.forEach(parentId => {
+    inherited.forEach((parentId) => {
       if (this.registry.has(parentId)) {
         const parentInherited = this.getInheritedPermissions(parentId);
-        parentInherited.forEach(p => allInherited.add(p));
+        parentInherited.forEach((p) => allInherited.add(p));
       }
     });
 
@@ -81,10 +81,18 @@ export class InheritanceEngine {
     const permSet = new Set(permissionIds);
 
     // 遍历所有权限定义，检查其继承的权限是否在用户权限列表中
-    this.registry.getAll().forEach(def => {
+    this.registry.getAll().forEach((def) => {
       const inherited = this.getInheritedPermissions(def.id);
-      // 如果用户拥有的权限中，有任何一个是被检查权限的父权限，则用户拥有该权限
-      if (inherited.some(perm => permSet.has(perm))) {
+      const [, defVerb] = def.id.split(':');
+      const hasCompatibleGrant = inherited.some((perm) => {
+        if (!permSet.has(perm)) return false;
+        if (defVerb === 'write') {
+          const [, permVerb] = perm.split(':');
+          return permVerb === 'write' || permVerb === 'admin' || perm.endsWith(':*');
+        }
+        return true;
+      });
+      if (hasCompatibleGrant) {
         implied.push(def.id);
       }
     });
@@ -107,11 +115,10 @@ export class InheritanceEngine {
 
     // 层级继承规则
     this.rules
-      .filter(rule => rule.type === 'hierarchical' && rule.hierarchical)
-      .forEach(rule => {
+      .filter((rule) => rule.type === 'hierarchical' && rule.hierarchical)
+      .forEach((rule) => {
         const { pattern, parent } = rule.hierarchical!;
-        
-        // 检查是否匹配模式
+
         if (this.matchPattern(pattern, base)) {
           const parentPerm = `${parent}:${verb}`;
           if (this.registry.has(parentPerm)) {
@@ -120,7 +127,7 @@ export class InheritanceEngine {
         }
       });
 
-    // 默认层级继承：clouds.ecs:read -> clouds:read
+    // 默认层级继承：clouds.ecs:read -> clouds:read；clouds.containers.* 亦继承 clouds:*
     // clouds.ecs.vms:read -> clouds.ecs:read
     if (segments.length >= 2) {
       const parent = `${segments[0]}:${verb}`;
@@ -153,11 +160,11 @@ export class InheritanceEngine {
 
     // 动词继承规则
     this.rules
-      .filter(rule => rule.type === 'verb' && rule.verb)
-      .forEach(rule => {
+      .filter((rule) => rule.type === 'verb' && rule.verb)
+      .forEach((rule) => {
         const { from, to } = rule.verb!;
         if (verb === to) {
-          const fromPerm = `${base}:${from}`;
+          const _fromPerm = `${base}:${from}`;
           // 注意：这里不直接返回，而是在检查时判断用户是否有 from 权限
           // 因为这是反向继承（write 包含 read），需要在检查时特殊处理
         }
@@ -177,8 +184,8 @@ export class InheritanceEngine {
     const inherited: string[] = [];
 
     this.rules
-      .filter(rule => rule.type === 'custom' && rule.custom)
-      .forEach(rule => {
+      .filter((rule) => rule.type === 'custom' && rule.custom)
+      .forEach((rule) => {
         const { from, to, condition } = rule.custom!;
         if (to === permissionId) {
           // 检查条件（如果有）
@@ -196,10 +203,8 @@ export class InheritanceEngine {
    */
   private matchPattern(pattern: string, target: string): boolean {
     // 将通配符模式转换为正则表达式
-    const regexPattern = pattern
-      .replace(/\*/g, '.*')
-      .replace(/\./g, '\\.');
-    
+    const regexPattern = pattern.replace(/\*/g, '.*').replace(/\./g, '\\.');
+
     try {
       const regex = new RegExp('^' + regexPattern + '$');
       return regex.test(target);

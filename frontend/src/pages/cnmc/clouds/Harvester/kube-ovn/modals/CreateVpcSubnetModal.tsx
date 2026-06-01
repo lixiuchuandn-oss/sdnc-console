@@ -77,7 +77,7 @@ export type CreateVpcSubnetModalProps = {
   /** 编辑时传入当前子网记录 */
   editingRecord: any | null;
   cloudId: string | undefined;
-  hasVpcsWrite: boolean;
+  canWriteVpcSubnet: boolean;
   vpcPickerRows: BusinessVpcPickerRow[];
   subnets: any[];
   onRefresh?: (force?: boolean, silent?: boolean, opts?: { vpcsAll?: boolean }) => void;
@@ -98,7 +98,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
   isEditMode,
   editingRecord,
   cloudId,
-  hasVpcsWrite,
+  canWriteVpcSubnet,
   vpcPickerRows,
   subnets,
   onRefresh,
@@ -198,7 +198,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
 
   const handleSubmit = useCallback(
     async (values: any) => {
-      if (!hasVpcsWrite) {
+      if (!canWriteVpcSubnet) {
         message.error('无权限执行该操作');
         return;
       }
@@ -356,7 +356,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
         setSubmitting(false);
       }
     },
-    [cloudId, createSubnetNamespace, editingRecord, handleClose, hasVpcsWrite, isEditMode, onRefresh, onRefreshNads, refreshOpts],
+    [cloudId, createSubnetNamespace, editingRecord, handleClose, canWriteVpcSubnet, isEditMode, onRefresh, onRefreshNads, refreshOpts],
   );
 
   return (
@@ -369,7 +369,7 @@ const CreateVpcSubnetModal: React.FC<CreateVpcSubnetModalProps> = ({
       onCancel={handleClose}
       confirmLoading={submitting}
       destroyOnHidden
-      okButtonProps={{ disabled: !hasVpcsWrite }}
+      okButtonProps={{ disabled: !canWriteVpcSubnet }}
     >
       <Form form={form} layout="vertical" onFinish={handleSubmit} className="std-form">
         <Form.Item

@@ -2,8 +2,8 @@ import { fetchCloudProviderEcs, fetchHarvesterLoadBalancers } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
 /**
- * 虚拟网元：与 `panels/oniaas_network`、侧栏 `oniaas_network/*` 对齐。
- * `slb` 与集群侧「负载均衡」同一 Harvester 数据源，便于在自有目录中独立呈现产品入口。
+ * 虚拟网元：与 `panels/oniaas_network`、侧�?`oniaas_network/*` 对齐�?
+ * `slb` 与集群侧「负载均衡」同一 Harvester 数据源，便于在自有目录中独立呈现产品入口�?
  */
 export async function tryLoadOniaasNetworkTab(
   key: string,
@@ -25,7 +25,7 @@ export async function tryLoadOniaasNetworkTab(
   switch (key) {
     case 'slb':
       if (canReadLoadBalancers) {
-        loadResource(
+        await loadResource(
           'loadBalancers',
           () => fetchHarvesterLoadBalancers(cloudId, force),
           (json) => {
@@ -41,7 +41,7 @@ export async function tryLoadOniaasNetworkTab(
       return true;
     case 'virtual_routers':
       if (checkPerm('clouds.ecs:read')) {
-        loadResource(
+        await loadResource(
           'ecs',
           () => fetchCloudProviderEcs(cloudId, force),
           (json) => {

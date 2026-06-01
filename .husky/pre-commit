@@ -1,5 +1,11 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-cd frontend
-npx lint-staged
+# 前端：lint-staged（eslint --fix + prettier）
+( cd frontend && npx lint-staged ) || exit 1
+
+# 后端：若有暂存的 .ts 改动，运行类型检查，防止类型错误进入提交（曾因后端未校验导致构建中断）
+if git diff --cached --name-only | grep -qE '^backend/.*\.ts$'; then
+  echo "[pre-commit] 检测到后端 .ts 改动，运行 tsc --noEmit ..."
+  ( cd backend && npx tsc --noEmit ) || exit 1
+fi

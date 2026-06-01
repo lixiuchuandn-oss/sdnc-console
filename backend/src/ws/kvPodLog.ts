@@ -76,9 +76,9 @@ export function createKvPodLogWss() {
 
         const spaces = await userSpaceRepo.find({ where: whereClause });
         const allowedNamespaces = new Set<string>();
-        spaces.forEach(s => {
+        spaces.forEach((s) => {
           if (s.namespace) {
-            s.namespace.split(',').forEach(ns => allowedNamespaces.add(ns.trim()));
+            s.namespace.split(',').forEach((ns) => allowedNamespaces.add(ns.trim()));
           }
         });
 
@@ -97,7 +97,9 @@ export function createKvPodLogWss() {
       const repo = AppDataSource.getRepository(Cloud);
       const cloud = await repo.findOne({ where: { id: cloudId } });
       if (!cloud) throw new Error('云资源不存在');
-      const pv = String((cloud as any)?.config?.provider || '').toLowerCase().trim();
+      const pv = String((cloud as any)?.config?.provider || '')
+        .toLowerCase()
+        .trim();
       const allowed = ['harvester', 'cloudmap.private', 'cloudmap.edge'];
       if (!allowed.includes(pv)) throw new Error(`仅支持 Harvester/Cloudmap (current: ${pv})`);
       const insecure = !!(cloud.config as any)?.ignoreTls;
@@ -112,11 +114,22 @@ export function createKvPodLogWss() {
 
       let clusterId: string | null = null;
       try {
-        const clusters = await getJsonOnce(`${origin}/v3/clusters`, cloud.secretKey || '', insecure);
-        const items: any[] = Array.isArray(clusters?.data) ? clusters?.data : Array.isArray(clusters?.items) ? clusters?.items : [];
-        const local = items.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
+        const clusters = await getJsonOnce(
+          `${origin}/v3/clusters`,
+          cloud.secretKey || '',
+          insecure,
+        );
+        const items: any[] = Array.isArray(clusters?.data)
+          ? clusters?.data
+          : Array.isArray(clusters?.items)
+            ? clusters?.items
+            : [];
+        const local = items.find(
+          (c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local',
+        );
         const anyItem = items[0];
-        clusterId = String(local?.id || local?.Id || anyItem?.id || anyItem?.Id || '')?.trim() || null;
+        clusterId =
+          String(local?.id || local?.Id || anyItem?.id || anyItem?.Id || '')?.trim() || null;
       } catch {}
 
       const params = new URLSearchParams({
@@ -139,7 +152,11 @@ export function createKvPodLogWss() {
       const logUrlHttp = `${origin}${logPath}`;
 
       const rawToken = String(cloud.secretKey || '').trim();
-      const authValue = rawToken ? (rawToken.toLowerCase().startsWith('bearer ') ? rawToken : `Bearer ${rawToken}`) : '';
+      const authValue = rawToken
+        ? rawToken.toLowerCase().startsWith('bearer ')
+          ? rawToken
+          : `Bearer ${rawToken}`
+        : '';
 
       // K8s Pod 日志 API 使用 HTTP GET + chunked 流式传输（follow=true），非 WebSocket
       // 与 Harvester 1.6 / Rancher 一致：GET /api/v1/namespaces/{ns}/pods/{pod}/log?follow=true&...
@@ -159,7 +176,9 @@ export function createKvPodLogWss() {
         (res) => {
           if (res.statusCode && res.statusCode >= 400) {
             let body = '';
-            res.on('data', (chunk) => { body += chunk; });
+            res.on('data', (chunk) => {
+              body += chunk;
+            });
             res.on('end', () => {
               try {
                 ws.close(1011, `日志请求失败: ${res.statusCode} ${body.slice(0, 200)}`);
@@ -189,7 +208,7 @@ export function createKvPodLogWss() {
               ws.close(1011, `流错误: ${userMsg}`);
             } catch {}
           });
-        }
+        },
       );
       logReq.on('error', (err) => {
         if (isClosing) return;
@@ -200,7 +219,7 @@ export function createKvPodLogWss() {
       // follow=true 时连接需长保持，不设短超时
       logReq.setTimeout(0);
       logReq.end();
-      
+
       ws.on('close', () => {
         isClosing = true;
         try {

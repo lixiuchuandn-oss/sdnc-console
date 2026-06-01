@@ -129,7 +129,7 @@ import {
 
 export function registerHarvesterDirectRoutesProvider(
   router: Router,
-  checkAdminPermission: RequestHandler
+  checkAdminPermission: RequestHandler,
 ) {
   /**
    * Harvester / Cloudmap / cloudmap.private / cloudmap.edge 共用同一直连 handler
@@ -206,9 +206,13 @@ export function registerHarvesterDirectRoutesProvider(
   const kubeOvnSgListHandlers = harvesterProviderMap(kubeOvnSecurityGroupListHandler);
   const kubeOvnSgCreateHandlers = harvesterProviderMap(kubeOvnSecurityGroupCreateHandler);
   const kubeOvnSgDetailHandlers = harvesterProviderMap(kubeOvnSecurityGroupDetailHandler);
-  const kubeOvnSgReplaceRulesHandlers = harvesterProviderMap(kubeOvnSecurityGroupReplaceRulesHandler);
+  const kubeOvnSgReplaceRulesHandlers = harvesterProviderMap(
+    kubeOvnSecurityGroupReplaceRulesHandler,
+  );
   const kubeOvnSgAddMembersHandlers = harvesterProviderMap(kubeOvnSecurityGroupAddMembersHandler);
-  const kubeOvnSgRemoveMemberHandlers = harvesterProviderMap(kubeOvnSecurityGroupRemoveMemberHandler);
+  const kubeOvnSgRemoveMemberHandlers = harvesterProviderMap(
+    kubeOvnSecurityGroupRemoveMemberHandler,
+  );
   const kubeOvnSgUpdateHandlers = harvesterProviderMap(kubeOvnSecurityGroupUpdateHandler);
   const kubeOvnSgDeleteHandlers = harvesterProviderMap(kubeOvnSecurityGroupDeleteHandler);
   const providerNetworkListHandlers = harvesterProviderMap(harvesterProviderNetworkListHandler);
@@ -260,7 +264,9 @@ export function registerHarvesterDirectRoutesProvider(
   const snapshotClassesListHandlers = harvesterProviderMap(harvesterSnapshotClassesListHandler);
   const volumeExportImageHandlers = harvesterProviderMap(harvesterVolumeExportImageHandler);
   const volumeCloneHandlers = harvesterProviderMap(harvesterVolumeCloneHandler);
-  const volumeExportImageLegacyHandlers = harvesterProviderMap(harvesterVolumeExportImageLegacyHandler);
+  const volumeExportImageLegacyHandlers = harvesterProviderMap(
+    harvesterVolumeExportImageLegacyHandler,
+  );
   const volumeCloneLegacyHandlers = harvesterProviderMap(harvesterVolumeCloneLegacyHandler);
   const capabilitiesHandlers = harvesterProviderMap(harvesterCapabilitiesDirectHandler);
   const storageClassDetailHandlers = harvesterProviderMap(harvesterStorageClassDetailHandler);
@@ -271,98 +277,94 @@ export function registerHarvesterDirectRoutesProvider(
   router.get(
     '/:id/resources/ecs/stream',
     checkAdminPermission,
-    createProviderRouter(ecsStreamHandlers)
+    createProviderRouter(ecsStreamHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/start - 启动 VM
   router.post(
     '/:id/resources/ecs/:instanceId/start',
     checkAdminPermission,
-    createProviderRouter(ecsStartHandlers)
+    createProviderRouter(ecsStartHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/stop - 停止 VM
   router.post(
     '/:id/resources/ecs/:instanceId/stop',
     checkAdminPermission,
-    createProviderRouter(ecsStopHandlers)
+    createProviderRouter(ecsStopHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/reboot - 重启 VM
   router.post(
     '/:id/resources/ecs/:instanceId/reboot',
     checkAdminPermission,
-    createProviderRouter(ecsRebootHandlers)
+    createProviderRouter(ecsRebootHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/softreboot - 软重启 VM
   router.post(
     '/:id/resources/ecs/:instanceId/softreboot',
     checkAdminPermission,
-    createProviderRouter(ecsSoftRebootHandlers)
+    createProviderRouter(ecsSoftRebootHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/pause - 暂停 VM
   router.post(
     '/:id/resources/ecs/:instanceId/pause',
     checkAdminPermission,
-    createProviderRouter(ecsPauseHandlers)
+    createProviderRouter(ecsPauseHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/unpause - 恢复 VM
   router.post(
     '/:id/resources/ecs/:instanceId/unpause',
     checkAdminPermission,
-    createProviderRouter(ecsUnpauseHandlers)
+    createProviderRouter(ecsUnpauseHandlers),
   );
 
   // DELETE /:id/resources/ecs/:instanceId - 删除 VM
   router.delete(
     '/:id/resources/ecs/:instanceId',
     checkAdminPermission,
-    createProviderRouter(ecsDeleteHandlers)
+    createProviderRouter(ecsDeleteHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/restore - 恢复 VM (回收站)
   router.post(
     '/:id/resources/ecs/:instanceId/restore',
     checkAdminPermission,
-    createProviderRouter(ecsRestoreHandlers)
+    createProviderRouter(ecsRestoreHandlers),
   );
 
   // DELETE /:id/resources/ecs/:instanceId/force - 强制删除 VM
   router.delete(
     '/:id/resources/ecs/:instanceId/force',
     checkAdminPermission,
-    createProviderRouter(ecsForceDeleteHandlers)
+    createProviderRouter(ecsForceDeleteHandlers),
   );
 
   // POST /:id/resources/ecs - 创建 VM
-  router.post(
-    '/:id/resources/ecs',
-    checkAdminPermission,
-    createProviderRouter(ecsCreateHandlers)
-  );
+  router.post('/:id/resources/ecs', checkAdminPermission, createProviderRouter(ecsCreateHandlers));
 
   // POST /:id/resources/harvester/vms - 创建 VM（兼容前端调用）
   router.post(
     '/:id/resources/harvester/vms',
     checkAdminPermission,
-    createProviderRouter(ecsCreateHandlers)
+    createProviderRouter(ecsCreateHandlers),
   );
 
   // PUT /:id/resources/ecs/:instanceId - 更新 VM
   router.put(
     '/:id/resources/ecs/:instanceId',
     checkAdminPermission,
-    createProviderRouter(ecsUpdateHandlers)
+    createProviderRouter(ecsUpdateHandlers),
   );
 
   // POST /:id/resources/harvester/vms/:namespace/:name/update-spec - 更新 VM Spec
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/update-spec',
     checkAdminPermission,
-    createProviderRouter(vmUpdateSpecHandlers)
+    createProviderRouter(vmUpdateSpecHandlers),
   );
 
   // PATCH /:id/resources/harvester/vms/:namespace/:name - PATCH VM
@@ -370,405 +372,401 @@ export function registerHarvesterDirectRoutesProvider(
     '/:id/resources/harvester/vms/:namespace/:name',
     checkAdminPermission,
     json({ type: ['application/json-patch+json', 'application/merge-patch+json'] }),
-    createProviderRouter(vmPatchHandlers)
+    createProviderRouter(vmPatchHandlers),
   );
 
   // POST /:id/resources/harvester/vms/:namespace/:name/save-as-template - 保存为模板（兼容前端调用）
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/save-as-template',
     checkAdminPermission,
-    createProviderRouter(vmSaveAsTemplateHandlers)
+    createProviderRouter(vmSaveAsTemplateHandlers),
   );
 
   // POST /:id/resources/harvester/templates/:namespace/:name/create-vm - 从模板创建虚拟机（兼容前端调用）
   router.post(
     '/:id/resources/harvester/templates/:namespace/:name/create-vm',
     checkAdminPermission,
-    createProviderRouter(vmCreateFromTemplateHandlers)
+    createProviderRouter(vmCreateFromTemplateHandlers),
   );
 
   // POST /:id/resources/harvester/vms/:namespace/:name/action - 执行 VM 操作（兼容前端调用）
   router.post(
     '/:id/resources/harvester/vms/:namespace/:name/action',
     checkAdminPermission,
-    createProviderRouter(vmActionHandlers)
+    createProviderRouter(vmActionHandlers),
   );
 
   // GET /:id/resources/ecs/:instanceId/vnc-url - 获取 VNC URL
   router.get(
     '/:id/resources/ecs/:instanceId/vnc-url',
     checkAdminPermission,
-    createProviderRouter(ecsVncUrlHandlers)
+    createProviderRouter(ecsVncUrlHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/add-volume - 挂载卷
   router.post(
     '/:id/resources/ecs/:instanceId/add-volume',
     checkAdminPermission,
-    createProviderRouter(ecsAddVolumeHandlers)
+    createProviderRouter(ecsAddVolumeHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/remove-volume - 卸载卷
   router.post(
     '/:id/resources/ecs/:instanceId/remove-volume',
     checkAdminPermission,
-    createProviderRouter(ecsRemoveVolumeHandlers)
+    createProviderRouter(ecsRemoveVolumeHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/migrate - 迁移 VM
   router.post(
     '/:id/resources/ecs/:instanceId/migrate',
     checkAdminPermission,
-    createProviderRouter(ecsMigrateHandlers)
+    createProviderRouter(ecsMigrateHandlers),
   );
 
   // POST /:id/resources/ecs/:instanceId/abort-migration - 取消迁移
   router.post(
     '/:id/resources/ecs/:instanceId/abort-migration',
     checkAdminPermission,
-    createProviderRouter(ecsAbortMigrationHandlers)
+    createProviderRouter(ecsAbortMigrationHandlers),
   );
 
   // GET /:id/resources/harvester/gpu - 获取 GPU 资源
   router.get(
     '/:id/resources/harvester/gpu',
     checkAdminPermission,
-    createProviderRouter(gpuResourcesHandlers)
+    createProviderRouter(gpuResourcesHandlers),
   );
 
   // GET /:id/resources/harvester/usb - 获取 USB 资源
   router.get(
     '/:id/resources/harvester/usb',
     checkAdminPermission,
-    createProviderRouter(usbResourcesHandlers)
+    createProviderRouter(usbResourcesHandlers),
   );
 
   // GET /:id/resources/harvester/migrations-direct - 获取迁移列表
   router.get(
     '/:id/resources/harvester/migrations-direct',
     checkAdminPermission,
-    createProviderRouter(migrationsDirectHandlers)
+    createProviderRouter(migrationsDirectHandlers),
   );
 
   // GET /:id/resources/ecs/:namespace/:name/aggregated - 获取聚合 VM 详情
   router.get(
     '/:id/resources/ecs/:namespace/:name/aggregated',
     checkAdminPermission,
-    createProviderRouter(ecsAggregatedHandlers)
+    createProviderRouter(ecsAggregatedHandlers),
   );
 
   // OVN Subnet Direct
   router.get(
     '/:id/resources/subnets',
     checkAdminPermission,
-    createProviderRouter(subnetListHandlers)
+    createProviderRouter(subnetListHandlers),
   );
   router.post(
     '/:id/resources/subnets',
     checkAdminPermission,
-    createProviderRouter(subnetCreateHandlers)
+    createProviderRouter(subnetCreateHandlers),
   );
   /** 路径参数 name = Kube-OVN Subnet CR 的 metadata.name（非 UID），与 DELETE 一致 */
   router.put(
     '/:id/resources/subnets/:name',
     checkAdminPermission,
-    createProviderRouter(subnetUpdateHandlers)
+    createProviderRouter(subnetUpdateHandlers),
   );
   // 与 PUT 等价：前端 harvesterApi.updateKubeOvnSubnet 使用 PATCH
   router.patch(
     '/:id/resources/subnets/:name',
     checkAdminPermission,
-    createProviderRouter(subnetUpdateHandlers)
+    createProviderRouter(subnetUpdateHandlers),
   );
   router.delete(
     '/:id/resources/subnets/:name',
     checkAdminPermission,
-    createProviderRouter(subnetDeleteHandlers)
+    createProviderRouter(subnetDeleteHandlers),
   );
   // 检测子网静态 IP 使用状态
   // 路由：GET /api/clouds/:id/resources/subnets/:namespace/:name/check-ip?ip=172.16.2.1
   router.get(
     '/:id/resources/subnets/:namespace/:name/check-ip',
     checkAdminPermission,
-    createProviderRouter(subnetCheckIpHandlers)
+    createProviderRouter(subnetCheckIpHandlers),
   );
 
   // Kube-OVN 安全组（Tower 数据库）
   router.get(
     '/:id/resources/kube-ovn-security-groups',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgListHandlers)
+    createProviderRouter(kubeOvnSgListHandlers),
   );
   router.post(
     '/:id/resources/kube-ovn-security-groups',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgCreateHandlers)
+    createProviderRouter(kubeOvnSgCreateHandlers),
   );
   router.get(
     '/:id/resources/kube-ovn-security-groups/:sgId',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgDetailHandlers)
+    createProviderRouter(kubeOvnSgDetailHandlers),
   );
   router.put(
     '/:id/resources/kube-ovn-security-groups/:sgId/rules',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgReplaceRulesHandlers)
+    createProviderRouter(kubeOvnSgReplaceRulesHandlers),
   );
   router.post(
     '/:id/resources/kube-ovn-security-groups/:sgId/members',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgAddMembersHandlers)
+    createProviderRouter(kubeOvnSgAddMembersHandlers),
   );
   router.delete(
     '/:id/resources/kube-ovn-security-groups/:sgId/members/:memberId',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgRemoveMemberHandlers)
+    createProviderRouter(kubeOvnSgRemoveMemberHandlers),
   );
   router.patch(
     '/:id/resources/kube-ovn-security-groups/:sgId',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgUpdateHandlers)
+    createProviderRouter(kubeOvnSgUpdateHandlers),
   );
   router.delete(
     '/:id/resources/kube-ovn-security-groups/:sgId',
     checkAdminPermission,
-    createProviderRouter(kubeOvnSgDeleteHandlers)
+    createProviderRouter(kubeOvnSgDeleteHandlers),
   );
 
   // OVN Provider Networks
   router.get(
     '/:id/resources/provider-networks',
     checkAdminPermission,
-    createProviderRouter(providerNetworkListHandlers)
+    createProviderRouter(providerNetworkListHandlers),
   );
   router.post(
     '/:id/resources/provider-networks',
     checkAdminPermission,
-    createProviderRouter(providerNetworkCreateHandlers)
+    createProviderRouter(providerNetworkCreateHandlers),
   );
   router.delete(
     '/:id/resources/provider-networks/:name',
     checkAdminPermission,
-    createProviderRouter(providerNetworkDeleteHandlers)
+    createProviderRouter(providerNetworkDeleteHandlers),
   );
 
   // OVN VLANs
-  router.get(
-    '/:id/resources/vlans',
-    checkAdminPermission,
-    createProviderRouter(vlanListHandlers)
-  );
+  router.get('/:id/resources/vlans', checkAdminPermission, createProviderRouter(vlanListHandlers));
   router.post(
     '/:id/resources/vlans',
     checkAdminPermission,
-    createProviderRouter(vlanCreateHandlers)
+    createProviderRouter(vlanCreateHandlers),
   );
   router.delete(
     '/:id/resources/vlans/:name',
     checkAdminPermission,
-    createProviderRouter(vlanDeleteHandlers)
+    createProviderRouter(vlanDeleteHandlers),
   );
 
   // OVN Switch LB Rules
   router.get(
     '/:id/resources/switch-lbrules',
     checkAdminPermission,
-    createProviderRouter(switchLbRuleListHandlers)
+    createProviderRouter(switchLbRuleListHandlers),
   );
 
   // NADs Direct (直连查询)
   router.get(
     '/:id/resources/nads',
     checkAdminPermission,
-    createProviderRouter(nadDirectListHandlers)
+    createProviderRouter(nadDirectListHandlers),
   );
   router.get(
     '/:id/resources/harvester/nads/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(nadDirectDetailHandlers)
+    createProviderRouter(nadDirectDetailHandlers),
   );
 
   // OVN EIP/FIP/NAT：GET 须带 ?ovnNetworkScope=vpc|underlay|all；POST 须带 ?ovnNetworkScope=vpc|underlay
   router.get(
     '/:id/resources/ovneips',
     checkAdminPermission,
-    createProviderRouter(ovnEipListHandlers)
+    createProviderRouter(ovnEipListHandlers),
   );
   router.post(
     '/:id/resources/ovneips',
     checkAdminPermission,
-    createProviderRouter(ovnEipCreateHandlers)
+    createProviderRouter(ovnEipCreateHandlers),
   );
   router.delete(
     '/:id/resources/ovneips/:name',
     checkAdminPermission,
-    createProviderRouter(ovnEipDeleteHandlers)
+    createProviderRouter(ovnEipDeleteHandlers),
   );
   router.get(
     '/:id/resources/ovnfips',
     checkAdminPermission,
-    createProviderRouter(ovnFipListHandlers)
+    createProviderRouter(ovnFipListHandlers),
   );
   router.post(
     '/:id/resources/ovnfips',
     checkAdminPermission,
-    createProviderRouter(ovnFipCreateHandlers)
+    createProviderRouter(ovnFipCreateHandlers),
   );
   router.delete(
     '/:id/resources/ovnfips/:name',
     checkAdminPermission,
-    createProviderRouter(ovnFipDeleteHandlers)
+    createProviderRouter(ovnFipDeleteHandlers),
   );
   router.post(
     '/:id/resources/ovnsnatrules',
     checkAdminPermission,
-    createProviderRouter(ovnSnatCreateHandlers)
+    createProviderRouter(ovnSnatCreateHandlers),
   );
   router.get(
     '/:id/resources/ovnsnatrules',
     checkAdminPermission,
-    createProviderRouter(ovnSnatListHandlers)
+    createProviderRouter(ovnSnatListHandlers),
   );
   router.delete(
     '/:id/resources/ovnsnatrules/:name',
     checkAdminPermission,
-    createProviderRouter(ovnSnatDeleteHandlers)
+    createProviderRouter(ovnSnatDeleteHandlers),
   );
   router.post(
     '/:id/resources/ovndnatrules',
     checkAdminPermission,
-    createProviderRouter(ovnDnatCreateHandlers)
+    createProviderRouter(ovnDnatCreateHandlers),
   );
   router.get(
     '/:id/resources/ovndnatrules',
     checkAdminPermission,
-    createProviderRouter(ovnDnatListHandlers)
+    createProviderRouter(ovnDnatListHandlers),
   );
   router.delete(
     '/:id/resources/ovndnatrules/:name',
     checkAdminPermission,
-    createProviderRouter(ovnDnatDeleteHandlers)
+    createProviderRouter(ovnDnatDeleteHandlers),
   );
 
   // LB / Service / IPPool
   router.get(
     '/:id/resources/harvester-loadbalancers',
     checkAdminPermission,
-    createProviderRouter(lbListHandlers)
+    createProviderRouter(lbListHandlers),
   );
   router.post(
     '/:id/resources/harvester-loadbalancers',
     checkAdminPermission,
-    createProviderRouter(lbCreateHandlers)
+    createProviderRouter(lbCreateHandlers),
   );
   router.get(
     '/:id/resources/services',
     checkAdminPermission,
-    createProviderRouter(serviceListHandlers)
+    createProviderRouter(serviceListHandlers),
   );
   router.delete(
     '/:id/resources/harvester-loadbalancers/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(lbDeleteHandlers)
+    createProviderRouter(lbDeleteHandlers),
   );
   router.get(
     '/:id/resources/ippools',
     checkAdminPermission,
-    createProviderRouter(ipPoolListHandlers)
+    createProviderRouter(ipPoolListHandlers),
   );
   router.post(
     '/:id/resources/ippools',
     checkAdminPermission,
-    createProviderRouter(ipPoolCreateHandlers)
+    createProviderRouter(ipPoolCreateHandlers),
   );
   router.delete(
     '/:id/resources/ippools/:name',
     checkAdminPermission,
-    createProviderRouter(ipPoolDeleteHandlers)
+    createProviderRouter(ipPoolDeleteHandlers),
   );
 
   // 存储（Harvester volumes / snapshots / capabilities）
   router.get(
     '/:id/resources/harvester/volumes',
     checkAdminPermission,
-    createProviderRouter(volumeListHandlers)
+    createProviderRouter(volumeListHandlers),
   );
   router.get(
     '/:id/resources/harvester/volumes/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(volumeDetailHandlers)
+    createProviderRouter(volumeDetailHandlers),
   );
   router.get(
     '/:id/resources/harvester/available-volumes',
     checkAdminPermission,
-    createProviderRouter(availableVolumesHandlers)
+    createProviderRouter(availableVolumesHandlers),
   );
   router.post(
     '/:id/resources/harvester/volumes',
     checkAdminPermission,
-    createProviderRouter(volumeCreateHandlers)
+    createProviderRouter(volumeCreateHandlers),
   );
   router.delete(
     '/:id/resources/harvester/volumes/:name',
     checkAdminPermission,
-    createProviderRouter(volumeDeleteHandlers)
+    createProviderRouter(volumeDeleteHandlers),
   );
   router.put(
     '/:id/resources/harvester/volumes/:namespace/:name',
     checkAdminPermission,
-    createProviderRouter(volumeUpdateHandlers)
+    createProviderRouter(volumeUpdateHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/snapshots/:namespace/:name/restore',
     checkAdminPermission,
-    createProviderRouter(snapshotRestoreHandlers)
+    createProviderRouter(snapshotRestoreHandlers),
   );
   router.post(
     '/:id/resources/harvester/volumes/:namespace/:name/snapshots',
     checkAdminPermission,
-    createProviderRouter(volumeSnapshotCreateHandlers)
+    createProviderRouter(volumeSnapshotCreateHandlers),
   );
   router.post(
     '/:id/resources/harvester/volumes/snapshot',
     checkAdminPermission,
-    createProviderRouter(volumeSnapshotLegacyHandlers)
+    createProviderRouter(volumeSnapshotLegacyHandlers),
   );
   router.get(
     '/:id/resources/harvester/snapshot-classes',
     checkAdminPermission,
-    createProviderRouter(snapshotClassesListHandlers)
+    createProviderRouter(snapshotClassesListHandlers),
   );
 
   router.post(
     '/:id/resources/harvester/volumes/:namespace/:name/export-image',
     checkAdminPermission,
-    createProviderRouter(volumeExportImageHandlers)
+    createProviderRouter(volumeExportImageHandlers),
   );
   router.post(
     '/:id/resources/harvester/volumes/:namespace/:name/clone',
     checkAdminPermission,
-    createProviderRouter(volumeCloneHandlers)
+    createProviderRouter(volumeCloneHandlers),
   );
   router.post(
     '/:id/resources/harvester/volumes/export-image',
     checkAdminPermission,
-    createProviderRouter(volumeExportImageLegacyHandlers)
+    createProviderRouter(volumeExportImageLegacyHandlers),
   );
   router.post(
     '/:id/resources/harvester/volumes/clone',
     checkAdminPermission,
-    createProviderRouter(volumeCloneLegacyHandlers)
+    createProviderRouter(volumeCloneLegacyHandlers),
   );
 
   router.get(
     '/:id/resources/harvester/capabilities',
     checkAdminPermission,
-    createProviderRouter(capabilitiesHandlers)
+    createProviderRouter(capabilitiesHandlers),
   );
   router.get(
     '/:id/resources/harvester/storage-classes/:name',
     checkAdminPermission,
-    createProviderRouter(storageClassDetailHandlers)
+    createProviderRouter(storageClassDetailHandlers),
   );
 }

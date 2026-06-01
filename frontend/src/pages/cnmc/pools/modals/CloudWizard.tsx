@@ -37,7 +37,7 @@ import {
 } from 'antd';
 import { 
   CloudUploadOutlined, CheckCircleOutlined, SettingOutlined,
-  DatabaseOutlined, AppstoreOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, ContainerOutlined, DeploymentUnitOutlined
+  DatabaseOutlined, AppstoreOutlined, DesktopOutlined, ApiOutlined, CloudServerOutlined, LoadingOutlined, ContainerOutlined, DeploymentUnitOutlined, HddOutlined
 } from '@ant-design/icons';
 import '../../clouds/Harvester/ecs/modals/VmCreateWizard/InstanceWizard.css';
 import { cloudProviders, CloudProvider, CloudProviderField, getProviderLogo } from '../lib/poolProviders';
@@ -48,7 +48,13 @@ import { provinces, cityOptionsByProvince } from '../../../../constants/chinaReg
 import { apiPost, apiRequest } from '../../../../services/api';
 import { updateSystemSetting } from '../../../../services/systemApi';
 import { handleApiError } from '../../../../utils/errorHandler';
-import { isCloudWizardOpenProvider, poolTypeToApiType } from '../lib/cloudWizardUtils';
+import {
+  buildMaasConnectionPayload,
+  isCloudWizardOpenProvider,
+  isValidMaasApiKey,
+  isValidMaasEndpoint,
+  poolTypeToApiType,
+} from '../lib/cloudWizardUtils';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -217,6 +223,34 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
     setLoading(true);
     try {
       const values = formData || form.getFieldsValue();
+
+      if (selectedProvider?.id === 'maas') {
+        const endpoint = String(values.endpoint || '').trim();
+        const apiKey = String(values.apiKey || '').trim();
+        if (!isValidMaasEndpoint(endpoint)) {
+          setTestResult({
+            success: false,
+            message: 'MAAS Region 地址必须以 /MAAS 结尾，例如 http://10.0.0.1:5240/MAAS',
+          });
+          setLoading(false);
+          return;
+        }
+        if (!isValidMaasApiKey(apiKey)) {
+          setTestResult({
+            success: false,
+            message: 'MAAS API Key 格式必须为 consumer_key:token:secret（恰好两个冒号）',
+          });
+          setLoading(false);
+          return;
+        }
+        const json = await apiPost('/api/clouds/test-connection', buildMaasConnectionPayload(values));
+        setTestResult({
+          success: !!json?.ok,
+          message: json?.message || (json?.ok ? '连接成功' : '连接失败'),
+        });
+        setLoading(false);
+        return;
+      }
       
       // [数据标准化] 构造 Endpoint
       // - 阿里云/华为云: 根据地域代码自动构造
@@ -256,7 +290,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         endpoint,
         accessKey: values.accessKey || values.accessKeyId || values.secretId || values.publicKey || values.username || '',
         secretKey: values.secretKey || values.accessKeySecret || values.secretAccessKey ||
-                   values.privateKey || values.clientSecret || values.password || values.apiToken || '',
+                   values.privateKey || values.clientSecret || values.password || values.apiToken || values.apiKey || '',
         config: cfgBase
       };
 
@@ -299,6 +333,44 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
     try {
       // 使用保存的表单数据 (formData) 或 实时获取 (兜底)
       const values = formData || form.getFieldsValue();
+
+      if (selectedProvider.id === 'maas') {
+        const endpoint = String(values.endpoint || '').trim();
+        const apiKey = String(values.apiKey || '').trim();
+        const name = String(values.name || '').trim();
+        if (!name || !isValidMaasEndpoint(endpoint) || !isValidMaasApiKey(apiKey)) {
+          message.error('请填写名称、以 /MAAS 结尾的地址及三段式 API Key');
+          setLoading(false);
+          return;
+        }
+        const maasCfg = buildMaasConnectionPayload(values).config;
+        const cloudData = {
+          name,
+          description: (values.description && String(values.description).trim()) || 'MAAS 裸金属资源池',
+          type: 'bare_metal',
+          region: 'default',
+          endpoint: maasCfg.endpoint,
+          config: {
+            provider: 'maas' as const,
+            apiKey: maasCfg.apiKey,
+            ignoreTls: maasCfg.ignoreTls,
+          },
+        };
+        const created: { cloud?: { id?: string }; id?: string; data?: { id?: string } } =
+          await apiPost('/api/clouds', cloudData);
+        const newId = created?.cloud?.id ?? created?.id ?? created?.data?.id;
+        if (newId) {
+          try {
+            await updateSystemSetting('favorite.cloudId', String(newId));
+          } catch {
+            /* ignore */
+          }
+        }
+        message.success('云资源创建成功！');
+        onSuccess();
+        handleCancel();
+        return;
+      }
       
       // [数据标准化] 资源类型
       // 后端已更新 CloudType 枚举，直接使用前端选择的类型
@@ -387,7 +459,6 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
         setLoading(false);
         return;
       }
-
 
       // 调用API创建云资源
       const created: any = await apiPost('/api/clouds', cloudData);
@@ -519,6 +590,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                   { key: 'private', label: '私有云' },
                   { key: 'edge', label: '边缘计算' },
                   { key: 'container_cloud', label: '容器云' },
+                  { key: 'bare_metal', label: '裸金属' },
                   { key: 'virtualization', label: '虚拟化平台' },
                   { key: 'object_storage', label: '对象存储' },
                 ].map(t => (
@@ -542,6 +614,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                         {t.key === 'private' && <CloudServerOutlined />}
                         {t.key === 'edge' && <DeploymentUnitOutlined />}
                         {t.key === 'container_cloud' && <ContainerOutlined />}
+                        {t.key === 'bare_metal' && <HddOutlined />}
                         {t.key === 'virtualization' && <DesktopOutlined />}
                         {t.key === 'object_storage' && <DatabaseOutlined />}
                       </div>
@@ -561,6 +634,14 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                 {renderProviderGrid('container_cloud', '选择厂商', cloudProviders.filter((p: CloudProvider) => p.category === 'container_cloud'))}
                 <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 4 }}>
                   如 Rancher 等；更多厂商可后续对接。
+                </div>
+              </>
+            )}
+            {poolType === 'bare_metal' && (
+              <>
+                {renderProviderGrid('bare_metal', '选择厂商', cloudProviders.filter((p: CloudProvider) => p.category === 'bare_metal'))}
+                <div style={{ color: '#8c8c8c', fontSize: 12, marginTop: 4 }}>
+                  如 Canonical MAAS 等；通过 Tower 代理访问 Region API。
                 </div>
               </>
             )}
@@ -603,6 +684,7 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                   <Option value="edge">边缘计算</Option>
                   <Option value="container_cloud">容器云</Option>
                   <Option value="rancher">容器云（历史）</Option>
+                  <Option value="bare_metal">裸金属</Option>
                   <Option value="virtualization">虚拟化</Option>
                   <Option value="object_storage">对象存储</Option>
                   <Option value="security_pool">SDN 业务域</Option>

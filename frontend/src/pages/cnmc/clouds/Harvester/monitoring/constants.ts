@@ -1,19 +1,24 @@
+import { ALERT_LEVEL_CRITICAL, ALERT_LEVEL_INFO, ALERT_LEVEL_WARNING } from './context/MonitoringContext';
+
 /**
  * 监控告警全局常量：告警等级颜色等，供告警列表、告警规则、概览告警卡片等统一使用。
  */
 export const CRITICAL_COLOR = '#FF5C7C';
 export const WARNING_COLOR = '#f59e0b';
 
-export const SEVERITY_CRITICAL = 'critical' as const;
-export const SEVERITY_WARNING = 'warning' as const;
+export const SEVERITY_CRITICAL = ALERT_LEVEL_CRITICAL;
+export const SEVERITY_WARNING = ALERT_LEVEL_WARNING;
+export const SEVERITY_INFO = ALERT_LEVEL_INFO;
 export const SEVERITY_MAP = {
-  SEVERITY_CRITICAL: '紧急告警',
-  SEVERITY_WARNING: '普通告警',
+  SEVERITY_CRITICAL: '严重告警',
+  SEVERITY_WARNING: '注意',
+  SEVERITY_INFO: '信息',
 };
-/** 告警级别下拉选项（严重 / 警告） */
+/** 告警级别下拉选项（严重告警 / 注意 / 信息） */
 export const LEVEL_OPTIONS = [
   { label: SEVERITY_MAP.SEVERITY_CRITICAL, value: SEVERITY_CRITICAL },
   { label: SEVERITY_MAP.SEVERITY_WARNING, value: SEVERITY_WARNING },
+  { label: SEVERITY_MAP.SEVERITY_INFO, value: SEVERITY_INFO },
 ];
 
 /** 告警列表级别筛选下拉选项（含「全部」） */
@@ -21,6 +26,16 @@ export const LEVEL_FILTER_OPTIONS = [
   { label: '全部', value: '' },
   ...LEVEL_OPTIONS,
 ];
+
+type AlertLevel = typeof ALERT_LEVEL_CRITICAL | typeof ALERT_LEVEL_WARNING | typeof ALERT_LEVEL_INFO | string;
+
+/** 告警列表行 hover 背景（按级别） */
+export const getAlertItemHoverBg = (level: AlertLevel) => {
+  if (level === ALERT_LEVEL_CRITICAL) return 'rgba(255, 77, 79, 0.08)';
+  if (level === ALERT_LEVEL_WARNING) return 'rgba(250, 140, 22, 0.08)';
+  if (level === ALERT_LEVEL_INFO) return 'rgba(22, 119, 255, 0.08)';
+  return 'rgba(22, 119, 255, 0.08)';
+};
 
 // -------- Logging (ClusterFlow / ClusterOutput) --------
 export const LOG_TYPE_LOGGING = 'Logging' as const;

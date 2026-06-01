@@ -7,6 +7,7 @@ import { RoleAssignment } from '../entities/RoleAssignment';
 import { RBACRole } from '../entities/RBACRole';
 import { In } from 'typeorm';
 import { adminMustChangePassword } from '../services/adminPasswordPolicy';
+import { stripTenantConsoleUmbrellaPermissions } from '../constants/tenantConsolePermissionLegacy';
 
 function pathnameOnly(url: string): string {
   const p = (url || '').split('?')[0];
@@ -27,14 +28,18 @@ function isMustChangePasswordAllowedRoute(req: Request): boolean {
   ) {
     return true;
   }
-  if (method === 'GET' && (pathname === '/api/system/rbac/roles' || pathname.startsWith('/api/system/rbac/assignments'))) {
+  if (
+    method === 'GET' &&
+    (pathname === '/api/system/rbac/roles' || pathname.startsWith('/api/system/rbac/assignments'))
+  ) {
     return true;
   }
   return false;
 }
 
 export interface AuthRequest extends Request {
-  user?: User;
+  // 运行时由 authMiddleware 在 User 实体上附加：RBAC 聚合后的权限列表与租户用户标记
+  user?: User & { permissions?: string[]; isTenantUser?: boolean };
 }
 
 export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -110,13 +115,11 @@ export const authMiddleware = async (req: AuthRequest, res: Response, next: Next
         }
       }
       try {
-        if (decoded.role === 'tenant') {
-          perms = perms.concat(['clouds.console:read']);
-        }
         if ((user as any).role === 'super_admin') {
           perms = ['*'];
         }
       } catch {}
+      perms = stripTenantConsoleUmbrellaPermissions(perms);
       (user as any).permissions = Array.from(new Set(perms));
       // console.log('[AuthMiddleware] Final permissions for user:', user.username, (user as any).permissions);
     } catch {}

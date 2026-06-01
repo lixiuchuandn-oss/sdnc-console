@@ -1,15 +1,21 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Select, Table, Space, Typography, Badge, Tag, Modal } from 'antd';
-import { CameraOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import { fetchCloudProviderSnapshots } from '../../../../../services/aliyunApi';
+import { App, Button, Input, Select, Table, Space, Tooltip, Typography, Badge, Tag, Modal, Form } from 'antd';
+import { CameraOutlined, ReloadOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  fetchCloudProviderSnapshots,
+  createCloudProviderSnapshot,
+  deleteCloudProviderSnapshot,
+  rollbackCloudProviderDisk,
+} from '../../../../../services/aliyunApi';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 
 type SnapshotSectionAliyunProps = {
   cloudId: string;
   snapshots: any[];
+  disks?: any[];
   onSetSnapshots: (list: any[]) => void;
-  onOpenDetail: (type: string, title: string, data: any) => void;
+  onOpenDetail?: (type: string, title: string, data: any) => void;
+  onRefreshAll?: () => Promise<void> | void;
 };
 
 const snapshotStatusMap: Record<string, { status: 'success' | 'processing' | 'error' | 'default', text: string }> = {
@@ -24,12 +30,88 @@ const snapshotTypeMap: Record<string, string> = {
   all: '全部',
 };
 
-const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, snapshots, onSetSnapshots }) => {
+const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, snapshots, disks, onSetSnapshots, onRefreshAll }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState<boolean>(false);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [createOpen, setCreateOpen] = useState<boolean>(false);
+  const [createForm] = Form.useForm();
+
+  const diskOptions = useMemo(
+    () =>
+      (Array.isArray(disks) ? disks : []).map((d: any) => ({
+        label: `${d?.DiskName || d?.name || d?.DiskId || d?.id}（${d?.DiskId || d?.id}）`,
+        value: d?.DiskId || d?.id,
+      })),
+    [disks],
+  );
+
+  const reloadAfterWrite = async () => {
+    await load();
+    if (onRefreshAll) await onRefreshAll();
+  };
+
+  const submitCreate = async () => {
+    try {
+      const values = await createForm.validateFields();
+      setSubmitting(true);
+      await createCloudProviderSnapshot(cloudId, {
+        diskId: values.diskId,
+        snapshotName: values.snapshotName,
+        description: values.description,
+      });
+      message.success('创建快照指令已下发');
+      setCreateOpen(false);
+      await reloadAfterWrite();
+    } catch (e: any) {
+      if (e?.errorFields) return;
+      message.error(e?.message || '创建快照失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = (r: any) => {
+    const id0 = r?.SnapshotId || r?.id;
+    if (!id0) return;
+    Modal.confirm({
+      title: '确定删除该快照?',
+      content: `快照 ${r?.SnapshotName || id0} 删除后不可恢复`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteCloudProviderSnapshot(cloudId, id0);
+          message.success('删除成功');
+          await reloadAfterWrite();
+        } catch (e: any) { message.error(e?.message || '删除快照失败'); }
+      },
+    });
+  };
+
+  const handleRollback = (r: any) => {
+    const diskId = r?.SourceDiskId || r?.volume_id;
+    const snapId = r?.SnapshotId || r?.id;
+    if (!diskId || !snapId) { message.error('未找到源云盘'); return; }
+    Modal.confirm({
+      title: '确定将云盘回滚到该快照?',
+      content: `云盘 ${diskId} 将回滚至快照创建时的数据，期间须先停止关联实例，回滚后数据不可恢复`,
+      okText: '确认回滚',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await rollbackCloudProviderDisk(cloudId, String(diskId), { snapshotId: String(snapId) });
+          message.success('回滚指令已下发');
+          await reloadAfterWrite();
+        } catch (e: any) { message.error(e?.message || '回滚云盘失败'); }
+      },
+    });
+  };
 
   const filtered = useMemo(() => {
     const list = Array.isArray(snapshots) ? snapshots : [];
@@ -72,6 +154,7 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
     { 
       title: '快照信息', 
       key: 'info', 
+      fixed: 'left' as const,
       width: 240,
       sorter: (a: any, b: any) => {
         const an = String(a?.SnapshotName || a?.name || '');
@@ -154,18 +237,19 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
     { 
       title: '操作', 
       key: 'actions', 
-      fixed: 'right',
+      fixed: 'right' as const,
       width: 80,
       render: (_: any, r: any) => {
-        const items = [{ key: 'detail', label: '详情' }];
+        const items = [
+          { key: 'detail', label: '详情' },
+          { key: 'rollback', label: '回滚云盘' },
+          { key: 'delete', label: '删除', danger: true },
+        ];
         return (
           <RowActionsButton
             items={items}
             onClick={async ({ key }: { key: string }) => {
               if (key === 'detail') { 
-                const name = r?.SnapshotName || r?.name || '-'; 
-                const id = r?.SnapshotId || r?.id || '-'; 
-                
                 Modal.info({
                   title: '快照详情',
                   width: 600,
@@ -176,12 +260,16 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
                   ),
                   maskClosable: true,
                 });
+                return;
               }
+              if (key === 'rollback') { handleRollback(r); return; }
+              if (key === 'delete') { handleDelete(r); return; }
             }}
           />
         );
       } 
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
   // Filter options
@@ -198,46 +286,48 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
       title={Label}
       icon={Icon}
       toolbarLeft={(
-        <Space wrap>
-          <Input 
+        <>
+          <Input
+            className="toolbar-search"
             prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            placeholder="搜索名称/ID/磁盘ID" 
-            allowClear 
-            value={keyword} 
-            onChange={(e) => setKeyword(e.target.value)} 
-            style={{ width: 220 }} 
+            placeholder="名称 / ID / 磁盘ID"
+            allowClear
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
           />
-          <Select 
-            placeholder="状态" 
-            allowClear 
-            value={statusFilter} 
-            onChange={setStatusFilter} 
-            style={{ width: 120 }} 
-            options={statusOptions} 
-            dropdownMatchSelectWidth={false}
-          />
-          <Select 
-            placeholder="类型" 
-            allowClear 
-            value={typeFilter} 
-            onChange={setTypeFilter} 
-            style={{ width: 120 }} 
+          <Select className="toolbar-filter-sm" placeholder="状态" allowClear value={statusFilter} onChange={setStatusFilter} options={statusOptions} dropdownMatchSelectWidth={false} />
+          <Select
+            className="toolbar-filter-sm"
+            placeholder="类型"
+            allowClear
+            value={typeFilter}
+            onChange={setTypeFilter}
             options={[
               { label: '自动快照', value: 'auto' },
               { label: '手动快照', value: 'user' }
             ]}
             dropdownMatchSelectWidth={false}
           />
-        </Space>
+          <button type="button" className="toolbar-reset-btn" onClick={() => { setKeyword(''); setStatusFilter(undefined); setTypeFilter(undefined); }}>重置</button>
+        </>
       )}
       toolbarRight={(
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={load} loading={loading} />
-        </Space>
+        <div className="toolbar-actions">
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => { createForm.resetFields(); setCreateOpen(true); }}
+          >
+            创建快照
+          </Button>
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} onClick={load} loading={loading} /></Tooltip>
+        </div>
       )}
       asCard={false}
     >
       <Table 
+        className="std-table"
+        bordered={false}
         loading={loading}
         rowKey={(r: any) => r?.SnapshotId || r?.id} 
         dataSource={filtered} 
@@ -246,8 +336,36 @@ const SnapshotSectionAliyun: React.FC<SnapshotSectionAliyunProps> = ({ cloudId, 
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         }} 
-        scroll={{ x: 1000 }}
+        scroll={{ x: true }}
       />
+
+      <Modal
+        title="创建快照"
+        open={createOpen}
+        onCancel={() => setCreateOpen(false)}
+        onOk={submitCreate}
+        okText="创建"
+        cancelText="取消"
+        confirmLoading={submitting}
+        destroyOnClose
+      >
+        <Form form={createForm} layout="vertical">
+          <Form.Item name="diskId" label="源云盘" rules={[{ required: true, message: '请选择源云盘' }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              options={diskOptions}
+              placeholder={diskOptions.length ? '请选择云盘' : '暂无可用云盘'}
+            />
+          </Form.Item>
+          <Form.Item name="snapshotName" label="快照名称">
+            <Input placeholder="选填" maxLength={128} allowClear />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} placeholder="选填" maxLength={256} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </PageDetailSection>
   );
 };

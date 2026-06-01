@@ -91,7 +91,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const submitInFlightRef = useRef(false);
 
   const {
-    images, imageLoading, reloadImages, imageOptions,
+    images, imageLoading, reloadImages,
     availableVolumes, reloadVolumes, volumeOptions,
     namespaces, reloadNamespaces, namespaceOptions,
     reloadNads, nadOptions,

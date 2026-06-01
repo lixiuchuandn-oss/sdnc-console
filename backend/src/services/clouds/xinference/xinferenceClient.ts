@@ -29,10 +29,7 @@ export function getXinferenceContext(cloud: Cloud): XinferenceHttpContext | null
     String((cloud as any).endpoint || (cloud as any).config?.endpoint || ''),
   );
   const token = String(
-    cloud.secretKey ||
-      (cloud as any).config?.apiToken ||
-      (cloud as any).config?.token ||
-      '',
+    cloud.secretKey || (cloud as any).config?.apiToken || (cloud as any).config?.token || '',
   ).trim();
   const insecure = !!(cloud.config as any)?.ignoreTls;
   if (!base) return null;
@@ -45,9 +42,7 @@ export function buildXinferenceContextFromArgs(args: {
   config?: any;
 }): XinferenceHttpContext | null {
   const base = normalizeBaseUrl(String(args.endpoint || args.config?.endpoint || '').trim());
-  const token = String(
-    args.secretKey || args.config?.apiToken || args.config?.token || '',
-  ).trim();
+  const token = String(args.secretKey || args.config?.apiToken || args.config?.token || '').trim();
   const insecure = !!args.config?.ignoreTls;
   if (!base) return null;
   return { origin: base, token, insecure };
@@ -100,9 +95,7 @@ async function xinferenceRequest(
         res.data?.message ||
         res.data?.error ||
         (typeof res.data === 'string' ? res.data : null);
-      const msg = detail
-        ? String(detail)
-        : `Xinference 请求失败: HTTP ${res.status}`;
+      const msg = detail ? String(detail) : `Xinference 请求失败: HTTP ${res.status}`;
       return { ok: false, status: res.status, message: msg };
     }
     return { ok: true, status: res.status, data: res.data };
@@ -387,9 +380,7 @@ export function normalizeModelRegistrations(raw: unknown): XinferenceModelRegist
 }
 
 /** 探测集群是否启用认证（兼容旧版无此接口） */
-export async function xinferenceClusterAuthRequired(
-  ctx: XinferenceHttpContext,
-): Promise<boolean> {
+export async function xinferenceClusterAuthRequired(ctx: XinferenceHttpContext): Promise<boolean> {
   const r = await xinferenceGet(ctx, '/v1/cluster/auth', { timeout: 15000 });
   if (r.status === 404) return false;
   if (!r.ok) return false;
@@ -480,7 +471,9 @@ export type XinferenceClusterSummary = {
 };
 
 function parseMiBString(raw: string): number | null {
-  const m = String(raw).trim().match(/^([\d.]+)\s*MiB$/i);
+  const m = String(raw)
+    .trim()
+    .match(/^([\d.]+)\s*MiB$/i);
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) ? Math.round(n * 1024 * 1024) : null;
@@ -543,7 +536,9 @@ function sumNullable(values: Array<number | null | undefined>): number | null {
 }
 
 /** 解析 GET /v1/cluster/info?detailed=true 单节点 */
-export function normalizeClusterDeviceNode(raw: XinferenceClusterNodeRaw): XinferenceClusterNodeMetrics {
+export function normalizeClusterDeviceNode(
+  raw: XinferenceClusterNodeRaw,
+): XinferenceClusterNodeMetrics {
   const nodeType = String(raw.node_type || '').trim() || 'Unknown';
   const address = raw.ip_address != null ? String(raw.ip_address).trim() : undefined;
   const cpuCount =
@@ -612,8 +607,7 @@ function buildNodeSummary(
   version?: { release?: string; commit?: string },
 ): XinferenceClusterSummary {
   const count = nodes.length;
-  const address =
-    count === 1 ? nodes[0]?.address : count > 1 ? `${count} 个节点` : undefined;
+  const address = count === 1 ? nodes[0]?.address : count > 1 ? `${count} 个节点` : undefined;
   return {
     count,
     address,

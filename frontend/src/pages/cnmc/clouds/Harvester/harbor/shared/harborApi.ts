@@ -6,7 +6,7 @@
  * @module harborApi
  */
 
-import { apiRequest, apiPost, apiPut, apiDelete, apiPatch } from '../../../../../../services/api';
+import { apiRequest, apiPost, apiPut, apiDelete } from '../../../../../../services/api';
 import type {
   HarborRegistry,
   HarborRegistryForm,

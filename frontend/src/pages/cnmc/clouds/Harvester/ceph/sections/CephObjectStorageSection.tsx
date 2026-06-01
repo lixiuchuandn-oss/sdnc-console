@@ -39,6 +39,12 @@ import {
 import { normalizeCephBundle } from '../lib/cephStorage';
 import { cosiDriverCrToRow, objectStoreCrToRow, type CephCosiDriverRow, type CephObjectStoreRow } from '../lib/cephBlockStorage';
 import { suggestedRgwHttpsEndpoints } from '../lib/rgwRookHints';
+import {
+  createHarvesterToolbarRefresh,
+  mergeCephSectionOnRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/cephSectionRefresh';
 
 export type CephObjectStorageSectionProps = {
   cloudId: string;
@@ -46,6 +52,7 @@ export type CephObjectStorageSectionProps = {
   embedMode?: 'full' | 'storesOnly' | 'cosiOnly';
   /** 对象网关 Tab：Tower S3 Endpoint 编辑权限（Cloudmap 面板传入） */
   checkPerm?: (act: string) => boolean;
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
 type YamlTarget = { kind: 'cosi'; yaml: string };
@@ -54,7 +61,12 @@ function trimStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
-const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ cloudId, embedMode = 'full', checkPerm }) => {
+const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
+  cloudId,
+  embedMode = 'full',
+  checkPerm,
+  onRefresh,
+}) => {
   const [activeTab, setActiveTab] = useState('stores');
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -83,7 +95,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
 
   const canWriteStores = useMemo(() => {
     if (!checkPerm) return false;
-    return checkPerm('clouds.console:write') || checkPerm('clouds:write');
+    return checkPerm('clouds.storage-object-gateway:write') || checkPerm('clouds:write');
   }, [checkPerm]);
 
   const loadGatewayMap = useCallback(
@@ -109,7 +121,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
           setCosiRows([]);
           setBlockPools([]);
           setClusters([]);
-          setLoadErr(res.error || '无法加载 Ceph Rook 聚合');
+          setLoadErr(res.error || '无法加载统一存储 Rook 聚合');
           return;
         }
         const bundle = normalizeCephBundle(res.data);
@@ -128,6 +140,16 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
       }
     },
     [cloudId, loadGatewayMap],
+  );
+
+  const sectionOnRefresh = useMemo(
+    () => mergeCephSectionOnRefresh(load, onRefresh),
+    [load, onRefresh],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionOnRefresh),
+    [sectionOnRefresh],
   );
 
   useEffect(() => {
@@ -222,13 +244,13 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
         message.error(res.error || '创建失败');
         return;
       }
-      message.success('已提交创建 CephObjectStore（阶段就绪由 Operator 推进）');
+      message.success('已提交创建对象网关（阶段就绪由 Operator 推进）');
       setCreateModalOpen(false);
-      await load(true);
+      await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
     } finally {
       setCreateSubmitting(false);
     }
-  }, [cloudId, createForm, load]);
+  }, [cloudId, createForm, sectionOnRefresh]);
 
   const openYamlDrawer = useCallback(async (t: YamlTarget) => {
     setYamlOpen(true);
@@ -448,7 +470,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
             </Typography.Link>
             <Popconfirm
               title={`确定删除 ${r.namespace}/${r.name}？`}
-              description="删除 CephObjectStore 将影响 RGW 等对象网关，请确认集群侧无依赖。"
+              description="删除对象网关将影响 RGW 等服务，请确认集群侧无依赖。"
               onConfirm={async () => {
                 const del = await deleteCephObjectStoreRook(cloudId, r.namespace, r.name);
                 if (!del.ok) {
@@ -456,7 +478,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
                   return;
                 }
                 message.success('已删除');
-                void load(true);
+                void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
               }}
             >
               <Typography.Link type="danger">删除</Typography.Link>
@@ -465,7 +487,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
         ),
       },
     ],
-    [clientGwMap, cloudId, load, openStoreDetail],
+    [clientGwMap, cloudId, openStoreDetail, sectionOnRefresh],
   );
 
   const cosiColumns: ColumnsType<CephCosiDriverRow> = useMemo(
@@ -522,7 +544,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
               新建对象网关
             </Button>
           ) : null}
-          <Button icon={<ReloadOutlined />} onClick={() => void load(true)}>
+          <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading}>
             刷新
           </Button>
         </>
@@ -542,7 +564,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
           showTotal: (total) => `共 ${total} 条`,
         }}
         scroll={{ x: true }}
-        locale={{ emptyText: storeRows.length === 0 && !loading ? '未发现 CephObjectStore CR' : undefined }}
+        locale={{ emptyText: storeRows.length === 0 && !loading ? '未发现对象网关' : undefined }}
       />
     </PageDetailSection>
   );
@@ -566,7 +588,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({ clo
         </>
       }
       toolbarRight={
-        <Button icon={<ReloadOutlined />} onClick={() => void load(true)}>
+        <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading}>
           刷新
         </Button>
       }

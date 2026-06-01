@@ -10,8 +10,15 @@ const router = Router();
 
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { username, password, device_fingerprint, tenant_id, org_id, vm_id, display_name } =
-      req.body || {};
+    const {
+      username,
+      password,
+      device_fingerprint,
+      tenant_id: _tenant_id,
+      org_id: _org_id,
+      vm_id,
+      display_name,
+    } = req.body || {};
 
     // 模式1：账号密码登录（返回租户与组织信息）
     if (username && password) {
@@ -22,8 +29,7 @@ router.post('/login', async (req: Request, res: Response) => {
       if (!ok) return res.status(401).json({ message: '用户名或密码错误' });
       if (user.status !== 'active')
         return res.status(401).json({
-          message:
-            '该账号已被停用，暂时无法登录。如需解禁请联系租户管理员。',
+          message: '该账号已被停用，暂时无法登录。如需解禁请联系租户管理员。',
         });
 
       // 登录阶段不执行VR绑定；统一由 /api/vr-config/bind 接口完成绑定

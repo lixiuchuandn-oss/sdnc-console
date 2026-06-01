@@ -29,10 +29,10 @@ export type BuildVolumesTableColumnsParams = {
 
 export function buildVolumesTableColumns({
   isTenant,
-  hasDisksWrite,
+  hasDisksWrite: _hasDisksWrite,
   safeRead,
   onOpenVolumeDetail,
-  onOpenOpsDrawer,
+  onOpenOpsDrawer: _onOpenOpsDrawer,
   buildRowActionItems,
 }: BuildVolumesTableColumnsParams): ColumnsType<VolumeView> {
   return [
@@ -201,7 +201,7 @@ export function buildVolumesTableColumns({
       render: (_: unknown, r: VolumeView) => (
         <ResourceActionsDropdown
           items={buildRowActionItems(r)}
-          buttonProps={{ className: 'row-actions-trigger', disabled: !hasDisksWrite }}
+          buttonProps={{ className: 'row-actions-trigger' }}
         />
       ),
     },

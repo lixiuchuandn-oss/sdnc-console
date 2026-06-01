@@ -559,7 +559,7 @@ const VmSpecConfigDrawer: React.FC<VmSpecConfigDrawerProps> = ({
       maxSockets: spec.maxSockets,
       maxMemory: spec.maxMemory,
     };
-  }, [getCurrentSpec, activeRecord]);
+  }, [getCurrentSpec]);
 
   const currentCpu = Number(currentCpuRaw || 0);
   const currentMemory = storageQuantityToGiB(currentMemoryRaw);

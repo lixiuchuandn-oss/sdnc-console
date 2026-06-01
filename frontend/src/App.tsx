@@ -9,6 +9,7 @@ import { LicenseProvider } from './contexts/LicenseContext';
 import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import AdminRoute from './components/AdminRoute';
 import PrivateRoute from './components/PrivateRoute';
+import TenantConsoleRoute from './components/TenantConsoleRoute';
 import { routeSpecs } from './routes/RouteSpec';
 import Login from './pages/auth/Login';
 import AdminLogin from './pages/auth/AdminLogin';
@@ -24,12 +25,14 @@ const HuaweiPoolShell = lazy(() => import('./pages/cnmc/clouds/Hw/HuaweiPoolShel
 const AliyunPoolShell = lazy(() => import('./pages/cnmc/clouds/Aliyun/AliyunPoolShell'));
 const RancherPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/rancher/RancherPoolVendorShell'));
 const XinferencePoolVendorShell = lazy(() => import('./pages/cnmc/clouds/Xinference/XinferencePoolVendorShell'));
+const MaasPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/maas/MaasPoolVendorShell'));
 const CsmPoolRouteShell = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolRouteShell'));
 const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher/RancherClusterWorkspace'));
 const Tenants = lazy(() => import('./pages/tenants/sections/TenantsWorkspace'));
 const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
 const AuditLogs = lazy(() => import('./pages/settings/AuditLogs'));
 const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'));
+const DesktopGatewaySettings = lazy(() => import('./pages/settings/DesktopGatewaySettings'));
 
 const LicenseSettingsPage = lazy(() => import('./pages/settings/LicenseSettings'));
 const OfflineUpgradeSettings = lazy(() => import('./pages/settings/OfflineUpgradeSettings'));
@@ -97,7 +100,16 @@ const AppRoutes: React.FC = () => {
         <Route path="/clouds/:id/instances/create" element={<PrivateRoute><VmCreateWizardModal /></PrivateRoute>} />
 
         {/* Admin area */}
-        <Route path={TENANT_CLOUD_CONSOLE_PATH} element={<AdminRoute><TenantConsoleLayout /></AdminRoute>}>
+        <Route
+          path={TENANT_CLOUD_CONSOLE_PATH}
+          element={
+            <PrivateRoute>
+              <TenantConsoleRoute>
+                <TenantConsoleLayout />
+              </TenantConsoleRoute>
+            </PrivateRoute>
+          }
+        >
           <Route index element={<CloudConsolePage />} />
         </Route>
 
@@ -110,6 +122,7 @@ const AppRoutes: React.FC = () => {
           <Route path="clouds/vendor/aliyun/:id" element={<AliyunPoolShell />} />
           <Route path="clouds/vendor/rancher/:id" element={<RancherPoolVendorShell />} />
           <Route path="clouds/vendor/xinference/:id" element={<XinferencePoolVendorShell />} />
+          <Route path="clouds/vendor/maas/:id" element={<MaasPoolVendorShell />} />
           <Route path="clouds/vendor/csm/:id" element={<CsmPoolRouteShell />} />
           <Route path="clouds/:poolId/clusters/:clusterId" element={<RancherClusterWorkspace />} />
           <Route path="clouds/:id/harvester/vnc" element={<HarvesterVNCPage />} />
@@ -160,6 +173,7 @@ const AppRoutes: React.FC = () => {
           <Route path="settings/general" element={<GeneralSettings />} />
           <Route path="settings/audit-logs" element={<AuditLogs />} />
           <Route path="settings/advanced" element={<AdvancedSettings />} />
+          <Route path="settings/desktop-gateway" element={<DesktopGatewaySettings />} />
 
           <Route path="settings/offline-upgrade" element={<OfflineUpgradeSettings />} />
           <Route path="settings/license" element={<LicenseSettingsPage />} />

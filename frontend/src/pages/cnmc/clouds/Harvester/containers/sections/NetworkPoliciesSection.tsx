@@ -33,12 +33,16 @@ import {
   Form,
   Switch,
 } from 'antd';
-import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone, EyeOutlined } from '@ant-design/icons';
+import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../../../contexts/AuthContext';
+import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchNetworkPolicyDetail,
@@ -491,6 +495,11 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   queryAll,
   onQueryAllChange,
 }) => {
+  const { user } = useAuth();
+  const hasContainersWrite = useMemo(
+    () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'networkpolicies'),
+    [user?.permissions],
+  );
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -760,7 +769,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         const systemHint = getSystemResourceProtectionHint(record);
         return (
           <ResourceActionsDropdown
-            items={[
+            items={filterMenuItemsForReadOnly([
               {
                 key: 'detail',
                 label: '查看详情',
@@ -792,13 +801,14 @@ const NetworkPoliciesSection: React.FC<Props> = ({
                 tooltip: systemHint,
                 onClick: () => handleDelete(record),
               },
-            ]}
+            ], hasContainersWrite)}
             buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       },
     },
-  ], [handleDelete, handleViewYaml]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
 
   // 使用 hook 管理列设置
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_networkpolicy_table');
@@ -874,10 +884,13 @@ const NetworkPoliciesSection: React.FC<Props> = ({
                 style={{ marginRight: 8 }}
               />
             )}
-            <Button type="primary" onClick={() => setCreateModalVisible(true)}>
-              创建策略
-            </Button>
-            <Dropdown
+            <WriteGuard canWrite={hasContainersWrite}>
+              <Button type="primary" onClick={() => setCreateModalVisible(true)}>
+                创建策略
+              </Button>
+            </WriteGuard>
+            {hasContainersWrite ? (
+              <Dropdown
               menu={{
                 items: [
                   {
@@ -898,7 +911,8 @@ const NetworkPoliciesSection: React.FC<Props> = ({
               disabled={selectedKeys.length === 0}
             >
               <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
-            </Dropdown>
+              </Dropdown>
+            ) : null}
             <TableColumnSettingsButton
               allColumns={allColumns}
               settingsKey="harvester_networkpolicy_table"
@@ -924,10 +938,14 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             showTotal: (total) => `共 ${total} 条`,
           }}
           scroll={networkPolicyTableScroll}
-          rowSelection={{
-            selectedRowKeys: selectedKeys,
-            onChange: (keys) => setSelectedKeys(keys),
-          }}
+          rowSelection={
+            hasContainersWrite
+              ? {
+                  selectedRowKeys: selectedKeys,
+                  onChange: (keys) => setSelectedKeys(keys),
+                }
+              : undefined
+          }
         />
       </PageDetailSection>
 

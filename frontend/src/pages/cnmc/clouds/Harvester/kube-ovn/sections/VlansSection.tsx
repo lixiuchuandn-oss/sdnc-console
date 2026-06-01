@@ -15,6 +15,11 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import { clearCache } from '../../../../../../utils/requestManager';
 import ProviderNetworkVlanPlanDrawer from '../drawers/provider-network-vlan-plan-drawer';
 import { TOWER_IO_ALIES_ANNOTATION } from '../../../../../../utils/towerKubeOvnNames';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 const { Option } = Select;
 
@@ -25,7 +30,7 @@ type Props = {
   /** 父级已拉取的物理网络（provider-networks），用于筛选下拉；传入后不再单独请求 */
   providerNetworks?: any[];
   loading?: boolean;
-  onRefresh?: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
+  onRefresh?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
 };
 
@@ -50,7 +55,10 @@ const VlansSection: React.FC<Props> = ({
   const [drawerRecord, setDrawerRecord] = useState<any>(null);
   const [drawerTab, setDrawerTab] = useState('detail');
 
-  const listData = isControlled ? (vlans ?? []) : data;
+  const listData = useMemo(
+    () => (isControlled ? (vlans ?? []) : data),
+    [isControlled, vlans, data],
+  );
   const tableLoading = isControlled ? (loadingProp ?? false) : loading;
 
   const fetchDataInternal = useCallback(
@@ -74,7 +82,7 @@ const VlansSection: React.FC<Props> = ({
   const fetchData = useCallback(
     async (force = false, skipSync = false) => {
       if (isControlled && onRefresh) {
-        await onRefresh(force, skipSync);
+        await runHarvesterSectionRefresh(onRefresh, { force, silent: skipSync });
         return;
       }
       await fetchDataInternal(force, skipSync);
@@ -82,12 +90,28 @@ const VlansSection: React.FC<Props> = ({
     [isControlled, onRefresh, fetchDataInternal],
   );
 
-  const fetchProviderOptions = async () => {
+  const handleToolbarRefresh = useMemo(
+    () =>
+      isControlled
+        ? createHarvesterToolbarRefresh(onRefresh)
+        : () => void fetchDataInternal(true, false),
+    [isControlled, onRefresh, fetchDataInternal],
+  );
+
+  const refreshAfterWrite = useCallback(
+    () =>
+      isControlled
+        ? runHarvesterSectionRefresh(onRefresh, { force: true, silent: true })
+        : fetchDataInternal(true, true),
+    [isControlled, onRefresh, fetchDataInternal],
+  );
+
+  const fetchProviderOptions = useCallback(async () => {
     try {
       const res = await fetchKubeOvnProviderNetworks(cloudId);
       setProviders(Array.isArray(res?.data?.items) ? res.data.items : []);
     } catch {}
-  };
+  }, [cloudId]);
 
   const providerAliasMap = useMemo(() => {
     const map = new Map<string, { display: string; alias: string }>();
@@ -128,7 +152,7 @@ const VlansSection: React.FC<Props> = ({
     if (providerNetworks === undefined) {
       void fetchProviderOptions();
     }
-  }, [cloudId, isControlled, fetchDataInternal, providerNetworks]);
+  }, [cloudId, isControlled, fetchDataInternal, providerNetworks, fetchProviderOptions]);
 
   const openDrawer = useCallback((record: any) => {
     const raw = record?.rawData || record;
@@ -189,14 +213,14 @@ const VlansSection: React.FC<Props> = ({
           try {
             await deleteKubeOvnVlan(cloudId, name);
             message.success('删除成功');
-            await fetchData(true, true);
+            await refreshAfterWrite();
           } catch (e: any) {
             message.error(e?.message || '删除失败');
           }
         },
       });
     },
-    [cloudId, fetchData],
+    [cloudId, refreshAfterWrite],
   );
 
   const filtered = useMemo(
@@ -357,7 +381,7 @@ const VlansSection: React.FC<Props> = ({
           ]
           : []),
     ],
-    [canWriteVlan, openDrawer, handleDelete, providerAliasMap],
+    [canWriteVlan, isTenant, openDrawer, handleDelete, providerAliasMap],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_vlans_table');
@@ -405,7 +429,7 @@ const VlansSection: React.FC<Props> = ({
             </Button>
           )}
           <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_vlans_table" />
-          <Button icon={<ReloadOutlined />} onClick={() => void fetchData(true, false)} loading={tableLoading} title="从集群重新同步" />
+          <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={tableLoading} title="从集群重新同步" />
         </div>
       </div>
 
@@ -424,7 +448,7 @@ const VlansSection: React.FC<Props> = ({
         open={vlanPlanOpen}
         onClose={() => setVlanPlanOpen(false)}
         cloudId={cloudId}
-        onSuccess={() => fetchData(true, true)}
+        onSuccess={() => void refreshAfterWrite()}
       />
 
       <HarvesterResourceDrawer

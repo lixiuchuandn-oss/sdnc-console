@@ -33,7 +33,6 @@ import {
   PlusOutlined,
   MinusCircleOutlined,
   InfoCircleOutlined,
-  GatewayOutlined,
 } from '@ant-design/icons';
 import { createGateway } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';

@@ -35,11 +35,11 @@ export interface YamlEditModalProps {
 const YamlEditModal: React.FC<YamlEditModalProps> = ({
   visible,
   title,
-  cloudId,
-  namespace,
-  name,
-  resourceType,
-  initialYaml,
+  cloudId: _cloudId,
+  namespace: _namespace,
+  name: _name,
+  resourceType: _resourceType,
+  initialYaml: _initialYaml,
   onLoadYaml,
   onSaveYaml,
   onCancel,
@@ -67,7 +67,7 @@ const YamlEditModal: React.FC<YamlEditModalProps> = ({
           setLoading(false);
         });
     }
-  }, [visible, onLoadYaml]);
+  }, [visible, onLoadYaml, message]);
 
   // 重置为原始内容
   const handleReset = () => {

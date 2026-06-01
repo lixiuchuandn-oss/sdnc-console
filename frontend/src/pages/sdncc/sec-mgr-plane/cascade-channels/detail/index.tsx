@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Form, Input, message, Modal, Select } from 'antd';
+import { Form, message, Modal, Select } from 'antd';
 import { BranchesOutlined } from '@ant-design/icons';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
 import { attachVpcToCen, fetchCenAttachments, fetchCens, fetchTenants, fetchCsmElementGroups, fetchServices, fetchCloudProviderEcs } from '../../../../../services/api';
@@ -15,9 +15,9 @@ const CenDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [cen, setCen] = useState<Cen | undefined>();
-  const [tenants, setTenants] = useState<any[]>([]);
+  const [, setTenants] = useState<any[]>([]);
   const [allDomains, setAllDomains] = useState<SecurityDomainOption[]>([]);
   const [attachments, setAttachments] = useState<any[]>([]);
 
@@ -63,6 +63,7 @@ const CenDetailPage: React.FC = () => {
 
   useEffect(() => {
     loadThreats();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cen?.tenantId]);
 
   useEffect(() => {
@@ -197,6 +198,7 @@ const CenDetailPage: React.FC = () => {
          });
          setEcsIpMap(prev => ({ ...prev, ...map }));
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apps.length, allDomains.length]);
 
   const domainOfAttachment = (att: any): SecurityDomainOption | undefined => {
@@ -363,6 +365,7 @@ const CenDetailPage: React.FC = () => {
       list = list.filter((att: any) => String(att?.status) === domainStatusFilter);
     }
     return list;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachments, domainKeyword, domainStatusFilter, allDomains]);
 
   const attachedForTopo = useMemo(() => {
@@ -391,6 +394,7 @@ const CenDetailPage: React.FC = () => {
         .catch(() => setCsmElementGroupCache((prev) => ({ ...prev, [cloudId]: {} })))
         .finally(() => setCsmElementGroupLoading((prev) => ({ ...prev, [cloudId]: false })));
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachedForTopo, allDomains, csmElementGroupCache, csmElementGroupLoading]);
 
   useEffect(() => {
@@ -434,6 +438,7 @@ const CenDetailPage: React.FC = () => {
     };
 
     fetchServices();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attachedForTopo, allDomains]);
 
   const filteredApps = useMemo(() => {
@@ -451,6 +456,7 @@ const CenDetailPage: React.FC = () => {
       list = list.filter((a) => String(a.type) === appTypeFilter);
     }
     return list;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apps, attachedForTopo, appKeyword, appTypeFilter, allDomains]);
 
   const filteredServices = useMemo(() => {
@@ -469,6 +475,7 @@ const CenDetailPage: React.FC = () => {
       list = list.filter((s: any) => String(s?.status || '').toLowerCase() === f);
     }
     return list;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services, attachedForTopo, serviceKeyword, serviceStatusFilter, allDomains]);
 
   /** 安全服务表：每实例一行，避免「实例」列多标签聚合 */
@@ -486,6 +493,7 @@ const CenDetailPage: React.FC = () => {
           instance: it,
         }));
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [filteredServices, allDomains, csmElementGroupCache, csmElementGroupLoading]
   );
 
@@ -500,6 +508,7 @@ const CenDetailPage: React.FC = () => {
       domainServiceChainMap,
       ecsIpMap,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cen, attachedForTopo, filteredApps, filteredServices, domainServiceChainMap, ecsIpMap]);
 
   const filteredThreats = useMemo(() => {

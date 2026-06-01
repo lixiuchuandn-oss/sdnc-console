@@ -5,7 +5,9 @@
 export type RgwDecodedSecretData = Record<string, string>;
 
 /** Steve Secret.data 值为 base64 */
-export function decodeK8sSecretData(data: Record<string, unknown> | null | undefined): RgwDecodedSecretData {
+export function decodeK8sSecretData(
+  data: Record<string, unknown> | null | undefined,
+): RgwDecodedSecretData {
   const out: RgwDecodedSecretData = {};
   if (!data || typeof data !== 'object') return out;
   for (const [k, v] of Object.entries(data)) {

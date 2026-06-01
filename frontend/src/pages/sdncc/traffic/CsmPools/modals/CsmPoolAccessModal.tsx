@@ -4,7 +4,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Space, Switch, Typography, message } from 'antd';
-import { CheckCircleOutlined, LoadingOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { apiPost } from '../../../../../services/api';
 import { handleApiError } from '../../../../../utils/errorHandler';
 import { cloudProviders } from '../../../../cnmc/pools/lib/poolProviders';

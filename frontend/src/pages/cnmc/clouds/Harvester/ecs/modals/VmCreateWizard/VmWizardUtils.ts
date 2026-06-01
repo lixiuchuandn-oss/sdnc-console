@@ -3,7 +3,7 @@ import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../.
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptions';
 import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
-import { findGpuResource, getGpuNodeName, getGpuPcideviceCrName, getGpuResourceName } from '../../lib/gpuResourceResolve';
+import { findGpuResource, getGpuNodeName, getGpuResourceName } from '../../lib/gpuResourceResolve';
 
 /**
  * ==============================================================================

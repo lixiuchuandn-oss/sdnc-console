@@ -1,0 +1,163 @@
+/**
+ * 概览类界面统一底座样式（全项目复用）
+ * 视觉基准：Cloudmap 集群总览（Monitoring）卡片壳 + CNMC 多云总览 KPI 排版
+ * 落点：components/overview/，避免业务页跨目录引用 dashboard/Dashboard.css
+ */
+
+/* ---------- 卡片外壳 ---------- */
+.overview-card.ant-card {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.overview-card.ant-card .ant-card-head {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 16px 0;
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.overview-card.ant-card .ant-card-head-wrapper {
+  width: 100%;
+  align-items: center;
+}
+
+.overview-card.ant-card .ant-card-head-title {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  line-height: 1;
+  overflow: visible;
+}
+
+.overview-card.ant-card .ant-card-extra {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+}
+
+.overview-card.ant-card .ant-card-body {
+  border-top: none;
+}
+
+.overview-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+
+.overview-card-title-icon {
+  font-size: 20px;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.overview-card-title-text {
+  font-size: 16px;
+}
+
+/* ---------- KPI 数值（值 / 总量） ---------- */
+.overview-kpi-value-section {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.overview-kpi-value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  color: #1677ff;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, sans-serif;
+}
+
+.overview-kpi-divider {
+  font-size: 18px;
+  color: #8c8c8c;
+  font-weight: 400;
+  margin: 0 4px;
+  opacity: 0.6;
+}
+
+.overview-kpi-total {
+  font-size: 16px;
+  color: #8c8c8c;
+  font-weight: 500;
+}
+
+.overview-kpi-footer {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+  min-height: 40px;
+  line-height: 20px;
+}
+
+@media (max-width: 768px) {
+  .overview-kpi-value {
+    font-size: 28px;
+  }
+}
+
+/* ---------- 状态分布条 ---------- */
+.overview-status-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f0f0f0;
+}
+
+.overview-status-bar-seg {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.overview-status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 14px;
+}
+
+.overview-status-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.overview-status-legend-item.clickable {
+  cursor: pointer;
+}
+
+.overview-status-legend-item.clickable:hover {
+  color: #1677ff;
+}
+
+.overview-status-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  display: inline-block;
+  flex: none;
+}
+
+.overview-status-legend-value {
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.85);
+}

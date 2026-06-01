@@ -1,4 +1,4 @@
-/** Ceph 存储池：列表与增删改走 Rook `CephBlockPool`（Tower `/ceph/rook`）；总览仍由 `CephStorageSection` 独立使用 Dashboard，勿混用。 */
+/** Ceph 存储池：列表与增删改仅走 Rook `CephBlockPool`（`replicapool` + 自定义副本池）；不调用 mgr Dashboard。 */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -21,19 +21,51 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { fetchCephDashboardPools } from '../../../../../../services/monitoringApi';
 import { deleteCephBlockPoolRook, fetchCephRookBundle } from '../../../../../../services/cephApi';
+import CephBlockCrYamlDrawer from './block/CephBlockCrYamlDrawer';
+import { useCephPoolYamlDrawer } from './useCephPoolYamlDrawer';
 import {
   cephBlockPoolRowToTableRow,
   cephBlockPoolToRow,
   cephDashboardPoolToTableRow,
   cephPoolTableRowMatchesApplicationScope,
-  enrichRookPoolRowWithDashboardStats,
+  isTowerVisibleRookStoragePool,
   normalizeCephBundle,
   normalizeDashboardPoolListPayload,
   type CephPoolTableRow,
 } from '../lib/cephStorage';
 import CephPoolRookFormModal from '../modals/CephPoolRookFormModal';
+import {
+  createHarvesterToolbarRefresh,
+  mergeCephSectionOnRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/cephSectionRefresh';
 
 const TABLE_SETTINGS_KEY = 'harvester_ceph_pools_table_v4';
+
+/** 为 false 时仅隐藏「创建存储池」「删除」按钮；`deletePool` / 创建弹窗等逻辑仍保留 */
+const SHOW_CEPH_POOL_CREATE_AND_DELETE_ACTIONS = false;
+
+/** 避免将 K8s Status JSON 原样展示在 Alert 中 */
+function formatCephDashboardLoadError(error: string | undefined, status?: number): string {
+  const raw = typeof error === 'string' ? error.trim() : '';
+  if (raw.startsWith('{')) {
+    try {
+      const o = JSON.parse(raw) as Record<string, unknown>;
+      const msg = typeof o.message === 'string' ? o.message.trim() : '';
+      const reason = typeof o.reason === 'string' ? o.reason.trim() : '';
+      if (msg.includes('rook-ceph-mgr-dashboard') || msg.includes('not found')) {
+        return '集群未部署 Ceph mgr Dashboard 服务（rook-ceph-mgr-dashboard），无法列出对象存储 RADOS 池。';
+      }
+      if (msg) return msg;
+      if (reason) return reason;
+    } catch {
+      /* 非 JSON */
+    }
+  }
+  if (status === 404) return 'Ceph mgr Dashboard 不可用（HTTP 404）。';
+  return raw;
+}
 
 /** 尚无行时只保留与 Dashboard 池列表常见列，避免出现一堆空 Rook 专用列 */
 const POOL_COLUMNS_WHEN_EMPTY: readonly string[] = [
@@ -107,23 +139,23 @@ function distinctFieldOptions(
 export type CephPoolSectionProps = {
   cloudId: string;
   /**
-   * Cloudmap：云存储入口为 `cloud`（Rook BlockPool）；对象存储入口为 `object`
-   *（mgr Dashboard `api/pool`，仅保留 application 中含 `rgw` 的 RADOS 池）。
+   * Cloudmap：云存储 `cloud`（Rook，仅 replicapool + 自定义副本池）；
+   * 对象存储 `object` 仍走 mgr Dashboard `api/pool`（rgw 池）。
    */
   applicationsScope?: 'cloud' | 'object';
+  onRefresh?: HarvesterSectionOnRefresh;
 };
 
 const CephPoolSection: React.FC<CephPoolSectionProps> = ({
   cloudId,
   applicationsScope = 'cloud',
+  onRefresh,
 }) => {
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [rows, setRows] = useState<CephPoolTableRow[]>([]);
   const [listSource, setListSource] = useState<'rook' | 'dashboard' | null>(null);
   const [bundleUnreachable, setBundleUnreachable] = useState(false);
-  /** Rook 模式下合并 Dashboard 性能失败时提示（401/网络等） */
-  const [dashboardPoolsHint, setDashboardPoolsHint] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
@@ -136,6 +168,8 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
   const [poolModalOpen, setPoolModalOpen] = useState(false);
   const [poolModalMode, setPoolModalMode] = useState<'create' | 'edit'>('create');
   const [poolEditRecord, setPoolEditRecord] = useState<CephPoolTableRow | null>(null);
+  const { yamlOpen, yamlTitle, yamlText, yamlLoading, openPoolYaml, closeYamlDrawer } =
+    useCephPoolYamlDrawer(cloudId);
 
   const load = useCallback(
     async (force?: boolean) => {
@@ -143,14 +177,16 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
       setLoading(true);
       setLoadErr(null);
       setBundleUnreachable(false);
-      setDashboardPoolsHint(null);
       try {
         if (applicationsScope === 'object') {
           const res = await fetchCephDashboardPools(cloudId, { force: !!force });
           if (!res.ok || res.data == null) {
             setRows([]);
             setListSource(null);
-            setLoadErr(res.error || '无法读取 mgr Dashboard 池列表（api/pool）');
+            setLoadErr(
+              formatCephDashboardLoadError(res.error, res.status) ||
+                '无法读取 mgr Dashboard 池列表（api/pool）',
+            );
             return;
           }
           const list = normalizeDashboardPoolListPayload(res.data);
@@ -163,44 +199,24 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
           return;
         }
 
-        const [res, dashRes] = await Promise.all([
-          fetchCephRookBundle(cloudId, { force: !!force }),
-          fetchCephDashboardPools(cloudId, { force: !!force }),
-        ]);
+        const res = await fetchCephRookBundle(cloudId, { force: !!force });
 
         if (!res.ok || res.data == null) {
           setRows([]);
           setListSource(null);
-          setLoadErr(res.error || '无法读取 Rook CephBlockPool 列表（/ceph/rook/bundle）。请检查集群连接与权限。');
+          setLoadErr(res.error || '无法读取统一存储池列表（/ceph/rook/bundle）。请检查集群连接与权限。');
           return;
         }
         const body = res.data as Record<string, unknown>;
         setBundleUnreachable(!!body?._tower && (body._tower as { unreachable?: boolean }).unreachable === true);
 
-        const dashByName = new Map<string, unknown>();
-        if (dashRes.ok && dashRes.data != null) {
-          for (const p of normalizeDashboardPoolListPayload(dashRes.data)) {
-            if (!p || typeof p !== 'object') continue;
-            const o = p as Record<string, unknown>;
-            const nm =
-              o.pool_name != null ? String(o.pool_name) : o.name != null ? String(o.name) : '';
-            if (nm) dashByName.set(nm, p);
-          }
-          setDashboardPoolsHint(null);
-        } else {
-          setDashboardPoolsHint(
-            dashRes.error ||
-              `无法合并 mgr Dashboard 池性能（HTTP ${dashRes.status || '—'}）。列表仍可来自 Rook；读写 IOPS、吞吐量、使用率等为「—」直至 Dashboard 可用。生产环境请在 Tower 后端配置 CEPH_DASHBOARD_USER / CEPH_DASHBOARD_PASSWORD（或 NODE_ENV 非 production 下的默认会话）。`,
-          );
-        }
-
         const bundle = normalizeCephBundle(body);
-        const next = bundle.blockPools.map((p, i) => {
-          const row = cephBlockPoolToRow(p, i);
-          const base = cephBlockPoolRowToTableRow(row, p);
-          const dash = dashByName.get(row.name);
-          return enrichRookPoolRowWithDashboardStats(base, dash);
-        });
+        const next = bundle.blockPools
+          .filter(isTowerVisibleRookStoragePool)
+          .map((p, i) => {
+            const row = cephBlockPoolToRow(p, i);
+            return cephBlockPoolRowToTableRow(row, p);
+          });
         setRows(next.filter((r) => cephPoolTableRowMatchesApplicationScope(r, 'cloud')));
         setListSource('rook');
       } catch (e: unknown) {
@@ -212,6 +228,16 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
       }
     },
     [cloudId, applicationsScope],
+  );
+
+  const sectionOnRefresh = useMemo(
+    () => mergeCephSectionOnRefresh(load, onRefresh),
+    [load, onRefresh],
+  );
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionOnRefresh),
+    [sectionOnRefresh],
   );
 
   const deletePool = useCallback(
@@ -228,9 +254,9 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
         return;
       }
       message.success('已删除存储池');
-      void load(true);
+      void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
     },
-    [cloudId, load],
+    [cloudId, sectionOnRefresh],
   );
 
   useEffect(() => {
@@ -240,10 +266,6 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
   const namespaceOptions = useMemo(() => distinctFieldOptions(rows, 'namespace'), [rows]);
   const phaseOptions = useMemo(() => distinctFieldOptions(rows, 'phase'), [rows]);
   const applicationsOptions = useMemo(() => distinctFieldOptions(rows, 'applications'), [rows]);
-  const pgStatusOptions = useMemo(() => distinctFieldOptions(rows, 'pgStatus'), [rows]);
-  const dataProtectionOptions = useMemo(() => distinctFieldOptions(rows, 'dataProtection'), [rows]);
-  const failureDomainOptions = useMemo(() => distinctFieldOptions(rows, 'failureDomain'), [rows]);
-  const deviceClassOptions = useMemo(() => distinctFieldOptions(rows, 'deviceClass'), [rows]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
@@ -427,27 +449,36 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
                     setPoolModalOpen(true);
                   },
                 },
-                { type: 'divider', key: 'd1' },
                 {
-                  key: 'delete',
-                  label: '删除',
-                  danger: true,
-                  onClick: () => {
-                    Modal.confirm({
-                      title: '确定删除该 CephBlockPool？',
-                      okText: '删除',
-                      okButtonProps: { danger: true },
-                      cancelText: '取消',
-                      onOk: () => deletePool(r),
-                    });
-                  },
+                  key: 'yaml',
+                  label: '查看 YAML',
+                  onClick: () => void openPoolYaml(r),
                 },
+                ...(SHOW_CEPH_POOL_CREATE_AND_DELETE_ACTIONS
+                  ? ([
+                      { type: 'divider' as const, key: 'd1' },
+                      {
+                        key: 'delete',
+                        label: '删除',
+                        danger: true,
+                        onClick: () => {
+                          Modal.confirm({
+                            title: '确定删除该 CephBlockPool？',
+                            okText: '删除',
+                            okButtonProps: { danger: true },
+                            cancelText: '取消',
+                            onOk: () => deletePool(r),
+                          });
+                        },
+                      },
+                    ] as const)
+                  : []),
               ]}
             />
           ) : null,
       },
     ];
-  }, [userDisplayColumns, listSource, deletePool]);
+  }, [userDisplayColumns, listSource, deletePool, openPoolYaml]);
 
   const resetFilters = () => {
     setKeyword('');
@@ -527,7 +558,9 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
       }
       toolbarRight={
         <>
-          {applicationsScope === 'cloud' && listSource === 'rook' ? (
+          {SHOW_CEPH_POOL_CREATE_AND_DELETE_ACTIONS &&
+          applicationsScope === 'cloud' &&
+          listSource === 'rook' ? (
             <Button
               type="primary"
               onClick={() => {
@@ -540,7 +573,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
             </Button>
           ) : null}
           <TableColumnSettingsButton allColumns={poolColumnsForSettings} settingsKey={TABLE_SETTINGS_KEY} />
-          <Button icon={<ReloadOutlined />} onClick={() => void load(true)} loading={loading} />
+          <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} />
         </>
       }
     >
@@ -553,8 +586,6 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
           message="当前无法从集群拉取 Rook 资源（Steve 不可达或已降级）。列表可能为空；请检查控制面后再试。"
           style={{ marginBottom: 12 }}
         />
-      ) : dashboardPoolsHint && listSource === 'rook' ? (
-        <Alert type="info" showIcon message={dashboardPoolsHint} style={{ marginBottom: 12 }} />
       ) : null}
       <Table<CephPoolTableRow>
         className="std-table"
@@ -589,7 +620,14 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
           setPoolModalOpen(false);
           setPoolEditRecord(null);
         }}
-        onSuccess={() => void load(true)}
+        onSuccess={() => void runHarvesterSectionRefresh(sectionOnRefresh, { force: true })}
+      />
+      <CephBlockCrYamlDrawer
+        open={yamlOpen}
+        title={yamlTitle}
+        yamlText={yamlText}
+        loading={yamlLoading}
+        onClose={closeYamlDrawer}
       />
     </PageDetailSection>
     </>

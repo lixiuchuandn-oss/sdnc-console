@@ -23,10 +23,10 @@ export class KubeOvnVpcInventory {
   @Column({ type: 'text' })
   name!: string;
 
-  // VPC is cluster-scoped usually, but check Harvester/Kube-OVN. 
+  // VPC is cluster-scoped usually, but check Harvester/Kube-OVN.
   // In Kube-OVN, VPC is a CRD. It is cluster scoped.
   @Column({ type: 'text', nullable: true })
-  namespace?: string; 
+  namespace?: string;
 
   @Column({ type: 'text', nullable: true })
   status?: string;

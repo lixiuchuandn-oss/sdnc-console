@@ -1,149 +1,51 @@
-import React, { useState } from 'react';
-import { Form, Input, Button, Card, message } from 'antd';
-import {
-  getLockedUntilFromLoginError,
-  getLoginErrorHint,
-  getRemainSecFromLockedUntil,
-} from '../../utils/loginLockMessage';
-import { LoginLockAlert } from './LoginLockAlert';
-import { LoginErrorAlert } from './LoginErrorAlert';
-import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import React from 'react';
+import { message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { useSettings } from '../../contexts/SettingsContext';
-import { fetchAdminDefaultHomeFromApi } from '../../utils/adminHome';
-import { renderMarkdownBold } from '../../utils/markdown';
-import { useLoginPageHeroStyle } from './loginPageHeroStyle';
-import './Login.css';
+import { isTenantAccount, resolvePostLoginPath } from '../../utils/accountType';
+import LoginPageShell from './LoginPageShell';
+import { useLoginPageForm } from './useLoginPageForm';
 
 const Login: React.FC = () => {
-  const [loading, setLoading] = useState(false);
-  const [lockUntil, setLockUntil] = useState<number | null>(null);
-  const [loginErrorHint, setLoginErrorHint] = useState<string | null>(null);
-  const isLoginLocked = lockUntil != null && getRemainSecFromLockedUntil(lockUntil) > 0;
-  const [form] = Form.useForm();
   const { login } = useAuth();
   const navigate = useNavigate();
-  const { settings } = useSettings();
-
-  const backgroundColor = settings.loginBackgroundColor;
-  const gradientStart = settings.loginBackgroundGradientStart || backgroundColor;
-  const gradientEnd = settings.loginBackgroundGradientEnd || backgroundColor;
-
-  const buttonColor = settings.loginButtonColor;
-  const buttonHoverColor = settings.loginButtonHoverColor;
-
-  const heroStyle = useLoginPageHeroStyle({
-    backgroundColor,
-    gradientStart,
-    gradientEnd,
-  });
+  const page = useLoginPageForm();
 
   const onFinish = async (values: { username: string; password: string }) => {
-    setLoading(true);
-    try {
+    await page.runLogin(async () => {
       const loggedInUser = await login(values.username, values.password);
-      setLockUntil(null);
-      setLoginErrorHint(null);
-      if (loggedInUser.role !== 'tenant') {
+      if (!isTenantAccount(loggedInUser)) {
         message.error('请使用管理员登录地址');
         navigate('/admin/login');
-      } else {
-        const home = await fetchAdminDefaultHomeFromApi();
-        navigate(String(home?.defaultPath || '/admin/coming-soon').trim() || '/admin/coming-soon');
+        return;
       }
-    } catch (error) {
-      const until = getLockedUntilFromLoginError(error);
-      if (until) {
-        setLockUntil(until);
-        setLoginErrorHint(null);
-      } else {
-        setLockUntil(null);
-        setLoginErrorHint(getLoginErrorHint(error) ?? '登录失败');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onFinishFailed = (_errorInfo: unknown) => {
-    /* Form 校验由 antd 处理 */
+      message.success('登录成功');
+      navigate(resolvePostLoginPath(loggedInUser));
+    });
   };
 
   return (
-    <div className="login-page" style={heroStyle}>
-      <section className="login-page__panel" aria-labelledby="tenant-login-heading">
-        <div className="login-page__content">
-          <Card className="login-card login-page__card" variant="borderless">
-            <div className="login-header login-page__header">
-              <h1 id="tenant-login-heading" className="login-title login-page__title">
-                {renderMarkdownBold(settings.loginTitle ?? '')}
-              </h1>
-              <p className="login-subtitle login-page__subtitle">{settings.loginSubtitle ?? ''}</p>
-            </div>
-            <Form
-              form={form}
-              name="tenant-login"
-              onFinish={onFinish}
-              onFinishFailed={onFinishFailed}
-              autoComplete="off"
-              size="large"
-            >
-              <LoginLockAlert lockedUntil={lockUntil} onExpired={() => setLockUntil(null)} />
-              <LoginErrorAlert message={!isLoginLocked ? loginErrorHint : null} />
-              <Form.Item name="username" rules={[{ required: true, message: '请输入用户名!' }]}>
-                <Input prefix={<UserOutlined />} placeholder="用户名或邮箱" autoComplete="username" />
-              </Form.Item>
-              <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}>
-                <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password" />
-              </Form.Item>
-              <Form.Item>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  loading={loading}
-                  disabled={isLoginLocked}
-                  block
-                  size="large"
-                  style={
-                    buttonColor
-                      ? {
-                          background: `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%) !important`,
-                          border: 'none !important',
-                          boxShadow: `0 4px 12px ${buttonColor}40 !important`,
-                        }
-                      : undefined
-                  }
-                  onMouseEnter={(e) => {
-                    if (!buttonColor || !buttonHoverColor) return;
-                    e.currentTarget.style.setProperty(
-                      'background',
-                      `linear-gradient(135deg, ${buttonHoverColor} 0%, ${buttonHoverColor} 100%)`,
-                      'important',
-                    );
-                    e.currentTarget.style.setProperty('box-shadow', `0 6px 16px ${buttonHoverColor}60`, 'important');
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!buttonColor) return;
-                    e.currentTarget.style.setProperty(
-                      'background',
-                      `linear-gradient(135deg, ${buttonColor} 0%, ${buttonColor} 100%)`,
-                      'important',
-                    );
-                    e.currentTarget.style.setProperty('box-shadow', `0 4px 12px ${buttonColor}40`, 'important');
-                  }}
-                >
-                  登录
-                </Button>
-              </Form.Item>
-            </Form>
-            <div className="login-footer login-page__footer">
-              <p>© 2024 多云管理平台. All rights reserved.</p>
-            </div>
-          </Card>
+    <LoginPageShell
+      form={page.form}
+      formName="tenant-login"
+      headingId="tenant-login-heading"
+      loading={page.loading}
+      isLoginLocked={page.isLoginLocked}
+      lockUntil={page.lockUntil}
+      onLockExpired={() => page.setLockUntil(null)}
+      loginErrorHint={page.loginErrorHint}
+      heroStyle={page.heroStyle}
+      buttonColor={page.buttonColor}
+      buttonHoverColor={page.buttonHoverColor}
+      loginTitle={page.loginTitle}
+      loginSubtitle={page.loginSubtitle}
+      onFinish={onFinish}
+      footer={
+        <div className="login-footer login-page__footer">
+          <p>© 2024 多云管理平台. All rights reserved.</p>
         </div>
-      </section>
-    </div>
+      }
+    />
   );
 };
 

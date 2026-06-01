@@ -1,11 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { Alert, Button, Dropdown, MenuProps, Space, Spin, message } from 'antd';
+import { useParams, useLocation } from 'react-router-dom';
+import { Alert, Button, Dropdown, MenuProps, Space, message } from 'antd';
 import { 
   PoweroffOutlined, 
   ReloadOutlined, 
-  FullscreenOutlined, 
-  SettingOutlined,
   CodeOutlined 
 } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
@@ -86,7 +84,6 @@ function kvWsUrlFromBase(baseHttp: string, cloudId: string, namespace: string, n
 }
 
 const HarvesterVNCPage: React.FC = () => {
-  const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
   const params = new URLSearchParams(location.search);

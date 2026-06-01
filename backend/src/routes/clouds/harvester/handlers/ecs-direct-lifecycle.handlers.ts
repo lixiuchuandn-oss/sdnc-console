@@ -29,7 +29,9 @@ import {
   checkTenantAccess,
   resolveTenantVmId,
   ensureProvider,
+  rejectUnlessTenantWrite,
 } from '../harvester.direct.helpers';
+import { cleanupVmDesktopResources } from '../../../../services/remote/guacamole/guacamoleAssignment';
 
 /**
  * POST /:id/resources/ecs/:instanceId/start - 启动 VM
@@ -38,30 +40,18 @@ export async function harvesterEcsStartHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -87,30 +77,18 @@ export async function harvesterEcsStopHandler(req: Request, res: Response) {
     const { id, instanceId } = req.params;
     const { force } = (req.body || {}) as any;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -137,30 +115,18 @@ export async function harvesterEcsRebootHandler(req: Request, res: Response) {
     const { id, instanceId } = req.params;
     const { force } = (req.body || {}) as any;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -186,30 +152,18 @@ export async function harvesterEcsSoftRebootHandler(req: Request, res: Response)
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -234,30 +188,18 @@ export async function harvesterEcsPauseHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -282,30 +224,18 @@ export async function harvesterEcsUnpauseHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -331,30 +261,18 @@ export async function harvesterEcsDeleteHandler(req: Request, res: Response) {
     const { id, instanceId } = req.params;
     const { deleteVolumes } = req.query;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace, isTenant } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
     if (isTenant) {
       const p = (reqAny.user as any)?.permissions || [];
-      if (!p.includes('clouds.console:write'))
-        return res.status(403).json({
-          message: 'Permission denied: Requires clouds.console:write',
-        });
+      if (!rejectUnlessTenantWrite(res, p)) return;
     }
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -364,6 +282,9 @@ export async function harvesterEcsDeleteHandler(req: Request, res: Response) {
       String(deleteVolumes) === 'true',
       true,
     );
+    void cleanupVmDesktopResources(id, resolvedId).catch((err) => {
+      console.warn('[DeleteVM] 云桌面资源清理失败', { cloudId: id, vm: resolvedId, err });
+    });
     res.json({ message: '删除成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -381,23 +302,14 @@ export async function harvesterEcsRestoreHandler(req: Request, res: Response) {
   try {
     const { id, instanceId } = req.params;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -423,23 +335,14 @@ export async function harvesterEcsForceDeleteHandler(req: Request, res: Response
     const { id, instanceId } = req.params;
     const { deleteVolumes } = req.query;
     const reqAny = req as any;
-    const { allowed, namespace: tenantNamespace } =
-      await checkTenantAccess(reqAny, id);
-    if (!allowed)
-      return res
-        .status(403)
-        .json({ message: 'Access denied to this resource pool' });
+    const { allowed, namespace: tenantNamespace } = await checkTenantAccess(reqAny, id);
+    if (!allowed) return res.status(403).json({ message: 'Access denied to this resource pool' });
 
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, 'Operation not supported')) return;
 
-    const { resolvedId, error } = await resolveTenantVmId(
-      tenantNamespace,
-      instanceId,
-      cloud,
-    );
-    if (error)
-      return res.status(error.status).json({ message: error.message });
+    const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
+    if (error) return res.status(error.status).json({ message: error.message });
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
@@ -449,6 +352,9 @@ export async function harvesterEcsForceDeleteHandler(req: Request, res: Response
       String(deleteVolumes) === 'true',
       true,
     );
+    void cleanupVmDesktopResources(id, resolvedId).catch((err) => {
+      console.warn('[ForceDeleteVM] 云桌面资源清理失败', { cloudId: id, vm: resolvedId, err });
+    });
     res.json({ message: '强制删除成功', data });
   } catch (error: any) {
     if (res.headersSent) return;

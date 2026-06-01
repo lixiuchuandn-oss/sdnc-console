@@ -1,11 +1,11 @@
 import React from 'react';
-import { App, Button, Descriptions, Divider, Modal, Row, Col, Space, Table, Tabs, Tag, Card, Alert, DatePicker, InputNumber, Select, Input } from 'antd';
-import ReactECharts from 'echarts-for-react';
-import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, CopyOutlined, EyeOutlined, AuditOutlined } from '@ant-design/icons';
+import { App, Button, Descriptions, Modal, Row, Col, Space, Table, Tabs, Card, Alert, DatePicker, InputNumber, Select, Input } from 'antd';
+import LazyReactECharts from '../../../../components/LazyReactECharts';
+import { DesktopOutlined, LineChartOutlined, NodeIndexOutlined, PlayCircleOutlined, PoweroffOutlined, ReloadOutlined, DeleteOutlined, WindowsOutlined, CodeOutlined, SafetyCertificateOutlined, GlobalOutlined, CloudServerOutlined, HddOutlined, AuditOutlined } from '@ant-design/icons';
 import SecurityGroupRuleManageDrawer from './drawers/SecurityGroupRuleManageDrawer';
 import { statusTag, EllipsisText, collectIpv4FromAddresses } from './components/Common';
 import { startCloudProviderEcs, stopCloudProviderEcs, rebootCloudProviderEcs, deleteCloudProviderEcs, fetchCloudProviderEcsVncUrl, fetchCloudProviderEips, fetchCloudProviderEcs } from '../../../../services/api';
-import { fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, addHuaweiPortSecurityGroup, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../../services/huaweiApi';
+import { fetchHuaweiPorts, updateHuaweiPortSourceDestCheck, unbindHuaweiEip, fetchHuaweiEcsAuditTraces, removeHuaweiPortSecurityGroup, setHuaweiPortSecurityGroups, showCloudProviderSecurityGroup } from '../../../../services/huaweiApi';
 
 type EcsDetailHwProps = {
   cloudId: string;
@@ -44,7 +44,7 @@ type EcsDetailHwProps = {
   overviewNode?: React.ReactNode;
 };
 
-const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail, visibleTabs, overviewNode }) => {
+const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subnets, secGroups, eips, vmEnis, vmPorts, disks, snapshots, tabKey, onChangeTab, onRefreshAll, onCloseModal, onOpenEipManage, onSetVmPorts, onSetEips, onSetVmDetail, onRefreshMonitor, vmCes, vmCesAvailable, vmMonitorError, vmCesError, vmCesRange, vmCesPeriod, vmCesFilter, vmCesMetrics, setVmCesRange, setVmCesPeriod, setVmCesFilter, setVmCesMetrics, onOpenDetail: _onOpenDetail, visibleTabs, overviewNode }) => {
   const { message } = App.useApp();
   const vmCesAvail: string[] = Array.isArray(vmCesAvailable) ? vmCesAvailable : [];
   const vmCesMetricsSafe: string[] = Array.isArray(vmCesMetrics) ? vmCesMetrics : [];
@@ -53,8 +53,6 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
   const [vmAuditEnd, setVmAuditEnd] = React.useState<number | null>(null);
   const [vmAuditTraceName, setVmAuditTraceName] = React.useState<string>('');
   const [vmAuditLimit, setVmAuditLimit] = React.useState<number>(50);
-  const [secAddSel, setSecAddSel] = React.useState<Record<string, string>>({});
-  const [secSetOpen, setSecSetOpen] = React.useState<boolean>(false);
   const [secSetSel, setSecSetSel] = React.useState<string[]>([]);
   const [secSetPortId, setSecSetPortId] = React.useState<string>('');
   const [sgStats, setSgStats] = React.useState<Record<string, { ingress: number; egress: number }>>({});
@@ -62,6 +60,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
   const [ruleTarget, setRuleTarget] = React.useState<any | null>(null);
 
   const secPorts: any[] = Array.isArray(vmPorts) ? vmPorts : [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const secPortChoices = React.useMemo(() => secPorts.map((p: any) => ({ label: p?.name || p?.id, value: p?.id })).filter((x: any) => !!x.value), [JSON.stringify(secPorts)]);
   React.useEffect(() => {
     (async () => {
@@ -85,6 +84,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
       setSgStats(map);
       if (!secSetPortId && secPorts.length) { setSecSetPortId(String(secPorts[0]?.id || '')); }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudId, JSON.stringify(secPorts.map((p: any) => p?.security_groups)), secSetPortId]);
 
   const st = String(vmDetail?.status || vmDetail?.Status || '').trim().toUpperCase();
@@ -397,7 +397,7 @@ const EcsDetailHw: React.FC<EcsDetailHwProps> = ({ cloudId, vmDetail, vpcs, subn
                           );
                         }
                         const option:any = { grid: { left: 40, right: 20, top: 30, bottom: 30 }, tooltip: { trigger: 'axis' }, xAxis: { type: 'category', data: x.map((t:any)=> { const d = Number(t || 0); return d ? new Date(d).toLocaleTimeString() : ''; }) }, yAxis: { type: 'value', min: 0 }, series: [{ name, type: 'line', data: y, smooth: true }], title: { text: name, left: 'center', textStyle: { fontSize: 12 } } };
-                        return (<Col span={12} key={`${name}-${idx}`}><Card size="small" styles={{ body: { padding: 8 } }}><ReactECharts option={option} notMerge style={{ height: 220 }} /></Card></Col>);
+                        return (<Col span={12} key={`${name}-${idx}`}><Card size="small" styles={{ body: { padding: 8 } }}><LazyReactECharts option={option} notMerge style={{ height: 220 }} /></Card></Col>);
                       });
                       return charts.length ? charts : [<Col span={24} key="empty"><Alert type="info" message="无CES指标数据" /></Col>];
                     })()}

@@ -34,6 +34,11 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { normalizeAclRowForForm, normalizeAclsForApi } from '../lib/SubnetAclFormItems';
 import SecurityGroupAccessControlDrawer, { type SgAclDirection } from '../drawers/security-group-acl-drawer';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+  type HarvesterSectionOnRefresh,
+} from '../lib/kubeOvnSectionRefresh';
 
 const { Paragraph } = Typography;
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';
@@ -254,6 +259,18 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     }
   }, [cloudId]);
 
+  const sectionRefresh: HarvesterSectionOnRefresh = refresh;
+
+  const handleToolbarRefresh = useMemo(
+    () => createHarvesterToolbarRefresh(sectionRefresh),
+    [sectionRefresh],
+  );
+
+  const reloadAfterWrite = useCallback(
+    () => runHarvesterSectionRefresh(sectionRefresh, { force: true }),
+    [sectionRefresh],
+  );
+
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -305,7 +322,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       message.success('安全组已创建');
       setCreateOpen(false);
       form.resetFields();
-      await refresh();
+      await reloadAfterWrite();
     } catch (e: any) {
       if (e?.errorFields) return;
       message.error(`创建失败: ${e?.message || '未知错误'}`);
@@ -386,7 +403,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       setEditOpen(false);
       setEditTarget(null);
       editForm.resetFields();
-      await refresh();
+      await reloadAfterWrite();
       if (rulesDrawerOpen && rulesTarget?.id === editTarget.id) {
         setRulesTarget((prev) =>
           prev
@@ -429,7 +446,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
               setEditTarget(null);
               editForm.resetFields();
             }
-            await refresh();
+            await reloadAfterWrite();
           } catch (e: any) {
             message.error(`删除失败: ${e?.message || '未知错误'}`);
             throw e;
@@ -444,7 +461,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       editOpen,
       editTarget,
       editForm,
-      refresh,
+      reloadAfterWrite,
       closeRulesDrawer,
     ],
   );
@@ -600,7 +617,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
 
       message.success('访问控制已保存');
       await reloadMembersPanelData(rulesTarget);
-      await refresh();
+      await reloadAfterWrite();
     } catch (e: any) {
       if (e?.errorFields) return;
       message.error(`保存失败: ${e?.message || '未知错误'}`);
@@ -729,7 +746,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
             onClick={() => {
               setKeyword('');
               setMemberFilter('');
-              refresh();
+              void reloadAfterWrite();
             }}
           >
             重置
@@ -746,7 +763,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
             settingsKey={SECURITY_GROUPS_TABLE_SETTINGS_KEY}
           />
           <Tooltip title="刷新列表">
-            <Button icon={<ReloadOutlined />} onClick={() => refresh()} loading={loading} aria-label="刷新" />
+            <Button icon={<ReloadOutlined />} onClick={handleToolbarRefresh} loading={loading} aria-label="刷新" />
           </Tooltip>
         </div>
       </div>

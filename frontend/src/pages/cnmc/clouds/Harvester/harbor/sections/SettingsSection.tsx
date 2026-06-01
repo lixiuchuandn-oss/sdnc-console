@@ -28,7 +28,6 @@ import {
 import type { HarborRegistry, HarborRegistryForm, HarborSyncSecretParams } from '../types';
 import { updateHarborRegistry, syncHarborSecret, testHarborConnection } from '../shared/harborApi';
 
-const { TextArea } = Input;
 const { Panel } = Collapse;
 const { Text, Paragraph } = Typography;
 
@@ -38,7 +37,7 @@ interface Props {
 }
 
 const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);

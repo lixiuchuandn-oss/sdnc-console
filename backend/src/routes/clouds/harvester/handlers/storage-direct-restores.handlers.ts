@@ -30,7 +30,10 @@ import {
 } from '../../../../services/clouds/harvester/vmAlias';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
 
-function backupResourceType(record: HarvesterBackupInventory | null, body: any): 'backup' | 'snapshot' {
+function backupResourceType(
+  record: HarvesterBackupInventory | null,
+  body: any,
+): 'backup' | 'snapshot' {
   const t = String(record?.type || record?.rawData?.spec?.type || body?.spec?.type || 'backup');
   return t === 'snapshot' ? 'snapshot' : 'backup';
 }
@@ -69,7 +72,8 @@ export async function harvesterRestoreCreateHandler(req: Request, res: Response)
         backupName,
       );
       if (inProgress) {
-        const resourceLabel = backupResourceType(backupRecord, req.body) === 'snapshot' ? '快照' : '备份';
+        const resourceLabel =
+          backupResourceType(backupRecord, req.body) === 'snapshot' ? '快照' : '备份';
         return res.status(409).json({
           message: `该${resourceLabel}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再试`,
         });
@@ -93,7 +97,7 @@ export async function harvesterRestoreCreateHandler(req: Request, res: Response)
         sourceVm = resolveCephBackupSourceVm(null, cephRaw);
       }
       if (!sourceVm) {
-        throw new Error(`无法解析 Ceph 备份 ${backupNs}/${backupName} 的源虚拟机（sourceVm）`);
+        throw new Error(`无法解析统一存储备份 ${backupNs}/${backupName} 的源虚拟机（sourceVm）`);
       }
       const cephBody = buildHarvesterCephVmRestoreBody(req.body, {
         sourceVm,

@@ -78,7 +78,8 @@ async function gatherOrgAssociatedBlocking(orgIds: string[]): Promise<{
   const protectionObjects = await protectionObjectRepository.find({
     where: { organizationId: In(orgIds) },
   });
-  if (protectionObjects.length > 0) rows.push({ name: '防护对象', count: protectionObjects.length });
+  if (protectionObjects.length > 0)
+    rows.push({ name: '防护对象', count: protectionObjects.length });
 
   return { rows, userSpaces, assignments };
 }
@@ -111,17 +112,20 @@ async function gatherTenantScopedBlocking(tenantId: string): Promise<{
   const tenantSecurityDomains = await securityDomainRepository.find({
     where: { tenantId },
   });
-  if (tenantSecurityDomains.length > 0) rows.push({ name: '租户安全域', count: tenantSecurityDomains.length });
+  if (tenantSecurityDomains.length > 0)
+    rows.push({ name: '租户安全域', count: tenantSecurityDomains.length });
 
   const tenantServiceChains = await serviceChainRepository.find({
     where: { tenantId },
   });
-  if (tenantServiceChains.length > 0) rows.push({ name: '租户服务链', count: tenantServiceChains.length });
+  if (tenantServiceChains.length > 0)
+    rows.push({ name: '租户服务链', count: tenantServiceChains.length });
 
   const tenantSecurityZones = await securityZoneRepository.find({
     where: { tenantId },
   });
-  if (tenantSecurityZones.length > 0) rows.push({ name: '租户安全域区域', count: tenantSecurityZones.length });
+  if (tenantSecurityZones.length > 0)
+    rows.push({ name: '租户安全域区域', count: tenantSecurityZones.length });
 
   const tenantProtectionObjects = await protectionObjectRepository.find({
     where: { tenantId },
@@ -177,7 +181,9 @@ async function gatherSecMgrPlaneTenantBlocking(
 }
 
 /** 删除组织（子树）前的资源占用汇总 */
-export async function collectOrganizationSubtreeBlockingRows(orgIds: string[]): Promise<TenantBlockingRow[]> {
+export async function collectOrganizationSubtreeBlockingRows(
+  orgIds: string[],
+): Promise<TenantBlockingRow[]> {
   const { rows } = await gatherOrgAssociatedBlocking(orgIds);
   return rows;
 }

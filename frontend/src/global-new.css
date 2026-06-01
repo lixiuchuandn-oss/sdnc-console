@@ -633,7 +633,30 @@ html, body, #root {
   gap: 12px;                      /* 换行后的行间距 */
 }
 
-/* 角色权限抽屉：平台大分组（Collapse）去掉卡片式阴影 */
+/* 角色权限抽屉：平台 Tab + 业务域 Menu */
+.role-perm-drawer-tabs.ant-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.role-perm-drawer-tabs .ant-tabs-nav {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+.role-perm-drawer-tabs .ant-tabs-content-holder {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.role-perm-drawer-tabs .ant-tabs-content {
+  height: 100%;
+}
+.role-perm-drawer-tabs .ant-tabs-tabpane {
+  height: 100%;
+}
+
+/* 角色权限抽屉：平台大分组（Collapse）去掉卡片式阴影 — 遗留样式保留 */
 .role-perm-drawer-collapse.ant-collapse {
   box-shadow: none !important;
 }

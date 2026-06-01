@@ -8,7 +8,7 @@ import { apiRequest, apiPost, apiPut, apiDelete as apiDeleteUnified } from './ap
 const base = (cloudId: string) => `/api/clouds/${encodeURIComponent(cloudId)}/logging`;
 
 // 包装统一 API 函数，保持向后兼容的返回格式 { data, ok, error }
-async function apiGet<T = unknown>(url: string, options?: { signal?: AbortSignal; skipCache?: boolean }): Promise<{ data: T | null; ok: boolean; error?: string }> {
+async function apiGet<T = unknown>(url: string, _options?: { signal?: AbortSignal; skipCache?: boolean }): Promise<{ data: T | null; ok: boolean; error?: string }> {
   try {
     // logging 模块读取接口强制不走缓存（实时获取）
     const data = await apiRequest(url, { skipCache: true });

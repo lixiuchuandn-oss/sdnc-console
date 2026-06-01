@@ -26,14 +26,12 @@ import {
   Col,
   App,
   Card,
-  Alert,
   Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
   MinusCircleOutlined,
   InfoCircleOutlined,
-  ApiOutlined,
 } from '@ant-design/icons';
 import { createHttpRoute } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
@@ -335,7 +333,7 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
         <Form.List name="rules">
           {(ruleFields, { add: addRule, remove: removeRule }) => (
             <>
-              {ruleFields.map(({ key: ruleKey, name: ruleIndex, ...ruleRest }) => (
+              {ruleFields.map(({ key: ruleKey, name: ruleIndex, ..._ruleRest }) => (
                 <Card
                   key={ruleKey}
                   size="small"

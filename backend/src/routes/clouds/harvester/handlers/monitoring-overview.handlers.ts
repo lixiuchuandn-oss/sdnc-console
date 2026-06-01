@@ -78,7 +78,7 @@ function parseStorageClassNumberOfReplicas(sc: any): number | null {
 // 监控概览 Handlers
 export async function harvesterMonitoringStorageNodesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -154,13 +154,13 @@ export async function harvesterMonitoringCephRookBundleHandler(req: Request, res
     }
     if (res.headersSent) return;
     const st = (e as any).status || 500;
-    res.status(st).json({ message: e?.message || '请求 Ceph 资源聚合失败' });
+    res.status(st).json({ message: e?.message || '请求统一存储资源聚合失败' });
   }
 }
 
 export async function harvesterMonitoringCephClustersHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -204,13 +204,13 @@ export async function harvesterMonitoringCephClustersHandler(req: Request, res: 
     if (isUnreachableError(e)) return res.status(200).json({ data: [] });
     if (res.headersSent) return;
     const st = (e as any).status || 500;
-    res.status(st).json({ message: e?.message || '请求 Ceph 集群列表失败' });
+    res.status(st).json({ message: e?.message || '请求统一存储集群列表失败' });
   }
 }
 
 export async function harvesterMonitoringNodeResourcesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -229,7 +229,7 @@ export async function harvesterMonitoringNodeResourcesHandler(req: Request, res:
 
 export async function harvesterMonitoringNodeMetricsHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -248,7 +248,7 @@ export async function harvesterMonitoringNodeMetricsHandler(req: Request, res: R
 
 export async function harvesterMonitoringVirtualMachinesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -265,9 +265,12 @@ export async function harvesterMonitoringVirtualMachinesHandler(req: Request, re
   }
 }
 
-export async function harvesterMonitoringVirtualMachineInstancesHandler(req: Request, res: Response) {
+export async function harvesterMonitoringVirtualMachineInstancesHandler(
+  req: Request,
+  res: Response,
+) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -286,7 +289,7 @@ export async function harvesterMonitoringVirtualMachineInstancesHandler(req: Req
 
 export async function harvesterMonitoringBlockDevicesHandler(req: Request, res: Response) {
   try {
-    const { id } = req.params;
+    const { id: _id } = req.params;
     const cloud = (req as any).cloud;
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池')) return;
 
@@ -333,7 +336,9 @@ export async function harvesterMonitoringMetricRangeHandler(req: Request, res: R
     res.json(data);
   } catch (e: any) {
     if (isUnreachableError(e)) {
-      return res.status(200).json({ status: 'success', data: { resultType: 'matrix', result: [] } });
+      return res
+        .status(200)
+        .json({ status: 'success', data: { resultType: 'matrix', result: [] } });
     }
     if (res.headersSent) return;
     const status = (e as any).status || 500;

@@ -1,8 +1,7 @@
-import { Router, Response } from 'express';
+import { Router } from 'express';
 import { AppDataSource } from '../config/database';
 import { AuditLog } from '../entities/AuditLog';
-import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { UserRole } from '../entities/User';
+import { authMiddleware } from '../middleware/auth';
 // 新权限体系
 import { requirePermission } from '../permissions';
 

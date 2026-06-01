@@ -22,7 +22,7 @@ export function useCephBlockBundleLoad(cloudId: string): {
         const res = await fetchCephRookBundle(cloudId, { force: !!force });
         if (!res.ok || res.data == null) {
           setMirrorRows([]);
-          setLoadErr(res.error || '无法加载 Ceph Rook 聚合');
+          setLoadErr(res.error || '无法加载统一存储 Rook 聚合');
           return;
         }
         const bundle = normalizeCephBundle(res.data);

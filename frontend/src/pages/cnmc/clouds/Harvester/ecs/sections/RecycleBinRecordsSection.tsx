@@ -5,7 +5,6 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Table, Input, Button, Select, DatePicker, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
-import dayjs from 'dayjs';
 
 import PageDetailSection from 'components/PageDetailSection';
 import { getRecycleBinShutdownRecords } from 'services/harvester/vm';

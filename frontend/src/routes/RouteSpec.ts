@@ -42,8 +42,12 @@ export interface RouteSpec {
   /** 为 true 时：首页顺位跳过 `requiredActions` 的 RBAC 检查（仍校验授权类字段） */
   homePageSkipPermissionCheck?: boolean;
   /**
+   * 租户控制台入口（/console）：由账号类型或 TenantConsoleRoute 守卫，不参与 AdminRoute 路径→RBAC 映射。
+   */
+  tenantAccountEntry?: boolean;
+  /**
    * `cloudmap-pool`：仅用于 Cloudmap 资源池侧栏与面包屑元数据；
-   * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（`clouds.console:read`）。
+   * 不参与管理端顶栏平台菜单；池内路径仍写入路径→权限映射（各 Tab 的 poolPageAction）。
    */
   navScope?: 'default' | 'cloudmap-pool';
   /** Cloudmap 池侧栏分组标题（中文） */
@@ -52,18 +56,17 @@ export interface RouteSpec {
   poolMenuParentKey?: string;
   /** Cloudmap 池内：侧栏二级分组键（与 `cloudmapPoolNavRows.poolNavSubgroup` 一致） */
   poolNavSubgroup?: string;
+  /** Cloudmap 池侧栏：满足任一 read 即可展示（见 `cloudmapPoolNavRows.poolPageReadAnyOf`） */
+  poolPageReadAnyOf?: readonly string[];
 }
 
 function toCloudmapPoolRouteSpec(
   r: (typeof CLOUDMAP_POOL_NAV_ROWS)[number],
 ): RouteSpec {
-  const page = r.poolPageAction ?? 'clouds.console:read';
-  const write =
-    page === 'clouds.console:read'
-      ? 'clouds.console:write'
-      : page.endsWith(':read')
-        ? `${page.slice(0, -(':read'.length))}:write`
-        : 'clouds.console:write';
+  const page = r.poolPageAction ?? 'clouds.ecs:read';
+  const write = page.endsWith(':read')
+    ? `${page.slice(0, -':read'.length)}:write`
+    : 'clouds.ecs:write';
   return {
     id: r.id,
     path: `/admin/clouds/:cloudId/${r.pathSuffix}`,
@@ -76,12 +79,13 @@ function toCloudmapPoolRouteSpec(
     poolNavGroup: r.poolNavGroup,
     poolMenuParentKey: r.poolMenuParentKey || undefined,
     poolNavSubgroup: r.poolNavSubgroup,
+    poolPageReadAnyOf: r.poolPageReadAnyOf,
     title: r.title,
     breadcrumbLabel: r.title,
     subtitle: `${r.poolNavGroup} · ${r.title}`,
     icon: r.icon,
     order: r.order,
-    /** 池内页：默认控制台读；容器分组等可单独绑定 clouds.containers:read（与后端路径推断一致） */
+    /** 池内页：默认控制台读；容器各 Tab 绑定 clouds.containers.{子域}:read（与后端 registry 一致） */
     requiredActions: {
       page,
       read: page,
@@ -128,22 +132,21 @@ export const routeSpecs: RouteSpec[] = [
     },
   },
 
-  // Group: 资源池管理
+  // Group: 多云管理（平台级：多云总览、资源池列表）
   {
     id: 'dashboard',
     path: '/admin/dashboard',
     element: 'OverviewDashboard',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
-    title: '资源总览',
+    group: '多云管理',
+    title: '多云总览',
     subtitle: '展示全局资源统计概览，包括资源池数量、云主机数量、容器集群数量、VPC网络数量等关键指标，提供多维度数据可视化与实时监控。',
     icon: 'DashboardOutlined',
     order: 0,
     requiredActions: {
       page: 'clouds.dashboard:read',
       read: 'clouds.dashboard:read',
-      write: 'clouds.dashboard:write'
     },
     requiredFeature: 'sys.dashboard',
     homePagePriority: 1
@@ -154,7 +157,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
+    group: '多云管理',
     title: '资源池管理',
     requiredActions: {
       page: 'clouds.resource-pools:read',
@@ -180,9 +183,9 @@ export const routeSpecs: RouteSpec[] = [
     hidden: true,
     title: 'Rancher 集群工作台',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -191,13 +194,13 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     title: '华为云资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -206,13 +209,13 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     title: '阿里云资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -221,13 +224,13 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     title: 'Rancher 资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -236,13 +239,28 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     title: 'Xinference 资源池详情',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
+    },
+  },
+  {
+    id: 'pool-vendor-maas',
+    path: '/admin/clouds/vendor/maas/:cloudId',
+    element: 'Clouds',
+    layout: 'admin',
+    platform: 'CNMC',
+    group: 'Cloudmap资源池',
+    hidden: true,
+    title: 'MAAS 裸金属资源池详情',
+    requiredActions: {
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -251,13 +269,13 @@ export const routeSpecs: RouteSpec[] = [
     element: 'Clouds',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     title: 'CSM 资源池跳转',
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write',
+      page: 'clouds.resource-pools:read',
+      read: 'clouds.resource-pools:read',
+      write: 'clouds.resource-pools:write',
     },
   },
   {
@@ -266,21 +284,15 @@ export const routeSpecs: RouteSpec[] = [
     element: 'CloudConsolePage',
     layout: 'admin',
     platform: 'CNMC',
-    group: '资源控制台',
-    title: '资源控制台',
-    subtitle: '提供统一的资源控制台访问入口，支持通过 Web SSH 或 VNC 等方式远程连接与管理云主机，实现跨资源池的统一运维体验。',
-    breadcrumbLabel: '资源控制台',
+    group: '租户控制台',
+    title: '租户控制台',
+    subtitle: '提供统一的租户云资源控制台访问入口，支持通过 Web SSH 或 VNC 等方式远程连接与管理云主机，实现跨资源池的统一运维体验。',
+    breadcrumbLabel: '租户控制台',
     icon: 'DesktopOutlined',
     /** 不进入管理端侧栏；路由仍由 `App.tsx` 注册，`/console` 可照常访问 */
     hidden: true,
-    requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
-    },
+    tenantAccountEntry: true,
     order: 10,
-    /** 默认授权即可；不按多云 License 门控，仅 RBAC */
-    homePagePriority: 3
   },
 
   // Group: 租户管理
@@ -350,12 +362,12 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'default',
     guard: 'private',
     platform: 'CNMC',
-    group: '资源控制台',
+    group: '租户控制台',
     hidden: true,
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
+      page: 'clouds.ecs:read',
+      read: 'clouds.ecs:read',
+      write: 'clouds.ecs:write'
     }
   },
   {
@@ -365,12 +377,12 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'default',
     guard: 'private',
     platform: 'CNMC',
-    group: '资源控制台',
+    group: '租户控制台',
     hidden: true,
     requiredActions: {
-      page: 'clouds.console:read',
-      read: 'clouds.console:read',
-      write: 'clouds.console:write'
+      page: 'clouds.ecs:read',
+      read: 'clouds.ecs:read',
+      write: 'clouds.ecs:write'
     }
   },
   {
@@ -382,7 +394,7 @@ export const routeSpecs: RouteSpec[] = [
     guard: 'private',
     backgroundCapable: true,
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     requiredActions: {
       page: 'clouds.vm-create-wizard:write',
@@ -399,7 +411,7 @@ export const routeSpecs: RouteSpec[] = [
     guard: 'private',
     backgroundCapable: true,
     platform: 'CNMC',
-    group: '资源池管理',
+    group: 'Cloudmap资源池',
     hidden: true,
     requiredActions: {
       page: 'clouds.vm-create-wizard:write',
@@ -1091,7 +1103,7 @@ export const routeSpecs: RouteSpec[] = [
     requiredActions: {
       page: 'system.audit:read',
       read: 'system.audit:read',
-      write: 'system.audit:read'
+      write: 'system.audit:write'
     },
     homePagePriority: 6
   },
@@ -1116,6 +1128,24 @@ export const routeSpecs: RouteSpec[] = [
     requiredFeature: 'platform.aisoc'
   },
 
+  {
+    id: 'settings-desktop-gateway',
+    path: '/admin/settings/desktop-gateway',
+    element: 'DesktopGatewaySettings',
+    layout: 'admin',
+    platform: 'SETTINGS',
+    group: '高级集成',
+    title: '云桌面网关',
+    subtitle: '注册云桌面网关，并为多云资源池启用云桌面接入。',
+    icon: 'DesktopOutlined',
+    order: 21,
+    requiredActions: {
+      page: 'clouds.desktop:read',
+      read: 'clouds.desktop:read',
+      write: 'clouds.desktop:write'
+    },
+  },
+
   // ============================================================================
   // Harbor 详情页路由
   // ============================================================================
@@ -1130,9 +1160,9 @@ export const routeSpecs: RouteSpec[] = [
     title: 'Harbor 详情',
     hidden: true,
     requiredActions: {
-      page: 'clouds.containers:read',
-      read: 'clouds.containers:read',
-      write: 'clouds.containers:write'
+      page: 'clouds.containers.registries:read',
+      read: 'clouds.containers.registries:read',
+      write: 'clouds.containers.registries:write',
     }
   },
 

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App } from 'antd';
 import {
   ExclamationCircleOutlined,
@@ -13,6 +13,11 @@ import {
   fetchHarvesterVncUrl,
   patchHarvesterVm,
 } from '../../../../../../services/harvesterApi';
+import {
+  assignVmDesktopUsers,
+  fetchPoolGatewayAccess,
+} from '../../../../../../services/guacamoleApi';
+import { useCloudDesktopPermission } from '../../../../../../hooks/useCloudDesktopPermission';
 import type { VmListSafeRead } from '../lib/vmSafeRead';
 import { getVmInstanceId } from '../lib/vmSectionUtils';
 import { runHarvesterSectionRefresh } from '../../shared/lib/harvesterSectionRefresh';
@@ -48,6 +53,7 @@ export function useVmSectionActions({
   onDelete,
 }: UseVmSectionActionsParams) {
   const { modal, message } = App.useApp();
+  const { canRead: canReadDesktop } = useCloudDesktopPermission();
   const getIid = getVmInstanceId;
 
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -70,11 +76,104 @@ export function useVmSectionActions({
   const [aliasVm, setAliasVm] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
 
+  const [desktopGatewayReady, setDesktopGatewayReady] = useState(false);
+  const [desktopModalOpen, setDesktopModalOpen] = useState(false);
+  const [desktopModalVm, setDesktopModalVm] = useState<any>(null);
+  const [desktopSubmitting, setDesktopSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!cloudId || !canReadDesktop) {
+      setDesktopGatewayReady(false);
+      return;
+    }
+    let cancelled = false;
+    void fetchPoolGatewayAccess(cloudId)
+      .then((res) => {
+        if (!cancelled) setDesktopGatewayReady(!!res?.ready);
+      })
+      .catch(() => {
+        if (!cancelled) setDesktopGatewayReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudId, canReadDesktop]);
+
+  const guessDesktopDefaults = useCallback(
+    (r: any) => {
+      const os =
+        SafeRead.os(r) || SafeRead.imageDisplayName(r) || SafeRead.name(r) || '';
+      const isWin = /windows|win/i.test(os);
+      return {
+        username: isWin ? 'Administrator' : 'root',
+        protocol: 'auto',
+      };
+    },
+    [SafeRead],
+  );
+
+  const handleAssignDesktop = useCallback(
+    (r: any) => {
+      if (!desktopGatewayReady) {
+        message.warning('请先在系统设置注册云桌面网关，并为本资源池启用接入');
+        return;
+      }
+      const ip = SafeRead.ip(r);
+      if (!ip) {
+        message.warning('暂无 IP，请确认 Guest Agent 与网络配置');
+        return;
+      }
+      setDesktopModalVm(r);
+      setDesktopModalOpen(true);
+    },
+    [SafeRead, desktopGatewayReady, message],
+  );
+
+  const handleSubmitDesktopAssign = useCallback(
+    async (values: {
+      desktop_user_ids: string[];
+      username: string;
+      password: string;
+      protocol?: string;
+    }) => {
+      const r = desktopModalVm;
+      if (!r) return;
+      const iid = getIid(r);
+      const { ns, name } = resolveVmNsName(iid, r, SafeRead);
+      if (!ns || !name) {
+        message.error('无法解析虚拟机坐标');
+        return;
+      }
+      setDesktopSubmitting(true);
+      try {
+        await assignVmDesktopUsers({
+          cloud_id: cloudId,
+          namespace: ns,
+          resource_id: name,
+          desktop_user_ids: values.desktop_user_ids,
+          protocol: values.protocol,
+          username: values.username,
+          ...(String(values.password || '').trim()
+            ? { password: String(values.password).trim() }
+            : {}),
+        });
+        message.success('已分配云桌面用户，对方可用统一密码登录云桌面网关');
+        setDesktopModalOpen(false);
+        setDesktopModalVm(null);
+      } catch (e: any) {
+        message.error(e?.message || '分配失败');
+      } finally {
+        setDesktopSubmitting(false);
+      }
+    },
+    [cloudId, desktopModalVm, SafeRead, message, getIid],
+  );
+
   const drawerRecord = useMemo(() => {
     if (!currentMetadata) return null;
     const currentId = getIid(currentMetadata);
     return vms.find((v) => getIid(v) === currentId) || currentMetadata;
-  }, [vms, currentMetadata]);
+  }, [vms, currentMetadata, getIid]);
 
   const handleShowVmDetail = useCallback((record: any, tab: string = 'detail') => {
     setCurrentMetadata(record);
@@ -103,7 +202,7 @@ export function useVmSectionActions({
         message.error(e?.message || '获取VNC地址失败');
       }
     },
-    [cloudId, SafeRead, message],
+    [cloudId, SafeRead, message, getIid],
   );
 
   const handleBackup = useCallback((r: any) => {
@@ -242,7 +341,7 @@ export function useVmSectionActions({
         onOk: () => onDelete(iid, deleteVolumes, false),
       });
     },
-    [onDelete, SafeRead, modal],
+    [onDelete, SafeRead, modal, getIid],
   );
 
   const handleOpenAliasModal = useCallback((r: any) => {
@@ -352,7 +451,7 @@ export function useVmSectionActions({
     } catch (e: any) {
       message.error(e?.message || '批量停止失败');
     }
-  }, [selectedKeys, vms, SafeRead, cloudId, onStop, message]);
+  }, [selectedKeys, vms, SafeRead, cloudId, onStop, message, getIid]);
 
   const batchReboot = useCallback(async () => {
     if (selectedKeys.length === 0) return;
@@ -371,7 +470,7 @@ export function useVmSectionActions({
     } catch (e: any) {
       message.error(e?.message || '批量重启失败');
     }
-  }, [selectedKeys, vms, onReboot, message]);
+  }, [selectedKeys, vms, onReboot, message, getIid]);
 
   const batchDelete = useCallback(() => {
     if (selectedKeys.length === 0) return;
@@ -437,7 +536,7 @@ export function useVmSectionActions({
         }
       },
     });
-  }, [selectedKeys, vms, SafeRead, modal, message, onDelete, onRefresh]);
+  }, [selectedKeys, vms, SafeRead, modal, message, onDelete, onRefresh, getIid]);
 
   return {
     selectedKeys,
@@ -464,6 +563,14 @@ export function useVmSectionActions({
     aliasSubmitting,
     handleShowVmDetail,
     handleWebVnc,
+    handleAssignDesktop,
+    desktopGatewayReady,
+    desktopModalOpen,
+    setDesktopModalOpen,
+    desktopModalVm,
+    desktopSubmitting,
+    handleSubmitDesktopAssign,
+    guessDesktopDefaults,
     handleBackup,
     handleSnapshot,
     handleClone,

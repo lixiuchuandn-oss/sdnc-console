@@ -56,6 +56,8 @@ export type CloudmapKubeOvnRoutePanelProps = {
   setKubeOvnSubnets: (v: any[]) => void;
   setRawSubnets: (v: any) => void;
   kubeOvnEips: any[];
+  /** 扁平域 EIP，供 VPC 域创建公网 IP 时做跨域占用校验 */
+  kubeOvnFlatEips?: any[];
   kubeOvnSnatRules: any[];
   setKubeOvnSnatRules: (v: any[]) => void;
   setRawSnatRules: (v: any) => void;
@@ -87,7 +89,6 @@ function canViewKubeOvnInner(
   if (key === 'kubeovn_eips') {
     return checkPerm('clouds.eips.vpc:read') || checkPerm('clouds:read');
   }
-  if (key === 'kubeovn_fips') return false;
   if (key === 'kubeovn_snat') {
     return checkPerm('clouds.snat.vpc:read') || checkPerm('clouds:read');
   }
@@ -121,9 +122,8 @@ const CloudmapKubeOvnRoutePanel: React.FC<CloudmapKubeOvnRoutePanelProps> = (
     setKubeOvnVpcs,
     setRawVpcs,
     kubeOvnSubnets,
-    setKubeOvnSubnets,
-    setRawSubnets,
     kubeOvnEips,
+    kubeOvnFlatEips,
     kubeOvnSnatRules,
     kubeOvnDnatRules,
     resourceLoading,
@@ -224,6 +224,7 @@ const CloudmapKubeOvnRoutePanel: React.FC<CloudmapKubeOvnRoutePanelProps> = (
         <EipSection
           cloudId={cloudId}
           eips={kubeOvnEips}
+          peerScopeEips={kubeOvnFlatEips}
           subnets={kubeOvnSubnets}
           vpcs={kubeOvnVpcs}
           loading={resourceLoading.eips}

@@ -150,6 +150,15 @@ const PodTerminal: React.FC<PodTerminalProps> = ({
     }
   }, []);
 
+  // 断开连接
+  const disconnect = useCallback(() => {
+    dataListenerRef.current?.dispose?.();
+    dataListenerRef.current = null;
+    socketRef.current?.close();
+    socketRef.current = null;
+    setConnected(false);
+  }, []);
+
   // 连接 WebSocket
   const connect = useCallback(() => {
     if (!selectedContainer) {
@@ -254,16 +263,7 @@ const PodTerminal: React.FC<PodTerminalProps> = ({
       dataListenerRef.current?.dispose?.();
       dataListenerRef.current = null;
     };
-  }, [buildWsUrl, selectedContainer, sendResize]);
-
-  // 断开连接
-  const disconnect = useCallback(() => {
-    dataListenerRef.current?.dispose?.();
-    dataListenerRef.current = null;
-    socketRef.current?.close();
-    socketRef.current = null;
-    setConnected(false);
-  }, []);
+  }, [buildWsUrl, disconnect, selectedContainer, sendResize]);
 
   // 自动连接
   useEffect(() => {
@@ -273,7 +273,7 @@ const PodTerminal: React.FC<PodTerminalProps> = ({
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [visible, selectedContainer, connect]);
+  }, [visible, selectedContainer, connect, connected, connecting]);
 
   // 窗口大小变化
   useEffect(() => {

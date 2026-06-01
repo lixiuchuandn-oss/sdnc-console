@@ -24,9 +24,20 @@ import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdo
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 import { checkTenantAccess } from './clouds/harvester/harvester.direct.helpers';
 import { ALL_PERMISSIONS } from '../constants/permissions';
+import { buildTenantRootBuiltinPermissions } from '../seeders/initRoles';
+import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
+import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
+import {
+  parseRolePermissionsJson,
+  stripTenantConsoleUmbrellaPermissions,
+} from '../constants/tenantConsolePermissionLegacy';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
-import { createApiPermissionMiddleware, checkPermission, PERMISSION_DEFINITIONS } from '../permissions';
+import {
+  createApiPermissionMiddleware,
+  checkPermission,
+  PERMISSION_DEFINITIONS,
+} from '../permissions';
 import { randomUUID } from 'crypto';
 import { OfflineUpgradeService } from '../services/OfflineUpgradeService';
 import { logger } from '../utils/logger';
@@ -54,41 +65,153 @@ const checkUpgradePermission = createApiPermissionMiddleware({
   allowSuperAdmin: true,
 });
 
+function hasFavoritePoolSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return (
+      checkPermission(perms, 'clouds.resource-pools:write') ||
+      checkPermission(perms, 'clouds:write')
+    );
+  }
+  return (
+    checkPermission(perms, 'clouds.resource-pools:read') ||
+    checkPermission(perms, 'clouds:read') ||
+    checkPermission(perms, 'clouds.resource-pools:write') ||
+    checkPermission(perms, 'clouds:write')
+  );
+}
+
+function hasAuditSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return checkPermission(perms, 'system.audit:write');
+  }
+  return (
+    checkPermission(perms, 'system.audit:read') || checkPermission(perms, 'system.audit:write')
+  );
+}
+
+const INTEGRATION_SETTING_KEYS = new Set([
+  'CSMCTL_ADDRESS',
+  'ai_soc_frontend_url',
+  'ai_soc_backend_url',
+  'ai_soc_base_url',
+]);
+
+function hasIntegrationSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return checkPermission(perms, 'system.integration:write');
+  }
+  return (
+    checkPermission(perms, 'system.integration:read') ||
+    checkPermission(perms, 'system.integration:write')
+  );
+}
+
+function hasRecycleBinSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
+  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
+  if (isWrite) {
+    return (
+      checkPermission(perms, 'clouds.recycle-bin:write') ||
+      checkPermission(perms, 'clouds.ecs:write') ||
+      checkPermission(perms, 'clouds:write')
+    );
+  }
+  return (
+    checkPermission(perms, 'clouds.recycle-bin:read') ||
+    checkPermission(perms, 'clouds.recycle-bin:write') ||
+    checkPermission(perms, 'clouds.ecs:read') ||
+    checkPermission(perms, 'clouds.ecs:write') ||
+    checkPermission(perms, 'clouds:read') ||
+    checkPermission(perms, 'clouds:write')
+  );
+}
+
+function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
+  return (req: AuthRequest, res: any, next: any) => {
+    if (req.params.key === 'favorite.cloudId') {
+      if (!hasFavoritePoolSettingAccess(req, isWrite)) {
+        return res.status(403).json({
+          message: isWrite ? '权限不足：需要资源池管理-管理' : '权限不足：需要资源池管理权限',
+        });
+      }
+      return next();
+    }
+    if (req.params.key === 'audit.logs.retention_days') {
+      if (!hasAuditSettingAccess(req, isWrite)) {
+        return res.status(403).json({
+          message: isWrite ? '权限不足：需要操作审计-管理' : '权限不足：需要操作审计权限',
+        });
+      }
+      return next();
+    }
+    if (INTEGRATION_SETTING_KEYS.has(req.params.key)) {
+      if (!hasIntegrationSettingAccess(req, isWrite)) {
+        return res.status(403).json({
+          message: isWrite ? '权限不足：需要高级集成-管理' : '权限不足：需要高级集成权限',
+        });
+      }
+      return next();
+    }
+    if (
+      req.params.key === 'harvester.recycle_bin.shutdown_interval_hours' ||
+      req.params.key === 'harvester.recycle_bin.retention_days'
+    ) {
+      if (!hasRecycleBinSettingAccess(req, isWrite)) {
+        return res.status(403).json({
+          message: isWrite ? '权限不足：需要回收站-管理' : '权限不足：需要回收站权限',
+        });
+      }
+      return next();
+    }
+    return checkSettingsPermission(req as any, res, next);
+  };
+}
+
 // 读取单个系统设置项（简单的 KV 配置）
 // - key 从 URL 路径中获取
 // - value 如果不存在则返回空字符串，方便前端统一处理
-router.get('/settings/:key', checkSettingsPermission, (req, res) => {
-  const key = req.params.key;
-  const value = getSystemSetting(key);
-  res.json({ data: { key, value: value || '' } });
-});
+router.get(
+  '/settings/:key',
+  checkSettingsOrFavoritePoolPermission(false),
+  (req: AuthRequest, res) => {
+    const key = req.params.key;
+    const value = getSystemSetting(key);
+    res.json({ data: { key, value: value || '' } });
+  },
+);
 
 // 更新单个系统设置项
 // - value 来源于请求体，内部统一转成字符串保存
 // - 适合存储一些轻量级的全局配置，例如开关、字符串参数等
-router.patch('/settings/:key', checkSettingsPermission, (req, res) => {
-  const key = req.params.key;
-  const { value } = req.body;
-  
-  try {
-    setSystemSetting(key, String(value || ''));
+router.patch(
+  '/settings/:key',
+  checkSettingsOrFavoritePoolPermission(true),
+  (req: AuthRequest, res) => {
+    const key = req.params.key;
+    const { value } = req.body;
 
-    // 如果更新的是回收站任务相关配置，重新调度任务
-    if (key === 'harvester.recycle_bin.shutdown_interval_hours') {
-      try {
-        RecycleBinTaskService.getInstance().rescheduleShutdownTask();
-        systemLog.info('回收站关机任务间隔已更新，已重新调度任务');
-      } catch (e: any) {
-        systemLog.error('重新调度回收站任务失败:', e instanceof Error ? e.message : String(e));
-        // 不阻止设置更新，只记录错误
+    try {
+      setSystemSetting(key, String(value || ''));
+
+      // 如果更新的是回收站任务相关配置，重新调度任务
+      if (key === 'harvester.recycle_bin.shutdown_interval_hours') {
+        try {
+          RecycleBinTaskService.getInstance().rescheduleShutdownTask();
+          systemLog.info('回收站关机任务间隔已更新，已重新调度任务');
+        } catch (e: any) {
+          systemLog.error('重新调度回收站任务失败:', e instanceof Error ? e.message : String(e));
+          // 不阻止设置更新，只记录错误
+        }
       }
-    }
 
-    res.json({ data: { key, value: String(value || '') } });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || 'Failed to update setting' });
-  }
-});
+      res.json({ data: { key, value: String(value || '') } });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || 'Failed to update setting' });
+    }
+  },
+);
 
 // 查询回收站自动关机记录
 // - 支持分页、筛选（云平台、状态、时间范围）
@@ -96,14 +219,7 @@ router.patch('/settings/:key', checkSettingsPermission, (req, res) => {
 // - 租户仅能查看当前云下有权限的命名空间内记录（与 UserSpace 一致）
 router.get('/recycle-bin/shutdown-records', async (req: AuthRequest, res) => {
   try {
-    const {
-      cloudId,
-      status,
-      startTime,
-      endTime,
-      page = '1',
-      pageSize = '20',
-    } = req.query;
+    const { cloudId, status, startTime, endTime, page = '1', pageSize = '20' } = req.query;
 
     const pageNum = parseInt(String(page), 10) || 1;
     const size = parseInt(String(pageSize), 10) || 20;
@@ -135,7 +251,10 @@ router.get('/recycle-bin/shutdown-records', async (req: AuthRequest, res) => {
     }
 
     if (isTenant && cloudId) {
-      const { allowed, namespace: tenantNamespaces } = await checkTenantAccess(req as any, String(cloudId));
+      const { allowed, namespace: tenantNamespaces } = await checkTenantAccess(
+        req as any,
+        String(cloudId),
+      );
       if (!allowed || !tenantNamespaces) {
         return res.json({
           data: {
@@ -149,7 +268,10 @@ router.get('/recycle-bin/shutdown-records', async (req: AuthRequest, res) => {
           },
         });
       }
-      const nsList = tenantNamespaces.split(',').map((s: string) => s.trim()).filter(Boolean);
+      const nsList = tenantNamespaces
+        .split(',')
+        .map((s: string) => s.trim())
+        .filter(Boolean);
       if (nsList.length === 0) {
         return res.json({
           data: {
@@ -211,10 +333,13 @@ router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
   // 预定义的权限原子列表，来自 constants/permissions.ts
   // 这些是系统中所有可用的权限原子
   const actions: string[] = [...ALL_PERMISSIONS].sort();
+  // 租户角色抽屉固定展示目录（与种子「云租户根用户」公式一致，不随该角色已保存权限收缩）
+  const tenantRootBoundary = buildTenantRootBuiltinPermissions(ALL_PERMISSIONS).sort();
 
   // 注意：分组、平台等元数据由后端权限体系提供（/rbac/permissions）
-  res.json({ 
+  res.json({
     actions,
+    tenantRootBoundary,
   });
 });
 
@@ -225,7 +350,7 @@ router.get('/rbac/permissions', checkRbacPermission, async (_req, res) => {
   try {
     // 返回所有权限定义，包含完整的元数据（platform, group, name, description 等）
     res.json({
-      permissions: PERMISSION_DEFINITIONS.map(def => ({
+      permissions: PERMISSION_DEFINITIONS.map((def) => ({
         id: def.id,
         name: def.name,
         description: def.description,
@@ -251,7 +376,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
     const roleRepo = AppDataSource.getRepository(RBACRole);
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const roles = await roleRepo.find({
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
     const assigns = await assignRepo.find({ select: ['roleId'] });
     const grantedCountByRoleId = new Map<string, number>();
@@ -260,18 +385,18 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
       grantedCountByRoleId.set(k, (grantedCountByRoleId.get(k) || 0) + 1);
     }
     // Transform to frontend Policy format
-    const list = roles.map(r => {
+    const list = roles.map((r) => {
       let actions: string[] = [];
       let conditions: any = undefined;
       try {
         if (r.permissions) {
-           const parsed = JSON.parse(r.permissions);
-           if (Array.isArray(parsed)) {
-             actions = parsed;
-           } else {
-             actions = parsed.actions || [];
-             conditions = parsed.conditions;
-           }
+          const parsed = JSON.parse(r.permissions);
+          if (Array.isArray(parsed)) {
+            actions = parsed;
+          } else {
+            actions = parsed.actions || [];
+            conditions = parsed.conditions;
+          }
         }
       } catch (e) {
         actions = [];
@@ -284,7 +409,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
         scope: r.scope,
         status: r.status,
         permissions: r.permissions,
-        actions: Array.isArray(actions) ? actions : [],
+        actions: stripTenantConsoleUmbrellaPermissions(Array.isArray(actions) ? actions : []),
         groups: [], // Calculated on frontend
         conditions,
         createdAt: r.createdAt,
@@ -308,19 +433,22 @@ router.post('/rbac/roles', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
     const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
-    if (!isSuper && !hasPerm)
-      return res.status(403).json({ message: '权限不足' });
+    const hasPerm =
+      checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
     if (!name?.trim()) return res.status(400).json({ message: '角色名称不能为空' });
     const repo = AppDataSource.getRepository(RBACRole);
     const existed = await repo.findOne({ where: { name } });
     if (existed) return res.status(400).json({ message: '角色名称已存在' });
+    const normalizedPermissions = stripTenantConsoleUmbrellaPermissions(
+      Array.isArray(permissions) ? permissions : [],
+    );
     const row = repo.create({
       name,
       description,
       scope,
-      permissions: JSON.stringify(permissions),
+      permissions: JSON.stringify(normalizedPermissions),
       status: 'active',
     });
     const saved = await repo.save(row);
@@ -336,14 +464,17 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
     const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
-    if (!isSuper && !hasPerm)
-      return res.status(403).json({ message: '权限不足' });
+    const hasPerm =
+      checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { name, description, scope, permissions, status } = req.body as any;
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (isBuiltInRbacRoleName(row.name) && permissions !== undefined) {
+      return res.status(400).json({ message: '系统预置角色不允许修改权限' });
+    }
     if (name !== undefined && String(name).trim() !== row.name) {
       if (isBuiltInRbacRoleName(row.name)) {
         return res.status(400).json({ message: '系统预置角色不允许修改名称' });
@@ -353,9 +484,19 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     row.description = description ?? row.description;
     row.scope = scope ?? row.scope;
     row.status = status ?? row.status;
+    if (!permissions && !isBuiltInRbacRoleName(row.name)) {
+      const current = parseRolePermissionsJson(row.permissions);
+      const stripped = stripTenantConsoleUmbrellaPermissions(current);
+      if (stripped.length !== current.length) {
+        row.permissions = JSON.stringify(stripped);
+      }
+    }
     if (permissions) {
       try {
-        row.permissions = JSON.stringify(permissions);
+        const normalized = stripTenantConsoleUmbrellaPermissions(
+          Array.isArray(permissions) ? permissions : [],
+        );
+        row.permissions = JSON.stringify(normalized);
       } catch {}
     }
     const saved = await repo.save(row);
@@ -371,9 +512,9 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
     const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
-    if (!isSuper && !hasPerm)
-      return res.status(403).json({ message: '权限不足' });
+    const hasPerm =
+      checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const { permissions } = req.body as any;
     if (!Array.isArray(permissions)) {
@@ -382,8 +523,15 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (isBuiltInRbacRoleName(row.name)) {
+      return res.status(400).json({ message: '系统预置角色不允许修改权限' });
+    }
     try {
-      row.permissions = JSON.stringify(permissions);
+      const expanded = expandLegacyContainerParentPermissions(
+        expandObsoleteFipsToEips(permissions),
+      );
+      const normalized = stripTenantConsoleUmbrellaPermissions(expanded);
+      row.permissions = JSON.stringify(normalized);
       const saved = await repo.save(row);
       res.json(saved);
     } catch (e: any) {
@@ -403,9 +551,9 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
     const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-    const hasPerm = checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
-    if (!isSuper && !hasPerm)
-      return res.status(403).json({ message: '权限不足' });
+    const hasPerm =
+      checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
@@ -457,9 +605,10 @@ router.post('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
     const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-    const hasPerm = checkPermission(perms, 'system.roles.assignments:write') || checkPermission(perms, 'system.rbac:write');
-    if (!isSuper && !hasPerm)
-      return res.status(403).json({ message: '权限不足' });
+    const hasPerm =
+      checkPermission(perms, 'system.roles.assignments:write') ||
+      checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { roleId, userType, userId } = req.body as any;
     if (!roleId || !userType || !userId) return res.status(400).json({ message: '缺少必要参数' });
 
@@ -477,8 +626,8 @@ router.post('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
 
     // 验证角色作用域是否与用户类型匹配
     if (role.scope !== userType) {
-      return res.status(400).json({ 
-        message: `角色作用域不匹配：角色作用域为 ${role.scope}，用户类型为 ${userType}` 
+      return res.status(400).json({
+        message: `角色作用域不匹配：角色作用域为 ${role.scope}，用户类型为 ${userType}`,
       });
     }
 
@@ -488,9 +637,10 @@ router.post('/rbac/assignments', checkRbacPermission, async (req: any, res) => {
     }
 
     // 验证用户存在
-    const userRepo = userType === 'tenant' 
-      ? AppDataSource.getRepository(TenantUser)
-      : AppDataSource.getRepository(User);
+    const userRepo =
+      userType === 'tenant'
+        ? AppDataSource.getRepository(TenantUser)
+        : AppDataSource.getRepository(User);
     const user = await userRepo.findOne({ where: { id: userId } });
     if (!user) {
       return res.status(404).json({ message: '用户不存在' });
@@ -585,9 +735,10 @@ router.delete('/rbac/assignments/:id', checkRbacPermission, async (req: any, res
   try {
     const isSuper = req.user?.role === UserRole.SUPER_ADMIN;
     const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-    const hasPerm = checkPermission(perms, 'system.roles.assignments:write') || checkPermission(perms, 'system.rbac:write');
-    if (!isSuper && !hasPerm)
-      return res.status(403).json({ message: '权限不足' });
+    const hasPerm =
+      checkPermission(perms, 'system.roles.assignments:write') ||
+      checkPermission(perms, 'system.rbac:write');
+    if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { id } = req.params;
     const assignRepo = AppDataSource.getRepository(RoleAssignment);
     const row = await assignRepo.findOne({ where: { id } });

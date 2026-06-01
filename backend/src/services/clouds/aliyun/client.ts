@@ -65,6 +65,34 @@ export async function callAliyunSlb(options: AliyunRpcOptions): Promise<any> {
   }
 }
 
+export async function callAliyunRds(options: AliyunRpcOptions): Promise<any> {
+  const {
+    accessKeyId,
+    accessKeySecret,
+    regionId,
+    action,
+    version = '2014-08-15',
+    extraParams = {},
+  } = options;
+
+  const client = new RPCClient({
+    accessKeyId,
+    accessKeySecret,
+    endpoint: 'https://rds.aliyuncs.com',
+    apiVersion: version,
+  });
+
+  const params = { RegionId: regionId, ...extraParams } as Record<string, any>;
+  try {
+    const result = await client.request(action, params, { method: 'GET' });
+    return result;
+  } catch (err: any) {
+    const code = err?.code || err?.name;
+    const message = err?.message || 'Aliyun RDS 调用失败';
+    throw new Error(code ? `${code}: ${message}` : message);
+  }
+}
+
 export async function callAliyunVpc(options: AliyunRpcOptions): Promise<any> {
   const {
     accessKeyId,

@@ -3,6 +3,7 @@ import {
   hmsSwitchCrManagementHost,
   matchAswProbeRecordByCr,
   parseSwitchDisplayNameFromInfoLines,
+  parseSwitchProductModelFromInfoLines,
   switchRecordManagementHost,
 } from './physicalSwitchRecordUtils';
 
@@ -58,6 +59,44 @@ describe('physicalSwitchRecordUtils', () => {
         { stdout: 'System Information\nHostname: core-sw-01\n' },
       ]);
       expect(name).toBe('core-sw-01');
+    });
+  });
+
+  describe('parseSwitchProductModelFromInfoLines', () => {
+    it('parses H3C BOARD TYPE when vendor is H3C', () => {
+      expect(
+        parseSwitchProductModelFromInfoLines(
+          [
+            {
+              stdout:
+                'Slot 1 CPU 0:\nDEVICE_NAME          : S5560X-54C-EI\nBOARD TYPE           : S5560X-54C-EI\n',
+            },
+          ],
+          { vendor: 'H3C' },
+        ),
+      ).toBe('S5560X-54C-EI');
+    });
+
+    it('prefers H3C BOARD TYPE over H3C Switch line when vendor is H3C', () => {
+      expect(
+        parseSwitchProductModelFromInfoLines(
+          [
+            {
+              stdout: 'H3C Comware Platform Software\nBOARD TYPE: S5130S-28F-EI\nH3C S5130S Switch',
+            },
+          ],
+          { vendor: 'H3C' },
+        ),
+      ).toBe('S5130S-28F-EI');
+    });
+
+    it('does not use BOARD TYPE when vendor is not H3C', () => {
+      expect(
+        parseSwitchProductModelFromInfoLines(
+          [{ stdout: 'BOARD TYPE: S5560X-54C-EI\nHUAWEI S5720 Routing Switch' }],
+          { vendor: '华为' },
+        ),
+      ).toBe('S5720');
     });
   });
 });

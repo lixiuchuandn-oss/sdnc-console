@@ -1,20 +1,23 @@
 /**
  * Harvester 上 **虚拟机** 形态的 PaaS 托管实例列表（通用壳子）。
- * 云数据库实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
+ * 关系型数据库（RDS）实例：`tower.io/paas-category=database` 或旧 `tower.io/rds`；可选再按 `tower.io/paas-type` 收窄；创建/控制台等同目录 Rds*。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Tag, Badge, Input, Select, message, Typography, Tooltip } from 'antd';
+import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip, message } from 'antd';
 import { ReloadOutlined, DatabaseOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import RdsCreateModal from '../modals/RdsCreateModal';
 import RdsInstanceLabelEditModal from '../modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal from '../modals/RdsDatabaseConsoleModal';
 import { isTowerPaasDatabaseVm } from '../../shared/harvesterTowerPaas';
 import {
   type HarvesterSectionOnRefresh,
+  createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
@@ -36,9 +39,9 @@ type Props = {
   /** @deprecated 与 `onRefresh({ force: true })` 等价；Cloudmap 池请只传 `paasDatabasesTabOnRefresh.rds` */
   onForceRefresh?: () => void | Promise<void>;
   isTenant?: boolean;
-  /** 与镜像 `tower.io/paas-type` 一致；不传则展示全部云数据库托管实例（新 `paas-category` 或旧 `rds`） */
+  /** 与镜像 `tower.io/paas-type` 一致；不传则展示全部 RDS 托管实例（新 `paas-category` 或旧 `rds`） */
   paasType?: string;
-  /** 列表区标题，默认随 paasType 或「云数据库」 */
+  /** 列表区标题，默认随 paasType 或「云RDS」 */
   sectionTitle?: string;
   /** 用于创建实例时解析租户允许的业务命名空间（与 VM 向导一致） */
   namespacesOptions?: string[];
@@ -152,12 +155,11 @@ const PaasSection: React.FC<Props> = ({
   clusterCapabilities,
 }) => {
   const { user } = useAuth();
-  const canEditPaasVmLabels = useMemo(() => {
+  const canPaasWrite = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     return (
-      hasPermissionForAction(perms, 'clouds.ecs:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds.paas-databases:write') ||
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
 
@@ -175,9 +177,9 @@ const PaasSection: React.FC<Props> = ({
 
   const resolvedSectionTitle =
     sectionTitle ||
-    (paasType ? `云数据库 · ${String(paasType).toUpperCase()}` : '云数据库 (RDS)');
+    (paasType ? `云RDS · ${String(paasType).toUpperCase()}` : '云RDS');
 
-  /** 云数据库线：新 `paas-category=database` 或旧 `rds`；可选再按 `paas-type`（MySQL 兼容无 paas-type 的旧实例） */
+  /** RDS 线：新 `paas-category=database` 或旧 `rds`；可选再按 `paas-type`（MySQL 兼容无 paas-type 的旧实例） */
   const paasVmInstances = useMemo(() => {
     const base = vms.filter((vm) => isTowerPaasDatabaseVm(vm));
     if (!paasType) return base;
@@ -352,27 +354,37 @@ const PaasSection: React.FC<Props> = ({
         key: 'actions',
         width: 128,
         render: (_: any, r: any) => {
-          const items = [
-            {
-              key: 'dbConsole',
-              label: '数据库管理',
-              onClick: () => setDbConsoleVm(r),
-            },
-            {
-              key: 'vmDetail',
-              label: '云主机详情',
-              onClick: () => openVmDetailDrawer(r),
-            },
-            {
-              key: 'editLabels',
-              label: '编辑标签',
-              disabled: !canEditPaasVmLabels,
-              onClick: () => {
-                setLabelEditRecord(r);
-                setLabelEditOpen(true);
+          const items = filterMenuItemsForReadOnly(
+            [
+              ...(canPaasWrite
+                ? [
+                    {
+                      key: 'dbConsole',
+                      label: '数据库管理',
+                      onClick: () => setDbConsoleVm(r),
+                    },
+                  ]
+                : []),
+              {
+                key: 'vmDetail',
+                label: '云主机详情',
+                onClick: () => openVmDetailDrawer(r),
               },
-            },
-          ];
+              ...(canPaasWrite
+                ? [
+                    {
+                      key: 'editLabels',
+                      label: '编辑标签',
+                      onClick: () => {
+                        setLabelEditRecord(r);
+                        setLabelEditOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+            ],
+            canPaasWrite,
+          );
           return (
             <ResourceActionsDropdown
               items={items}
@@ -382,10 +394,14 @@ const PaasSection: React.FC<Props> = ({
         },
       },
     ],
-    [canEditPaasVmLabels, openVmDetailDrawer],
+    [canPaasWrite, openVmDetailDrawer],
   );
 
   const handleOpenCreateModal = () => {
+    if (!canPaasWrite) {
+      message.error('当前账号没有云数据库操作权限（需要 clouds.paas-databases:write 或 clouds:write 权限）');
+      return;
+    }
     Promise.resolve(onReloadImages?.()).catch(() => undefined);
     Promise.resolve(onReloadSubnets?.()).catch(() => undefined);
     Promise.resolve(onReloadNads?.()).catch(() => undefined);
@@ -393,31 +409,28 @@ const PaasSection: React.FC<Props> = ({
     setCreateModalVisible(true);
   };
 
-  const handleRefresh = useCallback(async () => {
-    const msgKey = `paas-vm-refresh-${cloudId}`;
-    setRefreshing(true);
-    message.loading({ content: '正在同步云数据库实例...', key: msgKey, duration: 0 });
-    try {
-      if (onForceRefresh) {
-        await Promise.resolve(onForceRefresh());
-      } else {
-        await runHarvesterSectionRefresh(onRefresh, { force: true });
+  const sectionOnRefresh = useMemo((): HarvesterSectionOnRefresh | undefined => {
+    if (!onForceRefresh) return onRefresh;
+    return (force?: boolean, silent?: boolean) => {
+      if (force === false) {
+        return onRefresh?.(false, silent);
       }
-      message.success({ content: '云数据库实例已刷新', key: msgKey });
-    } catch (e: any) {
-      message.error({ content: e?.message || '刷新失败', key: msgKey });
-    } finally {
-      setRefreshing(false);
-    }
-  }, [cloudId, onForceRefresh, onRefresh]);
+      return Promise.resolve(onForceRefresh());
+    };
+  }, [onForceRefresh, onRefresh]);
+
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createHarvesterToolbarRefresh(sectionOnRefresh, {
+        before: () => setRefreshing(true),
+        after: () => setRefreshing(false),
+      }),
+    [sectionOnRefresh],
+  );
 
   const reloadListAfterWrite = useCallback(() => {
-    if (onForceRefresh) {
-      void Promise.resolve(onForceRefresh());
-      return;
-    }
-    void runHarvesterSectionRefresh(onRefresh, { force: true });
-  }, [onForceRefresh, onRefresh]);
+    void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+  }, [sectionOnRefresh]);
 
   return (
     <PageDetailSection
@@ -469,10 +482,12 @@ const PaasSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button type="primary" onClick={handleOpenCreateModal}>
-            创建实例
-          </Button>
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} />
+          <WriteGuard canWrite={canPaasWrite}>
+            <Button type="primary" onClick={handleOpenCreateModal}>
+              创建实例
+            </Button>
+          </WriteGuard>
+          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleToolbarRefresh} />
         </>
       }
     >
@@ -534,7 +549,7 @@ const PaasSection: React.FC<Props> = ({
           activeTab={vmDetailActiveTab}
           onTabChange={setVmDetailActiveTab}
           onRefresh={(force) => {
-            void runHarvesterSectionRefresh(onRefresh, {
+            void runHarvesterSectionRefresh(sectionOnRefresh, {
               force: force !== false,
             });
           }}

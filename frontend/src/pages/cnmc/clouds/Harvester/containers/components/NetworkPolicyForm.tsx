@@ -628,7 +628,7 @@ const RuleEditor: React.FC<{
     <Form.List name={name as any} initialValue={[{ peers: [{ peerType: 'all' }], ports: [] }]}>
       {(fields, { add, remove }) => (
         <div>
-          {fields.map(({ key, name: index, ...restField }) => (
+          {fields.map(({ key, name: index, ..._restField }) => (
             <Card
               key={key}
               size="small"

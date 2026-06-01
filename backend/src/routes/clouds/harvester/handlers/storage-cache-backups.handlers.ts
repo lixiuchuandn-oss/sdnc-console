@@ -8,7 +8,7 @@
  * - 备份列表查询
  * - 创建 VM 备份/快照
  * - 删除 VM 备份
- * 
+ *
  * 从 harvester.cache.storage.routes.ts 中提取的业务逻辑
  * ==============================================================================
  */
@@ -25,7 +25,16 @@ import {
   shouldFallbackToCephVmBackup,
   normalizeCephVmBackupForInventory,
   isCephVmBackupResource,
+  listHarvesterBackupsStandard,
+  listHarvesterCephVmBackupsRaw,
+  listHarvesterVirtualMachineRestoresRaw,
+  listHarvesterCephVmRestoresRaw,
 } from '../../../../services/clouds/harvester/client';
+import { findInProgressHarvesterRestoreForBackup } from '../../../../services/clouds/harvester/vmRestoreTaskStatus';
+import {
+  buildVmBackupCreateBlockedMessage,
+  findInProgressHarvesterBackupForVm,
+} from '../../../../services/clouds/harvester/vmBackupTaskStatus';
 import { syncHarvesterBackups } from '../../../../services/clouds/harvester/inventory';
 import { HarvesterBackupInventory } from '../../../../entities/harvester/HarvesterBackupInventory';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
@@ -136,6 +145,22 @@ export async function harvesterBackupCreateHandler(req: Request, res: Response) 
     }
 
     const conn = { endpoint: cloud.endpoint, token: cloud.secretKey, insecure } as any;
+
+    const [longhornBackups, cephBackups] = await Promise.all([
+      listHarvesterBackupsStandard(conn).catch(() => [] as any[]),
+      listHarvesterCephVmBackupsRaw(conn).catch(() => [] as any[]),
+    ]);
+    const backupItems = [
+      ...longhornBackups,
+      ...cephBackups.map((item) => normalizeCephVmBackupForInventory(item)),
+    ];
+    const inProgressBackup = findInProgressHarvesterBackupForVm(backupItems, namespace, vmName);
+    if (inProgressBackup) {
+      return res.status(409).json({
+        message: buildVmBackupCreateBlockedMessage(inProgressBackup),
+      });
+    }
+
     let useCephBackup = await vmShouldUseCephVmBackup(conn, namespace, vmName);
 
     let result: any;
@@ -156,7 +181,12 @@ export async function harvesterBackupCreateHandler(req: Request, res: Response) 
             `[Backup-Create] VM ${namespace}/${vmName} type=${type} Harvester VMB 拒绝 Ceph 存储，改走 CephVmBackup`,
           );
           useCephBackup = true;
-          result = await createHarvesterCephVmBackup(conn, namespace, { name, vmName, type, alias });
+          result = await createHarvesterCephVmBackup(conn, namespace, {
+            name,
+            vmName,
+            type,
+            alias,
+          });
         } else {
           throw e;
         }
@@ -175,8 +205,7 @@ export async function harvesterBackupCreateHandler(req: Request, res: Response) 
           inventoryPayload.id ||
           `${namespace}/${inventoryPayload.metadata?.name}`;
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        const sourceVm =
-          inventoryPayload.spec?.source?.name || inventoryPayload.spec?.sourceVm;
+        const sourceVm = inventoryPayload.spec?.source?.name || inventoryPayload.spec?.sourceVm;
 
         if (existing) {
           // 更新现有记录
@@ -249,6 +278,23 @@ export async function harvesterBackupDeleteHandler(req: Request, res: Response) 
     const cached = await repo.findOne({ where: { cloudId: id, namespace, name } });
     const raw = cached?.rawData;
     const useCephDelete = isCephVmBackupResource(raw);
+
+    const [longhornRestores, cephRestores] = await Promise.all([
+      listHarvesterVirtualMachineRestoresRaw(conn).catch(() => [] as any[]),
+      listHarvesterCephVmRestoresRaw(conn).catch(() => [] as any[]),
+    ]);
+    const inProgress = findInProgressHarvesterRestoreForBackup(
+      [...longhornRestores, ...cephRestores],
+      namespace,
+      name,
+    );
+    if (inProgress) {
+      const resourceType = String(cached?.type || raw?.spec?.type || 'backup');
+      const resourceLabel = resourceType === 'snapshot' ? '快照' : '备份';
+      return res.status(409).json({
+        message: `该${resourceLabel}已有进行中的恢复任务（${inProgress.namespace}/${inProgress.name}，${inProgress.statusText}），请等待完成后再删除`,
+      });
+    }
 
     const result = useCephDelete
       ? await deleteHarvesterCephVmBackup(conn, namespace, name)

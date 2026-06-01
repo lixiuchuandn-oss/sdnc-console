@@ -1,6 +1,6 @@
 /**
  * Harvester Volumes Handlers
- * 
+ *
  * 从 harvester.cache.storage.routes.ts 中提取的 Volumes 相关业务逻辑
  */
 
@@ -30,7 +30,7 @@ import {
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
 } from '../../../../services/clouds/harvester/client';
-import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
+import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
 export async function harvesterVolumeListHandler(req: Request, res: Response) {
   try {
@@ -40,7 +40,7 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
     const reqAny = req as any;
 
     const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
-    let whereCondition: any = { cloudId: id };
+    const whereCondition: any = { cloudId: id };
     const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';
     const isTenant = isTenantUser || isTenantRole;
@@ -108,7 +108,7 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
     const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
-    
+
     if (shouldSync) {
       try {
         await syncHarvesterVolumes(cloud, insecure);
@@ -132,7 +132,13 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
     const basic = items.map((item: any) => {
       const v = item.rawData || {};
       const name = v?.metadata?.name || v?.name || item.name || '';
-      const size = v?.status?.capacity?.storage || v?.spec?.resources?.requests?.storage || v?.spec?.size || v?.size || item.capacity || 0;
+      const size =
+        v?.status?.capacity?.storage ||
+        v?.spec?.resources?.requests?.storage ||
+        v?.spec?.size ||
+        v?.size ||
+        item.capacity ||
+        0;
       const state = v?.status?.phase || v?.status?.state || v?.state || item.phase || 'Unknown';
       const k8s = v?.status?.kubernetesStatus || {};
       const namespace = k8s?.namespace || v?.metadata?.namespace || item.namespace || '';
@@ -140,17 +146,30 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
       const storageClassName = v?.spec?.storageClassName || item.storageClassName || '';
       const volumeMode = v?.spec?.volumeMode || item.volumeMode || '';
       const rawAccessModes = v?.status?.accessModes || v?.spec?.accessModes;
-      const accessModes = Array.isArray(rawAccessModes) ? rawAccessModes : item.accessModes ? String(item.accessModes).split(',') : [];
+      const accessModes = Array.isArray(rawAccessModes)
+        ? rawAccessModes
+        : item.accessModes
+          ? String(item.accessModes).split(',')
+          : [];
       const viewUrl = `${origin}/api/v1/namespaces/${namespace}/persistentvolumeclaims/${name}`;
-      const workloads = k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
-      const rawNames: string[] = Array.isArray(workloads) ? workloads.map((w: any) => String(w?.workloadName || w?.podName || '')).filter(Boolean) : [];
-      const attachedTo: string[] = Array.from(new Set(rawNames.map((n: string) => {
-        let s = n.trim();
-        if (/^virt-launcher-/.test(s)) {
-          s = s.replace(/^virt-launcher-/, '');
-        }
-        return s;
-      }).filter(Boolean)));
+      const workloads =
+        k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
+      const rawNames: string[] = Array.isArray(workloads)
+        ? workloads.map((w: any) => String(w?.workloadName || w?.podName || '')).filter(Boolean)
+        : [];
+      const attachedTo: string[] = Array.from(
+        new Set(
+          rawNames
+            .map((n: string) => {
+              let s = n.trim();
+              if (/^virt-launcher-/.test(s)) {
+                s = s.replace(/^virt-launcher-/, '');
+              }
+              return s;
+            })
+            .filter(Boolean),
+        ),
+      );
 
       return {
         ...v,
@@ -165,7 +184,7 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
         volumeMode,
         accessModes,
         createdAt: v?.metadata?.creationTimestamp,
-        annotations: item.annotations || v?.metadata?.annotations,  // 添加 annotations 字段
+        annotations: item.annotations || v?.metadata?.annotations, // 添加 annotations 字段
         raw: v,
       };
     });
@@ -268,9 +287,17 @@ export async function harvesterVolumeCreateHandler(req: Request, res: Response) 
     }
 
     const cloud = (req as any).cloud;
-    const { namespace, name, sizeGi, size, accessModes, volumeMode, storageClassName, annotations } =
-      (req.body || {}) as any;
-    
+    const {
+      namespace,
+      name,
+      sizeGi,
+      size,
+      accessModes,
+      volumeMode,
+      storageClassName,
+      annotations,
+    } = (req.body || {}) as any;
+
     if (!namespace || !name)
       return res.status(400).json({ message: '缺少必要参数：namespace、name' });
 
@@ -281,20 +308,28 @@ export async function harvesterVolumeCreateHandler(req: Request, res: Response) 
         return res.status(403).json({ message: 'Access denied to this namespace' });
       }
     }
-    
+
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const data = await createHarvesterPVCVolume(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      { namespace, name, sizeGi: sizeGi || size, accessModes, volumeMode, storageClassName, annotations },
+      {
+        namespace,
+        name,
+        sizeGi: sizeGi || size,
+        accessModes,
+        volumeMode,
+        storageClassName,
+        annotations,
+      },
     );
-    
+
     // [数据同步] 创建成功后，直接使用返回的数据入库
     if (data && data.metadata && data.metadata.uid) {
       try {
         const repo = AppDataSource.getRepository(KubevirtVolumeInventory);
         const uid = data.metadata.uid;
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        
+
         if (existing) {
           // 更新现有记录
           existing.name = data.metadata?.name || '';
@@ -303,12 +338,16 @@ export async function harvesterVolumeCreateHandler(req: Request, res: Response) 
           existing.capacity = data.status?.capacity?.storage;
           existing.storageClassName = data.spec?.storageClassName || storageClassName;
           existing.volumeMode = data.spec?.volumeMode || volumeMode;
-          existing.accessModes = Array.isArray(data.spec?.accessModes) ? data.spec.accessModes.join(',') : '';
+          existing.accessModes = Array.isArray(data.spec?.accessModes)
+            ? data.spec.accessModes.join(',')
+            : '';
           existing.labels = data.metadata?.labels;
           existing.annotations = data.metadata?.annotations;
           existing.rawData = data;
           await repo.save(existing);
-          console.log(`[Volume-Create] 卷已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+          console.log(
+            `[Volume-Create] 卷已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`,
+          );
         } else {
           // 插入新记录
           const entity = repo.create({
@@ -320,22 +359,28 @@ export async function harvesterVolumeCreateHandler(req: Request, res: Response) 
             capacity: data.status?.capacity?.storage,
             storageClassName: data.spec?.storageClassName || storageClassName,
             volumeMode: data.spec?.volumeMode || volumeMode,
-            accessModes: Array.isArray(data.spec?.accessModes) ? data.spec.accessModes.join(',') : '',
+            accessModes: Array.isArray(data.spec?.accessModes)
+              ? data.spec.accessModes.join(',')
+              : '',
             labels: data.metadata?.labels,
             annotations: data.metadata?.annotations,
             rawData: data,
           });
           await repo.save(entity);
-          console.log(`[Volume-Create] 卷已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+          console.log(
+            `[Volume-Create] 卷已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`,
+          );
         }
       } catch (e: any) {
         console.error('[Volume-Create] 入库卷失败:', e?.message || e);
         // 入库失败不影响创建操作的成功返回
       }
     } else if (data && data.metadata && !data.metadata.uid) {
-      console.warn(`[Volume-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || name}`);
+      console.warn(
+        `[Volume-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || name}`,
+      );
     }
-    
+
     res.json({ message: '创建成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -349,9 +394,9 @@ export async function harvesterVolumeCreateHandler(req: Request, res: Response) 
 export async function harvesterVolumeDeleteHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await deleteHarvesterPVC(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
@@ -386,7 +431,7 @@ export async function harvesterLonghornVolumeDeleteHandler(req: Request, res: Re
   try {
     const cloud = (req as any).cloud;
     const { id, namespace, name } = req.params;
-    
+
     // [权限检查] 租户只能删除自己命名空间下的卷
     const reqAny = req as any;
     if (reqAny.user?.role === 'tenant') {
@@ -413,7 +458,7 @@ export async function harvesterLonghornVolumeDeleteHandler(req: Request, res: Re
         return res.status(403).json({ message: '无权访问该命名空间资源' });
       }
     }
-    
+
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
     await deleteHarvesterLonghornVolume(
@@ -439,11 +484,11 @@ export async function harvesterLonghornVolumeDeleteHandler(req: Request, res: Re
 export async function harvesterVolumeUpdateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const { sizeGi, size, accessModes, volumeMode, storageClassName, annotations, labels } =
       (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await updatePVCSpec(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
@@ -489,9 +534,7 @@ export async function harvesterVolumeUpdateHandler(req: Request, res: Response) 
             owner.name,
             pvcName,
             newSize,
-          ).catch((err: any) =>
-            console.error('Failed to sync VM volume size annotation', err),
-          );
+          ).catch((err: any) => console.error('Failed to sync VM volume size annotation', err));
         } else {
           console.log(
             `[PVC Update] No VM owner found for PVC ${pvcName}, skipping annotation sync.`,
@@ -522,7 +565,7 @@ export async function harvesterVolumeUpdateHandler(req: Request, res: Response) 
 export async function harvesterVolumeCloneHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const {
       targetNamespace,
       newName,
@@ -534,7 +577,7 @@ export async function harvesterVolumeCloneHandler(req: Request, res: Response) {
       volumeMode,
     } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await clonePVC(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
@@ -572,24 +615,24 @@ export async function harvesterVolumeCloneHandler(req: Request, res: Response) {
 export async function harvesterVolumeExportImageHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const { displayName, targetStorageClassName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await exportImageFromPVC(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
       pvcName,
       { displayName, targetStorageClassName },
     );
-    
+
     // [数据同步] 导出成功后，直接使用返回的数据入库
     if (data && data.metadata && data.metadata.uid) {
       try {
         const repo = AppDataSource.getRepository(HarvesterImageInventory);
         const uid = data.metadata.uid;
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        
+
         if (existing) {
           // 更新现有记录
           existing.name = data.metadata?.name || '';
@@ -602,7 +645,9 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
           existing.annotations = data.metadata?.annotations;
           existing.rawData = data;
           await repo.save(existing);
-          console.log(`[Image-Export] 镜像已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+          console.log(
+            `[Image-Export] 镜像已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`,
+          );
         } else {
           // 插入新记录
           const entity = repo.create({
@@ -619,16 +664,20 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
             rawData: data,
           });
           await repo.save(entity);
-          console.log(`[Image-Export] 镜像已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+          console.log(
+            `[Image-Export] 镜像已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`,
+          );
         }
       } catch (e: any) {
         console.error('[Image-Export] 入库镜像失败:', e?.message || e);
         // 入库失败不影响导出操作的成功返回
       }
     } else if (data && data.metadata && !data.metadata.uid) {
-      console.warn(`[Image-Export] 导出成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || pvcName}`);
+      console.warn(
+        `[Image-Export] 导出成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || pvcName}`,
+      );
     }
-    
+
     res.json({ message: '创建镜像任务成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -651,24 +700,24 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
 export async function harvesterVolumeSnapshotCreateHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, pvcName } = req.params;
+    const { id: _id, namespace, pvcName } = req.params;
     const { name, snapshotClassName, alias } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await createVolumeSnapshot(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
       pvcName,
       { name, snapshotClassName, alias },
     );
-    
+
     // [数据同步] 创建成功后，直接使用返回的数据入库
     if (data && data.metadata && data.metadata.uid) {
       try {
         const repo = AppDataSource.getRepository(HarvesterSnapshotInventory);
         const uid = data.metadata.uid;
         const existing = await repo.findOne({ where: { cloudId: cloud.id, uid } });
-        
+
         if (existing) {
           // 更新现有记录
           existing.name = data.metadata?.name || '';
@@ -682,7 +731,9 @@ export async function harvesterVolumeSnapshotCreateHandler(req: Request, res: Re
           existing.annotations = data.metadata?.annotations;
           existing.rawData = data;
           await repo.save(existing);
-          console.log(`[Snapshot-Create] 快照已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+          console.log(
+            `[Snapshot-Create] 快照已更新，cloudId: ${cloud.id}, name: ${data.metadata?.name}`,
+          );
         } else {
           // 插入新记录
           const entity = repo.create({
@@ -700,16 +751,20 @@ export async function harvesterVolumeSnapshotCreateHandler(req: Request, res: Re
             rawData: data,
           });
           await repo.save(entity);
-          console.log(`[Snapshot-Create] 快照已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`);
+          console.log(
+            `[Snapshot-Create] 快照已入库，cloudId: ${cloud.id}, name: ${data.metadata?.name}`,
+          );
         }
       } catch (e: any) {
         console.error('[Snapshot-Create] 入库快照失败:', e?.message || e);
         // 入库失败不影响创建操作的成功返回
       }
     } else if (data && data.metadata && !data.metadata.uid) {
-      console.warn(`[Snapshot-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || name}`);
+      console.warn(
+        `[Snapshot-Create] 创建成功但返回数据缺少 uid，跳过入库，cloudId: ${cloud.id}, name: ${data.metadata?.name || name}`,
+      );
     }
-    
+
     res.json({ message: '创建快照成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -732,10 +787,10 @@ export async function harvesterVolumeSnapshotCreateHandler(req: Request, res: Re
 export async function harvesterVmAddVolumeHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, instanceId } = req.params;
+    const { id: _id, instanceId } = req.params;
     const { name, bus, pvcNamespace, pvcName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await harvesterAddVolumeToVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       instanceId,
@@ -744,7 +799,9 @@ export async function harvesterVmAddVolumeHandler(req: Request, res: Response) {
     res.json({ message: '挂载成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: error.message || '挂载卷失败', error: error.body || error.message });
+    res
+      .status(500)
+      .json({ message: error.message || '挂载卷失败', error: error.body || error.message });
   }
 }
 
@@ -754,10 +811,10 @@ export async function harvesterVmAddVolumeHandler(req: Request, res: Response) {
 export async function harvesterVmAddVolumeDirectHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, namespace, name } = req.params;
+    const { id: _id, namespace, name } = req.params;
     const { diskName, bus, pvcNamespace, pvcName, name: bodyName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await harvesterAddVolumeToVMDirect(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       namespace,
@@ -777,10 +834,10 @@ export async function harvesterVmAddVolumeDirectHandler(req: Request, res: Respo
 export async function harvesterVmRemoveVolumeHandler(req: Request, res: Response) {
   try {
     const cloud = (req as any).cloud;
-    const { id, instanceId } = req.params;
+    const { id: _id, instanceId } = req.params;
     const { name } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
-    
+
     const data = await harvesterRemoveVolumeFromVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
       instanceId,

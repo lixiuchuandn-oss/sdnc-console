@@ -28,15 +28,20 @@ function normalizeOrigin(endpoint: string): string {
     const u = new URL(endpoint);
     return `${u.protocol}//${u.host}`;
   } catch {
-    return String(endpoint || '').replace(/\/+$/, '').replace(/\/v[0-9].*$/, '');
+    return String(endpoint || '')
+      .replace(/\/+$/, '')
+      .replace(/\/v[0-9].*$/, '');
   }
 }
 
-async function getTenantAccessForLogging(req: any, cloudId: string): Promise<{ allowed: boolean; namespaces: string[]; isAdmin: boolean }> {
+async function getTenantAccessForLogging(
+  req: any,
+  cloudId: string,
+): Promise<{ allowed: boolean; namespaces: string[]; isAdmin: boolean }> {
   const { allowed, namespace, isTenant } = await checkTenantAccess(req, cloudId);
   if (!allowed) return { allowed: false, namespaces: [], isAdmin: false };
   if (!isTenant) return { allowed: true, namespaces: [], isAdmin: true };
-  const namespaces = namespace ? namespace.split(',').map(s => s.trim()) : [];
+  const namespaces = namespace ? namespace.split(',').map((s) => s.trim()) : [];
   return { allowed: true, namespaces, isAdmin: false };
 }
 
@@ -48,7 +53,8 @@ export async function harvesterClusterFlowListHandler(req: Request, res: Respons
     if (!allowed) return res.status(403).json({ message: '无权访问' });
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -68,7 +74,8 @@ export async function harvesterClusterFlowDetailHandler(req: Request, res: Respo
     if (!allowed) return res.status(403).json({ message: '无权访问' });
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -90,7 +97,8 @@ export async function harvesterClusterFlowCreateHandler(req: Request, res: Respo
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -116,7 +124,8 @@ export async function harvesterClusterFlowUpdateHandler(req: Request, res: Respo
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -141,7 +150,8 @@ export async function harvesterClusterFlowDeleteHandler(req: Request, res: Respo
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -165,14 +175,19 @@ export async function harvesterClusterOutputListHandler(req: Request, res: Respo
     if (!allowed) return res.status(403).json({ message: '无权访问' });
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
     const url = `${origin}/${HARVESTER_CLUSTEROUTPUT_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
     const DESCRIPTION_ANNOTATION = 'cloudhci.io/description';
-    const items = Array.isArray((raw as any)?.data) ? (raw as any).data : Array.isArray((raw as any)?.items) ? (raw as any).items : [];
+    const items = Array.isArray((raw as any)?.data)
+      ? (raw as any).data
+      : Array.isArray((raw as any)?.items)
+        ? (raw as any).items
+        : [];
     const mapped = items.map((item: any) => {
       const meta = item?.metadata ?? {};
       const annotations = meta.annotations ?? {};
@@ -198,7 +213,8 @@ export async function harvesterClusterOutputDetailHandler(req: Request, res: Res
     if (!allowed) return res.status(403).json({ message: '无权访问' });
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -220,7 +236,8 @@ export async function harvesterClusterOutputCreateHandler(req: Request, res: Res
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -234,7 +251,9 @@ export async function harvesterClusterOutputCreateHandler(req: Request, res: Res
   } catch (e: any) {
     if (res.headersSent) return;
     if (e?.status) {
-      return res.status(e.status).json({ message: e?.message || '创建失败', details: { body: e?.body } });
+      return res
+        .status(e.status)
+        .json({ message: e?.message || '创建失败', details: { body: e?.body } });
     }
     res.status(500).json({ message: e?.message || '创建失败' });
   }
@@ -249,7 +268,8 @@ export async function harvesterClusterOutputUpdateHandler(req: Request, res: Res
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -279,7 +299,8 @@ export async function harvesterClusterOutputDeleteHandler(req: Request, res: Res
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -339,7 +360,8 @@ export async function harvesterFlowListHandler(req: Request, res: Response) {
     if (!tenant.allowed) return res.status(403).json({ message: '无权访问' });
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -384,7 +406,8 @@ export async function harvesterFlowDetailHandler(req: Request, res: Response) {
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -411,7 +434,8 @@ export async function harvesterFlowCreateHandler(req: Request, res: Response) {
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -434,7 +458,8 @@ export async function harvesterFlowUpdateHandler(req: Request, res: Response) {
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -460,7 +485,8 @@ export async function harvesterFlowDeleteHandler(req: Request, res: Response) {
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -481,13 +507,15 @@ export async function harvesterOutputListHandler(req: Request, res: Response) {
     if (!tenant.allowed) return res.status(403).json({ message: '无权访问' });
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
     const url = `${origin}/${HARVESTER_OUTPUT_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
-    const getNs = (item: any) => (item?.metadata?.namespace ?? item?.data?.metadata?.namespace ?? '').toString().trim();
+    const getNs = (item: any) =>
+      (item?.metadata?.namespace ?? item?.data?.metadata?.namespace ?? '').toString().trim();
     let list: any[] = Array.isArray((raw as any)?.data)
       ? (raw as any).data
       : Array.isArray((raw as any)?.items)
@@ -523,13 +551,15 @@ export async function harvesterOutputListByNamespaceHandler(req: Request, res: R
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
     const url = `${origin}/${HARVESTER_OUTPUT_BASE}?${LOG_PAGESIZE}&${LOG_EXCLUDE}`;
     const raw = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
-    const getNs = (item: any) => (item?.metadata?.namespace ?? item?.data?.metadata?.namespace ?? '').toString().trim();
+    const getNs = (item: any) =>
+      (item?.metadata?.namespace ?? item?.data?.metadata?.namespace ?? '').toString().trim();
     let list: any[] = Array.isArray((raw as any)?.data)
       ? (raw as any).data
       : Array.isArray((raw as any)?.items)
@@ -556,7 +586,8 @@ export async function harvesterOutputDetailHandler(req: Request, res: Response) 
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -583,7 +614,8 @@ export async function harvesterOutputCreateHandler(req: Request, res: Response) 
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -606,7 +638,8 @@ export async function harvesterOutputUpdateHandler(req: Request, res: Response) 
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -629,7 +662,8 @@ export async function harvesterOutputDeleteHandler(req: Request, res: Response) 
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = getEndpointBase(cloud.endpoint || '');
@@ -650,7 +684,11 @@ export async function harvesterVmPodHandler(req: Request, res: Response) {
     const ns = typeof namespace === 'string' ? namespace : '';
     const vm = typeof vmName === 'string' ? vmName : '';
 
-    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req as any, id);
+    const {
+      allowed,
+      namespace: tenantNamespace,
+      isTenant,
+    } = await checkTenantAccess(req as any, id);
     if (!allowed) return res.status(403).json({ message: '无权访问' });
     if (isTenant || tenantNamespace) {
       if (!ns || !isNamespaceAllowed(tenantNamespace, ns)) {
@@ -663,7 +701,8 @@ export async function harvesterVmPodHandler(req: Request, res: Response) {
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');
@@ -713,7 +752,9 @@ export async function harvesterVmPodHandler(req: Request, res: Response) {
     }
 
     if (!podName) {
-      return res.status(404).json({ message: '未找到运行中的 virt-launcher Pod，请确认 VM 已启动且命名空间/名称正确' });
+      return res
+        .status(404)
+        .json({ message: '未找到运行中的 virt-launcher Pod，请确认 VM 已启动且命名空间/名称正确' });
     }
     res.json({ podName });
   } catch (e: any) {
@@ -730,7 +771,11 @@ export async function harvesterEventsHandler(req: Request, res: Response) {
     const n = typeof name === 'string' ? name : '';
     const k = typeof kind === 'string' ? kind : '';
 
-    const { allowed, namespace: tenantNamespace, isTenant } = await checkTenantAccess(req as any, id);
+    const {
+      allowed,
+      namespace: tenantNamespace,
+      isTenant,
+    } = await checkTenantAccess(req as any, id);
     if (!allowed) return res.status(403).json({ message: '无权访问' });
 
     if (isTenant || tenantNamespace) {
@@ -743,7 +788,8 @@ export async function harvesterEventsHandler(req: Request, res: Response) {
     }
 
     const cloud = (req as any).cloud;
-    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置')) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester/Cloudmap 资源池的日志配置'))
+      return;
 
     const insecure = !!(cloud.config as any)?.ignoreTls;
     const origin = normalizeOrigin(cloud.endpoint || '');

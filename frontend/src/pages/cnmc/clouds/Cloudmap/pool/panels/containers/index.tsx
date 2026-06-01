@@ -1,20 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Empty, Switch } from 'antd';
+import { Empty } from 'antd';
+import { ContainerOperationsGate } from '../../../../Harvester/containers';
 import {
-  WorkloadsSection,
-  PodsSection,
-  JobsSection,
-  ConfigsSection,
-  RegistriesSection,
-  GatewayApiSection,
-  PDBSection,
-  NetworkPoliciesSection,
-  ServiceTopologySection,
-  IngressesSection,
-  ContainerOperationsGate,
-} from '../../../../Harvester/containers';
+  ContainerSectionSuspense,
+  LazyWorkloadsSection,
+  LazyPodsSection,
+  LazyJobsSection,
+  LazyServicesSection,
+  LazyIngressesSection,
+  LazyGatewayApiSection,
+  LazyServiceTopologySection,
+  LazyPDBSection,
+  LazyNetworkPoliciesSection,
+  LazyConfigsSection,
+  LazyRegistriesSection,
+} from '../../../../Harvester/containers/lazySections';
 import { canReadContainerTab, canWriteContainerTab } from '../../../../../../../utils/permissionUtils';
-import ServicesSection from '../../../../Harvester/containers/sections/ServicesSection';
 import {
   fetchHarvesterDeployments,
   fetchHarvesterStatefulSets,
@@ -155,47 +156,53 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
   const [networkPoliciesAll, setNetworkPoliciesAll] = useState(false);
   const [configsAll, setConfigsAll] = useState(false);
 
-  const loadWorkloads = (force = true, all?: boolean) => {
+  const loadWorkloads = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : workloadsAll;
-    loadResource('deployments', () => fetchHarvesterDeployments(cloudId, undefined, force, queryAll), (json) => { setHarvesterDeployments(json?.data?.items || []); }, force);
-    loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterStatefulSets(json?.data?.items || []); }, force);
-    loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterDaemonSets(json?.data?.items || []); }, force);
+    await Promise.all([
+      loadResource('deployments', () => fetchHarvesterDeployments(cloudId, undefined, force, queryAll), (json) => { setHarvesterDeployments(json?.data?.items || []); }, force),
+      loadResource('statefulsets', () => fetchHarvesterStatefulSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterStatefulSets(json?.data?.items || []); }, force),
+      loadResource('daemonsets', () => fetchHarvesterDaemonSets(cloudId, undefined, force, queryAll), (json) => { setHarvesterDaemonSets(json?.data?.items || []); }, force),
+    ]);
   };
 
-  const loadPods = (force = true, all?: boolean) => {
+  const loadPods = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : podsAll;
-    loadResource('pods', () => fetchHarvesterPods(cloudId, undefined, force, queryAll), (json) => { setHarvesterPods(json?.data?.items || []); }, force);
+    await loadResource('pods', () => fetchHarvesterPods(cloudId, undefined, force, queryAll), (json) => { setHarvesterPods(json?.data?.items || []); }, force);
   };
 
-  const loadJobs = (force = true, all?: boolean) => {
+  const loadJobs = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : jobsAll;
-    loadResource('jobs', () => fetchHarvesterJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterJobs(json?.data?.items || []); }, force);
-    loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterCronJobs(json?.data?.items || []); }, force);
+    await Promise.all([
+      loadResource('jobs', () => fetchHarvesterJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterJobs(json?.data?.items || []); }, force),
+      loadResource('cronjobs', () => fetchHarvesterCronJobs(cloudId, undefined, force, queryAll), (json) => { setHarvesterCronJobs(json?.data?.items || []); }, force),
+    ]);
   };
 
-  const loadServices = (force = true) => {
-    loadResource('services', () => fetchHarvesterServices(cloudId, force, false), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
+  const loadServices = async (force = true) => {
+    await loadResource('services', () => fetchHarvesterServices(cloudId, force, false), (json) => { setHarvesterServices(json?.data?.items || []); }, force);
   };
 
-  const loadIngresses = (force = true, all?: boolean) => {
+  const loadIngresses = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : ingressesAll;
-    loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force, queryAll), (json) => { setHarvesterIngresses(json?.data?.items || []); }, force);
+    await loadResource('ingresses', () => fetchHarvesterIngresses(cloudId, force, queryAll), (json) => { setHarvesterIngresses(json?.data?.items || []); }, force);
   };
 
-  const loadPdbs = (force = true, all?: boolean) => {
+  const loadPdbs = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : pdbsAll;
-    loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force, queryAll), (json) => { setHarvesterPDBs(json?.data?.items || []); }, force);
+    await loadResource('pdbs', () => fetchHarvesterPDBs(cloudId, undefined, force, queryAll), (json) => { setHarvesterPDBs(json?.data?.items || []); }, force);
   };
 
-  const loadNetworkPolicies = (force = true, all?: boolean) => {
+  const loadNetworkPolicies = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : networkPoliciesAll;
-    loadResource('networkpolicies', () => fetchNetworkPolicies(cloudId, undefined, force, queryAll), (json) => { setHarvesterNetworkPolicies(json?.data?.items || []); }, force);
+    await loadResource('networkpolicies', () => fetchNetworkPolicies(cloudId, undefined, force, queryAll), (json) => { setHarvesterNetworkPolicies(json?.data?.items || []); }, force);
   };
 
-  const loadConfigs = (force = true, all?: boolean) => {
+  const loadConfigs = async (force = true, all?: boolean) => {
     const queryAll = all !== undefined ? all : configsAll;
-    loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force, queryAll), (json) => { setHarvesterConfigMaps(json?.data?.items || []); }, force);
-    loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force, queryAll), (json) => { setHarvesterSecrets(json?.data?.items || []); }, force);
+    await Promise.all([
+      loadResource('configmaps', () => fetchHarvesterConfigMaps(cloudId, undefined, force, queryAll), (json) => { setHarvesterConfigMaps(json?.data?.items || []); }, force),
+      loadResource('secrets', () => fetchHarvesterSecrets(cloudId, undefined, undefined, force, queryAll), (json) => { setHarvesterSecrets(json?.data?.items || []); }, force),
+    ]);
   };
 
   const operationsReadOnly = useMemo(
@@ -222,18 +229,14 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
   }, [innerActiveKey]);
 
   if (!canReadContainerTab(checkPerm, innerActiveKey)) {
-    return (
-      <div style={{ height: '100%', overflow: 'auto' }}>
-        <Empty description="无权限访问" style={{ marginTop: 48 }} />
-      </div>
-    );
+    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
   let content: React.ReactNode;
 
   if (innerActiveKey === 'workloads') {
     content = (
-      <WorkloadsSection
+      <LazyWorkloadsSection
         deployments={filterByTenantNs(harvesterDeployments)}
         statefulsets={filterByTenantNs(harvesterStatefulSets)}
         daemonsets={filterByTenantNs(harvesterDaemonSets)}
@@ -261,7 +264,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'pods') {
     content = (
-      <PodsSection
+      <LazyPodsSection
         pods={filterByTenantNs(harvesterPods)}
         loading={resourceLoading.pods}
         namespacesOptions={namespacesOptions}
@@ -282,7 +285,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'jobs') {
     content = (
-      <JobsSection
+      <LazyJobsSection
         jobs={filterByTenantNs(harvesterJobs)}
         cronjobs={filterByTenantNs(harvesterCronJobs)}
         loading={resourceLoading.jobs || resourceLoading.cronjobs}
@@ -300,7 +303,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'services') {
     content = (
-      <ServicesSection
+      <LazyServicesSection
         cloudId={cloudId}
         services={filterByTenantNs(harvesterServices)}
         loading={resourceLoading.services}
@@ -314,7 +317,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'ingresses') {
     content = (
-      <IngressesSection
+      <LazyIngressesSection
         cloudId={cloudId}
         ingresses={filterByTenantNs(harvesterIngresses)}
         loading={resourceLoading.ingresses}
@@ -331,7 +334,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'gateway_api') {
     content = (
-      <GatewayApiSection
+      <LazyGatewayApiSection
         cloudId={cloudId}
         gatewayApiStatus={gatewayApiStatus}
         gatewayClasses={gatewayClasses}
@@ -345,12 +348,12 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
         services={filterByTenantNs(harvesterServices)}
-        onRefresh={() => loadTabResource('gateway_api', true)}
+        onRefresh={async () => loadTabResource('gateway_api', true)}
       />
     );
   } else if (innerActiveKey === 'service_topology') {
     content = (
-      <ServiceTopologySection
+      <LazyServiceTopologySection
         cloudId={cloudId}
         ingresses={filterByTenantNs(harvesterIngresses)}
         services={filterByTenantNs(harvesterServices)}
@@ -361,10 +364,12 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
           resourceLoading.services ||
           resourceLoading.pods
         }
-        onRefresh={() => {
-          loadTabResource('ingresses', true);
-          loadTabResource('services', true);
-          loadTabResource('pods', true);
+        onRefresh={async () => {
+          await Promise.all([
+            loadTabResource('ingresses', true),
+            loadTabResource('services', true),
+            loadTabResource('pods', true),
+          ]);
         }}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
@@ -372,7 +377,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'pdbs') {
     content = (
-      <PDBSection
+      <LazyPDBSection
         pdbs={filterByTenantNs(harvesterPDBs)}
         loading={resourceLoading.pdbs}
         namespacesOptions={namespacesOptions}
@@ -387,7 +392,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'networkpolicies') {
     content = (
-      <NetworkPoliciesSection
+      <LazyNetworkPoliciesSection
         networkPolicies={filterByTenantNs(harvesterNetworkPolicies)}
         loading={resourceLoading.networkpolicies}
         namespacesOptions={namespacesOptions}
@@ -402,7 +407,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'configs') {
     content = (
-      <ConfigsSection
+      <LazyConfigsSection
         configmaps={filterByTenantNs(harvesterConfigMaps)}
         secrets={filterByTenantNs(harvesterSecrets)}
         loading={resourceLoading.configmaps || resourceLoading.secrets}
@@ -421,7 +426,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
     );
   } else if (innerActiveKey === 'registries') {
     content = (
-      <RegistriesSection
+      <LazyRegistriesSection
         secrets={filterByTenantNs(harvesterImagePullSecrets)}
         secretsWithCredentials={filterByTenantNs(harvesterSecrets)}
         loading={resourceLoading.imagePullSecrets}
@@ -429,7 +434,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
         cloudId={cloudId}
         nsValue={nsFilter || undefined}
         onNsChange={(v) => setNsFilter(v || '')}
-        onRefresh={() => loadTabResource('registries', true)}
+        onRefresh={async () => loadTabResource('registries', true)}
       />
     );
   } else {
@@ -438,7 +443,7 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
 
   return (
     <ContainerOperationsGate operationsReadOnly={operationsReadOnly}>
-      <div style={{ height: '100%', overflow: 'auto' }}>{content}</div>
+      <ContainerSectionSuspense>{content}</ContainerSectionSuspense>
     </ContainerOperationsGate>
   );
 };

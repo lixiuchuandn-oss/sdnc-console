@@ -24,7 +24,7 @@ export type CloudmapResourceHubTopologyPanelProps = {
     skipSync?: boolean,
   ) => Promise<void>;
   checkPerm: (act: string) => boolean;
-  canReadNetworkScope: boolean;
+  canViewNetworkTopology?: boolean;
   resourceLoading: Record<string, boolean>;
   datacenterRacks: DatacenterRack[];
   datacenterNodeMetricsMap: Record<string, NodeLiveMetrics>;
@@ -86,7 +86,7 @@ export const CloudmapNetworkTopologyPanel: React.FC<CloudmapResourceHubTopologyP
   cloudId,
   resourceHubSub,
   loadTabResource,
-  canReadNetworkScope,
+  canViewNetworkTopology,
   resourceLoading,
   harvesterAswSwitches,
   harvesterNodes,
@@ -101,7 +101,7 @@ export const CloudmapNetworkTopologyPanel: React.FC<CloudmapResourceHubTopologyP
   useEffect(() => {
     if (resourceHubSub !== 'network_topology') return;
     void loadTabResource('network_topology', false);
-  }, [resourceHubSub, cloudId, loadTabResource, canReadNetworkScope]);
+  }, [resourceHubSub, cloudId, loadTabResource, canViewNetworkTopology]);
 
   const onRefresh: HarvesterSectionOnRefresh = resourceHubTabOnRefresh.network_topology;
 
@@ -137,7 +137,7 @@ export const CloudmapNetworkTopologyPanel: React.FC<CloudmapResourceHubTopologyP
   return (
     <NetworkTopologySection
       cloudId={cloudId}
-      canReadNetworkScope={canReadNetworkScope}
+      canViewNetworkTopology={!!canViewNetworkTopology}
       snapshot={snapshot}
       onRefresh={onRefresh}
     />

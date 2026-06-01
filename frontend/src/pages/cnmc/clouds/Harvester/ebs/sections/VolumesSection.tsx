@@ -6,11 +6,12 @@ import { App, Button, Dropdown, Input, Select, Table, Tooltip } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { useAuth } from 'contexts/AuthContext';
 import { hasPermissionForAction } from 'utils/accessMapping';
 import { fetchHarvesterNamespaces } from 'services/harvesterApi';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import VolumeDetailDrawer from '../drawers/VolumeDetailDrawer';
 import {
@@ -48,7 +49,6 @@ type Props = {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
-  bordered?: boolean;
 };
 
 const VolumesSection: React.FC<Props> = ({
@@ -231,62 +231,51 @@ const VolumesSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button
-            type="primary"
-            disabled={!hasDisksWrite}
-            onClick={() => {
-              if (!ensureDisksWrite()) return;
-              onRefreshStorageClasses?.(true, true);
-              actions.setVolumeCreateSeed(null);
-              actions.setCreateModalNonce((n) => n + 1);
-              actions.setCreateOpen(true);
-            }}
-          >
-            创建云盘
-          </Button>
-          <Tooltip
-            title={
-              !hasDisksWrite
-                ? undefined
-                : selectedRowKeys.length === 0
-                  ? '请先选择云盘'
-                  : undefined
-            }
-          >
-            <span>
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: [
-                    {
-                      key: 'batchDelete',
-                      label: '批量删除',
-                      disabled: !hasDisksWrite || selectedRowKeys.length === 0,
-                      danger: true,
+          <WriteGuard canWrite={hasDisksWrite}>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (!ensureDisksWrite()) return;
+                onRefreshStorageClasses?.(true, true);
+                actions.setVolumeCreateSeed(null);
+                actions.setCreateModalNonce((n) => n + 1);
+                actions.setCreateOpen(true);
+              }}
+            >
+              创建云盘
+            </Button>
+          </WriteGuard>
+          <WriteGuard canWrite={hasDisksWrite}>
+            <Tooltip title={selectedRowKeys.length === 0 ? '请先选择云盘' : undefined}>
+              <span>
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: [
+                      {
+                        key: 'batchDelete',
+                        label: '批量删除',
+                        disabled: selectedRowKeys.length === 0,
+                        danger: true,
+                      },
+                    ],
+                    onClick: ({ key }) => {
+                      if (selectedRowKeys.length === 0) {
+                        message.warning('请先选择云盘');
+                        return;
+                      }
+                      if (key === 'batchDelete') actions.handleBatchDelete();
                     },
-                  ],
-                  onClick: ({ key }) => {
-                    if (!hasDisksWrite) {
-                      message.error(
-                        '当前账号没有批量操作云盘的权限（需要 clouds.disks:write 或 clouds:write 权限）',
-                      );
-                      return;
-                    }
-                    if (selectedRowKeys.length === 0) {
-                      message.warning('请先选择云盘');
-                      return;
-                    }
-                    if (key === 'batchDelete') actions.handleBatchDelete();
-                  },
-                }}
-              >
-                <Button
-                  icon={<EllipsisOutlined />}
-                  disabled={!hasDisksWrite || selectedRowKeys.length === 0}
-                />
-              </Dropdown>
-            </span>
-          </Tooltip>
+                  }}
+                >
+                  <Button
+                    icon={<EllipsisOutlined />}
+                    disabled={selectedRowKeys.length === 0}
+                  />
+                </Dropdown>
+              </span>
+            </Tooltip>
+          </WriteGuard>
           <TableColumnSettingsButton
             allColumns={allColumns}
             settingsKey={TABLE_COLUMNS_SETTINGS_KEY}

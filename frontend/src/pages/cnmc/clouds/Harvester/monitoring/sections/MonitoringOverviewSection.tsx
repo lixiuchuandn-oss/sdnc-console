@@ -2,8 +2,6 @@
  * 监控服务 - 概览（资源大盘）Tab 主体
  * 设计文档：plan/设计-监控服务-概览.md
  * 参考：Compute.Tower-Monitoring Dashboard 布局与交互
- *
- * 落位：`monitoring/sections/`（Harvester 域内 Tab 区块与 ecs/kube-ovn 等一致）
  */
 import React from 'react';
 import { Row, Col, Alert } from 'antd';
@@ -60,7 +58,7 @@ const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ c
   if (!cloudId) {
     return (
       <div>
-        <Alert type="warning" message="缺少云资源 ID，无法加载概览" />
+        <Alert type="warning" message="缺少资源池ID，无法加载概览" />
       </div>
     );
   }
@@ -71,7 +69,7 @@ const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ c
         <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH_STYLE}>
           <Col xs={24} lg={10} style={COL_FILL_STYLE}>
             <div style={CARD_COLUMN_FILL_STYLE}>
-              <AlertsCard />
+              <AlertsCard cloudId={cloudId} />
             </div>
           </Col>
           <Col xs={24} lg={7} style={COL_FILL_STYLE}>

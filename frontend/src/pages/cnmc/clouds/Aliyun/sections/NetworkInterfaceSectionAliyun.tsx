@@ -3,7 +3,6 @@ import { App, Button, Input, Modal, Select, Space, Table, Tooltip, Form, Checkbo
 import { ReloadOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import { createCloudProviderEni, attachCloudProviderEni, detachCloudProviderEni, fetchCloudProviderEnis, updateCloudProviderEni, associateAliyunEip, unassociateAliyunEip } from '../../../../../services/aliyunApi';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 
 type Props = {
   cloudId: string;
@@ -33,6 +32,7 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       return [{ id: '-', VSwitchId: vsw, PrivateIpAddress: { IpAddress: arr }, Status: st }];
     }
     return [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enis, instance, iid]);
 
   const [keyword, setKeyword] = useState<string>('');
@@ -62,6 +62,7 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       const okBind = !bindFilter || (bindFilter === 'bound' ? bound : !bound);
       return okKw && okTp && okBind;
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eniList, keyword, typeFilter, bindFilter, eips]);
 
   const hasAny = (getter: (r: any) => any) => {
@@ -186,8 +187,6 @@ const NetworkInterfaceSectionAliyun: React.FC<Props> = ({ cloudId, instance, eni
       return !hasAssoc && (st === 'available' || st === '' || st === 'idle');
     });
   }, [eips]);
-  const [selEip, setSelEip] = useState<Record<string, string>>({});
-  const [selUnEip, setSelUnEip] = useState<Record<string, string>>({});
   const [bindOpen, setBindOpen] = useState<boolean>(false);
   const [unbindOpen, setUnbindOpen] = useState<boolean>(false);
   const [activeNiId, setActiveNiId] = useState<string>('');

@@ -14,13 +14,13 @@ export interface CsmConfig {
 }
 
 // Helper for CSM signature
-function md5Lower(s: string) {
+function _md5Lower(s: string) {
   return crypto
     .createHash('md5')
     .update(s || '')
     .digest('hex');
 }
-function ts16() {
+function _ts16() {
   return (Date.now() + '000').slice(0, 16);
 }
 
@@ -46,7 +46,7 @@ export async function csmRequest(
   const ak = decodeURIComponent(accessKey || '');
   const sk = decodeURIComponent(secretKey || '');
 
-  let base = (() => {
+  const base = (() => {
     try {
       const u = endpointRaw.startsWith('http')
         ? new URL(endpointRaw)
@@ -105,7 +105,7 @@ export async function csmRequest(
 
   const reqUrl = `${base}${path}${queryStr ? '?' + queryStr : ''}`;
 
-  const displayAuth = options?.basicAuth ? basicHeader : sigHeader;
+  const _displayAuth = options?.basicAuth ? basicHeader : sigHeader;
   // console.log(`[CSM] Request: ${method} ${reqUrl} (Auth: ${displayAuth.substring(0, 20)}...)`);
 
   try {
@@ -646,7 +646,6 @@ export const listCsmElementGroups = async (config: CsmConfig) => {
     else if (Array.isArray(raw)) groups = raw;
     else if (Array.isArray(raw?.data)) groups = raw.data;
     else if (Array.isArray(raw?.data?.items)) groups = raw.data.items;
-    else if (Array.isArray(raw?.data?.page)) groups = raw.data.page;
     else if (Array.isArray(raw?.page)) groups = raw.page;
 
     return groups.map((g) => {

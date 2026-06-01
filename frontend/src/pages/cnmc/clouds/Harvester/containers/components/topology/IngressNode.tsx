@@ -1,6 +1,6 @@
 import React from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { GlobalOutlined, CheckCircleOutlined, ExclamationCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { GlobalOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import './TopologyNodeStyles.css';
 
 export interface IngressNodeData {

@@ -17,17 +17,23 @@ export function parseEcsListFromJson(json: unknown): any[] {
   return [];
 }
 
-/** 强制刷新前可选 sync（Harvester / Cloudmap） */
+/** 强制刷新前可选 sync（Harvester / Cloudmap）；单独超时，避免 sync 拖死列表刷新 */
 export async function syncCloudEcsBeforeLoad(
   cloudId: string,
   force: boolean,
   skipSync: boolean,
 ): Promise<void> {
   if (!force || skipSync) return;
+  const SYNC_TIMEOUT_MS = 20_000;
   try {
-    await apiPost(`/api/clouds/${cloudId}/sync`);
+    await Promise.race([
+      apiPost(`/api/clouds/${cloudId}/sync`),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('云主机同步超时')), SYNC_TIMEOUT_MS);
+      }),
+    ]);
   } catch {
-    // sync 失败仍尝试读列表
+    // sync 失败/超时仍尝试读列表
   }
 }
 

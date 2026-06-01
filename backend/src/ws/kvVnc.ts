@@ -9,10 +9,10 @@ import { checkTenantAccess } from '../routes/clouds/harvester/harvester.direct.h
 
 export function createKvVncWss() {
   console.log('[KvVnc] Creating Headless WebSocket Server');
-  const wss = new WebSocketServer({ 
+  const wss = new WebSocketServer({
     noServer: true,
     perMessageDeflate: false,
-    handleProtocols: (protocols, req) => {
+    handleProtocols: (protocols, _req) => {
       console.log('[KvVnc] handleProtocols:', [...protocols]);
       try {
         const protoList = Array.from(protocols);
@@ -24,7 +24,7 @@ export function createKvVncWss() {
         console.error('[KvVnc] Error in handleProtocols:', err);
         return false;
       }
-    }
+    },
   });
 
   wss.on('error', (err) => {
@@ -44,7 +44,13 @@ export function createKvVncWss() {
       if (!token) throw new Error('缺少 token');
       decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as any;
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-      if (!(decoded.role === UserRole.SUPER_ADMIN || decoded.role === 'admin' || decoded.role === UserRole.TENANT)) {
+      if (
+        !(
+          decoded.role === UserRole.SUPER_ADMIN ||
+          decoded.role === 'admin' ||
+          decoded.role === UserRole.TENANT
+        )
+      ) {
         throw new Error('权限不足');
       }
     } catch (err: any) {
@@ -65,7 +71,7 @@ export function createKvVncWss() {
       const repo = AppDataSource.getRepository(Cloud);
       const cloud = await repo.findOne({ where: { id: cloudId } });
       if (!cloud) throw new Error('云资源不存在');
-      
+
       // [修复] 检查租户对命名空间的访问权限
       // 构造一个模拟的 req 对象用于权限检查
       const mockReq: any = { user: decoded };
@@ -73,10 +79,12 @@ export function createKvVncWss() {
       if (!allowed) {
         throw new Error('Access denied to this resource pool');
       }
-      
+
       // 如果是租户，检查命名空间是否在允许列表中
       if (tenantNamespace) {
-        const allowedNamespaces = tenantNamespace.split(',').map((ns: string) => ns.trim().toLowerCase());
+        const allowedNamespaces = tenantNamespace
+          .split(',')
+          .map((ns: string) => ns.trim().toLowerCase());
         if (!allowedNamespaces.includes(namespace.toLowerCase())) {
           throw new Error('Access denied to VM in other namespace');
         }
@@ -84,9 +92,12 @@ export function createKvVncWss() {
       const pv = String((cloud as any)?.config?.provider || '')
         .toLowerCase()
         .trim();
-      console.log(`[KvVnc] Cloud Provider Check: id=${cloudId}, provider=${(cloud as any)?.config?.provider}, parsed=${pv}`);
+      console.log(
+        `[KvVnc] Cloud Provider Check: id=${cloudId}, provider=${(cloud as any)?.config?.provider}, parsed=${pv}`,
+      );
       const allowedProviders = ['harvester', 'cloudmap', 'cloudmap.private', 'cloudmap.edge'];
-      if (!allowedProviders.includes(pv)) throw new Error(`仅支持 Harvester/Cloudmap (current: ${pv})`);
+      if (!allowedProviders.includes(pv))
+        throw new Error(`仅支持 Harvester/Cloudmap (current: ${pv})`);
       const insecure = !!(cloud.config as any)?.ignoreTls;
       const base = String(cloud.endpoint || '').replace(/\/+$/, '');
       let origin = base;
@@ -97,7 +108,7 @@ export function createKvVncWss() {
         origin = base.replace(/\/v[0-9].*$/, '');
       }
       const scheme = origin.startsWith('https') ? 'wss' : 'ws';
-      const host = origin.replace(/^https?\:\/\//, '');
+      const host = origin.replace(/^https?:\/\//, '');
       let clusterId: string | null = null;
       try {
         const clusters = await getJsonOnce(
@@ -145,7 +156,7 @@ export function createKvVncWss() {
       let client: WebSocket | null = null;
       let chosenRemote: string | null = null;
       let lastErr: any = null;
-      
+
       let closed = false;
       let pingTimer: any = null;
       let pongTs = Date.now();
@@ -177,17 +188,19 @@ export function createKvVncWss() {
           }
         } else {
           // Buffer message if upstream is not ready
-          console.log(`[KvVnc] Buffering frontend message (${isBinary ? 'binary' : 'text'}, ${raw.toString().length} bytes)`);
+          console.log(
+            `[KvVnc] Buffering frontend message (${isBinary ? 'binary' : 'text'}, ${raw.toString().length} bytes)`,
+          );
           messageBuffer.push({ data: raw, isBinary });
         }
       });
-      
+
       ws.on('pong', () => {
         pongTs = Date.now();
       });
       ws.on('close', () => closeBoth(1000, 'WS关闭'));
       ws.on('error', (err: Error) => closeBoth(1011, `WS错误: ${err?.message || err}`));
- 
+
       const protocolSets: string[][] = [
         ['binary.kubevirt.io'],
         [], // Fallback: try without protocol negotiation
@@ -231,7 +244,7 @@ export function createKvVncWss() {
           const onError = (err: Error) => {
             cleanup();
             // Silence error, just reject
-            ws.on('error', () => {}); 
+            ws.on('error', () => {});
             reject(err);
           };
           const onClose = (code: number, reason: Buffer) => {
@@ -258,7 +271,9 @@ export function createKvVncWss() {
         for (const protos of protocolSets) {
           for (const hdr of headerSets) {
             if (attempts >= MAX_ATTEMPTS) {
-              console.log(`[VNC] Max connection attempts (${MAX_ATTEMPTS}) reached. Stopping retries.`);
+              console.log(
+                `[VNC] Max connection attempts (${MAX_ATTEMPTS}) reached. Stopping retries.`,
+              );
               break loop;
             }
             attempts++;
@@ -277,17 +292,20 @@ export function createKvVncWss() {
         }
       }
 
-      if (!client) throw new Error(`初始化远程WS失败: ${lastErr?.message || '未知错误'} (Tried ${candidates.length} candidates)`);
-      
+      if (!client)
+        throw new Error(
+          `初始化远程WS失败: ${lastErr?.message || '未知错误'} (Tried ${candidates.length} candidates)`,
+        );
+
       // Mark upstream as ready and flush buffer
       isUpstreamReady = true;
       console.log(`[KvVnc] Upstream ready. Flushing ${messageBuffer.length} buffered messages.`);
       for (const msg of messageBuffer) {
-         try {
-           client.send(msg.data, { binary: msg.isBinary });
-         } catch (e) {
-            console.error('[KvVnc] Failed to flush buffer message', e);
-         }
+        try {
+          client.send(msg.data, { binary: msg.isBinary });
+        } catch (e) {
+          console.error('[KvVnc] Failed to flush buffer message', e);
+        }
       }
       messageBuffer.length = 0; // Clear buffer
 
@@ -296,16 +314,16 @@ export function createKvVncWss() {
         ws.ping();
         client.ping();
       } catch {}
-      
+
       pingTimer = setInterval(() => {
         try {
-           ws.ping();
+          ws.ping();
         } catch {}
         try {
-           client.ping();
+          client.ping();
         } catch {}
         if (Date.now() - pongTs > 60000) {
-           closeBoth(1011, '心跳超时');
+          closeBoth(1011, '心跳超时');
         }
       }, 25000);
 
@@ -321,7 +339,7 @@ export function createKvVncWss() {
       client.on('message', (data: any, isBinary: boolean) => {
         try {
           if (data && data.length > 0) {
-             // console.log(`[KvVnc] Rx ${data.length} bytes from remote`);
+            // console.log(`[KvVnc] Rx ${data.length} bytes from remote`);
           }
           ws.send(data as any, { binary: isBinary, compress: false });
         } catch {

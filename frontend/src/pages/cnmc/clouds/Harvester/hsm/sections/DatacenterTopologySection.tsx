@@ -6,6 +6,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Button, Empty } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
+import { canWritePoolPage } from '../../../Cloudmap/pool/lib/poolPageReadAccess';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import PhysicalNodeDetailDrawer from '../../cluster/drawers/PhysicalNodeDetailDrawer';
@@ -53,7 +54,7 @@ const DatacenterTopologySection: React.FC<Props> = ({
   onRefresh,
 }) => {
   const location = useLocation();
-  const canWrite = checkPerm('clouds.cluster-networks:write') || checkPerm('clouds:read');
+  const canWrite = canWritePoolPage(checkPerm, 'resource_hub/datacenter_topology');
 
   const refreshList = useCallback(
     () => runHarvesterSectionRefresh(onRefresh, { force: true }),

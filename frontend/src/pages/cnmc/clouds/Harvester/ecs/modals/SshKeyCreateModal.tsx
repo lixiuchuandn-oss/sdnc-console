@@ -1,15 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { Modal, Form, Input, Select, message, Button, Alert, Space, Typography, Card } from 'antd';
-import { KeyOutlined, DownloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Modal, Form, Input, Select, message, Button, Alert, Space } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import { createHarvesterSshKey } from 'services/harvester/vm';
 import { fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
-import { useHarvesterPublicNamespaces } from '../../context/HarvesterPublicNamespacesContext';
-import { API_BASE_URL } from '../../../../../../services/api';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { apiRequest } from '../../../../../../services/api';
-// @ts-ignore
-import { generateKeyPair } from 'web-ssh-keygen';
-
-const { Text, Paragraph } = Typography;
 
 interface Props {
   visible: boolean;
@@ -27,15 +22,7 @@ const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSucc
   const [nsLoading, setNsLoading] = useState(false);
   const [generatedKey, setGeneratedKey] = useState<{ publicKey: string; privateKey: string } | null>(null);
 
-  useEffect(() => {
-    if (visible && cloudId) {
-      loadNamespaces();
-      form.resetFields();
-      setGeneratedKey(null);
-    }
-  }, [visible, cloudId]);
-
-  const loadNamespaces = async () => {
+  const loadNamespaces = useCallback(async () => {
     setNsLoading(true);
     try {
       const res: any = await fetchHarvesterNamespaces(cloudId, false, true); // excludeSystem=true
@@ -61,7 +48,15 @@ const SshKeyCreateModal: React.FC<Props> = ({ visible, cloudId, onCancel, onSucc
     } finally {
       setNsLoading(false);
     }
-  };
+  }, [cloudId, form, isPublicNamespace, isTenant]);
+
+  useEffect(() => {
+    if (visible && cloudId) {
+      void loadNamespaces();
+      form.resetFields();
+      setGeneratedKey(null);
+    }
+  }, [visible, cloudId, form, loadNamespaces]);
 
   const handleGenerateKey = async () => {
     try {

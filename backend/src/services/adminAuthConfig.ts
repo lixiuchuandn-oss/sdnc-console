@@ -27,7 +27,10 @@ export function parseAdminAuthConfig(raw?: string | null): AdminAuthConfig {
   try {
     const j = JSON.parse(String(raw)) as Partial<AdminAuthConfig>;
     return {
-      maxLoginAttempts: Math.max(1, Math.min(100, Number(j.maxLoginAttempts) || base.maxLoginAttempts)),
+      maxLoginAttempts: Math.max(
+        1,
+        Math.min(100, Number(j.maxLoginAttempts) || base.maxLoginAttempts),
+      ),
       loginFailureWindowMinutes: Math.max(
         1,
         Math.min(1440, Number(j.loginFailureWindowMinutes) || base.loginFailureWindowMinutes),
@@ -36,7 +39,10 @@ export function parseAdminAuthConfig(raw?: string | null): AdminAuthConfig {
         1,
         Math.min(1440, Number(j.loginLockDurationMinutes) || base.loginLockDurationMinutes),
       ),
-      pageTimeoutMinutes: Math.max(1, Math.min(1440, Number(j.pageTimeoutMinutes) || base.pageTimeoutMinutes)),
+      pageTimeoutMinutes: Math.max(
+        1,
+        Math.min(1440, Number(j.pageTimeoutMinutes) || base.pageTimeoutMinutes),
+      ),
     };
   } catch {
     return base;

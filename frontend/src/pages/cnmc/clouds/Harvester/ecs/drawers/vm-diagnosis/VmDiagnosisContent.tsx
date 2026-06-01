@@ -1047,7 +1047,7 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
     };
   };
 
-  const analyzePVCStatus = async (vm: any, cid: string, vmNamespace: string, relatedVolumes: any[] | null): Promise<any[]> => {
+  const analyzePVCStatus = async (vm: any, cid: string, vmNamespace: string, _relatedVolumes: any[] | null): Promise<any[]> => {
     const volumes: any[] = Array.isArray(vm?.spec?.template?.spec?.volumes) ? vm.spec.template.spec.volumes : [];
     if (volumes.length === 0) return [];
 

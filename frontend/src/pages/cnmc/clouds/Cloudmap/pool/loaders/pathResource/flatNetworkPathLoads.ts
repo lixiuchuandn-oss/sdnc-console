@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** 扁平子网域（`panels/flat_network`）：扁平 EIP/SNAT/DNAT 与路径别名 */
+/** ?????`panels/flat_network`??????? EIP/SNAT/DNAT ???? */
 export async function tryLoadKubeOvnFlatTab(
   key: string,
   force: boolean,
@@ -31,7 +31,7 @@ export async function tryLoadKubeOvnFlatTab(
   switch (key) {
     case 'flat_public_subnets':
       if (canViewFlatNetworkGroup && checkPerm('clouds.networks:read')) {
-        loadResource(
+        await loadResource(
           'subnets',
           () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -44,7 +44,6 @@ export async function tryLoadKubeOvnFlatTab(
       }
       return true;
     case 'flat_kubeovn_eips':
-    case 'flat_kubeovn_fips':
     case 'flat_kubeovn_snat':
     case 'flat_kubeovn_dnat':
       if (!canViewFlatNetworkGroup) return true;
@@ -55,7 +54,7 @@ export async function tryLoadKubeOvnFlatTab(
         (key === 'flat_kubeovn_dnat' && checkPerm('clouds.dnat.flat:read'));
 
       if (needsFlatSubnetForTab && checkPerm('clouds.networks:read')) {
-        loadResource(
+        await loadResource(
           'subnets',
           () => fetchKubeOvnSubnets(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -65,7 +64,7 @@ export async function tryLoadKubeOvnFlatTab(
           },
           force,
         );
-        loadResource(
+        await loadResource(
           'vpcs',
           () => fetchKubeOvnVpcs(cloudId, force, skipSync, 'underlay'),
           (json) => {
@@ -83,7 +82,7 @@ export async function tryLoadKubeOvnFlatTab(
           key === 'flat_kubeovn_dnat') &&
         checkPerm('clouds.eips.flat:read')
       ) {
-        loadResource(
+        await loadResource(
           'flatEips',
           () => fetchCloudProviderOvnEips(cloudId, force, 'flat'),
           (json) => {
@@ -93,14 +92,11 @@ export async function tryLoadKubeOvnFlatTab(
           force,
         );
       }
-      /* Cloudmap：FIP 入口暂缓联调
-      if (key === 'flat_kubeovn_fips' && checkPerm('clouds.fips.flat:read')) { ... }
-      */
       if (
         key === 'flat_kubeovn_snat' &&
         checkPerm('clouds.snat.flat:read')
       ) {
-        loadResource(
+        await loadResource(
           'flatSnatRules',
           () =>
             fetchCloudProviderOvnSnatRules(cloudId, force, false, 'flat'),
@@ -115,7 +111,7 @@ export async function tryLoadKubeOvnFlatTab(
         key === 'flat_kubeovn_dnat' &&
         checkPerm('clouds.dnat.flat:read')
       ) {
-        loadResource(
+        await loadResource(
           'flatDnatRules',
           () =>
             fetchCloudProviderOvnDnatRules(cloudId, force, false, 'flat'),

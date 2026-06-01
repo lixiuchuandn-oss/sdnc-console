@@ -10,7 +10,7 @@ const repo = () => AppDataSource.getRepository(ACLRule);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 
 // Helpers
-const getVRConfigFromDB = async (uuid: string) => {
+const _getVRConfigFromDB = async (uuid: string) => {
   const record = await vrConfigRepo().findOne({ where: { uuid } });
   if (!record) {
     throw new Error(`VR config not found in database for UUID: ${uuid}`);
@@ -22,7 +22,7 @@ const getVRConfigFromDB = async (uuid: string) => {
   }
 };
 
-const saveVRConfigToDB = async (uuid: string, config: any) => {
+const _saveVRConfigToDB = async (uuid: string, config: any) => {
   let record = await vrConfigRepo().findOne({ where: { uuid } });
   const jsonStr = JSON.stringify(config);
 
@@ -37,11 +37,20 @@ const saveVRConfigToDB = async (uuid: string, config: any) => {
 
 const stripMeta = (obj: any) => {
   if (!obj || typeof obj !== 'object') return obj;
-  const { msg, code, report_config_status, updateDate, createDate, _id, requestId, ...rest } = obj;
+  const {
+    msg: _msg,
+    code: _code,
+    report_config_status: _report_config_status,
+    updateDate: _updateDate,
+    createDate: _createDate,
+    _id,
+    requestId: _requestId,
+    ...rest
+  } = obj;
   return rest;
 };
 
-const getVRConfigFromDevice = async (uuid: string) => {
+const _getVRConfigFromDevice = async (uuid: string) => {
   const resp = await vrController.getVRConfig(uuid);
   const data = resp && resp.data ? resp.data : resp;
   if (!data || typeof data !== 'object') return {};
@@ -80,20 +89,20 @@ aclRoutes.post('/', async (req, res, next) => {
       res.status(400).json({ message: 'Missing required fields' });
       return;
     }
-    
+
     // Strict enforcement: Rules must belong to a group
     // The preferred way is POST /api/acl-groups/:id/rules, but if this endpoint is used, groupId is required.
     const { groupId } = req.body;
     if (!groupId) {
-       res.status(400).json({ message: 'Rules must belong to an ACL Group (groupId is required)' });
-       return;
+      res.status(400).json({ message: 'Rules must belong to an ACL Group (groupId is required)' });
+      return;
     }
 
     const item = repo().create({
       name,
       description,
       vrId,
-      groupId, 
+      groupId,
       priority: Number(priority) || 100,
       action: action || ACLAction.PERMIT,
       protocol: protocol || ACLProtocol.ANY,

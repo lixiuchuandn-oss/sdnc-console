@@ -1,3 +1,4 @@
+import { overviewRiskColor } from '../../../../../components/overview';
 import type { XinferenceClusterSummary } from '../../../../../services/xinferenceApi';
 
 export function fmtNum(v: number | null | undefined, digits = 2): string {
@@ -27,10 +28,9 @@ export function fmtCommit(commit?: string): string {
   return commit.length > 12 ? `${commit.slice(0, 12)}…` : commit;
 }
 
+/** 利用率风险色：统一复用全站概览风险色（≥90 红 / ≥70 橙 / 否则绿，antd 语义色） */
 export function getRiskColor(percent: number): string {
-  if (percent >= 90) return '#ef4444';
-  if (percent >= 70) return '#f59e0b';
-  return '#22C55E';
+  return overviewRiskColor(percent);
 }
 
 export type XinferenceClusterAggregate = {
@@ -88,7 +88,9 @@ export function aggregateClusterMetrics(
   const gpuVramUsedBytes = w?.gpuVramUsedBytes ?? null;
   const gpuVramTotalBytes = w?.gpuVramTotalBytes ?? null;
   const gpuVramUsagePercent =
-    gpuVramUsedBytes != null && gpuVramTotalBytes != null && gpuVramTotalBytes > 0
+    gpuVramUsedBytes != null &&
+    gpuVramTotalBytes != null &&
+    gpuVramTotalBytes > 0
       ? (gpuVramUsedBytes / gpuVramTotalBytes) * 100
       : null;
 
@@ -107,11 +109,3 @@ export function aggregateClusterMetrics(
     gpuVramUsagePercent,
   };
 }
-
-export const DASHBOARD_CARD_SHADOW = '0 4px 12px rgba(0,0,0,0.08)';
-
-export const DASHBOARD_CARD_HEADER_STYLE = {
-  padding: '16px 20px',
-  height: 60,
-  minHeight: 60,
-} as const;

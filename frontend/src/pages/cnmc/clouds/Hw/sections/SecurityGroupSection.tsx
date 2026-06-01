@@ -1,11 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { App, Button, Input, Space, Table } from 'antd';
-import { SafetyCertificateOutlined } from '@ant-design/icons';
+import { App, Button, Input, Modal, Space, Table, Tooltip, Typography } from 'antd';
+import { SafetyCertificateOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { fetchCloudProviderSecurityGroups } from '../../../../../services/securityGroups';
 import { deleteHuaweiCloudSecurityGroup } from '../../../../../services/huaweiApi';
-import SharedToolbar from '../../../../../components/SharedToolbar';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
-import { RowActionsButton } from '../../../../../components/PageDetailSection';
+import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
 
 type SecurityGroupSectionProps = {
   cloudId: string;
@@ -15,118 +13,138 @@ type SecurityGroupSectionProps = {
   onOpenDetail: (type: string, title: string, data: any) => void;
   onOpenRuleDrawer: (sg: any) => void;
   onOpenRefsDrawer: (sg: any) => void;
+  onOpenCreate?: () => void;
 };
 
-const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, secGroups, ecs, onSetSecGroups, onOpenDetail, onOpenRuleDrawer, onOpenRefsDrawer }) => {
+const parseSgList = (json: any): any[] =>
+  (json?.data?.security_groups) || (json?.security_groups) || (json?.data?.securityGroups) || (json?.securityGroups) || [];
+
+const SecurityGroupSection: React.FC<SecurityGroupSectionProps> = ({ cloudId, secGroups, ecs, onSetSecGroups, onOpenDetail, onOpenRuleDrawer, onOpenRefsDrawer, onOpenCreate }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(false);
+
+  const refresh = async () => {
+    if (!cloudId) return;
+    setLoading(true);
+    try {
+      const json = await fetchCloudProviderSecurityGroups(cloudId);
+      onSetSecGroups(parseSgList(json));
+    } catch (e: any) { message.error(e?.message || '刷新失败'); }
+    finally { setLoading(false); }
+  };
 
   const filteredSgs = useMemo(() => {
     const list = Array.isArray(secGroups) ? secGroups : [];
     const kw = keyword.trim().toLowerCase();
     return list.filter((r: any) => {
-      const tags = r?.tags;
-      const getFromTags = (k: string) => {
-        if (Array.isArray(tags)) {
-          const it = tags.find((t: any) => String(t?.key || t?.Key || '').toLowerCase() === k);
-          return it?.value ?? it?.Value ?? '';
-        }
-        if (tags && typeof tags === 'object') {
-          const keys = Object.keys(tags || {});
-          const hit = keys.find((x) => String(x || '').toLowerCase() === k);
-          return hit ? (tags as any)[hit] : '';
-        }
-        return '';
-      };
-      const plName = getFromTags('cm.pipeline_name') || getFromTags('pipeline_name') || getFromTags('pipeline') || r?.metadata?.['cm.pipeline_name'] || r?.metadata?.pipeline_name || '';
-      const plId = getFromTags('cm.pipeline_id') || getFromTags('pipeline_id') || r?.metadata?.['cm.pipeline_id'] || r?.metadata?.pipeline_id || '';
-      const plText = `${plName || ''} ${plId || ''}`;
-      const text = `${r?.name || ''} ${r?.id || ''} ${r?.description || ''} ${r?.vpc_id || ''} ${plText}`.toLowerCase();
+      const text = `${r?.name || ''} ${r?.id || ''} ${r?.description || ''} ${r?.vpc_id || ''}`.toLowerCase();
       return !kw || text.includes(kw);
     });
   }, [secGroups, keyword]);
 
-  const columns = useMemo(() => {
-    const ruleStatsText = (r: any) => {
-      const list: any[] = Array.isArray(r?.security_group_rules) ? r?.security_group_rules : [];
-      const inCnt = list.filter((x: any) => String(x?.direction || '').toLowerCase() === 'ingress').length;
-      const outCnt = list.filter((x: any) => String(x?.direction || '').toLowerCase() === 'egress').length;
-      return `入站: ${inCnt} 条；出站: ${outCnt} 条`;
-    };
-    const refCount = (sg: any): number => {
-      const sgName = String(sg?.name || '').trim().toLowerCase();
-      const sgId = String(sg?.id || '').trim();
-      let cnt = 0;
-      const uniq = new Set<string>();
-      for (const s of (ecs || [])) {
-        const sid = String(s?.id || '');
-        const names = Array.isArray(s?.security_groups) ? (s.security_groups as any[]).map(x => String(x?.name || x?.Name || '').trim().toLowerCase()) : [];
-        if ((sgName && names.includes(sgName)) || (!sgName && sgId && names.includes(sgId.toLowerCase()))) {
-          if (!uniq.has(sid)) { uniq.add(sid); cnt++; }
-        }
+  const refCount = (sg: any): number => {
+    const sgName = String(sg?.name || '').trim().toLowerCase();
+    const sgId = String(sg?.id || '').trim();
+    let cnt = 0;
+    const uniq = new Set<string>();
+    for (const s of (ecs || [])) {
+      const sid = String(s?.id || '');
+      const names = Array.isArray(s?.security_groups) ? (s.security_groups as any[]).map(x => String(x?.name || x?.Name || '').trim().toLowerCase()) : [];
+      if ((sgName && names.includes(sgName)) || (!sgName && sgId && names.includes(sgId.toLowerCase()))) {
+        if (!uniq.has(sid)) { uniq.add(sid); cnt++; }
       }
-      return cnt;
-    };
-    return ([
-      { title: '名称/ID', key: 'name_id', render: (_: any, r: any) => (<span>{r?.name || '-'}<br />{r?.id || r?.SecurityGroupId || '-'}</span>), sorter: (a: any, b: any) => { const an = String(a?.name || ''); const bn = String(b?.name || ''); const cmp = an.localeCompare(bn); if (cmp !== 0) return cmp; return String(a?.id || a?.SecurityGroupId || '').localeCompare(String(b?.id || b?.SecurityGroupId || '')); } },
-      { title: '安全组规则', key: 'rule_count', render: (_: any, r: any) => { const l: Array<any> = Array.isArray(r?.security_group_rules) ? r.security_group_rules : []; const cnt = l.length; return (<Button type="link" size="small" onClick={() => onOpenRuleDrawer(r)}>{cnt}</Button>); }, sorter: (a: any, b: any) => { const f = (x: any) => { const l: Array<any> = Array.isArray(x?.security_group_rules) ? x.security_group_rules : []; return l.length; }; return f(a) - f(b); } },
-      { title: '关联实例', key: 'ref_instances', render: (_: any, r: any) => { const n = refCount(r); return (<Button type="link" size="small" onClick={() => onOpenRefsDrawer(r)}>{n}</Button>); }, sorter: (a: any, b: any) => refCount(a) - refCount(b) },
-      { title: '规则统计', key: 'stats', render: (_: any, r: any) => ruleStatsText(r) },
-      { title: '操作', key: 'actions', render: (_: any, r: any) => {
-        const items = [ { key: 'detail', label: '详情' }, { key: 'delete', label: '删除', danger: true } ];
+    }
+    return cnt;
+  };
+
+  const columns = useMemo(() => ([
+    {
+      title: '名称/ID', key: 'name_id', fixed: 'left' as const, width: 240,
+      sorter: (a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || '')),
+      render: (_: any, r: any) => {
+        const name = r?.name || '-';
+        const id = r?.id || r?.SecurityGroupId || '-';
         return (
-          <RowActionsButton
-            items={items}
-            onClick={async ({ key }: { key: string }) => {
-              if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || r?.SecurityGroupId || '-'; onOpenDetail('sg', `安全组 ${name}（${id}）`, r); }
-              if (key === 'delete') {
-                try {
-                  const gid = r?.id || r?.SecurityGroupId;
-                  if (!gid) { message.error('缺少安全组标识'); return; }
-                  await deleteHuaweiCloudSecurityGroup(cloudId, String(gid));
-                  const json = await fetchCloudProviderSecurityGroups(cloudId).catch(() => null);
-                  const sgList: any[] = (json?.data?.security_groups) || (json?.security_groups) || (json?.data?.securityGroups) || (json?.securityGroups) || [];
-                  onSetSecGroups(Array.isArray(sgList) ? sgList : []);
-                  message.success('删除成功');
-                } catch (e: any) { message.error(e?.message || '删除失败'); }
-              }
-            }}
-          />
+          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+            <Typography.Text strong ellipsis={{ tooltip: name }}>{name}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={id !== '-' ? { text: id } : false}>{id}</Typography.Text>
+          </Space>
         );
-      } },
-    ]);
-  }, [ecs, cloudId, onOpenDetail, onOpenRuleDrawer, onOpenRefsDrawer]);
+      },
+    },
+    {
+      title: '安全组规则', key: 'rule_count', width: 110,
+      render: (_: any, r: any) => { const l: any[] = Array.isArray(r?.security_group_rules) ? r.security_group_rules : []; return (<Button type="link" size="small" style={{ padding: 0 }} onClick={() => onOpenRuleDrawer(r)}>{l.length} 条</Button>); },
+    },
+    {
+      title: '关联实例', key: 'ref_instances', width: 100,
+      render: (_: any, r: any) => { const n = refCount(r); return (<Button type="link" size="small" style={{ padding: 0 }} onClick={() => onOpenRefsDrawer(r)}>{n}</Button>); },
+    },
+    {
+      title: '规则统计', key: 'stats', width: 180,
+      render: (_: any, r: any) => {
+        const list: any[] = Array.isArray(r?.security_group_rules) ? r?.security_group_rules : [];
+        const inCnt = list.filter((x: any) => String(x?.direction || '').toLowerCase() === 'ingress').length;
+        const outCnt = list.filter((x: any) => String(x?.direction || '').toLowerCase() === 'egress').length;
+        return <Typography.Text type="secondary" style={{ fontSize: 12 }}>入站 {inCnt} · 出站 {outCnt}</Typography.Text>;
+      },
+    },
+    { title: '描述', key: 'desc', ellipsis: true, render: (_: any, r: any) => r?.description || '-' },
+    {
+      title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
+      render: (_: any, r: any) => (
+        <RowActionsButton
+          items={[{ key: 'rules', label: '管理规则' }, { key: 'detail', label: '详情' }, { key: 'delete', label: '删除', danger: true }]}
+          onClick={async ({ key }: { key: string }) => {
+            if (key === 'rules') { onOpenRuleDrawer(r); return; }
+            if (key === 'detail') { const name = r?.name || '-'; const id = r?.id || r?.SecurityGroupId || '-'; onOpenDetail('sg', `安全组 ${name}（${id}）`, r); return; }
+            if (key === 'delete') {
+              const gid = r?.id || r?.SecurityGroupId;
+              if (!gid) { message.error('缺少安全组标识'); return; }
+              Modal.confirm({
+                title: '确定删除该安全组?', content: `ID: ${gid}`, okText: '确认删除', okType: 'danger', cancelText: '取消',
+                onOk: async () => { try { await deleteHuaweiCloudSecurityGroup(cloudId, String(gid)); message.success('删除成功'); await refresh(); } catch (e: any) { message.error(e?.message || '删除失败'); } },
+              });
+            }
+          }}
+        />
+      ),
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ]), [ecs, cloudId, onOpenDetail, onOpenRuleDrawer, onOpenRefsDrawer]);
 
   return (
-    <>
-      <SharedToolbar
-        left={(
-          <>
-            <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
-          </>
-        )}
-        right={(
-          <>
-            <ResourceActionsDropdown
-              items={[{ key: 'refresh', label: '刷新' }]}
-              onClick={async ({ key }) => {
-                if (key === 'refresh') {
-                  try {
-                    const json = await fetchCloudProviderSecurityGroups(cloudId).catch(() => null);
-                    const sgList: any[] = (json?.data?.security_groups) || (json?.security_groups) || (json?.data?.securityGroups) || (json?.securityGroups) || [];
-                    onSetSecGroups(Array.isArray(sgList) ? sgList : []);
-                  } catch (e: any) { message.error(e?.message || '刷新失败'); }
-                }
-              }}
-            />
-          </>
-        )}
+    <PageDetailSection
+      title={Label}
+      icon={Icon}
+      toolbarLeft={(
+        <>
+          <Input className="toolbar-search" prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} placeholder="名称 / ID / 描述" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+          <button type="button" className="toolbar-reset-btn" onClick={() => setKeyword('')}>重置</button>
+        </>
+      )}
+      toolbarRight={(
+        <div className="toolbar-actions">
+          {onOpenCreate && <Button type="primary" icon={<PlusOutlined />} onClick={onOpenCreate}>创建安全组</Button>}
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} /></Tooltip>
+        </div>
+      )}
+      asCard={false}
+    >
+      <Table
+        className="std-table"
+        bordered={false}
+        rowKey={(r: any) => r.id || r.SecurityGroupId}
+        dataSource={filteredSgs}
+        columns={columns as any}
+        loading={loading}
+        scroll={{ x: true }}
+        pagination={{ size: 'small', showTotal: (total) => `共 ${total} 条` }}
       />
-      <Table bordered rowKey={(r: any) => r.id || r.SecurityGroupId} dataSource={filteredSgs} columns={columns as any} pagination={{ pageSize: 10 }} />
-    </>
+    </PageDetailSection>
   );
 };
-
 
 export const Icon = <SafetyCertificateOutlined />;
 export const Label = '安全组';

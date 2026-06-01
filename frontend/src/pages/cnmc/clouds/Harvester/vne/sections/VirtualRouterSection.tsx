@@ -3,19 +3,26 @@
  * 成员 VM：`tower.io/paas-category=vne` 或旧 `tower.io/vne-router=true`（与云数据库列表同一套 `paas-*` 键名）。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Tag, Badge, Input, Select, message, Typography, Tooltip } from 'antd';
+import { Table, Button, Tag, Badge, Input, Select, Typography, Tooltip, message } from 'antd';
 import Icon, { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { ReactComponent as VirtualRouterSvg } from '../../../../../../assets/OS/virtual-router.svg';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import WriteGuard from '../../../../../../components/WriteGuard';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import VirtualRouterCreateModal from '../modals/VirtualRouterCreateModal';
 import RdsInstanceLabelEditModal from '../../database/modals/RdsInstanceLabelEditModal';
 import RdsDatabaseConsoleModal, {
   buildRdsDatabaseConsoleUrl,
 } from '../../database/modals/RdsDatabaseConsoleModal';
 import { isTowerPaasVneVm } from '../../shared/harvesterTowerPaas';
+import {
+  type HarvesterSectionOnRefresh,
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 
@@ -23,7 +30,8 @@ type Props = {
   vms: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh?: HarvesterSectionOnRefresh;
+  /** @deprecated 控制台旧入口；Cloudmap 池请只传 `oniaasNetworkTabOnRefresh.virtual_routers` */
   onForceRefresh?: () => void | Promise<void>;
   isTenant?: boolean;
   images?: any[];
@@ -154,12 +162,11 @@ const VirtualRouterSection: React.FC<Props> = ({
   clusterCapabilities,
 }) => {
   const { user } = useAuth();
-  const canEditPaasVmLabels = useMemo(() => {
+  const canManageVne = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
     return (
-      hasPermissionForAction(perms, 'clouds.ecs:write') ||
-      hasPermissionForAction(perms, 'clouds:write') ||
-      hasPermissionForAction(perms, 'clouds.console:write')
+      hasPermissionForAction(perms, 'clouds.vne:write') ||
+      hasPermissionForAction(perms, 'clouds:write')
     );
   }, [user?.permissions]);
 
@@ -379,34 +386,37 @@ const VirtualRouterSection: React.FC<Props> = ({
         key: 'actions',
         fixed: 'right' as const,
         render: (_: any, r: any) => {
-          const items = [
-            {
-              key: 'vrConsole',
-              label: '管理台',
-              disabled: !buildVrouterConsoleUrl(r),
-              onClick: () => setVrConsoleVm(r),
-            },
+          const items = filterMenuItemsForReadOnly([
+            ...(canManageVne
+              ? [{
+                  key: 'vrConsole',
+                  label: '管理台',
+                  disabled: !buildVrouterConsoleUrl(r),
+                  onClick: () => setVrConsoleVm(r),
+                }]
+              : []),
             {
               key: 'openInstance',
               label: '云主机详情',
               onClick: () => openVmDetailDrawer(r),
             },
-            {
-              key: 'editLabels',
-              label: '编辑标签',
-              disabled: !canEditPaasVmLabels,
-              onClick: () => {
-                setLabelEditRecord(r);
-                setLabelEditOpen(true);
-              },
-            },
+            ...(canManageVne
+              ? [{
+                  key: 'editLabels',
+                  label: '编辑标签',
+                  onClick: () => {
+                    setLabelEditRecord(r);
+                    setLabelEditOpen(true);
+                  },
+                }]
+              : []),
             { type: 'divider' as const, key: 'div-yaml' },
             {
               key: 'yamlManifest',
               label: '查看YAML',
               onClick: () => openYamlDrawer(r),
             },
-          ];
+          ], canManageVne);
           return (
             <ResourceActionsDropdown
               items={items}
@@ -416,10 +426,14 @@ const VirtualRouterSection: React.FC<Props> = ({
         },
       },
     ],
-    [canEditPaasVmLabels, openVmDetailDrawer, openYamlDrawer],
+    [canManageVne, openVmDetailDrawer, openYamlDrawer],
   );
 
   const handleOpenCreateModal = () => {
+    if (!canManageVne) {
+      message.error('当前账号没有虚拟路由器操作权限（需要 clouds.vne:write 或 clouds:write 权限）');
+      return;
+    }
     Promise.resolve(onReloadImages?.()).catch(() => undefined);
     Promise.resolve(onReloadSubnets?.()).catch(() => undefined);
     Promise.resolve(onReloadNads?.()).catch(() => undefined);
@@ -427,23 +441,28 @@ const VirtualRouterSection: React.FC<Props> = ({
     setCreateModalVisible(true);
   };
 
-  const handleRefresh = async () => {
-    const msgKey = `vne-vr-refresh-${cloudId}`;
-    setRefreshing(true);
-    message.loading({ content: '正在同步虚拟路由器实例...', key: msgKey, duration: 0 });
-    try {
-      if (onForceRefresh) {
-        await Promise.resolve(onForceRefresh());
-      } else {
-        await Promise.resolve(onRefresh(true));
+  const sectionOnRefresh = useMemo((): HarvesterSectionOnRefresh | undefined => {
+    if (!onForceRefresh) return onRefresh;
+    return (force?: boolean, silent?: boolean) => {
+      if (force === false) {
+        return onRefresh?.(false, silent);
       }
-      message.success({ content: '虚拟路由器列表已刷新', key: msgKey });
-    } catch (e: any) {
-      message.error({ content: e?.message || '刷新失败', key: msgKey });
-    } finally {
-      setRefreshing(false);
-    }
-  };
+      return Promise.resolve(onForceRefresh());
+    };
+  }, [onForceRefresh, onRefresh]);
+
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createHarvesterToolbarRefresh(sectionOnRefresh, {
+        before: () => setRefreshing(true),
+        after: () => setRefreshing(false),
+      }),
+    [sectionOnRefresh],
+  );
+
+  const reloadListAfterWrite = useCallback(() => {
+    void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+  }, [sectionOnRefresh]);
 
   return (
     <PageDetailSection
@@ -495,10 +514,12 @@ const VirtualRouterSection: React.FC<Props> = ({
       }
       toolbarRight={
         <>
-          <Button type="primary" onClick={handleOpenCreateModal}>
-            创建实例
-          </Button>
-          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleRefresh} />
+          <WriteGuard canWrite={canManageVne}>
+            <Button type="primary" onClick={handleOpenCreateModal}>
+              创建实例
+            </Button>
+          </WriteGuard>
+          <Button icon={<ReloadOutlined />} loading={refreshing} onClick={handleToolbarRefresh} />
         </>
       }
     >
@@ -523,7 +544,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         storageClasses={storageClasses}
         kubeSubnets={kubeSubnets}
         harvesterNads={harvesterNads}
-        onCreated={() => onRefresh(true)}
+        onCreated={reloadListAfterWrite}
         namespacesOptions={namespacesOptions}
         namespaceRecords={namespaceRecords}
         isTenant={isTenant}
@@ -538,7 +559,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         }}
         cloudId={cloudId}
         resource={labelEditRecord}
-        onSuccess={() => onRefresh(true)}
+        onSuccess={reloadListAfterWrite}
         hintVariant="vne"
       />
 
@@ -563,7 +584,11 @@ const VirtualRouterSection: React.FC<Props> = ({
           images={images || []}
           activeTab={vmDetailActiveTab}
           onTabChange={setVmDetailActiveTab}
-          onRefresh={onRefresh}
+          onRefresh={(force) => {
+            void runHarvesterSectionRefresh(sectionOnRefresh, {
+              force: force !== false,
+            });
+          }}
         />
       ) : null}
 
@@ -576,7 +601,7 @@ const VirtualRouterSection: React.FC<Props> = ({
           }}
           cloudId={cloudId}
           record={yamlDrawerRecord}
-          onSuccess={() => void onRefresh(true)}
+          onSuccess={reloadListAfterWrite}
         />
       ) : null}
     </PageDetailSection>

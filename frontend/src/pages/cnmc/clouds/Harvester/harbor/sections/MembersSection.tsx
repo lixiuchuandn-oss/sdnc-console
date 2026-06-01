@@ -5,14 +5,13 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Card, Button, Space, Tag, Input, Modal, Form, Select, App, Empty, Spin, Popconfirm } from 'antd';
+import { Table, Card, Button, Space, Tag, Input, Modal, Form, Select, App, Empty } from 'antd';
 import { 
   PlusOutlined, 
   ReloadOutlined, 
   SearchOutlined,
   UserOutlined,
   TeamOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons';
 import type { HarborProjectMember } from '../types';
 import { 

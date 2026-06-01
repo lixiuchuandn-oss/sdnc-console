@@ -38,7 +38,7 @@ export type NetworkTopologyPoolSnapshot = {
 /** 网络拓扑：池数据派生视图 + 本地选网状态；拉数由池 `loadTabResource('network_topology')` */
 export function useNetworkTopologyData(
   cloudId: string,
-  canReadNetworkScope: boolean,
+  canViewNetworkTopology: boolean,
   snapshot: NetworkTopologyPoolSnapshot,
   onRefresh?: HarvesterSectionOnRefresh,
 ) {
@@ -63,17 +63,17 @@ export function useNetworkTopologyData(
 
   useEffect(() => {
     setChartLayoutGate(false);
-  }, [cloudId, canReadNetworkScope]);
+  }, [cloudId, canViewNetworkTopology]);
 
   useEffect(() => {
-    if (!cloudId || !canReadNetworkScope) {
+    if (!cloudId || !canViewNetworkTopology) {
       setChartLayoutGate(true);
       return;
     }
     if (!anyLoading) {
       setChartLayoutGate(true);
     }
-  }, [cloudId, canReadNetworkScope, anyLoading]);
+  }, [cloudId, canViewNetworkTopology, anyLoading]);
 
   useEffect(() => {
     if (providers.length === 0) return;

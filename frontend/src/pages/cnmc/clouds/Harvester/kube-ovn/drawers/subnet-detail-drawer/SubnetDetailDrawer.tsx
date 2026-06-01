@@ -3,10 +3,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Drawer, Card, Descriptions, Tag, Typography, Row, Col } from 'antd';
-import {
-  KUBE_OVN_FLAT_VPC,
-  resolveTowerUnderlaySubnetCategory,
-} from '../../lib/kubeOvnSubnetConstants';
+import { resolveTowerUnderlaySubnetCategory } from '../../lib/kubeOvnSubnetConstants';
 import { vlanDetailDisplayParts } from '../../lib/UnderlaySubnetFormFields';
 import { getHarvesterDrawerSectionCardProps } from '../../../shared/drawerSectionCard';
 

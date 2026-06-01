@@ -135,7 +135,7 @@ const UnderlaySubnetFormFields: React.FC<UnderlaySubnetFormFieldsProps> = ({
   vlans,
   providers,
   aliasDupCheckItems,
-  aliasFieldTooltip,
+  aliasFieldTooltip: _aliasFieldTooltip,
   editingSubnetResourceName,
   publicEditNameOnly,
 }) => {

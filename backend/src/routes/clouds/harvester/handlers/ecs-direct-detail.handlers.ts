@@ -5,7 +5,7 @@
  * ==============================================================================
  * 功能描述:
  * 本文件包含 Harvester 虚拟机 (ECS) 的详情查询 handlers
- * 
+ *
  * 从 harvester.cache.vm.routes.ts 中提取的业务逻辑
  * ==============================================================================
  */
@@ -33,7 +33,9 @@ export async function harvesterVmDetailHandler(req: Request, res: Response) {
       const userSpace = await userSpaceRepo.findOne({ where });
       if (!userSpace) return res.status(403).json({ message: '无权访问该云资源' });
 
-      const validNamespaces = userSpace.namespace ? userSpace.namespace.split(',').map((s) => s.trim()) : [];
+      const validNamespaces = userSpace.namespace
+        ? userSpace.namespace.split(',').map((s) => s.trim())
+        : [];
 
       // STRICT: Do not implicitly add ns-{orgId}. Rely on UserSpace record.
       // if ((req.user as any).organizationId) {

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { App, Modal, Input, Form, Alert, Select, Radio, Space } from 'antd';
+import { App, Modal, Input, Form, Alert } from 'antd';
 import { addCloudProviderRouteEntry } from '../../../../../services/aliyunApi';
 
 type Props = {
@@ -14,8 +14,6 @@ const RouteEntryBatchAddModalAliyun: React.FC<Props> = ({ open, cloudId, routeTa
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState<'simple' | 'advanced'>('simple'); // simple: text area, advanced: TODO
-
   const handleOk = async () => {
     try {
       const values = await form.validateFields();

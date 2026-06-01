@@ -5,6 +5,7 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import {
   createCloudProviderOvnDnatRule,
   deleteCloudProviderOvnDnatRule,
@@ -17,7 +18,6 @@ import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import { generateHarvesterCrMetadataName } from '../../../../../../utils/harvesterUtils';
 import {
   KUBE_OVN_FLAT_VPC,
-  SUBNET_TYPE_ANNOTATION_KEY,
   TOWER_ALIAS_ANNOTATION,
   TOWER_IO_DNAT_PORT_GROUP_ANNOTATION,
   isBuiltInKubeOvnVpc,
@@ -58,7 +58,6 @@ interface BaseSectionProps {
   cloudId: string;
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
-  bordered?: boolean;
 }
 
 interface DnatSectionProps extends BaseSectionProps {
@@ -78,7 +77,6 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
   subnets = [],
   loading,
   onRefresh,
-  bordered = true,
   networkScope,
 }) => {
   const { user } = useAuth();
@@ -680,16 +678,16 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
       key: 'action',
       fixed: 'right' as const,
       render: (_: any, r: any) => {
-        const menuItems: MenuProps['items'] = [
+        const menuItems: MenuProps['items'] = filterMenuItemsForReadOnly([
           { key: 'metadata', label: '查看元数据' },
           { type: 'divider' },
           { key: 'delete', label: '删除', danger: true, disabled: !hasNatWrite }
-        ];
+        ], hasNatWrite);
         return (
           <ResourceActionsDropdown 
             items={menuItems} 
             onClick={({ key }) => handleMenuClick(key, r)}
-            buttonProps={{ className: 'row-actions-trigger', disabled: !hasNatWrite }}
+            buttonProps={{ className: 'row-actions-trigger' }}
           />
         );
       }
@@ -752,16 +750,14 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
             </button>
           </>
         )}
-        primaryAction={{
+        primaryAction={hasNatWrite ? {
           label: '创建DNAT规则',
           onClick: () => {
-            if (!hasNatWrite) return;
             form.resetFields();
             form.setFieldsValue({ protocol: 'tcp', ...(networkScope === 'vpc' ? { vpcName: undefined } : {}) });
             setIsCreateVisible(true);
           },
-          disabled: !hasNatWrite
-        }}
+        } : undefined}
         toolbarRight={
           <Space size={8}>
             <TableColumnSettingsButton allColumns={allColumns} settingsKey={dnatTableSettingsKey} />

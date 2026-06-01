@@ -28,7 +28,10 @@ import { tenantLog } from './tenantRouteLogger';
 const RESOURCE_CHECK_TIMEOUT_MS = 15000;
 
 /** DELETE /organizations/:orgId/resource-pools/:poolId */
-export async function handleDeleteOrganizationResourcePool(req: Request, res: Response): Promise<void> {
+export async function handleDeleteOrganizationResourcePool(
+  req: Request,
+  res: Response,
+): Promise<void> {
   try {
     const { orgId, poolId } = req.params;
 
@@ -54,7 +57,10 @@ export async function handleDeleteOrganizationResourcePool(req: Request, res: Re
         const config = (userSpace.cloud as any).config || {};
         if (isHarvesterLikeCloudProvider(config.provider)) {
           const namespaces = userSpace.namespace
-            ? userSpace.namespace.split(',').map((s) => s.trim()).filter(Boolean)
+            ? userSpace.namespace
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
             : [userSpace.name];
 
           const publicNamespacesSet = await getPublicNamespaceNameSetForUnbind(userSpace.cloudId);
@@ -86,14 +92,16 @@ export async function handleDeleteOrganizationResourcePool(req: Request, res: Re
             let podsInTenantNamespaces: any[] = [];
 
             try {
-              const timeoutPromise = new Promise<[null | { items?: any[] }, any[], any[]]>((resolve) => {
-                setTimeout(() => {
-                  tenantLog.warn(
-                    `Unbind: resource check timeout after ${RESOURCE_CHECK_TIMEOUT_MS}ms for userSpace ${userSpace.id}`,
-                  );
-                  resolve([null, [], []]);
-                }, RESOURCE_CHECK_TIMEOUT_MS);
-              });
+              const timeoutPromise = new Promise<[null | { items?: any[] }, any[], any[]]>(
+                (resolve) => {
+                  setTimeout(() => {
+                    tenantLog.warn(
+                      `Unbind: resource check timeout after ${RESOURCE_CHECK_TIMEOUT_MS}ms for userSpace ${userSpace.id}`,
+                    );
+                    resolve([null, [], []]);
+                  }, RESOURCE_CHECK_TIMEOUT_MS);
+                },
+              );
 
               const endpoint = userSpace.cloud!.endpoint!;
               const token = userSpace.cloud!.secretKey || '';
@@ -165,7 +173,9 @@ export async function handleDeleteOrganizationResourcePool(req: Request, res: Re
             }
 
             const databasePods = podsInTenantNamespaces.filter(podLooksLikeDatabase);
-            const containerPods = podsInTenantNamespaces.filter((p: any) => !podLooksLikeDatabase(p));
+            const containerPods = podsInTenantNamespaces.filter(
+              (p: any) => !podLooksLikeDatabase(p),
+            );
 
             const towerVpcDisplay: VpcUnbindConflictRow[] = vpcRowsForOrgPool.map((v) => ({
               displayName: String(v.name || '').trim() || '—',
@@ -176,7 +186,10 @@ export async function handleDeleteOrganizationResourcePool(req: Request, res: Re
               userSpace.cloudId,
               tenantNamespaces,
             );
-            const vpcDisplayRowsMerged = mergeVpcUnbindRowsByName(towerVpcDisplay, kubeOvnVpcDisplay);
+            const vpcDisplayRowsMerged = mergeVpcUnbindRowsByName(
+              towerVpcDisplay,
+              kubeOvnVpcDisplay,
+            );
 
             const shouldBlockRemoving =
               activeVms.length > 0 ||
@@ -198,9 +211,7 @@ export async function handleDeleteOrganizationResourcePool(req: Request, res: Re
                 namespace: vol.metadata?.namespace || '未知',
                 status: vol.status?.phase || vol.status?.state || '未知',
                 size:
-                  vol.status?.capacity?.storage ||
-                  vol.spec?.resources?.requests?.storage ||
-                  '未知',
+                  vol.status?.capacity?.storage || vol.spec?.resources?.requests?.storage || '未知',
               }));
               const containerRows = containerPods.map((p: any) => ({
                 displayName: kubePodWorkloadDisplayName(p),

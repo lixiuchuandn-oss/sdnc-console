@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { App, Button, Dropdown, Input, Select, Table, Space } from 'antd';
-import { ReloadOutlined, EllipsisOutlined, ClusterOutlined } from '@ant-design/icons';
+import { App, Button, Input, Modal, Select, Table, Space, Tooltip, Typography } from 'antd';
+import { ReloadOutlined, PlusOutlined, ClusterOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection, { RowActionsButton } from '../../../../../components/PageDetailSection';
-import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
-import { fetchCloudProviderVpcs, deleteCloudProviderVpc, updateCloudProviderVpc } from '../../../../../services/aliyunApi';
+import { fetchCloudProviderVpcs, deleteCloudProviderVpc } from '../../../../../services/aliyunApi';
 import { statusTag } from '../../Hw/components/Common';
 
 type VpcSectionAliyunProps = {
@@ -16,13 +15,17 @@ type VpcSectionAliyunProps = {
   raw?: any;
 };
 
+const parseVpcList = (json: any): any[] =>
+  (json?.data?.Vpcs?.Vpc) || (json?.Vpcs?.Vpc) || (json?.data?.vpcs) || (json?.vpcs) || [];
+
 const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSetVpcs, onOpenDetail, onOpenCreate, showLog, raw }) => {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [regionFilter, setRegionFilter] = useState<string | undefined>(undefined);
+  const [loading, setLoading] = useState<boolean>(false);
   const [changedIds, setChangedIds] = useState<Set<string>>(new Set());
   const prevRef = useRef<any[]>(Array.isArray(vpcs) ? vpcs : []);
-  const [regionFilter, setRegionFilter] = useState<string>('');
 
   useEffect(() => {
     try {
@@ -50,6 +53,16 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
     } catch {}
   }, [vpcs]);
 
+  const refresh = async () => {
+    if (!cloudId) return;
+    setLoading(true);
+    try {
+      const json = await fetchCloudProviderVpcs(cloudId);
+      onSetVpcs(parseVpcList(json));
+    } catch (e: any) { message.error(e?.message || '刷新失败'); }
+    finally { setLoading(false); }
+  };
+
   const filteredVpcs = useMemo(() => {
     const list = Array.isArray(vpcs) ? vpcs : [];
     const kw = keyword.trim().toLowerCase();
@@ -66,139 +79,118 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
   }, [vpcs, keyword, statusFilter, regionFilter]);
 
   const columns = useMemo(() => ([
-    { title: '实例名称/ID', key: 'name_id', render: (_: any, r: any) => (<span>{r?.VpcName || r?.name || '-'}<br />{r?.VpcId || r?.id || '-'}</span>), sorter: (a: any, b: any) => {
-      const na = String(a?.VpcName || a?.name || '').toLowerCase();
-      const nb = String(b?.VpcName || b?.name || '').toLowerCase();
-      if (na !== nb) return na.localeCompare(nb);
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: 'IPv4 CIDR', key: 'cidr', render: (_: any, r: any) => r?.CidrBlock || r?.cidr || '-', sorter: (a: any, b: any) => {
-      const ca = String(a?.CidrBlock || a?.cidr || '');
-      const cb = String(b?.CidrBlock || b?.cidr || '');
-      if (ca !== cb) return ca.localeCompare(cb);
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: 'IPv6 CIDR', key: 'ipv6', render: (_: any, r: any) => r?.Ipv6CidrBlock || r?.ipv6_cidr || '-', sorter: (a: any, b: any) => {
-      const ca = String(a?.Ipv6CidrBlock || a?.ipv6_cidr || '');
-      const cb = String(b?.Ipv6CidrBlock || b?.ipv6_cidr || '');
-      if (ca !== cb) return ca.localeCompare(cb);
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: '状态', key: 'status', render: (_: any, r: any) => statusTag(r?.Status || r?.status), sorter: (a: any, b: any) => {
-      const sa = String(a?.Status || a?.status || '').toLowerCase();
-      const sb = String(b?.Status || b?.status || '').toLowerCase();
-      if (sa !== sb) return sa.localeCompare(sb);
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: '地域', key: 'region', render: (_: any, r: any) => r?.RegionId || r?.region || '-', sorter: (a: any, b: any) => {
-      const ra = String(a?.RegionId || a?.region || '').toLowerCase();
-      const rb = String(b?.RegionId || b?.region || '').toLowerCase();
-      if (ra !== rb) return ra.localeCompare(rb);
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: '默认', key: 'default', render: (_: any, r: any) => {
-      const isDef = String(r?.IsDefault ?? r?.is_default ?? '').toLowerCase();
-      return isDef === 'true' || isDef === '1' ? '默认' : '否';
-    }, sorter: (a: any, b: any) => {
-      const da = String(a?.IsDefault ?? a?.is_default ?? '').toLowerCase();
-      const db = String(b?.IsDefault ?? b?.is_default ?? '').toLowerCase();
-      const va = (da === 'true' || da === '1') ? 1 : 0;
-      const vb = (db === 'true' || db === '1') ? 1 : 0;
-      if (va !== vb) return va - vb;
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: '描述', key: 'desc', render: (_: any, r: any) => r?.Description || r?.description || '-', sorter: (a: any, b: any) => {
-      const da = String(a?.Description || a?.description || '').toLowerCase();
-      const db = String(b?.Description || b?.description || '').toLowerCase();
-      if (da !== db) return da.localeCompare(db);
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: '创建时间', key: 'created', render: (_: any, r: any) => r?.CreationTime || r?.created || '-', sorter: (a: any, b: any) => {
-      const ta = Date.parse(String(a?.CreationTime || a?.created || '')) || 0;
-      const tb = Date.parse(String(b?.CreationTime || b?.created || '')) || 0;
-      if (ta !== tb) return ta - tb;
-      const ia = String(a?.VpcId || a?.id || '');
-      const ib = String(b?.VpcId || b?.id || '');
-      return ia.localeCompare(ib);
-    } },
-    { title: '操作', key: 'actions', render: (_: any, r: any) => {
-      const items = [
-        { key: 'detail', label: '详情' },
-        { key: 'del', label: '删除' },
-      ];
-      return (
-        <RowActionsButton
-          items={items}
-          onClick={async ({ key }: { key: string }) => {
-            if (key === 'detail') {
-              const name = r?.VpcName || r?.name || '-';
-              const id = r?.VpcId || r?.id || '-';
-              onOpenDetail('vpc', `VPC ${name}（${id}）`, r);
-              return;
-            }
-            if (key === 'del') {
-              try {
+    {
+      title: '名称/ID',
+      key: 'name_id',
+      fixed: 'left' as const,
+      width: 240,
+      sorter: (a: any, b: any) => String(a?.VpcName || a?.name || '').localeCompare(String(b?.VpcName || b?.name || '')),
+      render: (_: any, r: any) => {
+        const name = r?.VpcName || r?.name || '-';
+        const id = r?.VpcId || r?.id || '-';
+        return (
+          <Space direction="vertical" size={0} style={{ width: '100%' }}>
+            <Typography.Text strong ellipsis={{ tooltip: name }}>{name}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }} copyable={id !== '-' ? { text: id } : false}>{id}</Typography.Text>
+          </Space>
+        );
+      },
+    },
+    { title: 'IPv4 CIDR', key: 'cidr', width: 160, render: (_: any, r: any) => r?.CidrBlock || r?.cidr || '-' },
+    { title: 'IPv6 CIDR', key: 'ipv6', width: 200, render: (_: any, r: any) => r?.Ipv6CidrBlock || r?.ipv6_cidr || '-' },
+    { title: '状态', key: 'status', width: 110, render: (_: any, r: any) => statusTag(r?.Status || r?.status) },
+    { title: '地域', key: 'region', width: 130, render: (_: any, r: any) => r?.RegionId || r?.region || '-' },
+    {
+      title: '默认', key: 'default', width: 80, render: (_: any, r: any) => {
+        const isDef = String(r?.IsDefault ?? r?.is_default ?? '').toLowerCase();
+        return isDef === 'true' || isDef === '1' ? '默认' : '否';
+      },
+    },
+    {
+      title: '描述', key: 'desc', ellipsis: true,
+      render: (_: any, r: any) => r?.Description || r?.description || '-',
+    },
+    {
+      title: '创建时间', key: 'created', width: 170,
+      sorter: (a: any, b: any) => (Date.parse(String(a?.CreationTime || a?.created || '')) || 0) - (Date.parse(String(b?.CreationTime || b?.created || '')) || 0),
+      render: (_: any, r: any) => {
+        const t = r?.CreationTime || r?.created;
+        if (!t) return '-';
+        try { return new Date(t).toLocaleString('zh-CN', { hour12: false }); } catch { return t; }
+      },
+    },
+    {
+      title: '操作', key: 'actions', fixed: 'right' as const, width: 80,
+      render: (_: any, r: any) => {
+        const items = [
+          { key: 'detail', label: '详情' },
+          { key: 'del', label: '删除', danger: true },
+        ];
+        return (
+          <RowActionsButton
+            items={items}
+            onClick={async ({ key }: { key: string }) => {
+              if (key === 'detail') {
+                const name = r?.VpcName || r?.name || '-';
+                const id = r?.VpcId || r?.id || '-';
+                onOpenDetail('vpc', `VPC ${name}（${id}）`, r);
+                return;
+              }
+              if (key === 'del') {
                 const id0 = r?.VpcId || r?.id; if (!id0) return;
-                await deleteCloudProviderVpc(cloudId, id0);
-                const json = await fetchCloudProviderVpcs(cloudId);
-                const vpcList: any[] = (json?.data?.vpcs) || (json?.vpcs) || [];
-                onSetVpcs(Array.isArray(vpcList) ? vpcList : []);
-                message.success('删除成功');
-              } catch (e: any) { message.error(e?.message || '删除失败'); }
-            }
-          }}
-        />
-      );
-    } },
-  ]), [cloudId, onOpenDetail, onSetVpcs]);
+                Modal.confirm({
+                  title: '确定删除该 VPC?',
+                  content: `ID: ${id0}`,
+                  okText: '确认删除', okType: 'danger', cancelText: '取消',
+                  onOk: async () => {
+                    try {
+                      await deleteCloudProviderVpc(cloudId, id0);
+                      message.success('删除成功');
+                      await refresh();
+                    } catch (e: any) { message.error(e?.message || '删除失败'); }
+                  },
+                });
+              }
+            }}
+          />
+        );
+      },
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ]), [cloudId, onOpenDetail]);
+
+  const statusOptions = useMemo(() => Array.from(new Set((vpcs || []).map((r: any) => String(r?.Status || r?.status || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s })), [vpcs]);
+  const regionOptions = useMemo(() => Array.from(new Set((vpcs || []).map((r: any) => String(r?.RegionId || r?.region || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s })), [vpcs]);
 
   return (
-    <>
-      <PageDetailSection
-        title={Label}
-        icon={Icon}
-        toolbarLeft={(
-          <Space size={8}>
-            <Input placeholder="请输入关键词" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} style={{ width: 220 }} />
-            <Select placeholder="选择状态" allowClear value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }} options={[...Array.from(new Set((vpcs || []).map((r: any) => String(r?.Status || r?.status || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
-            <Select placeholder="地域" allowClear value={regionFilter} onChange={setRegionFilter} style={{ width: 160 }} options={[...Array.from(new Set((vpcs || []).map((r: any) => String(r?.RegionId || r?.region || '').trim()).filter(Boolean))).map(s => ({ label: s, value: s }))]} />
-          </Space>
-        )}
-        toolbarRight={(
-          <Space size={8}>
-            {onOpenCreate && (<Button type="primary" onClick={onOpenCreate}>创建VPC</Button>)}
-            <Button icon={<ReloadOutlined />} onClick={async () => {
-              try {
-                const json = await fetchCloudProviderVpcs(cloudId);
-                const vpcList: any[] = (json?.data?.vpcs) || (json?.vpcs) || [];
-                onSetVpcs(Array.isArray(vpcList) ? vpcList : []);
-              } catch (e: any) { message.error(e?.message || '刷新失败'); }
-            }}>刷新</Button>
-          </Space>
-        )}
-        asCard={false}
-      >
+    <PageDetailSection
+      title={Label}
+      icon={Icon}
+      toolbarLeft={(
+        <>
+          <Input className="toolbar-search" prefix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />} placeholder="名称 / ID / CIDR" allowClear value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+          <Select className="toolbar-filter-sm" placeholder="状态" allowClear value={statusFilter} onChange={setStatusFilter} options={statusOptions} dropdownMatchSelectWidth={false} />
+          <Select className="toolbar-filter-sm" placeholder="地域" allowClear value={regionFilter} onChange={setRegionFilter} options={regionOptions} dropdownMatchSelectWidth={false} />
+          <button type="button" className="toolbar-reset-btn" onClick={() => { setKeyword(''); setStatusFilter(undefined); setRegionFilter(undefined); }}>重置</button>
+        </>
+      )}
+      toolbarRight={(
+        <div className="toolbar-actions">
+          {onOpenCreate && (<Button type="primary" icon={<PlusOutlined />} onClick={onOpenCreate}>创建 VPC</Button>)}
+          <Tooltip title="刷新"><Button icon={<ReloadOutlined />} loading={loading} onClick={refresh} /></Tooltip>
+        </div>
+      )}
+      asCard={false}
+    >
       <style>{`.vpc-row-updated{animation:vpcRowBlink .8s ease-in-out 1;background:#fffbe6}@keyframes vpcRowBlink{0%{background:#fffbe6}50%{background:#fff}}`}</style>
       <Table
-        bordered
-        tableLayout="auto"
+        className="std-table"
+        bordered={false}
         rowKey={(r: any) => r.VpcId || r.id}
         dataSource={filteredVpcs}
         columns={columns as any}
+        loading={loading}
+        scroll={{ x: true }}
         pagination={{
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
@@ -213,8 +205,7 @@ const VpcSectionAliyun: React.FC<VpcSectionAliyunProps> = ({ cloudId, vpcs, onSe
           <pre style={{ background:'#f7f7f7', padding:12, borderRadius:8, maxHeight:300, overflow:'auto' }}>{JSON.stringify(raw, null, 2)}</pre>
         </div>
       )}
-      </PageDetailSection>
-    </>
+    </PageDetailSection>
   );
 };
 

@@ -2,7 +2,8 @@ import React from 'react';
 import type { ColumnsType } from 'antd/es/table';
 import { Tag } from 'antd';
 import { UsbTwoTone } from '@ant-design/icons';
-import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
+import ResourceActionsDropdown, { type ResourceActionItem } from 'components/ResourceActionsDropdown';
+import { filterMenuItemsForReadOnly } from 'utils/rbacUi';
 import {
   getUsbState,
   usbVendorLabel,
@@ -20,6 +21,7 @@ export function renderUsbStateTag(state: string): React.ReactNode {
 
 export type UsbDevicesTableActions = {
   isTenant: boolean;
+  hasUsbWrite: boolean;
   onOpenYaml: (record: unknown) => void;
   onSetPassthrough: (rows: unknown[], passthrough: boolean) => void;
 };
@@ -27,7 +29,7 @@ export type UsbDevicesTableActions = {
 export function buildUsbDevicesTableColumns(
   actions: UsbDevicesTableActions,
 ): ColumnsType<Record<string, unknown>> {
-  const { isTenant, onOpenYaml, onSetPassthrough } = actions;
+  const { isTenant, hasUsbWrite, onOpenYaml, onSetPassthrough } = actions;
 
   return [
     {
@@ -185,11 +187,11 @@ export function buildUsbDevicesTableColumns(
           rawData?: { status?: { enabled?: boolean } };
         };
         const enabled = row?.enabled ?? row?.raw?.status?.enabled ?? row?.rawData?.status?.enabled;
-        const isUsedByVm = row?.claimed && row?.vmInfo;
+        const isUsedByVm = Boolean(row?.claimed && row?.vmInfo);
         const vmName = isUsedByVm ? row.vmInfo!.vmDisplayName || row.vmInfo!.vmName : '';
 
-        const items = [
-          ...(enabled === true
+        const items: ResourceActionItem[] = [
+          ...(hasUsbWrite && enabled === true
             ? [
                 {
                   key: 'unclaim',
@@ -200,13 +202,18 @@ export function buildUsbDevicesTableColumns(
                 },
               ]
             : []),
-          ...(enabled === false
+          ...(hasUsbWrite && enabled === false
             ? [{ key: 'claim', label: '设为直通', onClick: () => onSetPassthrough([r], true) }]
             : []),
           ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }] : []),
         ];
 
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+        return (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(items as any, hasUsbWrite) as ResourceActionItem[]}
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        );
       },
     },
   ];
