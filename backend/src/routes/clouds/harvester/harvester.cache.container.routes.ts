@@ -2241,10 +2241,10 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
         // Step 2: 创建 Harbor 镜像拉取密钥
         try {
           const secretUrl = `${origin}/api/v1/namespaces/nginx-gateway/secrets`;
-          // Base64 编码 Docker 配置
+          // Base64 编码 Docker 配置 - 使用 Harbor IP 地址
           const dockerConfig = {
             auths: {
-              'cloudhci.harbor.local': {
+              '10.21.33.33': {
                 username: 'admin',
                 password: 'Harbor12345',
                 auth: Buffer.from('admin:Harbor12345').toString('base64'),
@@ -2334,7 +2334,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   containers: [
                     {
                       name: 'nginx-gateway',
-                      image: 'cloudhci.harbor.local/library/nginx-gateway-fabric:1.4.0',
+                      image: '10.21.33.33/library/nginx-gateway-fabric:1.4.0',
                       ports: [
                         { containerPort: 80, name: 'http' },
                         { containerPort: 443, name: 'https' },
