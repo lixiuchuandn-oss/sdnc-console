@@ -15,9 +15,7 @@ export type Srv6TunnelPayload = {
   ceB: string;
 };
 
-type NormalizeResult =
-  | { ok: true; value: Srv6TunnelPayload }
-  | { ok: false; message: string };
+type NormalizeResult = { ok: true; value: Srv6TunnelPayload } | { ok: false; message: string };
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 
@@ -49,26 +47,14 @@ export const normalizeSrv6TunnelPayload = (payload: unknown): NormalizeResult =>
   return { ok: true, value };
 };
 
-export const hasSrv6NameConflict = (
-  tunnels: Srv6TunnelLike[],
-  name: string,
-  excludeId?: string,
-) =>
-  tunnels.some(
-    (item) => (!excludeId || !sameId(item.id, excludeId)) && sameName(item.name, name),
-  );
+export const hasSrv6NameConflict = (tunnels: Srv6TunnelLike[], name: string, excludeId?: string) =>
+  tunnels.some((item) => (!excludeId || !sameId(item.id, excludeId)) && sameName(item.name, name));
 
 const endpointsMatch = (a: Srv6TunnelLike, b: Srv6TunnelLike) =>
-  sameId(a.peA, b.peA) &&
-  sameId(a.peB, b.peB) &&
-  sameId(a.ceA, b.ceA) &&
-  sameId(a.ceB, b.ceB);
+  sameId(a.peA, b.peA) && sameId(a.peB, b.peB) && sameId(a.ceA, b.ceA) && sameId(a.ceB, b.ceB);
 
 const endpointsMatchSymmetric = (a: Srv6TunnelLike, b: Srv6TunnelLike) =>
-  sameId(a.peA, b.peB) &&
-  sameId(a.peB, b.peA) &&
-  sameId(a.ceA, b.ceB) &&
-  sameId(a.ceB, b.ceA);
+  sameId(a.peA, b.peB) && sameId(a.peB, b.peA) && sameId(a.ceA, b.ceB) && sameId(a.ceB, b.ceA);
 
 export const hasSrv6EndpointConflict = (
   tunnels: Srv6TunnelLike[],

@@ -12,7 +12,7 @@ import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 const filterLinkLocal = (raw: any): string => {
   const s = String(raw || '').trim();
   const parts = s.split(/\s+/).filter(Boolean);
-  return parts.find((p) => !p.toLowerCase().startsWith('fe80')); '';
+  return parts.find((p) => !p.toLowerCase().startsWith('fe80')) ?? '';
 };
 
 function findIfaceInVr3List(dev: any, ifaceName: string): any | null {

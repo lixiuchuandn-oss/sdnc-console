@@ -558,19 +558,20 @@ const SRv6CreatePage: React.FC = () => {
         groups = clean.split(':');
       }
       if (groups.length !== 8) return addr; // 解析失败则原样返回
-      // 转 128 位 BigInt
-      let bits = 0n;
-      for (const g of groups) bits = (bits << 16n) | BigInt(parseInt(g, 16));
-      // 按前缀长度掩码
       if (prefixLen < 0 || prefixLen > 128) return addr;
-      const mask = prefixLen === 0 ? 0n : ((1n << BigInt(128 - prefixLen)) - 1n);
-      bits &= ~mask;
-      // 转回 8 组
-      const result: string[] = [];
-      for (let i = 7; i >= 0; i--) {
-        result[i] = (bits & 0xffffn).toString(16);
-        bits >>= 16n;
+      const fullGroups = Math.floor(prefixLen / 16);
+      const partialBits = prefixLen % 16;
+      for (let i = 0; i < 8; i++) {
+        if (i < fullGroups) continue;
+        if (i === fullGroups && partialBits > 0) {
+          const val = parseInt(groups[i], 16) || 0;
+          const keepMask = (0xffff << (16 - partialBits)) & 0xffff;
+          groups[i] = (val & keepMask).toString(16);
+        } else {
+          groups[i] = '0';
+        }
       }
+      const result = groups;
       // 最简压缩（:: 替换最长连续 0 段）
       let bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
       for (let i = 0; i < 8; i++) {
@@ -944,10 +945,12 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   // 计算注入邻居后的预览配置（复用 buildInjectedPeConfig：SID/64 + VRF ::/0 双路由）
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- buildInjectedPeConfig 为同渲染周期内辅助函数，依赖 peConfigs/ceConfigs/rdRtMeta/formValues
   const peAInjected = useMemo(() => buildInjectedPeConfig('peA'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
   const peAPreviewCfg = peAInjected.preview;
   const peAPreviewStorageCfg = peAInjected.storage;
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
   const peBPreviewCfg = peBInjected.preview;
   const peBPreviewStorageCfg = peBInjected.storage;
