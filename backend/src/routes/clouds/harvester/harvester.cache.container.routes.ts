@@ -2216,12 +2216,33 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
 
         // Step 0: 创建本地镜像仓库（如果不存在）
         let localRegistryExists = false;
+        let localRegistryAddress = '';
         try {
+          // 获取集群节点 IP
+          const nodesUrl = `${origin}/api/v1/nodes`;
+          const nodesResult = await getJsonOnce(nodesUrl, token, insecure, true);
+          const nodes = nodesResult?.items || [];
+          // 获取第一个节点的 InternalIP
+          for (const node of nodes) {
+            const addresses = node?.status?.addresses || [];
+            for (const addr of addresses) {
+              if (addr.type === 'InternalIP') {
+                localRegistryAddress = `${addr.address}:30500`;
+                break;
+              }
+            }
+            if (localRegistryAddress) break;
+          }
+          
+          if (!localRegistryAddress) {
+            localRegistryAddress = 'docker-registry.default.svc.cluster.local:5000';
+          }
+
           const registryServiceUrl = `${origin}/api/v1/namespaces/default/services/docker-registry`;
           try {
             await getJsonOnce(registryServiceUrl, token, insecure, true);
             localRegistryExists = true;
-            results.push({ step: '检查本地镜像仓库', status: 'skipped', message: '已存在' });
+            results.push({ step: '检查本地镜像仓库', status: 'skipped', message: `已存在: ${localRegistryAddress}` });
           } catch (e) {
             // 创建 PVC
             try {
@@ -2254,7 +2275,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   spec: {
                     containers: [{
                       name: 'registry',
-                      image: 'docker.io/library/registry:2',
+                      image: 'registry:2',
                       ports: [{ containerPort: 5000 }],
                       volumeMounts: [{ name: 'registry-storage', mountPath: '/var/lib/registry' }],
                     }],
@@ -2280,7 +2301,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
             await requestJson('POST', serviceUrl, token, insecure, serviceBody);
 
             localRegistryExists = true;
-            results.push({ step: '创建本地镜像仓库', status: 'success', message: 'docker-registry:30500' });
+            results.push({ step: '创建本地镜像仓库', status: 'success', message: localRegistryAddress });
           }
         } catch (error: any) {
           results.push({ step: '创建本地镜像仓库', status: 'error', message: error.message });
@@ -2334,7 +2355,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   containers: [
                     {
                       name: 'image-copy',
-                      image: '172.16.3.79:30500/alpine:latest',
+                      image: `${localRegistryAddress}/alpine:latest`,
                       command: ['/bin/sh', '-c'],
                       args: [
                         `set -e
@@ -2343,7 +2364,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                         chmod +x /tmp/skopeo
                         /tmp/skopeo copy --src-tls-verify=false --dest-tls-verify=false \
                           docker://10.21.33.33/library/nginx-gateway-fabric:1.4.0 \
-                          docker://172.16.3.79:30500/nginx-gateway-fabric:1.4.0 && \
+                          docker://${localRegistryAddress}/nginx-gateway-fabric:1.4.0 && \
                         echo "Image copy success" || echo "Image copy failed"`,
                       ],
                     },
@@ -2455,7 +2476,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   containers: [
                     {
                       name: 'nginx-gateway',
-                      image: '172.16.3.79:30500/nginx-gateway-fabric:1.4.0',
+                      image: `${localRegistryAddress}/nginx-gateway-fabric:1.4.0`,
                       ports: [
                         { containerPort: 80, name: 'http' },
                         { containerPort: 443, name: 'https' },
