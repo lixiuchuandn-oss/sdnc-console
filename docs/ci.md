@@ -32,11 +32,13 @@ PR 与 push 使用**同一套 job**；差别在于 Branch protection 只会在 *
 1. `npm ci`（`backend/`，含 `prettier` devDependency）
 2. `npm run format:check`（`backend/src/**/*.ts` 与 `docs/**/*.md`；**不含** `frontend/`）
 
-### Smoke — `Smoke (API health)`
+### Smoke — `Smoke (API health + auth)`
 
 1. `npm ci` → `npx tsc`
-2. 启动 `node dist/index.js`（`PORT=5099`、`DB_SYNC=true`）
+2. 启动 `node dist/index.js`（`PORT=5099`、`DB_SYNC=true`、`LOGIN_ALLOW_PLAINT_PASSWORD=1`）
 3. 轮询 `GET http://127.0.0.1:5099/health` 直至 200
+4. `POST /api/auth/login`（种子账户 `admin` / `admin123`），断言响应含 `token`
+5. `GET /api/auth/admin-default-home`（`Authorization: Bearer <token>`）直至 200
 
 定义：`.github/workflows/smoke.yml`
 
@@ -79,11 +81,11 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
 
 ## 4. 已知差异与后续收紧
 
-| 项                  | 现状                                             | 后续                                                                         |
-| ------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------- |
-| 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致） | 保持为零                                                                     |
-| Prettier            | CI 校验 **`backend/src`** + **`docs/`**          | `frontend/` 仍靠 lint-staged；全仓前端格式化见 `quality-improvement-plan.md` |
-| E2E / 冒烟          | **`Smoke (API health)`**（`GET /health`）        | UI 级 Playwright 另线补充                                                    |
+| 项                  | 现状                                                          | 后续                                                                         |
+| ------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致）              | 保持为零                                                                     |
+| Prettier            | CI 校验 **`backend/src`** + **`docs/`**                       | `frontend/` 仍靠 lint-staged；全仓前端格式化见 `quality-improvement-plan.md` |
+| E2E / 冒烟          | **`Smoke (API health + auth)`**（health + 登录 + 受保护 API） | UI 级 Playwright（Cloudmap Tab 等）另线补充                                  |
 
 **在 `main` CI 全绿且团队习惯走 PR 之前，不要先开严格的 Required checks**，否则容易全员合不进去。
 
@@ -101,7 +103,7 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
    - `Backend (tsc / lint / test / build)`
    - `Format (prettier backend + docs)`
    - `Frontend (tsc / eslint / test / build)`
-   - （推荐）`Smoke (API health)`
+   - （推荐）`Smoke (API health + auth)`
 4. **Do not allow bypassing the above settings** — 或仅保留 1 个 break-glass 账号
 5. （可选）**Require branches to be up to date before merging** — PR 与最新 `main` 不一致时要求更新后再跑 CI
 
