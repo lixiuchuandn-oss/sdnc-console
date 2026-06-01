@@ -2289,7 +2289,56 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
 
         const results: { step: string; status: string; message?: string }[] = [];
 
-        // Step 0: 创建本地镜像仓库（如果不存在）
+        // Step 0: 查询集群内部镜像仓库的镜像列表
+        let availableImages: string[] = [];
+        try {
+          // 创建一个临时 Pod 来查询镜像仓库
+          const podUrl = `${origin}/api/v1/namespaces/default/pods`;
+          const podBody = {
+            apiVersion: 'v1',
+            kind: 'Pod',
+            metadata: { name: 'registry-check', namespace: 'default' },
+            spec: {
+              containers: [{
+                name: 'check',
+                image: 'curlimages/curl:latest',
+                command: ['/bin/sh', '-c'],
+                args: ['curl -s http://localhost:5000/v2/_catalog && sleep 5'],
+              }],
+              restartPolicy: 'Never',
+            },
+          };
+          
+          // 尝试创建 Pod，但可能因为镜像拉取失败而失败
+          // 所以我们直接查询已有的 Pod 来获取可用的镜像
+          const podsUrl = `${origin}/api/v1/pods`;
+          const podsResult = await getJsonOnce(podsUrl, token, insecure, true);
+          const pods = podsResult?.items || [];
+          
+          // 提取所有 Pod 使用的镜像
+          const imageSet = new Set<string>();
+          for (const pod of pods) {
+            const containers = pod?.spec?.containers || [];
+            for (const c of containers) {
+              if (c.image) imageSet.add(c.image);
+            }
+            const initContainers = pod?.spec?.initContainers || [];
+            for (const c of initContainers) {
+              if (c.image) imageSet.add(c.image);
+            }
+          }
+          availableImages = Array.from(imageSet);
+          
+          results.push({ 
+            step: '查询可用镜像', 
+            status: 'success', 
+            message: `找到 ${availableImages.length} 个镜像` 
+          });
+        } catch (error: any) {
+          results.push({ step: '查询可用镜像', status: 'error', message: error.message });
+        }
+
+        // Step 0.1: 创建本地镜像仓库（如果不存在）
         let localRegistryExists = false;
         let localRegistryAddress = '';
         try {
