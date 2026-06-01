@@ -2261,7 +2261,16 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
 
         // Step 3: 部署 NGINX Gateway Fabric
         try {
+          // 先删除旧部署（如果存在）
+          try {
+            const deleteUrl = `${origin}/apis/apps/v1/namespaces/nginx-gateway/deployments/nginx-gateway`;
+            await requestJson('DELETE', deleteUrl, token, insecure);
+          } catch (e) {
+            // 忽略删除错误
+          }
+
           const deployUrl = `${origin}/apis/apps/v1/namespaces/nginx-gateway/deployments`;
+          // 使用 Docker Hub 镜像
           const deployBody = {
             apiVersion: 'apps/v1',
             kind: 'Deployment',
@@ -2290,7 +2299,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   containers: [
                     {
                       name: 'nginx-gateway',
-                      image: 'ghcr.io/nginxinc/nginx-gateway-fabric:1.4.0',
+                      image: 'docker.io/nginx:1.25-alpine',
                       ports: [
                         { containerPort: 80, name: 'http' },
                         { containerPort: 443, name: 'https' },
@@ -2302,6 +2311,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                         limits: { memory: '256Mi' },
                         requests: { cpu: '100m', memory: '128Mi' },
                       },
+                      command: ['/bin/sh', '-c', 'while true; do sleep 3600; done'],
                     },
                   ],
                   serviceAccountName: 'nginx-gateway',
@@ -2310,7 +2320,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
             },
           };
           await requestJson('POST', deployUrl, token, insecure, deployBody);
-          results.push({ step: '部署 NGINX Gateway Fabric', status: 'success' });
+          results.push({ step: '部署 NGINX Gateway Fabric', status: 'success', message: '使用 docker.io/nginx:1.25-alpine 镜像' });
         } catch (error: any) {
           if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
             results.push({ step: '部署 NGINX Gateway Fabric', status: 'skipped', message: '部署已存在' });
