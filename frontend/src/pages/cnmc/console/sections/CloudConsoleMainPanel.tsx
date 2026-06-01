@@ -16,6 +16,7 @@ import VolumesSection from '../../clouds/Harvester/ebs/sections/VolumesSection';
 import ImagesSection from '../../clouds/Harvester/ecs/sections/ImagesSection';
 import BackupsSection from '../../clouds/Harvester/cbr/sections/BackupsSection';
 import ScheduleVmBackupsSection from '../../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
+import VmRestoreTasksSection from '../../clouds/Harvester/cbr/sections/VmRestoreTasksSection';
 import SnapshotsSection from '../../clouds/Harvester/ebs/sections/SnapshotsSection';
 import CloudInitsSection from '../../clouds/Harvester/ecs/sections/CloudInitsSection';
 import GpuSection from '../../clouds/Harvester/cluster/sections/GpusSection';
@@ -433,6 +434,15 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
+          />
+        );
+      case 'restore-task':
+        return (
+          <VmRestoreTasksSection
+            cloudId={cloudId}
+            isTenant={isTenantUser}
+            vms={vms}
+            allowedNamespaces={namespacesOptions}
           />
         );
 

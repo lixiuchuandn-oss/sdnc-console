@@ -19,6 +19,7 @@ export const TENANT_CONSOLE_MAIN_RESOURCE_PATH: Record<string, string> = {
   snapshot: 'backups/vm_snapshots',
   backup: 'backups/backups',
   schedule: 'backups/schedule_vm_backups',
+  'restore-task': 'backups/vm_restores',
   'flat-subnet': 'flat_network/flat_public_subnets',
   /** 控制台「VPC · 网络」合并 VPC/子网视图，读权限对齐池内 VPC 或 VPC 子网任一侧栏叶 */
   'vpc-subnet': 'kube_ovn/vpcs',
@@ -56,6 +57,7 @@ const HOST_MAIN_RESOURCES = [
   'snapshot',
   'backup',
   'schedule',
+  'restore-task',
 ] as const;
 
 const VPC_MAIN_RESOURCES = ['vpc-subnet', 'eip', 'snat', 'dnat'] as const;
@@ -68,6 +70,7 @@ export const TENANT_CONSOLE_RESOURCES_NEEDING_ECS = new Set<string>([
   'snapshot',
   'backup',
   'schedule',
+  'restore-task',
 ]);
 
 function canAccessByPathSuffix(permissions: string[], pathSuffix: string): boolean {

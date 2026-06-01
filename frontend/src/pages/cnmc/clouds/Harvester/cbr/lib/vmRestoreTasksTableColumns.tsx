@@ -10,14 +10,15 @@ import { getRestoreStatus, vmLineDisplay, type VmRestoreTaskListRow } from './vm
 
 export type VmRestoreTasksTableActions = {
   onOpenYaml: (record: unknown, kind: string, viewLink: string, title: string) => void;
+  isTenant?: boolean;
 };
 
 export function buildVmRestoreTasksTableColumns(
   actions: VmRestoreTasksTableActions,
 ): ColumnsType<VmRestoreTaskListRow> {
-  const { onOpenYaml } = actions;
+  const { onOpenYaml, isTenant } = actions;
 
-  return [
+  const cols: ColumnsType<VmRestoreTaskListRow> = [
     {
       title: '任务名称',
       dataIndex: 'restoreName',
@@ -166,4 +167,8 @@ export function buildVmRestoreTasksTableColumns(
       },
     },
   ];
+  if (isTenant) {
+    return cols.filter((col) => String(col?.key || '') !== 'namespace');
+  }
+  return cols;
 }

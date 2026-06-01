@@ -233,6 +233,7 @@ export type VmRestoreTaskFilterParams = {
   statusFilter: string;
   namespaceFilter: string;
   isTenant?: boolean;
+  allowedNamespaces?: string[];
   isPublicNamespace: (ns: string) => boolean;
 };
 
@@ -242,9 +243,18 @@ export function filterVmRestoreTasksForTable(
 ): VmRestoreTaskListRow[] {
   let d = dataSource;
   if (params.isTenant) {
+    const allowedSet = new Set(
+      (params.allowedNamespaces || [])
+        .map((ns) => String(ns || '').trim().toLowerCase())
+        .filter(Boolean),
+    );
     d = d.filter((x) => {
       const ns = String(x.namespace || '').toLowerCase();
-      return !params.isPublicNamespace(ns) && !isSystemNamespace(ns);
+      if (!ns) return false;
+      if (params.isPublicNamespace(ns) || isSystemNamespace(ns)) return false;
+      /** 租户恢复任务仅展示当前账号项目/命名空间 */
+      if (allowedSet.size > 0) return allowedSet.has(ns);
+      return true;
     });
   }
   if (params.statusFilter) {
@@ -277,14 +287,20 @@ export function filterVmRestoreTasksForTable(
 
 export function buildVmRestoreTaskNamespaceOptions(
   dataSource: VmRestoreTaskListRow[],
-  params: Pick<VmRestoreTaskFilterParams, 'isTenant' | 'isPublicNamespace'>,
+  params: Pick<VmRestoreTaskFilterParams, 'isTenant' | 'allowedNamespaces' | 'isPublicNamespace'>,
 ): Array<{ value: string; label: string }> {
+  const allowedSet = new Set(
+    (params.allowedNamespaces || [])
+      .map((ns) => String(ns || '').trim().toLowerCase())
+      .filter(Boolean),
+  );
   const set = new Set<string>();
   dataSource.forEach((x) => {
     const ns = String(x.namespace || '').trim();
     if (!ns) return;
     if (isSystemNamespace(ns)) return;
     if (params.isTenant && params.isPublicNamespace(ns)) return;
+    if (params.isTenant && allowedSet.size > 0 && !allowedSet.has(ns.toLowerCase())) return;
     set.add(ns);
   });
   return Array.from(set)

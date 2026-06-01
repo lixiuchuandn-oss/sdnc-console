@@ -8,5 +8,7 @@ describe('buildTenantRootBuiltinPermissions', () => {
     expect(perms).not.toContain('clouds.console:write');
     expect(perms).toContain('clouds.ecs:read');
     expect(perms).toContain('clouds.ecs:write');
+    expect(perms).toContain('clouds.restore-tasks:read');
+    expect(perms).toContain('clouds.restore-tasks:write');
   });
 });
