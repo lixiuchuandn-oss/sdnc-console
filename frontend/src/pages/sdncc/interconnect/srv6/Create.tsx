@@ -1160,8 +1160,13 @@ const SRv6CreatePage: React.FC = () => {
     const tunnelName = String(values?.tunnelName || '').trim();
     setPlatformSaveLoading(true);
     try {
-      const { createSrv6Tunnel } = await import('../../../../services/api');
-      await createSrv6Tunnel({ name: tunnelName, peA: String(peA), peB: String(peB), ceA: String(ceA), ceB: String(ceB) });
+      const { createSrv6Tunnel, updateSrv6Tunnel } = await import('../../../../services/api');
+      const payload = { name: tunnelName, peA: String(peA), peB: String(peB), ceA: String(ceA), ceB: String(ceB) };
+      if (editId) {
+        await updateSrv6Tunnel(editId, payload);
+      } else {
+        await createSrv6Tunnel(payload);
+      }
       const saveOps: Promise<any>[] = [];
       if (peA && peAPreviewStorageCfg) saveOps.push(saveVRConfig(String(peA), peAPreviewStorageCfg));
       if (peB && peBPreviewStorageCfg) saveOps.push(saveVRConfig(String(peB), peBPreviewStorageCfg));
@@ -1169,7 +1174,7 @@ const SRv6CreatePage: React.FC = () => {
       if (ceB && ceBPreviewCfg) saveOps.push(saveVRConfig(String(ceB), ceBPreviewCfg));
       if (saveOps.length) await Promise.all(saveOps);
       setPlatformSaved(true);
-      message.success('隧道已创建，配置已写入平台库。请进入「下发向导」分步推送到 CSMctl。');
+      message.success(`隧道已${editId ? '更新' : '创建'}，配置已写入平台库。请进入「下发向导」分步推送到 CSMctl。`);
     } catch (err: any) {
       message.error(`保存失败：${err?.message || '请稍后重试'}`);
     } finally {
@@ -1534,7 +1539,7 @@ const SRv6CreatePage: React.FC = () => {
                       </span>
                     )}
                     <Button type="primary" loading={platformSaveLoading} disabled={platformSaved} onClick={() => void saveTunnelPlatformOnly()}>
-                      创建隧道并保存到平台
+                      {editId ? '更新隧道并保存到平台' : '创建隧道并保存到平台'}
                     </Button>
                     <Button type="primary" disabled={!platformSaved} onClick={() => { commitPreview(); next(); }}>
                       下一步：下发向导
