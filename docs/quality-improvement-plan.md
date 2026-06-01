@@ -10,7 +10,7 @@
 | ------ | ------------------------------------- | ------------------------------------------------------------------------------------- |
 | **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                        |
 | **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                        |
-| **P2** | 巨型文件按主题拆分                    | **container / aliyun / vm_update 已完成**；下一目标 `WorkloadForm.tsx` 等             |
+| **P2** | 巨型文件按主题拆分                    | **container / aliyun / vm_update / JobsSection 已完成**；下一目标 `WorkloadForm.tsx`  |
 | **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：Cloudmap 池 `lazyPoolPanels`；监控/大盘等页 `LazyReactECharts` 按需加载 |
 | **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health)`** workflow（`GET /health`）         |
 
@@ -62,7 +62,7 @@ npx tsc
 | 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | **已完成**：`shared`～`ecs-support` 七个子模块；主文件 ~17 行装配                  |
 | 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | **已完成**：`vm_update/`（`applySimple`/`applyComplex`/`internal` ~80 行等）       |
 | 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                                           |
-| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                                      |
+| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | **已完成**：`lib/jobs/*`、`components/jobs/*`；`sections/JobsSection.tsx` ~110 行  |
 
 ### 单 PR 检查项
 
