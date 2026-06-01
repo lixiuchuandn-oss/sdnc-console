@@ -385,7 +385,6 @@ async function fetchAswCtlSwitchRow(
     vlansHttpStatus,
     vlansNotApplicable,
     vlansNaMessage,
-    deviceProfiles: null,
     apiKeySent: itemApiKeySent(ep),
   };
 }

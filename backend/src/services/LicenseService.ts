@@ -3,10 +3,7 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
-import {
-  getLicenseVerifyPublicKey,
-  LICENSE_JWT_ALGORITHM,
-} from '../config/licenseSigning';
+import { getLicenseVerifyPublicKey, LICENSE_JWT_ALGORITHM } from '../config/licenseSigning';
 import { logger } from '../utils/logger';
 
 const licenseLog = logger.child('License');
@@ -43,10 +40,7 @@ export function normalizeLicenseKey(input: string): string {
     .trim()
     .replace(/^\uFEFF/, '');
   if (!s) return s;
-  if (
-    (s.startsWith('"') && s.endsWith('"')) ||
-    (s.startsWith("'") && s.endsWith("'"))
-  ) {
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
     s = s.slice(1, -1).trim();
   }
   const compact = s.replace(/\s/g, '');
@@ -72,8 +66,7 @@ function formatLicenseActivateError(raw: string): string {
 }
 
 function assertLicenseKeyLooksLikeJwt(token: string): void {
-  const uuidOnly =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
+  const uuidOnly = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token);
   if (uuidOnly) {
     throw new Error(
       '您填写的是「平台唯一安装 ID」，不是 License Key。请粘贴以 eyJ 开头的完整授权字符串，或上传 .key 文件',

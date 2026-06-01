@@ -346,9 +346,7 @@ export class RecycleBinTaskService {
 
     // 记录关机前的状态
     const previousStatus = status;
-    rbLog.debug(
-      `发现需关机的回收站虚拟机: ${cloud.name}/${instanceId} (状态: ${previousStatus})`,
-    );
+    rbLog.debug(`发现需关机的回收站虚拟机: ${cloud.name}/${instanceId} (状态: ${previousStatus})`);
 
     // 执行关机
     try {
