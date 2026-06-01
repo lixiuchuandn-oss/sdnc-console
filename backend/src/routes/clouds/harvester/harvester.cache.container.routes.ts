@@ -2299,7 +2299,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                   containers: [
                     {
                       name: 'nginx-gateway',
-                      image: 'docker.io/nginx:1.25-alpine',
+                      image: 'cloudhci.harbor.local/library/nginx-gateway-fabric:1.4.0',
                       ports: [
                         { containerPort: 80, name: 'http' },
                         { containerPort: 443, name: 'https' },
@@ -2311,7 +2311,6 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
                         limits: { memory: '256Mi' },
                         requests: { cpu: '100m', memory: '128Mi' },
                       },
-                      command: ['/bin/sh', '-c', 'while true; do sleep 3600; done'],
                     },
                   ],
                   serviceAccountName: 'nginx-gateway',
