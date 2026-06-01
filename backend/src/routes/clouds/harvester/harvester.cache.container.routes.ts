@@ -2231,7 +2231,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
           await requestJson('POST', nsUrl, token, insecure, nsBody);
           results.push({ step: '创建命名空间 nginx-gateway', status: 'success' });
         } catch (error: any) {
-          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+          if ((typeof error?.body === 'string' && error.body.includes('AlreadyExists')) || error?.message?.includes('AlreadyExists')) {
             results.push({ step: '创建命名空间 nginx-gateway', status: 'skipped', message: '命名空间已存在' });
           } else {
             results.push({ step: '创建命名空间 nginx-gateway', status: 'error', message: error.message });
@@ -2252,7 +2252,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
           await requestJson('POST', saUrl, token, insecure, saBody);
           results.push({ step: '创建 ServiceAccount', status: 'success' });
         } catch (error: any) {
-          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+          if ((typeof error?.body === 'string' && error.body.includes('AlreadyExists')) || error?.message?.includes('AlreadyExists')) {
             results.push({ step: '创建 ServiceAccount', status: 'skipped', message: '已存在' });
           } else {
             results.push({ step: '创建 ServiceAccount', status: 'error', message: error.message });
@@ -2321,7 +2321,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
           await requestJson('POST', deployUrl, token, insecure, deployBody);
           results.push({ step: '部署 NGINX Gateway Fabric', status: 'success', message: '使用 docker.io/nginx:1.25-alpine 镜像' });
         } catch (error: any) {
-          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+          if ((typeof error?.body === 'string' && error.body.includes('AlreadyExists')) || error?.message?.includes('AlreadyExists')) {
             results.push({ step: '部署 NGINX Gateway Fabric', status: 'skipped', message: '部署已存在' });
           } else {
             results.push({ step: '部署 NGINX Gateway Fabric', status: 'error', message: error.message });
@@ -2344,7 +2344,7 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
           await requestJson('POST', gcUrl, token, insecure, gcBody);
           results.push({ step: '创建 GatewayClass (nginx)', status: 'success' });
         } catch (error: any) {
-          if (error?.body?.includes('AlreadyExists') || error?.message?.includes('AlreadyExists')) {
+          if ((typeof error?.body === 'string' && error.body.includes('AlreadyExists')) || error?.message?.includes('AlreadyExists')) {
             results.push({ step: '创建 GatewayClass (nginx)', status: 'skipped', message: 'GatewayClass 已存在' });
           } else {
             results.push({ step: '创建 GatewayClass (nginx)', status: 'error', message: error.message });
