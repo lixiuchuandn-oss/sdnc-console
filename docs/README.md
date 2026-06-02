@@ -9,17 +9,17 @@
 - **主题**取固定词表：`code-quality`、`frontend-layout`、`cloudmap-pool-rbac`、`maas-integration`、`remote-access-architecture`；新增文档须先归入或扩展词表，避免 `pr-`、`page-` 等缩写与冗词。
 - 交叉引用写完整路径：`docs/frontend-layout.md` §5.2。
 
-| 文档                                                             | 说明                                                                                           |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| [contributing.md](./contributing.md)                             | **贡献与合入前检查**：按改动路径跑命令、Prettier、PR 清单                                      |
-| [ci.md](./ci.md)                                                 | **CI 与合入门禁**：Actions job、本地复现、Branch protection 勾选清单                           |
-| [quality-improvement-plan.md](./quality-improvement-plan.md)     | **质量改进执行清单**：ESLint 清零、巨型文件拆分、bundle 与 E2E 分阶段计划                      |
-| [code-quality.md](./code-quality.md)                             | **代码质量**（§1～§9 合入清单；§10～§12 可选评分；五十条附录）                                 |
-| [frontend-layout.md](./frontend-layout.md)                       | **前端布局**：壳层、三层容器、侧栏与 Tab；列表 **§5.1**、工具栏 **§5.2**（样板 **VmSection**） |
-| [cloudmap-pool-rbac.md](./cloudmap-pool-rbac.md)                 | **Cloudmap 池 RBAC**：以页面为实体（入口 / 展示 / 操作）                                       |
-| [maas-integration.md](./maas-integration.md)                     | **MAAS 对接**：北向 API、BFF/Adapter、v2/v3 约定                                               |
-| [remote-access-architecture.md](./remote-access-architecture.md) | **云桌面网关总体架构**：扁平网 + admin 体系、Cloudmap/MAAS、资源池接入；租户暂不涉及           |
-| [integrate-guacamole.md](./integrate-guacamole.md)               | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                |
+| 文档                                                             | 说明                                                                                                  |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [contributing.md](./contributing.md)                             | **贡献与合入前检查**：按改动路径跑命令、Prettier、PR 清单                                             |
+| [ci.md](./ci.md)                                                 | **CI 与合入门禁**：Actions job、本地复现、Branch protection 勾选清单                                  |
+| [quality-improvement-plan.md](./quality-improvement-plan.md)     | **质量改进执行清单**：ESLint 清零、巨型文件拆分、bundle 与 E2E 分阶段计划                             |
+| [code-quality.md](./code-quality.md)                             | **代码质量**（§1～§9 合入清单；§10～§12 可选评分；五十条附录）                                        |
+| [frontend-layout.md](./frontend-layout.md)                       | **前端布局**：壳层、三层容器、侧栏与 Tab；列表 **§5.1**、工具栏 **§5.2**（样板 **VmSection**）        |
+| [cloudmap-pool-rbac.md](./cloudmap-pool-rbac.md)                 | **Cloudmap 池 RBAC**：以页面为实体（入口 / 展示 / 操作）                                              |
+| [maas-integration.md](./maas-integration.md)                     | **MAAS 对接**：北向 API、BFF/Adapter、v2/v3 约定                                                      |
+| [remote-access-architecture.md](./remote-access-architecture.md) | **云桌面网关总体架构**：扁平网 + admin 体系、Cloudmap/MAAS、资源池接入；租户暂不涉及                  |
+| [integrate-guacamole.md](./integrate-guacamole.md)               | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                       |
 | [cloudmap-whitepaper/README.md](./cloudmap-whitepaper/README.md) | **Cloudmap 融合边缘云技术白皮书**：Markdown 源稿、`manifest` 合并顺序、Pandoc 生成 Word（**可提交**） |
 
 **源码旁文档**（不在此 Hub，但与 Hub 并列权威）：
