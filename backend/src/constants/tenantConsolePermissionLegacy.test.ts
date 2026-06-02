@@ -1,21 +1,24 @@
 import {
-  isTenantConsoleUmbrellaPermission,
-  stripTenantConsoleUmbrellaPermissions,
+  hasAnyTenantCloudConsolePagePermission,
+  isCloudPoolListOrMetaReadPath,
 } from './tenantConsolePermissionLegacy';
 
 describe('tenantConsolePermissionLegacy', () => {
-  it('strips clouds.console atoms', () => {
-    expect(
-      stripTenantConsoleUmbrellaPermissions([
-        'clouds.console:read',
-        'clouds.console:write',
-        'clouds.ecs:read',
-      ]),
-    ).toEqual(['clouds.ecs:read']);
+  it('hasAnyTenantCloudConsolePagePermission accepts clouds page atoms', () => {
+    expect(hasAnyTenantCloudConsolePagePermission(['clouds.backups:read'])).toBe(true);
+    expect(hasAnyTenantCloudConsolePagePermission(['clouds.ecs:write'])).toBe(true);
+    expect(hasAnyTenantCloudConsolePagePermission(['clouds:read'])).toBe(true);
   });
 
-  it('isTenantConsoleUmbrellaPermission', () => {
-    expect(isTenantConsoleUmbrellaPermission('clouds.console:read')).toBe(true);
-    expect(isTenantConsoleUmbrellaPermission('clouds.ecs:read')).toBe(false);
+  it('hasAnyTenantCloudConsolePagePermission rejects console umbrella only', () => {
+    expect(hasAnyTenantCloudConsolePagePermission(['clouds.console:read'])).toBe(false);
+    expect(hasAnyTenantCloudConsolePagePermission([])).toBe(false);
+  });
+
+  it('isCloudPoolListOrMetaReadPath matches list and meta only', () => {
+    expect(isCloudPoolListOrMetaReadPath('/api/clouds', 'GET')).toBe(true);
+    expect(isCloudPoolListOrMetaReadPath('/api/clouds/pool-1', 'GET')).toBe(true);
+    expect(isCloudPoolListOrMetaReadPath('/api/clouds/pool-1/resources/ecs', 'GET')).toBe(false);
+    expect(isCloudPoolListOrMetaReadPath('/api/clouds', 'POST')).toBe(false);
   });
 });

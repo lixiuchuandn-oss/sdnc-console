@@ -1,0 +1,1 @@
+export { updateHarvesterVMSpec } from './update';

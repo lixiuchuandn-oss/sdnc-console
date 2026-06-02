@@ -3,6 +3,11 @@ import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { vrController } from '../../services/vrouter/vrController';
+import {
+  hasSrv6EndpointConflict,
+  hasSrv6NameConflict,
+  normalizeSrv6TunnelPayload,
+} from './srv6.validation';
 
 export const srv6Routes = Router();
 const repo = () => AppDataSource.getRepository(SRv6Tunnel);
@@ -86,17 +91,24 @@ srv6Routes.post('/', async (req, res, next) => {
         return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
       }
     }
-    const { name, peA, peB, ceA, ceB } = req.body || {};
-    if (!name || !peA || !peB || !ceA || !ceB) {
-      res.status(400).json({ message: '缺少必要字段：name, peA, peB, ceA, ceB' });
+    const normalized = normalizeSrv6TunnelPayload(req.body);
+    if (!normalized.ok) {
+      res.status(400).json({ message: normalized.message });
       return;
     }
+
+    const existing = await repo().find();
+    if (hasSrv6NameConflict(existing, normalized.value.name)) {
+      res.status(409).json({ message: `已存在同名 SRv6 隧道：${normalized.value.name}` });
+      return;
+    }
+    if (hasSrv6EndpointConflict(existing, normalized.value)) {
+      res.status(409).json({ message: '已存在相同 PE/CE 端点组合的 SRv6 隧道' });
+      return;
+    }
+
     const item = repo().create({
-      name,
-      peA: String(peA),
-      peB: String(peB),
-      ceA: String(ceA),
-      ceB: String(ceB),
+      ...normalized.value,
       status: SRv6Status.CREATING,
     });
     const saved = await repo().save(item);
@@ -109,6 +121,49 @@ srv6Routes.post('/', async (req, res, next) => {
       }
     }, 1000);
     res.status(201).json(saved);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// 更新：编辑 SRv6 隧道基础关系（不在此阶段做 PE/CE 配置完整性校验）
+srv6Routes.put('/:id', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (!(role === 'super_admin' || perms.includes('networks.srv6:write'))) {
+        return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
+      }
+    }
+    const id = String(req.params.id);
+    const current = await repo().findOne({ where: { id } });
+    if (!current) {
+      res.status(404).json({ message: '未找到隧道' });
+      return;
+    }
+
+    const normalized = normalizeSrv6TunnelPayload(req.body);
+    if (!normalized.ok) {
+      res.status(400).json({ message: normalized.message });
+      return;
+    }
+
+    const existing = await repo().find();
+    if (hasSrv6NameConflict(existing, normalized.value.name, id)) {
+      res.status(409).json({ message: `已存在同名 SRv6 隧道：${normalized.value.name}` });
+      return;
+    }
+    if (hasSrv6EndpointConflict(existing, normalized.value, id)) {
+      res.status(409).json({ message: '已存在相同 PE/CE 端点组合的 SRv6 隧道' });
+      return;
+    }
+
+    repo().merge(current, normalized.value);
+    const saved = await repo().save(current);
+    res.json(saved);
   } catch (e) {
     next(e);
   }

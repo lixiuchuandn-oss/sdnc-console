@@ -35,7 +35,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { createGrpcRoute } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -135,8 +135,11 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
       apiVersion: 'gateway.networking.k8s.io/v1',
       kind: 'GRPCRoute',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('grpcroute'),
         namespace: values.namespace,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       spec: {},
     };
@@ -218,6 +221,7 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('grpcroute'),
         parentRefs: [{}],
         rules: [{ matches: [{}], backendRefs: [{}] }],
       }}
@@ -228,10 +232,9 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
           <Col span={12}>
             <Form.Item
               name="name"
-              label="名称"
+              label="别名"
               rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                { required: true, message: '请输入别名' },
               ]}
             >
               <Input placeholder="如: my-grpcroute" />

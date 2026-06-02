@@ -6,13 +6,13 @@
 
 ## 阶段总览
 
-| 阶段   | 目标                                  | 状态                                                                            |
-| ------ | ------------------------------------- | ------------------------------------------------------------------------------- |
-| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                  |
-| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                  |
-| **P2** | 巨型文件按主题拆分                    | 待排期                                                                          |
-| **P3** | 前端 bundle 分析与 code splitting     | 待排期                                                                          |
-| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：`backend/src` + `docs/` 已格式化并 CI；`frontend/src` 与 E2E 待办 |
+| 阶段   | 目标                                  | 状态                                                                                           |
+| ------ | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **P0** | 后端 ESLint warning → 0               | 已完成（`cursor/backend-eslint-cleanup-c3e5`）                                                 |
+| **P1** | CI 后端 lint 改为 `--max-warnings=0`  | 已完成（`backend/package.json`、`docs/ci.md`）                                                 |
+| **P2** | 巨型文件按主题拆分                    | **JobsSection 等已完成**；**WorkloadForm** 首期 + 子编辑器（`workloadForm/editors/`）已拆      |
+| **P3** | 前端 bundle 分析与 code splitting     | **部分完成**：`lazyPoolPanels`；`LazyReactECharts`；容器/计算 **`lazySections`** 按 Tab 懒加载 |
+| **P4** | Prettier `--check`、关键路径 E2E/冒烟 | **部分完成**：Prettier CI；**`Smoke (API health + auth)`**（health + 登录 + 受保护 API）       |
 
 ### Prettier 范围说明
 
@@ -56,13 +56,13 @@ npx tsc
 
 按「改动频率 × 行数」优先，每次只拆一个主题，保证 PR 可审。
 
-| 优先级 | 文件（约行数）                                                      | 建议拆法                                                        |
-| ------ | ------------------------------------------------------------------- | --------------------------------------------------------------- |
-| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | 按资源类型拆 `*.cache.container.*.routes.ts` 或迁入 `handlers/` |
-| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | 按产品（ECS/VPC/RDS…）拆 `aliyun/*.routes.ts`                   |
-| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | 按操作（patch/disks/network）拆 `vm_update/*.ts`                |
-| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | 表单子组件 + `hooks/useWorkloadForm*.ts`                        |
-| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | 列定义 `lib/*Columns.tsx`、工具栏/刷新 `lib/`                   |
+| 优先级 | 文件（约行数）                                                      | 建议拆法                                                                                                                      |
+| ------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 1      | `routes/clouds/harvester/harvester.cache.container.routes.ts` (~5k) | **已完成**：`shared`～`docker-registry` / `containerd-registry`；主文件 ~55 行装配                                            |
+| 2      | `routes/clouds/aliyun/routes.ts` (~4.5k)                            | **已完成**：`shared`～`ecs-support` 七个子模块；主文件 ~17 行装配                                                             |
+| 3      | `services/clouds/harvester/vm_update.ts` (~2.3k)                    | **已完成**：`vm_update/`（`applySimple`/`applyComplex`/`internal` ~80 行等）                                                  |
+| 4      | `frontend/.../WorkloadForm.tsx` (~7.5k)                             | **已完成**：`workloadForm/` + `editors/`（ResourceInput、Env/Volumes/Probe、亲和/容忍、DNS 等）；主文件 ~3.7k；可选再抽 hooks |
+| 5      | `frontend/.../JobsSection.tsx` (~2.1k)                              | **已完成**：`lib/jobs/*`、`components/jobs/*`；`sections/JobsSection.tsx` ~110 行                                             |
 
 ### 单 PR 检查项
 
@@ -78,15 +78,16 @@ npx tsc
 1. `npx source-map-explorer 'build/static/js/*.js'`（需先 `react-scripts build`）
 2. 对 >500KB 的 chunk 做路由级 `React.lazy`
 3. 复核 `echarts`、`@ant-design/charts` 是否可按页动态 import
+4. **池内 Tab 懒加载**：`containers/lazySections`、`ecs/lazySections`（Cloudmap 池）；`console/lib/lazyMainPanelSections`（租户控制台云盘/备份/网络等）— 避免未进 Tab 即拉重模块
 
 ---
 
 ## P4：CI 增强
 
-| 项       | 命令                                                   | 说明                                      |
-| -------- | ------------------------------------------------------ | ----------------------------------------- |
-| Prettier | `npx prettier --check "src/**/*.{ts,tsx,json,md,css}"` | 与 lint-staged 对齐                       |
-| 冒烟     | 登录 + Cloudmap 单 Tab + VM 列表                       | 可用 Playwright 或内部脚本，另开 workflow |
+| 项       | 命令                                                               | 说明                                                |
+| -------- | ------------------------------------------------------------------ | --------------------------------------------------- |
+| Prettier | `npx prettier --check "src/**/*.{ts,tsx,json,md,css}"`             | 与 lint-staged 对齐                                 |
+| 冒烟     | **API**：health + `POST /api/auth/login` + 受保护路由（CI 已覆盖） | **UI**：Cloudmap 单 Tab + VM 列表 → Playwright 另线 |
 
 ---
 

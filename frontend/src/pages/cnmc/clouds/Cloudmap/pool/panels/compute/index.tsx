@@ -1,13 +1,16 @@
 import React, { useCallback, useMemo } from 'react';
 import { createComputeTabOnRefresh } from '../../loaders/computeRefresh';
 import { Empty, message } from 'antd';
-import VmSection from '../../../../Harvester/ecs/sections/VmSection';
-import ImagesSection from '../../../../Harvester/ecs/sections/ImagesSection';
-import TemplatesSection from '../../../../Harvester/ecs/sections/TemplatesSection';
-import SshKeysSection from '../../../../Harvester/ecs/sections/SshKeysSection';
-import CloudInitsSection from '../../../../Harvester/ecs/sections/CloudInitsSection';
-import RecycleBinSection from '../../../../Harvester/ecs/sections/RecycleBinSection';
-import MigrationsSection from '../../../../Harvester/ecs/sections/MigrationsSection';
+import {
+  EcsSectionSuspense,
+  LazyVmSection,
+  LazyImagesSection,
+  LazyTemplatesSection,
+  LazySshKeysSection,
+  LazyCloudInitsSection,
+  LazyRecycleBinSection,
+  LazyMigrationsSection,
+} from '../../../../Harvester/ecs/lazySections';
 import {
   deleteCloudProviderEcs,
   fetchHarvesterImages,
@@ -223,8 +226,9 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
 
   if (innerActiveKey === 'ecs') {
     return (
-      <>
-        <VmSection
+      <EcsSectionSuspense>
+        <>
+        <LazyVmSection
                 vms={ecs}
                 loading={resourceLoading.ecs}
                 namespacesOptions={namespacesOptions}
@@ -461,14 +465,16 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
                 volumes={harvesterVolumes}
               />
         <DebugJSON data={rawEcs} show={showLog} />
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 
   if (innerActiveKey === 'images') {
     return (
-      <>
-        <ImagesSection
+      <EcsSectionSuspense>
+        <>
+        <LazyImagesSection
           cloudId={cloudId}
           images={harvesterImages}
           loading={resourceLoading.images}
@@ -477,14 +483,16 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           isTenant={isTenant}
         />
         <DebugJSON data={rawImages} show={showLog} />
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 
   if (innerActiveKey === 'templates') {
     return (
-      <>
-        <TemplatesSection
+      <EcsSectionSuspense>
+        <>
+        <LazyTemplatesSection
           cloudId={cloudId}
           templates={harvesterTemplates}
           loading={resourceLoading.templates}
@@ -493,42 +501,48 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           workspaceVmNamespace={isTenant ? (nsFilter || undefined) : undefined}
         />
         <DebugJSON data={rawTemplates} show={showLog} />
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 
   if (innerActiveKey === 'ssh_keys') {
     return (
-      <>
-        <SshKeysSection
+      <EcsSectionSuspense>
+        <>
+        <LazySshKeysSection
           cloudId={cloudId}
           sshKeys={harvesterSshKeys}
           loading={resourceLoading.sshKeys}
           onRefresh={computeTabOnRefresh.ssh_keys}
         />
         <DebugJSON data={rawSshKeys} show={showLog} />
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 
   if (innerActiveKey === 'cloud_inits') {
     return (
-      <>
-        <CloudInitsSection
+      <EcsSectionSuspense>
+        <>
+        <LazyCloudInitsSection
           cloudId={cloudId}
           cloudInits={harvesterCloudInits}
           loading={resourceLoading.cloudInits}
           onRefresh={computeTabOnRefresh.cloud_inits}
         />
         <DebugJSON data={rawCloudInits} show={showLog} />
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 
   if (innerActiveKey === 'recycle_bin') {
     return (
-      <>
-        <RecycleBinSection
+      <EcsSectionSuspense>
+        <>
+        <LazyRecycleBinSection
           vms={ecs}
           loading={resourceLoading.ecs}
           cloudId={cloudId}
@@ -564,14 +578,16 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
             </pre>
           </div>
         )}
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 
   if (innerActiveKey === 'migrations') {
     return (
-      <>
-        <MigrationsSection
+      <EcsSectionSuspense>
+        <>
+        <LazyMigrationsSection
           cloudId={cloudId}
           vms={ecs}
           migrations={harvesterMigrations}
@@ -580,7 +596,8 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           isTenant={isTenant}
         />
         <DebugJSON data={rawMigrations} show={showLog} />
-      </>
+        </>
+      </EcsSectionSuspense>
     );
   }
 

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Card, Radio, Spin, Row, Col } from 'antd';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../../../../components/LazyReactECharts';
 import { fetchMetricRange } from '../../../../../../../../services/monitoringApi';
 import {
   VM_DETAIL_DRAWER_BLOCK_CARD_STYLE,
@@ -326,7 +326,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
           >
             <Spin spinning={loading}>
               <ChartWithEmpty isEmpty={!cpuData?.length}>
-                <ReactECharts 
+                <LazyReactECharts 
                     option={getOption(
                       'CPU使用率',
                       '%',
@@ -348,7 +348,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
           >
             <Spin spinning={loading}>
               <ChartWithEmpty isEmpty={!memData?.length}>
-                <ReactECharts 
+                <LazyReactECharts 
                     option={getOption('内存使用率', '%', [{ 
                         name: 'Usage', 
                         data: memData.map((d) => [d[0], (Number(d[1]) || 0) * 100]) 
@@ -369,7 +369,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
               >
                 <Spin spinning={loading}>
                   <ChartWithEmpty isEmpty={!netData.rx?.length && !netData.tx?.length}>
-                    <ReactECharts 
+                    <LazyReactECharts 
                         option={getByteRateOption('网络吞吐量', [
                             { name: 'Receive', data: netData.rx.map((d) => [d[0], (Number(d[1]) || 0) / 8]), color: '#faad14' },
                             { name: 'Transmit', data: netData.tx.map((d) => [d[0], (Number(d[1]) || 0) / 8]), color: '#13c2c2' }
@@ -388,7 +388,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
               >
                 <Spin spinning={loading}>
                   <ChartWithEmpty isEmpty={!netPpsData.rx?.length && !netPpsData.tx?.length}>
-                    <ReactECharts 
+                    <LazyReactECharts 
                         option={getOption('网络包速率', 'pps', [
                             { name: 'Receive', data: netPpsData.rx, color: '#faad14' },
                             { name: 'Transmit', data: netPpsData.tx, color: '#13c2c2' }
@@ -412,7 +412,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
               >
                 <Spin spinning={loading}>
                   <ChartWithEmpty isEmpty={!diskData.read?.length && !diskData.write?.length}>
-                    <ReactECharts 
+                    <LazyReactECharts 
                         option={getByteRateOption('磁盘IO吞吐量', [
                             { name: 'Read', data: diskData.read, color: '#722ed1' },
                             { name: 'Write', data: diskData.write, color: '#eb2f96' }
@@ -431,7 +431,7 @@ export const VmPerformance: React.FC<VmPerformanceProps> = ({ cloudId, namespace
               >
                 <Spin spinning={loading}>
                   <ChartWithEmpty isEmpty={!diskIopsData.read?.length && !diskIopsData.write?.length}>
-                    <ReactECharts 
+                    <LazyReactECharts 
                         option={getOption('磁盘 IOPS', 'IOPS', [
                             { name: 'Read', data: diskIopsData.read, color: '#722ed1' },
                             { name: 'Write', data: diskIopsData.write, color: '#eb2f96' }

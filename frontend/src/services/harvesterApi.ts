@@ -1899,6 +1899,27 @@ export const fetchGatewayClasses = async (cloudId: string) => {
 };
 
 /**
+ * 创建 GatewayClass
+ * GatewayClass 是集群级别资源，定义 Gateway 的控制器实现
+ * @param cloudId 云环境 ID
+ * @param data GatewayClass 数据
+ * @returns Promise<any>
+ */
+export const createGatewayClass = async (cloudId: string, data: { metadata: { name: string }; spec: { controllerName: string; description?: string } }) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/gatewayclasses`, data);
+};
+
+/**
+ * 删除 GatewayClass
+ * @param cloudId 云环境 ID
+ * @param name GatewayClass 名称
+ * @returns Promise<any>
+ */
+export const deleteGatewayClass = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/gatewayclasses/${encodeURIComponent(name)}`);
+};
+
+/**
  * 获取 Gateway 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选)
@@ -1940,6 +1961,29 @@ export const createGateway = async (cloudId: string, namespace: string, body: an
  */
 export const deleteGateway = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 更新 Gateway (YAML 编辑)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @param body 完整的 Gateway JSON 对象
+ * @returns Promise<any>
+ */
+export const updateGateway = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 获取 Gateway 相关的 Kubernetes Events
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @returns Promise<any> Events 列表
+ */
+export const fetchGatewayEvents = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/events`);
 };
 
 /**
@@ -1987,6 +2031,18 @@ export const deleteHttpRoute = async (cloudId: string, namespace: string, name: 
 };
 
 /**
+ * 更新 HTTPRoute (YAML 编辑)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name HTTPRoute 名称
+ * @param body 完整的 HTTPRoute JSON 对象
+ * @returns Promise<any>
+ */
+export const updateHttpRoute = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/httproutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
  * 获取 GRPCRoute 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选)
@@ -2028,6 +2084,27 @@ export const createGrpcRoute = async (cloudId: string, namespace: string, body: 
  */
 export const deleteGrpcRoute = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 更新 GRPCRoute (YAML 编辑)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name GRPCRoute 名称
+ * @param body 完整的 GRPCRoute JSON 对象
+ * @returns Promise<any>
+ */
+export const updateGrpcRoute = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 安装 NGINX Gateway Fabric
+ * @param cloudId 云环境 ID
+ * @returns Promise<any> 安装结果
+ */
+export const installNginxGatewayFabric = async (cloudId: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/gateway/install-nginx-controller`);
 };
 
 // ============================================================

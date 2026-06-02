@@ -10,7 +10,7 @@
  * 设计参考：Harvester/ecs/drawers/vm-detail/tabs/VmPerformance.tsx 的 getOption / getByteRateOption。
  */
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../../components/LazyReactECharts';
 import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useEChartsLoading } from '../hooks/useEChartsLoading';
@@ -277,7 +277,7 @@ const MetricTimeSeriesChart: React.FC<MetricTimeSeriesChartProps> = ({
 
   return (
     <div ref={wrapRef} style={{ width: '100%', minWidth: 0, height }}>
-      <ReactECharts
+      <LazyReactECharts
         ref={chartRef}
         option={option}
         style={{ height: '100%', width: '100%' }}

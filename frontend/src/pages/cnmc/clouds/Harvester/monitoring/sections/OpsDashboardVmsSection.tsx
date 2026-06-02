@@ -50,7 +50,15 @@ const OVERVIEW_CARD_COL_FILL_STYLE: React.CSSProperties = {
   height: OVERVIEW_CARD_ROW_HEIGHT,
 };
 
-function VmOverviewSummaryRow({ height = OVERVIEW_CARD_ROW_HEIGHT }: { height?: number }) {
+function VmOverviewSummaryRow({
+  cloudId,
+  reloadToken,
+  height = OVERVIEW_CARD_ROW_HEIGHT,
+}: {
+  cloudId: string;
+  reloadToken: number;
+  height?: number;
+}) {
   const slow = useMonitoringOverviewSlowLane();
   const summary = useMemo(
     () => parseVMInstancesToStatusCounts(slow.virtualMachines ?? null, slow.vmInstances ?? null),
@@ -65,7 +73,13 @@ function VmOverviewSummaryRow({ height = OVERVIEW_CARD_ROW_HEIGHT }: { height?: 
         <OpsDashboardVmNamespaceCard summary={summary} loading={slow.loading} height={height} />
       </Col>
       <Col xs={24} md={8} lg={8} style={OVERVIEW_CARD_COL_FILL_STYLE}>
-        <OpsDashboardVmNodeCard summary={summary} loading={slow.loading} height={height} />
+        <OpsDashboardVmNodeCard
+          cloudId={cloudId}
+          summary={summary}
+          loading={slow.loading}
+          reloadToken={reloadToken}
+          height={height}
+        />
       </Col>
     </Row>
   );
@@ -489,7 +503,11 @@ const OpsDashboardVmsSection: React.FC<OpsDashboardVmsSectionProps> = ({
       ) : null}
 
       <MonitoringOverviewLanesProvider cloudId={cloudId}>
-        <VmOverviewSummaryRow height={OVERVIEW_CARD_ROW_HEIGHT} />
+        <VmOverviewSummaryRow
+          cloudId={cloudId}
+          reloadToken={reloadToken}
+          height={OVERVIEW_CARD_ROW_HEIGHT}
+        />
       </MonitoringOverviewLanesProvider>
 
       <Space size={12} wrap align="center">

@@ -11,6 +11,7 @@
 
 | 文档                                                             | 说明                                                                                           |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [contributing.md](./contributing.md)                             | **贡献与合入前检查**：按改动路径跑命令、Prettier、PR 清单                                      |
 | [ci.md](./ci.md)                                                 | **CI 与合入门禁**：Actions job、本地复现、Branch protection 勾选清单                           |
 | [quality-improvement-plan.md](./quality-improvement-plan.md)     | **质量改进执行清单**：ESLint 清零、巨型文件拆分、bundle 与 E2E 分阶段计划                      |
 | [code-quality.md](./code-quality.md)                             | **代码质量**（§1～§9 合入清单；§10～§12 可选评分；五十条附录）                                 |

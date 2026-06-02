@@ -24,6 +24,7 @@ import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdo
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 import { checkTenantAccess } from './clouds/harvester/harvester.direct.helpers';
 import { ALL_PERMISSIONS } from '../constants/permissions';
+import { buildTenantRootBuiltinPermissions } from '../seeders/initRoles';
 import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
 import {
@@ -332,10 +333,13 @@ router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
   // 预定义的权限原子列表，来自 constants/permissions.ts
   // 这些是系统中所有可用的权限原子
   const actions: string[] = [...ALL_PERMISSIONS].sort();
+  // 租户角色抽屉固定展示目录（与种子「云租户根用户」公式一致，不随该角色已保存权限收缩）
+  const tenantRootBoundary = buildTenantRootBuiltinPermissions(ALL_PERMISSIONS).sort();
 
   // 注意：分组、平台等元数据由后端权限体系提供（/rbac/permissions）
   res.json({
     actions,
+    tenantRootBoundary,
   });
 });
 
@@ -468,6 +472,9 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (isBuiltInRbacRoleName(row.name) && permissions !== undefined) {
+      return res.status(400).json({ message: '系统预置角色不允许修改权限' });
+    }
     if (name !== undefined && String(name).trim() !== row.name) {
       if (isBuiltInRbacRoleName(row.name)) {
         return res.status(400).json({ message: '系统预置角色不允许修改名称' });
@@ -477,7 +484,7 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     row.description = description ?? row.description;
     row.scope = scope ?? row.scope;
     row.status = status ?? row.status;
-    if (!permissions) {
+    if (!permissions && !isBuiltInRbacRoleName(row.name)) {
       const current = parseRolePermissionsJson(row.permissions);
       const stripped = stripTenantConsoleUmbrellaPermissions(current);
       if (stripped.length !== current.length) {
@@ -516,6 +523,9 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (isBuiltInRbacRoleName(row.name)) {
+      return res.status(400).json({ message: '系统预置角色不允许修改权限' });
+    }
     try {
       const expanded = expandLegacyContainerParentPermissions(
         expandObsoleteFipsToEips(permissions),

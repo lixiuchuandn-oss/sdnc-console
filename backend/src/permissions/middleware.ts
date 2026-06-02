@@ -19,6 +19,11 @@ import {
   CBR_BACKUP_SCHEDULES_BASE,
   CBR_VM_BACKUPS_BASE,
 } from '../constants/cbrPermissionBases';
+import {
+  hasAnyTenantCloudConsolePagePermission,
+  isCloudPoolListOrMetaReadPath,
+  isTenantConsoleUmbrellaPermission,
+} from '../constants/tenantConsolePermissionLegacy';
 
 const permLog = logger.child('Permission');
 
@@ -183,7 +188,22 @@ export function createApiPermissionMiddleware(options?: {
       }
 
       // GET /clouds 列表：主权限为资源池页；兼容全量 clouds:read 与 ECS（创建向导等依赖拉取云列表）
+      // 租户控制台：任意 clouds.* 页面 read/write 即可拉取已绑定资源池（不要求 ecs / resource-pools）
       if (actionBase === 'clouds.resource-pools' && isRead) {
+        if (isCloudPoolListOrMetaReadPath(fullPath, method)) {
+          const u = req.user as { role?: string; tenantId?: string; permissions?: string[] };
+          const isTenantUser = u?.role === 'tenant' || (!!u?.tenantId && u?.role !== 'sase_device');
+          const userPerms = Array.isArray(u?.permissions) ? u.permissions : [];
+          if (isTenantUser && hasAnyTenantCloudConsolePagePermission(userPerms)) {
+            const tenantCloudPerms = userPerms.filter(
+              (p) =>
+                String(p).startsWith('clouds.') && !isTenantConsoleUmbrellaPermission(String(p)),
+            );
+            if (tenantCloudPerms.length > 0) {
+              return tenantCloudPerms;
+            }
+          }
+        }
         return ['clouds.resource-pools:read', 'clouds:read', 'clouds.ecs:read'];
       }
 

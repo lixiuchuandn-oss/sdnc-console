@@ -2,7 +2,7 @@
  * 运维监控大盘 · 集群资源概览（ECharts 使用率饼图 + 指标列表）
  */
 import React, { useCallback, useMemo, useRef } from 'react';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../../components/LazyReactECharts';
 import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { Typography } from 'antd';
@@ -133,7 +133,7 @@ const OpsDashboardClusterMetricCard: React.FC<OpsDashboardClusterMetricCardProps
             height: OPS_OVERVIEW_RING_SIZE,
           }}
         >
-          <ReactECharts
+          <LazyReactECharts
             ref={chartRef}
             option={option}
             style={{ width: OPS_OVERVIEW_RING_SIZE, height: OPS_OVERVIEW_RING_SIZE }}

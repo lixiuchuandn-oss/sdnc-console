@@ -5,7 +5,7 @@
  * - 单位按 raw 值传，组件内决定显示文本（默认 fixed(1) + 单位后缀，如 `78.2 %`）
  */
 import React, { useCallback, useMemo, useRef } from 'react';
-import ReactECharts from 'echarts-for-react';
+import LazyReactECharts from '../../../../../../components/LazyReactECharts';
 import type ReactEChartsCore from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useEChartsLoading } from '../hooks/useEChartsLoading';
@@ -136,7 +136,7 @@ const MetricGauge: React.FC<MetricGaugeProps> = ({
   }, [onChartLoadingReady]);
 
   return (
-    <ReactECharts
+    <LazyReactECharts
       ref={chartRef}
       option={option}
       style={{ height, width: '100%' }}
