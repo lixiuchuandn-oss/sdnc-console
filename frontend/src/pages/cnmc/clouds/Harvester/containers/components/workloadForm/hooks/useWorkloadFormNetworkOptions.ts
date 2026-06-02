@@ -5,7 +5,7 @@ import {
   fetchKubeOvnSubnets,
   fetchKubeOvnVpcs,
   fetchHarvesterNads,
-} from '../../../../../../../services/harvesterApi';
+} from '../../../../../../../../services/harvesterApi';
 
 export type WorkloadFormSubnetOption = {
   label: string;

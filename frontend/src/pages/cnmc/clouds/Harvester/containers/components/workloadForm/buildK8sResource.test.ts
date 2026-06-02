@@ -1,31 +1,42 @@
 import { buildK8sResource } from './buildK8sResource';
-import type { WorkloadFormValues } from './types';
+import { createEmptyContainer } from './containerDefaults';
+import type { WorkloadContainerFormValue, WorkloadFormValues } from './types';
 
 jest.mock('../../../../../../../utils/harvesterUtils', () => ({
   generateHarvesterCrMetadataName: () => 'wl-test-cr-name',
 }));
 
+function minimalFormValues(
+  container: Partial<WorkloadContainerFormValue>,
+  rest: Partial<WorkloadFormValues>,
+): WorkloadFormValues {
+  const main = { ...createEmptyContainer('main'), ...container };
+  return {
+    name: 'app',
+    namespace: 'default',
+    workloadType: 'deployment',
+    labels: [],
+    containers: [main],
+    containerName: main.containerName,
+    image: main.image,
+    imagePullPolicy: main.imagePullPolicy,
+    ports: main.ports,
+    env: main.env,
+    resources: main.resources,
+    replicas: 1,
+    imagePullSecrets: [],
+    nodeSelector: [],
+    networkType: 'default',
+    ...rest,
+  };
+}
+
 describe('buildK8sResource', () => {
   it('builds a minimal Deployment with default network', () => {
-    const values: WorkloadFormValues = {
-      name: 'my-app',
-      namespace: 'default',
-      workloadType: 'deployment',
-      labels: [],
-      containers: [
-        {
-          containerName: 'main',
-          image: 'nginx:latest',
-          imagePullPolicy: 'IfNotPresent',
-          ports: [],
-          env: [],
-          volumeMounts: [],
-          imagePullSecrets: [],
-        },
-      ],
-      replicas: 2,
-      networkType: 'default',
-    };
+    const values = minimalFormValues(
+      { image: 'nginx:latest' },
+      { name: 'my-app', namespace: 'default', replicas: 2 },
+    );
 
     const resource = buildK8sResource(values, []);
 
@@ -38,28 +49,18 @@ describe('buildK8sResource', () => {
   });
 
   it('adds flat subnet network annotations when configured', () => {
-    const values: WorkloadFormValues = {
-      name: 'net-app',
-      namespace: 'kube-system',
-      workloadType: 'deployment',
-      labels: [],
-      containers: [
-        {
-          containerName: 'main',
-          image: 'busybox',
-          imagePullPolicy: 'IfNotPresent',
-          ports: [],
-          env: [],
-          volumeMounts: [],
-          imagePullSecrets: [],
-        },
-      ],
-      replicas: 1,
-      networkType: 'flat_subnet',
-      flatSubnet: 'default/flat-net',
-      enableStaticIP: true,
-      staticIP: '10.0.0.42',
-    };
+    const values = minimalFormValues(
+      { image: 'busybox' },
+      {
+        name: 'net-app',
+        namespace: 'kube-system',
+        replicas: 1,
+        networkType: 'flat_subnet',
+        flatSubnet: 'default/flat-net',
+        enableStaticIP: true,
+        staticIP: '10.0.0.42',
+      },
+    );
 
     const resource = buildK8sResource(values, []);
 
