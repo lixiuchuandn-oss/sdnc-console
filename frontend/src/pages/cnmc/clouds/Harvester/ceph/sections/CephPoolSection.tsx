@@ -20,9 +20,9 @@ import ResourceActionsDropdown from '../../../../../../components/ResourceAction
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import { fetchCephDashboardPools } from '../../../../../../services/monitoringApi';
-import { deleteCephBlockPoolRook, fetchCephRookBundle } from '../../../../../../services/cephApi';
-import CephBlockCrYamlDrawer from './block/CephBlockCrYamlDrawer';
-import { useCephPoolYamlDrawer } from './useCephPoolYamlDrawer';
+import { getCephBlockPoolRook, deleteCephBlockPoolRook, fetchCephRookBundle } from '../../../../../../services/cephApi';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
+import yaml from 'js-yaml';
 import {
   cephBlockPoolRowToTableRow,
   cephBlockPoolToRow,
@@ -168,8 +168,43 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
   const [poolModalOpen, setPoolModalOpen] = useState(false);
   const [poolModalMode, setPoolModalMode] = useState<'create' | 'edit'>('create');
   const [poolEditRecord, setPoolEditRecord] = useState<CephPoolTableRow | null>(null);
-  const { yamlOpen, yamlTitle, yamlText, yamlLoading, openPoolYaml, closeYamlDrawer } =
-    useCephPoolYamlDrawer(cloudId);
+  const { openStaticYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
+
+  const openPoolYaml = useCallback(
+    async (row: CephPoolTableRow) => {
+      const ns = row.namespace?.trim();
+      const nm = row.name?.trim();
+
+      if (row.source === 'rook' && ns && nm && ns !== '—') {
+        try {
+          const res = await getCephBlockPoolRook(cloudId, ns, nm);
+          if (!res.ok || res.data == null) {
+            message.error(res.error || '拉取 CephBlockPool 失败');
+            return;
+          }
+          openStaticYamlDrawer(yaml.dump(res.data, { lineWidth: 120, noRefs: true }), {
+            title: `CephBlockPool · ${ns}/${nm}`,
+            sourceLabel: `CephBlockPool · ${ns}/${nm}`,
+          });
+        } catch (e: unknown) {
+          console.error(e);
+          message.error('拉取 CephBlockPool 失败');
+        }
+        return;
+      }
+
+      if (row.detailRaw != null && typeof row.detailRaw === 'object') {
+        openStaticYamlDrawer(yaml.dump(row.detailRaw, { lineWidth: 120, noRefs: true }), {
+          title: `存储池 · ${nm || row.name}`,
+          sourceLabel: `存储池 · ${nm || row.name}`,
+        });
+        return;
+      }
+
+      message.warning('无法查看 YAML：缺少资源详情');
+    },
+    [cloudId, openStaticYamlDrawer],
+  );
 
   const load = useCallback(
     async (force?: boolean) => {
@@ -622,13 +657,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
         }}
         onSuccess={() => void runHarvesterSectionRefresh(sectionOnRefresh, { force: true })}
       />
-      <CephBlockCrYamlDrawer
-        open={yamlOpen}
-        title={yamlTitle}
-        yamlText={yamlText}
-        loading={yamlLoading}
-        onClose={closeYamlDrawer}
-      />
+      {yamlDrawer}
     </PageDetailSection>
     </>
   );

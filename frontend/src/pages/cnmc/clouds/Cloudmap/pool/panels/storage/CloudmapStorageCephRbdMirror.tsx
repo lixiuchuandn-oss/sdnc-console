@@ -1,11 +1,15 @@
 /**
  * Cloudmap · 云存储 · RBD 跨集群镜像：在上游装配 bundle / YAML / 视图。
  */
-import React from 'react';
+import React, { useCallback } from 'react';
+import yaml from 'js-yaml';
+import { message } from 'antd';
 import { useCephBlockBundleLoad } from '../../../../Harvester/ceph/sections/block/useCephBlockBundleLoad';
-import { useCephBlockYamlDrawer } from '../../../../Harvester/ceph/sections/block/useCephBlockYamlDrawer';
-import CephBlockCrYamlDrawer from '../../../../Harvester/ceph/sections/block/CephBlockCrYamlDrawer';
-import CephBlockRbdMirrorPane from '../../../../Harvester/ceph/sections/block/CephBlockRbdMirrorPane';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../../../Harvester/shared/components/HarvesterResourceLinkYamlDrawerSlot';
+import { getCephRbdMirrorRook } from '../../../../../../../services/cephApi';
+import CephBlockRbdMirrorPane, {
+  type CephBlockYamlTarget,
+} from '../../../../Harvester/ceph/sections/block/CephBlockRbdMirrorPane';
 import type { CephSectionOnRefresh } from '../../loaders/cephRefresh';
 
 export type CloudmapStorageCephRbdMirrorProps = {
@@ -18,7 +22,27 @@ const CloudmapStorageCephRbdMirror: React.FC<CloudmapStorageCephRbdMirrorProps> 
   onRefresh,
 }) => {
   const { loading, mirrorRows, load } = useCephBlockBundleLoad(cloudId);
-  const yaml = useCephBlockYamlDrawer(cloudId);
+  const { openStaticYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
+
+  const openYamlDrawer = useCallback(
+    async (t: CephBlockYamlTarget) => {
+      try {
+        const res = await getCephRbdMirrorRook(cloudId, t.namespace, t.name);
+        if (!res.ok || res.data == null) {
+          message.error(res.error || '拉取详情失败');
+          return;
+        }
+        openStaticYamlDrawer(yaml.dump(res.data, { lineWidth: 120, noRefs: true }), {
+          title: `RBD Mirror · ${t.namespace}/${t.name}`,
+          sourceLabel: `RBD Mirror · ${t.namespace}/${t.name}`,
+        });
+      } catch (e: unknown) {
+        console.error(e);
+        message.error('拉取详情失败');
+      }
+    },
+    [cloudId, openStaticYamlDrawer],
+  );
 
   return (
     <div style={{ width: '100%' }}>
@@ -27,15 +51,9 @@ const CloudmapStorageCephRbdMirror: React.FC<CloudmapStorageCephRbdMirrorProps> 
         mirrorRows={mirrorRows}
         load={load}
         onRefresh={onRefresh}
-        openYamlDrawer={(t) => yaml.openYamlDrawer(t)}
+        openYamlDrawer={openYamlDrawer}
       />
-      <CephBlockCrYamlDrawer
-        open={yaml.yamlOpen}
-        title={yaml.yamlTitle}
-        yamlText={yaml.yamlText}
-        loading={yaml.yamlLoading}
-        onClose={yaml.closeYamlDrawer}
-      />
+      {yamlDrawer}
     </div>
   );
 };

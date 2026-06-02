@@ -2,7 +2,7 @@
  * 虚拟机详情抽屉 · 壳层 UI：`VmDetailDrawer`（数据装配）+ `VmDetailDrawerShell`（Drawer/工具栏/Tab 骨架）。
  * 默认导出为对外入口；样式 token 同步导出。
  */
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import {
   Drawer,
   Segmented,
@@ -58,10 +58,8 @@ import type { MenuProps } from "antd";
 import type { VmDetailDrawerSafeRead } from "../../lib/vmSafeRead";
 import type { VmDetailDrawerProps } from "./shell/types";
 import { useEnsureHarvesterNadsLoaded } from "../shared/lib/useEnsureHarvesterNadsLoaded";
-
-const LazyHarvesterCrdMetadataDrawer = React.lazy(
-  () => import("../../../shared/components/HarvesterCrdMetadataDrawer"),
-);
+import { ResourceLinkYamlDrawer } from "../../../shared/components/ResourceLinkYamlDrawer";
+import { useHarvesterResourceLinkYamlDrawer } from "../../../shared/lib/useHarvesterResourceLinkYamlDrawer";
 
 export type VmDetailDrawerShellProps = Pick<
   VmDetailDrawerProps,
@@ -171,11 +169,18 @@ export type VmDetailDrawerShellProps = Pick<
 
 const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
   const cloudId = p.cloudId ?? "";
-  /** 查看 YAML：首次打开后保持挂载，仅用 open 切换，以便关闭抽屉有关闭动画并与父抽屉 push 同步 */
-  const [yamlDrawerEverOpened, setYamlDrawerEverOpened] = useState(false);
+  const {
+    yamlDrawerOpen,
+    yamlViewLink,
+    yamlDrawerTitle,
+    openYamlDrawer,
+    closeYamlDrawer,
+  } = useHarvesterResourceLinkYamlDrawer(cloudId);
   useEffect(() => {
-    if (p.opsYamlDrawerOpen) setYamlDrawerEverOpened(true);
-  }, [p.opsYamlDrawerOpen]);
+    if (p.opsYamlDrawerOpen) {
+      openYamlDrawer(p.vmData, { title: "云主机 YAML" });
+    }
+  }, [p.opsYamlDrawerOpen, p.vmData, openYamlDrawer]);
   const { ensureNadsLoaded } = useEnsureHarvesterNadsLoaded(cloudId);
 
   const ecsWriteDenied = useCallback(() => {
@@ -250,7 +255,8 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
             p.nodeSchedulingOpen ||
             p.nodeAffinityOpen ||
             p.podAffinityOpen ||
-            p.opsYamlDrawerOpen
+            p.opsYamlDrawerOpen ||
+            yamlDrawerOpen
           )
         }
         push={{ distance: 180 }}
@@ -784,19 +790,16 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
           cloudId={cloudId}
           vmData={p.vmData}
         />
-        {(yamlDrawerEverOpened || p.opsYamlDrawerOpen) ? (
-          <Suspense fallback={null}>
-            <LazyHarvesterCrdMetadataDrawer
-              open={p.opsYamlDrawerOpen}
-              onClose={() => p.setOpsYamlDrawerOpen(false)}
-              cloudId={cloudId}
-              record={p.vmData}
-              onSuccess={() =>
-                void runHarvesterSectionRefresh(p.onRefresh, { force: true })
-              }
-            />
-          </Suspense>
-        ) : null}
+        <ResourceLinkYamlDrawer
+          open={yamlDrawerOpen}
+          onClose={() => {
+            closeYamlDrawer();
+            p.setOpsYamlDrawerOpen(false);
+          }}
+          cloudId={cloudId}
+          viewLink={yamlViewLink}
+          title={yamlDrawerTitle ?? "云主机 YAML"}
+        />
         <VmVmPolicyDrawer
           open={p.vmPolicyManageOpen}
           onClose={() => p.setVmPolicyManageOpen(false)}

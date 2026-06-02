@@ -19,19 +19,17 @@ import {
   Switch,
 } from 'antd';
 import { ReloadOutlined, SearchOutlined, PlusOutlined, EditTwoTone } from '@ant-design/icons';
-import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
-import YamlEditor from '../../../../../../components/YamlEditor';
-import { IngressFormModal, YamlEditModal } from '../components';
+import { IngressFormModal } from '../components';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import {
   deleteHarvesterIngress,
-  fetchHarvesterIngressDetail,
-  updateHarvesterIngress,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
 import {
@@ -114,8 +112,13 @@ const IngressesSection: React.FC<Props> = ({
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
 
   // YAML 查看相关状态
-  const [yamlViewModalVisible, setYamlViewModalVisible] = useState(false);
-  const [yamlViewContent, setYamlViewContent] = useState('');
+  const {
+    yamlDrawerOpen,
+    yamlViewLink,
+    yamlDrawerTitle,
+    openYamlDrawer,
+    closeYamlDrawer,
+  } = useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const apiPath = '/apis/networking.k8s.io/v1/ingresses';
 
@@ -192,28 +195,18 @@ const IngressesSection: React.FC<Props> = ({
     [aliasRecord, apiPath, cloudId, antMessage, onRefresh, aliasForm],
   );
 
-  // 查看 YAML
   const handleViewYaml = useCallback(
     (record: any) => {
-      try {
-        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-        setYamlViewContent(yamlStr);
-        setYamlViewModalVisible(true);
-      } catch (e: any) {
-        antMessage.error('生成 YAML 失败: ' + e.message);
-      }
+      const raw = record?.raw ?? record;
+      openYamlDrawer({ ...raw, kind: raw?.kind ?? 'Ingress' }, { title: 'Ingress YAML' });
     },
-    [antMessage],
+    [openYamlDrawer],
   );
 
   // 创建/编辑弹窗状态
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
-
-  // YAML 编辑弹窗状态
-  const [yamlModalOpen, setYamlModalOpen] = useState(false);
-  const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
 
   // 删除 Ingress
   const handleDelete = async (record: any) => {
@@ -231,42 +224,6 @@ const IngressesSection: React.FC<Props> = ({
     setEditingRecord(record);
     setEditModalOpen(true);
   };
-
-  // 加载 YAML 内容
-  const loadIngressYaml = useCallback(async () => {
-    if (!yamlEditingRecord) return '';
-    const response = await fetchHarvesterIngressDetail(
-      cloudId,
-      yamlEditingRecord.namespace,
-      yamlEditingRecord.name,
-    );
-    // 只返回 Ingress 对象本身，而不是完整 API 响应
-    const ingressData = response?.data || response;
-    // 过滤掉 managedFields，避免干扰用户编辑
-    const cleanData = {
-      ...ingressData,
-      metadata: {
-        ...ingressData?.metadata,
-        managedFields: undefined,
-      },
-    };
-    return JSON.stringify(cleanData, null, 2);
-  }, [cloudId, yamlEditingRecord]);
-
-  // 保存 YAML 内容
-  const saveIngressYaml = useCallback(
-    async (yaml: string) => {
-      if (!yamlEditingRecord) return;
-      const data = JSON.parse(yaml);
-      await updateHarvesterIngress(
-        cloudId,
-        yamlEditingRecord.namespace,
-        yamlEditingRecord.name,
-        data,
-      );
-    },
-    [cloudId, yamlEditingRecord],
-  );
 
   /**
    * 将原始 Ingress 对象转换为表格可直接展示的数据结构
@@ -536,25 +493,12 @@ const IngressesSection: React.FC<Props> = ({
         }}
       />
 
-      {/* YAML 编辑弹窗 */}
-      <YamlEditModal
-        visible={yamlModalOpen}
-        title={`YAML 编辑 - Ingress/${yamlEditingRecord?.namespace}/${yamlEditingRecord?.name}`}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
         cloudId={cloudId}
-        namespace={yamlEditingRecord?.namespace}
-        name={yamlEditingRecord?.name}
-        resourceType="ingress"
-        onLoadYaml={loadIngressYaml}
-        onSaveYaml={saveIngressYaml}
-        onCancel={() => {
-          setYamlModalOpen(false);
-          setYamlEditingRecord(null);
-        }}
-        onSuccess={() => {
-          setYamlModalOpen(false);
-          setYamlEditingRecord(null);
-          runContainerSectionRefresh(onRefresh, { force: true });
-        }}
+        viewLink={yamlViewLink}
+        title={yamlDrawerTitle ?? 'Ingress YAML'}
       />
 
       {/* 别名编辑弹窗 */}
@@ -603,16 +547,6 @@ const IngressesSection: React.FC<Props> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看弹窗 */}
-      <Modal
-        title="YAML 查看"
-        open={yamlViewModalVisible}
-        onCancel={() => setYamlViewModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor value={yamlViewContent} onChange={() => {}} maxHeight={500} readOnly />
-      </Modal>
     </PageDetailSection>
   );
 };

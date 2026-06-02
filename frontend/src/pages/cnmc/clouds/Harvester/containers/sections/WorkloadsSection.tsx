@@ -32,12 +32,11 @@ import {
   Switch,
 } from 'antd';
 import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
-import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
-import YamlEditor from '../../../../../../components/YamlEditor';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import {
   scaleHarvesterDeployment,
   scaleHarvesterStatefulSet,
@@ -271,8 +270,7 @@ const WorkloadTable: React.FC<{
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const typeLabel =
     type === 'deployment' ? '无状态副本集' : type === 'statefulset' ? '有状态副本集' : '守护进程集';
@@ -368,18 +366,14 @@ const WorkloadTable: React.FC<{
     [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm],
   );
 
-  // 查看 YAML
+  const workloadKind =
+    type === 'deployment' ? 'Deployment' : type === 'statefulset' ? 'StatefulSet' : 'DaemonSet';
+
   const handleViewYaml = useCallback(
     (record: any) => {
-      try {
-        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-        setYamlContent(yamlStr);
-        setYamlModalVisible(true);
-      } catch (e: any) {
-        message.error('生成 YAML 失败: ' + e.message);
-      }
+      openYamlDrawer({ ...record, kind: record?.kind ?? workloadKind }, { title: `${typeLabel} YAML` });
     },
-    [message],
+    [openYamlDrawer, typeLabel, workloadKind],
   );
 
   // 扩缩容操作
@@ -763,15 +757,7 @@ const WorkloadTable: React.FC<{
         </Form>
       </Modal>
 
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor value={yamlContent} onChange={() => {}} maxHeight={500} readOnly />
-      </Modal>
+      {yamlDrawer}
     </div>
   );
 };

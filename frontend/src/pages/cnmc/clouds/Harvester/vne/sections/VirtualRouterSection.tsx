@@ -23,7 +23,7 @@ import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
-import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 
 type Props = {
@@ -181,8 +181,7 @@ const VirtualRouterSection: React.FC<Props> = ({
   const [vmDetailDrawerOpen, setVmDetailDrawerOpen] = useState(false);
   const [vmDetailRecordSnapshot, setVmDetailRecordSnapshot] = useState<any>(null);
   const [vmDetailActiveTab, setVmDetailActiveTab] = useState('detail');
-  const [yamlDrawerVisible, setYamlDrawerVisible] = useState(false);
-  const [yamlDrawerRecordSnapshot, setYamlDrawerRecordSnapshot] = useState<any>(null);
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const routerInstances = useMemo(
     () => (vms || []).filter((vm) => isTowerPaasVneVm(vm)),
@@ -210,17 +209,6 @@ const VirtualRouterSection: React.FC<Props> = ({
     });
   }, [routerInstances, keyword, statusFilter, nodeFilter]);
 
-  /** 抽屉内与列表刷新后对齐同一条 VM（与 RecycleBinSection 一致） */
-  const yamlDrawerRecord = useMemo(() => {
-    if (!yamlDrawerRecordSnapshot) return null;
-    const uid = yamlDrawerRecordSnapshot?.metadata?.uid;
-    if (uid) {
-      const found = filteredInstances.find((v: any) => v?.metadata?.uid === uid);
-      return found || yamlDrawerRecordSnapshot;
-    }
-    return yamlDrawerRecordSnapshot;
-  }, [filteredInstances, yamlDrawerRecordSnapshot]);
-
   const vmDetailRecord = useMemo(() => {
     if (!vmDetailRecordSnapshot) return null;
     const uid = vmDetailRecordSnapshot?.metadata?.uid;
@@ -237,10 +225,12 @@ const VirtualRouterSection: React.FC<Props> = ({
     setVmDetailDrawerOpen(true);
   }, []);
 
-  const openYamlDrawer = useCallback((record: any) => {
-    setYamlDrawerRecordSnapshot(record);
-    setYamlDrawerVisible(true);
-  }, []);
+  const handleOpenYamlDrawer = useCallback(
+    (record: any) => {
+      openYamlDrawer({ ...record, kind: record?.kind ?? 'VirtualMachine' }, { title: '云主机 YAML' });
+    },
+    [openYamlDrawer],
+  );
 
   const columns = useMemo(
     () => [
@@ -414,7 +404,7 @@ const VirtualRouterSection: React.FC<Props> = ({
             {
               key: 'yamlManifest',
               label: '查看YAML',
-              onClick: () => openYamlDrawer(r),
+              onClick: () => handleOpenYamlDrawer(r),
             },
           ], canManageVne);
           return (
@@ -426,7 +416,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         },
       },
     ],
-    [canManageVne, openVmDetailDrawer, openYamlDrawer],
+    [canManageVne, openVmDetailDrawer, handleOpenYamlDrawer],
   );
 
   const handleOpenCreateModal = () => {
@@ -592,18 +582,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         />
       ) : null}
 
-      {yamlDrawerRecord ? (
-        <HarvesterCrdMetadataDrawer
-          open={yamlDrawerVisible}
-          onClose={() => {
-            setYamlDrawerVisible(false);
-            setYamlDrawerRecordSnapshot(null);
-          }}
-          cloudId={cloudId}
-          record={yamlDrawerRecord}
-          onSuccess={reloadListAfterWrite}
-        />
-      ) : null}
+      {yamlDrawer}
     </PageDetailSection>
   );
 };

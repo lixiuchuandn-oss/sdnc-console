@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Alert, Button, message, Tag, Table, Select, Input, Modal, Tooltip, Form, Segmented, Popover, Descriptions, Space } from 'antd';
 import { ExclamationCircleOutlined, SearchOutlined, ReloadOutlined, PlusOutlined, EditTwoTone, InfoCircleOutlined, DownloadOutlined } from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -15,20 +16,30 @@ import {
   deleteGatewayClass,
   createGatewayClass,
   patchHarvesterContainerResource,
-  fetchGatewayDetail,
-  fetchHttpRouteDetail,
-  fetchGrpcRouteDetail,
   updateGateway,
   updateHttpRoute,
   updateGrpcRoute,
   installNginxGatewayFabric,
 } from '../../../../../../services/harvesterApi';
-import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal, YamlEditModal } from '../components';
+import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal } from '../components';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { GatewayDetailDrawer } from '../drawers/GatewayDetailDrawer';
 import {
   createContainerToolbarRefresh,
   runContainerSectionRefresh,
 } from '../lib/containerSectionRefresh';
+
+function resolveGatewayApiViewLink(
+  record: any,
+  type: 'gateway' | 'httproute' | 'grpcroute',
+): string | undefined {
+  const ns = record?.metadata?.namespace;
+  const name = record?.metadata?.name;
+  if (!ns || !name) return undefined;
+  const resource =
+    type === 'gateway' ? 'gateways' : type === 'httproute' ? 'httproutes' : 'grpcroutes';
+  return `/apis/gateway.networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/${resource}/${encodeURIComponent(name)}`;
+}
 
 interface GatewayApiSectionProps {
   cloudId: string;
@@ -91,7 +102,9 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   const [gatewayClassForm] = Form.useForm<{ name: string; controllerName: string; description?: string }>();
   const [gatewayClassSubmitting, setGatewayClassSubmitting] = useState(false);
 
-  // YAML 编辑状态
+  // YAML 抽屉状态
+  const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
+  const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
   const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
   const [yamlEditingType, setYamlEditingType] = useState<'gateway' | 'httproute' | 'grpcroute' | null>(null);
 
@@ -233,42 +246,20 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     }
   }, [aliasRecord, aliasResourceType, getApiPath, cloudId, onRefresh, aliasForm]);
 
-  // YAML 编辑 - 加载 YAML
-  const handleLoadYaml = useCallback(async () => {
-    if (!yamlEditingRecord || !yamlEditingType) return '';
-    const ns = yamlEditingRecord?.metadata?.namespace;
-    const name = yamlEditingRecord?.metadata?.name;
-    
-    let response: any;
-    switch (yamlEditingType) {
-      case 'gateway':
-        response = await fetchGatewayDetail(cloudId, ns, name);
-        break;
-      case 'httproute':
-        response = await fetchHttpRouteDetail(cloudId, ns, name);
-        break;
-      case 'grpcroute':
-        response = await fetchGrpcRouteDetail(cloudId, ns, name);
-        break;
-    }
-    
-    return response?.data ? JSON.stringify(response.data, null, 2) : '';
-  }, [cloudId, yamlEditingRecord, yamlEditingType]);
-
   // YAML 编辑 - 保存 YAML
-  const handleSaveYaml = useCallback(async (yaml: string) => {
+  const handleSaveYaml = useCallback(async (yamlText: string) => {
     if (!yamlEditingRecord || !yamlEditingType) return;
     const ns = yamlEditingRecord?.metadata?.namespace;
     const name = yamlEditingRecord?.metadata?.name;
-    
-    let data: any;
+
+    let data: unknown;
     try {
-      data = JSON.parse(yaml);
-    } catch (e) {
+      data = yaml.load(yamlText);
+    } catch {
       message.error('YAML 格式错误');
-      return;
+      throw new Error('YAML 格式错误');
     }
-    
+
     switch (yamlEditingType) {
       case 'gateway':
         await updateGateway(cloudId, ns, name, data);
@@ -280,26 +271,29 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         await updateGrpcRoute(cloudId, ns, name, data);
         break;
     }
-  }, [cloudId, yamlEditingRecord, yamlEditingType]);
+    void runContainerSectionRefresh(onRefresh, { force: true });
+  }, [cloudId, yamlEditingRecord, yamlEditingType, onRefresh]);
 
-  // 打开 YAML 编辑弹窗
+  // 打开 YAML 抽屉
   const handleOpenYamlEdit = useCallback((record: any, type: 'gateway' | 'httproute' | 'grpcroute') => {
+    const link = resolveGatewayApiViewLink(record, type);
+    if (!link) {
+      message.warning('当前行缺少 View Link，无法拉取 YAML');
+      return;
+    }
     setYamlEditingRecord(record);
     setYamlEditingType(type);
+    setYamlViewLink(link);
+    setYamlDrawerOpen(true);
   }, []);
 
-  // 关闭 YAML 编辑弹窗
+  // 关闭 YAML 抽屉
   const handleCloseYamlEdit = useCallback(() => {
+    setYamlDrawerOpen(false);
+    setYamlViewLink(undefined);
     setYamlEditingRecord(null);
     setYamlEditingType(null);
   }, []);
-
-  // YAML 编辑成功回调
-  const handleYamlEditSuccess = useCallback(() => {
-    setYamlEditingRecord(null);
-    setYamlEditingType(null);
-    void runContainerSectionRefresh(onRefresh, { force: true });
-  }, [onRefresh]);
 
   // GatewayClass 表格列
   const gatewayClassColumns = [
@@ -1261,25 +1255,27 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看/编辑弹窗 */}
-      {yamlEditingRecord && yamlEditingType && (
-        <YamlEditModal
-          visible={true}
-          title={yamlEditingType === 'gateway' 
-            ? `查看 YAML - Gateway/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`
-            : `YAML 编辑 - ${yamlEditingType === 'httproute' ? 'HTTPRoute' : 'GRPCRoute'}/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`
-          }
-          cloudId={cloudId}
-          namespace={yamlEditingRecord?.metadata?.namespace}
-          name={yamlEditingRecord?.metadata?.name}
-          resourceType={yamlEditingType}
-          onLoadYaml={handleLoadYaml}
-          onSaveYaml={handleSaveYaml}
-          onCancel={handleCloseYamlEdit}
-          onSuccess={handleYamlEditSuccess}
-          readOnly={yamlEditingType === 'gateway'}
-        />
-      )}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={handleCloseYamlEdit}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={
+          yamlEditingType === 'gateway'
+            ? 'Gateway YAML'
+            : yamlEditingType === 'httproute'
+              ? 'HTTPRoute YAML'
+              : yamlEditingType === 'grpcroute'
+                ? 'GRPCRoute YAML'
+                : '资源 YAML'
+        }
+        editable={yamlEditingType === 'httproute' || yamlEditingType === 'grpcroute'}
+        onSave={
+          yamlEditingType === 'httproute' || yamlEditingType === 'grpcroute'
+            ? handleSaveYaml
+            : undefined
+        }
+      />
 
       {/* Gateway 详情抽屉 */}
       <GatewayDetailDrawer

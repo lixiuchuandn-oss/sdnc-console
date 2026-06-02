@@ -4,8 +4,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Select, Button, Input, Switch, Tooltip, App, Modal, Form } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import yaml from 'js-yaml';
-import YamlEditor from '../../../../../../../components/YamlEditor';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import { useTableColumnSettings } from '../../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../../components/TableColumnSettingsButton';
 import {
@@ -70,8 +69,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const apiPath = '/apis/batch/v1/cronjobs';
 
@@ -244,15 +242,9 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
   // 查看 YAML
   const handleViewYaml = useCallback(
     (record: any) => {
-      try {
-        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-        setYamlContent(yamlStr);
-        setYamlModalVisible(true);
-      } catch (e: any) {
-        message.error('生成 YAML 失败: ' + e.message);
-      }
+      openYamlDrawer({ ...record, kind: record?.kind ?? 'CronJob' }, { title: 'CronJob YAML' });
     },
-    [message],
+    [openYamlDrawer],
   );
 
   const columns = useMemo(
@@ -427,16 +419,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看 Modal */}
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor value={yamlContent} onChange={() => {}} maxHeight={500} readOnly />
-      </Modal>
+      {yamlDrawer}
 
       {/* 创建 CronJob Modal */}
       <Modal

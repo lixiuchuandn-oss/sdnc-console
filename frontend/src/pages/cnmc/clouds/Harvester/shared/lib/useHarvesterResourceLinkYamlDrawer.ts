@@ -8,10 +8,18 @@ export type OpenHarvesterYamlDrawerOptions = {
   resolveLink?: (record: unknown) => string | undefined;
 };
 
+export type OpenHarvesterStaticYamlDrawerOptions = {
+  title?: string;
+  /** 工具栏展示的数据来源说明 */
+  sourceLabel?: string;
+};
+
 /** 列表行「查看 YAML」→ ResourceLinkYamlDrawer 状态 */
 export function useHarvesterResourceLinkYamlDrawer(cloudId: string | undefined) {
   const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
   const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
+  const [yamlStaticContent, setYamlStaticContent] = useState<string | undefined>();
+  const [yamlStaticSourceLabel, setYamlStaticSourceLabel] = useState<string | undefined>();
   const [yamlDrawerTitle, setYamlDrawerTitle] = useState<string | undefined>();
 
   const openYamlDrawer = useCallback(
@@ -25,6 +33,8 @@ export function useHarvesterResourceLinkYamlDrawer(cloudId: string | undefined) 
         message.warning('当前行缺少 View Link，无法拉取 YAML');
         return;
       }
+      setYamlStaticContent(undefined);
+      setYamlStaticSourceLabel(undefined);
       setYamlViewLink(link);
       setYamlDrawerTitle(options?.title);
       setYamlDrawerOpen(true);
@@ -32,17 +42,33 @@ export function useHarvesterResourceLinkYamlDrawer(cloudId: string | undefined) 
     [cloudId],
   );
 
+  const openStaticYamlDrawer = useCallback(
+    (content: string, options?: OpenHarvesterStaticYamlDrawerOptions) => {
+      setYamlViewLink(undefined);
+      setYamlStaticContent(content);
+      setYamlStaticSourceLabel(options?.sourceLabel);
+      setYamlDrawerTitle(options?.title);
+      setYamlDrawerOpen(true);
+    },
+    [],
+  );
+
   const closeYamlDrawer = useCallback(() => {
     setYamlDrawerOpen(false);
     setYamlViewLink(undefined);
+    setYamlStaticContent(undefined);
+    setYamlStaticSourceLabel(undefined);
     setYamlDrawerTitle(undefined);
   }, []);
 
   return {
     yamlDrawerOpen,
     yamlViewLink,
+    yamlStaticContent,
+    yamlStaticSourceLabel,
     yamlDrawerTitle,
     openYamlDrawer,
+    openStaticYamlDrawer,
     closeYamlDrawer,
   };
 }

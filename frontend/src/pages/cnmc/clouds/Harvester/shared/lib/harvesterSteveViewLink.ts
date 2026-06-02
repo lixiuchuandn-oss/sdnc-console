@@ -36,6 +36,17 @@ const CLUSTER_KIND_PATH: Record<string, (name: string) => string> = {
 };
 
 const NAMESPACED_KIND_PATH: Record<string, (ns: string, name: string) => string> = {
+  Deployment: (ns, name) =>
+    `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/deployments/${encodeURIComponent(name)}`,
+  StatefulSet: (ns, name) =>
+    `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/statefulsets/${encodeURIComponent(name)}`,
+  DaemonSet: (ns, name) =>
+    `/apis/apps/v1/namespaces/${encodeURIComponent(ns)}/daemonsets/${encodeURIComponent(name)}`,
+  Job: (ns, name) => `/apis/batch/v1/namespaces/${encodeURIComponent(ns)}/jobs/${encodeURIComponent(name)}`,
+  CronJob: (ns, name) =>
+    `/apis/batch/v1/namespaces/${encodeURIComponent(ns)}/cronjobs/${encodeURIComponent(name)}`,
+  Ingress: (ns, name) =>
+    `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/ingresses/${encodeURIComponent(name)}`,
   Service: (ns, name) =>
     `/api/v1/namespaces/${encodeURIComponent(ns)}/services/${encodeURIComponent(name)}`,
   Pod: (ns, name) => `/api/v1/namespaces/${encodeURIComponent(ns)}/pods/${encodeURIComponent(name)}`,

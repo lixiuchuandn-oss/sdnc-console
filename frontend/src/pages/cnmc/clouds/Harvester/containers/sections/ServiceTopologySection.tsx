@@ -14,20 +14,30 @@ import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ReloadOutlined, EditOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
 import { ServiceTopology } from '../components/topology';
 import { buildServiceTopology, getTopologyStats, TopologyNode } from '../components/serviceTopologyUtils';
-import { YamlEditModal, IngressFormModal, PodTerminal } from '../components';
+import { IngressFormModal, PodTerminal } from '../components';
 import ServiceFormDrawer from '../drawers/ServiceFormDrawer';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import YamlEditor from '../../../../../../components/YamlEditor';
+import yaml from 'js-yaml';
 import {
-  fetchHarvesterIngressDetail,
   updateHarvesterIngress,
-  fetchHarvesterServiceDetail,
   updateHarvesterService,
   fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
 } from '../../../../../../services/harvesterApi';
 
-// ========== 辅助函数 ==========
+function resolveTopologyViewLink(node: TopologyNode): string | undefined {
+  const { type, namespace, name } = node;
+  if (!namespace || !name) return undefined;
+  if (type === 'ingress') {
+    return `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/ingresses/${encodeURIComponent(name)}`;
+  }
+  if (type === 'service') {
+    return `/api/v1/namespaces/${encodeURIComponent(namespace)}/services/${encodeURIComponent(name)}`;
+  }
+  return undefined;
+}
 
 const formatTime = (timestamp?: string) => {
   if (!timestamp) return '-';
@@ -561,8 +571,9 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentNs, setCurrentNs] = useState<string>('');
 
-  // YAML 编辑弹窗状态
-  const [yamlModalOpen, setYamlModalOpen] = useState(false);
+  // YAML 抽屉状态
+  const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
+  const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
   const [yamlEditingNode, setYamlEditingNode] = useState<TopologyNode | null>(null);
 
   // 表单编辑弹窗状态
@@ -674,10 +685,46 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
 
   // ========== 快速操作 ==========
 
-  const _handleYamlEdit = useCallback((node: TopologyNode) => {
+  const handleTopologyYamlOpen = useCallback((node: TopologyNode) => {
+    const link = resolveTopologyViewLink(node);
+    if (!link) {
+      message.warning('当前节点缺少 View Link，无法拉取 YAML');
+      return;
+    }
     setYamlEditingNode(node);
-    setYamlModalOpen(true);
+    setYamlViewLink(link);
+    setYamlDrawerOpen(true);
+  }, [message]);
+
+  const handleTopologyYamlClose = useCallback(() => {
+    setYamlDrawerOpen(false);
+    setYamlViewLink(undefined);
+    setYamlEditingNode(null);
   }, []);
+
+  const handleTopologyYamlSave = useCallback(
+    async (yamlText: string) => {
+      const node = yamlEditingNode;
+      if (!node) return;
+      const { type, namespace, name } = node;
+      const parsed = yaml.load(yamlText) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('无效的资源定义');
+      }
+      const meta = (parsed as { metadata?: Record<string, unknown> }).metadata;
+      const clean = {
+        ...parsed,
+        metadata: meta ? { ...meta, managedFields: undefined } : meta,
+      };
+      if (type === 'ingress') {
+        await updateHarvesterIngress(cloudId, namespace, name, clean);
+      } else if (type === 'service') {
+        await updateHarvesterService(cloudId, namespace, name, clean);
+      }
+      onRefresh?.(true);
+    },
+    [cloudId, yamlEditingNode, onRefresh],
+  );
 
   const handleEdit = useCallback((node: TopologyNode) => {
     setEditingNode(node);
@@ -716,36 +763,6 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     setDrawerVisible(false);
     setPodTerminalVisible(true);
   }, []);
-
-  // ========== YAML 加载和保存 ==========
-
-  const loadYaml = useCallback(async (): Promise<string> => {
-    if (!yamlEditingNode) return '';
-    const { type, namespace, name } = yamlEditingNode;
-    if (type === 'ingress') {
-      const response = await fetchHarvesterIngressDetail(cloudId, namespace, name);
-      const data = response?.data || response;
-      return JSON.stringify({ ...data, metadata: { ...data?.metadata, managedFields: undefined } }, null, 2);
-    } else if (type === 'service') {
-      const response = await fetchHarvesterServiceDetail(cloudId, namespace, name);
-      const data = response?.data || response;
-      return JSON.stringify({ ...data, metadata: { ...data?.metadata, managedFields: undefined } }, null, 2);
-    }
-    return '';
-  }, [cloudId, yamlEditingNode]);
-
-  const saveYaml = useCallback(async (yaml: string) => {
-    if (!yamlEditingNode) return;
-    const { type, namespace, name } = yamlEditingNode;
-    const data = JSON.parse(yaml);
-    if (type === 'ingress') {
-      await updateHarvesterIngress(cloudId, namespace, name, data);
-    } else if (type === 'service') {
-      await updateHarvesterService(cloudId, namespace, name, data);
-    }
-    message.success('保存成功');
-    onRefresh?.(true);
-  }, [cloudId, yamlEditingNode, message, onRefresh]);
 
   // ========== 渲染 ==========
 
@@ -796,12 +813,26 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
         extra={
           <Space>
             {type === 'ingress' && (
-              <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
+              <>
+                <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>
+                  编辑
+                </Button>
+                <Button size="small" onClick={() => handleTopologyYamlOpen(selectedNode)}>
+                  编辑 YAML
+                </Button>
+              </>
             )}
             {type === 'service' && (
               <>
-                <Button size="small" icon={<EyeOutlined />} onClick={handleViewServiceDetail}>运维信息</Button>
-                <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
+                <Button size="small" icon={<EyeOutlined />} onClick={handleViewServiceDetail}>
+                  运维信息
+                </Button>
+                <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>
+                  编辑
+                </Button>
+                <Button size="small" onClick={() => handleTopologyYamlOpen(selectedNode)}>
+                  编辑 YAML
+                </Button>
               </>
             )}
           </Space>
@@ -906,21 +937,23 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
 
       {renderNodeDetails()}
 
-      {/* YAML 编辑弹窗 */}
-      {yamlEditingNode && (yamlEditingNode.type === 'ingress' || yamlEditingNode.type === 'service') && (
-        <YamlEditModal
-          visible={yamlModalOpen}
-          title={`${yamlEditingNode.type === 'ingress' ? 'Ingress' : 'Service'} YAML 编辑`}
-          cloudId={cloudId}
-          namespace={yamlEditingNode.namespace}
-          name={yamlEditingNode.name}
-          resourceType={yamlEditingNode.type}
-          onLoadYaml={loadYaml}
-          onSaveYaml={saveYaml}
-          onCancel={() => setYamlModalOpen(false)}
-          onSuccess={() => { setYamlModalOpen(false); onRefresh?.(true); }}
-        />
-      )}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={handleTopologyYamlClose}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={
+          yamlEditingNode?.type === 'ingress'
+            ? 'Ingress YAML'
+            : yamlEditingNode?.type === 'service'
+              ? 'Service YAML'
+              : '资源 YAML'
+        }
+        editable={
+          yamlEditingNode?.type === 'ingress' || yamlEditingNode?.type === 'service'
+        }
+        onSave={handleTopologyYamlSave}
+      />
 
       {/* Ingress 编辑弹窗 */}
       {editingNode && editingNode.type === 'ingress' && (

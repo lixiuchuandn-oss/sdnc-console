@@ -37,6 +37,7 @@ import {
   type RgwS3GatewayPayload,
 } from '../../../../../../services/cephApi';
 import { normalizeCephBundle } from '../lib/cephStorage';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import { cosiDriverCrToRow, objectStoreCrToRow, type CephCosiDriverRow, type CephObjectStoreRow } from '../lib/cephBlockStorage';
 import { suggestedRgwHttpsEndpoints } from '../lib/rgwRookHints';
 import {
@@ -74,9 +75,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
   const [cosiRows, setCosiRows] = useState<CephCosiDriverRow[]>([]);
   const [storeQ, setStoreQ] = useState('');
   const [cosiQ, setCosiQ] = useState('');
-  const [yamlOpen, setYamlOpen] = useState(false);
-  const [yamlTitle, setYamlTitle] = useState('');
-  const [yamlText, setYamlText] = useState('');
+  const { openStaticYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const [clientGwMap, setClientGwMap] = useState<Record<string, RgwS3GatewayPayload>>({});
   const [towerForm] = Form.useForm();
@@ -252,11 +251,15 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
     }
   }, [cloudId, createForm, sectionOnRefresh]);
 
-  const openYamlDrawer = useCallback(async (t: YamlTarget) => {
-    setYamlOpen(true);
-    setYamlTitle('COSI 驱动 · YAML');
-    setYamlText(t.yaml);
-  }, []);
+  const openYamlDrawer = useCallback(
+    (t: YamlTarget) => {
+      openStaticYamlDrawer(t.yaml, {
+        title: 'COSI 驱动 · YAML',
+        sourceLabel: 'COSI 驱动 · YAML',
+      });
+    },
+    [openStaticYamlDrawer],
+  );
 
   const openStoreDetail = useCallback((r: CephObjectStoreRow) => {
     setDetailRow(r);
@@ -751,12 +754,6 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
           ]}
         />
       ) : null}
-    </Drawer>
-  );
-
-  const yamlDrawer = (
-    <Drawer title={yamlTitle} width={640} open={yamlOpen} onClose={() => setYamlOpen(false)} destroyOnClose>
-      <CodeEditor language="yaml" value={yamlText} readOnly height={480} />
     </Drawer>
   );
 
