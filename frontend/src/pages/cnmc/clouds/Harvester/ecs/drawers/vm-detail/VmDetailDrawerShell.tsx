@@ -42,6 +42,7 @@ import VmHotplugSettingsDrawer from "../vm-spec-config/VmHotplugSettingsDrawer";
 import {
   VmNodeAffinityDrawer,
   VmNodeSchedulingDrawer,
+  VmPodAffinityDrawer,
 } from "../vm-node-scheduling";
 import { VmVmPolicyDrawer } from "../vm-vm-policy";
 import VmGpuManageDrawer from "../vm-gpu-manage";
@@ -123,6 +124,8 @@ export type VmDetailDrawerShellProps = Pick<
   setNodeSchedulingOpen: (v: boolean) => void;
   nodeAffinityOpen: boolean;
   setNodeAffinityOpen: (v: boolean) => void;
+  podAffinityOpen: boolean;
+  setPodAffinityOpen: (v: boolean) => void;
   nodeSchedDrawerLatestVm: any;
   setNodeSchedDrawerLatestVm: (v: any) => void;
   showTemplateModal: boolean;
@@ -246,6 +249,7 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
             p.usbManageOpen ||
             p.nodeSchedulingOpen ||
             p.nodeAffinityOpen ||
+            p.podAffinityOpen ||
             p.opsYamlDrawerOpen
           )
         }
@@ -892,6 +896,19 @@ const VmDetailDrawerShell: React.FC<VmDetailDrawerShellProps> = (p) => {
         <VmNodeAffinityDrawer
           open={p.nodeAffinityOpen}
           onClose={() => p.setNodeAffinityOpen(false)}
+          vmData={p.vmData}
+          cloudId={cloudId}
+          latestVm={p.nodeSchedDrawerLatestVm}
+          setLatestVm={p.setNodeSchedDrawerLatestVm}
+          hasEcsWrite={p.hasEcsWrite}
+          onApplied={async () => {
+            await p.fetchAggregated(false);
+            void runHarvesterSectionRefresh(p.onRefresh, { force: true });
+          }}
+        />
+        <VmPodAffinityDrawer
+          open={p.podAffinityOpen}
+          onClose={() => p.setPodAffinityOpen(false)}
           vmData={p.vmData}
           cloudId={cloudId}
           latestVm={p.nodeSchedDrawerLatestVm}
