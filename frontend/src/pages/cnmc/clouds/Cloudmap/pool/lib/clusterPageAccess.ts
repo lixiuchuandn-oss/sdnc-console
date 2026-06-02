@@ -65,16 +65,14 @@ export function canViewClusterSidebarLeaf(
         checkPerm('clouds.migrations:read') ||
         checkPerm('clouds.ecs:read')
       );
+    case 'storage_drs':
+      return checkPerm('clouds.storage-drs:read') || checkPerm('clouds.unified-storage:read');
     case 'failure_domains':
-      return (
-        checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read')
-      );
+      return checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read');
     case 'kubeovn_public_subnets':
       return canReadPublicSubnets;
     case 'cluster_vlans':
-      return (
-        checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-      );
+      return checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
     case 'gpu':
       return checkPerm('clouds.gpus:read');
     case 'cluster_usb':
@@ -117,9 +115,7 @@ export function canEnterClusterGroup(
   return firstAccessibleClusterPoolInnerSeg(checkPerm, ctx) != null;
 }
 
-export function canEnterUnifiedStorageGroup(
-  checkPerm: (action: string) => boolean,
-): boolean {
+export function canEnterUnifiedStorageGroup(checkPerm: (action: string) => boolean): boolean {
   if (storageUmbrellaOrLegacy(checkPerm)) return true;
   return Object.keys(CLUSTER_STORAGE_INNER_READ).some((inner) =>
     canViewClusterStorageInner(inner, checkPerm),
@@ -127,10 +123,7 @@ export function canEnterUnifiedStorageGroup(
 }
 
 /** 管理端 hasPermissionForAction 用：umbrella / 历史 ceph 满足任一存储子域 read */
-export function unifiedStorageReadGranted(
-  perms: string[],
-  requiredRead: string,
-): boolean {
+export function unifiedStorageReadGranted(perms: string[], requiredRead: string): boolean {
   if (!requiredRead.endsWith(':read')) return false;
   const base = requiredRead.slice(0, -':read'.length);
   if (!isUnifiedStorageReadBase(base)) return false;

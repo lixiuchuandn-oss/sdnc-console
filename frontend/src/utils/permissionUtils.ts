@@ -43,12 +43,7 @@ export type PoolNavPermissionDrawerSection = {
 
 /** 无侧栏叶子、归入 12 组之一的权限 prefix（顺序即组内展示顺序） */
 export const POOL_NAV_GROUP_ORPHAN_PREFIXES: Readonly<Record<string, readonly string[]>> = {
-  容器服务: [
-    'harbor.registry',
-    'harbor.project',
-    'harbor.image',
-    'harbor.scan',
-  ],
+  容器服务: ['harbor.registry', 'harbor.project', 'harbor.image', 'harbor.scan'],
   云监控: [
     'clouds.alert-rules',
     'clouds.alert-policies',
@@ -131,9 +126,9 @@ export function getPoolNavAttachedResourcePrefixSet(): Set<string> {
  */
 export function getGroupFromDefinition(
   permissionId: string,
-  definitions: PermissionDefinition[]
+  definitions: PermissionDefinition[],
 ): string {
-  const def = definitions.find(d => d.id === permissionId);
+  const def = definitions.find((d) => d.id === permissionId);
   return def?.group || '';
 }
 
@@ -142,9 +137,9 @@ export function getGroupFromDefinition(
  */
 export function getFeatureFromDefinition(
   permissionId: string,
-  definitions: PermissionDefinition[]
+  definitions: PermissionDefinition[],
 ): string {
-  const def = definitions.find(d => d.id === permissionId);
+  const def = definitions.find((d) => d.id === permissionId);
   if (def) {
     // 卡片标题用 PERMISSION_NAMES base 名；仅去掉 write 原子上的「-管理」verb 后缀
     return def.name.replace(/[-－](管理|查看)$/, '') || def.name;
@@ -159,9 +154,9 @@ export function getFeatureFromDefinition(
  */
 export function getPlatformFromDefinition(
   permissionId: string,
-  definitions: PermissionDefinition[]
+  definitions: PermissionDefinition[],
 ): string {
-  const def = definitions.find(d => d.id === permissionId);
+  const def = definitions.find((d) => d.id === permissionId);
   return def?.platform || 'CNMC';
 }
 
@@ -184,8 +179,18 @@ export function permissionFeatureMatchesKeyword(
 ): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  if (String(feature.feature || '').toLowerCase().includes(q)) return true;
-  if (String(feature.resourcePrefix || '').toLowerCase().includes(q)) return true;
+  if (
+    String(feature.feature || '')
+      .toLowerCase()
+      .includes(q)
+  )
+    return true;
+  if (
+    String(feature.resourcePrefix || '')
+      .toLowerCase()
+      .includes(q)
+  )
+    return true;
   if (feature.read && String(feature.read).toLowerCase().includes(q)) return true;
   if (feature.write && String(feature.write).toLowerCase().includes(q)) return true;
   if (feature.pathSuffix && String(feature.pathSuffix).toLowerCase().includes(q)) return true;
@@ -210,16 +215,14 @@ export function buildPoolNavGroupLeafPermissionFeatures(
       const write = poolPageWriteAction(read);
       const resourcePrefix = read.split(':')[0];
       const readAction = actionSet.has(read) ? read : undefined;
-      const writeAction =
-        !row.poolPageDisplayOnly && actionSet.has(write) ? write : undefined;
+      const writeAction = !row.poolPageDisplayOnly && actionSet.has(write) ? write : undefined;
       return {
         feature: row.title,
         resourcePrefix,
         read: readAction,
         write: writeAction,
         readVisible: permVerb === '全部' || permVerb === 'read',
-        writeVisible:
-          !row.poolPageDisplayOnly && (permVerb === '全部' || permVerb === 'write'),
+        writeVisible: !row.poolPageDisplayOnly && (permVerb === '全部' || permVerb === 'write'),
         poolNavGroup: row.poolNavGroup,
         capabilityKind: 'main' as const,
         pathSuffix: row.pathSuffix,
@@ -410,6 +413,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.recycle-bin',
   'clouds.migrations',
   'clouds.drs',
+  'clouds.storage-drs',
   'clouds.failure-domains',
   // 容器服务（K8s 子域，与池内 Tab 一致）
   'clouds.containers.workloads',
@@ -506,7 +510,7 @@ function resourceConsoleOrderIndex(prefix: string): number {
  * 将资源池管理权限拆为父级与细分功能，并按后端分组顺序排序（避免按名称排序导致资源池等位置错乱）
  */
 export function splitResourceConsoleFeatures<T extends { resourcePrefix: string }>(
-  features: T[]
+  features: T[],
 ): { parents: T[]; children: T[] } {
   const parents = features.filter((f) => RESOURCE_CONSOLE_PARENT_PREFIXES.has(f.resourcePrefix));
   const children = features.filter((f) => !RESOURCE_CONSOLE_PARENT_PREFIXES.has(f.resourcePrefix));
@@ -553,9 +557,12 @@ export function sortMergedPlatformEntryDrawerFeatures<T extends { resourcePrefix
 }
 
 /** 按 RESOURCE_CONSOLE_FEATURE_ORDER 排序（用于抽屉内分组卡片顺序） */
-export function sortByResourceConsoleFeatureOrder<T extends { resourcePrefix: string }>(features: T[]): T[] {
+export function sortByResourceConsoleFeatureOrder<T extends { resourcePrefix: string }>(
+  features: T[],
+): T[] {
   return [...features].sort(
-    (a, b) => resourceConsoleOrderIndex(a.resourcePrefix) - resourceConsoleOrderIndex(b.resourcePrefix),
+    (a, b) =>
+      resourceConsoleOrderIndex(a.resourcePrefix) - resourceConsoleOrderIndex(b.resourcePrefix),
   );
 }
 
@@ -630,10 +637,7 @@ export function isContainerTabPermissionKey(k: string): k is ContainerTabPermiss
   return k in CLOUD_CONTAINER_TAB_READ;
 }
 
-export function canReadContainerTab(
-  checkPerm: (act: string) => boolean,
-  tab: string,
-): boolean {
+export function canReadContainerTab(checkPerm: (act: string) => boolean, tab: string): boolean {
   if (tab === 'service_topology') {
     return canReadContainerTab(checkPerm, 'services');
   }
@@ -644,10 +648,7 @@ export function canReadContainerTab(
   return checkPerm(atom);
 }
 
-export function canWriteContainerTab(
-  checkPerm: (act: string) => boolean,
-  tab: string,
-): boolean {
+export function canWriteContainerTab(checkPerm: (act: string) => boolean, tab: string): boolean {
   if (tab === 'service_topology') {
     return canWriteContainerTab(checkPerm, 'services');
   }
@@ -665,8 +666,7 @@ export function hasContainerSubWritePermission(
   const perms = permissions ?? [];
   const writeAction = CLOUD_CONTAINER_TAB_WRITE[tab];
   return (
-    hasPermissionForAction(perms, writeAction) ||
-    hasPermissionForAction(perms, 'clouds:write')
+    hasPermissionForAction(perms, writeAction) || hasPermissionForAction(perms, 'clouds:write')
   );
 }
 
@@ -674,9 +674,7 @@ export function canViewAnyContainerSubPage(checkPerm: (act: string) => boolean):
   return ALL_CLOUD_CONTAINER_SUB_READ.some((a) => checkPerm(a));
 }
 
-export function canViewAnyContainerSubPageFromPerms(
-  permissions: string[] | undefined,
-): boolean {
+export function canViewAnyContainerSubPageFromPerms(permissions: string[] | undefined): boolean {
   const perms = permissions ?? [];
   return canViewAnyContainerSubPage((a) => hasPermissionForAction(perms, a));
 }

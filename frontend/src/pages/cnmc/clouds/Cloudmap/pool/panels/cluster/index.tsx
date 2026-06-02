@@ -17,6 +17,7 @@ import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevices
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
 import DrsSection from '../../../../Harvester/cluster/sections/DrsSection';
 import FailureDomainSection from '../../../../Harvester/cluster/sections/FailureDomainSection';
+import StorageDrsSection from '../../../../Harvester/cluster/sections/StorageDrsSection';
 import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
@@ -65,11 +66,7 @@ export type CloudmapClusterRoutePanelProps = {
   canReadLoadBalancers: boolean;
   /** 当前子路径 `/cluster/<seg>`，与云主机等域一致，一屏一块资源 */
   innerActiveKey: string;
-  loadTabResource: (
-    key: string,
-    force?: boolean,
-    skipSync?: boolean,
-  ) => Promise<void>;
+  loadTabResource: (key: string, force?: boolean, skipSync?: boolean) => Promise<void>;
   loadResource: (
     key: string,
     fn: () => Promise<any>,
@@ -173,14 +170,8 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
       cluster_pci: createClusterTabOnRefresh('cluster_pci', deps),
       cluster_sriov: createClusterTabOnRefresh('cluster_sriov', deps),
       cluster_vlans: createClusterTabOnRefresh('cluster_vlans', deps),
-      kubeovn_public_networks: createClusterTabOnRefresh(
-        'kubeovn_public_networks',
-        deps,
-      ),
-      kubeovn_public_subnets: createClusterTabOnRefresh(
-        'kubeovn_public_subnets',
-        deps,
-      ),
+      kubeovn_public_networks: createClusterTabOnRefresh('kubeovn_public_networks', deps),
+      kubeovn_public_subnets: createClusterTabOnRefresh('kubeovn_public_subnets', deps),
     };
   }, [loadTabResource]);
 
@@ -233,15 +224,15 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
         return <DrsSection cloudId={cloudId} checkPerm={checkPerm} isTenant={isTenant} />;
       case 'failure_domains':
         return <FailureDomainSection cloudId={cloudId} checkPerm={checkPerm} />;
+      case 'storage_drs':
+        return <StorageDrsSection cloudId={cloudId} checkPerm={checkPerm} />;
       case 'kubeovn_public_subnets':
         return (
           <>
             <UnderlaySubnetsSection
               cloudId={cloudId}
               mode="public"
-              onSubnetsChanged={() =>
-                void clusterTabOnRefresh.kubeovn_public_subnets(true, true)
-              }
+              onSubnetsChanged={() => void clusterTabOnRefresh.kubeovn_public_subnets(true, true)}
             />
             <DebugJSON data={rawSubnets} show={showLog} />
           </>

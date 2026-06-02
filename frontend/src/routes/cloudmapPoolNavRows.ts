@@ -180,6 +180,17 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavSubgroup: 'cluster_resources',
   },
   {
+    id: 'cloudmap-pool-cluster-storage-drs',
+    pathSuffix: 'cluster/storage_drs',
+    poolPageAction: 'clouds.storage-drs:read',
+    title: '存储 DRS',
+    order: 25.75,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_resources',
+  },
+  {
     id: 'cloudmap-pool-cluster-namespaces',
     pathSuffix: 'cluster/namespaces',
     poolPageAction: 'clouds.namespaces:read',
