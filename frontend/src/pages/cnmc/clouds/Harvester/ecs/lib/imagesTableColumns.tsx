@@ -1,10 +1,12 @@
 import React from 'react';
-import { Modal, Progress, Tag } from 'antd';
+import { Progress, Tag } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { OsIcon } from 'components/OsIcon';
 import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
 import { isImagePublicByScenario, resolveVmImageKind } from 'utils/harvesterUtils';
+import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import { resolveImageListStateKey } from './vmImageStatus';
 import {
   formatImageSizeGb,
@@ -221,15 +223,16 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
                 label: '删除',
                 danger: true,
                 disabled: !hasImagesWrite,
-                onClick: () =>
-                  Modal.confirm({
-                    title: '确认删除镜像？',
-                    content: `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`,
-                    onOk: () => {
-                      if (!ensureImagesWrite()) return;
-                      void onDeleteRow(r);
-                    },
-                  }),
+                onClick: () => {
+                  if (!ensureImagesWrite()) return;
+                  void confirmHighRiskDelete({
+                    resourceLabel: '镜像',
+                    name,
+                    description: `确定要删除镜像「${deleteLabel}」吗？此操作不可恢复。`,
+                    riskItems: DELETE_RISK_ITEMS,
+                    onConfirm: () => void onDeleteRow(r),
+                  }).catch(() => undefined);
+                },
               },
             ], hasImagesWrite)}
           />

@@ -27,6 +27,11 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../lib/ebsSectionRefresh';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  confirmHighRiskOperation,
+} from '../../shared/lib/highRiskConfirm';
+import { DELETE_STORAGE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -115,13 +120,14 @@ export function useVolumesSectionActions({
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter((v) => selectedRowKeys.includes(v.key));
 
-    modal.confirm({
+    void confirmHighRiskOperation({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个云盘：${targets.map(volumeDisplayLabel).join(', ')}`,
-      okText: '删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
+      description: `即将删除 ${targets.length} 个云盘：${targets.map(volumeDisplayLabel).join(', ')}`,
+      riskItems: DELETE_STORAGE_RISK_ITEMS,
+      requireTypeConfirm: false,
+      confirmText: '删除',
+      operationSummary: `确认批量删除 ${targets.length} 个云盘`,
+      onConfirm: async () => {
         try {
           const results = await Promise.allSettled(
             targets.map((t) => deleteHarvesterVolume(cloudId, t.namespace, t.name)),
@@ -134,15 +140,15 @@ export function useVolumesSectionActions({
         } catch (e: unknown) {
           const err = e as { message?: string };
           msg.error(err.message || '批量删除失败');
+          throw e;
         }
       },
-    });
+    }).catch(() => undefined);
   }, [
     burstRefreshVolumes,
     cloudId,
     dataSource,
     ensureDisksWrite,
-    modal,
     msg,
     selectedRowKeys,
     setSelectedRowKeys,
@@ -336,27 +342,27 @@ export function useVolumesSectionActions({
         disabled: !hasDisksWrite,
         onClick: () => {
           if (!ensureDisksWrite()) return;
-          modal.confirm({
+          void confirmHighRiskDelete({
             title: '确认删除云盘',
-            content: (
-              <div>
-                <div style={{ marginBottom: 8 }}>云盘：{diskLabel}</div>
-                {vm ? (
-                  <div style={{ color: '#d48806' }}>
-                    该云盘仍挂载在云主机：{vmLabel}，请先卸载后再删除。
-                  </div>
-                ) : null}
-                <div>删除后无法恢复。</div>
+            resourceLabel: '云盘',
+            name: r.name,
+            description: `确定要删除云盘「${diskLabel}」吗？删除后无法恢复。`,
+            riskItems: DELETE_STORAGE_RISK_ITEMS,
+            extra: vm ? (
+              <div style={{ color: '#d48806' }}>
+                该云盘仍挂载在云主机：{vmLabel}，请先卸载后再删除。
               </div>
-            ),
-            okText: '确认',
-            cancelText: '取消',
-            okButtonProps: {
-              danger: true,
-              disabled: !!vm,
-              title: vm ? `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除` : undefined,
+            ) : undefined,
+            precheck: async () => {
+              if (vm) {
+                return {
+                  ok: false,
+                  error: `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除`,
+                };
+              }
+              return { ok: true };
             },
-            onOk: async () => {
+            onConfirm: async () => {
               try {
                 await deleteHarvesterVolume(cloudId, r.namespace, r.name);
                 msg.success('删除成功');
@@ -368,9 +374,10 @@ export function useVolumesSectionActions({
                     ? `删除失败，当前云盘被云主机实例 ${vmLabel} 使用`
                     : err.message || '删除失败',
                 );
+                throw e;
               }
             },
-          });
+          }).catch(() => undefined);
         },
       });
 
@@ -386,7 +393,6 @@ export function useVolumesSectionActions({
       handleOpenVolumeDetail,
       hasDisksWrite,
       isTenant,
-      modal,
       msg,
       safeRead,
     ],

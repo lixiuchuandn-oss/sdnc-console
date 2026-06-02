@@ -2,7 +2,7 @@
  * Harvester - SSH 密钥列表 Section
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Table, Button, Input, Select, Modal, Dropdown, message } from 'antd';
+import { Table, Button, Input, Select, Dropdown, message } from 'antd';
 import { ReloadOutlined, SearchOutlined, EllipsisOutlined } from '@ant-design/icons';
 
 import PageDetailSection from 'components/PageDetailSection';
@@ -29,6 +29,8 @@ import {
   type SshKeyTableRow,
 } from '../lib/sshKeysSectionUtils';
 import { buildSshKeysTableColumns } from '../lib/sshKeysTableColumns';
+import { confirmHighRiskDelete, confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 const TABLE_SETTINGS_KEY = 'harvester_ssh_keys_table';
 
@@ -105,13 +107,12 @@ const SshKeysSection: React.FC<Props> = ({
         return;
       }
       const displayName = record.alias || record.name;
-      Modal.confirm({
-        title: `确认删除密钥 ${displayName}?`,
-        content: '此操作不可恢复。',
-        okText: '删除',
-        cancelText: '取消',
-        okButtonProps: { danger: true },
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: 'SSH 密钥',
+        name: record.name,
+        description: `确定要删除密钥「${displayName}」吗？此操作不可恢复。`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterSshKey(cloudId, record.namespace, record.name);
             message.success('删除成功');
@@ -119,9 +120,10 @@ const SshKeysSection: React.FC<Props> = ({
           } catch (e: unknown) {
             const err = e as { message?: string };
             message.error(err?.message || '删除失败');
+            throw e;
           }
         },
-      });
+      }).catch(() => undefined);
     },
     [cloudId, hasSshKeysWrite, onRefresh],
   );
@@ -133,13 +135,14 @@ const SshKeysSection: React.FC<Props> = ({
     }
     if (selectedRowKeys.length === 0) return;
 
-    Modal.confirm({
+    void confirmHighRiskOperation({
       title: '批量删除确认',
-      content: `即将删除 ${selectedRowKeys.length} 个 SSH 密钥，是否确认？`,
-      okText: '删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
+      description: `即将删除 ${selectedRowKeys.length} 个 SSH 密钥，是否确认？`,
+      riskItems: DELETE_RISK_ITEMS,
+      requireTypeConfirm: false,
+      confirmText: '删除',
+      operationSummary: `确认批量删除 ${selectedRowKeys.length} 个 SSH 密钥`,
+      onConfirm: async () => {
         try {
           const targets = dataSource.filter((item) => selectedRowKeys.includes(item.key));
           const results = await Promise.allSettled(
@@ -154,9 +157,10 @@ const SshKeysSection: React.FC<Props> = ({
         } catch (e: unknown) {
           const err = e as { message?: string };
           message.error(err?.message || '批量删除失败');
+          throw e;
         }
       },
-    });
+    }).catch(() => undefined);
   }, [cloudId, dataSource, hasSshKeysWrite, onRefresh, selectedRowKeys]);
 
   const allColumns = useMemo(

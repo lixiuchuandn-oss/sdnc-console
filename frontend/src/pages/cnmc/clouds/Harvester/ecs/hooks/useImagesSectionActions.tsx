@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
 import {
   cancelHarvesterImageUploadTask,
   deleteHarvesterImage,
@@ -12,6 +12,8 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import type { ImageListRecord } from '../lib/imagesSectionUtils';
 import { getImageRowId, getImageRowNamespace } from '../lib/imagesSectionUtils';
 import { resolveImageListStateKey } from '../lib/vmImageStatus';
@@ -259,9 +261,14 @@ export function useImagesSectionActions({
     (selectedKeys: React.Key[], sourceImages: ImageListRecord[], onDone?: () => void) => {
       if (!ensureImagesWrite()) return;
       if (!Array.isArray(sourceImages) || selectedKeys.length === 0) return;
-      Modal.confirm({
+      void confirmHighRiskOperation({
         title: '确认批量删除所选镜像？',
-        onOk: async () => {
+        description: `确定要删除选中的 ${selectedKeys.length} 个镜像吗？此操作不可恢复。`,
+        riskItems: DELETE_RISK_ITEMS,
+        requireTypeConfirm: false,
+        confirmText: '删除',
+        operationSummary: `确认批量删除 ${selectedKeys.length} 个镜像`,
+        onConfirm: async () => {
           try {
             const targets = selectImagesByRowKeys(sourceImages, selectedKeys as Array<string | number>);
             if (targets.length === 0) {
@@ -283,9 +290,10 @@ export function useImagesSectionActions({
             void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             message.error((e as { message?: string })?.message || '批量删除失败');
+            throw e;
           }
         },
-      });
+      }).catch(() => undefined);
     },
     [cloudId, ensureImagesWrite, onRefresh, vms],
   );

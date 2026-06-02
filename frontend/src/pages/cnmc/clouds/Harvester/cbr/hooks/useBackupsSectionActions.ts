@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
+import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import { deleteHarvesterBackup } from 'services/harvester/cbr';
 import { isHarvesterCephVmBackup } from '../../../../../../utils/harvesterUtils';
 import { resolveHarvesterSteveViewLink } from '../../shared/lib/harvesterSteveViewLink';
@@ -52,13 +54,13 @@ export function useBackupsSectionActions({
       } catch {
         // 恢复任务列表拉取失败时仍允许打开确认框，由后端删除接口兜底校验
       }
-      Modal.confirm({
-        title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
-        content: `确定要删除${type === 'backup' ? '备份' : '快照'} ${record.alias || record.name} 吗？`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      const resourceLabel = type === 'backup' ? '备份' : '快照';
+      void confirmHighRiskDelete({
+        resourceLabel,
+        name: record.name,
+        description: `确定要删除${resourceLabel}「${record.alias || record.name}」吗？请仔细核对名称与影响范围。`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             const blocking = await findRestoreBlockingBackupDelete(
               cloudId,
@@ -67,17 +69,20 @@ export function useBackupsSectionActions({
             );
             if (blocking) {
               message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
-              return;
+              throw new Error(buildRestoreBlockingDeleteMessage(blocking, type));
             }
             await deleteHarvesterBackup(cloudId, record.namespace, record.name);
             message.success('删除成功');
             void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             const err = e as { message?: string };
-            message.error(`删除失败: ${err.message || '未知错误'}`);
+            if (err?.message && !String(err.message).includes('用户取消')) {
+              message.error(`删除失败: ${err.message || '未知错误'}`);
+            }
+            throw e;
           }
         },
-      });
+      }).catch(() => undefined);
     },
     [cloudId, hasBackupsWrite, onRefresh, type],
   );

@@ -12,7 +12,6 @@ import {
   Button,
   message,
   Dropdown,
-  Modal,
   Tooltip,
   Typography,
   Drawer,
@@ -47,6 +46,11 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  confirmHighRiskOperation,
+} from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 type Props = {
   cloudId: string;
@@ -405,15 +409,19 @@ const ImagesSection: React.FC<Props> = ({
                       !['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) ||
                       !hasImagesWrite
                     }
-                    onClick={() =>
-                      Modal.confirm({
+                    onClick={() => {
+                      void confirmHighRiskOperation({
                         title: '确认取消该上传任务？',
-                        content: `取消后将停止上传：${t.displayName || t.filename || t.id}`,
-                        onOk: async () => {
+                        description: `取消后将停止上传：${t.displayName || t.filename || t.id}`,
+                        riskItems: DELETE_RISK_ITEMS,
+                        requireTypeConfirm: false,
+                        confirmText: '取消上传',
+                        operationSummary: '确认取消该上传任务',
+                        onConfirm: async () => {
                           await handleCancelUploadTask(t);
                         },
-                      })
-                    }
+                      }).catch(() => undefined);
+                    }}
                   >
                     取消
                   </Button>
@@ -424,15 +432,18 @@ const ImagesSection: React.FC<Props> = ({
                       ['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) ||
                       !hasImagesWrite
                     }
-                    onClick={() =>
-                      Modal.confirm({
-                        title: '确认删除该上传任务记录？',
-                        content: `删除后将无法恢复：${t.displayName || t.filename || t.id}`,
-                        onOk: async () => {
+                    onClick={() => {
+                      const taskLabel = t.displayName || t.filename || t.id;
+                      void confirmHighRiskDelete({
+                        resourceLabel: '上传任务记录',
+                        name: taskLabel,
+                        description: `删除后将无法恢复：${taskLabel}`,
+                        riskItems: DELETE_RISK_ITEMS,
+                        onConfirm: async () => {
                           await handleDeleteUploadTask(t);
                         },
-                      })
-                    }
+                      }).catch(() => undefined);
+                    }}
                   >
                     删除
                   </Button>
