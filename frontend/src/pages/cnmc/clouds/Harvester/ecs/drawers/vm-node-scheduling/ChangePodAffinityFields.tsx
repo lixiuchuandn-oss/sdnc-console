@@ -12,8 +12,8 @@ type Props = {
   form: any;
   record: any;
   namespacesOptions: string[];
-  podAffinityRef: React.RefObject<PodAffinityEditorHandle | null>;
-  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle | null>;
+  podAffinityRef: React.RefObject<PodAffinityEditorHandle>;
+  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle>;
 };
 
 const ChangePodAffinityFields: React.FC<Props> = ({

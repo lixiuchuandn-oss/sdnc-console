@@ -56,8 +56,8 @@ interface StepOthersProps {
    */
   reloadSshKeys: () => void;
   namespacesOptions: string[];
-  podAffinityRef: React.RefObject<PodAffinityEditorHandle | null>;
-  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle | null>;
+  podAffinityRef: React.RefObject<PodAffinityEditorHandle>;
+  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle>;
 }
 
 const StepOthers: React.FC<StepOthersProps> = ({
