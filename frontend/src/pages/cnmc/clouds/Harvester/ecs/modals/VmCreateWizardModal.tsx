@@ -35,6 +35,7 @@ import StepDisks from './VmCreateWizard/StepDisks';
 import StepNetworks from './VmCreateWizard/StepNetworks';
 import StepLoginSettings from './VmCreateWizard/StepLoginSettings';
 import StepOthers from './VmCreateWizard/StepOthers';
+import { useStepOthersPodAffinityRefs } from './VmCreateWizard/StepOthersPodAffinity';
 import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
@@ -89,6 +90,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const lastValidationErrorTypeRef = useRef<string | null>(null);
   /** 防止连点/双击在 setSubmitting 生效前并发提交，导致重复创建 VM */
   const submitInFlightRef = useRef(false);
+  const { podAffinityRef, podAntiAffinityRef } = useStepOthersPodAffinityRefs();
 
   const {
     images, imageLoading, reloadImages,
@@ -108,6 +110,17 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
   const fromVmState = (location.state as any)?.fromVm;
+
+  const wizardNamespacesOptions = useMemo(() => {
+    const merged = new Set<string>();
+    (namespaceOptions || []).forEach((opt: any) => {
+      const v = String(opt?.value ?? opt?.label ?? '').trim();
+      if (v) merged.add(v);
+    });
+    const ns = String(watchNamespace || '').trim();
+    if (ns) merged.add(ns);
+    return Array.from(merged).sort();
+  }, [namespaceOptions, watchNamespace]);
 
   const canUseVmCreateWizard = useMemo(() => {
     const perms = (user?.permissions ?? []) as string[];
@@ -544,6 +557,15 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       const sizeError = validateImageSize(v, images || []);
       if (sizeError) { message.error(sizeError); return; }
 
+      if (
+        podAffinityRef.current?.getHasLabelErrors() ||
+        podAntiAffinityRef.current?.getHasLabelErrors()
+      ) {
+        message.error('请修正「虚拟机间调度」中的标签键/值格式');
+        setStep(5);
+        return;
+      }
+
       const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
       if (!cid) { throw new Error('请选择资源池'); }
 
@@ -913,6 +935,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   reloadUsbResources={reloadUsbResources}
                   sshKeyOptions={sshKeyOptions}
                   reloadSshKeys={reloadSshKeys}
+                  namespacesOptions={wizardNamespacesOptions}
+                  podAffinityRef={podAffinityRef}
+                  podAntiAffinityRef={podAntiAffinityRef}
                 />
               </div>
             </div>
