@@ -1,4 +1,4 @@
-# Cloudmap 白皮书：Markdown 源稿 -> Word
+# Cloudmap whitepaper: Markdown -> Word
 param(
     [string]$Output = "",
     [switch]$CopyToDeployment
@@ -12,20 +12,12 @@ $OutputDir = Join-Path $Root "output"
 $Manifest = Join-Path $Source "manifest.txt"
 
 if (-not (Test-Path $Manifest)) {
-    Write-Error "缺少 $Manifest，请先维护章节清单。"
+    Write-Error "Missing manifest: $Manifest"
 }
 
 $pandocExe = Resolve-PandocExecutable
 if (-not $pandocExe) {
-    Write-Host @"
-
-未检测到 pandoc。请先安装：
-  winget install --id JohnMacFarlane.Pandoc
-或 https://pandoc.org/installing.html
-
-安装后重新运行本脚本。
-
-"@ -ForegroundColor Yellow
+    Write-Host "pandoc not found. Install: winget install --id JohnMacFarlane.Pandoc" -ForegroundColor Yellow
     exit 1
 }
 
@@ -35,7 +27,7 @@ $files = Get-Content $Manifest -Encoding UTF8 | Where-Object { $_ -and -not $_.S
 $inputs = @()
 foreach ($rel in $files) {
     $p = Join-Path $Source $rel.Trim()
-    if (-not (Test-Path $p)) { Write-Error "找不到源文件: $p" }
+    if (-not (Test-Path $p)) { Write-Error "Missing source file: $p" }
     $inputs += $p
 }
 
@@ -58,12 +50,12 @@ if (Test-Path $refDoc) {
 }
 
 & $pandocExe @pandocArgs
-Write-Host "已生成: $Output" -ForegroundColor Green
+Write-Host "Generated: $Output" -ForegroundColor Green
 
 if ($CopyToDeployment) {
     $deploy = Join-Path (Split-Path -Parent (Split-Path -Parent $Root)) "deployment"
     if (-not (Test-Path $deploy)) { New-Item -ItemType Directory -Path $deploy | Out-Null }
-    $dest = Join-Path $deploy "Cloudmap_超融合平台技术白皮书.docx"
+    $dest = Join-Path $deploy "Cloudmap_whitepaper.docx"
     Copy-Item -Force $Output $dest
-    Write-Host "已复制到: $dest" -ForegroundColor Green
+    Write-Host "Copied to: $dest" -ForegroundColor Green
 }

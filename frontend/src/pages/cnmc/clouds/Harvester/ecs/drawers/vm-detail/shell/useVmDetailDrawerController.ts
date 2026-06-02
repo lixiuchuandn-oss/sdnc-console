@@ -47,6 +47,7 @@ export function useVmDetailDrawerController({
     useState<any>(null);
   const [nodeSchedulingOpen, setNodeSchedulingOpen] = useState(false);
   const [nodeAffinityOpen, setNodeAffinityOpen] = useState(false);
+  const [podAffinityOpen, setPodAffinityOpen] = useState(false);
   const [nodeSchedDrawerLatestVm, setNodeSchedDrawerLatestVm] =
     useState<any>(null);
   const [vmPolicyManageOpen, setVmPolicyManageOpen] = useState(false);
@@ -73,6 +74,7 @@ export function useVmDetailDrawerController({
       setHotplugDrawerLatestVm(null);
       setNodeSchedulingOpen(false);
       setNodeAffinityOpen(false);
+      setPodAffinityOpen(false);
       setNodeSchedDrawerLatestVm(null);
       setVmPolicyManageOpen(false);
       setVmPolicyDrawerLatestVm(null);
@@ -205,10 +207,10 @@ export function useVmDetailDrawerController({
   }, [hotplugSettingsOpen, vmData]);
 
   React.useEffect(() => {
-    if (nodeSchedulingOpen || nodeAffinityOpen) {
+    if (nodeSchedulingOpen || nodeAffinityOpen || podAffinityOpen) {
       setNodeSchedDrawerLatestVm(vmData);
     }
-  }, [nodeSchedulingOpen, nodeAffinityOpen, vmData]);
+  }, [nodeSchedulingOpen, nodeAffinityOpen, podAffinityOpen, vmData]);
 
   React.useEffect(() => {
     if (vmPolicyManageOpen) {
@@ -606,6 +608,8 @@ export function useVmDetailDrawerController({
     setNodeSchedulingOpen,
     nodeAffinityOpen,
     setNodeAffinityOpen,
+    podAffinityOpen,
+    setPodAffinityOpen,
     nodeSchedDrawerLatestVm,
     setNodeSchedDrawerLatestVm,
     vmPolicyManageOpen,

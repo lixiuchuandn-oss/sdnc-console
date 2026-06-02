@@ -8,6 +8,8 @@ import { Alert, Button, Space, Tooltip, Typography } from 'antd';
 import {
   classifyPortStatus,
   extractInterfacesStdoutFromRecord,
+  formatSwitchInterfaceStdoutParseHint,
+  getSwitchInterfaceStdoutParseHint,
   parseInterfaceStatusStdout,
   sortParsedSwitchPortsBySlot,
   type ParsedSwitchPort,
@@ -278,6 +280,11 @@ export function EmbeddedSwitchPortPanelBody({
 
   const portsOrdered = useMemo(() => sortParsedSwitchPortsBySlot(ports), [ports]);
 
+  const interfaceParseHint = useMemo(() => {
+    if (!extracted?.stdout) return 'empty' as const;
+    return getSwitchInterfaceStdoutParseHint(extracted.stdout);
+  }, [extracted]);
+
   const nameFromInfo = useMemo(
     () => (record ? parseSwitchDisplayNameFromInfoLines(record.info?.lines) : ''),
     [record],
@@ -463,12 +470,17 @@ export function EmbeddedSwitchPortPanelBody({
             type="info"
             showIcon
             message="未能从 CLI 输出解析端口表"
-            description="当前输出格式可能非已知表格样式。"
+            description={formatSwitchInterfaceStdoutParseHint(interfaceParseHint)}
           />
         ) : null}
 
         {!interfacesFailed && ports.length === 0 && !extracted?.stdout ? (
-          <Alert type="warning" showIcon message="无接口探测 stdout，暂无端口可展示" />
+          <Alert
+            type="warning"
+            showIcon
+            message="无接口探测 stdout，暂无端口可展示"
+            description={formatSwitchInterfaceStdoutParseHint('empty')}
+          />
         ) : null}
 
         {ports.length > 0 ? (

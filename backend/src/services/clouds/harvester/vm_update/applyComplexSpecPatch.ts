@@ -1252,38 +1252,29 @@ export const applyComplexHarvesterVMSpecPatch = async (
     newSpec.template.spec.evictionStrategy = spec.evictionStrategy;
   }
 
-  // --- 8. [节点亲和性] Affinity 配置 ---
-  // ---------------------------------------------------------
-  // 处理节点亲和性（nodeAffinity）配置
-  // 注意：nodeAffinity 和 nodeSelector 可以同时存在
-  // nodeAffinity 通常用于更复杂的调度规则（如网络标签要求）
-  // ---------------------------------------------------------
+  // --- 8. Affinity（node / pod / podAnti）按字段局部合并 ---
+  // spec.affinity === null：清空整块 affinity；否则仅更新 patch 中出现的键（值为 null 表示删除该键）
   if (spec.affinity !== undefined) {
     if (!newSpec.template.spec) newSpec.template.spec = {};
 
-    if (spec.affinity === null || spec.affinity === undefined) {
-      // 清空 affinity
+    if (spec.affinity === null) {
       newSpec.template.spec.affinity = undefined;
     } else if (spec.affinity && typeof spec.affinity === 'object') {
-      // 设置 affinity
-      if (!newSpec.template.spec.affinity) {
-        newSpec.template.spec.affinity = {};
-      }
-      // 合并 nodeAffinity（保留其他 affinity 配置如 podAffinity）
-      if (spec.affinity.nodeAffinity) {
-        newSpec.template.spec.affinity.nodeAffinity = JSON.parse(
-          JSON.stringify(spec.affinity.nodeAffinity),
-        );
-      } else {
-        // 如果没有 nodeAffinity，清空它
-        if (newSpec.template.spec.affinity.nodeAffinity) {
-          delete newSpec.template.spec.affinity.nodeAffinity;
-        }
-        // 如果 affinity 为空，设置为 undefined
-        if (Object.keys(newSpec.template.spec.affinity).length === 0) {
-          newSpec.template.spec.affinity = undefined;
+      const currentAffinity = newSpec.template.spec.affinity
+        ? JSON.parse(JSON.stringify(newSpec.template.spec.affinity))
+        : {};
+      const affinityKeys = ['nodeAffinity', 'podAffinity', 'podAntiAffinity'] as const;
+      for (const key of affinityKeys) {
+        if (!(key in spec.affinity)) continue;
+        const val = spec.affinity[key];
+        if (val === null || val === undefined) {
+          delete currentAffinity[key];
+        } else {
+          currentAffinity[key] = JSON.parse(JSON.stringify(val));
         }
       }
+      newSpec.template.spec.affinity =
+        Object.keys(currentAffinity).length > 0 ? currentAffinity : undefined;
     }
   }
 

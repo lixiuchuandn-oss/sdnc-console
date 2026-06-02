@@ -1,9 +1,8 @@
 import React from 'react';
 import type { ColumnsType } from 'antd/es/table';
-import { Badge, Button, Space, Popconfirm } from 'antd';
+import { Badge, Button, Popconfirm, Space, Tag, Tooltip } from 'antd';
 import { ClockCircleTwoTone, CloudServerOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
-
 import {
   isMigrationRunning,
   migrationRowFields,
@@ -36,6 +35,34 @@ export function buildMigrationsTableColumns(
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <ClockCircleTwoTone twoToneColor={['#1890ff', '#91caff']} style={{ fontSize: 16, flexShrink: 0 }} />
             <span style={{ wordBreak: 'break-all' }}>{text}</span>
+          </span>
+        );
+      },
+    },
+    {
+      title: '触发来源',
+      key: 'trigger',
+      render: (_: unknown, r: MigrationTableRow) => {
+        const fingerprint = migrationRowFields.autoScheduledFingerprint(r);
+        if (!fingerprint) {
+          return <Tag>人工/其他</Tag>;
+        }
+        return (
+          <Tooltip title={`告警指纹：${fingerprint}`}>
+            <Tag color="blue">自动调度</Tag>
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: '告警指纹',
+      key: 'autoScheduledFingerprint',
+      render: (_: unknown, r: MigrationTableRow) => {
+        const fingerprint = migrationRowFields.autoScheduledFingerprint(r);
+        if (!fingerprint) return <span style={{ color: 'rgba(0,0,0,.45)' }}>—</span>;
+        return (
+          <span style={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: 12 }} title={fingerprint}>
+            {fingerprint}
           </span>
         );
       },
