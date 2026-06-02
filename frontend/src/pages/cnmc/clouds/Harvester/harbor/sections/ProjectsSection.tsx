@@ -27,7 +27,7 @@ interface Props {
 }
 
 const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState<HarborProject[]>([]);
   const [total, setTotal] = useState(0);
@@ -91,7 +91,7 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
         },
       }).catch(() => {});
     },
-    [harbor.id, message, modal, loadProjects],
+    [harbor.id, message, loadProjects],
   );
 
   const columns = [

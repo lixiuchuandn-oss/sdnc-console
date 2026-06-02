@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Form, Input, Switch, Button, Space, Alert, Descriptions, Tag, Modal, Select, App, Divider, Tooltip, Badge, Collapse, Typography } from 'antd';
+import { Card, Form, Input, Switch, Button, Space, Alert, Descriptions, Tag, Select, App, Divider, Tooltip, Badge, Collapse, Typography } from 'antd';
 import { 
   SaveOutlined, 
   SyncOutlined,
@@ -27,6 +27,7 @@ import {
 } from '@ant-design/icons';
 import type { HarborRegistry, HarborRegistryForm, HarborSyncSecretParams } from '../types';
 import { updateHarborRegistry, syncHarborSecret, testHarborConnection } from '../shared/harborApi';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 
 const { Panel } = Collapse;
 const { Text, Paragraph } = Typography;
@@ -105,15 +106,20 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
       namespace: 'default',
     };
 
-    Modal.confirm({
+    void confirmHighRiskOperation({
       title: '同步凭证到 Kubernetes',
-      icon: <SyncOutlined />,
+      description: '将 Harbor 凭证同步到 Kubernetes 集群，创建 docker-registry 类型的 Secret。',
+      riskItems: [
+        '将在目标命名空间创建或更新 docker-registry Secret，覆盖同名 Secret。',
+        'Secret 凭证泄露可能导致私有镜像被未授权拉取，请确认命名空间与权限边界。',
+      ],
+      requireTypeConfirm: false,
       width: 500,
-      content: (
+      extra: (
         <div style={{ marginTop: 16 }}>
           <Form layout="vertical">
-            <Form.Item 
-              label="目标命名空间" 
+            <Form.Item
+              label="目标命名空间"
               required
               help="将在此命名空间创建 docker-registry 类型的 Secret"
             >
@@ -128,7 +134,7 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
               />
             </Form.Item>
             <Form.Item label="Secret 名称（可选）">
-              <Input 
+              <Input
                 placeholder="默认自动生成: harbor-registry"
                 onChange={(e) => { syncParams.secretName = e.target.value; }}
               />
@@ -142,18 +148,20 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
           />
         </div>
       ),
-      onOk: async () => {
+      operationSummary: `同步 Harbor「${harbor.name}」凭证到 Kubernetes`,
+      confirmText: '同步凭证',
+      onConfirm: async () => {
         // 注意：实际使用时需要传入正确的 cloudId
         if (!syncParams.cloudId) {
           message.warning('请从资源池详情页执行凭证同步，或手动指定 cloudId');
           return;
         }
-        
+
         setSyncing(true);
         try {
           const result = await syncHarborSecret(harbor.id, syncParams);
           message.success(
-            `凭证已同步！Secret: ${result.secretName} (${result.namespace})${result.created ? ' [新建]' : ' [更新]'}`
+            `凭证已同步！Secret: ${result.secretName} (${result.namespace})${result.created ? ' [新建]' : ' [更新]'}`,
           );
         } catch (e: any) {
           message.error(e?.message || '同步凭证失败');
@@ -161,8 +169,8 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
           setSyncing(false);
         }
       },
-    });
-  }, [harbor.id, message]);
+    }).catch(() => {});
+  }, [harbor.id, harbor.name, message]);
 
   /**
    * 复制到剪贴板

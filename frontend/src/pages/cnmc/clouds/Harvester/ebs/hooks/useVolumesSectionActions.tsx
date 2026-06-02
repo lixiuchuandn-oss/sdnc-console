@@ -31,7 +31,11 @@ import {
   confirmHighRiskDelete,
   confirmHighRiskOperation,
 } from '../../shared/lib/highRiskConfirm';
-import { DELETE_STORAGE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
+import {
+  DELETE_STORAGE_RISK_ITEMS,
+  VM_RESTART_RISK_ITEMS,
+  VOLUME_DETACH_RISK_ITEMS,
+} from '../../shared/lib/highRiskOperationPresets';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -60,7 +64,7 @@ export function useVolumesSectionActions({
   selectedRowKeys,
   setSelectedRowKeys,
 }: UseVolumesSectionActionsParams) {
-  const { message: msg, modal } = App.useApp();
+  const { message: msg } = App.useApp();
   const safeRead = useMemo(() => createVolumeSafeRead(vms), [vms]);
   const burstRefreshVolumes = useStableBurstVolumeRefresh(onRefresh);
 
@@ -197,56 +201,54 @@ export function useVolumesSectionActions({
 
       const diskName = resolveAttachedDiskName(vm, r.name);
       if (!diskName) {
-        modal.confirm({
+        const vmLabel = vm.InstanceName || vm.InstanceId || '';
+        void confirmHighRiskOperation({
           title: '无法确定挂载的磁盘名称',
-          content:
+          description:
             '请先在虚机内卸载该云盘（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
-          okText: '重启虚拟机',
-          cancelText: '取消',
-          onOk: async () => {
-            try {
-              const resolvedId = resolveVmRebootTargetId(vm);
-              if (!resolvedId) {
-                msg.error('实例标识缺失，无法重启');
-                return;
-              }
-              await rebootCloudProviderEcs(cloudId, resolvedId);
-              msg.success('已触发重启');
-            } catch (e: unknown) {
-              const err = e as { message?: string };
-              msg.error(err.message || '重启失败');
+          riskItems: VM_RESTART_RISK_ITEMS,
+          requireTypeConfirm: false,
+          operationSummary: `重启云主机「${vmLabel}」以完成云盘卸载`,
+          confirmText: '重启虚拟机',
+          onConfirm: async () => {
+            const resolvedId = resolveVmRebootTargetId(vm);
+            if (!resolvedId) {
+              msg.error('实例标识缺失，无法重启');
+              throw new Error('missing vm id');
             }
+            await rebootCloudProviderEcs(cloudId, resolvedId);
+            msg.success('已触发重启');
           },
-        });
+        }).catch(() => undefined);
         return;
       }
 
       const { resolvedId, iidNameOnly } = resolveVmInstanceIds(vm);
-      modal.confirm({
+      const vmLabel = vm.InstanceName || vm.InstanceId || '';
+      void confirmHighRiskOperation({
         title: '确认卸载',
-        content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载云盘 ${r.name}`,
-        onOk: async () => {
+        description: `将从云主机 ${vmLabel} 卸载云盘 ${r.name}`,
+        riskItems: VOLUME_DETACH_RISK_ITEMS,
+        targetName: r.name,
+        operationSummary: `从云主机「${vmLabel}」卸载云盘「${r.name}」`,
+        confirmText: '卸载',
+        onConfirm: async () => {
           try {
-            try {
-              await detachHarvesterVolumeFromVm(cloudId, resolvedId, { name: String(diskName) });
-            } catch (e: unknown) {
-              const err = e as { message?: string };
-              if (String(err?.message).includes('NotFound')) {
-                await detachHarvesterVolumeFromVm(cloudId, iidNameOnly, { name: String(diskName) });
-              } else {
-                throw e;
-              }
-            }
-            msg.success('卸载成功');
-            void runHarvesterSectionRefresh(onRefresh, { force: true });
+            await detachHarvesterVolumeFromVm(cloudId, resolvedId, { name: String(diskName) });
           } catch (e: unknown) {
             const err = e as { message?: string };
-            msg.error(err.message || '卸载失败');
+            if (String(err?.message).includes('NotFound')) {
+              await detachHarvesterVolumeFromVm(cloudId, iidNameOnly, { name: String(diskName) });
+            } else {
+              throw e;
+            }
           }
+          msg.success('卸载成功');
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         },
-      });
+      }).catch(() => undefined);
     },
-    [cloudId, ensureDisksWrite, modal, msg, onRefresh, safeRead, vms],
+    [cloudId, ensureDisksWrite, msg, onRefresh, safeRead, vms],
   );
 
   const buildRowActionItems = useCallback(

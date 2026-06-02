@@ -58,7 +58,7 @@ const JobTable: React.FC<JobTableProps> = ({
   onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -236,7 +236,6 @@ const JobTable: React.FC<JobTableProps> = ({
         handleOpenAliasModal,
         handleDelete,
         handleRetry,
-        modal,
         operationsReadOnly,
       }),
     [
@@ -245,7 +244,6 @@ const JobTable: React.FC<JobTableProps> = ({
       handleOpenAliasModal,
       handleDelete,
       handleRetry,
-      modal,
       operationsReadOnly,
     ],
   );

@@ -57,3 +57,33 @@ export const CONTAINER_DELETE_RISK_ITEMS = [
   '可能导致业务中断；Deployment 等控制器可能自动重建 Pod。',
   '删除 Service / Ingress / Gateway 将切断对应流量入口。',
 ] as const;
+
+export const VM_RESTART_RISK_ITEMS = [
+  '虚拟机将重启，运行中的业务会短暂中断。',
+  '请在业务低峰期执行，并确认关键数据已持久化。',
+] as const;
+
+export const VM_ABORT_MIGRATION_RISK_ITEMS = [
+  '将中止当前热迁移任务，虚拟机可能停留在迁移中间状态。',
+  '请确认迁移异常后再执行；必要时联系运维检查节点与存储。',
+] as const;
+
+export const VOLUME_DETACH_RISK_ITEMS = [
+  '将从云主机卸载云盘，应用可能无法继续访问该卷。',
+  '若虚机内未正确 umount，可能导致文件系统损坏。',
+] as const;
+
+export const CONTAINER_SCALE_RISK_ITEMS = [
+  '副本数变更将立即影响运行中的 Pod 数量，缩容可能导致业务容量下降。',
+  '缩容至 0 将停止该工作负载对外提供服务。',
+] as const;
+
+export const CLUSTER_COMPONENT_INSTALL_RISK_ITEMS = [
+  '将在集群中安装或变更控制器组件，可能影响网关与南北向流量。',
+  '请确认目标集群与命名空间无误，并在维护窗口执行。',
+] as const;
+
+export const POD_EVICT_RISK_ITEMS = [
+  '将触发 Pod 驱逐；若 PDB 不允许，操作会被集群拒绝。',
+  '可能导致副本数暂时下降或服务可用性波动。',
+] as const;

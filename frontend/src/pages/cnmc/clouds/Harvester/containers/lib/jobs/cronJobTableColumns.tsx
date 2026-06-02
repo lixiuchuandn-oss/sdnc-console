@@ -8,6 +8,7 @@ import { isSystemResource, getSystemResourceProtectionHint } from '../../../../.
 import { getMacroLabel, renderCronJobStatus, formatTime } from './jobHelpers';
 import {
   confirmHighRiskDelete,
+  confirmHighRiskOperation,
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../../shared/lib/highRiskConfirm';
 
@@ -19,7 +20,6 @@ export type CronJobTableColumnActions = {
   handleSuspend: (record: any) => void;
   handleResume: (record: any) => void;
   handleTrigger: (record: any) => void;
-  modal: { confirm: (config: Record<string, unknown>) => void };
   operationsReadOnly: boolean;
 };
 
@@ -32,7 +32,6 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
     handleSuspend,
     handleResume,
     handleTrigger,
-    modal,
     operationsReadOnly,
   } = actions;
   return [
@@ -119,6 +118,9 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
         const isSystem = isSystemResource(record);
         const systemHint = getSystemResourceProtectionHint(record);
         const isSuspended = record?.spec?.suspend;
+        const alias = record?.metadata?.annotations?.['tower.io/alias'];
+        const id = record?.metadata?.name || '';
+        const displayName = alias ? `${alias}(${id})` : id;
         const itemsAll = [
           {
             key: 'detail',
@@ -136,14 +138,18 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-               const alias = record?.metadata?.annotations?.['tower.io/alias'];
-               const id = record?.metadata?.name || '';
-               const displayName = alias ? `${alias}(${id})` : id;
-               modal.confirm({
+               void confirmHighRiskOperation({
                  title: '确认执行',
-                 content: `确定要立即触发 CronJob "${displayName}" 吗？`,
-                 onOk: () => handleTrigger(record),
-               });
+                 description: `确定要立即触发 CronJob「${displayName}」吗？`,
+                 riskItems: [
+                   '将立即创建一次 Job 执行任务，可能对生产负载产生瞬时压力。',
+                   '若任务有副作用（写库、发消息等），请确认可重复执行或幂等。',
+                 ],
+                 requireTypeConfirm: false,
+                 operationSummary: `立即执行 CronJob「${displayName}」`,
+                 confirmText: '确认执行',
+                 onConfirm: () => handleTrigger(record),
+               }).catch(() => {});
              },
           },
           isSuspended ? {
@@ -152,11 +158,18 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
             disabled: isSystem,
             tooltip: systemHint,
              onClick: () => {
-               modal.confirm({
+               void confirmHighRiskOperation({
                  title: '确认恢复',
-                 content: `确定要恢复 CronJob "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
-                 onOk: () => handleResume(record),
-               });
+                 description: `确定要恢复 CronJob「${displayName}」吗？`,
+                 riskItems: [
+                   '恢复后将按调度计划继续自动创建 Job。',
+                   '请确认调度表达式与资源配额符合预期。',
+                 ],
+                 requireTypeConfirm: false,
+                 operationSummary: `恢复 CronJob「${displayName}」`,
+                 confirmText: '确认恢复',
+                 onConfirm: () => handleResume(record),
+               }).catch(() => {});
              },
           } : {
             key: 'suspend',
@@ -164,11 +177,18 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
             disabled: isSystem,
             tooltip: systemHint,
              onClick: () => {
-               modal.confirm({
+               void confirmHighRiskOperation({
                  title: '确认暂停',
-                 content: `确定要暂停 CronJob "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
-                 onOk: () => handleSuspend(record),
-               });
+                 description: `确定要暂停 CronJob「${displayName}」吗？`,
+                 riskItems: [
+                   '暂停后将不再按调度计划自动创建 Job。',
+                   '已在运行中的 Job 不会因此终止。',
+                 ],
+                 requireTypeConfirm: false,
+                 operationSummary: `暂停 CronJob「${displayName}」`,
+                 confirmText: '确认暂停',
+                 onConfirm: () => handleSuspend(record),
+               }).catch(() => {});
              },
           },
           {
@@ -178,9 +198,6 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
             disabled: isSystem,
             tooltip: systemHint,
             onClick: () => {
-               const alias = record?.metadata?.annotations?.['tower.io/alias'];
-               const id = record?.metadata?.name || '';
-               const displayName = alias ? `${alias}(${id})` : id;
                void confirmHighRiskDelete({
                  resourceLabel: 'CronJob',
                  name: displayName,

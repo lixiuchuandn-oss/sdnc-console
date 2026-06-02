@@ -681,7 +681,7 @@ const ConfigMapTable: React.FC<{
   onQueryAllChange,
   onViewYaml,
 }) => {
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -950,7 +950,6 @@ const ConfigMapTable: React.FC<{
       handleViewDetail,
       handleDelete,
       handleViewYaml,
-      modal,
       onEditClick,
       checkResourceInUse,
       hasContainersWrite,
@@ -1149,7 +1148,7 @@ const SecretTable: React.FC<{
   onQueryAllChange,
   onViewYaml,
 }) => {
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -1445,7 +1444,6 @@ const SecretTable: React.FC<{
       handleViewDetail,
       handleDelete,
       handleViewYaml,
-      modal,
       onEditClick,
       checkResourceInUse,
       hasContainersWrite,

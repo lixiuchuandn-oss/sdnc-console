@@ -60,7 +60,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
   onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -257,7 +257,6 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
         handleSuspend,
         handleResume,
         handleTrigger,
-        modal,
         operationsReadOnly,
       }),
     [
@@ -268,7 +267,6 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
       handleSuspend,
       handleResume,
       handleTrigger,
-      modal,
       operationsReadOnly,
     ],
   );

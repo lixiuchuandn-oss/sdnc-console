@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
 import { deleteHarvesterNad } from '../../../../../../services/harvesterApi';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import {

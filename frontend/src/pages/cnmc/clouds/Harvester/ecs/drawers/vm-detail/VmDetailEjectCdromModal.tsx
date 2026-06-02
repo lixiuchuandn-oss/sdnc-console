@@ -1,7 +1,6 @@
 /** 弹出 CD-ROM 确认框（与 VmDetailDrawerShell 同级抽屉壳层 UI） */
 import React from "react";
-import { Checkbox, Modal, message } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import { Checkbox, message } from "antd";
 import {
   deleteHarvesterPVC,
   patchHarvesterVm,
@@ -10,6 +9,8 @@ import { rebootCloudProviderEcs } from "../../../../../../../services/api";
 import { VM_DETAIL_DRAWER_TEXT_SECONDARY } from "./lib/uiTokens";
 import type { VmDetailDrawerSafeRead } from "../../lib/vmSafeRead";
 import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
+import { confirmHighRiskOperation } from "../../../shared/lib/highRiskConfirm";
+import { VM_RESTART_RISK_ITEMS } from "../../../shared/lib/highRiskOperationPresets";
 
 export function openVmDetailEjectCdromModal(opts: {
   vmData: any;
@@ -34,48 +35,46 @@ export function openVmDetailEjectCdromModal(opts: {
   const isRunning = !["stopped", "shutoff", "down", "offline"].includes(
     statusStr,
   );
+  const vmName = SafeRead.name(vmData);
 
   let deletePvc = true;
 
-  Modal.confirm({
+  void confirmHighRiskOperation({
     title: isRunning ? "弹出 CD-ROM (将强制重启)" : "弹出 CD-ROM",
     width: 500,
-    content: (
-      <div>
-        <p>
-          即将弹出设备: <b>{cdrom.name}</b>
-        </p>
-        {isRunning && (
-          <div
-            style={{
-              marginBottom: 16,
-              color: "#faad14",
-              background: "#fffbe6",
-              padding: "8px 12px",
-              border: "1px solid #ffe58f",
-              borderRadius: 4,
-            }}
-          >
-            <InfoCircleOutlined style={{ marginRight: 8 }} />
-            实例正在运行。系统将卸载光驱卷并强制重启实例。
-          </div>
-        )}
-        <div style={{ marginTop: 16 }}>
-          <Checkbox
-            defaultChecked={true}
-            onChange={(e) => {
-              deletePvc = e.target.checked;
-            }}
-          >
-            同步删除关联卷 (PVC){" "}
-            <span style={{ color: VM_DETAIL_DRAWER_TEXT_SECONDARY, fontSize: 12 }}>
-              (推荐，避免残留孤儿卷)
-            </span>
-          </Checkbox>
-        </div>
+    description: (
+      <p>
+        即将弹出设备: <b>{cdrom.name}</b>
+      </p>
+    ),
+    alert: isRunning
+      ? {
+          type: "warning",
+          message: "实例正在运行",
+          description: "系统将卸载光驱卷并强制重启实例。",
+        }
+      : undefined,
+    riskItems: isRunning ? VM_RESTART_RISK_ITEMS : undefined,
+    extra: (
+      <div style={{ marginTop: 4 }}>
+        <Checkbox
+          defaultChecked
+          onChange={(e) => {
+            deletePvc = e.target.checked;
+          }}
+        >
+          同步删除关联卷 (PVC){" "}
+          <span style={{ color: VM_DETAIL_DRAWER_TEXT_SECONDARY, fontSize: 12 }}>
+            (推荐，避免残留孤儿卷)
+          </span>
+        </Checkbox>
       </div>
     ),
-    onOk: async () => {
+    targetName: isRunning ? vmName : undefined,
+    requireTypeConfirm: isRunning,
+    operationSummary: `弹出虚拟机「${vmName}」的 CD-ROM`,
+    confirmText: isRunning ? "弹出并重启" : "弹出",
+    onConfirm: async () => {
       const hide = message.loading(
         isRunning ? "正在卸载并强制重启..." : "正在卸载...",
         0,
@@ -147,9 +146,10 @@ export function openVmDetailEjectCdromModal(opts: {
         void runHarvesterSectionRefresh(onRefresh, { force: true });
       } catch (e: any) {
         message.error(`弹出失败: ${e.message}`);
+        throw e;
       } finally {
         hide();
       }
     },
-  });
+  }).catch(() => {});
 }

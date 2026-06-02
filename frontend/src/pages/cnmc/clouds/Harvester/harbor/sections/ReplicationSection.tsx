@@ -79,7 +79,7 @@ const REPLICATION_TYPE_OPTIONS = [
 ];
 
 const ReplicationSection: React.FC<Props> = ({ harbor }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [policies, setPolicies] = useState<HarborReplicationPolicy[]>([]);
   const [executions, setExecutions] = useState<HarborReplicationExecution[]>([]);

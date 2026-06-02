@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Card, Button, List, Tag, Tooltip, Space, Dropdown, MenuProps, Modal, message, Empty } from 'antd';
+import { Card, Button, List, Tag, Tooltip, Space, Dropdown, MenuProps, message, Empty } from 'antd';
+import { confirmHighRiskDelete } from '../../../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../../../shared/lib/highRiskOperationPresets';
 import { 
   PlusOutlined, 
   HistoryOutlined, 
@@ -7,7 +9,6 @@ import {
   ScheduleOutlined, 
   EllipsisOutlined, 
   ReloadOutlined,
-  WarningOutlined
 } from '@ant-design/icons';
 import { deleteHarvesterBackup, deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import { formatCron } from '../../../../../../../../utils/cronFormatter';
@@ -176,32 +177,21 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
       // 恢复任务列表拉取失败时仍允许打开确认框，由后端删除接口兜底校验
     }
 
-    Modal.confirm({
-      title: `确认删除${type === 'backup' ? '备份' : '快照'}`,
-      content: (
-        <div>
-          <p>确定要删除 {type === 'backup' ? '备份' : '快照'} <b>{displayName}</b> 吗？</p>
-          <p style={{ color: '#ff4d4f', fontSize: 12 }}><WarningOutlined /> 此操作不可恢复。</p>
-        </div>
-      ),
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          const blocking = await findRestoreBlockingBackupDelete(cloudId, ns, name);
-          if (blocking) {
-            message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
-            return;
-          }
-          await deleteHarvesterBackup(cloudId, ns, name);
-          message.success('删除成功');
-          void runHarvesterSectionRefresh(onRefresh, { force: true });
-        } catch (e: any) {
-          message.error(`删除失败: ${e.message}`);
+    void confirmHighRiskDelete({
+      resourceLabel: type === 'backup' ? '备份' : '快照',
+      name: displayName,
+      riskItems: DELETE_RISK_ITEMS,
+      onConfirm: async () => {
+        const blocking = await findRestoreBlockingBackupDelete(cloudId, ns, name);
+        if (blocking) {
+          message.warning(buildRestoreBlockingDeleteMessage(blocking, type));
+          throw new Error('blocked');
         }
+        await deleteHarvesterBackup(cloudId, ns, name);
+        message.success('删除成功');
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
       },
-    });
+    }).catch(() => {});
   };
 
   const handleRestore = (item: any, type: 'backup' | 'snapshot') => {
@@ -232,27 +222,16 @@ const VmBackupTab: React.FC<VmBackupTabProps> = ({
     const displayName = alias || name;
     const ns = raw.metadata?.namespace;
 
-    Modal.confirm({
-      title: '确认删除定时策略',
-      content: (
-        <div>
-          <p>确定要删除定时策略 <b>{displayName}</b> 吗？</p>
-          <p style={{ color: '#ff4d4f', fontSize: 12 }}><WarningOutlined /> 此操作不可恢复。</p>
-        </div>
-      ),
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteHarvesterScheduleVmBackup(cloudId, ns, name);
-          message.success('删除成功');
-          void runHarvesterSectionRefresh(onRefresh, { force: true });
-        } catch (e: any) {
-          message.error(`删除失败: ${e.message}`);
-        }
-      }
-    });
+    void confirmHighRiskDelete({
+      resourceLabel: '定时策略',
+      name: displayName,
+      riskItems: DELETE_RISK_ITEMS,
+      onConfirm: async () => {
+        await deleteHarvesterScheduleVmBackup(cloudId, ns, name);
+        message.success('删除成功');
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
+      },
+    }).catch(() => {});
   };
 
   const handleSuspendSchedule = async (item: any) => {

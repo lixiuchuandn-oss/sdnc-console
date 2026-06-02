@@ -4,12 +4,10 @@ import { runHarvesterSectionRefresh } from '../lib/nadSectionRefresh';
 import { useIPPoolsSectionActions } from './useIPPoolsSectionActions';
 import type { IPPoolListRow } from '../lib/ippoolsSectionUtils';
 
-const mockConfirm = jest.fn();
 const mockError = jest.fn();
 
 jest.mock('antd', () => ({
   Modal: {
-    confirm: (opts: unknown) => mockConfirm(opts),
     error: (opts: unknown) => mockError(opts),
   },
   message: {
@@ -17,6 +15,12 @@ jest.mock('antd', () => ({
     success: jest.fn(),
     warning: jest.fn(),
   },
+}));
+
+jest.mock('../../shared/lib/highRiskConfirm', () => ({
+  confirmHighRiskDelete: (opts: { onConfirm: () => void | Promise<void> }) =>
+    Promise.resolve().then(() => opts.onConfirm()),
+  DELETE_NETWORK_RISK_ITEMS: [],
 }));
 
 jest.mock('../../../../../../services/harvesterApi', () => ({
@@ -40,7 +44,6 @@ const row: IPPoolListRow = {
 describe('useIPPoolsSectionActions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockConfirm.mockReset();
     mockError.mockReset();
   });
 
@@ -48,10 +51,6 @@ describe('useIPPoolsSectionActions', () => {
     (deleteHarvesterIpPool as jest.Mock).mockRejectedValue(
       new Error("can't delete pool before releasing all the allocated IP"),
     );
-    mockConfirm.mockImplementation(({ onOk }: { onOk: () => Promise<void> }) => {
-      void onOk();
-    });
-
     const { result } = renderHook(() =>
       useIPPoolsSectionActions({
         cloudId: 'cloud-1',

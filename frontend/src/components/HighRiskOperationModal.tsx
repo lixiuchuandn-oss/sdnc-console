@@ -89,6 +89,7 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
       open={open}
       onCancel={onCancel}
       destroyOnClose
+      forceRender
       width={width}
       maskClosable={false}
       keyboard={false}

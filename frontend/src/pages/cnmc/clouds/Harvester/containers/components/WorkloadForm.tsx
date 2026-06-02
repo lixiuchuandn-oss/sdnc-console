@@ -52,6 +52,7 @@ import {
   handleWorkloadSubmitError,
   prepareWorkloadSubmit,
 } from './workloadForm/submitWorkload';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 
 import { createEmptyContainer, toContainerEditorFields } from './workloadForm/containerDefaults';
 import { buildK8sResource } from './workloadForm/buildK8sResource';
@@ -94,7 +95,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 网络配置相关 props
   hideFlatSubnet = false,
 }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -713,25 +714,28 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const confirmStaticIpRisk = useCallback(
     (staticIP: string) =>
       new Promise<boolean>((resolve) => {
-        modal.confirm({
+        void confirmHighRiskOperation({
           title: '静态 IP 冲突风险',
-          content: (
+          description: (
             <div>
               <p>
                 无法自动检测 IP <strong>{staticIP}</strong> 是否已被使用。
               </p>
-              <p style={{ color: '#faad14', marginTop: 8 }}>
-                ⚠️ 请确认该 IP 未被其他工作负载使用，否则可能导致网络冲突。
-              </p>
             </div>
           ),
-          okText: '确认未使用，继续提交',
-          cancelText: '取消',
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        });
+          riskItems: [
+            '若该 IP 已被其他工作负载占用，可能导致网络冲突或服务不可达。',
+            '请确认该 IP 在目标子网内空闲且符合网络规划后再继续提交。',
+          ],
+          requireTypeConfirm: false,
+          operationSummary: `使用静态 IP ${staticIP} 提交工作负载`,
+          confirmText: '确认未使用，继续提交',
+          onConfirm: () => {
+            resolve(true);
+          },
+        }).catch(() => resolve(false));
       }),
-    [modal],
+    [],
   );
 
   // 提交表单

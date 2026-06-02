@@ -5,17 +5,18 @@ import { runHarvesterSectionRefresh } from '../lib/nadSectionRefresh';
 import { useLoadBalancersSectionActions } from './useLoadBalancersSectionActions';
 import type { LoadBalancerListRow } from '../lib/loadBalancersSectionUtils';
 
-const mockConfirm = jest.fn();
-
 jest.mock('antd', () => ({
-  Modal: {
-    confirm: (opts: unknown) => mockConfirm(opts),
-  },
   message: {
     error: jest.fn(),
     success: jest.fn(),
     warning: jest.fn(),
   },
+}));
+
+jest.mock('../../shared/lib/highRiskConfirm', () => ({
+  confirmHighRiskDelete: (opts: { onConfirm: () => void | Promise<void> }) =>
+    Promise.resolve().then(() => opts.onConfirm()),
+  DELETE_NETWORK_RISK_ITEMS: [],
 }));
 
 jest.mock('../../../../../../services/harvesterApi', () => ({
@@ -39,7 +40,6 @@ const row: LoadBalancerListRow = {
 describe('useLoadBalancersSectionActions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockConfirm.mockReset();
   });
 
   it('handleDelete warns for tenant public namespace', () => {
@@ -57,15 +57,11 @@ describe('useLoadBalancersSectionActions', () => {
     });
 
     expect(message.warning).toHaveBeenCalled();
-    expect(mockConfirm).not.toHaveBeenCalled();
   });
 
   it('handleDelete refreshes after successful delete', async () => {
     const onRefresh = jest.fn();
     (deleteHarvesterLoadBalancer as jest.Mock).mockResolvedValue(undefined);
-    mockConfirm.mockImplementation(({ onOk }: { onOk: () => Promise<void> }) => {
-      void onOk();
-    });
 
     const { result } = renderHook(() =>
       useLoadBalancersSectionActions({

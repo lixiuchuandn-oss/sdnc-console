@@ -7,7 +7,7 @@
  */
 
 import { useCallback } from "react";
-import { message, Modal } from "antd";
+import { message } from "antd";
 import { fetchHarvesterVMAggregated } from 'services/harvester/vm';
 import { rebootCloudProviderEcs } from "../../../../../../../../services/api";
 import { translateKnownApiErrorMessage } from "../../../../../../../../utils/k8sErrorMessages";
@@ -17,6 +17,8 @@ import {
   VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
   type VmReconfigureRestartConfirmOptions,
 } from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
+import { confirmHighRiskOperation } from "../../../../shared/lib/highRiskConfirm";
+import { VM_RESTART_RISK_ITEMS } from "../../../../shared/lib/highRiskOperationPresets";
 
 /**
  * 规格（CPU/内存）提交成功后的辅助能力：拉聚合 VM、在需冷生效时弹重启确认。
@@ -42,14 +44,17 @@ export function useVmSpecPostSubmit(p: {
         return;
       }
 
-      Modal.confirm({
+      void confirmHighRiskOperation({
         title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
-        content: options?.exceedsHotplugRange
+        description: options?.exceedsHotplugRange
           ? VM_RECONFIGURE_HOTPLUG_EXCEED_RESTART_HINT
           : undefined,
-        okText: "立即重启",
+        riskItems: VM_RESTART_RISK_ITEMS,
+        requireTypeConfirm: false,
+        operationSummary: `重启虚拟机「${vmName}」以应用新配置`,
+        confirmText: "立即重启",
         cancelText: "手动重启",
-        onOk: async () => {
+        onConfirm: async () => {
           try {
             await rebootCloudProviderEcs(
               cloudId,
@@ -63,10 +68,10 @@ export function useVmSpecPostSubmit(p: {
                 String(e?.message || e || "重启失败"),
               ),
             );
+            throw e;
           }
         },
-        onCancel: () => {},
-      });
+      }).catch(() => {});
     },
     [cloudId, latestVm, record],
   );
