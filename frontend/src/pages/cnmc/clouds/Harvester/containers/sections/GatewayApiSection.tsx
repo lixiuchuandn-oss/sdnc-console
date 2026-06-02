@@ -1,13 +1,40 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Alert, Button, message, Tag, Table, Select, Input, Modal, Tooltip, Form, Segmented, Popover, Descriptions, Space } from 'antd';
-import { ExclamationCircleOutlined, SearchOutlined, ReloadOutlined, PlusOutlined, EditTwoTone, InfoCircleOutlined, DownloadOutlined } from '@ant-design/icons';
+import {
+  Alert,
+  Button,
+  message,
+  Tag,
+  Table,
+  Select,
+  Input,
+  Modal,
+  Tooltip,
+  Form,
+  Segmented,
+  Popover,
+  Descriptions,
+  Space,
+} from 'antd';
+import {
+  ExclamationCircleOutlined,
+  SearchOutlined,
+  ReloadOutlined,
+  PlusOutlined,
+  EditTwoTone,
+  InfoCircleOutlined,
+  DownloadOutlined,
+} from '@ant-design/icons';
+import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
-import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
+import {
+  isSystemResource,
+  getSystemResourceProtectionHint,
+} from '../../../../../../utils/harvesterUtils';
 import {
   deleteGateway,
   deleteHttpRoute,
@@ -15,24 +42,37 @@ import {
   deleteGatewayClass,
   createGatewayClass,
   patchHarvesterContainerResource,
-  fetchGatewayDetail,
-  fetchHttpRouteDetail,
-  fetchGrpcRouteDetail,
   updateGateway,
   updateHttpRoute,
   updateGrpcRoute,
   installNginxGatewayFabric,
 } from '../../../../../../services/harvesterApi';
-import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal, YamlEditModal } from '../components';
+import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal } from '../components';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { GatewayDetailDrawer } from '../drawers/GatewayDetailDrawer';
 import {
   createContainerToolbarRefresh,
   runContainerSectionRefresh,
 } from '../lib/containerSectionRefresh';
 
+function resolveGatewayApiViewLink(
+  record: any,
+  type: 'gateway' | 'httproute' | 'grpcroute',
+): string | undefined {
+  const ns = record?.metadata?.namespace;
+  const name = record?.metadata?.name;
+  if (!ns || !name) return undefined;
+  const resource =
+    type === 'gateway' ? 'gateways' : type === 'httproute' ? 'httproutes' : 'grpcroutes';
+  return `/apis/gateway.networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/${resource}/${encodeURIComponent(name)}`;
+}
+
 interface GatewayApiSectionProps {
   cloudId: string;
-  gatewayApiStatus: { installed: boolean; resources: { gatewayClass: boolean; gateway: boolean; httpRoute: boolean; grpcRoute: boolean } } | null;
+  gatewayApiStatus: {
+    installed: boolean;
+    resources: { gatewayClass: boolean; gateway: boolean; httpRoute: boolean; grpcRoute: boolean };
+  } | null;
   gatewayClasses: any[];
   gateways: any[];
   httpRoutes: any[];
@@ -48,7 +88,7 @@ interface GatewayApiSectionProps {
 
 /**
  * Gateway API 管理组件
- * 
+ *
  * 支持 Kubernetes Gateway API (下一代 Ingress)
  * 包含 GatewayClass, Gateway, HTTPRoute, GRPCRoute 四种资源
  */
@@ -75,25 +115,35 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   );
   const [activeSubTab, setActiveSubTab] = useState('gatewayclasses');
   const [keyword, setKeyword] = useState<string>('');
-  
+
   // 别名编辑相关状态
   const [aliasForm] = Form.useForm<{ alias?: string }>();
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
-  const [aliasResourceType, setAliasResourceType] = useState<'gateway' | 'httproute' | 'grpcroute' | null>(null);
-  
+  const [aliasResourceType, setAliasResourceType] = useState<
+    'gateway' | 'httproute' | 'grpcroute' | null
+  >(null);
+
   // 创建弹窗状态
   const [gatewayModalOpen, setGatewayModalOpen] = useState(false);
   const [httpRouteModalOpen, setHttpRouteModalOpen] = useState(false);
   const [grpcRouteModalOpen, setGrpcRouteModalOpen] = useState(false);
   const [gatewayClassModalOpen, setGatewayClassModalOpen] = useState(false);
-  const [gatewayClassForm] = Form.useForm<{ name: string; controllerName: string; description?: string }>();
+  const [gatewayClassForm] = Form.useForm<{
+    name: string;
+    controllerName: string;
+    description?: string;
+  }>();
   const [gatewayClassSubmitting, setGatewayClassSubmitting] = useState(false);
 
-  // YAML 编辑状态
+  // YAML 抽屉状态
+  const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
+  const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
   const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
-  const [yamlEditingType, setYamlEditingType] = useState<'gateway' | 'httproute' | 'grpcroute' | null>(null);
+  const [yamlEditingType, setYamlEditingType] = useState<
+    'gateway' | 'httproute' | 'grpcroute' | null
+  >(null);
 
   // Gateway 详情抽屉状态
   const [gatewayDetailOpen, setGatewayDetailOpen] = useState(false);
@@ -102,16 +152,14 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   // 安装 NGINX Gateway 状态
   const [installNginxLoading, setInstallNginxLoading] = useState(false);
 
-  const handleToolbarRefresh = useMemo(
-    () => createContainerToolbarRefresh(onRefresh),
-    [onRefresh],
-  );
+  const handleToolbarRefresh = useMemo(() => createContainerToolbarRefresh(onRefresh), [onRefresh]);
 
   // 安装 NGINX Gateway Fabric
   const handleInstallNginxGateway = useCallback(async () => {
     Modal.confirm({
       title: '安装 NGINX Gateway Fabric',
-      content: '将安装 NGINX Gateway Fabric 控制器到集群，包括命名空间、部署和默认 GatewayClass。是否继续？',
+      content:
+        '将安装 NGINX Gateway Fabric 控制器到集群，包括命名空间、部署和默认 GatewayClass。是否继续？',
       okText: '安装',
       cancelText: '取消',
       onOk: async () => {
@@ -119,26 +167,24 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         try {
           const result = await installNginxGatewayFabric(cloudId);
           console.log('[安装 NGINX Gateway] 结果:', result);
-          
+
           const steps = result?.results || [];
-          
+
           // 显示详细结果
-          const resultText = steps.map((s: any) => {
-            const statusIcon = s.status === 'success' ? '✅' : s.status === 'error' ? '❌' : '⏭️';
-            return `${statusIcon} ${s.step}: ${s.message || s.status}`;
-          }).join('\n');
-          
+          const resultText = steps
+            .map((s: any) => {
+              const statusIcon = s.status === 'success' ? '✅' : s.status === 'error' ? '❌' : '⏭️';
+              return `${statusIcon} ${s.step}: ${s.message || s.status}`;
+            })
+            .join('\n');
+
           const hasError = steps.some((s: any) => s.status === 'error');
-          
+
           Modal[hasError ? 'warning' : 'info']({
             title: '安装结果',
-            content: (
-              <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>
-                {resultText}
-              </pre>
-            ),
+            content: <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{resultText}</pre>,
           });
-          
+
           if (!hasError) {
             void runContainerSectionRefresh(onRefresh, { force: true });
           }
@@ -168,138 +214,135 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   }, []);
 
   // 别名编辑 - 打开弹窗
-  const handleOpenAliasModal = useCallback((record: any, resourceType: 'gateway' | 'httproute' | 'grpcroute') => {
-    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasResourceType(resourceType);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
+  const handleOpenAliasModal = useCallback(
+    (record: any, resourceType: 'gateway' | 'httproute' | 'grpcroute') => {
+      const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+      setAliasRecord(record);
+      setAliasResourceType(resourceType);
+      setAliasModalVisible(true);
+      aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+    },
+    [aliasForm],
+  );
 
   // 别名编辑 - 提交
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord || !aliasResourceType) return false;
-    const ns = aliasRecord?.metadata?.namespace;
-    const name = aliasRecord?.metadata?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
+  const handleSubmitAlias = useCallback(
+    async (nextAliasRaw?: string) => {
+      if (!aliasRecord || !aliasResourceType) return false;
+      const ns = aliasRecord?.metadata?.namespace;
+      const name = aliasRecord?.metadata?.name;
+      if (!ns || !name) {
+        message.error('未能解析资源命名空间或名称');
+        return false;
       }
-    }
 
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
+      const next = String(nextAliasRaw || '').trim();
+      const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+      if (next === prev) {
+        setAliasModalVisible(false);
+        return true;
+      }
 
-    const apiPath = getApiPath(aliasResourceType);
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      setAliasResourceType(null);
-      aliasForm.resetFields();
-      void runContainerSectionRefresh(onRefresh, { force: true });
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, aliasResourceType, getApiPath, cloudId, onRefresh, aliasForm]);
+      const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+      const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+      const aliasPath = '/metadata/annotations/tower.io~1alias';
 
-  // YAML 编辑 - 加载 YAML
-  const handleLoadYaml = useCallback(async () => {
-    if (!yamlEditingRecord || !yamlEditingType) return '';
-    const ns = yamlEditingRecord?.metadata?.namespace;
-    const name = yamlEditingRecord?.metadata?.name;
-    
-    let response: any;
-    switch (yamlEditingType) {
-      case 'gateway':
-        response = await fetchGatewayDetail(cloudId, ns, name);
-        break;
-      case 'httproute':
-        response = await fetchHttpRouteDetail(cloudId, ns, name);
-        break;
-      case 'grpcroute':
-        response = await fetchGrpcRouteDetail(cloudId, ns, name);
-        break;
-    }
-    
-    return response?.data ? JSON.stringify(response.data, null, 2) : '';
-  }, [cloudId, yamlEditingRecord, yamlEditingType]);
+      const patchBody: any[] = [];
+      if (!next) {
+        if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+      } else {
+        if (!hasAnnotations) {
+          patchBody.push({
+            op: 'add',
+            path: '/metadata/annotations',
+            value: { 'tower.io/alias': next },
+          });
+        } else {
+          patchBody.push({ op: 'add', path: aliasPath, value: next });
+        }
+      }
+
+      if (patchBody.length === 0) {
+        setAliasModalVisible(false);
+        return true;
+      }
+
+      const apiPath = getApiPath(aliasResourceType);
+      setAliasSubmitting(true);
+      try {
+        await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+        message.success(next ? '名称修改成功' : '已清空别名');
+        setAliasModalVisible(false);
+        setAliasRecord(null);
+        setAliasResourceType(null);
+        aliasForm.resetFields();
+        void runContainerSectionRefresh(onRefresh, { force: true });
+        return true;
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || '名称修改失败');
+        return false;
+      } finally {
+        setAliasSubmitting(false);
+      }
+    },
+    [aliasRecord, aliasResourceType, getApiPath, cloudId, onRefresh, aliasForm],
+  );
 
   // YAML 编辑 - 保存 YAML
-  const handleSaveYaml = useCallback(async (yaml: string) => {
-    if (!yamlEditingRecord || !yamlEditingType) return;
-    const ns = yamlEditingRecord?.metadata?.namespace;
-    const name = yamlEditingRecord?.metadata?.name;
-    
-    let data: any;
-    try {
-      data = JSON.parse(yaml);
-    } catch (e) {
-      message.error('YAML 格式错误');
-      return;
-    }
-    
-    switch (yamlEditingType) {
-      case 'gateway':
-        await updateGateway(cloudId, ns, name, data);
-        break;
-      case 'httproute':
-        await updateHttpRoute(cloudId, ns, name, data);
-        break;
-      case 'grpcroute':
-        await updateGrpcRoute(cloudId, ns, name, data);
-        break;
-    }
-  }, [cloudId, yamlEditingRecord, yamlEditingType]);
+  const handleSaveYaml = useCallback(
+    async (yamlText: string) => {
+      if (!yamlEditingRecord || !yamlEditingType) return;
+      const ns = yamlEditingRecord?.metadata?.namespace;
+      const name = yamlEditingRecord?.metadata?.name;
 
-  // 打开 YAML 编辑弹窗
-  const handleOpenYamlEdit = useCallback((record: any, type: 'gateway' | 'httproute' | 'grpcroute') => {
-    setYamlEditingRecord(record);
-    setYamlEditingType(type);
-  }, []);
+      let data: unknown;
+      try {
+        data = yaml.load(yamlText);
+      } catch {
+        message.error('YAML 格式错误');
+        throw new Error('YAML 格式错误');
+      }
 
-  // 关闭 YAML 编辑弹窗
+      switch (yamlEditingType) {
+        case 'gateway':
+          await updateGateway(cloudId, ns, name, data);
+          break;
+        case 'httproute':
+          await updateHttpRoute(cloudId, ns, name, data);
+          break;
+        case 'grpcroute':
+          await updateGrpcRoute(cloudId, ns, name, data);
+          break;
+      }
+      void runContainerSectionRefresh(onRefresh, { force: true });
+    },
+    [cloudId, yamlEditingRecord, yamlEditingType, onRefresh],
+  );
+
+  // 打开 YAML 抽屉
+  const handleOpenYamlEdit = useCallback(
+    (record: any, type: 'gateway' | 'httproute' | 'grpcroute') => {
+      const link = resolveGatewayApiViewLink(record, type);
+      if (!link) {
+        message.warning('当前行缺少 View Link，无法拉取 YAML');
+        return;
+      }
+      setYamlEditingRecord(record);
+      setYamlEditingType(type);
+      setYamlViewLink(link);
+      setYamlDrawerOpen(true);
+    },
+    [],
+  );
+
+  // 关闭 YAML 抽屉
   const handleCloseYamlEdit = useCallback(() => {
+    setYamlDrawerOpen(false);
+    setYamlViewLink(undefined);
     setYamlEditingRecord(null);
     setYamlEditingType(null);
   }, []);
-
-  // YAML 编辑成功回调
-  const handleYamlEditSuccess = useCallback(() => {
-    setYamlEditingRecord(null);
-    setYamlEditingType(null);
-    void runContainerSectionRefresh(onRefresh, { force: true });
-  }, [onRefresh]);
 
   // GatewayClass 表格列
   const gatewayClassColumns = [
@@ -326,8 +369,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      render: (text: string) => text ? new Date(text).toLocaleString() : '-',
-      sorter: (a: any, b: any) => new Date(a?.metadata?.creationTimestamp || 0).getTime() - new Date(b?.metadata?.creationTimestamp || 0).getTime(),
+      render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
+      sorter: (a: any, b: any) =>
+        new Date(a?.metadata?.creationTimestamp || 0).getTime() -
+        new Date(b?.metadata?.creationTimestamp || 0).getTime(),
       defaultSortOrder: 'descend' as const,
     },
     {
@@ -341,25 +386,28 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={filterMenuItemsForReadOnly([
-              {
-                key: 'delete',
-                label: '删除',
-                danger: true,
-                disabled: isSystem,
-                tooltip: systemHint,
-                onClick: () => {
-                  Modal.confirm({
-                    title: '确认删除',
-                    content: `确定要删除 GatewayClass "${record?.metadata?.name}" 吗？`,
-                    okText: '删除',
-                    okType: 'danger',
-                    cancelText: '取消',
-                    onOk: () => handleDeleteGatewayClass(record),
-                  });
-                }
-              }
-            ], hasContainersWrite)}
+            items={filterMenuItemsForReadOnly(
+              [
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  disabled: isSystem,
+                  tooltip: systemHint,
+                  onClick: () => {
+                    Modal.confirm({
+                      title: '确认删除',
+                      content: `确定要删除 GatewayClass "${record?.metadata?.name}" 吗？`,
+                      okText: '删除',
+                      okType: 'danger',
+                      cancelText: '取消',
+                      onOk: () => handleDeleteGatewayClass(record),
+                    });
+                  },
+                },
+              ],
+              hasContainersWrite,
+            )}
           />
         );
       },
@@ -437,19 +485,28 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         const programmed = conditions?.find((c: any) => c.type === 'Programmed');
         const accepted = conditions?.find((c: any) => c.type === 'Accepted');
         const isReady = programmed?.status === 'True' && accepted?.status === 'True';
-        
+
         // 收集所有 condition 信息
-        const conditionDetails = conditions?.map((c: any) => ({
-          type: c.type,
-          status: c.status,
-          reason: c.reason,
-          message: c.message,
-        })) || [];
+        const conditionDetails =
+          conditions?.map((c: any) => ({
+            type: c.type,
+            status: c.status,
+            reason: c.reason,
+            message: c.message,
+          })) || [];
 
         // 获取失败原因
-        const notReadyCondition = programmed?.status !== 'True' ? programmed : (accepted?.status !== 'True' ? accepted : null);
-        const notReadyReason = !isReady && notReadyCondition ? (notReadyCondition.reason || notReadyCondition.message || '未知原因') : null;
-        
+        const notReadyCondition =
+          programmed?.status !== 'True'
+            ? programmed
+            : accepted?.status !== 'True'
+              ? accepted
+              : null;
+        const notReadyReason =
+          !isReady && notReadyCondition
+            ? notReadyCondition.reason || notReadyCondition.message || '未知原因'
+            : null;
+
         const content = (
           <div style={{ maxWidth: 400 }}>
             <Descriptions column={1} size="small">
@@ -487,8 +544,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      render: (text: string) => text ? new Date(text).toLocaleString() : '-',
-      sorter: (a: any, b: any) => new Date(a?.metadata?.creationTimestamp || 0).getTime() - new Date(b?.metadata?.creationTimestamp || 0).getTime(),
+      render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
+      sorter: (a: any, b: any) =>
+        new Date(a?.metadata?.creationTimestamp || 0).getTime() -
+        new Date(b?.metadata?.creationTimestamp || 0).getTime(),
       defaultSortOrder: 'descend' as const,
     },
     {
@@ -502,38 +561,41 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={filterMenuItemsForReadOnly([
-              {
-                key: 'view-detail',
-                label: '查看详情',
-                onClick: () => handleOpenGatewayDetail(record),
-              },
-              {
-                key: 'view-yaml',
-                label: '查看 YAML',
-                onClick: () => handleOpenYamlEdit(record, 'gateway'),
-              },
-              {
-                key: 'delete',
-                label: '删除',
-                danger: true,
-                disabled: isSystem,
-                tooltip: systemHint,
-                onClick: () => {
-                  const alias = record?.metadata?.annotations?.['tower.io/alias'];
-                  const id = record?.metadata?.name || '';
-                  const displayName = alias ? `${alias}(${id})` : id;
-                  Modal.confirm({
-                    title: '确认删除',
-                    content: `确定要删除 Gateway "${displayName}" 吗？`,
-                    okText: '删除',
-                    okType: 'danger',
-                    cancelText: '取消',
-                    onOk: () => handleDeleteGateway(record),
-                  });
-                }
-              }
-            ], hasContainersWrite)}
+            items={filterMenuItemsForReadOnly(
+              [
+                {
+                  key: 'view-detail',
+                  label: '查看详情',
+                  onClick: () => handleOpenGatewayDetail(record),
+                },
+                {
+                  key: 'view-yaml',
+                  label: '查看 YAML',
+                  onClick: () => handleOpenYamlEdit(record, 'gateway'),
+                },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  disabled: isSystem,
+                  tooltip: systemHint,
+                  onClick: () => {
+                    const alias = record?.metadata?.annotations?.['tower.io/alias'];
+                    const id = record?.metadata?.name || '';
+                    const displayName = alias ? `${alias}(${id})` : id;
+                    Modal.confirm({
+                      title: '确认删除',
+                      content: `确定要删除 Gateway "${displayName}" 吗？`,
+                      okText: '删除',
+                      okType: 'danger',
+                      cancelText: '取消',
+                      onOk: () => handleDeleteGateway(record),
+                    });
+                  },
+                },
+              ],
+              hasContainersWrite,
+            )}
           />
         );
       },
@@ -599,8 +661,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      render: (text: string) => text ? new Date(text).toLocaleString() : '-',
-      sorter: (a: any, b: any) => new Date(a?.metadata?.creationTimestamp || 0).getTime() - new Date(b?.metadata?.creationTimestamp || 0).getTime(),
+      render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
+      sorter: (a: any, b: any) =>
+        new Date(a?.metadata?.creationTimestamp || 0).getTime() -
+        new Date(b?.metadata?.creationTimestamp || 0).getTime(),
       defaultSortOrder: 'descend' as const,
     },
     {
@@ -614,33 +678,36 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={filterMenuItemsForReadOnly([
-              {
-                key: 'yaml',
-                label: 'YAML 编辑',
-                onClick: () => handleOpenYamlEdit(record, 'httproute'),
-              },
-              {
-                key: 'delete',
-                label: '删除',
-                danger: true,
-                disabled: isSystem,
-                tooltip: systemHint,
-                onClick: () => {
-                  const alias = record?.metadata?.annotations?.['tower.io/alias'];
-                  const id = record?.metadata?.name || '';
-                  const displayName = alias ? `${alias}(${id})` : id;
-                  Modal.confirm({
-                    title: '确认删除',
-                    content: `确定要删除 HTTPRoute "${displayName}" 吗？`,
-                    okText: '删除',
-                    okType: 'danger',
-                    cancelText: '取消',
-                    onOk: () => handleDeleteHttpRoute(record),
-                  });
-                }
-              }
-            ], hasContainersWrite)}
+            items={filterMenuItemsForReadOnly(
+              [
+                {
+                  key: 'yaml',
+                  label: 'YAML 编辑',
+                  onClick: () => handleOpenYamlEdit(record, 'httproute'),
+                },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  disabled: isSystem,
+                  tooltip: systemHint,
+                  onClick: () => {
+                    const alias = record?.metadata?.annotations?.['tower.io/alias'];
+                    const id = record?.metadata?.name || '';
+                    const displayName = alias ? `${alias}(${id})` : id;
+                    Modal.confirm({
+                      title: '确认删除',
+                      content: `确定要删除 HTTPRoute "${displayName}" 吗？`,
+                      okText: '删除',
+                      okType: 'danger',
+                      cancelText: '取消',
+                      onOk: () => handleDeleteHttpRoute(record),
+                    });
+                  },
+                },
+              ],
+              hasContainersWrite,
+            )}
           />
         );
       },
@@ -706,8 +773,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       title: '创建时间',
       dataIndex: ['metadata', 'creationTimestamp'],
       key: 'createdAt',
-      render: (text: string) => text ? new Date(text).toLocaleString() : '-',
-      sorter: (a: any, b: any) => new Date(a?.metadata?.creationTimestamp || 0).getTime() - new Date(b?.metadata?.creationTimestamp || 0).getTime(),
+      render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
+      sorter: (a: any, b: any) =>
+        new Date(a?.metadata?.creationTimestamp || 0).getTime() -
+        new Date(b?.metadata?.creationTimestamp || 0).getTime(),
       defaultSortOrder: 'descend' as const,
     },
     {
@@ -721,33 +790,36 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
-            items={filterMenuItemsForReadOnly([
-              {
-                key: 'yaml',
-                label: 'YAML 编辑',
-                onClick: () => handleOpenYamlEdit(record, 'grpcroute'),
-              },
-              {
-                key: 'delete',
-                label: '删除',
-                danger: true,
-                disabled: isSystem,
-                tooltip: systemHint,
-                onClick: () => {
-                  const alias = record?.metadata?.annotations?.['tower.io/alias'];
-                  const id = record?.metadata?.name || '';
-                  const displayName = alias ? `${alias}(${id})` : id;
-                  Modal.confirm({
-                    title: '确认删除',
-                    content: `确定要删除 GRPCRoute "${displayName}" 吗？`,
-                    okText: '删除',
-                    okType: 'danger',
-                    cancelText: '取消',
-                    onOk: () => handleDeleteGrpcRoute(record),
-                  });
-                }
-              }
-            ], hasContainersWrite)}
+            items={filterMenuItemsForReadOnly(
+              [
+                {
+                  key: 'yaml',
+                  label: 'YAML 编辑',
+                  onClick: () => handleOpenYamlEdit(record, 'grpcroute'),
+                },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  disabled: isSystem,
+                  tooltip: systemHint,
+                  onClick: () => {
+                    const alias = record?.metadata?.annotations?.['tower.io/alias'];
+                    const id = record?.metadata?.name || '';
+                    const displayName = alias ? `${alias}(${id})` : id;
+                    Modal.confirm({
+                      title: '确认删除',
+                      content: `确定要删除 GRPCRoute "${displayName}" 吗？`,
+                      okText: '删除',
+                      okType: 'danger',
+                      cancelText: '取消',
+                      onOk: () => handleDeleteGrpcRoute(record),
+                    });
+                  },
+                },
+              ],
+              hasContainersWrite,
+            )}
           />
         );
       },
@@ -794,9 +866,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     }
     if (keyword) {
       const k = keyword.toLowerCase();
-      d = d.filter((g: any) => 
-        (g?.metadata?.name || '').toLowerCase().includes(k) ||
-        (g?.metadata?.namespace || '').toLowerCase().includes(k)
+      d = d.filter(
+        (g: any) =>
+          (g?.metadata?.name || '').toLowerCase().includes(k) ||
+          (g?.metadata?.namespace || '').toLowerCase().includes(k),
       );
     }
     return d;
@@ -809,9 +882,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     }
     if (keyword) {
       const k = keyword.toLowerCase();
-      d = d.filter((r: any) => 
-        (r?.metadata?.name || '').toLowerCase().includes(k) ||
-        (r?.metadata?.namespace || '').toLowerCase().includes(k)
+      d = d.filter(
+        (r: any) =>
+          (r?.metadata?.name || '').toLowerCase().includes(k) ||
+          (r?.metadata?.namespace || '').toLowerCase().includes(k),
       );
     }
     return d;
@@ -824,9 +898,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     }
     if (keyword) {
       const k = keyword.toLowerCase();
-      d = d.filter((r: any) => 
-        (r?.metadata?.name || '').toLowerCase().includes(k) ||
-        (r?.metadata?.namespace || '').toLowerCase().includes(k)
+      d = d.filter(
+        (r: any) =>
+          (r?.metadata?.name || '').toLowerCase().includes(k) ||
+          (r?.metadata?.namespace || '').toLowerCase().includes(k),
       );
     }
     return d;
@@ -862,15 +937,18 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   }, [cloudId, gatewayClassForm, onRefresh]);
 
   // 删除 GatewayClass
-  const handleDeleteGatewayClass = useCallback(async (record: any) => {
-    try {
-      await deleteGatewayClass(cloudId, record.metadata.name);
-      message.success('GatewayClass 删除成功');
-      void runContainerSectionRefresh(onRefresh, { force: true });
-    } catch (error: any) {
-      message.error(`删除失败: ${error?.message || '未知错误'}`);
-    }
-  }, [cloudId, onRefresh]);
+  const handleDeleteGatewayClass = useCallback(
+    async (record: any) => {
+      try {
+        await deleteGatewayClass(cloudId, record.metadata.name);
+        message.success('GatewayClass 删除成功');
+        void runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (error: any) {
+        message.error(`删除失败: ${error?.message || '未知错误'}`);
+      }
+    },
+    [cloudId, onRefresh],
+  );
 
   // 如果 Gateway API 未安装，显示提示
   if (!loading && !isInstalled) {
@@ -882,10 +960,14 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         message="Gateway API 未安装"
         description={
           <div>
-            <p>当前集群未安装 Gateway API CRD。Gateway API 是 Kubernetes 下一代流量管理 API，将逐步取代 Ingress。</p>
+            <p>
+              当前集群未安装 Gateway API CRD。Gateway API 是 Kubernetes 下一代流量管理
+              API，将逐步取代 Ingress。
+            </p>
             <p>请安装 Gateway API CRD 后刷新页面。安装方法：</p>
             <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
-              kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml
+              kubectl apply -f
+              https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml
             </pre>
             <Button type="primary" onClick={handleToolbarRefresh} style={{ marginTop: 8 }}>
               刷新检测
@@ -985,11 +1067,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           onChange={onNsChange}
           options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
         />
-        <button
-          type="button"
-          className="toolbar-reset-btn"
-          onClick={handleReset}
-        >
+        <button type="button" className="toolbar-reset-btn" onClick={handleReset}>
           重置
         </button>
       </div>
@@ -1018,7 +1096,9 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             bordered={false}
             columns={gatewayColumns}
             dataSource={filteredGateways}
-            rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
+            rowKey={(record) =>
+              record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`
+            }
             loading={loading}
             pagination={{
               size: 'small' as const,
@@ -1034,7 +1114,9 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             bordered={false}
             columns={httpRouteColumns}
             dataSource={filteredHttpRoutes}
-            rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
+            rowKey={(record) =>
+              record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`
+            }
             loading={loading}
             pagination={{
               size: 'small' as const,
@@ -1050,7 +1132,9 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             bordered={false}
             columns={grpcRouteColumns}
             dataSource={filteredGrpcRoutes}
-            rowKey={(record) => record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`}
+            rowKey={(record) =>
+              record.metadata.uid || `${record.metadata.namespace}/${record.metadata.name}`
+            }
             loading={loading}
             pagination={{
               size: 'small' as const,
@@ -1163,7 +1247,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             label="名称"
             rules={[
               { required: true, message: '请输入名称' },
-              { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '名称只能包含小写字母、数字和连字符' },
+              {
+                pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+                message: '名称只能包含小写字母、数字和连字符',
+              },
             ]}
           >
             <Input placeholder="如: nginx" autoFocus />
@@ -1180,16 +1267,22 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
               style={{ width: '100%' }}
               popupMatchSelectWidth={400}
               options={[
-                { label: 'NGINX Gateway Fabric (nginx.org/gateway-controller)', value: 'nginx.org/gateway-controller' },
-                { label: 'Istio (istio.io/gateway-controller)', value: 'istio.io/gateway-controller' },
-                { label: 'Envoy Gateway (envoyproxy.io/gateway-controller)', value: 'envoyproxy.io/gateway-controller' },
+                {
+                  label: 'NGINX Gateway Fabric (nginx.org/gateway-controller)',
+                  value: 'nginx.org/gateway-controller',
+                },
+                {
+                  label: 'Istio (istio.io/gateway-controller)',
+                  value: 'istio.io/gateway-controller',
+                },
+                {
+                  label: 'Envoy Gateway (envoyproxy.io/gateway-controller)',
+                  value: 'envoyproxy.io/gateway-controller',
+                },
               ]}
             />
           </Form.Item>
-          <Form.Item
-            name="description"
-            label="描述"
-          >
+          <Form.Item name="description" label="描述">
             <Input placeholder="可选描述" />
           </Form.Item>
         </Form>
@@ -1199,14 +1292,23 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           message="使用前需先安装 Gateway 控制器"
           description={
             <div>
-              <p style={{ margin: '0 0 8px' }}>GatewayClass 需要对应的控制器才能工作。常见控制器：</p>
+              <p style={{ margin: '0 0 8px' }}>
+                GatewayClass 需要对应的控制器才能工作。常见控制器：
+              </p>
               <ul style={{ margin: '0 0 8px', paddingLeft: 20 }}>
-                <li><b>NGINX Gateway Fabric</b> - <code>nginx.org/gateway-controller</code></li>
-                <li><b>Istio</b> - <code>istio.io/gateway-controller</code></li>
-                <li><b>Envoy Gateway</b> - <code>envoyproxy.io/gateway-controller</code></li>
+                <li>
+                  <b>NGINX Gateway Fabric</b> - <code>nginx.org/gateway-controller</code>
+                </li>
+                <li>
+                  <b>Istio</b> - <code>istio.io/gateway-controller</code>
+                </li>
+                <li>
+                  <b>Envoy Gateway</b> - <code>envoyproxy.io/gateway-controller</code>
+                </li>
               </ul>
               <p style={{ margin: 0, color: '#666' }}>
-                提示：Harvester 默认使用 Ingress-nginx（Ingress 控制器），如需使用 Gateway API 请先安装对应控制器。
+                提示：Harvester 默认使用 Ingress-nginx（Ingress 控制器），如需使用 Gateway API
+                请先安装对应控制器。
               </p>
             </div>
           }
@@ -1261,25 +1363,27 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看/编辑弹窗 */}
-      {yamlEditingRecord && yamlEditingType && (
-        <YamlEditModal
-          visible={true}
-          title={yamlEditingType === 'gateway' 
-            ? `查看 YAML - Gateway/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`
-            : `YAML 编辑 - ${yamlEditingType === 'httproute' ? 'HTTPRoute' : 'GRPCRoute'}/${yamlEditingRecord?.metadata?.namespace}/${yamlEditingRecord?.metadata?.name}`
-          }
-          cloudId={cloudId}
-          namespace={yamlEditingRecord?.metadata?.namespace}
-          name={yamlEditingRecord?.metadata?.name}
-          resourceType={yamlEditingType}
-          onLoadYaml={handleLoadYaml}
-          onSaveYaml={handleSaveYaml}
-          onCancel={handleCloseYamlEdit}
-          onSuccess={handleYamlEditSuccess}
-          readOnly={yamlEditingType === 'gateway'}
-        />
-      )}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={handleCloseYamlEdit}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={
+          yamlEditingType === 'gateway'
+            ? 'Gateway YAML'
+            : yamlEditingType === 'httproute'
+              ? 'HTTPRoute YAML'
+              : yamlEditingType === 'grpcroute'
+                ? 'GRPCRoute YAML'
+                : '资源 YAML'
+        }
+        editable={yamlEditingType === 'httproute' || yamlEditingType === 'grpcroute'}
+        onSave={
+          yamlEditingType === 'httproute' || yamlEditingType === 'grpcroute'
+            ? handleSaveYaml
+            : undefined
+        }
+      />
 
       {/* Gateway 详情抽屉 */}
       <GatewayDetailDrawer

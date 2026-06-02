@@ -44,7 +44,6 @@ import {
   ReloadOutlined,
   EditTwoTone,
 } from '@ant-design/icons';
-import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -53,7 +52,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
-import YamlEditor from '../../../../../../components/YamlEditor';
 import { ConfigMapForm, SecretForm } from '../components';
 import CodeEditor, { detectLanguage } from '../../../../../../components/CodeEditor';
 import {
@@ -71,6 +69,7 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 
 const { Text } = Typography;
 
@@ -660,6 +659,7 @@ const ConfigMapTable: React.FC<{
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
+  onViewYaml: (record: any, title: string) => void;
 }> = ({
   data,
   loading,
@@ -675,6 +675,7 @@ const ConfigMapTable: React.FC<{
   showAllSwitch,
   queryAll,
   onQueryAllChange,
+  onViewYaml,
 }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -685,8 +686,6 @@ const ConfigMapTable: React.FC<{
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
 
   const apiPath = '/api/v1/configmaps';
 
@@ -797,15 +796,9 @@ const ConfigMapTable: React.FC<{
   // 查看 YAML
   const handleViewYaml = useCallback(
     (record: any) => {
-      try {
-        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-        setYamlContent(yamlStr);
-        setYamlModalVisible(true);
-      } catch (e: any) {
-        message.error('生成 YAML 失败: ' + e.message);
-      }
+      onViewYaml(record, 'ConfigMap YAML');
     },
-    [message],
+    [onViewYaml],
   );
 
   // 打开别名修改弹窗
@@ -1104,16 +1097,6 @@ const ConfigMapTable: React.FC<{
           </Form.Item>
         </Form>
       </Modal>
-
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor value={yamlContent} onChange={() => {}} maxHeight={500} readOnly />
-      </Modal>
     </div>
   );
 };
@@ -1142,6 +1125,7 @@ const SecretTable: React.FC<{
   showAllSwitch?: boolean;
   queryAll?: boolean;
   onQueryAllChange?: (checked: boolean) => void;
+  onViewYaml: (record: any, title: string) => void;
 }> = ({
   data,
   loading,
@@ -1159,6 +1143,7 @@ const SecretTable: React.FC<{
   showAllSwitch,
   queryAll,
   onQueryAllChange,
+  onViewYaml,
 }) => {
   const { modal, message } = App.useApp();
   const [keyword, setKeyword] = useState('');
@@ -1169,8 +1154,6 @@ const SecretTable: React.FC<{
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
 
   const apiPath = '/api/v1/secrets';
 
@@ -1305,15 +1288,9 @@ const SecretTable: React.FC<{
   // 查看 YAML
   const handleViewYaml = useCallback(
     (record: any) => {
-      try {
-        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-        setYamlContent(yamlStr);
-        setYamlModalVisible(true);
-      } catch (e: any) {
-        message.error('生成 YAML 失败: ' + e.message);
-      }
+      onViewYaml(record, 'Secret YAML');
     },
-    [message],
+    [onViewYaml],
   );
 
   // 打开别名修改弹窗
@@ -1627,16 +1604,6 @@ const SecretTable: React.FC<{
           </Form.Item>
         </Form>
       </Modal>
-
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor value={yamlContent} onChange={() => {}} maxHeight={500} readOnly />
-      </Modal>
     </div>
   );
 };
@@ -1669,6 +1636,15 @@ const ConfigsSection: React.FC<Props> = ({
   );
   const [activeTab, setActiveTab] = useState<'configmap' | 'secret'>('configmap');
   const [secretTypeFilter, setSecretTypeFilter] = useState<string | undefined>();
+
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
+  const handleViewResourceYaml = useCallback(
+    (record: any, title: string) => {
+      const kind = title.startsWith('Secret') ? 'Secret' : 'ConfigMap';
+      openYamlDrawer({ ...record, kind: record?.kind ?? kind }, { title });
+    },
+    [openYamlDrawer],
+  );
 
   // ConfigMap 弹窗状态
   const [configMapModalVisible, setConfigMapModalVisible] = useState(false);
@@ -1888,6 +1864,7 @@ const ConfigsSection: React.FC<Props> = ({
             showAllSwitch={showAllSwitch}
             queryAll={queryAll}
             onQueryAllChange={onQueryAllChange}
+            onViewYaml={handleViewResourceYaml}
           />
         ) : (
           <SecretTable
@@ -1908,6 +1885,7 @@ const ConfigsSection: React.FC<Props> = ({
             showAllSwitch={showAllSwitch}
             queryAll={queryAll}
             onQueryAllChange={onQueryAllChange}
+            onViewYaml={handleViewResourceYaml}
           />
         )}
       </PageDetailSection>
@@ -1951,6 +1929,8 @@ const ConfigsSection: React.FC<Props> = ({
           onCancel={handleSecretModalClose}
         />
       </Modal>
+
+      {yamlDrawer}
     </>
   );
 };

@@ -66,10 +66,6 @@ export type { PodLogViewerProps } from './PodLogViewer';
 // Cron 表达式助手组件
 export { default as CronExpressionHelper } from './CronExpressionHelper';
 
-// YAML 编辑组件
-export { default as YamlEditModal } from './YamlEditModal';
-export type { YamlEditModalProps } from './YamlEditModal';
-
 // Pod 终端组件
 export { default as PodTerminal } from './PodTerminal';
 

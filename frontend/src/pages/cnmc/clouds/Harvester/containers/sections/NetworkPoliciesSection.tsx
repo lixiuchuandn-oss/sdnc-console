@@ -40,7 +40,6 @@ import {
   ReloadOutlined,
   EditTwoTone,
 } from '@ant-design/icons';
-import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -49,7 +48,6 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
-import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchNetworkPolicyDetail,
   deleteNetworkPolicy,
@@ -60,6 +58,7 @@ import {
   getSystemResourceProtectionHint,
 } from '../../../../../../utils/harvesterUtils';
 import NetworkPolicyFormModal from '../components/NetworkPolicyFormModal';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import {
   createContainerToolbarRefresh,
   runContainerSectionRefresh,
@@ -550,9 +549,6 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   const [aliasForm] = Form.useForm<{ alias?: string }>();
 
   // YAML 查看相关状态
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
-
   // apiPath 用于 PATCH 请求
   const apiPath = '/apis/networking.k8s.io/v1/networkpolicies';
 
@@ -630,17 +626,22 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   );
 
   // 查看 YAML
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
+
   const handleViewYaml = useCallback(
     (record: any) => {
-      try {
-        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-        setYamlContent(yamlStr);
-        setYamlModalVisible(true);
-      } catch (e: any) {
-        message.error('生成 YAML 失败: ' + e.message);
-      }
+      openYamlDrawer(record, {
+        title: 'NetworkPolicy YAML',
+        resolveLink: (r: unknown) => {
+          const rec = r as { metadata?: { namespace?: string; name?: string } };
+          const ns = rec?.metadata?.namespace;
+          const name = rec?.metadata?.name;
+          if (!ns || !name) return undefined;
+          return `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`;
+        },
+      });
     },
-    [message],
+    [openYamlDrawer],
   );
 
   // 删除处理
@@ -1091,16 +1092,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看 Modal */}
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor value={yamlContent} onChange={() => {}} maxHeight={500} readOnly />
-      </Modal>
+      {yamlDrawer}
     </>
   );
 };

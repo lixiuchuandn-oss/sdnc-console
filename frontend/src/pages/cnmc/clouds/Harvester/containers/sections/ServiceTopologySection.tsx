@@ -1,6 +1,6 @@
 /**
  * 服务拓扑可视化 Section
- * 
+ *
  * 功能：
  * 1. 展示 Ingress → Service → Pod 调用链拓扑图
  * 2. 支持命名空间过滤（切换后立即刷新）
@@ -9,25 +9,60 @@
  * 5. 支持快速操作：编辑、YAML编辑、查看详情、终端等
  */
 import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
-import { Select, Space, Spin, Empty, Drawer, Descriptions, Tag, Button, Tooltip, App, Table, Tabs } from 'antd';
+import {
+  Select,
+  Space,
+  Spin,
+  Empty,
+  Drawer,
+  Descriptions,
+  Tag,
+  Button,
+  Tooltip,
+  App,
+  Table,
+  Tabs,
+} from 'antd';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
-import { ReloadOutlined, EditOutlined, EyeOutlined, CodeSandboxOutlined, FileTextOutlined, ArrowLeftOutlined, CloseOutlined } from '@ant-design/icons';
+import {
+  ReloadOutlined,
+  EditOutlined,
+  EyeOutlined,
+  CodeSandboxOutlined,
+  FileTextOutlined,
+  ArrowLeftOutlined,
+  CloseOutlined,
+} from '@ant-design/icons';
 import { ServiceTopology } from '../components/topology';
-import { buildServiceTopology, getTopologyStats, TopologyNode } from '../components/serviceTopologyUtils';
-import { YamlEditModal, IngressFormModal, PodTerminal } from '../components';
+import {
+  buildServiceTopology,
+  getTopologyStats,
+  TopologyNode,
+} from '../components/serviceTopologyUtils';
+import { IngressFormModal, PodTerminal } from '../components';
 import ServiceFormDrawer from '../drawers/ServiceFormDrawer';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
+import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import YamlEditor from '../../../../../../components/YamlEditor';
+import yaml from 'js-yaml';
 import {
-  fetchHarvesterIngressDetail,
   updateHarvesterIngress,
-  fetchHarvesterServiceDetail,
   updateHarvesterService,
   fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
 } from '../../../../../../services/harvesterApi';
 
-// ========== 辅助函数 ==========
+function resolveTopologyViewLink(node: TopologyNode): string | undefined {
+  const { type, namespace, name } = node;
+  if (!namespace || !name) return undefined;
+  if (type === 'ingress') {
+    return `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(namespace)}/ingresses/${encodeURIComponent(name)}`;
+  }
+  if (type === 'service') {
+    return `/api/v1/namespaces/${encodeURIComponent(namespace)}/services/${encodeURIComponent(name)}`;
+  }
+  return undefined;
+}
 
 const formatTime = (timestamp?: string) => {
   if (!timestamp) return '-';
@@ -95,7 +130,13 @@ const PodLogViewer: React.FC<{
     setLoading(true);
     try {
       const containerParam = containers.length === 1 ? undefined : selectedContainer;
-      const result = await fetchHarvesterPodLog(cloudId, namespace, podName, containerParam, tailLines);
+      const result = await fetchHarvesterPodLog(
+        cloudId,
+        namespace,
+        podName,
+        containerParam,
+        tailLines,
+      );
       setLogs(result || '暂无日志');
     } catch (e: any) {
       setLogs(`加载日志失败: ${e?.message || e}`);
@@ -156,9 +197,7 @@ const PodLogViewer: React.FC<{
               options={containers.map((c) => ({ label: c, value: c }))}
             />
           )}
-          {containers.length === 1 && (
-            <span style={{ color: '#666' }}>容器: {containers[0]}</span>
-          )}
+          {containers.length === 1 && <span style={{ color: '#666' }}>容器: {containers[0]}</span>}
           <Select
             value={tailLines}
             onChange={setTailLines}
@@ -215,7 +254,11 @@ const _PodDetailDrawer: React.FC<{
       const loadEvents = async () => {
         setEventsLoading(true);
         try {
-          const result = await fetchHarvesterPodEvents(cloudId, pod.metadata.namespace, pod.metadata.name);
+          const result = await fetchHarvesterPodEvents(
+            cloudId,
+            pod.metadata.namespace,
+            pod.metadata.name,
+          );
           setEvents(result?.data?.items || []);
         } catch (e) {
           setEvents([]);
@@ -245,10 +288,14 @@ const _PodDetailDrawer: React.FC<{
       extra={
         <Space>
           {onViewLog && (
-            <Button icon={<FileTextOutlined />} onClick={onViewLog}>日志</Button>
+            <Button icon={<FileTextOutlined />} onClick={onViewLog}>
+              日志
+            </Button>
           )}
           {onOpenTerminal && (
-            <Button icon={<CodeSandboxOutlined />} onClick={onOpenTerminal}>终端</Button>
+            <Button icon={<CodeSandboxOutlined />} onClick={onOpenTerminal}>
+              终端
+            </Button>
           )}
         </Space>
       }
@@ -265,12 +312,18 @@ const _PodDetailDrawer: React.FC<{
                 <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
                 <Descriptions.Item label="节点">{spec.nodeName || '-'}</Descriptions.Item>
                 <Descriptions.Item label="IP">{status.podIP || '-'}</Descriptions.Item>
-                <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
-                <Descriptions.Item label="创建时间" span={2}>{formatTime(metadata.creationTimestamp)}</Descriptions.Item>
+                <Descriptions.Item label="运行时长">
+                  {calculateAge(metadata.creationTimestamp)}
+                </Descriptions.Item>
+                <Descriptions.Item label="创建时间" span={2}>
+                  {formatTime(metadata.creationTimestamp)}
+                </Descriptions.Item>
                 <Descriptions.Item label="标签" span={2}>
                   <Space size={4} wrap>
                     {Object.entries(metadata.labels || {}).map(([k, v]) => (
-                      <Tag key={k}>{k}={String(v)}</Tag>
+                      <Tag key={k}>
+                        {k}={String(v)}
+                      </Tag>
                     ))}
                   </Space>
                 </Descriptions.Item>
@@ -300,7 +353,8 @@ const _PodDetailDrawer: React.FC<{
                       const s = record.status;
                       if (!s) return '-';
                       if (s.state?.running) return <Tag color="green">运行中</Tag>;
-                      if (s.state?.waiting) return <Tag color="orange">{s.state.waiting.reason}</Tag>;
+                      if (s.state?.waiting)
+                        return <Tag color="orange">{s.state.waiting.reason}</Tag>;
                       if (s.state?.terminated) return <Tag color="red">已终止</Tag>;
                       return '-';
                     },
@@ -326,9 +380,22 @@ const _PodDetailDrawer: React.FC<{
                 loading={eventsLoading}
                 dataSource={events.map((e: any, idx: number) => ({ ...e, key: idx }))}
                 columns={[
-                  { title: '类型', dataIndex: 'type', render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag> },
+                  {
+                    title: '类型',
+                    dataIndex: 'type',
+                    render: (v: string) => (
+                      <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag>
+                    ),
+                  },
                   { title: '原因', dataIndex: 'reason' },
-                  { title: '消息', dataIndex: 'message', ellipsis: true, render: (v: string) => <span style={{ whiteSpace: 'pre-wrap' }}>{v || '-'}</span> },
+                  {
+                    title: '消息',
+                    dataIndex: 'message',
+                    ellipsis: true,
+                    render: (v: string) => (
+                      <span style={{ whiteSpace: 'pre-wrap' }}>{v || '-'}</span>
+                    ),
+                  },
                   { title: '次数', dataIndex: 'count', render: (v: number) => v || 1 },
                   { title: '时间', dataIndex: 'lastTimestamp', render: formatTime },
                 ]}
@@ -345,10 +412,17 @@ const _PodDetailDrawer: React.FC<{
                 className="std-table"
                 scroll={{ x: true }}
                 bordered={false}
-                dataSource={(status.conditions || []).map((c: any, idx: number) => ({ ...c, key: idx }))}
+                dataSource={(status.conditions || []).map((c: any, idx: number) => ({
+                  ...c,
+                  key: idx,
+                }))}
                 columns={[
                   { title: '类型', dataIndex: 'type' },
-                  { title: '状态', dataIndex: 'status', render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag> },
+                  {
+                    title: '状态',
+                    dataIndex: 'status',
+                    render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>,
+                  },
                   { title: '原因', dataIndex: 'reason' },
                   { title: '消息', dataIndex: 'message', ellipsis: true },
                   { title: '时间', dataIndex: 'lastTransitionTime', render: formatTime },
@@ -389,7 +463,11 @@ const PodDetailTabs: React.FC<{
       const loadEvents = async () => {
         setEventsLoading(true);
         try {
-          const result = await fetchHarvesterPodEvents(cloudId, pod.metadata.namespace, pod.metadata.name);
+          const result = await fetchHarvesterPodEvents(
+            cloudId,
+            pod.metadata.namespace,
+            pod.metadata.name,
+          );
           setEvents(result?.data?.items || []);
         } catch (e) {
           setEvents([]);
@@ -422,12 +500,18 @@ const PodDetailTabs: React.FC<{
               <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
               <Descriptions.Item label="节点">{spec.nodeName || '-'}</Descriptions.Item>
               <Descriptions.Item label="IP">{status.podIP || '-'}</Descriptions.Item>
-              <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
-              <Descriptions.Item label="创建时间" span={2}>{formatTime(metadata.creationTimestamp)}</Descriptions.Item>
+              <Descriptions.Item label="运行时长">
+                {calculateAge(metadata.creationTimestamp)}
+              </Descriptions.Item>
+              <Descriptions.Item label="创建时间" span={2}>
+                {formatTime(metadata.creationTimestamp)}
+              </Descriptions.Item>
               <Descriptions.Item label="标签" span={2}>
                 <Space size={4} wrap>
                   {Object.entries(metadata.labels || {}).map(([k, v]) => (
-                    <Tag key={k}>{k}={String(v)}</Tag>
+                    <Tag key={k}>
+                      {k}={String(v)}
+                    </Tag>
                   ))}
                 </Space>
               </Descriptions.Item>
@@ -483,9 +567,20 @@ const PodDetailTabs: React.FC<{
               loading={eventsLoading}
               dataSource={events.map((e: any, idx: number) => ({ ...e, key: idx }))}
               columns={[
-                { title: '类型', dataIndex: 'type', render: (v: string) => <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag> },
+                {
+                  title: '类型',
+                  dataIndex: 'type',
+                  render: (v: string) => (
+                    <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag>
+                  ),
+                },
                 { title: '原因', dataIndex: 'reason' },
-                { title: '消息', dataIndex: 'message', ellipsis: true, render: (v: string) => <span style={{ whiteSpace: 'pre-wrap' }}>{v || '-'}</span> },
+                {
+                  title: '消息',
+                  dataIndex: 'message',
+                  ellipsis: true,
+                  render: (v: string) => <span style={{ whiteSpace: 'pre-wrap' }}>{v || '-'}</span>,
+                },
                 { title: '次数', dataIndex: 'count', render: (v: number) => v || 1 },
                 { title: '时间', dataIndex: 'lastTimestamp', render: formatTime },
               ]}
@@ -502,10 +597,17 @@ const PodDetailTabs: React.FC<{
               className="std-table"
               scroll={{ x: true }}
               bordered={false}
-              dataSource={(status.conditions || []).map((c: any, idx: number) => ({ ...c, key: idx }))}
+              dataSource={(status.conditions || []).map((c: any, idx: number) => ({
+                ...c,
+                key: idx,
+              }))}
               columns={[
                 { title: '类型', dataIndex: 'type' },
-                { title: '状态', dataIndex: 'status', render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag> },
+                {
+                  title: '状态',
+                  dataIndex: 'status',
+                  render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>,
+                },
                 { title: '原因', dataIndex: 'reason' },
                 { title: '消息', dataIndex: 'message', ellipsis: true },
                 { title: '时间', dataIndex: 'lastTransitionTime', render: formatTime },
@@ -561,8 +663,9 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [currentNs, setCurrentNs] = useState<string>('');
 
-  // YAML 编辑弹窗状态
-  const [yamlModalOpen, setYamlModalOpen] = useState(false);
+  // YAML 抽屉状态
+  const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
+  const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
   const [yamlEditingNode, setYamlEditingNode] = useState<TopologyNode | null>(null);
 
   // 表单编辑弹窗状态
@@ -596,15 +699,19 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     userClearedNamespaceRef.current = false;
   }, [topologyDataFilter]);
 
-  const getFilteredData = useCallback((targetNs: string) => {
-    if (!targetNs) return { ingresses: [], services: [], pods: [] };
-    const filterByNamespace = (items: any[]) => items.filter((item: any) => (item?.metadata?.namespace || item?.namespace) === targetNs);
-    return {
-      ingresses: filterByNamespace(ingresses),
-      services: filterByNamespace(services),
-      pods: filterByNamespace(pods),
-    };
-  }, [ingresses, services, pods]);
+  const getFilteredData = useCallback(
+    (targetNs: string) => {
+      if (!targetNs) return { ingresses: [], services: [], pods: [] };
+      const filterByNamespace = (items: any[]) =>
+        items.filter((item: any) => (item?.metadata?.namespace || item?.namespace) === targetNs);
+      return {
+        ingresses: filterByNamespace(ingresses),
+        services: filterByNamespace(services),
+        pods: filterByNamespace(pods),
+      };
+    },
+    [ingresses, services, pods],
+  );
 
   /** 各命名空间在当前数据下是否具备非空拓扑（有节点即视为有拓扑数据） */
   const namespaceHasTopologyMap = useMemo(() => {
@@ -663,21 +770,63 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     setSelectedNode(null);
   }, []);
 
-  const handleNsChange = useCallback((value: string | null | undefined) => {
-    const v = value ?? '';
-    userClearedNamespaceRef.current = !v;
-    setCurrentNs(v);
-    onNsChange?.(v);
-  }, [onNsChange]);
+  const handleNsChange = useCallback(
+    (value: string | null | undefined) => {
+      const v = value ?? '';
+      userClearedNamespaceRef.current = !v;
+      setCurrentNs(v);
+      onNsChange?.(v);
+    },
+    [onNsChange],
+  );
 
   const handleRefresh = useCallback(() => onRefresh?.(true), [onRefresh]);
 
   // ========== 快速操作 ==========
 
-  const _handleYamlEdit = useCallback((node: TopologyNode) => {
-    setYamlEditingNode(node);
-    setYamlModalOpen(true);
+  const handleTopologyYamlOpen = useCallback(
+    (node: TopologyNode) => {
+      const link = resolveTopologyViewLink(node);
+      if (!link) {
+        message.warning('当前节点缺少 View Link，无法拉取 YAML');
+        return;
+      }
+      setYamlEditingNode(node);
+      setYamlViewLink(link);
+      setYamlDrawerOpen(true);
+    },
+    [message],
+  );
+
+  const handleTopologyYamlClose = useCallback(() => {
+    setYamlDrawerOpen(false);
+    setYamlViewLink(undefined);
+    setYamlEditingNode(null);
   }, []);
+
+  const handleTopologyYamlSave = useCallback(
+    async (yamlText: string) => {
+      const node = yamlEditingNode;
+      if (!node) return;
+      const { type, namespace, name } = node;
+      const parsed = yaml.load(yamlText) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('无效的资源定义');
+      }
+      const meta = (parsed as { metadata?: Record<string, unknown> }).metadata;
+      const clean = {
+        ...parsed,
+        metadata: meta ? { ...meta, managedFields: undefined } : meta,
+      };
+      if (type === 'ingress') {
+        await updateHarvesterIngress(cloudId, namespace, name, clean);
+      } else if (type === 'service') {
+        await updateHarvesterService(cloudId, namespace, name, clean);
+      }
+      onRefresh?.(true);
+    },
+    [cloudId, yamlEditingNode, onRefresh],
+  );
 
   const handleEdit = useCallback((node: TopologyNode) => {
     setEditingNode(node);
@@ -694,9 +843,10 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     if (!raw) return;
     const containerStatuses = raw?.status?.containerStatuses || [];
     const specContainers = raw?.spec?.containers || [];
-    const containers = containerStatuses.length > 0
-      ? containerStatuses.map((c: any) => c.name)
-      : specContainers.map((c: any) => c.name);
+    const containers =
+      containerStatuses.length > 0
+        ? containerStatuses.map((c: any) => c.name)
+        : specContainers.map((c: any) => c.name);
     setSelectedNode(node);
     setPodLogContainers(containers);
     setDrawerVisible(false);
@@ -708,55 +858,31 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
     if (!raw) return;
     const containerStatuses = raw?.status?.containerStatuses || [];
     const specContainers = raw?.spec?.containers || [];
-    const containers = containerStatuses.length > 0
-      ? containerStatuses.map((c: any) => c.name)
-      : specContainers.map((c: any) => c.name);
+    const containers =
+      containerStatuses.length > 0
+        ? containerStatuses.map((c: any) => c.name)
+        : specContainers.map((c: any) => c.name);
     setSelectedNode(node);
     setPodTerminalContainers(containers);
     setDrawerVisible(false);
     setPodTerminalVisible(true);
   }, []);
 
-  // ========== YAML 加载和保存 ==========
-
-  const loadYaml = useCallback(async (): Promise<string> => {
-    if (!yamlEditingNode) return '';
-    const { type, namespace, name } = yamlEditingNode;
-    if (type === 'ingress') {
-      const response = await fetchHarvesterIngressDetail(cloudId, namespace, name);
-      const data = response?.data || response;
-      return JSON.stringify({ ...data, metadata: { ...data?.metadata, managedFields: undefined } }, null, 2);
-    } else if (type === 'service') {
-      const response = await fetchHarvesterServiceDetail(cloudId, namespace, name);
-      const data = response?.data || response;
-      return JSON.stringify({ ...data, metadata: { ...data?.metadata, managedFields: undefined } }, null, 2);
-    }
-    return '';
-  }, [cloudId, yamlEditingNode]);
-
-  const saveYaml = useCallback(async (yaml: string) => {
-    if (!yamlEditingNode) return;
-    const { type, namespace, name } = yamlEditingNode;
-    const data = JSON.parse(yaml);
-    if (type === 'ingress') {
-      await updateHarvesterIngress(cloudId, namespace, name, data);
-    } else if (type === 'service') {
-      await updateHarvesterService(cloudId, namespace, name, data);
-    }
-    message.success('保存成功');
-    onRefresh?.(true);
-  }, [cloudId, yamlEditingNode, message, onRefresh]);
-
   // ========== 渲染 ==========
 
   const _getNodeStatusColor = (status?: string) => {
     switch (status) {
-      case 'Running': return 'success';
-      case 'Pending': return 'warning';
+      case 'Running':
+        return 'success';
+      case 'Pending':
+        return 'warning';
       case 'Failed':
-      case 'Error': return 'error';
-      case 'Succeeded': return 'processing';
-      default: return 'default';
+      case 'Error':
+        return 'error';
+      case 'Succeeded':
+        return 'processing';
+      default:
+        return 'default';
     }
   };
 
@@ -775,8 +901,20 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           open={drawerVisible}
           extra={
             <Space>
-              <Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewPodLog(selectedNode)}>日志</Button>
-              <Button size="small" icon={<CodeSandboxOutlined />} onClick={() => handleOpenPodTerminal(selectedNode)}>终端</Button>
+              <Button
+                size="small"
+                icon={<FileTextOutlined />}
+                onClick={() => handleViewPodLog(selectedNode)}
+              >
+                日志
+              </Button>
+              <Button
+                size="small"
+                icon={<CodeSandboxOutlined />}
+                onClick={() => handleOpenPodTerminal(selectedNode)}
+              >
+                终端
+              </Button>
             </Space>
           }
         >
@@ -796,12 +934,34 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
         extra={
           <Space>
             {type === 'ingress' && (
-              <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
+              <>
+                <Button
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => handleEdit(selectedNode)}
+                >
+                  编辑
+                </Button>
+                <Button size="small" onClick={() => handleTopologyYamlOpen(selectedNode)}>
+                  编辑 YAML
+                </Button>
+              </>
             )}
             {type === 'service' && (
               <>
-                <Button size="small" icon={<EyeOutlined />} onClick={handleViewServiceDetail}>运维信息</Button>
-                <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(selectedNode)}>编辑</Button>
+                <Button size="small" icon={<EyeOutlined />} onClick={handleViewServiceDetail}>
+                  运维信息
+                </Button>
+                <Button
+                  size="small"
+                  icon={<EditOutlined />}
+                  onClick={() => handleEdit(selectedNode)}
+                >
+                  编辑
+                </Button>
+                <Button size="small" onClick={() => handleTopologyYamlOpen(selectedNode)}>
+                  编辑 YAML
+                </Button>
               </>
             )}
           </Space>
@@ -818,7 +978,9 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
               <Descriptions.Item label="域名">{host || '*'}</Descriptions.Item>
               {extra?.paths && extra.paths.length > 0 && (
                 <Descriptions.Item label="路径">
-                  {extra.paths.map((p: string, i: number) => <Tag key={i}>{p}</Tag>)}
+                  {extra.paths.map((p: string, i: number) => (
+                    <Tag key={i}>{p}</Tag>
+                  ))}
                 </Descriptions.Item>
               )}
             </>
@@ -826,18 +988,30 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           {type === 'service' && (
             <>
               {port && <Descriptions.Item label="端口">{port}</Descriptions.Item>}
-              {extra?.serviceType && <Descriptions.Item label="Service 类型">{extra.serviceType}</Descriptions.Item>}
-              {extra?.clusterIP && <Descriptions.Item label="ClusterIP">{extra.clusterIP}</Descriptions.Item>}
+              {extra?.serviceType && (
+                <Descriptions.Item label="Service 类型">{extra.serviceType}</Descriptions.Item>
+              )}
+              {extra?.clusterIP && (
+                <Descriptions.Item label="ClusterIP">{extra.clusterIP}</Descriptions.Item>
+              )}
               {extra?.selector && (
                 <Descriptions.Item label="Selector">
-                  {Object.entries(extra.selector).map(([k, v]) => <Tag key={k}>{k}={v as string}</Tag>)}
+                  {Object.entries(extra.selector).map(([k, v]) => (
+                    <Tag key={k}>
+                      {k}={v as string}
+                    </Tag>
+                  ))}
                 </Descriptions.Item>
               )}
             </>
           )}
           {labels && Object.keys(labels).length > 0 && (
             <Descriptions.Item label="标签">
-              {Object.entries(labels).map(([k, v]) => <Tag key={k} style={{ marginBottom: 4 }}>{k}={v}</Tag>)}
+              {Object.entries(labels).map(([k, v]) => (
+                <Tag key={k} style={{ marginBottom: 4 }}>
+                  {k}={v}
+                </Tag>
+              ))}
             </Descriptions.Item>
           )}
         </Descriptions>
@@ -895,32 +1069,45 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
       refreshLoading={loading}
     >
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
+        <div
+          style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}
+        >
           <Spin size="large" tip="加载中..." />
         </div>
       ) : topology.nodes.length === 0 ? (
-        <Empty description={currentNs ? `项目 "${currentNs}" 下没有服务拓扑数据` : '请选择项目查看服务拓扑'} style={{ padding: '60px 0' }} />
+        <Empty
+          description={
+            currentNs ? `项目 "${currentNs}" 下没有服务拓扑数据` : '请选择项目查看服务拓扑'
+          }
+          style={{ padding: '60px 0' }}
+        />
       ) : (
-        <ServiceTopology key={currentNs} nodes={topology.nodes} edges={topology.edges} onNodeClick={handleNodeClick} height={500} />
+        <ServiceTopology
+          key={currentNs}
+          nodes={topology.nodes}
+          edges={topology.edges}
+          onNodeClick={handleNodeClick}
+          height={500}
+        />
       )}
 
       {renderNodeDetails()}
 
-      {/* YAML 编辑弹窗 */}
-      {yamlEditingNode && (yamlEditingNode.type === 'ingress' || yamlEditingNode.type === 'service') && (
-        <YamlEditModal
-          visible={yamlModalOpen}
-          title={`${yamlEditingNode.type === 'ingress' ? 'Ingress' : 'Service'} YAML 编辑`}
-          cloudId={cloudId}
-          namespace={yamlEditingNode.namespace}
-          name={yamlEditingNode.name}
-          resourceType={yamlEditingNode.type}
-          onLoadYaml={loadYaml}
-          onSaveYaml={saveYaml}
-          onCancel={() => setYamlModalOpen(false)}
-          onSuccess={() => { setYamlModalOpen(false); onRefresh?.(true); }}
-        />
-      )}
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={handleTopologyYamlClose}
+        cloudId={cloudId}
+        viewLink={yamlViewLink}
+        title={
+          yamlEditingNode?.type === 'ingress'
+            ? 'Ingress YAML'
+            : yamlEditingNode?.type === 'service'
+              ? 'Service YAML'
+              : '资源 YAML'
+        }
+        editable={yamlEditingNode?.type === 'ingress' || yamlEditingNode?.type === 'service'}
+        onSave={handleTopologyYamlSave}
+      />
 
       {/* Ingress 编辑弹窗 */}
       {editingNode && editingNode.type === 'ingress' && (
@@ -933,7 +1120,10 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           secrets={[]}
           defaultNamespace={formDefaultNs}
           onCancel={() => setEditModalOpen(false)}
-          onSuccess={() => { setEditModalOpen(false); onRefresh?.(true); }}
+          onSuccess={() => {
+            setEditModalOpen(false);
+            onRefresh?.(true);
+          }}
         />
       )}
 
@@ -945,7 +1135,11 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           cloudId={cloudId}
           namespacesOptions={namespacesOptions}
           defaultNamespace={formDefaultNs}
-          record={{ raw: editingNode.rawData, namespace: editingNode.namespace, name: editingNode.name }}
+          record={{
+            raw: editingNode.rawData,
+            namespace: editingNode.namespace,
+            name: editingNode.name,
+          }}
           onCommitted={() => onRefresh?.(true)}
         />
       )}
@@ -965,7 +1159,10 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           cloudId={cloudId}
           pods={pods}
           hideRelatedPods
-          onBack={() => { setServiceDrawerOpen(false); setDrawerVisible(true); }}
+          onBack={() => {
+            setServiceDrawerOpen(false);
+            setDrawerVisible(true);
+          }}
         />
       )}
 
@@ -978,7 +1175,10 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           containers={podLogContainers}
           visible={podLogVisible}
           onClose={() => setPodLogVisible(false)}
-          onBack={() => { setPodLogVisible(false); setDrawerVisible(true); }}
+          onBack={() => {
+            setPodLogVisible(false);
+            setDrawerVisible(true);
+          }}
         />
       )}
 
@@ -990,7 +1190,10 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
           namespace={selectedNode.namespace}
           podName={selectedNode.name}
           containers={podTerminalContainers}
-          onClose={() => { setPodTerminalVisible(false); setDrawerVisible(true); }}
+          onClose={() => {
+            setPodTerminalVisible(false);
+            setDrawerVisible(true);
+          }}
         />
       )}
     </PageDetailSection>
