@@ -5,6 +5,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
 import { apiRequest, apiPost } from '../../../../services/api';
+import { filterLinkLocalIpv6 } from '../vr/vrIpv6Utils';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
 const safeJsonParse = (text: string): any => {
@@ -118,7 +119,12 @@ const SRv6CreatePage: React.FC = () => {
     return s.includes('/') ? s.split('/')[0] : s;
   };
 
-  // 提取指定端口索引的 IPv6（0=第一个网口/公网；1=第二个网口/内网），尽力解析
+  const ipv6HostFromRaw = (v?: string): string | undefined => {
+    const picked = filterLinkLocalIpv6(v);
+    return trimPrefix(picked || undefined);
+  };
+
+  // 提取指定端口索引的 IPv6（0=第一个网口/公网；1=第二个网口/内网），尽力解析；剔除 fe80::
   const extractPortIpv6 = (cfg: any, portIndex: number): string | undefined => {
     if (!cfg || typeof cfg !== 'object') return undefined;
     const keys = Object.keys(cfg);
@@ -126,27 +132,26 @@ const SRv6CreatePage: React.FC = () => {
       if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
         const arr = (cfg as any)[k];
         if (Array.isArray(arr) && arr[portIndex]) {
-          const v = arr[portIndex]?.ipv6_static || arr[portIndex]?.ipv6;
-          const ip = trimPrefix(v);
+          const ip = ipv6HostFromRaw(arr[portIndex]?.ipv6_static || arr[portIndex]?.ipv6);
           if (ip) return ip;
         }
       }
     }
-    // 兜底：若无法按索引解析，第一个端口用任何可用 IPv6，第二个端口尝试取“第二个可用项”
     const candidates: string[] = [];
     for (const k of keys) {
       if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
         const arr = (cfg as any)[k];
         if (Array.isArray(arr)) {
           for (const it of arr) {
-            const v = it?.ipv6_static || it?.ipv6;
-            const ip = trimPrefix(v);
+            const ip = ipv6HostFromRaw(it?.ipv6_static || it?.ipv6);
             if (ip) candidates.push(ip);
           }
         }
       }
     }
-    if (portIndex === 0) return candidates[0] || trimPrefix((cfg as any)?.ipv6_static || (cfg as any)?.ipv6);
+    if (portIndex === 0) {
+      return candidates[0] || ipv6HostFromRaw((cfg as any)?.ipv6_static || (cfg as any)?.ipv6);
+    }
     if (portIndex === 1) return candidates[1] || candidates[0] || undefined;
     return undefined;
   };
@@ -155,7 +160,7 @@ const SRv6CreatePage: React.FC = () => {
   const rowHostIpPreferV4 = (it: any): string | undefined => {
     const v4 = trimPrefix(it?.ipv4_static || it?.ipv4);
     if (v4) return v4;
-    return trimPrefix(it?.ipv6_static || it?.ipv6);
+    return ipv6HostFromRaw(it?.ipv6_static || it?.ipv6);
   };
 
   /** 按端口索引取“公网/内网”主机地址：IPv4 优先，否则 IPv6（用于 CE 外网、PE 内网等） */
