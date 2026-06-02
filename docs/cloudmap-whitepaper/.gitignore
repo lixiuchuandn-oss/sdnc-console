@@ -1,0 +1,5 @@
+# Pandoc 生成物（源稿在 source/）
+output/
+
+# Word 临时锁文件
+~$*
