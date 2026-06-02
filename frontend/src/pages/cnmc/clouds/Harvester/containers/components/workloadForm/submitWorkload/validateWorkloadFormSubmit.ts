@@ -38,7 +38,9 @@ export function validateDuplicateContainerNames(
   };
 }
 
-export function validateVolumesHaveMounts(syncedValues: WorkloadFormValues): WorkloadSubmitFailure | null {
+export function validateVolumesHaveMounts(
+  syncedValues: WorkloadFormValues,
+): WorkloadSubmitFailure | null {
   const volumes = syncedValues.volumes || [];
   const volumeMounts = syncedValues.volumeMounts || [];
   if (volumes.length > 0 && volumeMounts.length === 0) {
@@ -87,7 +89,8 @@ function resolveSubnetCidr(params: {
     const subnet = kubeSubnets.find((item) => {
       const s = item as Record<string, unknown>;
       const spec = (s.spec ?? {}) as Record<string, unknown>;
-      const name = (s.name as string | undefined) ?? (s.metadata as { name?: string } | undefined)?.name;
+      const name =
+        (s.name as string | undefined) ?? (s.metadata as { name?: string } | undefined)?.name;
       const vpc = (s.vpc as string | undefined) ?? spec.vpc;
       return name === subnetName && vpc === syncedValues.vpcName;
     }) as Record<string, unknown> | undefined;
@@ -160,7 +163,8 @@ export async function validateWorkloadStaticIp(params: {
       subnetName,
       syncedValues.staticIP,
     );
-    const ipCheckData = (ipCheckRes as { data?: { used?: boolean; usedBy?: string } })?.data ?? ipCheckRes;
+    const ipCheckData =
+      (ipCheckRes as { data?: { used?: boolean; usedBy?: string } })?.data ?? ipCheckRes;
     if ((ipCheckData as { used?: boolean })?.used === true) {
       const usedBy = (ipCheckData as { usedBy?: string }).usedBy || '其他工作负载';
       return {

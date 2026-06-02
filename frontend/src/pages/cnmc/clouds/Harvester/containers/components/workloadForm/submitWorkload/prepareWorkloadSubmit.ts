@@ -140,9 +140,9 @@ export async function prepareFormModeWorkloadSubmit(params: {
   editorRefs: WorkloadEditorRefValidation;
   confirmStaticIpRisk: (staticIP: string) => Promise<boolean>;
 }): Promise<PrepareWorkloadSubmitResult> {
-  const values = (await params.form.validateFields(
-    [...WORKLOAD_FORM_VALIDATE_FIELD_NAMES],
-  )) as WorkloadFormValues;
+  const values = (await params.form.validateFields([
+    ...WORKLOAD_FORM_VALIDATE_FIELD_NAMES,
+  ])) as WorkloadFormValues;
   const syncedValues = params.getSyncedFormValues();
 
   const failures = [
