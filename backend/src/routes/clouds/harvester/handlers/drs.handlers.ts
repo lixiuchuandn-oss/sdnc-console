@@ -12,11 +12,7 @@ export const MIGRATION_AUTO_SCHEDULED_FINGERPRINT_LABEL =
   'hci.manager.system/auto-scheduled-fingerprint';
 
 function readAutoFingerprint(item: any): string | undefined {
-  const labels =
-    item?.labels ||
-    item?.metadata?.labels ||
-    item?.rawData?.metadata?.labels ||
-    {};
+  const labels = item?.labels || item?.metadata?.labels || item?.rawData?.metadata?.labels || {};
   const v = labels?.[MIGRATION_AUTO_SCHEDULED_FINGERPRINT_LABEL];
   const s = v != null ? String(v).trim() : '';
   return s || undefined;
@@ -29,10 +25,7 @@ function isMetricRuleEnabled(_item: any): boolean {
 
 function migrationPhase(item: any): string {
   return String(
-    item?.phase ||
-      item?.rawData?.status?.phase ||
-      item?.status?.phase ||
-      'Unknown',
+    item?.phase || item?.rawData?.status?.phase || item?.status?.phase || 'Unknown',
   ).trim();
 }
 
@@ -113,4 +106,3 @@ export async function harvesterDrsOverviewHandler(req: Request, res: Response) {
     });
   }
 }
-

@@ -15,7 +15,9 @@ import {
 const VALID_TYPES = new Set<FailureDomainType>(['rack', 'zone', 'host']);
 
 function normalizeType(raw: unknown): FailureDomainType {
-  const t = String(raw || 'rack').trim().toLowerCase();
+  const t = String(raw || 'rack')
+    .trim()
+    .toLowerCase();
   if (VALID_TYPES.has(t as FailureDomainType)) return t as FailureDomainType;
   return 'rack';
 }
@@ -193,7 +195,12 @@ export async function updateFailureDomain(
   cloudId: string,
   domainId: string,
   cloud: any,
-  input: { name?: string; domainType?: FailureDomainType; description?: string; sortOrder?: number },
+  input: {
+    name?: string;
+    domainType?: FailureDomainType;
+    description?: string;
+    sortOrder?: number;
+  },
 ): Promise<FailureDomainRow> {
   const id = String(domainId || '').trim();
   const existing = await AppDataSource.query(
@@ -289,9 +296,7 @@ export async function setFailureDomainNodes(
   if (!domainRows?.length) throw Object.assign(new Error('故障域不存在'), { status: 404 });
   const domainName = String(domainRows[0].name || '').trim();
 
-  const want = Array.from(
-    new Set(nodeNames.map((n) => String(n || '').trim()).filter(Boolean)),
-  );
+  const want = Array.from(new Set(nodeNames.map((n) => String(n || '').trim()).filter(Boolean)));
   const inventory = new Set(await inventoryNodeNames(cloudId));
   for (const n of want) {
     if (!inventory.has(n)) throw Object.assign(new Error(`节点不存在: ${n}`), { status: 400 });

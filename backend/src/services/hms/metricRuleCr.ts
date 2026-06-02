@@ -92,7 +92,9 @@ async function resolveRancherClusterIds(cloud: {
   const ids = new Set<string>();
   if (fromConfig) ids.add(fromConfig);
 
-  const endpoint = String(cloud.endpoint || '').trim().replace(/\/+$/, '');
+  const endpoint = String(cloud.endpoint || '')
+    .trim()
+    .replace(/\/+$/, '');
   let origin = endpoint;
   try {
     const u = new URL(endpoint);
@@ -129,7 +131,9 @@ async function buildHarvesterKubeProxyRoots(cloud: {
   endpoint?: string;
   config?: any;
 }): Promise<string[]> {
-  const endpoint = String(cloud.endpoint || '').trim().replace(/\/+$/, '');
+  const endpoint = String(cloud.endpoint || '')
+    .trim()
+    .replace(/\/+$/, '');
   if (!endpoint) return [];
 
   const roots = new Set<string>();
@@ -183,7 +187,10 @@ async function requestFirstOk<T>(
   throw new Error('MetricRule CR API 不可用');
 }
 
-async function buildKubeApiUrls(cloud: { endpoint?: string; config?: any }, pathSuffix: string): Promise<string[]> {
+async function buildKubeApiUrls(
+  cloud: { endpoint?: string; config?: any },
+  pathSuffix: string,
+): Promise<string[]> {
   const roots = await buildHarvesterKubeProxyRoots(cloud);
   const seg = pathSuffix.startsWith('/') ? pathSuffix : `/${pathSuffix}`;
   return roots.map((root) => `${root.replace(/\/+$/, '')}${seg}`);
@@ -194,7 +201,9 @@ export function buildMetricRuleCrManifest(name: string, specInput: MetricRuleCrS
   if (!nameTrim) {
     throw Object.assign(new Error('缺少 MetricRule 名称'), { status: 400 });
   }
-  const metricType = String(specInput.metricType || '').trim().toLowerCase();
+  const metricType = String(specInput.metricType || '')
+    .trim()
+    .toLowerCase();
   if (metricType !== 'cpu' && metricType !== 'memory') {
     throw Object.assign(new Error('metricType 须为 cpu 或 memory'), { status: 400 });
   }
@@ -206,9 +215,12 @@ export function buildMetricRuleCrManifest(name: string, specInput: MetricRuleCrS
   const migrateMaxCount = Number(specInput.migrateMaxCount ?? 1);
   const randTopN = Number(specInput.randTopN ?? 1);
   if ([migrateConcurrentNum, migrateMaxCount, randTopN].some((n) => !Number.isFinite(n) || n < 1)) {
-    throw Object.assign(new Error('migrateConcurrentNum / migrateMaxCount / randTopN 须为大于 0 的整数'), {
-      status: 400,
-    });
+    throw Object.assign(
+      new Error('migrateConcurrentNum / migrateMaxCount / randTopN 须为大于 0 的整数'),
+      {
+        status: 400,
+      },
+    );
   }
 
   return {
@@ -225,10 +237,7 @@ export function buildMetricRuleCrManifest(name: string, specInput: MetricRuleCrS
   };
 }
 
-async function buildCandidateUrls(cloud: {
-  endpoint?: string;
-  config?: any;
-}): Promise<string[]> {
+async function buildCandidateUrls(cloud: { endpoint?: string; config?: any }): Promise<string[]> {
   const urls = new Set<string>();
   const roots = await buildHarvesterKubeProxyRoots(cloud);
 

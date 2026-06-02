@@ -27,10 +27,7 @@ function nodeActionUrls(origin: string, nodeName: string, action: string): strin
   const enc = encodeURIComponent(nodeName);
   const q = `action=${encodeURIComponent(action)}`;
   // Harvester 维护模式 action 注册在 schema `harvester/nodes`，非 Steve 通用 `/v1/nodes`
-  return [
-    `${origin}/v1/harvester/nodes/${enc}?${q}`,
-    `${origin}/v1/nodes/${enc}?${q}`,
-  ];
+  return [`${origin}/v1/harvester/nodes/${enc}?${q}`, `${origin}/v1/nodes/${enc}?${q}`];
 }
 
 function isRetryableNodeActionError(err: any): boolean {

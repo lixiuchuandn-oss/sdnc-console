@@ -57,7 +57,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
   const [assignDomain, setAssignDomain] = useState<FailureDomainRow | null>(null);
   const [assignSaving, setAssignSaving] = useState(false);
 
-  const domains = overview?.domains ?? [];
+  const domains = useMemo(() => overview?.domains ?? [], [overview?.domains]);
   const filtered = useMemo(() => filterDomains(domains, keyword), [domains, keyword]);
   const unassignedCount = overview?.unassignedNodeNames?.length ?? 0;
   const allNodeNames = useMemo(() => {
