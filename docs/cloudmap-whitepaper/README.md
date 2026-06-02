@@ -1,4 +1,4 @@
-# Cloudmap 超融合平台 · 技术白皮书（Markdown 源稿）
+# Cloudmap 融合边缘云 · 技术白皮书（Markdown 源稿）
 
 > **唯一可维护源稿**在本目录 `source/`；Word 由脚本生成，勿手改 `output/*.docx` 后再反向当源稿。
 
@@ -8,6 +8,7 @@
 docs/cloudmap-whitepaper/
 ├── README.md                 # 本文件：流程与约定
 ├── writing-style.md          # 写作硬性约束（政企白皮书口径）
+├── 优化亮点总结清单.md       # 本轮结构、内容、技术、逻辑、格式优化说明
 ├── source/
 │   ├── manifest.txt          # 章节合并顺序（build 按此读取）
 │   ├── 01-产品概述.md
@@ -92,7 +93,7 @@ pandoc -o docs/cloudmap-whitepaper/templates/reference.docx --print-default-data
 
 | 文档 | 关系 |
 |------|------|
-| `docs/cloudmap-whitepaper/writing-style.md` | 白皮书专用写作约束 |
+| `docs/cloudmap-whitepaper/writing-style.md` | 白皮书专用写作约束与融合边缘云术语口径 |
 | `deployment/*.docx` | **生成输出**（gitignore），非源稿 |
 | `AGENTS.md` | 产品能力以代码为准；白皮书须与实现一致 |
 
