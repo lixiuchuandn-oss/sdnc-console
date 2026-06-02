@@ -260,7 +260,13 @@ export const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
     <Space size="small">
       {!editable && showAutoRefresh && (
         <>
-          <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} checkedChildren="自动" unCheckedChildren="手动" />
+          <Switch
+            size="small"
+            checked={autoRefresh}
+            onChange={setAutoRefresh}
+            checkedChildren="自动"
+            unCheckedChildren="手动"
+          />
           {autoRefresh && (
             <Select
               value={refreshInterval}
@@ -277,7 +283,12 @@ export const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
           )}
         </>
       )}
-      <Button size="small" icon={<SyncOutlined spin={loading} />} onClick={() => void loadContent()} loading={loading}>
+      <Button
+        size="small"
+        icon={<SyncOutlined spin={loading} />}
+        onClick={() => void loadContent()}
+        loading={loading}
+      >
         刷新
       </Button>
       {showSave && onSaveClick ? (
@@ -308,7 +319,11 @@ export const ResourceLinkYamlDrawerEditor: React.FC<
 }) => {
   const display = editable ? draftYaml : content;
   if (loading && !content && !error) {
-    return <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">加载中…</div>;
+    return (
+      <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">
+        加载中…
+      </div>
+    );
   }
   if (error && !content) {
     return (
@@ -324,7 +339,9 @@ export const ResourceLinkYamlDrawerEditor: React.FC<
   return (
     <div className="resource-link-yaml-drawer__editor-stage">
       {editorPx < 48 ? (
-        <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">准备编辑器…</div>
+        <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">
+          准备编辑器…
+        </div>
       ) : (
         <CodeEditor
           readOnly={!editable}

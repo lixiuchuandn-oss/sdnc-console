@@ -633,12 +633,12 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       openYamlDrawer(record, {
         title: 'NetworkPolicy YAML',
         resolveLink: (r: unknown) => {
-      const rec = r as { metadata?: { namespace?: string; name?: string } };
-      const ns = rec?.metadata?.namespace;
-      const name = rec?.metadata?.name;
-      if (!ns || !name) return undefined;
-      return `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`;
-    },
+          const rec = r as { metadata?: { namespace?: string; name?: string } };
+          const ns = rec?.metadata?.namespace;
+          const name = rec?.metadata?.name;
+          if (!ns || !name) return undefined;
+          return `/apis/networking.k8s.io/v1/namespaces/${encodeURIComponent(ns)}/networkpolicies/${encodeURIComponent(name)}`;
+        },
       });
     },
     [openYamlDrawer],

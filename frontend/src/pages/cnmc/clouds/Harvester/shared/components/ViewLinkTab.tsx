@@ -58,14 +58,32 @@ export const ViewLinkTab: React.FC<{
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+        overflow: 'hidden',
+      }}
+    >
       <ResourceLinkYamlDrawerToolbar
         toolbarLabel={`Request URL: ${viewLink}`}
         {...m}
         showAutoRefresh
       />
       <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
-        <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#161b22' }}>
+        <div
+          ref={bodyRef}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            background: '#161b22',
+          }}
+        >
           <ResourceLinkYamlDrawerEditor {...m} bodyHeightPx={editorBodyPx} draftYaml="" />
         </div>
       </ConfigProvider>

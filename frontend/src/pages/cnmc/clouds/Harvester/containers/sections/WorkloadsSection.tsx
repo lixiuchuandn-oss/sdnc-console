@@ -371,7 +371,10 @@ const WorkloadTable: React.FC<{
 
   const handleViewYaml = useCallback(
     (record: any) => {
-      openYamlDrawer({ ...record, kind: record?.kind ?? workloadKind }, { title: `${typeLabel} YAML` });
+      openYamlDrawer(
+        { ...record, kind: record?.kind ?? workloadKind },
+        { title: `${typeLabel} YAML` },
+      );
     },
     [openYamlDrawer, typeLabel, workloadKind],
   );

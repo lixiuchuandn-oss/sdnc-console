@@ -53,7 +53,8 @@ const VNE_PAAS_TYPE_LABELS: Record<string, string> = {
 };
 
 const SafeRead = {
-  name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
+  name: (r: any) =>
+    r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
   status: (r: any) => {
     const vmi = r?.vmi || r?.vmiRaw;
     const migrationState = vmi?.status?.migrationState;
@@ -79,7 +80,13 @@ const SafeRead = {
       return Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
     }
     if (r?.cpu !== undefined && r?.cpu !== null) return Number(r.cpu);
-    return cpu?.cores || cpu?.sockets || r?.vmi?.spec?.domain?.cpu?.cores || r?.spec?.template?.spec?.domain?.resources?.requests?.cpu || '';
+    return (
+      cpu?.cores ||
+      cpu?.sockets ||
+      r?.vmi?.spec?.domain?.cpu?.cores ||
+      r?.spec?.template?.spec?.domain?.resources?.requests?.cpu ||
+      ''
+    );
   },
   memory: (r: any) =>
     r?.spec?.template?.spec?.domain?.memory?.guest ||
@@ -91,8 +98,12 @@ const SafeRead = {
   creationTimestamp: (r: any) => r?.metadata?.creationTimestamp || '',
   /** 新 `paas-type` 或旧 `vne-type`；无则与列表约定一致按 router 兼容 */
   paasTypeKey: (r: any) => {
-    const t = String(r?.metadata?.labels?.['tower.io/paas-type'] || '').trim().toLowerCase();
-    const legacy = String(r?.metadata?.labels?.['tower.io/vne-type'] || '').trim().toLowerCase();
+    const t = String(r?.metadata?.labels?.['tower.io/paas-type'] || '')
+      .trim()
+      .toLowerCase();
+    const legacy = String(r?.metadata?.labels?.['tower.io/vne-type'] || '')
+      .trim()
+      .toLowerCase();
     return t || legacy || 'router';
   },
   paasTypeLabel: (r: any) => {
@@ -183,10 +194,7 @@ const VirtualRouterSection: React.FC<Props> = ({
   const [vmDetailActiveTab, setVmDetailActiveTab] = useState('detail');
   const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
-  const routerInstances = useMemo(
-    () => (vms || []).filter((vm) => isTowerPaasVneVm(vm)),
-    [vms],
-  );
+  const routerInstances = useMemo(() => (vms || []).filter((vm) => isTowerPaasVneVm(vm)), [vms]);
 
   const nodesOptions = useMemo(() => {
     const s = new Set<string>();
@@ -227,7 +235,10 @@ const VirtualRouterSection: React.FC<Props> = ({
 
   const handleOpenYamlDrawer = useCallback(
     (record: any) => {
-      openYamlDrawer({ ...record, kind: record?.kind ?? 'VirtualMachine' }, { title: '云主机 YAML' });
+      openYamlDrawer(
+        { ...record, kind: record?.kind ?? 'VirtualMachine' },
+        { title: '云主机 YAML' },
+      );
     },
     [openYamlDrawer],
   );
@@ -322,7 +333,12 @@ const VirtualRouterSection: React.FC<Props> = ({
           const url = buildVrouterConsoleUrl(r);
           return url ? (
             <Tooltip title={url}>
-              <Typography.Link href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              <Typography.Link
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <span
                   style={{
                     maxWidth: 260,
@@ -376,37 +392,44 @@ const VirtualRouterSection: React.FC<Props> = ({
         key: 'actions',
         fixed: 'right' as const,
         render: (_: any, r: any) => {
-          const items = filterMenuItemsForReadOnly([
-            ...(canManageVne
-              ? [{
-                  key: 'vrConsole',
-                  label: '管理台',
-                  disabled: !buildVrouterConsoleUrl(r),
-                  onClick: () => setVrConsoleVm(r),
-                }]
-              : []),
-            {
-              key: 'openInstance',
-              label: '云主机详情',
-              onClick: () => openVmDetailDrawer(r),
-            },
-            ...(canManageVne
-              ? [{
-                  key: 'editLabels',
-                  label: '编辑标签',
-                  onClick: () => {
-                    setLabelEditRecord(r);
-                    setLabelEditOpen(true);
-                  },
-                }]
-              : []),
-            { type: 'divider' as const, key: 'div-yaml' },
-            {
-              key: 'yamlManifest',
-              label: '查看YAML',
-              onClick: () => handleOpenYamlDrawer(r),
-            },
-          ], canManageVne);
+          const items = filterMenuItemsForReadOnly(
+            [
+              ...(canManageVne
+                ? [
+                    {
+                      key: 'vrConsole',
+                      label: '管理台',
+                      disabled: !buildVrouterConsoleUrl(r),
+                      onClick: () => setVrConsoleVm(r),
+                    },
+                  ]
+                : []),
+              {
+                key: 'openInstance',
+                label: '云主机详情',
+                onClick: () => openVmDetailDrawer(r),
+              },
+              ...(canManageVne
+                ? [
+                    {
+                      key: 'editLabels',
+                      label: '编辑标签',
+                      onClick: () => {
+                        setLabelEditRecord(r);
+                        setLabelEditOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+              { type: 'divider' as const, key: 'div-yaml' },
+              {
+                key: 'yamlManifest',
+                label: '查看YAML',
+                onClick: () => handleOpenYamlDrawer(r),
+              },
+            ],
+            canManageVne,
+          );
           return (
             <ResourceActionsDropdown
               items={items}

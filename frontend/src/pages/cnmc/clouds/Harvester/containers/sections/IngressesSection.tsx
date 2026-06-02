@@ -112,13 +112,8 @@ const IngressesSection: React.FC<Props> = ({
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
 
   // YAML 查看相关状态
-  const {
-    yamlDrawerOpen,
-    yamlViewLink,
-    yamlDrawerTitle,
-    openYamlDrawer,
-    closeYamlDrawer,
-  } = useHarvesterResourceLinkYamlDrawer(cloudId);
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const apiPath = '/apis/networking.k8s.io/v1/ingresses';
 
@@ -546,7 +541,6 @@ const IngressesSection: React.FC<Props> = ({
           </Form.Item>
         </Form>
       </Modal>
-
     </PageDetailSection>
   );
 };

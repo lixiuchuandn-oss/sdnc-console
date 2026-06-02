@@ -1097,7 +1097,6 @@ const ConfigMapTable: React.FC<{
           </Form.Item>
         </Form>
       </Modal>
-
     </div>
   );
 };
@@ -1605,7 +1604,6 @@ const SecretTable: React.FC<{
           </Form.Item>
         </Form>
       </Modal>
-
     </div>
   );
 };
@@ -1647,7 +1645,6 @@ const ConfigsSection: React.FC<Props> = ({
     },
     [openYamlDrawer],
   );
-
 
   // ConfigMap 弹窗状态
   const [configMapModalVisible, setConfigMapModalVisible] = useState(false);

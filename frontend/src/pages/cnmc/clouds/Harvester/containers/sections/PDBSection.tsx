@@ -475,12 +475,12 @@ const PDBSection: React.FC<Props> = ({
       openYamlDrawer(record, {
         title: 'PodDisruptionBudget YAML',
         resolveLink: (r: unknown) => {
-      const rec = r as { metadata?: { namespace?: string; name?: string } };
-      const ns = rec?.metadata?.namespace;
-      const name = rec?.metadata?.name;
-      if (!ns || !name) return undefined;
-      return `/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`;
-    },
+          const rec = r as { metadata?: { namespace?: string; name?: string } };
+          const ns = rec?.metadata?.namespace;
+          const name = rec?.metadata?.name;
+          if (!ns || !name) return undefined;
+          return `/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`;
+        },
       });
     },
     [openYamlDrawer],
