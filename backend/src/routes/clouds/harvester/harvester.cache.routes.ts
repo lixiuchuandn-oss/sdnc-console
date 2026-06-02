@@ -28,6 +28,27 @@ import {
   harvesterHmsSwitchCrListHandler,
   harvesterHmsSwitchCrUpdateHandler,
 } from './handlers/hms-switch-cr.handlers';
+import { harvesterDrsOverviewHandler } from './handlers/drs.handlers';
+import {
+  harvesterFailureDomainCreateHandler,
+  harvesterFailureDomainDeleteHandler,
+  harvesterFailureDomainsOverviewHandler,
+  harvesterFailureDomainSetNodesHandler,
+  harvesterFailureDomainUpdateHandler,
+} from './handlers/failure-domain.handlers';
+import {
+  harvesterNodeMaintenanceDisableHandler,
+  harvesterNodeMaintenanceEnableHandler,
+  harvesterNodeMaintenancePrecheckHandler,
+  harvesterNodeMaintenanceUnhealthyVmsHandler,
+} from './handlers/node-maintenance.handlers';
+import {
+  harvesterDrsMetricRuleCrCreateHandler,
+  harvesterDrsMetricRuleCrDeleteHandler,
+  harvesterDrsMetricRuleCrGetHandler,
+  harvesterDrsMetricRulesListHandler,
+  harvesterDrsMetricRuleCrUpdateHandler,
+} from './handlers/drs-metric-rule-cr.handlers';
 
 /**
  * 注册 Harvester 缓存路由
@@ -159,6 +180,88 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     '/:id/resources/harvester/hms/switches/:name',
     checkAdminPermission,
     harvesterHmsSwitchCrDeleteHandler,
+  );
+
+  // 集群 DRS：MetricRule CR + DRS 迁移记录概览
+  router.get(
+    '/:id/resources/harvester/drs/overview',
+    checkAdminPermission,
+    harvesterDrsOverviewHandler,
+  );
+
+  router.get(
+    '/:id/resources/harvester/drs/metric-rules',
+    checkAdminPermission,
+    harvesterDrsMetricRulesListHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/drs/metric-rules',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrCreateHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/drs/metric-rules/:name',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/drs/metric-rules/:name',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/drs/metric-rules/:name',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrDeleteHandler,
+  );
+
+  // 集群故障域
+  router.get(
+    '/:id/resources/harvester/failure-domains/overview',
+    checkAdminPermission,
+    harvesterFailureDomainsOverviewHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/failure-domains',
+    checkAdminPermission,
+    harvesterFailureDomainCreateHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/failure-domains/:domainId',
+    checkAdminPermission,
+    harvesterFailureDomainUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/failure-domains/:domainId',
+    checkAdminPermission,
+    harvesterFailureDomainDeleteHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/failure-domains/:domainId/nodes',
+    checkAdminPermission,
+    harvesterFailureDomainSetNodesHandler,
+  );
+
+  // 物理节点维护模式（Harvester Steve action 代理）
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/precheck',
+    checkAdminPermission,
+    harvesterNodeMaintenancePrecheckHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/unhealthy-vms',
+    checkAdminPermission,
+    harvesterNodeMaintenanceUnhealthyVmsHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/enable',
+    checkAdminPermission,
+    harvesterNodeMaintenanceEnableHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/disable',
+    checkAdminPermission,
+    harvesterNodeMaintenanceDisableHandler,
   );
 
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）

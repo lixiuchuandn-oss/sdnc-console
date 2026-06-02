@@ -188,6 +188,8 @@ export const ALL_PERMISSIONS = [
   // 集群物理节点
   'clouds.cluster-nodes:read', // 物理节点列表 - 查看
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
+  'clouds.failure-domains:read', // 故障域 - 查看
+  'clouds.failure-domains:write', // 故障域 - 管理
 
   // 集群网络
   'clouds.cluster-networks:read', // 集群网络列表 - 查看
@@ -559,6 +561,7 @@ export const PERMISSION_GROUPS = {
       'clouds.route-entries',
       'clouds.network-acls',
       'clouds.cluster-nodes',
+      'clouds.failure-domains',
       'clouds.cluster-networks',
       'clouds.namespaces',
       'clouds.storage-classes',

@@ -409,6 +409,8 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.sshkeys',
   'clouds.recycle-bin',
   'clouds.migrations',
+  'clouds.drs',
+  'clouds.failure-domains',
   // 容器服务（K8s 子域，与池内 Tab 一致）
   'clouds.containers.workloads',
   'clouds.containers.pods',

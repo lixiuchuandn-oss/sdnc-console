@@ -69,6 +69,8 @@ const PERMISSION_NAMES: Record<string, string> = {
   'clouds.vm-backup-snapshots': '云主机快照',
   'clouds.recycle-bin': '回收站',
   'clouds.migrations': '迁移记录',
+  'clouds.drs': 'DRS 调度',
+  'clouds.failure-domains': '故障域',
   'clouds.route-tables': '路由表',
   'clouds.route-entries': '路由条目',
   'clouds.vlans': 'VLAN网络',

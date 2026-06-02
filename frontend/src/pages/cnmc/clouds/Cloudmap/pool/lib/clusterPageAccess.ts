@@ -59,6 +59,16 @@ export function canViewClusterSidebarLeaf(
       return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
     case 'namespaces':
       return checkPerm('clouds.namespaces:read');
+    case 'drs':
+      return (
+        checkPerm('clouds.drs:read') ||
+        checkPerm('clouds.migrations:read') ||
+        checkPerm('clouds.ecs:read')
+      );
+    case 'failure_domains':
+      return (
+        checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read')
+      );
     case 'kubeovn_public_subnets':
       return canReadPublicSubnets;
     case 'cluster_vlans':

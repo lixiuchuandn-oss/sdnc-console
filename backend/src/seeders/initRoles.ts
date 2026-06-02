@@ -322,6 +322,8 @@ export async function initializeRoles() {
       'clouds.sshkeys',
       'clouds.recycle-bin',
       'clouds.migrations',
+      'clouds.drs',
+      'clouds.failure-domains',
       // 云存储
       'clouds.disks',
       'clouds.snapshots',

@@ -21,6 +21,7 @@
 | [remote-access-architecture.md](./remote-access-architecture.md) | **云桌面网关总体架构**：扁平网 + admin 体系、Cloudmap/MAAS、资源池接入；租户暂不涉及           |
 | [integrate-guacamole.md](./integrate-guacamole.md)               | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                |
 | [cloudmap-whitepaper/README.md](./cloudmap-whitepaper/README.md) | **Cloudmap 技术白皮书**：Markdown 源稿、`manifest` 合并顺序、Pandoc 生成 Word（**可提交**）    |
+| [harvester-virtualization-feature-gap.md](./harvester-virtualization-feature-gap.md) | **虚拟化能力对标**：标书项 vs Tower 实现（DRS/HA/亲和性/五架构等）与截图清单 |
 
 **源码旁文档**（不在此 Hub，但与 Hub 并列权威）：
 

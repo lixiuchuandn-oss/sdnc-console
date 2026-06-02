@@ -12,16 +12,33 @@ import {
 import type { NodesResourceMaps } from '../components/NodesSectionCells';
 import type { NodeRow } from './nodesSectionUtils';
 import { getRoles, isReady, nodeInternalIp } from './nodesSectionUtils';
+import {
+  canDisableNodeMaintenance,
+  canEnableNodeMaintenance,
+  parseNodeOpsStatus,
+  nodeOpsStatusTooltip,
+} from './nodeMaintenanceStatus';
 
 export type NodesTableActions = {
   isTenant: boolean;
+  canWrite: boolean;
   resourceMaps: NodesResourceMaps;
   onOpenYaml: (record: NodeRow) => void;
   onOpenNodeDetail: (record: NodeRow) => void;
+  onEnableMaintenance: (record: NodeRow) => void;
+  onDisableMaintenance: (record: NodeRow) => void;
 };
 
 export function buildNodesTableColumns(actions: NodesTableActions): ColumnsType<NodeRow> {
-  const { isTenant, resourceMaps, onOpenYaml, onOpenNodeDetail } = actions;
+  const {
+    isTenant,
+    canWrite,
+    resourceMaps,
+    onOpenYaml,
+    onOpenNodeDetail,
+    onEnableMaintenance,
+    onDisableMaintenance,
+  } = actions;
 
   const opsItems = (record: NodeRow) => {
     const items: { key: string; label: string; onClick: () => void }[] = [];
@@ -37,6 +54,20 @@ export function buildNodesTableColumns(actions: NodesTableActions): ColumnsType<
       label: '查看详情',
       onClick: () => onOpenNodeDetail(record),
     });
+    if (canWrite && canEnableNodeMaintenance(record)) {
+      items.push({
+        key: 'enable-maintenance',
+        label: '进入维护模式…',
+        onClick: () => onEnableMaintenance(record),
+      });
+    }
+    if (canWrite && canDisableNodeMaintenance(record)) {
+      items.push({
+        key: 'disable-maintenance',
+        label: '退出维护模式',
+        onClick: () => onDisableMaintenance(record),
+      });
+    }
     return items;
   };
 
@@ -85,6 +116,18 @@ export function buildNodesTableColumns(actions: NodesTableActions): ColumnsType<
             {ok ? 'Ready' : 'NotReady'}
           </span>
         );
+      },
+    },
+    {
+      title: '运维状态',
+      key: 'opsStatus',
+      render: (_cell, row) => {
+        const status = parseNodeOpsStatus(row);
+        const tip = nodeOpsStatusTooltip(status);
+        const badge = (
+          <span className={`std-badge ${status.badgeClass}`}>{status.label}</span>
+        );
+        return tip ? <Tooltip title={tip}>{badge}</Tooltip> : badge;
       },
     },
     {

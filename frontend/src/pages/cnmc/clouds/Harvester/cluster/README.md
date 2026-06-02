@@ -20,7 +20,7 @@
 
 | 侧栏子分组（`poolNavSubgroup`） | 典型子页 | 源码域 | 池 `loadTabResource` key |
 |--------------------------------|----------|--------|--------------------------|
-| （顶层） | 物理节点、项目 | **`cluster/`** | `cluster_nodes`、`namespaces` |
+| `cluster_resources` | 物理节点、故障域、DRS 调度、项目 | **`cluster/`** | `cluster_nodes`、`failure_domains`、`drs`、`namespaces` |
 | `cluster_physical_network` | 物理交换机、物理网络、公共子网、VLAN | **`cluster/`** + **`kube-ovn/`** | `cluster_physical_switches`（例外自拉）、`kubeovn_public_networks`、`kubeovn_public_subnets`（自拉）、`cluster_vlans` |
 | `cluster_platform_network` | 集群网络、NAD、负载均衡、IP 池 | **`cluster/`** + **`nad/`** | `clusterNetworks`、`nads`、`load_balancers`、`ippools` |
 | `cluster_storage` | 存储容量、存储配置、存储池、存储类 | **`ceph/`** + **`cluster/`** | `overview`、`harvester_addon`、`storage_pools`（ceph 自管）、`storage_classes` |
@@ -42,7 +42,9 @@
 
 | `innerActiveKey` | Section | 文件 |
 |------------------|---------|------|
-| `cluster_nodes` | `NodesSection` | `NodesSection.tsx` |
+| `cluster_nodes` | `NodesSection` | `NodesSection.tsx`（含维护模式、控制面 KPI） |
+| `failure_domains` | `FailureDomainSection` | `FailureDomainSection.tsx` |
+| `drs` | `DrsSection` | `DrsSection.tsx` |
 | `cluster_physical_switches` | `PhysicalSwitchesSection` | `PhysicalSwitchesSection.tsx` |
 | `namespaces` | `NamespacesSection` | `NamespacesSection.tsx` |
 | `clusterNetworks` | `NetworksSection` | `NetworksSection.tsx` |

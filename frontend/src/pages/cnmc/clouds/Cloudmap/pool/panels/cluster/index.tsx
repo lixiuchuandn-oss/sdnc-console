@@ -15,6 +15,8 @@ import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
+import DrsSection from '../../../../Harvester/cluster/sections/DrsSection';
+import FailureDomainSection from '../../../../Harvester/cluster/sections/FailureDomainSection';
 import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
@@ -193,6 +195,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               onRefresh={clusterTabOnRefresh.cluster_nodes}
               cloudId={cloudId}
               isTenant={isTenant}
+              checkPerm={checkPerm}
             />
             <DebugJSON data={rawNodes} show={showLog} />
           </>
@@ -226,6 +229,10 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             isTenant={isTenant}
           />
         );
+      case 'drs':
+        return <DrsSection cloudId={cloudId} checkPerm={checkPerm} isTenant={isTenant} />;
+      case 'failure_domains':
+        return <FailureDomainSection cloudId={cloudId} checkPerm={checkPerm} />;
       case 'kubeovn_public_subnets':
         return (
           <>

@@ -379,6 +379,7 @@ export function startServer(): void {
           ensureHarvesterAswCtlSwitchInventoryTable,
           ensureImageUploadTaskTable,
           ensureDatacenterTopologyTables,
+          ensureFailureDomainTables,
           ensureHarborTables,
           ensureCephMgrDashboardSnapshotTable,
           ensureGuacamoleTables,
@@ -389,6 +390,7 @@ export function startServer(): void {
         await ensureHarvesterAswCtlSwitchInventoryTable();
         await ensureImageUploadTaskTable();
         await ensureDatacenterTopologyTables();
+        await ensureFailureDomainTables();
         await ensureHarborTables();
         await ensureCephMgrDashboardSnapshotTable();
         await ensureGuacamoleTables();
