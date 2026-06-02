@@ -55,7 +55,12 @@ export type StorageClassRow = {
 /** 节点列表行（Harvester Host CR / Tower 标准化摘要） */
 export type NodeRow = {
   name?: string;
-  metadata?: { name?: string; labels?: Record<string, string>; uid?: string };
+  metadata?: {
+    name?: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+    uid?: string;
+  };
   roles?: string[];
   ready?: boolean;
   status?: {

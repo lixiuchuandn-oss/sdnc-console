@@ -495,6 +495,13 @@ export class PermissionRegistry {
                 actualResourceType === 'migrations-direct'
               ) {
                 permissionBase = 'clouds.migrations';
+              } else if (actualResourceType === 'drs') {
+                permissionBase = 'clouds.drs';
+              } else if (
+                actualResourceType === 'failure-domains' ||
+                actualResourceType === 'failure_domains'
+              ) {
+                permissionBase = 'clouds.failure-domains';
               } else if (actualResourceType === 'services') {
                 // 旧缓存路由 /harvester/services；与 containers/services 同权
                 permissionBase = 'clouds.containers.services';

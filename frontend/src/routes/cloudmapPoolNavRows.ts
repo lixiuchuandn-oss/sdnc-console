@@ -62,6 +62,8 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
   cluster_storage_object: '对象存储',
   /** SSH 密钥、CloudInit、迁移记录 */
   compute_advanced_config: '高级配置',
+  /** 物理节点、项目、故障域、DRS */
+  cluster_resources: '集群资源',
 };
 
 /** 并入 `routeSpecs` 的唯一表（按 `order` 升序、与侧栏分组一致） */
@@ -153,6 +155,29 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_resources',
+  },
+  {
+    id: 'cloudmap-pool-cluster-failure-domains',
+    pathSuffix: 'cluster/failure_domains',
+    poolPageAction: 'clouds.failure-domains:read',
+    title: '故障域',
+    order: 25.5,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_resources',
+  },
+  {
+    id: 'cloudmap-pool-cluster-drs',
+    pathSuffix: 'cluster/drs',
+    poolPageAction: 'clouds.drs:read',
+    title: 'DRS 调度',
+    order: 25.7,
+    icon: 'ClusterOutlined',
+    poolNavGroup: '集群',
+    poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_resources',
   },
   {
     id: 'cloudmap-pool-cluster-namespaces',
@@ -163,6 +188,7 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     icon: 'ClusterOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
+    poolNavSubgroup: 'cluster_resources',
   },
   {
     id: 'cloudmap-pool-cluster-cluster_physical_switches',

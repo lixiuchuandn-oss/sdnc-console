@@ -455,6 +455,64 @@ export async function ensureDatacenterTopologyTables() {
   }
 }
 
+/** Cloudmap 集群故障域（Tower 本地 + 节点 label 同步） */
+export async function ensureFailureDomainTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过故障域表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_failure_domains'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_failure_domains / cloud_failure_domain_nodes 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_failure_domains" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" text NOT NULL,
+          "domainType" text NOT NULL DEFAULT 'rack',
+          "description" text,
+          "sortOrder" integer NOT NULL DEFAULT 0,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_failure_domains_cloudId_name"
+        ON "cloud_failure_domains" ("cloudId", "name")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_failure_domains_cloudId"
+        ON "cloud_failure_domains" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_failure_domain_nodes" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "failureDomainId" varchar NOT NULL,
+          "nodeName" text NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_failure_domain_nodes_cloudId_nodeName"
+        ON "cloud_failure_domain_nodes" ("cloudId", "nodeName")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_failure_domain_nodes_domainId"
+        ON "cloud_failure_domain_nodes" ("failureDomainId")
+      `);
+      dbLog.info('故障域表创建成功');
+    }
+  } catch (error) {
+    dbLog.error('故障域表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
 /**
  * Ceph mgr Dashboard 快照表（与实体 CephMgrDashboardSnapshot 一致；无 DB_SYNC 时由启动流程创建）
  */

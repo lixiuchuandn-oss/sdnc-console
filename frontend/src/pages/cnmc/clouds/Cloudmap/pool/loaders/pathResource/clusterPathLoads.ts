@@ -297,6 +297,8 @@ export async function tryLoadClusterTab(
       }
       return true;
     case 'cluster_physical_switches':
+    case 'drs':
+    case 'failure_domains':
       return true;
     case 'storage_classes':
       if (
