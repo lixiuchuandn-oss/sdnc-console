@@ -27,7 +27,6 @@ import {
   Form,
   Input,
   Select,
-  InputNumber,
   Button,
   Space,
   Card,
@@ -67,10 +66,7 @@ import {
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
-import {
-  generateVmWizardStyleDisplayName,
-  isSystemNamespace,
-} from '../../../../../../utils/harvesterUtils';
+import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 import type {
   WorkloadType,
@@ -84,7 +80,6 @@ import type {
 import {
   CPU_UNITS,
   MEMORY_UNITS,
-  WORKLOAD_TYPE_OPTIONS,
   IMAGE_PULL_POLICY_OPTIONS,
   WORKLOAD_STEPS,
   DEFAULT_DEPLOYMENT_YAML,
@@ -109,19 +104,12 @@ import {
 } from './workloadForm/registryCredentials';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
 
+import { ResourceInput, PortsEditor, EnvEditor, ProbeEditor } from './workloadForm/editors';
 import {
-  ResourceInput,
-  LabelEditor,
-  PortsEditor,
-  EnvEditor,
-  VolumesEditor,
-  ProbeEditor,
-  NodeAffinityEditor,
-  PodAffinityEditor,
-  TolerationsEditor,
-  HostAliasesEditor,
-  DnsConfigEditor,
-} from './workloadForm/editors';
+  WorkloadFormStepAdvanced,
+  WorkloadFormStepBasic,
+  WorkloadFormStepStorage,
+} from './workloadForm/steps';
 import type {
   NodeAffinityEditorHandle,
   PodAffinityEditorHandle,
@@ -1361,99 +1349,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     switch (currentStep) {
       case 0:
         return (
-          <div>
-            <Form.Item
-              name="workloadType"
-              label="工作负载类型"
-              rules={[{ required: true, message: '请选择工作负载类型' }]}
-              initialValue={defaultType}
-            >
-              <Select
-                disabled={isEditMode}
-                options={WORKLOAD_TYPE_OPTIONS}
-                optionRender={(option) => (
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{option.label}</div>
-                    <div style={{ fontSize: 12, color: '#999' }}>
-                      {WORKLOAD_TYPE_OPTIONS.find((o) => o.value === option.value)?.desc}
-                    </div>
-                  </div>
-                )}
-              />
-            </Form.Item>
-
-            <Row gutter={16}>
-              <Col span={12}>
-                {isEditMode ? (
-                  <>
-                    <Form.Item label="资源 ID">
-                      <Input
-                        value={editMetadata?.name || ''}
-                        disabled
-                        style={{ color: 'rgba(0,0,0,0.45)' }}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name="name"
-                      label="显示名称"
-                      rules={[
-                        { required: true, message: '请输入显示名称' },
-                        { max: 63, message: '名称不能超过63个字符' },
-                      ]}
-                    >
-                      <Input placeholder="例如: my-app" />
-                    </Form.Item>
-                  </>
-                ) : (
-                  <Form.Item
-                    name="name"
-                    label="名称"
-                    rules={[
-                      { required: true, message: '请输入名称' },
-                      {
-                        pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
-                        message: '只允许小写字母、数字和中划线',
-                      },
-                      { max: 63, message: '名称不能超过63个字符' },
-                    ]}
-                  >
-                    <Input placeholder="例如: my-app" />
-                  </Form.Item>
-                )}
-              </Col>
-              <Col span={12}>
-                <Form.Item
-                  name="namespace"
-                  label="项目"
-                  rules={[{ required: true, message: '请选择项目' }]}
-                  initialValue={defaultNamespace}
-                >
-                  <Select
-                    showSearch
-                    disabled={isEditMode}
-                    optionFilterProp="label"
-                    placeholder="选择项目"
-                    options={namespacesOptions
-                      .filter((ns) => !isSystemNamespace(ns))
-                      .map((ns) => ({ label: ns, value: ns }))}
-                  />
-                </Form.Item>
-              </Col>
-            </Row>
-
-            <LabelEditor name="labels" label="标签" />
-
-            {workloadType !== 'daemonset' && (
-              <Form.Item
-                name="replicas"
-                label="副本数"
-                initialValue={1}
-                rules={[{ required: true, message: '请输入副本数' }]}
-              >
-                <InputNumber min={1} max={1000} style={{ width: '100%' }} />
-              </Form.Item>
-            )}
-          </div>
+          <WorkloadFormStepBasic
+            isEditMode={isEditMode}
+            editResourceId={editMetadata?.name}
+            defaultType={defaultType}
+            defaultNamespace={defaultNamespace}
+            namespacesOptions={namespacesOptions}
+            workloadType={workloadType}
+          />
         );
 
       case 1:
@@ -2310,160 +2213,38 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         );
 
       case 3:
-        const containersForStorage = getSyncedFormValues().containers || [];
         return (
-          <div>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="存储配置"
-              description="先定义工作负载共享的存储卷，再为当前选中的容器配置卷挂载。卷定义共享，卷挂载属于当前容器。"
-            />
-            {containersForStorage.map((container, index) => {
-              const isActive = index === activeContainerIndex;
-              return (
-                <Card
-                  key={`storage-container-${index}`}
-                  size="small"
-                  style={{
-                    marginBottom: 16,
-                    border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0',
-                  }}
-                  title={
-                    <Space>
-                      <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
-                      <span style={{ fontWeight: 500 }}>
-                        {container.containerName || `container-${index + 1}`}
-                      </span>
-                    </Space>
-                  }
-                >
-                  {isActive ? (
-                    <VolumesEditor
-                      cloudId={cloudId}
-                      namespacesOptions={namespacesOptions}
-                      selectedNamespace={
-                        form.getFieldValue('namespace') || defaultNamespace || 'default'
-                      }
-                      configMaps={configMaps}
-                      secrets={secrets}
-                      persistentVolumeClaims={persistentVolumeClaims}
-                      onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-                      onRefreshSecrets={() => onRefreshSecrets?.()}
-                      onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-                      onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-                      refreshKey={volumeRefreshKey}
-                      onVolumeChange={() => setVolumeRefreshKey((v) => v + 1)}
-                    />
-                  ) : (
-                    <div
-                      onClick={() => handleSelectContainer(index)}
-                      style={{ cursor: 'pointer', padding: '8px 0' }}
-                    >
-                      <div style={{ color: '#999' }}>点击切换到此容器</div>
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
-          </div>
+          <WorkloadFormStepStorage
+            containers={getSyncedFormValues().containers || []}
+            activeContainerIndex={activeContainerIndex}
+            onSelectContainer={handleSelectContainer}
+            volumeRefreshKey={volumeRefreshKey}
+            onVolumeRefresh={() => setVolumeRefreshKey((v) => v + 1)}
+            volumesEditorProps={{
+              cloudId,
+              namespacesOptions,
+              selectedNamespace: form.getFieldValue('namespace') || defaultNamespace || 'default',
+              configMaps,
+              secrets,
+              persistentVolumeClaims,
+              onRefreshConfigMaps: () => onRefreshConfigMaps?.(),
+              onRefreshSecrets: () => onRefreshSecrets?.(),
+              onOpenQuickCreateConfigMap: () => setShowQuickCreateConfigMap(true),
+              onOpenQuickCreateSecret: () => setShowQuickCreateSecret(true),
+            }}
+          />
         );
 
       case 4:
-        const nodeAffinity = form.getFieldValue('nodeAffinity');
-        const nodeAntiAffinity = form.getFieldValue('nodeAntiAffinity');
-        const podAffinity = form.getFieldValue('podAffinity');
-        const podAntiAffinity = form.getFieldValue('podAntiAffinity');
-        const tolerations = form.getFieldValue('tolerations') || [];
-        const hostAliases = form.getFieldValue('hostAliases') || [];
-
-        const nodeAffinityCount =
-          (nodeAffinity?.required?.nodeSelectorTerms?.length || 0) +
-          (nodeAffinity?.preferred?.length || 0);
-        const nodeAntiAffinityCount =
-          (nodeAntiAffinity?.required?.nodeSelectorTerms?.length || 0) +
-          (nodeAntiAffinity?.preferred?.length || 0);
-        const podAffinityCount =
-          (podAffinity?.required?.length || 0) + (podAffinity?.preferred?.length || 0);
-        const podAntiAffinityCount =
-          (podAntiAffinity?.required?.length || 0) + (podAntiAffinity?.preferred?.length || 0);
-        const tolerationsCount = tolerations.length;
-        const hostAliasesCount = hostAliases.length;
-
         return (
-          <div>
-            <Divider orientation="left">调度策略</Divider>
-            <LabelEditor name="nodeSelector" label="节点选择器" />
-
-            <Collapse
-              ghost
-              defaultActiveKey={[]}
-              items={[
-                {
-                  key: 'nodeAffinity',
-                  label: `节点亲和性 (${nodeAffinityCount})`,
-                  children: (
-                    <NodeAffinityEditor
-                      ref={nodeAffinityEditorRef}
-                      name="nodeAffinity"
-                      label="节点亲和性"
-                    />
-                  ),
-                },
-                {
-                  key: 'nodeAntiAffinity',
-                  label: `节点反亲和性 (${nodeAntiAffinityCount})`,
-                  children: (
-                    <NodeAffinityEditor
-                      ref={nodeAntiAffinityEditorRef}
-                      name="nodeAntiAffinity"
-                      label="节点反亲和性"
-                    />
-                  ),
-                },
-                {
-                  key: 'podAffinity',
-                  label: `Pod 亲和性 (${podAffinityCount})`,
-                  children: (
-                    <PodAffinityEditor
-                      ref={podAffinityEditorRef}
-                      name="podAffinity"
-                      label="Pod 亲和性"
-                      namespacesOptions={namespacesOptions}
-                    />
-                  ),
-                },
-                {
-                  key: 'podAntiAffinity',
-                  label: `Pod 反亲和性 (${podAntiAffinityCount})`,
-                  children: (
-                    <PodAffinityEditor
-                      ref={podAntiAffinityEditorRef}
-                      name="podAntiAffinity"
-                      label="Pod 反亲和性"
-                      namespacesOptions={namespacesOptions}
-                    />
-                  ),
-                },
-                {
-                  key: 'tolerations',
-                  label: `污点容忍 (${tolerationsCount})`,
-                  children: <TolerationsEditor ref={tolerationsEditorRef} />,
-                },
-                {
-                  key: 'hostAliases',
-                  label: `域名映射 (${hostAliasesCount})`,
-                  children: <HostAliasesEditor />,
-                },
-                {
-                  key: 'dnsConfig',
-                  label: `DNS 配置`,
-                  children: <DnsConfigEditor />,
-                },
-              ]}
-            />
-          </div>
+          <WorkloadFormStepAdvanced
+            namespacesOptions={namespacesOptions}
+            nodeAffinityEditorRef={nodeAffinityEditorRef}
+            nodeAntiAffinityEditorRef={nodeAntiAffinityEditorRef}
+            podAffinityEditorRef={podAffinityEditorRef}
+            podAntiAffinityEditorRef={podAntiAffinityEditorRef}
+            tolerationsEditorRef={tolerationsEditorRef}
+          />
         );
 
       default:
