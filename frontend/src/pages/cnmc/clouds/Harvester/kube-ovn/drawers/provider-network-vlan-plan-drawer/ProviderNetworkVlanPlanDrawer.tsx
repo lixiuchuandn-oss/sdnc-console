@@ -38,6 +38,10 @@ import UnderlaySubnetFormFields from '../../lib/UnderlaySubnetFormFields';
 import { getFlatSubnetDeleteBlockedByNatMessage } from '../../lib/flatSubnetNatDeleteGuard';
 import { validateFlatSubnetExcludeIpsLocal } from '../../lib/flatSubnetExcludeIpValidation';
 import { getHarvesterDrawerSectionCardProps } from '../../../shared/drawerSectionCard';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../../shared/lib/highRiskConfirm';
 
 /**
  * 物理网络「网络规划」抽屉：在当前 Provider 下的 VLAN / 公共子网 / 扁平子网管理。
@@ -318,13 +322,12 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
           message.warning(block);
           return;
         }
-        Modal.confirm({
-          title: '确认删除',
-          content: `确定删除扁平子网「${displayLabel}」吗？若仍有资源引用，集群可能拒绝删除。`,
-          okText: '删除',
-          okType: 'danger',
-          cancelText: '取消',
-          onOk: async () => {
+        void confirmHighRiskDelete({
+          resourceLabel: '扁平子网',
+          name: displayLabel,
+          description: `确定删除扁平子网「${displayLabel}」吗？若仍有资源引用，集群可能拒绝删除。`,
+          riskItems: DELETE_NETWORK_RISK_ITEMS,
+          onConfirm: async () => {
             setDeletingFlatSubnetName(resourceName);
             try {
               await deleteKubeOvnSubnet(cloudId, resourceName);
@@ -337,7 +340,7 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
               setDeletingFlatSubnetName(null);
             }
           },
-        });
+        }).catch(() => {});
       })();
     },
     [canWriteFlatSubnet, cloudId, loadSubnets, onSuccess],
@@ -424,13 +427,12 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
         message.error('当前账号没有公共子网操作权限');
         return;
       }
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定删除公共子网「${displayLabel}」吗？若仍有资源引用，集群可能拒绝删除。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '公共子网',
+        name: displayLabel,
+        description: `确定删除公共子网「${displayLabel}」吗？若仍有资源引用，集群可能拒绝删除。`,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        onConfirm: async () => {
           setDeletingPublicSubnetName(resourceName);
           try {
             await deleteKubeOvnSubnet(cloudId, resourceName);
@@ -443,7 +445,7 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
             setDeletingPublicSubnetName(null);
           }
         },
-      });
+      }).catch(() => {});
     },
     [canWritePublicSubnet, cloudId, loadSubnets, onSuccess],
   );
@@ -526,13 +528,12 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
     const ann = item?.metadata?.annotations || {};
     const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
     const label = displayAlias || metaName;
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定删除 VLAN「${label}」吗？若仍有子网引用，集群可能拒绝删除。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: 'VLAN',
+      name: label,
+      description: `确定删除 VLAN「${label}」吗？若仍有子网引用，集群可能拒绝删除。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      onConfirm: async () => {
         setDeletingName(metaName);
         try {
           await deleteKubeOvnVlan(cloudId, metaName);
@@ -546,7 +547,7 @@ const ProviderNetworkVlanPlanDrawer: React.FC<ProviderNetworkVlanPlanDrawerProps
           setDeletingName(null);
         }
       },
-    });
+    }).catch(() => {});
   };
 
   const drawerExtra = (

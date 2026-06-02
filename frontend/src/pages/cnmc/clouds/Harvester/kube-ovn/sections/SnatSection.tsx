@@ -35,6 +35,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 function subnetCidrOf(s: any): string {
   return String(s?.spec?.cidrBlock ?? s?.spec?.cidr ?? s?.cidr ?? '').trim();
@@ -330,13 +334,11 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
           message.error('无权限执行该操作');
           return;
         }
-        Modal.confirm({
-          title: '确认删除',
-          content: `确定要删除 SNAT 规则「${ovnDisplayName(record)}」吗？`,
-          okText: '删除',
-          okType: 'danger',
-          cancelText: '取消',
-          onOk: async () => {
+        void confirmHighRiskDelete({
+          resourceLabel: 'SNAT 规则',
+          name: ovnDisplayName(record),
+          riskItems: DELETE_NETWORK_RISK_ITEMS,
+          onConfirm: async () => {
             try {
               await deleteCloudProviderOvnSnatRule(
                 cloudId,
@@ -349,7 +351,7 @@ export const SnatSection: React.FC<SnatSectionProps> = ({
               message.error(`删除失败: ${e.message}`);
             }
           },
-        });
+        }).catch(() => {});
       }
     },
     [cloudId, hasNatWrite, networkScope, onRefresh],

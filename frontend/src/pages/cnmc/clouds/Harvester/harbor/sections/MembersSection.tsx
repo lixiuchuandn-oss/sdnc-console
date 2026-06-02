@@ -20,6 +20,10 @@ import {
   deleteHarborProjectMember 
 } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 interface Props {
   harborId: string;
@@ -86,11 +90,12 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
    * 删除成员
    */
   const handleDeleteMember = useCallback((member: HarborProjectMember) => {
-    modal.confirm({
-      title: '确认删除',
-      content: `确定要移除成员 "${member.entityName}" 吗？`,
-      okType: 'danger',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: '项目成员',
+      name: member.entityName,
+      description: `确定要移除成员 "${member.entityName}" 吗？`,
+      riskItems: DELETE_RISK_ITEMS,
+      onConfirm: async () => {
         try {
           await deleteHarborProjectMember(harborId, projectName, member.id);
           message.success('成员已移除');
@@ -99,7 +104,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
           message.error(e?.message || '删除成员失败');
         }
       },
-    });
+    }).catch(() => {});
   }, [harborId, projectName, message, modal, loadMembers]);
 
   /**

@@ -46,6 +46,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/cephSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CEPH_STORAGE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 export type CephObjectStorageSectionProps = {
   cloudId: string;
@@ -471,21 +475,29 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
             >
               详情
             </Typography.Link>
-            <Popconfirm
-              title={`确定删除 ${r.namespace}/${r.name}？`}
-              description="删除对象网关将影响 RGW 等服务，请确认集群侧无依赖。"
-              onConfirm={async () => {
-                const del = await deleteCephObjectStoreRook(cloudId, r.namespace, r.name);
-                if (!del.ok) {
-                  message.error(del.error || '删除失败');
-                  return;
-                }
-                message.success('已删除');
-                void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
-              }}
+            <Typography.Link
+              onClick={() =>
+                void confirmHighRiskDelete({
+                  resourceLabel: 'CephObjectStore',
+                  name: `${r.namespace}/${r.name}`,
+                  description:
+                    '删除对象网关将影响 RGW 等服务，请确认集群侧无依赖。',
+                  riskItems: CEPH_STORAGE_RISK_ITEMS,
+                  onConfirm: async () => {
+                    const del = await deleteCephObjectStoreRook(cloudId, r.namespace, r.name);
+                    if (!del.ok) {
+                      message.error(del.error || '删除失败');
+                      return;
+                    }
+                    message.success('已删除');
+                    void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+                  },
+                }).catch(() => {})
+              }
+              type="danger"
             >
-              <Typography.Link type="danger">删除</Typography.Link>
-            </Popconfirm>
+              删除
+            </Typography.Link>
           </Space>
         ),
       },

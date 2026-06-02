@@ -9,6 +9,10 @@ import { Table, Button, Input, Space, Tag, message, Modal } from 'antd';
 import { SearchOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { getHarborArtifacts, deleteHarborArtifact, addHarborTag } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import type { HarborArtifact } from '../types';
 import ArtifactDetailDrawer from '../components/ArtifactDetailDrawer';
 
@@ -250,14 +254,14 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
             label: '删除',
             danger: true,
             onClick: () => {
-              Modal.confirm({
-                title: '确认删除',
-                content: '删除制品将同时删除关联的标签，此操作不可恢复',
-                okText: '确认',
-                cancelText: '取消',
-                okButtonProps: { danger: true },
-                onOk: () => handleDelete(record),
-              });
+              void confirmHighRiskDelete({
+                resourceLabel: '制品',
+                name: record.digest || record.tags?.[0]?.name || '-',
+                description: '删除制品将同时删除关联的标签，此操作不可恢复。',
+                riskItems: DELETE_RISK_ITEMS,
+                confirmText: '确认',
+                onConfirm: () => handleDelete(record),
+              }).catch(() => {});
             },
           },
         ];

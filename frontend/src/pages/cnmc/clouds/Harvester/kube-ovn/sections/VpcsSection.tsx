@@ -30,6 +30,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 /**
  * 接口定义
@@ -429,11 +433,12 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
       return;
     }
 
-    Modal.confirm({
-      title: `删除 VPC: ${displayName}`,
-      content: `确认要删除 VPC ${displayName} 吗？此操作不可撤销。`,
-      okType: 'danger',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: 'VPC',
+      name: displayName,
+      description: `确认要删除 VPC ${displayName} 吗？此操作不可撤销。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      onConfirm: async () => {
         try {
           await deleteHarvesterVpc(cloudId, name);
           message.success('删除成功');
@@ -442,7 +447,7 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
           message.error(`删除失败: ${e.message}`);
         }
       },
-    });
+    }).catch(() => {});
   }, [hasVpcsWrite, cloudId, subnets, refreshVpcsFromCluster]);
 
   const handleDeleteSubnet = async (record: any) => {
@@ -463,30 +468,26 @@ const KubeOvnVpcsSection: React.FC<KubeOvnVpcsSectionProps> = ({
     }
     const blocked = !!natBlockMsg;
 
-    Modal.confirm({
-      title: `删除子网: ${displayName}`,
-      content: (
-        <>
-          <div>{`确认要删除子网 ${displayName} 吗？此操作不可撤销。`}</div>
-          {natBlockMsg && (
-            <div style={{ color: '#ff4d4f', marginTop: 8 }}>{natBlockMsg}</div>
-          )}
-        </>
-      ),
-      okType: 'danger',
-      okButtonProps: { disabled: blocked },
-      onOk: blocked
-        ? undefined
-        : async () => {
-            try {
-              await deleteKubeOvnSubnet(cloudId, name);
-              message.success('删除成功');
-              void refreshVpcsFromCluster();
-            } catch (e: any) {
-              message.error(`删除失败: ${e.message}`);
-            }
-          },
-    });
+    void confirmHighRiskDelete({
+      resourceLabel: '子网',
+      name: displayName,
+      description: `确认要删除子网 ${displayName} 吗？此操作不可撤销。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      precheck: async () => {
+        if (blocked) {
+          return { ok: false, error: natBlockMsg || '无法删除该子网' };
+        }
+      },
+      onConfirm: async () => {
+        try {
+          await deleteKubeOvnSubnet(cloudId, name);
+          message.success('删除成功');
+          void refreshVpcsFromCluster();
+        } catch (e: any) {
+          message.error(`删除失败: ${e.message}`);
+        }
+      },
+    }).catch(() => {});
   };
 
   // 过滤逻辑

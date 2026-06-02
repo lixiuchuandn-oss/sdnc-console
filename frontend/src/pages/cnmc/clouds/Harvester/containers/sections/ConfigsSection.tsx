@@ -69,6 +69,10 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 
 const { Text } = Typography;
@@ -922,12 +926,12 @@ const ConfigMapTable: React.FC<{
                 const alias = record?.metadata?.annotations?.['tower.io/alias'];
                 const id = record?.metadata?.name || '';
                 const displayName = alias ? `${alias} (${id})` : id;
-                modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除 ConfigMap "${displayName}" 吗？`,
-                  okType: 'danger',
-                  onOk: () => handleDelete(record),
-                });
+                void confirmHighRiskDelete({
+                  resourceLabel: 'ConfigMap',
+                  name: displayName,
+                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                  onConfirm: () => handleDelete(record),
+                }).catch(() => {});
               },
             },
           ];
@@ -1417,12 +1421,12 @@ const SecretTable: React.FC<{
                 const alias = record?.metadata?.annotations?.['tower.io/alias'];
                 const id = record?.metadata?.name || '';
                 const displayName = alias ? `${alias} (${id})` : id;
-                modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除 Secret "${displayName}" 吗？`,
-                  okType: 'danger',
-                  onOk: () => handleDelete(record),
-                });
+                void confirmHighRiskDelete({
+                  resourceLabel: 'Secret',
+                  name: displayName,
+                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                  onConfirm: () => handleDelete(record),
+                }).catch(() => {});
               },
             },
           ];

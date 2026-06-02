@@ -12,6 +12,7 @@ import { CloudmapPoolDetailProvider, CloudmapPoolRoutes } from './routing';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
 import './styles/layout.css';
 import { HarvesterPublicNamespacesProvider } from '../../Harvester/shared/context/HarvesterPublicNamespacesContext';
+import { HighRiskOperationProvider } from '../../Harvester/shared/context/HighRiskOperationContext';
 import { useCloudmapPoolDetailEngine } from './hooks/useCloudmapPoolDetailEngine';
 
 const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
@@ -19,6 +20,7 @@ const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
 
   return (
     <HarvesterPublicNamespacesProvider cloudId={cloudId}>
+      <HighRiskOperationProvider>
       <PageDetailContainer
         hideHeader
         asCard={false}
@@ -54,6 +56,7 @@ const PoolDetailPage: React.FC<{ cloudId: string }> = ({ cloudId }) => {
           <CloudmapPoolRoutes />
         </CloudmapPoolDetailProvider>
       </PageDetailContainer>
+      </HighRiskOperationProvider>
     </HarvesterPublicNamespacesProvider>
   );
 };

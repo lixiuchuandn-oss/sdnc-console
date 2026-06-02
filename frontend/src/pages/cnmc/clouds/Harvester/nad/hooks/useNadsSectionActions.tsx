@@ -7,6 +7,10 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../lib/nadSectionRefresh';
 import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import {
   collectVmDisplayNamesUsingNad,
   findDependentSubnetsForNad,
   getNadRowKey,
@@ -108,49 +112,40 @@ export function useNadsSectionActions({
       ]);
       const blockedByVm = usingVms.length > 0;
       const blockedBySubnet = dependentSubnets.length > 0;
-      const blocked = blockedByVm || blockedBySubnet;
 
-      Modal.confirm({
-        title: '确认删除',
-        content: (
-          <>
-            <div>{`确定要删除网络 ${record._name} 吗？此操作不可恢复。`}</div>
-            {blockedByVm && (
-              <div style={{ color: '#ff4d4f', marginTop: 8 }}>
-                {`不能删除此虚拟网络，因为正在被虚拟机使用：${usingVms
-                  .slice(0, 5)
-                  .join('，')}${usingVms.length > 5 ? ' 等' : ''}`}
-              </div>
-            )}
-            {blockedBySubnet && (
-              <div style={{ color: '#ff4d4f', marginTop: 8 }}>
-                {`不能删除此虚拟网络，因为正在被 Kube-OVN 子网依赖：${dependentSubnets
-                  .slice(0, 5)
-                  .join('，')}${dependentSubnets.length > 5 ? ' 等' : ''}`}
-                <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                  提示：请先删除依赖的子网，或删除子网时会自动级联删除对应的 NAD。
-                </div>
-              </div>
-            )}
-          </>
-        ),
-        okText: '删除',
-        okType: 'danger',
-        okButtonProps: { disabled: blocked },
-        cancelText: '取消',
-        onOk: blocked
-          ? undefined
-          : async () => {
-              try {
-                await deleteHarvesterNad(cloudId || '', record._namespace, record._name);
-                message.success('删除成功');
-                void runHarvesterSectionRefresh(onRefresh, { force: true });
-              } catch (e: unknown) {
-                const err = e as { message?: string };
-                message.error(err.message || '删除失败');
-              }
-            },
-      });
+      void confirmHighRiskDelete({
+        resourceLabel: '虚拟网络',
+        name: record._name,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        precheck: async () => {
+          if (blockedByVm) {
+            return {
+              ok: false,
+              error: `不能删除此虚拟网络，因为正在被虚拟机使用：${usingVms
+                .slice(0, 5)
+                .join('，')}${usingVms.length > 5 ? ' 等' : ''}`,
+            };
+          }
+          if (blockedBySubnet) {
+            return {
+              ok: false,
+              error: `不能删除此虚拟网络，因为正在被 Kube-OVN 子网依赖：${dependentSubnets
+                .slice(0, 5)
+                .join('，')}${dependentSubnets.length > 5 ? ' 等' : ''}`,
+            };
+          }
+        },
+        onConfirm: async () => {
+          try {
+            await deleteHarvesterNad(cloudId || '', record._namespace, record._name);
+            message.success('删除成功');
+            void runHarvesterSectionRefresh(onRefresh, { force: true });
+          } catch (e: unknown) {
+            const err = e as { message?: string };
+            message.error(err.message || '删除失败');
+          }
+        },
+      }).catch(() => {});
     },
     [
       checkNetworkUsage,
@@ -224,11 +219,14 @@ export function useNadsSectionActions({
     );
     const hasDeletable = canDelete.length > 0;
 
-    Modal.confirm({
-      title: '批量删除确认',
-      content: (
+    void confirmHighRiskDelete({
+      resourceLabel: '虚拟网络',
+      name: `${deletableTargets.length} 个网络`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${deletableTargets.length} 个网络吗？此操作不可恢复。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      extra: (
         <>
-          <div>{`确定要删除选中的 ${deletableTargets.length} 个网络吗？此操作不可恢复。`}</div>
           {publicTargets.length > 0 && (
             <div style={{ color: '#faad14', marginTop: 8 }}>
               {`注意：${publicTargets.length} 个公共命名空间的网络将被跳过（租户不能删除公共命名空间的资源）。`}
@@ -259,37 +257,36 @@ export function useNadsSectionActions({
           )}
         </>
       ),
-      okText: '删除',
-      okType: 'danger',
-      okButtonProps: { disabled: !hasDeletable },
-      cancelText: '取消',
-      onOk: hasDeletable
-        ? async () => {
-            try {
-              const results = await Promise.allSettled(
-                canDelete.map((target) =>
-                  deleteHarvesterNad(cloudId || '', target._namespace, target._name),
-                ),
-              );
-              const ok = results.filter((r) => r.status === 'fulfilled').length;
-              const fail = results.filter((r) => r.status === 'rejected').length;
-              if (ok > 0) message.success(`成功删除 ${ok} 个网络`);
-              if (fail > 0) {
-                const errors = results
-                  .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-                  .map((r) => (r.reason as { message?: string })?.message || String(r.reason))
-                  .filter(Boolean);
-                message.error(`删除失败 ${fail} 个网络${errors.length > 0 ? `: ${errors[0]}` : ''}`);
-              }
-              setSelectedRowKeys([]);
-              void runHarvesterSectionRefresh(onRefresh, { force: true });
-            } catch (e: unknown) {
-              const err = e as { message?: string };
-              message.error(err?.message || '批量删除失败');
-            }
+      precheck: async () => {
+        if (!hasDeletable) {
+          return { ok: false, error: '没有可删除的网络' };
+        }
+      },
+      onConfirm: async () => {
+        try {
+          const results = await Promise.allSettled(
+            canDelete.map((target) =>
+              deleteHarvesterNad(cloudId || '', target._namespace, target._name),
+            ),
+          );
+          const ok = results.filter((r) => r.status === 'fulfilled').length;
+          const fail = results.filter((r) => r.status === 'rejected').length;
+          if (ok > 0) message.success(`成功删除 ${ok} 个网络`);
+          if (fail > 0) {
+            const errors = results
+              .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+              .map((r) => (r.reason as { message?: string })?.message || String(r.reason))
+              .filter(Boolean);
+            message.error(`删除失败 ${fail} 个网络${errors.length > 0 ? `: ${errors[0]}` : ''}`);
           }
-        : undefined,
-    });
+          setSelectedRowKeys([]);
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
+        } catch (e: unknown) {
+          const err = e as { message?: string };
+          message.error(err?.message || '批量删除失败');
+        }
+      },
+    }).catch(() => {});
   }, [
     cloudId,
     ensureNadsWrite,

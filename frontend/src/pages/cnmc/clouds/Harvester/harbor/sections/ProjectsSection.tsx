@@ -16,6 +16,10 @@ import {
 import type { HarborRegistry, HarborProject, HarborProjectForm } from '../types';
 import { getHarborProjects, createHarborProject, deleteHarborProject } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 interface Props {
   harbor: HarborRegistry;
@@ -71,11 +75,12 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
 
   const handleDelete = useCallback(
     (project: HarborProject) => {
-      modal.confirm({
-        title: '确认删除',
-        content: `确定要删除项目 "${project.name}" 吗？删除后不可恢复。`,
-        okType: 'danger',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '项目',
+        name: project.name,
+        description: `确定要删除项目 "${project.name}" 吗？删除后不可恢复。`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarborProject(harbor.id, project.name);
             message.success('项目已删除');
@@ -84,7 +89,7 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
             message.error(e?.message || '删除项目失败');
           }
         },
-      });
+      }).catch(() => {});
     },
     [harbor.id, message, modal, loadProjects],
   );

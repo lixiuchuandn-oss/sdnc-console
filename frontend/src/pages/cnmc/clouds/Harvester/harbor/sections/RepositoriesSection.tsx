@@ -14,6 +14,10 @@ import {
 } from '@ant-design/icons';
 import { getHarborRepositories, deleteHarborRepository, getHarborRegistry } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import type { HarborRepository, HarborRegistry } from '../types';
 
 const { Text } = Typography;
@@ -217,14 +221,14 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
             label: '删除',
             danger: true,
             onClick: () => {
-              Modal.confirm({
-                title: '确认删除',
-                content: '删除仓库将同时删除所有制品，此操作不可恢复',
-                okText: '确认',
-                cancelText: '取消',
-                okButtonProps: { danger: true },
-                onOk: () => handleDelete(record),
-              });
+              void confirmHighRiskDelete({
+                resourceLabel: '仓库',
+                name: record.name,
+                description: '删除仓库将同时删除所有制品，此操作不可恢复。',
+                riskItems: DELETE_RISK_ITEMS,
+                confirmText: '确认',
+                onConfirm: () => handleDelete(record),
+              }).catch(() => {});
             },
           },
         ];

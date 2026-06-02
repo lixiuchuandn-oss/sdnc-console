@@ -39,6 +39,10 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
 import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import {
   buildVmNicIpOptions,
   subnetCidrOf,
   vmUsesSubnet,
@@ -541,16 +545,15 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
         }
         const groupMembers = (record as DnatDisplayRow)?._dnatGroupMembers;
         const groupSize = Array.isArray(groupMembers) ? groupMembers.length : 0;
-        Modal.confirm({
-          title: '确认删除',
-          content:
+        void confirmHighRiskDelete({
+          resourceLabel: 'DNAT 规则',
+          name: ovnDisplayName(record),
+          description:
             groupSize > 1
               ? `确定要删除 DNAT 规则「${ovnDisplayName(record)}」吗？将同时删除其 ${groupSize} 条端口映射。`
-              : `确定要删除 DNAT 规则「${ovnDisplayName(record)}」吗？`,
-          okText: '删除',
-          okType: 'danger',
-          cancelText: '取消',
-          onOk: async () => {
+              : undefined,
+          riskItems: DELETE_NETWORK_RISK_ITEMS,
+          onConfirm: async () => {
             try {
               await deleteCloudProviderOvnDnatRule(
                 cloudId,
@@ -563,7 +566,7 @@ export const DnatSection: React.FC<DnatSectionProps> = ({
               message.error(`删除失败: ${e.message}`);
             }
           },
-        });
+        }).catch(() => {});
       }
     },
     [cloudId, hasNatWrite, networkScope, onRefresh],

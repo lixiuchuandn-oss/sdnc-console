@@ -50,6 +50,10 @@ import {
   createContainerToolbarRefresh,
   runContainerSectionRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 
 const { Text, Link } = Typography;
@@ -874,12 +878,12 @@ const CredentialTable: React.FC<{
               const alias = record?.metadata?.annotations?.['tower.io/alias'];
               const id = record?.metadata?.name || '';
               const displayName = alias ? `${alias} (${id})` : id;
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除镜像凭证 "${displayName}" 吗？`,
-                okType: 'danger',
-                onOk: () => onDelete(record),
-              });
+              void confirmHighRiskDelete({
+                resourceLabel: '镜像凭证',
+                name: displayName,
+                riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                onConfirm: () => onDelete(record),
+              }).catch(() => {});
             },
           },
         ];
@@ -1536,12 +1540,12 @@ const RegistriesSection: React.FC<Props> = ({
               label: '删除',
               danger: true,
               onClick: () => {
-                modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除 Harbor 仓库 "${record.name}" 吗？`,
-                  okType: 'danger',
-                  onOk: () => handleDeleteRegistry(record),
-                });
+                void confirmHighRiskDelete({
+                  resourceLabel: 'Harbor 仓库',
+                  name: record.name,
+                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                  onConfirm: () => handleDeleteRegistry(record),
+                }).catch(() => {});
               },
             },
           ];
@@ -1581,12 +1585,12 @@ const RegistriesSection: React.FC<Props> = ({
             label: '删除',
             danger: true,
             onClick: () => {
-              modal.confirm({
-                title: '确认删除',
-                content: `确定要删除仓库 "${record.name}" 吗？`,
-                okType: 'danger',
-                onOk: () => handleDeleteRegistry(record),
-              });
+              void confirmHighRiskDelete({
+                resourceLabel: '仓库',
+                name: record.name,
+                riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                onConfirm: () => handleDeleteRegistry(record),
+              }).catch(() => {});
             },
           },
         ];

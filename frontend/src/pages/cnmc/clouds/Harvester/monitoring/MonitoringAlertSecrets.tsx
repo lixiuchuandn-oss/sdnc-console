@@ -16,6 +16,10 @@ import { useTableColumnSettings } from '../../../../../hooks/useTableColumnSetti
 import ResourceActionsDropdown from '../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../components/WriteGuard';
 import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../shared/lib/highRiskConfirm';
 import { MONITORING_DEFAULT_NAMESPACE, MONITORING_NAMESPACE_FILTER_ALL, useMonitoring } from './context/MonitoringContext';
 import {
   createSecret,
@@ -351,13 +355,14 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
         message.warning('无法删除：缺少项目或密钥标识');
         return;
       }
-      Modal.confirm({
+      void confirmHighRiskDelete({
         title: '确定删除该通知密钥？',
-        content: `将删除密钥「${record.name}」，告警通知对象中若引用了该密钥需同步修改。`,
-        okText: '确定',
-        cancelText: '取消',
-        okButtonProps: { danger: true },
-        onOk: async () => {
+        resourceLabel: '通知密钥',
+        name: record.name,
+        description: `将删除密钥「${record.name}」，告警通知对象中若引用了该密钥需同步修改。`,
+        riskItems: DELETE_RISK_ITEMS,
+        confirmText: '确定',
+        onConfirm: async () => {
           const { ok, error } = await deleteSecret(cloudId, record.namespace!, record.name);
           if (ok) {
             message.success('已删除');
@@ -366,7 +371,7 @@ const MonitoringAlertSecrets: React.FC<Props> = ({ cloudId }) => {
             message.error(error ?? '删除失败');
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, loadSecrets, canWriteSecrets]
   );

@@ -6,6 +6,10 @@ import { parseToChinese } from '../../components/CronExpressionHelper';
 import ResourceActionsDropdown from '../../../../../../../components/ResourceActionsDropdown';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../../utils/harvesterUtils';
 import { getMacroLabel, renderCronJobStatus, formatTime } from './jobHelpers';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../../shared/lib/highRiskConfirm';
 
 export type CronJobTableColumnActions = {
   handleViewDetail: (record: any) => void;
@@ -177,12 +181,12 @@ export function buildCronJobTableColumns(actions: CronJobTableColumnActions): Co
                const alias = record?.metadata?.annotations?.['tower.io/alias'];
                const id = record?.metadata?.name || '';
                const displayName = alias ? `${alias}(${id})` : id;
-               modal.confirm({
-                 title: '确认删除',
-                 content: `确定要删除 CronJob "${displayName}" 吗？`,
-                 okType: 'danger',
-                 onOk: () => handleDelete(record),
-               });
+               void confirmHighRiskDelete({
+                 resourceLabel: 'CronJob',
+                 name: displayName,
+                 riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                 onConfirm: () => handleDelete(record),
+               }).catch(() => {});
              },
           },
         ];

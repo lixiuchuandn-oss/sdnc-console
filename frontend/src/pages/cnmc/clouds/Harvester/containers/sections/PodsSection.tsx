@@ -60,6 +60,10 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 type Props = {
   pods: any[];
@@ -959,13 +963,13 @@ const PodsSection: React.FC<Props> = ({
       selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`),
     );
 
-    modal.confirm({
-      title: '批量删除确认',
-      content: `确定要删除选中的 ${selectedPods.length} 个 Pod 吗？删除后 Deployment 可能会自动重建这些 Pod。`,
-      okText: '确定',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: 'Pod',
+      name: `${selectedPods.length} 个 Pod`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${selectedPods.length} 个 Pod 吗？删除后 Deployment 可能会自动重建这些 Pod。`,
+      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+      onConfirm: async () => {
         let successCount = 0;
         let failCount = 0;
 
@@ -992,8 +996,8 @@ const PodsSection: React.FC<Props> = ({
         }
         runContainerSectionRefresh(onRefresh, { force: true });
       },
-    });
-  }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
+    }).catch(() => {});
+  }, [cloudId, message, onRefresh, pods, selectedKeys]);
 
   // 批量安全驱逐 Pod (用于测试 PDB 规则)
   const _handleBatchEvict = useCallback(() => {
@@ -1317,16 +1321,15 @@ const PodsSection: React.FC<Props> = ({
               disabled: isSystemResource(record),
               tooltip: getSystemResourceProtectionHint(record),
               onClick: () => {
-                modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除 Pod "${(() => {
-                    const alias = record?.metadata?.annotations?.['tower.io/alias'];
-                    const id = record?.metadata?.name || '';
-                    return alias ? `${alias}(${id})` : id;
-                  })()}" 吗？`,
-                  okType: 'danger',
-                  onOk: () => handleDelete(record),
-                });
+                const alias = record?.metadata?.annotations?.['tower.io/alias'];
+                const id = record?.metadata?.name || '';
+                const displayName = alias ? `${alias}(${id})` : id;
+                void confirmHighRiskDelete({
+                  resourceLabel: 'Pod',
+                  name: displayName,
+                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                  onConfirm: () => handleDelete(record),
+                }).catch(() => {});
               },
             },
           ];

@@ -37,6 +37,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 function ipv4ToInt(ip: string): number | null {
   const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
@@ -341,13 +345,11 @@ export const EipSection: React.FC<EipSectionProps> = ({
           message.error('无权限执行该操作');
           return;
         }
-        Modal.confirm({
-          title: '确认删除',
-          content: `确定要删除 公网ip [ ${ovnDisplayName(record)} ]吗？`,
-          okText: '删除',
-          okType: 'danger',
-          cancelText: '取消',
-          onOk: async () => {
+        void confirmHighRiskDelete({
+          resourceLabel: '公网 IP',
+          name: ovnDisplayName(record),
+          riskItems: DELETE_NETWORK_RISK_ITEMS,
+          onConfirm: async () => {
             try {
               await deleteCloudProviderOvnEip(
                 cloudId,
@@ -360,7 +362,7 @@ export const EipSection: React.FC<EipSectionProps> = ({
               message.error(`删除失败: ${e.message}`);
             }
           },
-        });
+        }).catch(() => {});
       }
     },
     [cloudId, hasEipWrite, networkScope, onRefresh],

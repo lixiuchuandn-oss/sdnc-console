@@ -54,6 +54,10 @@ import {
   createContainerToolbarRefresh,
   runContainerSectionRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 function resolveGatewayApiViewLink(
   record: any,
@@ -395,14 +399,12 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
                   disabled: isSystem,
                   tooltip: systemHint,
                   onClick: () => {
-                    Modal.confirm({
-                      title: '确认删除',
-                      content: `确定要删除 GatewayClass "${record?.metadata?.name}" 吗？`,
-                      okText: '删除',
-                      okType: 'danger',
-                      cancelText: '取消',
-                      onOk: () => handleDeleteGatewayClass(record),
-                    });
+                    void confirmHighRiskDelete({
+                      resourceLabel: 'GatewayClass',
+                      name: record?.metadata?.name || '',
+                      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                      onConfirm: () => handleDeleteGatewayClass(record),
+                    }).catch(() => {});
                   },
                 },
               ],
@@ -583,14 +585,12 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
                     const alias = record?.metadata?.annotations?.['tower.io/alias'];
                     const id = record?.metadata?.name || '';
                     const displayName = alias ? `${alias}(${id})` : id;
-                    Modal.confirm({
-                      title: '确认删除',
-                      content: `确定要删除 Gateway "${displayName}" 吗？`,
-                      okText: '删除',
-                      okType: 'danger',
-                      cancelText: '取消',
-                      onOk: () => handleDeleteGateway(record),
-                    });
+                    void confirmHighRiskDelete({
+                      resourceLabel: 'Gateway',
+                      name: displayName,
+                      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                      onConfirm: () => handleDeleteGateway(record),
+                    }).catch(() => {});
                   },
                 },
               ],
@@ -695,14 +695,12 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
                     const alias = record?.metadata?.annotations?.['tower.io/alias'];
                     const id = record?.metadata?.name || '';
                     const displayName = alias ? `${alias}(${id})` : id;
-                    Modal.confirm({
-                      title: '确认删除',
-                      content: `确定要删除 HTTPRoute "${displayName}" 吗？`,
-                      okText: '删除',
-                      okType: 'danger',
-                      cancelText: '取消',
-                      onOk: () => handleDeleteHttpRoute(record),
-                    });
+                    void confirmHighRiskDelete({
+                      resourceLabel: 'HTTPRoute',
+                      name: displayName,
+                      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                      onConfirm: () => handleDeleteHttpRoute(record),
+                    }).catch(() => {});
                   },
                 },
               ],
@@ -807,14 +805,12 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
                     const alias = record?.metadata?.annotations?.['tower.io/alias'];
                     const id = record?.metadata?.name || '';
                     const displayName = alias ? `${alias}(${id})` : id;
-                    Modal.confirm({
-                      title: '确认删除',
-                      content: `确定要删除 GRPCRoute "${displayName}" 吗？`,
-                      okText: '删除',
-                      okType: 'danger',
-                      cancelText: '取消',
-                      onOk: () => handleDeleteGrpcRoute(record),
-                    });
+                    void confirmHighRiskDelete({
+                      resourceLabel: 'GRPCRoute',
+                      name: displayName,
+                      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                      onConfirm: () => handleDeleteGrpcRoute(record),
+                    }).catch(() => {});
                   },
                 },
               ],

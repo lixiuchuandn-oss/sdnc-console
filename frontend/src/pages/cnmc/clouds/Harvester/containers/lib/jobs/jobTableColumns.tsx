@@ -5,6 +5,10 @@ import { EditTwoTone } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../../components/ResourceActionsDropdown';
 import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../../utils/harvesterUtils';
 import { renderJobStatus, calculateAge, formatTime } from './jobHelpers';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../../shared/lib/highRiskConfirm';
 
 export type JobTableColumnActions = {
   handleViewDetail: (record: any) => void;
@@ -140,12 +144,12 @@ export function buildJobTableColumns(actions: JobTableColumnActions): ColumnsTyp
                const alias = record?.metadata?.annotations?.['tower.io/alias'];
                const id = record?.metadata?.name || '';
                const displayName = alias ? `${alias}(${id})` : id;
-               modal.confirm({
-                 title: '确认删除',
-                 content: `确定要删除 Job "${displayName}" 吗？`,
-                 okType: 'danger',
-                 onOk: () => handleDelete(record),
-               });
+               void confirmHighRiskDelete({
+                 resourceLabel: 'Job',
+                 name: displayName,
+                 riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                 onConfirm: () => handleDelete(record),
+               }).catch(() => {});
              },
           },
         ];

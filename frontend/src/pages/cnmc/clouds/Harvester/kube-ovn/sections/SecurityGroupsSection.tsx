@@ -39,6 +39,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const { Paragraph } = Typography;
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';
@@ -428,13 +432,12 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
 
   const confirmDeleteSecurityGroup = useCallback(
     (record: SecurityGroupRow) => {
-      Modal.confirm({
-        title: '删除安全组',
-        content: `确定删除安全组「${record.name}」吗？其访问规则将一并删除，且不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '安全组',
+        name: record.name,
+        description: `确定删除安全组「${record.name}」吗？其访问规则将一并删除，且不可恢复。`,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteKubeOvnSecurityGroup(cloudId, record.id);
             message.success('已删除');
@@ -452,7 +455,7 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
             throw e;
           }
         },
-      });
+      }).catch(() => {});
     },
     [
       cloudId,

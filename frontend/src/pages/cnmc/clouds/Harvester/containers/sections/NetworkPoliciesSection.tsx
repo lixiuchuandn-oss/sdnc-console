@@ -64,6 +64,10 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 type Props = {
   networkPolicies: any[];
@@ -652,26 +656,12 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       const alias = record?.metadata?.annotations?.['tower.io/alias'];
       const displayName = alias ? `${alias} (${name})` : name;
 
-      modal.confirm({
-        title: '确认删除',
-        content: (
-          <div>
-            <p>确定要删除网络策略 "{displayName}" 吗？</p>
-            <p>
-              <strong>项目:</strong> {namespace}
-            </p>
-            <Alert
-              message="删除网络策略可能会影响 Pod 之间的网络访问控制"
-              type="warning"
-              showIcon
-              style={{ marginTop: 8 }}
-            />
-          </div>
-        ),
-        okText: '删除',
-        okButtonProps: { danger: true },
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '网络策略',
+        name: displayName,
+        description: `确定要删除网络策略「${displayName}」吗？项目：${namespace}。删除网络策略可能会影响 Pod 之间的网络访问控制。`,
+        riskItems: CONTAINER_DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteNetworkPolicy(cloudId, namespace, name);
             message.success('删除成功');
@@ -680,9 +670,9 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             message.error(e?.message || '删除失败');
           }
         },
-      });
+      }).catch(() => {});
     },
-    [cloudId, modal, message, onRefresh],
+    [cloudId, message, onRefresh],
   );
 
   // 批量删除
@@ -692,23 +682,13 @@ const NetworkPoliciesSection: React.FC<Props> = ({
       return;
     }
 
-    modal.confirm({
-      title: '批量删除确认',
-      content: (
-        <div>
-          <p>确定要删除选中的 {selectedKeys.length} 个网络策略吗？</p>
-          <Alert
-            message="删除网络策略可能会影响 Pod 之间的网络访问控制"
-            type="warning"
-            showIcon
-            style={{ marginTop: 8 }}
-          />
-        </div>
-      ),
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: '网络策略',
+      name: `${selectedKeys.length} 个网络策略`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${selectedKeys.length} 个网络策略吗？删除网络策略可能会影响 Pod 之间的网络访问控制。`,
+      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+      onConfirm: async () => {
         const promises = selectedKeys.map((key) => {
           const [ns, name] = String(key).split('/');
           return deleteNetworkPolicy(cloudId, ns, name);
@@ -723,8 +703,8 @@ const NetworkPoliciesSection: React.FC<Props> = ({
           message.error(e?.message || '批量删除失败');
         }
       },
-    });
-  }, [selectedKeys, cloudId, modal, message, onRefresh]);
+    }).catch(() => {});
+  }, [selectedKeys, cloudId, message, onRefresh]);
 
   // 表格列定义
   const allColumns = useMemo(

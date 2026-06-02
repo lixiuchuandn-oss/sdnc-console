@@ -63,6 +63,10 @@ import { RECEIVER_NAME_OPTIONS, type ReceiverName } from './lib/receivers';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../shared/lib/highRiskConfirm';
 
 interface TriggerRuleOption {
   value: string;
@@ -814,13 +818,13 @@ const MonitoringAlertNotificationPolicy: React.FC<Props> = ({ cloudId }) => {
                   danger: true,
                   disabled: !canWritePolicies || isSystemDefault,
                   onClick: () => {
-                    Modal.confirm({
+                    void confirmHighRiskDelete({
                       title: '确定删除该策略？',
-                      onOk: () => handleDeleteConfig(row),
-                      okText: '删除',
-                      cancelText: '取消',
-                      okButtonProps: { danger: true },
-                    });
+                      resourceLabel: '告警通知策略',
+                      name: row.name,
+                      riskItems: DELETE_RISK_ITEMS,
+                      onConfirm: () => handleDeleteConfig(row),
+                    }).catch(() => {});
                   },
                 },
               ], canWritePolicies)}

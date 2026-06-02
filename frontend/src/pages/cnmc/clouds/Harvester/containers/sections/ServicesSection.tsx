@@ -21,6 +21,10 @@ import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDra
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import {
   deleteHarvesterService,
   updateHarvesterService,
   patchHarvesterContainerResource,
@@ -558,14 +562,12 @@ const ServicesSection: React.FC<Props> = ({
                           disabled: isSystem,
                           tooltip: systemHint,
                           onClick: () => {
-                            Modal.confirm({
-                              title: '确认删除',
-                              content: `确定要删除 服务 "${record.name}" 吗？`,
-                              okText: '删除',
-                              okType: 'danger',
-                              cancelText: '取消',
-                              onOk: () => handleDelete(record),
-                            });
+                            void confirmHighRiskDelete({
+                              resourceLabel: '服务',
+                              name: record.name,
+                              riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                              onConfirm: () => handleDelete(record),
+                            }).catch(() => {});
                           },
                         },
                       ]),

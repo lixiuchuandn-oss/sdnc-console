@@ -41,6 +41,10 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
@@ -359,14 +363,12 @@ const IngressesSection: React.FC<Props> = ({
                     const alias = record?.metadata?.annotations?.['tower.io/alias'];
                     const id = record?.metadata?.name || '';
                     const displayName = alias ? `${alias}(${id})` : id;
-                    Modal.confirm({
-                      title: '确认删除',
-                      content: `确定要删除 Ingress "${displayName}" 吗？`,
-                      okText: '删除',
-                      okType: 'danger',
-                      cancelText: '取消',
-                      onOk: () => handleDelete(record),
-                    });
+                    void confirmHighRiskDelete({
+                      resourceLabel: 'Ingress',
+                      name: displayName,
+                      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                      onConfirm: () => handleDelete(record),
+                    }).catch(() => {});
                   },
                 },
               ],

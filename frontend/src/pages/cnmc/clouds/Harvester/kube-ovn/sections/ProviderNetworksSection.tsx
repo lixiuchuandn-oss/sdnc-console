@@ -28,6 +28,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const { Option } = Select;
 
@@ -380,14 +384,12 @@ const ProviderNetworksSection: React.FC<Props> = ({
       message.error('删除失败：无效的物理网络名称');
       return;
     }
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除物理网络「${label}」吗？此操作不可恢复。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        // 校验 VLAN 占用
+    void confirmHighRiskDelete({
+      resourceLabel: '物理网络',
+      name: label,
+      description: `确定要删除物理网络「${label}」吗？此操作不可恢复。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      precheck: async () => {
         try {
           const res = await fetchKubeOvnVlans(cloudId, true);
           const items = Array.isArray(res?.data?.items) ? res.data.items : [];
@@ -395,31 +397,34 @@ const ProviderNetworksSection: React.FC<Props> = ({
             .filter((v: any) => (v?.spec?.provider || v?.provider) === name)
             .map((v: any) => {
               const vAnn = v?.metadata?.annotations || {};
-              const alias = String(vAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
-              return alias || v?.metadata?.name || v?.name;
+              const vlanAlias = String(vAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+              return vlanAlias || v?.metadata?.name || v?.name;
             })
             .filter(Boolean);
           if (boundVlans.length > 0) {
-            message.error(`物理网络正在被以下 VLAN 使用，无法删除：${boundVlans.join('、')}`);
-            return;
+            return {
+              ok: false,
+              error: `物理网络正在被以下 VLAN 使用，无法删除：${boundVlans.join('、')}`,
+            };
           }
         } catch (e) {
           console.warn('[DeleteProvider] VLAN usage check failed:', e);
         }
-
+      },
+      onConfirm: async () => {
         try {
           await deleteKubeOvnProviderNetwork(cloudId, name);
           message.success('删除成功');
           if (isParentManaged && onParentRefresh) {
-        void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true });
-      } else {
-        void fetchData(true, true);
-      }
+            void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true });
+          } else {
+            void fetchData(true, true);
+          }
         } catch (e: any) {
           message.error(e?.message || '删除失败');
         }
       },
-    });
+    }).catch(() => {});
   }, [canWriteProviderNetwork, cloudId, isParentManaged, onParentRefresh, fetchData]);
 
   /** 创建弹窗内「节点网卡映射」列表：物理接口列 */

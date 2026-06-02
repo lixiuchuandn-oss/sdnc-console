@@ -5,10 +5,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Drawer, Descriptions, Tabs, Table, Tag, Button, Space, message, Spin, Input, Popconfirm, Modal } from 'antd';
+import { Drawer, Descriptions, Tabs, Table, Tag, Button, Space, message, Spin, Input } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getHarborVulnerabilities, getHarborTags, addHarborTag, deleteHarborTag } from '../shared/harborApi';
 import type { HarborArtifact, HarborVulnerabilityItem, HarborTag } from '../types';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 interface Props {
   /** 是否显示 */
@@ -339,14 +343,15 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                           danger 
                           icon={<DeleteOutlined />}
                           onClick={() => {
-                            Modal.confirm({
-                              title: '确认批量删除',
-                              content: `确定要删除选中的 ${selectedTagKeys.length} 个标签吗？`,
-                              okText: '确认',
-                              cancelText: '取消',
-                              okButtonProps: { danger: true },
-                              onOk: handleBatchDeleteTags,
-                            });
+                            void confirmHighRiskDelete({
+                              resourceLabel: '标签',
+                              name: `${selectedTagKeys.length} 个标签`,
+                              requireTypeConfirm: false,
+                              description: `确定要删除选中的 ${selectedTagKeys.length} 个标签吗？`,
+                              riskItems: DELETE_RISK_ITEMS,
+                              confirmText: '确认',
+                              onConfirm: handleBatchDeleteTags,
+                            }).catch(() => {});
                           }}
                         >
                           批量删除 ({selectedTagKeys.length})
@@ -418,22 +423,23 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                         key: 'actions',
                         width: 80,
                         render: (_: any, record: HarborTag) => (
-                          <Popconfirm
-                            title="确认删除"
-                            description={`确定要删除标签 "${record.name}" 吗？`}
-                            onConfirm={() => handleDeleteTag(record.name)}
-                            okText="确认"
-                            cancelText="取消"
-                            okButtonProps={{ danger: true }}
+                          <Button
+                            type="link"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() =>
+                              void confirmHighRiskDelete({
+                                resourceLabel: '标签',
+                                name: record.name,
+                                description: `确定要删除标签 "${record.name}" 吗？`,
+                                riskItems: DELETE_RISK_ITEMS,
+                                confirmText: '确认',
+                                onConfirm: () => handleDeleteTag(record.name),
+                              }).catch(() => {})
+                            }
                           >
-                            <Button 
-                              type="link" 
-                              danger 
-                              icon={<DeleteOutlined />}
-                            >
-                              删除
-                            </Button>
-                          </Popconfirm>
+                            删除
+                          </Button>
                         ),
                       },
                     ]}

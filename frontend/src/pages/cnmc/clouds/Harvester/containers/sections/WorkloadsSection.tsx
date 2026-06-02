@@ -57,6 +57,10 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 type Props = {
   deployments: any[];
@@ -589,12 +593,12 @@ const WorkloadTable: React.FC<{
                 const alias = record?.metadata?.annotations?.['tower.io/alias'];
                 const id = record?.metadata?.name || '';
                 const displayName = alias ? `${alias}(${id})` : id;
-                modal.confirm({
-                  title: '确认删除',
-                  content: `确定要删除 ${typeLabel} "${displayName}" 吗？`,
-                  okType: 'danger',
-                  onOk: () => handleDelete(record),
-                });
+                void confirmHighRiskDelete({
+                  resourceLabel: typeLabel,
+                  name: displayName,
+                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                  onConfirm: () => handleDelete(record),
+                }).catch(() => {});
               },
             },
           ];

@@ -22,6 +22,10 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import { fetchCephDashboardPools } from '../../../../../../services/monitoringApi';
 import { getCephBlockPoolRook, deleteCephBlockPoolRook, fetchCephRookBundle } from '../../../../../../services/cephApi';
 import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
+import {
+  confirmHighRiskDelete,
+  CEPH_STORAGE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import yaml from 'js-yaml';
 import {
   cephBlockPoolRowToTableRow,
@@ -497,13 +501,12 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
                         label: '删除',
                         danger: true,
                         onClick: () => {
-                          Modal.confirm({
-                            title: '确定删除该 CephBlockPool？',
-                            okText: '删除',
-                            okButtonProps: { danger: true },
-                            cancelText: '取消',
-                            onOk: () => deletePool(r),
-                          });
+                          void confirmHighRiskDelete({
+                            resourceLabel: 'CephBlockPool',
+                            name: `${r.namespace}/${r.name}`,
+                            riskItems: CEPH_STORAGE_RISK_ITEMS,
+                            onConfirm: () => deletePool(r),
+                          }).catch(() => {});
                         },
                       },
                     ] as const)
