@@ -20,6 +20,7 @@ import {
 } from '@ant-design/icons';
 import type { HarborRegistry } from '../types';
 import { getHarborSystemInfo, getHarborProjects, syncHarborSecret, syncHarborProjects, createHarborProject } from '../shared/harborApi';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 
 interface Props {
   harbor: HarborRegistry;
@@ -58,7 +59,7 @@ const StatusText: React.FC<{ status: string }> = ({ status }) => {
 };
 
 const OverviewSection: React.FC<Props> = ({ harbor, cloudId, onRefresh, onTestConnection, onNavigateToUpload }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -103,15 +104,22 @@ const OverviewSection: React.FC<Props> = ({ harbor, cloudId, onRefresh, onTestCo
       return;
     }
     
-    modal.confirm({
+    void confirmHighRiskOperation({
       title: '同步凭证到 Kubernetes',
-      content: (
+      description: (
         <div>
           <p>将 Harbor 凭证同步到 Kubernetes 集群，使工作负载可以拉取私有镜像。</p>
           <p>目标命名空间：<Tag color="blue">default</Tag></p>
         </div>
       ),
-      onOk: async () => {
+      riskItems: [
+        '将在目标命名空间创建或更新 docker-registry Secret，覆盖同名 Secret。',
+        'Secret 凭证泄露可能导致私有镜像被未授权拉取，请确认命名空间与权限边界。',
+      ],
+      requireTypeConfirm: false,
+      operationSummary: `同步 Harbor「${harbor.name}」凭证到命名空间 default`,
+      confirmText: '同步凭证',
+      onConfirm: async () => {
         try {
           const result = await syncHarborSecret(harbor.id, {
             cloudId,
@@ -122,8 +130,8 @@ const OverviewSection: React.FC<Props> = ({ harbor, cloudId, onRefresh, onTestCo
           message.error(e?.message || '同步凭证失败');
         }
       },
-    });
-  }, [harbor.id, cloudId, message, modal]);
+    }).catch(() => {});
+  }, [harbor.id, harbor.name, cloudId, message]);
 
   /**
    * 同步项目列表

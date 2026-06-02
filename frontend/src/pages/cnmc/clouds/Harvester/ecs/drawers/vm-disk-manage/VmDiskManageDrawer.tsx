@@ -15,7 +15,6 @@ import {
   Col,
   Popconfirm,
   message,
-  Modal,
   InputNumber,
   Tag,
   Space,
@@ -46,6 +45,8 @@ import { getVmChangeSystemDiskEligibility } from "../../lib/vmChangeSystemDiskEl
 import { isCloudInitVolume } from "../../lib/vmCloudInitSpec";
 import { isVmStopped } from "../../lib/vmInstanceStatus";
 import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from "../../lib/vmMutation/vmReconfigureSubmitTypes";
+import { confirmHighRiskOperation } from "../../../shared/lib/highRiskConfirm";
+import { VM_RESTART_RISK_ITEMS } from "../../../shared/lib/highRiskOperationPresets";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
 import VmDeviceManageDrawerEmpty from "../shared/components/VmDeviceManageDrawerEmpty";
 import "../shared/styles/vmManageDrawer.css";
@@ -208,13 +209,15 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
         message.success("设置已保存，下次启动时将自动应用新配置");
         return;
       }
-      Modal.confirm({
-        zIndex: 3000,
+      void confirmHighRiskOperation({
         title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
-        content: opts?.content,
-        okText: "立即重启",
+        description: opts?.content,
+        riskItems: VM_RESTART_RISK_ITEMS,
+        requireTypeConfirm: false,
+        operationSummary: `重启虚拟机「${name}」以应用磁盘配置`,
+        confirmText: "立即重启",
         cancelText: "手动重启",
-        onOk: async () => {
+        onConfirm: async () => {
           try {
             await rebootCloudProviderEcs(
               cloudId,
@@ -228,10 +231,10 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
                 String(e?.message || e || "重启失败"),
               ),
             );
+            throw e;
           }
         },
-        onCancel: () => {},
-      });
+      }).catch(() => {});
     },
     [cloudId, vmData],
   );

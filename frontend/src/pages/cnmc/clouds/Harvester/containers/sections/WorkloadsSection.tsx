@@ -59,8 +59,10 @@ import {
 } from '../lib/containerSectionRefresh';
 import {
   confirmHighRiskDelete,
+  confirmHighRiskOperation,
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
+import { CONTAINER_SCALE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 type Props = {
   deployments: any[];
@@ -390,36 +392,35 @@ const WorkloadTable: React.FC<{
       const namespace = record?.metadata?.namespace;
       const name = record?.metadata?.name;
 
-      modal.confirm({
+      let replicas = currentReplicas;
+      void confirmHighRiskOperation({
         title: '扩缩容',
-        content: (
-          <div>
-            <p>当前副本数: {currentReplicas}</p>
-            <InputNumber
-              defaultValue={currentReplicas}
-              min={0}
-              max={100}
-              id="replicas-input"
-              style={{ width: '100%', marginTop: 8 }}
-            />
-          </div>
+        description: <p>当前副本数: {currentReplicas}</p>,
+        riskItems: CONTAINER_SCALE_RISK_ITEMS,
+        requireTypeConfirm: false,
+        extra: (
+          <InputNumber
+            defaultValue={currentReplicas}
+            min={0}
+            max={100}
+            style={{ width: '100%' }}
+            onChange={(v) => {
+              replicas = typeof v === 'number' ? v : currentReplicas;
+            }}
+          />
         ),
-        onOk: async () => {
-          const input = document.getElementById('replicas-input') as HTMLInputElement;
-          const replicas = parseInt(input?.value || '0', 10);
-          try {
-            if (type === 'statefulset') {
-              await scaleHarvesterStatefulSet(cloudId, namespace, name, replicas);
-            } else {
-              await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
-            }
-            message.success('扩缩容指令已下发');
-            runContainerSectionRefresh(onRefresh, { force: true });
-          } catch (e: any) {
-            message.error(e?.message || '扩缩容失败');
+        operationSummary: `调整工作负载「${name}」副本数`,
+        confirmText: '确认扩缩容',
+        onConfirm: async () => {
+          if (type === 'statefulset') {
+            await scaleHarvesterStatefulSet(cloudId, namespace, name, replicas);
+          } else {
+            await scaleHarvesterDeployment(cloudId, namespace, name, replicas);
           }
+          message.success('扩缩容指令已下发');
+          runContainerSectionRefresh(onRefresh, { force: true });
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, modal, message, onRefresh, type],
   );

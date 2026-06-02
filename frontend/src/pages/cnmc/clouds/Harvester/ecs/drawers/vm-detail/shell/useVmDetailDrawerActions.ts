@@ -1,6 +1,5 @@
 import React, { useCallback } from "react";
-import { Modal, message } from "antd";
-import { ExclamationCircleOutlined } from "@ant-design/icons";
+import { message } from "antd";
 import {
   pauseHarvesterVm,
   unpauseHarvesterVm,
@@ -13,6 +12,10 @@ import {
 } from "../../../../../../../../services/api";
 import type { VmDetailDrawerSafeRead } from "../../../lib/vmSafeRead";
 import { runHarvesterSectionRefresh } from "../../../../shared/lib/harvesterSectionRefresh";
+import {
+  confirmHighRiskOperation,
+} from "../../../../shared/lib/highRiskConfirm";
+import { VM_ABORT_MIGRATION_RISK_ITEMS } from "../../../../shared/lib/highRiskOperationPresets";
 import { openVmDetailEjectCdromModal } from "../VmDetailEjectCdromModal";
 
 export function useVmDetailDrawerActions(opts: {
@@ -163,13 +166,15 @@ export function useVmDetailDrawerActions(opts: {
   }, [cloudId, vmData, onRefresh, SafeRead, hasEcsWrite]);
 
   const handleAbortMigration = useCallback(() => {
-    Modal.confirm({
+    const vmName = SafeRead.name(vmData);
+    void confirmHighRiskOperation({
       title: "确认中止迁移？",
-      icon: React.createElement(ExclamationCircleOutlined),
-      content: `确定要中止虚拟机 ${SafeRead.name(vmData)} 的迁移任务吗？`,
-      okText: "中止迁移",
-      okType: "danger",
-      onOk: async () => {
+      description: `确定要中止虚拟机 ${vmName} 的迁移任务吗？`,
+      riskItems: VM_ABORT_MIGRATION_RISK_ITEMS,
+      targetName: vmName,
+      operationSummary: `中止虚拟机「${vmName}」的迁移任务`,
+      confirmText: "中止迁移",
+      onConfirm: async () => {
         const hide = message.loading("正在中止迁移...", 0);
         try {
           const ns = SafeRead.namespace(vmData);
@@ -180,11 +185,12 @@ export function useVmDetailDrawerActions(opts: {
           void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(`中止迁移失败: ${e.message || "未知错误"}`);
+          throw e;
         } finally {
           hide();
         }
       },
-    });
+    }).catch(() => {});
   }, [cloudId, vmData, onRefresh, SafeRead]);
 
   return {

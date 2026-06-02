@@ -1,4 +1,3 @@
-import { Modal } from 'antd';
 import type { MessageInstance } from 'antd/es/message/interface';
 
 import {
@@ -7,6 +6,7 @@ import {
 } from '../../../../../../../../services/harvesterApi';
 import { parseK8sError } from '../k8sErrors';
 import type { WorkloadSubmitPayload } from './types';
+import { confirmHighRiskOperation } from '../../../../shared/lib/highRiskConfirm';
 
 export async function executeWorkloadSubmit(params: {
   cloudId: string;
@@ -51,15 +51,20 @@ export function handleWorkloadSubmitError(params: {
     /resourceVersion/i.test(err?.message || '');
 
   if (isConflict) {
-    Modal.confirm({
+    void confirmHighRiskOperation({
       title: '版本冲突',
-      content: '该资源已被其他用户修改，请刷新后重新编辑。',
-      okText: '确认刷新',
-      cancelText: '取消',
-      onOk: () => {
+      description: '该资源已被其他用户修改，请刷新后重新编辑。',
+      riskItems: [
+        '直接覆盖可能丢失他人变更或引发资源版本冲突。',
+        '刷新后将关闭当前编辑窗口，未保存的修改会丢失。',
+      ],
+      requireTypeConfirm: false,
+      operationSummary: isEditMode ? '刷新后重新编辑工作负载' : '刷新后重新创建工作负载',
+      confirmText: '确认刷新',
+      onConfirm: () => {
         onSuccess();
       },
-    });
+    }).catch(() => {});
     return;
   }
 

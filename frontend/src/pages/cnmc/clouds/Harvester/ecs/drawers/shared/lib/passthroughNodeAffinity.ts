@@ -2,10 +2,11 @@
  * 直通类设备（GPU / USB）提交时共用的：节点选择器与多设备冲突预检、必要时自动设节点或弹窗确认。
  * GPU / USB 各自只提供补丁构建回调，避免两份几乎相同的分支逻辑。
  */
-import { message, Modal } from "antd";
+import { message } from "antd";
 import { updateHarvesterVmSpec } from "services/harvester/vm";
 import { VmReconfigureSubmitSkipFinalize } from "../../../lib/vmMutation/vmReconfigureSubmitTypes";
 import { findGpuResource } from "../../../lib/gpuResourceResolve";
+import { confirmHighRiskOperation } from "../../../../shared/lib/highRiskConfirm";
 
 export type PassthroughNodeAffinityDevice = "GPU" | "USB";
 
@@ -112,20 +113,29 @@ export async function tryFinalizePassthroughNodeAffinity(args: {
 
   if (!hasOther) {
     if (currentNodeName !== targetNode) {
-      Modal.confirm({
+      void confirmHighRiskOperation({
         title: "节点选择器不一致",
-        content:
+        description:
           device === "GPU"
-            ? `当前VM的节点选择器为 ${currentNodeName}，但GPU设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`
-            : `当前VM的节点选择器为 ${currentNodeName}，但USB设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`,
-        okText: "是，变更节点",
-        cancelText: "取消",
-        onOk: async () => {
+            ? `当前 VM 的节点选择器为 ${currentNodeName}，但 GPU 设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`
+            : `当前 VM 的节点选择器为 ${currentNodeName}，但 USB 设备位于节点 ${targetNode}。是否将节点选择器变更为 ${targetNode}？`,
+        riskItems: [
+          "变更节点选择器可能导致虚拟机调度到不同物理节点。",
+          "配置保存后将提示重启虚拟机以使变更生效。",
+        ],
+        requireTypeConfirm: false,
+        confirmText: "是，变更节点",
+        operationSummary: `变更虚拟机「${vmName}」节点选择器为 ${targetNode}`,
+        onConfirm: async () => {
           await applyPinned();
-          message.success(device === "GPU" ? "GPU配置已更新，节点选择器已变更" : "USB配置已更新，节点选择器已变更");
+          message.success(
+            device === "GPU"
+              ? "GPU配置已更新，节点选择器已变更"
+              : "USB配置已更新，节点选择器已变更",
+          );
           openRestartConfirm(namespace, vmName, false);
         },
-      });
+      }).catch(() => {});
       throw new VmReconfigureSubmitSkipFinalize();
     }
   } else {

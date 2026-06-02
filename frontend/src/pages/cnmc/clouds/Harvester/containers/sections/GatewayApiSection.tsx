@@ -56,7 +56,9 @@ import {
 } from '../lib/containerSectionRefresh';
 import {
   confirmHighRiskDelete,
+  confirmHighRiskOperation,
   CONTAINER_DELETE_RISK_ITEMS,
+  CLUSTER_COMPONENT_INSTALL_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
 
 function resolveGatewayApiViewLink(
@@ -159,14 +161,16 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   const handleToolbarRefresh = useMemo(() => createContainerToolbarRefresh(onRefresh), [onRefresh]);
 
   // 安装 NGINX Gateway Fabric
-  const handleInstallNginxGateway = useCallback(async () => {
-    Modal.confirm({
+  const handleInstallNginxGateway = useCallback(() => {
+    void confirmHighRiskOperation({
       title: '安装 NGINX Gateway Fabric',
-      content:
-        '将安装 NGINX Gateway Fabric 控制器到集群，包括命名空间、部署和默认 GatewayClass。是否继续？',
-      okText: '安装',
-      cancelText: '取消',
-      onOk: async () => {
+      description:
+        '将安装 NGINX Gateway Fabric 控制器到集群，包括命名空间、部署和默认 GatewayClass。',
+      riskItems: CLUSTER_COMPONENT_INSTALL_RISK_ITEMS,
+      requireTypeConfirm: false,
+      operationSummary: '安装 NGINX Gateway Fabric 控制器',
+      confirmText: '安装',
+      onConfirm: async () => {
         setInstallNginxLoading(true);
         try {
           const result = await installNginxGatewayFabric(cloudId);
@@ -199,7 +203,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           setInstallNginxLoading(false);
         }
       },
-    });
+    }).catch(() => {});
   }, [cloudId, onRefresh]);
 
   // 检查 Gateway API 是否已安装

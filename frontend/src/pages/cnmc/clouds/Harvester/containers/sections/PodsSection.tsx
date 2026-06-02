@@ -62,8 +62,10 @@ import {
 } from '../lib/containerSectionRefresh';
 import {
   confirmHighRiskDelete,
+  confirmHighRiskOperation,
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
+import { POD_EVICT_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 type Props = {
   pods: any[];
@@ -906,28 +908,28 @@ const PodsSection: React.FC<Props> = ({
       const namespace = pod?.metadata?.namespace;
       const name = pod?.metadata?.name;
 
-      modal.confirm({
+      void confirmHighRiskOperation({
         title: '安全驱逐 Pod',
-        content: (
+        description: (
           <div>
             <p>
               确定要安全驱逐 Pod <strong>{name}</strong> 吗？
             </p>
             <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-              驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。 如果 PDB
-              规则不允许此次驱逐，操作将被阻止。
+              驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。如果 PDB 规则不允许此次驱逐，操作将被阻止。
             </p>
           </div>
         ),
-        okText: '确定驱逐',
-        cancelText: '取消',
-        onOk: async () => {
+        riskItems: POD_EVICT_RISK_ITEMS,
+        targetName: name,
+        operationSummary: `安全驱逐 Pod「${name}」`,
+        confirmText: '确定驱逐',
+        onConfirm: async () => {
           try {
             await evictHarvesterPod(cloudId, namespace, name);
             message.success('驱逐成功');
             runContainerSectionRefresh(onRefresh, { force: true });
           } catch (e: any) {
-            // 检查是否是 PDB 阻止
             if (
               e?.status === 429 ||
               e?.message?.includes('PDB') ||
@@ -941,18 +943,18 @@ const PodsSection: React.FC<Props> = ({
                       Pod <strong>{name}</strong> 的驱逐操作被 PodDisruptionBudget 阻止。
                     </p>
                     <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-                      这表明 PDB 规则正在保护此 Pod，以确保服务可用性。 请检查相关的 PDB
-                      配置或等待其他 Pod 恢复后再试。
+                      这表明 PDB 规则正在保护此 Pod，以确保服务可用性。请检查相关的 PDB 配置或等待其他 Pod 恢复后再试。
                     </p>
                   </div>
                 ),
               });
-            } else {
-              message.error(e?.message || '驱逐失败');
+              throw e;
             }
+            message.error(e?.message || '驱逐失败');
+            throw e;
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, message, modal, onRefresh],
   );
@@ -1005,22 +1007,23 @@ const PodsSection: React.FC<Props> = ({
       selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`),
     );
 
-    modal.confirm({
+    void confirmHighRiskOperation({
       title: '批量安全驱逐',
-      content: (
+      description: (
         <div>
           <p>
             确定要安全驱逐选中的 <strong>{selectedPods.length}</strong> 个 Pod 吗？
           </p>
           <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB (PodDisruptionBudget) 保护机制。 如果
-            PDB 规则不允许同时驱逐这么多 Pod，部分驱逐将被阻止。
+            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB 保护机制。若规则不允许，部分驱逐将被阻止。
           </p>
         </div>
       ),
-      okText: '确定驱逐',
-      cancelText: '取消',
-      onOk: async () => {
+      riskItems: POD_EVICT_RISK_ITEMS,
+      requireTypeConfirm: false,
+      operationSummary: `批量安全驱逐 ${selectedPods.length} 个 Pod`,
+      confirmText: '确定驱逐',
+      onConfirm: async () => {
         try {
           const podList = selectedPods.map((pod: any) => ({
             namespace: pod?.metadata?.namespace,
@@ -1067,9 +1070,10 @@ const PodsSection: React.FC<Props> = ({
           runContainerSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(e?.message || '批量驱逐失败');
+          throw e;
         }
       },
-    });
+    }).catch(() => {});
   }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
 
   // 打开终端

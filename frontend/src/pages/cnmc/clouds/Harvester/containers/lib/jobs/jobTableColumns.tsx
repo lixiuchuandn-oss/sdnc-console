@@ -7,6 +7,7 @@ import { isSystemResource, getSystemResourceProtectionHint } from '../../../../.
 import { renderJobStatus, calculateAge, formatTime } from './jobHelpers';
 import {
   confirmHighRiskDelete,
+  confirmHighRiskOperation,
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../../shared/lib/highRiskConfirm';
 
@@ -16,7 +17,6 @@ export type JobTableColumnActions = {
   handleOpenAliasModal: (record: any) => void;
   handleDelete: (record: any) => void;
   handleRetry: (record: any) => void;
-  modal: { confirm: (config: Record<string, unknown>) => void };
   operationsReadOnly: boolean;
 };
 
@@ -27,7 +27,6 @@ export function buildJobTableColumns(actions: JobTableColumnActions): ColumnsTyp
     handleOpenAliasModal,
     handleDelete,
     handleRetry,
-    modal,
     operationsReadOnly,
   } = actions;
   return [
@@ -127,11 +126,15 @@ export function buildJobTableColumns(actions: JobTableColumnActions): ColumnsTyp
                const alias = record?.metadata?.annotations?.['tower.io/alias'];
                const id = record?.metadata?.name || '';
                const displayName = alias ? `${alias}(${id})` : id;
-               modal.confirm({
+               void confirmHighRiskOperation({
                  title: '确认重试',
-                 content: `确定要重新创建 Job "${displayName}" 吗？这将先删除原 Job 并使用相同配置重新创建。`,
-                 onOk: () => handleRetry(record),
-               });
+                 description: `确定要重新创建 Job「${displayName}」吗？这将先删除原 Job 并使用相同配置重新创建。`,
+                 riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                 requireTypeConfirm: false,
+                 operationSummary: `重试 Job「${displayName}」`,
+                 confirmText: '确认重试',
+                 onConfirm: () => handleRetry(record),
+               }).catch(() => {});
              },
           }] : []),
           {
