@@ -39,9 +39,7 @@ export function getLicenseVerifyPublicKey(): string {
 
   const configured = process.env.LICENSE_PUBLIC_KEY_PATH?.trim();
   if (configured) {
-    const abs = path.isAbsolute(configured)
-      ? configured
-      : path.join(process.cwd(), configured);
+    const abs = path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
     const fromFile = readPemIfExists(abs);
     if (fromFile) return fromFile;
   }
@@ -69,9 +67,7 @@ export function getLicenseSigningPrivateKey(overridePath?: string): string {
     process.env.LICENSE_SIGNING_PRIVATE_KEY_PATH?.trim() ||
     path.join(process.cwd(), 'keys', 'license-signing-private.pem');
 
-  const abs = path.isAbsolute(configured)
-    ? configured
-    : path.join(process.cwd(), configured);
+  const abs = path.isAbsolute(configured) ? configured : path.join(process.cwd(), configured);
 
   const pem = readPemIfExists(abs);
   if (!pem) {
