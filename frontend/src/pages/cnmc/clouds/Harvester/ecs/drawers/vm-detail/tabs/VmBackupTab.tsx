@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Card, Button, List, Tag, Tooltip, Space, Dropdown, MenuProps, Modal, message, Empty } from 'antd';
+import { Card, Button, List, Tag, Tooltip, Space, Dropdown, MenuProps, message, Empty } from 'antd';
 import { confirmHighRiskDelete } from '../../../../shared/lib/highRiskConfirm';
 import { DELETE_RISK_ITEMS } from '../../../../shared/lib/highRiskOperationPresets';
 import { 
@@ -9,7 +9,6 @@ import {
   ScheduleOutlined, 
   EllipsisOutlined, 
   ReloadOutlined,
-  WarningOutlined
 } from '@ant-design/icons';
 import { deleteHarvesterBackup, deleteHarvesterScheduleVmBackup, updateHarvesterScheduleVmBackup } from 'services/harvester/cbr';
 import { formatCron } from '../../../../../../../../utils/cronFormatter';

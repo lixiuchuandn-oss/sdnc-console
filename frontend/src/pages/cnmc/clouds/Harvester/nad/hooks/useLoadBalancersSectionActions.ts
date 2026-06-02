@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
 import { deleteHarvesterLoadBalancer } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import {

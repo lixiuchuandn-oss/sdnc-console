@@ -269,7 +269,7 @@ const WorkloadTable: React.FC<{
   onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
@@ -422,7 +422,7 @@ const WorkloadTable: React.FC<{
         },
       }).catch(() => {});
     },
-    [cloudId, modal, message, onRefresh, type],
+    [cloudId, message, onRefresh, type],
   );
 
   // 重启操作
@@ -624,7 +624,6 @@ const WorkloadTable: React.FC<{
       handleViewYaml,
       handleOpenAliasModal,
       onEdit,
-      modal,
       typeLabel,
       operationsReadOnly,
     ],

@@ -357,7 +357,6 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
 
       const blockedByVm = usingVms.length > 0;
-      const blockedByNat = !!natBlockMsg;
 
       void confirmHighRiskDelete({
         resourceLabel: '子网',

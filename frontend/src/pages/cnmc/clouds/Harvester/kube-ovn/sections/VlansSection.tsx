@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Input, Select, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined, TagTwoTone, SearchOutlined } from '@ant-design/icons';
 import { deleteKubeOvnVlan,
   fetchKubeOvnProviderNetworks,

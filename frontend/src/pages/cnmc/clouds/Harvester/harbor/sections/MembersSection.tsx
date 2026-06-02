@@ -41,7 +41,7 @@ const ROLE_MAP: Record<number, { name: string; color: string }> = {
 };
 
 const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<HarborProjectMember[]>([]);
   const [keyword, setKeyword] = useState('');
@@ -105,7 +105,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
         }
       },
     }).catch(() => {});
-  }, [harborId, projectName, message, modal, loadMembers]);
+  }, [harborId, projectName, message, loadMembers]);
 
   /**
    * 表格列定义

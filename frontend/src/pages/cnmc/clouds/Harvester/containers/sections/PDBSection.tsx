@@ -381,7 +381,7 @@ const PDBSection: React.FC<Props> = ({
     [user?.permissions],
   );
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);

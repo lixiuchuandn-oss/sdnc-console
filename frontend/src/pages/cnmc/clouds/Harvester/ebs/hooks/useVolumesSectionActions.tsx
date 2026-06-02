@@ -64,7 +64,7 @@ export function useVolumesSectionActions({
   selectedRowKeys,
   setSelectedRowKeys,
 }: UseVolumesSectionActionsParams) {
-  const { message: msg, modal } = App.useApp();
+  const { message: msg } = App.useApp();
   const safeRead = useMemo(() => createVolumeSafeRead(vms), [vms]);
   const burstRefreshVolumes = useStableBurstVolumeRefresh(onRefresh);
 

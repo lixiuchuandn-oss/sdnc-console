@@ -1355,7 +1355,6 @@ const PodsSection: React.FC<Props> = ({
       handleViewLog,
       handleOpenTerminal,
       handleDelete,
-      modal,
       getOwnerWorkload,
       operationsReadOnly,
     ],

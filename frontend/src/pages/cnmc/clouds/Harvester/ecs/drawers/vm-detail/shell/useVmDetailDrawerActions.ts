@@ -1,4 +1,4 @@
-import React, { useCallback } from "react";
+import { useCallback } from "react";
 import { message } from "antd";
 import {
   pauseHarvesterVm,

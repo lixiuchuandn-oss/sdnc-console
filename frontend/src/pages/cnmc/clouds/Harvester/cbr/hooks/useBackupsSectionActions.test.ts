@@ -6,17 +6,22 @@ import { runHarvesterSectionRefresh } from '../lib/cbrSectionRefresh';
 import { useBackupsSectionActions } from './useBackupsSectionActions';
 import type { BackupListRow } from '../lib/backupsSectionUtils';
 
-const mockConfirm = jest.fn();
+const mockConfirmHighRiskDelete = jest.fn();
 
 jest.mock('antd', () => ({
-  Modal: {
-    confirm: (opts: unknown) => mockConfirm(opts),
-  },
   message: {
     error: jest.fn(),
     success: jest.fn(),
     warning: jest.fn(),
   },
+}));
+
+jest.mock('../../shared/lib/highRiskConfirm', () => ({
+  confirmHighRiskDelete: (opts: { onConfirm: () => void | Promise<void> }) => {
+    mockConfirmHighRiskDelete(opts);
+    return Promise.resolve().then(() => opts.onConfirm());
+  },
+  DELETE_RISK_ITEMS: [],
 }));
 
 jest.mock('../lib/checkBackupDeleteBlocked', () => ({
@@ -55,7 +60,7 @@ describe('useBackupsSectionActions', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
-    mockConfirm.mockReset();
+    mockConfirmHighRiskDelete.mockReset();
   });
 
   afterEach(() => {
@@ -117,10 +122,9 @@ describe('useBackupsSectionActions', () => {
       await Promise.resolve();
     });
 
-    expect(mockConfirm).toHaveBeenCalled();
-    const { onOk } = mockConfirm.mock.calls[0][0];
+    expect(mockConfirmHighRiskDelete).toHaveBeenCalled();
     await act(async () => {
-      await onOk();
+      await Promise.resolve();
     });
 
     expect(deleteHarvesterBackup).toHaveBeenCalledWith('cloud-1', 'proj-1', 'bk-a');
@@ -197,7 +201,7 @@ describe('useBackupsSectionActions', () => {
       await result.current.handleDelete(record);
     });
 
-    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockConfirmHighRiskDelete).not.toHaveBeenCalled();
     expect(message.warning).toHaveBeenCalledWith(
       '该备份已有进行中的恢复任务（proj-1/restore-1，进行中），请等待完成后再删除',
     );

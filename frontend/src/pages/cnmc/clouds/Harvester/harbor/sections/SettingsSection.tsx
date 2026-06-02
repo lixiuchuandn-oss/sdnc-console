@@ -170,7 +170,7 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
         }
       },
     }).catch(() => {});
-  }, [harbor.id, message]);
+  }, [harbor.id, harbor.name, message]);
 
   /**
    * 复制到剪贴板

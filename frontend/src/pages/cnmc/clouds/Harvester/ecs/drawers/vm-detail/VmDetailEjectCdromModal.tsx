@@ -1,7 +1,6 @@
 /** 弹出 CD-ROM 确认框（与 VmDetailDrawerShell 同级抽屉壳层 UI） */
 import React from "react";
 import { Checkbox, message } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
 import {
   deleteHarvesterPVC,
   patchHarvesterVm,

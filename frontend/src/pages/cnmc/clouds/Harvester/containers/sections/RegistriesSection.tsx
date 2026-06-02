@@ -679,7 +679,7 @@ const CredentialTable: React.FC<{
   onCreateCredential,
   hasContainersWrite,
 }) => {
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
@@ -896,7 +896,7 @@ const CredentialTable: React.FC<{
       },
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, modal, hasContainersWrite]);
+  ], [handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, hasContainersWrite]);
 
   // 使用列设置 Hook
   const { displayColumns: credentialDisplayColumns } = useTableColumnSettings(
@@ -1038,7 +1038,7 @@ const RegistriesSection: React.FC<Props> = ({
 }) => {
   const { user } = useAuth();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const hasContainersWrite = useMemo(
     () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'registries'),
     [user?.permissions],
@@ -1602,7 +1602,7 @@ const RegistriesSection: React.FC<Props> = ({
         );
       },
     },
-  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, modal, hasContainersWrite]);
+  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, hasContainersWrite]);
   
   // 使用列设置 Hook（镜像仓库）
   const { displayColumns: registryDisplayColumns } = useTableColumnSettings(
