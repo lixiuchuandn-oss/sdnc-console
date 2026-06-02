@@ -25,33 +25,17 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Form,
-  Input,
-  Select,
   Button,
   Space,
-  Card,
   Tag,
-  Divider,
   Row,
   Col,
   App,
   Segmented,
   Alert,
-  Collapse,
-  Radio,
-  Checkbox,
-  Spin,
   Modal,
 } from 'antd';
-import {
-  PlusOutlined,
-  CodeOutlined,
-  FormOutlined,
-  FolderOutlined,
-  CheckOutlined,
-  CopyOutlined,
-  DeleteOutlined,
-} from '@ant-design/icons';
+import { CodeOutlined, FormOutlined, CheckOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import {
   createHarvesterContainerResource,
@@ -78,20 +62,15 @@ import type {
 } from './workloadForm/types';
 
 import {
-  CPU_UNITS,
-  MEMORY_UNITS,
-  IMAGE_PULL_POLICY_OPTIONS,
   WORKLOAD_STEPS,
   DEFAULT_DEPLOYMENT_YAML,
   DEFAULT_STATEFULSET_YAML,
   DEFAULT_DAEMONSET_YAML,
 } from './workloadForm/constants';
 
-import { compareCpuResources, compareMemoryResources } from './workloadForm/resourceUtils';
-
 import { parseK8sError } from './workloadForm/k8sErrors';
 
-import { isIpInCidr, checkIpAvailability } from './workloadForm/networkIpUtils';
+import { isIpInCidr } from './workloadForm/networkIpUtils';
 
 import { createEmptyContainer, toContainerEditorFields } from './workloadForm/containerDefaults';
 import { buildK8sResource } from './workloadForm/buildK8sResource';
@@ -104,10 +83,11 @@ import {
 } from './workloadForm/registryCredentials';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
 
-import { ResourceInput, PortsEditor, EnvEditor, ProbeEditor } from './workloadForm/editors';
 import {
   WorkloadFormStepAdvanced,
   WorkloadFormStepBasic,
+  WorkloadFormStepContainers,
+  WorkloadFormStepNetwork,
   WorkloadFormStepStorage,
 } from './workloadForm/steps';
 import type {
@@ -163,17 +143,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
   // 网络配置数据状态
 
-  // 静态 IP 检测状态
-  const [checkingStaticIP, setCheckingStaticIP] = useState(false);
-  const [staticIPCheckResult, setStaticIPCheckResult] = useState<{
-    checked: boolean;
-    available: boolean;
-    reason: string;
-  } | null>(null);
-
-  // 监听表单字段变化
-  const enableStaticIPWatch = Form.useWatch('enableStaticIP', form);
-
   const [, setContainersVersion] = useState(0);
 
   const editMetadata = editData?.metadata;
@@ -204,6 +173,31 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     () => buildMergedRegistryList(localStorageRegistries, secretsWithCredentials),
     [localStorageRegistries, secretsWithCredentials],
   );
+
+  const handleBrowseRegistry = useCallback(() => {
+    if (allRegistries.length > 0) {
+      const currentImage = form.getFieldValue('image');
+      let targetCredential = localRegistryToCredential(allRegistries[0]);
+      if (currentImage) {
+        const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
+        if (serverMatch) {
+          const serverFromImage = serverMatch[1];
+          const matchingRegistry = allRegistries.find((r) => r.server === serverFromImage);
+          if (matchingRegistry) {
+            targetCredential = localRegistryToCredential(matchingRegistry);
+          }
+        }
+      }
+      if (targetCredential) {
+        setBrowserCredential(targetCredential);
+        setBrowserVisible(true);
+      } else {
+        message.error('解析镜像凭证失败，请检查凭证配置');
+      }
+    } else {
+      message.warning('请先在镜像仓库中添加仓库或创建凭证');
+    }
+  }, [allRegistries, form, message]);
 
   const syncContainerEditorToForm = useCallback(
     (container: Partial<WorkloadContainerFormValue> | undefined) => {
@@ -285,46 +279,52 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setContainersVersion((v) => v + 1);
   }, [form, getSyncedFormValues, syncContainerEditorToForm]);
 
-  const _handleDuplicateContainer = useCallback(() => {
-    const syncedValues = getSyncedFormValues();
-    const nextContainers = [...(syncedValues.containers || [])];
-    const current = nextContainers[activeContainerIndex];
-    if (!current) return;
-    nextContainers.splice(activeContainerIndex + 1, 0, {
-      ...current,
-      containerName: current.containerName
-        ? `${current.containerName}-copy`
-        : `container-${nextContainers.length + 1}`,
-      ports: [...(current.ports || [])],
-      env: [...(current.env || [])],
-      resources: {
-        requests: { ...(current.resources?.requests || {}) },
-        limits: { ...(current.resources?.limits || {}) },
-      },
-      command: [...(current.command || [])],
-      args: [...(current.args || [])],
-      volumeMounts: [...(current.volumeMounts || [])],
-    });
-    form.setFieldsValue({ containers: nextContainers });
-    setActiveContainerIndex(activeContainerIndex + 1);
-    syncContainerEditorToForm(nextContainers[activeContainerIndex + 1]);
-    setContainersVersion((v) => v + 1);
-  }, [activeContainerIndex, form, getSyncedFormValues, syncContainerEditorToForm]);
+  const handleDuplicateContainer = useCallback(
+    (index: number) => {
+      const syncedValues = getSyncedFormValues();
+      const nextContainers = [...(syncedValues.containers || [])];
+      const current = nextContainers[index];
+      if (!current) return;
+      nextContainers.splice(index + 1, 0, {
+        ...current,
+        containerName: current.containerName
+          ? `${current.containerName}-copy`
+          : `container-${nextContainers.length + 1}`,
+        ports: [...(current.ports || [])],
+        env: [...(current.env || [])],
+        resources: {
+          requests: { ...(current.resources?.requests || {}) },
+          limits: { ...(current.resources?.limits || {}) },
+        },
+        command: [...(current.command || [])],
+        args: [...(current.args || [])],
+        volumeMounts: [...(current.volumeMounts || [])],
+      });
+      form.setFieldsValue({ containers: nextContainers });
+      setActiveContainerIndex(index + 1);
+      syncContainerEditorToForm(nextContainers[index + 1]);
+      setContainersVersion((v) => v + 1);
+    },
+    [form, getSyncedFormValues, syncContainerEditorToForm],
+  );
 
-  const _handleRemoveContainer = useCallback(() => {
-    const syncedValues = getSyncedFormValues();
-    const nextContainers = [...(syncedValues.containers || [])];
-    if (nextContainers.length <= 1) {
-      message.warning('至少需要保留一个容器');
-      return;
-    }
-    nextContainers.splice(activeContainerIndex, 1);
-    const nextIndex = Math.max(0, activeContainerIndex - 1);
-    form.setFieldsValue({ containers: nextContainers });
-    setActiveContainerIndex(nextIndex);
-    syncContainerEditorToForm(nextContainers[nextIndex]);
-    setContainersVersion((v) => v + 1);
-  }, [activeContainerIndex, form, getSyncedFormValues, message, syncContainerEditorToForm]);
+  const handleRemoveContainer = useCallback(
+    (index: number) => {
+      const syncedValues = getSyncedFormValues();
+      const nextContainers = [...(syncedValues.containers || [])];
+      if (nextContainers.length <= 1) {
+        message.warning('至少需要保留一个容器');
+        return;
+      }
+      nextContainers.splice(index, 1);
+      const nextIndex = Math.max(0, index - 1);
+      form.setFieldsValue({ containers: nextContainers });
+      setActiveContainerIndex(nextIndex);
+      syncContainerEditorToForm(nextContainers[nextIndex]);
+      setContainersVersion((v) => v + 1);
+    },
+    [form, getSyncedFormValues, message, syncContainerEditorToForm],
+  );
 
   // 编辑模式：初始化表单数据
   useEffect(() => {
@@ -367,121 +367,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     defaultNamespace,
     editData,
   });
-
-  // 静态 IP 检测函数（调用后端API）
-  const handleCheckStaticIP = useCallback(async () => {
-    const staticIP = form.getFieldValue('staticIP');
-    const networkType = form.getFieldValue('networkType');
-
-    if (!staticIP) {
-      message.warning('请先输入静态 IP 地址');
-      return;
-    }
-
-    // 验证 IP 格式
-    const ipPattern = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-    if (!ipPattern.test(staticIP)) {
-      message.error('请输入有效的 IPv4 地址');
-      return;
-    }
-
-    // 获取当前子网信息
-    let subnetName: string | undefined;
-    let subnetNs = 'default';
-
-    if (networkType === 'flat_subnet') {
-      const flatSubnetValue = form.getFieldValue('flatSubnet');
-      if (flatSubnetValue) {
-        const parts = flatSubnetValue.split('/');
-        if (parts.length === 2) {
-          subnetNs = parts[0];
-          subnetName = parts[1];
-        } else {
-          subnetName = flatSubnetValue;
-        }
-      }
-    } else if (networkType === 'vpc') {
-      const vpcSubnetValue = form.getFieldValue('vpcSubnet');
-      if (vpcSubnetValue) {
-        const parts = vpcSubnetValue.split('/');
-        if (parts.length === 2) {
-          subnetNs = parts[0];
-          subnetName = parts[1];
-        } else {
-          subnetName = vpcSubnetValue;
-        }
-      }
-    }
-
-    if (!subnetName) {
-      message.warning('请先选择子网');
-      return;
-    }
-
-    setCheckingStaticIP(true);
-
-    try {
-      // 调用后端API检测IP是否已被使用
-      const res = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, staticIP);
-      const data = res?.data || res;
-      const used = data?.used === true;
-      const usedBy = data?.usedBy || '';
-
-      setStaticIPCheckResult({
-        checked: true,
-        available: !used,
-        reason: used ? `IP 已被使用（被 ${usedBy} 占用）` : 'IP 可用，未被其他工作负载使用',
-      });
-
-      if (used) {
-        message.error(`IP ${staticIP} 已被使用（被 ${usedBy} 占用）`);
-      } else {
-        message.success('IP 可用');
-      }
-    } catch (e: any) {
-      // API调用失败，回退到本地检测
-      console.warn('静态IP检测API调用失败，回退到本地检测:', e);
-      let currentSubnet: any = null;
-
-      if (networkType === 'flat_subnet') {
-        const flatSubnetValue = form.getFieldValue('flatSubnet');
-        const flatSubnetOption = flatSubnetOptions.find((opt) => opt.value === flatSubnetValue);
-        currentSubnet = flatSubnetOption?.subnet;
-      } else if (networkType === 'vpc') {
-        const vpcSubnetValue = form.getFieldValue('vpcSubnet');
-        if (vpcSubnetValue) {
-          const parts = vpcSubnetValue.split('/');
-          const sn = parts.length === 2 ? parts[1] : parts[0];
-          currentSubnet = kubeSubnets.find(
-            (s) => (s.name || s?.metadata?.name) === sn && (s.vpc || s?.spec?.vpc) === selectedVpc,
-          );
-        }
-      }
-
-      if (currentSubnet) {
-        const result = checkIpAvailability(staticIP, currentSubnet);
-        setStaticIPCheckResult({
-          checked: true,
-          available: result.available,
-          reason: result.reason,
-        });
-        if (!result.available) {
-          message.error(result.reason);
-        } else {
-          message.success(result.reason);
-        }
-      } else {
-        setStaticIPCheckResult({
-          checked: true,
-          available: false,
-          reason: '检测失败：无法获取子网信息',
-        });
-        message.error('IP检测失败：无法获取子网信息');
-      }
-    } finally {
-      setCheckingStaticIP(false);
-    }
-  }, [cloudId, form, flatSubnetOptions, kubeSubnets, selectedVpc, message]);
 
   // 监听工作负载类型变化
   const workloadType = Form.useWatch('workloadType', form) || defaultType;
@@ -1360,856 +1245,43 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         );
 
       case 1:
-        const containers = getSyncedFormValues().containers || [];
         return (
-          <div>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="容器配置"
-              description={
-                <div>
-                  <div>
-                    每个容器独立配置镜像、端口、环境变量、资源限制、启动命令和健康检查。点击容器卡片可展开详细配置。
-                  </div>
-                  <div style={{ marginTop: 8, color: '#faad14' }}>
-                    <strong>注意：</strong>Kubernetes 限制镜像拉取凭证只能在 Pod
-                    级别配置。如果您在多个容器中配置了不同的凭证，系统会自动合并去重后应用到 Pod。
-                  </div>
-                </div>
-              }
-            />
-            {containers.map((container, index) => {
-              const isActive = index === activeContainerIndex;
-              const portsCount = container.ports?.length || 0;
-              const envCount = container.env?.length || 0;
-              const resourcesCount =
-                container.resources?.requests?.cpu ||
-                container.resources?.requests?.memory ||
-                container.resources?.limits?.cpu ||
-                container.resources?.limits?.memory
-                  ? 1
-                  : 0;
-              const commandCount = container.command?.length || container.args?.length ? 1 : 0;
-              const probeCount =
-                (container.livenessProbe?.enabled ? 1 : 0) +
-                (container.readinessProbe?.enabled ? 1 : 0);
-
-              return (
-                <Card
-                  key={`container-${index}`}
-                  size="small"
-                  style={{
-                    marginBottom: 16,
-                    border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0',
-                  }}
-                  title={
-                    <Space>
-                      <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
-                      <span style={{ fontWeight: 500 }}>
-                        {container.containerName || `container-${index + 1}`}
-                      </span>
-                      {isActive && <Tag color="processing">编辑中</Tag>}
-                    </Space>
-                  }
-                  extra={
-                    <Space>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<CopyOutlined />}
-                        onClick={() => {
-                          const syncedValues = getSyncedFormValues();
-                          const nextContainers = [...(syncedValues.containers || [])];
-                          const current = nextContainers[index];
-                          if (!current) return;
-                          nextContainers.splice(index + 1, 0, {
-                            ...current,
-                            containerName: current.containerName
-                              ? `${current.containerName}-copy`
-                              : `container-${nextContainers.length + 1}`,
-                            ports: [...(current.ports || [])],
-                            env: [...(current.env || [])],
-                            resources: {
-                              requests: { ...(current.resources?.requests || {}) },
-                              limits: { ...(current.resources?.limits || {}) },
-                            },
-                            command: [...(current.command || [])],
-                            args: [...(current.args || [])],
-                            volumeMounts: [...(current.volumeMounts || [])],
-                          });
-                          form.setFieldsValue({ containers: nextContainers });
-                          setActiveContainerIndex(index + 1);
-                          syncContainerEditorToForm(nextContainers[index + 1]);
-                          setContainersVersion((v) => v + 1);
-                        }}
-                      >
-                        复制
-                      </Button>
-                      {containers.length > 1 && (
-                        <Button
-                          type="text"
-                          size="small"
-                          danger
-                          icon={<DeleteOutlined />}
-                          onClick={() => {
-                            const syncedValues = getSyncedFormValues();
-                            const nextContainers = [...(syncedValues.containers || [])];
-                            if (nextContainers.length <= 1) {
-                              message.warning('至少需要保留一个容器');
-                              return;
-                            }
-                            nextContainers.splice(index, 1);
-                            const nextIndex = Math.max(0, index - 1);
-                            form.setFieldsValue({ containers: nextContainers });
-                            setActiveContainerIndex(nextIndex);
-                            syncContainerEditorToForm(nextContainers[nextIndex]);
-                            setContainersVersion((v) => v + 1);
-                          }}
-                        >
-                          删除
-                        </Button>
-                      )}
-                    </Space>
-                  }
-                >
-                  {isActive ? (
-                    <>
-                      <Form.Item
-                        name="image"
-                        label="镜像地址"
-                        rules={[{ required: true, message: '请输入镜像地址' }]}
-                        extra={
-                          <span style={{ color: '#999' }}>
-                            例如: nginx:latest 或 harbor.example.com/library/nginx:v1.0
-                          </span>
-                        }
-                      >
-                        <Input
-                          placeholder="镜像地址"
-                          addonAfter={
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<FolderOutlined />}
-                              onClick={() => {
-                                if (allRegistries.length > 0) {
-                                  const currentImage = form.getFieldValue('image');
-                                  let targetCredential = localRegistryToCredential(
-                                    allRegistries[0],
-                                  );
-                                  if (currentImage) {
-                                    const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
-                                    if (serverMatch) {
-                                      const serverFromImage = serverMatch[1];
-                                      const matchingRegistry = allRegistries.find(
-                                        (r) => r.server === serverFromImage,
-                                      );
-                                      if (matchingRegistry) {
-                                        targetCredential =
-                                          localRegistryToCredential(matchingRegistry);
-                                      }
-                                    }
-                                  }
-                                  if (targetCredential) {
-                                    setBrowserCredential(targetCredential);
-                                    setBrowserVisible(true);
-                                  } else {
-                                    message.error('解析镜像凭证失败，请检查凭证配置');
-                                  }
-                                } else {
-                                  message.warning('请先在镜像仓库中添加仓库或创建凭证');
-                                }
-                              }}
-                            >
-                              浏览仓库
-                            </Button>
-                          }
-                        />
-                      </Form.Item>
-                      <Row gutter={16}>
-                        <Col span={12}>
-                          <Form.Item
-                            name="containerName"
-                            label="容器名称"
-                            extra="默认与工作负载名称相同，仅支持小写字母、数字和连字符"
-                            rules={[
-                              {
-                                pattern: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
-                                message:
-                                  '容器名称只能包含小写字母、数字和连字符，且开头结尾必须是字母或数字',
-                              },
-                            ]}
-                          >
-                            <Input placeholder="容器名称 (可选)" />
-                          </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                          <Form.Item
-                            name="imagePullPolicy"
-                            label="镜像拉取策略"
-                            initialValue="IfNotPresent"
-                          >
-                            <Select options={IMAGE_PULL_POLICY_OPTIONS} />
-                          </Form.Item>
-                        </Col>
-                      </Row>
-                      <Form.Item
-                        name="imagePullSecrets"
-                        label="镜像拉取凭证"
-                        extra={<span style={{ color: '#999' }}>选择此容器使用的镜像仓库凭证</span>}
-                      >
-                        <Select
-                          mode="multiple"
-                          placeholder="选择镜像拉取凭证"
-                          allowClear
-                          options={(imagePullSecrets || []).map((secret) => {
-                            const alias = secret?.metadata?.annotations?.['tower.io/alias'];
-                            const name = secret?.metadata?.name;
-                            return {
-                              label: alias ? `${alias} (${name})` : name,
-                              value: name,
-                            };
-                          })}
-                        />
-                      </Form.Item>
-                      <Collapse
-                        ghost
-                        defaultActiveKey={[]}
-                        items={[
-                          {
-                            key: 'ports',
-                            label: `端口配置 (${portsCount})`,
-                            children: <PortsEditor />,
-                          },
-                          {
-                            key: 'env',
-                            label: `环境变量 (${envCount})`,
-                            children: (
-                              <EnvEditor
-                                cloudId={cloudId}
-                                namespacesOptions={namespacesOptions}
-                                selectedNamespace={
-                                  form.getFieldValue('namespace') || defaultNamespace || 'default'
-                                }
-                                configMaps={configMaps}
-                                secrets={secrets}
-                                onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-                                onRefreshSecrets={() => onRefreshSecrets?.()}
-                                onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-                                onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-                              />
-                            ),
-                          },
-                          {
-                            key: 'resources',
-                            label: `资源限制 (${resourcesCount})`,
-                            children: (
-                              <>
-                                <Row gutter={16}>
-                                  <Col span={12}>
-                                    <Form.Item
-                                      name={['resources', 'requests', 'cpu']}
-                                      label="CPU 请求"
-                                      dependencies={[['resources', 'limits', 'cpu']]}
-                                      rules={[
-                                        {
-                                          validator: (_, value) => {
-                                            if (!value) return Promise.resolve();
-                                            const limit = form.getFieldValue([
-                                              'resources',
-                                              'limits',
-                                              'cpu',
-                                            ]);
-                                            if (limit && compareCpuResources(value, limit) > 0) {
-                                              return Promise.reject(
-                                                new Error('请求值不能超过限制值'),
-                                              );
-                                            }
-                                            return Promise.resolve();
-                                          },
-                                        },
-                                      ]}
-                                    >
-                                      <ResourceInput
-                                        placeholder="如: 100"
-                                        units={CPU_UNITS}
-                                        defaultUnit="m"
-                                        unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5"
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col span={12}>
-                                    <Form.Item
-                                      name={['resources', 'limits', 'cpu']}
-                                      label="CPU 限制"
-                                      dependencies={[['resources', 'requests', 'cpu']]}
-                                      rules={[
-                                        {
-                                          validator: (_, value) => {
-                                            if (!value) return Promise.resolve();
-                                            const request = form.getFieldValue([
-                                              'resources',
-                                              'requests',
-                                              'cpu',
-                                            ]);
-                                            if (
-                                              request &&
-                                              compareCpuResources(request, value) > 0
-                                            ) {
-                                              return Promise.reject(
-                                                new Error('限制值不能小于请求值'),
-                                              );
-                                            }
-                                            return Promise.resolve();
-                                          },
-                                        },
-                                      ]}
-                                    >
-                                      <ResourceInput
-                                        placeholder="如: 500"
-                                        units={CPU_UNITS}
-                                        defaultUnit="m"
-                                        unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5"
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                </Row>
-                                <Row gutter={16}>
-                                  <Col span={12}>
-                                    <Form.Item
-                                      name={['resources', 'requests', 'memory']}
-                                      label="内存请求"
-                                      dependencies={[['resources', 'limits', 'memory']]}
-                                      rules={[
-                                        {
-                                          validator: (_, value) => {
-                                            if (!value) return Promise.resolve();
-                                            const limit = form.getFieldValue([
-                                              'resources',
-                                              'limits',
-                                              'memory',
-                                            ]);
-                                            if (limit && compareMemoryResources(value, limit) > 0) {
-                                              return Promise.reject(
-                                                new Error('请求值不能超过限制值'),
-                                              );
-                                            }
-                                            return Promise.resolve();
-                                          },
-                                        },
-                                      ]}
-                                    >
-                                      <ResourceInput
-                                        placeholder="如: 128"
-                                        units={MEMORY_UNITS}
-                                        defaultUnit="Mi"
-                                        unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可"
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col span={12}>
-                                    <Form.Item
-                                      name={['resources', 'limits', 'memory']}
-                                      label="内存限制"
-                                      dependencies={[['resources', 'requests', 'memory']]}
-                                      rules={[
-                                        {
-                                          validator: (_, value) => {
-                                            if (!value) return Promise.resolve();
-                                            const request = form.getFieldValue([
-                                              'resources',
-                                              'requests',
-                                              'memory',
-                                            ]);
-                                            if (
-                                              request &&
-                                              compareMemoryResources(request, value) > 0
-                                            ) {
-                                              return Promise.reject(
-                                                new Error('限制值不能小于请求值'),
-                                              );
-                                            }
-                                            return Promise.resolve();
-                                          },
-                                        },
-                                      ]}
-                                    >
-                                      <ResourceInput
-                                        placeholder="如: 512"
-                                        units={MEMORY_UNITS}
-                                        defaultUnit="Mi"
-                                        unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可"
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                </Row>
-                              </>
-                            ),
-                          },
-                          {
-                            key: 'command',
-                            label: `启动命令 (${commandCount})`,
-                            children: (
-                              <Row gutter={16}>
-                                <Col span={12}>
-                                  <Form.Item
-                                    name="command"
-                                    label="启动命令"
-                                    extra="覆盖容器默认入口点，多个命令用逗号分隔"
-                                    rules={[
-                                      {
-                                        validator: (_, value) => {
-                                          if (!value || !Array.isArray(value))
-                                            return Promise.resolve();
-                                          const chineseRegex = /[\u4e00-\u9fa5]/;
-                                          for (let i = 0; i < value.length; i++) {
-                                            if (chineseRegex.test(value[i])) {
-                                              return Promise.reject(new Error('不能包含中文字符'));
-                                            }
-                                          }
-                                          return Promise.resolve();
-                                        },
-                                      },
-                                    ]}
-                                  >
-                                    <Select
-                                      mode="tags"
-                                      placeholder="如: /bin/sh"
-                                      style={{ width: '100%' }}
-                                      tokenSeparators={[',']}
-                                    />
-                                  </Form.Item>
-                                </Col>
-                                <Col span={12}>
-                                  <Form.Item
-                                    name="args"
-                                    label="启动参数"
-                                    extra="传递给入口点的参数，多个参数用逗号分隔"
-                                    rules={[
-                                      {
-                                        validator: (_, value) => {
-                                          if (!value || !Array.isArray(value))
-                                            return Promise.resolve();
-                                          const chineseRegex = /[\u4e00-\u9fa5]/;
-                                          for (let i = 0; i < value.length; i++) {
-                                            if (chineseRegex.test(value[i])) {
-                                              return Promise.reject(new Error('不能包含中文字符'));
-                                            }
-                                          }
-                                          return Promise.resolve();
-                                        },
-                                      },
-                                    ]}
-                                  >
-                                    <Select
-                                      mode="tags"
-                                      placeholder="如: -c, script.sh"
-                                      style={{ width: '100%' }}
-                                      tokenSeparators={[',']}
-                                    />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                            ),
-                          },
-                          {
-                            key: 'probes',
-                            label: `健康检查 (${probeCount})`,
-                            children: (
-                              <>
-                                <ProbeEditor
-                                  name="livenessProbe"
-                                  label="存活探针 (Liveness Probe)"
-                                />
-                                <ProbeEditor
-                                  name="readinessProbe"
-                                  label="就绪探针 (Readiness Probe)"
-                                />
-                              </>
-                            ),
-                          },
-                        ]}
-                      />
-                    </>
-                  ) : (
-                    <div
-                      onClick={() => handleSelectContainer(index)}
-                      style={{ cursor: 'pointer', padding: '8px 0' }}
-                    >
-                      <div style={{ color: '#666', fontSize: 13 }}>
-                        {container.image || '未配置镜像'}
-                      </div>
-                      <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
-                        端口 {portsCount} / 环境变量 {envCount} / 挂载{' '}
-                        {container.volumeMounts?.length || 0}
-                      </div>
-                    </div>
-                  )}
-                </Card>
-              );
-            })}
-            <Button
-              type="dashed"
-              block
-              icon={<PlusOutlined />}
-              onClick={handleAddContainer}
-              style={{ marginBottom: 16 }}
-            >
-              添加容器
-            </Button>
-          </div>
+          <WorkloadFormStepContainers
+            containers={getSyncedFormValues().containers || []}
+            activeContainerIndex={activeContainerIndex}
+            onSelectContainer={handleSelectContainer}
+            onDuplicateContainer={handleDuplicateContainer}
+            onRemoveContainer={handleRemoveContainer}
+            onAddContainer={handleAddContainer}
+            onBrowseRegistry={handleBrowseRegistry}
+            cloudId={cloudId}
+            defaultNamespace={defaultNamespace}
+            namespacesOptions={namespacesOptions}
+            imagePullSecrets={imagePullSecrets}
+            configMaps={configMaps}
+            secrets={secrets}
+            onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+            onRefreshSecrets={() => onRefreshSecrets?.()}
+            onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+            onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+          />
         );
 
       case 2:
-        // 网络配置步骤
-        const networkType = form.getFieldValue('networkType') || 'default';
-
         return (
-          <div>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="网络配置"
-              description={
-                <div>
-                  <div>
-                    配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义
-                    NAD。
-                  </div>
-                  <div style={{ marginTop: 8, color: '#faad14' }}>
-                    💡 提示：如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载。
-                  </div>
-                </div>
-              }
-            />
-
-            {loadingNetworkData ? (
-              <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <Spin tip="加载网络数据..." />
-              </div>
-            ) : (
-              <>
-                <Form.Item
-                  name="networkType"
-                  label="网络类型"
-                  initialValue="default"
-                  extra="选择 Pod 使用的网络类型"
-                >
-                  <Radio.Group>
-                    <Radio value="default">默认网络（Pod网络）</Radio>
-                    {!hideFlatSubnet && <Radio value="flat_subnet">扁平子网</Radio>}
-                    <Radio value="vpc">VPC子网</Radio>
-                    <Radio value="custom_nad">自定义NAD</Radio>
-                  </Radio.Group>
-                </Form.Item>
-
-                {networkType === 'flat_subnet' && (
-                  <>
-                    {flatSubnetOptions.length === 0 && !loadingNetworkData && (
-                      <Alert
-                        type="warning"
-                        showIcon
-                        style={{ marginBottom: 16 }}
-                        message="未找到扁平子网"
-                        description={
-                          <div>
-                            <div>
-                              请确保已在资源池中创建扁平子网（Kube-OVN 子网，VPC 为
-                              ovn-internal，注解 tower.io/subnet-type=flat）
-                            </div>
-                            <div style={{ marginTop: 8 }}>
-                              当前加载了 {kubeSubnets.length} 个子网，
-                              {
-                                kubeSubnets.filter((s) => isFlatVpc(s?.vpc || s?.spec?.vpc)).length
-                              }{' '}
-                              个属于扁平 VPC
-                            </div>
-                            <div style={{ marginTop: 8, color: '#1677ff' }}>
-                              💡 如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再重试。
-                            </div>
-                          </div>
-                        }
-                      />
-                    )}
-                    {flatSubnetOptions.length > 0 && (
-                      <Alert
-                        type="info"
-                        showIcon
-                        style={{ marginBottom: 16 }}
-                        message="子网选择提示"
-                        description="如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载，否则可能出现 NAD 未找到的错误。"
-                      />
-                    )}
-                    <Form.Item
-                      name="flatSubnet"
-                      label="选择子网"
-                      rules={[{ required: true, message: '请选择扁平子网' }]}
-                      extra="扁平子网提供 Underlay 网络连接，将自动生成 NAD 引用"
-                    >
-                      <Select
-                        placeholder="选择扁平子网"
-                        showSearch
-                        optionFilterProp="label"
-                        options={flatSubnetOptions}
-                      />
-                    </Form.Item>
-                  </>
-                )}
-
-                {networkType === 'vpc' && (
-                  <>
-                    <Alert
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 16 }}
-                      message="子网选择提示"
-                      description="如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载，否则可能出现 NAD 未找到的错误。"
-                    />
-                    <Form.Item
-                      name="vpcName"
-                      label="选择VPC"
-                      rules={[{ required: true, message: '请选择VPC' }]}
-                    >
-                      <Select
-                        placeholder="选择VPC"
-                        showSearch
-                        optionFilterProp="label"
-                        options={vpcOptions}
-                        onChange={() => {
-                          // VPC 变化时清空子网选择
-                          form.setFieldsValue({ vpcSubnet: undefined });
-                        }}
-                      />
-                    </Form.Item>
-                    <Form.Item
-                      name="vpcSubnet"
-                      label="选择子网"
-                      rules={[{ required: true, message: '请选择子网' }]}
-                    >
-                      <Select
-                        placeholder={selectedVpc ? '选择子网' : '请先选择VPC'}
-                        showSearch
-                        optionFilterProp="label"
-                        options={vpcSubnetOptions.map((opt) => {
-                          // 查找子网对象生成 NAD 引用
-                          const subnet = (kubeSubnets || []).find(
-                            (s) =>
-                              (s.name || s?.metadata?.name) === opt.value &&
-                              (s.vpc || s?.spec?.vpc) === selectedVpc,
-                          );
-
-                          let nadRef = opt.value;
-                          if (subnet) {
-                            let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
-                            if (!subnetNs) {
-                              const provider = subnet?.provider || subnet?.spec?.provider;
-                              if (provider) {
-                                const parts = provider.split('.');
-                                if (parts.length >= 2) subnetNs = parts[parts.length - 2];
-                              }
-                            }
-                            subnetNs = subnetNs || 'default';
-                            nadRef = `${subnetNs}/${opt.value}`;
-                          }
-
-                          return {
-                            ...opt,
-                            value: nadRef,
-                          };
-                        })}
-                        disabled={!selectedVpc}
-                      />
-                    </Form.Item>
-                  </>
-                )}
-
-                {networkType === 'custom_nad' && (
-                  <Form.Item
-                    name="customNad"
-                    label="选择NAD"
-                    rules={[{ required: true, message: '请选择NAD' }]}
-                    extra="选择已创建的网络附件定义（NetworkAttachmentDefinition）"
-                  >
-                    <Select
-                      placeholder="选择NAD网络"
-                      options={allNadOptions}
-                      showSearch
-                      optionFilterProp="label"
-                      allowClear
-                      onDropdownVisibleChange={(open) => {
-                        if (open) {
-                          void reloadNads();
-                        }
-                      }}
-                    />
-                  </Form.Item>
-                )}
-
-                <Divider />
-
-                {networkType !== 'default' &&
-                  networkType !== 'custom_nad' &&
-                  (() => {
-                    // 获取当前子网的 CIDR 信息
-                    let currentCidr: string | undefined;
-
-                    if (networkType === 'flat_subnet') {
-                      const flatSubnetValue = form.getFieldValue('flatSubnet');
-                      const flatSubnetOption = flatSubnetOptions.find(
-                        (opt) => opt.value === flatSubnetValue,
-                      );
-                      currentCidr =
-                        flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
-                    } else if (networkType === 'vpc') {
-                      const vpcSubnetValue = form.getFieldValue('vpcSubnet');
-                      if (vpcSubnetValue) {
-                        const parts = vpcSubnetValue.split('/');
-                        const subnetName = parts.length === 2 ? parts[1] : parts[0];
-                        const subnet = kubeSubnets.find(
-                          (s) =>
-                            (s.name || s?.metadata?.name) === subnetName &&
-                            (s.vpc || s?.spec?.vpc) === selectedVpc,
-                        );
-                        currentCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
-                      }
-                    }
-
-                    return (
-                      <Form.Item label="静态IP配置">
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                          <Form.Item name="enableStaticIP" valuePropName="checked" noStyle>
-                            <Checkbox>启用静态IP</Checkbox>
-                          </Form.Item>
-                          {(enableStaticIPWatch ?? form.getFieldValue('enableStaticIP')) && (
-                            <>
-                              {currentCidr && (
-                                <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
-                                  子网 CIDR: <Tag color="blue">{currentCidr}</Tag>
-                                </div>
-                              )}
-                              <Form.Item
-                                name="staticIP"
-                                label="静态IP地址"
-                                rules={[
-                                  { required: true, message: '请输入静态IP地址' },
-                                  {
-                                    pattern:
-                                      /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                                    message: '请输入有效的IPv4地址',
-                                  },
-                                  ...(currentCidr
-                                    ? [
-                                        {
-                                          validator: (_: any, value: string) => {
-                                            if (!value || isIpInCidr(value, currentCidr!)) {
-                                              return Promise.resolve();
-                                            }
-                                            return Promise.reject(
-                                              new Error(
-                                                `IP 地址不在子网 CIDR 范围 ${currentCidr} 内`,
-                                              ),
-                                            );
-                                          },
-                                        } as any,
-                                      ]
-                                    : []),
-                                  {
-                                    validator: () => {
-                                      if (staticIPCheckResult && !staticIPCheckResult.available) {
-                                        return Promise.reject(
-                                          new Error(staticIPCheckResult.reason),
-                                        );
-                                      }
-                                      return Promise.resolve();
-                                    },
-                                  },
-                                ]}
-                                extra={
-                                  currentCidr
-                                    ? `子网 CIDR: ${currentCidr}`
-                                    : '请先选择子网以获取 CIDR 范围'
-                                }
-                              >
-                                <Input
-                                  placeholder="例如: 192.168.1.100"
-                                  addonAfter={
-                                    <Button
-                                      type="link"
-                                      size="small"
-                                      loading={checkingStaticIP}
-                                      onClick={handleCheckStaticIP}
-                                      style={{ padding: '0 8px' }}
-                                    >
-                                      检测
-                                    </Button>
-                                  }
-                                  onChange={() => {
-                                    setStaticIPCheckResult(null);
-                                  }}
-                                />
-                              </Form.Item>
-                              {staticIPCheckResult && (
-                                <Alert
-                                  type={staticIPCheckResult.available ? 'success' : 'error'}
-                                  showIcon
-                                  style={{ marginBottom: 16 }}
-                                  message={staticIPCheckResult.available ? 'IP 可用' : 'IP 不可用'}
-                                  description={staticIPCheckResult.reason}
-                                />
-                              )}
-                              {!staticIPCheckResult && (
-                                <Alert
-                                  type="warning"
-                                  showIcon
-                                  style={{ marginBottom: 16 }}
-                                  message="建议点击「检测」按钮验证 IP 是否可用后再提交"
-                                />
-                              )}
-                            </>
-                          )}
-                        </Space>
-                      </Form.Item>
-                    );
-                  })()}
-
-                {networkType !== 'default' && (
-                  <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginTop: 16 }}
-                    message="注意"
-                    description={
-                      <div>
-                        <div>
-                          选择非默认网络类型时，请确保集群已正确配置对应的网络插件（如 Kube-OVN）。
-                        </div>
-                        {networkType === 'flat_subnet' && (
-                          <div style={{ marginTop: 8 }}>
-                            扁平子网需要 Pod 所在节点配置对应的物理网络接口。
-                          </div>
-                        )}
-                        {networkType === 'vpc' && (
-                          <div style={{ marginTop: 8 }}>
-                            VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。
-                          </div>
-                        )}
-                        {networkType === 'custom_nad' && (
-                          <div style={{ marginTop: 8 }}>
-                            自定义 NAD 仅展示当前命名空间下混杂模式已开启的网络。Kube-OVN 类型的 NAD
-                            将自动补充子网注解。非 Kube-OVN 类型（如 macvlan/bridge）的 NAD 需在 NAD
-                            配置中设置 IPAM（如 DHCP 或静态 IP）才能为容器分配 IP 地址。
-                          </div>
-                        )}
-                      </div>
-                    }
-                  />
-                )}
-              </>
-            )}
-          </div>
+          <WorkloadFormStepNetwork
+            cloudId={cloudId}
+            hideFlatSubnet={hideFlatSubnet}
+            loadingNetworkData={loadingNetworkData}
+            isFlatVpc={isFlatVpc}
+            flatSubnetOptions={flatSubnetOptions}
+            vpcOptions={vpcOptions}
+            vpcSubnetOptions={vpcSubnetOptions}
+            selectedVpc={selectedVpc}
+            allNadOptions={allNadOptions}
+            reloadNads={reloadNads}
+            kubeSubnets={kubeSubnets}
+          />
         );
 
       case 3:

@@ -4,3 +4,7 @@ export { default as WorkloadFormStepStorage } from './WorkloadFormStepStorage';
 export type { WorkloadFormStepStorageProps } from './WorkloadFormStepStorage';
 export { default as WorkloadFormStepAdvanced } from './WorkloadFormStepAdvanced';
 export type { WorkloadFormStepAdvancedProps } from './WorkloadFormStepAdvanced';
+export { default as WorkloadFormStepContainers } from './WorkloadFormStepContainers';
+export type { WorkloadFormStepContainersProps } from './WorkloadFormStepContainers';
+export { default as WorkloadFormStepNetwork } from './WorkloadFormStepNetwork';
+export type { WorkloadFormStepNetworkProps } from './WorkloadFormStepNetwork';
