@@ -93,21 +93,38 @@ function matchesExcludedPrefix(base: string, prefixes: readonly string[]): boole
   return prefixes.some((pfx) => base === pfx || base.startsWith(`${pfx}.`));
 }
 
-/** 是否纳入「云租户根用户」内置 clouds.* 权限 */
-function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+/** 租户 scope 角色抽屉可配置的 clouds.* 权限（含 clouds.images:write，供自定义角色勾选） */
+function isTenantRootConfigurableCloudPermission(permission: string): boolean {
   const base = permissionBase(permission);
   if (permission === 'clouds:read' || permission === 'clouds:write') return false;
   if (!base.startsWith('clouds.')) return false;
   if (matchesExcludedPrefix(base, TENANT_ROOT_CNMC_EXCLUDED_PREFIXES)) return false;
   // 子网汇总权会在角色抽屉拆成 vpc/flat/public，勿授予 write（否则扁平子网「读写」被误勾）
   if (base === 'clouds.subnets') return false;
-  if (permission === 'clouds.images:write') return false;
   if (permission === 'clouds.subnets.flat:write') return false;
   if (isTenantConsoleUmbrellaPermission(permission)) return false;
   return true;
 }
 
-/** 云租户根用户内置权限列表（供种子与手动同步脚本共用） */
+/** 内置「云租户根用户」种子用 clouds.* 权限（镜像仅 read） */
+function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+  if (!isTenantRootConfigurableCloudPermission(permission)) return false;
+  if (permission === 'clouds.images:write') return false;
+  return true;
+}
+
+/** 租户角色配置权限抽屉固定目录（/rbac/actions.tenantRootBoundary） */
+export function buildTenantRootRoleCatalogBoundary(
+  allPermissions: readonly string[] = ALL_PERMISSIONS,
+): string[] {
+  return allPermissions.filter((p) => {
+    const base = permissionBase(p);
+    if (matchesExcludedPrefix(base, TENANT_ROOT_NON_CNMC_PREFIXES)) return false;
+    return isTenantRootConfigurableCloudPermission(p);
+  });
+}
+
+/** 云租户根用户内置权限列表（供种子与手动同步脚本共用；镜像仅 read） */
 export function buildTenantRootBuiltinPermissions(
   allPermissions: readonly string[] = ALL_PERMISSIONS,
 ): string[] {

@@ -1,6 +1,6 @@
 import { normalizeRoleGrantIds } from './roleGrantNormalize';
 import { stripTenantConsoleUmbrellaPermissions } from './tenantConsoleUmbrellaPermissions';
-import { buildTenantRootBuiltinCatalogFromActions } from './tenantRootBuiltinCatalog';
+import { buildTenantRootRoleCatalogBoundaryFromActions } from './tenantRootBuiltinCatalog';
 import type { RBACRole } from '../types';
 
 /** 与 backend constants/rbacBuiltInRoles、seeders/initRoles 保持一致 */
@@ -25,7 +25,7 @@ export function isTenantScopeRole(
   return role?.scope === 'tenant';
 }
 
-/** 租户角色配置权限时，抽屉可选范围 = 内置「云租户根用户」目录（固定公式，非已保存勾选结果） */
+/** 租户角色配置权限时，抽屉可选范围 = 租户角色固定目录（含镜像 write，非已保存勾选结果） */
 export function shouldUseTenantPermissionBoundary(
   role: Partial<Pick<RBACRole, 'scope' | 'name' | 'type'>> | null | undefined,
 ): boolean {
@@ -67,7 +67,7 @@ export function resolveTenantRootDrawerCatalogAtoms(
   const raw =
     Array.isArray(catalogFromApi) && catalogFromApi.length > 0
       ? catalogFromApi
-      : buildTenantRootBuiltinCatalogFromActions(allActions || []);
+      : buildTenantRootRoleCatalogBoundaryFromActions(allActions || []);
   return stripTenantConsoleUmbrellaPermissions(normalizeRoleGrantIds(raw));
 }
 

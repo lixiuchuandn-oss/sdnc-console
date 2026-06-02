@@ -1,8 +1,9 @@
 import { isTenantConsoleUmbrellaPermission } from './tenantConsoleUmbrellaPermissions';
 
 /**
- * 与 backend/src/seeders/initRoles.ts 中 buildTenantRootBuiltinPermissions 保持一致。
- * 整改后端种子时请同步此处。
+ * 与 backend/src/seeders/initRoles.ts 中租户边界公式保持一致。
+ * - buildTenantRootRoleCatalogBoundaryFromActions：角色抽屉目录（含 clouds.images:write）
+ * - buildTenantRootBuiltinCatalogFromActions：内置根用户种子（镜像仅 read）
  */
 const TENANT_ROOT_NON_CNMC_PREFIXES = [
   'tenants',
@@ -67,19 +68,37 @@ function matchesExcludedPrefix(base: string, prefixes: readonly string[]): boole
   return prefixes.some((pfx) => base === pfx || base.startsWith(`${pfx}.`));
 }
 
-function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+/** 租户角色抽屉可配置 clouds.*（含 clouds.images:write） */
+function isTenantRootConfigurableCloudPermission(permission: string): boolean {
   const base = permissionBase(permission);
   if (permission === 'clouds:read' || permission === 'clouds:write') return false;
   if (!base.startsWith('clouds.')) return false;
   if (matchesExcludedPrefix(base, TENANT_ROOT_CNMC_EXCLUDED_PREFIXES)) return false;
   if (base === 'clouds.subnets') return false;
-  if (permission === 'clouds.images:write') return false;
   if (permission === 'clouds.subnets.flat:write') return false;
   if (isTenantConsoleUmbrellaPermission(permission)) return false;
   return true;
 }
 
-/** 从全量 actions 计算租户角色抽屉固定目录（与种子公式一致） */
+/** 内置云租户根用户种子（镜像仅 read） */
+function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+  if (!isTenantRootConfigurableCloudPermission(permission)) return false;
+  if (permission === 'clouds.images:write') return false;
+  return true;
+}
+
+/** 租户角色权限抽屉固定目录（与 /rbac/actions.tenantRootBoundary 一致） */
+export function buildTenantRootRoleCatalogBoundaryFromActions(
+  allPermissions: readonly string[],
+): string[] {
+  return allPermissions.filter((p) => {
+    const base = permissionBase(p);
+    if (matchesExcludedPrefix(base, TENANT_ROOT_NON_CNMC_PREFIXES)) return false;
+    return isTenantRootConfigurableCloudPermission(p);
+  });
+}
+
+/** 内置「云租户根用户」种子公式（仅作兜底） */
 export function buildTenantRootBuiltinCatalogFromActions(
   allPermissions: readonly string[],
 ): string[] {
