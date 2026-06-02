@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { message, Modal } from 'antd';
+import { message } from 'antd';
 import {
   createHarvesterMetricRuleCr,
   deleteHarvesterMetricRuleCr,
@@ -9,6 +9,7 @@ import {
 import type { MetricRuleTableRow } from '../lib/drsMetricRuleUtils';
 import { apiErrorMessage } from '../lib/physicalSwitchesSectionUtils';
 import { metricRuleRowFields } from '../lib/drsMetricRuleUtils';
+import { confirmHighRiskDelete, DRS_RULE_RISK_ITEMS } from '../../shared/lib/highRiskConfirm';
 
 export type UseMetricRuleCrActionsOptions = {
   cloudId: string;
@@ -31,12 +32,12 @@ export function useMetricRuleCrActions({
     (record: MetricRuleTableRow) => {
       const name = metricRuleRowFields.name(record);
       if (!name || name === '-' || !canManageMetricRule) return;
-      Modal.confirm({
-        title: `删除调度规则「${name}」？`,
-        content: '删除后集群将不再按该规则触发 DRS 迁移。',
-        okText: '删除',
-        okButtonProps: { danger: true },
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '调度规则',
+        name,
+        description: '删除后集群将不再按该规则触发 DRS 迁移。',
+        riskItems: DRS_RULE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterMetricRuleCr(cloudId, name);
             message.success('已删除');
@@ -46,7 +47,7 @@ export function useMetricRuleCrActions({
             throw e;
           }
         },
-      });
+      }).catch(() => {});
     },
     [canManageMetricRule, cloudId, loadAll],
   );

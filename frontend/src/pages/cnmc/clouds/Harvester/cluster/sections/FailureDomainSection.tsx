@@ -2,7 +2,7 @@
  * 集群 · 故障域
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Input, Modal, Row, Statistic, Table, message } from 'antd';
+import { Alert, Button, Card, Col, Input, Row, Statistic, Table, message } from 'antd';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import PageDetailSection from 'components/PageDetailSection';
@@ -22,6 +22,7 @@ import FailureDomainFormModal, {
   type FailureDomainFormValues,
 } from '../modals/FailureDomainFormModal';
 import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
+import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
 
 const TABLE_KEY = 'harvester_failure_domains_table';
 
@@ -89,16 +90,16 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
 
   const handleDelete = useCallback(
     (row: FailureDomainRow) => {
-      Modal.confirm({
-        title: `删除故障域「${row.name}」？`,
-        content: '将解除已分配节点上的故障域标签。',
-        okType: 'danger',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '故障域',
+        name: row.name,
+        description: '将解除已分配节点上的故障域标签。',
+        onConfirm: async () => {
           await deleteFailureDomain(cloudId, row.id);
           message.success('已删除');
           void reload(true);
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, reload],
   );

@@ -2,7 +2,7 @@
  * 物理交换机 Section · Switch CR 增删改与抽屉动作
  */
 import { useCallback } from 'react';
-import { message, Modal } from 'antd';
+import { message } from 'antd';
 import {
   createHmsSwitchCr,
   deleteHmsSwitchCr,
@@ -11,6 +11,7 @@ import {
   type HmsSwitchCrSpec,
 } from 'services/harvester/cluster';
 import { apiErrorMessage } from '../lib/physicalSwitchesSectionUtils';
+import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
 
 export type UsePhysicalSwitchCrActionsOptions = {
   cloudId: string;
@@ -33,17 +34,21 @@ export function usePhysicalSwitchCrActions({
     (cr: HmsSwitchCr) => {
       const name = String(cr?.metadata?.name || '').trim();
       if (!name || !canManageSwitchCr) return;
-      Modal.confirm({
-        title: `删除交换机「${name}」？`,
-        content: '删除后 HSM 将不再管理该交换机。',
-        okText: '删除',
-        okButtonProps: { danger: true },
-        onOk: async () => {
-          await deleteHmsSwitchCr(cloudId, name);
-          message.success('已删除');
-          await loadAll();
+      void confirmHighRiskDelete({
+        resourceLabel: '交换机',
+        name,
+        description: '删除后 HSM 将不再管理该交换机。',
+        onConfirm: async () => {
+          try {
+            await deleteHmsSwitchCr(cloudId, name);
+            message.success('已删除');
+            await loadAll();
+          } catch (e) {
+            message.error(apiErrorMessage(e, '删除失败'));
+            throw e;
+          }
         },
-      });
+      }).catch(() => {});
     },
     [canManageSwitchCr, cloudId, loadAll],
   );

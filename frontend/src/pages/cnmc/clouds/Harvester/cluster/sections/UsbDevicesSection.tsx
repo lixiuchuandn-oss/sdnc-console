@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Input, Select, Space, Table, Tag, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import { useAuth } from 'contexts/AuthContext';
@@ -21,6 +21,7 @@ import {
   runHarvesterSectionRefresh,
 } from '../lib/clusterSectionRefresh';
 import { buildUsbDevicesTableColumns } from '../lib/usbDevicesTableColumns';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 
 interface Props {
   cloudId: string;
@@ -101,12 +102,22 @@ const UsbDevicesSection: React.FC<Props> = ({
       const list = Array.isArray(rows) ? rows : [];
       if (!list.length) return;
 
-      Modal.confirm({
+      void confirmHighRiskOperation({
         title: passthrough ? '设为直通' : '设为非直通',
-        content: `已选择 ${list.length} 项`,
-        okText: '确认',
-        cancelText: '取消',
-        onOk: async () => {
+        description: `已选择 ${list.length} 项 USB 设备。`,
+        riskItems: passthrough
+          ? [
+              '设为直通后，设备可能被虚拟机独占，影响节点上其他用途。',
+              '请确认所选设备与业务无误后再继续。',
+            ]
+          : [
+              '设为非直通后，正在使用该设备的虚拟机可能受影响。',
+              '请确认所选设备与业务无误后再继续。',
+            ],
+        operationSummary: passthrough
+          ? `确认将 ${list.length} 项设为直通`
+          : `确认将 ${list.length} 项设为非直通`,
+        onConfirm: async () => {
           setRefreshing(true);
           try {
             for (const r of list) {
@@ -125,11 +136,12 @@ const UsbDevicesSection: React.FC<Props> = ({
             } else {
               message.error(`操作失败: ${detail}`);
             }
+            throw e;
           } finally {
             setRefreshing(false);
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, hasUsbWrite, onRefresh],
   );

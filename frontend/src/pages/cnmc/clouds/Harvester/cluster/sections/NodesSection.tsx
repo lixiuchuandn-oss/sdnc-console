@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { Button, Input, Modal, Select, Space, Table, message } from 'antd';
+import { Button, Input, Select, Space, Table, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageDetailSection from 'components/PageDetailSection';
@@ -32,6 +32,10 @@ import { buildNodesTableColumns } from '../lib/nodesTableColumns';
 import ControlPlaneHaKpiRow from '../components/ControlPlaneHaKpiRow';
 import { computeControlPlaneHaSummary } from '../lib/controlPlaneHaFromNodes';
 import { useEtcdActiveAlertCount } from '../hooks/useEtcdActiveAlertCount';
+import {
+  confirmHighRiskOperation,
+  NODE_MAINTENANCE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const COLUMN_SETTINGS_KEY = 'harvester_nodes_table';
 
@@ -146,12 +150,13 @@ const NodesSection: React.FC<Props> = ({
         return;
       }
       const name = nodeDisplayName(record);
-      Modal.confirm({
+      void confirmHighRiskOperation({
         title: '退出维护模式',
-        content: `确认将节点「${name}」退出维护模式？虚拟机将按策略恢复调度。`,
-        okText: '退出维护模式',
-        cancelText: '取消',
-        onOk: async () => {
+        description: `确认将节点「${name}」退出维护模式？虚拟机将按策略恢复调度。`,
+        riskItems: NODE_MAINTENANCE_RISK_ITEMS,
+        operationSummary: `确认将节点「${name}」退出维护模式`,
+        confirmText: '退出维护模式',
+        onConfirm: async () => {
           try {
             await disableNodeMaintenance(cloudId, name);
             refreshAfterMaintenance();
@@ -160,7 +165,7 @@ const NodesSection: React.FC<Props> = ({
             throw e;
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, refreshAfterMaintenance],
   );
