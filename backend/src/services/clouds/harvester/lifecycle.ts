@@ -444,13 +444,15 @@ const getVmStatusLower = (vm: any) => {
   return String(vm?.status?.printableStatus || vm?.status?.phase || '').toLowerCase();
 };
 
-// 判断 VM 是否处于“看起来正在运行/正在启动”的状态
-// 这里同时参考：
-// - status.printableStatus / status.phase
-// - spec.running（有些 VM 会用这个布尔字段表示开关机意图）
-const isVmRunningLike = (vm: any) => {
+/** 回收站入站 / 纠偏关机：暂停(Paused)≠已停止，须一并下发 stop */
+export const isVmNeedsShutdown = (vm: any) => {
   const status = getVmStatusLower(vm);
-  return status === 'running' || status === 'starting' || vm?.spec?.running === true;
+  return (
+    status === 'running' ||
+    status === 'starting' ||
+    status === 'paused' ||
+    vm?.spec?.running === true
+  );
 };
 
 // 判断 VM 是否处于“看起来已经停止”的状态
@@ -580,8 +582,8 @@ export const harvesterEnsureVmStopped = async (
     });
   }
 
-  // 如果当前看起来在运行，就先发一次强制关机请求
-  if (isVmRunningLike(firstVm)) {
+  // 运行中或暂停中均下发强制关机（暂停在 Harvester 上为 Paused，非 Stopped）
+  if (isVmNeedsShutdown(firstVm)) {
     try {
       await harvesterStopVM({ endpoint, token, insecure }, instanceId, true);
     } catch (e: any) {
@@ -612,8 +614,8 @@ export const harvesterEnsureVmStopped = async (
     // 已经停止就结束
     if (isVmStoppedLike(vm)) return;
 
-    // 仍在运行则继续发强制关机
-    if (isVmRunningLike(vm)) {
+    // 仍在运行或仍为暂停则继续发强制关机
+    if (isVmNeedsShutdown(vm)) {
       try {
         await harvesterStopVM({ endpoint, token, insecure }, instanceId, true);
       } catch (e: any) {
@@ -781,7 +783,7 @@ export const harvesterDeleteVM = async (
       });
     }
 
-    if (isVmRunningLike(currentVm)) {
+    if (isVmNeedsShutdown(currentVm)) {
       try {
         await harvesterStopVM({ endpoint, token, insecure }, instanceId, true);
       } catch (e: any) {

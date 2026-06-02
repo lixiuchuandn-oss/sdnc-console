@@ -176,7 +176,7 @@ const LicenseSettingsPage: React.FC = () => {
       setInputKey('');
       refresh();
     } catch (error: any) {
-      message.error(`激活失败: ${error.message}`);
+      message.error(error.message || '授权更新失败');
     } finally {
       setActivating(false);
     }
