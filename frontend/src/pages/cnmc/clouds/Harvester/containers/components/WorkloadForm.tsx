@@ -23,18 +23,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import {
-  Form,
-  Button,
-  Space,
-  Tag,
-  Row,
-  Col,
-  App,
-  Segmented,
-  Alert,
-  Modal,
-} from 'antd';
+import { Form, Button, Space, Tag, Row, Col, App, Segmented, Modal } from 'antd';
 import { CodeOutlined, FormOutlined, CheckOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
 import {
@@ -42,7 +31,6 @@ import {
   updateHarvesterContainerResource,
   checkSubnetStaticIP,
 } from '../../../../../../services/harvesterApi';
-import YamlEditor from '../../../../../../components/YamlEditor';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 import {
   RegistryBrowserDrawer,
@@ -83,13 +71,8 @@ import {
 } from './workloadForm/registryCredentials';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
 
-import {
-  WorkloadFormStepAdvanced,
-  WorkloadFormStepBasic,
-  WorkloadFormStepContainers,
-  WorkloadFormStepNetwork,
-  WorkloadFormStepStorage,
-} from './workloadForm/steps';
+import { WorkloadFormStepContent } from './workloadForm/steps';
+import WorkloadFormYamlPanel from './workloadForm/WorkloadFormYamlPanel';
 import type {
   NodeAffinityEditorHandle,
   PodAffinityEditorHandle,
@@ -1229,119 +1212,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setSummary(getFormSummary());
   }, [currentStep, activeContainerIndex, getFormSummary]);
 
-  // 渲染步骤内容
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 0:
-        return (
-          <WorkloadFormStepBasic
-            isEditMode={isEditMode}
-            editResourceId={editMetadata?.name}
-            defaultType={defaultType}
-            defaultNamespace={defaultNamespace}
-            namespacesOptions={namespacesOptions}
-            workloadType={workloadType}
-          />
-        );
-
-      case 1:
-        return (
-          <WorkloadFormStepContainers
-            containers={getSyncedFormValues().containers || []}
-            activeContainerIndex={activeContainerIndex}
-            onSelectContainer={handleSelectContainer}
-            onDuplicateContainer={handleDuplicateContainer}
-            onRemoveContainer={handleRemoveContainer}
-            onAddContainer={handleAddContainer}
-            onBrowseRegistry={handleBrowseRegistry}
-            cloudId={cloudId}
-            defaultNamespace={defaultNamespace}
-            namespacesOptions={namespacesOptions}
-            imagePullSecrets={imagePullSecrets}
-            configMaps={configMaps}
-            secrets={secrets}
-            onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-            onRefreshSecrets={() => onRefreshSecrets?.()}
-            onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-            onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-          />
-        );
-
-      case 2:
-        return (
-          <WorkloadFormStepNetwork
-            cloudId={cloudId}
-            hideFlatSubnet={hideFlatSubnet}
-            loadingNetworkData={loadingNetworkData}
-            isFlatVpc={isFlatVpc}
-            flatSubnetOptions={flatSubnetOptions}
-            vpcOptions={vpcOptions}
-            vpcSubnetOptions={vpcSubnetOptions}
-            selectedVpc={selectedVpc}
-            allNadOptions={allNadOptions}
-            reloadNads={reloadNads}
-            kubeSubnets={kubeSubnets}
-          />
-        );
-
-      case 3:
-        return (
-          <WorkloadFormStepStorage
-            containers={getSyncedFormValues().containers || []}
-            activeContainerIndex={activeContainerIndex}
-            onSelectContainer={handleSelectContainer}
-            volumeRefreshKey={volumeRefreshKey}
-            onVolumeRefresh={() => setVolumeRefreshKey((v) => v + 1)}
-            volumesEditorProps={{
-              cloudId,
-              namespacesOptions,
-              selectedNamespace: form.getFieldValue('namespace') || defaultNamespace || 'default',
-              configMaps,
-              secrets,
-              persistentVolumeClaims,
-              onRefreshConfigMaps: () => onRefreshConfigMaps?.(),
-              onRefreshSecrets: () => onRefreshSecrets?.(),
-              onOpenQuickCreateConfigMap: () => setShowQuickCreateConfigMap(true),
-              onOpenQuickCreateSecret: () => setShowQuickCreateSecret(true),
-            }}
-          />
-        );
-
-      case 4:
-        return (
-          <WorkloadFormStepAdvanced
-            namespacesOptions={namespacesOptions}
-            nodeAffinityEditorRef={nodeAffinityEditorRef}
-            nodeAntiAffinityEditorRef={nodeAntiAffinityEditorRef}
-            podAffinityEditorRef={podAffinityEditorRef}
-            podAntiAffinityEditorRef={podAntiAffinityEditorRef}
-            tolerationsEditorRef={tolerationsEditorRef}
-          />
-        );
-
-      default:
-        return null;
-    }
-  };
-
-  // YAML 编辑器视图
-  const renderYamlEditor = () => (
-    <div>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="YAML 编辑模式"
-        description="直接编辑 Kubernetes 资源定义，支持完整的 K8s API 规范。"
-      />
-
-      {yamlError && (
-        <Alert type="error" showIcon style={{ marginBottom: 16 }} message={yamlError} />
-      )}
-
-      <YamlEditor value={yamlContent} onChange={handleYamlChange} minHeight={400} maxHeight={600} />
-    </div>
-  );
+  const syncedContainers = getSyncedFormValues().containers || [];
 
   return (
     <div>
@@ -1495,7 +1366,77 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     scrollbarGutter: 'stable',
                   }}
                 >
-                  {renderStepContent()}
+                  <WorkloadFormStepContent
+                    currentStep={currentStep}
+                    basic={{
+                      isEditMode,
+                      editResourceId: editMetadata?.name,
+                      defaultType,
+                      defaultNamespace,
+                      namespacesOptions,
+                      workloadType,
+                    }}
+                    containers={{
+                      containers: syncedContainers,
+                      activeContainerIndex,
+                      onSelectContainer: handleSelectContainer,
+                      onDuplicateContainer: handleDuplicateContainer,
+                      onRemoveContainer: handleRemoveContainer,
+                      onAddContainer: handleAddContainer,
+                      onBrowseRegistry: handleBrowseRegistry,
+                      cloudId,
+                      defaultNamespace,
+                      namespacesOptions,
+                      imagePullSecrets,
+                      configMaps,
+                      secrets,
+                      onRefreshConfigMaps: () => onRefreshConfigMaps?.(),
+                      onRefreshSecrets: () => onRefreshSecrets?.(),
+                      onOpenQuickCreateConfigMap: () => setShowQuickCreateConfigMap(true),
+                      onOpenQuickCreateSecret: () => setShowQuickCreateSecret(true),
+                    }}
+                    network={{
+                      cloudId,
+                      hideFlatSubnet,
+                      loadingNetworkData,
+                      isFlatVpc,
+                      flatSubnetOptions,
+                      vpcOptions,
+                      vpcSubnetOptions,
+                      selectedVpc,
+                      allNadOptions,
+                      reloadNads,
+                      kubeSubnets,
+                    }}
+                    storage={{
+                      containers: syncedContainers,
+                      activeContainerIndex,
+                      onSelectContainer: handleSelectContainer,
+                      volumeRefreshKey,
+                      onVolumeRefresh: () => setVolumeRefreshKey((v) => v + 1),
+                      volumesEditorProps: {
+                        cloudId,
+                        namespacesOptions,
+                        selectedNamespace:
+                          form.getFieldValue('namespace') || defaultNamespace || 'default',
+                        configMaps,
+                        secrets,
+                        persistentVolumeClaims,
+                        onRefreshConfigMaps: () => onRefreshConfigMaps?.(),
+                        onRefreshSecrets: () => onRefreshSecrets?.(),
+                        onOpenQuickCreateConfigMap: () => setShowQuickCreateConfigMap(true),
+                        onOpenQuickCreateSecret: () => setShowQuickCreateSecret(true),
+                      },
+                    }}
+                    advanced={{
+                      namespacesOptions,
+                      nodeAffinityEditorRef,
+                      nodeAntiAffinityEditorRef,
+                      podAffinityEditorRef,
+                      podAntiAffinityEditorRef,
+                      tolerationsEditorRef,
+                    }}
+                  />
                 </div>
               </Col>
 
@@ -1682,7 +1623,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         </>
       ) : (
         <>
-          {renderYamlEditor()}
+          <WorkloadFormYamlPanel
+            yamlContent={yamlContent}
+            yamlError={yamlError}
+            onYamlChange={handleYamlChange}
+          />
 
           <div style={{ marginTop: 24, textAlign: 'right' }}>
             <Space>

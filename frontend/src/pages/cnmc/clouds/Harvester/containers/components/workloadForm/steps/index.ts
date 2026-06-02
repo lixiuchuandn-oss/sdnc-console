@@ -8,3 +8,5 @@ export { default as WorkloadFormStepContainers } from './WorkloadFormStepContain
 export type { WorkloadFormStepContainersProps } from './WorkloadFormStepContainers';
 export { default as WorkloadFormStepNetwork } from './WorkloadFormStepNetwork';
 export type { WorkloadFormStepNetworkProps } from './WorkloadFormStepNetwork';
+export { default as WorkloadFormStepContent } from './WorkloadFormStepContent';
+export type { WorkloadFormStepContentProps } from './WorkloadFormStepContent';
