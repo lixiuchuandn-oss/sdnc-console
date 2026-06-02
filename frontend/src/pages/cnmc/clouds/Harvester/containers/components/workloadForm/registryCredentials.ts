@@ -11,14 +11,15 @@ export interface RegistryBrowserCredential {
   insecure?: boolean;
 }
 
+/** 与 RegistryBrowserDrawer.registries 项结构对齐 */
 export interface MergedRegistryEntry {
   source: 'localStorage' | 'secret';
-  id?: string;
-  name?: string;
+  id: string;
+  name: string;
   server: string;
   username?: string;
   password?: string;
-  insecure?: boolean;
+  insecure: boolean;
 }
 
 const HARVESTER_REGISTRIES_STORAGE_KEY = 'harvester-registries';
@@ -64,7 +65,9 @@ export function secretToRegistryCredential(secret: unknown): RegistryBrowserCred
     }
 
     const decoded = atob(data['.dockerconfigjson']);
-    const config = JSON.parse(decoded) as { auths?: Record<string, { auth?: string; username?: string; password?: string }> };
+    const config = JSON.parse(decoded) as {
+      auths?: Record<string, { auth?: string; username?: string; password?: string }>;
+    };
     const auths = config.auths || {};
     const server = Object.keys(auths)[0];
     if (!server) return null;
@@ -134,14 +137,16 @@ export function buildMergedRegistryList(
 
   localStorageRegistries.forEach((reg) => {
     if (!reg.server) return;
+    const id = reg.id || reg.name || reg.server;
+    const name = reg.name || reg.server;
     registries.push({
       source: 'localStorage',
-      id: reg.id,
-      name: reg.name,
+      id,
+      name,
       server: reg.server,
       username: reg.username,
       password: reg.password,
-      insecure: reg.insecure,
+      insecure: reg.insecure ?? false,
     });
   });
 
@@ -150,14 +155,15 @@ export function buildMergedRegistryList(
       const credential = secretToRegistryCredential(secret);
       if (!credential) return;
       const meta = (secret as { metadata?: { name?: string } }).metadata;
+      const secretName = meta?.name || credential.server;
       registries.push({
         source: 'secret',
-        id: meta?.name,
-        name: meta?.name,
+        id: secretName,
+        name: secretName,
         server: credential.server,
         username: credential.username,
         password: credential.password,
-        insecure: credential.insecure,
+        insecure: credential.insecure ?? false,
       });
     });
   }

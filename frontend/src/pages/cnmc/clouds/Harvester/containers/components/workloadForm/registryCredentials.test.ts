@@ -45,7 +45,11 @@ describe('buildMergedRegistryList', () => {
     );
     expect(list).toHaveLength(2);
     expect(list[0]).toMatchObject({ source: 'localStorage', server: 'http://local' });
-    expect(list[1]).toMatchObject({ source: 'secret', name: 'sec-reg', server: 'http://harbor.local' });
+    expect(list[1]).toMatchObject({
+      source: 'secret',
+      name: 'sec-reg',
+      server: 'http://harbor.local',
+    });
   });
 });
 

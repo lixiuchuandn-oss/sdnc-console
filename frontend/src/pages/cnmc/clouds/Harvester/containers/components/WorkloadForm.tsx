@@ -1593,7 +1593,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                               onClick={() => {
                                 if (allRegistries.length > 0) {
                                   const currentImage = form.getFieldValue('image');
-                                  let targetCredential = localRegistryToCredential(allRegistries[0]);
+                                  let targetCredential = localRegistryToCredential(
+                                    allRegistries[0],
+                                  );
                                   if (currentImage) {
                                     const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
                                     if (serverMatch) {
@@ -1602,7 +1604,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                                         (r) => r.server === serverFromImage,
                                       );
                                       if (matchingRegistry) {
-                                        targetCredential = localRegistryToCredential(matchingRegistry);
+                                        targetCredential =
+                                          localRegistryToCredential(matchingRegistry);
                                       }
                                     }
                                   }

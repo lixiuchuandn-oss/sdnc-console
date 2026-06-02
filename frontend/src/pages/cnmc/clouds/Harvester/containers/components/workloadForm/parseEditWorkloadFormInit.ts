@@ -3,12 +3,44 @@ import yaml from 'js-yaml';
 import { createEmptyContainer, toContainerEditorFields } from './containerDefaults';
 import type {
   NodeAffinityConfig,
+  NodeSelectorOperator,
+  NodeSelectorRequirement,
+  NodeSelectorTerm,
   PodAffinityConfig,
+  PodAffinityTerm,
+  PodLabelSelectorRequirement,
+  PreferredSchedulingTerm,
   VolumeConfig,
+  WeightedPodAffinityTerm,
   WorkloadContainerFormValue,
   WorkloadFormValues,
   WorkloadType,
 } from './types';
+
+const DNS_POLICY_VALUES = ['Default', 'ClusterFirst', 'ClusterFirstWithHostNet', 'None'] as const;
+
+function toNodeSelectorRequirement(raw: Record<string, unknown>): NodeSelectorRequirement {
+  return {
+    key: String(raw.key ?? ''),
+    operator: raw.operator as NodeSelectorOperator,
+    values: raw.values as string[] | undefined,
+  };
+}
+
+function toPodLabelSelectorRequirement(raw: Record<string, unknown>): PodLabelSelectorRequirement {
+  return {
+    key: String(raw.key ?? ''),
+    operator: raw.operator as PodLabelSelectorRequirement['operator'],
+    values: raw.values as string[] | undefined,
+  };
+}
+
+function parseDnsPolicy(raw: unknown): WorkloadFormValues['dnsPolicy'] | undefined {
+  if (typeof raw !== 'string') return undefined;
+  return (DNS_POLICY_VALUES as readonly string[]).includes(raw)
+    ? (raw as WorkloadFormValues['dnsPolicy'])
+    : undefined;
+}
 
 export interface EditWorkloadFormInitResult {
   formValues: Partial<WorkloadFormValues>;
@@ -47,7 +79,8 @@ export function parseK8sContainerToFormValue(container: unknown): WorkloadContai
   return {
     containerName: (c.name as string) || '',
     image: (c.image as string) || '',
-    imagePullPolicy: (c.imagePullPolicy as WorkloadContainerFormValue['imagePullPolicy']) || 'IfNotPresent',
+    imagePullPolicy:
+      (c.imagePullPolicy as WorkloadContainerFormValue['imagePullPolicy']) || 'IfNotPresent',
     ports: ports.map((p) => {
       const port = p as Record<string, unknown>;
       return {
@@ -111,16 +144,15 @@ export function parseNodeAffinityFromK8s(affinity: unknown): NodeAffinityConfig 
     result.required = {
       nodeSelectorTerms: required.nodeSelectorTerms.map((term) => {
         const t = term as Record<string, unknown>;
-        return {
-          matchExpressions: ((t.matchExpressions as unknown[]) || []).map((expr) => {
-            const e = expr as Record<string, unknown>;
-            return { key: e.key, operator: e.operator, values: e.values };
-          }),
-          matchFields: ((t.matchFields as unknown[]) || []).map((field) => {
-            const f = field as Record<string, unknown>;
-            return { key: f.key, operator: f.operator, values: f.values };
-          }),
+        const nodeTerm: NodeSelectorTerm = {
+          matchExpressions: ((t.matchExpressions as unknown[]) || []).map((expr) =>
+            toNodeSelectorRequirement(expr as Record<string, unknown>),
+          ),
+          matchFields: ((t.matchFields as unknown[]) || []).map((field) =>
+            toNodeSelectorRequirement(field as Record<string, unknown>),
+          ),
         };
+        return nodeTerm;
       }),
     };
   }
@@ -130,19 +162,18 @@ export function parseNodeAffinityFromK8s(affinity: unknown): NodeAffinityConfig 
     result.preferred = preferred.map((pref) => {
       const p = pref as Record<string, unknown>;
       const preference = p.preference as Record<string, unknown>;
-      return {
+      const term: PreferredSchedulingTerm = {
         weight: p.weight as number,
         preference: {
-          matchExpressions: ((preference.matchExpressions as unknown[]) || []).map((expr) => {
-            const e = expr as Record<string, unknown>;
-            return { key: e.key, operator: e.operator, values: e.values };
-          }),
-          matchFields: ((preference.matchFields as unknown[]) || []).map((field) => {
-            const f = field as Record<string, unknown>;
-            return { key: f.key, operator: f.operator, values: f.values };
-          }),
+          matchExpressions: ((preference.matchExpressions as unknown[]) || []).map((expr) =>
+            toNodeSelectorRequirement(expr as Record<string, unknown>),
+          ),
+          matchFields: ((preference.matchFields as unknown[]) || []).map((field) =>
+            toNodeSelectorRequirement(field as Record<string, unknown>),
+          ),
         },
       };
+      return term;
     });
   }
 
@@ -159,19 +190,19 @@ export function parsePodAffinityFromK8s(podAffinity: unknown): PodAffinityConfig
     result.required = required.map((term) => {
       const t = term as Record<string, unknown>;
       const labelSelector = t.labelSelector as Record<string, unknown> | undefined;
-      return {
+      const podTerm: PodAffinityTerm = {
         labelSelector: labelSelector
           ? {
               matchLabels: (labelSelector.matchLabels as Record<string, string>) || {},
-              matchExpressions: ((labelSelector.matchExpressions as unknown[]) || []).map((expr) => {
-                const e = expr as Record<string, unknown>;
-                return { key: e.key, operator: e.operator, values: e.values };
-              }),
+              matchExpressions: ((labelSelector.matchExpressions as unknown[]) || []).map((expr) =>
+                toPodLabelSelectorRequirement(expr as Record<string, unknown>),
+              ),
             }
           : undefined,
         namespaces: t.namespaces as string[] | undefined,
         topologyKey: t.topologyKey as string,
       };
+      return podTerm;
     });
   }
 
@@ -181,17 +212,14 @@ export function parsePodAffinityFromK8s(podAffinity: unknown): PodAffinityConfig
       const p = pref as Record<string, unknown>;
       const podAffinityTerm = p.podAffinityTerm as Record<string, unknown>;
       const labelSelector = podAffinityTerm?.labelSelector as Record<string, unknown> | undefined;
-      return {
+      const weighted: WeightedPodAffinityTerm = {
         weight: p.weight as number,
         podAffinityTerm: {
           labelSelector: labelSelector
             ? {
                 matchLabels: (labelSelector.matchLabels as Record<string, string>) || {},
                 matchExpressions: ((labelSelector.matchExpressions as unknown[]) || []).map(
-                  (expr) => {
-                    const e = expr as Record<string, unknown>;
-                    return { key: e.key, operator: e.operator, values: e.values };
-                  },
+                  (expr) => toPodLabelSelectorRequirement(expr as Record<string, unknown>),
                 ),
               }
             : undefined,
@@ -199,6 +227,7 @@ export function parsePodAffinityFromK8s(podAffinity: unknown): PodAffinityConfig
           topologyKey: podAffinityTerm?.topologyKey as string,
         },
       };
+      return weighted;
     });
   }
 
@@ -312,7 +341,7 @@ export function parseEditWorkloadFormInit(
     };
   });
 
-  const dnsPolicy = templateSpec.dnsPolicy as string | undefined;
+  const dnsPolicy = parseDnsPolicy(templateSpec.dnsPolicy);
   const dnsConfigRaw = templateSpec.dnsConfig as Record<string, unknown> | undefined;
   const dnsConfig = dnsConfigRaw
     ? {
@@ -332,7 +361,7 @@ export function parseEditWorkloadFormInit(
   const logicalSwitch = templateAnnotations['ovn.kubernetes.io/logical_switch'];
   const staticIPAnnotation = templateAnnotations['ovn.kubernetes.io/ip_address'];
 
-  let networkType = 'default';
+  let networkType: NonNullable<WorkloadFormValues['networkType']> = 'default';
   let flatSubnet: string | undefined;
   let vpcSubnet: string | undefined;
   let customNad: string | undefined;
