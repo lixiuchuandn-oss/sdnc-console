@@ -3,17 +3,17 @@
  * 模块名称: 工作负载创建表单 (WorkloadForm)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/containers/components/WorkloadForm.tsx
  * ==============================================================================
- * 
+ *
  * [功能描述]
  * 分步骤表单组件，用于创建 Kubernetes 工作负载资源：
  * - Deployment
  * - StatefulSet
  * - DaemonSet
- * 
+ *
  * [模式支持]
  * - 表单模式: 分步骤引导填写
  * - YAML 模式: 直接编辑 YAML 定义
- * 
+ *
  * [步骤设计]
  * 步骤1: 基本信息 - 名称、命名空间、类型、标签
  * 步骤2: 容器配置 - 镜像、端口、环境变量、资源限制
@@ -54,16 +54,27 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import yaml from 'js-yaml';
-import { createHarvesterContainerResource, updateHarvesterContainerResource, fetchKubeOvnSubnets, fetchKubeOvnVpcs, fetchHarvesterNads, checkSubnetStaticIP } from '../../../../../../services/harvesterApi';
+import {
+  createHarvesterContainerResource,
+  updateHarvesterContainerResource,
+  fetchKubeOvnSubnets,
+  fetchKubeOvnVpcs,
+  fetchHarvesterNads,
+  checkSubnetStaticIP,
+} from '../../../../../../services/harvesterApi';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
-import { 
-  RegistryBrowserDrawer, 
+import {
+  RegistryBrowserDrawer,
   QuickCreateRegistrySecretModal,
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
-import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import {
+  generateHarvesterCrMetadataName,
+  generateVmWizardStyleDisplayName,
+  isSystemNamespace,
+} from '../../../../../../utils/harvesterUtils';
 
 import type {
   WorkloadType,
@@ -82,21 +93,16 @@ import {
   IMAGE_PULL_POLICY_OPTIONS,
   WORKLOAD_STEPS,
   DEFAULT_DEPLOYMENT_YAML,
-  DEFAULT_STATEFULSET_YAML,
-  DEFAULT_DAEMONSET_YAML,
 } from './workloadForm/constants';
 
-import {
-  compareCpuResources,
-  compareMemoryResources,
-} from './workloadForm/resourceUtils';
+import { compareCpuResources, compareMemoryResources } from './workloadForm/resourceUtils';
 
 import { parseK8sError } from './workloadForm/k8sErrors';
 
 import { isIpInCidr, checkIpAvailability } from './workloadForm/networkIpUtils';
 
 import { createEmptyContainer, toContainerEditorFields } from './workloadForm/containerDefaults';
-
+import { getDefaultWorkloadYaml, getWorkloadApiPath } from './workloadForm/workloadTypeUtils';
 
 import {
   ResourceInput,
@@ -145,29 +151,29 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [loading, setLoading] = useState(false);
   const isEditMode = !!editData;
   const [activeContainerIndex, setActiveContainerIndex] = useState(0);
-  
+
   // YAML 模式状态
   const [mode, setMode] = useState<'form' | 'yaml'>('form');
   const [yamlContent, setYamlContent] = useState<string>(DEFAULT_DEPLOYMENT_YAML);
   const [yamlError, setYamlError] = useState<string>('');
-  
+
   // 仓库浏览器状态
   const [browserVisible, setBrowserVisible] = useState(false);
   const [browserCredential, setBrowserCredential] = useState<any>(null);
-  
+
   // 快速创建镜像凭证弹窗状态
   const [showQuickCreateRegistry, setShowQuickCreateRegistry] = useState(false);
-  
+
   // 快速创建 ConfigMap/Secret 弹窗状态
   const [showQuickCreateConfigMap, setShowQuickCreateConfigMap] = useState(false);
   const [showQuickCreateSecret, setShowQuickCreateSecret] = useState(false);
-  
+
   // 网络配置数据状态
   const [kubeSubnets, setKubeSubnets] = useState<any[]>([]);
   const [kubeVpcs, setKubeVpcs] = useState<any[]>([]);
   const [nads, setNads] = useState<any[]>([]);
   const [loadingNetworkData, setLoadingNetworkData] = useState(false);
-  
+
   // 静态 IP 检测状态
   const [checkingStaticIP, setCheckingStaticIP] = useState(false);
   const [staticIPCheckResult, setStaticIPCheckResult] = useState<{
@@ -175,12 +181,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     available: boolean;
     reason: string;
   } | null>(null);
-  
+
   // 监听表单字段变化
   const enableStaticIPWatch = Form.useWatch('enableStaticIP', form);
 
   const [, setContainersVersion] = useState(0);
-  
+
   const editMetadata = editData?.metadata;
   const syncingContainerRef = useRef(false);
   const nodeAffinityEditorRef = useRef<NodeAffinityEditorHandle>(null);
@@ -189,14 +195,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const podAntiAffinityEditorRef = useRef<PodAffinityEditorHandle>(null);
   const tolerationsEditorRef = useRef<TolerationsEditorHandle>(null);
   const watchedImagePullSecretsValue = Form.useWatch('imagePullSecrets', form);
-  const watchedImagePullSecrets = useMemo<string[]>(() => watchedImagePullSecretsValue || [], [watchedImagePullSecretsValue]);
+  const watchedImagePullSecrets = useMemo<string[]>(
+    () => watchedImagePullSecretsValue || [],
+    [watchedImagePullSecretsValue],
+  );
   Form.useWatch('containers', form);
   Form.useWatch('nodeAffinity', form);
   Form.useWatch('nodeAntiAffinity', form);
   Form.useWatch('podAffinity', form);
   Form.useWatch('podAntiAffinity', form);
   Form.useWatch('tolerations', form);
-  
+
   // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
   const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
@@ -221,10 +230,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
     try {
       // 只处理 docker-registry 类型的 Secret
-      const secretType = secret?.type || secret?.metadata?.annotations?.['kubernetes.io/service-account.name'];
-      const isDockerConfig = secretType === 'kubernetes.io/dockerconfigjson' || 
-                            secret?.data?.['.dockerconfigjson'];
-      
+      const secretType =
+        secret?.type || secret?.metadata?.annotations?.['kubernetes.io/service-account.name'];
+      const isDockerConfig =
+        secretType === 'kubernetes.io/dockerconfigjson' || secret?.data?.['.dockerconfigjson'];
+
       if (!isDockerConfig) {
         // 非 docker-registry 类型的 Secret，静默跳过
         return null;
@@ -339,33 +349,39 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     return registries;
   }, [localStorageRegistries, secretsWithCredentials, secretToCredential]);
 
-  const syncContainerEditorToForm = useCallback((container: Partial<WorkloadContainerFormValue> | undefined) => {
-    syncingContainerRef.current = true;
-    form.setFieldsValue(toContainerEditorFields(container));
-    // 刷新 VolumesEditor 数据
-    setVolumeRefreshKey(v => v + 1);
-    queueMicrotask(() => {
-      syncingContainerRef.current = false;
-    });
-  }, [form]);
+  const syncContainerEditorToForm = useCallback(
+    (container: Partial<WorkloadContainerFormValue> | undefined) => {
+      syncingContainerRef.current = true;
+      form.setFieldsValue(toContainerEditorFields(container));
+      // 刷新 VolumesEditor 数据
+      setVolumeRefreshKey((v) => v + 1);
+      queueMicrotask(() => {
+        syncingContainerRef.current = false;
+      });
+    },
+    [form],
+  );
 
-  const buildActiveContainerFromEditor = useCallback((values: WorkloadFormValues): WorkloadContainerFormValue => {
-    const fallbackName = values.name || 'container';
-    return {
-      containerName: values.containerName || fallbackName,
-      image: values.image || '',
-      imagePullPolicy: values.imagePullPolicy || 'IfNotPresent',
-      ports: values.ports || [],
-      env: values.env || [],
-      resources: values.resources || { requests: {}, limits: {} },
-      command: values.command || [],
-      args: values.args || [],
-      livenessProbe: values.livenessProbe,
-      readinessProbe: values.readinessProbe,
-      volumeMounts: values.volumeMounts || [],
-      imagePullSecrets: values.imagePullSecrets || [],
-    };
-  }, []);
+  const buildActiveContainerFromEditor = useCallback(
+    (values: WorkloadFormValues): WorkloadContainerFormValue => {
+      const fallbackName = values.name || 'container';
+      return {
+        containerName: values.containerName || fallbackName,
+        image: values.image || '',
+        imagePullPolicy: values.imagePullPolicy || 'IfNotPresent',
+        ports: values.ports || [],
+        env: values.env || [],
+        resources: values.resources || { requests: {}, limits: {} },
+        command: values.command || [],
+        args: values.args || [],
+        livenessProbe: values.livenessProbe,
+        readinessProbe: values.readinessProbe,
+        volumeMounts: values.volumeMounts || [],
+        imagePullSecrets: values.imagePullSecrets || [],
+      };
+    },
+    [],
+  );
 
   const persistActiveContainerToForm = useCallback(() => {
     const values = form.getFieldsValue(true) as WorkloadFormValues;
@@ -391,9 +407,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     const values = form.getFieldsValue(true) as WorkloadFormValues;
     const containers = [...(values.containers || [])];
     const activeContainer = buildActiveContainerFromEditor(values);
-    const latestImagePullSecrets = watchedImagePullSecrets.length > 0
-      ? watchedImagePullSecrets
-      : ((form.getFieldValue('imagePullSecrets') as string[] | undefined) || values.imagePullSecrets || []);
+    const latestImagePullSecrets =
+      watchedImagePullSecrets.length > 0
+        ? watchedImagePullSecrets
+        : (form.getFieldValue('imagePullSecrets') as string[] | undefined) ||
+          values.imagePullSecrets ||
+          [];
 
     if (containers.length === 0) {
       containers.push(activeContainer);
@@ -408,17 +427,22 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     };
   }, [activeContainerIndex, buildActiveContainerFromEditor, form, watchedImagePullSecrets]);
 
-  const handleSelectContainer = useCallback((index: number) => {
-    const containers = persistActiveContainerToForm();
-    const target = containers?.[index];
-    setActiveContainerIndex(index);
-    syncContainerEditorToForm(target);
-  }, [persistActiveContainerToForm, syncContainerEditorToForm]);
+  const handleSelectContainer = useCallback(
+    (index: number) => {
+      const containers = persistActiveContainerToForm();
+      const target = containers?.[index];
+      setActiveContainerIndex(index);
+      syncContainerEditorToForm(target);
+    },
+    [persistActiveContainerToForm, syncContainerEditorToForm],
+  );
 
   const handleAddContainer = useCallback(() => {
     const syncedValues = getSyncedFormValues();
     const nextContainers = [...(syncedValues.containers || [])];
-    const fallbackName = syncedValues.name ? `${syncedValues.name}-${nextContainers.length + 1}` : `container-${nextContainers.length + 1}`;
+    const fallbackName = syncedValues.name
+      ? `${syncedValues.name}-${nextContainers.length + 1}`
+      : `container-${nextContainers.length + 1}`;
     nextContainers.push(createEmptyContainer(fallbackName));
     form.setFieldsValue({ containers: nextContainers });
     setActiveContainerIndex(nextContainers.length - 1);
@@ -433,7 +457,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     if (!current) return;
     nextContainers.splice(activeContainerIndex + 1, 0, {
       ...current,
-      containerName: current.containerName ? `${current.containerName}-copy` : `container-${nextContainers.length + 1}`,
+      containerName: current.containerName
+        ? `${current.containerName}-copy`
+        : `container-${nextContainers.length + 1}`,
       ports: [...(current.ports || [])],
       env: [...(current.env || [])],
       resources: {
@@ -474,25 +500,31 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       const template = spec?.template || {};
       const rawContainers = template?.spec?.containers || [];
       const firstContainer = rawContainers[0] || {};
-      
+
       // 提取标签
       const labels = Object.entries(metadata?.labels || {}).map(([key, value]) => ({ key, value }));
-      
+
       // 提取健康检查（必须在 parseContainer 之前定义）
       const parseProbe = (probe: any) => {
         if (!probe) return undefined;
-        const probeType: 'httpGet' | 'tcpSocket' | 'exec' = probe.httpGet ? 'httpGet' : probe.tcpSocket ? 'tcpSocket' : 'exec';
+        const probeType: 'httpGet' | 'tcpSocket' | 'exec' = probe.httpGet
+          ? 'httpGet'
+          : probe.tcpSocket
+            ? 'tcpSocket'
+            : 'exec';
         return {
           enabled: true,
           type: probeType,
-          httpGet: probe.httpGet ? { path: probe.httpGet.path, port: probe.httpGet.port } : undefined,
+          httpGet: probe.httpGet
+            ? { path: probe.httpGet.path, port: probe.httpGet.port }
+            : undefined,
           tcpSocket: probe.tcpSocket ? { port: probe.tcpSocket.port } : undefined,
           exec: probe.exec ? { command: probe.exec.command } : undefined,
           initialDelaySeconds: probe.initialDelaySeconds || 0,
           periodSeconds: probe.periodSeconds || 10,
         };
       };
-      
+
       // 提取端口
       const parseContainer = (container: any): WorkloadContainerFormValue => ({
         containerName: container?.name || '',
@@ -504,7 +536,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           name: p.name,
         })),
         env: (container?.env || []).map((e: any) => ({
-          type: e?.valueFrom?.configMapKeyRef ? 'configMapKeyRef' : e?.valueFrom?.secretKeyRef ? 'secretKeyRef' : 'keyValue',
+          type: e?.valueFrom?.configMapKeyRef
+            ? 'configMapKeyRef'
+            : e?.valueFrom?.secretKeyRef
+              ? 'secretKeyRef'
+              : 'keyValue',
           name: e.name,
           value: e.value,
           configMapName: e?.valueFrom?.configMapKeyRef?.name,
@@ -533,107 +569,129 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           readOnly: mount.readOnly,
         })),
       });
-      
-      const containers = rawContainers.length > 0 ? rawContainers.map(parseContainer) : [createEmptyContainer(metadata?.name || 'container')];
+
+      const containers =
+        rawContainers.length > 0
+          ? rawContainers.map(parseContainer)
+          : [createEmptyContainer(metadata?.name || 'container')];
 
       // 提取镜像拉取密钥
       const imagePullSecrets = (template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
-      
+
       // 提取节点选择器
-      const nodeSelector = Object.entries(spec?.template?.spec?.nodeSelector || {}).map(([key, value]) => ({ key, value }));
-      
+      const nodeSelector = Object.entries(spec?.template?.spec?.nodeSelector || {}).map(
+        ([key, value]) => ({ key, value }),
+      );
+
       // 提取亲和性配置
       const parseNodeAffinity = (affinity: any): NodeAffinityConfig | undefined => {
         if (!affinity) return undefined;
-        
+
         const result: NodeAffinityConfig = {};
-        
+
         // 解析 required 规则
         if (affinity.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms) {
           result.required = {
-            nodeSelectorTerms: affinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map((term: any) => ({
-              matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
-                key: expr.key,
-                operator: expr.operator,
-                values: expr.values,
-              })),
-              matchFields: (term.matchFields || []).map((field: any) => ({
-                key: field.key,
-                operator: field.operator,
-                values: field.values,
-              })),
-            })),
+            nodeSelectorTerms:
+              affinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map(
+                (term: any) => ({
+                  matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
+                    key: expr.key,
+                    operator: expr.operator,
+                    values: expr.values,
+                  })),
+                  matchFields: (term.matchFields || []).map((field: any) => ({
+                    key: field.key,
+                    operator: field.operator,
+                    values: field.values,
+                  })),
+                }),
+              ),
           };
         }
-        
+
         // 解析 preferred 规则
         if (affinity.preferredDuringSchedulingIgnoredDuringExecution) {
-          result.preferred = affinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
-            weight: pref.weight,
-            preference: {
-              matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
-                key: expr.key,
-                operator: expr.operator,
-                values: expr.values,
-              })),
-              matchFields: (pref.preference.matchFields || []).map((field: any) => ({
-                key: field.key,
-                operator: field.operator,
-                values: field.values,
-              })),
-            },
-          }));
-        }
-        
-        return Object.keys(result).length > 0 ? result : undefined;
-      };
-      
-      // 解析 Pod 亲和性配置
-      const parsePodAffinity = (podAffinity: any): PodAffinityConfig | undefined => {
-        if (!podAffinity) return undefined;
-        
-        const result: PodAffinityConfig = {};
-        
-        // 解析 required 规则
-        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
-          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map((term: any) => ({
-            labelSelector: term.labelSelector ? {
-              matchLabels: term.labelSelector.matchLabels || {},
-              matchExpressions: (term.labelSelector.matchExpressions || []).map((expr: any) => ({
-                key: expr.key,
-                operator: expr.operator,
-                values: expr.values,
-              })),
-            } : undefined,
-            namespaces: term.namespaces,
-            topologyKey: term.topologyKey,
-          }));
-        }
-        
-        // 解析 preferred 规则
-        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
-          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
-            weight: pref.weight,
-            podAffinityTerm: {
-              labelSelector: pref.podAffinityTerm?.labelSelector ? {
-                matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
-                matchExpressions: (pref.podAffinityTerm.labelSelector.matchExpressions || []).map((expr: any) => ({
+          result.preferred = affinity.preferredDuringSchedulingIgnoredDuringExecution.map(
+            (pref: any) => ({
+              weight: pref.weight,
+              preference: {
+                matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
                   key: expr.key,
                   operator: expr.operator,
                   values: expr.values,
                 })),
-              } : undefined,
-              namespaces: pref.podAffinityTerm?.namespaces,
-              topologyKey: pref.podAffinityTerm?.topologyKey,
-            },
-          }));
+                matchFields: (pref.preference.matchFields || []).map((field: any) => ({
+                  key: field.key,
+                  operator: field.operator,
+                  values: field.values,
+                })),
+              },
+            }),
+          );
         }
-        
+
         return Object.keys(result).length > 0 ? result : undefined;
       };
-      
+
+      // 解析 Pod 亲和性配置
+      const parsePodAffinity = (podAffinity: any): PodAffinityConfig | undefined => {
+        if (!podAffinity) return undefined;
+
+        const result: PodAffinityConfig = {};
+
+        // 解析 required 规则
+        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map(
+            (term: any) => ({
+              labelSelector: term.labelSelector
+                ? {
+                    matchLabels: term.labelSelector.matchLabels || {},
+                    matchExpressions: (term.labelSelector.matchExpressions || []).map(
+                      (expr: any) => ({
+                        key: expr.key,
+                        operator: expr.operator,
+                        values: expr.values,
+                      }),
+                    ),
+                  }
+                : undefined,
+              namespaces: term.namespaces,
+              topologyKey: term.topologyKey,
+            }),
+          );
+        }
+
+        // 解析 preferred 规则
+        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map(
+            (pref: any) => ({
+              weight: pref.weight,
+              podAffinityTerm: {
+                labelSelector: pref.podAffinityTerm?.labelSelector
+                  ? {
+                      matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
+                      matchExpressions: (
+                        pref.podAffinityTerm.labelSelector.matchExpressions || []
+                      ).map((expr: any) => ({
+                        key: expr.key,
+                        operator: expr.operator,
+                        values: expr.values,
+                      })),
+                    }
+                  : undefined,
+                namespaces: pref.podAffinityTerm?.namespaces,
+                topologyKey: pref.podAffinityTerm?.topologyKey,
+              },
+            }),
+          );
+        }
+
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
       const affinity = template?.spec?.affinity;
-      
+
       // 提取污点容忍
       const tolerations = (template?.spec?.tolerations || []).map((t: any) => ({
         key: t.key,
@@ -662,7 +720,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             })),
           }
         : undefined;
-      
+
       // 提取存储卷定义
       const rawVolumes = template?.spec?.volumes || [];
       const volumes: VolumeConfig[] = rawVolumes.map((vol: any) => {
@@ -670,7 +728,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           name: vol.name,
           type: 'emptyDir', // 默认类型
         };
-        
+
         if (vol.configMap) {
           result.type = 'configMap';
           result.configMapName = vol.configMap.name;
@@ -691,23 +749,23 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           result.hostPath = vol.hostPath.path;
           result.hostPathType = vol.hostPath.type;
         }
-        
+
         return result;
       });
-      
+
       // 解析网络配置
       const templateAnnotations = template?.metadata?.annotations || {};
       const networksAnnotation = templateAnnotations['k8s.v1.cni.cncf.io/networks'];
       const logicalSwitch = templateAnnotations['ovn.kubernetes.io/logical_switch'];
       const staticIPAnnotation = templateAnnotations['ovn.kubernetes.io/ip_address'];
-      
+
       // 解析网络类型和值
       let networkType = 'default';
       let flatSubnet: string | undefined;
       let vpcSubnet: string | undefined;
       let customNad: string | undefined;
       let vpcName: string | undefined;
-      
+
       if (networksAnnotation) {
         // networksAnnotation 格式: namespace/name 或 name
         if (logicalSwitch) {
@@ -723,20 +781,24 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           flatSubnet = networksAnnotation;
         }
       }
-      
+
       const enableStaticIP = !!staticIPAnnotation;
       const staticIP = staticIPAnnotation || undefined;
-      
+
       // 设置表单值
       const kind = editData?.kind?.toLowerCase();
       const type = editData?.type?.toLowerCase();
-      
+
       // 根据 kind/type 字段识别工作负载类型
-      const workloadTypeValue = kind === 'daemonset' || type === 'daemonset' ? 'daemonset'
-        : kind === 'statefulset' || type === 'statefulset' ? 'statefulset'
-        : kind === 'deployment' || type === 'deployment' ? 'deployment'
-        : defaultType;
-      
+      const workloadTypeValue =
+        kind === 'daemonset' || type === 'daemonset'
+          ? 'daemonset'
+          : kind === 'statefulset' || type === 'statefulset'
+            ? 'statefulset'
+            : kind === 'deployment' || type === 'deployment'
+              ? 'deployment'
+              : defaultType;
+
       form.setFieldsValue({
         workloadType: workloadTypeValue,
         name: metadata?.annotations?.['tower.io/alias'] || metadata?.name || '',
@@ -766,7 +828,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         staticIP,
       });
       setActiveContainerIndex(0);
-      
+
       // 设置 YAML 内容（过滤掉 managedFields，避免干扰用户编辑）
       const cleanData = {
         ...editData,
@@ -781,7 +843,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       console.error('编辑模式初始化表单数据失败:', err);
     }
   }, [editData, defaultType, form]);
-  
+
   // 步骤切换时同步容器数据到顶级字段（特别是步骤3存储配置）
   useEffect(() => {
     if (currentStep === 3) {
@@ -792,7 +854,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       }
     }
   }, [currentStep, activeContainerIndex, form, syncContainerEditorToForm]);
-  
+
   // 获取网络配置数据（扁平子网、VPC、NAD）
   useEffect(() => {
     const fetchNetworkData = async () => {
@@ -804,9 +866,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           fetchKubeOvnVpcs(cloudId, false, false, 'vpc').catch(() => ({ items: [] })),
           fetchHarvesterNads(cloudId).catch(() => ({ items: [] })),
         ]);
-        
+
         // 规范化子网数据（参考 VM 创建向导 useHarvesterData.ts）
-        const subnetItems: any[] = subnetsRes?.data?.items || subnetsRes?.items || (Array.isArray(subnetsRes) ? subnetsRes : []);
+        const subnetItems: any[] =
+          subnetsRes?.data?.items ||
+          subnetsRes?.items ||
+          (Array.isArray(subnetsRes) ? subnetsRes : []);
         const normalizedSubnets = subnetItems.map((x: any) => ({
           ...x,
           name: x?.metadata?.name || x?.name,
@@ -814,15 +879,19 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           vpc: x?.spec?.vpc || x?.vpc,
           cidr: x?.spec?.cidrBlock || x?.cidr,
         }));
-        
+
         // 规范化 VPC 数据
-        const vpcItems: any[] = vpcsRes?.data?.items || vpcsRes?.items || (Array.isArray(vpcsRes) ? vpcsRes : []);
+        const vpcItems: any[] =
+          vpcsRes?.data?.items || vpcsRes?.items || (Array.isArray(vpcsRes) ? vpcsRes : []);
         const normalizedVpcs = vpcItems.map((x: any) => ({
           ...x,
           name: x?.metadata?.name || x?.name,
-          alias: x?.metadata?.annotations?.['tower.io/alias'] || x?.annotations?.['tower.io/alias'] || '',
+          alias:
+            x?.metadata?.annotations?.['tower.io/alias'] ||
+            x?.annotations?.['tower.io/alias'] ||
+            '',
         }));
-        
+
         setKubeSubnets(normalizedSubnets);
         setKubeVpcs(normalizedVpcs);
         setNads(nadsRes?.data?.items || nadsRes?.items || (Array.isArray(nadsRes) ? nadsRes : []));
@@ -832,28 +901,28 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         setLoadingNetworkData(false);
       }
     };
-    
+
     fetchNetworkData();
   }, [cloudId]);
-  
+
   // 编辑模式：网络数据加载完成后，根据子网数据正确设置网络类型和 VPC 名称
   useEffect(() => {
     if (!editData || loadingNetworkData || kubeSubnets.length === 0) return;
-    
+
     const template = editData?.spec?.template || {};
     const templateAnnotations = template?.metadata?.annotations || {};
     const networksAnnotation = templateAnnotations['k8s.v1.cni.cncf.io/networks'];
     const logicalSwitch = templateAnnotations['ovn.kubernetes.io/logical_switch'];
-    
+
     if (!networksAnnotation) return;
-    
+
     // 解析 networksAnnotation 获取子网名称
     // 格式: namespace/name 或 name
     const parts = networksAnnotation.split('/');
     const subnetName = parts.length === 2 ? parts[1] : parts[0];
-    
+
     // 查找子网
-    const subnet = kubeSubnets.find(s => (s.name || s?.metadata?.name) === subnetName);
+    const subnet = kubeSubnets.find((s) => (s.name || s?.metadata?.name) === subnetName);
     if (!subnet) {
       // 子网未找到，可能是自定义 NAD
       form.setFieldsValue({
@@ -865,10 +934,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       });
       return;
     }
-    
+
     const subnetVpc = subnet?.vpc || subnet?.spec?.vpc;
     const subnetType = subnet?.metadata?.annotations?.['tower.io/subnet-type'];
-    
+
     if (subnetType === 'flat' || subnetVpc === 'ovn-internal') {
       // 扁平子网
       form.setFieldsValue({
@@ -898,29 +967,29 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       });
     }
   }, [editData, loadingNetworkData, kubeSubnets, form]);
-  
+
   // 扁平子网识别条件
   const isFlatSubnet = useCallback((subnet: any) => {
     const type = subnet?.metadata?.annotations?.['tower.io/subnet-type'];
     return type === 'flat';
   }, []);
-  
+
   const isFlatVpc = useCallback((vpc: string) => {
     return vpc === 'ovn-internal' || vpc === 'ovn-cluster';
   }, []);
-  
-  
+
   // 扁平子网选项
   const flatSubnetOptions = useMemo(() => {
     return (kubeSubnets || [])
-      .filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc) && isFlatSubnet(s))
-      .map(s => {
+      .filter((s) => isFlatVpc(s?.vpc || s?.spec?.vpc) && isFlatSubnet(s))
+      .map((s) => {
         const name = s.name || s?.metadata?.name || '-';
         const subnetNs = s?.namespace || s?.metadata?.namespace || 'default';
-        const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
+        const alias =
+          s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
         const cidr = s?.cidr || s?.spec?.cidrBlock || '';
-        const label = alias 
-          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}` 
+        const label = alias
+          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}`
           : `${name}${cidr ? ` (${cidr})` : ''}`;
         const nadRef = `${subnetNs}/${name}`;
         return {
@@ -930,12 +999,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         };
       });
   }, [kubeSubnets, isFlatSubnet, isFlatVpc]);
-  
+
   // VPC 选项
   const vpcOptions = useMemo(() => {
     return (kubeVpcs || [])
-      .filter(v => !isFlatVpc(v?.name || v?.metadata?.name))
-      .map(v => {
+      .filter((v) => !isFlatVpc(v?.name || v?.metadata?.name))
+      .map((v) => {
         const name = v.name || v?.metadata?.name || '-';
         const alias = v.alias || v?.metadata?.annotations?.['tower.io/alias'] || '';
         const label = alias ? `${alias}(${name})` : name;
@@ -945,19 +1014,20 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         };
       });
   }, [kubeVpcs, isFlatVpc]);
-  
+
   // 根据选中的 VPC 过滤子网选项
   const selectedVpc = Form.useWatch('vpcName', form);
   const vpcSubnetOptions = useMemo(() => {
     if (!selectedVpc) return [];
     return (kubeSubnets || [])
-      .filter(s => (s?.vpc || s?.spec?.vpc) === selectedVpc)
-      .map(s => {
+      .filter((s) => (s?.vpc || s?.spec?.vpc) === selectedVpc)
+      .map((s) => {
         const name = s.name || s?.metadata?.name || '-';
-        const alias = s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
+        const alias =
+          s?.metadata?.annotations?.['tower.io/alias'] || s?.annotations?.['tower.io/alias'] || '';
         const cidr = s?.cidr || s?.spec?.cidrBlock || '';
-        const label = alias 
-          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}` 
+        const label = alias
+          ? `${alias} (${name})${cidr ? ` - ${cidr}` : ''}`
           : `${name}${cidr ? ` (${cidr})` : ''}`;
         return {
           label,
@@ -966,28 +1036,28 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         };
       });
   }, [kubeSubnets, selectedVpc]);
-  
+
   // 静态 IP 检测函数（调用后端API）
   const handleCheckStaticIP = useCallback(async () => {
     const staticIP = form.getFieldValue('staticIP');
     const networkType = form.getFieldValue('networkType');
-    
+
     if (!staticIP) {
       message.warning('请先输入静态 IP 地址');
       return;
     }
-    
+
     // 验证 IP 格式
     const ipPattern = /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
     if (!ipPattern.test(staticIP)) {
       message.error('请输入有效的 IPv4 地址');
       return;
     }
-    
+
     // 获取当前子网信息
     let subnetName: string | undefined;
     let subnetNs = 'default';
-    
+
     if (networkType === 'flat_subnet') {
       const flatSubnetValue = form.getFieldValue('flatSubnet');
       if (flatSubnetValue) {
@@ -1011,29 +1081,27 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         }
       }
     }
-    
+
     if (!subnetName) {
       message.warning('请先选择子网');
       return;
     }
-    
+
     setCheckingStaticIP(true);
-    
+
     try {
       // 调用后端API检测IP是否已被使用
       const res = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, staticIP);
       const data = res?.data || res;
       const used = data?.used === true;
       const usedBy = data?.usedBy || '';
-      
+
       setStaticIPCheckResult({
         checked: true,
         available: !used,
-        reason: used
-          ? `IP 已被使用（被 ${usedBy} 占用）`
-          : 'IP 可用，未被其他工作负载使用',
+        reason: used ? `IP 已被使用（被 ${usedBy} 占用）` : 'IP 可用，未被其他工作负载使用',
       });
-      
+
       if (used) {
         message.error(`IP ${staticIP} 已被使用（被 ${usedBy} 占用）`);
       } else {
@@ -1043,23 +1111,22 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       // API调用失败，回退到本地检测
       console.warn('静态IP检测API调用失败，回退到本地检测:', e);
       let currentSubnet: any = null;
-      
+
       if (networkType === 'flat_subnet') {
         const flatSubnetValue = form.getFieldValue('flatSubnet');
-        const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === flatSubnetValue);
+        const flatSubnetOption = flatSubnetOptions.find((opt) => opt.value === flatSubnetValue);
         currentSubnet = flatSubnetOption?.subnet;
       } else if (networkType === 'vpc') {
         const vpcSubnetValue = form.getFieldValue('vpcSubnet');
         if (vpcSubnetValue) {
           const parts = vpcSubnetValue.split('/');
           const sn = parts.length === 2 ? parts[1] : parts[0];
-          currentSubnet = kubeSubnets.find(s => 
-            (s.name || s?.metadata?.name) === sn && 
-            (s.vpc || s?.spec?.vpc) === selectedVpc
+          currentSubnet = kubeSubnets.find(
+            (s) => (s.name || s?.metadata?.name) === sn && (s.vpc || s?.spec?.vpc) === selectedVpc,
           );
         }
       }
-      
+
       if (currentSubnet) {
         const result = checkIpAvailability(staticIP, currentSubnet);
         setStaticIPCheckResult({
@@ -1084,16 +1151,16 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       setCheckingStaticIP(false);
     }
   }, [cloudId, form, flatSubnetOptions, kubeSubnets, selectedVpc, message]);
-  
-  
+
   const allNadOptions = useMemo(() => {
     const selectedNamespace = form.getFieldValue('namespace') || defaultNamespace || 'default';
     return (nads || [])
       .map((n: any) => {
         const name = n?.metadata?.name || n?.name;
         const ns = n?.metadata?.namespace || n?.namespace || 'default';
-        const displayName = n?.spec?.displayName || n?.metadata?.annotations?.['tower.io/alias'] || '';
-        
+        const displayName =
+          n?.spec?.displayName || n?.metadata?.annotations?.['tower.io/alias'] || '';
+
         let type = 'unknown';
         let vlan: any = undefined;
         let promiscMode = false;
@@ -1103,14 +1170,14 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           vlan = cfg?.vlan;
           promiscMode = !!cfg?.promiscMode;
         } catch {}
-        
+
         const isCurrentNs = ns === selectedNamespace;
         const tag = type || '-';
         const labelBase = displayName ? `${displayName}(${name})` : name;
-        const label = vlan 
+        const label = vlan
           ? `${labelBase} · ${tag} · VLAN ${vlan}${isCurrentNs ? '' : ` [${ns}]`}`
           : `${labelBase} · ${tag}${isCurrentNs ? '' : ` [${ns}]`}`;
-        
+
         return {
           label,
           value: `${ns}/${name}`,
@@ -1124,698 +1191,705 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       .filter((x: any) => x.value.split('/')[0] === selectedNamespace)
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [nads, defaultNamespace, form]);
-  
+
   // 监听工作负载类型变化
   const workloadType = Form.useWatch('workloadType', form) || defaultType;
-  
+
   // 获取 API 路径
-  const getApiPath = useCallback((type: WorkloadType): string => {
-    switch (type) {
-      case 'deployment':
-        return '/apis/apps/v1/deployments';
-      case 'statefulset':
-        return '/apis/apps/v1/statefulsets';
-      case 'daemonset':
-        return '/apis/apps/v1/daemonsets';
-      default:
-        return '/apis/apps/v1/deployments';
-    }
-  }, []);
-  
+  const getApiPath = useCallback(getWorkloadApiPath, []);
+
   // 根据工作负载类型获取默认 YAML
-  const getDefaultYaml = useCallback((type: WorkloadType): string => {
-    switch (type) {
-      case 'deployment':
-        return DEFAULT_DEPLOYMENT_YAML;
-      case 'statefulset':
-        return DEFAULT_STATEFULSET_YAML;
-      case 'daemonset':
-        return DEFAULT_DAEMONSET_YAML;
-      default:
-        return DEFAULT_DEPLOYMENT_YAML;
-    }
-  }, []);
-  
+  const getDefaultYaml = useCallback(getDefaultWorkloadYaml, []);
+
   // 构建 Kubernetes 资源定义
-  const buildK8sResource = useCallback((values: WorkloadFormValues): any => {
-    const {
-      name,
-      namespace,
-      workloadType,
-      labels,
-      containers,
-      replicas,
-      nodeSelector,
-      nodeAffinity,
-      nodeAntiAffinity,
-      podAffinity,
-      podAntiAffinity,
-      tolerations,
-      hostAliases,
-      dnsPolicy,
-      dnsConfig,
-      volumes,
-      // 网络配置
-      networkType,
-      flatSubnet,
-      vpcName: _vpcName,
-      vpcSubnet,
-      customNad,
-      enableStaticIP,
-      staticIP,
-    } = values;
-    
-    // 构建标签
-    const labelsMap: Record<string, string> = { app: name };
-    (labels || []).forEach((item) => {
-      if (item.key && item.value) {
-        labelsMap[item.key] = item.value;
-      }
-    });
-    
-    // 构建探针
-    const buildProbe = (probe?: WorkloadContainerFormValue['livenessProbe']) => {
-      if (!probe?.enabled) return undefined;
-      
-      let probeConfig: any = {
-        initialDelaySeconds: probe.initialDelaySeconds || 30,
-        periodSeconds: probe.periodSeconds || 10,
-      };
-      
-      if (probe.type === 'httpGet' && probe.httpGet) {
-        probeConfig.httpGet = {
-          path: probe.httpGet.path || '/health',
-          port: probe.httpGet.port,
-        };
-      } else if (probe.type === 'tcpSocket' && probe.tcpSocket) {
-        probeConfig.tcpSocket = {
-          port: probe.tcpSocket.port,
-        };
-      } else if (probe.type === 'exec' && probe.exec?.command) {
-        probeConfig.exec = {
-          command: probe.exec.command,
-        };
-      }
-      
-      return probeConfig;
-    };
-    
-    const buildEnvList = (env: any[] = []) => env.map((item: any) => {
-      const envVar: any = {};
+  const buildK8sResource = useCallback(
+    (values: WorkloadFormValues): any => {
+      const {
+        name,
+        namespace,
+        workloadType,
+        labels,
+        containers,
+        replicas,
+        nodeSelector,
+        nodeAffinity,
+        nodeAntiAffinity,
+        podAffinity,
+        podAntiAffinity,
+        tolerations,
+        hostAliases,
+        dnsPolicy,
+        dnsConfig,
+        volumes,
+        // 网络配置
+        networkType,
+        flatSubnet,
+        vpcName: _vpcName,
+        vpcSubnet,
+        customNad,
+        enableStaticIP,
+        staticIP,
+      } = values;
 
-      if (item.type === 'configMapKeyRef') {
-        envVar.name = item.name || item.configMapKey;
-        envVar.valueFrom = {
-          configMapKeyRef: {
-            name: item.configMapName,
-            key: item.configMapKey,
-          },
-        };
-      } else if (item.type === 'secretKeyRef') {
-        envVar.name = item.name || item.secretKey;
-        envVar.valueFrom = {
-          secretKeyRef: {
-            name: item.secretName,
-            key: item.secretKey,
-          },
-        };
-      } else {
-        envVar.name = item.name;
-        envVar.value = item.value;
-      }
-
-      return envVar;
-    }).filter((item: any) => item.name);
-
-    const buildPortsList = (ports: any[] = []) => ports.map((item) => ({
-      name: item.name || `port-${item.containerPort}`,
-      containerPort: item.containerPort,
-      protocol: item.protocol,
-    }));
-
-    const buildResourceRequirements = (resources: WorkloadContainerFormValue['resources']) => {
-      const resourceRequirements: any = {};
-      if (resources?.requests?.cpu || resources?.requests?.memory) {
-        resourceRequirements.requests = {};
-        if (resources.requests.cpu) resourceRequirements.requests.cpu = resources.requests.cpu;
-        if (resources.requests.memory) resourceRequirements.requests.memory = resources.requests.memory;
-      }
-      if (resources?.limits?.cpu || resources?.limits?.memory) {
-        resourceRequirements.limits = {};
-        if (resources.limits.cpu) resourceRequirements.limits.cpu = resources.limits.cpu;
-        if (resources.limits.memory) resourceRequirements.limits.memory = resources.limits.memory;
-      }
-      return resourceRequirements;
-    };
-
-    const containerList = (containers && containers.length > 0 ? containers : [createEmptyContainer(name)]).map((container, index) => {
-      const envList = buildEnvList(container.env || []);
-      const portsList = buildPortsList(container.ports || []);
-      const resourceRequirements = buildResourceRequirements(container.resources);
-
-      return {
-        name: container.containerName || (index === 0 ? name : `${name}-${index + 1}`),
-        image: container.image,
-        imagePullPolicy: container.imagePullPolicy,
-        ports: portsList.length > 0 ? portsList : undefined,
-        env: envList.length > 0 ? envList : undefined,
-        resources: Object.keys(resourceRequirements).length > 0 ? resourceRequirements : undefined,
-        command: container.command?.length ? container.command : undefined,
-        args: container.args?.length ? container.args : undefined,
-        livenessProbe: buildProbe(container.livenessProbe),
-        readinessProbe: buildProbe(container.readinessProbe),
-        volumeMounts: (container.volumeMounts || []).length > 0 ? (container.volumeMounts || []).map((m) => ({
-          name: m.name,
-          mountPath: m.mountPath,
-          subPath: m.subPath,
-          readOnly: m.readOnly,
-        })) : undefined,
-      };
-    }).filter((container) => container.image || container.name);
-    
-    // 构建存储卷定义
-    const buildVolumes = () => {
-      return (volumes || []).map((vol) => {
-        const volume: any = { name: vol.name };
-        
-        switch (vol.type) {
-          case 'configMap':
-            volume.configMap = {
-              name: vol.configMapName,
-              optional: vol.configMapOptional,
-            };
-            break;
-          case 'secret':
-            volume.secret = {
-              secretName: vol.secretName,
-              optional: vol.secretOptional,
-            };
-            break;
-          case 'persistentVolumeClaim':
-            volume.persistentVolumeClaim = {
-              claimName: vol.claimName,
-            };
-            break;
-          case 'emptyDir':
-            volume.emptyDir = {
-              medium: vol.emptyDirMedium === 'Memory' ? 'Memory' : undefined,
-              sizeLimit: vol.emptyDirSizeLimit,
-            };
-            break;
-          case 'hostPath':
-            volume.hostPath = {
-              path: vol.hostPath,
-              type: vol.hostPathType,
-            };
-            break;
+      // 构建标签
+      const labelsMap: Record<string, string> = { app: name };
+      (labels || []).forEach((item) => {
+        if (item.key && item.value) {
+          labelsMap[item.key] = item.value;
         }
-        
-        return volume;
       });
-    };
-    
-    const volumesList = buildVolumes();
-    
-    // 构建节点选择器
-    const nodeSelectorMap: Record<string, string> = {};
-    (nodeSelector || []).forEach((item) => {
-      if (item.key && item.value) {
-        nodeSelectorMap[item.key] = item.value;
-      }
-    });
-    
-    // 构建镜像拉取凭证（从所有容器收集并去重）
-    const allContainerSecrets = new Set<string>();
-    (containers || []).forEach((container) => {
-      (container.imagePullSecrets || []).forEach((secretName) => {
-        allContainerSecrets.add(secretName);
-      });
-    });
-    const imagePullSecretsList = Array.from(allContainerSecrets).map((secretName) => ({
-      name: secretName,
-    }));
-    
-    // 构建亲和性配置
-    const buildNodeAffinity = (affinityConfig?: NodeAffinityConfig) => {
-      if (!affinityConfig) return undefined;
-      
-      const result: any = {};
-      
-      // 构建 required 规则
-      if (affinityConfig.required?.nodeSelectorTerms?.length) {
-        const terms = affinityConfig.required.nodeSelectorTerms
-          .map((term) => {
-            const termObj: any = {};
-            
-            if (term.matchExpressions?.length) {
-              termObj.matchExpressions = term.matchExpressions
-                .filter((expr) => expr.key)
-                .map((expr) => ({
-                  key: expr.key,
-                  operator: expr.operator,
-                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
-                }));
-            }
-            
-            if (term.matchFields?.length) {
-              termObj.matchFields = term.matchFields
-                .filter((field) => field.key)
-                .map((field) => ({
-                  key: field.key,
-                  operator: field.operator,
-                  ...(field.values && field.values.length > 0 && { values: field.values }),
-                }));
-            }
-            
-            return Object.keys(termObj).length > 0 ? termObj : null;
-          })
-          .filter(Boolean);
-        
-        if (terms.length > 0) {
-          result.requiredDuringSchedulingIgnoredDuringExecution = {
-            nodeSelectorTerms: terms,
+
+      // 构建探针
+      const buildProbe = (probe?: WorkloadContainerFormValue['livenessProbe']) => {
+        if (!probe?.enabled) return undefined;
+
+        let probeConfig: any = {
+          initialDelaySeconds: probe.initialDelaySeconds || 30,
+          periodSeconds: probe.periodSeconds || 10,
+        };
+
+        if (probe.type === 'httpGet' && probe.httpGet) {
+          probeConfig.httpGet = {
+            path: probe.httpGet.path || '/health',
+            port: probe.httpGet.port,
+          };
+        } else if (probe.type === 'tcpSocket' && probe.tcpSocket) {
+          probeConfig.tcpSocket = {
+            port: probe.tcpSocket.port,
+          };
+        } else if (probe.type === 'exec' && probe.exec?.command) {
+          probeConfig.exec = {
+            command: probe.exec.command,
           };
         }
-      }
-      
-      // 构建 preferred 规则
-      if (affinityConfig.preferred?.length) {
-        const preferences = affinityConfig.preferred
-          .map((pref) => {
-            const prefObj: any = {
-              weight: pref.weight || 50,
-              preference: {},
-            };
-            
-            if (pref.preference.matchExpressions?.length) {
-              prefObj.preference.matchExpressions = pref.preference.matchExpressions
-                .filter((expr) => expr.key)
-                .map((expr) => ({
-                  key: expr.key,
-                  operator: expr.operator,
-                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
-                }));
+
+        return probeConfig;
+      };
+
+      const buildEnvList = (env: any[] = []) =>
+        env
+          .map((item: any) => {
+            const envVar: any = {};
+
+            if (item.type === 'configMapKeyRef') {
+              envVar.name = item.name || item.configMapKey;
+              envVar.valueFrom = {
+                configMapKeyRef: {
+                  name: item.configMapName,
+                  key: item.configMapKey,
+                },
+              };
+            } else if (item.type === 'secretKeyRef') {
+              envVar.name = item.name || item.secretKey;
+              envVar.valueFrom = {
+                secretKeyRef: {
+                  name: item.secretName,
+                  key: item.secretKey,
+                },
+              };
+            } else {
+              envVar.name = item.name;
+              envVar.value = item.value;
             }
-            
-            if (pref.preference.matchFields?.length) {
-              prefObj.preference.matchFields = pref.preference.matchFields
-                .filter((field) => field.key)
-                .map((field) => ({
-                  key: field.key,
-                  operator: field.operator,
-                  ...(field.values && field.values.length > 0 && { values: field.values }),
-                }));
-            }
-            
-            return Object.keys(prefObj.preference).length > 0 ? prefObj : null;
+
+            return envVar;
           })
-          .filter(Boolean);
-        
-        if (preferences.length > 0) {
-          result.preferredDuringSchedulingIgnoredDuringExecution = preferences;
-        }
-      }
-      
-      return Object.keys(result).length > 0 ? result : undefined;
-    };
-    
-    // 构建 Pod 亲和性配置
-    const buildPodAffinity = (affinityConfig?: PodAffinityConfig) => {
-      if (!affinityConfig) return undefined;
-      
-      const result: any = {};
-      
-      // 构建 required 规则
-      if (affinityConfig.required?.length) {
-        const requiredTerms = affinityConfig.required
-          .map((term) => {
-            const termObj: any = {};
-            
-            // 构建标签选择器
-            const labelSelector: any = {};
-            
-            // matchLabels
-            const matchLabels = term.labelSelector?.matchLabels || {};
-            const validLabels = Object.fromEntries(
-              Object.entries(matchLabels).filter(([k, v]) => k && v)
-            );
-            if (Object.keys(validLabels).length > 0) {
-              labelSelector.matchLabels = validLabels;
-            }
-            
-            // matchExpressions
-            if (term.labelSelector?.matchExpressions?.length) {
-              const expressions = term.labelSelector.matchExpressions
-                .filter((expr) => expr.key)
-                .map((expr) => ({
-                  key: expr.key,
-                  operator: expr.operator,
-                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
-                }));
-              if (expressions.length > 0) {
-                labelSelector.matchExpressions = expressions;
-              }
-            }
-            
-            if (Object.keys(labelSelector).length > 0) {
-              termObj.labelSelector = labelSelector;
-            }
-            
-            // namespaces
-            if (term.namespaces?.length) {
-              termObj.namespaces = term.namespaces;
-            }
-            
-            // topologyKey (必填)
-            if (term.topologyKey) {
-              termObj.topologyKey = term.topologyKey;
-            } else {
-              return null; // topologyKey 是必填字段
-            }
-            
-            return Object.keys(termObj).length > 1 ? termObj : null; // 至少需要 topologyKey
-          })
-          .filter(Boolean);
-        
-        if (requiredTerms.length > 0) {
-          result.requiredDuringSchedulingIgnoredDuringExecution = requiredTerms;
-        }
-      }
-      
-      // 构建 preferred 规则
-      if (affinityConfig.preferred?.length) {
-        const preferences = affinityConfig.preferred
-          .map((pref) => {
-            const term = pref.podAffinityTerm;
-            const termObj: any = {};
-            
-            // 构建标签选择器
-            const labelSelector: any = {};
-            
-            // matchLabels
-            const matchLabels = term.labelSelector?.matchLabels || {};
-            const validLabels = Object.fromEntries(
-              Object.entries(matchLabels).filter(([k, v]) => k && v)
-            );
-            if (Object.keys(validLabels).length > 0) {
-              labelSelector.matchLabels = validLabels;
-            }
-            
-            // matchExpressions
-            if (term.labelSelector?.matchExpressions?.length) {
-              const expressions = term.labelSelector.matchExpressions
-                .filter((expr) => expr.key)
-                .map((expr) => ({
-                  key: expr.key,
-                  operator: expr.operator,
-                  ...(expr.values && expr.values.length > 0 && { values: expr.values }),
-                }));
-              if (expressions.length > 0) {
-                labelSelector.matchExpressions = expressions;
-              }
-            }
-            
-            if (Object.keys(labelSelector).length > 0) {
-              termObj.labelSelector = labelSelector;
-            }
-            
-            // namespaces
-            if (term.namespaces?.length) {
-              termObj.namespaces = term.namespaces;
-            }
-            
-            // topologyKey (必填)
-            if (term.topologyKey) {
-              termObj.topologyKey = term.topologyKey;
-            } else {
-              return null;
-            }
-            
-            return Object.keys(termObj).length > 1 ? {
-              weight: pref.weight || 50,
-              podAffinityTerm: termObj,
-            } : null;
-          })
-          .filter(Boolean);
-        
-        if (preferences.length > 0) {
-          result.preferredDuringSchedulingIgnoredDuringExecution = preferences;
-        }
-      }
-      
-      return Object.keys(result).length > 0 ? result : undefined;
-    };
-    
-    // 构建完整亲和性对象
-    const affinity: any = {};
-    
-    // 节点亲和性
-    const nodeAffinityResult = buildNodeAffinity(nodeAffinity);
-    if (nodeAffinityResult) {
-      affinity.nodeAffinity = nodeAffinityResult;
-    }
-    
-    // 节点反亲和性 (使用相同的结构，但在K8s中反亲和性需要特殊处理)
-    // 注意：Kubernetes 本身没有直接的 nodeAntiAffinity，需要通过 nodeAffinity 的 NotIn/DoesNotExist 操作符实现
-    // 这里我们将其转换为对应的 nodeAffinity 规则
-    if (nodeAntiAffinity) {
-      const antiAffinityResult = buildNodeAffinity(nodeAntiAffinity);
-      if (antiAffinityResult) {
-        // 如果已有 nodeAffinity，需要合并规则
-        if (affinity.nodeAffinity) {
-          // 合并 required 规则
-          if (antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution) {
-            if (!affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution) {
-              affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution = 
-                antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution;
-            } else {
-              // 合并 nodeSelectorTerms
-              affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.push(
-                ...antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms
-              );
-            }
-          }
-          // 合并 preferred 规则
-          if (antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution) {
-            if (!affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution) {
-              affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution = 
-                antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution;
-            } else {
-              affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution.push(
-                ...antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution
-              );
-            }
-          }
-        } else {
-          affinity.nodeAffinity = antiAffinityResult;
-        }
-      }
-    }
-    
-    // Pod 亲和性
-    const podAffinityResult = buildPodAffinity(podAffinity);
-    if (podAffinityResult) {
-      affinity.podAffinity = podAffinityResult;
-    }
-    
-    // Pod 反亲和性
-    const podAntiAffinityResult = buildPodAffinity(podAntiAffinity);
-    if (podAntiAffinityResult) {
-      affinity.podAntiAffinity = podAntiAffinityResult;
-    }
-    
-    // 构建污点容忍
-    const tolerationsList = (tolerations || [])
-      .filter((t) => t.key || t.operator === 'Exists')
-      .map((t) => {
-        const toleration: any = {};
-        if (t.key) toleration.key = t.key;
-        if (t.operator) toleration.operator = t.operator;
-        if (t.operator === 'Equal' && t.value) toleration.value = t.value;
-        if (t.effect) toleration.effect = t.effect;
-        if (t.effect === 'NoExecute' && t.tolerationSeconds !== undefined) {
-          toleration.tolerationSeconds = t.tolerationSeconds;
-        }
-        return toleration;
-      });
-    
-    // 构建域名映射
-    const hostAliasesList = (hostAliases || [])
-      .filter((ha) => ha.ip && ha.hostnames && ha.hostnames.length > 0)
-      .map((ha) => ({
-        ip: ha.ip,
-        hostnames: ha.hostnames,
-      }));
-    
-    // 构建 DNS 配置
-    const dnsConfigObj: any = {};
-    if (dnsConfig?.nameservers && dnsConfig.nameservers.length > 0) {
-      dnsConfigObj.nameservers = dnsConfig.nameservers.filter((ns) => ns);
-    }
-    if (dnsConfig?.searches && dnsConfig.searches.length > 0) {
-      dnsConfigObj.searches = dnsConfig.searches.filter((s) => s);
-    }
-    if (dnsConfig?.options && dnsConfig.options.length > 0) {
-      dnsConfigObj.options = dnsConfig.options
-        .filter((opt) => opt.name)
-        .map((opt) => ({
-          name: opt.name,
-          ...(opt.value !== undefined && opt.value !== '' && { value: opt.value }),
+          .filter((item: any) => item.name);
+
+      const buildPortsList = (ports: any[] = []) =>
+        ports.map((item) => ({
+          name: item.name || `port-${item.containerPort}`,
+          containerPort: item.containerPort,
+          protocol: item.protocol,
         }));
-    }
-    const hasDnsConfig = Object.keys(dnsConfigObj).length > 0;
-    
-    // ============================================================
-    // 构建网络相关注解
-    // 注解将添加到 spec.template.metadata.annotations
-    // ============================================================
-    const buildNetworkAnnotations = (): Record<string, string> => {
-      const annotations: Record<string, string> = {};
-      
-      // 默认网络不需要任何注解
-      if (!networkType || networkType === 'default') {
-        return annotations;
+
+      const buildResourceRequirements = (resources: WorkloadContainerFormValue['resources']) => {
+        const resourceRequirements: any = {};
+        if (resources?.requests?.cpu || resources?.requests?.memory) {
+          resourceRequirements.requests = {};
+          if (resources.requests.cpu) resourceRequirements.requests.cpu = resources.requests.cpu;
+          if (resources.requests.memory)
+            resourceRequirements.requests.memory = resources.requests.memory;
+        }
+        if (resources?.limits?.cpu || resources?.limits?.memory) {
+          resourceRequirements.limits = {};
+          if (resources.limits.cpu) resourceRequirements.limits.cpu = resources.limits.cpu;
+          if (resources.limits.memory) resourceRequirements.limits.memory = resources.limits.memory;
+        }
+        return resourceRequirements;
+      };
+
+      const containerList = (
+        containers && containers.length > 0 ? containers : [createEmptyContainer(name)]
+      )
+        .map((container, index) => {
+          const envList = buildEnvList(container.env || []);
+          const portsList = buildPortsList(container.ports || []);
+          const resourceRequirements = buildResourceRequirements(container.resources);
+
+          return {
+            name: container.containerName || (index === 0 ? name : `${name}-${index + 1}`),
+            image: container.image,
+            imagePullPolicy: container.imagePullPolicy,
+            ports: portsList.length > 0 ? portsList : undefined,
+            env: envList.length > 0 ? envList : undefined,
+            resources:
+              Object.keys(resourceRequirements).length > 0 ? resourceRequirements : undefined,
+            command: container.command?.length ? container.command : undefined,
+            args: container.args?.length ? container.args : undefined,
+            livenessProbe: buildProbe(container.livenessProbe),
+            readinessProbe: buildProbe(container.readinessProbe),
+            volumeMounts:
+              (container.volumeMounts || []).length > 0
+                ? (container.volumeMounts || []).map((m) => ({
+                    name: m.name,
+                    mountPath: m.mountPath,
+                    subPath: m.subPath,
+                    readOnly: m.readOnly,
+                  }))
+                : undefined,
+          };
+        })
+        .filter((container) => container.image || container.name);
+
+      // 构建存储卷定义
+      const buildVolumes = () => {
+        return (volumes || []).map((vol) => {
+          const volume: any = { name: vol.name };
+
+          switch (vol.type) {
+            case 'configMap':
+              volume.configMap = {
+                name: vol.configMapName,
+                optional: vol.configMapOptional,
+              };
+              break;
+            case 'secret':
+              volume.secret = {
+                secretName: vol.secretName,
+                optional: vol.secretOptional,
+              };
+              break;
+            case 'persistentVolumeClaim':
+              volume.persistentVolumeClaim = {
+                claimName: vol.claimName,
+              };
+              break;
+            case 'emptyDir':
+              volume.emptyDir = {
+                medium: vol.emptyDirMedium === 'Memory' ? 'Memory' : undefined,
+                sizeLimit: vol.emptyDirSizeLimit,
+              };
+              break;
+            case 'hostPath':
+              volume.hostPath = {
+                path: vol.hostPath,
+                type: vol.hostPathType,
+              };
+              break;
+          }
+
+          return volume;
+        });
+      };
+
+      const volumesList = buildVolumes();
+
+      // 构建节点选择器
+      const nodeSelectorMap: Record<string, string> = {};
+      (nodeSelector || []).forEach((item) => {
+        if (item.key && item.value) {
+          nodeSelectorMap[item.key] = item.value;
+        }
+      });
+
+      // 构建镜像拉取凭证（从所有容器收集并去重）
+      const allContainerSecrets = new Set<string>();
+      (containers || []).forEach((container) => {
+        (container.imagePullSecrets || []).forEach((secretName) => {
+          allContainerSecrets.add(secretName);
+        });
+      });
+      const imagePullSecretsList = Array.from(allContainerSecrets).map((secretName) => ({
+        name: secretName,
+      }));
+
+      // 构建亲和性配置
+      const buildNodeAffinity = (affinityConfig?: NodeAffinityConfig) => {
+        if (!affinityConfig) return undefined;
+
+        const result: any = {};
+
+        // 构建 required 规则
+        if (affinityConfig.required?.nodeSelectorTerms?.length) {
+          const terms = affinityConfig.required.nodeSelectorTerms
+            .map((term) => {
+              const termObj: any = {};
+
+              if (term.matchExpressions?.length) {
+                termObj.matchExpressions = term.matchExpressions
+                  .filter((expr) => expr.key)
+                  .map((expr) => ({
+                    key: expr.key,
+                    operator: expr.operator,
+                    ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                  }));
+              }
+
+              if (term.matchFields?.length) {
+                termObj.matchFields = term.matchFields
+                  .filter((field) => field.key)
+                  .map((field) => ({
+                    key: field.key,
+                    operator: field.operator,
+                    ...(field.values && field.values.length > 0 && { values: field.values }),
+                  }));
+              }
+
+              return Object.keys(termObj).length > 0 ? termObj : null;
+            })
+            .filter(Boolean);
+
+          if (terms.length > 0) {
+            result.requiredDuringSchedulingIgnoredDuringExecution = {
+              nodeSelectorTerms: terms,
+            };
+          }
+        }
+
+        // 构建 preferred 规则
+        if (affinityConfig.preferred?.length) {
+          const preferences = affinityConfig.preferred
+            .map((pref) => {
+              const prefObj: any = {
+                weight: pref.weight || 50,
+                preference: {},
+              };
+
+              if (pref.preference.matchExpressions?.length) {
+                prefObj.preference.matchExpressions = pref.preference.matchExpressions
+                  .filter((expr) => expr.key)
+                  .map((expr) => ({
+                    key: expr.key,
+                    operator: expr.operator,
+                    ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                  }));
+              }
+
+              if (pref.preference.matchFields?.length) {
+                prefObj.preference.matchFields = pref.preference.matchFields
+                  .filter((field) => field.key)
+                  .map((field) => ({
+                    key: field.key,
+                    operator: field.operator,
+                    ...(field.values && field.values.length > 0 && { values: field.values }),
+                  }));
+              }
+
+              return Object.keys(prefObj.preference).length > 0 ? prefObj : null;
+            })
+            .filter(Boolean);
+
+          if (preferences.length > 0) {
+            result.preferredDuringSchedulingIgnoredDuringExecution = preferences;
+          }
+        }
+
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
+      // 构建 Pod 亲和性配置
+      const buildPodAffinity = (affinityConfig?: PodAffinityConfig) => {
+        if (!affinityConfig) return undefined;
+
+        const result: any = {};
+
+        // 构建 required 规则
+        if (affinityConfig.required?.length) {
+          const requiredTerms = affinityConfig.required
+            .map((term) => {
+              const termObj: any = {};
+
+              // 构建标签选择器
+              const labelSelector: any = {};
+
+              // matchLabels
+              const matchLabels = term.labelSelector?.matchLabels || {};
+              const validLabels = Object.fromEntries(
+                Object.entries(matchLabels).filter(([k, v]) => k && v),
+              );
+              if (Object.keys(validLabels).length > 0) {
+                labelSelector.matchLabels = validLabels;
+              }
+
+              // matchExpressions
+              if (term.labelSelector?.matchExpressions?.length) {
+                const expressions = term.labelSelector.matchExpressions
+                  .filter((expr) => expr.key)
+                  .map((expr) => ({
+                    key: expr.key,
+                    operator: expr.operator,
+                    ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                  }));
+                if (expressions.length > 0) {
+                  labelSelector.matchExpressions = expressions;
+                }
+              }
+
+              if (Object.keys(labelSelector).length > 0) {
+                termObj.labelSelector = labelSelector;
+              }
+
+              // namespaces
+              if (term.namespaces?.length) {
+                termObj.namespaces = term.namespaces;
+              }
+
+              // topologyKey (必填)
+              if (term.topologyKey) {
+                termObj.topologyKey = term.topologyKey;
+              } else {
+                return null; // topologyKey 是必填字段
+              }
+
+              return Object.keys(termObj).length > 1 ? termObj : null; // 至少需要 topologyKey
+            })
+            .filter(Boolean);
+
+          if (requiredTerms.length > 0) {
+            result.requiredDuringSchedulingIgnoredDuringExecution = requiredTerms;
+          }
+        }
+
+        // 构建 preferred 规则
+        if (affinityConfig.preferred?.length) {
+          const preferences = affinityConfig.preferred
+            .map((pref) => {
+              const term = pref.podAffinityTerm;
+              const termObj: any = {};
+
+              // 构建标签选择器
+              const labelSelector: any = {};
+
+              // matchLabels
+              const matchLabels = term.labelSelector?.matchLabels || {};
+              const validLabels = Object.fromEntries(
+                Object.entries(matchLabels).filter(([k, v]) => k && v),
+              );
+              if (Object.keys(validLabels).length > 0) {
+                labelSelector.matchLabels = validLabels;
+              }
+
+              // matchExpressions
+              if (term.labelSelector?.matchExpressions?.length) {
+                const expressions = term.labelSelector.matchExpressions
+                  .filter((expr) => expr.key)
+                  .map((expr) => ({
+                    key: expr.key,
+                    operator: expr.operator,
+                    ...(expr.values && expr.values.length > 0 && { values: expr.values }),
+                  }));
+                if (expressions.length > 0) {
+                  labelSelector.matchExpressions = expressions;
+                }
+              }
+
+              if (Object.keys(labelSelector).length > 0) {
+                termObj.labelSelector = labelSelector;
+              }
+
+              // namespaces
+              if (term.namespaces?.length) {
+                termObj.namespaces = term.namespaces;
+              }
+
+              // topologyKey (必填)
+              if (term.topologyKey) {
+                termObj.topologyKey = term.topologyKey;
+              } else {
+                return null;
+              }
+
+              return Object.keys(termObj).length > 1
+                ? {
+                    weight: pref.weight || 50,
+                    podAffinityTerm: termObj,
+                  }
+                : null;
+            })
+            .filter(Boolean);
+
+          if (preferences.length > 0) {
+            result.preferredDuringSchedulingIgnoredDuringExecution = preferences;
+          }
+        }
+
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
+      // 构建完整亲和性对象
+      const affinity: any = {};
+
+      // 节点亲和性
+      const nodeAffinityResult = buildNodeAffinity(nodeAffinity);
+      if (nodeAffinityResult) {
+        affinity.nodeAffinity = nodeAffinityResult;
       }
-      
-      // 根据网络类型设置注解
-      switch (networkType) {
-        case 'flat_subnet':
-          // 扁平子网：设置 networks 注解和 logical_switch 注解
-          if (flatSubnet) {
-            annotations['k8s.v1.cni.cncf.io/networks'] = flatSubnet;
-            // 扁平子网需要 logical_switch 注解，格式为 <namespace>/<subnet-name>
-            const flatParts = flatSubnet.split('/');
-            const subnetName = flatParts.length === 2 ? flatParts[1] : flatSubnet;
-            if (flatParts.length === 2) {
-              annotations['ovn.kubernetes.io/logical_switch'] = flatParts[1];
-            } else if (flatParts.length === 1) {
-              annotations['ovn.kubernetes.io/logical_switch'] = flatSubnet;
-            }
-            // 扁平子网静态IP需要用网络名称前缀的注解格式
-            // 格式: <subnet-name>.default.ovn.kubernetes.io/ip_address
-            if (enableStaticIP && staticIP) {
-              // 同时设置两种格式的静态IP注解，确保兼容性
-              annotations['ovn.kubernetes.io/ip_address'] = staticIP;
-              // 使用网络名称前缀格式（这是Kube-OVN多网络模式识别的格式）
-              annotations[`${subnetName}.default.ovn.kubernetes.io/ip_address`] = staticIP;
-            }
-          }
-          break;
-          
-        case 'vpc':
-          // VPC 子网：设置 networks 注解
-          if (vpcSubnet) {
-            annotations['k8s.v1.cni.cncf.io/networks'] = vpcSubnet;
-            // Kube-OVN VPC 子网需要 logical_switch 注解
-            const subnetParts = vpcSubnet.split('/');
-            const vpcSubnetName = subnetParts.length === 2 ? subnetParts[1] : vpcSubnet;
-            if (subnetParts.length === 2) {
-              annotations['ovn.kubernetes.io/logical_switch'] = subnetParts[1];
-            }
-            // VPC 子网静态IP需要用网络名称前缀的注解格式
-            if (enableStaticIP && staticIP) {
-              annotations['ovn.kubernetes.io/ip_address'] = staticIP;
-              const vpcSubnetNs = subnetParts.length === 2 ? subnetParts[0] : 'default';
-              annotations[`${vpcSubnetName}.${vpcSubnetNs}.ovn.kubernetes.io/ip_address`] = staticIP;
-            }
-          }
-          break;
-          
-        case 'custom_nad':
-          if (customNad) {
-            annotations['k8s.v1.cni.cncf.io/networks'] = customNad;
-            const selectedNadOption = allNadOptions.find((o: any) => o.value === customNad);
-            if (selectedNadOption?._type === 'kube-ovn') {
-              const nadParts = customNad.split('/');
-              if (nadParts.length === 2) {
-                annotations['ovn.kubernetes.io/logical_switch'] = nadParts[1];
+
+      // 节点反亲和性 (使用相同的结构，但在K8s中反亲和性需要特殊处理)
+      // 注意：Kubernetes 本身没有直接的 nodeAntiAffinity，需要通过 nodeAffinity 的 NotIn/DoesNotExist 操作符实现
+      // 这里我们将其转换为对应的 nodeAffinity 规则
+      if (nodeAntiAffinity) {
+        const antiAffinityResult = buildNodeAffinity(nodeAntiAffinity);
+        if (antiAffinityResult) {
+          // 如果已有 nodeAffinity，需要合并规则
+          if (affinity.nodeAffinity) {
+            // 合并 required 规则
+            if (antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution) {
+              if (!affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution) {
+                affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution =
+                  antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution;
+              } else {
+                // 合并 nodeSelectorTerms
+                affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.push(
+                  ...antiAffinityResult.requiredDuringSchedulingIgnoredDuringExecution
+                    .nodeSelectorTerms,
+                );
               }
             }
+            // 合并 preferred 规则
+            if (antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution) {
+              if (!affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution) {
+                affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution =
+                  antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution;
+              } else {
+                affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution.push(
+                  ...antiAffinityResult.preferredDuringSchedulingIgnoredDuringExecution,
+                );
+              }
+            }
+          } else {
+            affinity.nodeAffinity = antiAffinityResult;
           }
-          break;
+        }
       }
-      
-      return annotations;
-    };
-    
-    // 构建网络注解
-    const networkAnnotations = buildNetworkAnnotations();
-    
-    // 构建完整资源
-    const resource: any = {
-      apiVersion: 'apps/v1',
-      kind: workloadType === 'deployment' ? 'Deployment' 
-          : workloadType === 'statefulset' ? 'StatefulSet' 
-          : 'DaemonSet',
-      metadata: {
-        name: generateHarvesterCrMetadataName(workloadType),
-        namespace,
-        labels: labelsMap,
-        annotations: {
-          'tower.io/alias': name,
-        },
-      },
-      spec: {
-        selector: {
-          matchLabels: { app: name },
-        },
-        template: {
-          metadata: {
-            labels: labelsMap,
-            // 网络注解：合并到 spec.template.metadata.annotations
-            ...(Object.keys(networkAnnotations).length > 0 && { annotations: networkAnnotations }),
+
+      // Pod 亲和性
+      const podAffinityResult = buildPodAffinity(podAffinity);
+      if (podAffinityResult) {
+        affinity.podAffinity = podAffinityResult;
+      }
+
+      // Pod 反亲和性
+      const podAntiAffinityResult = buildPodAffinity(podAntiAffinity);
+      if (podAntiAffinityResult) {
+        affinity.podAntiAffinity = podAntiAffinityResult;
+      }
+
+      // 构建污点容忍
+      const tolerationsList = (tolerations || [])
+        .filter((t) => t.key || t.operator === 'Exists')
+        .map((t) => {
+          const toleration: any = {};
+          if (t.key) toleration.key = t.key;
+          if (t.operator) toleration.operator = t.operator;
+          if (t.operator === 'Equal' && t.value) toleration.value = t.value;
+          if (t.effect) toleration.effect = t.effect;
+          if (t.effect === 'NoExecute' && t.tolerationSeconds !== undefined) {
+            toleration.tolerationSeconds = t.tolerationSeconds;
+          }
+          return toleration;
+        });
+
+      // 构建域名映射
+      const hostAliasesList = (hostAliases || [])
+        .filter((ha) => ha.ip && ha.hostnames && ha.hostnames.length > 0)
+        .map((ha) => ({
+          ip: ha.ip,
+          hostnames: ha.hostnames,
+        }));
+
+      // 构建 DNS 配置
+      const dnsConfigObj: any = {};
+      if (dnsConfig?.nameservers && dnsConfig.nameservers.length > 0) {
+        dnsConfigObj.nameservers = dnsConfig.nameservers.filter((ns) => ns);
+      }
+      if (dnsConfig?.searches && dnsConfig.searches.length > 0) {
+        dnsConfigObj.searches = dnsConfig.searches.filter((s) => s);
+      }
+      if (dnsConfig?.options && dnsConfig.options.length > 0) {
+        dnsConfigObj.options = dnsConfig.options
+          .filter((opt) => opt.name)
+          .map((opt) => ({
+            name: opt.name,
+            ...(opt.value !== undefined && opt.value !== '' && { value: opt.value }),
+          }));
+      }
+      const hasDnsConfig = Object.keys(dnsConfigObj).length > 0;
+
+      // ============================================================
+      // 构建网络相关注解
+      // 注解将添加到 spec.template.metadata.annotations
+      // ============================================================
+      const buildNetworkAnnotations = (): Record<string, string> => {
+        const annotations: Record<string, string> = {};
+
+        // 默认网络不需要任何注解
+        if (!networkType || networkType === 'default') {
+          return annotations;
+        }
+
+        // 根据网络类型设置注解
+        switch (networkType) {
+          case 'flat_subnet':
+            // 扁平子网：设置 networks 注解和 logical_switch 注解
+            if (flatSubnet) {
+              annotations['k8s.v1.cni.cncf.io/networks'] = flatSubnet;
+              // 扁平子网需要 logical_switch 注解，格式为 <namespace>/<subnet-name>
+              const flatParts = flatSubnet.split('/');
+              const subnetName = flatParts.length === 2 ? flatParts[1] : flatSubnet;
+              if (flatParts.length === 2) {
+                annotations['ovn.kubernetes.io/logical_switch'] = flatParts[1];
+              } else if (flatParts.length === 1) {
+                annotations['ovn.kubernetes.io/logical_switch'] = flatSubnet;
+              }
+              // 扁平子网静态IP需要用网络名称前缀的注解格式
+              // 格式: <subnet-name>.default.ovn.kubernetes.io/ip_address
+              if (enableStaticIP && staticIP) {
+                // 同时设置两种格式的静态IP注解，确保兼容性
+                annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+                // 使用网络名称前缀格式（这是Kube-OVN多网络模式识别的格式）
+                annotations[`${subnetName}.default.ovn.kubernetes.io/ip_address`] = staticIP;
+              }
+            }
+            break;
+
+          case 'vpc':
+            // VPC 子网：设置 networks 注解
+            if (vpcSubnet) {
+              annotations['k8s.v1.cni.cncf.io/networks'] = vpcSubnet;
+              // Kube-OVN VPC 子网需要 logical_switch 注解
+              const subnetParts = vpcSubnet.split('/');
+              const vpcSubnetName = subnetParts.length === 2 ? subnetParts[1] : vpcSubnet;
+              if (subnetParts.length === 2) {
+                annotations['ovn.kubernetes.io/logical_switch'] = subnetParts[1];
+              }
+              // VPC 子网静态IP需要用网络名称前缀的注解格式
+              if (enableStaticIP && staticIP) {
+                annotations['ovn.kubernetes.io/ip_address'] = staticIP;
+                const vpcSubnetNs = subnetParts.length === 2 ? subnetParts[0] : 'default';
+                annotations[`${vpcSubnetName}.${vpcSubnetNs}.ovn.kubernetes.io/ip_address`] =
+                  staticIP;
+              }
+            }
+            break;
+
+          case 'custom_nad':
+            if (customNad) {
+              annotations['k8s.v1.cni.cncf.io/networks'] = customNad;
+              const selectedNadOption = allNadOptions.find((o: any) => o.value === customNad);
+              if (selectedNadOption?._type === 'kube-ovn') {
+                const nadParts = customNad.split('/');
+                if (nadParts.length === 2) {
+                  annotations['ovn.kubernetes.io/logical_switch'] = nadParts[1];
+                }
+              }
+            }
+            break;
+        }
+
+        return annotations;
+      };
+
+      // 构建网络注解
+      const networkAnnotations = buildNetworkAnnotations();
+
+      // 构建完整资源
+      const resource: any = {
+        apiVersion: 'apps/v1',
+        kind:
+          workloadType === 'deployment'
+            ? 'Deployment'
+            : workloadType === 'statefulset'
+              ? 'StatefulSet'
+              : 'DaemonSet',
+        metadata: {
+          name: generateHarvesterCrMetadataName(workloadType),
+          namespace,
+          labels: labelsMap,
+          annotations: {
+            'tower.io/alias': name,
           },
-          spec: {
-            containers: containerList,
-            imagePullSecrets: imagePullSecretsList.length > 0 ? imagePullSecretsList : undefined,
-            nodeSelector: Object.keys(nodeSelectorMap).length > 0 ? nodeSelectorMap : undefined,
-            affinity: Object.keys(affinity).length > 0 ? affinity : undefined,
-            tolerations: tolerationsList.length > 0 ? tolerationsList : undefined,
-            hostAliases: hostAliasesList.length > 0 ? hostAliasesList : undefined,
-            dnsPolicy: dnsPolicy && dnsPolicy !== 'ClusterFirst' ? dnsPolicy : undefined,
-            dnsConfig: hasDnsConfig ? dnsConfigObj : undefined,
-            volumes: volumesList.length > 0 ? volumesList : undefined,
+        },
+        spec: {
+          selector: {
+            matchLabels: { app: name },
+          },
+          template: {
+            metadata: {
+              labels: labelsMap,
+              // 网络注解：合并到 spec.template.metadata.annotations
+              ...(Object.keys(networkAnnotations).length > 0 && {
+                annotations: networkAnnotations,
+              }),
+            },
+            spec: {
+              containers: containerList,
+              imagePullSecrets: imagePullSecretsList.length > 0 ? imagePullSecretsList : undefined,
+              nodeSelector: Object.keys(nodeSelectorMap).length > 0 ? nodeSelectorMap : undefined,
+              affinity: Object.keys(affinity).length > 0 ? affinity : undefined,
+              tolerations: tolerationsList.length > 0 ? tolerationsList : undefined,
+              hostAliases: hostAliasesList.length > 0 ? hostAliasesList : undefined,
+              dnsPolicy: dnsPolicy && dnsPolicy !== 'ClusterFirst' ? dnsPolicy : undefined,
+              dnsConfig: hasDnsConfig ? dnsConfigObj : undefined,
+              volumes: volumesList.length > 0 ? volumesList : undefined,
+            },
           },
         },
-      },
-    };
-    
-    // 根据类型添加特定配置
-    if (workloadType !== 'daemonset') {
-      resource.spec.replicas = replicas || 1;
-    }
-    
-    return resource;
-  }, [allNadOptions]);
-  
+      };
+
+      // 根据类型添加特定配置
+      if (workloadType !== 'daemonset') {
+        resource.spec.replicas = replicas || 1;
+      }
+
+      return resource;
+    },
+    [allNadOptions],
+  );
+
   // 表单数据转 YAML
-  const formToYaml = useCallback((values: WorkloadFormValues): string => {
-    const resource = buildK8sResource(values);
-    return yaml.dump(resource, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-      sortKeys: false,
-    });
-  }, [buildK8sResource]);
-  
+  const formToYaml = useCallback(
+    (values: WorkloadFormValues): string => {
+      const resource = buildK8sResource(values);
+      return yaml.dump(resource, {
+        indent: 2,
+        lineWidth: -1,
+        noRefs: true,
+        sortKeys: false,
+      });
+    },
+    [buildK8sResource],
+  );
+
   // YAML 转表单数据
   const yamlToForm = useCallback((yamlStr: string): WorkloadFormValues | null => {
     try {
       const resource = yaml.load(yamlStr) as any;
       if (!resource) return null;
-      
+
       // 提取基本信息
       const name = resource.metadata?.name || '';
       const namespace = resource.metadata?.namespace || 'default';
       const labels = resource.metadata?.labels || {};
       const kind = resource.kind?.toLowerCase();
-      const workloadType = kind === 'statefulset' ? 'statefulset' 
-                        : kind === 'daemonset' ? 'daemonset' 
-                        : 'deployment';
-      
+      const workloadType =
+        kind === 'statefulset' ? 'statefulset' : kind === 'daemonset' ? 'daemonset' : 'deployment';
+
       // 提取容器配置
-      const podImagePullSecrets = (resource.spec?.template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
+      const podImagePullSecrets = (resource.spec?.template?.spec?.imagePullSecrets || []).map(
+        (s: any) => s.name,
+      );
       const parseContainer = (container: any, index: number): WorkloadContainerFormValue => ({
         containerName: container.name || '',
         image: container.image || '',
@@ -1826,7 +1900,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           protocol: p.protocol || 'TCP',
         })),
         env: (container.env || []).map((e: any) => ({
-          type: e?.valueFrom?.configMapKeyRef ? 'configMapKeyRef' : e?.valueFrom?.secretKeyRef ? 'secretKeyRef' : 'keyValue',
+          type: e?.valueFrom?.configMapKeyRef
+            ? 'configMapKeyRef'
+            : e?.valueFrom?.secretKeyRef
+              ? 'secretKeyRef'
+              : 'keyValue',
           name: e.name,
           value: e.value || '',
           configMapName: e?.valueFrom?.configMapKeyRef?.name,
@@ -1840,26 +1918,36 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         },
         command: container.command,
         args: container.args,
-        livenessProbe: container.livenessProbe ? {
-          enabled: true,
-          type: container.livenessProbe.httpGet ? 'httpGet' : 
-                container.livenessProbe.tcpSocket ? 'tcpSocket' : 'exec',
-          httpGet: container.livenessProbe.httpGet,
-          tcpSocket: container.livenessProbe.tcpSocket,
-          exec: container.livenessProbe.exec,
-          initialDelaySeconds: container.livenessProbe.initialDelaySeconds || 30,
-          periodSeconds: container.livenessProbe.periodSeconds || 10,
-        } : { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
-        readinessProbe: container.readinessProbe ? {
-          enabled: true,
-          type: container.readinessProbe.httpGet ? 'httpGet' : 
-                container.readinessProbe.tcpSocket ? 'tcpSocket' : 'exec',
-          httpGet: container.readinessProbe.httpGet,
-          tcpSocket: container.readinessProbe.tcpSocket,
-          exec: container.readinessProbe.exec,
-          initialDelaySeconds: container.readinessProbe.initialDelaySeconds || 5,
-          periodSeconds: container.readinessProbe.periodSeconds || 10,
-        } : { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
+        livenessProbe: container.livenessProbe
+          ? {
+              enabled: true,
+              type: container.livenessProbe.httpGet
+                ? 'httpGet'
+                : container.livenessProbe.tcpSocket
+                  ? 'tcpSocket'
+                  : 'exec',
+              httpGet: container.livenessProbe.httpGet,
+              tcpSocket: container.livenessProbe.tcpSocket,
+              exec: container.livenessProbe.exec,
+              initialDelaySeconds: container.livenessProbe.initialDelaySeconds || 30,
+              periodSeconds: container.livenessProbe.periodSeconds || 10,
+            }
+          : { enabled: false, type: 'httpGet', initialDelaySeconds: 30, periodSeconds: 10 },
+        readinessProbe: container.readinessProbe
+          ? {
+              enabled: true,
+              type: container.readinessProbe.httpGet
+                ? 'httpGet'
+                : container.readinessProbe.tcpSocket
+                  ? 'tcpSocket'
+                  : 'exec',
+              httpGet: container.readinessProbe.httpGet,
+              tcpSocket: container.readinessProbe.tcpSocket,
+              exec: container.readinessProbe.exec,
+              initialDelaySeconds: container.readinessProbe.initialDelaySeconds || 5,
+              periodSeconds: container.readinessProbe.periodSeconds || 10,
+            }
+          : { enabled: false, type: 'httpGet', initialDelaySeconds: 5, periodSeconds: 10 },
         volumeMounts: (container.volumeMounts || []).map((mount: any) => ({
           name: mount.name,
           mountPath: mount.mountPath,
@@ -1869,102 +1957,121 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         imagePullSecrets: index === 0 ? podImagePullSecrets : [],
       });
 
-      const containers = (resource.spec?.template?.spec?.containers || []).map((c: any, i: number) => parseContainer(c, i));
+      const containers = (resource.spec?.template?.spec?.containers || []).map(
+        (c: any, i: number) => parseContainer(c, i),
+      );
       const firstContainer = containers[0] || createEmptyContainer(name);
-      
+
       // 提取高级配置
       const replicas = resource.spec?.replicas || 1;
       const nodeSelector = resource.spec?.template?.spec?.nodeSelector || {};
-      
+
       // 提取亲和性配置
       const affinity = resource.spec?.template?.spec?.affinity;
       const parseNodeAffinityFromYaml = (nodeAffinity: any): NodeAffinityConfig | undefined => {
         if (!nodeAffinity) return undefined;
-        
+
         const result: NodeAffinityConfig = {};
-        
+
         if (nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms) {
           result.required = {
-            nodeSelectorTerms: nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map((term: any) => ({
-              matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
-                key: expr.key,
-                operator: expr.operator,
-                values: expr.values,
-              })),
-              matchFields: (term.matchFields || []).map((field: any) => ({
-                key: field.key,
-                operator: field.operator,
-                values: field.values,
-              })),
-            })),
+            nodeSelectorTerms:
+              nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map(
+                (term: any) => ({
+                  matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
+                    key: expr.key,
+                    operator: expr.operator,
+                    values: expr.values,
+                  })),
+                  matchFields: (term.matchFields || []).map((field: any) => ({
+                    key: field.key,
+                    operator: field.operator,
+                    values: field.values,
+                  })),
+                }),
+              ),
           };
         }
-        
+
         if (nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution) {
-          result.preferred = nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
-            weight: pref.weight,
-            preference: {
-              matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
-                key: expr.key,
-                operator: expr.operator,
-                values: expr.values,
-              })),
-              matchFields: (pref.preference.matchFields || []).map((field: any) => ({
-                key: field.key,
-                operator: field.operator,
-                values: field.values,
-              })),
-            },
-          }));
-        }
-        
-        return Object.keys(result).length > 0 ? result : undefined;
-      };
-      
-      // 解析 Pod 亲和性配置
-      const parsePodAffinityFromYaml = (podAffinity: any): PodAffinityConfig | undefined => {
-        if (!podAffinity) return undefined;
-        
-        const result: PodAffinityConfig = {};
-        
-        // 解析 required 规则
-        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
-          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map((term: any) => ({
-            labelSelector: term.labelSelector ? {
-              matchLabels: term.labelSelector.matchLabels || {},
-              matchExpressions: (term.labelSelector.matchExpressions || []).map((expr: any) => ({
-                key: expr.key,
-                operator: expr.operator,
-                values: expr.values,
-              })),
-            } : undefined,
-            namespaces: term.namespaces,
-            topologyKey: term.topologyKey,
-          }));
-        }
-        
-        // 解析 preferred 规则
-        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
-          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map((pref: any) => ({
-            weight: pref.weight,
-            podAffinityTerm: {
-              labelSelector: pref.podAffinityTerm?.labelSelector ? {
-                matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
-                matchExpressions: (pref.podAffinityTerm.labelSelector.matchExpressions || []).map((expr: any) => ({
+          result.preferred = nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution.map(
+            (pref: any) => ({
+              weight: pref.weight,
+              preference: {
+                matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
                   key: expr.key,
                   operator: expr.operator,
                   values: expr.values,
                 })),
-              } : undefined,
-              namespaces: pref.podAffinityTerm?.namespaces,
-              topologyKey: pref.podAffinityTerm?.topologyKey,
-            },
-          }));
+                matchFields: (pref.preference.matchFields || []).map((field: any) => ({
+                  key: field.key,
+                  operator: field.operator,
+                  values: field.values,
+                })),
+              },
+            }),
+          );
         }
-        
+
         return Object.keys(result).length > 0 ? result : undefined;
       };
-      
+
+      // 解析 Pod 亲和性配置
+      const parsePodAffinityFromYaml = (podAffinity: any): PodAffinityConfig | undefined => {
+        if (!podAffinity) return undefined;
+
+        const result: PodAffinityConfig = {};
+
+        // 解析 required 规则
+        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map(
+            (term: any) => ({
+              labelSelector: term.labelSelector
+                ? {
+                    matchLabels: term.labelSelector.matchLabels || {},
+                    matchExpressions: (term.labelSelector.matchExpressions || []).map(
+                      (expr: any) => ({
+                        key: expr.key,
+                        operator: expr.operator,
+                        values: expr.values,
+                      }),
+                    ),
+                  }
+                : undefined,
+              namespaces: term.namespaces,
+              topologyKey: term.topologyKey,
+            }),
+          );
+        }
+
+        // 解析 preferred 规则
+        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
+          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map(
+            (pref: any) => ({
+              weight: pref.weight,
+              podAffinityTerm: {
+                labelSelector: pref.podAffinityTerm?.labelSelector
+                  ? {
+                      matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
+                      matchExpressions: (
+                        pref.podAffinityTerm.labelSelector.matchExpressions || []
+                      ).map((expr: any) => ({
+                        key: expr.key,
+                        operator: expr.operator,
+                        values: expr.values,
+                      })),
+                    }
+                  : undefined,
+                namespaces: pref.podAffinityTerm?.namespaces,
+                topologyKey: pref.podAffinityTerm?.topologyKey,
+              },
+            }),
+          );
+        }
+
+        return Object.keys(result).length > 0 ? result : undefined;
+      };
+
       // 提取污点容忍
       const tolerations = (resource.spec?.template?.spec?.tolerations || []).map((t: any) => ({
         key: t.key,
@@ -1973,34 +2080,41 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         effect: t.effect,
         tolerationSeconds: t.tolerationSeconds,
       }));
-      
+
       // 提取域名映射
       const hostAliases = (resource.spec?.template?.spec?.hostAliases || []).map((ha: any) => ({
         ip: ha.ip || '',
         hostnames: ha.hostnames || [],
       }));
-      
+
       // 提取 DNS 配置
       const dnsPolicy = resource.spec?.template?.spec?.dnsPolicy;
       const dnsConfigRaw = resource.spec?.template?.spec?.dnsConfig;
-      const dnsConfig = dnsConfigRaw ? {
-        nameservers: dnsConfigRaw.nameservers || [],
-        searches: dnsConfigRaw.searches || [],
-        options: (dnsConfigRaw.options || []).map((opt: any) => ({
-          name: opt.name,
-          value: opt.value,
-        })),
-      } : undefined;
-      
+      const dnsConfig = dnsConfigRaw
+        ? {
+            nameservers: dnsConfigRaw.nameservers || [],
+            searches: dnsConfigRaw.searches || [],
+            options: (dnsConfigRaw.options || []).map((opt: any) => ({
+              name: opt.name,
+              value: opt.value,
+            })),
+          }
+        : undefined;
+
       return {
         name,
         namespace,
         workloadType,
-        labels: Object.entries(labels).filter(([k]) => k !== 'app').map(([key, value]) => ({ key, value: String(value) })),
+        labels: Object.entries(labels)
+          .filter(([k]) => k !== 'app')
+          .map(([key, value]) => ({ key, value: String(value) })),
         containers,
         ...toContainerEditorFields(firstContainer),
         replicas,
-        nodeSelector: Object.entries(nodeSelector).map(([key, value]) => ({ key, value: String(value) })),
+        nodeSelector: Object.entries(nodeSelector).map(([key, value]) => ({
+          key,
+          value: String(value),
+        })),
         nodeAffinity: parseNodeAffinityFromYaml(affinity?.nodeAffinity),
         nodeAntiAffinity: undefined,
         podAffinity: parsePodAffinityFromYaml(affinity?.podAffinity),
@@ -2015,57 +2129,73 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       return null;
     }
   }, []);
-  
+
   // 切换到 YAML 模式时，将表单数据转换为 YAML
-  const handleModeChange = useCallback((newMode: 'form' | 'yaml') => {
-    if (newMode === 'yaml' && mode === 'form') {
-      // 表单 → YAML
-      try {
-        const currentFormValues = getSyncedFormValues();
-        
-        if (isEditMode && editData) {
-          const k8sResource = buildK8sResource(currentFormValues);
-          // 保留原始 metadata 字段
-          k8sResource.metadata = {
-            ...editData.metadata,
-            name: currentFormValues.name,
-            namespace: currentFormValues.namespace,
-            labels: {
-              ...editData.metadata?.labels,
-              ...(currentFormValues.labels || []).reduce((acc: any, l: any) => {
-                if (l.key) acc[l.key] = l.value;
-                return acc;
-              }, {}),
-            },
-          };
-          
-          const yamlStr = yaml.dump(k8sResource, { indent: 2, lineWidth: -1, noRefs: true });
-          setYamlContent(yamlStr);
-        } else {
-          // 创建模式：将当前表单数据转换为 YAML
-          const yamlStr = formToYaml(currentFormValues as WorkloadFormValues);
-          setYamlContent(yamlStr);
-        }
-        setYamlError('');
-      } catch (e: any) {
-        message.warning('数据转换失败，将使用默认模板');
-        setYamlContent(getDefaultYaml(workloadType));
-      }
-    } else if (newMode === 'form' && mode === 'yaml') {
-      // YAML → 表单：尝试解析 YAML 并填充表单
-      try {
-        const values = yamlToForm(yamlContent);
-        if (values) {
-          form.setFieldsValue(values);
+  const handleModeChange = useCallback(
+    (newMode: 'form' | 'yaml') => {
+      if (newMode === 'yaml' && mode === 'form') {
+        // 表单 → YAML
+        try {
+          const currentFormValues = getSyncedFormValues();
+
+          if (isEditMode && editData) {
+            const k8sResource = buildK8sResource(currentFormValues);
+            // 保留原始 metadata 字段
+            k8sResource.metadata = {
+              ...editData.metadata,
+              name: currentFormValues.name,
+              namespace: currentFormValues.namespace,
+              labels: {
+                ...editData.metadata?.labels,
+                ...(currentFormValues.labels || []).reduce((acc: any, l: any) => {
+                  if (l.key) acc[l.key] = l.value;
+                  return acc;
+                }, {}),
+              },
+            };
+
+            const yamlStr = yaml.dump(k8sResource, { indent: 2, lineWidth: -1, noRefs: true });
+            setYamlContent(yamlStr);
+          } else {
+            // 创建模式：将当前表单数据转换为 YAML
+            const yamlStr = formToYaml(currentFormValues as WorkloadFormValues);
+            setYamlContent(yamlStr);
+          }
           setYamlError('');
+        } catch (e: any) {
+          message.warning('数据转换失败，将使用默认模板');
+          setYamlContent(getDefaultYaml(workloadType));
         }
-      } catch (e: any) {
-        message.warning('YAML 解析失败，请检查格式');
+      } else if (newMode === 'form' && mode === 'yaml') {
+        // YAML → 表单：尝试解析 YAML 并填充表单
+        try {
+          const values = yamlToForm(yamlContent);
+          if (values) {
+            form.setFieldsValue(values);
+            setYamlError('');
+          }
+        } catch (e: any) {
+          message.warning('YAML 解析失败，请检查格式');
+        }
       }
-    }
-    setMode(newMode);
-  }, [mode, form, formToYaml, yamlToForm, yamlContent, message, getDefaultYaml, workloadType, isEditMode, editData, buildK8sResource, getSyncedFormValues]);
-  
+      setMode(newMode);
+    },
+    [
+      mode,
+      form,
+      formToYaml,
+      yamlToForm,
+      yamlContent,
+      message,
+      getDefaultYaml,
+      workloadType,
+      isEditMode,
+      editData,
+      buildK8sResource,
+      getSyncedFormValues,
+    ],
+  );
+
   // 验证 YAML 格式
   const validateYaml = useCallback((content: string): boolean => {
     try {
@@ -2077,13 +2207,16 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       return false;
     }
   }, []);
-  
+
   // YAML 内容变化处理
-  const handleYamlChange = useCallback((value: string) => {
-    setYamlContent(value);
-    validateYaml(value);
-  }, [validateYaml]);
-  
+  const handleYamlChange = useCallback(
+    (value: string) => {
+      setYamlContent(value);
+      validateYaml(value);
+    },
+    [validateYaml],
+  );
+
   // 提交表单
   const handleSubmit = useCallback(async () => {
     try {
@@ -2091,22 +2224,25 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       let apiPath: string;
       let namespace: string;
       let name: string;
-      
+
       if (mode === 'yaml') {
         // YAML 模式提交
         if (!validateYaml(yamlContent)) {
           message.error('请修正 YAML 格式错误');
           return;
         }
-        
+
         resource = yaml.load(yamlContent) as any;
         const kind = resource?.kind?.toLowerCase();
         apiPath = getApiPath(
-          kind === 'statefulset' ? 'statefulset' :
-          kind === 'daemonset' ? 'daemonset' : 'deployment'
+          kind === 'statefulset'
+            ? 'statefulset'
+            : kind === 'daemonset'
+              ? 'daemonset'
+              : 'deployment',
         );
         namespace = resource?.metadata?.namespace || 'default';
-        
+
         // 编辑模式下，使用资源 ID 作为 API 路径参数
         if (isEditMode && editMetadata) {
           name = editMetadata.name;
@@ -2123,20 +2259,40 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       } else {
         // 表单模式提交 - 显式验证所有字段（分步骤表单需要）
         const values = await form.validateFields([
-          'workloadType', 'name', 'namespace', 'labels',
+          'workloadType',
+          'name',
+          'namespace',
+          'labels',
           'containers',
-          'image', 'containerName', 'imagePullPolicy',
-          'ports', 'env', 'resources', 'command', 'args',
-          'replicas', 'imagePullSecrets', 'nodeSelector',
-          'nodeAffinity', 'nodeAntiAffinity', 'tolerations', 'hostAliases', 'dnsPolicy', 'dnsConfig',
-          'livenessProbe', 'readinessProbe',
-          'volumes', 'volumeMounts'
+          'image',
+          'containerName',
+          'imagePullPolicy',
+          'ports',
+          'env',
+          'resources',
+          'command',
+          'args',
+          'replicas',
+          'imagePullSecrets',
+          'nodeSelector',
+          'nodeAffinity',
+          'nodeAntiAffinity',
+          'tolerations',
+          'hostAliases',
+          'dnsPolicy',
+          'dnsConfig',
+          'livenessProbe',
+          'readinessProbe',
+          'volumes',
+          'volumeMounts',
         ]);
 
         const syncedValues = getSyncedFormValues();
-        
+
         // DEBUG: 打印表单中的 volumeMounts
-        const invalidContainerIndex = (syncedValues.containers || []).findIndex((container) => !container.image);
+        const invalidContainerIndex = (syncedValues.containers || []).findIndex(
+          (container) => !container.image,
+        );
         if (invalidContainerIndex >= 0) {
           setCurrentStep(1);
           setActiveContainerIndex(invalidContainerIndex);
@@ -2145,21 +2301,23 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setLoading(false);
           return;
         }
-        
+
         // 校验容器名称是否重复
         const containerNames = (syncedValues.containers || [])
-          .map(c => c.containerName)
-          .filter(name => name && name.trim());
-        const duplicateNames = containerNames.filter((name, index) => 
-          containerNames.indexOf(name) !== index
+          .map((c) => c.containerName)
+          .filter((name) => name && name.trim());
+        const duplicateNames = containerNames.filter(
+          (name, index) => containerNames.indexOf(name) !== index,
         );
         if (duplicateNames.length > 0) {
           setCurrentStep(1); // 跳转到容器配置步骤
-          message.error(`容器名称重复: ${[...new Set(duplicateNames)].join(', ')}，请使用不同的容器名称`);
+          message.error(
+            `容器名称重复: ${[...new Set(duplicateNames)].join(', ')}，请使用不同的容器名称`,
+          );
           setLoading(false);
           return;
         }
-        
+
         // 校验存储卷挂载：如果定义了存储卷，则必须配置至少一个卷挂载
         const volumes = syncedValues.volumes || [];
         const volumeMounts = syncedValues.volumeMounts || [];
@@ -2169,39 +2327,45 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setLoading(false);
           return;
         }
-        
+
         // 校验静态 IP 是否在子网 CIDR 范围内
         if (syncedValues.enableStaticIP && syncedValues.staticIP) {
           const networkType = syncedValues.networkType;
           let subnetCidr: string | undefined;
-          
+
           if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
             // 扁平子网：从 flatSubnetOptions 中查找 CIDR
-            const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === syncedValues.flatSubnet);
-            subnetCidr = flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
+            const flatSubnetOption = flatSubnetOptions.find(
+              (opt) => opt.value === syncedValues.flatSubnet,
+            );
+            subnetCidr =
+              flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
           } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
             // VPC 子网：从 kubeSubnets 中查找 CIDR
             // vpcSubnet 格式为 namespace/name 或 name
             const parts = syncedValues.vpcSubnet.split('/');
             const subnetName = parts.length === 2 ? parts[1] : parts[0];
-            const subnet = kubeSubnets.find(s => 
-              (s.name || s?.metadata?.name) === subnetName && 
-              (s.vpc || s?.spec?.vpc) === syncedValues.vpcName
+            const subnet = kubeSubnets.find(
+              (s) =>
+                (s.name || s?.metadata?.name) === subnetName &&
+                (s.vpc || s?.spec?.vpc) === syncedValues.vpcName,
             );
             subnetCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
           }
-          
+
           if (subnetCidr && !isIpInCidr(syncedValues.staticIP, subnetCidr)) {
             setCurrentStep(2); // 跳转到网络配置步骤
-            message.error(`静态 IP ${syncedValues.staticIP} 不在子网 CIDR 范围 ${subnetCidr} 内，请检查`);
+            message.error(
+              `静态 IP ${syncedValues.staticIP} 不在子网 CIDR 范围 ${subnetCidr} 内，请检查`,
+            );
             setLoading(false);
             return;
           }
-          
+
           // 校验静态 IP 是否可用（调用后端API）
           let subnetName: string | undefined;
           let subnetNs = 'default';
-          
+
           if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
             const flatParts = syncedValues.flatSubnet.split('/');
             if (flatParts.length === 2) {
@@ -2219,14 +2383,21 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               subnetName = syncedValues.vpcSubnet;
             }
           }
-          
+
           if (subnetName) {
             try {
-              const ipCheckRes = await checkSubnetStaticIP(cloudId, subnetNs, subnetName, syncedValues.staticIP);
+              const ipCheckRes = await checkSubnetStaticIP(
+                cloudId,
+                subnetNs,
+                subnetName,
+                syncedValues.staticIP,
+              );
               const ipCheckData = ipCheckRes?.data || ipCheckRes;
               if (ipCheckData?.used === true) {
                 setCurrentStep(2);
-                message.error(`静态 IP ${syncedValues.staticIP} 已被使用（被 ${ipCheckData.usedBy || '其他工作负载'} 占用）`);
+                message.error(
+                  `静态 IP ${syncedValues.staticIP} 已被使用（被 ${ipCheckData.usedBy || '其他工作负载'} 占用）`,
+                );
                 setLoading(false);
                 return;
               }
@@ -2238,7 +2409,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                   title: '静态 IP 冲突风险',
                   content: (
                     <div>
-                      <p>无法自动检测 IP <strong>{syncedValues.staticIP}</strong> 是否已被使用。</p>
+                      <p>
+                        无法自动检测 IP <strong>{syncedValues.staticIP}</strong> 是否已被使用。
+                      </p>
                       <p style={{ color: '#faad14', marginTop: 8 }}>
                         ⚠️ 请确认该 IP 未被其他工作负载使用，否则可能导致网络冲突。
                       </p>
@@ -2258,7 +2431,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             }
           }
         }
-        
+
         // 校验节点亲和性/反亲和性的标签键输入错误
         const nodeAffinityHasErrors = nodeAffinityEditorRef.current?.getHasLabelErrors();
         const nodeAntiAffinityHasErrors = nodeAntiAffinityEditorRef.current?.getHasLabelErrors();
@@ -2267,7 +2440,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setLoading(false);
           return;
         }
-        
+
         // 校验 Pod 亲和性/反亲和性的 matchLabels 输入错误
         const podAffinityHasErrors = podAffinityEditorRef.current?.getHasLabelErrors();
         const podAntiAffinityHasErrors = podAntiAffinityEditorRef.current?.getHasLabelErrors();
@@ -2276,7 +2449,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setLoading(false);
           return;
         }
-        
+
         // 校验污点容忍的键/值输入错误
         const tolerationsHasErrors = tolerationsEditorRef.current?.getHasLabelErrors();
         if (tolerationsHasErrors) {
@@ -2284,23 +2457,29 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setLoading(false);
           return;
         }
-        
+
         resource = buildK8sResource(syncedValues);
         apiPath = getApiPath(values.workloadType);
 
         // 防御性检查：编辑模式下若表单 workloadType 与资源类型不一致，自动纠正
         if (isEditMode) {
-          const editKind = editData?.kind?.toLowerCase()
-            || (editMetadata?.name && (() => {
-              if (editMetadata.name.startsWith('id-ds-')) return 'daemonset';
-              if (editMetadata.name.startsWith('id-sts-')) return 'statefulset';
-              if (editMetadata.name.startsWith('id-dep-')) return 'deployment';
-              return null;
-            })());
+          const editKind =
+            editData?.kind?.toLowerCase() ||
+            (editMetadata?.name &&
+              (() => {
+                if (editMetadata.name.startsWith('id-ds-')) return 'daemonset';
+                if (editMetadata.name.startsWith('id-sts-')) return 'statefulset';
+                if (editMetadata.name.startsWith('id-dep-')) return 'deployment';
+                return null;
+              })());
           if (editKind) {
             const formType = values.workloadType?.toLowerCase();
             if (editKind !== formType) {
-              console.warn('[WorkloadForm 提交] workloadType 不一致，自动纠正:', { formType, editKind, name: editMetadata?.name });
+              console.warn('[WorkloadForm 提交] workloadType 不一致，自动纠正:', {
+                formType,
+                editKind,
+                name: editMetadata?.name,
+              });
               values.workloadType = editKind;
               syncedValues.workloadType = editKind;
               resource = buildK8sResource(syncedValues);
@@ -2310,7 +2489,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         }
 
         namespace = values.namespace;
-        
+
         // 编辑模式下，保留原有元数据，使用资源 ID 作为 API 路径参数
         if (isEditMode && editMetadata) {
           name = editMetadata.name; // 使用资源 ID
@@ -2336,9 +2515,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           name = values.name; // 创建模式使用表单名称
         }
       }
-      
+
       setLoading(true);
-      
+
       if (isEditMode) {
         // 编辑模式：调用更新 API
         await updateHarvesterContainerResource(cloudId, apiPath, namespace, name, resource);
@@ -2348,17 +2527,18 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         await createHarvesterContainerResource(cloudId, apiPath, namespace, resource);
         message.success('工作负载创建成功');
       }
-      
+
       onSuccess();
     } catch (error: any) {
       console.error(isEditMode ? '更新工作负载失败:' : '创建工作负载失败:', error);
-      
+
       // 检测版本冲突（409 Conflict）
-      const isConflict = error?.response?.status === 409
-        || error?.status === 409
-        || /conflict/i.test(error?.message || '')
-        || /resourceVersion/i.test(error?.message || '');
-      
+      const isConflict =
+        error?.response?.status === 409 ||
+        error?.status === 409 ||
+        /conflict/i.test(error?.message || '') ||
+        /resourceVersion/i.test(error?.message || '');
+
       if (isConflict) {
         Modal.confirm({
           title: '版本冲突',
@@ -2376,40 +2556,60 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [mode, yamlContent, validateYaml, form, buildK8sResource, getApiPath, cloudId, message, modal, onSuccess, isEditMode, getSyncedFormValues, syncContainerEditorToForm, editMetadata, editData?.kind, editData?.spec?.selector, editData?.spec?.template?.metadata?.labels, flatSubnetOptions, kubeSubnets]);
-  
+  }, [
+    mode,
+    yamlContent,
+    validateYaml,
+    form,
+    buildK8sResource,
+    getApiPath,
+    cloudId,
+    message,
+    modal,
+    onSuccess,
+    isEditMode,
+    getSyncedFormValues,
+    syncContainerEditorToForm,
+    editMetadata,
+    editData?.kind,
+    editData?.spec?.selector,
+    editData?.spec?.template?.metadata?.labels,
+    flatSubnetOptions,
+    kubeSubnets,
+  ]);
+
   // 下一步
   const handleNext = useCallback(async () => {
     try {
       await form.validateFields();
       // 切换步骤前持久化当前容器数据（包括 volumeMounts）
       persistActiveContainerToForm();
-      
+
       // 在存储配置页面（步骤3）点击下一步时，检查是否有存储卷但没有卷挂载
       if (currentStep === 3) {
         const volumes = form.getFieldValue('volumes') || [];
         const containers = form.getFieldValue('containers') || [];
         let hasVolumeMounts = false;
-        
+
         for (const container of containers) {
           if ((container.volumeMounts || []).length > 0) {
             hasVolumeMounts = true;
             break;
           }
         }
-        
+
         if (volumes.length > 0 && !hasVolumeMounts) {
           message.warning('已定义存储卷，请配置至少一个卷挂载');
           return;
         }
       }
-      
+
       setCurrentStep((prev) => prev + 1);
     } catch {
       // 验证失败，不跳转
     }
   }, [form, persistActiveContainerToForm, currentStep, message]);
-  
+
   // 上一步
   const handlePrev = useCallback(() => {
     // 切换步骤前持久化当前容器数据（包括 volumeMounts）
@@ -2417,43 +2617,47 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     setCurrentStep((prev) => prev - 1);
   }, [persistActiveContainerToForm]);
 
-  const handleStepClick = useCallback(async (targetStep: number) => {
-    if (targetStep === currentStep) return;
-    
-    // 切换步骤前持久化当前容器数据（包括 volumeMounts）
-    persistActiveContainerToForm();
-    
-    if (targetStep < currentStep) {
-      setCurrentStep(targetStep);
-      return;
-    }
+  const handleStepClick = useCallback(
+    async (targetStep: number) => {
+      if (targetStep === currentStep) return;
 
-    try {
-      await form.validateFields();
-      setCurrentStep(targetStep);
-    } catch {
-      // 当前步骤校验失败，不允许前进
-    }
-  }, [currentStep, form, persistActiveContainerToForm]);
+      // 切换步骤前持久化当前容器数据（包括 volumeMounts）
+      persistActiveContainerToForm();
 
+      if (targetStep < currentStep) {
+        setCurrentStep(targetStep);
+        return;
+      }
+
+      try {
+        await form.validateFields();
+        setCurrentStep(targetStep);
+      } catch {
+        // 当前步骤校验失败，不允许前进
+      }
+    },
+    [currentStep, form, persistActiveContainerToForm],
+  );
 
   const getFormSummary = useCallback(() => {
     const values = getSyncedFormValues();
     const containers = values.containers || [];
-    
+
     // 网络配置摘要
     let networkSummary = '默认网络';
     if (values.networkType === 'flat_subnet') {
       networkSummary = values.flatSubnet ? `扁平子网: ${values.flatSubnet}` : '扁平子网';
     } else if (values.networkType === 'vpc') {
-      networkSummary = values.vpcSubnet ? `VPC: ${values.vpcName || '-'}/${values.vpcSubnet}` : 'VPC子网';
+      networkSummary = values.vpcSubnet
+        ? `VPC: ${values.vpcName || '-'}/${values.vpcSubnet}`
+        : 'VPC子网';
     } else if (values.networkType === 'custom_nad') {
       networkSummary = values.customNad ? `NAD: ${values.customNad}` : '自定义NAD';
     }
     if (values.enableStaticIP && values.staticIP && values.networkType !== 'custom_nad') {
       networkSummary += ` (静态IP: ${values.staticIP})`;
     }
-    
+
     return {
       name: values.name || '-',
       namespace: values.namespace || '-',
@@ -2478,7 +2682,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   useEffect(() => {
     setSummary(getFormSummary());
   }, [currentStep, activeContainerIndex, getFormSummary]);
-  
+
   // 渲染步骤内容
   const renderStepContent = () => {
     switch (currentStep) {
@@ -2498,21 +2702,21 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                   <div>
                     <div style={{ fontWeight: 500 }}>{option.label}</div>
                     <div style={{ fontSize: 12, color: '#999' }}>
-                      {WORKLOAD_TYPE_OPTIONS.find(o => o.value === option.value)?.desc}
+                      {WORKLOAD_TYPE_OPTIONS.find((o) => o.value === option.value)?.desc}
                     </div>
                   </div>
                 )}
               />
             </Form.Item>
-            
+
             <Row gutter={16}>
               <Col span={12}>
                 {isEditMode ? (
                   <>
                     <Form.Item label="资源 ID">
-                      <Input 
-                        value={editMetadata?.name || ''} 
-                        disabled 
+                      <Input
+                        value={editMetadata?.name || ''}
+                        disabled
                         style={{ color: 'rgba(0,0,0,0.45)' }}
                       />
                     </Form.Item>
@@ -2533,7 +2737,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     label="名称"
                     rules={[
                       { required: true, message: '请输入名称' },
-                      { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和中划线' },
+                      {
+                        pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/,
+                        message: '只允许小写字母、数字和中划线',
+                      },
                       { max: 63, message: '名称不能超过63个字符' },
                     ]}
                   >
@@ -2560,9 +2767,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 </Form.Item>
               </Col>
             </Row>
-            
+
             <LabelEditor name="labels" label="标签" />
-            
+
             {workloadType !== 'daemonset' && (
               <Form.Item
                 name="replicas"
@@ -2575,7 +2782,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             )}
           </div>
         );
-        
+
       case 1:
         const containers = getSyncedFormValues().containers || [];
         return (
@@ -2587,9 +2794,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               message="容器配置"
               description={
                 <div>
-                  <div>每个容器独立配置镜像、端口、环境变量、资源限制、启动命令和健康检查。点击容器卡片可展开详细配置。</div>
+                  <div>
+                    每个容器独立配置镜像、端口、环境变量、资源限制、启动命令和健康检查。点击容器卡片可展开详细配置。
+                  </div>
                   <div style={{ marginTop: 8, color: '#faad14' }}>
-                    <strong>注意：</strong>Kubernetes 限制镜像拉取凭证只能在 Pod 级别配置。如果您在多个容器中配置了不同的凭证，系统会自动合并去重后应用到 Pod。
+                    <strong>注意：</strong>Kubernetes 限制镜像拉取凭证只能在 Pod
+                    级别配置。如果您在多个容器中配置了不同的凭证，系统会自动合并去重后应用到 Pod。
                   </div>
                 </div>
               }
@@ -2598,19 +2808,32 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               const isActive = index === activeContainerIndex;
               const portsCount = container.ports?.length || 0;
               const envCount = container.env?.length || 0;
-              const resourcesCount = (container.resources?.requests?.cpu || container.resources?.requests?.memory || container.resources?.limits?.cpu || container.resources?.limits?.memory) ? 1 : 0;
-              const commandCount = (container.command?.length || container.args?.length) ? 1 : 0;
-              const probeCount = (container.livenessProbe?.enabled ? 1 : 0) + (container.readinessProbe?.enabled ? 1 : 0);
-              
+              const resourcesCount =
+                container.resources?.requests?.cpu ||
+                container.resources?.requests?.memory ||
+                container.resources?.limits?.cpu ||
+                container.resources?.limits?.memory
+                  ? 1
+                  : 0;
+              const commandCount = container.command?.length || container.args?.length ? 1 : 0;
+              const probeCount =
+                (container.livenessProbe?.enabled ? 1 : 0) +
+                (container.readinessProbe?.enabled ? 1 : 0);
+
               return (
                 <Card
                   key={`container-${index}`}
                   size="small"
-                  style={{ marginBottom: 16, border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0' }}
+                  style={{
+                    marginBottom: 16,
+                    border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0',
+                  }}
                   title={
                     <Space>
                       <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
-                      <span style={{ fontWeight: 500 }}>{container.containerName || `container-${index + 1}`}</span>
+                      <span style={{ fontWeight: 500 }}>
+                        {container.containerName || `container-${index + 1}`}
+                      </span>
                       {isActive && <Tag color="processing">编辑中</Tag>}
                     </Space>
                   }
@@ -2627,7 +2850,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           if (!current) return;
                           nextContainers.splice(index + 1, 0, {
                             ...current,
-                            containerName: current.containerName ? `${current.containerName}-copy` : `container-${nextContainers.length + 1}`,
+                            containerName: current.containerName
+                              ? `${current.containerName}-copy`
+                              : `container-${nextContainers.length + 1}`,
                             ports: [...(current.ports || [])],
                             env: [...(current.env || [])],
                             resources: {
@@ -2679,7 +2904,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         name="image"
                         label="镜像地址"
                         rules={[{ required: true, message: '请输入镜像地址' }]}
-                        extra={<span style={{ color: '#999' }}>例如: nginx:latest 或 harbor.example.com/library/nginx:v1.0</span>}
+                        extra={
+                          <span style={{ color: '#999' }}>
+                            例如: nginx:latest 或 harbor.example.com/library/nginx:v1.0
+                          </span>
+                        }
                       >
                         <Input
                           placeholder="镜像地址"
@@ -2696,7 +2925,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                                     const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
                                     if (serverMatch) {
                                       const serverFromImage = serverMatch[1];
-                                      const matchingRegistry = allRegistries.find(r => r.server === serverFromImage);
+                                      const matchingRegistry = allRegistries.find(
+                                        (r) => r.server === serverFromImage,
+                                      );
                                       if (matchingRegistry) {
                                         targetCredential = registryToCredential(matchingRegistry);
                                       }
@@ -2720,14 +2951,15 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       </Form.Item>
                       <Row gutter={16}>
                         <Col span={12}>
-                          <Form.Item 
-                            name="containerName" 
-                            label="容器名称" 
+                          <Form.Item
+                            name="containerName"
+                            label="容器名称"
                             extra="默认与工作负载名称相同，仅支持小写字母、数字和连字符"
                             rules={[
                               {
                                 pattern: /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/,
-                                message: '容器名称只能包含小写字母、数字和连字符，且开头结尾必须是字母或数字',
+                                message:
+                                  '容器名称只能包含小写字母、数字和连字符，且开头结尾必须是字母或数字',
                               },
                             ]}
                           >
@@ -2735,7 +2967,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           </Form.Item>
                         </Col>
                         <Col span={12}>
-                          <Form.Item name="imagePullPolicy" label="镜像拉取策略" initialValue="IfNotPresent">
+                          <Form.Item
+                            name="imagePullPolicy"
+                            label="镜像拉取策略"
+                            initialValue="IfNotPresent"
+                          >
                             <Select options={IMAGE_PULL_POLICY_OPTIONS} />
                           </Form.Item>
                         </Col>
@@ -2759,199 +2995,276 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           })}
                         />
                       </Form.Item>
-                      <Collapse ghost defaultActiveKey={[]} items={[
-                        {
-                          key: 'ports',
-                          label: `端口配置 (${portsCount})`,
-                          children: <PortsEditor />,
-                        },
-                        {
-                          key: 'env',
-                          label: `环境变量 (${envCount})`,
-                          children: (
-                            <EnvEditor
-                              cloudId={cloudId}
-                              namespacesOptions={namespacesOptions}
-                              selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
-                              configMaps={configMaps}
-                              secrets={secrets}
-                              onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
-                              onRefreshSecrets={() => onRefreshSecrets?.()}
-                              onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
-                              onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
-                            />
-                          ),
-                        },
-                        {
-                          key: 'resources',
-                          label: `资源限制 (${resourcesCount})`,
-                          children: (
-                            <>
+                      <Collapse
+                        ghost
+                        defaultActiveKey={[]}
+                        items={[
+                          {
+                            key: 'ports',
+                            label: `端口配置 (${portsCount})`,
+                            children: <PortsEditor />,
+                          },
+                          {
+                            key: 'env',
+                            label: `环境变量 (${envCount})`,
+                            children: (
+                              <EnvEditor
+                                cloudId={cloudId}
+                                namespacesOptions={namespacesOptions}
+                                selectedNamespace={
+                                  form.getFieldValue('namespace') || defaultNamespace || 'default'
+                                }
+                                configMaps={configMaps}
+                                secrets={secrets}
+                                onRefreshConfigMaps={() => onRefreshConfigMaps?.()}
+                                onRefreshSecrets={() => onRefreshSecrets?.()}
+                                onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
+                                onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
+                              />
+                            ),
+                          },
+                          {
+                            key: 'resources',
+                            label: `资源限制 (${resourcesCount})`,
+                            children: (
+                              <>
+                                <Row gutter={16}>
+                                  <Col span={12}>
+                                    <Form.Item
+                                      name={['resources', 'requests', 'cpu']}
+                                      label="CPU 请求"
+                                      dependencies={[['resources', 'limits', 'cpu']]}
+                                      rules={[
+                                        {
+                                          validator: (_, value) => {
+                                            if (!value) return Promise.resolve();
+                                            const limit = form.getFieldValue([
+                                              'resources',
+                                              'limits',
+                                              'cpu',
+                                            ]);
+                                            if (limit && compareCpuResources(value, limit) > 0) {
+                                              return Promise.reject(
+                                                new Error('请求值不能超过限制值'),
+                                              );
+                                            }
+                                            return Promise.resolve();
+                                          },
+                                        },
+                                      ]}
+                                    >
+                                      <ResourceInput
+                                        placeholder="如: 100"
+                                        units={CPU_UNITS}
+                                        defaultUnit="m"
+                                        unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5"
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col span={12}>
+                                    <Form.Item
+                                      name={['resources', 'limits', 'cpu']}
+                                      label="CPU 限制"
+                                      dependencies={[['resources', 'requests', 'cpu']]}
+                                      rules={[
+                                        {
+                                          validator: (_, value) => {
+                                            if (!value) return Promise.resolve();
+                                            const request = form.getFieldValue([
+                                              'resources',
+                                              'requests',
+                                              'cpu',
+                                            ]);
+                                            if (
+                                              request &&
+                                              compareCpuResources(request, value) > 0
+                                            ) {
+                                              return Promise.reject(
+                                                new Error('限制值不能小于请求值'),
+                                              );
+                                            }
+                                            return Promise.resolve();
+                                          },
+                                        },
+                                      ]}
+                                    >
+                                      <ResourceInput
+                                        placeholder="如: 500"
+                                        units={CPU_UNITS}
+                                        defaultUnit="m"
+                                        unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5"
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                                <Row gutter={16}>
+                                  <Col span={12}>
+                                    <Form.Item
+                                      name={['resources', 'requests', 'memory']}
+                                      label="内存请求"
+                                      dependencies={[['resources', 'limits', 'memory']]}
+                                      rules={[
+                                        {
+                                          validator: (_, value) => {
+                                            if (!value) return Promise.resolve();
+                                            const limit = form.getFieldValue([
+                                              'resources',
+                                              'limits',
+                                              'memory',
+                                            ]);
+                                            if (limit && compareMemoryResources(value, limit) > 0) {
+                                              return Promise.reject(
+                                                new Error('请求值不能超过限制值'),
+                                              );
+                                            }
+                                            return Promise.resolve();
+                                          },
+                                        },
+                                      ]}
+                                    >
+                                      <ResourceInput
+                                        placeholder="如: 128"
+                                        units={MEMORY_UNITS}
+                                        defaultUnit="Mi"
+                                        unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可"
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col span={12}>
+                                    <Form.Item
+                                      name={['resources', 'limits', 'memory']}
+                                      label="内存限制"
+                                      dependencies={[['resources', 'requests', 'memory']]}
+                                      rules={[
+                                        {
+                                          validator: (_, value) => {
+                                            if (!value) return Promise.resolve();
+                                            const request = form.getFieldValue([
+                                              'resources',
+                                              'requests',
+                                              'memory',
+                                            ]);
+                                            if (
+                                              request &&
+                                              compareMemoryResources(request, value) > 0
+                                            ) {
+                                              return Promise.reject(
+                                                new Error('限制值不能小于请求值'),
+                                              );
+                                            }
+                                            return Promise.resolve();
+                                          },
+                                        },
+                                      ]}
+                                    >
+                                      <ResourceInput
+                                        placeholder="如: 512"
+                                        units={MEMORY_UNITS}
+                                        defaultUnit="Mi"
+                                        unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可"
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                              </>
+                            ),
+                          },
+                          {
+                            key: 'command',
+                            label: `启动命令 (${commandCount})`,
+                            children: (
                               <Row gutter={16}>
                                 <Col span={12}>
                                   <Form.Item
-                                    name={['resources', 'requests', 'cpu']}
-                                    label="CPU 请求"
-                                    dependencies={[['resources', 'limits', 'cpu']]}
+                                    name="command"
+                                    label="启动命令"
+                                    extra="覆盖容器默认入口点，多个命令用逗号分隔"
                                     rules={[
                                       {
                                         validator: (_, value) => {
-                                          if (!value) return Promise.resolve();
-                                          const limit = form.getFieldValue(['resources', 'limits', 'cpu']);
-                                          if (limit && compareCpuResources(value, limit) > 0) {
-                                            return Promise.reject(new Error('请求值不能超过限制值'));
+                                          if (!value || !Array.isArray(value))
+                                            return Promise.resolve();
+                                          const chineseRegex = /[\u4e00-\u9fa5]/;
+                                          for (let i = 0; i < value.length; i++) {
+                                            if (chineseRegex.test(value[i])) {
+                                              return Promise.reject(new Error('不能包含中文字符'));
+                                            }
                                           }
                                           return Promise.resolve();
                                         },
                                       },
                                     ]}
                                   >
-                                    <ResourceInput placeholder="如: 100" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
+                                    <Select
+                                      mode="tags"
+                                      placeholder="如: /bin/sh"
+                                      style={{ width: '100%' }}
+                                      tokenSeparators={[',']}
+                                    />
                                   </Form.Item>
                                 </Col>
                                 <Col span={12}>
                                   <Form.Item
-                                    name={['resources', 'limits', 'cpu']}
-                                    label="CPU 限制"
-                                    dependencies={[['resources', 'requests', 'cpu']]}
+                                    name="args"
+                                    label="启动参数"
+                                    extra="传递给入口点的参数，多个参数用逗号分隔"
                                     rules={[
                                       {
                                         validator: (_, value) => {
-                                          if (!value) return Promise.resolve();
-                                          const request = form.getFieldValue(['resources', 'requests', 'cpu']);
-                                          if (request && compareCpuResources(request, value) > 0) {
-                                            return Promise.reject(new Error('限制值不能小于请求值'));
+                                          if (!value || !Array.isArray(value))
+                                            return Promise.resolve();
+                                          const chineseRegex = /[\u4e00-\u9fa5]/;
+                                          for (let i = 0; i < value.length; i++) {
+                                            if (chineseRegex.test(value[i])) {
+                                              return Promise.reject(new Error('不能包含中文字符'));
+                                            }
                                           }
                                           return Promise.resolve();
                                         },
                                       },
                                     ]}
                                   >
-                                    <ResourceInput placeholder="如: 500" units={CPU_UNITS} defaultUnit="m" unitTooltip="m: 毫核(1000m=1核)；核: 支持小数如0.5" />
+                                    <Select
+                                      mode="tags"
+                                      placeholder="如: -c, script.sh"
+                                      style={{ width: '100%' }}
+                                      tokenSeparators={[',']}
+                                    />
                                   </Form.Item>
                                 </Col>
                               </Row>
-                              <Row gutter={16}>
-                                <Col span={12}>
-                                  <Form.Item
-                                    name={['resources', 'requests', 'memory']}
-                                    label="内存请求"
-                                    dependencies={[['resources', 'limits', 'memory']]}
-                                    rules={[
-                                      {
-                                        validator: (_, value) => {
-                                          if (!value) return Promise.resolve();
-                                          const limit = form.getFieldValue(['resources', 'limits', 'memory']);
-                                          if (limit && compareMemoryResources(value, limit) > 0) {
-                                            return Promise.reject(new Error('请求值不能超过限制值'));
-                                          }
-                                          return Promise.resolve();
-                                        },
-                                      },
-                                    ]}
-                                  >
-                                    <ResourceInput placeholder="如: 128" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
-                                  </Form.Item>
-                                </Col>
-                                <Col span={12}>
-                                  <Form.Item
-                                    name={['resources', 'limits', 'memory']}
-                                    label="内存限制"
-                                    dependencies={[['resources', 'requests', 'memory']]}
-                                    rules={[
-                                      {
-                                        validator: (_, value) => {
-                                          if (!value) return Promise.resolve();
-                                          const request = form.getFieldValue(['resources', 'requests', 'memory']);
-                                          if (request && compareMemoryResources(request, value) > 0) {
-                                            return Promise.reject(new Error('限制值不能小于请求值'));
-                                          }
-                                          return Promise.resolve();
-                                        },
-                                      },
-                                    ]}
-                                  >
-                                    <ResourceInput placeholder="如: 512" units={MEMORY_UNITS} defaultUnit="Mi" unitTooltip="MiB/GiB: 二进制单位(1GiB=1024MiB)，任意数值均可" />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                            </>
-                          ),
-                        },
-                        {
-                          key: 'command',
-                          label: `启动命令 (${commandCount})`,
-                          children: (
-                            <Row gutter={16}>
-                              <Col span={12}>
-                                <Form.Item 
-                                  name="command" 
-                                  label="启动命令" 
-                                  extra="覆盖容器默认入口点，多个命令用逗号分隔"
-                                  rules={[
-                                    {
-                                      validator: (_, value) => {
-                                        if (!value || !Array.isArray(value)) return Promise.resolve();
-                                        const chineseRegex = /[\u4e00-\u9fa5]/;
-                                        for (let i = 0; i < value.length; i++) {
-                                          if (chineseRegex.test(value[i])) {
-                                            return Promise.reject(new Error('不能包含中文字符'));
-                                          }
-                                        }
-                                        return Promise.resolve();
-                                      },
-                                    },
-                                  ]}
-                                >
-                                  <Select mode="tags" placeholder="如: /bin/sh" style={{ width: '100%' }} tokenSeparators={[',']} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={12}>
-                                <Form.Item 
-                                  name="args" 
-                                  label="启动参数" 
-                                  extra="传递给入口点的参数，多个参数用逗号分隔"
-                                  rules={[
-                                    {
-                                      validator: (_, value) => {
-                                        if (!value || !Array.isArray(value)) return Promise.resolve();
-                                        const chineseRegex = /[\u4e00-\u9fa5]/;
-                                        for (let i = 0; i < value.length; i++) {
-                                          if (chineseRegex.test(value[i])) {
-                                            return Promise.reject(new Error('不能包含中文字符'));
-                                          }
-                                        }
-                                        return Promise.resolve();
-                                      },
-                                    },
-                                  ]}
-                                >
-                                  <Select mode="tags" placeholder="如: -c, script.sh" style={{ width: '100%' }} tokenSeparators={[',']} />
-                                </Form.Item>
-                              </Col>
-                            </Row>
-                          ),
-                        },
-                        {
-                          key: 'probes',
-                          label: `健康检查 (${probeCount})`,
-                          children: (
-                            <>
-                              <ProbeEditor name="livenessProbe" label="存活探针 (Liveness Probe)" />
-                              <ProbeEditor name="readinessProbe" label="就绪探针 (Readiness Probe)" />
-                            </>
-                          ),
-                        },
-                      ]} />
+                            ),
+                          },
+                          {
+                            key: 'probes',
+                            label: `健康检查 (${probeCount})`,
+                            children: (
+                              <>
+                                <ProbeEditor
+                                  name="livenessProbe"
+                                  label="存活探针 (Liveness Probe)"
+                                />
+                                <ProbeEditor
+                                  name="readinessProbe"
+                                  label="就绪探针 (Readiness Probe)"
+                                />
+                              </>
+                            ),
+                          },
+                        ]}
+                      />
                     </>
                   ) : (
                     <div
                       onClick={() => handleSelectContainer(index)}
                       style={{ cursor: 'pointer', padding: '8px 0' }}
                     >
-                      <div style={{ color: '#666', fontSize: 13 }}>{container.image || '未配置镜像'}</div>
+                      <div style={{ color: '#666', fontSize: 13 }}>
+                        {container.image || '未配置镜像'}
+                      </div>
                       <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
-                        端口 {portsCount} / 环境变量 {envCount} / 挂载 {container.volumeMounts?.length || 0}
+                        端口 {portsCount} / 环境变量 {envCount} / 挂载{' '}
+                        {container.volumeMounts?.length || 0}
                       </div>
                     </div>
                   )}
@@ -2969,11 +3282,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
             </Button>
           </div>
         );
-        
+
       case 2:
         // 网络配置步骤
         const networkType = form.getFieldValue('networkType') || 'default';
-        
+
         return (
           <div>
             <Alert
@@ -2983,14 +3296,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               message="网络配置"
               description={
                 <div>
-                  <div>配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义 NAD。</div>
+                  <div>
+                    配置 Pod 的网络连接方式。默认使用 Pod 网络，也可以选择扁平子网、VPC 子网或自定义
+                    NAD。
+                  </div>
                   <div style={{ marginTop: 8, color: '#faad14' }}>
                     💡 提示：如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再创建工作负载。
                   </div>
                 </div>
               }
             />
-            
+
             {loadingNetworkData ? (
               <div style={{ textAlign: 'center', padding: '40px 0' }}>
                 <Spin tip="加载网络数据..." />
@@ -3010,7 +3326,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     <Radio value="custom_nad">自定义NAD</Radio>
                   </Radio.Group>
                 </Form.Item>
-                
+
                 {networkType === 'flat_subnet' && (
                   <>
                     {flatSubnetOptions.length === 0 && !loadingNetworkData && (
@@ -3021,9 +3337,18 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                         message="未找到扁平子网"
                         description={
                           <div>
-                            <div>请确保已在资源池中创建扁平子网（Kube-OVN 子网，VPC 为 ovn-internal，注解 tower.io/subnet-type=flat）</div>
-                            <div style={{ marginTop: 8 }}>当前加载了 {kubeSubnets.length} 个子网，{kubeSubnets.filter(s => isFlatVpc(s?.vpc || s?.spec?.vpc)).length} 个属于扁平 VPC</div>
-                            <div style={{ marginTop: 8, color: '#1677ff' }}>💡 如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再重试。</div>
+                            <div>
+                              请确保已在资源池中创建扁平子网（Kube-OVN 子网，VPC 为
+                              ovn-internal，注解 tower.io/subnet-type=flat）
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                              当前加载了 {kubeSubnets.length} 个子网，
+                              {kubeSubnets.filter((s) => isFlatVpc(s?.vpc || s?.spec?.vpc)).length}{' '}
+                              个属于扁平 VPC
+                            </div>
+                            <div style={{ marginTop: 8, color: '#1677ff' }}>
+                              💡 如果您刚创建了子网，请等待几秒钟让系统完成 NAD 创建后再重试。
+                            </div>
                           </div>
                         }
                       />
@@ -3052,7 +3377,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     </Form.Item>
                   </>
                 )}
-                
+
                 {networkType === 'vpc' && (
                   <>
                     <Alert
@@ -3084,16 +3409,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       rules={[{ required: true, message: '请选择子网' }]}
                     >
                       <Select
-                        placeholder={selectedVpc ? "选择子网" : "请先选择VPC"}
+                        placeholder={selectedVpc ? '选择子网' : '请先选择VPC'}
                         showSearch
                         optionFilterProp="label"
-                        options={vpcSubnetOptions.map(opt => {
+                        options={vpcSubnetOptions.map((opt) => {
                           // 查找子网对象生成 NAD 引用
-                          const subnet = (kubeSubnets || []).find(s => 
-                            (s.name || s?.metadata?.name) === opt.value && 
-                            (s.vpc || s?.spec?.vpc) === selectedVpc
+                          const subnet = (kubeSubnets || []).find(
+                            (s) =>
+                              (s.name || s?.metadata?.name) === opt.value &&
+                              (s.vpc || s?.spec?.vpc) === selectedVpc,
                           );
-                          
+
                           let nadRef = opt.value;
                           if (subnet) {
                             let subnetNs = subnet?.namespace || subnet?.metadata?.namespace;
@@ -3107,7 +3433,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                             subnetNs = subnetNs || 'default';
                             nadRef = `${subnetNs}/${opt.value}`;
                           }
-                          
+
                           return {
                             ...opt,
                             value: nadRef,
@@ -3118,7 +3444,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     </Form.Item>
                   </>
                 )}
-                
+
                 {networkType === 'custom_nad' && (
                   <Form.Item
                     name="customNad"
@@ -3138,7 +3464,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                           const fetchNads = async () => {
                             try {
                               const res = await fetchHarvesterNads(cloudId, true, false);
-                              const nadItems = res?.data?.items || res?.items || (Array.isArray(res) ? res : []);
+                              const nadItems =
+                                res?.data?.items || res?.items || (Array.isArray(res) ? res : []);
                               setNads(nadItems);
                             } catch (e) {
                               console.error('重新加载NAD失败:', e);
@@ -3150,113 +3477,134 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                     />
                   </Form.Item>
                 )}
-                
+
                 <Divider />
-                
-                {networkType !== 'default' && networkType !== 'custom_nad' && (() => {
-                  // 获取当前子网的 CIDR 信息
-                  let currentCidr: string | undefined;
-                  
-                  if (networkType === 'flat_subnet') {
-                    const flatSubnetValue = form.getFieldValue('flatSubnet');
-                    const flatSubnetOption = flatSubnetOptions.find(opt => opt.value === flatSubnetValue);
-                    currentCidr = flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
-                  } else if (networkType === 'vpc') {
-                    const vpcSubnetValue = form.getFieldValue('vpcSubnet');
-                    if (vpcSubnetValue) {
-                      const parts = vpcSubnetValue.split('/');
-                      const subnetName = parts.length === 2 ? parts[1] : parts[0];
-                      const subnet = kubeSubnets.find(s => 
-                         (s.name || s?.metadata?.name) === subnetName && 
-                         (s.vpc || s?.spec?.vpc) === selectedVpc
-                       );
-                       currentCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
-                     }
-                   }
-                   
-return (
+
+                {networkType !== 'default' &&
+                  networkType !== 'custom_nad' &&
+                  (() => {
+                    // 获取当前子网的 CIDR 信息
+                    let currentCidr: string | undefined;
+
+                    if (networkType === 'flat_subnet') {
+                      const flatSubnetValue = form.getFieldValue('flatSubnet');
+                      const flatSubnetOption = flatSubnetOptions.find(
+                        (opt) => opt.value === flatSubnetValue,
+                      );
+                      currentCidr =
+                        flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
+                    } else if (networkType === 'vpc') {
+                      const vpcSubnetValue = form.getFieldValue('vpcSubnet');
+                      if (vpcSubnetValue) {
+                        const parts = vpcSubnetValue.split('/');
+                        const subnetName = parts.length === 2 ? parts[1] : parts[0];
+                        const subnet = kubeSubnets.find(
+                          (s) =>
+                            (s.name || s?.metadata?.name) === subnetName &&
+                            (s.vpc || s?.spec?.vpc) === selectedVpc,
+                        );
+                        currentCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
+                      }
+                    }
+
+                    return (
                       <Form.Item label="静态IP配置">
                         <Space direction="vertical" style={{ width: '100%' }}>
                           <Form.Item name="enableStaticIP" valuePropName="checked" noStyle>
                             <Checkbox>启用静态IP</Checkbox>
                           </Form.Item>
                           {(enableStaticIPWatch ?? form.getFieldValue('enableStaticIP')) && (
-                           <>
-                             {currentCidr && (
-                               <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
-                                 子网 CIDR: <Tag color="blue">{currentCidr}</Tag>
-                               </div>
-                             )}
-                            <Form.Item
-                              name="staticIP"
-                              label="静态IP地址"
-                              rules={[
-                                { required: true, message: '请输入静态IP地址' },
-                                {
-                                  pattern: /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
-                                  message: '请输入有效的IPv4地址'
-                                },
-                                ...(currentCidr ? [{
-                                  validator: (_: any, value: string) => {
-                                    if (!value || isIpInCidr(value, currentCidr!)) {
+                            <>
+                              {currentCidr && (
+                                <div style={{ color: '#666', fontSize: 12, marginBottom: 8 }}>
+                                  子网 CIDR: <Tag color="blue">{currentCidr}</Tag>
+                                </div>
+                              )}
+                              <Form.Item
+                                name="staticIP"
+                                label="静态IP地址"
+                                rules={[
+                                  { required: true, message: '请输入静态IP地址' },
+                                  {
+                                    pattern:
+                                      /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/,
+                                    message: '请输入有效的IPv4地址',
+                                  },
+                                  ...(currentCidr
+                                    ? [
+                                        {
+                                          validator: (_: any, value: string) => {
+                                            if (!value || isIpInCidr(value, currentCidr!)) {
+                                              return Promise.resolve();
+                                            }
+                                            return Promise.reject(
+                                              new Error(
+                                                `IP 地址不在子网 CIDR 范围 ${currentCidr} 内`,
+                                              ),
+                                            );
+                                          },
+                                        } as any,
+                                      ]
+                                    : []),
+                                  {
+                                    validator: () => {
+                                      if (staticIPCheckResult && !staticIPCheckResult.available) {
+                                        return Promise.reject(
+                                          new Error(staticIPCheckResult.reason),
+                                        );
+                                      }
                                       return Promise.resolve();
-                                    }
-                                    return Promise.reject(new Error(`IP 地址不在子网 CIDR 范围 ${currentCidr} 内`));
-                                  }
-                                } as any] : []),
-                                {
-                                  validator: () => {
-                                    if (staticIPCheckResult && !staticIPCheckResult.available) {
-                                      return Promise.reject(new Error(staticIPCheckResult.reason));
-                                    }
-                                    return Promise.resolve();
-                                  }
+                                    },
+                                  },
+                                ]}
+                                extra={
+                                  currentCidr
+                                    ? `子网 CIDR: ${currentCidr}`
+                                    : '请先选择子网以获取 CIDR 范围'
                                 }
-                              ]}
-                              extra={currentCidr ? `子网 CIDR: ${currentCidr}` : '请先选择子网以获取 CIDR 范围'}
-                            >
-                              <Input 
-                                placeholder="例如: 192.168.1.100" 
-                                addonAfter={
-                                  <Button 
-                                    type="link" 
-                                    size="small"
-                                    loading={checkingStaticIP}
-                                    onClick={handleCheckStaticIP}
-                                    style={{ padding: '0 8px' }}
-                                  >
-                                    检测
-                                  </Button>
-                                }
-                                onChange={() => {
-                                  setStaticIPCheckResult(null);
-                                }}
-                              />
-                            </Form.Item>
-                            {staticIPCheckResult && (
-                              <Alert
-                                type={staticIPCheckResult.available ? 'success' : 'error'}
-                                showIcon
-                                style={{ marginBottom: 16 }}
-                                message={staticIPCheckResult.available ? 'IP 可用' : 'IP 不可用'}
-                                description={staticIPCheckResult.reason}
-                              />
-                            )}
-                            {!staticIPCheckResult && (
-                              <Alert
-                                type="warning"
-                                showIcon
-                                style={{ marginBottom: 16 }}
-                                message="建议点击「检测」按钮验证 IP 是否可用后再提交"
-                              />
-                            )}
-                           </>
-                         )}
-                       </Space>
-                     </Form.Item>
-                   );
-                 })()}
-                
+                              >
+                                <Input
+                                  placeholder="例如: 192.168.1.100"
+                                  addonAfter={
+                                    <Button
+                                      type="link"
+                                      size="small"
+                                      loading={checkingStaticIP}
+                                      onClick={handleCheckStaticIP}
+                                      style={{ padding: '0 8px' }}
+                                    >
+                                      检测
+                                    </Button>
+                                  }
+                                  onChange={() => {
+                                    setStaticIPCheckResult(null);
+                                  }}
+                                />
+                              </Form.Item>
+                              {staticIPCheckResult && (
+                                <Alert
+                                  type={staticIPCheckResult.available ? 'success' : 'error'}
+                                  showIcon
+                                  style={{ marginBottom: 16 }}
+                                  message={staticIPCheckResult.available ? 'IP 可用' : 'IP 不可用'}
+                                  description={staticIPCheckResult.reason}
+                                />
+                              )}
+                              {!staticIPCheckResult && (
+                                <Alert
+                                  type="warning"
+                                  showIcon
+                                  style={{ marginBottom: 16 }}
+                                  message="建议点击「检测」按钮验证 IP 是否可用后再提交"
+                                />
+                              )}
+                            </>
+                          )}
+                        </Space>
+                      </Form.Item>
+                    );
+                  })()}
+
                 {networkType !== 'default' && (
                   <Alert
                     type="warning"
@@ -3265,15 +3613,25 @@ return (
                     message="注意"
                     description={
                       <div>
-                        <div>选择非默认网络类型时，请确保集群已正确配置对应的网络插件（如 Kube-OVN）。</div>
+                        <div>
+                          选择非默认网络类型时，请确保集群已正确配置对应的网络插件（如 Kube-OVN）。
+                        </div>
                         {networkType === 'flat_subnet' && (
-                          <div style={{ marginTop: 8 }}>扁平子网需要 Pod 所在节点配置对应的物理网络接口。</div>
+                          <div style={{ marginTop: 8 }}>
+                            扁平子网需要 Pod 所在节点配置对应的物理网络接口。
+                          </div>
                         )}
                         {networkType === 'vpc' && (
-                          <div style={{ marginTop: 8 }}>VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。</div>
+                          <div style={{ marginTop: 8 }}>
+                            VPC 子网由 Kube-OVN 提供，支持网络隔离和高级网络功能。
+                          </div>
                         )}
                         {networkType === 'custom_nad' && (
-                          <div style={{ marginTop: 8 }}>自定义 NAD 仅展示当前命名空间下混杂模式已开启的网络。Kube-OVN 类型的 NAD 将自动补充子网注解。非 Kube-OVN 类型（如 macvlan/bridge）的 NAD 需在 NAD 配置中设置 IPAM（如 DHCP 或静态 IP）才能为容器分配 IP 地址。</div>
+                          <div style={{ marginTop: 8 }}>
+                            自定义 NAD 仅展示当前命名空间下混杂模式已开启的网络。Kube-OVN 类型的 NAD
+                            将自动补充子网注解。非 Kube-OVN 类型（如 macvlan/bridge）的 NAD 需在 NAD
+                            配置中设置 IPAM（如 DHCP 或静态 IP）才能为容器分配 IP 地址。
+                          </div>
                         )}
                       </div>
                     }
@@ -3283,7 +3641,7 @@ return (
             )}
           </div>
         );
-        
+
       case 3:
         const containersForStorage = getSyncedFormValues().containers || [];
         return (
@@ -3301,11 +3659,16 @@ return (
                 <Card
                   key={`storage-container-${index}`}
                   size="small"
-                  style={{ marginBottom: 16, border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0' }}
+                  style={{
+                    marginBottom: 16,
+                    border: isActive ? '2px solid #1677ff' : '1px solid #f0f0f0',
+                  }}
                   title={
                     <Space>
                       <Tag color={isActive ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
-                      <span style={{ fontWeight: 500 }}>{container.containerName || `container-${index + 1}`}</span>
+                      <span style={{ fontWeight: 500 }}>
+                        {container.containerName || `container-${index + 1}`}
+                      </span>
                     </Space>
                   }
                 >
@@ -3313,7 +3676,9 @@ return (
                     <VolumesEditor
                       cloudId={cloudId}
                       namespacesOptions={namespacesOptions}
-                      selectedNamespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
+                      selectedNamespace={
+                        form.getFieldValue('namespace') || defaultNamespace || 'default'
+                      }
                       configMaps={configMaps}
                       secrets={secrets}
                       persistentVolumeClaims={persistentVolumeClaims}
@@ -3322,7 +3687,7 @@ return (
                       onOpenQuickCreateConfigMap={() => setShowQuickCreateConfigMap(true)}
                       onOpenQuickCreateSecret={() => setShowQuickCreateSecret(true)}
                       refreshKey={volumeRefreshKey}
-                      onVolumeChange={() => setVolumeRefreshKey(v => v + 1)}
+                      onVolumeChange={() => setVolumeRefreshKey((v) => v + 1)}
                     />
                   ) : (
                     <div
@@ -3345,78 +3710,100 @@ return (
         const podAntiAffinity = form.getFieldValue('podAntiAffinity');
         const tolerations = form.getFieldValue('tolerations') || [];
         const hostAliases = form.getFieldValue('hostAliases') || [];
-        
-        const nodeAffinityCount = (nodeAffinity?.required?.nodeSelectorTerms?.length || 0) + (nodeAffinity?.preferred?.length || 0);
-        const nodeAntiAffinityCount = (nodeAntiAffinity?.required?.nodeSelectorTerms?.length || 0) + (nodeAntiAffinity?.preferred?.length || 0);
-        const podAffinityCount = (podAffinity?.required?.length || 0) + (podAffinity?.preferred?.length || 0);
-        const podAntiAffinityCount = (podAntiAffinity?.required?.length || 0) + (podAntiAffinity?.preferred?.length || 0);
+
+        const nodeAffinityCount =
+          (nodeAffinity?.required?.nodeSelectorTerms?.length || 0) +
+          (nodeAffinity?.preferred?.length || 0);
+        const nodeAntiAffinityCount =
+          (nodeAntiAffinity?.required?.nodeSelectorTerms?.length || 0) +
+          (nodeAntiAffinity?.preferred?.length || 0);
+        const podAffinityCount =
+          (podAffinity?.required?.length || 0) + (podAffinity?.preferred?.length || 0);
+        const podAntiAffinityCount =
+          (podAntiAffinity?.required?.length || 0) + (podAntiAffinity?.preferred?.length || 0);
         const tolerationsCount = tolerations.length;
         const hostAliasesCount = hostAliases.length;
-        
+
         return (
           <div>
             <Divider orientation="left">调度策略</Divider>
             <LabelEditor name="nodeSelector" label="节点选择器" />
-            
-            <Collapse ghost defaultActiveKey={[]} items={[
-              {
-                key: 'nodeAffinity',
-                label: `节点亲和性 (${nodeAffinityCount})`,
-                children: <NodeAffinityEditor ref={nodeAffinityEditorRef} name="nodeAffinity" label="节点亲和性" />,
-              },
-              {
-                key: 'nodeAntiAffinity',
-                label: `节点反亲和性 (${nodeAntiAffinityCount})`,
-                children: <NodeAffinityEditor ref={nodeAntiAffinityEditorRef} name="nodeAntiAffinity" label="节点反亲和性" />,
-              },
-              {
-                key: 'podAffinity',
-                label: `Pod 亲和性 (${podAffinityCount})`,
-                children: (
-                  <PodAffinityEditor 
-                    ref={podAffinityEditorRef}
-                    name="podAffinity" 
-                    label="Pod 亲和性" 
-                    namespacesOptions={namespacesOptions}
-                  />
-                ),
-              },
-              {
-                key: 'podAntiAffinity',
-                label: `Pod 反亲和性 (${podAntiAffinityCount})`,
-                children: (
-                  <PodAffinityEditor 
-                    ref={podAntiAffinityEditorRef}
-                    name="podAntiAffinity" 
-                    label="Pod 反亲和性" 
-                    namespacesOptions={namespacesOptions}
-                  />
-                ),
-              },
-              {
-                key: 'tolerations',
-                label: `污点容忍 (${tolerationsCount})`,
-                children: <TolerationsEditor ref={tolerationsEditorRef} />,
-              },
-              {
-                key: 'hostAliases',
-                label: `域名映射 (${hostAliasesCount})`,
-                children: <HostAliasesEditor />,
-              },
-              {
-                key: 'dnsConfig',
-                label: `DNS 配置`,
-                children: <DnsConfigEditor />,
-              },
-            ]} />
+
+            <Collapse
+              ghost
+              defaultActiveKey={[]}
+              items={[
+                {
+                  key: 'nodeAffinity',
+                  label: `节点亲和性 (${nodeAffinityCount})`,
+                  children: (
+                    <NodeAffinityEditor
+                      ref={nodeAffinityEditorRef}
+                      name="nodeAffinity"
+                      label="节点亲和性"
+                    />
+                  ),
+                },
+                {
+                  key: 'nodeAntiAffinity',
+                  label: `节点反亲和性 (${nodeAntiAffinityCount})`,
+                  children: (
+                    <NodeAffinityEditor
+                      ref={nodeAntiAffinityEditorRef}
+                      name="nodeAntiAffinity"
+                      label="节点反亲和性"
+                    />
+                  ),
+                },
+                {
+                  key: 'podAffinity',
+                  label: `Pod 亲和性 (${podAffinityCount})`,
+                  children: (
+                    <PodAffinityEditor
+                      ref={podAffinityEditorRef}
+                      name="podAffinity"
+                      label="Pod 亲和性"
+                      namespacesOptions={namespacesOptions}
+                    />
+                  ),
+                },
+                {
+                  key: 'podAntiAffinity',
+                  label: `Pod 反亲和性 (${podAntiAffinityCount})`,
+                  children: (
+                    <PodAffinityEditor
+                      ref={podAntiAffinityEditorRef}
+                      name="podAntiAffinity"
+                      label="Pod 反亲和性"
+                      namespacesOptions={namespacesOptions}
+                    />
+                  ),
+                },
+                {
+                  key: 'tolerations',
+                  label: `污点容忍 (${tolerationsCount})`,
+                  children: <TolerationsEditor ref={tolerationsEditorRef} />,
+                },
+                {
+                  key: 'hostAliases',
+                  label: `域名映射 (${hostAliasesCount})`,
+                  children: <HostAliasesEditor />,
+                },
+                {
+                  key: 'dnsConfig',
+                  label: `DNS 配置`,
+                  children: <DnsConfigEditor />,
+                },
+              ]}
+            />
           </div>
         );
-        
+
       default:
         return null;
     }
   };
-  
+
   // YAML 编辑器视图
   const renderYamlEditor = () => (
     <div>
@@ -3427,35 +3814,46 @@ return (
         message="YAML 编辑模式"
         description="直接编辑 Kubernetes 资源定义，支持完整的 K8s API 规范。"
       />
-      
+
       {yamlError && (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={yamlError}
-        />
+        <Alert type="error" showIcon style={{ marginBottom: 16 }} message={yamlError} />
       )}
-      
-      <YamlEditor
-        value={yamlContent}
-        onChange={handleYamlChange}
-        minHeight={400}
-        maxHeight={600}
-      />
+
+      <YamlEditor value={yamlContent} onChange={handleYamlChange} minHeight={400} maxHeight={600} />
     </div>
   );
-  
+
   return (
     <div>
       {/* 模式切换 */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
         <Segmented
           value={mode}
           onChange={(v) => handleModeChange(v as 'form' | 'yaml')}
           options={[
-            { value: 'form', label: <span><FormOutlined /> 表单模式</span> },
-            { value: 'yaml', label: <span><CodeOutlined /> YAML 模式</span> },
+            {
+              value: 'form',
+              label: (
+                <span>
+                  <FormOutlined /> 表单模式
+                </span>
+              ),
+            },
+            {
+              value: 'yaml',
+              label: (
+                <span>
+                  <CodeOutlined /> YAML 模式
+                </span>
+              ),
+            },
           ]}
         />
       </div>
@@ -3504,7 +3902,11 @@ return (
               workloadType: defaultType,
               name: generateVmWizardStyleDisplayName('app'),
               namespace: defaultNamespace,
-              containers: [createEmptyContainer(defaultType === 'daemonset' ? 'daemonset-container' : 'main-container')],
+              containers: [
+                createEmptyContainer(
+                  defaultType === 'daemonset' ? 'daemonset-container' : 'main-container',
+                ),
+              ],
               imagePullPolicy: 'IfNotPresent',
               replicas: 1,
               labels: [],
@@ -3518,8 +3920,18 @@ return (
               podAntiAffinity: { required: undefined, preferred: undefined },
               tolerations: [],
               resources: { requests: {}, limits: {} },
-              livenessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 30, periodSeconds: 10 },
-              readinessProbe: { enabled: false, type: 'httpGet' as const, initialDelaySeconds: 5, periodSeconds: 10 },
+              livenessProbe: {
+                enabled: false,
+                type: 'httpGet' as const,
+                initialDelaySeconds: 30,
+                periodSeconds: 10,
+              },
+              readinessProbe: {
+                enabled: false,
+                type: 'httpGet' as const,
+                initialDelaySeconds: 5,
+                periodSeconds: 10,
+              },
               volumes: [],
               volumeMounts: [],
               // 网络配置默认值
@@ -3529,7 +3941,10 @@ return (
           >
             <Row gutter={[0, 0]} style={{ height: '100%' }}>
               <Col span={5}>
-                <div className="wizard-sidebar" style={{ padding: '0 8px 0 0', minHeight: 'calc(80vh - 24px)' }}>
+                <div
+                  className="wizard-sidebar"
+                  style={{ padding: '0 8px 0 0', minHeight: 'calc(80vh - 24px)' }}
+                >
                   <div>
                     {WORKLOAD_STEPS.map((step, idx) => {
                       const isActive = currentStep === idx;
@@ -3552,58 +3967,158 @@ return (
               </Col>
 
               <Col span={12} style={{ height: '100%' }}>
-                <div style={{ height: 'calc(80vh - 24px)', overflowY: 'auto', padding: '0 30px', scrollbarGutter: 'stable' }}>
+                <div
+                  style={{
+                    height: 'calc(80vh - 24px)',
+                    overflowY: 'auto',
+                    padding: '0 30px',
+                    scrollbarGutter: 'stable',
+                  }}
+                >
                   {renderStepContent()}
                 </div>
               </Col>
 
               <Col span={7} style={{ height: '100%' }}>
-                <div style={{ background: '#fff', border: '1px solid #eaeaea', borderRadius: 8, padding: 16, height: 'calc(80vh - 24px)', display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 12, marginBottom: 12 }}>
+                <div
+                  style={{
+                    background: '#fff',
+                    border: '1px solid #eaeaea',
+                    borderRadius: 8,
+                    padding: 16,
+                    height: 'calc(80vh - 24px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div
+                    style={{
+                      borderBottom: '1px solid #f0f0f0',
+                      paddingBottom: 12,
+                      marginBottom: 12,
+                    }}
+                  >
                     <span style={{ fontSize: 14, fontWeight: 500 }}>配置预览</span>
                   </div>
                   <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>名称</span>
                         <span style={{ color: '#333', fontWeight: 500 }}>{summary.name}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>项目</span>
                         <span style={{ color: '#333' }}>{summary.namespace}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>类型</span>
                         <span style={{ color: '#333' }}>{summary.workloadType}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>副本</span>
                         <span style={{ color: '#333' }}>{summary.replicas}</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>镜像凭证</span>
                         <span style={{ color: '#333' }}>{summary.imagePullSecrets} 个</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>存储卷</span>
                         <span style={{ color: '#333' }}>{summary.volumes} 个</span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '8px 0',
+                          borderBottom: '1px dashed #f0f0f0',
+                        }}
+                      >
                         <span style={{ color: '#888' }}>网络</span>
-                        <span style={{ color: '#333', maxWidth: '60%', textAlign: 'right', wordBreak: 'break-all' }}>{summary.network}</span>
+                        <span
+                          style={{
+                            color: '#333',
+                            maxWidth: '60%',
+                            textAlign: 'right',
+                            wordBreak: 'break-all',
+                          }}
+                        >
+                          {summary.network}
+                        </span>
                       </div>
                       <div style={{ padding: '8px 0' }}>
                         <div style={{ color: '#888', marginBottom: 8 }}>容器列表</div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {summary.containers.map((container, index) => (
-                            <div key={container.key} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10, background: index === activeContainerIndex ? '#f8fbff' : '#fff' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <div
+                              key={container.key}
+                              style={{
+                                border: '1px solid #f0f0f0',
+                                borderRadius: 8,
+                                padding: 10,
+                                background: index === activeContainerIndex ? '#f8fbff' : '#fff',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  marginBottom: 4,
+                                }}
+                              >
                                 <span style={{ fontWeight: 500 }}>{container.name}</span>
-                                <Tag color={index === activeContainerIndex ? 'blue' : 'default'}>{`容器 ${index + 1}`}</Tag>
+                                <Tag
+                                  color={index === activeContainerIndex ? 'blue' : 'default'}
+                                >{`容器 ${index + 1}`}</Tag>
                               </div>
-                              <div style={{ fontSize: 12, color: '#666', wordBreak: 'break-all' }}>{container.image}</div>
+                              <div style={{ fontSize: 12, color: '#666', wordBreak: 'break-all' }}>
+                                {container.image}
+                              </div>
                               <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                                端口 {container.ports} / 环境变量 {container.env} / 挂载 {container.mounts}
+                                端口 {container.ports} / 环境变量 {container.env} / 挂载{' '}
+                                {container.mounts}
                               </div>
                             </div>
                           ))}
@@ -3612,18 +4127,29 @@ return (
                     </div>
                   </div>
 
-                  <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+                  <div
+                    style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #f0f0f0' }}
+                  >
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                      <Button htmlType="button" onClick={onCancel}>取消</Button>
+                      <Button htmlType="button" onClick={onCancel}>
+                        取消
+                      </Button>
                       {currentStep > 0 && (
-                        <Button htmlType="button" onClick={handlePrev}>上一步</Button>
+                        <Button htmlType="button" onClick={handlePrev}>
+                          上一步
+                        </Button>
                       )}
                       {currentStep < WORKLOAD_STEPS.length - 1 ? (
                         <Button type="primary" htmlType="button" onClick={handleNext}>
                           下一步
                         </Button>
                       ) : (
-                        <Button type="primary" htmlType="button" loading={loading} onClick={handleSubmit}>
+                        <Button
+                          type="primary"
+                          htmlType="button"
+                          loading={loading}
+                          onClick={handleSubmit}
+                        >
                           {isEditMode ? '更新' : '创建'}
                         </Button>
                       )}
@@ -3637,7 +4163,7 @@ return (
       ) : (
         <>
           {renderYamlEditor()}
-          
+
           <div style={{ marginTop: 24, textAlign: 'right' }}>
             <Space>
               <Button onClick={onCancel}>取消</Button>
@@ -3707,10 +4233,6 @@ return (
   );
 };
 
-export type {
-  WorkloadType,
-  WorkloadFormValues,
-  WorkloadFormProps,
-} from './workloadForm/types';
+export type { WorkloadType, WorkloadFormValues, WorkloadFormProps } from './workloadForm/types';
 
 export default WorkloadForm;

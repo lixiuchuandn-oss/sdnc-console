@@ -3,14 +3,14 @@
  * 模块名称: NetworkPolicy 网络策略管理视图 (NetworkPoliciesSection)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/containers/sections/NetworkPoliciesSection.tsx
  * ==============================================================================
- * 
+ *
  * [功能描述]
  * 该组件负责展示和管理 Kubernetes NetworkPolicy 资源，包括：
  * 1. NetworkPolicy 列表展示
  * 2. NetworkPolicy 详情查看
  * 3. NetworkPolicy 删除
  * 4. 命名空间筛选
- * 
+ *
  * [核心逻辑]
  * NetworkPolicy 用于控制 Pod 之间的网络流量，定义入站和出站规则。
  */
@@ -33,7 +33,13 @@ import {
   Form,
   Switch,
 } from 'antd';
-import { SafetyCertificateOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
+import {
+  SafetyCertificateOutlined,
+  SearchOutlined,
+  EllipsisOutlined,
+  ReloadOutlined,
+  EditTwoTone,
+} from '@ant-design/icons';
 import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -49,8 +55,16 @@ import {
   deleteNetworkPolicy,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
-import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
+import {
+  isSystemResource,
+  getSystemResourceProtectionHint,
+} from '../../../../../../utils/harvesterUtils';
 import NetworkPolicyFormModal from '../components/NetworkPolicyFormModal';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+  type ContainerSectionOnRefresh,
+} from '../lib/containerSectionRefresh';
 
 type Props = {
   networkPolicies: any[];
@@ -59,7 +73,7 @@ type Props = {
   cloudId: string;
   nsValue?: string;
   onNsChange: (v?: string) => void;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: ContainerSectionOnRefresh;
   createDefaultNamespace?: string;
   showAllSwitch?: boolean;
   queryAll?: boolean;
@@ -88,11 +102,11 @@ const calculateAge = (timestamp?: string) => {
     const created = new Date(timestamp).getTime();
     const now = Date.now();
     const diff = now - created;
-    
+
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (days > 0) return `${days}d${hours}h`;
     if (hours > 0) return `${hours}h${minutes}m`;
     return `${minutes}m`;
@@ -106,10 +120,10 @@ const calculateAge = (timestamp?: string) => {
  */
 const formatPodSelector = (selector: any): React.ReactNode => {
   if (!selector) return <span style={{ color: '#999' }}>-</span>;
-  
+
   const matchLabels = selector.matchLabels || {};
   const entries = Object.entries(matchLabels);
-  
+
   if (entries.length === 0) {
     // 空选择器表示选择所有 Pod
     if (Object.keys(selector).length === 0 || (selector.matchLabels && entries.length === 0)) {
@@ -117,7 +131,7 @@ const formatPodSelector = (selector: any): React.ReactNode => {
     }
     return <span style={{ color: '#999' }}>-</span>;
   }
-  
+
   // 渲染带样式的标签内容（用于 Tooltip）
   const renderStyledLabel = (k: string, v: string) => (
     <span>
@@ -126,41 +140,33 @@ const formatPodSelector = (selector: any): React.ReactNode => {
       <span style={{ color: '#52c41a' }}>{v}</span>
     </span>
   );
-  
+
   // 单个标签
   if (entries.length === 1) {
     const [k, v] = entries[0];
     const text = `${k}=${v}`;
     return (
       <Tooltip title={renderStyledLabel(k, String(v))}>
-        <Tag>
-          {text}
-        </Tag>
+        <Tag>{text}</Tag>
       </Tooltip>
     );
   }
-  
+
   // 多个标签
   const displayCount = 2;
   const displayEntries = entries.slice(0, displayCount);
   const remaining = entries.length - displayCount;
-  
+
   const content = (
     <div style={{ display: 'inline-flex', flexDirection: 'column', gap: 4 }}>
       {displayEntries.map(([k, v]) => {
         const text = `${k}=${v}`;
-        return (
-          <Tag key={k}>
-            {text}
-          </Tag>
-        );
+        return <Tag key={k}>{text}</Tag>;
       })}
-      {remaining > 0 && (
-        <Tag style={{ color: '#666' }}>+{remaining}</Tag>
-      )}
+      {remaining > 0 && <Tag style={{ color: '#666' }}>+{remaining}</Tag>}
     </div>
   );
-  
+
   const fullContent = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {entries.map(([k, v]) => (
@@ -168,12 +174,8 @@ const formatPodSelector = (selector: any): React.ReactNode => {
       ))}
     </div>
   );
-  
-  return (
-    <Tooltip title={fullContent}>
-      {content}
-    </Tooltip>
-  );
+
+  return <Tooltip title={fullContent}>{content}</Tooltip>;
 };
 
 /**
@@ -183,7 +185,7 @@ const formatPolicyTypes = (policyTypes?: string[]): React.ReactNode => {
   if (!policyTypes || policyTypes.length === 0) {
     return <span style={{ color: '#999' }}>-</span>;
   }
-  
+
   return (
     <Space size={4} wrap>
       {policyTypes.map((type) => {
@@ -215,7 +217,12 @@ const NetworkPolicyDetailDrawer: React.FC<{
   React.useEffect(() => {
     if (visible && networkPolicy) {
       setLoading(true);
-      fetchNetworkPolicyDetail(cloudId, networkPolicy.metadata.namespace, networkPolicy.metadata.name, true)
+      fetchNetworkPolicyDetail(
+        cloudId,
+        networkPolicy.metadata.namespace,
+        networkPolicy.metadata.name,
+        true,
+      )
         .then((res) => {
           setDetail(res?.data || networkPolicy);
         })
@@ -259,39 +266,45 @@ const NetworkPolicyDetailDrawer: React.FC<{
         showIcon
         style={{ marginBottom: 16 }}
       />
-      
+
       <Descriptions column={2} bordered size="small">
         <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
         <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
-        <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
-        <Descriptions.Item label="策略类型">{formatPolicyTypes(spec.policyTypes)}</Descriptions.Item>
-        
+        <Descriptions.Item label="运行时长">
+          {calculateAge(metadata.creationTimestamp)}
+        </Descriptions.Item>
+        <Descriptions.Item label="策略类型">
+          {formatPolicyTypes(spec.policyTypes)}
+        </Descriptions.Item>
+
         <Descriptions.Item label="Pod 选择器" span={2}>
           {formatPodSelector(spec.podSelector)}
         </Descriptions.Item>
-        
+
         <Descriptions.Item label="入站规则数">
           <Tag color="blue">{ingressRules.length}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="出站规则数">
           <Tag color="green">{egressRules.length}</Tag>
         </Descriptions.Item>
-        
+
         <Descriptions.Item label="创建时间" span={2}>
           {formatTime(metadata.creationTimestamp)}
         </Descriptions.Item>
-        
+
         {Object.keys(metadata.labels || {}).length > 0 && (
           <Descriptions.Item label="标签" span={2}>
             <Space size={4} wrap>
               {Object.entries(metadata.labels || {}).map(([k, v]) => (
-                <Tag key={k}>{k}={String(v)}</Tag>
+                <Tag key={k}>
+                  {k}={String(v)}
+                </Tag>
               ))}
             </Space>
           </Descriptions.Item>
         )}
       </Descriptions>
-      
+
       {/* 入站规则详情 */}
       {ingressRules.length > 0 && (
         <>
@@ -300,19 +313,22 @@ const NetworkPolicyDetailDrawer: React.FC<{
             dataSource={ingressRules.flatMap((rule: any, ruleIdx: number) => {
               const from = rule.from || [];
               const ports = rule.ports || [];
-              const portStr = ports.length === 0 
-                ? '所有端口' 
-                : ports.map((p: any) => `${p.protocol}/${p.port || 'all'}`).join(', ');
-              
+              const portStr =
+                ports.length === 0
+                  ? '所有端口'
+                  : ports.map((p: any) => `${p.protocol}/${p.port || 'all'}`).join(', ');
+
               if (from.length === 0) {
-                return [{
-                  key: `${ruleIdx}-all`,
-                  type: '所有来源',
-                  source: '-',
-                  ports: portStr,
-                }];
+                return [
+                  {
+                    key: `${ruleIdx}-all`,
+                    type: '所有来源',
+                    source: '-',
+                    ports: portStr,
+                  },
+                ];
               }
-              
+
               return from.map((peer: any, peerIdx: number) => {
                 if (peer.podSelector) {
                   const labels = peer.podSelector.matchLabels || {};
@@ -321,9 +337,10 @@ const NetworkPolicyDetailDrawer: React.FC<{
                     key: `${ruleIdx}-${peerIdx}`,
                     type: 'Pod 选择器',
                     typeColor: 'blue',
-                    source: entries.length === 0 
-                      ? '所有 Pod' 
-                      : entries.map(([k, v]) => `${k}=${v}`).join(', '),
+                    source:
+                      entries.length === 0
+                        ? '所有 Pod'
+                        : entries.map(([k, v]) => `${k}=${v}`).join(', '),
                     ports: portStr,
                   };
                 }
@@ -334,9 +351,10 @@ const NetworkPolicyDetailDrawer: React.FC<{
                     key: `${ruleIdx}-${peerIdx}`,
                     type: '项目选择器',
                     typeColor: 'green',
-                    source: entries.length === 0 
-                      ? '所有项目' 
-                      : entries.map(([k, v]) => `${k}=${v}`).join(', '),
+                    source:
+                      entries.length === 0
+                        ? '所有项目'
+                        : entries.map(([k, v]) => `${k}=${v}`).join(', '),
                     ports: portStr,
                   };
                 }
@@ -345,7 +363,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
                     key: `${ruleIdx}-${peerIdx}`,
                     type: 'IP 地址块',
                     typeColor: 'orange',
-                    source: peer.ipBlock.except 
+                    source: peer.ipBlock.except
                       ? `${peer.ipBlock.cidr} (排除: ${peer.ipBlock.except.join(', ')})`
                       : peer.ipBlock.cidr,
                     ports: portStr,
@@ -363,14 +381,19 @@ const NetworkPolicyDetailDrawer: React.FC<{
             columns={[
               {
                 title: '类型',
-                render: (_: any, record: any) => (
-                  <Tag color={record.typeColor}>{record.type}</Tag>
-                ),
+                render: (_: any, record: any) => <Tag color={record.typeColor}>{record.type}</Tag>,
               },
               {
                 title: '来源',
                 render: (_: any, record: any) => (
-                  <span style={{ color: record.source === '所有 Pod' || record.source === '所有项目' ? '#999' : undefined }}>
+                  <span
+                    style={{
+                      color:
+                        record.source === '所有 Pod' || record.source === '所有项目'
+                          ? '#999'
+                          : undefined,
+                    }}
+                  >
                     {record.source}
                   </span>
                 ),
@@ -383,7 +406,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
           />
         </>
       )}
-      
+
       {/* 出站规则详情 */}
       {egressRules.length > 0 && (
         <>
@@ -392,19 +415,22 @@ const NetworkPolicyDetailDrawer: React.FC<{
             dataSource={egressRules.flatMap((rule: any, ruleIdx: number) => {
               const to = rule.to || [];
               const ports = rule.ports || [];
-              const portStr = ports.length === 0 
-                ? '所有端口' 
-                : ports.map((p: any) => `${p.protocol}/${p.port || 'all'}`).join(', ');
-              
+              const portStr =
+                ports.length === 0
+                  ? '所有端口'
+                  : ports.map((p: any) => `${p.protocol}/${p.port || 'all'}`).join(', ');
+
               if (to.length === 0) {
-                return [{
-                  key: `${ruleIdx}-all`,
-                  type: '所有目标',
-                  target: '-',
-                  ports: portStr,
-                }];
+                return [
+                  {
+                    key: `${ruleIdx}-all`,
+                    type: '所有目标',
+                    target: '-',
+                    ports: portStr,
+                  },
+                ];
               }
-              
+
               return to.map((peer: any, peerIdx: number) => {
                 if (peer.podSelector) {
                   const labels = peer.podSelector.matchLabels || {};
@@ -413,9 +439,10 @@ const NetworkPolicyDetailDrawer: React.FC<{
                     key: `${ruleIdx}-${peerIdx}`,
                     type: 'Pod 选择器',
                     typeColor: 'blue',
-                    target: entries.length === 0 
-                      ? '所有 Pod' 
-                      : entries.map(([k, v]) => `${k}=${v}`).join(', '),
+                    target:
+                      entries.length === 0
+                        ? '所有 Pod'
+                        : entries.map(([k, v]) => `${k}=${v}`).join(', '),
                     ports: portStr,
                   };
                 }
@@ -426,9 +453,10 @@ const NetworkPolicyDetailDrawer: React.FC<{
                     key: `${ruleIdx}-${peerIdx}`,
                     type: '项目选择器',
                     typeColor: 'green',
-                    target: entries.length === 0 
-                      ? '所有项目' 
-                      : entries.map(([k, v]) => `${k}=${v}`).join(', '),
+                    target:
+                      entries.length === 0
+                        ? '所有项目'
+                        : entries.map(([k, v]) => `${k}=${v}`).join(', '),
                     ports: portStr,
                   };
                 }
@@ -437,7 +465,7 @@ const NetworkPolicyDetailDrawer: React.FC<{
                     key: `${ruleIdx}-${peerIdx}`,
                     type: 'IP 地址块',
                     typeColor: 'orange',
-                    target: peer.ipBlock.except 
+                    target: peer.ipBlock.except
                       ? `${peer.ipBlock.cidr} (排除: ${peer.ipBlock.except.join(', ')})`
                       : peer.ipBlock.cidr,
                     ports: portStr,
@@ -455,14 +483,19 @@ const NetworkPolicyDetailDrawer: React.FC<{
             columns={[
               {
                 title: '类型',
-                render: (_: any, record: any) => (
-                  <Tag color={record.typeColor}>{record.type}</Tag>
-                ),
+                render: (_: any, record: any) => <Tag color={record.typeColor}>{record.type}</Tag>,
               },
               {
                 title: '目标',
                 render: (_: any, record: any) => (
-                  <span style={{ color: record.target === '所有 Pod' || record.target === '所有项目' ? '#999' : undefined }}>
+                  <span
+                    style={{
+                      color:
+                        record.target === '所有 Pod' || record.target === '所有项目'
+                          ? '#999'
+                          : undefined,
+                    }}
+                  >
                     {record.target}
                   </span>
                 ),
@@ -509,131 +542,147 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
-  
+
   // 双轨制：别名编辑相关状态
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  
+
   // YAML 查看相关状态
   const [yamlModalVisible, setYamlModalVisible] = useState(false);
   const [yamlContent, setYamlContent] = useState('');
-  
+
   // apiPath 用于 PATCH 请求
   const apiPath = '/apis/networking.k8s.io/v1/networkpolicies';
-  
+
   // 别名编辑 Modal 打开
-  const handleOpenAliasModal = useCallback((record: any) => {
-    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
-  
+  const handleOpenAliasModal = useCallback(
+    (record: any) => {
+      const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+      setAliasRecord(record);
+      setAliasModalVisible(true);
+      aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+    },
+    [aliasForm],
+  );
+
   // 别名提交
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord) return false;
-    const ns = aliasRecord?.metadata?.namespace;
-    const name = aliasRecord?.metadata?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
+  const handleSubmitAlias = useCallback(
+    async (nextAliasRaw?: string) => {
+      if (!aliasRecord) return false;
+      const ns = aliasRecord?.metadata?.namespace;
+      const name = aliasRecord?.metadata?.name;
+      if (!ns || !name) {
+        message.error('未能解析资源命名空间或名称');
+        return false;
       }
-    }
 
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
+      const next = String(nextAliasRaw || '').trim();
+      const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+      if (next === prev) {
+        setAliasModalVisible(false);
+        return true;
+      }
 
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      aliasForm.resetFields();
-      onRefresh(true);
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
-  
+      const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+      const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+      const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+      const patchBody: any[] = [];
+      if (!next) {
+        if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+      } else {
+        if (!hasAnnotations) {
+          patchBody.push({
+            op: 'add',
+            path: '/metadata/annotations',
+            value: { 'tower.io/alias': next },
+          });
+        } else {
+          patchBody.push({ op: 'add', path: aliasPath, value: next });
+        }
+      }
+
+      if (patchBody.length === 0) {
+        setAliasModalVisible(false);
+        return true;
+      }
+
+      setAliasSubmitting(true);
+      try {
+        await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+        message.success(next ? '名称修改成功' : '已清空别名');
+        setAliasModalVisible(false);
+        setAliasRecord(null);
+        aliasForm.resetFields();
+        runContainerSectionRefresh(onRefresh, { force: true });
+        return true;
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || '名称修改失败');
+        return false;
+      } finally {
+        setAliasSubmitting(false);
+      }
+    },
+    [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm],
+  );
+
   // 查看 YAML
-  const handleViewYaml = useCallback((record: any) => {
-    try {
-      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-      setYamlContent(yamlStr);
-      setYamlModalVisible(true);
-    } catch (e: any) {
-      message.error('生成 YAML 失败: ' + e.message);
-    }
-  }, [message]);
+  const handleViewYaml = useCallback(
+    (record: any) => {
+      try {
+        const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
+        setYamlContent(yamlStr);
+        setYamlModalVisible(true);
+      } catch (e: any) {
+        message.error('生成 YAML 失败: ' + e.message);
+      }
+    },
+    [message],
+  );
 
   // 删除处理
-  const handleDelete = useCallback((record: any) => {
-    const name = record?.metadata?.name;
-    const namespace = record?.metadata?.namespace;
-    const alias = record?.metadata?.annotations?.['tower.io/alias'];
-    const displayName = alias ? `${alias} (${name})` : name;
-    
-    modal.confirm({
-      title: '确认删除',
-      content: (
-        <div>
-          <p>确定要删除网络策略 "{displayName}" 吗？</p>
-          <p>
-            <strong>项目:</strong> {namespace}
-          </p>
-          <Alert
-            message="删除网络策略可能会影响 Pod 之间的网络访问控制"
-            type="warning"
-            showIcon
-            style={{ marginTop: 8 }}
-          />
-        </div>
-      ),
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteNetworkPolicy(cloudId, namespace, name);
-          message.success('删除成功');
-          onRefresh(true);
-        } catch (e: any) {
-          message.error(e?.message || '删除失败');
-        }
-      },
-    });
-  }, [cloudId, modal, message, onRefresh]);
+  const handleDelete = useCallback(
+    (record: any) => {
+      const name = record?.metadata?.name;
+      const namespace = record?.metadata?.namespace;
+      const alias = record?.metadata?.annotations?.['tower.io/alias'];
+      const displayName = alias ? `${alias} (${name})` : name;
+
+      modal.confirm({
+        title: '确认删除',
+        content: (
+          <div>
+            <p>确定要删除网络策略 "{displayName}" 吗？</p>
+            <p>
+              <strong>项目:</strong> {namespace}
+            </p>
+            <Alert
+              message="删除网络策略可能会影响 Pod 之间的网络访问控制"
+              type="warning"
+              showIcon
+              style={{ marginTop: 8 }}
+            />
+          </div>
+        ),
+        okText: '删除',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            await deleteNetworkPolicy(cloudId, namespace, name);
+            message.success('删除成功');
+            runContainerSectionRefresh(onRefresh, { force: true });
+          } catch (e: any) {
+            message.error(e?.message || '删除失败');
+          }
+        },
+      });
+    },
+    [cloudId, modal, message, onRefresh],
+  );
 
   // 批量删除
   const handleBatchDelete = useCallback(() => {
@@ -668,7 +717,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
           await Promise.all(promises);
           message.success('批量删除成功');
           setSelectedKeys([]);
-          onRefresh(true);
+          runContainerSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(e?.message || '批量删除失败');
         }
@@ -677,141 +726,150 @@ const NetworkPoliciesSection: React.FC<Props> = ({
   }, [selectedKeys, cloudId, modal, message, onRefresh]);
 
   // 表格列定义
-  const allColumns = useMemo(() => [
-    {
-      title: '名称',
-      key: 'name',
-      fixed: 'left' as const,
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const alias = record?.metadata?.annotations?.['tower.io/alias'];
-        const id = record?.metadata?.name || '';
-        const hasAlias = !!alias;
-        
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => {
-                setCurrentNetworkPolicy(record);
-                setDetailVisible(true);
-              }}
-            >
-              {hasAlias ? alias : id}
-            </Button>
-            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+  const allColumns = useMemo(
+    () => [
+      {
+        title: '名称',
+        key: 'name',
+        fixed: 'left' as const,
+        ellipsis: true,
+        render: (_: any, record: any) => {
+          const alias = record?.metadata?.annotations?.['tower.io/alias'];
+          const id = record?.metadata?.name || '';
+          const hasAlias = !!alias;
+
+          return (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <Button
-                type="text"
+                type="link"
                 size="small"
-                icon={<EditTwoTone />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenAliasModal(record);
-                }}
-              />
-            </Tooltip>
-          </span>
-        );
-      },
-    },
-    {
-      title: 'ID',
-      dataIndex: ['metadata', 'name'],
-      key: 'id',
-      ellipsis: true,
-      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
-    },
-    {
-      title: '项目',
-      dataIndex: ['metadata', 'namespace'],
-      key: 'namespace',
-    },
-    {
-      title: 'Pod 选择器',
-      key: 'podSelector',
-      render: (_: any, record: any) => formatPodSelector(record?.spec?.podSelector),
-    },
-    {
-      title: '入站规则',
-      key: 'ingressCount',
-      render: (_: any, record: any) => {
-        const count = record?.spec?.ingress?.length || 0;
-        return <Tag color="blue">{count}</Tag>;
-      },
-    },
-    {
-      title: '出站规则',
-      key: 'egressCount',
-      render: (_: any, record: any) => {
-        const count = record?.spec?.egress?.length || 0;
-        return <Tag color="green">{count}</Tag>;
-      },
-    },
-    {
-      title: '策略类型',
-      key: 'policyTypes',
-      render: (_: any, record: any) => formatPolicyTypes(record?.spec?.policyTypes),
-    },
-    {
-      title: '创建时间',
-      dataIndex: ['metadata', 'creationTimestamp'],
-      key: 'created',
-      width: 180,
-      render: formatTime,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right' as const,
-      render: (_: any, record: any) => {
-        const isSystem = isSystemResource(record);
-        const systemHint = getSystemResourceProtectionHint(record);
-        return (
-          <ResourceActionsDropdown
-            items={filterMenuItemsForReadOnly([
-              {
-                key: 'detail',
-                label: '查看详情',
-                onClick: () => {
+                onClick={() => {
                   setCurrentNetworkPolicy(record);
                   setDetailVisible(true);
-                },
-              },
-              {
-                key: 'edit',
-                label: '编辑',
-                disabled: isSystem,
-                tooltip: systemHint,
-                onClick: () => {
-                  setEditingRecord(record);
-                  setEditModalVisible(true);
-                },
-              },
-              {
-                key: 'yaml',
-                label: '查看 YAML',
-                onClick: () => handleViewYaml(record),
-              },
-              {
-                key: 'delete',
-                label: '删除',
-                danger: true,
-                disabled: isSystem,
-                tooltip: systemHint,
-                onClick: () => handleDelete(record),
-              },
-            ], hasContainersWrite)}
-            buttonProps={{ className: 'row-actions-trigger' }}
-          />
-        );
+                }}
+              >
+                {hasAlias ? alias : id}
+              </Button>
+              <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditTwoTone />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenAliasModal(record);
+                  }}
+                />
+              </Tooltip>
+            </span>
+          );
+        },
       },
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
+      {
+        title: 'ID',
+        dataIndex: ['metadata', 'name'],
+        key: 'id',
+        ellipsis: true,
+        render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
+      },
+      {
+        title: '项目',
+        dataIndex: ['metadata', 'namespace'],
+        key: 'namespace',
+      },
+      {
+        title: 'Pod 选择器',
+        key: 'podSelector',
+        render: (_: any, record: any) => formatPodSelector(record?.spec?.podSelector),
+      },
+      {
+        title: '入站规则',
+        key: 'ingressCount',
+        render: (_: any, record: any) => {
+          const count = record?.spec?.ingress?.length || 0;
+          return <Tag color="blue">{count}</Tag>;
+        },
+      },
+      {
+        title: '出站规则',
+        key: 'egressCount',
+        render: (_: any, record: any) => {
+          const count = record?.spec?.egress?.length || 0;
+          return <Tag color="green">{count}</Tag>;
+        },
+      },
+      {
+        title: '策略类型',
+        key: 'policyTypes',
+        render: (_: any, record: any) => formatPolicyTypes(record?.spec?.policyTypes),
+      },
+      {
+        title: '创建时间',
+        dataIndex: ['metadata', 'creationTimestamp'],
+        key: 'created',
+        width: 180,
+        render: formatTime,
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        fixed: 'right' as const,
+        render: (_: any, record: any) => {
+          const isSystem = isSystemResource(record);
+          const systemHint = getSystemResourceProtectionHint(record);
+          return (
+            <ResourceActionsDropdown
+              items={filterMenuItemsForReadOnly(
+                [
+                  {
+                    key: 'detail',
+                    label: '查看详情',
+                    onClick: () => {
+                      setCurrentNetworkPolicy(record);
+                      setDetailVisible(true);
+                    },
+                  },
+                  {
+                    key: 'edit',
+                    label: '编辑',
+                    disabled: isSystem,
+                    tooltip: systemHint,
+                    onClick: () => {
+                      setEditingRecord(record);
+                      setEditModalVisible(true);
+                    },
+                  },
+                  {
+                    key: 'yaml',
+                    label: '查看 YAML',
+                    onClick: () => handleViewYaml(record),
+                  },
+                  {
+                    key: 'delete',
+                    label: '删除',
+                    danger: true,
+                    disabled: isSystem,
+                    tooltip: systemHint,
+                    onClick: () => handleDelete(record),
+                  },
+                ],
+                hasContainersWrite,
+              )}
+              buttonProps={{ className: 'row-actions-trigger' }}
+            />
+          );
+        },
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    ],
+    [handleDelete, handleViewYaml, handleOpenAliasModal],
+  );
 
   // 使用 hook 管理列设置
-  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_networkpolicy_table');
+  const { displayColumns: tableColumns } = useTableColumnSettings(
+    allColumns,
+    'harvester_networkpolicy_table',
+  );
 
   // 过滤数据
   const filteredData = useMemo(() => {
@@ -891,26 +949,24 @@ const NetworkPoliciesSection: React.FC<Props> = ({
             </WriteGuard>
             {hasContainersWrite ? (
               <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: 'batchDelete',
-                    label:
-                      selectedKeys.length > 0
-                        ? `批量删除 (${selectedKeys.length})`
-                        : '批量删除',
-                    danger: true,
-                    disabled: selectedKeys.length === 0,
+                menu={{
+                  items: [
+                    {
+                      key: 'batchDelete',
+                      label:
+                        selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
+                      danger: true,
+                      disabled: selectedKeys.length === 0,
+                    },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === 'batchDelete') handleBatchDelete();
                   },
-                ],
-                onClick: ({ key }) => {
-                  if (key === 'batchDelete') handleBatchDelete();
-                },
-              }}
-              trigger={['click']}
-              disabled={selectedKeys.length === 0}
-            >
-              <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
+                }}
+                trigger={['click']}
+                disabled={selectedKeys.length === 0}
+              >
+                <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
               </Dropdown>
             ) : null}
             <TableColumnSettingsButton
@@ -921,7 +977,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
               <Button
                 type="default"
                 icon={<ReloadOutlined />}
-                onClick={() => onRefresh(true)}
+                onClick={createContainerToolbarRefresh(onRefresh)}
                 loading={loading}
               />
             </Tooltip>
@@ -966,7 +1022,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         cloudId={cloudId}
         namespacesOptions={namespacesOptions}
         defaultNamespace={formDefaultNs}
-        onSuccess={() => onRefresh(true)}
+        onSuccess={() => runContainerSectionRefresh(onRefresh, { force: true })}
         onCancel={() => setCreateModalVisible(false)}
       />
 
@@ -981,7 +1037,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         onSuccess={() => {
           setEditModalVisible(false);
           setEditingRecord(null);
-          onRefresh(true);
+          runContainerSectionRefresh(onRefresh, { force: true });
         }}
         onCancel={() => {
           setEditModalVisible(false);
@@ -1043,12 +1099,7 @@ const NetworkPoliciesSection: React.FC<Props> = ({
         footer={null}
         width={800}
       >
-        <YamlEditor
-          value={yamlContent}
-          onChange={() => {}}
-          maxHeight={500}
-          readOnly
-        />
+        <YamlEditor value={yamlContent} onChange={() => {}} maxHeight={500} readOnly />
       </Modal>
     </>
   );

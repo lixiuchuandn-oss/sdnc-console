@@ -20,7 +20,11 @@ import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
-import { deleteHarvesterService, updateHarvesterService, patchHarvesterContainerResource } from '../../../../../../services/harvesterApi';
+import {
+  deleteHarvesterService,
+  updateHarvesterService,
+  patchHarvesterContainerResource,
+} from '../../../../../../services/harvesterApi';
 import ServiceFormDrawer from '../drawers/ServiceFormDrawer';
 import {
   ServiceRelatedPodsDrawer,
@@ -33,6 +37,11 @@ import {
   isSystemResource,
   getSystemResourceProtectionHint,
 } from '../../../../../../utils/harvesterUtils';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+  type ContainerSectionOnRefresh,
+} from '../lib/containerSectionRefresh';
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
  */
@@ -69,7 +78,7 @@ interface Props {
   cloudId: string;
   services: any[];
   loading: boolean;
-  onRefresh?: (force?: boolean) => void;
+  onRefresh?: ContainerSectionOnRefresh;
   isTenant?: boolean;
   namespacesOptions?: string[];
   nsValue?: string;
@@ -125,7 +134,7 @@ const ServicesSection: React.FC<Props> = ({
   // 工具栏过滤及详情抽屉状态
   const [keyword, setKeyword] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
-  
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const [drawerActiveTab, setDrawerActiveTab] = useState('detail');
@@ -133,12 +142,12 @@ const ServicesSection: React.FC<Props> = ({
   /** 「查看 Pod」：独立抽屉（容器域 `ServiceRelatedPodsDrawer`），不经运维大抽屉 Tab */
   const [relatedPodsDrawerOpen, setRelatedPodsDrawerOpen] = useState(false);
   const [relatedPodsRow, setRelatedPodsRow] = useState<any>(null);
-  
+
   // 创建/编辑弹窗状态
   const [serviceFormDrawerOpen, setServiceFormDrawerOpen] = useState(false);
   const [serviceFormDrawerMode, setServiceFormDrawerMode] = useState<'create' | 'edit'>('create');
   const [editingRecord, setEditingRecord] = useState<any>(null);
-  
+
   /** Service YAML：仅「编辑 YAML」入口（ResourceLinkYamlDrawer） */
   const [serviceYamlDrawerOpen, setServiceYamlDrawerOpen] = useState(false);
   const [serviceYamlDrawerLink, setServiceYamlDrawerLink] = useState<string | undefined>(undefined);
@@ -149,7 +158,7 @@ const ServicesSection: React.FC<Props> = ({
   const [aliasForm] = Form.useForm<{ alias?: string }>();
 
   const apiPath = '/api/v1/services';
-  
+
   // Pod 详情/日志/终端状态
   const [podDetailVisible, setPodDetailVisible] = useState(false);
   const [currentPod, setCurrentPod] = useState<any>(null);
@@ -157,18 +166,21 @@ const ServicesSection: React.FC<Props> = ({
   const [podLogContainers, setPodLogContainers] = useState<string[]>([]);
   const [podTerminalVisible, setPodTerminalVisible] = useState(false);
   const [podTerminalContainers, setPodTerminalContainers] = useState<string[]>([]);
-  
+
   // 删除 Service
-  const handleDelete = useCallback(async (record: any) => {
-    try {
-      await deleteHarvesterService(cloudId, record.namespace, record.name);
-      message.success('删除成功');
-      onRefresh?.(true);
-    } catch (error: any) {
-      message.error(`删除失败: ${error?.message || '未知错误'}`);
-    }
-  }, [cloudId, message, onRefresh]);
-  
+  const handleDelete = useCallback(
+    async (record: any) => {
+      try {
+        await deleteHarvesterService(cloudId, record.namespace, record.name);
+        message.success('删除成功');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (error: any) {
+        message.error(`删除失败: ${error?.message || '未知错误'}`);
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
+
   // 创建 / 编辑 Service（抽屉 · `containers/drawers/ServiceFormDrawer`）
   const handleEdit = useCallback((record: any) => {
     setServiceFormDrawerMode('edit');
@@ -181,7 +193,7 @@ const ServicesSection: React.FC<Props> = ({
     setEditingRecord(null);
     setServiceFormDrawerOpen(true);
   };
-  
+
   const openServiceYamlDrawer = useCallback(
     (record: any) => {
       const link = resolveServiceViewLink(record);
@@ -224,99 +236,111 @@ const ServicesSection: React.FC<Props> = ({
           : meta,
       };
       await updateHarvesterService(cloudId, rec.namespace, rec.name, clean);
-      onRefresh?.(true);
+      runContainerSectionRefresh(onRefresh, { force: true });
     },
     [serviceYamlDrawerRecord, cloudId, onRefresh],
   );
 
   // 打开别名编辑弹窗
-  const handleOpenAliasModal = useCallback((record: any) => {
-    const currentAlias = record?.raw?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
+  const handleOpenAliasModal = useCallback(
+    (record: any) => {
+      const currentAlias = record?.raw?.metadata?.annotations?.['tower.io/alias'] || '';
+      setAliasRecord(record);
+      setAliasModalVisible(true);
+      aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+    },
+    [aliasForm],
+  );
 
   // 提交别名修改
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord) return false;
-    const ns = aliasRecord?.namespace;
-    const name = aliasRecord?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.raw?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.raw?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.raw?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
+  const handleSubmitAlias = useCallback(
+    async (nextAliasRaw?: string) => {
+      if (!aliasRecord) return false;
+      const ns = aliasRecord?.namespace;
+      const name = aliasRecord?.name;
+      if (!ns || !name) {
+        message.error('未能解析资源命名空间或名称');
+        return false;
       }
-    }
 
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
+      const next = String(nextAliasRaw || '').trim();
+      const prev = String(aliasRecord?.raw?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+      if (next === prev) {
+        setAliasModalVisible(false);
+        return true;
+      }
 
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      aliasForm.resetFields();
-      onRefresh?.(true);
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+      const hasAnnotations = !!aliasRecord?.raw?.metadata?.annotations;
+      const hasPrev = !!aliasRecord?.raw?.metadata?.annotations?.['tower.io/alias'];
+      const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+      const patchBody: any[] = [];
+      if (!next) {
+        if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+      } else {
+        if (!hasAnnotations) {
+          patchBody.push({
+            op: 'add',
+            path: '/metadata/annotations',
+            value: { 'tower.io/alias': next },
+          });
+        } else {
+          patchBody.push({ op: 'add', path: aliasPath, value: next });
+        }
+      }
+
+      if (patchBody.length === 0) {
+        setAliasModalVisible(false);
+        return true;
+      }
+
+      setAliasSubmitting(true);
+      try {
+        await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+        message.success(next ? '名称修改成功' : '已清空别名');
+        setAliasModalVisible(false);
+        setAliasRecord(null);
+        aliasForm.resetFields();
+        runContainerSectionRefresh(onRefresh, { force: true });
+        return true;
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || '名称修改失败');
+        return false;
+      } finally {
+        setAliasSubmitting(false);
+      }
+    },
+    [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm],
+  );
 
   // 打开别名编辑弹窗
   const handleViewPodDetail = useCallback((pod: any) => {
     setCurrentPod(pod);
     setPodDetailVisible(true);
   }, []);
-  
+
   // Pod 日志
   const handleViewPodLog = useCallback((pod: any) => {
     const containerStatuses = pod?.status?.containerStatuses || [];
     const specContainers = pod?.spec?.containers || [];
-    const containers = containerStatuses.length > 0 
-      ? containerStatuses.map((c: any) => c.name)
-      : specContainers.map((c: any) => c.name);
+    const containers =
+      containerStatuses.length > 0
+        ? containerStatuses.map((c: any) => c.name)
+        : specContainers.map((c: any) => c.name);
     setCurrentPod(pod);
     setPodLogContainers(containers);
     setPodLogVisible(true);
   }, []);
-  
+
   // Pod 终端
   const handleOpenPodTerminal = useCallback((pod: any) => {
     const containerStatuses = pod?.status?.containerStatuses || [];
     const specContainers = pod?.spec?.containers || [];
-    const containers = containerStatuses.length > 0 
-      ? containerStatuses.map((c: any) => c.name)
-      : specContainers.map((c: any) => c.name);
+    const containers =
+      containerStatuses.length > 0
+        ? containerStatuses.map((c: any) => c.name)
+        : specContainers.map((c: any) => c.name);
     setCurrentPod(pod);
     setPodTerminalContainers(containers);
     setPodTerminalVisible(true);
@@ -326,7 +350,7 @@ const ServicesSection: React.FC<Props> = ({
     setRelatedPodsRow(record);
     setRelatedPodsDrawerOpen(true);
   }, []);
-  
+
   /**
    * 将后端返回的 Service 数据统一转换为表格行
    * - 端口字段拼接为 "port:targetPort/protocol"
@@ -340,33 +364,41 @@ const ServicesSection: React.FC<Props> = ({
         return !isSystemNamespace(String(namespace || ''));
       })
       .map((s: any, index: number) => {
-      const raw = s.rawData || s;
-      const ports = (raw.spec?.ports || []).map((p: any) => {
-        return `${p.port}/${p.protocol}`;
-      }).join(', ');
-      const nodePorts = raw.spec?.type === 'NodePort'
-        ? (raw.spec?.ports || []).filter((p: any) => p.nodePort).map((p: any) => p.nodePort).join(', ')
-        : '';
-      const externalIPs = (raw.status?.loadBalancer?.ingress || []).map((i: any) => i.ip || i.hostname).join(', ');
-      const name = raw.metadata?.name || s.name;
-      const namespace = raw.metadata?.namespace || s.namespace;
-      const uid = raw.metadata?.uid || s.id;
-      const stableId = uid || ((namespace || name) ? `${namespace || ''}/${name || ''}` : '');
+        const raw = s.rawData || s;
+        const ports = (raw.spec?.ports || [])
+          .map((p: any) => {
+            return `${p.port}/${p.protocol}`;
+          })
+          .join(', ');
+        const nodePorts =
+          raw.spec?.type === 'NodePort'
+            ? (raw.spec?.ports || [])
+                .filter((p: any) => p.nodePort)
+                .map((p: any) => p.nodePort)
+                .join(', ')
+            : '';
+        const externalIPs = (raw.status?.loadBalancer?.ingress || [])
+          .map((i: any) => i.ip || i.hostname)
+          .join(', ');
+        const name = raw.metadata?.name || s.name;
+        const namespace = raw.metadata?.namespace || s.namespace;
+        const uid = raw.metadata?.uid || s.id;
+        const stableId = uid || (namespace || name ? `${namespace || ''}/${name || ''}` : '');
 
-      return {
-        key: stableId || `service_${index}`,
-        name,
-        namespace,
-        type: raw.spec?.type || '-',
-        clusterIP: raw.spec?.clusterIP || '-',
-        externalIPs: externalIPs || '-',
-        ports: ports || '-',
-        nodePorts: nodePorts || '-',
-        creationTimestamp: raw.metadata?.creationTimestamp || s.createdAt,
-        raw,
-        originalRecord: s, // 保留原始数据库记录
-      };
-    });
+        return {
+          key: stableId || `service_${index}`,
+          name,
+          namespace,
+          type: raw.spec?.type || '-',
+          clusterIP: raw.spec?.clusterIP || '-',
+          externalIPs: externalIPs || '-',
+          ports: ports || '-',
+          nodePorts: nodePorts || '-',
+          creationTimestamp: raw.metadata?.creationTimestamp || s.createdAt,
+          raw,
+          originalRecord: s, // 保留原始数据库记录
+        };
+      });
   }, [services]);
 
   /**
@@ -384,7 +416,9 @@ const ServicesSection: React.FC<Props> = ({
     }
     if (keyword) {
       const k = keyword.toLowerCase();
-      d = d.filter((x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k));
+      d = d.filter(
+        (x: any) => x.name.toLowerCase().includes(k) || x.namespace.toLowerCase().includes(k),
+      );
     }
     if (typeFilter) {
       d = d.filter((x: any) => x.type === typeFilter);
@@ -403,135 +437,156 @@ const ServicesSection: React.FC<Props> = ({
    * - 名称列：链接按钮打开详情，别名入口
    * - 类型列：Tag 区分 Service 类型
    */
-  const allColumns = useMemo(() => [
-    { 
-      title: '名称', 
-      key: 'name',
-      ellipsis: true,
-      fixed: 'left' as const,
-      render: (_: any, record: any) => {
-        const alias = record?.raw?.metadata?.annotations?.['tower.io/alias'];
-        const id = record?.name || '';
-        const hasAlias = !!alias;
-        
-        return (
-          <Space size={6} align="center">
-            <Button
-              type="link"
-              onClick={() => {
-                setSelectedRecord(record);
-                setDrawerActiveTab('detail');
-                setDrawerOpen(true);
-              }}
-            >
-              {hasAlias ? alias : id}
-            </Button>
-            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+  const allColumns = useMemo(
+    () => [
+      {
+        title: '名称',
+        key: 'name',
+        ellipsis: true,
+        fixed: 'left' as const,
+        render: (_: any, record: any) => {
+          const alias = record?.raw?.metadata?.annotations?.['tower.io/alias'];
+          const id = record?.name || '';
+          const hasAlias = !!alias;
+
+          return (
+            <Space size={6} align="center">
               <Button
-                type="text"
-                size="small"
-                icon={<EditTwoTone />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenAliasModal(record);
+                type="link"
+                onClick={() => {
+                  setSelectedRecord(record);
+                  setDrawerActiveTab('detail');
+                  setDrawerOpen(true);
                 }}
-              />
-            </Tooltip>
-          </Space>
-        );
-      }
-    },
-    {
-      title: 'ID',
-      dataIndex: 'name',
-      key: 'id',
-      ellipsis: true,
-    },
-    { title: '项目', dataIndex: 'namespace', key: 'namespace' },
-    { 
-      title: '类型', 
-      dataIndex: 'type', 
-      key: 'type', 
-      render: (t: string) => {
-        const colorByType: Record<string, string> = {
-          ClusterIP: 'blue',
-          NodePort: 'green',
-          LoadBalancer: 'orange',
-          ExternalName: 'purple',
-        };
-        const color = colorByType[t];
-        return color ? <Tag color={color}>{t}</Tag> : <Tag>{t}</Tag>;
-      } 
-    },
-    { title: 'Cluster IP', dataIndex: 'clusterIP', key: 'clusterIP' },
-    { title: '外部 IP', dataIndex: 'externalIPs', key: 'externalIPs' },
-    { title: '端口', dataIndex: 'ports', key: 'ports', ellipsis: true },
-    { 
-      title: 'NodePort', 
-      dataIndex: 'nodePorts', 
-      key: 'nodePorts',
-      render: (val: string) => val && val !== '-' ? <Tag color="green">{val}</Tag> : '-',
-    },
-    { 
-      title: '创建时间', 
-      dataIndex: 'creationTimestamp', 
-      key: 'creationTimestamp',
-      render: formatTime,
-      sorter: (a: any, b: any) => new Date(a?.creationTimestamp || 0).getTime() - new Date(b?.creationTimestamp || 0).getTime(),
-      defaultSortOrder: 'descend' as const,
-    },
-    {
-      title: '操作',
-      key: 'action',
-      align: 'left' as const,
-      fixed: 'right' as const,
-      render: (_: any, record: any) => {
-        const rawResource = record?.raw || record;
-        const isSystem = isSystemResource(rawResource);
-        const systemHint = getSystemResourceProtectionHint(rawResource);
-        return (
-          <ResourceActionsDropdown 
-            items={filterMenuItemsForReadOnly([
-              ...(isTenant
-                ? [
-                    {
-                      key: 'view_pods',
-                      label: '查看 Pod',
-                      onClick: () => openRelatedPodsDrawer(record),
-                    },
-                  ]
-                : [
-                { key: 'view_pods', label: '查看 Pod', onClick: () => openRelatedPodsDrawer(record) },
-                { key: 'edit', label: '编辑服务', disabled: isSystem, tooltip: systemHint, onClick: () => handleEdit(record) },
-                { 
-                  key: 'delete', 
-                  label: '删除', 
-                  danger: true,
-                  disabled: isSystem,
-                  tooltip: systemHint,
-                  onClick: () => {
-                    Modal.confirm({
-                      title: '确认删除',
-                      content: `确定要删除 服务 "${record.name}" 吗？`,
-                      okText: '删除',
-                      okType: 'danger',
-                      cancelText: '取消',
-                      onOk: () => handleDelete(record),
-                    });
-                  }
-                }
-              ])
-            ], hasContainersWrite)}
-            buttonProps={{ className: 'row-actions-trigger' }}
-          />
-        );
+              >
+                {hasAlias ? alias : id}
+              </Button>
+              <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditTwoTone />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenAliasModal(record);
+                  }}
+                />
+              </Tooltip>
+            </Space>
+          );
+        },
       },
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [isTenant, openRelatedPodsDrawer, handleEdit, handleDelete, hasContainersWrite]);
+      {
+        title: 'ID',
+        dataIndex: 'name',
+        key: 'id',
+        ellipsis: true,
+      },
+      { title: '项目', dataIndex: 'namespace', key: 'namespace' },
+      {
+        title: '类型',
+        dataIndex: 'type',
+        key: 'type',
+        render: (t: string) => {
+          const colorByType: Record<string, string> = {
+            ClusterIP: 'blue',
+            NodePort: 'green',
+            LoadBalancer: 'orange',
+            ExternalName: 'purple',
+          };
+          const color = colorByType[t];
+          return color ? <Tag color={color}>{t}</Tag> : <Tag>{t}</Tag>;
+        },
+      },
+      { title: 'Cluster IP', dataIndex: 'clusterIP', key: 'clusterIP' },
+      { title: '外部 IP', dataIndex: 'externalIPs', key: 'externalIPs' },
+      { title: '端口', dataIndex: 'ports', key: 'ports', ellipsis: true },
+      {
+        title: 'NodePort',
+        dataIndex: 'nodePorts',
+        key: 'nodePorts',
+        render: (val: string) => (val && val !== '-' ? <Tag color="green">{val}</Tag> : '-'),
+      },
+      {
+        title: '创建时间',
+        dataIndex: 'creationTimestamp',
+        key: 'creationTimestamp',
+        render: formatTime,
+        sorter: (a: any, b: any) =>
+          new Date(a?.creationTimestamp || 0).getTime() -
+          new Date(b?.creationTimestamp || 0).getTime(),
+        defaultSortOrder: 'descend' as const,
+      },
+      {
+        title: '操作',
+        key: 'action',
+        align: 'left' as const,
+        fixed: 'right' as const,
+        render: (_: any, record: any) => {
+          const rawResource = record?.raw || record;
+          const isSystem = isSystemResource(rawResource);
+          const systemHint = getSystemResourceProtectionHint(rawResource);
+          return (
+            <ResourceActionsDropdown
+              items={filterMenuItemsForReadOnly(
+                [
+                  ...(isTenant
+                    ? [
+                        {
+                          key: 'view_pods',
+                          label: '查看 Pod',
+                          onClick: () => openRelatedPodsDrawer(record),
+                        },
+                      ]
+                    : [
+                        {
+                          key: 'view_pods',
+                          label: '查看 Pod',
+                          onClick: () => openRelatedPodsDrawer(record),
+                        },
+                        {
+                          key: 'edit',
+                          label: '编辑服务',
+                          disabled: isSystem,
+                          tooltip: systemHint,
+                          onClick: () => handleEdit(record),
+                        },
+                        {
+                          key: 'delete',
+                          label: '删除',
+                          danger: true,
+                          disabled: isSystem,
+                          tooltip: systemHint,
+                          onClick: () => {
+                            Modal.confirm({
+                              title: '确认删除',
+                              content: `确定要删除 服务 "${record.name}" 吗？`,
+                              okText: '删除',
+                              okType: 'danger',
+                              cancelText: '取消',
+                              onOk: () => handleDelete(record),
+                            });
+                          },
+                        },
+                      ]),
+                ],
+                hasContainersWrite,
+              )}
+              buttonProps={{ className: 'row-actions-trigger' }}
+            />
+          );
+        },
+      },
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    ],
+    [isTenant, openRelatedPodsDrawer, handleEdit, handleDelete, hasContainersWrite],
+  );
 
   // 使用新的 hook 管理列设置
-  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_services_table');
+  const { displayColumns: tableColumns } = useTableColumnSettings(
+    allColumns,
+    'harvester_services_table',
+  );
   const [, setPagination] = useState({ current: 1, pageSize: 10 });
 
   return (
@@ -539,13 +594,16 @@ const ServicesSection: React.FC<Props> = ({
       asCard={false}
       toolbarLeft={
         <>
-          <Input 
-            allowClear 
-            placeholder="服务名/项目" 
+          <Input
+            allowClear
+            placeholder="服务名/项目"
             suffix={<SearchOutlined />}
             value={keyword}
-            onChange={e => { setKeyword(e.target.value); setPagination(p=>({...p, current:1})); }}
-            className="toolbar-search" 
+            onChange={(e) => {
+              setKeyword(e.target.value);
+              setPagination((p) => ({ ...p, current: 1 }));
+            }}
+            className="toolbar-search"
           />
           <Select
             allowClear
@@ -553,7 +611,10 @@ const ServicesSection: React.FC<Props> = ({
             optionFilterProp="label"
             placeholder="筛选项目"
             value={nsValue || undefined}
-            onChange={(v) => { onNsChange?.(v); setPagination((p) => ({ ...p, current: 1 })); }}
+            onChange={(v) => {
+              onNsChange?.(v);
+              setPagination((p) => ({ ...p, current: 1 }));
+            }}
             options={namespacesOptionsBiz.map((ns) => ({ label: ns, value: ns }))}
             className="toolbar-filter-sm"
           />
@@ -561,8 +622,11 @@ const ServicesSection: React.FC<Props> = ({
             allowClear
             placeholder="服务类型"
             value={typeFilter || undefined}
-            onChange={v => { setTypeFilter(v || ''); setPagination(p=>({...p, current:1})); }}
-            options={serviceTypes.filter(t => t !== 'All').map(t => ({ label: t, value: t }))}
+            onChange={(v) => {
+              setTypeFilter(v || '');
+              setPagination((p) => ({ ...p, current: 1 }));
+            }}
+            options={serviceTypes.filter((t) => t !== 'All').map((t) => ({ label: t, value: t }))}
             className="toolbar-filter-sm"
           />
           <button
@@ -592,10 +656,7 @@ const ServicesSection: React.FC<Props> = ({
           )}
           {!isTenant && (
             <WriteGuard canWrite={hasContainersWrite}>
-              <Button
-                type="primary"
-                onClick={handleOpenCreateService}
-              >
+              <Button type="primary" onClick={handleOpenCreateService}>
                 创建服务
               </Button>
             </WriteGuard>
@@ -604,12 +665,16 @@ const ServicesSection: React.FC<Props> = ({
             allColumns={allColumns}
             settingsKey="harvester_services_table"
           />
-          <Button icon={<ReloadOutlined />} onClick={() => onRefresh?.(true)} loading={loading} />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={createContainerToolbarRefresh(onRefresh)}
+            loading={loading}
+          />
         </div>
       }
     >
       <Table
-        className={!isTenant ? "std-table" : "std-table no-border"}
+        className={!isTenant ? 'std-table' : 'std-table no-border'}
         bordered={false}
         scroll={{ x: true }}
         dataSource={filteredData}
@@ -619,14 +684,17 @@ const ServicesSection: React.FC<Props> = ({
         pagination={{
           showTotal: (total) => `共 ${total} 条`,
         }}
-
       />
-      
+
       <HarvesterResourceDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         resourceType="Service"
-        record={selectedRecord ? { ...selectedRecord.originalRecord, kind: 'Service', rawData: selectedRecord.raw } : null}
+        record={
+          selectedRecord
+            ? { ...selectedRecord.originalRecord, kind: 'Service', rawData: selectedRecord.raw }
+            : null
+        }
         cloudId={cloudId}
         activeTab={drawerActiveTab}
         onTabChange={setDrawerActiveTab}
@@ -650,7 +718,7 @@ const ServicesSection: React.FC<Props> = ({
         onViewPodLog={handleViewPodLog}
         onOpenPodTerminal={handleOpenPodTerminal}
       />
-      
+
       <ServiceFormDrawer
         open={serviceFormDrawerOpen}
         mode={serviceFormDrawerMode}
@@ -662,9 +730,9 @@ const ServicesSection: React.FC<Props> = ({
         namespacesOptions={namespacesOptionsBiz}
         defaultNamespace={formDefaultNs}
         record={serviceFormDrawerMode === 'edit' ? editingRecord : null}
-        onCommitted={() => onRefresh?.(true)}
+        onCommitted={() => runContainerSectionRefresh(onRefresh, { force: true })}
       />
-      
+
       <ServicePodDetailDrawer
         open={podDetailVisible}
         onClose={() => {
@@ -692,7 +760,7 @@ const ServicesSection: React.FC<Props> = ({
         cloudId={cloudId}
         containers={podTerminalContainers}
       />
-      
+
       {/* 别名编辑弹窗 */}
       <Modal
         title="名称修改"
@@ -738,7 +806,7 @@ const ServicesSection: React.FC<Props> = ({
           </Form.Item>
         </Form>
       </Modal>
-      
+
       <ResourceLinkYamlDrawer
         open={serviceYamlDrawerOpen}
         onClose={() => {
