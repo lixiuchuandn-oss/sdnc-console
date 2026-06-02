@@ -2,8 +2,7 @@ name: CI
 
 # 质量门禁：对指向/推送到 main 的改动自动校验前后端「类型 → lint → 测试 → 构建」。
 # 本地复现与 Branch protection 配置见 docs/ci.md。
-# 注意：仓库内 package.json 的 dev/build 脚本使用 Windows 风格的 `set VAR=...`，
-# 在 Linux runner 上不会真正注入环境变量，因此这里直接调用底层工具并显式设置 env。
+# 前端 npm scripts 已使用 cross-env；CI 仍显式设置 env，便于复现底层工具调用。
 
 on:
   push:
@@ -78,10 +77,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Prettier check
+        run: npm run format:check
       - name: Type check (tsc --noEmit)
         run: npx tsc --noEmit
       - name: ESLint (zero warnings)
-        run: npx eslint "src/**/*.{ts,tsx}" --max-warnings=0
+        run: npm run lint
       - name: Unit tests (jest via react-scripts)
         run: npx react-scripts test --watchAll=false
       - name: Production build
