@@ -79,7 +79,6 @@ import type {
   WorkloadContainerFormValue,
   NodeAffinityConfig,
   PodAffinityConfig,
-  VolumeConfig,
 } from './workloadForm/types';
 
 import {
@@ -101,6 +100,13 @@ import { isIpInCidr, checkIpAvailability } from './workloadForm/networkIpUtils';
 
 import { createEmptyContainer, toContainerEditorFields } from './workloadForm/containerDefaults';
 import { buildK8sResource } from './workloadForm/buildK8sResource';
+import { buildActiveContainerFromEditor } from './workloadForm/containerFormSync';
+import { parseEditWorkloadFormInit } from './workloadForm/parseEditWorkloadFormInit';
+import {
+  buildMergedRegistryList,
+  loadHarvesterRegistriesFromLocalStorage,
+  localRegistryToCredential,
+} from './workloadForm/registryCredentials';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
 
 import {
@@ -204,145 +210,12 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
   const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
-  /**
-   * 加载 localStorage 中的仓库列表
-   */
-  const localStorageRegistries = useMemo(() => {
-    try {
-      const data = localStorage.getItem('harvester-registries');
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
-  }, []);
+  const localStorageRegistries = useMemo(() => loadHarvesterRegistriesFromLocalStorage(), []);
 
-  /**
-   * 将 Secret 对象转换为 RegistryBrowser 需要的 credential 格式
-   * 只处理 kubernetes.io/dockerconfigjson 类型的 Secret
-   */
-  const secretToCredential = useCallback((secret: any) => {
-    if (!secret) return null;
-
-    try {
-      // 只处理 docker-registry 类型的 Secret
-      const secretType =
-        secret?.type || secret?.metadata?.annotations?.['kubernetes.io/service-account.name'];
-      const isDockerConfig =
-        secretType === 'kubernetes.io/dockerconfigjson' || secret?.data?.['.dockerconfigjson'];
-
-      if (!isDockerConfig) {
-        // 非 docker-registry 类型的 Secret，静默跳过
-        return null;
-      }
-
-      const data = secret?.data?.['.dockerconfigjson'];
-      if (!data) {
-        // 有类型但缺少数据字段，静默跳过
-        return null;
-      }
-
-      const decoded = atob(data);
-      const config = JSON.parse(decoded);
-      const auths = config.auths || {};
-      const server = Object.keys(auths)[0];
-
-      if (!server) {
-        // 未找到仓库地址，静默跳过
-        return null;
-      }
-
-      const auth = auths[server];
-      let username: string | undefined;
-      let password: string | undefined;
-
-      // 尝试从 auth 字段解码（base64 编码的 username:password）
-      if (auth?.auth) {
-        try {
-          const decodedAuth = atob(auth.auth);
-          const [u, p] = decodedAuth.split(':');
-          username = u;
-          password = p;
-        } catch {
-          // 解码失败，尝试直接获取
-          username = auth?.username;
-          password = auth?.password;
-        }
-      } else {
-        // 如果没有 auth 字段，尝试直接从 username/password 获取
-        username = auth?.username;
-        password = auth?.password;
-      }
-
-      // 即使没有用户名密码，也可以返回 credential（无认证仓库）
-      return {
-        name: secret?.metadata?.name,
-        namespace: secret?.metadata?.namespace,
-        server,
-        username: username || undefined,
-        password: password || undefined,
-        insecure: server.includes('172.16.3.79') || !server.startsWith('https://'),
-      };
-    } catch {
-      // 解析失败，静默跳过
-      return null;
-    }
-  }, []);
-
-  /**
-   * 将仓库转换为 RegistryBrowser 需要的 credential 格式
-   */
-  const registryToCredential = useCallback((registry: any) => {
-    if (!registry) return null;
-
-    return {
-      name: registry.name,
-      namespace: 'default',
-      server: registry.server,
-      username: registry.username,
-      password: registry.password,
-      insecure: registry.insecure,
-    };
-  }, []);
-
-  /**
-   * 合并 Secrets 和 localStorage 仓库列表
-   */
-  const allRegistries = useMemo(() => {
-    const registries: any[] = [];
-
-    // 添加 localStorage 仓库列表
-    localStorageRegistries.forEach((reg: any) => {
-      registries.push({
-        source: 'localStorage',
-        id: reg.id,
-        name: reg.name,
-        server: reg.server,
-        username: reg.username,
-        password: reg.password,
-        insecure: reg.insecure,
-      });
-    });
-
-    // 添加 Kubernetes Secrets
-    if (secretsWithCredentials && secretsWithCredentials.length > 0) {
-      secretsWithCredentials.forEach((secret: any) => {
-        const credential = secretToCredential(secret);
-        if (credential) {
-          registries.push({
-            source: 'secret',
-            id: secret?.metadata?.name,
-            name: secret?.metadata?.name,
-            server: credential.server,
-            username: credential.username,
-            password: credential.password,
-            insecure: credential.insecure,
-          });
-        }
-      });
-    }
-
-    return registries;
-  }, [localStorageRegistries, secretsWithCredentials, secretToCredential]);
+  const allRegistries = useMemo(
+    () => buildMergedRegistryList(localStorageRegistries, secretsWithCredentials),
+    [localStorageRegistries, secretsWithCredentials],
+  );
 
   const syncContainerEditorToForm = useCallback(
     (container: Partial<WorkloadContainerFormValue> | undefined) => {
@@ -355,27 +228,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       });
     },
     [form],
-  );
-
-  const buildActiveContainerFromEditor = useCallback(
-    (values: WorkloadFormValues): WorkloadContainerFormValue => {
-      const fallbackName = values.name || 'container';
-      return {
-        containerName: values.containerName || fallbackName,
-        image: values.image || '',
-        imagePullPolicy: values.imagePullPolicy || 'IfNotPresent',
-        ports: values.ports || [],
-        env: values.env || [],
-        resources: values.resources || { requests: {}, limits: {} },
-        command: values.command || [],
-        args: values.args || [],
-        livenessProbe: values.livenessProbe,
-        readinessProbe: values.readinessProbe,
-        volumeMounts: values.volumeMounts || [],
-        imagePullSecrets: values.imagePullSecrets || [],
-      };
-    },
-    [],
   );
 
   const persistActiveContainerToForm = useCallback(() => {
@@ -396,7 +248,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     });
 
     return containers;
-  }, [activeContainerIndex, buildActiveContainerFromEditor, form]);
+  }, [activeContainerIndex, form]);
 
   const getSyncedFormValues = useCallback((): WorkloadFormValues => {
     const values = form.getFieldsValue(true) as WorkloadFormValues;
@@ -420,7 +272,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       containers,
       imagePullSecrets: latestImagePullSecrets,
     };
-  }, [activeContainerIndex, buildActiveContainerFromEditor, form, watchedImagePullSecrets]);
+  }, [activeContainerIndex, form, watchedImagePullSecrets]);
 
   const handleSelectContainer = useCallback(
     (index: number) => {
@@ -490,350 +342,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   useEffect(() => {
     if (!editData) return;
     try {
-      const spec = editData?.spec || {};
-      const metadata = editData?.metadata || {};
-      const template = spec?.template || {};
-      const rawContainers = template?.spec?.containers || [];
-      const firstContainer = rawContainers[0] || {};
-
-      // 提取标签
-      const labels = Object.entries(metadata?.labels || {}).map(([key, value]) => ({ key, value }));
-
-      // 提取健康检查（必须在 parseContainer 之前定义）
-      const parseProbe = (probe: any) => {
-        if (!probe) return undefined;
-        const probeType: 'httpGet' | 'tcpSocket' | 'exec' = probe.httpGet
-          ? 'httpGet'
-          : probe.tcpSocket
-            ? 'tcpSocket'
-            : 'exec';
-        return {
-          enabled: true,
-          type: probeType,
-          httpGet: probe.httpGet
-            ? { path: probe.httpGet.path, port: probe.httpGet.port }
-            : undefined,
-          tcpSocket: probe.tcpSocket ? { port: probe.tcpSocket.port } : undefined,
-          exec: probe.exec ? { command: probe.exec.command } : undefined,
-          initialDelaySeconds: probe.initialDelaySeconds || 0,
-          periodSeconds: probe.periodSeconds || 10,
-        };
-      };
-
-      // 提取端口
-      const parseContainer = (container: any): WorkloadContainerFormValue => ({
-        containerName: container?.name || '',
-        image: container?.image || '',
-        imagePullPolicy: container?.imagePullPolicy || 'IfNotPresent',
-        ports: (container?.ports || []).map((p: any) => ({
-          containerPort: p.containerPort,
-          protocol: p.protocol || 'TCP',
-          name: p.name,
-        })),
-        env: (container?.env || []).map((e: any) => ({
-          type: e?.valueFrom?.configMapKeyRef
-            ? 'configMapKeyRef'
-            : e?.valueFrom?.secretKeyRef
-              ? 'secretKeyRef'
-              : 'keyValue',
-          name: e.name,
-          value: e.value,
-          configMapName: e?.valueFrom?.configMapKeyRef?.name,
-          configMapKey: e?.valueFrom?.configMapKeyRef?.key,
-          secretName: e?.valueFrom?.secretKeyRef?.name,
-          secretKey: e?.valueFrom?.secretKeyRef?.key,
-        })),
-        resources: {
-          requests: {
-            cpu: container?.resources?.requests?.cpu,
-            memory: container?.resources?.requests?.memory,
-          },
-          limits: {
-            cpu: container?.resources?.limits?.cpu,
-            memory: container?.resources?.limits?.memory,
-          },
-        },
-        command: container?.command,
-        args: container?.args,
-        livenessProbe: parseProbe(container?.livenessProbe),
-        readinessProbe: parseProbe(container?.readinessProbe),
-        volumeMounts: (container?.volumeMounts || []).map((mount: any) => ({
-          name: mount.name,
-          mountPath: mount.mountPath,
-          subPath: mount.subPath,
-          readOnly: mount.readOnly,
-        })),
-      });
-
-      const containers =
-        rawContainers.length > 0
-          ? rawContainers.map(parseContainer)
-          : [createEmptyContainer(metadata?.name || 'container')];
-
-      // 提取镜像拉取密钥
-      const imagePullSecrets = (template?.spec?.imagePullSecrets || []).map((s: any) => s.name);
-
-      // 提取节点选择器
-      const nodeSelector = Object.entries(spec?.template?.spec?.nodeSelector || {}).map(
-        ([key, value]) => ({ key, value }),
-      );
-
-      // 提取亲和性配置
-      const parseNodeAffinity = (affinity: any): NodeAffinityConfig | undefined => {
-        if (!affinity) return undefined;
-
-        const result: NodeAffinityConfig = {};
-
-        // 解析 required 规则
-        if (affinity.requiredDuringSchedulingIgnoredDuringExecution?.nodeSelectorTerms) {
-          result.required = {
-            nodeSelectorTerms:
-              affinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms.map(
-                (term: any) => ({
-                  matchExpressions: (term.matchExpressions || []).map((expr: any) => ({
-                    key: expr.key,
-                    operator: expr.operator,
-                    values: expr.values,
-                  })),
-                  matchFields: (term.matchFields || []).map((field: any) => ({
-                    key: field.key,
-                    operator: field.operator,
-                    values: field.values,
-                  })),
-                }),
-              ),
-          };
-        }
-
-        // 解析 preferred 规则
-        if (affinity.preferredDuringSchedulingIgnoredDuringExecution) {
-          result.preferred = affinity.preferredDuringSchedulingIgnoredDuringExecution.map(
-            (pref: any) => ({
-              weight: pref.weight,
-              preference: {
-                matchExpressions: (pref.preference.matchExpressions || []).map((expr: any) => ({
-                  key: expr.key,
-                  operator: expr.operator,
-                  values: expr.values,
-                })),
-                matchFields: (pref.preference.matchFields || []).map((field: any) => ({
-                  key: field.key,
-                  operator: field.operator,
-                  values: field.values,
-                })),
-              },
-            }),
-          );
-        }
-
-        return Object.keys(result).length > 0 ? result : undefined;
-      };
-
-      // 解析 Pod 亲和性配置
-      const parsePodAffinity = (podAffinity: any): PodAffinityConfig | undefined => {
-        if (!podAffinity) return undefined;
-
-        const result: PodAffinityConfig = {};
-
-        // 解析 required 规则
-        if (podAffinity.requiredDuringSchedulingIgnoredDuringExecution?.length) {
-          result.required = podAffinity.requiredDuringSchedulingIgnoredDuringExecution.map(
-            (term: any) => ({
-              labelSelector: term.labelSelector
-                ? {
-                    matchLabels: term.labelSelector.matchLabels || {},
-                    matchExpressions: (term.labelSelector.matchExpressions || []).map(
-                      (expr: any) => ({
-                        key: expr.key,
-                        operator: expr.operator,
-                        values: expr.values,
-                      }),
-                    ),
-                  }
-                : undefined,
-              namespaces: term.namespaces,
-              topologyKey: term.topologyKey,
-            }),
-          );
-        }
-
-        // 解析 preferred 规则
-        if (podAffinity.preferredDuringSchedulingIgnoredDuringExecution?.length) {
-          result.preferred = podAffinity.preferredDuringSchedulingIgnoredDuringExecution.map(
-            (pref: any) => ({
-              weight: pref.weight,
-              podAffinityTerm: {
-                labelSelector: pref.podAffinityTerm?.labelSelector
-                  ? {
-                      matchLabels: pref.podAffinityTerm.labelSelector.matchLabels || {},
-                      matchExpressions: (
-                        pref.podAffinityTerm.labelSelector.matchExpressions || []
-                      ).map((expr: any) => ({
-                        key: expr.key,
-                        operator: expr.operator,
-                        values: expr.values,
-                      })),
-                    }
-                  : undefined,
-                namespaces: pref.podAffinityTerm?.namespaces,
-                topologyKey: pref.podAffinityTerm?.topologyKey,
-              },
-            }),
-          );
-        }
-
-        return Object.keys(result).length > 0 ? result : undefined;
-      };
-
-      const affinity = template?.spec?.affinity;
-
-      // 提取污点容忍
-      const tolerations = (template?.spec?.tolerations || []).map((t: any) => ({
-        key: t.key,
-        operator: t.operator || 'Equal',
-        value: t.value,
-        effect: t.effect,
-        tolerationSeconds: t.tolerationSeconds,
-      }));
-
-      // 提取域名映射
-      const hostAliases = (template?.spec?.hostAliases || []).map((ha: any) => ({
-        ip: ha.ip || '',
-        hostnames: ha.hostnames || [],
-      }));
-
-      // 提取 DNS 配置
-      const dnsPolicy = template?.spec?.dnsPolicy;
-      const dnsConfigRaw = template?.spec?.dnsConfig;
-      const dnsConfig = dnsConfigRaw
-        ? {
-            nameservers: dnsConfigRaw.nameservers || [],
-            searches: dnsConfigRaw.searches || [],
-            options: (dnsConfigRaw.options || []).map((opt: any) => ({
-              name: opt.name,
-              value: opt.value,
-            })),
-          }
-        : undefined;
-
-      // 提取存储卷定义
-      const rawVolumes = template?.spec?.volumes || [];
-      const volumes: VolumeConfig[] = rawVolumes.map((vol: any) => {
-        const result: VolumeConfig = {
-          name: vol.name,
-          type: 'emptyDir', // 默认类型
-        };
-
-        if (vol.configMap) {
-          result.type = 'configMap';
-          result.configMapName = vol.configMap.name;
-          result.configMapOptional = vol.configMap.optional;
-        } else if (vol.secret) {
-          result.type = 'secret';
-          result.secretName = vol.secret.secretName;
-          result.secretOptional = vol.secret.optional;
-        } else if (vol.persistentVolumeClaim) {
-          result.type = 'persistentVolumeClaim';
-          result.claimName = vol.persistentVolumeClaim.claimName;
-        } else if (vol.emptyDir) {
-          result.type = 'emptyDir';
-          result.emptyDirMedium = vol.emptyDir.medium === 'Memory' ? 'Memory' : 'default';
-          result.emptyDirSizeLimit = vol.emptyDir.sizeLimit;
-        } else if (vol.hostPath) {
-          result.type = 'hostPath';
-          result.hostPath = vol.hostPath.path;
-          result.hostPathType = vol.hostPath.type;
-        }
-
-        return result;
-      });
-
-      // 解析网络配置
-      const templateAnnotations = template?.metadata?.annotations || {};
-      const networksAnnotation = templateAnnotations['k8s.v1.cni.cncf.io/networks'];
-      const logicalSwitch = templateAnnotations['ovn.kubernetes.io/logical_switch'];
-      const staticIPAnnotation = templateAnnotations['ovn.kubernetes.io/ip_address'];
-
-      // 解析网络类型和值
-      let networkType = 'default';
-      let flatSubnet: string | undefined;
-      let vpcSubnet: string | undefined;
-      let customNad: string | undefined;
-      let vpcName: string | undefined;
-
-      if (networksAnnotation) {
-        // networksAnnotation 格式: namespace/name 或 name
-        if (logicalSwitch) {
-          // 有 logical_switch 注解，说明是 VPC 子网
-          networkType = 'vpc';
-          vpcSubnet = networksAnnotation;
-          // VPC 名称需要等网络数据加载后才能确定
-        } else {
-          // 没有 logical_switch，可能是扁平子网或自定义 NAD
-          // 扁平子网的判断需要查询子网数据，这里先假设为扁平子网
-          // 如果不是扁平子网，用户可以在网络数据加载后手动调整
-          networkType = 'flat_subnet';
-          flatSubnet = networksAnnotation;
-        }
-      }
-
-      const enableStaticIP = !!staticIPAnnotation;
-      const staticIP = staticIPAnnotation || undefined;
-
-      // 设置表单值
-      const kind = editData?.kind?.toLowerCase();
-      const type = editData?.type?.toLowerCase();
-
-      // 根据 kind/type 字段识别工作负载类型
-      const workloadTypeValue =
-        kind === 'daemonset' || type === 'daemonset'
-          ? 'daemonset'
-          : kind === 'statefulset' || type === 'statefulset'
-            ? 'statefulset'
-            : kind === 'deployment' || type === 'deployment'
-              ? 'deployment'
-              : defaultType;
-
-      form.setFieldsValue({
-        workloadType: workloadTypeValue,
-        name: metadata?.annotations?.['tower.io/alias'] || metadata?.name || '',
-        namespace: metadata?.namespace || 'default',
-        labels,
-        containers,
-        ...toContainerEditorFields(containers[0] || parseContainer(firstContainer)),
-        replicas: spec?.replicas || 1,
-        imagePullSecrets,
-        nodeSelector,
-        nodeAffinity: parseNodeAffinity(affinity?.nodeAffinity),
-        nodeAntiAffinity: undefined, // 反亲和性从UI层配置，K8s不区分
-        podAffinity: parsePodAffinity(affinity?.podAffinity),
-        podAntiAffinity: parsePodAffinity(affinity?.podAntiAffinity),
-        tolerations: tolerations.length > 0 ? tolerations : undefined,
-        hostAliases: hostAliases.length > 0 ? hostAliases : undefined,
-        dnsPolicy,
-        dnsConfig,
-        volumes: volumes, // 始终设置数组，确保 VolumesEditor 能正确读取
-        // 网络配置
-        networkType,
-        flatSubnet,
-        vpcSubnet,
-        vpcName,
-        customNad,
-        enableStaticIP,
-        staticIP,
-      });
+      const init = parseEditWorkloadFormInit(editData, defaultType);
+      if (!init) return;
+      form.setFieldsValue(init.formValues);
       setActiveContainerIndex(0);
-
-      // 设置 YAML 内容（过滤掉 managedFields，避免干扰用户编辑）
-      const cleanData = {
-        ...editData,
-        metadata: {
-          ...editData.metadata,
-          managedFields: undefined, // 不展示内部管理字段
-        },
-      };
-      const yamlStr = yaml.dump(cleanData, { indent: 2 });
-      setYamlContent(yamlStr);
+      setYamlContent(init.yamlContent);
     } catch (err) {
       console.error('编辑模式初始化表单数据失败:', err);
     }
@@ -2080,7 +1593,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                               onClick={() => {
                                 if (allRegistries.length > 0) {
                                   const currentImage = form.getFieldValue('image');
-                                  let targetCredential = registryToCredential(allRegistries[0]);
+                                  let targetCredential = localRegistryToCredential(allRegistries[0]);
                                   if (currentImage) {
                                     const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
                                     if (serverMatch) {
@@ -2089,7 +1602,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                                         (r) => r.server === serverFromImage,
                                       );
                                       if (matchingRegistry) {
-                                        targetCredential = registryToCredential(matchingRegistry);
+                                        targetCredential = localRegistryToCredential(matchingRegistry);
                                       }
                                     }
                                   }
