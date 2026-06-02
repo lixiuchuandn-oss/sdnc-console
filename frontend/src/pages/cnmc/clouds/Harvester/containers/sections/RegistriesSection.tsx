@@ -48,6 +48,10 @@ import HarborDetailDrawer from '../../harbor/components/HarborDetailDrawer';
 import ProjectDetailDrawer from '../../harbor/components/ProjectDetailDrawer';
 import RepositoryDetailDrawer from '../../harbor/components/RepositoryDetailDrawer';
 import type { HarborProject, HarborRepository } from '../../harbor/types';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+} from '../lib/containerSectionRefresh';
 
 const { Text, Link } = Typography;
 
@@ -680,6 +684,11 @@ const CredentialTable: React.FC<{
   const [yamlModalVisible, setYamlModalVisible] = useState(false);
   const [yamlContent, setYamlContent] = useState('');
 
+  const handleToolbarRefresh = useMemo(
+    () => createContainerToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
+
   // 过滤数据
   const filteredSecrets = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -750,7 +759,7 @@ const CredentialTable: React.FC<{
       setAliasModalVisible(false);
       setAliasRecord(null);
       aliasForm.resetFields();
-      onRefresh(true); // 强制刷新
+      void runContainerSectionRefresh(onRefresh, { force: true });
       return true;
     } catch (e: any) {
       console.error(e);
@@ -945,7 +954,7 @@ const CredentialTable: React.FC<{
             <Button
               type="default"
               icon={<ReloadOutlined />}
-              onClick={() => onRefresh(true)}
+              onClick={handleToolbarRefresh}
             />
           </Tooltip>
         </div>
@@ -1150,7 +1159,7 @@ const RegistriesSection: React.FC<Props> = ({
     try {
       await deleteHarvesterContainerResource(cloudId, SECRETS_API_PATH, namespace, name);
       message.success('删除成功');
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e?.message || '删除失败');
     }
@@ -1417,7 +1426,7 @@ const RegistriesSection: React.FC<Props> = ({
   const handleCredentialSuccess = useCallback(() => {
     setCreateModalVisible(false);
     setEditData(null);
-    onRefresh(true);
+    void runContainerSectionRefresh(onRefresh, { force: true });
   }, [onRefresh]);
   
   // 仓库表格列（支持 generic + harbor）

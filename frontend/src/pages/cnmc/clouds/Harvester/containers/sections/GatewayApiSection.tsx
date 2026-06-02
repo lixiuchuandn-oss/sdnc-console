@@ -25,6 +25,10 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal, YamlEditModal } from '../components';
 import { GatewayDetailDrawer } from '../drawers/GatewayDetailDrawer';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+} from '../lib/containerSectionRefresh';
 
 interface GatewayApiSectionProps {
   cloudId: string;
@@ -98,6 +102,11 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   // 安装 NGINX Gateway 状态
   const [installNginxLoading, setInstallNginxLoading] = useState(false);
 
+  const handleToolbarRefresh = useMemo(
+    () => createContainerToolbarRefresh(onRefresh),
+    [onRefresh],
+  );
+
   // 安装 NGINX Gateway Fabric
   const handleInstallNginxGateway = useCallback(async () => {
     Modal.confirm({
@@ -131,7 +140,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           });
           
           if (!hasError) {
-            onRefresh(true);
+            void runContainerSectionRefresh(onRefresh, { force: true });
           }
         } catch (error: any) {
           console.error('[安装 NGINX Gateway] 失败:', error);
@@ -213,7 +222,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       setAliasRecord(null);
       setAliasResourceType(null);
       aliasForm.resetFields();
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
       return true;
     } catch (e: any) {
       console.error(e);
@@ -289,7 +298,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   const handleYamlEditSuccess = useCallback(() => {
     setYamlEditingRecord(null);
     setYamlEditingType(null);
-    onRefresh(true);
+    void runContainerSectionRefresh(onRefresh, { force: true });
   }, [onRefresh]);
 
   // GatewayClass 表格列
@@ -750,7 +759,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteGateway(cloudId, record.metadata.namespace, record.metadata.name);
       message.success('Gateway 删除成功');
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -761,7 +770,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteHttpRoute(cloudId, record.metadata.namespace, record.metadata.name);
       message.success('HTTPRoute 删除成功');
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -772,7 +781,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteGrpcRoute(cloudId, record.metadata.namespace, record.metadata.name);
       message.success('GRPCRoute 删除成功');
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -844,7 +853,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
       message.success('GatewayClass 创建成功');
       setGatewayClassModalOpen(false);
       gatewayClassForm.resetFields();
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
     } catch (e: any) {
       message.error(e?.message || '创建失败');
     } finally {
@@ -857,7 +866,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     try {
       await deleteGatewayClass(cloudId, record.metadata.name);
       message.success('GatewayClass 删除成功');
-      onRefresh(true);
+      void runContainerSectionRefresh(onRefresh, { force: true });
     } catch (error: any) {
       message.error(`删除失败: ${error?.message || '未知错误'}`);
     }
@@ -878,7 +887,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             <pre style={{ background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
               kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.1.0/standard-install.yaml
             </pre>
-            <Button type="primary" onClick={() => onRefresh(true)} style={{ marginTop: 8 }}>
+            <Button type="primary" onClick={handleToolbarRefresh} style={{ marginTop: 8 }}>
               刷新检测
             </Button>
           </div>
@@ -990,7 +999,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           <Button
             type="default"
             icon={<ReloadOutlined />}
-            onClick={() => onRefresh(true)}
+            onClick={handleToolbarRefresh}
             loading={loading}
           />
         </Tooltip>
@@ -1097,7 +1106,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setGatewayModalOpen(false);
-          onRefresh(true);
+          void runContainerSectionRefresh(onRefresh, { force: true });
         }}
         onCancel={() => setGatewayModalOpen(false)}
       />
@@ -1112,7 +1121,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setHttpRouteModalOpen(false);
-          onRefresh(true);
+          void runContainerSectionRefresh(onRefresh, { force: true });
         }}
         onCancel={() => setHttpRouteModalOpen(false)}
       />
@@ -1127,7 +1136,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         defaultNamespace={formDefaultNs}
         onSuccess={() => {
           setGrpcRouteModalOpen(false);
-          onRefresh(true);
+          void runContainerSectionRefresh(onRefresh, { force: true });
         }}
         onCancel={() => setGrpcRouteModalOpen(false)}
       />
