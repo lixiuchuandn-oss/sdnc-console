@@ -22,6 +22,8 @@
 import React from 'react';
 import { Form, Select, Checkbox, Space, Row, Col, Typography, Button } from 'antd';
 import { MinusCircleOutlined } from '@ant-design/icons';
+import type { PodAffinityEditorHandle } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
+import StepOthersPodAffinity from './StepOthersPodAffinity';
 
 /**
  * [接口定义] StepOthersProps
@@ -53,6 +55,9 @@ interface StepOthersProps {
    * 当用户展开下拉框时触发，确保密钥列表是最新的。
    */
   reloadSshKeys: () => void;
+  namespacesOptions: string[];
+  podAffinityRef: React.RefObject<PodAffinityEditorHandle | null>;
+  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle | null>;
 }
 
 const StepOthers: React.FC<StepOthersProps> = ({
@@ -61,6 +66,9 @@ const StepOthers: React.FC<StepOthersProps> = ({
   reloadUsbResources,
   sshKeyOptions: _sshKeyOptions,
   reloadSshKeys: _reloadSshKeys,
+  namespacesOptions,
+  podAffinityRef,
+  podAntiAffinityRef,
 }) => {
   return (
     <>
@@ -146,6 +154,12 @@ const StepOthers: React.FC<StepOthersProps> = ({
       
       {/* ============================== USB 设备 ============================== */}
       <div className="wizard-group-title">USB设备</div>
+      <StepOthersPodAffinity
+        namespacesOptions={namespacesOptions}
+        podAffinityRef={podAffinityRef}
+        podAntiAffinityRef={podAntiAffinityRef}
+      />
+
       <Form.List name="usbDevices">
         {(fields, { add, remove }) => (
           <div>

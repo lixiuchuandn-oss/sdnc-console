@@ -247,6 +247,15 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
 
       // 运行策略
       runStrategy,
+
+      podScheduling: (function () {
+        const pa = v.podAffinity;
+        const paa = v.podAntiAffinity;
+        const req = (pa?.required?.length || 0) + (paa?.required?.length || 0);
+        const pref = (pa?.preferred?.length || 0) + (paa?.preferred?.length || 0);
+        if (req + pref === 0) return undefined;
+        return `${req} 条必须 / ${pref} 条优先`;
+      })(),
     };
   }, [formSnapshot, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi]);
 
@@ -409,6 +418,12 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <span className="wizard-summary-label" title="运行策略">运行策略</span>
             <span className="wizard-summary-value" title={summary.runStrategy}>{summary.runStrategy}</span>
           </div>
+          {summary.podScheduling ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="虚拟机间调度">虚拟机间调度</span>
+              <span className="wizard-summary-value" title={summary.podScheduling}>{summary.podScheduling}</span>
+            </div>
+          ) : null}
           <div className="wizard-summary-item">
             <span className="wizard-summary-label" title="固件">固件</span>
             <span
