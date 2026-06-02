@@ -23,14 +23,9 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Form, Button, Space, Tag, Row, Col, App, Segmented, Modal } from 'antd';
+import { Form, Button, Space, Tag, Row, Col, App, Segmented } from 'antd';
 import { CodeOutlined, FormOutlined, CheckOutlined } from '@ant-design/icons';
 import yaml from 'js-yaml';
-import {
-  createHarvesterContainerResource,
-  updateHarvesterContainerResource,
-  checkSubnetStaticIP,
-} from '../../../../../../services/harvesterApi';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 import {
   RegistryBrowserDrawer,
@@ -41,7 +36,6 @@ import {
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 import type {
-  WorkloadType,
   WorkloadFormValues,
   WorkloadFormProps,
   WorkloadContainerFormValue,
@@ -49,16 +43,15 @@ import type {
   PodAffinityConfig,
 } from './workloadForm/types';
 
+import { WORKLOAD_STEPS, DEFAULT_DEPLOYMENT_YAML } from './workloadForm/constants';
+
+import { getDefaultWorkloadYaml } from './workloadForm/workloadTypeUtils';
 import {
-  WORKLOAD_STEPS,
-  DEFAULT_DEPLOYMENT_YAML,
-  DEFAULT_STATEFULSET_YAML,
-  DEFAULT_DAEMONSET_YAML,
-} from './workloadForm/constants';
-
-import { parseK8sError } from './workloadForm/k8sErrors';
-
-import { isIpInCidr } from './workloadForm/networkIpUtils';
+  applyWorkloadSubmitFailure,
+  executeWorkloadSubmit,
+  handleWorkloadSubmitError,
+  prepareWorkloadSubmit,
+} from './workloadForm/submitWorkload';
 
 import { createEmptyContainer, toContainerEditorFields } from './workloadForm/containerDefaults';
 import { buildK8sResource } from './workloadForm/buildK8sResource';
@@ -353,34 +346,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
 
   // 监听工作负载类型变化
   const workloadType = Form.useWatch('workloadType', form) || defaultType;
-
-  // 获取 API 路径
-  const getApiPath = useCallback((type: WorkloadType): string => {
-    switch (type) {
-      case 'deployment':
-        return '/apis/apps/v1/deployments';
-      case 'statefulset':
-        return '/apis/apps/v1/statefulsets';
-      case 'daemonset':
-        return '/apis/apps/v1/daemonsets';
-      default:
-        return '/apis/apps/v1/deployments';
-    }
-  }, []);
-
-  // 根据工作负载类型获取默认 YAML
-  const getDefaultYaml = useCallback((type: WorkloadType): string => {
-    switch (type) {
-      case 'deployment':
-        return DEFAULT_DEPLOYMENT_YAML;
-      case 'statefulset':
-        return DEFAULT_STATEFULSET_YAML;
-      case 'daemonset':
-        return DEFAULT_DAEMONSET_YAML;
-      default:
-        return DEFAULT_DEPLOYMENT_YAML;
-    }
-  }, []);
 
   const buildWorkloadK8sResource = useCallback(
     (values: WorkloadFormValues) => buildK8sResource(values, allNadOptions),
@@ -693,7 +658,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           setYamlError('');
         } catch (e: any) {
           message.warning('数据转换失败，将使用默认模板');
-          setYamlContent(getDefaultYaml(workloadType));
+          setYamlContent(getDefaultWorkloadYaml(workloadType));
         }
       } else if (newMode === 'form' && mode === 'yaml') {
         // YAML → 表单：尝试解析 YAML 并填充表单
@@ -716,7 +681,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
       yamlToForm,
       yamlContent,
       message,
-      getDefaultYaml,
       workloadType,
       isEditMode,
       editData,
@@ -746,342 +710,78 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     [validateYaml],
   );
 
+  const confirmStaticIpRisk = useCallback(
+    (staticIP: string) =>
+      new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: '静态 IP 冲突风险',
+          content: (
+            <div>
+              <p>
+                无法自动检测 IP <strong>{staticIP}</strong> 是否已被使用。
+              </p>
+              <p style={{ color: '#faad14', marginTop: 8 }}>
+                ⚠️ 请确认该 IP 未被其他工作负载使用，否则可能导致网络冲突。
+              </p>
+            </div>
+          ),
+          okText: '确认未使用，继续提交',
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      }),
+    [modal],
+  );
+
   // 提交表单
   const handleSubmit = useCallback(async () => {
     try {
-      let resource: any;
-      let apiPath: string;
-      let namespace: string;
-      let name: string;
+      const isYamlValid = mode !== 'yaml' || validateYaml(yamlContent);
 
-      if (mode === 'yaml') {
-        // YAML 模式提交
-        if (!validateYaml(yamlContent)) {
-          message.error('请修正 YAML 格式错误');
-          return;
-        }
+      const prepared = await prepareWorkloadSubmit({
+        mode,
+        yamlContent,
+        isYamlValid,
+        form,
+        getSyncedFormValues,
+        buildResource: buildWorkloadK8sResource,
+        isEditMode,
+        editMetadata: editMetadata ?? null,
+        editData,
+        cloudId,
+        flatSubnetOptions,
+        kubeSubnets,
+        editorRefs: {
+          nodeAffinity: nodeAffinityEditorRef.current?.getHasLabelErrors(),
+          nodeAntiAffinity: nodeAntiAffinityEditorRef.current?.getHasLabelErrors(),
+          podAffinity: podAffinityEditorRef.current?.getHasLabelErrors(),
+          podAntiAffinity: podAntiAffinityEditorRef.current?.getHasLabelErrors(),
+          tolerations: tolerationsEditorRef.current?.getHasLabelErrors(),
+        },
+        confirmStaticIpRisk,
+      });
 
-        resource = yaml.load(yamlContent) as any;
-        const kind = resource?.kind?.toLowerCase();
-        apiPath = getApiPath(
-          kind === 'statefulset'
-            ? 'statefulset'
-            : kind === 'daemonset'
-              ? 'daemonset'
-              : 'deployment',
-        );
-        namespace = resource?.metadata?.namespace || 'default';
-
-        // 编辑模式下，使用资源 ID 作为 API 路径参数
-        if (isEditMode && editMetadata) {
-          name = editMetadata.name;
-          resource.metadata = {
-            ...resource.metadata,
-            uid: editMetadata.uid,
-            resourceVersion: editMetadata.resourceVersion,
-            creationTimestamp: editMetadata.creationTimestamp,
-            managedFields: editMetadata.managedFields,
-          };
-        } else {
-          name = resource?.metadata?.name || '';
-        }
-      } else {
-        // 表单模式提交 - 显式验证所有字段（分步骤表单需要）
-        const values = await form.validateFields([
-          'workloadType',
-          'name',
-          'namespace',
-          'labels',
-          'containers',
-          'image',
-          'containerName',
-          'imagePullPolicy',
-          'ports',
-          'env',
-          'resources',
-          'command',
-          'args',
-          'replicas',
-          'imagePullSecrets',
-          'nodeSelector',
-          'nodeAffinity',
-          'nodeAntiAffinity',
-          'tolerations',
-          'hostAliases',
-          'dnsPolicy',
-          'dnsConfig',
-          'livenessProbe',
-          'readinessProbe',
-          'volumes',
-          'volumeMounts',
-        ]);
-
-        const syncedValues = getSyncedFormValues();
-
-        // DEBUG: 打印表单中的 volumeMounts
-        const invalidContainerIndex = (syncedValues.containers || []).findIndex(
-          (container) => !container.image,
-        );
-        if (invalidContainerIndex >= 0) {
-          setCurrentStep(1);
-          setActiveContainerIndex(invalidContainerIndex);
-          syncContainerEditorToForm(syncedValues.containers[invalidContainerIndex]);
-          message.error(`请完善容器 ${invalidContainerIndex + 1} 的镜像地址`);
-          setLoading(false);
-          return;
-        }
-
-        // 校验容器名称是否重复
-        const containerNames = (syncedValues.containers || [])
-          .map((c) => c.containerName)
-          .filter((name) => name && name.trim());
-        const duplicateNames = containerNames.filter(
-          (name, index) => containerNames.indexOf(name) !== index,
-        );
-        if (duplicateNames.length > 0) {
-          setCurrentStep(1); // 跳转到容器配置步骤
-          message.error(
-            `容器名称重复: ${[...new Set(duplicateNames)].join(', ')}，请使用不同的容器名称`,
-          );
-          setLoading(false);
-          return;
-        }
-
-        // 校验存储卷挂载：如果定义了存储卷，则必须配置至少一个卷挂载
-        const volumes = syncedValues.volumes || [];
-        const volumeMounts = syncedValues.volumeMounts || [];
-        if (volumes.length > 0 && volumeMounts.length === 0) {
-          setCurrentStep(3); // 跳转到存储配置步骤
-          message.warning('已定义存储卷，请配置至少一个卷挂载');
-          setLoading(false);
-          return;
-        }
-
-        // 校验静态 IP 是否在子网 CIDR 范围内
-        if (syncedValues.enableStaticIP && syncedValues.staticIP) {
-          const networkType = syncedValues.networkType;
-          let subnetCidr: string | undefined;
-
-          if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
-            // 扁平子网：从 flatSubnetOptions 中查找 CIDR
-            const flatSubnetOption = flatSubnetOptions.find(
-              (opt) => opt.value === syncedValues.flatSubnet,
-            );
-            subnetCidr =
-              flatSubnetOption?.subnet?.cidr || flatSubnetOption?.subnet?.spec?.cidrBlock;
-          } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
-            // VPC 子网：从 kubeSubnets 中查找 CIDR
-            // vpcSubnet 格式为 namespace/name 或 name
-            const parts = syncedValues.vpcSubnet.split('/');
-            const subnetName = parts.length === 2 ? parts[1] : parts[0];
-            const subnet = kubeSubnets.find(
-              (s) =>
-                (s.name || s?.metadata?.name) === subnetName &&
-                (s.vpc || s?.spec?.vpc) === syncedValues.vpcName,
-            );
-            subnetCidr = subnet?.cidr || subnet?.spec?.cidrBlock;
-          }
-
-          if (subnetCidr && !isIpInCidr(syncedValues.staticIP, subnetCidr)) {
-            setCurrentStep(2); // 跳转到网络配置步骤
-            message.error(
-              `静态 IP ${syncedValues.staticIP} 不在子网 CIDR 范围 ${subnetCidr} 内，请检查`,
-            );
-            setLoading(false);
-            return;
-          }
-
-          // 校验静态 IP 是否可用（调用后端API）
-          let subnetName: string | undefined;
-          let subnetNs = 'default';
-
-          if (networkType === 'flat_subnet' && syncedValues.flatSubnet) {
-            const flatParts = syncedValues.flatSubnet.split('/');
-            if (flatParts.length === 2) {
-              subnetNs = flatParts[0];
-              subnetName = flatParts[1];
-            } else {
-              subnetName = syncedValues.flatSubnet;
-            }
-          } else if (networkType === 'vpc' && syncedValues.vpcSubnet) {
-            const vpcParts = syncedValues.vpcSubnet.split('/');
-            if (vpcParts.length === 2) {
-              subnetNs = vpcParts[0];
-              subnetName = vpcParts[1];
-            } else {
-              subnetName = syncedValues.vpcSubnet;
-            }
-          }
-
-          if (subnetName) {
-            try {
-              const ipCheckRes = await checkSubnetStaticIP(
-                cloudId,
-                subnetNs,
-                subnetName,
-                syncedValues.staticIP,
-              );
-              const ipCheckData = ipCheckRes?.data || ipCheckRes;
-              if (ipCheckData?.used === true) {
-                setCurrentStep(2);
-                message.error(
-                  `静态 IP ${syncedValues.staticIP} 已被使用（被 ${ipCheckData.usedBy || '其他工作负载'} 占用）`,
-                );
-                setLoading(false);
-                return;
-              }
-            } catch (e: any) {
-              // API调用失败，弹出确认框让用户确认
-              console.warn('静态IP检测API调用失败:', e);
-              const confirmed = await new Promise<boolean>((resolve) => {
-                modal.confirm({
-                  title: '静态 IP 冲突风险',
-                  content: (
-                    <div>
-                      <p>
-                        无法自动检测 IP <strong>{syncedValues.staticIP}</strong> 是否已被使用。
-                      </p>
-                      <p style={{ color: '#faad14', marginTop: 8 }}>
-                        ⚠️ 请确认该 IP 未被其他工作负载使用，否则可能导致网络冲突。
-                      </p>
-                    </div>
-                  ),
-                  okText: '确认未使用，继续提交',
-                  cancelText: '取消',
-                  onOk: () => resolve(true),
-                  onCancel: () => resolve(false),
-                });
-              });
-              if (!confirmed) {
-                setCurrentStep(2);
-                setLoading(false);
-                return;
-              }
-            }
-          }
-        }
-
-        // 校验节点亲和性/反亲和性的标签键输入错误
-        const nodeAffinityHasErrors = nodeAffinityEditorRef.current?.getHasLabelErrors();
-        const nodeAntiAffinityHasErrors = nodeAntiAffinityEditorRef.current?.getHasLabelErrors();
-        if (nodeAffinityHasErrors || nodeAntiAffinityHasErrors) {
-          setCurrentStep(4);
-          setLoading(false);
-          return;
-        }
-
-        // 校验 Pod 亲和性/反亲和性的 matchLabels 输入错误
-        const podAffinityHasErrors = podAffinityEditorRef.current?.getHasLabelErrors();
-        const podAntiAffinityHasErrors = podAntiAffinityEditorRef.current?.getHasLabelErrors();
-        if (podAffinityHasErrors || podAntiAffinityHasErrors) {
-          setCurrentStep(4);
-          setLoading(false);
-          return;
-        }
-
-        // 校验污点容忍的键/值输入错误
-        const tolerationsHasErrors = tolerationsEditorRef.current?.getHasLabelErrors();
-        if (tolerationsHasErrors) {
-          setCurrentStep(4);
-          setLoading(false);
-          return;
-        }
-
-        resource = buildWorkloadK8sResource(syncedValues);
-        apiPath = getApiPath(values.workloadType);
-
-        // 防御性检查：编辑模式下若表单 workloadType 与资源类型不一致，自动纠正
-        if (isEditMode) {
-          const editKind =
-            editData?.kind?.toLowerCase() ||
-            (editMetadata?.name &&
-              (() => {
-                if (editMetadata.name.startsWith('id-ds-')) return 'daemonset';
-                if (editMetadata.name.startsWith('id-sts-')) return 'statefulset';
-                if (editMetadata.name.startsWith('id-dep-')) return 'deployment';
-                return null;
-              })());
-          if (editKind) {
-            const formType = values.workloadType?.toLowerCase();
-            if (editKind !== formType) {
-              console.warn('[WorkloadForm 提交] workloadType 不一致，自动纠正:', {
-                formType,
-                editKind,
-                name: editMetadata?.name,
-              });
-              values.workloadType = editKind;
-              syncedValues.workloadType = editKind;
-              resource = buildWorkloadK8sResource(syncedValues);
-              apiPath = getApiPath(editKind as WorkloadType);
-            }
-          }
-        }
-
-        namespace = values.namespace;
-
-        // 编辑模式下，保留原有元数据，使用资源 ID 作为 API 路径参数
-        if (isEditMode && editMetadata) {
-          name = editMetadata.name; // 使用资源 ID
-          resource.metadata.name = editMetadata.name; // 保持资源名称不变
-          resource.metadata.uid = editMetadata.uid;
-          resource.metadata.resourceVersion = editMetadata.resourceVersion;
-          resource.metadata.creationTimestamp = editMetadata.creationTimestamp;
-          resource.metadata.managedFields = editMetadata.managedFields;
-          // 保留原有 annotations 并更新 alias
-          resource.metadata.annotations = {
-            ...editMetadata.annotations,
-            'tower.io/alias': values.name, // 更新显示名称
-          };
-          // 保留原有的 selector，避免 Pod 不匹配
-          if (editData?.spec?.selector) {
-            resource.spec.selector = editData.spec.selector;
-          }
-          // 保留原有的 template.labels，确保与 selector 匹配
-          if (editData?.spec?.template?.metadata?.labels) {
-            resource.spec.template.metadata.labels = editData.spec.template.metadata.labels;
-          }
-        } else {
-          name = values.name; // 创建模式使用表单名称
-        }
+      if (!prepared.ok) {
+        applyWorkloadSubmitFailure(prepared.failure, {
+          message,
+          setCurrentStep,
+          setActiveContainerIndex,
+          syncContainerEditorToForm,
+        });
+        return;
       }
 
       setLoading(true);
-
-      if (isEditMode) {
-        // 编辑模式：调用更新 API
-        await updateHarvesterContainerResource(cloudId, apiPath, namespace, name, resource);
-        message.success('工作负载更新成功');
-      } else {
-        // 创建模式：调用创建 API
-        await createHarvesterContainerResource(cloudId, apiPath, namespace, resource);
-        message.success('工作负载创建成功');
-      }
-
-      onSuccess();
-    } catch (error: any) {
-      console.error(isEditMode ? '更新工作负载失败:' : '创建工作负载失败:', error);
-
-      // 检测版本冲突（409 Conflict）
-      const isConflict =
-        error?.response?.status === 409 ||
-        error?.status === 409 ||
-        /conflict/i.test(error?.message || '') ||
-        /resourceVersion/i.test(error?.message || '');
-
-      if (isConflict) {
-        Modal.confirm({
-          title: '版本冲突',
-          content: '该资源已被其他用户修改，请刷新后重新编辑。',
-          okText: '确认刷新',
-          cancelText: '取消',
-          onOk: () => {
-            onSuccess(); // 刷新列表并关闭抽屉
-          },
-        });
-      } else {
-        const friendlyMsg = parseK8sError(error);
-        message.error(friendlyMsg);
-      }
+      await executeWorkloadSubmit({
+        cloudId,
+        isEditMode,
+        payload: prepared.payload,
+        message,
+        onSuccess,
+      });
+    } catch (error: unknown) {
+      handleWorkloadSubmitError({ error, isEditMode, message, onSuccess });
     } finally {
       setLoading(false);
     }
@@ -1091,20 +791,17 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     validateYaml,
     form,
     buildWorkloadK8sResource,
-    getApiPath,
     cloudId,
     message,
-    modal,
     onSuccess,
     isEditMode,
     getSyncedFormValues,
     syncContainerEditorToForm,
     editMetadata,
-    editData?.kind,
-    editData?.spec?.selector,
-    editData?.spec?.template?.metadata?.labels,
+    editData,
     flatSubnetOptions,
     kubeSubnets,
+    confirmStaticIpRisk,
   ]);
 
   // 下一步
