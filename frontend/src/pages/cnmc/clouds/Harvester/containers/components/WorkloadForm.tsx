@@ -3343,7 +3343,9 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                             </div>
                             <div style={{ marginTop: 8 }}>
                               当前加载了 {kubeSubnets.length} 个子网，
-                              {kubeSubnets.filter((s) => isFlatVpc(s?.vpc || s?.spec?.vpc)).length}{' '}
+                              {
+                                kubeSubnets.filter((s) => isFlatVpc(s?.vpc || s?.spec?.vpc)).length
+                              }{' '}
                               个属于扁平 VPC
                             </div>
                             <div style={{ marginTop: 8, color: '#1677ff' }}>

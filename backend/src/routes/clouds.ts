@@ -1110,7 +1110,6 @@ router.delete('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, 
   }
 });
 
-export { router as cloudRoutes };
 // 聚合：查询全部资源池的云主机列表（统一实例模型）
 router.get(
   '/resources/ecs-all',

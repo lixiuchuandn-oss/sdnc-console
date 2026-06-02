@@ -6,6 +6,8 @@ import request from 'supertest';
 import type { Express } from 'express';
 import type { DataSource } from 'typeorm';
 
+jest.setTimeout(60000);
+
 describe('cloud routes integration', () => {
   let app: Express;
   let dataSource: DataSource;

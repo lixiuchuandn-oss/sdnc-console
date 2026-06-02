@@ -957,6 +957,7 @@ const ConfigMapTable: React.FC<{
       onEditClick,
       checkResourceInUse,
       hasContainersWrite,
+      handleOpenAliasModal,
     ],
   );
 
@@ -1467,6 +1468,7 @@ const SecretTable: React.FC<{
       onEditClick,
       checkResourceInUse,
       hasContainersWrite,
+      handleOpenAliasModal,
     ],
   );
 
