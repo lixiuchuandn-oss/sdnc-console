@@ -75,10 +75,10 @@ import { getPublicUiSettings } from './config/systemSettings';
 import { getPublicAdminPasswordPolicy } from './services/adminPasswordPolicy';
 import { getPublicPageTimeoutMinutes } from './services/adminAuthConfig';
 
-const app = express();
+export const app = express();
 /** 必须为 number，否则 listen(port, host, cb) 会与 backlog 重载冲突 */
 const PORT = Number(process.env.PORT) || 5001;
-const server = http.createServer(app);
+export const server = http.createServer(app);
 
 // 信任代理：允许解析 X-Forwarded-For 等头信息获取真实客户端 IP
 // 当服务部署在 Nginx 等反向代理后面时需要此配置
@@ -332,244 +332,250 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
 // - 初始化管理员账号与基础角色
 // - 启动云资源同步任务与 VR 列表同步任务
 // - 初始化 WebSSH/WebVNC/KubeVirt VNC WebSocket 服务，并复用 HTTP Server 的 upgrade 事件
-AppDataSource.initialize()
-  .then(async () => {
-    logger.info('数据库连接成功');
-    // 生产环境默认 DB_SYNC=false 且 migrations 为空时，全新 SQLite 不会自动建表，登录会报 no such table: users。
-    // 若检测到核心表缺失，则执行一次性 synchronize（与 DB_SYNC=true 等价，仅补全缺失结构）。
-    try {
-      const usersTable = await AppDataSource.query(
-        `SELECT name FROM sqlite_master WHERE type='table' AND name='users'`,
-      );
-      if (!Array.isArray(usersTable) || usersTable.length === 0) {
-        logger.warn(
-          '检测到 users 表不存在，执行一次性 schema 同步以创建表结构（可改用 DB_SYNC=true 首次启动或 npm run db:init）',
+export function startServer(): void {
+  AppDataSource.initialize()
+    .then(async () => {
+      logger.info('数据库连接成功');
+      // 生产环境默认 DB_SYNC=false 且 migrations 为空时，全新 SQLite 不会自动建表，登录会报 no such table: users。
+      // 若检测到核心表缺失，则执行一次性 synchronize（与 DB_SYNC=true 等价，仅补全缺失结构）。
+      try {
+        const usersTable = await AppDataSource.query(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name='users'`,
         );
-        await AppDataSource.synchronize();
+        if (!Array.isArray(usersTable) || usersTable.length === 0) {
+          logger.warn(
+            '检测到 users 表不存在，执行一次性 schema 同步以创建表结构（可改用 DB_SYNC=true 首次启动或 npm run db:init）',
+          );
+          await AppDataSource.synchronize();
+        }
+      } catch (e) {
+        logger.error('核心表检查或 schema 同步失败:', e);
+        throw e;
       }
-    } catch (e) {
-      logger.error('核心表检查或 schema 同步失败:', e);
-      throw e;
-    }
-    // 启用 WAL 模式以提升并发性能
-    try {
-      const { enableWalMode } = await import('./config/database');
-      await enableWalMode();
-    } catch (e) {
-      logger.warn('启用 WAL 模式失败:', e);
-    }
-    try {
-      const { ensureUsersPasswordChangedAtColumn } = await import('./config/database');
-      await ensureUsersPasswordChangedAtColumn();
-    } catch (e) {
-      logger.warn('users.passwordChangedAt 检查失败:', e);
-    }
-    // 初始化管理员账户
-    await initializeAdmin();
-    // 初始化默认角色
-    await initializeRoles();
+      // 启用 WAL 模式以提升并发性能
+      try {
+        const { enableWalMode } = await import('./config/database');
+        await enableWalMode();
+      } catch (e) {
+        logger.warn('启用 WAL 模式失败:', e);
+      }
+      try {
+        const { ensureUsersPasswordChangedAtColumn } = await import('./config/database');
+        await ensureUsersPasswordChangedAtColumn();
+      } catch (e) {
+        logger.warn('users.passwordChangedAt 检查失败:', e);
+      }
+      // 初始化管理员账户
+      await initializeAdmin();
+      // 初始化默认角色
+      await initializeRoles();
 
-    // 初始化数据库表（如果不存在则创建）
-    try {
-      const {
-        ensureRecycleBinTables,
-        ensureKubeOvnSecurityGroupTables,
-        dropObsoleteKubeOvnIngressInventoryTable,
-        ensureHarvesterAswCtlSwitchInventoryTable,
-        ensureImageUploadTaskTable,
-        ensureDatacenterTopologyTables,
-        ensureHarborTables,
-        ensureCephMgrDashboardSnapshotTable,
-        ensureGuacamoleTables,
-      } = await import('./config/database');
-      await ensureRecycleBinTables();
-      await ensureKubeOvnSecurityGroupTables();
-      await dropObsoleteKubeOvnIngressInventoryTable();
-      await ensureHarvesterAswCtlSwitchInventoryTable();
-      await ensureImageUploadTaskTable();
-      await ensureDatacenterTopologyTables();
-      await ensureHarborTables();
-      await ensureCephMgrDashboardSnapshotTable();
-      await ensureGuacamoleTables();
-    } catch (e) {
-      logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
-    }
+      // 初始化数据库表（如果不存在则创建）
+      try {
+        const {
+          ensureRecycleBinTables,
+          ensureKubeOvnSecurityGroupTables,
+          dropObsoleteKubeOvnIngressInventoryTable,
+          ensureHarvesterAswCtlSwitchInventoryTable,
+          ensureImageUploadTaskTable,
+          ensureDatacenterTopologyTables,
+          ensureHarborTables,
+          ensureCephMgrDashboardSnapshotTable,
+          ensureGuacamoleTables,
+        } = await import('./config/database');
+        await ensureRecycleBinTables();
+        await ensureKubeOvnSecurityGroupTables();
+        await dropObsoleteKubeOvnIngressInventoryTable();
+        await ensureHarvesterAswCtlSwitchInventoryTable();
+        await ensureImageUploadTaskTable();
+        await ensureDatacenterTopologyTables();
+        await ensureHarborTables();
+        await ensureCephMgrDashboardSnapshotTable();
+        await ensureGuacamoleTables();
+      } catch (e) {
+        logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
+      }
 
-    try {
-      const { mergeSecurityDomainCategoryLegacy } =
-        await import('./utils/mergeSecurityDomainCategoryLegacy');
-      await mergeSecurityDomainCategoryLegacy(AppDataSource);
-    } catch (e) {
-      logger.warn('安全域 category 历史数据合并失败:', e);
-    }
+      try {
+        const { mergeSecurityDomainCategoryLegacy } =
+          await import('./utils/mergeSecurityDomainCategoryLegacy');
+        await mergeSecurityDomainCategoryLegacy(AppDataSource);
+      } catch (e) {
+        logger.warn('安全域 category 历史数据合并失败:', e);
+      }
 
-    // 启动云资源同步任务
-    try {
-      const { CloudSyncService } = await import('./services/CloudSyncService');
-      CloudSyncService.getInstance().startSyncJob();
-    } catch (e) {
-      logger.warn('启动云资源同步任务失败:', e);
-    }
+      // 启动云资源同步任务
+      try {
+        const { CloudSyncService } = await import('./services/CloudSyncService');
+        CloudSyncService.getInstance().startSyncJob();
+      } catch (e) {
+        logger.warn('启动云资源同步任务失败:', e);
+      }
 
-    // 启动 VR 列表同步任务
-    try {
-      const { VRCacheService } = await import('./services/vrouter/VRCacheService');
-      // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
-      setTimeout(() => {
-        VRCacheService.getInstance().startSyncJob();
-      }, 10000);
-    } catch (e) {
-      logger.warn('启动 VR 列表同步任务失败:', e);
-    }
+      // 启动 VR 列表同步任务
+      try {
+        const { VRCacheService } = await import('./services/vrouter/VRCacheService');
+        // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
+        setTimeout(() => {
+          VRCacheService.getInstance().startSyncJob();
+        }, 10000);
+      } catch (e) {
+        logger.warn('启动 VR 列表同步任务失败:', e);
+      }
 
-    // 启动回收站定时任务
-    try {
-      const { RecycleBinTaskService } =
-        await import('./services/clouds/harvester/RecycleBinTaskService');
-      // 延迟 15s 启动，避免和启动时的数据库操作冲突
-      setTimeout(() => {
-        logger.info('启动回收站定时任务服务');
-        RecycleBinTaskService.getInstance().startTasks();
-      }, 15000);
-    } catch (e) {
-      logger.error('启动回收站定时任务失败:', e);
-    }
+      // 启动回收站定时任务
+      try {
+        const { RecycleBinTaskService } =
+          await import('./services/clouds/harvester/RecycleBinTaskService');
+        // 延迟 15s 启动，避免和启动时的数据库操作冲突
+        setTimeout(() => {
+          logger.info('启动回收站定时任务服务');
+          RecycleBinTaskService.getInstance().startTasks();
+        }, 15000);
+      } catch (e) {
+        logger.error('启动回收站定时任务失败:', e);
+      }
 
-    // 启动审计日志清理任务（每天执行一次）
-    try {
-      const { AuditLogRetentionService } = await import('./services/AuditLogRetentionService');
-      setTimeout(() => {
-        AuditLogRetentionService.getInstance().start();
-      }, 20000);
-    } catch (e) {
-      logger.error('启动审计日志清理任务失败:', e);
-    }
+      // 启动审计日志清理任务（每天执行一次）
+      try {
+        const { AuditLogRetentionService } = await import('./services/AuditLogRetentionService');
+        setTimeout(() => {
+          AuditLogRetentionService.getInstance().start();
+        }, 20000);
+      } catch (e) {
+        logger.error('启动审计日志清理任务失败:', e);
+      }
 
-    // 启动 Harbor 项目同步任务
-    try {
-      const { harborProjectSyncService } =
-        await import('./services/harbor/HarborProjectSyncService');
-      harborProjectSyncService.startSync();
-    } catch (e) {
-      logger.error('启动 Harbor 项目同步任务失败:', e);
-    }
+      // 启动 Harbor 项目同步任务
+      try {
+        const { harborProjectSyncService } =
+          await import('./services/harbor/HarborProjectSyncService');
+        harborProjectSyncService.startSync();
+      } catch (e) {
+        logger.error('启动 Harbor 项目同步任务失败:', e);
+      }
 
-    // WebSocket 服务实例
-    let sshWss: any = null;
-    let vncWss: any = null;
-    let kvVncWss: any = null;
+      // WebSocket 服务实例
+      let sshWss: any = null;
+      let vncWss: any = null;
+      let kvVncWss: any = null;
 
-    // 初始化 WebSocket 服务 (Headless)
-    try {
-      const { createSshWsServer } = await import('./ws/ssh');
-      sshWss = createSshWsServer();
-      logger.info('WebSSH 服务已创建 (Headless)');
-    } catch (e: any) {
-      logger.warn('创建 WebSSH 服务失败:', e?.message || e);
-    }
+      // 初始化 WebSocket 服务 (Headless)
+      try {
+        const { createSshWsServer } = await import('./ws/ssh');
+        sshWss = createSshWsServer();
+        logger.info('WebSSH 服务已创建 (Headless)');
+      } catch (e: any) {
+        logger.warn('创建 WebSSH 服务失败:', e?.message || e);
+      }
 
-    try {
-      const { createVncWsServer } = await import('./ws/vnc');
-      vncWss = createVncWsServer();
-      logger.info('WebVNC 服务已创建 (Headless)');
-    } catch (e: any) {
-      logger.warn('创建 WebVNC 服务失败:', e?.message || e);
-    }
+      try {
+        const { createVncWsServer } = await import('./ws/vnc');
+        vncWss = createVncWsServer();
+        logger.info('WebVNC 服务已创建 (Headless)');
+      } catch (e: any) {
+        logger.warn('创建 WebVNC 服务失败:', e?.message || e);
+      }
 
-    try {
-      const { createKvVncWss } = await import('./ws/kvVnc');
-      kvVncWss = createKvVncWss();
-      logger.info('KubeVirt WebVNC 服务已创建 (Headless)');
-    } catch (e: any) {
-      logger.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
-    }
+      try {
+        const { createKvVncWss } = await import('./ws/kvVnc');
+        kvVncWss = createKvVncWss();
+        logger.info('KubeVirt WebVNC 服务已创建 (Headless)');
+      } catch (e: any) {
+        logger.warn('创建 KubeVirt WebVNC 服务失败:', e?.message || e);
+      }
 
-    // 初始化 Pod 日志 WebSocket 服务
-    let kvPodLogWss: any = null;
-    try {
-      const { createKvPodLogWss } = await import('./ws/kvPodLog');
-      kvPodLogWss = createKvPodLogWss();
-      logger.info('KubeVirt Pod Log 服务已创建 (Headless)');
-    } catch (e: any) {
-      logger.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
-    }
+      // 初始化 Pod 日志 WebSocket 服务
+      let kvPodLogWss: any = null;
+      try {
+        const { createKvPodLogWss } = await import('./ws/kvPodLog');
+        kvPodLogWss = createKvPodLogWss();
+        logger.info('KubeVirt Pod Log 服务已创建 (Headless)');
+      } catch (e: any) {
+        logger.warn('创建 KubeVirt Pod Log 服务失败:', e?.message || e);
+      }
 
-    // 初始化 Pod 终端 WebSocket 服务
-    let kvPodExecWss: any = null;
-    try {
-      const { createKvPodExecWss } = await import('./ws/kvPodExec');
-      kvPodExecWss = createKvPodExecWss();
-      console.log('KubeVirt Pod Exec 服务已创建 (Headless)');
-    } catch (e: any) {
-      console.warn('创建 KubeVirt Pod Exec 服务失败:', e?.message || e);
-    }
+      // 初始化 Pod 终端 WebSocket 服务
+      let kvPodExecWss: any = null;
+      try {
+        const { createKvPodExecWss } = await import('./ws/kvPodExec');
+        kvPodExecWss = createKvPodExecWss();
+        console.log('KubeVirt Pod Exec 服务已创建 (Headless)');
+      } catch (e: any) {
+        console.warn('创建 KubeVirt Pod Exec 服务失败:', e?.message || e);
+      }
 
-    // 统一处理 HTTP Upgrade 请求
-    server.on('upgrade', (req, socket, head) => {
-      const pathname = req.url || '';
-      // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
+      // 统一处理 HTTP Upgrade 请求
+      server.on('upgrade', (req, socket, head) => {
+        const pathname = req.url || '';
+        // console.log(`[HTTP-Upgrade] Url: ${pathname}`);
 
-      if (pathname.startsWith('/ws/kv-pod-exec')) {
-        if (kvPodExecWss) {
-          kvPodExecWss.handleUpgrade(req, socket, head, (ws: any) => {
-            kvPodExecWss.emit('connection', ws, req);
-          });
+        if (pathname.startsWith('/ws/kv-pod-exec')) {
+          if (kvPodExecWss) {
+            kvPodExecWss.handleUpgrade(req, socket, head, (ws: any) => {
+              kvPodExecWss.emit('connection', ws, req);
+            });
+          } else {
+            socket.destroy();
+          }
+        } else if (pathname.startsWith('/ws/kv-pod-log')) {
+          if (kvPodLogWss) {
+            kvPodLogWss.handleUpgrade(req, socket, head, (ws: any) => {
+              kvPodLogWss.emit('connection', ws, req);
+            });
+          } else {
+            socket.destroy();
+          }
+        } else if (pathname.startsWith('/ws/kv-vnc')) {
+          if (kvVncWss) {
+            kvVncWss.handleUpgrade(req, socket, head, (ws: any) => {
+              kvVncWss.emit('connection', ws, req);
+            });
+          } else {
+            socket.destroy();
+          }
+        } else if (pathname.startsWith('/ws/ssh')) {
+          if (sshWss) {
+            sshWss.handleUpgrade(req, socket, head, (ws: any) => {
+              sshWss.emit('connection', ws, req);
+            });
+          } else {
+            socket.destroy();
+          }
+        } else if (pathname.startsWith('/ws/vnc')) {
+          if (vncWss) {
+            vncWss.handleUpgrade(req, socket, head, (ws: any) => {
+              vncWss.emit('connection', ws, req);
+            });
+          } else {
+            socket.destroy();
+          }
         } else {
           socket.destroy();
         }
-      } else if (pathname.startsWith('/ws/kv-pod-log')) {
-        if (kvPodLogWss) {
-          kvPodLogWss.handleUpgrade(req, socket, head, (ws: any) => {
-            kvPodLogWss.emit('connection', ws, req);
-          });
-        } else {
-          socket.destroy();
-        }
-      } else if (pathname.startsWith('/ws/kv-vnc')) {
-        if (kvVncWss) {
-          kvVncWss.handleUpgrade(req, socket, head, (ws: any) => {
-            kvVncWss.emit('connection', ws, req);
-          });
-        } else {
-          socket.destroy();
-        }
-      } else if (pathname.startsWith('/ws/ssh')) {
-        if (sshWss) {
-          sshWss.handleUpgrade(req, socket, head, (ws: any) => {
-            sshWss.emit('connection', ws, req);
-          });
-        } else {
-          socket.destroy();
-        }
-      } else if (pathname.startsWith('/ws/vnc')) {
-        if (vncWss) {
-          vncWss.handleUpgrade(req, socket, head, (ws: any) => {
-            vncWss.emit('connection', ws, req);
-          });
-        } else {
-          socket.destroy();
-        }
+      });
+
+      const listenHost = process.env.LISTEN_HOST?.trim();
+      if (listenHost) {
+        server.listen(PORT, listenHost, () => {
+          logger.info(
+            `后端服务运行在 ${listenHost}:${PORT}`,
+            `NODE_ENV=${process.env.NODE_ENV ?? ''}`,
+          );
+        });
       } else {
-        socket.destroy();
+        server.listen(PORT, () => {
+          logger.info(`后端服务运行在端口 ${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
+        });
       }
+    })
+    .catch((error: any) => {
+      logger.error('数据库连接失败:', error);
+      // 数据库不可用时直接退出，避免以不稳定状态对外提供服务
+      process.exit(1);
     });
+}
 
-    const listenHost = process.env.LISTEN_HOST?.trim();
-    if (listenHost) {
-      server.listen(PORT, listenHost, () => {
-        logger.info(
-          `后端服务运行在 ${listenHost}:${PORT}`,
-          `NODE_ENV=${process.env.NODE_ENV ?? ''}`,
-        );
-      });
-    } else {
-      server.listen(PORT, () => {
-        logger.info(`后端服务运行在端口 ${PORT}`, `NODE_ENV=${process.env.NODE_ENV ?? ''}`);
-      });
-    }
-  })
-  .catch((error: any) => {
-    logger.error('数据库连接失败:', error);
-    // 数据库不可用时直接退出，避免以不稳定状态对外提供服务
-    process.exit(1);
-  });
+if (require.main === module) {
+  startServer();
+}
