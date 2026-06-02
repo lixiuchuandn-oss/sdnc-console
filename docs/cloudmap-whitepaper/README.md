@@ -90,11 +90,11 @@ pandoc -o docs/cloudmap-whitepaper/templates/reference.docx --print-default-data
 
 ## 与仓库其他文档的关系
 
-| 文档 | 关系 |
-|------|------|
-| `docs/cloudmap-whitepaper/writing-style.md` | 白皮书专用写作约束 |
-| `deployment/*.docx` | **生成输出**（gitignore），非源稿 |
-| `AGENTS.md` | 产品能力以代码为准；白皮书须与实现一致 |
+| 文档                                        | 关系                                   |
+| ------------------------------------------- | -------------------------------------- |
+| `docs/cloudmap-whitepaper/writing-style.md` | 白皮书专用写作约束                     |
+| `deployment/*.docx`                         | **生成输出**（gitignore），非源稿      |
+| `AGENTS.md`                                 | 产品能力以代码为准；白皮书须与实现一致 |
 
 ## 维护建议
 
