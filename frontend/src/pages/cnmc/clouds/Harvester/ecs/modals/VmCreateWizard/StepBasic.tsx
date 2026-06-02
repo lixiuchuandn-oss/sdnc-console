@@ -43,6 +43,8 @@ import {
   parseMemoryToBytes,
 } from '../../drawers/shared/lib/harvesterNodeResourceUtils';
 import { useHarvesterNodeResourceMaps } from '../../drawers/shared/lib/useHarvesterNodeResourceMaps';
+import type { PodAffinityEditorHandle } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
+import StepOthersPodAffinity from './StepOthersPodAffinity';
 
 /**
  * 组件 Props 定义
@@ -88,6 +90,9 @@ interface StepBasicProps {
   isTenant?: boolean;
   /** 命名空间原始对象（用于按 tower.io/scenario 默认选中） */
   namespaceRecords?: any[];
+  namespacesOptions: string[];
+  podAffinityRef: React.RefObject<PodAffinityEditorHandle>;
+  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle>;
 }
 
 const StepBasic: React.FC<StepBasicProps> = ({
@@ -110,6 +115,9 @@ const StepBasic: React.FC<StepBasicProps> = ({
   filteredNodes,
   isTenant,
   namespaceRecords,
+  namespacesOptions,
+  podAffinityRef,
+  podAntiAffinityRef,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
@@ -252,7 +260,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
 
       {/* === 调度策略配置 === */}
       {hostModeState === 'label' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
           <div className="wizard-section-title">标签选择</div>
           <Form.List name="nodeSelectorPairs">
             {(fields, { add, remove }) => (
@@ -282,7 +290,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
       )}
 
       {hostModeState === 'node' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
           <div className="wizard-section-title">主机列表</div>
           <Space style={{ width: '100%' }}>
             <Input allowClear size="small" placeholder="搜索主机名称/IP" value={nodeKeyword} onChange={(e) => setNodeKeyword(e.target.value)} style={{ flex: 1 }} />
@@ -491,59 +499,68 @@ const StepBasic: React.FC<StepBasicProps> = ({
           />
         </div>
       ) : null}
-      
-      {/* === 3. 基本信息 === */}
+
+      {/* === 3. 信息（名称、描述） === */}
       <div className="wizard-group-title">信息</div>
-      <Form.Item 
-        label="虚拟机名称" 
-        name="name" 
-        preserve
-        dependencies={['namespace']}
-        validateTrigger="onChange"
-        rules={[
-          { required: true, message: '请输入虚拟机名称' },
-          {
-            validator: async (_: any, value: any) => {
-              const name = String(value || '').trim();
-              if (!name) return;
-              const ns = String(form.getFieldValue('namespace') || '').trim();
-              if (!ns) return;
-              const list = Array.isArray(existingVms) ? existingVms : [];
-              const getVmNamespace = (vm: any) => {
-                const direct = vm?.namespace || vm?.metadata?.namespace;
-                if (direct) return String(direct).trim();
-                const iid = vm?.InstanceId || vm?.id || vm?.metadata?.name;
-                const s = String(iid || '').trim();
-                if (s.includes('/')) return s.split('/')[0].trim();
-                return '';
-              };
-              const getVmAlias = (vm: any) => {
-                return String(
-                  vm?.metadata?.annotations?.['tower.io/alias'] ||
-                  vm?.annotations?.['tower.io/alias'] ||
-                  ''
-                ).trim();
-              };
-              const dup = list.some((vm: any) => {
-                const vmNs = getVmNamespace(vm);
-                if (!vmNs || vmNs !== ns) return false;
-                const alias = getVmAlias(vm);
-                if (!alias) return false;
-                return alias === name;
-              });
-              if (dup) throw new Error('虚拟机名称不可重复，请修改虚拟机名称');
-            }
-          }
-        ]}
-      >
-        <Input placeholder="显示名称（支持中文）" />
-      </Form.Item>
-      <Form.Item label="描述" name="description" preserve>
-        <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
-      </Form.Item>
-      <Form.Item label="虚机组" name="group" preserve>
-        <Select placeholder="未选择虚拟机组" options={[{ label: '未选择', value: '' }]} />
-      </Form.Item>
+      <Row gutter={12}>
+        <Col span={24}>
+          <Form.Item
+            label="虚拟机名称"
+            name="name"
+            preserve
+            dependencies={['namespace']}
+            validateTrigger="onChange"
+            rules={[
+              { required: true, message: '请输入虚拟机名称' },
+              {
+                validator: async (_: any, value: any) => {
+                  const name = String(value || '').trim();
+                  if (!name) return;
+                  const ns = String(form.getFieldValue('namespace') || '').trim();
+                  if (!ns) return;
+                  const list = Array.isArray(existingVms) ? existingVms : [];
+                  const getVmNamespace = (vm: any) => {
+                    const direct = vm?.namespace || vm?.metadata?.namespace;
+                    if (direct) return String(direct).trim();
+                    const iid = vm?.InstanceId || vm?.id || vm?.metadata?.name;
+                    const s = String(iid || '').trim();
+                    if (s.includes('/')) return s.split('/')[0].trim();
+                    return '';
+                  };
+                  const getVmAlias = (vm: any) => {
+                    return String(
+                      vm?.metadata?.annotations?.['tower.io/alias'] ||
+                      vm?.annotations?.['tower.io/alias'] ||
+                      ''
+                    ).trim();
+                  };
+                  const dup = list.some((vm: any) => {
+                    const vmNs = getVmNamespace(vm);
+                    if (!vmNs || vmNs !== ns) return false;
+                    const alias = getVmAlias(vm);
+                    if (!alias) return false;
+                    return alias === name;
+                  });
+                  if (dup) throw new Error('虚拟机名称不可重复，请修改虚拟机名称');
+                },
+              },
+            ]}
+          >
+            <Input placeholder="显示名称（支持中文）" />
+          </Form.Item>
+        </Col>
+        <Col span={24}>
+          <Form.Item label="描述" name="description" preserve>
+            <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      <StepOthersPodAffinity
+        namespacesOptions={namespacesOptions}
+        podAffinityRef={podAffinityRef}
+        podAntiAffinityRef={podAntiAffinityRef}
+      />
     </>
   );
 };

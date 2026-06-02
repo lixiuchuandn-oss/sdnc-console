@@ -1,8 +1,9 @@
 /**
- * 创建向导 · 其它选项 · 虚拟机间亲和/反亲和（可选）。
+ * 创建向导 · 基本信息 · 虚拟机间亲和/反亲和（可选）。
+ * 置于「信息」名称/描述之后，独立分组（非「信息」节内容）。
  */
 import React, { useRef } from 'react';
-import { Collapse, Typography } from 'antd';
+import { Collapse } from 'antd';
 import PodAffinityEditor, {
   type PodAffinityEditorHandle,
 } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
@@ -20,17 +21,15 @@ const StepOthersPodAffinity: React.FC<StepOthersPodAffinityProps> = ({
 }) => {
   return (
     <>
-      <div className="wizard-group-title">虚拟机间调度（可选）</div>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        与宿主机调度（运行位置 / 节点亲和）独立。常用拓扑域{' '}
-        <Typography.Text code>kubernetes.io/hostname</Typography.Text> 表示同机或分机部署。
-      </Typography.Paragraph>
+      <div className="wizard-group-title">亲和性（可选）</div>
       <Collapse
+        ghost
         defaultActiveKey={[]}
+        className="wizard-collapse-nopad"
         items={[
           {
             key: 'podAffinity',
-            label: '虚拟机亲和性',
+            label: '虚拟机亲和性（尽量/必须同域部署）',
             children: (
               <PodAffinityEditor
                 ref={podAffinityRef}
@@ -42,7 +41,7 @@ const StepOthersPodAffinity: React.FC<StepOthersPodAffinityProps> = ({
           },
           {
             key: 'podAntiAffinity',
-            label: '虚拟机反亲和性',
+            label: '虚拟机反亲和性（尽量/必须分散部署）',
             children: (
               <PodAffinityEditor
                 ref={podAntiAffinityRef}

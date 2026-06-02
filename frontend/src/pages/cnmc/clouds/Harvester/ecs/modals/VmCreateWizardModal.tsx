@@ -340,7 +340,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const getStepFields = (stepIdx: number): any[] => {
     switch (stepIdx) {
       case 0: // Basic
-        return ['cloudId', 'namespace', 'name', 'hostMode', 'clusterArch', 'machineType', 'nodeSelectorPairs', 'description', 'group'];
+        return ['cloudId', 'namespace', 'name', 'hostMode', 'clusterArch', 'machineType', 'nodeSelectorPairs', 'description'];
       case 1: // Compute
         return ['cpu', 'memory', 'hotExpandEnabled', 'cpuSockets', 'cpuCores', 'cpuThreads', 'cpuModel', 'cpuModelCustom', 'gpuMode', 'gpuList'];
       case 2: // Disks
@@ -849,6 +849,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   filteredNodes={filteredNodes}
                   isTenant={isTenant}
                   namespaceRecords={namespaces}
+                  namespacesOptions={wizardNamespacesOptions}
+                  podAffinityRef={podAffinityRef}
+                  podAntiAffinityRef={podAntiAffinityRef}
                 />
               </div>
               <div
@@ -935,9 +938,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   reloadUsbResources={reloadUsbResources}
                   sshKeyOptions={sshKeyOptions}
                   reloadSshKeys={reloadSshKeys}
-                  namespacesOptions={wizardNamespacesOptions}
-                  podAffinityRef={podAffinityRef}
-                  podAntiAffinityRef={podAntiAffinityRef}
                 />
               </div>
             </div>

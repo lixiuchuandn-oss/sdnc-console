@@ -185,8 +185,8 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
           return '自动调度至合适的主机';
         })()
       },
-      // 基础信息：名称/描述/分组（未填显示 '-'）
-      info: { name: v.name || '-', desc: v.description || '-', group: v.group || '-' },
+      // 基础信息：名称/描述（未填显示 '-'）
+      info: { name: v.name || '-', desc: v.description || '-' },
 
       // 计算：CPU/内存及可选项（热扩容、拓扑、模式、绑定、隔离、QoS）
       compute: {
@@ -283,15 +283,17 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <span className="wizard-summary-value" title={summary.location.project}>{summary.location.project}</span>
           </div>
 
-          {/* 基础信息：名称、分组 */}
+          {/* 基础信息：名称 */}
           <div className="wizard-summary-item">
             <span className="wizard-summary-label" title="名称">名称</span>
             <span className="wizard-summary-value" title={summary.info.name}>{summary.info.name}</span>
           </div>
-          <div className="wizard-summary-item">
-            <span className="wizard-summary-label" title="分组">分组</span>
-            <span className="wizard-summary-value" title={summary.info.group}>{summary.info.group}</span>
-          </div>
+          {summary.podScheduling ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="虚拟机间调度">虚拟机间调度</span>
+              <span className="wizard-summary-value" title={summary.podScheduling}>{summary.podScheduling}</span>
+            </div>
+          ) : null}
 
           {/* 计算资源：vCPU、内存及可选 CPU 相关高级配置 */}
           <div className="wizard-summary-item">
@@ -418,12 +420,6 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <span className="wizard-summary-label" title="运行策略">运行策略</span>
             <span className="wizard-summary-value" title={summary.runStrategy}>{summary.runStrategy}</span>
           </div>
-          {summary.podScheduling ? (
-            <div className="wizard-summary-item">
-              <span className="wizard-summary-label" title="虚拟机间调度">虚拟机间调度</span>
-              <span className="wizard-summary-value" title={summary.podScheduling}>{summary.podScheduling}</span>
-            </div>
-          ) : null}
           <div className="wizard-summary-item">
             <span className="wizard-summary-label" title="固件">固件</span>
             <span

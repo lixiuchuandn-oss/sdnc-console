@@ -23,6 +23,7 @@
 .wizard-step-panel.is-active { display: block; }
 /* 分组标题与表单间距（中间列） */
 .wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
+.wizard-section .ant-form-vertical .ant-form-item { margin-bottom: 12px; }
 /* Radio 外观（中间列） */
 .wizard-container .ant-radio-group .ant-radio-button-wrapper { height: 28px; line-height: 26px; padding: 0 10px; font-size: 12px; }
 /* 中间列磁盘卡片状态（系统盘等若复用 Card 时仍可用） */

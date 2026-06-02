@@ -707,7 +707,7 @@ const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityE
 
       {requiredRules.length === 0 && preferredRules.length === 0 && (
         <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
-          未配置 Pod 亲和性规则，点击上方按钮添加
+          未配置 {label}规则，点击上方按钮添加
         </div>
       )}
 
