@@ -52,9 +52,7 @@ import {
   handleWorkloadSubmitError,
   prepareWorkloadSubmit,
 } from './workloadForm/submitWorkload';
-import {
-  confirmHighRiskOperation,
-} from '../../shared/lib/highRiskConfirm';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 
 import { createEmptyContainer, toContainerEditorFields } from './workloadForm/containerDefaults';
 import { buildK8sResource } from './workloadForm/buildK8sResource';

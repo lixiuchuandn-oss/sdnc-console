@@ -916,7 +916,8 @@ const PodsSection: React.FC<Props> = ({
               确定要安全驱逐 Pod <strong>{name}</strong> 吗？
             </p>
             <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-              驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。如果 PDB 规则不允许此次驱逐，操作将被阻止。
+              驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。如果 PDB
+              规则不允许此次驱逐，操作将被阻止。
             </p>
           </div>
         ),
@@ -943,7 +944,8 @@ const PodsSection: React.FC<Props> = ({
                       Pod <strong>{name}</strong> 的驱逐操作被 PodDisruptionBudget 阻止。
                     </p>
                     <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-                      这表明 PDB 规则正在保护此 Pod，以确保服务可用性。请检查相关的 PDB 配置或等待其他 Pod 恢复后再试。
+                      这表明 PDB 规则正在保护此 Pod，以确保服务可用性。请检查相关的 PDB
+                      配置或等待其他 Pod 恢复后再试。
                     </p>
                   </div>
                 ),
@@ -1015,7 +1017,8 @@ const PodsSection: React.FC<Props> = ({
             确定要安全驱逐选中的 <strong>{selectedPods.length}</strong> 个 Pod 吗？
           </p>
           <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB 保护机制。若规则不允许，部分驱逐将被阻止。
+            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB
+            保护机制。若规则不允许，部分驱逐将被阻止。
           </p>
         </div>
       ),
