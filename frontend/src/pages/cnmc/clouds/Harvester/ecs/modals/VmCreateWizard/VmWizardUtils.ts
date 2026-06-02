@@ -3,6 +3,7 @@ import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../.
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptions';
 import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
+import { buildPodAffinityForK8s } from '../../lib/podAffinityK8s';
 import { findGpuResource, getGpuNodeName, getGpuResourceName } from '../../lib/gpuResourceResolve';
 
 /**
@@ -993,6 +994,14 @@ export const buildHarvesterVmPayload = (params: {
                 evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,
                 hostname: vmId || v.name,
                 nodeSelector: nodeSelector,
+                affinity: (function () {
+                  const a: Record<string, unknown> = {};
+                  const pa = buildPodAffinityForK8s(v.podAffinity);
+                  const paa = buildPodAffinityForK8s(v.podAntiAffinity);
+                  if (pa) a.podAffinity = pa;
+                  if (paa) a.podAntiAffinity = paa;
+                  return Object.keys(a).length > 0 ? a : undefined;
+                })(),
                 domain: {
                     cpu: {
                         cores: cores,

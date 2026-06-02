@@ -1,8 +1,17 @@
 import dayjs from 'dayjs';
 import { isSystemNamespace } from 'utils/harvesterUtils';
 
+/**
+ * HSM / 调度底座在自动触发的 VirtualMachineInstanceMigration 上打的 label。
+ * 值为告警指纹，用于关联是哪次告警触发了本次热迁移（DRS 执行记录）。
+ */
+export const MIGRATION_AUTO_SCHEDULED_FINGERPRINT_LABEL =
+  'hci.manager.system/auto-scheduled-fingerprint';
+
 /** 列表行（K8s VirtualMachineInstanceMigration 及兼容结构） */
 export type MigrationTableRow = Record<string, unknown>;
+
+export type MigrationTriggerFilter = '' | 'auto' | 'manual';
 
 /** 迁移对象字段读取（兼容多种后端结构） */
 export const migrationRowFields = {
@@ -65,6 +74,22 @@ export const migrationRowFields = {
     const row = r as { name?: string; uid?: string };
     return x?.metadata?.name || row?.name || x?.Name || x?.metadata?.uid || row?.uid || '-';
   },
+  labels: (r: unknown) => {
+    const x = migrationRowFields.base(r) as {
+      metadata?: { labels?: Record<string, string> };
+      labels?: Record<string, string>;
+    };
+    const row = r as { labels?: Record<string, string> };
+    return x?.metadata?.labels || row?.labels || (r as { labels?: Record<string, string> })?.labels;
+  },
+  /** 自动调度（HSM/DRS）触发的告警指纹；无则 undefined */
+  autoScheduledFingerprint: (r: unknown) => {
+    const labels = migrationRowFields.labels(r);
+    const v = labels?.[MIGRATION_AUTO_SCHEDULED_FINGERPRINT_LABEL];
+    const s = v != null ? String(v).trim() : '';
+    return s || undefined;
+  },
+  isAutoScheduledMigration: (r: unknown) => !!migrationRowFields.autoScheduledFingerprint(r),
 };
 
 export function translateMigrationPhase(phase: string): string {
@@ -124,6 +149,7 @@ export type MigrationsFilterState = {
   keyword: string;
   statusFilter: string;
   namespaceFilter: string;
+  triggerFilter: MigrationTriggerFilter;
 };
 
 export function filterMigrationsForTable(
@@ -137,11 +163,19 @@ export function filterMigrationsForTable(
     const phase = String(migrationRowFields.phase(item) || '');
     if (f.namespaceFilter && ns !== f.namespaceFilter) return false;
     if (f.statusFilter && phase !== f.statusFilter) return false;
+    if (f.triggerFilter === 'auto' && !migrationRowFields.isAutoScheduledMigration(item)) return false;
+    if (f.triggerFilter === 'manual' && migrationRowFields.isAutoScheduledMigration(item)) return false;
     if (!k) return true;
     const taskId = String(migrationRowFields.taskId(item) || '').toLowerCase();
     const vmName = String(migrationRowFields.vmName(item) || '').toLowerCase();
     const vmDisplayName = String(resolveVmDisplayName(item, vms) || '').toLowerCase();
-    return taskId.includes(k) || vmName.includes(k) || vmDisplayName.includes(k);
+    const fingerprint = String(migrationRowFields.autoScheduledFingerprint(item) || '').toLowerCase();
+    return (
+      taskId.includes(k) ||
+      vmName.includes(k) ||
+      vmDisplayName.includes(k) ||
+      fingerprint.includes(k)
+    );
   });
   return filtered.sort((a, b) => {
     const timeA = migrationRowFields.createdAt(a);

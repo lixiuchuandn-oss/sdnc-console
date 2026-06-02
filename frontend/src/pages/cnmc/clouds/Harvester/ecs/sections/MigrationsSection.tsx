@@ -50,6 +50,7 @@ const MigrationsSection: React.FC<Props> = ({
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
+  const [triggerFilter, setTriggerFilter] = useState<'' | 'auto' | 'manual'>('');
   const { user } = useAuth();
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
@@ -98,8 +99,13 @@ const MigrationsSection: React.FC<Props> = ({
   );
 
   const filteredData = useMemo(
-    () => filterMigrationsForTable(data, { keyword, statusFilter, namespaceFilter }, vms),
-    [data, keyword, namespaceFilter, statusFilter, vms],
+    () =>
+      filterMigrationsForTable(
+        data,
+        { keyword, statusFilter, namespaceFilter, triggerFilter },
+        vms,
+      ),
+    [data, keyword, namespaceFilter, statusFilter, triggerFilter, vms],
   );
 
   const statusOptions = useMemo(() => buildMigrationStatusOptions(data), [data]);
@@ -127,7 +133,7 @@ const MigrationsSection: React.FC<Props> = ({
         <>
           <Input
             allowClear
-            placeholder="任务ID/虚拟机"
+            placeholder="任务ID/虚拟机/告警指纹"
             suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
@@ -152,6 +158,17 @@ const MigrationsSection: React.FC<Props> = ({
             className="toolbar-filter-sm"
             options={statusOptions}
           />
+          <Select
+            allowClear
+            placeholder="触发来源"
+            value={triggerFilter || undefined}
+            onChange={(v) => setTriggerFilter((v as '' | 'auto' | 'manual') || '')}
+            className="toolbar-filter-sm"
+            options={[
+              { value: 'auto', label: '自动调度（含告警指纹）' },
+              { value: 'manual', label: '人工/其他' },
+            ]}
+          />
           <button
             type="button"
             className="toolbar-reset-btn"
@@ -159,6 +176,7 @@ const MigrationsSection: React.FC<Props> = ({
               setKeyword('');
               setNamespaceFilter('');
               setStatusFilter('');
+              setTriggerFilter('');
             }}
           >
             重置

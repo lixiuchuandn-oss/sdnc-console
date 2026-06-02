@@ -10,6 +10,7 @@ import { fetchHarvesterNodes, fetchHarvesterVolume } from '../../../../../../../
 import { fetchHarvesterResourceByLink } from 'services/harvester/resource';
 import { fetchHarvesterVmPod, fetchHarvesterEvents } from '../../../../../../../services/loggingApi';
 import type { DiagnosisResult, DiagnosisStep, StepStatus } from "./lib/diagnosisTypes";
+import { analyzePodSchedulingAffinity } from "../../lib/analyzePodSchedulingAffinity";
 import {
   VM_DIAGNOSIS_SECTION_GAP,
   VM_DIAGNOSIS_TEXT_SECONDARY,
@@ -137,6 +138,8 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
       
       // 分析节点选择器
       const nodeSelector = analyzeNodeSelector(vmData, nodesChecked ? nodes : null);
+
+      const podSchedulingAffinity = analyzePodSchedulingAffinity(vmData);
       
       // 构建 VMI 状态对象（先构建，以便后续使用 nodeName）
       // 优先级：1. vmiData.status (原始 VMI 状态) 2. vmData.status (已合并的 VMI 状态) 3. 推断状态
@@ -208,6 +211,7 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
         events: allEvents.slice(0, 30), // 最近30条事件（包含 Pod 和 VMI 事件）
         nodeAffinity,
         nodeSelector,
+        podSchedulingAffinity,
         resources,
         pvcStatus,
         networkStatus,
@@ -276,6 +280,8 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
           return renderPodInfo(diagnosisData.podInfo, diagnosisData);
         case 'node-affinity':
           return renderNodeAffinity(diagnosisData.nodeAffinity);
+        case 'pod-scheduling-affinity':
+          return renderPodSchedulingAffinity(diagnosisData.podSchedulingAffinity);
         case 'node-selector':
           return renderNodeSelector(diagnosisData.nodeSelector);
         case 'resources':
@@ -321,6 +327,13 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
         description: '检查节点调度约束',
         status: 'wait',
         content: createStepContent('node-affinity')
+      },
+      {
+        key: 'pod-scheduling-affinity',
+        title: '检查虚拟机间亲和性',
+        description: '检查 podAffinity / podAntiAffinity 规则完整性',
+        status: 'wait',
+        content: createStepContent('pod-scheduling-affinity')
       },
       {
         key: 'node-selector',
@@ -380,6 +393,9 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
           if (!diagnosis.nodeAffinity.valid) return 'error';
           if (!diagnosis.nodeAffinity.checked) return 'finish';
           return diagnosis.nodeAffinity.nodesWithLabel > 0 ? 'finish' : 'error';
+        case 'pod-scheduling-affinity':
+          if (!diagnosis.podSchedulingAffinity?.configured) return 'finish';
+          return diagnosis.podSchedulingAffinity.valid ? 'finish' : 'error';
         case 'node-selector':
           if (!diagnosis.nodeSelector?.configured) return 'finish';
           if (!diagnosis.nodeSelector.checked) return 'finish';
@@ -1716,6 +1732,33 @@ const VmDiagnosisContent: React.FC<VmDiagnosisContentProps> = ({
               </Text>
             </Descriptions.Item>
           )}
+        </Descriptions>
+      </Card>
+    );
+  };
+
+  const renderPodSchedulingAffinity = (podSchedulingAffinity: DiagnosisResult['podSchedulingAffinity']) => {
+    if (!podSchedulingAffinity) return null;
+    return (
+      <Card {...DIAG_STEP_CONTENT_CARD}>
+        <Descriptions column={1} size="small" style={DIAG_DESC_INNER}>
+          <Descriptions.Item label="状态">
+            {!podSchedulingAffinity.configured ? (
+              <Text type="secondary">未配置</Text>
+            ) : podSchedulingAffinity.valid ? (
+              <Tag color="success">规则完整</Tag>
+            ) : (
+              <Tag color="error">规则不完整</Tag>
+            )}
+          </Descriptions.Item>
+          {podSchedulingAffinity.configured ? (
+            <Descriptions.Item label="规则摘要">
+              <Text>{podSchedulingAffinity.summary}</Text>
+            </Descriptions.Item>
+          ) : null}
+          <Descriptions.Item label="说明">
+            <Text type="secondary">{podSchedulingAffinity.message}</Text>
+          </Descriptions.Item>
         </Descriptions>
       </Card>
     );

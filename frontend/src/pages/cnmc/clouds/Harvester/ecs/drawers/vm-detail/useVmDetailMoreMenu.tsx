@@ -16,6 +16,7 @@ import {
   ApartmentOutlined,
   ShareAltOutlined,
   ClusterOutlined,
+  TeamOutlined,
   CloudUploadOutlined,
   ThunderboltOutlined,
   ColumnWidthOutlined,
@@ -44,6 +45,7 @@ type ActionMenuCtx = Pick<
   setRealtimeLogsDrawerOpen: (v: boolean) => void;
   setNodeSchedulingOpen: (v: boolean) => void;
   setNodeAffinityOpen: (v: boolean) => void;
+  setPodAffinityOpen: (v: boolean) => void;
   setVmPolicyManageOpen: (v: boolean) => void;
   setCloudInitManageOpen: (v: boolean) => void;
   setPerformanceSettingsOpen: (v: boolean) => void;
@@ -72,6 +74,7 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     setDiagnosisDrawerOpen,
     setNodeSchedulingOpen,
     setNodeAffinityOpen,
+    setPodAffinityOpen,
     setVmPolicyManageOpen,
     setCloudInitManageOpen,
     setPerformanceSettingsOpen,
@@ -221,6 +224,19 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
               },
             },
             {
+              key: "pod_affinity",
+              label: "虚拟机间亲和性",
+              icon: <TeamOutlined />,
+              disabled: !hasEcsWrite,
+              onClick: () => {
+                if (!hasEcsWrite) {
+                  message.error(ecsWriteMsg);
+                  return;
+                }
+                setPodAffinityOpen(true);
+              },
+            },
+            {
               key: "vm_policy",
               label: "高可用设置",
               icon: <ClusterOutlined />,
@@ -351,6 +367,7 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
       setDiagnosisDrawerOpen,
       setNodeSchedulingOpen,
       setNodeAffinityOpen,
+      setPodAffinityOpen,
       setVmPolicyManageOpen,
       setCloudInitManageOpen,
       setPerformanceSettingsOpen,
