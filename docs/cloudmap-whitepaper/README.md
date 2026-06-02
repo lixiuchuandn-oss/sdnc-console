@@ -16,7 +16,7 @@ docs/cloudmap-whitepaper/
 │   │   ├── _chapter.md
 │   │   ├── 3-1-*.md
 │   │   └── ...
-│   ├── 04-*.md …
+│   ├── 04-*.md … 08-术语 … 11-服务与支持
 │   └── assets/               # 可选：本地图片（优先用 URL，见下）
 ├── templates/
 │   └── reference.docx        # 可选：pandoc 版式模板（标题/字体）
