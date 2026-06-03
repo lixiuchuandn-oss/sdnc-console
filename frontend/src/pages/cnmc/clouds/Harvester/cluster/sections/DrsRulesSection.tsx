@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Button, Input, Table } from 'antd';
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
