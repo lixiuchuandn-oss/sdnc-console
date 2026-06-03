@@ -32,6 +32,11 @@ const TENANT_ROOT_CNMC_EXCLUDED_PREFIXES = [
   'clouds.log-configs',
   'clouds.desktop',
   'clouds.compute-cluster',
+  // 旧集群管理原子（已并入 clouds.compute-cluster），同样不下放给租户根用户
+  'clouds.cluster-nodes',
+  'clouds.failure-domains',
+  'clouds.drs',
+  'clouds.migrations',
   'clouds.namespaces',
   'clouds.cluster-networks',
   'clouds.provider-networks',
