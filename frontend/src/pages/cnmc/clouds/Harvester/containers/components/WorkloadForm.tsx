@@ -916,11 +916,20 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const syncedContainers = getSyncedFormValues().containers || [];
 
   return (
-    <div>
+    <div
+      style={{
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       {/* 模式切换 */}
       <div
         style={{
           marginBottom: 16,
+          flexShrink: 0,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -984,6 +993,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           <Form
             form={form}
             layout="vertical"
+            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
             onValuesChange={() => {
               if (!syncingContainerRef.current) {
                 persistActiveContainerToForm();
@@ -1031,11 +1041,16 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               enableStaticIP: false,
             }}
           >
-            <Row gutter={[0, 0]} style={{ height: '100%' }}>
-              <Col span={5}>
+            <Row gutter={[0, 0]} style={{ flex: 1, minHeight: 0, width: '100%' }}>
+              <Col span={5} style={{ height: '100%', minHeight: 0 }}>
                 <div
                   className="wizard-sidebar"
-                  style={{ padding: '0 8px 0 0', minHeight: 'calc(80vh - 24px)' }}
+                  style={{
+                    padding: '0 8px 0 0',
+                    height: '100%',
+                    minHeight: 0,
+                    overflowY: 'auto',
+                  }}
                 >
                   <div>
                     {WORKLOAD_STEPS.map((step, idx) => {
@@ -1058,15 +1073,11 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 </div>
               </Col>
 
-              <Col span={12} style={{ height: '100%' }}>
-                <div
-                  style={{
-                    height: 'calc(80vh - 24px)',
-                    overflowY: 'auto',
-                    padding: '0 30px',
-                    scrollbarGutter: 'stable',
-                  }}
-                >
+              <Col
+                span={12}
+                style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+              >
+                <div className="wizard-step-scroll" style={{ flex: 1, minHeight: 0 }}>
                   <WorkloadFormStepContent
                     currentStep={currentStep}
                     basic={{
@@ -1141,16 +1152,16 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                 </div>
               </Col>
 
-              <Col span={7} style={{ height: '100%' }}>
+              <Col
+                span={7}
+                style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}
+              >
                 <div
+                  className="wizard-preview"
                   style={{
-                    background: '#fff',
-                    border: '1px solid #eaeaea',
-                    borderRadius: 8,
-                    padding: 16,
-                    height: 'calc(80vh - 24px)',
-                    display: 'flex',
-                    flexDirection: 'column',
+                    flex: 1,
+                    minHeight: 0,
+                    marginRight: 0,
                   }}
                 >
                   <div
@@ -1323,14 +1334,24 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           </Form>
         </>
       ) : (
-        <>
-          <WorkloadFormYamlPanel
-            yamlContent={yamlContent}
-            yamlError={yamlError}
-            onYamlChange={handleYamlChange}
-          />
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+            <WorkloadFormYamlPanel
+              yamlContent={yamlContent}
+              yamlError={yamlError}
+              onYamlChange={handleYamlChange}
+            />
+          </div>
 
-          <div style={{ marginTop: 24, textAlign: 'right' }}>
+          <div style={{ marginTop: 16, flexShrink: 0, textAlign: 'right' }}>
             <Space>
               <Button onClick={onCancel}>取消</Button>
               <Button type="primary" loading={loading} onClick={handleSubmit}>
@@ -1338,7 +1359,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
               </Button>
             </Space>
           </div>
-        </>
+        </div>
       )}
 
       {/* 快速创建镜像拉取凭证弹窗 */}

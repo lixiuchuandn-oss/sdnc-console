@@ -180,7 +180,7 @@ const NetworksSection: React.FC<Props> = ({
           }}
           cloudId={cloudId}
           viewLink={yamlViewLink}
-          title="集群网络 YAML"
+          title="集群网络配置"
         />
       ) : null}
     </PageDetailSection>

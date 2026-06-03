@@ -56,11 +56,34 @@ export type HarvesterNodePickerColumnCtx = {
   resourceLoading: boolean;
 };
 
+export type HarvesterNodePickerColumnOptions = {
+  /** 创建向导等窄容器：取消资源列 minWidth，文案可换行，避免横向滚动条 */
+  compact?: boolean;
+};
+
+function resourceCellWrapStyle(compact?: boolean): React.CSSProperties | undefined {
+  return compact ? { minWidth: 0, width: '100%' } : { minWidth: 180 };
+}
+
+function resourceStatLineStyle(compact?: boolean): React.CSSProperties {
+  return {
+    color: 'rgba(0,0,0,0.45)',
+    fontSize: 10,
+    lineHeight: '12px',
+    marginBottom: 3,
+    ...(compact ? { wordBreak: 'break-word' as const } : null),
+  };
+}
+
 /** 创建向导 / 资源变配「指定主机」共用的主机表列（名称、状态、CPU、内存）。 */
 export function buildHarvesterNodePickerTableColumns(
   ctx: HarvesterNodePickerColumnCtx,
+  options?: HarvesterNodePickerColumnOptions,
 ): ColumnsType<any> {
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } = ctx;
+  const compact = options?.compact;
+  const cellWrapStyle = resourceCellWrapStyle(compact);
+  const statLineStyle = resourceStatLineStyle(compact);
 
   return [
     {
@@ -107,7 +130,7 @@ export function buildHarvesterNodePickerTableColumns(
       render: (_: unknown, r: any) => {
         if (resourceLoading) {
           return (
-            <div style={{ minWidth: 180, padding: '10px 0' }}>
+            <div style={{ ...(cellWrapStyle || {}), padding: '10px 0' }}>
               <Spin size="small" />
             </div>
           );
@@ -129,7 +152,7 @@ export function buildHarvesterNodePickerTableColumns(
         const requestedRemaining = allocatable - requested;
         const usedRemaining = capacity - used;
         return (
-          <div style={{ minWidth: 180 }}>
+          <div style={cellWrapStyle}>
             <div
               style={{
                 display: 'flex',
@@ -137,6 +160,7 @@ export function buildHarvesterNodePickerTableColumns(
                 gap: 6,
                 lineHeight: '16px',
                 marginBottom: 3,
+                minWidth: compact ? 0 : undefined,
               }}
             >
               <Progress
@@ -148,6 +172,7 @@ export function buildHarvesterNodePickerTableColumns(
                 size="small"
                 showInfo={false}
                 strokeColor="#52c41a"
+                style={compact ? { flex: 1, minWidth: 0, marginRight: 0 } : undefined}
               />
               <span style={{ fontSize: 11 }}>
                 {typeof requestedPct === 'number'
@@ -155,14 +180,7 @@ export function buildHarvesterNodePickerTableColumns(
                   : '-'}
               </span>
             </div>
-            <div
-              style={{
-                color: 'rgba(0,0,0,0.45)',
-                fontSize: 10,
-                lineHeight: '12px',
-                marginBottom: 3,
-              }}
-            >
+            <div style={statLineStyle}>
               {'可分配总量: ' +
                 allocatable.toFixed(1) +
                 ' / 已分配: ' +
@@ -178,6 +196,7 @@ export function buildHarvesterNodePickerTableColumns(
                 gap: 6,
                 lineHeight: '16px',
                 marginBottom: 2,
+                minWidth: compact ? 0 : undefined,
               }}
             >
               <Progress
@@ -189,14 +208,13 @@ export function buildHarvesterNodePickerTableColumns(
                 size="small"
                 showInfo={false}
                 strokeColor="#1890ff"
+                style={compact ? { flex: 1, minWidth: 0, marginRight: 0 } : undefined}
               />
               <span style={{ fontSize: 11 }}>
                 {typeof usedPct === 'number' ? usedPct.toFixed(0) + '%' : '-'}
               </span>
             </div>
-            <div
-              style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}
-            >
+            <div style={{ ...statLineStyle, marginBottom: 0 }}>
               {'物理总量: ' +
                 capacity.toFixed(1) +
                 ' / 已使用: ' +
@@ -224,7 +242,7 @@ export function buildHarvesterNodePickerTableColumns(
       render: (_: unknown, r: any) => {
         if (resourceLoading) {
           return (
-            <div style={{ minWidth: 180, padding: '10px 0' }}>
+            <div style={{ ...(cellWrapStyle || {}), padding: '10px 0' }}>
               <Spin size="small" />
             </div>
           );
@@ -250,7 +268,7 @@ export function buildHarvesterNodePickerTableColumns(
         const requestedRemaining = allocatable - requested;
         const usedRemaining = capacity - used;
         return (
-          <div style={{ minWidth: 180 }}>
+          <div style={cellWrapStyle}>
             <div
               style={{
                 display: 'flex',
@@ -258,6 +276,7 @@ export function buildHarvesterNodePickerTableColumns(
                 gap: 6,
                 lineHeight: '16px',
                 marginBottom: 3,
+                minWidth: compact ? 0 : undefined,
               }}
             >
               <Progress
@@ -269,6 +288,7 @@ export function buildHarvesterNodePickerTableColumns(
                 size="small"
                 showInfo={false}
                 strokeColor="#52c41a"
+                style={compact ? { flex: 1, minWidth: 0, marginRight: 0 } : undefined}
               />
               <span style={{ fontSize: 11 }}>
                 {typeof requestedPct === 'number'
@@ -276,14 +296,7 @@ export function buildHarvesterNodePickerTableColumns(
                   : '-'}
               </span>
             </div>
-            <div
-              style={{
-                color: 'rgba(0,0,0,0.45)',
-                fontSize: 10,
-                lineHeight: '12px',
-                marginBottom: 3,
-              }}
-            >
+            <div style={statLineStyle}>
               {'可分配总量: ' +
                 allocatable.toFixed(1) +
                 ' / 已分配: ' +
@@ -299,6 +312,7 @@ export function buildHarvesterNodePickerTableColumns(
                 gap: 6,
                 lineHeight: '16px',
                 marginBottom: 2,
+                minWidth: compact ? 0 : undefined,
               }}
             >
               <Progress
@@ -310,14 +324,13 @@ export function buildHarvesterNodePickerTableColumns(
                 size="small"
                 showInfo={false}
                 strokeColor="#1890ff"
+                style={compact ? { flex: 1, minWidth: 0, marginRight: 0 } : undefined}
               />
               <span style={{ fontSize: 11 }}>
                 {typeof usedPct === 'number' ? usedPct.toFixed(0) + '%' : '-'}
               </span>
             </div>
-            <div
-              style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}
-            >
+            <div style={{ ...statLineStyle, marginBottom: 0 }}>
               {'物理总量: ' +
                 capacity.toFixed(1) +
                 ' / 已使用: ' +

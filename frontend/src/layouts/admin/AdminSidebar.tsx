@@ -22,6 +22,7 @@ function menuItemsForSidebar(items: AdminMenuItem[] | undefined): AdminMenuItem[
   if (!items?.length) return [];
   const stripChildIcons = (nodes: AdminMenuItem[]): AdminMenuItem[] =>
     nodes.map((node) => {
+      if (node.type === 'divider') return node;
       const { icon: _omitIcon, ...rest } = node;
       if (rest.children?.length) {
         return { ...rest, children: stripChildIcons(rest.children) };
