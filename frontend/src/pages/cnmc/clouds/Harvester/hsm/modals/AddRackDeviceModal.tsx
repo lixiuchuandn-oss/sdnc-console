@@ -1,17 +1,18 @@
 import React, { useEffect } from 'react';
-import { Form, Input, InputNumber, message, Modal, Select } from 'antd';
+import { Form, Input, message, Modal, Select } from 'antd';
+import {
+  findRackDeviceByUPosition,
+  nextDefaultUPositionForRack,
+  normalizeRackDeviceUPosition,
+  rackDeviceUPositionDuplicateMessage,
+  rackDeviceUPositionKey,
+} from '../lib/rackDeviceUPosition';
 import {
   type DatacenterRack,
   type DatacenterRackDevice,
   createRackDevice,
   patchRackDevice,
 } from '../../../../../../services/datacenterTopologyApi';
-
-function nextSlotOrderForRack(rack: DatacenterRack): number {
-  const ds = rack.devices || [];
-  if (!ds.length) return 0;
-  return Math.max(...ds.map((d) => Number(d.slotOrder) || 0)) + 1;
-}
 
 function withOptionForValue(
   options: { value: string; label: string }[],
@@ -56,13 +57,13 @@ const AddRackDeviceModal: React.FC<AddRackDeviceModalProps> = ({
         sourceKind: editingDevice.sourceKind,
         refKey: editingDevice.refKey ?? undefined,
         customLabel: editingDevice.customLabel ?? undefined,
-        slotOrder: Number(editingDevice.slotOrder) || 0,
+        slotOrder: normalizeRackDeviceUPosition(editingDevice.slotOrder) || '0',
       });
     } else {
       form.resetFields();
       form.setFieldsValue({
         sourceKind: 'switch',
-        slotOrder: nextSlotOrderForRack(rack),
+        slotOrder: nextDefaultUPositionForRack(rack.devices),
       });
     }
   }, [open, rack, editingDevice, form]);
@@ -72,7 +73,7 @@ const AddRackDeviceModal: React.FC<AddRackDeviceModalProps> = ({
     try {
       const v = await form.validateFields();
       const kind = v.sourceKind as string;
-      const slotOrder = Number(v.slotOrder) || 0;
+      const slotOrder = normalizeRackDeviceUPosition(v.slotOrder);
 
       if (isEdit && editingDevice) {
         if (kind === 'custom') {
@@ -215,13 +216,36 @@ const AddRackDeviceModal: React.FC<AddRackDeviceModalProps> = ({
             return null;
           }}
         </Form.Item>
-        <Form.Item name="slotOrder" initialValue={0}>
-          <InputNumber
-            min={0}
-            max={9999}
+        <Form.Item
+          name="slotOrder"
+          initialValue=""
+          validateTrigger={['onChange', 'onBlur']}
+          rules={[
+            {
+              validator: async (_, value) => {
+                const key = rackDeviceUPositionKey(value);
+                if (!key) {
+                  throw new Error('请输入 U 位');
+                }
+                if (!rack) return;
+                const taken = findRackDeviceByUPosition(
+                  rack.devices,
+                  value,
+                  editingDevice?.id,
+                );
+                if (taken) {
+                  throw new Error(rackDeviceUPositionDuplicateMessage(value, rack.name));
+                }
+              },
+            },
+          ]}
+        >
+          <Input
             style={{ width: '100%' }}
-            prefix="机柜排序"
-            placeholder="请输入排序"
+            prefix="U位"
+            placeholder="如 12、12-14、U12"
+            maxLength={64}
+            allowClear
           />
         </Form.Item>
       </Form>

@@ -1,6 +1,7 @@
 /**
  * 机架内嵌物理节点前面板：磁盘/网口槽位纯函数（无 React 依赖）。
  */
+import { isHmsNbdOrRbdDiskEntry } from '../../cluster/lib/physicalNodeDetail/hmsDiskList';
 import type { PortStatusKind } from '../../cluster/lib/parseAswCtlInterfaceStdout';
 
 const NON_PHYSICAL_DISK_TYPES = new Set([
@@ -54,7 +55,9 @@ export function isHmsVirtualDiskEntry(d: any): boolean {
 
 export function physicalHardDisksOnly(hardware: any): any[] {
   const list = hardware && Array.isArray(hardware.disk) ? hardware.disk : [];
-  return list.filter((d: any) => isPhysicalRootDisk(d) && !isHmsVirtualDiskEntry(d));
+  return list.filter(
+    (d: any) => isPhysicalRootDisk(d) && !isHmsVirtualDiskEntry(d) && !isHmsNbdOrRbdDiskEntry(d),
+  );
 }
 
 export function nicStateToPortKind(n: any): PortStatusKind {

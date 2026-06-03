@@ -23,6 +23,7 @@ import {
   switchStableRef,
   type HarvesterNodeRecord,
 } from './datacenterTopologySectionUtils';
+import { compareRackDeviceSlotOrder, formatRackDeviceULabel } from './rackDeviceUPosition';
 
 type Props = {
   cloudId: string;
@@ -112,7 +113,7 @@ const DatacenterRackGrid: React.FC<Props> = ({
             className={['cloudmap-dc-blade-u', canWrite ? 'cloudmap-dc-blade-u--clickable' : '']
               .filter(Boolean)
               .join(' ')}
-            title={canWrite ? '柜内排序 / U 位 · 点击编辑' : '柜内排序 / U 位'}
+            title={canWrite ? 'U 位 · 点击编辑' : 'U 位'}
             role={canWrite ? 'button' : undefined}
             tabIndex={canWrite ? 0 : undefined}
             onClick={
@@ -134,7 +135,7 @@ const DatacenterRackGrid: React.FC<Props> = ({
                 : undefined
             }
           >
-            U{d.slotOrder ?? 0}
+            {formatRackDeviceULabel(d.slotOrder)}
           </div>
           {d.sourceKind === 'node' ? (
             <EmbeddedPhysicalNodeBladeBody
@@ -310,7 +311,7 @@ const DatacenterRackGrid: React.FC<Props> = ({
         <div className="cloudmap-dc-rack-body">
           <div className="cloudmap-dc-bay">
             {[...rack.devices]
-              .sort((a, b) => (a.slotOrder ?? 0) - (b.slotOrder ?? 0))
+              .sort((a, b) => compareRackDeviceSlotOrder(a.slotOrder, b.slotOrder))
               .map((d) => renderDeviceBlade(d, rack, viewDockActive))}
             {rack.devices.length === 0 ? (
               <div className="cloudmap-dc-empty">

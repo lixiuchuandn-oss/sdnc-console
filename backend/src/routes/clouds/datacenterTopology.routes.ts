@@ -9,6 +9,38 @@ import { Cloud } from '../../entities/Cloud';
 import { AuthRequest } from '../../middleware/auth';
 import { createApiPermissionMiddleware } from '../../permissions';
 
+function normalizeRackDeviceUPosition(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function rackDeviceUPositionKey(value: unknown): string {
+  const raw = normalizeRackDeviceUPosition(value);
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (/^u.+/.test(lower)) return lower.slice(1);
+  return lower;
+}
+
+async function findRackDeviceWithUPosition(
+  rackId: string,
+  uPosition: unknown,
+  excludeDeviceId?: string,
+): Promise<{ id: string; slotOrder: string } | null> {
+  const key = rackDeviceUPositionKey(uPosition);
+  if (!key) return null;
+  const rows: any[] = await AppDataSource.query(
+    `SELECT id, slotOrder FROM cloud_datacenter_rack_devices WHERE rackId = ?`,
+    [rackId],
+  );
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (excludeDeviceId && row.id === excludeDeviceId) continue;
+    if (rackDeviceUPositionKey(row.slotOrder) === key) {
+      return { id: row.id, slotOrder: normalizeRackDeviceUPosition(row.slotOrder) || '0' };
+    }
+  }
+  return null;
+}
+
 async function loadCloudOr404(id: string, res: Response): Promise<Cloud | null> {
   const repo = AppDataSource.getRepository(Cloud);
   const cloud = await repo.findOne({ where: { id } });
@@ -25,7 +57,7 @@ type RackDeviceRow = {
   sourceKind: string;
   refKey: string | null;
   customLabel: string | null;
-  slotOrder: number;
+  slotOrder: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -61,7 +93,7 @@ async function listRacksWithDevices(cloudId: string): Promise<RackRow[]> {
       sourceKind: d.sourceKind,
       refKey: d.refKey ?? null,
       customLabel: d.customLabel ?? null,
-      slotOrder: Number(d.slotOrder) || 0,
+      slotOrder: normalizeRackDeviceUPosition(d.slotOrder) || '0',
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
     });
@@ -210,18 +242,22 @@ export function attachDatacenterTopologyRoutes(router: Router) {
             ? String((req.body as any).customLabel).trim() || null
             : null;
         // 占位插板可不加名称，customLabel 为 null，前端用「自定义」等默认展示
-        const slotOrder = Number((req.body as any)?.slotOrder);
+        const slotOrderRaw = (req.body as any)?.slotOrder;
+        const slotOrder =
+          slotOrderRaw !== undefined && slotOrderRaw !== null
+            ? normalizeRackDeviceUPosition(slotOrderRaw) || '0'
+            : '0';
+        if (!rackDeviceUPositionKey(slotOrder)) {
+          return res.status(400).json({ message: 'U 位不能为空' });
+        }
+        const dup = await findRackDeviceWithUPosition(rackId, slotOrder);
+        if (dup) {
+          return res.status(400).json({ message: '该机柜中该 U 位已被占用，请更换' });
+        }
         const sid = randomUUID();
         await AppDataSource.query(
           `INSERT INTO cloud_datacenter_rack_devices (id, rackId, sourceKind, refKey, customLabel, slotOrder) VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            sid,
-            rackId,
-            sourceKind,
-            refKey,
-            customLabel,
-            Number.isFinite(slotOrder) ? slotOrder : 0,
-          ],
+          [sid, rackId, sourceKind, refKey, customLabel, slotOrder],
         );
         const racks = await listRacksWithDevices(id);
         const rack = racks.find((r) => r.id === rackId);
@@ -251,9 +287,17 @@ export function attachDatacenterTopologyRoutes(router: Router) {
         const customLabel = (req.body as any)?.customLabel;
         const refKey = (req.body as any)?.refKey;
         if (slotOrder !== undefined) {
+          const nextSlot = normalizeRackDeviceUPosition(slotOrder) || '0';
+          if (!rackDeviceUPositionKey(nextSlot)) {
+            return res.status(400).json({ message: 'U 位不能为空' });
+          }
+          const dup = await findRackDeviceWithUPosition(rackId, nextSlot, deviceId);
+          if (dup) {
+            return res.status(400).json({ message: '该机柜中该 U 位已被占用，请更换' });
+          }
           await AppDataSource.query(
             `UPDATE cloud_datacenter_rack_devices SET slotOrder = ?, updatedAt = datetime('now') WHERE id = ?`,
-            [Number(slotOrder) || 0, deviceId],
+            [nextSlot, deviceId],
           );
         }
         if (customLabel !== undefined) {

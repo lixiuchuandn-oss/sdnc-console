@@ -64,7 +64,7 @@ describe('datacenterTopologySectionUtils', () => {
         sourceKind: 'node',
         refKey: 'n1',
         customLabel: null,
-        slotOrder: 1,
+        slotOrder: '1',
       },
       {
         id: '2',
@@ -72,7 +72,7 @@ describe('datacenterTopologySectionUtils', () => {
         sourceKind: 'switch',
         refKey: '10.0.0.1',
         customLabel: null,
-        slotOrder: 2,
+        slotOrder: '2',
       },
     ];
     expect(collectTakenRefKeys(devices, 'switch')).toEqual(['10.0.0.1']);
@@ -85,7 +85,7 @@ describe('datacenterTopologySectionUtils', () => {
       sourceKind: 'node',
       refKey: 'ghost',
       customLabel: null,
-      slotOrder: 0,
+      slotOrder: '0',
     };
     expect(resolveRackDeviceLabel(d, [], [])).toContain('未在集群中找到');
   });
@@ -104,7 +104,7 @@ describe('datacenterTopologySectionUtils', () => {
             sourceKind: 'switch',
             refKey: '10.0.0.9',
             customLabel: null,
-            slotOrder: 1,
+            slotOrder: '1',
           },
         ],
       },

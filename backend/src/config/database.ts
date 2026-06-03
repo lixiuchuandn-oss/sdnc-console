@@ -439,7 +439,7 @@ export async function ensureDatacenterTopologyTables() {
           "sourceKind" text NOT NULL,
           "refKey" text,
           "customLabel" text,
-          "slotOrder" integer NOT NULL DEFAULT 0,
+          "slotOrder" text NOT NULL DEFAULT '0',
           "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
           "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
         )

@@ -6,6 +6,7 @@ import {
 } from '../physicalNodeDetailFormatters';
 import { mapHmsLldpRowToKeyFields } from '../physicalNodeDetailDrawerLib';
 import type { NodeStatusSummary, PhysicalNodeDetailTabContext } from './types';
+import { filterHmsDisksForDisplay } from './hmsDiskList';
 
 export type PhysicalNodeDetailDerived = {
   status: NodeStatusSummary | undefined;
@@ -63,7 +64,8 @@ export function buildPhysicalNodeDetailDerived(ctx: PhysicalNodeDetailTabContext
     !hasMetrics || memTotalBytes <= 0 ? 'secondary' : memPct != null && memPct >= 90 ? 'warning' : undefined;
 
   const hw = hardware;
-  const diskList: unknown[] = hw && Array.isArray(hw.disk) ? (hw.disk as unknown[]) : [];
+  const diskList: unknown[] =
+    hw && Array.isArray(hw.disk) ? filterHmsDisksForDisplay(hw.disk as unknown[]) : [];
   const memList: unknown[] = hw && Array.isArray(hw.memory) ? (hw.memory as unknown[]) : [];
   const memListSorted = [...memList].sort((a, b) => {
     const ae = /no module installed/i.test(String((a as { Size?: string })?.Size ?? ''));

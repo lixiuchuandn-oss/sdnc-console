@@ -46,6 +46,18 @@ describe('embeddedPhysicalNodePanelUtils', () => {
       expect(disks).toHaveLength(1);
       expect(disks[0].name).toBe('sda');
     });
+
+    it('excludes NBD and RBD block devices', () => {
+      const disks = physicalHardDisksOnly({
+        disk: [
+          { name: 'sda', type: 'disk', model: 'WDC WD1800' },
+          { name: 'nbd0', type: 'disk', model: 'Ceph' },
+          { name: 'rbd2', type: 'disk' },
+        ],
+      });
+      expect(disks).toHaveLength(1);
+      expect(disks[0].name).toBe('sda');
+    });
   });
 
   describe('nicStateToPortKind', () => {
