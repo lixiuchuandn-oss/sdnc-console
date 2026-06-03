@@ -19,6 +19,10 @@ export type HighRiskPrecheckResult = {
   extra?: React.ReactNode;
 };
 
+export type HighRiskConfirmContext = {
+  adminPassword?: string;
+};
+
 export type ConfirmHighRiskOperationOptions = {
   title: React.ReactNode;
   /** 用于影响确认文案，如「删除项目「foo」」 */
@@ -38,11 +42,17 @@ export type ConfirmHighRiskOperationOptions = {
   impactAckLabel?: React.ReactNode;
   /** 默认 true：须勾选「我已了解影响」 */
   requireImpactAck?: boolean;
+  /** 须输入当前管理员密码后才能确认 */
+  requireAdminPassword?: boolean;
+  adminPasswordLabel?: React.ReactNode;
+  adminPasswordPlaceholder?: string;
+  /** 默认 true（删除/破坏性）；提交类操作建议 false */
+  confirmDanger?: boolean;
   confirmText?: React.ReactNode;
   cancelText?: string;
   width?: number;
   precheck?: () => Promise<HighRiskPrecheckResult | void>;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: (ctx: HighRiskConfirmContext) => void | Promise<void>;
 };
 
 type ModalSession = ConfirmHighRiskOperationOptions & {
@@ -56,7 +66,7 @@ type HighRiskOperationContextValue = {
 
 const HighRiskOperationContext = createContext<HighRiskOperationContextValue | null>(null);
 
-type ConfirmHighRiskDeleteOptions = {
+export type ConfirmHighRiskDeleteOptions = {
   title?: React.ReactNode;
   resourceLabel: string;
   name: string;
@@ -67,7 +77,7 @@ type ConfirmHighRiskDeleteOptions = {
   confirmText?: React.ReactNode;
   alert?: ConfirmHighRiskOperationOptions['alert'];
   precheck?: ConfirmHighRiskOperationOptions['precheck'];
-  onConfirm: () => void | Promise<void>;
+  onConfirm: (ctx: HighRiskConfirmContext) => void | Promise<void>;
 };
 
 /** 模块级 imperative API（须在 Cloudmap 池内 Provider 下使用） */
@@ -130,11 +140,13 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
   const [extra, setExtra] = useState<React.ReactNode>(null);
   const [impactAck, setImpactAck] = useState(false);
   const [typeConfirmValue, setTypeConfirmValue] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const sessionRef = useRef<ModalSession | null>(null);
 
   const resetForm = useCallback(() => {
     setImpactAck(false);
     setTypeConfirmValue('');
+    setAdminPassword('');
     setPrecheckError(null);
     setExtra(null);
   }, []);
@@ -202,12 +214,15 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
   }, [session, runPrecheck]);
 
   const requireImpactAck = session?.requireImpactAck !== false;
+  const requireAdminPassword = !!session?.requireAdminPassword;
   const requireTypeConfirm =
     !!session?.requireTypeConfirm && !!session?.targetName?.trim();
   const expectedName = session?.targetName?.trim() ?? '';
   const typeConfirmed =
     !requireTypeConfirm || typeConfirmValue.trim() === expectedName;
   const impactConfirmed = !requireImpactAck || impactAck;
+  const adminPasswordConfirmed =
+    !requireAdminPassword || adminPassword.trim().length > 0;
 
   const canConfirm =
     !!session &&
@@ -215,6 +230,7 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
     !precheckError &&
     impactConfirmed &&
     typeConfirmed &&
+    adminPasswordConfirmed &&
     !submitting;
 
   const handleCancel = useCallback(() => {
@@ -230,7 +246,9 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
     if (!current || !canConfirm) return;
     setSubmitting(true);
     try {
-      await current.onConfirm();
+      await current.onConfirm({
+        adminPassword: requireAdminPassword ? adminPassword.trim() : undefined,
+      });
       current.resolve();
       closeSession();
     } catch {
@@ -238,7 +256,7 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
     } finally {
       setSubmitting(false);
     }
-  }, [canConfirm, closeSession]);
+  }, [canConfirm, closeSession, requireAdminPassword, adminPassword]);
 
   const contextValue = useMemo(() => ({ confirmHighRisk }), [confirmHighRisk]);
 
@@ -285,6 +303,17 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
               }
             : undefined
         }
+        adminPassword={
+          requireAdminPassword
+            ? {
+                value: adminPassword,
+                onChange: setAdminPassword,
+                label: session?.adminPasswordLabel,
+                placeholder: session?.adminPasswordPlaceholder,
+              }
+            : undefined
+        }
+        confirmDanger={session?.confirmDanger !== false}
         confirmText={session?.confirmText ?? '确认'}
         cancelText={session?.cancelText}
         canConfirm={canConfirm}
