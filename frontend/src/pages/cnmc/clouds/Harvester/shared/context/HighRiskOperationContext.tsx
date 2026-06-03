@@ -256,7 +256,7 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
     } finally {
       setSubmitting(false);
     }
-  }, [canConfirm, closeSession, requireAdminPassword, adminPassword]);
+  }, [adminPassword, canConfirm, closeSession, requireAdminPassword]);
 
   const contextValue = useMemo(() => ({ confirmHighRisk }), [confirmHighRisk]);
 
