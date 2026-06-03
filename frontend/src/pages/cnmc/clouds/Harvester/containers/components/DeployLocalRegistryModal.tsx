@@ -24,7 +24,7 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
-  const [checkingPort, setCheckingPort] = useState(false);
+  const [_checkingPort, setCheckingPort] = useState(false);
   const [portStatus, setPortStatus] = useState<'checking' | 'available' | 'conflict' | null>(null);
 
   useEffect(() => {

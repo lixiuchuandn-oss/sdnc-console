@@ -2,12 +2,11 @@
  * 镜像上传弹窗组件
  */
 import React, { useState } from 'react';
-import { Modal, Form, Input, Upload, message, Progress, Alert, Space, Typography } from 'antd';
-import { InboxOutlined, CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Upload, message, Progress, Alert } from 'antd';
+import { InboxOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { uploadImageToRegistry } from '../../../../../../services/localRegistryApi';
 
 const { Dragger } = Upload;
-const { Text } = Typography;
 
 interface Props {
   visible: boolean;

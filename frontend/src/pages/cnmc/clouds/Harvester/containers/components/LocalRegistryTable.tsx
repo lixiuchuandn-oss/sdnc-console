@@ -1,15 +1,12 @@
 /**
  * 本地 Docker Registry 列表组件
  */
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Tag, Space, Button, App, Popconfirm, Tooltip, Badge, Empty } from 'antd';
-import { DatabaseOutlined, DeleteOutlined, ReloadOutlined, SyncOutlined, LinkOutlined } from '@ant-design/icons';
+import React, { useMemo, useCallback } from 'react';
+import { Table, Tag, Space, App, Tooltip, Badge, Empty } from 'antd';
+import { DatabaseOutlined, DeleteOutlined, SyncOutlined, LinkOutlined } from '@ant-design/icons';
 import { LocalRegistry } from '../../../../../../services/localRegistryApi';
 import { deleteLocalRegistry, refreshLocalRegistryStatus } from '../../../../../../services/localRegistryApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
-import WriteGuard from '../../../../../../components/WriteGuard';
-import { useAuth } from '../../../../../../contexts/AuthContext';
-import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 interface Props {

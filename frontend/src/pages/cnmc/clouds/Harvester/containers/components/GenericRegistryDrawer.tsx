@@ -62,7 +62,6 @@ const GenericRegistryDrawer: React.FC<Props> = ({
 
   const protocol = registry?.insecure ? 'HTTP' : 'HTTPS';
   const hasAuth = !!registry?.username;
-  const isLocalRegistry = !!registry?.localRegistryId;
 
   const handleTestConnection = useCallback(async () => {
     if (!registry) return;

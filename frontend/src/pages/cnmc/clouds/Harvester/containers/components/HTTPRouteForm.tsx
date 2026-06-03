@@ -118,8 +118,8 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
   const currentNamespace = Form.useWatch('namespace', form);
   
   // 当前选择的 Gateway 列表（用于获取监听器）
-  const parentRefs = Form.useWatch('parentRefs', form);
-  const currentRules = Form.useWatch('rules', form);
+  const _parentRefs = Form.useWatch('parentRefs', form);
+  const _currentRules = Form.useWatch('rules', form);
 
   // 初始化默认命名空间和Gateway引用
   useEffect(() => {
@@ -151,7 +151,7 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
   }, [gateways, currentNamespace]);
 
   // 当前选择的 Gateway 列表（用于获取监听器）
-  const selectedGateways = Form.useWatch('parentRefs', form);
+  const _selectedGateways = Form.useWatch('parentRefs', form);
 
   // 构建监听器选项（基于选中的 Gateway）
   const getListenerOptions = (gatewayName: string) => {

@@ -43,9 +43,9 @@ export const registerHarvesterLocalRegistryRoutes = (
 
         const nodePort = parseInt(String(port), 10);
         if (isNaN(nodePort) || nodePort < 30000 || nodePort > 32767) {
-          return res.status(400).json({ 
+          return res.status(400).json({
             message: 'NodePort 端口必须在 30000-32767 范围内',
-            available: false 
+            available: false,
           });
         }
 
@@ -56,12 +56,12 @@ export const registerHarvesterLocalRegistryRoutes = (
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
-        
+
         const origin = extractOrigin(base);
         const servicesUrl = `${origin}/api/v1/services`;
-        
+
         console.log('[检测端口] base:', base, '-> origin:', origin, '-> servicesUrl:', servicesUrl);
-        
+
         const servicesResult = await requestJson('GET', servicesUrl, token, insecure);
 
         const existingPorts = new Set<number>();
@@ -76,9 +76,9 @@ export const registerHarvesterLocalRegistryRoutes = (
         }
 
         const available = !existingPorts.has(nodePort);
-        res.json({ 
+        res.json({
           message: available ? '端口可用' : '端口已被占用',
-          data: { available, port: nodePort }
+          data: { available, port: nodePort },
         });
       } catch (error: any) {
         console.error('[检测端口] 错误:', error);
@@ -98,7 +98,8 @@ export const registerHarvesterLocalRegistryRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id: cloudId } = req.params;
-        const { name, namespace, nodePort, storageSize, authEnabled, username, password } = req.body;
+        const { name, namespace, nodePort, storageSize, authEnabled, username, password } =
+          req.body;
 
         if (!name || !namespace || !nodePort) {
           return res.status(400).json({ message: '缺少必要参数: name, namespace, nodePort' });
@@ -143,12 +144,15 @@ export const registerHarvesterLocalRegistryRoutes = (
           metadata: {
             name: pvcName,
             namespace,
-            labels: { 'app.kubernetes.io/name': deploymentName, 'app.kubernetes.io/managed-by': 'compute-tower' }
+            labels: {
+              'app.kubernetes.io/name': deploymentName,
+              'app.kubernetes.io/managed-by': 'compute-tower',
+            },
           },
           spec: {
             accessModes: ['ReadWriteOnce'],
-            resources: { requests: { storage: storageSize || DEFAULT_STORAGE_SIZE } }
-          }
+            resources: { requests: { storage: storageSize || DEFAULT_STORAGE_SIZE } },
+          },
         };
 
         const pvcUrl = buildCreateUrl(base, '/api/v1/persistentvolumeclaims', namespace);
@@ -161,19 +165,24 @@ export const registerHarvesterLocalRegistryRoutes = (
           }
         }
 
-        const secretBody = authEnabled ? {
-          apiVersion: 'v1',
-          kind: 'Secret',
-          metadata: {
-            name: `${deploymentName}-auth`,
-            namespace,
-            labels: { 'app.kubernetes.io/name': deploymentName, 'app.kubernetes.io/managed-by': 'compute-tower' }
-          },
-          type: 'Opaque',
-          data: {
-            HTPASSWD: Buffer.from(`${username}:${password}`).toString('base64')
-          }
-        } : null;
+        const secretBody = authEnabled
+          ? {
+              apiVersion: 'v1',
+              kind: 'Secret',
+              metadata: {
+                name: `${deploymentName}-auth`,
+                namespace,
+                labels: {
+                  'app.kubernetes.io/name': deploymentName,
+                  'app.kubernetes.io/managed-by': 'compute-tower',
+                },
+              },
+              type: 'Opaque',
+              data: {
+                HTPASSWD: Buffer.from(`${username}:${password}`).toString('base64'),
+              },
+            }
+          : null;
 
         if (secretBody) {
           const secretUrl = buildCreateUrl(base, '/api/v1/secrets', namespace);
@@ -192,7 +201,10 @@ export const registerHarvesterLocalRegistryRoutes = (
           metadata: {
             name: deploymentName,
             namespace,
-            labels: { 'app.kubernetes.io/name': deploymentName, 'app.kubernetes.io/managed-by': 'compute-tower' }
+            labels: {
+              'app.kubernetes.io/name': deploymentName,
+              'app.kubernetes.io/managed-by': 'compute-tower',
+            },
           },
           spec: {
             replicas: 1,
@@ -200,37 +212,58 @@ export const registerHarvesterLocalRegistryRoutes = (
             template: {
               metadata: { labels: { app: deploymentName } },
               spec: {
-                containers: [{
-                  name: 'registry',
-                  image: LOCAL_REGISTRY_IMAGE,
-                  ports: [{ containerPort: 5000, name: 'registry' }],
-                  env: [
-                    { name: 'REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY', value: '/var/lib/registry' },
-                    { name: 'REGISTRY_STORAGE_DELETE_ENABLED', value: 'true' }, // 启用删除功能
-                    ...(authEnabled ? [{ name: 'REGISTRY_AUTH', value: 'htpasswd' }, { name: 'REGISTRY_AUTH_HTPASSWD_PATH', value: '/auth/htpasswd' }, { name: 'REGISTRY_AUTH_HTPASSWD_REALM', value: 'Registry Realm' }] : [])
-                  ],
-                  volumeMounts: [
-                    { name: 'registry-storage', mountPath: '/var/lib/registry' },
-                    ...(authEnabled ? [{ name: 'auth', mountPath: '/auth' }] : [])
-                  ],
-                  readinessProbe: {
-                    httpGet: { path: '/v2/', port: 5000 },
-                    initialDelaySeconds: 5,
-                    periodSeconds: 10
+                containers: [
+                  {
+                    name: 'registry',
+                    image: LOCAL_REGISTRY_IMAGE,
+                    ports: [{ containerPort: 5000, name: 'registry' }],
+                    env: [
+                      {
+                        name: 'REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY',
+                        value: '/var/lib/registry',
+                      },
+                      { name: 'REGISTRY_STORAGE_DELETE_ENABLED', value: 'true' }, // 启用删除功能
+                      ...(authEnabled
+                        ? [
+                            { name: 'REGISTRY_AUTH', value: 'htpasswd' },
+                            { name: 'REGISTRY_AUTH_HTPASSWD_PATH', value: '/auth/htpasswd' },
+                            { name: 'REGISTRY_AUTH_HTPASSWD_REALM', value: 'Registry Realm' },
+                          ]
+                        : []),
+                    ],
+                    volumeMounts: [
+                      { name: 'registry-storage', mountPath: '/var/lib/registry' },
+                      ...(authEnabled ? [{ name: 'auth', mountPath: '/auth' }] : []),
+                    ],
+                    readinessProbe: {
+                      httpGet: { path: '/v2/', port: 5000 },
+                      initialDelaySeconds: 5,
+                      periodSeconds: 10,
+                    },
+                    livenessProbe: {
+                      httpGet: { path: '/v2/', port: 5000 },
+                      initialDelaySeconds: 15,
+                      periodSeconds: 20,
+                    },
                   },
-                  livenessProbe: {
-                    httpGet: { path: '/v2/', port: 5000 },
-                    initialDelaySeconds: 15,
-                    periodSeconds: 20
-                  }
-                }],
+                ],
                 volumes: [
                   { name: 'registry-storage', persistentVolumeClaim: { claimName: pvcName } },
-                  ...(authEnabled ? [{ name: 'auth', secret: { secretName: `${deploymentName}-auth`, items: [{ key: 'HTPASSWD', path: 'htpasswd' }] } }] : [])
-                ]
-              }
-            }
-          }
+                  ...(authEnabled
+                    ? [
+                        {
+                          name: 'auth',
+                          secret: {
+                            secretName: `${deploymentName}-auth`,
+                            items: [{ key: 'HTPASSWD', path: 'htpasswd' }],
+                          },
+                        },
+                      ]
+                    : []),
+                ],
+              },
+            },
+          },
         };
 
         const deployUrl = buildCreateUrl(base, '/apis/apps/v1/deployments', namespace);
@@ -243,13 +276,16 @@ export const registerHarvesterLocalRegistryRoutes = (
           metadata: {
             name: serviceName,
             namespace,
-            labels: { 'app.kubernetes.io/name': deploymentName, 'app.kubernetes.io/managed-by': 'compute-tower' }
+            labels: {
+              'app.kubernetes.io/name': deploymentName,
+              'app.kubernetes.io/managed-by': 'compute-tower',
+            },
           },
           spec: {
             type: 'NodePort',
             selector: { app: deploymentName },
-            ports: [{ port: 5000, targetPort: 5000, nodePort: port, name: 'registry' }]
-          }
+            ports: [{ port: 5000, targetPort: 5000, nodePort: port, name: 'registry' }],
+          },
         };
 
         const svcUrl = buildCreateUrl(base, '/api/v1/services', namespace);
@@ -291,7 +327,10 @@ export const registerHarvesterLocalRegistryRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id: cloudId } = req.params;
-        const registries = await localRegistryRepo.find({ where: { cloudId }, order: { createdAt: 'DESC' } });
+        const registries = await localRegistryRepo.find({
+          where: { cloudId },
+          order: { createdAt: 'DESC' },
+        });
         res.json({ message: '查询成功', data: registries });
       } catch (error: any) {
         console.error('[查询本地仓库] 错误:', error);
@@ -348,8 +387,8 @@ export const registerHarvesterLocalRegistryRoutes = (
         // 更新认证设置
         if (authEnabled !== undefined) {
           registry.authEnabled = !!authEnabled;
-          registry.username = authEnabled ? (username || registry.username) : null;
-          registry.password = authEnabled ? (password || registry.password) : null;
+          registry.username = authEnabled ? username || registry.username : null;
+          registry.password = authEnabled ? password || registry.password : null;
         }
 
         const saved = await localRegistryRepo.save(registry);
@@ -386,22 +425,35 @@ export const registerHarvesterLocalRegistryRoutes = (
         const { namespace, deploymentName, serviceName, pvcName } = registry;
 
         if (deploymentName) {
-          const deployUrl = buildK8sUrl(base, '/apis/apps/v1/deployments', namespace, deploymentName);
-          try { await requestJson('DELETE', deployUrl, token, insecure); } catch {}
+          const deployUrl = buildK8sUrl(
+            base,
+            '/apis/apps/v1/deployments',
+            namespace,
+            deploymentName,
+          );
+          try {
+            await requestJson('DELETE', deployUrl, token, insecure);
+          } catch {}
         }
 
         if (serviceName) {
           const svcUrl = buildK8sUrl(base, '/api/v1/services', namespace, serviceName);
-          try { await requestJson('DELETE', svcUrl, token, insecure); } catch {}
+          try {
+            await requestJson('DELETE', svcUrl, token, insecure);
+          } catch {}
         }
 
         if (pvcName) {
           const pvcUrl = buildK8sUrl(base, '/api/v1/persistentvolumeclaims', namespace, pvcName);
-          try { await requestJson('DELETE', pvcUrl, token, insecure); } catch {}
+          try {
+            await requestJson('DELETE', pvcUrl, token, insecure);
+          } catch {}
         }
 
         const secretUrl = buildK8sUrl(base, '/api/v1/secrets', namespace, `${deploymentName}-auth`);
-        try { await requestJson('DELETE', secretUrl, token, insecure); } catch {}
+        try {
+          await requestJson('DELETE', secretUrl, token, insecure);
+        } catch {}
 
         await localRegistryRepo.remove(registry);
         res.json({ message: '删除成功' });
@@ -435,7 +487,12 @@ export const registerHarvesterLocalRegistryRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
-        const deployUrl = buildK8sUrl(base, '/apis/apps/v1/deployments', registry.namespace, registry.deploymentName!);
+        const deployUrl = buildK8sUrl(
+          base,
+          '/apis/apps/v1/deployments',
+          registry.namespace,
+          registry.deploymentName!,
+        );
         console.log('[刷新状态] URL:', deployUrl);
         const deploy = await requestJson('GET', deployUrl, token, insecure);
 
@@ -467,9 +524,9 @@ export const registerHarvesterLocalRegistryRoutes = (
     async (req: any, res: Response) => {
       try {
         const { registryId } = req.params;
-        const tasks = await uploadTaskRepo.find({ 
-          where: { registryId }, 
-          order: { createdAt: 'DESC' } 
+        const tasks = await uploadTaskRepo.find({
+          where: { registryId },
+          order: { createdAt: 'DESC' },
         });
         res.json({ message: '查询成功', data: tasks });
       } catch (error: any) {
@@ -480,7 +537,7 @@ export const registerHarvesterLocalRegistryRoutes = (
   );
 
   // 配置 multer 用于文件上传
-  const upload = multer({ 
+  const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 * 1024 }, // 5GB 限制
   });
@@ -496,9 +553,9 @@ export const registerHarvesterLocalRegistryRoutes = (
     upload.single('file'),
     async (req: any, res: Response) => {
       try {
-        const { id: cloudId, registryId } = req.params;
+        const { registryId } = req.params;
         const { targetRepo, targetTag } = req.body;
-        
+
         if (!req.file) {
           return res.status(400).json({ message: '请上传镜像 tar 文件' });
         }
@@ -534,7 +591,7 @@ export const registerHarvesterLocalRegistryRoutes = (
 
             // 确定目标仓库和标签
             const repo = targetRepo || 'library';
-            const tag = targetTag || (parsedImage.repoTags[0]?.split(':')[1] || 'latest');
+            const tag = targetTag || parsedImage.repoTags[0]?.split(':')[1] || 'latest';
 
             // 推送镜像
             await pushImageToRegistry(
@@ -564,9 +621,9 @@ export const registerHarvesterLocalRegistryRoutes = (
           }
         })();
 
-        res.json({ 
-          message: '上传任务已创建', 
-          data: { taskId: task.id } 
+        res.json({
+          message: '上传任务已创建',
+          data: { taskId: task.id },
         });
       } catch (error: any) {
         console.error('[上传镜像] 错误:', error);

@@ -41,9 +41,7 @@ function httpRequest(
     const isHttps = parsedUrl.protocol === 'https:';
     const client = isHttps ? https : http;
 
-    const agent = isHttps && insecure
-      ? new https.Agent({ rejectUnauthorized: false })
-      : undefined;
+    const agent = isHttps && insecure ? new https.Agent({ rejectUnauthorized: false }) : undefined;
 
     const reqOptions: http.RequestOptions = {
       hostname: parsedUrl.hostname,
@@ -54,9 +52,9 @@ function httpRequest(
       agent,
     };
 
-    const req = client.request(reqOptions, res => {
+    const req = client.request(reqOptions, (res) => {
       const chunks: Buffer[] = [];
-      res.on('data', chunk => chunks.push(chunk));
+      res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         resolve({
           status: res.statusCode || 0,
@@ -67,7 +65,7 @@ function httpRequest(
     });
 
     req.on('error', reject);
-    req.on('socket', socket => {
+    req.on('socket', (socket) => {
       socket.setTimeout(60000, () => {
         req.destroy(new Error('Request timeout'));
       });
@@ -170,15 +168,9 @@ async function pushManifest(
   const protocol = insecure ? 'http' : 'https';
   const url = `${protocol}://${server}/v2/${repository}/manifests/${tag}`;
 
-  const res = await httpRequest(
-    url,
-    'PUT',
-    insecure,
-    manifest,
-    {
-      'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json',
-    },
-  );
+  const res = await httpRequest(url, 'PUT', insecure, manifest, {
+    'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json',
+  });
 
   if (res.status !== 201 && res.status !== 200) {
     throw new Error(`推送 manifest 失败: ${res.status} ${res.body.toString()}`);
@@ -234,13 +226,7 @@ export async function pushImageToRegistry(
         message: `上传层 ${i + 1}/${parsedImage.layers.length}...`,
       });
 
-      await uploadBlob(
-        server,
-        repository,
-        layer.digest,
-        layer.data!,
-        insecure,
-      );
+      await uploadBlob(server, repository, layer.digest, layer.data!, insecure);
       current++;
     }
 

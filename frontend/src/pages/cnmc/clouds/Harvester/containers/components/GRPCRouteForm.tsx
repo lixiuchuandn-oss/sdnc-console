@@ -107,8 +107,8 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
   const currentNamespace = Form.useWatch('namespace', form);
   
   // 监听 parentRefs 和 rules 的变化，以便动态更新监听器和端口选项
-  const parentRefs = Form.useWatch('parentRefs', form);
-  const currentRules = Form.useWatch('rules', form);
+  const _parentRefs = Form.useWatch('parentRefs', form);
+  const _currentRules = Form.useWatch('rules', form);
 
   useEffect(() => {
     if (defaultNamespace) {

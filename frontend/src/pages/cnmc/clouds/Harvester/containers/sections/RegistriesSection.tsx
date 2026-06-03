@@ -1727,7 +1727,7 @@ const RegistriesSection: React.FC<Props> = ({
         );
       },
     },
-  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, hasContainersWrite]);
+  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, hasContainersWrite, cloudId, loadDeployedRegistries, message]);
   
   // 使用列设置 Hook（镜像仓库）
   const { displayColumns: registryDisplayColumns } = useTableColumnSettings(

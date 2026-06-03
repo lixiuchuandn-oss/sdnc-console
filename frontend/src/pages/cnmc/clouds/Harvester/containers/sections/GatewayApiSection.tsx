@@ -1192,7 +1192,7 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         namespacesOptions={namespacesOptions}
         gatewayClasses={gatewayClasses}
         defaultNamespace={formDefaultNs}
-        onSuccess={(gatewayInfo) => {
+        onSuccess={(_gatewayInfo) => {
           setGatewayModalOpen(false);
           void runContainerSectionRefresh(onRefresh, { force: true });
         }}

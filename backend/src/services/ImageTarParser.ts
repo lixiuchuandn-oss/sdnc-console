@@ -65,7 +65,7 @@ export async function parseDockerImageTar(tarPath: string): Promise<ParsedImage>
 
   // 读取 tar 文件内容到内存（小文件）或流式处理（大文件）
   const tarBuffer = fs.readFileSync(tarPath);
-  
+
   // 创建临时目录用于解压
   const tmpDir = path.join(path.dirname(tarPath), `.tmp-${Date.now()}`);
   fs.mkdirSync(tmpDir, { recursive: true });
@@ -88,23 +88,23 @@ export async function parseDockerImageTar(tarPath: string): Promise<ParsedImage>
 
     const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
     const manifestList: DockerTarManifest[] = JSON.parse(manifestContent);
-    
+
     if (!manifestList || manifestList.length === 0) {
       throw new Error('无效的 Docker 镜像 tar: manifest.json 为空');
     }
 
     // 取第一个 manifest（多架构镜像可能包含多个）
     const manifest = manifestList[0];
-    
+
     // 读取配置文件
     const configPath = path.join(tmpDir, manifest.Config);
     if (!fs.existsSync(configPath)) {
       throw new Error(`无效的 Docker 镜像 tar: 缺少配置文件 ${manifest.Config}`);
     }
-    
+
     const configData = fs.readFileSync(configPath);
     const configDigest = computeDigest(configData);
-    
+
     // 解析每一层
     const layers: ParsedImageLayer[] = [];
     for (const layerPath of manifest.Layers) {
@@ -112,10 +112,10 @@ export async function parseDockerImageTar(tarPath: string): Promise<ParsedImage>
       if (!fs.existsSync(fullPath)) {
         throw new Error(`无效的 Docker 镜像 tar: 缺少层文件 ${layerPath}`);
       }
-      
+
       const layerData = fs.readFileSync(fullPath);
       const layerDigest = computeDigest(layerData);
-      
+
       layers.push({
         digest: layerDigest,
         size: layerData.length,
@@ -142,7 +142,10 @@ export async function parseDockerImageTar(tarPath: string): Promise<ParsedImage>
  * 从 Buffer 解析 Docker 镜像 tar
  */
 export async function parseDockerImageFromBuffer(tarBuffer: Buffer): Promise<ParsedImage> {
-  const tmpDir = path.join(require('os').tmpdir(), `.img-tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const tmpDir = path.join(
+    require('os').tmpdir(),
+    `.img-tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   fs.mkdirSync(tmpDir, { recursive: true });
 
   try {
@@ -163,22 +166,22 @@ export async function parseDockerImageFromBuffer(tarBuffer: Buffer): Promise<Par
 
     const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
     const manifestList: DockerTarManifest[] = JSON.parse(manifestContent);
-    
+
     if (!manifestList || manifestList.length === 0) {
       throw new Error('无效的 Docker 镜像 tar: manifest.json 为空');
     }
 
     const manifest = manifestList[0];
-    
+
     // 读取配置文件
     const configPath = path.join(tmpDir, manifest.Config);
     if (!fs.existsSync(configPath)) {
       throw new Error(`无效的 Docker 镜像 tar: 缺少配置文件 ${manifest.Config}`);
     }
-    
+
     const configData = fs.readFileSync(configPath);
     const configDigest = computeDigest(configData);
-    
+
     // 解析每一层
     const layers: ParsedImageLayer[] = [];
     for (const layerPath of manifest.Layers) {
@@ -186,10 +189,10 @@ export async function parseDockerImageFromBuffer(tarBuffer: Buffer): Promise<Par
       if (!fs.existsSync(fullPath)) {
         throw new Error(`无效的 Docker 镜像 tar: 缺少层文件 ${layerPath}`);
       }
-      
+
       const layerData = fs.readFileSync(fullPath);
       const layerDigest = computeDigest(layerData);
-      
+
       layers.push({
         digest: layerDigest,
         size: layerData.length,
@@ -223,7 +226,7 @@ export function buildRegistryManifest(parsed: ParsedImage): ImageManifest {
       size: parsed.configSize,
       digest: parsed.configDigest,
     },
-    layers: parsed.layers.map(layer => ({
+    layers: parsed.layers.map((layer) => ({
       mediaType: 'application/vnd.docker.image.rootfs.diff.tar.gzip',
       size: layer.size,
       digest: layer.digest,

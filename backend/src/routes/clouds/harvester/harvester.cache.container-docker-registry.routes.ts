@@ -218,7 +218,11 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
         // HTTPS 失败时，自动回退 HTTP 重试
         if (!result.success && !ignoreTls) {
           const errorMsg = result.error || '';
-          if (errorMsg.includes('EPROTO') || errorMsg.includes('SSL') || errorMsg.includes('packet length')) {
+          if (
+            errorMsg.includes('EPROTO') ||
+            errorMsg.includes('SSL') ||
+            errorMsg.includes('packet length')
+          ) {
             console.log('[Registry Manifest] HTTPS failed, retrying with HTTP...');
             result = await registryRequest(
               String(server),
@@ -336,16 +340,32 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
         }
 
         const isSslError = (error: string): boolean => {
-          return error.includes('EPROTO') || error.includes('SSL') || error.includes('packet length');
+          return (
+            error.includes('EPROTO') || error.includes('SSL') || error.includes('packet length')
+          );
         };
 
         // 1. 获取 manifest，拿到 Docker-Content-Digest
         const manifestPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(tag)}`;
-        let manifestResult = await registryRequest(server, manifestPath, username, password, ignoreTls, 'GET');
+        let manifestResult = await registryRequest(
+          server,
+          manifestPath,
+          username,
+          password,
+          ignoreTls,
+          'GET',
+        );
 
         if (!manifestResult.success && !ignoreTls && isSslError(manifestResult.error || '')) {
           console.log('[Registry Delete] GET HTTPS failed, retrying with HTTP...');
-          manifestResult = await registryRequest(server, manifestPath, username, password, true, 'GET');
+          manifestResult = await registryRequest(
+            server,
+            manifestPath,
+            username,
+            password,
+            true,
+            'GET',
+          );
         }
 
         if (!manifestResult.success) {
@@ -363,11 +383,25 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
 
         console.log(`[Registry Delete] Deleting by digest: ${manifestDigest}`);
         const deletePath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(manifestDigest)}`;
-        let deleteResult = await registryRequest(server, deletePath, username, password, ignoreTls, 'DELETE');
+        let deleteResult = await registryRequest(
+          server,
+          deletePath,
+          username,
+          password,
+          ignoreTls,
+          'DELETE',
+        );
 
         if (!deleteResult.success && !ignoreTls && isSslError(deleteResult.error || '')) {
           console.log('[Registry Delete] DELETE HTTPS failed, retrying with HTTP...');
-          deleteResult = await registryRequest(server, deletePath, username, password, true, 'DELETE');
+          deleteResult = await registryRequest(
+            server,
+            deletePath,
+            username,
+            password,
+            true,
+            'DELETE',
+          );
         }
 
         if (deleteResult.success) {
@@ -386,7 +420,7 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
   );
 
   // 配置 multer 用于通用仓库上传
-  const upload = multer({ 
+  const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 5 * 1024 * 1024 * 1024 },
   });
@@ -413,7 +447,7 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
 
         const parsedImage = await parseDockerImageFromBuffer(req.file.buffer);
         const repo = targetRepo || 'library';
-        const tag = targetTag || (parsedImage.repoTags[0]?.split(':')[1] || 'latest');
+        const tag = targetTag || parsedImage.repoTags[0]?.split(':')[1] || 'latest';
 
         const isInsecure = insecure === 'true' || insecure === true;
 
@@ -428,7 +462,12 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
           });
         } catch (pushError: any) {
           // HTTPS 连接失败时，自动回退 HTTP 重试
-          if (!isInsecure && (pushError.code === 'EPROTO' || pushError.code === 'ECONNRESET' || String(pushError.message).includes('SSL'))) {
+          if (
+            !isInsecure &&
+            (pushError.code === 'EPROTO' ||
+              pushError.code === 'ECONNRESET' ||
+              String(pushError.message).includes('SSL'))
+          ) {
             console.log('[上传镜像] HTTPS 失败, 回退 HTTP 重试...');
             await pushImageToRegistry(parsedImage, {
               server: String(server),
@@ -710,12 +749,12 @@ const registryRequest = async (
 
   // 规范化服务器地址
   let normalizedServer = server.replace(/\/+$/, '');
-  
+
   // 处理错误的格式：https://10.20.5.21/v3:30501 -> 10.20.5.21:30501
   // 提取主机名和端口
   const extractHostPort = (s: string): string => {
     // 移除协议前缀
-    let host = s.replace(/^https?:\/\//, '');
+    const host = s.replace(/^https?:\/\//, '');
     // 处理 host:port 格式中包含路径的情况（如 10.20.5.21/v3:30501）
     const match = host.match(/^([^:/]+)(?::(\d+))?/);
     if (match) {
@@ -732,15 +771,14 @@ const registryRequest = async (
     }
     return host;
   };
-  
+
   const hostPort = extractHostPort(normalizedServer);
-  
+
   if (!normalizedServer.startsWith('http://') && !normalizedServer.startsWith('https://')) {
     // insecure=true 时使用 HTTP，否则使用 HTTPS
     normalizedServer = insecure ? `http://${hostPort}` : `https://${hostPort}`;
   } else {
     // 已经有协议前缀，重新构建正确的 URL
-    const protocol = normalizedServer.startsWith('https://') ? 'https' : 'http';
     normalizedServer = insecure ? `http://${hostPort}` : `https://${hostPort}`;
   }
 
@@ -820,7 +858,7 @@ const registryRequest = async (
         const buffer = Buffer.concat(chunks);
         const text = buffer.toString('utf-8');
         const status = res.statusCode || 0;
-        
+
         // 提取 Docker-Content-Digest 响应头（用于删除 manifest）
         const digest = res.headers['docker-content-digest'];
 
@@ -850,114 +888,6 @@ const registryRequest = async (
       resolve({ success: false, error: err.message || '请求失败' });
     });
 
-    req.end();
-  });
-};
-
-/**
- * [辅助函数] PUT Manifest 到仓库
- */
-const registryPutManifest = async (
-  server: string,
-  path: string,
-  manifest: any,
-  username?: string,
-  password?: string,
-  insecure: boolean = false,
-): Promise<{ success: boolean; data?: any; status?: number; error?: string }> => {
-  const https = await import('https');
-  const http = await import('http');
-  const urlModule = await import('url');
-
-  let normalizedServer = server.replace(/\/+$/, '');
-  if (!normalizedServer.startsWith('http://') && !normalizedServer.startsWith('https://')) {
-    normalizedServer = insecure ? `http://${normalizedServer}` : `https://${normalizedServer}`;
-  }
-
-  const authResult = await getRegistryAuth(normalizedServer, username, password, insecure);
-  let authHeader = authResult.authHeader || '';
-
-  if (!authResult.success && authResult.wwwAuthenticate) {
-    const authParams = parseWwwAuthenticate(authResult.wwwAuthenticate);
-    if (authParams['type'] === 'bearer' && authParams['realm']) {
-      const pathParts = path.replace('/v2/', '').split('/');
-      let scope = 'repository:library:push,pull';
-      const manifestIndex = pathParts.findIndex((p) => p === 'manifests');
-      if (manifestIndex > 0) {
-        const repoPath = pathParts.slice(0, manifestIndex).join('/');
-        scope = `repository:${repoPath}:push,pull`;
-      }
-      const tokenResult = await getBearerToken(
-        authParams['realm'],
-        authParams['service'] || '',
-        scope,
-        username,
-        password,
-        insecure,
-      );
-      if (!tokenResult.success) {
-        return { success: false, error: tokenResult.error };
-      }
-      authHeader = `Bearer ${tokenResult.token}`;
-    }
-  }
-
-  const fullUrl = new urlModule.URL(normalizedServer);
-  const lib = fullUrl.protocol === 'https:' ? https : http;
-  const manifestJson = JSON.stringify(manifest);
-
-  const options: any = {
-    hostname: fullUrl.hostname,
-    port: fullUrl.port || (fullUrl.protocol === 'https:' ? 443 : 80),
-    path: path,
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json',
-      'Content-Length': Buffer.byteLength(manifestJson),
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-  };
-
-  if (insecure && fullUrl.protocol === 'https:') {
-    options.rejectUnauthorized = false;
-  }
-
-  return new Promise((resolve) => {
-    const req = lib.request(options, (res: any) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const text = buffer.toString('utf-8');
-        const status = res.statusCode || 0;
-
-        if (status >= 200 && status < 300) {
-          try {
-            resolve({ success: true, data: JSON.parse(text), status });
-          } catch {
-            resolve({ success: true, data: text, status });
-          }
-        } else {
-          let errorMsg = `HTTP ${status}`;
-          try {
-            const errorJson = JSON.parse(text);
-            errorMsg = errorJson.errors?.[0]?.message || errorMsg;
-          } catch {}
-          resolve({ success: false, error: errorMsg, status });
-        }
-      });
-    });
-
-    req.setTimeout(60000, () => {
-      req.destroy(new Error('timeout'));
-      resolve({ success: false, error: '请求超时' });
-    });
-
-    req.on('error', (err: any) => {
-      resolve({ success: false, error: err.message || '请求失败' });
-    });
-
-    req.write(manifestJson);
     req.end();
   });
 };
