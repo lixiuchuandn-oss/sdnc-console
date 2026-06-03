@@ -194,7 +194,11 @@ export class OfflineUpgradeService {
       let manifestVersion: string | undefined;
       if (fs.existsSync(manifestPath)) {
         try {
-          const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { version?: string };
+          const raw = fs
+            .readFileSync(manifestPath, 'utf8')
+            .replace(/^\uFEFF/, '')
+            .trim();
+          const m = JSON.parse(raw) as { version?: string };
           if (m.version != null) manifestVersion = String(m.version);
         } catch {
           throw new Error('manifest.json 格式无效');

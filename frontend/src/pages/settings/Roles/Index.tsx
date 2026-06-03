@@ -30,6 +30,8 @@ import {
   shouldUseTenantPermissionBoundary,
 } from './lib/builtinRolePermissionView';
 import { stripTenantConsoleUmbrellaPermissions } from './lib/tenantConsoleUmbrellaPermissions';
+import { cloneRoleGrantIds } from './lib/cloneRoleGrantIds';
+import { suggestCopyRoleName } from './lib/suggestCopyRoleName';
 import { useRoleListColumns } from './lib/useRoleListColumns';
 
 const AccessRolesPage: React.FC = () => {
@@ -55,7 +57,12 @@ const AccessRolesPage: React.FC = () => {
   const [roles, setRoles] = useState<RBACRole[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copySource, setCopySource] = useState<RBACRole | null>(null);
+  const [copyForm] = Form.useForm();
   const [filterForm] = Form.useForm();
+  /** 赋权抽屉来自「复制角色」时为 true，用于标题与说明 */
+  const [grantFromCopy, setGrantFromCopy] = useState(false);
 
   const [roleKw, setRoleKw] = useState('');
   const [roleType, setRoleType] = useState<string>('');
@@ -205,6 +212,7 @@ const AccessRolesPage: React.FC = () => {
       setCreateOpen(false);
       createForm.resetFields();
       await fetchRoles();
+      setGrantFromCopy(false);
       setGrantTarget(created);
       const permArr: string[] = (() => {
         try {
@@ -220,6 +228,61 @@ const AccessRolesPage: React.FC = () => {
       message.error(error instanceof Error ? error.message : '创建角色失败');
     }
   }, [canWrite, createForm, fetchRoles]);
+
+  const openCopyRole = useCallback(
+    (source: RBACRole) => {
+      if (!canWrite) {
+        message.warning('无权限执行该操作');
+        return;
+      }
+      if (!canConfigurePermissions) {
+        message.warning('无权限配置角色权限');
+        return;
+      }
+      setCopySource(source);
+      copyForm.setFieldsValue({
+        name: suggestCopyRoleName(
+          source.name,
+          roles.map((r) => r.name),
+        ),
+        scope: source.scope,
+        description: source.description
+          ? `复制自「${source.name}」：${source.description}`
+          : `复制自「${source.name}」`,
+      });
+      setCopyOpen(true);
+    },
+    [canWrite, canConfigurePermissions, copyForm, roles],
+  );
+
+  const handleCopyRole = useCallback(async () => {
+    const source = copySource;
+    if (!canWrite || !source) return;
+    try {
+      const vals = await copyForm.validateFields();
+      const payload = { name: vals.name, description: vals.description || '', scope: vals.scope };
+      const created = await apiPost('/api/system/rbac/roles', payload);
+      message.success('角色已创建，请确认并保存权限');
+      setCopyOpen(false);
+      copyForm.resetFields();
+      setCopySource(null);
+      await fetchRoles();
+
+      setGrantFromCopy(true);
+      setGrantTarget(created);
+      let ids = cloneRoleGrantIds(source, tenantRootBoundaryAtoms);
+      const createdRole = created as RBACRole;
+      if (shouldUseTenantPermissionBoundary(createdRole)) {
+        ids = clampActionsToTenantBoundary(ids, tenantRootBoundaryAtoms);
+      }
+      setGrantSelectedIds(ids);
+      setKw('');
+      setPermVerb('全部');
+      setGrantOpen(true);
+    } catch (error: unknown) {
+      message.error(error instanceof Error ? error.message : '复制角色失败');
+    }
+  }, [canWrite, copySource, copyForm, fetchRoles, tenantRootBoundaryAtoms]);
 
   const handleGrantSave = useCallback(
     async (targetKeys: string[]) => {
@@ -250,6 +313,7 @@ const AccessRolesPage: React.FC = () => {
         });
         message.success('授权成功');
         setGrantOpen(false);
+        setGrantFromCopy(false);
         await fetchRoles();
       } catch (error: unknown) {
         message.error(error instanceof Error ? error.message : '保存失败');
@@ -274,13 +338,17 @@ const AccessRolesPage: React.FC = () => {
 
   const grantDrawerTitle = useMemo(() => {
     if (!grantTarget) return '配置权限';
+    if (grantFromCopy) return `复制角色 · ${grantTarget.name}`;
     if (isBuiltInRbacRole(grantTarget)) return '查看权限（内置角色）';
     if (shouldUseTenantPermissionBoundary(grantTarget)) return '配置权限（租户边界）';
     return '配置权限';
-  }, [grantTarget]);
+  }, [grantTarget, grantFromCopy]);
 
   const grantDrawerScopeHint = useMemo(() => {
     if (!grantTarget) return undefined;
+    if (grantFromCopy) {
+      return '已载入源角色的全部权限，可在下方增删勾选后点击「保存」生效。';
+    }
     if (isBuiltInRbacRole(grantTarget)) {
       return '系统内置角色：权限由产品版本定义，仅可查看；服务重启时会与代码默认策略同步。如需裁减权限请新建自定义角色。';
     }
@@ -290,7 +358,7 @@ const AccessRolesPage: React.FC = () => {
         : '租户角色可选范围不超过内置「云租户根用户」目录；取消勾选后菜单项仍会展示';
     }
     return undefined;
-  }, [grantTarget]);
+  }, [grantTarget, grantFromCopy]);
 
   const openAuthorize = useCallback(
     (target: RBACRole) => {
@@ -298,6 +366,7 @@ const AccessRolesPage: React.FC = () => {
         message.warning('无权限执行该操作');
         return;
       }
+      setGrantFromCopy(false);
       setGrantTarget(target);
       let ids = stripTenantConsoleUmbrellaPermissions(normalizeRoleGrantIds(target.actions || []));
       if (shouldUseTenantPermissionBoundary(target)) {
@@ -333,6 +402,7 @@ const AccessRolesPage: React.FC = () => {
     modal,
     onAuthorize: openAuthorize,
     onAssignUser: openAssignUser,
+    onCopyRole: openCopyRole,
     onDelete: handleDelete,
   });
 
@@ -515,6 +585,46 @@ const AccessRolesPage: React.FC = () => {
         </Form>
       </Modal>
 
+      <Modal
+        title={copySource ? `复制角色「${copySource.name}」` : '复制角色'}
+        open={copyOpen}
+        onCancel={() => {
+          setCopyOpen(false);
+          setCopySource(null);
+          copyForm.resetFields();
+        }}
+        onOk={() => copyForm.submit()}
+        okText="下一步：配置权限"
+        okButtonProps={{ disabled: !canWrite }}
+        destroyOnHidden
+        width={600}
+        centered
+        styles={{ body: { maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' } }}
+      >
+        <Form form={copyForm} layout="vertical" onFinish={() => void handleCopyRole()}>
+          <Form.Item
+            name="name"
+            label="新角色名称"
+            rules={[{ required: true, message: '请输入角色名称' }]}
+          >
+            <Input placeholder="例如：安全管理员-副本" />
+          </Form.Item>
+          <Form.Item
+            name="scope"
+            label="角色范围"
+            rules={[{ required: true, message: '请选择角色范围' }]}
+          >
+            <Select placeholder="请选择角色范围">
+              <Select.Option value="system">系统角色</Select.Option>
+              <Select.Option value="tenant">租户角色</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <Input.TextArea placeholder="角色用途说明（可选）" autoSize={{ minRows: 3, maxRows: 6 }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       <RolePermissionDrawer
         open={grantOpen}
         title={grantDrawerTitle}
@@ -535,6 +645,7 @@ const AccessRolesPage: React.FC = () => {
         onClose={() => {
           setGrantOpen(false);
           setGrantTarget(null);
+          setGrantFromCopy(false);
         }}
         onSave={() => void handleGrantSave(grantSelectedIds)}
       />

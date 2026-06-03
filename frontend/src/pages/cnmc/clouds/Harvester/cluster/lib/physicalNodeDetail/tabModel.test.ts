@@ -61,4 +61,19 @@ describe('physicalNodeDetail tabModel', () => {
     });
     expect((d.memListSorted[0] as { Locator?: string }).Locator).toBe('DIMM0');
   });
+
+  it('excludes NBD and RBD disks from HMS storage list', () => {
+    const d = buildPhysicalNodeDetailDerived({
+      ...baseCtx,
+      hardware: {
+        disk: [
+          { name: 'sda', type: 'disk', model: 'WDC' },
+          { name: 'nbd0', type: 'disk' },
+          { name: 'rbd1', type: 'disk' },
+        ],
+      },
+    });
+    expect(d.diskList).toHaveLength(1);
+    expect((d.diskList[0] as { name?: string }).name).toBe('sda');
+  });
 });

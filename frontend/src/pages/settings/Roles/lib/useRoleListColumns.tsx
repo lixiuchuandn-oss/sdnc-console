@@ -16,11 +16,21 @@ export type RoleListColumnsOptions = {
   modal: ReturnType<typeof App.useApp>['modal'];
   onAuthorize: (role: RBACRole) => void;
   onAssignUser: (role: RBACRole) => void;
+  onCopyRole: (role: RBACRole) => void;
   onDelete: (role: RBACRole) => void;
 };
 
 export function useRoleListColumns(options: RoleListColumnsOptions) {
-  const { canWrite, canAssignUsers, canConfigurePermissions, modal, onAuthorize, onAssignUser, onDelete } = options;
+  const {
+    canWrite,
+    canAssignUsers,
+    canConfigurePermissions,
+    modal,
+    onAuthorize,
+    onAssignUser,
+    onCopyRole,
+    onDelete,
+  } = options;
 
   return useMemo(
     () => [
@@ -136,6 +146,15 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
                   },
                 ]
               : []),
+            ...(canWrite
+              ? [
+                  {
+                    key: 'copy',
+                    label: '复制角色',
+                    onClick: () => onCopyRole(row),
+                  },
+                ]
+              : []),
           ];
           if (canWrite && row.type !== '系统策略') {
             items.push({ type: 'divider' });
@@ -163,6 +182,6 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         },
       },
     ],
-    [canAssignUsers, canConfigurePermissions, canWrite, modal, onAuthorize, onAssignUser, onDelete],
+    [canAssignUsers, canConfigurePermissions, canWrite, modal, onAuthorize, onAssignUser, onCopyRole, onDelete],
   );
 }
