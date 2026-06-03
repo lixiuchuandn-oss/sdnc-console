@@ -1114,6 +1114,30 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       const filename = uploadBasename;
       const inboundBody = body.createBodyReadable();
       bindReadableAbortOnError(inboundBody, abortController);
+      // 逐块推流的取消检查：文件代传是逐块（通常 64KB/块）推流，若每块都做一次
+      // throwIfUploadCancelled 的 SQLite 查询，大文件会触发数十万次 DB 往返且每块都要阻塞等待
+      // 查询返回，严重拖慢吞吐、加重后端负载。这里优先用内存 AbortSignal 做廉价同步判断（同进程
+      // 取消会立即 abort），DB 查询按时间窗（3s）节流，仅用于兜底检测外部写入的 cancelled 状态。
+      let lastCancelDbCheckAt = 0;
+      const checkCancelled = async (): Promise<void> => {
+        if (abortController.signal.aborted) {
+          const err: any = new Error('CANCELLED');
+          err.code = 'ERR_CANCELED';
+          throw err;
+        }
+        const nowTs = Date.now();
+        if (nowTs - lastCancelDbCheckAt < 3000) return;
+        lastCancelDbCheckAt = nowTs;
+        const t = await AppDataSource.getRepository(ImageUploadTask).findOne({
+          where: { id: taskId },
+        });
+        if (t?.taskStatus === 'cancelled') {
+          if (!abortController.signal.aborted) abortController.abort();
+          const err: any = new Error('CANCELLED');
+          err.code = 'ERR_CANCELED';
+          throw err;
+        }
+      };
       const header = Buffer.from(
         `--${boundary}\r\n` +
           `Content-Disposition: form-data; name="chunk"; filename="${filename}"\r\n` +
@@ -1125,14 +1149,12 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       const contentLength = header.length + finalSize + footer.length;
       let sent = 0;
       let lastUpdateAt = 0;
-      let chunkCount = 0;
       const fileAndPaddingStream =
         padding > 0
           ? Readable.from(
               (async function* () {
                 for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0)
-                    await throwIfUploadCancelled(taskId, abortController);
+                  await checkCancelled();
                   const n =
                     typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
                   sent += n;
@@ -1149,15 +1171,14 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
                   }
                   yield chunk;
                 }
-                await throwIfUploadCancelled(taskId, abortController);
+                await checkCancelled();
                 yield Buffer.alloc(padding);
               })(),
             )
           : Readable.from(
               (async function* () {
                 for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0)
-                    await throwIfUploadCancelled(taskId, abortController);
+                  await checkCancelled();
                   const n =
                     typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
                   sent += n;
@@ -1179,10 +1200,10 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
         (async function* () {
           yield header;
           for await (const chunk of fileAndPaddingStream as any) {
-            await throwIfUploadCancelled(taskId, abortController);
+            await checkCancelled();
             yield chunk;
           }
-          await throwIfUploadCancelled(taskId, abortController);
+          await checkCancelled();
           yield footer;
         })(),
       );
@@ -1231,7 +1252,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       await updateTaskProgress(taskId, {
         bytesUploaded: total,
         proxyProgress: 100,
-        progress: 90,
+        progress: 70,
       });
     } else {
       const rawIn = body.createBodyReadable();
@@ -1275,9 +1296,17 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
 
     // 3) 上传动作完成后，继续跟踪 Harvester 导入进度（70-99）
     await updateTaskProgress(taskId, { phase: 'proxying', progress: 70 });
-    const importDeadline = Date.now() + 30 * 60 * 1000;
+    // 导入阶段：只要 Harvester 导入进度仍在推进就持续等待；仅当进度「连续无变化」超过阈值
+    // 才判定卡死超时，避免数十 GB 大镜像正常导入耗时较长被固定 30 分钟误判失败。
+    // 阈值可用 HARVESTER_IMAGE_IMPORT_STALL_TIMEOUT_MS（毫秒）覆盖，默认 20 分钟无进展。
+    const importStallTimeoutMs = (() => {
+      const v = Number(process.env.HARVESTER_IMAGE_IMPORT_STALL_TIMEOUT_MS);
+      return Number.isFinite(v) && v > 0 ? v : 20 * 60 * 1000;
+    })();
     let imported = false;
-    while (Date.now() < importDeadline && !imported) {
+    let lastImportProgress = -1;
+    let lastImportProgressAt = Date.now();
+    while (!imported) {
       await throwIfUploadCancelled(taskId, abortController);
       let detail: any = null;
       for (const detailUrl of pollDetailCandidates) {
@@ -1301,14 +1330,20 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
             importedCond?.message || importedCond?.reason || 'Harvester 导入镜像失败',
           );
         }
+        if (hp > lastImportProgress) {
+          lastImportProgress = hp;
+          lastImportProgressAt = Date.now();
+        }
         await updateTaskProgress(taskId, {
           progress: Math.max(70, Math.min(99, 70 + Math.floor(hp * 0.29))),
         });
       }
+      if (Date.now() - lastImportProgressAt > importStallTimeoutMs) {
+        throw new Error(
+          `Harvester 导入进度超过 ${Math.round(importStallTimeoutMs / 60000)} 分钟无变化，判定导入超时`,
+        );
+      }
       await new Promise((r) => setTimeout(r, 2000));
-    }
-    if (!imported) {
-      throw new Error('Harvester 导入进度等待超时');
     }
 
     await updateTaskProgress(taskId, {
