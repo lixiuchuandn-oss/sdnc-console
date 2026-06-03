@@ -40,6 +40,11 @@ import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
+import { hasLabelModeNodeSelector } from '../lib/vmFailureDomainNodeSelector';
+import {
+  clearVmAdvancedSchedulingFormFields,
+  vmFailureDomainRequiredMessage,
+} from '../lib/vmAdvancedSchedulingLabels';
 import { fetchHarvesterCapabilities, createHarvesterVm } from 'services/harvester/vm';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -454,6 +459,18 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       if (targetStep === 0 && hostModeState === 'node' && !selectedNodeName) {
         throw new Error('Node not selected');
       }
+      if (targetStep === 0 && hostModeState === 'label') {
+        const v0 = form.getFieldsValue(true);
+        if (
+          !hasLabelModeNodeSelector({
+            failureDomainName: v0.failureDomainName,
+            nodeSelectorPairs: v0.nodeSelectorPairs,
+          })
+        ) {
+          message.error(vmFailureDomainRequiredMessage());
+          throw new Error('Failure domain not selected');
+        }
+      }
 
       if (targetStep === 1) {
         const needBinding = !!form.getFieldValue('dedicatedCPUPlacement');
@@ -599,6 +616,16 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       }
 
       if (hostModeState === 'node' && !selectedNodeName) { throw new Error('请选择主机'); }
+      if (
+        hostModeState === 'label' &&
+        !hasLabelModeNodeSelector({
+          failureDomainName: v.failureDomainName,
+          nodeSelectorPairs: v.nodeSelectorPairs,
+        })
+      ) {
+        message.error(vmFailureDomainRequiredMessage());
+        return;
+      }
       // Primary NIC name is optional now (defaults to Pod Network)
 
       if (v.dedicatedCPUPlacement) {
@@ -809,7 +836,12 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
           <Col span={12} style={{ height: '100%' }}>
             <div className="wizard-section">
               <Form form={form} layout="vertical" initialValues={initialWizardValues(memGi, initialVmName, cloudId)} onValuesChange={(changed:any)=> { 
-                if (Object.prototype.hasOwnProperty.call(changed, 'hostMode')) { setHostModeState(changed.hostMode); }
+                if (Object.prototype.hasOwnProperty.call(changed, 'hostMode')) {
+                  setHostModeState(changed.hostMode);
+                  if (changed.hostMode === 'node') {
+                    try { clearVmAdvancedSchedulingFormFields(form); } catch {}
+                  }
+                }
                 if (Object.prototype.hasOwnProperty.call(changed, 'netMode')) { setNetModeState(changed.netMode); }
                 if (Object.prototype.hasOwnProperty.call(changed, 'rootSourceType')) {
                   // 切换来源时清理互斥字段

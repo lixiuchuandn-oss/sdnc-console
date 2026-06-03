@@ -5,6 +5,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
 import { apiRequest, apiPost } from '../../../../services/api';
+import { filterLinkLocalIpv6 } from '../vr/vrIpv6Utils';
+import { buildSrv6PeerRouteDestination } from './srv6Ipv6';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
 const safeJsonParse = (text: string): any => {
@@ -118,7 +120,12 @@ const SRv6CreatePage: React.FC = () => {
     return s.includes('/') ? s.split('/')[0] : s;
   };
 
-  // 提取指定端口索引的 IPv6（0=第一个网口/公网；1=第二个网口/内网），尽力解析
+  const ipv6HostFromRaw = (v?: string): string | undefined => {
+    const picked = filterLinkLocalIpv6(v);
+    return trimPrefix(picked || undefined);
+  };
+
+  // 提取指定端口索引的 IPv6（0=第一个网口/公网；1=第二个网口/内网），尽力解析；剔除 fe80::
   const extractPortIpv6 = (cfg: any, portIndex: number): string | undefined => {
     if (!cfg || typeof cfg !== 'object') return undefined;
     const keys = Object.keys(cfg);
@@ -126,27 +133,26 @@ const SRv6CreatePage: React.FC = () => {
       if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
         const arr = (cfg as any)[k];
         if (Array.isArray(arr) && arr[portIndex]) {
-          const v = arr[portIndex]?.ipv6_static || arr[portIndex]?.ipv6;
-          const ip = trimPrefix(v);
+          const ip = ipv6HostFromRaw(arr[portIndex]?.ipv6_static || arr[portIndex]?.ipv6);
           if (ip) return ip;
         }
       }
     }
-    // 兜底：若无法按索引解析，第一个端口用任何可用 IPv6，第二个端口尝试取“第二个可用项”
     const candidates: string[] = [];
     for (const k of keys) {
       if (k.startsWith('interfaces_') || k.startsWith('subinterfaces_')) {
         const arr = (cfg as any)[k];
         if (Array.isArray(arr)) {
           for (const it of arr) {
-            const v = it?.ipv6_static || it?.ipv6;
-            const ip = trimPrefix(v);
+            const ip = ipv6HostFromRaw(it?.ipv6_static || it?.ipv6);
             if (ip) candidates.push(ip);
           }
         }
       }
     }
-    if (portIndex === 0) return candidates[0] || trimPrefix((cfg as any)?.ipv6_static || (cfg as any)?.ipv6);
+    if (portIndex === 0) {
+      return candidates[0] || ipv6HostFromRaw((cfg as any)?.ipv6_static || (cfg as any)?.ipv6);
+    }
     if (portIndex === 1) return candidates[1] || candidates[0] || undefined;
     return undefined;
   };
@@ -155,7 +161,7 @@ const SRv6CreatePage: React.FC = () => {
   const rowHostIpPreferV4 = (it: any): string | undefined => {
     const v4 = trimPrefix(it?.ipv4_static || it?.ipv4);
     if (v4) return v4;
-    return trimPrefix(it?.ipv6_static || it?.ipv6);
+    return ipv6HostFromRaw(it?.ipv6_static || it?.ipv6);
   };
 
   /** 按端口索引取“公网/内网”主机地址：IPv4 优先，否则 IPv6（用于 CE 外网、PE 内网等） */
@@ -526,71 +532,20 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  // 从配置中提取 SRv6 prefix（若存在）
+  /** 从设备/平台配置提取对端 SRv6 SID 前缀（segment_routing_srv6.prefix 或 pe.publicConfig.sidPrefix） */
   const extractSrv6Prefix = (cfg: any): string | undefined => {
     try {
       const sr = (cfg && (cfg as any).segment_routing_srv6) || undefined;
-      if (!sr) return undefined;
-      const p = (sr as any).prefix;
-      return typeof p === 'string' && p.trim().length > 0 ? p.trim() : undefined;
+      const top = (sr as any)?.prefix;
+      if (typeof top === 'string' && top.trim().length > 0) return top.trim();
+      const pe = (cfg as any)?.pe;
+      const legacy =
+        pe?.publicConfig?.sidPrefix ??
+        pe?.sidPrefix ??
+        (cfg as any)?.sidPrefix;
+      return typeof legacy === 'string' && legacy.trim().length > 0 ? legacy.trim() : undefined;
     } catch {
       return undefined;
-    }
-  };
-
-  /**
-   * 将 IPv6 地址按指定位数截断为网段地址。
-   * 例如 maskToIpv6Network("240f:2033::1235", 64) → "240f:2033::"
-   * 原理：将地址转为 128 位整数，按 prefixLen 位掩码清零低位，再转回 IPv6 表示。
-   */
-  const maskToIpv6Network = (addr: string, prefixLen: number): string => {
-    try {
-      const clean = addr.replace(/\/\d+$/, '').trim();
-      // 展开为 8 组 16 进制
-      const halves = clean.split('::');
-      let groups: string[];
-      if (halves.length === 2) {
-        const left = halves[0] ? halves[0].split(':') : [];
-        const right = halves[1] ? halves[1].split(':') : [];
-        const fill = Array(8 - left.length - right.length).fill('0');
-        groups = [...left, ...fill, ...right];
-      } else {
-        groups = clean.split(':');
-      }
-      if (groups.length !== 8) return addr; // 解析失败则原样返回
-      if (prefixLen < 0 || prefixLen > 128) return addr;
-      const fullGroups = Math.floor(prefixLen / 16);
-      const partialBits = prefixLen % 16;
-      for (let i = 0; i < 8; i++) {
-        if (i < fullGroups) continue;
-        if (i === fullGroups && partialBits > 0) {
-          const val = parseInt(groups[i], 16) || 0;
-          const keepMask = (0xffff << (16 - partialBits)) & 0xffff;
-          groups[i] = (val & keepMask).toString(16);
-        } else {
-          groups[i] = '0';
-        }
-      }
-      const result = groups;
-      // 最简压缩（:: 替换最长连续 0 段）
-      let bestStart = -1, bestLen = 0, curStart = -1, curLen = 0;
-      for (let i = 0; i < 8; i++) {
-        if (result[i] === '0') {
-          if (curStart < 0) curStart = i;
-          curLen = i - curStart + 1;
-          if (curLen > bestLen) { bestStart = curStart; bestLen = curLen; }
-        } else {
-          curStart = -1;
-        }
-      }
-      if (bestLen >= 2) {
-        const left = result.slice(0, bestStart).join(':');
-        const right = result.slice(bestStart + bestLen).join(':');
-        return `${left}::${right}`;
-      }
-      return result.join(':');
-    } catch {
-      return addr;
     }
   };
 
@@ -934,7 +889,7 @@ const SRv6CreatePage: React.FC = () => {
     }
     // IPv6 路由：注入两条——①对端 SID/64 路由(不带 vrf，via=对端PE公网IPv6) ②VRF默认路由 ::/0(带 vrf，via=nexthop-vrf 0)
     const peerPrefix = peerCfg ? extractSrv6Prefix(peerCfg) : undefined;
-    const srv6PeerDest = peerPrefix ? `${maskToIpv6Network(peerPrefix.split('/')[0].trim(), 64)}/64` : undefined;
+    const srv6PeerDest = buildSrv6PeerRouteDestination(peerPrefix);
     const via = peerCfg ? extractPortIpv6(peerCfg, 0) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
 

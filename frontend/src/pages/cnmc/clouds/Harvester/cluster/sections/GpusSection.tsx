@@ -52,10 +52,7 @@ const GpuSection: React.FC<Props> = ({
     setDrawerOpen(true);
   }, []);
 
-  const handleToolbarRefresh = useMemo(
-    () => createClusterToolbarRefresh(onRefresh),
-    [onRefresh],
-  );
+  const handleToolbarRefresh = useMemo(() => createClusterToolbarRefresh(onRefresh), [onRefresh]);
 
   const filtered = useMemo(
     () =>
@@ -76,7 +73,10 @@ const GpuSection: React.FC<Props> = ({
     [handleOpenYaml, isTenant],
   );
 
-  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_gpus_table');
+  const { displayColumns: tableColumns } = useTableColumnSettings(
+    allColumns,
+    'harvester_gpus_table',
+  );
 
   return (
     <>

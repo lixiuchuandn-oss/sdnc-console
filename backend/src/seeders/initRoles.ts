@@ -323,6 +323,7 @@ export async function initializeRoles() {
       'clouds.recycle-bin',
       'clouds.migrations',
       'clouds.drs',
+      'clouds.storage-drs',
       'clouds.failure-domains',
       // 云存储
       'clouds.disks',

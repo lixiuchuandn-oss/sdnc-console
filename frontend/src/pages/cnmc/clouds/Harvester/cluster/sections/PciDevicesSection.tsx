@@ -109,7 +109,7 @@ const PciDevicesSection: React.FC<Props> = ({
 
   const { displayColumns: tableColumns } = useTableColumnSettings(columnsAll, tableSettingsKey);
 
-  const sectionTitle = variant === 'sriov_vf' ? 'SR-IOV 设备' : 'PCI 设备';
+  const sectionTitle = variant === 'sriov_vf' ? '网卡直通' : '设备直通';
   const drawerResourceLabel = variant === 'sriov_vf' ? 'SR-IOV 设备' : 'PCI 设备';
 
   return (

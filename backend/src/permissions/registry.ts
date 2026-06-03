@@ -502,6 +502,8 @@ export class PermissionRegistry {
                 actualResourceType === 'failure_domains'
               ) {
                 permissionBase = 'clouds.failure-domains';
+              } else if (actualResourceType === 'sdrs') {
+                permissionBase = 'clouds.storage-drs';
               } else if (actualResourceType === 'services') {
                 // 旧缓存路由 /harvester/services；与 containers/services 同权
                 permissionBase = 'clouds.containers.services';

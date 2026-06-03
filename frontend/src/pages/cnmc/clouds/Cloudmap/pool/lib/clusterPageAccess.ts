@@ -11,6 +11,12 @@ import {
 } from '../../../../../../constants/unifiedStoragePermissions';
 import { isClusterCephPoolInnerSeg } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
+import {
+  COMPUTE_RESOURCE_INNER_SEGS,
+  isComputeResourceInnerSeg,
+  remapLegacyClusterInnerSeg,
+  type ComputeResourceInnerSeg,
+} from '../../../Harvester/cluster/lib/computeResourcesNav';
 
 const CLUSTER_INNER_ORDER: readonly string[] = CLOUDMAP_POOL_NAV_ROWS.filter((r) =>
   r.pathSuffix.startsWith('cluster/'),
@@ -40,6 +46,34 @@ export function canViewClusterStorageInner(
   return storageUmbrellaOrLegacy(checkPerm);
 }
 
+export function canViewComputeResourceInner(
+  innerSeg: ComputeResourceInnerSeg,
+  checkPerm: (action: string) => boolean,
+): boolean {
+  switch (innerSeg) {
+    case 'compute_nodes':
+      return checkPerm('clouds.cluster-nodes:read');
+    case 'compute_failure_domains':
+      return (
+        checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read')
+      );
+    case 'compute_projects':
+      return checkPerm('clouds.namespaces:read');
+    case 'compute_drs_rules':
+      return checkPerm('clouds.drs:read');
+    case 'compute_migrations':
+      return (
+        checkPerm('clouds.migrations:read') ||
+        checkPerm('clouds.drs:read') ||
+        checkPerm('clouds.ecs:read')
+      );
+    case 'compute_gpu':
+      return checkPerm('clouds.gpus:read');
+    default:
+      return false;
+  }
+}
+
 export function canViewClusterSidebarLeaf(
   leafKey: string,
   checkPerm: (action: string) => boolean,
@@ -49,34 +83,23 @@ export function canViewClusterSidebarLeaf(
     canReadLoadBalancers: boolean;
   },
 ): boolean {
+  const normalized = remapLegacyClusterInnerSeg(leafKey);
+  if (isComputeResourceInnerSeg(normalized)) {
+    return canViewComputeResourceInner(normalized, checkPerm);
+  }
+
   const { canReadPublicSubnets, canReadNetworkScope, canReadLoadBalancers } = ctx;
-  switch (leafKey) {
-    case 'cluster_nodes':
-      return checkPerm('clouds.cluster-nodes:read');
+  switch (normalized) {
     case 'cluster_physical_switches':
       return checkPerm('clouds.cluster-networks:read');
     case 'kubeovn_public_networks':
       return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
-    case 'namespaces':
-      return checkPerm('clouds.namespaces:read');
-    case 'drs':
-      return (
-        checkPerm('clouds.drs:read') ||
-        checkPerm('clouds.migrations:read') ||
-        checkPerm('clouds.ecs:read')
-      );
-    case 'failure_domains':
-      return (
-        checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read')
-      );
+    case 'storage_drs':
+      return canViewClusterStorageInner('storage_drs', checkPerm);
     case 'kubeovn_public_subnets':
       return canReadPublicSubnets;
     case 'cluster_vlans':
-      return (
-        checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ)
-      );
-    case 'gpu':
-      return checkPerm('clouds.gpus:read');
+      return checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
     case 'cluster_usb':
       return checkPerm('clouds.usb-devices:read');
     case 'clusterNetworks':
@@ -93,11 +116,20 @@ export function canViewClusterSidebarLeaf(
     case 'cluster_sriov':
       return checkPerm('clouds.pci-devices:read');
     default:
-      if (isClusterCephPoolInnerSeg(leafKey)) {
-        return canViewClusterStorageInner(leafKey, checkPerm);
+      if (isClusterCephPoolInnerSeg(normalized)) {
+        return canViewClusterStorageInner(normalized, checkPerm);
       }
       return false;
   }
+}
+
+export function firstAccessibleComputeResourceInnerSeg(
+  checkPerm: (action: string) => boolean,
+): ComputeResourceInnerSeg | null {
+  for (const seg of COMPUTE_RESOURCE_INNER_SEGS) {
+    if (canViewComputeResourceInner(seg, checkPerm)) return seg;
+  }
+  return null;
 }
 
 export function firstAccessibleClusterPoolInnerSeg(
@@ -105,7 +137,9 @@ export function firstAccessibleClusterPoolInnerSeg(
   ctx: Parameters<typeof canViewClusterSidebarLeaf>[2],
 ): string | null {
   for (const seg of CLUSTER_INNER_ORDER) {
-    if (canViewClusterSidebarLeaf(seg, checkPerm, ctx)) return seg;
+    if (canViewClusterSidebarLeaf(seg, checkPerm, ctx)) {
+      return remapLegacyClusterInnerSeg(seg);
+    }
   }
   return null;
 }
@@ -117,9 +151,7 @@ export function canEnterClusterGroup(
   return firstAccessibleClusterPoolInnerSeg(checkPerm, ctx) != null;
 }
 
-export function canEnterUnifiedStorageGroup(
-  checkPerm: (action: string) => boolean,
-): boolean {
+export function canEnterUnifiedStorageGroup(checkPerm: (action: string) => boolean): boolean {
   if (storageUmbrellaOrLegacy(checkPerm)) return true;
   return Object.keys(CLUSTER_STORAGE_INNER_READ).some((inner) =>
     canViewClusterStorageInner(inner, checkPerm),
@@ -127,10 +159,7 @@ export function canEnterUnifiedStorageGroup(
 }
 
 /** 管理端 hasPermissionForAction 用：umbrella / 历史 ceph 满足任一存储子域 read */
-export function unifiedStorageReadGranted(
-  perms: string[],
-  requiredRead: string,
-): boolean {
+export function unifiedStorageReadGranted(perms: string[], requiredRead: string): boolean {
   if (!requiredRead.endsWith(':read')) return false;
   const base = requiredRead.slice(0, -':read'.length);
   if (!isUnifiedStorageReadBase(base)) return false;

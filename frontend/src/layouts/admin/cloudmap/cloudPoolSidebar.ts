@@ -4,6 +4,7 @@
  */
 import { routeSpecs, type RouteSpec } from '../../../routes/RouteSpec';
 import { CLOUDMAP_POOL_NAV_SUBGROUP_LABELS } from '../../../routes/cloudmapPoolNavRows';
+import { remapLegacyClusterInnerSeg } from '../../../pages/cnmc/clouds/Harvester/cluster/lib/computeResourcesNav';
 import { createElement, type ReactNode } from 'react';
 import {
   AlertOutlined,
@@ -27,7 +28,6 @@ import type {
   PoolSidebarSelectArgs,
   PoolSidebarSpec,
 } from '../poolSidebar/types';
-
 
 /**
  * Cloudmap 资源池：Tab/子键类型与集群锚点常量。
@@ -365,6 +365,12 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
     }
     return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
   }
+  if (parts[0] === 'cluster' && parts[1]) {
+    const mapped = remapLegacyClusterInnerSeg(parts[1]);
+    if (mapped !== parts[1]) {
+      return `${base}/cluster/${encodeURIComponent(mapped)}`;
+    }
+  }
   return null;
 }
 
@@ -479,7 +485,8 @@ export function cloudmapLegacyQueryToPath(
     return clusterCephPoolInnerPath(base, rawSub || undefined);
   }
   if (tab === 'cluster') {
-    const cs = (sp.get('cluster_sub') || '').trim();
+    const csRaw = (sp.get('cluster_sub') || '').trim();
+    const cs = csRaw ? remapLegacyClusterInnerSeg(csRaw) : '';
     const clusterSeg = (sp.get('cluster_segment') || '').trim();
     if (
       clusterSeg &&
@@ -489,7 +496,7 @@ export function cloudmapLegacyQueryToPath(
       return `${base}/cluster/${encodeURIComponent(clusterSeg)}`;
     }
     if (cs && isValidCloudmapPoolInnerSeg('cluster', cs)) {
-      return `${base}/cluster/${encodeURIComponent(cs)}`;
+      return `${base}/cluster/${encodeURIComponent(remapLegacyClusterInnerSeg(cs))}`;
     }
     return `${base}/cluster/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('cluster'))}`;
   }

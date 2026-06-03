@@ -6,7 +6,7 @@ import { Drawer, Descriptions, Tabs, Tag, Space, Button, Table } from 'antd';
 import { FileTextOutlined, CodeOutlined } from '@ant-design/icons';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { fetchHarvesterPodEvents } from '../../../../../../services/harvesterApi';
-import { PodLogViewer, PodTerminal } from '../components';
+import { PodLogViewerDrawer, PodTerminal } from '../components';
 import ServiceRelatedPodsTab from '../../shared/components/ServiceRelatedPodsTab';
 
 const formatTime = (timestamp?: string) => {
@@ -292,25 +292,18 @@ export const ServicePodLogDrawer: React.FC<ServicePodLogDrawerProps> = ({
   pod,
   cloudId,
   containers,
-}) => (
-  <Drawer
-    title="Pod 日志"
-    placement="right"
-    width={900}
-    open={open}
-    onClose={onClose}
-  >
-    {pod && (
-      <PodLogViewer
-        cloudId={cloudId}
-        namespace={pod.metadata?.namespace}
-        podName={pod.metadata?.name}
-        containers={containers}
-        height="calc(100vh - 150px)"
-      />
-    )}
-  </Drawer>
-);
+}) =>
+  pod ? (
+    <PodLogViewerDrawer
+      cloudId={cloudId}
+      namespace={pod.metadata?.namespace}
+      podName={pod.metadata?.name}
+      containers={containers}
+      open={open}
+      onClose={onClose}
+      width={900}
+    />
+  ) : null;
 
 export type ServicePodTerminalBridgeProps = {
   visible: boolean;

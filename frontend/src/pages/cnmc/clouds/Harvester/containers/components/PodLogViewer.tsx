@@ -39,12 +39,15 @@ export interface PodLogViewerProps {
   onLoad?: (logs: string) => void;
   /** 日志加载错误回调 */
   onError?: (error: Error) => void;
+  /** 初始 tail 行数（默认 100） */
+  defaultTailLines?: number;
 }
 
 const TailLinesOptions = [
   { label: '100行', value: 100 },
   { label: '500行', value: 500 },
   { label: '1000行', value: 1000 },
+  { label: '2000行', value: 2000 },
   { label: '全部', value: 0 },
 ];
 
@@ -58,12 +61,13 @@ const PodLogViewer: React.FC<PodLogViewerProps> = ({
   style,
   onLoad,
   onError,
+  defaultTailLines = 100,
 }) => {
   // 状态
   const [logs, setLogs] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [selectedContainer, setSelectedContainer] = useState<string>('');
-  const [tailLines, setTailLines] = useState<number>(100);
+  const [tailLines, setTailLines] = useState<number>(defaultTailLines);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
   // Refs

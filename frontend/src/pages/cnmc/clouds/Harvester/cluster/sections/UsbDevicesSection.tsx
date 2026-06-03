@@ -231,7 +231,7 @@ const UsbDevicesSection: React.FC<Props> = ({
       <HarvesterResourceDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        resourceType="USB 设备"
+        resourceType="USB 直通"
         record={drawerRecord}
         activeTab={drawerTab}
         onTabChange={setDrawerTab}

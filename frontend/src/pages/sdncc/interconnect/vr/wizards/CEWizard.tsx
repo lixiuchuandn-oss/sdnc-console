@@ -7,8 +7,9 @@ import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../
 import { proxyApiRequest } from '../../../../../services/api';
 import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
+import { pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 
-/** å¹³å°å·²å­? ceï¼?å¤?ç½?ä¾§å??æ?°æ®ï¼?æ?°ï¼?ce.publicConfigï¼?æ?§ï¼?é¡¶å±?æ?å¹³ï¼? */
+/** ?????? ce??????????????????ce.publicConfig????????????? */
 function getCePublicConfig(ce: any): Record<string, any> {
   if (!ce || typeof ce !== 'object') return {};
   if (ce.publicConfig && typeof ce.publicConfig === 'object') {
@@ -21,7 +22,7 @@ function getCePublicConfig(ce: any): Record<string, any> {
   return legacy;
 }
 
-/** å??ç½?ä¾§ï¼?æ?° ce.lanConfig[]ï¼?æ?§é¡¶å±? lanName/lanIpv4 ç­?å?è¡? */
+/** ?????????ce.lanConfig[]??????? lanName/lanIpv4 ?????? */
 function readLanListFromCe(ce: any): any[] {
   if (!ce || typeof ce !== 'object') return [];
   if (Array.isArray((ce as any).lanConfig)) return (ce as any).lanConfig;
@@ -75,7 +76,7 @@ const CEWizard: React.FC = () => {
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
-  /** è?å? vr3_infoï¼?ä»?ç?¨æ?·ä¸»å?¨æ?¹ã??å¤?ç½?å£ã?Select æ?¶ç?¨å?¶è·? IPï¼?æ?¥å£æ?å¨ï¼? */
+  /** vr3_info è®¾å¤‡å›è¯»ï¼šç”¨äºåœ¨æ¥å£é€‰æ‹©ååæŸ¥ IP ç­‰å­—æ®µ */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
@@ -130,27 +131,12 @@ const CEWizard: React.FC = () => {
     iface?.ip ??
     iface?.address ??
     '';
-  /** ? IPv6 ???????????????fe80:: ??????????????? */
-  const filterLinkLocal = (raw: string): string => {
-    const s = String(raw ?? '').trim();
-    const parts = s.split(/\s+/).filter(Boolean);
-    const global = parts.find((p) => !p.toLowerCase().startsWith('fe80'));
-    return global ?? '';
-  };
-
-  const pickIfaceIpv6 = (iface: any) =>
-    filterLinkLocal(
-      iface?.ipv6_static ??
-        iface?.ipv6Static ??
-        iface?.ipv6 ??
-        iface?.ipv6_address ??
-        iface?.ipv6Address ??
-        '',
-    );
+  /** IPv6 å­—æ®µå›è¯»ï¼šè¿‡æ»¤ fe80:: link-local åœ°å€ */
+  const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
 
   /**
-   * ç½?å¡ IPv4/IPv6 ä»?å?è®¸ç?¨ VR3ï¼?vr3_infoï¼?å??å¡«ï¼?VR3 æ? è¯¥å£æ??æ? å?°å?å??ç½®ç©ºã??
-   * forceï¼?æ¢ç½?å¡æ?? VR3 é¦?æ¬¡å?°è¾¾æ?¶åº?ä¸º trueï¼?å¦å?? isFieldTouched ä¼?æ?¡ä½ IP æ?´æ?°ã??
+   * ??? IPv4/IPv6 ????????? VR3??vr3_info????????VR3 ????????????????????????
+   * force????????? VR3 ????????????? true?????? isFieldTouched ?????? IP ?????????
    */
   const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
@@ -188,7 +174,7 @@ const CEWizard: React.FC = () => {
   const prevWanNameRef = useRef<string | undefined>(undefined);
   const prevLanNameRef = useRef<string | undefined>(undefined);
   const hadVr3InfoRef = useRef(false);
-  /** å·²æ?¿å?°è¿? vr3ï¼?è?¥ä»?å? ã??å?·æ?°è®¾å¤?å??è¯»ã?æ?¿æ¢ vr3Info è??ç½?å£åæ?ªå?ï¼?ä¸è¦?ç??å³ç¿¼ç¼?è¾?è¡¨ */
+  /** ????????? vr3????????????????????????????????? vr3Info ??????????????????????????? */
   const prevVr3InfoSnapshotRef = useRef<any>(null);
 
   useEffect(() => {
@@ -269,14 +255,14 @@ const CEWizard: React.FC = () => {
     })();
   }, [uuid, form]);
 
-  /** è?å? /api/vr-instances/:uuid â?? vr1/2/3ï¼?ç½?å¡ IP ä»? VR3 å??å¡«ï¼?è§ autoFillFromIface / mirrorï¼? */
+  /** ???? /api/vr-instances/:uuid ??? vr1/2/3????? IP ?? VR3 ??????? autoFillFromIface / mirror?? */
   const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
     try {
       const merged = await fetchVrCacheMerged(uuid);
       if (!merged || typeof merged !== 'object') {
-        if (!silent) message.warning('æ?ªè?·å?å?°è?å?æ?°æ®ï¼?è¯·å??å?æ­¥ VR ç¼?å­?');
+        if (!silent) message.warning('æœªè·å–åˆ°è®¾å¤‡å›è¯»æ•°æ®ï¼Œè¯·å…ˆç¡®è®¤ VR è®¾å¤‡åœ¨çº¿/å·²æ¥å…¥ã€‚');
         setCsmctlCfg(null);
         setVr3Info(null);
         return;
@@ -285,10 +271,10 @@ const CEWizard: React.FC = () => {
       if (unique.length) setIfaceOptions(unique);
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
-      if (!silent) message.success('è®¾å¤?æ?°æ®å·²å?·æ?°');
+      if (!silent) message.success('è®¾å¤‡å›è¯»å·²åˆ·æ–°');
     } catch (err) {
       console.warn('[CEWizard] fetchVrCacheMerged:', (err as any)?.message || err);
-      if (!silent) message.error('å?·æ?°å¤±è´¥');
+      if (!silent) message.error('è®¾å¤‡å›è¯»å¤±è´¥');
     } finally {
       setIfaceLoading(false);
     }
@@ -326,7 +312,7 @@ const CEWizard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingCfg, csmctlCfg, vr3Info, mirrorForm]);
 
-  /** ç?± host IPv4 CIDR æ?¨å¯¼ç½?æ®µï¼?å¦? 130.1.1.9/24 â?? 130.1.1.0/24ï¼? */
+  /** ??? host IPv4 CIDR ??????????? 130.1.1.9/24 ??? 130.1.1.0/24?? */
   const ipv4NetworkFromCidr = (cidr: string): string | undefined => {
     const s = String(cidr || '').trim();
     const [ip, maskStr] = s.split('/');
@@ -460,13 +446,13 @@ const CEWizard: React.FC = () => {
   const sortJsonKeys = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
     
-    // é??å½?å¤?ç?å­å¯¹è±¡ï¼?æ·±å±?æ??åºï¼?
+    // ???????????????????????
     const copy = { ...obj };
     Object.keys(copy).forEach(k => {
       copy[k] = sortJsonKeys(copy[k]);
     });
 
-    // å¯¹æ??å¤?å±?è¿?è¡?æ??åºï¼?uuid, role, ce ä¼?å??
+    // ??????????????????uuid, role, ce ?????
     const keys = Object.keys(copy).sort((a, b) => {
        const prio = (k: string) => {
          if (k === 'uuid') return -1;
@@ -493,7 +479,7 @@ const CEWizard: React.FC = () => {
   const watchedValues = Form.useWatch([], form);
   const configPreview = useMemo(
     () => buildConfigFromValues(form.getFieldsValue(true) || {}),
-    // buildConfigFromValues ä¸ºç»?ä»¶å??å?½æ?°ï¼?ä¸? watchedValues å?æ­¥å³å¯
+    // buildConfigFromValues ????????????????? watchedValues ?????
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [watchedValues, form],
   );
@@ -510,20 +496,20 @@ const CEWizard: React.FC = () => {
       }
       setCurrent((c) => Math.min(2, c + 1));
     } catch {
-      /* æ ¡éª?å¤±è´¥ç?±è¡¨å?é¡¹å±?ç¤º */
+      /* ??????????????? */
     }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
   const handleDispatch = async () => {
     if (!uuid) {
-      message.error('ç¼ºå°? VR ç?? UUIDï¼?æ? æ³?ä¸?å?');
+      message.error('ç¼ºå°‘ VR å®ä¾‹ UUIDï¼Œæ— æ³•ç»§ç»­');
       return;
     }
     try {
       await form.validateFields();
     } catch {
-      message.warning('è¯·å??ä¿®æ­£è¡¨å?æ ¡éª?é??è¯¯å?å?ä¸?å?');
+      message.warning('è¯·å…ˆå®Œå–„è¡¨å•å¿…å¡«é¡¹');
       return;
     }
     try {
@@ -535,24 +521,24 @@ const CEWizard: React.FC = () => {
       if (reportedArr.length > 0) {
         if (selectedWan && !reported.has(selectedWan)) {
           const listStr = reportedArr.join(', ');
-          message.error(`ä¸?å?å¤±è´¥ï¼?å¤?ç½?å£è®¾å¤?â??${selectedWan}â?ä¸å?¨è®¾å¤?å·²ä¸?æ?¥ç??æ?¥å£ä¸­ã??å¯é??ï¼?${listStr}`);
+          message.error(`WAN ä¾§æ¥å£â€œ${selectedWan}â€ä¸åœ¨è®¾å¤‡å›è¯»åˆ—è¡¨ä¸­ï¼Œè¯·é‡æ–°é€‰æ‹©ã€‚å¯ç”¨æ¥å£ï¼š${listStr}`);
           return;
         }
         if (selectedLan && !reported.has(selectedLan)) {
           const listStr = reportedArr.join(', ');
-          message.error(`ä¸?å?å¤±è´¥ï¼?å??ç½?æ?¥å£â??${selectedLan}â?ä¸å?¨è®¾å¤?å·²ä¸?æ?¥ç??æ?¥å£ä¸­ã??å¯é??ï¼?${listStr}`);
+          message.error(`LAN ä¾§æ¥å£â€œ${selectedLan}â€ä¸åœ¨è®¾å¤‡å›è¯»åˆ—è¡¨ä¸­ï¼Œè¯·é‡æ–°é€‰æ‹©ã€‚å¯ç”¨æ¥å£ï¼š${listStr}`);
           return;
         }
       }
       const cfg = buildConfigFromValues(values);
       if (!cfg || (typeof cfg === 'object' && Object.keys(cfg).length === 0)) {
-        message.warning('æ?¼è£?ç»?æ??ä¸ºç©ºï¼?è¯·æ£?æ?¥ç¬¬1ã?2æ­¥æ?¯å¦å·²å¡«å??å¿?è¦å­?æ®µ');
+        message.warning('é…ç½®ä¸ºç©ºï¼Œè¯·å…ˆå®Œæˆç¬¬ 1/2 æ­¥é…ç½®åå†ä¸‹å‘ã€‚');
         return;
       }
       if (uuid) (cfg as any).uuid = uuid;
       setLoading(true);
 
-      // 1. å?æ­¥ä¿å­?å?°æ?¬å?°æ?°æ®åº?ï¼?ä¸?ä¸?å®¶æ¨¡å¼ä¸?è?´ï¼?ä¿ç??é?å?å¯¼é?ç½®ï¼?
+      // 1. ????????????????????????????????????????????????????
       let finalCfg = cfg;
       try {
         const existing = await getVRConfig(uuid);
@@ -566,27 +552,27 @@ const CEWizard: React.FC = () => {
         await saveVRConfig(uuid, finalCfg);
         await setVRRole(uuid, 'CE');
       } catch (e) {
-        console.warn('ä¿å­?å?°æ?¬å?°æ?°æ®åº?å¤±è´¥:', e);
+        console.warn('handleDispatch: saveVRConfig/setVRRole failed:', e);
       }
 
-      // 2. ä¸? PE/Standard/SASE å? vrController.updateVRConfig ä¸?è?´ï¼?å¿?é¡»å¸¦ ?uuid= ä¸?ç­¾åä¸­ other
+      // 2. ?? PE/Standard/SASE ?? vrController.updateVRConfig ??????????? ?uuid= ????? other
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const method = 'POST';
       const other = `uuid=${uuid}`;
       const data = await proxyApiRequest(path, method, other, cfg);
       if (data && typeof data.code === 'number' && data.code !== 200) {
-        throw new Error(data?.msg || `ä¸?å?å¤±è´¥: ${JSON.stringify(data)}`);
+        throw new Error(data?.msg || `ä¸‹å‘å¤±è´¥: ${JSON.stringify(data)}`);
       }
-      message.success(data?.msg || 'é?ç½®å·²ä¸?å?å?°è®¾å¤?');
+      message.success(data?.msg || 'é…ç½®å·²ä¸‹å‘');
     } catch (err: any) {
-      message.error(`ä¸?å?å¤±è´¥ï¼?${err?.message || 'è¯·ç¨å?é?è¯?'}`);
+      message.error(`ä¸‹å‘å¤±è´¥ï¼š${err?.message || 'æœªçŸ¥é”™è¯¯'}`);
     } finally {
       setLoading(false);
     }
   };
 
   const renderCoreContent = () => {
-    // å? Form å®?ä¾? + æ?¾é?å??æ¢æ­¥ï¼?é¿å?ç¬¬ 0/1 æ­¥å?å??ä¸?å±? <Form> å?¨å??æ­¥æ?¶å¸è½½å¯¼è?´å? form ä¸?å­?æ®µ/å?¼ä¸¢å¤±
+    // ?? Form ???? + ?????????????????? 0/1 ?????????? <Form> ?????????????????? form ?????/?????
     const summaryValues = form.getFieldsValue(true);
     return (
       <>
@@ -596,15 +582,15 @@ const CEWizard: React.FC = () => {
           style={{ display: current === 2 ? 'none' : undefined }}
         >
           <div style={{ display: current === 0 ? 'block' : 'none' }}>
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>è®¾å®?å¤?ç½?å£</div>
-            <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>å¤?ç½?å£è®¾å¤?</span>} rules={[{ required: true, message: 'è¯·é??æ?©å¤?ç½?å£è®¾å¤?' }]} preserve>
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN ä¾§é…ç½®ï¼ˆCE to PEï¼‰</div>
+            <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN ä¾§æ¥å£</span>} rules={[{ required: true, message: 'è¯·é€‰æ‹© WAN ä¾§æ¥å£' }]} preserve>
               <Select
-                placeholder="è¯·é??æ?©ç½?å¡"
+                placeholder="è¯·é€‰æ‹©æ¥å£"
                 showSearch
                 loading={ifaceLoading}
                 options={ifaceOptions.map((n) => ({
                   value: n,
-                  label: renderIfaceWizardSelectLabel(n, lanIfaceTrim && n === lanIfaceTrim ? 'å??ç½?å£' : undefined),
+                  label: renderIfaceWizardSelectLabel(n, lanIfaceTrim && n === lanIfaceTrim ? 'å·²ç”¨äº LAN' : undefined),
                 }))}
                 filterOption={(input: string, option?: { value?: string }) =>
                   String(option?.value || '')
@@ -614,39 +600,39 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
               />
             </Form.Item>
-            <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>å¤?ç½?å£ IPv4 å?°å?</span>} preserve>
-              <Input placeholder="ä¾?å¦?ï¼?200.1.1.2/24ï¼?å¯é??ï¼?" />
+            <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN ä¾§ IPv4 åœ°å€/æ©ç </span>} preserve>
+              <Input placeholder="ä¾‹å¦‚ 200.1.1.2/24" />
             </Form.Item>
-            <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>å¤?ç½?å£ IPv6 å?°å?</span>} preserve>
-              <Input placeholder="ä¾?å¦?ï¼?2408:3333:1002::1/64ï¼?å¯é??ï¼?" />
+            <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN ä¾§ IPv6 åœ°å€/æ©ç </span>} preserve>
+              <Input placeholder="ä¾‹å¦‚ 2408:3333:1002::1/64" />
             </Form.Item>
             <div style={{ height: 12 }} />
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>è®¾å®?BGPè·¯ç?±(CE to PE)</div>
-            <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: 'è¯·è¾?å?¥ BGP ASN' }]} preserve>
-              <InputNumber style={{ width: '100%' }} placeholder="ä¾?å¦?ï¼?100" min={1} max={4294967295} />
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP é…ç½®ï¼ˆCE to PEï¼‰</div>
+            <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: 'è¯·è¾“å…¥ BGP ASN' }]} preserve>
+              <InputNumber style={{ width: '100%' }} placeholder="ä¾‹å¦‚ 100" min={1} max={4294967295} />
             </Form.Item>
             <Form.Item
               name="bgpRouterId"
               label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}
               rules={[
-                { required: true, message: 'è¯·è¾?å?¥ Router-ID' },
-                { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: 'è¯·è¾?å?¥å?æ³?ç?? IPv4 å?°å?' },
+                { required: true, message: 'è¯·è¾“å…¥ Router-ID' },
+                { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: 'è¯·è¾“å…¥æœ‰æ•ˆçš„ IPv4 åœ°å€' },
               ]}
               preserve
             >
-              <Input placeholder="ä¾?å¦?ï¼?200.1.1.2" />
+              <Input placeholder="ä¾‹å¦‚ 200.1.1.2" />
             </Form.Item>
           </div>
           <div style={{ display: current === 1 ? 'block' : 'none' }}>
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>è®¾å®?å??ç½?å£</div>
-            <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>æ?¥å£åç§°</span>} rules={[{ required: true, message: 'è¯·é??æ?©æ?¥å£åç§°' }]} preserve>
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN ä¾§é…ç½®ï¼ˆCE to localï¼‰</div>
+            <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN ä¾§æ¥å£</span>} rules={[{ required: true, message: 'è¯·é€‰æ‹© LAN ä¾§æ¥å£' }]} preserve>
               <Select
-                placeholder="è¯·é??æ?©ç½?å¡"
+                placeholder="è¯·é€‰æ‹©æ¥å£"
                 showSearch
                 loading={ifaceLoading}
                 options={ifaceOptions.map((n) => ({
                   value: n,
-                  label: renderIfaceWizardSelectLabel(n, wanIfaceTrim && n === wanIfaceTrim ? 'å¤?ç½?å£' : undefined),
+                  label: renderIfaceWizardSelectLabel(n, wanIfaceTrim && n === wanIfaceTrim ? 'å·²ç”¨äº WAN' : undefined),
                 }))}
                 filterOption={(input: string, option?: { value?: string }) =>
                   String(option?.value || '')
@@ -656,25 +642,25 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
               />
             </Form.Item>
-            <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 å?°å?/æ?©ç </span>} preserve>
-              <Input placeholder="ä¾?å¦?ï¼?130.1.1.1/24ï¼?å¯é??ï¼?" />
+            <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN ä¾§ IPv4 åœ°å€/æ©ç </span>} preserve>
+              <Input placeholder="ä¾‹å¦‚ 130.1.1.1/24" />
             </Form.Item>
-            <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 å?°å?/æ?©ç </span>} preserve>
-              <Input placeholder="ä¾?å¦?ï¼?2408:3333:1002::1/64ï¼?å¯é??ï¼?" />
+            <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN ä¾§ IPv6 åœ°å€/æ©ç </span>} preserve>
+              <Input placeholder="ä¾‹å¦‚ 2408:3333:1002::1/64" />
             </Form.Item>
           </div>
         </Form>
         {current === 2 && (
           <div>
             <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="å¤?ç½?å£è®¾å¤?">{summaryValues.wanName || '-'}</Descriptions.Item>
-              <Descriptions.Item label="å¤?ç½?å£ IPv4">{summaryValues.wanIpv4 || '-'}</Descriptions.Item>
-              <Descriptions.Item label="å¤?ç½?å£ IPv6">{summaryValues.wanIpv6 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="WAN ä¾§æ¥å£">{summaryValues.wanName || '-'}</Descriptions.Item>
+              <Descriptions.Item label="WAN ä¾§ IPv4">{summaryValues.wanIpv4 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="WAN ä¾§ IPv6">{summaryValues.wanIpv6 || '-'}</Descriptions.Item>
               <Descriptions.Item label="BGP ASN">{summaryValues.bgpAsn || '-'}</Descriptions.Item>
               <Descriptions.Item label="BGP Router-ID">{summaryValues.bgpRouterId || '-'}</Descriptions.Item>
-              <Descriptions.Item label="å??ç½?æ?¥å£">{summaryValues.lanName || '-'}</Descriptions.Item>
-              <Descriptions.Item label="å??ç½? IPv4">{summaryValues.lanIpv4 || '-'}</Descriptions.Item>
-              <Descriptions.Item label="å??ç½? IPv6">{summaryValues.lanIpv6 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="LAN ä¾§æ¥å£">{summaryValues.lanName || '-'}</Descriptions.Item>
+              <Descriptions.Item label="LAN ä¾§ IPv4">{summaryValues.lanIpv4 || '-'}</Descriptions.Item>
+              <Descriptions.Item label="LAN ä¾§ IPv6">{summaryValues.lanIpv6 || '-'}</Descriptions.Item>
             </Descriptions>
           </div>
         )}
@@ -685,19 +671,19 @@ const CEWizard: React.FC = () => {
   return (
     <PageContainer
       titleLevel={3}
-      extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>å?·æ?°è®¾å¤?å??è¯»</Button>}
+      extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>åˆ·æ–°è®¾å¤‡å›è¯»</Button>}
       onBack={() => navigate(-1)}
       asCard={false}
     >
       <Row gutter={16}>
         <Col span={4}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>æ­¥éª¤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: 'å¤?ç½?é?ç½®(CE to PE)' }, { title: 'å??ç½?é?ç½®(CE to local)' }, { title: 'ç¡®è®¤ä¸?å?' }]} />
+            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: 'WAN ä¾§é…ç½®ï¼ˆCE to PEï¼‰' }, { title: 'LAN ä¾§é…ç½®ï¼ˆCE to localï¼‰' }, { title: 'ç¡®è®¤ä¸‹å‘' }]} />
           </Card>
         </Col>
         <Col span={7}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`ç¬¬ ${current + 1} æ­¥ï¼?${['å¤?ç½?é?ç½®(CE to PE)','å??ç½?é?ç½®(CE to local)','ç¡®è®¤ä¸?å?'][current]} è®¾å¤?å??è¯»`}
+            {`ç¬¬ ${current + 1} æ­¥ï¼š${['WAN ä¾§é…ç½®ï¼ˆCE to PEï¼‰','LAN ä¾§é…ç½®ï¼ˆCE to localï¼‰','ç¡®è®¤ä¸‹å‘'][current]} è®¾å¤‡å›è¯»`}
           </span>} variant="outlined">
             {ifaceLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
@@ -707,11 +693,11 @@ const CEWizard: React.FC = () => {
               <>
                 {current === 0 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>å¤?ç½?é?ç½®(CE to PE)</div>
+                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN ä¾§é…ç½®ï¼ˆCE to PEï¼‰</div>
                     <Form layout="vertical" form={mirrorForm} disabled>
-                      <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>å¤?ç½?å£è®¾å¤?</span>}>
+                      <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN ä¾§æ¥å£</span>}>
                         <Select
-                          placeholder="æ?ªé?ç½®"
+                          placeholder="æœªé…ç½®"
                           showSearch
                           loading={ifaceLoading}
                           options={[
@@ -720,30 +706,30 @@ const CEWizard: React.FC = () => {
                           ]}
                         />
                       </Form.Item>
-                      <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>å¤?ç½?å£ IPv4 å?°å?</span>}>
-                        <Input placeholder="æ?ªé?ç½®" />
+                      <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN ä¾§ IPv4 åœ°å€/æ©ç </span>}>
+                        <Input placeholder="æœªé…ç½®" />
                       </Form.Item>
-                      <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>å¤?ç½?å£ IPv6 å?°å?</span>}>
-                        <Input placeholder="æ?ªé?ç½®" />
+                      <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN ä¾§ IPv6 åœ°å€/æ©ç </span>}>
+                        <Input placeholder="æœªé…ç½®" />
                       </Form.Item>
                       <div style={{ height: 12 }} />
-                      <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>è®¾å®?BGPè·¯ç?±(CE to PE)</div>
+                      <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP é…ç½®ï¼ˆCE to PEï¼‰</div>
                       <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>}>
-                        <InputNumber style={{ width: '100%' }} placeholder="æ?ªé?ç½®" />
+                        <InputNumber style={{ width: '100%' }} placeholder="æœªé…ç½®" />
                       </Form.Item>
                       <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}>
-                        <Input placeholder="æ?ªé?ç½®" />
+                        <Input placeholder="æœªé…ç½®" />
                       </Form.Item>
                     </Form>
                   </>
                 )}
                 {current === 1 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>å??ç½?é?ç½®(CE to local)</div>
+                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN ä¾§é…ç½®ï¼ˆCE to localï¼‰</div>
                     <Form layout="vertical" form={mirrorForm} disabled>
-                      <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>æ?¥å£åç§°</span>}>
+                      <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN ä¾§æ¥å£</span>}>
                         <Select
-                          placeholder="æ?ªé?ç½®"
+                          placeholder="æœªé…ç½®"
                           showSearch
                           loading={ifaceLoading}
                           options={[
@@ -752,11 +738,11 @@ const CEWizard: React.FC = () => {
                           ]}
                         />
                       </Form.Item>
-                      <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 å?°å?/æ?©ç </span>}>
-                        <Input placeholder="æ?ªé?ç½®" />
+                      <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN ä¾§ IPv4 åœ°å€/æ©ç </span>}>
+                        <Input placeholder="æœªé…ç½®" />
                       </Form.Item>
-                      <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 å?°å?/æ?©ç </span>}>
-                        <Input placeholder="æ?ªé?ç½®" />
+                      <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN ä¾§ IPv6 åœ°å€/æ©ç </span>}>
+                        <Input placeholder="æœªé…ç½®" />
                       </Form.Item>
                     </Form>
                   </>
@@ -764,37 +750,37 @@ const CEWizard: React.FC = () => {
                 {current === 2 && (
                   <>
                     <Descriptions column={1} bordered size="small">
-                      <Descriptions.Item label="å¤?ç½?å£è®¾å¤?">{mirrorForm.getFieldValue('wanName') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="å¤?ç½?å£ IPv4">{mirrorForm.getFieldValue('wanIpv4') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="å¤?ç½?å£ IPv6">{mirrorForm.getFieldValue('wanIpv6') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="WAN ä¾§æ¥å£">{mirrorForm.getFieldValue('wanName') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="WAN ä¾§ IPv4">{mirrorForm.getFieldValue('wanIpv4') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="WAN ä¾§ IPv6">{mirrorForm.getFieldValue('wanIpv6') || '-'}</Descriptions.Item>
                       <Descriptions.Item label="BGP ASN">{mirrorForm.getFieldValue('bgpAsn') || '-'}</Descriptions.Item>
                       <Descriptions.Item label="BGP Router-ID">{mirrorForm.getFieldValue('bgpRouterId') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="æ?¥å£åç§°">{mirrorForm.getFieldValue('lanName') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="å??ç½? IPv4">{mirrorForm.getFieldValue('lanIpv4') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="å??ç½? IPv6">{mirrorForm.getFieldValue('lanIpv6') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="LAN ä¾§æ¥å£">{mirrorForm.getFieldValue('lanName') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="LAN ä¾§ IPv4">{mirrorForm.getFieldValue('lanIpv4') || '-'}</Descriptions.Item>
+                      <Descriptions.Item label="LAN ä¾§ IPv6">{mirrorForm.getFieldValue('lanIpv6') || '-'}</Descriptions.Item>
                     </Descriptions>
                   </>
                 )}
               </>
             ) : (
               <div style={{ padding: 12, background: '#fffbe6', border: '1px dashed #faad14', borderRadius: 6, color: '#faad14', fontSize: 12 }}>
-                æ?ªè?·å?å?°è®¾å¤?é?ç½®ï¼?è®¾å¤?å??è¯»ä¸ºç©ºï¼?
+                æœªèƒ½è¯»å–è®¾å¤‡å›è¯»æ•°æ®ï¼Œè¯·å…ˆæ£€æŸ¥è®¾å¤‡è¿æ¥çŠ¶æ€æˆ–ç¨åé‡è¯•ã€‚
               </div>
             )}
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`ç¬¬ ${current + 1} æ­¥ï¼?${['å¤?ç½?é?ç½®(CE to PE)','å??ç½?é?ç½®(CE to local)','ç¡®è®¤ä¸?å?'][current]} é?ç½®ç¼?è¾?`}
+            {`ç¬¬ ${current + 1} æ­¥ï¼š${['WAN ä¾§é…ç½®ï¼ˆCE to PEï¼‰','LAN ä¾§é…ç½®ï¼ˆCE to localï¼‰','ç¡®è®¤ä¸‹å‘'][current]} é…ç½®ç¼–è¾‘`}
           </span>} variant="outlined">
             {renderCoreContent()}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
               <Space>
-                <Button onClick={() => navigate('/admin/interconnect/vr')}>è¿?å??å??è¡¨</Button>
-                {current > 0 && <Button onClick={prev}>ä¸?ä¸?æ­¥</Button>}
+                <Button onClick={() => navigate('/admin/interconnect/vr')}>è¿”å›åˆ—è¡¨</Button>
+                {current > 0 && <Button onClick={prev}>ä¸Šä¸€æ­¥</Button>}
               </Space>
               <Space>
-                {current < 2 && <Button type="primary" onClick={next}>ä¸?ä¸?æ­¥</Button>}
+                {current < 2 && <Button type="primary" onClick={next}>ä¸‹ä¸€æ­¥</Button>}
                 {current === 2 && (
                   <>
                     <Button
@@ -805,7 +791,7 @@ const CEWizard: React.FC = () => {
                         setConfirmOpen(true);
                       }}
                     >
-                      ä¸?å?é?ç½®
+                      ä¸‹å‘é…ç½®
                     </Button>
                   </>
                 )}
@@ -814,7 +800,7 @@ const CEWizard: React.FC = () => {
           </Card>
         </Col>
         <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>é?ç½® JSONé¢?è§?</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
+          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>é…ç½® JSONé¢„è§ˆ</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
             <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {JSON.stringify(uuid ? { uuid, ...configPreview } : configPreview, null, 2)}
             </pre>
@@ -822,7 +808,7 @@ const CEWizard: React.FC = () => {
         </Col>
       </Row>
       <Modal
-        title="é?è¦æç¤ºï¼?é?ç½®ä¸?å?ä¸ºå?¨é?è¦?ç??"
+        title="é‡è¦æç¤ºï¼šé…ç½®ä¸‹å‘ä¸ºå…¨é‡è¦†ç›–"
         open={confirmOpen}
         onCancel={() => setConfirmOpen(false)}
         onOk={async () => {
@@ -831,28 +817,28 @@ const CEWizard: React.FC = () => {
           await handleDispatch();
         }}
         okButtonProps={{ disabled: !confirmChecked }}
-        okText="æ??å·²é??è¯»å¹¶ç?è§£ï¼?ç»§ç»­ä¸?å?"
-        cancelText="å?æ¶?"
+        okText="æˆ‘å·²é˜…è¯»å¹¶ç†è§£ï¼Œç»§ç»­ä¸‹å‘"
+        cancelText="å–æ¶ˆ"
         width={680}
       >
         <div style={{ fontSize: 13, color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
-            æ?¬æ¬¡ä¸?å?å±?äº?å?¨é?è¦?ç??ã??è®¾å¤?å½?å?é?ç½®å°?è¢«å®?å?¨æ?¿æ¢ä¸ºå?å¯¼ç??æ?ç??é?ç½®ï¼?ä¸è¿?è¡?ä¿ç??æ??å¢?é?å?å¹¶ã??
+            æœ¬æ¬¡ä¸‹å‘å±äºå…¨é‡è¦†ç›–ã€‚è®¾å¤‡å½“å‰é…ç½®å°†è¢«å®Œå…¨æ›¿æ¢ä¸ºå‘å¯¼ç”Ÿæˆçš„é…ç½®ï¼Œä¸è¿›è¡Œä¿ç•™æˆ–å¢é‡åˆå¹¶ã€‚
           </div>
           <div style={{ marginBottom: 12 }}>
-            å½±å?è??å?´å??æ?¬ä½?ä¸é?äº?ï¼?æ?¥å£ä¸?å­æ?¥å£ã?IPv4/IPv6 å?°å?ä¸?ç?¶æ?ã?é?æ?è·¯ç?±ã?NAT è®¾ç½®ã?BGP/VRFã?SRv6 å?æ?°å?å¯è?½ç?¸å?³ç??ç­?ç?¥é¡¹ã??å·²æ??ç??æ??å·¥ä¿®æ?¹å¯è?½è¢«è¦?ç??ã??
+            å½±å“èŒƒå›´åŒ…æ‹¬ä½†ä¸é™äºï¼šæ¥å£ä¸å­æ¥å£ã€IPv4/IPv6 åœ°å€ä¸çŠ¶æ€ã€é™æ€è·¯ç”±ã€NAT è®¾ç½®ã€BGP/VRFã€SRv6 å‚æ•°åŠå¯èƒ½ç›¸å…³çš„ç­–ç•¥é¡¹ã€‚å·²æœ‰çš„æ‰‹å·¥ä¿®æ”¹å¯èƒ½è¢«è¦†ç›–ã€‚
           </div>
           <div style={{ marginBottom: 12 }}>
-            é£?é?©æé??ï¼?è?¥é»?è®¤è·¯ç?±æ??å?¬ç½?ç½?å?³è®¾ç½®ä¸æ­£ç¡®ï¼?è®¾å¤?å¯è?½å?ºç?°ç?­æ??ä¸å¯è¾¾ï¼?NAT å¼?å?³å?æ?´ä¼?å½±å?å??ç½?å?ºç½?ï¼?è·¯ç?±/BGP å?æ?´å¯è?½å¯¼è?´ä¸?å?¡ä¸­æ?­ã??
+            é£é™©æé†’ï¼šè‹¥é»˜è®¤è·¯ç”±æˆ–å…¬ç½‘ç½‘å…³è®¾ç½®ä¸æ­£ç¡®ï¼Œè®¾å¤‡å¯èƒ½å‡ºç°çŸ­æš‚ä¸å¯è¾¾ï¼›NAT å¼€å…³å˜æ›´ä¼šå½±å“å†…ç½‘å‡ºç½‘ï¼›è·¯ç”±/BGP å˜æ›´å¯èƒ½å¯¼è‡´ä¸šåŠ¡ä¸­æ–­ã€‚
           </div>
           <div style={{ marginBottom: 12 }}>
-            å»ºè®®å?¨ç»´æ?¤æ?¶æ®µæ?§è¡?ï¼?å¹¶å?¨ä¸?å?å?ä½¿ç?¨â??å?·æ?°è®¾å¤?å??è¯»â?ç¡®è®¤å½?å?ç?¶æ?ï¼?å¿?è¦æ?¶é??è¿?ä¸?å®¶æ¨¡å¼å¤?ä»½é?ç½®ï¼?ç¡®ä¿å?·å¤?å??æ»?æ?¹æ¡?ã??
+            å»ºè®®åœ¨ç»´æŠ¤æ—¶æ®µæ‰§è¡Œï¼Œå¹¶åœ¨ä¸‹å‘å‰ä½¿ç”¨â€œåˆ·æ–°è®¾å¤‡å›è¯»â€ç¡®è®¤å½“å‰çŠ¶æ€ï¼Œå¿…è¦æ—¶é€šè¿‡ä¸“å®¶æ¨¡å¼å¤‡ä»½é…ç½®ï¼Œç¡®ä¿å…·å¤‡å›æ»šæ–¹æ¡ˆã€‚
           </div>
           <div style={{ marginBottom: 12 }}>
-            é??ç?¨è??å?´ï¼?æ ?å??ã?PEã?CE æ¨¡å¼ç??é?ç½®ä¸?å?å?ä¸ºå?¨é?è¦?ç??ã??
+            é€‚ç”¨èŒƒå›´ï¼šæ ‡å‡†ã€PEã€CE æ¨¡å¼çš„é…ç½®ä¸‹å‘å‡ä¸ºå…¨é‡è¦†ç›–ã€‚
           </div>
           <Checkbox checked={confirmChecked} onChange={(e) => setConfirmChecked(e.target.checked)}>
-            æ??å·²é??è¯»å¹¶ç?è§£ä¸?è¿°å??å®¹ï¼?ç¡®è®¤ç»§ç»­æ?§è¡?å?¨é?è¦?ç??ä¸?å?
+            æˆ‘å·²é˜…è¯»å¹¶ç†è§£ä¸Šè¿°å†…å®¹ï¼Œç¡®è®¤ç»§ç»­æ‰§è¡Œå…¨é‡è¦†ç›–ä¸‹å‘
           </Checkbox>
         </div>
       </Modal>

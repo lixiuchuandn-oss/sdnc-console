@@ -5,6 +5,7 @@ import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptio
 import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
 import { buildPodAffinityForK8s } from '../../lib/podAffinityK8s';
 import { findGpuResource, getGpuNodeName, getGpuResourceName } from '../../lib/gpuResourceResolve';
+import { buildNodeSelectorFromLabelForm } from '../../lib/vmFailureDomainNodeSelector';
 
 /**
  * ==============================================================================
@@ -253,6 +254,7 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   rootDeviceType: 'disk',
   extraDisks: [],
   nodeSelectorPairs: [],
+  failureDomainName: undefined,
   hostMode: 'auto',
   netMode: 'flat_subnet',
   gpuMode: 'none',
@@ -731,16 +733,12 @@ export const buildHarvesterVmPayload = (params: {
         }
       } catch {}
       
-      // 标签选择模式
+      // 故障域 / 其它节点标签（nodeSelector）
       if (hostModeState === 'label') {
-          const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; 
-          const obj: any = {}; 
-          arr.forEach((p: any) => { 
-              const k = String(p?.key || '').trim(); 
-              const val = String(p?.value || '').trim(); 
-              if (k && val) { obj[k] = val; } 
-          }); 
-          return Object.keys(obj).length > 0 ? obj : undefined; 
+          return buildNodeSelectorFromLabelForm({
+            failureDomainName: v.failureDomainName,
+            nodeSelectorPairs: v.nodeSelectorPairs,
+          });
       }
       
       // 指定主机模式
@@ -995,6 +993,7 @@ export const buildHarvesterVmPayload = (params: {
                 hostname: vmId || v.name,
                 nodeSelector: nodeSelector,
                 affinity: (function () {
+                  if (hostModeState === 'node') return undefined;
                   const a: Record<string, unknown> = {};
                   const pa = buildPodAffinityForK8s(v.podAffinity);
                   const paa = buildPodAffinityForK8s(v.podAntiAffinity);

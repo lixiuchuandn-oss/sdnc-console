@@ -513,6 +513,60 @@ export async function ensureFailureDomainTables() {
   }
 }
 
+/** Cloudmap 存储 DRS（SDRS）策略与任务 */
+export async function ensureSdrsTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 SDRS 表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_sdrs_policy'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_sdrs_policy / cloud_sdrs_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_sdrs_policy" (
+          "cloudId" varchar PRIMARY KEY NOT NULL,
+          "enabled" integer NOT NULL DEFAULT 0,
+          "mode" text NOT NULL DEFAULT 'manual',
+          "capacityThresholdPct" integer NOT NULL DEFAULT 85,
+          "latencyThresholdMs" integer NOT NULL DEFAULT 20,
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_sdrs_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "vmNamespace" text NOT NULL,
+          "vmName" text NOT NULL,
+          "pvcName" text NOT NULL,
+          "srcPool" text NOT NULL,
+          "srcImage" text NOT NULL,
+          "dstPool" text NOT NULL,
+          "dstImage" text NOT NULL,
+          "reason" text NOT NULL DEFAULT 'manual',
+          "phase" text NOT NULL DEFAULT 'pending',
+          "message" text,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "finishedAt" datetime
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_sdrs_tasks_cloudId" ON "cloud_sdrs_tasks" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_sdrs_tasks_createdAt" ON "cloud_sdrs_tasks" ("createdAt")
+      `);
+      dbLog.info('SDRS 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error('SDRS 表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
 /**
  * Ceph mgr Dashboard 快照表（与实体 CephMgrDashboardSnapshot 一致；无 DB_SYNC 时由启动流程创建）
  */

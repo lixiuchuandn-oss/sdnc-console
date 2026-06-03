@@ -7,6 +7,11 @@ import PodAffinityEditor, {
   type PodAffinityEditorHandle,
 } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
 import { parsePodAffinityFromK8s } from '../../lib/podAffinityK8s';
+import {
+  VM_ADVANCED_SCHEDULING_COLLAPSE,
+  VM_ADVANCED_SCHEDULING_HINT,
+} from '../../lib/vmAdvancedSchedulingLabels';
+import { VmAdvancedSchedulingCollapseLabel } from '../../lib/VmAdvancedSchedulingCollapseLabel';
 
 type Props = {
   form: any;
@@ -45,25 +50,37 @@ const ChangePodAffinityFields: React.FC<Props> = ({
         items={[
           {
             key: 'podAffinity',
-            label: '虚拟机亲和性（尽量/必须同域部署）',
+            label: (
+              <VmAdvancedSchedulingCollapseLabel
+                title={VM_ADVANCED_SCHEDULING_COLLAPSE.podAffinity}
+                hint={VM_ADVANCED_SCHEDULING_HINT.podAffinity}
+              />
+            ),
             children: (
               <PodAffinityEditor
                 ref={podAffinityRef}
                 name="podAffinity"
-                label="虚拟机亲和性"
+                label={VM_ADVANCED_SCHEDULING_COLLAPSE.podAffinity}
                 namespacesOptions={namespacesOptions}
+                compact
               />
             ),
           },
           {
             key: 'podAntiAffinity',
-            label: '虚拟机反亲和性（尽量/必须分散部署）',
+            label: (
+              <VmAdvancedSchedulingCollapseLabel
+                title={VM_ADVANCED_SCHEDULING_COLLAPSE.podAntiAffinity}
+                hint={VM_ADVANCED_SCHEDULING_HINT.podAntiAffinity}
+              />
+            ),
             children: (
               <PodAffinityEditor
                 ref={podAntiAffinityRef}
                 name="podAntiAffinity"
-                label="虚拟机反亲和性"
+                label={VM_ADVANCED_SCHEDULING_COLLAPSE.podAntiAffinity}
                 namespacesOptions={namespacesOptions}
+                compact
               />
             ),
           },

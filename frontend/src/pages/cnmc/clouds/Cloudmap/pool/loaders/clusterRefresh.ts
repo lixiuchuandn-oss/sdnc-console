@@ -6,9 +6,11 @@ import { message } from 'antd';
  * - Section：工具栏 `createHarvesterToolbarRefresh(onRefresh)`；写成功/删改后**禁止**裸调 `onRefresh(...)`，一律 `runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`
  */
 export type ClusterInnerTabKey =
-  | 'cluster_nodes'
-  | 'namespaces'
-  | 'gpu'
+  | 'compute_nodes'
+  | 'compute_projects'
+  | 'compute_drs_rules'
+  | 'compute_migrations'
+  | 'compute_gpu'
   | 'cluster_usb'
   | 'clusterNetworks'
   | 'storage_classes'
@@ -41,10 +43,10 @@ export function createClusterTabOnRefresh(
   const { loadTabResource } = deps;
 
   switch (tab) {
-    case 'namespaces':
+    case 'compute_projects':
       return async (force?: boolean, silent?: boolean) => {
         const shouldForce = force !== false;
-        await loadTabResource('namespaces', shouldForce, silent);
+        await loadTabResource('compute_projects', shouldForce, silent);
         if (shouldForce && !silent) {
           message.success('刷新成功');
         }

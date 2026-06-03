@@ -190,6 +190,8 @@ export const ALL_PERMISSIONS = [
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
   'clouds.failure-domains:read', // 故障域 - 查看
   'clouds.failure-domains:write', // 故障域 - 管理
+  'clouds.storage-drs:read', // 存储 DRS（SDRS）- 查看
+  'clouds.storage-drs:write', // 存储 DRS（SDRS）- 管理
 
   // 集群网络
   'clouds.cluster-networks:read', // 集群网络列表 - 查看
@@ -562,6 +564,7 @@ export const PERMISSION_GROUPS = {
       'clouds.network-acls',
       'clouds.cluster-nodes',
       'clouds.failure-domains',
+      'clouds.storage-drs',
       'clouds.cluster-networks',
       'clouds.namespaces',
       'clouds.storage-classes',
