@@ -4,9 +4,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Button, Input, Table } from 'antd';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import SharedToolbar from 'components/SharedToolbar';
+import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
+import { createHarvesterToolbarRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import MetricRuleConfigDrawer from '../drawers/MetricRuleConfigDrawer';
@@ -41,9 +42,7 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
-  const handleRefresh = useCallback(() => {
-    void loadAll(true);
-  }, [loadAll]);
+  const handleRefresh = useMemo(() => createHarvesterToolbarRefresh(loadAll), [loadAll]);
 
   const closeMetricRuleDrawer = useCallback(() => {
     setMetricRuleDrawerOpen(false);
@@ -107,8 +106,10 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
 
   return (
     <>
-      <SharedToolbar
-        left={
+      <PageDetailSection
+        asCard={false}
+        autoStyleInputs={false}
+        toolbarLeft={
           <>
             <Input
               allowClear
@@ -123,7 +124,7 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
             </button>
           </>
         }
-        right={
+        toolbarRight={
           <div className="toolbar-actions">
             {canManageMetricRule && metricRulesAvailable ? (
               <Button type="primary" icon={<PlusOutlined />} onClick={openCreateMetricRule}>
@@ -137,31 +138,30 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
             <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading} />
           </div>
         }
-        style={{ marginBottom: 16 }}
-      />
+      >
+        {!metricRulesAvailable ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="无法从集群拉取调度规则列表"
+            description={
+              metricRulesError || '请确认云实例 API 地址/令牌正确，且集群 CDRS 服务可用。'
+            }
+          />
+        ) : null}
 
-      {!metricRulesAvailable ? (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="无法从集群拉取调度规则列表"
-          description={
-            metricRulesError || '请确认云实例 API 地址/令牌正确，且集群 CDRS 服务可用。'
-          }
+        <Table
+          className="std-table"
+          bordered={false}
+          scroll={{ x: true }}
+          rowKey={(r) => String(metricRuleRowFields.uidOrKey(r))}
+          columns={metricRuleColumns}
+          dataSource={filteredMetricRules}
+          loading={loading}
+          pagination={{ showTotal: (total) => `共 ${total} 条`, size: 'small' }}
         />
-      ) : null}
-
-      <Table
-        className="std-table"
-        bordered={false}
-        scroll={{ x: true }}
-        rowKey={(r) => String(metricRuleRowFields.uidOrKey(r))}
-        columns={metricRuleColumns}
-        dataSource={filteredMetricRules}
-        loading={loading}
-        pagination={{ showTotal: (total) => `共 ${total} 条`, size: 'small' }}
-      />
+      </PageDetailSection>
 
       <MetricRuleConfigDrawer
         open={metricRuleDrawerOpen}

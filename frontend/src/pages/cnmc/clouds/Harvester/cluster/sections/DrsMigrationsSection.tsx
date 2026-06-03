@@ -4,10 +4,14 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Button, Input, Select, Table, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import SharedToolbar from 'components/SharedToolbar';
+import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import { abortHarvesterMigration } from 'services/harvester/vm';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
@@ -53,9 +57,7 @@ const DrsMigrationsSection: React.FC<DrsMigrationsSectionProps> = ({
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
-  const handleRefresh = useCallback(() => {
-    void loadAll(true);
-  }, [loadAll]);
+  const handleRefresh = useMemo(() => createHarvesterToolbarRefresh(loadAll), [loadAll]);
 
   const handleOpenMigrationYaml = useCallback(
     (record: MigrationTableRow) => {
@@ -79,7 +81,7 @@ const DrsMigrationsSection: React.FC<DrsMigrationsSectionProps> = ({
         }
         await abortHarvesterMigration(cloudId, `${namespace}/${vmName}`);
         message.success('已发送取消请求');
-        void loadAll(true);
+        void runHarvesterSectionRefresh(loadAll, { force: true });
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '取消失败');
@@ -150,8 +152,10 @@ const DrsMigrationsSection: React.FC<DrsMigrationsSectionProps> = ({
 
   return (
     <>
-      <SharedToolbar
-        left={
+      <PageDetailSection
+        asCard={false}
+        autoStyleInputs={false}
+        toolbarLeft={
           <>
             <Input
               allowClear
@@ -185,7 +189,7 @@ const DrsMigrationsSection: React.FC<DrsMigrationsSectionProps> = ({
             </button>
           </>
         }
-        right={
+        toolbarRight={
           <div className="toolbar-actions">
             <TableColumnSettingsButton
               allColumns={reallocationColumnsAll}
@@ -194,19 +198,18 @@ const DrsMigrationsSection: React.FC<DrsMigrationsSectionProps> = ({
             <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={loading} />
           </div>
         }
-        style={{ marginBottom: 16 }}
-      />
-
-      <Table
-        className="std-table"
-        bordered={false}
-        scroll={{ x: true }}
-        rowKey={(r) => String(migrationRowFields.uidOrKey(r))}
-        columns={reallocationColumns}
-        dataSource={filteredReallocationMigrations}
-        loading={loading}
-        pagination={{ showTotal: (total) => `共 ${total} 条`, size: 'small' }}
-      />
+      >
+        <Table
+          className="std-table"
+          bordered={false}
+          scroll={{ x: true }}
+          rowKey={(r) => String(migrationRowFields.uidOrKey(r))}
+          columns={reallocationColumns}
+          dataSource={filteredReallocationMigrations}
+          loading={loading}
+          pagination={{ showTotal: (total) => `共 ${total} 条`, size: 'small' }}
+        />
+      </PageDetailSection>
 
       <ResourceLinkYamlDrawer
         open={yamlDrawerOpen}

@@ -22,6 +22,10 @@ import FailureDomainFormModal, {
 import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
 import { buildFailureDomainsTableColumns } from '../lib/failureDomainsTableColumns';
 import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 
 const TABLE_KEY = 'harvester_failure_domains_table';
 
@@ -67,9 +71,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
     return Array.from(set).sort();
   }, [domains, overview?.unassignedNodeNames]);
 
-  const handleRefresh = useCallback(() => {
-    void reload(true);
-  }, [reload]);
+  const handleRefresh = useMemo(() => createHarvesterToolbarRefresh(reload), [reload]);
 
   const resetToolbar = useCallback(() => {
     setKeyword('');
@@ -99,7 +101,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         onConfirm: async () => {
           await deleteFailureDomain(cloudId, row.id);
           message.success('已删除');
-          void reload(true);
+          void runHarvesterSectionRefresh(reload, { force: true });
         },
       }).catch(() => {});
     },
@@ -119,7 +121,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         }
         setFormOpen(false);
         setEditing(null);
-        void reload(true);
+        void runHarvesterSectionRefresh(reload, { force: true });
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '保存失败');
@@ -139,7 +141,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         message.success('节点分配已保存');
         setAssignOpen(false);
         setAssignDomain(null);
-        void reload(true);
+        void runHarvesterSectionRefresh(reload, { force: true });
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '分配失败');
