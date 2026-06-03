@@ -207,7 +207,7 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
         // 构建请求路径: /v2/{name}/manifests/{reference}
         const path = `/v2/${encodeURIComponent(String(repository))}/manifests/${encodeURIComponent(String(tag))}`;
 
-        const result = await registryRequest(
+        let result = await registryRequest(
           String(server),
           path,
           username ? String(username) : undefined,
@@ -215,10 +215,26 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
           ignoreTls,
         );
 
+        // HTTPS 失败时，自动回退 HTTP 重试
+        if (!result.success && !ignoreTls) {
+          const errorMsg = result.error || '';
+          if (errorMsg.includes('EPROTO') || errorMsg.includes('SSL') || errorMsg.includes('packet length')) {
+            console.log('[Registry Manifest] HTTPS failed, retrying with HTTP...');
+            result = await registryRequest(
+              String(server),
+              path,
+              username ? String(username) : undefined,
+              password ? String(password) : undefined,
+              true,
+            );
+          }
+        }
+
         if (result.success) {
           res.json({
             message: '查询成功',
             data: result.data,
+            digest: result.digest, // 返回 Docker-Content-Digest
           });
         } else {
           res.status(result.status || 500).json({
@@ -290,8 +306,8 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
   /**
    * [API] 删除镜像标签
    * DELETE /:id/resources/harvester/containers/registry/tag
-   * Body: { server, repository, digest, username?, password? }
-   * Docker Registry V2 API: DELETE /v2/{name}/manifests/{digest}
+   * Body: { server, repository, tag, username?, password?, insecure? }
+   * 策略: GET manifest 获取 Docker-Content-Digest → DELETE by digest
    */
   router.delete(
     '/:id/resources/harvester/containers/registry/tag',
@@ -299,79 +315,38 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { server, repository, digest, username, password, insecure } = req.body;
+        const { server, repository, tag, username, password, insecure } = req.body;
 
-        if (!server || !repository || !digest) {
-          return res.status(400).json({ message: '缺少必要参数: server, repository, digest' });
+        if (!server || !repository || !tag) {
+          return res.status(400).json({ message: '缺少必要参数: server, repository, tag' });
         }
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
 
-        const ignoreTls = insecure ?? !!(cloud.config as any)?.ignoreTls;
-
-        // 构建请求路径: /v2/{name}/manifests/{digest}
-        const path = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(digest)}`;
-
-        const result = await registryRequest(server, path, username, password, ignoreTls, 'DELETE');
-
-        if (result.success) {
-          res.json({
-            message: '删除成功',
-            data: result.data,
-          });
+        // 处理 insecure 参数
+        let ignoreTls: boolean;
+        if (insecure === true || insecure === 'true') {
+          ignoreTls = true;
+        } else if (insecure === false || insecure === 'false') {
+          ignoreTls = false;
         } else {
-          res.status(result.status || 500).json({
-            message: '删除镜像失败',
-            error: result.error,
-          });
-        }
-      } catch (error: any) {
-        console.error('[Registry Delete] Error:', error);
-        res.status(500).json({ message: '删除镜像失败', error: error.message });
-      }
-    },
-  );
-
-  /**
-   * [API] 重命名镜像标签
-   * POST /:id/resources/harvester/containers/registry/tag/rename
-   * Body: { server, repository, oldTag, newTag, username?, password?, insecure? }
-   * 逻辑: 获取旧标签 manifest -> PUT 到新标签 -> DELETE 旧标签
-   */
-  router.post(
-    '/:id/resources/harvester/containers/registry/tag/rename',
-    checkAdminPermission,
-    async (req: any, res: Response) => {
-      try {
-        const { id } = req.params;
-        const { server, repository, oldTag, newTag, username, password, insecure } = req.body;
-
-        if (!server || !repository || !oldTag || !newTag) {
-          return res.status(400).json({ message: '缺少必要参数: server, repository, oldTag, newTag' });
+          ignoreTls = !!(cloud.config as any)?.ignoreTls;
         }
 
-        if (oldTag === newTag) {
-          return res.status(400).json({ message: '新标签名不能与旧标签名相同' });
+        const isSslError = (error: string): boolean => {
+          return error.includes('EPROTO') || error.includes('SSL') || error.includes('packet length');
+        };
+
+        // 1. 获取 manifest，拿到 Docker-Content-Digest
+        const manifestPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(tag)}`;
+        let manifestResult = await registryRequest(server, manifestPath, username, password, ignoreTls, 'GET');
+
+        if (!manifestResult.success && !ignoreTls && isSslError(manifestResult.error || '')) {
+          console.log('[Registry Delete] GET HTTPS failed, retrying with HTTP...');
+          manifestResult = await registryRequest(server, manifestPath, username, password, true, 'GET');
         }
-
-        const cloud = await fetchCloudOr404(id, res);
-        if (!cloud) return;
-        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
-
-        const ignoreTls = insecure ?? !!(cloud.config as any)?.ignoreTls;
-
-        // 1. 获取旧标签的 manifest
-        const manifestPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(oldTag)}`;
-        const manifestResult = await registryRequest(
-          server,
-          manifestPath,
-          username,
-          password,
-          ignoreTls,
-          'GET',
-        );
 
         if (!manifestResult.success) {
           return res.status(manifestResult.status || 500).json({
@@ -380,40 +355,32 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
           });
         }
 
-        const manifest = manifestResult.data;
-        const manifestDigest = manifestResult.data?.config?.digest || manifestResult.data?.layers?.[0]?.digest;
+        // 2. 用 manifest digest 执行删除
+        const manifestDigest = manifestResult.digest || manifestResult.data?.config?.digest;
+        if (!manifestDigest) {
+          return res.status(400).json({ message: '无法获取镜像 digest' });
+        }
 
-        // 2. PUT 到新标签
-        const putPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(newTag)}`;
-        const putResult = await registryPutManifest(
-          server,
-          putPath,
-          manifest,
-          username,
-          password,
-          ignoreTls,
-        );
+        console.log(`[Registry Delete] Deleting by digest: ${manifestDigest}`);
+        const deletePath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(manifestDigest)}`;
+        let deleteResult = await registryRequest(server, deletePath, username, password, ignoreTls, 'DELETE');
 
-        if (!putResult.success) {
-          return res.status(putResult.status || 500).json({
-            message: '创建新标签失败',
-            error: putResult.error,
+        if (!deleteResult.success && !ignoreTls && isSslError(deleteResult.error || '')) {
+          console.log('[Registry Delete] DELETE HTTPS failed, retrying with HTTP...');
+          deleteResult = await registryRequest(server, deletePath, username, password, true, 'DELETE');
+        }
+
+        if (deleteResult.success) {
+          res.json({ message: '删除成功', data: deleteResult.data });
+        } else {
+          res.status(deleteResult.status || 500).json({
+            message: '删除镜像失败',
+            error: deleteResult.error,
           });
         }
-
-        // 3. 删除旧标签（通过 digest）
-        if (manifestDigest) {
-          const deletePath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(manifestDigest)}`;
-          await registryRequest(server, deletePath, username, password, ignoreTls, 'DELETE');
-        }
-
-        res.json({
-          message: '重命名成功',
-          data: { repository, oldTag, newTag },
-        });
       } catch (error: any) {
-        console.error('[Registry Rename] Error:', error);
-        res.status(500).json({ message: '重命名失败', error: error.message });
+        console.error('[Registry Delete] Error:', error);
+        res.status(500).json({ message: '删除镜像失败', error: error.message });
       }
     },
   );
@@ -736,7 +703,7 @@ const registryRequest = async (
   password?: string,
   insecure: boolean = false,
   method: string = 'GET',
-): Promise<{ success: boolean; data?: any; status?: number; error?: string }> => {
+): Promise<{ success: boolean; data?: any; status?: number; error?: string; digest?: string }> => {
   const https = await import('https');
   const http = await import('http');
   const urlModule = await import('url');
@@ -853,16 +820,17 @@ const registryRequest = async (
         const buffer = Buffer.concat(chunks);
         const text = buffer.toString('utf-8');
         const status = res.statusCode || 0;
+        
+        // 提取 Docker-Content-Digest 响应头（用于删除 manifest）
+        const digest = res.headers['docker-content-digest'];
 
         if (status >= 200 && status < 300) {
           try {
-            resolve({ success: true, data: JSON.parse(text), status });
+            resolve({ success: true, data: JSON.parse(text), status, digest });
           } catch {
-            // 如果不是 JSON，返回原始文本
-            resolve({ success: true, data: text, status });
+            resolve({ success: true, data: text, status, digest });
           }
         } else {
-          // 尝试解析错误信息
           let errorMsg = `HTTP ${status}`;
           try {
             const errorJson = JSON.parse(text);

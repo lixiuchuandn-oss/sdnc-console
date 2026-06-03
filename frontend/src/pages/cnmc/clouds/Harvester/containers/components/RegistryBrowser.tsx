@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Tree, Input, Empty, Spin, Typography, Tag, message, Space, Tooltip, Button, Modal, Popconfirm } from 'antd';
+import { Tree, Input, Empty, Spin, Typography, Tag, message, Space, Tooltip, Button, Popconfirm } from 'antd';
 import { 
   DockerOutlined, 
   TagOutlined, 
@@ -27,10 +27,9 @@ import {
   LinkOutlined,
   CopyOutlined,
   DeleteOutlined,
-  EditOutlined,
 } from '@ant-design/icons';
 import type { TreeDataNode, TreeProps } from 'antd';
-import { getRegistryCatalog, getRegistryTags, getRegistryManifest, deleteRegistryTag, renameRegistryTag } from '../../../../../../services/harvesterApi';
+import { getRegistryCatalog, getRegistryTags, deleteRegistryTag } from '../../../../../../services/harvesterApi';
 
 const { Text } = Typography;
 
@@ -94,9 +93,6 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
   const [loadedKeys, setLoadedKeys] = useState<Set<string>>(new Set());
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [treeKey, setTreeKey] = useState(0);
-  const [renamingTag, setRenamingTag] = useState<{ repository: string; tag: string } | null>(null);
-  const [newTagName, setNewTagName] = useState('');
-  const [renaming, setRenaming] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   // 是否为选择模式
@@ -335,30 +331,11 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
     try {
       setDeleting(`${repository}:${tag}`);
       
-      // 1. 先获取 manifest 以获取 digest
-      const manifestResult = await getRegistryManifest(
-        cloudId,
-        credential.server,
-        repository,
-        tag,
-        credential.username,
-        credential.password,
-        credential.insecure,
-      );
-      
-      if (!manifestResult?.data?.config?.digest) {
-        message.error('无法获取镜像 digest');
-        return;
-      }
-      
-      const digest = manifestResult.data.config.digest;
-      
-      // 2. 删除标签
       await deleteRegistryTag(
         cloudId,
         credential.server,
         repository,
-        digest,
+        tag,
         credential.username,
         credential.password,
         credential.insecure,
@@ -397,69 +374,6 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
       setDeleting(null);
     }
   }, [cloudId, credential, loadTags]);
-
-  /**
-   * 重命名标签
-   */
-  const handleRenameTag = useCallback(async () => {
-    if (!renamingTag || !newTagName.trim()) {
-      message.error('请输入新标签名');
-      return;
-    }
-    
-    if (newTagName === renamingTag.tag) {
-      message.error('新标签名不能与旧标签名相同');
-      return;
-    }
-    
-    try {
-      setRenaming(true);
-      
-      await renameRegistryTag(
-        cloudId,
-        credential.server,
-        renamingTag.repository,
-        renamingTag.tag,
-        newTagName.trim(),
-        credential.username,
-        credential.password,
-        credential.insecure,
-      );
-      
-      message.success('重命名成功');
-      setRenamingTag(null);
-      setNewTagName('');
-      
-      // 重新加载标签列表
-      setLoadedKeys((prev) => {
-        const next = new Set(prev);
-        next.delete(`repo:${renamingTag.repository}`);
-        return next;
-      });
-      
-      const tagNodes = await loadTags(renamingTag.repository);
-      setTreeData((prevData) => {
-        const updateNode = (nodes: ExtendedTreeDataNode[]): ExtendedTreeDataNode[] => {
-          return nodes.map((n) => {
-            if (n.key === `repo:${renamingTag.repository}`) {
-              return { ...n, children: tagNodes };
-            }
-            if (n.children) {
-              return { ...n, children: updateNode(n.children as ExtendedTreeDataNode[]) };
-            }
-            return n;
-          });
-        };
-        return updateNode(prevData);
-      });
-      setTreeKey(prev => prev + 1);
-    } catch (error: any) {
-      console.error('重命名标签失败:', error);
-      message.error(error?.message || '重命名失败');
-    } finally {
-      setRenaming(false);
-    }
-  }, [renamingTag, newTagName, cloudId, credential, loadTags]);
 
   /**
    * 选择节点
@@ -612,18 +526,6 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
                         }}
                       />
                     </Tooltip>
-                    <Tooltip title="重命名">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenamingTag({ repository: extNode.repository!, tag: extNode.tag! });
-                          setNewTagName(extNode.tag!);
-                        }}
-                      />
-                    </Tooltip>
                     <Popconfirm
                       title="确认删除此标签？"
                       onConfirm={(e) => {
@@ -662,37 +564,6 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
           }
         </Text>
       </div>
-      
-      {/* 重命名弹窗 */}
-      <Modal
-        title="重命名标签"
-        open={!!renamingTag}
-        onOk={handleRenameTag}
-        onCancel={() => {
-          setRenamingTag(null);
-          setNewTagName('');
-        }}
-        confirmLoading={renaming}
-        okText="确定"
-        cancelText="取消"
-      >
-        <div style={{ marginBottom: 16 }}>
-          <Text type="secondary">
-            镜像：<Text strong>{renamingTag?.repository}</Text>
-          </Text>
-        </div>
-        <div style={{ marginBottom: 8 }}>
-          <Text type="secondary">
-            当前标签：<Text code>{renamingTag?.tag}</Text>
-          </Text>
-        </div>
-        <Input
-          placeholder="请输入新标签名"
-          value={newTagName}
-          onChange={(e) => setNewTagName(e.target.value)}
-          onPressEnter={handleRenameTag}
-        />
-      </Modal>
     </div>
   );
 };

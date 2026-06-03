@@ -206,6 +206,7 @@ export const registerHarvesterLocalRegistryRoutes = (
                   ports: [{ containerPort: 5000, name: 'registry' }],
                   env: [
                     { name: 'REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY', value: '/var/lib/registry' },
+                    { name: 'REGISTRY_STORAGE_DELETE_ENABLED', value: 'true' }, // 启用删除功能
                     ...(authEnabled ? [{ name: 'REGISTRY_AUTH', value: 'htpasswd' }, { name: 'REGISTRY_AUTH_HTPASSWD_PATH', value: '/auth/htpasswd' }, { name: 'REGISTRY_AUTH_HTPASSWD_REALM', value: 'Registry Realm' }] : [])
                   ],
                   volumeMounts: [

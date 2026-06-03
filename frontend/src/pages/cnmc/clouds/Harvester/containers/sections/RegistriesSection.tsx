@@ -42,6 +42,7 @@ import {
 } from '../../../../../../services/harvesterApi';
 import {
   fetchLocalRegistries,
+  refreshLocalRegistryStatus,
   LocalRegistry,
 } from '../../../../../../services/localRegistryApi';
 import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
@@ -1197,7 +1198,24 @@ const RegistriesSection: React.FC<Props> = ({
     setDeployedRegistriesLoading(true);
     try {
       const res = await fetchLocalRegistries(cloudId);
-      setDeployedRegistries(res?.data || []);
+      const list: LocalRegistry[] = res?.data || [];
+      setDeployedRegistries(list);
+
+      // 对状态不是 healthy/unhealthy 的仓库，自动刷新一次状态
+      for (const r of list) {
+        if (r.status !== 'healthy' && r.status !== 'unhealthy') {
+          try {
+            const refreshed = await refreshLocalRegistryStatus(cloudId, r.id);
+            if (refreshed?.data) {
+              setDeployedRegistries(prev =>
+                prev.map(p => p.id === r.id ? refreshed.data : p)
+              );
+            }
+          } catch {
+            // 刷新失败不阻塞
+          }
+        }
+      }
     } catch (e: any) {
       console.warn('加载本地仓库列表失败:', e);
       setDeployedRegistries([]);
@@ -1441,20 +1459,32 @@ const RegistriesSection: React.FC<Props> = ({
       );
       hide();
       message.success('连接测试成功');
-      // 更新 localStorage 和状态
-      const updated = localRegistries.map(r =>
-        r.id === record.id ? { ...r, status: 'healthy' as const } : r
-      );
-      setLocalRegistries(updated);
-      saveRegistries(updated);
+      // 本地部署仓库更新 deployedRegistries，手动添加仓库更新 localRegistries
+      if (record.localRegistryId) {
+        setDeployedRegistries(prev => prev.map(r =>
+          r.id === record.localRegistryId ? { ...r, status: 'healthy' as any } : r
+        ));
+      } else {
+        const updated = localRegistries.map(r =>
+          r.id === record.id ? { ...r, status: 'healthy' as const } : r
+        );
+        setLocalRegistries(updated);
+        saveRegistries(updated);
+      }
     } catch (e: any) {
       hide();
       message.error(e?.message || '连接测试失败');
-      const updated = localRegistries.map(r =>
-        r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
-      );
-      setLocalRegistries(updated);
-      saveRegistries(updated);
+      if (record.localRegistryId) {
+        setDeployedRegistries(prev => prev.map(r =>
+          r.id === record.localRegistryId ? { ...r, status: 'unhealthy' as any } : r
+        ));
+      } else {
+        const updated = localRegistries.map(r =>
+          r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
+        );
+        setLocalRegistries(updated);
+        saveRegistries(updated);
+      }
     }
   }, [cloudId, localRegistries, message]);
   
