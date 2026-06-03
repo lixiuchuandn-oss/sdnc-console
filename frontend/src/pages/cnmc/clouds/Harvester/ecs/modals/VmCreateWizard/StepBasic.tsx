@@ -182,7 +182,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
           clusterArch: data.architecture,
           machineType: data.recommendedMachineType,
         });
-      }).catch((e: any) => console.error(e));
+      }).catch(() => {});
     }
   }, [cloudId, form]);
 

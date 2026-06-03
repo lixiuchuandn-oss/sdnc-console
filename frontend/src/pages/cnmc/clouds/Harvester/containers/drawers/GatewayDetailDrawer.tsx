@@ -199,8 +199,7 @@ export const GatewayDetailDrawer: React.FC<GatewayDetailDrawerProps> = ({
             grpcRoutes: filteredGrpcRoutes,
           });
         }
-      } catch (error) {
-        console.error('[GatewayDetailDrawer] 加载数据失败:', error);
+      } catch {
         if (!cancelled) {
           setEvents([]);
           setRelatedRoutes({ httpRoutes: [], grpcRoutes: [] });
