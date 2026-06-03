@@ -10,6 +10,7 @@ import type { MetricRuleTableRow } from '../lib/drsMetricRuleUtils';
 import { apiErrorMessage } from '../lib/physicalSwitchesSectionUtils';
 import { metricRuleRowFields } from '../lib/drsMetricRuleUtils';
 import { confirmHighRiskDelete, DRS_RULE_RISK_ITEMS } from '../../shared/lib/highRiskConfirm';
+import { runHarvesterSectionRefresh } from '../../shared/lib/harvesterSectionRefresh';
 
 export type UseMetricRuleCrActionsOptions = {
   cloudId: string;
@@ -41,7 +42,7 @@ export function useMetricRuleCrActions({
           try {
             await deleteHarvesterMetricRuleCr(cloudId, name);
             message.success('已删除');
-            await loadAll(true);
+            await runHarvesterSectionRefresh(loadAll, { force: true });
           } catch (e) {
             message.error(apiErrorMessage(e, '删除失败'));
             throw e;
@@ -67,7 +68,7 @@ export function useMetricRuleCrActions({
           message.success('调度规则已创建');
         }
         closeConfigDrawer();
-        await loadAll(true);
+        await runHarvesterSectionRefresh(loadAll, { force: true });
       } catch (e) {
         message.error(apiErrorMessage(e, '保存失败'));
         throw e;

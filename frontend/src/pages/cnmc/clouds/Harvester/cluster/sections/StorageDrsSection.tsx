@@ -35,6 +35,10 @@ import {
 } from 'services/harvester/storageDrs';
 import StorageDrsMigrateModal from '../modals/StorageDrsMigrateModal';
 import { useStorageDrsData } from '../hooks/useStorageDrsData';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
 
 const { Text } = Typography;
 
@@ -91,9 +95,7 @@ const StorageDrsSection: React.FC<StorageDrsSectionProps> = ({ cloudId, checkPer
     form.setFieldsValue(policy);
   }, [policy, form]);
 
-  const handleRefresh = useCallback(() => {
-    void reload(true);
-  }, [reload]);
+  const handleRefresh = useMemo(() => createHarvesterToolbarRefresh(reload), [reload]);
 
   const handleSavePolicy = useCallback(async () => {
     if (!canWrite) return;
@@ -102,7 +104,7 @@ const StorageDrsSection: React.FC<StorageDrsSectionProps> = ({ cloudId, checkPer
       setPolicySaving(true);
       await updateSdrsPolicy(cloudId, values);
       message.success('策略已保存');
-      void reload(true);
+      void runHarvesterSectionRefresh(reload, { force: true });
     } catch (e: unknown) {
       const err = e as { message?: string; errorFields?: unknown[] };
       if (err?.errorFields) return;
@@ -389,7 +391,7 @@ const StorageDrsSection: React.FC<StorageDrsSectionProps> = ({ cloudId, checkPer
         open={migrateOpen}
         cloudId={cloudId}
         onClose={() => setMigrateOpen(false)}
-        onSuccess={() => void reload(true)}
+        onSuccess={() => void runHarvesterSectionRefresh(reload, { force: true })}
       />
     </>
   );
