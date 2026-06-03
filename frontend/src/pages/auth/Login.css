@@ -14,12 +14,28 @@
 
 .login-card .ant-input,
 .login-card .ant-input-affix-wrapper {
-  height: 56px !important;
+  height: 52px !important;
+  border-radius: 10px;
+  border-color: #e3e8f0;
+  background: #f7f9fc;
 }
 
 .login-card .ant-input-affix-wrapper {
   display: flex;
   align-items: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.login-card .ant-input-affix-wrapper:hover {
+  border-color: #b9c6e0;
+  background: #fff;
+}
+
+.login-card .ant-input-affix-wrapper-focused,
+.login-card .ant-input-affix-wrapper:focus-within {
+  border-color: #2f7bff;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(47, 123, 255, 0.12);
 }
 
 .login-card .ant-input-affix-wrapper input.ant-input {
@@ -38,10 +54,11 @@
 }
 
 .login-card .ant-btn {
-  height: 48px;
-  border-radius: 8px;
+  height: 50px;
+  border-radius: 10px;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 1px;
   border: none;
 }
 
@@ -78,37 +95,51 @@
 }
 
 .login-page .login-page__header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
   text-align: left;
 }
 
 .login-page .login-page__card .login-header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+}
+
+.login-page .login-page__brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  background: #f1f5fd;
+  box-shadow: inset 0 0 0 1px rgba(47, 123, 255, 0.12);
 }
 
 .login-page .login-page__title {
-  color: #141414;
-  font-size: 28px;
+  color: #0f172a;
+  font-size: 30px;
   font-weight: 700;
   margin: 0 0 8px 0;
   letter-spacing: -0.5px;
+  line-height: 1.2;
 }
 
 .login-page .login-page__subtitle {
-  color: #595959;
+  color: #64748b;
   font-size: 15px;
   margin: 0;
   font-weight: 400;
 }
 
 .login-page .login-page__card {
-  background: #ffffff !important;
-  backdrop-filter: none;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px -16px rgba(15, 40, 100, 0.18), 0 2px 8px rgba(15, 40, 100, 0.06);
   min-height: min(540px, 82vh);
-  padding: 48px 40px 44px;
+  padding: 48px 44px 40px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
