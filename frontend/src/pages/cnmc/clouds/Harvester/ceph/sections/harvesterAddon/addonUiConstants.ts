@@ -19,6 +19,32 @@ export const OPERATE_TAB_FORM_CLASS = 'harvester-addon-operate-form';
 /** Operate Tab · 单列表单控件最大宽度（px）；窄屏仍随列宽收缩 */
 export const OPERATE_TAB_FIELD_MAX_WIDTH = 320;
 
+/** 表单根容器 style：注入 `--harvester-addon-operate-field-max-width`（Drawer 等复用） */
+export const OPERATE_TAB_FORM_FIELD_STYLE: CSSProperties = {
+  ['--harvester-addon-operate-field-max-width' as string]: `${OPERATE_TAB_FIELD_MAX_WIDTH}px`,
+};
+
+/** 节点卡片标题等需铺满列宽、不受 max-width 约束的控件 className */
+export const OPERATE_TAB_FIELD_FLUID_CLASS = 'harvester-addon-operate-field-fluid';
+
+/** 向导 · 高级选项折叠面板 class（样式见 global-new.css） */
+export const ADDON_ADVANCED_COLLAPSE_CLASS = 'harvester-addon-advanced-collapse';
+
+/** 向导 Card 根 class */
+export const ADDON_WIZARD_CARD_CLASS = 'harvester-addon-wizard-card';
+
+/** 向导步骤内表单区块栈（统一垂直 gap） */
+export const ADDON_WIZARD_STACK_CLASS = 'harvester-addon-wizard-stack';
+
+/** 向导底栏（上一步 / 下一步） */
+export const ADDON_WIZARD_FOOTER_CLASS = 'harvester-addon-wizard-footer';
+
+/** 表单分区（Operate Tab / 向导共用） */
+export const ADDON_FORM_SECTION_CLASS = 'harvester-addon-form-section';
+
+/** 向导垂直节奏：区块间距、Steps 与内容区间距、底栏上沿间距（px） */
+export const ADDON_WIZARD_SECTION_GAP = 24;
+
 /** Operate Tab · 双列表单行 gutter */
 export const OPERATE_TAB_FIELD_ROW_GUTTER: [number, number] = [24, 0];
 
@@ -121,6 +147,23 @@ export const WIZARD_STEPS = [
   { title: '容量与策略', description: '设定副本、压缩参数' },
   { title: '确认提交', description: '核对配置并提交' },
 ] as const;
+
+/** 部署向导 Card 内容区内边距（上下对称，避免底栏贴边） */
+export const WIZARD_CARD_BODY_STYLES = {
+  body: { padding: '20px 24px 20px' },
+} as const;
+
+/** Steps 与步骤内容区间距 */
+export const WIZARD_STEPS_STYLE: CSSProperties = { marginBottom: ADDON_WIZARD_SECTION_GAP };
+
+/** 部署向导各步顶栏说明（与 Operate Tab infoMessage 口径一致） */
+export const WIZARD_STEP_INFO_MESSAGES: readonly string[] = [
+  '可按需为统一存储单独规划网络；不启用则与集群管理网络共用。',
+  '为每个节点选择参与构建存储的硬盘，可多选，推荐每个节点选择的硬盘数量相同。',
+  '管理节点负责维护存储集群元数据与调度；数量通常与数据副本数一致。',
+  '设定数据副本、压缩与云硬盘默认回收、分配策略。',
+  '提交前请核对以下参数；确认无误后再提交部署。',
+];
 
 export const COMPRESSION_OPTIONS = [
   { value: 'none', label: '关闭' },

@@ -4,20 +4,17 @@
  */
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import {
-  Button,
   Col,
   Form,
   Input,
   InputNumber,
   Row,
   Select,
-  Space,
   Switch,
   Tag,
   Typography,
   message,
 } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
 import {
   OPERATE_TAB_FIELD_COL_THIRD_PROPS,
   OPERATE_TAB_FIELD_ROW_GUTTER,
@@ -169,18 +166,7 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
 
     const statusExtra = isOperate ? (
       <Tag color={storageNetworkModeTagColor(mode)}>{storageNetworkModeLabel(mode)}</Tag>
-    ) : (
-      <Space wrap>
-        <Tag color={storageNetworkModeTagColor(mode)}>{storageNetworkModeLabel(mode)}</Tag>
-        <Button
-          type="text"
-          size="small"
-          icon={<ReloadOutlined />}
-          loading={loading}
-          onClick={() => void load()}
-        />
-      </Space>
-    );
+    ) : null;
 
     const formBody = (
       <>
@@ -241,13 +227,7 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
     );
 
     return (
-      <FormSection
-        title="专用存储网"
-        description={
-          isWizard ? '可按需为统一存储单独规划网络；不启用则与集群管理网络共用。' : undefined
-        }
-        extra={statusExtra}
-      >
+      <FormSection title="专用存储网" extra={statusExtra}>
         {formBody}
       </FormSection>
     );

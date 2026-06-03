@@ -96,19 +96,159 @@ html, body, #root {
 }
 
 /* ==========================================================================
-   存储配置 · Operate Tab 表单控件宽度（扩容 / 变更存储网 / SDRS 等）
-   列内控件随栅格列收缩，并受 max-width 上限（见 OPERATE_TAB_FIELD_MAX_WIDTH）
+   存储配置 · Operate Tab / 部署向导 表单控件宽度
+   列内 Input / Select / InputNumber 等随栅格列收缩，max-width 见 OPERATE_TAB_FIELD_MAX_WIDTH
+   节点卡片标题 Select 等使用 .harvester-addon-operate-field-fluid 铺满容器
    ========================================================================== */
 
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input,
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-affix-wrapper,
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number,
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-affix-wrapper,
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-group-wrapper,
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-select,
-.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-picker {
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-affix-wrapper:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-affix-wrapper:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-group-wrapper:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-select:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-picker:not(.harvester-addon-operate-field-fluid) {
   width: 100%;
   max-width: var(--harvester-addon-operate-field-max-width, 320px);
+}
+
+.harvester-addon-operate-form .ant-form-item-control-input-content > .harvester-addon-operate-field-fluid {
+  width: 100%;
+  max-width: none;
+}
+
+/* ==========================================================================
+   存储配置 · 表单分区 / 向导节奏 / 高级选项折叠
+   ========================================================================== */
+
+.harvester-addon-form-section {
+  margin-bottom: 24px;
+}
+
+.harvester-addon-form-section:last-child {
+  margin-bottom: 0;
+}
+
+.harvester-addon-wizard-stack > .harvester-addon-form-section,
+.harvester-addon-wizard-stack > .harvester-addon-advanced-collapse {
+  margin-bottom: 0;
+}
+
+.harvester-addon-form-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e6eb;
+}
+
+.harvester-addon-form-section-title.ant-typography {
+  margin: 0 !important;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.harvester-addon-form-section-desc.ant-typography {
+  margin: 0 0 16px !important;
+  max-width: 720px;
+}
+
+.harvester-addon-wizard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+.harvester-addon-wizard-footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e6eb;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 向导 Card 内：区块间距由 stack / 底栏承担，避免与 FormSection margin 叠加 */
+.harvester-addon-wizard-card .harvester-addon-form-section {
+  margin-bottom: 0;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse {
+  margin: 0;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse > .ant-collapse-item {
+  border-bottom: none;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 12px 16px !important;
+  background: #f2f3f5 !important;
+  border-bottom: 1px solid transparent;
+  align-items: center !important;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse
+  > .ant-collapse-item.ant-collapse-item-active
+  > .ant-collapse-header {
+  border-bottom-color: #e5e6eb;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse
+  > .ant-collapse-item:not(.ant-collapse-item-active)
+  > .ant-collapse-header {
+  border-radius: 8px;
+}
+
+.harvester-addon-advanced-collapse-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.harvester-addon-advanced-collapse-label .ant-typography-strong {
+  font-size: 14px;
+}
+
+.harvester-addon-advanced-collapse-label .ant-typography-secondary {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.harvester-addon-advanced-collapse-desc.ant-typography {
+  margin: 0 0 16px !important;
+  max-width: 720px;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse
+  > .ant-collapse-item
+  > .ant-collapse-content
+  > .ant-collapse-content-box {
+  padding: 16px 20px 16px !important;
+  background: #fff;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse .ant-collapse-expand-icon {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.harvester-addon-advanced-collapse.ant-collapse .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.harvester-addon-wizard-stack .harvester-addon-advanced-collapse .ant-row:last-child .ant-form-item {
+  margin-bottom: 0;
 }
 
 /* ==========================================================================
