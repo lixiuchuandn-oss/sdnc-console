@@ -10,10 +10,9 @@
 | 事件                    | 何时跑                         |
 | ----------------------- | ------------------------------ |
 | `pull_request` → `main` | 开 PR、向 PR 推新 commit       |
-| `push` → `main`         | 直接 push 或 PR merge 后       |
 | `workflow_dispatch`     | Actions 页手动「Run workflow」 |
 
-PR 与 push 使用**同一套 job**；差别在于 Branch protection 只会在 **合并 PR 前**拦截，不会阻止已完成的直推（见 §3）。
+**不**在 `push` → `main`（含 PR merge 后）上重复跑同一套 job，避免合入前后各查一遍。合入门禁依赖 PR 上的 Required checks（见 §5）；若有人直推 `main`，须靠 Branch protection 拒绝或事后在 Actions 手动 `workflow_dispatch` 补跑。
 
 ---
 
