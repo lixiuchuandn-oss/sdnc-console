@@ -287,7 +287,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         void runContainerSectionRefresh(onRefresh, { force: true });
         return true;
       } catch (e: any) {
-        console.error(e);
         message.error(e?.message || '名称修改失败');
         return false;
       } finally {
