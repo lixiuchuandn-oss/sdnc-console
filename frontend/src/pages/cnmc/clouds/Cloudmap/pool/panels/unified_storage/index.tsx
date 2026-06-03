@@ -5,8 +5,8 @@ import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { canViewClusterStorageInner } from '../../lib/clusterPageAccess';
 import CloudmapStorageDashboardByBackend from '../resource_hub/CloudmapStorageDashboardByBackend';
-import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
 import CephHarvesterAddonSection from '../../../../Harvester/ceph/sections/CephHarvesterAddonSection';
+import type { HarvesterAddonOperateTabKey } from '../../../../Harvester/ceph/sections/harvesterAddon/addonUiConstants';
 import CloudmapStorageCephRbdMirror from '../storage/CloudmapStorageCephRbdMirror';
 import CephObjectStorageSection from '../../../../Harvester/ceph/sections/CephObjectStorageSection';
 import RgwObjectStoreUsersSection from '../../../../Harvester/ceph/sections/RgwObjectStoreUsersSection';
@@ -64,16 +64,21 @@ const CloudmapUnifiedStorageRoutePanel: React.FC<CloudmapUnifiedStorageRoutePane
       return (
         <CephHarvesterAddonSection
           cloudId={cloudId}
+          checkPerm={checkPerm}
           onRefresh={cephTabOnRefresh.harvester_addon}
+          poolsOnRefresh={cephTabOnRefresh.storage_pools}
           onDeployed={() => void loadTabResource('storage_pools', true, true)}
         />
       );
     case 'storage_pools':
       return (
-        <CephPoolSection
+        <CephHarvesterAddonSection
           cloudId={cloudId}
-          applicationsScope="cloud"
-          onRefresh={cephTabOnRefresh.storage_pools}
+          checkPerm={checkPerm}
+          onRefresh={cephTabOnRefresh.harvester_addon}
+          poolsOnRefresh={cephTabOnRefresh.storage_pools}
+          initialOperateTab={'storage_pools' satisfies HarvesterAddonOperateTabKey}
+          onDeployed={() => void loadTabResource('storage_pools', true, true)}
         />
       );
     case 'rbd_mirror':

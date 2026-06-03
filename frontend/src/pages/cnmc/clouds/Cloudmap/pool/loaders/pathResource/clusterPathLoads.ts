@@ -14,6 +14,7 @@ import {
   fetchKubeOvnSubnets,
 } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
+import { canReadComputeCluster } from '../../../../../../../constants/computeClusterPermissions';
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
@@ -281,12 +282,10 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'compute_cluster':
     case 'compute_nodes':
     case 'cluster_nodes':
-      if (
-        checkPerm('clouds.cluster-nodes:read') ||
-        checkPerm('clouds.ecs:read')
-      ) {
+      if (canReadComputeCluster(checkPerm) || checkPerm('clouds.ecs:read')) {
         await loadResource(
           'nodes',
           () => fetchHarvesterNodes(cloudId, force),

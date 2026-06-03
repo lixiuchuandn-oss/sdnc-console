@@ -5,6 +5,7 @@ export {
   useHighRiskOperation,
   HighRiskOperationProvider,
   type ConfirmHighRiskOperationOptions,
+  type HighRiskConfirmContext,
   type HighRiskPrecheckResult,
 } from '../context/HighRiskOperationContext';
 

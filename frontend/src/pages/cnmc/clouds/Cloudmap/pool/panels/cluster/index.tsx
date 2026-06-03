@@ -12,13 +12,10 @@ import StorageClassesSection from '../../../../Harvester/cluster/sections/Storag
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
-import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
 import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
-import DrsRulesSection from '../../../../Harvester/cluster/sections/DrsRulesSection';
-import DrsMigrationsSection from '../../../../Harvester/cluster/sections/DrsMigrationsSection';
 import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
-import StorageDrsSection from '../../../../Harvester/cluster/sections/StorageDrsSection';
-import FailureDomainSection from '../../../../Harvester/cluster/sections/FailureDomainSection';
+import ComputeClusterSection from '../../../../Harvester/cluster/sections/ComputeClusterSection';
+import type { ComputeClusterOperateTabKey } from '../../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
 import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
@@ -101,6 +98,8 @@ export type CloudmapClusterRoutePanelProps = {
   cloudConfig: any | null;
   onReloadCloudMeta: () => Promise<void>;
   resourceLoading: Record<string, boolean>;
+  /** 历史 compute_nodes / compute_drs_rules 等书签 → operateTab */
+  initialComputeClusterTab?: ComputeClusterOperateTabKey;
 };
 
 const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (props) => {
@@ -137,6 +136,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     harvesterPciDevices,
     rawPciDevices,
     resourceLoading,
+    initialComputeClusterTab,
   } = props;
 
   const visCtx = {
@@ -159,6 +159,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
   const clusterTabOnRefresh = useMemo(() => {
     const deps = { loadTabResource };
     return {
+      compute_cluster: createClusterTabOnRefresh('compute_nodes', deps),
       compute_nodes: createClusterTabOnRefresh('compute_nodes', deps),
       compute_projects: createClusterTabOnRefresh('compute_projects', deps),
       compute_drs_rules: createClusterTabOnRefresh('compute_drs_rules', deps),
@@ -180,19 +181,42 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
 
   const sectionBody = (seg: string): React.ReactNode => {
     switch (seg) {
+      case 'compute_cluster':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_cluster}
+            isTenant={isTenant}
+            initialOperateTab={initialComputeClusterTab}
+          />
+        );
       case 'compute_nodes':
         return (
-          <NodesSection
-            nodes={harvesterNodes as any[]}
-            loading={resourceLoading.nodes}
-            onRefresh={clusterTabOnRefresh.compute_nodes}
+          <ComputeClusterSection
             cloudId={cloudId}
-            isTenant={isTenant}
             checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="nodes"
           />
         );
       case 'compute_failure_domains':
-        return <FailureDomainSection cloudId={cloudId} checkPerm={checkPerm} />;
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="failure_domains"
+          />
+        );
       case 'compute_projects':
         return (
           <NamespacesSection
@@ -204,10 +228,28 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
           />
         );
       case 'compute_drs_rules':
-        return <DrsRulesSection cloudId={cloudId} checkPerm={checkPerm} />;
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="drs_rules"
+          />
+        );
       case 'compute_migrations':
         return (
-          <DrsMigrationsSection cloudId={cloudId} checkPerm={checkPerm} isTenant={isTenant} />
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="migrations"
+          />
         );
       case 'compute_gpu':
         return (
@@ -221,8 +263,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             isTenant={isTenant}
           />
         );
-      case 'storage_drs':
-        return <StorageDrsSection cloudId={cloudId} checkPerm={checkPerm} />;
       case 'cluster_physical_switches':
         return (
           <>

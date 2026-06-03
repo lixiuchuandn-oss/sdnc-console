@@ -41,7 +41,7 @@ export function buildNodesTableColumns(actions: NodesTableActions): ColumnsType<
   } = actions;
 
   const opsItems = (record: NodeRow) => {
-    const items: { key: string; label: string; onClick: () => void }[] = [];
+    const items: { key: string; label: string; danger?: boolean; onClick: () => void }[] = [];
     if (!isTenant) {
       items.push({
         key: 'yaml',
@@ -57,7 +57,8 @@ export function buildNodesTableColumns(actions: NodesTableActions): ColumnsType<
     if (canWrite && canEnableNodeMaintenance(record)) {
       items.push({
         key: 'enable-maintenance',
-        label: '进入维护模式…',
+        label: '维护模式',
+        danger: true,
         onClick: () => onEnableMaintenance(record),
       });
     }
