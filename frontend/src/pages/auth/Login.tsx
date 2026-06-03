@@ -40,11 +40,6 @@ const Login: React.FC = () => {
       loginTitle={page.loginTitle}
       loginSubtitle={page.loginSubtitle}
       onFinish={onFinish}
-      footer={
-        <div className="login-footer login-page__footer">
-          <p>© 2024 多云管理平台. All rights reserved.</p>
-        </div>
-      }
     />
   );
 };

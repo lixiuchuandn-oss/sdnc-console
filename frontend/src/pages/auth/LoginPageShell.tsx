@@ -5,6 +5,7 @@ import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { LoginLockAlert } from './LoginLockAlert';
 import { LoginErrorAlert } from './LoginErrorAlert';
 import { renderMarkdownBold } from '../../utils/markdown';
+import { getLoginCopyrightText } from './loginCopyright';
 import './Login.css';
 
 export type LoginPageShellProps = {
@@ -89,7 +90,7 @@ const LoginPageShell: React.FC<LoginPageShellProps> = ({
             <Form.Item name="password" rules={[{ required: true, message: '请输入密码!' }]}>
               <Input.Password prefix={<LockOutlined />} placeholder="密码" autoComplete="current-password" />
             </Form.Item>
-            <Form.Item>
+            <Form.Item className="login-page__submit-item">
               <Button
                 type="primary"
                 htmlType="submit"
@@ -137,6 +138,7 @@ const LoginPageShell: React.FC<LoginPageShellProps> = ({
               </Button>
             </Form.Item>
           </Form>
+          <p className="login-page__copyright">{getLoginCopyrightText(loginTitle)}</p>
           {footer}
         </Card>
       </div>
