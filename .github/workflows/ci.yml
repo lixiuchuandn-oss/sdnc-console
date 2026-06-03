@@ -1,12 +1,10 @@
 name: CI
 
-# 质量门禁：对指向/推送到 main 的改动自动校验前后端「类型 → lint → 测试 → 构建」。
+# 质量门禁：对指向 main 的 PR 自动校验前后端「类型 → lint → 测试 → 构建」（合入后不再重复跑，见 docs/ci.md）。
 # 本地复现与 Branch protection 配置见 docs/ci.md。
 # 前端 npm scripts 已使用 cross-env；CI 仍显式设置 env，便于复现底层工具调用。
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
