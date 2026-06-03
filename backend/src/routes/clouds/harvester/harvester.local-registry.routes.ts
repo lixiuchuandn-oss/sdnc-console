@@ -1,14 +1,17 @@
 /**
  * Harvester 本地 Docker Registry 管理路由。
- * 支持一键部署、删除、状态查询。
+ * 支持一键部署、删除、状态查询、镜像上传。
  */
 import { Router, Response } from 'express';
+import multer from 'multer';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { requestJson } from '../../../services/clouds/harvester/utils';
 import { buildCreateUrl, buildK8sUrl, extractOrigin } from './harvester.cache.container-shared';
 import { AppDataSource } from '../../../config/database';
 import { LocalRegistry, LocalRegistryStatus } from '../../../entities/LocalRegistry';
 import { ImageUploadTask, UploadTaskStatus } from '../../../entities/ImageUploadTask';
+import { parseDockerImageFromBuffer } from '../../../services/ImageTarParser';
+import { pushImageToRegistry } from '../../../services/DockerRegistryPusher';
 
 const LOCAL_REGISTRY_IMAGE = 'docker.io/library/registry:2';
 const DEFAULT_STORAGE_SIZE = '10Gi';
@@ -17,6 +20,7 @@ export const registerHarvesterLocalRegistryRoutes = (
   router: Router,
   checkAdminPermission: any,
 ): void => {
+  console.log('[LocalRegistry] 注册路由...');
   const localRegistryRepo = AppDataSource.getRepository(LocalRegistry);
   const uploadTaskRepo = AppDataSource.getRepository(ImageUploadTask);
 
@@ -470,6 +474,102 @@ export const registerHarvesterLocalRegistryRoutes = (
       } catch (error: any) {
         console.error('[查询上传任务] 错误:', error);
         res.status(500).json({ message: '查询失败', error: error.message });
+      }
+    },
+  );
+
+  // 配置 multer 用于文件上传
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 * 1024 }, // 5GB 限制
+  });
+
+  /**
+   * [API] 上传镜像到本地仓库
+   * POST /:id/resources/harvester/local-registry/:registryId/upload
+   * Form: file (tar), targetRepo?, targetTag?
+   */
+  router.post(
+    '/:id/resources/harvester/local-registry/:registryId/upload',
+    checkAdminPermission,
+    upload.single('file'),
+    async (req: any, res: Response) => {
+      try {
+        const { id: cloudId, registryId } = req.params;
+        const { targetRepo, targetTag } = req.body;
+        
+        if (!req.file) {
+          return res.status(400).json({ message: '请上传镜像 tar 文件' });
+        }
+
+        const registry = await localRegistryRepo.findOne({ where: { id: registryId } });
+        if (!registry) {
+          return res.status(404).json({ message: '本地仓库不存在' });
+        }
+
+        // 创建上传任务记录
+        const task = uploadTaskRepo.create({
+          registryId,
+          fileName: req.file.originalname || 'image.tar',
+          targetRepo: targetRepo || 'library',
+          targetTag: targetTag || 'latest',
+          status: UploadTaskStatus.PARSING,
+          totalLayers: 0,
+          uploadedLayers: 0,
+        });
+        await uploadTaskRepo.save(task);
+
+        // 异步处理上传
+        (async () => {
+          try {
+            // 解析镜像
+            task.status = UploadTaskStatus.PARSING;
+            await uploadTaskRepo.save(task);
+
+            const parsedImage = await parseDockerImageFromBuffer(req.file.buffer);
+            task.totalLayers = parsedImage.layers.length;
+            task.status = UploadTaskStatus.UPLOADING;
+            await uploadTaskRepo.save(task);
+
+            // 确定目标仓库和标签
+            const repo = targetRepo || 'library';
+            const tag = targetTag || (parsedImage.repoTags[0]?.split(':')[1] || 'latest');
+
+            // 推送镜像
+            await pushImageToRegistry(
+              parsedImage,
+              {
+                server: registry.server,
+                repository: repo,
+                tag,
+                insecure: true, // 本地仓库默认 HTTP
+              },
+              async (progress) => {
+                if (progress.phase === 'uploading') {
+                  task.uploadedLayers = progress.current;
+                  task.currentLayer = progress.currentBlob;
+                  await uploadTaskRepo.save(task);
+                }
+              },
+            );
+
+            task.status = UploadTaskStatus.COMPLETED;
+            await uploadTaskRepo.save(task);
+          } catch (err: any) {
+            console.error('[镜像上传] 错误:', err);
+            task.status = UploadTaskStatus.FAILED;
+            task.error = err.message;
+            await uploadTaskRepo.save(task);
+          }
+        })();
+
+        res.json({ 
+          message: '上传任务已创建', 
+          data: { taskId: task.id } 
+        });
+      } catch (error: any) {
+        console.error('[上传镜像] 错误:', error);
+        res.status(500).json({ message: '上传失败', error: error.message });
       }
     },
   );

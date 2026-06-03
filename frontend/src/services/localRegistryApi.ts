@@ -96,3 +96,43 @@ export const fetchImageUploadTasks = async (cloudId: string, registryId: string)
     `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/upload-tasks`
   );
 };
+
+export const uploadImageToRegistry = async (
+  cloudId: string,
+  registryId: string | undefined,
+  file: File,
+  targetRepo?: string,
+  targetTag?: string,
+  server?: string,
+  insecure?: boolean,
+  username?: string,
+  password?: string,
+) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (targetRepo) formData.append('targetRepo', targetRepo);
+  if (targetTag) formData.append('targetTag', targetTag);
+  if (server) formData.append('server', server);
+  if (insecure !== undefined) formData.append('insecure', String(insecure));
+  if (username) formData.append('username', username);
+  if (password) formData.append('password', password);
+
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+
+  // 有 registryId 走本地仓库上传，否则走通用仓库上传
+  const path = registryId
+    ? `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/upload`
+    : `/api/clouds/${cloudId}/resources/harvester/containers/registry/upload`;
+
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`上传失败: ${response.status}`);
+  }
+
+  return await response.json();
+};

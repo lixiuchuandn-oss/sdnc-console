@@ -2,7 +2,10 @@
  * Harvester 容器路由 — Docker Registry V2 API 代理。
  */
 import { Router, Response } from 'express';
+import multer from 'multer';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
+import { parseDockerImageFromBuffer } from '../../../services/ImageTarParser';
+import { pushImageToRegistry } from '../../../services/DockerRegistryPusher';
 
 export const registerHarvesterContainerDockerRegistryRoutes = (
   router: Router,
@@ -327,6 +330,72 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
       } catch (error: any) {
         console.error('[Registry Delete] Error:', error);
         res.status(500).json({ message: '删除镜像失败', error: error.message });
+      }
+    },
+  );
+
+  // 配置 multer 用于通用仓库上传
+  const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 * 1024 },
+  });
+
+  /**
+   * [API] 上传镜像到通用仓库
+   * POST /:id/resources/harvester/containers/registry/upload
+   * Form: file (tar), server, insecure, username?, password?, targetRepo?, targetTag?
+   */
+  router.post(
+    '/:id/resources/harvester/containers/registry/upload',
+    checkAdminPermission,
+    upload.single('file'),
+    async (req: any, res: Response) => {
+      try {
+        const { server, insecure, username, password, targetRepo, targetTag } = req.body;
+
+        if (!req.file) {
+          return res.status(400).json({ message: '请上传镜像 tar 文件' });
+        }
+        if (!server) {
+          return res.status(400).json({ message: '缺少仓库地址' });
+        }
+
+        const parsedImage = await parseDockerImageFromBuffer(req.file.buffer);
+        const repo = targetRepo || 'library';
+        const tag = targetTag || (parsedImage.repoTags[0]?.split(':')[1] || 'latest');
+
+        const isInsecure = insecure === 'true' || insecure === true;
+
+        try {
+          await pushImageToRegistry(parsedImage, {
+            server: String(server),
+            repository: repo,
+            tag,
+            insecure: isInsecure,
+            username: username || undefined,
+            password: password || undefined,
+          });
+        } catch (pushError: any) {
+          // HTTPS 连接失败时，自动回退 HTTP 重试
+          if (!isInsecure && (pushError.code === 'EPROTO' || pushError.code === 'ECONNRESET' || String(pushError.message).includes('SSL'))) {
+            console.log('[上传镜像] HTTPS 失败, 回退 HTTP 重试...');
+            await pushImageToRegistry(parsedImage, {
+              server: String(server),
+              repository: repo,
+              tag,
+              insecure: true,
+              username: username || undefined,
+              password: password || undefined,
+            });
+          } else {
+            throw pushError;
+          }
+        }
+
+        res.json({ message: '上传成功', data: { repo, tag } });
+      } catch (error: any) {
+        console.error('[上传镜像] 错误:', error);
+        res.status(500).json({ message: '上传失败', error: error.message });
       }
     },
   );

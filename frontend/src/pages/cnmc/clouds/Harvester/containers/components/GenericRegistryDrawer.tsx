@@ -18,8 +18,10 @@ import {
   DockerOutlined,
   ApiOutlined,
   ReloadOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import RegistryBrowser from './RegistryBrowser';
+import ImageUploadModal from './ImageUploadModal';
 import { getRegistryCatalog } from '../../../../../../services/harvesterApi';
 
 const { Text, Paragraph } = Typography;
@@ -56,9 +58,11 @@ const GenericRegistryDrawer: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState('overview');
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'healthy' | 'unhealthy'>('unknown');
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
 
   const protocol = registry?.insecure ? 'HTTP' : 'HTTPS';
   const hasAuth = !!registry?.username;
+  const isLocalRegistry = !!registry?.localRegistryId;
 
   const handleTestConnection = useCallback(async () => {
     if (!registry) return;
@@ -251,6 +255,13 @@ const GenericRegistryDrawer: React.FC<Props> = ({
       extra={
         <Space>
           <Button 
+            type="primary"
+            icon={<UploadOutlined />} 
+            onClick={() => setUploadModalVisible(true)}
+          >
+            上传镜像
+          </Button>
+          <Button 
             icon={<ApiOutlined />} 
             loading={testing}
             onClick={handleTestConnection}
@@ -270,6 +281,24 @@ const GenericRegistryDrawer: React.FC<Props> = ({
         onChange={setActiveTab}
         items={tabItems}
       />
+      
+      {/* 上传镜像弹窗 */}
+      {registry && (
+        <ImageUploadModal
+          visible={uploadModalVisible}
+          cloudId={cloudId}
+          registryId={registry.localRegistryId}
+          registryServer={registry.server}
+          insecure={registry.insecure}
+          username={registry.username}
+          password={registry.password}
+          onCancel={() => setUploadModalVisible(false)}
+          onSuccess={() => {
+            setUploadModalVisible(false);
+            onRefresh?.();
+          }}
+        />
+      )}
     </Drawer>
   );
 };
