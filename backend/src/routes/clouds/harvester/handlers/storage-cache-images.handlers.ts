@@ -1252,7 +1252,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       await updateTaskProgress(taskId, {
         bytesUploaded: total,
         proxyProgress: 100,
-        progress: 90,
+        progress: 70,
       });
     } else {
       const rawIn = body.createBodyReadable();
@@ -1296,9 +1296,17 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
 
     // 3) 上传动作完成后，继续跟踪 Harvester 导入进度（70-99）
     await updateTaskProgress(taskId, { phase: 'proxying', progress: 70 });
-    const importDeadline = Date.now() + 30 * 60 * 1000;
+    // 导入阶段：只要 Harvester 导入进度仍在推进就持续等待；仅当进度「连续无变化」超过阈值
+    // 才判定卡死超时，避免数十 GB 大镜像正常导入耗时较长被固定 30 分钟误判失败。
+    // 阈值可用 HARVESTER_IMAGE_IMPORT_STALL_TIMEOUT_MS（毫秒）覆盖，默认 20 分钟无进展。
+    const importStallTimeoutMs = (() => {
+      const v = Number(process.env.HARVESTER_IMAGE_IMPORT_STALL_TIMEOUT_MS);
+      return Number.isFinite(v) && v > 0 ? v : 20 * 60 * 1000;
+    })();
     let imported = false;
-    while (Date.now() < importDeadline && !imported) {
+    let lastImportProgress = -1;
+    let lastImportProgressAt = Date.now();
+    while (!imported) {
       await throwIfUploadCancelled(taskId, abortController);
       let detail: any = null;
       for (const detailUrl of pollDetailCandidates) {
@@ -1322,14 +1330,20 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
             importedCond?.message || importedCond?.reason || 'Harvester 导入镜像失败',
           );
         }
+        if (hp > lastImportProgress) {
+          lastImportProgress = hp;
+          lastImportProgressAt = Date.now();
+        }
         await updateTaskProgress(taskId, {
           progress: Math.max(70, Math.min(99, 70 + Math.floor(hp * 0.29))),
         });
       }
+      if (Date.now() - lastImportProgressAt > importStallTimeoutMs) {
+        throw new Error(
+          `Harvester 导入进度超过 ${Math.round(importStallTimeoutMs / 60000)} 分钟无变化，判定导入超时`,
+        );
+      }
       await new Promise((r) => setTimeout(r, 2000));
-    }
-    if (!imported) {
-      throw new Error('Harvester 导入进度等待超时');
     }
 
     await updateTaskProgress(taskId, {
