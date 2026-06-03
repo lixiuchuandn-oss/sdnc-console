@@ -95,6 +95,9 @@ server.requestTimeout =
 server.keepAliveTimeout = 75_000;
 server.headersTimeout = 80_000;
 server.timeout = 0;
+logger.info(
+  `HTTP 超时配置 requestTimeout=${server.requestTimeout} headersTimeout=${server.headersTimeout} keepAliveTimeout=${server.keepAliveTimeout} timeout=${server.timeout}`,
+);
 
 // 信任代理：允许解析 X-Forwarded-For 等头信息获取真实客户端 IP
 // 当服务部署在 Nginx 等反向代理后面时需要此配置
