@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Button, Checkbox, Input, Modal, Space, Spin } from 'antd';
+import { Alert, Button, Checkbox, Form, Input, Modal, Space, Spin } from 'antd';
 
 export type HighRiskAlertConfig = {
   type?: 'warning' | 'error' | 'info' | 'success';
@@ -33,6 +33,15 @@ export type HighRiskOperationModalProps = {
     label?: React.ReactNode;
     placeholder?: string;
   };
+  /** 须输入当前管理员密码（如统一存储提交） */
+  adminPassword?: {
+    value: string;
+    onChange: (value: string) => void;
+    label?: React.ReactNode;
+    placeholder?: string;
+  };
+  /** 默认 true（删除/破坏性）；提交类操作建议 false */
+  confirmDanger?: boolean;
   confirmText: React.ReactNode;
   cancelText?: string;
   canConfirm: boolean;
@@ -56,6 +65,8 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
   extra,
   impactAck,
   typeConfirm,
+  adminPassword,
+  confirmDanger = true,
   confirmText,
   cancelText = '取消',
   canConfirm,
@@ -69,7 +80,7 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
       <Button onClick={onCancel}>{cancelText}</Button>
       <Button
         type="primary"
-        danger
+        danger={confirmDanger}
         loading={submitting}
         disabled={!canConfirm}
         onClick={() => void onConfirm()}
@@ -173,6 +184,29 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
                 >
                   {impactAck.label}
                 </Checkbox>
+              ) : null}
+
+              {adminPassword ? (
+                <Form layout="vertical" requiredMark={false}>
+                  <Form.Item
+                    label={adminPassword.label ?? '管理员密码'}
+                    required
+                    style={{ marginBottom: 0 }}
+                  >
+                    <Input.Password
+                      placeholder={
+                        adminPassword.placeholder ?? '请输入当前登录管理员密码'
+                      }
+                      value={adminPassword.value}
+                      onChange={(e) => adminPassword.onChange(e.target.value)}
+                      onPressEnter={() => {
+                        if (canConfirm && !submitting) onConfirm();
+                      }}
+                      autoComplete="current-password"
+                      disabled={submitting}
+                    />
+                  </Form.Item>
+                </Form>
               ) : null}
             </>
           ) : null}

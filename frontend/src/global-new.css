@@ -96,6 +96,22 @@ html, body, #root {
 }
 
 /* ==========================================================================
+   存储配置 · Operate Tab 表单控件宽度（扩容 / 变更存储网 / SDRS 等）
+   列内控件随栅格列收缩，并受 max-width 上限（见 OPERATE_TAB_FIELD_MAX_WIDTH）
+   ========================================================================== */
+
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input,
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-affix-wrapper,
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number,
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-affix-wrapper,
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-group-wrapper,
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-select,
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-picker {
+  width: 100%;
+  max-width: var(--harvester-addon-operate-field-max-width, 320px);
+}
+
+/* ==========================================================================
    Harvester / Clouds — 自定义详情抽屉标题主图标外框
    ========================================================================== */
 

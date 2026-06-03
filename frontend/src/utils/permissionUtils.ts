@@ -413,7 +413,8 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.recycle-bin',
   'clouds.migrations',
   'clouds.drs',
-  'clouds.storage-drs',
+  'clouds.compute-cluster',
+  'clouds.storage-addon',
   'clouds.failure-domains',
   // 容器服务（K8s 子域，与池内 Tab 一致）
   'clouds.containers.workloads',
@@ -436,7 +437,6 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.unified-storage',
   'clouds.storage-dashboard',
   'clouds.storage-addon',
-  'clouds.unified-storage-pools',
   'clouds.storage-rbd-mirror',
   'clouds.storage-s3-buckets',
   'clouds.storage-rgw-users',
@@ -477,7 +477,7 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.route-entries',
   'clouds.network-acls',
   // 集群与运维
-  'clouds.cluster-nodes',
+  'clouds.compute-cluster',
   'clouds.cluster-networks',
   'clouds.namespaces',
   'clouds.storage-classes',

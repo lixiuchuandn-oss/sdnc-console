@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Button, Input, Table } from 'antd';
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
@@ -20,6 +20,11 @@ import {
   type MetricRuleTableRow,
 } from '../lib/drsMetricRuleUtils';
 
+import {
+  canReadDrsTab,
+  canWriteDrs,
+} from '../../../../../../constants/computeClusterPermissions';
+
 const METRIC_RULES_TABLE_KEY = 'harvester_drs_metric_rules_table';
 
 export type DrsRulesSectionProps = {
@@ -28,8 +33,8 @@ export type DrsRulesSectionProps = {
 };
 
 const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm }) => {
-  const canRead = checkPerm('clouds.drs:read');
-  const canManageMetricRule = checkPerm('clouds.drs:write');
+  const canRead = canReadDrsTab(checkPerm);
+  const canManageMetricRule = canWriteDrs(checkPerm);
 
   const [metricKeyword, setMetricKeyword] = useState('');
   const [metricRuleDrawerOpen, setMetricRuleDrawerOpen] = useState(false);
@@ -127,7 +132,7 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
         toolbarRight={
           <div className="toolbar-actions">
             {canManageMetricRule && metricRulesAvailable ? (
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateMetricRule}>
+              <Button type="primary" onClick={openCreateMetricRule}>
                 创建调度规则
               </Button>
             ) : null}

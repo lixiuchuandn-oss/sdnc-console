@@ -13,10 +13,12 @@ import { isClusterCephPoolInnerSeg } from '../../../../../../layouts/admin/cloud
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
 import {
   COMPUTE_RESOURCE_INNER_SEGS,
+  isComputeClusterInnerSeg,
   isComputeResourceInnerSeg,
   remapLegacyClusterInnerSeg,
   type ComputeResourceInnerSeg,
 } from '../../../Harvester/cluster/lib/computeResourcesNav';
+import { canReadComputeCluster } from '../../../../../../constants/computeClusterPermissions';
 
 const CLUSTER_INNER_ORDER: readonly string[] = CLOUDMAP_POOL_NAV_ROWS.filter((r) =>
   r.pathSuffix.startsWith('cluster/'),
@@ -51,27 +53,17 @@ export function canViewComputeResourceInner(
   checkPerm: (action: string) => boolean,
 ): boolean {
   switch (innerSeg) {
-    case 'compute_nodes':
-      return checkPerm('clouds.cluster-nodes:read');
-    case 'compute_failure_domains':
-      return (
-        checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read')
-      );
     case 'compute_projects':
       return checkPerm('clouds.namespaces:read');
-    case 'compute_drs_rules':
-      return checkPerm('clouds.drs:read');
-    case 'compute_migrations':
-      return (
-        checkPerm('clouds.migrations:read') ||
-        checkPerm('clouds.drs:read') ||
-        checkPerm('clouds.ecs:read')
-      );
     case 'compute_gpu':
       return checkPerm('clouds.gpus:read');
     default:
       return false;
   }
+}
+
+export function canViewComputeClusterInner(checkPerm: (action: string) => boolean): boolean {
+  return canReadComputeCluster(checkPerm);
 }
 
 export function canViewClusterSidebarLeaf(
@@ -84,6 +76,9 @@ export function canViewClusterSidebarLeaf(
   },
 ): boolean {
   const normalized = remapLegacyClusterInnerSeg(leafKey);
+  if (isComputeClusterInnerSeg(normalized)) {
+    return canViewComputeClusterInner(checkPerm);
+  }
   if (isComputeResourceInnerSeg(normalized)) {
     return canViewComputeResourceInner(normalized, checkPerm);
   }
@@ -94,8 +89,6 @@ export function canViewClusterSidebarLeaf(
       return checkPerm('clouds.cluster-networks:read');
     case 'kubeovn_public_networks':
       return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
-    case 'storage_drs':
-      return canViewClusterStorageInner('storage_drs', checkPerm);
     case 'kubeovn_public_subnets':
       return canReadPublicSubnets;
     case 'cluster_vlans':

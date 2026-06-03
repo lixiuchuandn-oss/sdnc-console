@@ -30,11 +30,13 @@ import {
 import {
   canEnterClusterGroup,
   canEnterUnifiedStorageGroup,
+  canViewComputeClusterInner,
   canViewComputeResourceInner,
   firstAccessibleClusterPoolInnerSeg,
   firstAccessibleComputeResourceInnerSeg,
 } from '../lib/clusterPageAccess';
 import {
+  isComputeClusterInnerSeg,
   isComputeResourceInnerSeg,
   remapLegacyClusterInnerSeg,
 } from '../../../Harvester/cluster/lib/computeResourcesNav';
@@ -169,6 +171,10 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     (requested: string) => {
       if (!canViewClusterGroup) return null;
       const normalized = remapLegacyClusterInnerSeg(requested);
+      if (isComputeClusterInnerSeg(normalized)) {
+        if (canViewComputeClusterInner(checkPerm)) return normalized;
+        return firstAccessibleClusterPoolInnerSeg(checkPerm, clusterVisCtx);
+      }
       if (isComputeResourceInnerSeg(normalized)) {
         if (canViewComputeResourceInner(normalized, checkPerm)) return normalized;
         return firstAccessibleComputeResourceInnerSeg(checkPerm);

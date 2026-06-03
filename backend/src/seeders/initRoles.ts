@@ -54,7 +54,7 @@ const TENANT_ROOT_CNMC_EXCLUDED_PREFIXES = [
   'clouds.log-configs',
   'clouds.desktop',
   // poolNavGroup「集群」
-  'clouds.cluster-nodes',
+  'clouds.compute-cluster',
   'clouds.namespaces',
   'clouds.cluster-networks',
   'clouds.provider-networks',
@@ -65,7 +65,6 @@ const TENANT_ROOT_CNMC_EXCLUDED_PREFIXES = [
   'clouds.ip-pools',
   'clouds.storage-dashboard',
   'clouds.storage-addon',
-  'clouds.unified-storage-pools',
   'clouds.storage-classes',
   'clouds.storage-rbd-mirror',
   'clouds.storage-s3-buckets',
@@ -322,9 +321,8 @@ export async function initializeRoles() {
       'clouds.sshkeys',
       'clouds.recycle-bin',
       'clouds.migrations',
-      'clouds.drs',
-      'clouds.storage-drs',
-      'clouds.failure-domains',
+      'clouds.compute-cluster',
+      'clouds.storage-addon',
       // 云存储
       'clouds.disks',
       'clouds.snapshots',

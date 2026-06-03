@@ -17,6 +17,7 @@ import {
   type CloudmapPoolNavKey,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import { legacyComputeClusterOperateTab } from '../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
 
 export type UseCloudmapPoolPathSyncParams = {
   cloudId: string;
@@ -171,8 +172,17 @@ export function useCloudmapPoolPathSync({
           return;
         }
         if (resolved !== inner) {
+          const legacyOperateTab =
+            inner === 'storage_pools' && resolved === 'harvester_addon'
+              ? 'storage_pools'
+              : inner === 'storage_drs' && resolved === 'harvester_addon'
+                ? 'sdrs_policy'
+                : resolved === 'compute_cluster'
+                  ? legacyComputeClusterOperateTab(inner)
+                  : null;
+          const basePath = cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved });
           navigate(
-            cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved }),
+            legacyOperateTab ? `${basePath}?operateTab=${legacyOperateTab}` : basePath,
             { replace: true },
           );
           return;

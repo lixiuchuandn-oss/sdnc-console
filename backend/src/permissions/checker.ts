@@ -129,6 +129,31 @@ export class PermissionChecker {
       }
     }
 
+    // Legacy: clouds.storage-drs 已并入 clouds.storage-addon（SDRS 迁入统一存储配置页）
+    if (base === 'clouds.storage-addon' && (verb === 'read' || verb === 'write')) {
+      if (permissions.includes(`clouds.storage-drs:${verb}`)) {
+        return true;
+      }
+      if (permissions.includes(`clouds.unified-storage-pools:${verb}`)) {
+        return true;
+      }
+    }
+
+    // Legacy: cluster-nodes / failure-domains / drs / migrations 已并入 clouds.compute-cluster
+    if (base === 'clouds.compute-cluster' && (verb === 'read' || verb === 'write')) {
+      const legacyComputeBases = [
+        'clouds.cluster-nodes',
+        'clouds.failure-domains',
+        'clouds.drs',
+        'clouds.migrations',
+      ];
+      for (const lb of legacyComputeBases) {
+        if (permissions.includes(`${lb}:${verb}`)) {
+          return true;
+        }
+      }
+    }
+
     // 4b2. 统一存储：umbrella / 历史 clouds.ceph 覆盖各子域 read；write 同理
     if (base && verb) {
       if (verb === 'read' && isUnifiedStorageReadBase(base)) {
@@ -143,10 +168,23 @@ export class PermissionChecker {
       }
     }
 
+    // Reverse: 新权 compute-cluster 满足旧子域 read/write（前端/存量校验仍用旧 atom 时）
+    if (
+      (base === 'clouds.cluster-nodes' ||
+        base === 'clouds.failure-domains' ||
+        base === 'clouds.drs') &&
+      (verb === 'read' || verb === 'write')
+    ) {
+      if (permissions.includes(`clouds.compute-cluster:${verb}`)) {
+        return true;
+      }
+    }
+
     // 4c. VM 创建/变配依赖资源读权限：允许 clouds.ecs 兜底
     if (verb === 'read' && base) {
       const vmDependencyReadBases = new Set([
         'clouds.cluster-nodes',
+        'clouds.compute-cluster',
         'clouds.storage-classes',
         'clouds.namespaces',
         'clouds.images',
