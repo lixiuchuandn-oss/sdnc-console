@@ -334,6 +334,90 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
     },
   );
 
+  /**
+   * [API] 重命名镜像标签
+   * POST /:id/resources/harvester/containers/registry/tag/rename
+   * Body: { server, repository, oldTag, newTag, username?, password?, insecure? }
+   * 逻辑: 获取旧标签 manifest -> PUT 到新标签 -> DELETE 旧标签
+   */
+  router.post(
+    '/:id/resources/harvester/containers/registry/tag/rename',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { server, repository, oldTag, newTag, username, password, insecure } = req.body;
+
+        if (!server || !repository || !oldTag || !newTag) {
+          return res.status(400).json({ message: '缺少必要参数: server, repository, oldTag, newTag' });
+        }
+
+        if (oldTag === newTag) {
+          return res.status(400).json({ message: '新标签名不能与旧标签名相同' });
+        }
+
+        const cloud = await fetchCloudOr404(id, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
+
+        const ignoreTls = insecure ?? !!(cloud.config as any)?.ignoreTls;
+
+        // 1. 获取旧标签的 manifest
+        const manifestPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(oldTag)}`;
+        const manifestResult = await registryRequest(
+          server,
+          manifestPath,
+          username,
+          password,
+          ignoreTls,
+          'GET',
+        );
+
+        if (!manifestResult.success) {
+          return res.status(manifestResult.status || 500).json({
+            message: '获取镜像 Manifest 失败',
+            error: manifestResult.error,
+          });
+        }
+
+        const manifest = manifestResult.data;
+        const manifestDigest = manifestResult.data?.config?.digest || manifestResult.data?.layers?.[0]?.digest;
+
+        // 2. PUT 到新标签
+        const putPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(newTag)}`;
+        const putResult = await registryPutManifest(
+          server,
+          putPath,
+          manifest,
+          username,
+          password,
+          ignoreTls,
+        );
+
+        if (!putResult.success) {
+          return res.status(putResult.status || 500).json({
+            message: '创建新标签失败',
+            error: putResult.error,
+          });
+        }
+
+        // 3. 删除旧标签（通过 digest）
+        if (manifestDigest) {
+          const deletePath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(manifestDigest)}`;
+          await registryRequest(server, deletePath, username, password, ignoreTls, 'DELETE');
+        }
+
+        res.json({
+          message: '重命名成功',
+          data: { repository, oldTag, newTag },
+        });
+      } catch (error: any) {
+        console.error('[Registry Rename] Error:', error);
+        res.status(500).json({ message: '重命名失败', error: error.message });
+      }
+    },
+  );
+
   // 配置 multer 用于通用仓库上传
   const upload = multer({ 
     storage: multer.memoryStorage(),
@@ -798,6 +882,114 @@ const registryRequest = async (
       resolve({ success: false, error: err.message || '请求失败' });
     });
 
+    req.end();
+  });
+};
+
+/**
+ * [辅助函数] PUT Manifest 到仓库
+ */
+const registryPutManifest = async (
+  server: string,
+  path: string,
+  manifest: any,
+  username?: string,
+  password?: string,
+  insecure: boolean = false,
+): Promise<{ success: boolean; data?: any; status?: number; error?: string }> => {
+  const https = await import('https');
+  const http = await import('http');
+  const urlModule = await import('url');
+
+  let normalizedServer = server.replace(/\/+$/, '');
+  if (!normalizedServer.startsWith('http://') && !normalizedServer.startsWith('https://')) {
+    normalizedServer = insecure ? `http://${normalizedServer}` : `https://${normalizedServer}`;
+  }
+
+  const authResult = await getRegistryAuth(normalizedServer, username, password, insecure);
+  let authHeader = authResult.authHeader || '';
+
+  if (!authResult.success && authResult.wwwAuthenticate) {
+    const authParams = parseWwwAuthenticate(authResult.wwwAuthenticate);
+    if (authParams['type'] === 'bearer' && authParams['realm']) {
+      const pathParts = path.replace('/v2/', '').split('/');
+      let scope = 'repository:library:push,pull';
+      const manifestIndex = pathParts.findIndex((p) => p === 'manifests');
+      if (manifestIndex > 0) {
+        const repoPath = pathParts.slice(0, manifestIndex).join('/');
+        scope = `repository:${repoPath}:push,pull`;
+      }
+      const tokenResult = await getBearerToken(
+        authParams['realm'],
+        authParams['service'] || '',
+        scope,
+        username,
+        password,
+        insecure,
+      );
+      if (!tokenResult.success) {
+        return { success: false, error: tokenResult.error };
+      }
+      authHeader = `Bearer ${tokenResult.token}`;
+    }
+  }
+
+  const fullUrl = new urlModule.URL(normalizedServer);
+  const lib = fullUrl.protocol === 'https:' ? https : http;
+  const manifestJson = JSON.stringify(manifest);
+
+  const options: any = {
+    hostname: fullUrl.hostname,
+    port: fullUrl.port || (fullUrl.protocol === 'https:' ? 443 : 80),
+    path: path,
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json',
+      'Content-Length': Buffer.byteLength(manifestJson),
+      ...(authHeader ? { Authorization: authHeader } : {}),
+    },
+  };
+
+  if (insecure && fullUrl.protocol === 'https:') {
+    options.rejectUnauthorized = false;
+  }
+
+  return new Promise((resolve) => {
+    const req = lib.request(options, (res: any) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        const text = buffer.toString('utf-8');
+        const status = res.statusCode || 0;
+
+        if (status >= 200 && status < 300) {
+          try {
+            resolve({ success: true, data: JSON.parse(text), status });
+          } catch {
+            resolve({ success: true, data: text, status });
+          }
+        } else {
+          let errorMsg = `HTTP ${status}`;
+          try {
+            const errorJson = JSON.parse(text);
+            errorMsg = errorJson.errors?.[0]?.message || errorMsg;
+          } catch {}
+          resolve({ success: false, error: errorMsg, status });
+        }
+      });
+    });
+
+    req.setTimeout(60000, () => {
+      req.destroy(new Error('timeout'));
+      resolve({ success: false, error: '请求超时' });
+    });
+
+    req.on('error', (err: any) => {
+      resolve({ success: false, error: err.message || '请求失败' });
+    });
+
+    req.write(manifestJson);
     req.end();
   });
 };

@@ -1748,6 +1748,69 @@ export const getRegistryManifest = async (
 };
 
 /**
+ * 删除镜像标签
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址
+ * @param repository 镜像仓库名称
+ * @param digest 镜像 digest (sha256:xxx)
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @returns Promise<any>
+ */
+export const deleteRegistryTag = async (
+  cloudId: string,
+  server: string,
+  repository: string,
+  digest: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/registry/tag`, {
+    server,
+    repository,
+    digest,
+    username,
+    password,
+    insecure,
+  });
+};
+
+/**
+ * 重命名镜像标签
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址
+ * @param repository 镜像仓库名称
+ * @param oldTag 旧标签名
+ * @param newTag 新标签名
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @returns Promise<any>
+ */
+export const renameRegistryTag = async (
+  cloudId: string,
+  server: string,
+  repository: string,
+  oldTag: string,
+  newTag: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/registry/tag/rename`, {
+    server,
+    repository,
+    oldTag,
+    newTag,
+    username,
+    password,
+    insecure,
+  });
+};
+
+/**
  * 创建镜像凭证 (ImagePullSecret)
  * @param cloudId 云环境 ID
  * @param payload 凭证配置数据
