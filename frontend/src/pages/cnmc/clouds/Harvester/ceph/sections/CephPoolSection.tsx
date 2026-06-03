@@ -242,7 +242,7 @@ const CephPoolSection: React.FC<CephPoolSectionProps> = ({
         if (!res.ok || res.data == null) {
           setRows([]);
           setListSource(null);
-          setLoadErr(res.error || '无法读取统一存储池列表（/ceph/rook/bundle）。请检查集群连接与权限。');
+          setLoadErr(res.error || '无法读取存储池列表（/ceph/rook/bundle）。请检查集群连接与权限。');
           return;
         }
         const body = res.data as Record<string, unknown>;

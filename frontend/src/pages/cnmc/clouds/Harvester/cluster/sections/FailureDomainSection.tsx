@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 import { Alert, Button, Input, Table, message } from 'antd';
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
@@ -22,6 +22,10 @@ import FailureDomainFormModal, {
 import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
 import { buildFailureDomainsTableColumns } from '../lib/failureDomainsTableColumns';
 import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import {
+  canReadFailureDomainsTab,
+  canWriteFailureDomains,
+} from '../../../../../../constants/computeClusterPermissions';
 
 const TABLE_KEY = 'harvester_failure_domains_table';
 
@@ -44,9 +48,8 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
   cloudId,
   checkPerm,
 }) => {
-  const canRead = checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read');
-  const canWrite =
-    checkPerm('clouds.failure-domains:write') || checkPerm('clouds.cluster-nodes:write');
+  const canRead = canReadFailureDomainsTab(checkPerm);
+  const canWrite = canWriteFailureDomains(checkPerm);
 
   const { loading, overview, error, reload } = useFailureDomainsData(cloudId, canRead);
   const [keyword, setKeyword] = useState('');
@@ -195,7 +198,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         toolbarRight={(
           <div className="toolbar-actions">
             <WriteGuard canWrite={canWrite}>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              <Button type="primary" onClick={openCreate}>
                 创建故障域
               </Button>
             </WriteGuard>

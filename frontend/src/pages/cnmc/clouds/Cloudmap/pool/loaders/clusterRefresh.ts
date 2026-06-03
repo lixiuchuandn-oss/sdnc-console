@@ -6,6 +6,7 @@ import { message } from 'antd';
  * - Section：工具栏 `createHarvesterToolbarRefresh(onRefresh)`；写成功/删改后**禁止**裸调 `onRefresh(...)`，一律 `runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`
  */
 export type ClusterInnerTabKey =
+  | 'compute_cluster'
   | 'compute_nodes'
   | 'compute_projects'
   | 'compute_drs_rules'

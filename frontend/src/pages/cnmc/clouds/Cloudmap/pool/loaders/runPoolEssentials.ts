@@ -11,6 +11,7 @@ import {
   fetchKubeOvnSubnets,
   fetchKubeOvnVpcs,
 } from '../api';
+import { canReadComputeCluster } from '../../../../../../constants/computeClusterPermissions';
 import type { PoolEssentialsDeps } from './poolDataDeps';
 
 /**
@@ -208,10 +209,7 @@ export function runPoolEssentials(
     );
   }
 
-  if (
-    checkPerm('clouds.cluster-nodes:read') ||
-    checkPerm('clouds.ecs:read')
-  ) {
+  if (canReadComputeCluster(checkPerm) || checkPerm('clouds.ecs:read')) {
     loadResource(
       'nodes',
       () => fetchHarvesterNodes(cloudId, force),

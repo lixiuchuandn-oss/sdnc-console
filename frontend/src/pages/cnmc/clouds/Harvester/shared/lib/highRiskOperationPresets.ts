@@ -53,6 +53,16 @@ export const CEPH_STORAGE_RISK_ITEMS = [
   '配置错误可能导致长时间不可用或数据迁移/重建。',
 ] as const;
 
+export const CEPH_STORAGE_NETWORK_CHANGE_RISK_ITEMS = [
+  '变更存储网一般仅对新部署或扩容生效，已有数据路径不会自动切换。',
+  '配置错误可能导致存储集群部署失败或长时间不可用。',
+] as const;
+
+export const SDRS_POLICY_RISK_ITEMS = [
+  '策略变更将影响自动迁盘触发条件与调度行为。',
+  '半自动/自动模式下，错误阈值可能导致频繁迁盘或难以及时触发调度。',
+] as const;
+
 export const CONTAINER_DELETE_RISK_ITEMS = [
   '可能导致业务中断；Deployment 等控制器可能自动重建 Pod。',
   '删除 Service / Ingress / Gateway 将切断对应流量入口。',

@@ -22,6 +22,10 @@ import {
   type MigrationTableRow,
 } from '../../ecs/lib/migrationsSectionUtils';
 import { useDrsSectionData } from '../hooks/useDrsSectionData';
+import {
+  canReadMigrationsTab,
+  canWriteMigrationsTab,
+} from '../../../../../../constants/computeClusterPermissions';
 
 const REALLOCATION_TABLE_KEY = 'harvester_drs_reallocation_migrations_table';
 
@@ -38,11 +42,8 @@ const DrsMigrationsSection: React.FC<DrsMigrationsSectionProps> = ({
   vms,
   isTenant = false,
 }) => {
-  const canRead =
-    checkPerm('clouds.migrations:read') ||
-    checkPerm('clouds.drs:read') ||
-    checkPerm('clouds.ecs:read');
-  const canWriteMigration = checkPerm('clouds.migrations:write') || checkPerm('clouds.ecs:write');
+  const canRead = canReadMigrationsTab(checkPerm);
+  const canWriteMigration = canWriteMigrationsTab(checkPerm);
 
   const [reallocationKeyword, setReallocationKeyword] = useState('');
   const [reallocationStatusFilter, setReallocationStatusFilter] = useState('');

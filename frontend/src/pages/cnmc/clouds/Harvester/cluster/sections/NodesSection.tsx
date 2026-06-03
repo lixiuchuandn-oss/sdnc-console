@@ -29,6 +29,7 @@ import {
   runHarvesterSectionRefresh,
 } from '../lib/clusterSectionRefresh';
 import { buildNodesTableColumns } from '../lib/nodesTableColumns';
+import { canWriteClusterNodes } from '../../../../../../constants/computeClusterPermissions';
 import {
   confirmHighRiskOperation,
   NODE_MAINTENANCE_RISK_ITEMS,
@@ -66,7 +67,7 @@ const NodesSection: React.FC<Props> = ({
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceNode, setMaintenanceNode] = useState<NodeRow | null>(null);
 
-  const canWrite = checkPerm ? checkPerm('clouds.cluster-nodes:write') : false;
+  const canWrite = checkPerm ? canWriteClusterNodes(checkPerm) : false;
 
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading, reload } = useNodesResourceBundle({
     cloudId,

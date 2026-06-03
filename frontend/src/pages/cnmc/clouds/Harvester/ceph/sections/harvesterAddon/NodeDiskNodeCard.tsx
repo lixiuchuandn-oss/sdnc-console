@@ -99,7 +99,6 @@ const NodeDiskNodeCard: React.FC<NodeDiskNodeCardProps> = ({
               optionFilterProp="label"
               loading={metaLoading}
               disabled={disabled || nodeLocked}
-              style={{ maxWidth: 320, width: '100%' }}
               onChange={onNodeChange}
             />
           </Form.Item>

@@ -1,7 +1,7 @@
 /**
  * 集群 · 存储服务 · 统一存储配置（Cloudmap `cluster/harvester_addon`）。
  */
-import React, { useRef } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -21,18 +21,34 @@ import {
   Typography,
 } from 'antd';
 import type { FormListOperation } from 'antd/es/form';
-import { PlusOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
+import {
+  CLOUD_STORAGE_ADDON_READ,
+  CLOUD_STORAGE_ADDON_WRITE,
+  LEGACY_CLOUD_STORAGE_DRS_READ,
+  LEGACY_CLOUD_STORAGE_DRS_WRITE,
+  LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_READ,
+  LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_WRITE,
+} from '../../../../../../constants/unifiedStoragePermissions';
+import { useStorageDrsData } from '../../cluster/hooks/useStorageDrsData';
+import StorageDrsPolicyPanel from '../../cluster/sections/storageDrs/StorageDrsPolicyPanel';
+import StorageDrsTasksPanel from '../../cluster/sections/storageDrs/StorageDrsTasksPanel';
 import type { HarvesterSectionOnRefresh } from '../lib/cephSectionRefresh';
 import { useHarvesterAddonSection } from '../hooks/useHarvesterAddonSection';
 import type { HarvesterAddonFormValues } from '../hooks/harvesterAddonFormTypes';
+import AddonConfigDetailPanel from './harvesterAddon/AddonConfigDetailPanel';
 import AddonStatusOverview from './harvesterAddon/AddonStatusOverview';
-import AddonSubmitConfirmModal from './harvesterAddon/AddonSubmitConfirmModal';
 import CephStorageNetworkCard, {
   type CephStorageNetworkEditorHandle,
 } from './harvesterAddon/CephStorageNetworkCard';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
+import { CEPH_STORAGE_NETWORK_CHANGE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import ConfigSummaryDescriptions from './harvesterAddon/ConfigSummaryDescriptions';
+import CephPoolSection from './CephPoolSection';
 import FormSection from './harvesterAddon/FormSection';
+import HarvesterAddonOperateTabShell, {
+  OperateTabRefreshButton,
+} from './harvesterAddon/HarvesterAddonOperateTabShell';
 import NodeDiskAssignmentEditor from './harvesterAddon/NodeDiskAssignmentEditor';
 import WizardFooter from './harvesterAddon/WizardFooter';
 import {
@@ -42,24 +58,46 @@ import {
   VOLUME_BINDING_OPTIONS,
   WIZARD_STEPS,
   OPERATE_TAB_BODY_STYLE,
-  OPERATE_TAB_INFO_ALERT_PROPS,
+  OPERATE_TAB_EXTRA_ALERT_STYLE,
+  type HarvesterAddonOperateTabKey,
 } from './harvesterAddon/addonUiConstants';
 import { addHarvesterAddonNodeRow } from './harvesterAddon/nodeDiskAssignmentUtils';
 
 export type CephHarvesterAddonSectionProps = {
   cloudId: string;
+  checkPerm: (act: string) => boolean;
   onRefresh?: HarvesterSectionOnRefresh;
+  /** 存储池 Tab 刷新（池层 loadTabResource） */
+  poolsOnRefresh?: HarvesterSectionOnRefresh;
   onDeployed?: () => void;
+  /** 已部署集群默认打开的 Tab（如历史 storage_drs / storage_pools 书签） */
+  initialOperateTab?: HarvesterAddonOperateTabKey;
 };
 
 const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   cloudId,
+  checkPerm,
   onRefresh,
+  poolsOnRefresh,
   onDeployed,
+  initialOperateTab,
 }) => {
+  const canRead =
+    checkPerm(CLOUD_STORAGE_ADDON_READ) ||
+    checkPerm(LEGACY_CLOUD_STORAGE_DRS_READ) ||
+    checkPerm(LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_READ) ||
+    checkPerm('clouds.unified-storage:read');
+  const canWrite =
+    checkPerm(CLOUD_STORAGE_ADDON_WRITE) ||
+    checkPerm(LEGACY_CLOUD_STORAGE_DRS_WRITE) ||
+    checkPerm(LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_WRITE) ||
+    checkPerm('clouds.unified-storage:write');
+
   const [form] = Form.useForm<HarvesterAddonFormValues>();
   const expandListOpsRef = useRef<FormListOperation | null>(null);
   const storageNetworkRef = useRef<CephStorageNetworkEditorHandle | null>(null);
+  const operateStorageNetworkRef = useRef<CephStorageNetworkEditorHandle | null>(null);
+  const [storageNetworkBusy, setStorageNetworkBusy] = useState({ loading: false, saving: false });
 
   const ctrl = useHarvesterAddonSection({
     cloudId,
@@ -67,7 +105,21 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
     onRefresh,
     onDeployed,
     storageNetworkRef,
+    initialOperateTab,
   });
+
+  const {
+    loading: sdrsLoading,
+    overview: sdrsOverview,
+    error: sdrsError,
+    reload: reloadSdrs,
+  } = useStorageDrsData(cloudId, canRead && ctrl.isRunningCluster);
+
+  const sdrsTasks = useMemo(() => sdrsOverview?.tasksRecent ?? [], [sdrsOverview?.tasksRecent]);
+
+  const handleSdrsRefresh = useCallback(() => {
+    void reloadSdrs(true);
+  }, [reloadSdrs]);
 
   const renderHiddenFields = () => (
     <>
@@ -316,90 +368,184 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   const renderOperatePanel = () => (
     <Tabs
       activeKey={ctrl.operateTabKey}
-      onChange={(key) => ctrl.setOperateTabKey(key as 'expand' | 'config')}
+      onChange={(key) => ctrl.setOperateTabKey(key as HarvesterAddonOperateTabKey)}
       items={[
-        {
-          key: 'expand',
-          label: '扩容存储',
-          children: (
-            <>
-              <Alert
-                {...OPERATE_TAB_INFO_ALERT_PROPS}
-                message="扩容：新增节点与数据盘"
-                description="仅可新增存储节点或勾选新数据盘；已纳入集群的磁盘不可移除或改配。"
-                action={
-                  <Space wrap size={8}>
-                    <Button
-                      loading={ctrl.metaLoading}
-                      disabled={ctrl.formDisabled}
-                      onClick={() => void ctrl.loadMeta(true)}
-                    >
-                      刷新磁盘
-                    </Button>
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      disabled={
-                        ctrl.formDisabled ||
-                        ctrl.nodeOptions.length === 0 ||
-                        ctrl.nodeOptions.every((o) => ctrl.expandUsedNodeNames.has(o.value))
-                      }
-                      onClick={() => {
-                        const add = expandListOpsRef.current?.add;
-                        if (add) addHarvesterAddonNodeRow(add, ctrl.nodeOptions, ctrl.watchedExpandNodes);
-                      }}
-                    >
-                      添加节点
-                    </Button>
-                  </Space>
-                }
-              />
-              <div style={OPERATE_TAB_BODY_STYLE}>
-                <NodeDiskAssignmentEditor
-                  form={form}
-                  nodeOptions={ctrl.nodeOptions}
-                  blockDevicesRaw={ctrl.blockDevicesRaw}
-                  metaLoading={ctrl.metaLoading}
-                  disabled={ctrl.formDisabled}
-                  baselineConfig={ctrl.baselineConfig}
-                  onRefresh={() => void ctrl.loadMeta(true)}
-                  expansionMode
-                  listOpsRef={expandListOpsRef}
-                />
-              </div>
-              <WizardFooter>
-                <span />
-                <Button type="primary" loading={ctrl.submitting} onClick={() => void ctrl.openSubmitConfirm()}>
-                  {ctrl.submitActionLabel}
-                </Button>
-              </WizardFooter>
-            </>
-          ),
-        },
         {
           key: 'config',
           label: '配置详情',
           children: (
-            <>
-              <Alert
-                {...OPERATE_TAB_INFO_ALERT_PROPS}
-                message="集群级参数已锁定"
-                description="副本数、管理节点、镜像版本等已在首次部署时确定。如需调整请联系运维在维护窗口处理；日常仅支持在「扩容存储」中新增节点或数据盘。"
+            <AddonConfigDetailPanel
+              values={ctrl.getWizardFormValues()}
+              blockDevicesRaw={ctrl.blockDevicesRaw}
+              storageNetwork={ctrl.storageNetwork}
+            />
+          ),
+        },
+        {
+          key: 'storage_pools',
+          label: '存储池',
+          children: (
+            <div style={OPERATE_TAB_BODY_STYLE}>
+              <CephPoolSection
+                cloudId={cloudId}
+                applicationsScope="cloud"
+                onRefresh={poolsOnRefresh}
               />
-              <div style={OPERATE_TAB_BODY_STYLE}>
-                <ConfigSummaryDescriptions
-                  values={ctrl.getWizardFormValues()}
-                  blockDevicesRaw={ctrl.blockDevicesRaw}
-                  storageNetwork={ctrl.storageNetwork}
-                  column={2}
+            </div>
+          ),
+        },
+        {
+          key: 'expand',
+          label: '扩容存储',
+          children: (
+            <HarvesterAddonOperateTabShell
+              infoMessage="扩容仅可新增存储节点或数据盘；已纳入集群的磁盘不可移除或改配。"
+              alertActions={
+                <>
+                  <OperateTabRefreshButton
+                    label="刷新磁盘"
+                    loading={ctrl.metaLoading}
+                    disabled={ctrl.formDisabled}
+                    onClick={() => void ctrl.loadMeta(true)}
+                  />
+                  <Button
+                    type="default"
+                    disabled={
+                      ctrl.formDisabled ||
+                      ctrl.nodeOptions.length === 0 ||
+                      ctrl.nodeOptions.every((o) => ctrl.expandUsedNodeNames.has(o.value))
+                    }
+                    onClick={() => {
+                      const add = expandListOpsRef.current?.add;
+                      if (add) addHarvesterAddonNodeRow(add, ctrl.nodeOptions, ctrl.watchedExpandNodes);
+                    }}
+                  >
+                    添加节点
+                  </Button>
+                </>
+              }
+              submit={{
+                label: ctrl.submitActionLabel,
+                loading: ctrl.submitting,
+                disabled: ctrl.formDisabled,
+                canWrite: true,
+                onClick: () => void ctrl.openSubmitConfirm(),
+              }}
+            >
+              <NodeDiskAssignmentEditor
+                form={form}
+                nodeOptions={ctrl.nodeOptions}
+                blockDevicesRaw={ctrl.blockDevicesRaw}
+                metaLoading={ctrl.metaLoading}
+                disabled={ctrl.formDisabled}
+                baselineConfig={ctrl.baselineConfig}
+                onRefresh={() => void ctrl.loadMeta(true)}
+                expansionMode
+                listOpsRef={expandListOpsRef}
+              />
+            </HarvesterAddonOperateTabShell>
+          ),
+        },
+        {
+          key: 'storage_network',
+          label: '变更存储网',
+          children: (
+            <HarvesterAddonOperateTabShell
+              infoMessage="配置专用存储网络；未启用时与集群管理网络共用。变更仅对新部署或扩容生效。"
+              alertActions={
+                <OperateTabRefreshButton
+                  loading={storageNetworkBusy.loading}
+                  disabled={!canWrite}
+                  onClick={() => void operateStorageNetworkRef.current?.reload()}
                 />
-              </div>
+              }
+              submit={{
+                label: '保存存储网配置',
+                loading: storageNetworkBusy.saving,
+                canWrite,
+                disabled: storageNetworkBusy.loading,
+                onClick: () => {
+                  void confirmHighRiskOperation({
+                    title: '确认保存存储网配置',
+                    description: '保存后将更新集群存储网络设定，请确认参数无误并了解以下风险：',
+                    riskItems: CEPH_STORAGE_NETWORK_CHANGE_RISK_ITEMS,
+                    confirmDanger: false,
+                    confirmText: '保存存储网配置',
+                    impactAckLabel: '我已阅读并理解上述风险',
+                    onConfirm: async () => {
+                      const saved = await operateStorageNetworkRef.current?.validateAndSave();
+                      if (saved === false) {
+                        throw new Error('保存存储网配置失败');
+                      }
+                    },
+                  }).catch(() => {
+                    /* 用户取消 */
+                  });
+                },
+              }}
+            >
+              <CephStorageNetworkCard
+                ref={operateStorageNetworkRef}
+                cloudId={cloudId}
+                variant="operate"
+                readOnly={!canWrite}
+                onBusyChange={setStorageNetworkBusy}
+              />
+            </HarvesterAddonOperateTabShell>
+          ),
+        },
+        {
+          key: 'sdrs_policy',
+          label: 'SDRS 策略',
+          children: (
+            <>
+              {sdrsError ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message={sdrsError}
+                  style={OPERATE_TAB_EXTRA_ALERT_STYLE}
+                />
+              ) : null}
+              <StorageDrsPolicyPanel
+                cloudId={cloudId}
+                canWrite={canWrite}
+                loading={sdrsLoading}
+                overview={sdrsOverview}
+                onRefresh={handleSdrsRefresh}
+              />
+            </>
+          ),
+        },
+        {
+          key: 'sdrs_tasks',
+          label: `任务日志 (${sdrsTasks.length})`,
+          children: (
+            <>
+              {sdrsError ? (
+                <Alert type="error" showIcon message={sdrsError} style={{ marginBottom: 16 }} />
+              ) : null}
+              <StorageDrsTasksPanel
+                cloudId={cloudId}
+                canWrite={canWrite}
+                loading={sdrsLoading}
+                tasks={sdrsTasks}
+                onRefresh={handleSdrsRefresh}
+              />
             </>
           ),
         },
       ]}
     />
   );
+
+  if (!canRead) {
+    return (
+      <PageDetailSection contentPadding={16}>
+        <Alert type="warning" showIcon message="无权限查看存储配置" />
+      </PageDetailSection>
+    );
+  }
 
   return (
     <PageDetailSection contentPadding={16} autoStyleInputs>
@@ -458,24 +604,6 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
           <Input.TextArea rows={18} placeholder="留空则根据向导自动生成配置" spellCheck={false} />
         </Form.Item>
       </Drawer>
-
-      <AddonSubmitConfirmModal
-        open={ctrl.submitConfirmOpen}
-        title={`确认${ctrl.submitActionLabel}`}
-        okText={ctrl.submitActionLabel}
-        isRunningCluster={ctrl.isRunningCluster}
-        submitting={ctrl.submitting}
-        submitConfirmReady={ctrl.submitConfirmReady}
-        submitRiskAck={ctrl.submitRiskAck}
-        onSubmitRiskAckChange={ctrl.setSubmitRiskAck}
-        submitAdminPassword={ctrl.submitAdminPassword}
-        onSubmitAdminPasswordChange={ctrl.setSubmitAdminPassword}
-        submitRiskItems={ctrl.submitRiskItems}
-        values={ctrl.getWizardFormValues()}
-        blockDevicesRaw={ctrl.blockDevicesRaw}
-        onCancel={ctrl.closeSubmitConfirm}
-        onOk={() => void ctrl.executeSubmit()}
-      />
     </PageDetailSection>
   );
 };
