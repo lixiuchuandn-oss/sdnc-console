@@ -125,9 +125,15 @@
 .wizard-node-notready { color: #ff4d4f; }
 
 /* 节点表格 */
+.wizard-node-table .ant-table-content table {
+  table-layout: fixed;
+  width: 100% !important;
+}
+
 .wizard-node-table .ant-table-thead .ant-table-cell,
 .wizard-node-table .ant-table-tbody .ant-table-cell {
   font-size: 12px;
+  white-space: normal;
 }
 
 .wizard-node-table .wizard-node-select-col {

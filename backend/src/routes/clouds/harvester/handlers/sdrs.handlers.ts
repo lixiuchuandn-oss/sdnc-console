@@ -81,7 +81,7 @@ export async function harvesterSdrsPoolsHandler(req: Request, res: Response) {
     const data = await getSdrsPools(cloud);
     res.json({ message: '查询成功', data });
   } catch (e: any) {
-    handleError(res, e, '查询 Ceph Pool 失败');
+    handleError(res, e, '查询存储池失败');
   }
 }
 

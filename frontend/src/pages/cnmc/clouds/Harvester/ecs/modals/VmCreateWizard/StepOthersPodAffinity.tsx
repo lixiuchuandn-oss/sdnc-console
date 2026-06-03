@@ -1,59 +1,100 @@
 /**
- * 创建向导 · 基本信息 · 虚拟机间亲和/反亲和（可选）。
- * 置于「信息」名称/描述之后，独立分组（非「信息」节内容）。
+ * 创建向导 · 基本信息 · 节点标签、虚拟机间亲和/反亲和（折叠项）。
  */
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Collapse } from 'antd';
 import PodAffinityEditor, {
   type PodAffinityEditorHandle,
 } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
+import {
+  VM_ADVANCED_SCHEDULING_COLLAPSE,
+  VM_ADVANCED_SCHEDULING_HINT,
+  isVmAdvancedSchedulingAllowed,
+} from '../../lib/vmAdvancedSchedulingLabels';
+import { VmAdvancedSchedulingCollapseLabel } from '../../lib/VmAdvancedSchedulingCollapseLabel';
+import VmNodeSelectorPairsEditor from '../../lib/VmNodeSelectorPairsEditor';
 
 export type StepOthersPodAffinityProps = {
+  hostModeState: string;
   namespacesOptions: string[];
   podAffinityRef: React.RefObject<PodAffinityEditorHandle>;
   podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle>;
 };
 
 const StepOthersPodAffinity: React.FC<StepOthersPodAffinityProps> = ({
+  hostModeState,
   namespacesOptions,
   podAffinityRef,
   podAntiAffinityRef,
 }) => {
+  const collapseItems = useMemo(() => {
+    if (!isVmAdvancedSchedulingAllowed(hostModeState)) {
+      return [];
+    }
+
+    const items: NonNullable<React.ComponentProps<typeof Collapse>['items']> = [];
+
+    if (hostModeState === 'label') {
+      items.push({
+        key: 'nodeSelector',
+        label: VM_ADVANCED_SCHEDULING_COLLAPSE.nodeLabels,
+        children: <VmNodeSelectorPairsEditor />,
+      });
+    }
+
+    items.push(
+      {
+        key: 'podAffinity',
+        label: (
+          <VmAdvancedSchedulingCollapseLabel
+            title={VM_ADVANCED_SCHEDULING_COLLAPSE.podAffinity}
+            hint={VM_ADVANCED_SCHEDULING_HINT.podAffinity}
+          />
+        ),
+        children: (
+          <PodAffinityEditor
+            ref={podAffinityRef}
+            name="podAffinity"
+            label={VM_ADVANCED_SCHEDULING_COLLAPSE.podAffinity}
+            namespacesOptions={namespacesOptions}
+            compact
+          />
+        ),
+      },
+      {
+        key: 'podAntiAffinity',
+        label: (
+          <VmAdvancedSchedulingCollapseLabel
+            title={VM_ADVANCED_SCHEDULING_COLLAPSE.podAntiAffinity}
+            hint={VM_ADVANCED_SCHEDULING_HINT.podAntiAffinity}
+          />
+        ),
+        children: (
+          <PodAffinityEditor
+            ref={podAntiAffinityRef}
+            name="podAntiAffinity"
+            label={VM_ADVANCED_SCHEDULING_COLLAPSE.podAntiAffinity}
+            namespacesOptions={namespacesOptions}
+            compact
+          />
+        ),
+      },
+    );
+
+    return items;
+  }, [hostModeState, namespacesOptions, podAffinityRef, podAntiAffinityRef]);
+
+  if (!isVmAdvancedSchedulingAllowed(hostModeState)) {
+    return null;
+  }
+
   return (
-    <>
-      <div className="wizard-group-title">亲和性（可选）</div>
-      <Collapse
-        ghost
-        defaultActiveKey={[]}
-        className="wizard-collapse-nopad"
-        items={[
-          {
-            key: 'podAffinity',
-            label: '虚拟机亲和性（尽量/必须同域部署）',
-            children: (
-              <PodAffinityEditor
-                ref={podAffinityRef}
-                name="podAffinity"
-                label="虚拟机亲和性"
-                namespacesOptions={namespacesOptions}
-              />
-            ),
-          },
-          {
-            key: 'podAntiAffinity',
-            label: '虚拟机反亲和性（尽量/必须分散部署）',
-            children: (
-              <PodAffinityEditor
-                ref={podAntiAffinityRef}
-                name="podAntiAffinity"
-                label="虚拟机反亲和性"
-                namespacesOptions={namespacesOptions}
-              />
-            ),
-          },
-        ]}
-      />
-    </>
+    <Collapse
+      ghost
+      defaultActiveKey={[]}
+      className="wizard-collapse-nopad"
+      items={collapseItems}
+    />
   );
 };
 

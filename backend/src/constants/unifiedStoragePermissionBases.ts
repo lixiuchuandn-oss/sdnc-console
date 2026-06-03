@@ -7,6 +7,7 @@ export const UNIFIED_STORAGE_READ_BASES: readonly string[] = [
   'clouds.storage-dashboard',
   'clouds.storage-addon',
   'clouds.unified-storage-pools',
+  'clouds.storage-drs',
   'clouds.storage-rbd-mirror',
   'clouds.storage-s3-buckets',
   'clouds.storage-rgw-users',

@@ -157,7 +157,7 @@ const StorageDrsMigrateModal: React.FC<StorageDrsMigrateModalProps> = ({
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="部分 PVC 不可迁移（非 RBD 或未绑定）"
+            message="部分 PVC 不可迁移（非块存储卷或未绑定）"
           />
         ) : null}
         <Form.Item
@@ -176,8 +176,8 @@ const StorageDrsMigrateModal: React.FC<StorageDrsMigrateModalProps> = ({
         </Form.Item>
         <Form.Item
           name="targetPool"
-          label="目标 Ceph Pool"
-          rules={[{ required: true, message: '请选择目标 Pool' }]}
+          label="目标存储池"
+          rules={[{ required: true, message: '请选择目标存储池' }]}
         >
           <Select
             placeholder="选择目标存储池"

@@ -26,6 +26,8 @@ export const CLOUD_STORAGE_OBJECT_GATEWAY_READ = 'clouds.storage-object-gateway:
 export const CLOUD_STORAGE_OBJECT_GATEWAY_WRITE = 'clouds.storage-object-gateway:write';
 export const CLOUD_STORAGE_COSI_READ = 'clouds.storage-cosi:read';
 export const CLOUD_STORAGE_COSI_WRITE = 'clouds.storage-cosi:write';
+export const CLOUD_STORAGE_DRS_READ = 'clouds.storage-drs:read';
+export const CLOUD_STORAGE_DRS_WRITE = 'clouds.storage-drs:write';
 
 /** 子域 read 的权限基（不含 :read），用于兼容层判定 */
 export const UNIFIED_STORAGE_READ_BASES: readonly string[] = [
@@ -33,6 +35,7 @@ export const UNIFIED_STORAGE_READ_BASES: readonly string[] = [
   'clouds.storage-dashboard',
   'clouds.storage-addon',
   'clouds.unified-storage-pools',
+  'clouds.storage-drs',
   'clouds.storage-rbd-mirror',
   'clouds.storage-s3-buckets',
   'clouds.storage-rgw-users',
@@ -49,6 +52,7 @@ export const CLUSTER_STORAGE_INNER_READ: Readonly<Record<string, string>> = {
   overview: CLOUD_STORAGE_DASHBOARD_READ,
   harvester_addon: CLOUD_STORAGE_ADDON_READ,
   storage_pools: CLOUD_UNIFIED_STORAGE_POOLS_READ,
+  storage_drs: CLOUD_STORAGE_DRS_READ,
   rbd_mirror: CLOUD_STORAGE_RBD_MIRROR_READ,
   rgw_s3_buckets: CLOUD_STORAGE_S3_BUCKETS_READ,
   rgw_users: CLOUD_STORAGE_RGW_USERS_READ,

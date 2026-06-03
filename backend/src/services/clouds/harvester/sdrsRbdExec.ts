@@ -118,10 +118,10 @@ export async function runToolboxRbdShell(
   const toolbox = await findCephToolboxPod(cloud);
   if (!toolbox) {
     throw new Error(
-      '未找到 rook-ceph-tools Pod。请确认 rook-ceph namespace 与 toolbox 已部署，或设置 SDRS_MOCK_MIGRATION=1 做演示。',
+      '未找到存储运维工具 Pod。请确认统一存储运维工具已部署，或设置 SDRS_MOCK_MIGRATION=1 做演示。',
     );
   }
   throw new Error(
-    `已发现 toolbox Pod ${toolbox.namespace}/${toolbox.podName}，RBD 命令同步 exec 待集群联调。命令: ${command}`,
+    `已发现运维工具 Pod ${toolbox.namespace}/${toolbox.podName}，在线迁盘命令待集群联调。命令: ${command}`,
   );
 }

@@ -21,7 +21,7 @@ export const WRITE_MENU_ITEM_KEYS = new Set([
   'bulkDelete',
   'setFavorite',
   'unsetFavorite',
-  'add',
+  'assign',
   'create',
   'test',
   /** USB 直通：claim / unclaim */

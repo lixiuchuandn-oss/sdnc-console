@@ -29,9 +29,6 @@ import {
   runHarvesterSectionRefresh,
 } from '../lib/clusterSectionRefresh';
 import { buildNodesTableColumns } from '../lib/nodesTableColumns';
-import ControlPlaneHaKpiRow from '../components/ControlPlaneHaKpiRow';
-import { computeControlPlaneHaSummary } from '../lib/controlPlaneHaFromNodes';
-import { useEtcdActiveAlertCount } from '../hooks/useEtcdActiveAlertCount';
 import {
   confirmHighRiskOperation,
   NODE_MAINTENANCE_RISK_ITEMS,
@@ -77,22 +74,12 @@ const NodesSection: React.FC<Props> = ({
     nodesLength: nodes?.length ?? 0,
   });
 
-  const haSummary = useMemo(() => computeControlPlaneHaSummary(nodes), [nodes]);
-  const {
-    etcdActiveAlertCount,
-    etcdAlertsLoading,
-    reloadEtcdAlerts,
-  } = useEtcdActiveAlertCount(cloudId, !!cloudId);
-
-  const handleToolbarRefreshWithHa = useMemo(
+  const handleToolbarRefresh = useMemo(
     () =>
       createClusterToolbarRefresh(onRefresh, {
-        before: () => {
-          reload(true);
-          void reloadEtcdAlerts();
-        },
+        before: () => reload(true),
       }),
-    [onRefresh, reload, reloadEtcdAlerts],
+    [onRefresh, reload],
   );
 
   // 指标（CPU/内存等）首批就绪后，后台刷新/轮询保留旧值，避免单元格反复闪 Spin
@@ -213,13 +200,7 @@ const NodesSection: React.FC<Props> = ({
   const tableLoading = loading || resourceLoading;
 
   return (
-    <>
-      <ControlPlaneHaKpiRow
-        summary={haSummary}
-        etcdActiveAlertCount={etcdActiveAlertCount}
-        etcdAlertsLoading={etcdAlertsLoading}
-      />
-      <PageDetailSection
+    <PageDetailSection
         asCard={false}
         autoStyleInputs={false}
         toolbarLeft={(
@@ -261,7 +242,7 @@ const NodesSection: React.FC<Props> = ({
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={COLUMN_SETTINGS_KEY} />
           <Button
             icon={<ReloadOutlined />}
-            onClick={handleToolbarRefreshWithHa}
+            onClick={handleToolbarRefresh}
             loading={listLoading}
             disabled={listLoading}
           />
@@ -317,8 +298,7 @@ const NodesSection: React.FC<Props> = ({
           onSuccess={refreshAfterMaintenance}
         />
       ) : null}
-      </PageDetailSection>
-    </>
+    </PageDetailSection>
   );
 };
 

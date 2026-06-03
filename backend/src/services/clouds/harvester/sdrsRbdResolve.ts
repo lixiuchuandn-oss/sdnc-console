@@ -72,7 +72,7 @@ export function parseRbdFromPv(pv: any): {
   const csi = pv?.spec?.csi || pv?.csi;
   const driver = String(csi?.driver || '').trim();
   if (!ROOK_RBD_PROVISIONERS.has(driver)) {
-    return { migratable: false, skipReason: '非 Rook RBD 卷' };
+    return { migratable: false, skipReason: '非可迁移块存储卷' };
   }
   const attrs = csi?.volumeAttributes || {};
   const pool = String(attrs.pool || attrs.imagePool || '').trim();
@@ -87,7 +87,7 @@ export function parseRbdFromPv(pv: any): {
   if (m) {
     return { pool: m[1], image: m[2], migratable: true };
   }
-  return { migratable: false, skipReason: '无法解析 RBD pool/image' };
+  return { migratable: false, skipReason: '无法解析存储池/卷标识' };
 }
 
 async function getJsonFirst(urls: string[], token: string, insecure: boolean): Promise<any> {

@@ -168,7 +168,7 @@ async function probeCephReady(
     dashboardAvailable: pools.length > 0,
     message: toolbox
       ? undefined
-      : '未检测到 rook-ceph-tools；手动迁盘需集群 toolbox 或 SDRS_MOCK_MIGRATION=1',
+      : '未检测到存储运维工具 Pod；手动迁盘需部署运维工具或设置 SDRS_MOCK_MIGRATION=1 做演示',
   };
 }
 
@@ -259,7 +259,7 @@ async function executeTaskAsync(
 ) {
   setImmediate(async () => {
     try {
-      await updateTaskPhase(taskId, 'preparing', '准备 RBD migration');
+      await updateTaskPhase(taskId, 'preparing', '准备在线迁盘');
       const rows = await AppDataSource.query(
         `SELECT * FROM cloud_sdrs_tasks WHERE id = ? LIMIT 1`,
         [taskId],
@@ -308,7 +308,7 @@ export async function createSdrsTask(
     throw new Error(disk.skipReason || '该 PVC 不可迁移');
   }
   if (disk.pool === dstPool) {
-    throw new Error('目标 Pool 与当前 Pool 相同');
+    throw new Error('目标存储池与当前存储池相同');
   }
 
   const dstImage = String(input.targetImage || disk.image).trim() || disk.image;
