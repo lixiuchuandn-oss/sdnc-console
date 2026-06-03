@@ -96,8 +96,7 @@ function normalizeCliCommandLines(text: string): string[] {
   for (const line of raw) {
     const prev = out.length > 0 ? out[out.length - 1]! : '';
     const continuesPipe =
-      out.length > 0 &&
-      (/^\|/.test(line) || /^include\b/i.test(line) || /\|\s*$/.test(prev));
+      out.length > 0 && (/^\|/.test(line) || /^include\b/i.test(line) || /\|\s*$/.test(prev));
     if (continuesPipe) {
       const joined = `${prev} ${line}`.replace(/\|\s+/g, '| ').replace(/\s+/g, ' ').trim();
       out[out.length - 1] = joined;
@@ -226,9 +225,7 @@ export async function getHmsSwitchCrRaw(
   const insecure = !!cloud.config?.ignoreTls;
   const urls = buildCandidateUrls(String(cloud.endpoint || ''), hmsSwitchCrItemPath(name));
 
-  return requestFirstOk(urls, token, insecure, (url) =>
-    getJsonOnce(url, token, insecure, true),
-  );
+  return requestFirstOk(urls, token, insecure, (url) => getJsonOnce(url, token, insecure, true));
 }
 
 export type HmsSwitchSshConnectParams = {
@@ -256,10 +253,9 @@ export async function buildHmsSwitchSshConnectParams(
   }
   const password = spec.password != null ? String(spec.password) : '';
   if (!password) {
-    throw Object.assign(
-      new Error('Switch CR 未配置 SSH 密码，请先在「编辑交换机」中填写密码'),
-      { status: 400 },
-    );
+    throw Object.assign(new Error('Switch CR 未配置 SSH 密码，请先在「编辑交换机」中填写密码'), {
+      status: 400,
+    });
   }
   const portNum = Number(spec.port);
   const port = Number.isFinite(portNum) && portNum > 0 ? portNum : 22;

@@ -247,7 +247,7 @@ const WebSshTerminal: React.FC<WebSshTerminalProps> = ({
       setConnecting(false);
       setConnected(false);
     };
-  }, [buildWsUrl, connect, disconnect, fitTerminal, termReady]);
+  }, [buildWsUrl, connect, fitTerminal, termReady]);
 
   // 1) 等待宿主 div 有有效尺寸（抽屉动画结束、flex 布局完成）
   useEffect(() => {

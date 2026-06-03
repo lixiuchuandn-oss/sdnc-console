@@ -117,7 +117,7 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
     );
   }, [probeRecord, cr?.spec?.vendor]);
 
-  const spec = cr?.spec || {};
+  const spec = useMemo(() => cr?.spec || {}, [cr?.spec]);
 
   const probeDrawerModel = useMemo(
     () => (probeRecord ? buildSwitchProbeDrawerModel(probeRecord, cr?.spec?.vendor) : null),

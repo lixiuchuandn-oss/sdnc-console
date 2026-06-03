@@ -139,61 +139,61 @@ export function createSshWsServer() {
                   const fallbackTimer = networkCli
                     ? null
                     : setTimeout(() => {
-                    if (receivedOnce) return;
-                    try {
-                      console.log('Shell无输出，尝试使用 bash -li 作为回退');
-                      ssh.exec(
-                        'bash -li',
-                        { pty: { rows, cols, term: 'xterm-256color' } },
-                        (execErr: any, execStream: ClientChannel) => {
-                          if (execErr) {
-                            console.error('回退到 bash 失败:', execErr?.message || execErr);
-                            return;
-                          }
-                          try {
-                            shellStream?.removeAllListeners();
-                          } catch {}
-                          shellStream = execStream;
-                          try {
-                            shellStream.write('\r');
-                          } catch {}
-                          setTimeout(() => {
-                            try {
-                              shellStream.write('\x03');
-                            } catch {}
-                          }, 120);
-                          setTimeout(() => {
-                            try {
-                              shellStream.write('\r');
-                            } catch {}
-                          }, 250);
-                          setTimeout(() => {
-                            try {
-                              shellStream.write('export PS1="\\u@\\h:\\w\\$ "\n');
-                            } catch {}
-                          }, 350);
-                          setTimeout(() => {
-                            try {
-                              shellStream.write('printf "\\n"\n');
-                            } catch {}
-                          }, 450);
-                          shellStream.on('data', (data: Buffer) => {
-                            const dataStr = data.toString('utf8');
-                            safeSend({ type: 'data', data: dataStr });
-                          });
-                          shellStream.on('close', () => {
-                            safeSend({ type: 'close' });
-                            try {
-                              ws.close();
-                            } catch {}
-                            try {
-                              ssh.end();
-                            } catch {}
-                          });
-                        },
-                      );
-                    } catch {}
-                  }, 1000);
+                        if (receivedOnce) return;
+                        try {
+                          console.log('Shell无输出，尝试使用 bash -li 作为回退');
+                          ssh.exec(
+                            'bash -li',
+                            { pty: { rows, cols, term: 'xterm-256color' } },
+                            (execErr: any, execStream: ClientChannel) => {
+                              if (execErr) {
+                                console.error('回退到 bash 失败:', execErr?.message || execErr);
+                                return;
+                              }
+                              try {
+                                shellStream?.removeAllListeners();
+                              } catch {}
+                              shellStream = execStream;
+                              try {
+                                shellStream.write('\r');
+                              } catch {}
+                              setTimeout(() => {
+                                try {
+                                  shellStream.write('\x03');
+                                } catch {}
+                              }, 120);
+                              setTimeout(() => {
+                                try {
+                                  shellStream.write('\r');
+                                } catch {}
+                              }, 250);
+                              setTimeout(() => {
+                                try {
+                                  shellStream.write('export PS1="\\u@\\h:\\w\\$ "\n');
+                                } catch {}
+                              }, 350);
+                              setTimeout(() => {
+                                try {
+                                  shellStream.write('printf "\\n"\n');
+                                } catch {}
+                              }, 450);
+                              shellStream.on('data', (data: Buffer) => {
+                                const dataStr = data.toString('utf8');
+                                safeSend({ type: 'data', data: dataStr });
+                              });
+                              shellStream.on('close', () => {
+                                safeSend({ type: 'close' });
+                                try {
+                                  ws.close();
+                                } catch {}
+                                try {
+                                  ssh.end();
+                                } catch {}
+                              });
+                            },
+                          );
+                        } catch {}
+                      }, 1000);
                   stream.on('data', (data: Buffer) => {
                     const dataStr = data.toString('utf8');
                     console.log('Shell输出数据:', JSON.stringify(dataStr));

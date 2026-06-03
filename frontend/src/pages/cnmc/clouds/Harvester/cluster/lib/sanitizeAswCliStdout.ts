@@ -2,6 +2,10 @@
  * 清洗 HSM/SSH 探测 stdout，避免 NUL、ANSI、CR 等导致界面只显示到「命令行」而看不到回显正文。
  */
 
+/* eslint-disable no-control-regex -- 刻意匹配 ANSI ESC 与 C0 控制符以便清洗终端回显 */
+const ANSI_ESCAPE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
+const C0_CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+
 /** 去掉 C0 控制符（保留 \t \n）与 ANSI 转义 */
 export function sanitizeAswCliStdout(raw?: string | null): string {
   if (raw == null) return '';
@@ -9,9 +13,9 @@ export function sanitizeAswCliStdout(raw?: string | null): string {
   if (!s) return '';
   s = s.replace(/\u0000/g, '');
   s = s.replace(/\uFEFF/g, '');
-  s = s.replace(/\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+  s = s.replace(ANSI_ESCAPE_RE, '');
   s = s.replace(/\r\r\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  s = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+  s = s.replace(C0_CONTROL_RE, '');
   return s.replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 

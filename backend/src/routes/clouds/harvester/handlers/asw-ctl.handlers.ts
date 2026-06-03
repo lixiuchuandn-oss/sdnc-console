@@ -313,34 +313,10 @@ async function fetchAswCtlSwitchRow(
   const jsonTimeout = v1TimeoutMs ?? resolveAswCtlV1JsonTimeoutMs();
   const [healthRes, infoRes, ifRes, perfRes, vlanRes] = await Promise.all([
     aswCtlProbeHealth(ep.baseUrl, ep.apiKey, insecureTls),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/info'),
-      ep.apiKey,
-      insecureTls,
-      jsonTimeout,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/interfaces'),
-      ep.apiKey,
-      insecureTls,
-      jsonTimeout,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/performance'),
-      ep.apiKey,
-      insecureTls,
-      jsonTimeout,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/vlans'),
-      ep.apiKey,
-      insecureTls,
-      jsonTimeout,
-    ),
+    aswCtlGetJson(ep.baseUrl, path('/switch/info'), ep.apiKey, insecureTls, jsonTimeout),
+    aswCtlGetJson(ep.baseUrl, path('/switch/interfaces'), ep.apiKey, insecureTls, jsonTimeout),
+    aswCtlGetJson(ep.baseUrl, path('/switch/performance'), ep.apiKey, insecureTls, jsonTimeout),
+    aswCtlGetJson(ep.baseUrl, path('/switch/vlans'), ep.apiKey, insecureTls, jsonTimeout),
   ]);
 
   let health: any | null = null;
@@ -627,25 +603,14 @@ export async function harvesterAswCtlDeviceProfilesHandler(req: Request, res: Re
     const insecureTls = resolveAswCtlInsecureTls(cloud);
     const ep = routed.endpoints[0]!;
     const switchName = req.query.name != null ? String(req.query.name).trim() : '';
+    const v1TimeoutMs = await resolveV1TimeoutForSwitchProbe(cloud, switchName || undefined);
     // 设备模板为集群级列表；先不带 ?name=，与探测同步一致。部分环境带 API Key 时须已有 Switch 名作为上下文再重试。
     let url = northApiPathWithPrefix('/device/profiles', routed.northPrefix);
-    let profRes = await aswCtlGetJson(
-      ep.baseUrl,
-      url,
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    );
+    let profRes = await aswCtlGetJson(ep.baseUrl, url, ep.apiKey, insecureTls, v1TimeoutMs);
 
     if (!profRes.ok && switchName && /missing switch name/i.test(String(profRes.message || ''))) {
       url = northPathWithSwitchName('/device/profiles', routed.northPrefix, switchName);
-      profRes = await aswCtlGetJson(
-        ep.baseUrl,
-        url,
-        ep.apiKey,
-        insecureTls,
-        ASW_CTL_V1_JSON_TIMEOUT_MS,
-      );
+      profRes = await aswCtlGetJson(ep.baseUrl, url, ep.apiKey, insecureTls, v1TimeoutMs);
     }
 
     if (!profRes.ok && !switchName && /missing switch name/i.test(String(profRes.message || ''))) {
