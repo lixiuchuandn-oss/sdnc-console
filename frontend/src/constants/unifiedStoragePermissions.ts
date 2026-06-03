@@ -14,8 +14,6 @@ export const CLOUD_STORAGE_DASHBOARD_READ = 'clouds.storage-dashboard:read';
 export const CLOUD_STORAGE_DASHBOARD_WRITE = 'clouds.storage-dashboard:write';
 export const CLOUD_STORAGE_ADDON_READ = 'clouds.storage-addon:read';
 export const CLOUD_STORAGE_ADDON_WRITE = 'clouds.storage-addon:write';
-export const CLOUD_UNIFIED_STORAGE_POOLS_READ = 'clouds.unified-storage-pools:read';
-export const CLOUD_UNIFIED_STORAGE_POOLS_WRITE = 'clouds.unified-storage-pools:write';
 export const CLOUD_STORAGE_RBD_MIRROR_READ = 'clouds.storage-rbd-mirror:read';
 export const CLOUD_STORAGE_RBD_MIRROR_WRITE = 'clouds.storage-rbd-mirror:write';
 export const CLOUD_STORAGE_S3_BUCKETS_READ = 'clouds.storage-s3-buckets:read';
@@ -27,12 +25,20 @@ export const CLOUD_STORAGE_OBJECT_GATEWAY_WRITE = 'clouds.storage-object-gateway
 export const CLOUD_STORAGE_COSI_READ = 'clouds.storage-cosi:read';
 export const CLOUD_STORAGE_COSI_WRITE = 'clouds.storage-cosi:write';
 
+/** @deprecated 已并入 clouds.storage-addon；checker / accessMapping 仍兼容存量角色 */
+export const LEGACY_CLOUD_STORAGE_DRS_READ = 'clouds.storage-drs:read';
+/** @deprecated 已并入 clouds.storage-addon */
+export const LEGACY_CLOUD_STORAGE_DRS_WRITE = 'clouds.storage-drs:write';
+/** @deprecated 已并入 clouds.storage-addon */
+export const LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_READ = 'clouds.unified-storage-pools:read';
+/** @deprecated 已并入 clouds.storage-addon */
+export const LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_WRITE = 'clouds.unified-storage-pools:write';
+
 /** 子域 read 的权限基（不含 :read），用于兼容层判定 */
 export const UNIFIED_STORAGE_READ_BASES: readonly string[] = [
   'clouds.unified-storage',
   'clouds.storage-dashboard',
   'clouds.storage-addon',
-  'clouds.unified-storage-pools',
   'clouds.storage-rbd-mirror',
   'clouds.storage-s3-buckets',
   'clouds.storage-rgw-users',
@@ -48,7 +54,8 @@ export function isUnifiedStorageReadBase(base: string): boolean {
 export const CLUSTER_STORAGE_INNER_READ: Readonly<Record<string, string>> = {
   overview: CLOUD_STORAGE_DASHBOARD_READ,
   harvester_addon: CLOUD_STORAGE_ADDON_READ,
-  storage_pools: CLOUD_UNIFIED_STORAGE_POOLS_READ,
+  /** 历史 URL `cluster/storage_pools` 与统一存储配置同权 */
+  storage_pools: CLOUD_STORAGE_ADDON_READ,
   rbd_mirror: CLOUD_STORAGE_RBD_MIRROR_READ,
   rgw_s3_buckets: CLOUD_STORAGE_S3_BUCKETS_READ,
   rgw_users: CLOUD_STORAGE_RGW_USERS_READ,

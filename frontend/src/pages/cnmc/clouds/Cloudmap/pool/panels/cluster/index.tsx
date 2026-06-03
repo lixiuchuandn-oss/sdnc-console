@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { createClusterTabOnRefresh } from '../../loaders/clusterRefresh';
-import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
 import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
 import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
 import LoadBalancersSection from '../../../../Harvester/nad/sections/LoadBalancersSection';
@@ -9,14 +8,14 @@ import IPPoolsSection from '../../../../Harvester/nad/sections/IPPoolsSection';
 import ProviderNetworksSection from '../../../../Harvester/kube-ovn/sections/ProviderNetworksSection';
 import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
 import VlansSection from '../../../../Harvester/kube-ovn/sections/VlansSection';
-import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
-import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
 import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
-import DrsSection from '../../../../Harvester/cluster/sections/DrsSection';
-import FailureDomainSection from '../../../../Harvester/cluster/sections/FailureDomainSection';
+import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
+import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
+import ComputeClusterSection from '../../../../Harvester/cluster/sections/ComputeClusterSection';
+import type { ComputeClusterOperateTabKey } from '../../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
 import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
@@ -65,11 +64,7 @@ export type CloudmapClusterRoutePanelProps = {
   canReadLoadBalancers: boolean;
   /** 当前子路径 `/cluster/<seg>`，与云主机等域一致，一屏一块资源 */
   innerActiveKey: string;
-  loadTabResource: (
-    key: string,
-    force?: boolean,
-    skipSync?: boolean,
-  ) => Promise<void>;
+  loadTabResource: (key: string, force?: boolean, skipSync?: boolean) => Promise<void>;
   loadResource: (
     key: string,
     fn: () => Promise<any>,
@@ -103,6 +98,8 @@ export type CloudmapClusterRoutePanelProps = {
   cloudConfig: any | null;
   onReloadCloudMeta: () => Promise<void>;
   resourceLoading: Record<string, boolean>;
+  /** 历史 compute_nodes / compute_drs_rules 等书签 → operateTab */
+  initialComputeClusterTab?: ComputeClusterOperateTabKey;
 };
 
 const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (props) => {
@@ -117,7 +114,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     innerActiveKey,
     loadTabResource,
     harvesterNodes,
-    rawNodes,
+    rawNodes: _rawNodes,
     harvesterClusterNetworks,
     rawClusterNetworks,
     harvesterNads,
@@ -139,6 +136,7 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     harvesterPciDevices,
     rawPciDevices,
     resourceLoading,
+    initialComputeClusterTab,
   } = props;
 
   const visCtx = {
@@ -161,9 +159,12 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
   const clusterTabOnRefresh = useMemo(() => {
     const deps = { loadTabResource };
     return {
-      cluster_nodes: createClusterTabOnRefresh('cluster_nodes', deps),
-      namespaces: createClusterTabOnRefresh('namespaces', deps),
-      gpu: createClusterTabOnRefresh('gpu', deps),
+      compute_cluster: createClusterTabOnRefresh('compute_nodes', deps),
+      compute_nodes: createClusterTabOnRefresh('compute_nodes', deps),
+      compute_projects: createClusterTabOnRefresh('compute_projects', deps),
+      compute_drs_rules: createClusterTabOnRefresh('compute_drs_rules', deps),
+      compute_migrations: createClusterTabOnRefresh('compute_migrations', deps),
+      compute_gpu: createClusterTabOnRefresh('compute_gpu', deps),
       cluster_usb: createClusterTabOnRefresh('cluster_usb', deps),
       clusterNetworks: createClusterTabOnRefresh('clusterNetworks', deps),
       storage_classes: createClusterTabOnRefresh('storage_classes', deps),
@@ -173,32 +174,94 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
       cluster_pci: createClusterTabOnRefresh('cluster_pci', deps),
       cluster_sriov: createClusterTabOnRefresh('cluster_sriov', deps),
       cluster_vlans: createClusterTabOnRefresh('cluster_vlans', deps),
-      kubeovn_public_networks: createClusterTabOnRefresh(
-        'kubeovn_public_networks',
-        deps,
-      ),
-      kubeovn_public_subnets: createClusterTabOnRefresh(
-        'kubeovn_public_subnets',
-        deps,
-      ),
+      kubeovn_public_networks: createClusterTabOnRefresh('kubeovn_public_networks', deps),
+      kubeovn_public_subnets: createClusterTabOnRefresh('kubeovn_public_subnets', deps),
     };
   }, [loadTabResource]);
 
   const sectionBody = (seg: string): React.ReactNode => {
     switch (seg) {
-      case 'cluster_nodes':
+      case 'compute_cluster':
         return (
-          <>
-            <NodesSection
-              nodes={harvesterNodes}
-              loading={resourceLoading.nodes}
-              onRefresh={clusterTabOnRefresh.cluster_nodes}
-              cloudId={cloudId}
-              isTenant={isTenant}
-              checkPerm={checkPerm}
-            />
-            <DebugJSON data={rawNodes} show={showLog} />
-          </>
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_cluster}
+            isTenant={isTenant}
+            initialOperateTab={initialComputeClusterTab}
+          />
+        );
+      case 'compute_nodes':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="nodes"
+          />
+        );
+      case 'compute_failure_domains':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="failure_domains"
+          />
+        );
+      case 'compute_projects':
+        return (
+          <NamespacesSection
+            cloudId={cloudId}
+            namespaces={harvesterNamespacesForManagement as any[]}
+            loading={resourceLoading.namespaces}
+            onRefresh={clusterTabOnRefresh.compute_projects}
+            isTenant={isTenant}
+          />
+        );
+      case 'compute_drs_rules':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="drs_rules"
+          />
+        );
+      case 'compute_migrations':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="migrations"
+          />
+        );
+      case 'compute_gpu':
+        return (
+          <GpusSection
+            cloudId={cloudId}
+            resources={harvesterGpuResources}
+            loading={resourceLoading.gpu}
+            onRefresh={clusterTabOnRefresh.compute_gpu}
+            raw={rawGpu}
+            showLog={showLog}
+            isTenant={isTenant}
+          />
         );
       case 'cluster_physical_switches':
         return (
@@ -219,29 +282,13 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             <DebugJSON data={rawSubnets} show={showLog} />
           </>
         );
-      case 'namespaces':
-        return (
-          <NamespacesSection
-            cloudId={cloudId}
-            namespaces={harvesterNamespacesForManagement}
-            loading={resourceLoading.namespaces}
-            onRefresh={clusterTabOnRefresh.namespaces}
-            isTenant={isTenant}
-          />
-        );
-      case 'drs':
-        return <DrsSection cloudId={cloudId} checkPerm={checkPerm} isTenant={isTenant} />;
-      case 'failure_domains':
-        return <FailureDomainSection cloudId={cloudId} checkPerm={checkPerm} />;
       case 'kubeovn_public_subnets':
         return (
           <>
             <UnderlaySubnetsSection
               cloudId={cloudId}
               mode="public"
-              onSubnetsChanged={() =>
-                void clusterTabOnRefresh.kubeovn_public_subnets(true, true)
-              }
+              onSubnetsChanged={() => void clusterTabOnRefresh.kubeovn_public_subnets(true, true)}
             />
             <DebugJSON data={rawSubnets} show={showLog} />
           </>
@@ -258,18 +305,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             />
             <DebugJSON data={rawVlans} show={showLog} />
           </>
-        );
-      case 'gpu':
-        return (
-          <GpusSection
-            cloudId={cloudId}
-            resources={harvesterGpuResources}
-            loading={resourceLoading.gpu}
-            onRefresh={clusterTabOnRefresh.gpu}
-            raw={rawGpu}
-            showLog={showLog}
-            isTenant={isTenant}
-          />
         );
       case 'cluster_usb':
         return (

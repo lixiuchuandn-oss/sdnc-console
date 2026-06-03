@@ -12,7 +12,7 @@
  * 4. Pod 删除
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Table,
   Select,
@@ -32,7 +32,6 @@ import {
 import {
   FileTextOutlined,
   InfoCircleOutlined,
-  ArrowLeftOutlined,
   EllipsisOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -43,7 +42,6 @@ import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSe
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
-  fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
   deleteHarvesterContainerResource,
   evictHarvesterPod,
@@ -54,6 +52,7 @@ import {
   getSystemResourceProtectionHint,
 } from '../../../../../../utils/harvesterUtils';
 import PodTerminal from '../components/PodTerminal';
+import PodLogViewerDrawer from '../components/PodLogViewerDrawer';
 import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
 import {
   createContainerToolbarRefresh,
@@ -387,149 +386,6 @@ const calculateAge = (timestamp?: string) => {
   } catch {
     return '-';
   }
-};
-
-/**
- * Pod 日志查看器组件
- */
-const PodLogViewer: React.FC<{
-  cloudId: string;
-  namespace: string;
-  podName: string;
-  containers: string[];
-  visible: boolean;
-  onClose: () => void;
-  onBack?: () => void;
-}> = ({ cloudId, namespace, podName, containers, visible, onClose, onBack }) => {
-  const [logs, setLogs] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [selectedContainer, setSelectedContainer] = useState<string>('');
-  const [tailLines, setTailLines] = useState<number>(500);
-  const logRef = useRef<HTMLPreElement>(null);
-
-  // 上一次的容器列表，用于检测变化
-  const prevContainersRef = useRef<string[]>([]); // 初始化为空数组
-
-  // 加载日志
-  const loadLogs = useCallback(async () => {
-    if (!visible) return;
-    setLoading(true);
-    try {
-      // 单容器 Pod 可以不传容器参数，多容器 Pod 必须指定
-      const containerParam = containers.length === 1 ? undefined : selectedContainer;
-      const result = await fetchHarvesterPodLog(
-        cloudId,
-        namespace,
-        podName,
-        containerParam,
-        tailLines,
-      );
-      setLogs(result || '暂无日志');
-    } catch (e: any) {
-      setLogs(`加载日志失败: ${e?.message || e}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [cloudId, namespace, podName, selectedContainer, tailLines, visible, containers.length]);
-
-  // 当容器列表变化时，设置选中项
-  useEffect(() => {
-    if (containers.length > 0 && !selectedContainer) {
-      setSelectedContainer(containers[0]);
-      prevContainersRef.current = containers;
-    }
-  }, [containers, selectedContainer]);
-
-  // 重置状态
-  useEffect(() => {
-    if (!visible) {
-      setLogs('');
-      setSelectedContainer(''); // 关闭时重置选中状态
-    }
-  }, [visible]);
-
-  // 加载日志 - 当容器列表准备好后自动加载
-  useEffect(() => {
-    if (visible && containers.length > 0) {
-      loadLogs();
-    }
-  }, [visible, containers.length, loadLogs]);
-
-  // 自动滚动到底部
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  // 构建容器选项
-  const containerOptions = containers.map((c) => ({ label: c, value: c }));
-
-  return (
-    <Drawer
-      title={
-        <Space>
-          {onBack && (
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
-              返回
-            </Button>
-          )}
-          <span>日志: {podName}</span>
-        </Space>
-      }
-      placement="right"
-      width={800}
-      open={visible}
-      onClose={onClose}
-      extra={
-        <Space>
-          {containers.length > 1 && (
-            <Select
-              value={selectedContainer}
-              onChange={(v) => {
-                setSelectedContainer(v);
-              }}
-              style={{ width: 180 }}
-              options={containerOptions}
-            />
-          )}
-          {containers.length === 1 && <span style={{ color: '#666' }}>容器: {containers[0]}</span>}
-          <Select
-            value={tailLines}
-            onChange={setTailLines}
-            style={{ width: 100 }}
-            options={[
-              { label: '100行', value: 100 },
-              { label: '500行', value: 500 },
-              { label: '1000行', value: 1000 },
-              { label: '2000行', value: 2000 },
-            ]}
-          />
-          <Button onClick={loadLogs} loading={loading}>
-            刷新
-          </Button>
-        </Space>
-      }
-    >
-      <pre
-        ref={logRef}
-        style={{
-          background: '#1e1e1e',
-          color: '#d4d4d4',
-          padding: 16,
-          borderRadius: 8,
-          height: 'calc(100vh - 200px)',
-          overflow: 'auto',
-          fontSize: 12,
-          fontFamily: 'Consolas, Monaco, monospace',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-        }}
-      >
-        {loading ? '加载中...' : logs}
-      </pre>
-    </Drawer>
-  );
 };
 
 /**
@@ -1510,12 +1366,12 @@ const PodsSection: React.FC<Props> = ({
 
       {/* Pod 日志查看器 */}
       {currentPod && (
-        <PodLogViewer
+        <PodLogViewerDrawer
           cloudId={cloudId}
           namespace={currentPod?.metadata?.namespace}
           podName={currentPod?.metadata?.name}
           containers={logContainers}
-          visible={logVisible}
+          open={logVisible}
           onClose={() => setLogVisible(false)}
           onBack={() => {
             setLogVisible(false);

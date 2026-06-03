@@ -158,7 +158,7 @@ export function resolveCephApiPermissionBase(parts: string[]): string {
       rookSeg === 'blockpool-rados-namespaces' ||
       rookSeg === 'clusters'
     ) {
-      return 'clouds.unified-storage-pools';
+      return 'clouds.storage-addon';
     }
     return 'clouds.unified-storage';
   }
@@ -458,7 +458,7 @@ export class PermissionRegistry {
                 actualResourceType === 'nodes' ||
                 actualResourceType === 'node-resource-usage'
               ) {
-                permissionBase = 'clouds.cluster-nodes';
+                permissionBase = 'clouds.compute-cluster';
               } else if (
                 actualResourceType === 'gpus' ||
                 actualResourceType === 'gpu' ||
@@ -496,12 +496,14 @@ export class PermissionRegistry {
               ) {
                 permissionBase = 'clouds.migrations';
               } else if (actualResourceType === 'drs') {
-                permissionBase = 'clouds.drs';
+                permissionBase = 'clouds.compute-cluster';
               } else if (
                 actualResourceType === 'failure-domains' ||
                 actualResourceType === 'failure_domains'
               ) {
-                permissionBase = 'clouds.failure-domains';
+                permissionBase = 'clouds.compute-cluster';
+              } else if (actualResourceType === 'sdrs') {
+                permissionBase = 'clouds.storage-addon';
               } else if (actualResourceType === 'services') {
                 // 旧缓存路由 /harvester/services；与 containers/services 同权
                 permissionBase = 'clouds.containers.services';

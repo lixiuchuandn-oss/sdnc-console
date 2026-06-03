@@ -20,6 +20,7 @@
  */
 import React, { useMemo } from 'react';
 import { Divider } from 'antd';
+import { buildNodeSelectorFromLabelForm, FAILURE_DOMAIN_NODE_LABEL } from '../../lib/vmFailureDomainNodeSelector';
 
 /**
  * 组件 Props 定义
@@ -178,9 +179,22 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
         host: (function () {
           if (hostModeState === 'node' && selectedNodeName) return `指定主机：${selectedNodeName}`;
           if (hostModeState === 'label') {
-            const arr: any[] = Array.isArray((v as any).nodeSelectorPairs) ? (v as any).nodeSelectorPairs : [];
-            const text = arr.map((p: any) => (p?.key && p?.value) ? `${p.key}=${p.value}` : '').filter(Boolean).join(', ');
-            return `按标签调度：${text || '-'}`;
+            const fd = String((v as any).failureDomainName || '').trim();
+            const selector = buildNodeSelectorFromLabelForm({
+              failureDomainName: fd,
+              nodeSelectorPairs: (v as any).nodeSelectorPairs,
+            });
+            if (!selector) return '-';
+            if (fd) {
+              const rest = Object.entries(selector)
+                .filter(([k]) => k !== FAILURE_DOMAIN_NODE_LABEL)
+                .map(([k, val]) => `${k}=${val}`)
+                .join(', ');
+              return rest ? `故障域：${fd}；其它：${rest}` : `故障域：${fd}`;
+            }
+            return `按标签：${Object.entries(selector)
+              .map(([k, val]) => `${k}=${val}`)
+              .join(', ')}`;
           }
           return '自动调度至合适的主机';
         })()

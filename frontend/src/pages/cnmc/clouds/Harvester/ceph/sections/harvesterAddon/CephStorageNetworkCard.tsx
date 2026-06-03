@@ -4,21 +4,21 @@
  */
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import {
-  Button,
-  Card,
   Col,
   Form,
   Input,
   InputNumber,
   Row,
   Select,
-  Space,
   Switch,
   Tag,
   Typography,
   message,
 } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import {
+  OPERATE_TAB_FIELD_COL_THIRD_PROPS,
+  OPERATE_TAB_FIELD_ROW_GUTTER,
+} from './addonUiConstants';
 import { fetchHarvesterClusterNetworks } from '../../../../../../../services/harvester/cluster';
 import {
   applyCephStorageNetwork,
@@ -48,13 +48,14 @@ export type CephStorageNetworkCardProps = {
   cloudId: string;
   /** 已部署成功时只读展示 */
   readOnly?: boolean;
-  /** card：页顶独立卡片；wizard：向导步骤内嵌 */
-  variant?: 'card' | 'wizard';
+  /** wizard：部署向导；operate：已部署集群 Operate Tab（无内置保存/刷新） */
+  variant?: 'operate' | 'wizard';
   onSaved?: () => void;
+  onBusyChange?: (busy: { loading: boolean; saving: boolean }) => void;
 };
 
 const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephStorageNetworkCardProps>(
-  ({ cloudId, readOnly = false, variant = 'card', onSaved }, ref) => {
+  ({ cloudId, readOnly = false, variant = 'operate', onSaved, onBusyChange }, ref) => {
     const [form] = Form.useForm<CephStorageNetworkFormValues>();
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -63,6 +64,11 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
 
     const enabled = Form.useWatch('enabled', form);
     const isWizard = variant === 'wizard';
+    const isOperate = variant === 'operate';
+
+    useEffect(() => {
+      onBusyChange?.({ loading, saving });
+    }, [loading, onBusyChange, saving]);
 
     const loadClusterNetworks = useCallback(async () => {
       if (!cloudId) return;
@@ -158,18 +164,9 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
 
     useImperativeHandle(ref, () => ({ validateAndSave, reload: load }), [load, validateAndSave]);
 
-    const statusExtra = (
-      <Space wrap>
-        <Tag color={storageNetworkModeTagColor(mode)}>{storageNetworkModeLabel(mode)}</Tag>
-        <Button
-          type="text"
-          size="small"
-          icon={<ReloadOutlined />}
-          loading={loading}
-          onClick={() => void load()}
-        />
-      </Space>
-    );
+    const statusExtra = isOperate ? (
+      <Tag color={storageNetworkModeTagColor(mode)}>{storageNetworkModeLabel(mode)}</Tag>
+    ) : null;
 
     const formBody = (
       <>
@@ -184,17 +181,17 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
             <Switch checkedChildren="是" unCheckedChildren="否" />
           </Form.Item>
           {enabled ? (
-            <Row gutter={[16, 0]}>
-              <Col xs={24} sm={8}>
+            <Row gutter={OPERATE_TAB_FIELD_ROW_GUTTER}>
+              <Col {...OPERATE_TAB_FIELD_COL_THIRD_PROPS}>
                 <Form.Item
                   name="vlan"
                   label="VLAN ID"
                   rules={[{ required: true, message: '请输入 VLAN' }]}
                 >
-                  <InputNumber min={1} max={4094} style={{ width: '100%' }} placeholder="如 100" />
+                  <InputNumber min={1} max={4094} placeholder="如 100" />
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={8}>
+              <Col {...OPERATE_TAB_FIELD_COL_THIRD_PROPS}>
                 <Form.Item
                   name="clusterNetwork"
                   label="集群网络"
@@ -209,7 +206,7 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
                   />
                 </Form.Item>
               </Col>
-              <Col xs={24} sm={8}>
+              <Col {...OPERATE_TAB_FIELD_COL_THIRD_PROPS}>
                 <Form.Item
                   name="range"
                   label="IP 段（CIDR）"
@@ -225,36 +222,14 @@ const CephStorageNetworkCard = forwardRef<CephStorageNetworkEditorHandle, CephSt
               未启用时，统一存储将使用默认管理网络。
             </Typography.Text>
           )}
-          {!readOnly && !isWizard ? (
-            <Button type="primary" loading={saving} onClick={() => void validateAndSave()}>
-              保存存储网配置
-            </Button>
-          ) : null}
         </Form>
       </>
     );
 
-    if (isWizard) {
-      return (
-        <FormSection
-          title="专用存储网"
-          description="可按需为统一存储单独规划网络；不启用则与集群管理网络共用。"
-          extra={statusExtra}
-        >
-          {formBody}
-        </FormSection>
-      );
-    }
-
     return (
-      <Card
-        size="small"
-        title="专用存储网"
-        style={{ marginBottom: 16 }}
-        extra={statusExtra}
-      >
+      <FormSection title="专用存储网" extra={statusExtra}>
         {formBody}
-      </Card>
+      </FormSection>
     );
   },
 );

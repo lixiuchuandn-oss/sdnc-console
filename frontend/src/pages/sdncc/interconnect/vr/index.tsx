@@ -45,6 +45,7 @@ import { getDomainClass, netClassLabel } from '../../../../utils/netClass';
 import { commonBadgeStyles, commonTableStyles } from '../../../../utils/tableStyles';
 
 import { VrDetailDrawer } from './VrDetailDrawer';
+import { pickIfaceIpv6FromDevice } from './vrIpv6Utils';
 
 interface VRRow {
   id?: string;
@@ -524,7 +525,7 @@ const VRPage: React.FC = () => {
                      const wan = physical[0];
                      // Try ipv4_static first, then fallback to other common fields
                      const v4 = wan.ipv4_static || wan.ip_address || wan.ipAddress || wan.ip || '-';
-                     const v6 = wan.ipv6_static || '-';
+                     const v6 = pickIfaceIpv6FromDevice(wan) || '-';
                      
                      return (
                          <div style={commonTableStyles.cellMultiLineStack}>

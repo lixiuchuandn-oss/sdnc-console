@@ -6,6 +6,11 @@ import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from '../../../lib/vmMutation/vmReconfigureSubmitContext';
 import { VmReconfigureSubmitSkipFinalize } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
 import { validateNodeSchedulingPassthroughAffinity } from './validateNodeSchedulingPassthrough';
+import {
+  buildNodeSelectorFromLabelForm,
+  hasLabelModeNodeSelector,
+} from '../../../lib/vmFailureDomainNodeSelector';
+import { vmFailureDomainRequiredMessage } from '../../../lib/vmAdvancedSchedulingLabels';
 
 export type SubmitNodeSchedulingOptions = {
   pciDevices?: any[];
@@ -23,15 +28,15 @@ export async function submitVmReconfigureChangeNodeScheduling(
   const mode = values.nodeSchedulingMode;
   const fixedNode = values.fixedNode;
   const nodeSelectorPairs = values.nodeSelectorPairs || [];
+  const failureDomainName = values.failureDomainName;
 
   if (mode === 'fixed' && !fixedNode) {
     message.error('请选择要固定的节点');
     throw new VmReconfigureSubmitSkipFinalize();
   }
   if (mode === 'label') {
-    const validPairs = nodeSelectorPairs.filter((p: any) => p?.key && p?.value);
-    if (validPairs.length === 0) {
-      message.error('请至少添加一个标签选择器');
+    if (!hasLabelModeNodeSelector({ failureDomainName, nodeSelectorPairs })) {
+      message.error(vmFailureDomainRequiredMessage());
       throw new VmReconfigureSubmitSkipFinalize();
     }
   }
@@ -59,15 +64,8 @@ export async function submitVmReconfigureChangeNodeScheduling(
       updateParams.nodeSelector = null;
     }
   } else if (mode === 'label') {
-    const nodeSelector: Record<string, string> = {};
-    nodeSelectorPairs.forEach((p: any) => {
-      const key = String(p?.key || '').trim();
-      const value = String(p?.value || '').trim();
-      if (key && value) {
-        nodeSelector[key] = value;
-      }
-    });
-    updateParams.nodeSelector = Object.keys(nodeSelector).length > 0 ? nodeSelector : null;
+    updateParams.nodeSelector =
+      buildNodeSelectorFromLabelForm({ failureDomainName, nodeSelectorPairs }) ?? null;
   }
 
   await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);

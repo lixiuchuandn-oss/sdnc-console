@@ -70,8 +70,8 @@ const MetricRuleConfigDrawer: React.FC<MetricRuleConfigDrawerProps> = ({
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="集群级 MetricRule（hms.rivercloud.com/v1）"
-        description="指标低于安全阈值时允许调度；超出后将触发 DRS 迁移（由集群 HMS 消费）。"
+        message="集群级 CDRS 调度规则"
+        description="指标低于安全阈值时允许调度；超出后将触发虚拟机迁移。"
       />
       <Form form={form} layout="vertical" disabled={saving} onFinish={(v) => void handleFinish(v)}>
         <Form.Item

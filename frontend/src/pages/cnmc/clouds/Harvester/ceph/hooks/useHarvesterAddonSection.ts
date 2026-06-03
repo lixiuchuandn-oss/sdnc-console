@@ -1,13 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type RefObject } from 'react';
 import { Form, message } from 'antd';
 import type { FormInstance } from 'antd/es/form';
+import { useSearchParams } from 'react-router-dom';
 import { applyCephHarvesterAddon } from '../../../../../../services/cephApi';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 import type { CephStorageNetworkEditorHandle } from '../sections/harvesterAddon/CephStorageNetworkCard';
 import {
   EXPANSION_SUBMIT_RISK_ITEMS,
   SUBMIT_RISK_ITEMS,
   WIZARD_STEPS,
+  parseHarvesterAddonOperateTabKey,
+  type HarvesterAddonOperateTabKey,
 } from '../sections/harvesterAddon/addonUiConstants';
+import { buildAddonSubmitConfirmExtra } from '../sections/harvesterAddon/AddonSubmitConfirmExtra';
 import { runHarvesterSectionRefresh, type HarvesterSectionOnRefresh } from '../lib/cephSectionRefresh';
 import {
   createMetadataDeviceSizeLookup,
@@ -24,7 +29,8 @@ export type UseHarvesterAddonSectionParams = {
   form: FormInstance<HarvesterAddonFormValues>;
   onRefresh?: HarvesterSectionOnRefresh;
   onDeployed?: () => void;
-  storageNetworkRef: React.RefObject<CephStorageNetworkEditorHandle | null>;
+  storageNetworkRef: RefObject<CephStorageNetworkEditorHandle | null>;
+  initialOperateTab?: HarvesterAddonOperateTabKey;
 };
 
 export function useHarvesterAddonSection({
@@ -33,21 +39,21 @@ export function useHarvesterAddonSection({
   onRefresh,
   onDeployed,
   storageNetworkRef,
+  initialOperateTab,
 }: UseHarvesterAddonSectionParams) {
   const data = useHarvesterAddonSectionData({ cloudId, form, onRefresh, onDeployed });
+  const [searchParams] = useSearchParams();
+  const operateTabFromQuery = parseHarvesterAddonOperateTabKey(searchParams.get('operateTab'));
 
   const [currentStep, setCurrentStep] = useState(0);
-  const [operateTabKey, setOperateTabKey] = useState<'expand' | 'config'>('expand');
+  const [operateTabKey, setOperateTabKey] = useState<HarvesterAddonOperateTabKey>('config');
   const [submitting, setSubmitting] = useState(false);
-  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
-  const [submitRiskAck, setSubmitRiskAck] = useState(false);
-  const [submitAdminPassword, setSubmitAdminPassword] = useState('');
   const [expertDrawerOpen, setExpertDrawerOpen] = useState(false);
 
   useEffect(() => {
     setCurrentStep(0);
-    setOperateTabKey('expand');
-  }, [cloudId]);
+    setOperateTabKey(initialOperateTab ?? operateTabFromQuery ?? 'config');
+  }, [cloudId, initialOperateTab, operateTabFromQuery]);
 
   const watchedExpandNodes = Form.useWatch(['cephCluster', 'nodes'], form);
   const expandUsedNodeNames = useMemo(
@@ -65,7 +71,6 @@ export function useHarvesterAddonSection({
       ? '保存并应用'
       : '开启统一存储';
   const submitRiskItems = data.isRunningCluster ? EXPANSION_SUBMIT_RISK_ITEMS : SUBMIT_RISK_ITEMS;
-  const submitConfirmReady = submitRiskAck && submitAdminPassword.trim().length > 0;
 
   const getWizardFormValues = useCallback((): HarvesterAddonFormValues => {
     return form.getFieldsValue(true) as HarvesterAddonFormValues;
@@ -169,11 +174,101 @@ export function useHarvesterAddonSection({
     [form],
   );
 
-  const closeSubmitConfirm = useCallback(() => {
-    setSubmitConfirmOpen(false);
-    setSubmitRiskAck(false);
-    setSubmitAdminPassword('');
-  }, []);
+  const executeSubmit = useCallback(
+    async (password: string) => {
+      if (!cloudId || !password) {
+        message.warning('请输入管理员密码');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        if (!data.isRunningCluster) {
+          const saved = await storageNetworkRef.current?.validateAndSave();
+          if (saved === false) {
+            setCurrentStep(0);
+            throw new Error('storage network save failed');
+          }
+        }
+
+        const values = getWizardFormValues();
+        const overrideYaml = String(values.valuesContentOverride || '').trim();
+
+        if (data.isRunningCluster && overrideYaml) {
+          message.warning('已运行集群不支持专家 YAML 覆盖，请使用向导扩容');
+          throw new Error('expert yaml not allowed');
+        }
+
+        if (overrideYaml) {
+          const res = await applyCephHarvesterAddon(cloudId, {
+            valuesContent: overrideYaml,
+            password,
+          });
+          if (!res.ok || !res.data) {
+            message.error(res.error || '提交失败');
+            throw new Error(res.error || '提交失败');
+          }
+          setExpertDrawerOpen(false);
+          data.setStatus(res.data);
+          data.prevPhaseRef.current = res.data.phase;
+          data.applyStatusToForm(res.data);
+          message.success(
+            res.data.applied === 'created' ? '已提交开启统一存储' : '已更新存储配置',
+          );
+          if (res.data.phase === 'success') onDeployed?.();
+          else void runHarvesterSectionRefresh(data.sectionOnRefresh, { force: true, silent: true });
+          return;
+        }
+
+        const config = formValuesToApplyConfig(values);
+        const validationError = validateAddonConfig(config, {
+          lookupMetadataDeviceSizeMB,
+        });
+        if (validationError) {
+          message.warning(validationError);
+          if (!data.isRunningCluster) setCurrentStep(1);
+          setOperateTabKey('expand');
+          throw new Error(validationError);
+        }
+
+        if (data.isRunningCluster && data.status?.config) {
+          const expansionError = validateRunningClusterConfigChange(data.status.config, config);
+          if (expansionError) {
+            message.warning(expansionError);
+            setOperateTabKey('expand');
+            throw new Error(expansionError);
+          }
+        }
+
+        const res = await applyCephHarvesterAddon(cloudId, { config, password });
+        if (!res.ok || !res.data) {
+          message.error(res.error || '提交失败');
+          throw new Error(res.error || '提交失败');
+        }
+        data.setStatus(res.data);
+        data.prevPhaseRef.current = res.data.phase;
+        data.applyStatusToForm(res.data);
+        message.success(
+          res.data.applied === 'created'
+            ? '已提交开启统一存储'
+            : data.isRunningCluster
+              ? '已提交扩容'
+              : '已更新存储配置',
+        );
+        if (res.data.phase === 'success') onDeployed?.();
+        else void runHarvesterSectionRefresh(data.sectionOnRefresh, { force: true, silent: true });
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [
+      cloudId,
+      data,
+      getWizardFormValues,
+      lookupMetadataDeviceSizeMB,
+      onDeployed,
+      storageNetworkRef,
+    ],
+  );
 
   const openSubmitConfirm = useCallback(async () => {
     if (!cloudId) return;
@@ -189,113 +284,37 @@ export function useHarvesterAddonSection({
           await validateWizardStep(step);
         }
       }
-      setSubmitRiskAck(false);
-      setSubmitAdminPassword('');
-      setSubmitConfirmOpen(true);
+      const values = getWizardFormValues();
+      void confirmHighRiskOperation({
+        title: `确认${submitActionLabel}`,
+        description: data.isRunningCluster
+          ? '提交后将向集群应用扩容配置（仅新增数据盘），请确认已核对配置摘要并了解以下风险：'
+          : '提交后将向集群应用存储配置，请确认已核对配置摘要并了解以下风险：',
+        riskItems: submitRiskItems,
+        extra: buildAddonSubmitConfirmExtra(values, data.blockDevicesRaw),
+        requireAdminPassword: true,
+        confirmDanger: false,
+        confirmText: submitActionLabel,
+        impactAckLabel: '我已阅读并理解上述风险',
+        onConfirm: async ({ adminPassword }) => {
+          await executeSubmit(adminPassword ?? '');
+        },
+      }).catch(() => {
+        /* 用户取消 */
+      });
     } catch (e) {
       if (e instanceof Error && e.message) message.warning(e.message);
     }
-  }, [cloudId, data.isRunningCluster, data.status?.phase, validateWizardStep]);
-
-  const executeSubmit = useCallback(async () => {
-    const password = submitAdminPassword.trim();
-    if (!cloudId || !submitRiskAck || !password) {
-      message.warning('请勾选风险确认并输入管理员密码');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      if (!data.isRunningCluster) {
-        const saved = await storageNetworkRef.current?.validateAndSave();
-        if (saved === false) {
-          setCurrentStep(0);
-          return;
-        }
-      }
-
-      const values = getWizardFormValues();
-      const overrideYaml = String(values.valuesContentOverride || '').trim();
-
-      if (data.isRunningCluster && overrideYaml) {
-        message.warning('已运行集群不支持专家 YAML 覆盖，请使用向导扩容');
-        return;
-      }
-
-      if (overrideYaml) {
-        const res = await applyCephHarvesterAddon(cloudId, {
-          valuesContent: overrideYaml,
-          password,
-        });
-        if (!res.ok || !res.data) {
-          message.error(res.error || '提交失败');
-          return;
-        }
-        closeSubmitConfirm();
-        setExpertDrawerOpen(false);
-        data.setStatus(res.data);
-        data.prevPhaseRef.current = res.data.phase;
-        data.applyStatusToForm(res.data);
-        message.success(
-          res.data.applied === 'created' ? '已提交开启统一存储' : '已更新统一存储配置',
-        );
-        if (res.data.phase === 'success') onDeployed?.();
-        else void runHarvesterSectionRefresh(data.sectionOnRefresh, { force: true, silent: true });
-        return;
-      }
-
-      const config = formValuesToApplyConfig(values);
-      const validationError = validateAddonConfig(config, {
-        lookupMetadataDeviceSizeMB,
-      });
-      if (validationError) {
-        message.warning(validationError);
-        if (!data.isRunningCluster) setCurrentStep(1);
-        setOperateTabKey('expand');
-        return;
-      }
-
-      if (data.isRunningCluster && data.status?.config) {
-        const expansionError = validateRunningClusterConfigChange(data.status.config, config);
-        if (expansionError) {
-          message.warning(expansionError);
-          setOperateTabKey('expand');
-          return;
-        }
-      }
-
-      const res = await applyCephHarvesterAddon(cloudId, { config, password });
-      if (!res.ok || !res.data) {
-        message.error(res.error || '提交失败');
-        return;
-      }
-      closeSubmitConfirm();
-      data.setStatus(res.data);
-      data.prevPhaseRef.current = res.data.phase;
-      data.applyStatusToForm(res.data);
-      message.success(
-        res.data.applied === 'created'
-          ? '已提交开启统一存储'
-          : data.isRunningCluster
-            ? '已提交扩容'
-            : '已更新统一存储配置',
-      );
-      if (res.data.phase === 'success') onDeployed?.();
-      else void runHarvesterSectionRefresh(data.sectionOnRefresh, { force: true, silent: true });
-    } catch {
-      /* 表单校验 */
-    } finally {
-      setSubmitting(false);
-    }
   }, [
-    closeSubmitConfirm,
     cloudId,
-    data,
+    data.blockDevicesRaw,
+    data.isRunningCluster,
+    data.status?.phase,
+    executeSubmit,
     getWizardFormValues,
-    lookupMetadataDeviceSizeMB,
-    onDeployed,
-    storageNetworkRef,
-    submitAdminPassword,
-    submitRiskAck,
+    submitActionLabel,
+    submitRiskItems,
+    validateWizardStep,
   ]);
 
   return {
@@ -306,11 +325,6 @@ export function useHarvesterAddonSection({
     setOperateTabKey,
     statusLoading: data.statusLoading,
     submitting,
-    submitConfirmOpen,
-    submitRiskAck,
-    setSubmitRiskAck,
-    submitAdminPassword,
-    setSubmitAdminPassword,
     metaLoading: data.metaLoading,
     expertDrawerOpen,
     setExpertDrawerOpen,
@@ -325,16 +339,12 @@ export function useHarvesterAddonSection({
     baselineConfig: data.baselineConfig,
     storageNetwork: data.storageNetwork,
     submitActionLabel,
-    submitRiskItems,
-    submitConfirmReady,
     getWizardFormValues,
     handleNext,
     handlePrev,
     handleStepChange,
     handleReplicaSizeChange,
-    closeSubmitConfirm,
     openSubmitConfirm,
-    executeSubmit,
     watchedExpandNodes,
   };
 }

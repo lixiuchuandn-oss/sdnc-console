@@ -93,6 +93,7 @@ const WorkloadFormStepAdvanced: React.FC<WorkloadFormStepAdvancedProps> = ({
                 name="podAffinity"
                 label="Pod 亲和性"
                 namespacesOptions={namespacesOptions}
+                compact
               />
             ),
           },
@@ -105,6 +106,7 @@ const WorkloadFormStepAdvanced: React.FC<WorkloadFormStepAdvancedProps> = ({
                 name="podAntiAffinity"
                 label="Pod 反亲和性"
                 namespacesOptions={namespacesOptions}
+                compact
               />
             ),
           },

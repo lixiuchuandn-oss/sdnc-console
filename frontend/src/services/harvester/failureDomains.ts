@@ -1,5 +1,8 @@
 import { apiDelete, apiPost, apiPut, apiRequest } from '../api';
 
+/** 与集群「容灾架构 → 故障域」写入节点标签的 Key 一致 */
+export const FAILURE_DOMAIN_NODE_LABEL = 'topology.cloudmap.io/failure-domain';
+
 export type FailureDomainType = 'rack' | 'zone' | 'host';
 
 export type FailureDomainRow = {

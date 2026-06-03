@@ -53,7 +53,7 @@ export async function tryLoadResourceHubTab(
           await Promise.all([
             tryLoadClusterTab('cluster_vlans', force, skipSync, deps),
             tryLoadClusterTab('clusterNetworks', force, skipSync, deps),
-            tryLoadClusterTab('cluster_nodes', force, skipSync, deps),
+            tryLoadClusterTab('compute_nodes', force, skipSync, deps),
             (async () => {
               const items = await loadHarvesterAswSwitchesForTopology(cloudId, {
                 force,

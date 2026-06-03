@@ -10,7 +10,7 @@ import {
   type CephBlockDeviceOption,
 } from '../../lib/cephHarvesterAddon';
 import BlockDeviceCardGrid from './BlockDeviceCardGrid';
-import { NODE_DISK_NODE_CARD_STYLE, NODE_DISK_NODE_CARD_STYLES } from './addonUiConstants';
+import { NODE_DISK_NODE_CARD_STYLE, NODE_DISK_NODE_CARD_STYLES, OPERATE_TAB_FIELD_FLUID_CLASS } from './addonUiConstants';
 import { deviceNamesFieldRules } from './nodeDiskFieldRules';
 
 export type NodeDiskNodeCardProps = {
@@ -87,6 +87,7 @@ const NodeDiskNodeCard: React.FC<NodeDiskNodeCardProps> = ({
             style={{ flex: 1, minWidth: 0, margin: 0 }}
           >
             <Select
+              className={OPERATE_TAB_FIELD_FLUID_CLASS}
               size="small"
               variant="borderless"
               prefix="选择节点"
@@ -99,7 +100,6 @@ const NodeDiskNodeCard: React.FC<NodeDiskNodeCardProps> = ({
               optionFilterProp="label"
               loading={metaLoading}
               disabled={disabled || nodeLocked}
-              style={{ maxWidth: 320, width: '100%' }}
               onChange={onNodeChange}
             />
           </Form.Item>

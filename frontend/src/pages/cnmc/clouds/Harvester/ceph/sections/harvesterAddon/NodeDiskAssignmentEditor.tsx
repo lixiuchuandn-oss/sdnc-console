@@ -27,7 +27,11 @@ import {
 import { summarizeNodeDevices } from '../../hooks/harvesterAddonFormTypes';
 import FormSection from './FormSection';
 import NodeDiskNodeCard, { nodeRowHasAdvanced } from './NodeDiskNodeCard';
-import { NODE_DISK_LIST_LAYOUT_STYLE } from './addonUiConstants';
+import {
+  NODE_DISK_LIST_LAYOUT_STYLE,
+  OPERATE_TAB_FORM_CLASS,
+  OPERATE_TAB_FORM_FIELD_STYLE,
+} from './addonUiConstants';
 import { addHarvesterAddonNodeRow } from './nodeDiskAssignmentUtils';
 import {
   buildDatabaseSizeMBFieldRules,
@@ -251,7 +255,7 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
               onClose={() => setAdvancedRowIndex(null)}
             >
               {advancedRowIndex != null ? (
-                <>
+                <div className={OPERATE_TAB_FORM_CLASS} style={OPERATE_TAB_FORM_FIELD_STYLE}>
                   <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
                     节点：{advancedNodeName || '—'}
                   </Typography.Paragraph>
@@ -300,14 +304,13 @@ const NodeDiskAssignmentEditor: React.FC<NodeDiskAssignmentEditorProps> = ({
                       precision={0}
                       placeholder="必填（已选元数据盘时）"
                       suffix="MB"
-                      style={{ width: '100%' }}
                       disabled={
                         disabled ||
                         !!(advancedNodeName && lockedNodeNames.has(advancedNodeName))
                       }
                     />
                   </Form.Item>
-                </>
+                </div>
               ) : null}
             </Drawer>
           </>

@@ -4,6 +4,8 @@
  */
 import { routeSpecs, type RouteSpec } from '../../../routes/RouteSpec';
 import { CLOUDMAP_POOL_NAV_SUBGROUP_LABELS } from '../../../routes/cloudmapPoolNavRows';
+import { remapLegacyClusterInnerSeg } from '../../../pages/cnmc/clouds/Harvester/cluster/lib/computeResourcesNav';
+import { legacyComputeClusterOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
 import { createElement, type ReactNode } from 'react';
 import {
   AlertOutlined,
@@ -27,7 +29,6 @@ import type {
   PoolSidebarSelectArgs,
   PoolSidebarSpec,
 } from '../poolSidebar/types';
-
 
 /**
  * Cloudmap 资源池：Tab/子键类型与集群锚点常量。
@@ -275,7 +276,6 @@ export function cloudmapPoolBasePath(cloudId: string): string {
 export const CLUSTER_CEPH_POOL_INNER_SEGS = [
   'overview',
   'harvester_addon',
-  'storage_pools',
   'rbd_mirror',
   'rgw_s3_buckets',
   'rgw_users',
@@ -311,7 +311,7 @@ export function cloudmapRemapLegacyCephPoolPath(pathname: string, cloudId: strin
   }
   if (inner === 'overview') return `${base}/cluster/overview`;
   if (inner === 'block_storage' || inner === 'storage_pools') {
-    return `${base}/cluster/storage_pools`;
+    return `${base}/cluster/harvester_addon`;
   }
   return clusterCephPoolInnerPath(base, inner);
 }
@@ -346,24 +346,32 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
     return `${base}/cluster/rbd_mirror`;
   }
   if (parts[0] === 'storage' && parts[1] === 'block_storage') {
-    return `${base}/cluster/storage_pools`;
+    return `${base}/cluster/harvester_addon`;
   }
   if (parts[0] === 'storage' && parts[1] === 'rados_namespaces') {
-    return `${base}/cluster/storage_pools`;
+    return `${base}/cluster/harvester_addon`;
   }
   if (parts[0] === 'storage' && parts[1] === 'storage_pools') {
-    return `${base}/cluster/storage_pools`;
+    return `${base}/cluster/harvester_addon`;
   }
   if (parts[0] === 'storage' && parts[1] === 'storage_classes') {
     return `${base}/cluster/storage_classes`;
   }
   if (parts[0] === 'object_storage') {
     const inner = (parts[1] || '').trim();
-    if (inner === 'storage_pools') return `${base}/cluster/storage_pools`;
+    if (inner === 'storage_pools') return `${base}/cluster/harvester_addon`;
     if (inner && isClusterCephPoolInnerSeg(inner)) {
       return `${base}/cluster/${encodeURIComponent(inner)}`;
     }
     return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
+  }
+  if (parts[0] === 'cluster' && parts[1]) {
+    const legacyTab = legacyComputeClusterOperateTab(parts[1]);
+    const mapped = remapLegacyClusterInnerSeg(parts[1]);
+    if (mapped !== parts[1]) {
+      const path = `${base}/cluster/${encodeURIComponent(mapped)}`;
+      return legacyTab ? `${path}?operateTab=${legacyTab}` : path;
+    }
   }
   return null;
 }
@@ -455,7 +463,7 @@ export function cloudmapLegacyQueryToPath(
       return `${base}/cluster/overview`;
     }
     if (rawSub === 'storage_pools' || rawSub === 'block_storage') {
-      return `${base}/cluster/storage_pools`;
+      return `${base}/cluster/harvester_addon`;
     }
     return clusterCephPoolInnerPath(base, rawSub || undefined);
   }
@@ -468,7 +476,7 @@ export function cloudmapLegacyQueryToPath(
   if (tab === 'storage') {
     const rawSub = (sp.get('sub') || '').trim();
     if (rawSub === 'ceph') {
-      return `${base}/cluster/storage_pools`;
+      return `${base}/cluster/harvester_addon`;
     }
     if (rawSub === 'rbd_mirror') {
       return `${base}/cluster/rbd_mirror`;
@@ -479,7 +487,8 @@ export function cloudmapLegacyQueryToPath(
     return clusterCephPoolInnerPath(base, rawSub || undefined);
   }
   if (tab === 'cluster') {
-    const cs = (sp.get('cluster_sub') || '').trim();
+    const csRaw = (sp.get('cluster_sub') || '').trim();
+    const cs = csRaw ? remapLegacyClusterInnerSeg(csRaw) : '';
     const clusterSeg = (sp.get('cluster_segment') || '').trim();
     if (
       clusterSeg &&
@@ -489,7 +498,7 @@ export function cloudmapLegacyQueryToPath(
       return `${base}/cluster/${encodeURIComponent(clusterSeg)}`;
     }
     if (cs && isValidCloudmapPoolInnerSeg('cluster', cs)) {
-      return `${base}/cluster/${encodeURIComponent(cs)}`;
+      return `${base}/cluster/${encodeURIComponent(remapLegacyClusterInnerSeg(cs))}`;
     }
     return `${base}/cluster/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('cluster'))}`;
   }

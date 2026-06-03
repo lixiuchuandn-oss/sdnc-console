@@ -382,6 +382,7 @@ export function startServer(): void {
           ensureImageUploadTaskTable,
           ensureDatacenterTopologyTables,
           ensureFailureDomainTables,
+          ensureSdrsTables,
           ensureHarborTables,
           ensureCephMgrDashboardSnapshotTable,
           ensureGuacamoleTables,
@@ -394,6 +395,7 @@ export function startServer(): void {
         await ensureImageUploadTaskTable();
         await ensureDatacenterTopologyTables();
         await ensureFailureDomainTables();
+        await ensureSdrsTables();
         await ensureHarborTables();
         await ensureCephMgrDashboardSnapshotTable();
         await ensureGuacamoleTables();

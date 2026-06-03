@@ -37,6 +37,16 @@ import {
   harvesterFailureDomainUpdateHandler,
 } from './handlers/failure-domain.handlers';
 import {
+  harvesterSdrsDisksHandler,
+  harvesterSdrsOverviewHandler,
+  harvesterSdrsPolicyGetHandler,
+  harvesterSdrsPolicyPutHandler,
+  harvesterSdrsPoolsHandler,
+  harvesterSdrsTaskCreateHandler,
+  harvesterSdrsTaskGetHandler,
+  harvesterSdrsTasksListHandler,
+} from './handlers/sdrs.handlers';
+import {
   harvesterNodeMaintenanceDisableHandler,
   harvesterNodeMaintenanceEnableHandler,
   harvesterNodeMaintenancePrecheckHandler,
@@ -240,6 +250,48 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     '/:id/resources/harvester/failure-domains/:domainId/nodes',
     checkAdminPermission,
     harvesterFailureDomainSetNodesHandler,
+  );
+
+  // 存储 DRS（SDRS）
+  router.get(
+    '/:id/resources/harvester/sdrs/overview',
+    checkAdminPermission,
+    harvesterSdrsOverviewHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/policy',
+    checkAdminPermission,
+    harvesterSdrsPolicyGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/sdrs/policy',
+    checkAdminPermission,
+    harvesterSdrsPolicyPutHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/pools',
+    checkAdminPermission,
+    harvesterSdrsPoolsHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/disks',
+    checkAdminPermission,
+    harvesterSdrsDisksHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/tasks',
+    checkAdminPermission,
+    harvesterSdrsTasksListHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/tasks/:taskId',
+    checkAdminPermission,
+    harvesterSdrsTaskGetHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/sdrs/tasks',
+    checkAdminPermission,
+    harvesterSdrsTaskCreateHandler,
   );
 
   // 物理节点维护模式（Harvester Steve action 代理）

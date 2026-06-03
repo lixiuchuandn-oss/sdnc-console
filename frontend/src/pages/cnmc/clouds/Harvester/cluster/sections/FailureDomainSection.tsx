@@ -2,9 +2,8 @@
  * 集群 · 故障域
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Input, Row, Statistic, Table, message } from 'antd';
-import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
+import { Alert, Button, Input, Table, message } from 'antd';
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
@@ -12,7 +11,6 @@ import WriteGuard from 'components/WriteGuard';
 import {
   createFailureDomain,
   deleteFailureDomain,
-  FAILURE_DOMAIN_TYPE_LABELS,
   setFailureDomainNodes,
   updateFailureDomain,
   type FailureDomainRow,
@@ -22,7 +20,16 @@ import FailureDomainFormModal, {
   type FailureDomainFormValues,
 } from '../modals/FailureDomainFormModal';
 import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
+import { buildFailureDomainsTableColumns } from '../lib/failureDomainsTableColumns';
 import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import {
+  createHarvesterToolbarRefresh,
+  runHarvesterSectionRefresh,
+} from '../../shared/lib/harvesterSectionRefresh';
+import {
+  canReadFailureDomainsTab,
+  canWriteFailureDomains,
+} from '../../../../../../constants/computeClusterPermissions';
 
 const TABLE_KEY = 'harvester_failure_domains_table';
 
@@ -45,9 +52,8 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
   cloudId,
   checkPerm,
 }) => {
-  const canRead = checkPerm('clouds.failure-domains:read') || checkPerm('clouds.cluster-nodes:read');
-  const canWrite =
-    checkPerm('clouds.failure-domains:write') || checkPerm('clouds.cluster-nodes:write');
+  const canRead = canReadFailureDomainsTab(checkPerm);
+  const canWrite = canWriteFailureDomains(checkPerm);
 
   const { loading, overview, error, reload } = useFailureDomainsData(cloudId, canRead);
   const [keyword, setKeyword] = useState('');
@@ -60,7 +66,6 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
 
   const domains = useMemo(() => overview?.domains ?? [], [overview?.domains]);
   const filtered = useMemo(() => filterDomains(domains, keyword), [domains, keyword]);
-  const unassignedCount = overview?.unassignedNodeNames?.length ?? 0;
   const allNodeNames = useMemo(() => {
     const set = new Set<string>(overview?.unassignedNodeNames ?? []);
     for (const d of domains) {
@@ -69,9 +74,11 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
     return Array.from(set).sort();
   }, [domains, overview?.unassignedNodeNames]);
 
-  const handleRefresh = useCallback(() => {
-    void reload(true);
-  }, [reload]);
+  const handleRefresh = useMemo(() => createHarvesterToolbarRefresh(reload), [reload]);
+
+  const resetToolbar = useCallback(() => {
+    setKeyword('');
+  }, []);
 
   const openCreate = useCallback(() => {
     setEditing(null);
@@ -97,7 +104,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         onConfirm: async () => {
           await deleteFailureDomain(cloudId, row.id);
           message.success('已删除');
-          void reload(true);
+          void runHarvesterSectionRefresh(reload, { force: true });
         },
       }).catch(() => {});
     },
@@ -117,7 +124,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         }
         setFormOpen(false);
         setEditing(null);
-        void reload(true);
+        void runHarvesterSectionRefresh(reload, { force: true });
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '保存失败');
@@ -137,7 +144,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         message.success('节点分配已保存');
         setAssignOpen(false);
         setAssignDomain(null);
-        void reload(true);
+        void runHarvesterSectionRefresh(reload, { force: true });
       } catch (e: unknown) {
         const err = e as { message?: string };
         message.error(err?.message || '分配失败');
@@ -148,60 +155,16 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
     [assignDomain, cloudId, reload],
   );
 
-  const columnsAll = useMemo((): ColumnsType<FailureDomainRow> => {
-    return [
-      {
-        title: '名称',
-        dataIndex: 'name',
-        key: 'name',
-        fixed: 'left',
-      },
-      {
-        title: '类型',
-        dataIndex: 'domainType',
-        key: 'domainType',
-        render: (t: FailureDomainRow['domainType']) => FAILURE_DOMAIN_TYPE_LABELS[t] || t,
-      },
-      {
-        title: '节点数',
-        key: 'nodeCount',
-        render: (_, row) => row.nodeNames?.length ?? 0,
-      },
-      {
-        title: '节点',
-        key: 'nodeNames',
-        ellipsis: true,
-        render: (_, row) => (row.nodeNames?.length ? row.nodeNames.join(', ') : '-'),
-      },
-      {
-        title: '描述',
-        dataIndex: 'description',
-        key: 'description',
-        ellipsis: true,
-        render: (v?: string) => v || '-',
-      },
-      {
-        title: '操作',
-        key: 'actions',
-        fixed: 'right',
-        render: (_, row) => (
-          <>
-            <WriteGuard canWrite={canWrite}>
-              <Button type="link" size="small" onClick={() => openAssign(row)}>
-                分配节点
-              </Button>
-              <Button type="link" size="small" onClick={() => openEdit(row)}>
-                编辑
-              </Button>
-              <Button type="link" size="small" danger onClick={() => handleDelete(row)}>
-                删除
-              </Button>
-            </WriteGuard>
-          </>
-        ),
-      },
-    ];
-  }, [canWrite, handleDelete, openAssign, openEdit]);
+  const columnsAll = useMemo(
+    () =>
+      buildFailureDomainsTableColumns({
+        canWrite,
+        onAssignNodes: openAssign,
+        onEdit: openEdit,
+        onDelete: handleDelete,
+      }),
+    [canWrite, handleDelete, openAssign, openEdit],
+  );
 
   const { displayColumns: columns } = useTableColumnSettings(columnsAll, TABLE_KEY);
 
@@ -215,36 +178,29 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
 
   return (
     <>
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={12} md={8} lg={6}>
-          <Card size="small">
-            <Statistic title="故障域" value={domains.length} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} md={8} lg={6}>
-          <Card size="small">
-            <Statistic title="未分配节点" value={unassignedCount} />
-          </Card>
-        </Col>
-      </Row>
-
       <PageDetailSection
         asCard={false}
         autoStyleInputs={false}
+        refreshLoading={loading}
         toolbarLeft={(
-          <Input
-            allowClear
-            placeholder="名称 / 描述"
-            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            className="toolbar-search"
-          />
+          <>
+            <Input
+              allowClear
+              placeholder="名称 / 描述"
+              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              className="toolbar-search"
+            />
+            <button type="button" className="toolbar-reset-btn" onClick={resetToolbar}>
+              重置
+            </button>
+          </>
         )}
         toolbarRight={(
           <div className="toolbar-actions">
             <WriteGuard canWrite={canWrite}>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              <Button type="primary" onClick={openCreate}>
                 创建故障域
               </Button>
             </WriteGuard>

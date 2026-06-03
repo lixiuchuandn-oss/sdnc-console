@@ -163,7 +163,7 @@ const UsbDevicesSection: React.FC<Props> = ({
     <>
       <PageDetailSection
         asCard={false}
-        title="USB 资源"
+        title="USB设备"
         toolbarLeft={
           <>
             <Input
@@ -231,7 +231,7 @@ const UsbDevicesSection: React.FC<Props> = ({
       <HarvesterResourceDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        resourceType="USB 设备"
+        resourceType="USB设备"
         record={drawerRecord}
         activeTab={drawerTab}
         onTabChange={setDrawerTab}

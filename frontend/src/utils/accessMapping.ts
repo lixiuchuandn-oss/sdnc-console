@@ -3,6 +3,10 @@ import { POOL_PAGE_IMPLIED_READ_BASES } from '../pages/cnmc/clouds/Cloudmap/pool
 import { unifiedStorageReadGranted } from '../pages/cnmc/clouds/Cloudmap/pool/lib/clusterPageAccess';
 import { isUnifiedStorageReadBase } from '../constants/unifiedStoragePermissions';
 import {
+  computeClusterLegacyReadGranted,
+  computeClusterLegacyWriteGranted,
+} from '../constants/computeClusterPermissions';
+import {
   cbrBackupScheduleAliasSatisfied,
   isCbrBackupScheduleResourceBase,
 } from '../constants/cbrPermissionBases';
@@ -180,6 +184,50 @@ export const hasPermissionForAction = (perms: string[], act: string | null): boo
       ) {
         return true;
       }
+    }
+  }
+
+  // Legacy: clouds.storage-drs / clouds.unified-storage-pools 已并入 clouds.storage-addon
+  if (base === 'clouds.storage-addon') {
+    if (act.endsWith(':read')) {
+      if (
+        permsArray.includes('clouds.storage-drs:read') ||
+        permsArray.includes('clouds.unified-storage-pools:read')
+      ) {
+        return true;
+      }
+    }
+    if (act.endsWith(':write')) {
+      if (
+        permsArray.includes('clouds.storage-drs:write') ||
+        permsArray.includes('clouds.unified-storage-pools:write')
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // Legacy: cluster-nodes / failure-domains / drs / migrations 已并入 clouds.compute-cluster
+  if (base === 'clouds.compute-cluster') {
+    if (act.endsWith(':read') && computeClusterLegacyReadGranted(permsArray)) {
+      return true;
+    }
+    if (act.endsWith(':write') && computeClusterLegacyWriteGranted(permsArray)) {
+      return true;
+    }
+  }
+
+  // Reverse: clouds.compute-cluster 满足旧子域校验
+  if (
+    base === 'clouds.cluster-nodes' ||
+    base === 'clouds.failure-domains' ||
+    base === 'clouds.drs'
+  ) {
+    if (act.endsWith(':read') && permsArray.includes('clouds.compute-cluster:read')) {
+      return true;
+    }
+    if (act.endsWith(':write') && permsArray.includes('clouds.compute-cluster:write')) {
+      return true;
     }
   }
 
