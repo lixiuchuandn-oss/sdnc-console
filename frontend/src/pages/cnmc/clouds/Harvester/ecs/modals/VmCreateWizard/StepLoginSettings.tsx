@@ -52,54 +52,42 @@ const StepLoginSettings: React.FC<StepLoginSettingsProps> = ({ form, sshKeyOptio
 
       if (m === 'ssh') {
         const selectedKeys = Array.isArray(sshNames) ? sshNames : [];
-        console.log('SSH mode - selectedKeys:', selectedKeys);
-        
+
         // 如果没有选择密钥，清空 Cloud-Config
         if (selectedKeys.length === 0) {
           const currUd = String(form.getFieldValue('userData') || '');
           if (currUd) {
             form.setFieldsValue({ userData: undefined });
           }
-          console.log('SSH mode - no keys selected, returning');
           return;
         }
-        
+
         // 获取选中的 SSH 公钥内容
         const selectedKeyObjs = selectedKeys
           .map(name => sshKeyOptions.find((opt: any) => opt.value === name))
           .filter(Boolean);
-        console.log('SSH mode - selectedKeyObjs:', selectedKeyObjs);
-        
+
         const authorizedKeys = selectedKeyObjs
           .map((keyObj: any) => keyObj?.publicKey || '')
           .filter(Boolean);
-        console.log('SSH mode - authorizedKeys:', authorizedKeys);
-        
+
         if (authorizedKeys.length === 0) {
-          console.log('SSH mode - no public keys found, returning');
           return;
         }
 
         const acct = String(loginAccount || 'root');
         let ud = '';
-        
+
         if (acct === 'root') {
           ud = `#cloud-config\nssh_authorized_keys:\n${authorizedKeys.map(k => `  - ${k}`).join('\n')}\n`;
         } else {
           ud = `#cloud-config\nusers:\n  - name: cloudmap\n    lock_passwd: true\n    sudo: [ 'ALL=(ALL) ALL' ]\n    shell: /bin/bash\n    groups: users\n    ssh_authorized_keys:\n${authorizedKeys.map(k => `      - ${k}`).join('\n')}\n`;
         }
 
-        console.log('SSH mode - generated userData:', ud);
-
         const currentUserData = String(form.getFieldValue('userData') || '');
-        console.log('SSH mode - currentUserData:', currentUserData);
-        console.log('SSH mode - ud:', ud);
-        
+
         if (currentUserData !== ud) {
-          console.log('SSH mode - setting userData');
           form.setFieldsValue({ userData: ud });
-        } else {
-          console.log('SSH mode - userData already set');
         }
       }
     } catch {}

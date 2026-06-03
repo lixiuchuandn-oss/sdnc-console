@@ -371,8 +371,8 @@ export const applyTemplateToWizardForm = (params: {
       try {
           const parsed = JSON.parse(template.metadata.annotations['harvesterhci.io/volumeClaimTemplates']);
           if (Array.isArray(parsed)) volumeTemplates = parsed;
-      } catch (e) {
-          console.warn('Failed to parse volumeClaimTemplates from annotation', e);
+      } catch {
+          // 注解中的 volumeClaimTemplates 解析失败时回退为空模板
       }
   }
 
