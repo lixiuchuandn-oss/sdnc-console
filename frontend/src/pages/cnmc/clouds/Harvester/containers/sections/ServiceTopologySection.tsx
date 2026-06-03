@@ -18,20 +18,16 @@ import {
   Descriptions,
   Tag,
   Button,
-  Tooltip,
   App,
   Table,
   Tabs,
 } from 'antd';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import {
-  ReloadOutlined,
   EditOutlined,
   EyeOutlined,
   CodeSandboxOutlined,
   FileTextOutlined,
-  ArrowLeftOutlined,
-  CloseOutlined,
 } from '@ant-design/icons';
 import { ServiceTopology } from '../components/topology';
 import {
@@ -39,7 +35,7 @@ import {
   getTopologyStats,
   TopologyNode,
 } from '../components/serviceTopologyUtils';
-import { IngressFormModal, PodTerminal } from '../components';
+import { IngressFormModal, PodLogViewerDrawer, PodTerminal } from '../components';
 import ServiceFormDrawer from '../drawers/ServiceFormDrawer';
 import HarvesterResourceDrawer from '../../shared/components/HarvesterOpsinfoDrawer';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
@@ -48,7 +44,6 @@ import yaml from 'js-yaml';
 import {
   updateHarvesterIngress,
   updateHarvesterService,
-  fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
 } from '../../../../../../services/harvesterApi';
 
@@ -106,134 +101,6 @@ const renderPodStatus = (pod: any) => {
   }
   const status = statusMap[phase] || statusMap.Unknown;
   return <Tag color={status.color}>{status.text}</Tag>;
-};
-
-// ========== Pod 日志查看器 ==========
-
-const PodLogViewer: React.FC<{
-  cloudId: string;
-  namespace: string;
-  podName: string;
-  containers: string[];
-  visible: boolean;
-  onClose: () => void;
-  onBack?: () => void;
-}> = ({ cloudId, namespace, podName, containers, visible, onClose, onBack }) => {
-  const [logs, setLogs] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [selectedContainer, setSelectedContainer] = useState<string>('');
-  const [tailLines, setTailLines] = useState<number>(500);
-  const logRef = useRef<HTMLPreElement>(null);
-
-  const loadLogs = useCallback(async () => {
-    if (!visible) return;
-    setLoading(true);
-    try {
-      const containerParam = containers.length === 1 ? undefined : selectedContainer;
-      const result = await fetchHarvesterPodLog(
-        cloudId,
-        namespace,
-        podName,
-        containerParam,
-        tailLines,
-      );
-      setLogs(result || '暂无日志');
-    } catch (e: any) {
-      setLogs(`加载日志失败: ${e?.message || e}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [cloudId, namespace, podName, selectedContainer, tailLines, visible, containers.length]);
-
-  useEffect(() => {
-    if (containers.length > 0 && !selectedContainer) {
-      setSelectedContainer(containers[0]);
-    }
-  }, [containers, selectedContainer]);
-
-  useEffect(() => {
-    if (!visible) {
-      setLogs('');
-      setSelectedContainer('');
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (visible && containers.length > 0) {
-      loadLogs();
-    }
-  }, [visible, containers.length, loadLogs]);
-
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  return (
-    <Drawer
-      title={
-        <Space>
-          {onBack && (
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
-              返回
-            </Button>
-          )}
-          <span>日志: {podName}</span>
-        </Space>
-      }
-      placement="right"
-      width={800}
-      open={visible}
-      onClose={onClose}
-      closeIcon={<CloseOutlined />}
-      extra={
-        <Space>
-          {containers.length > 1 && (
-            <Select
-              value={selectedContainer}
-              onChange={setSelectedContainer}
-              style={{ width: 180 }}
-              options={containers.map((c) => ({ label: c, value: c }))}
-            />
-          )}
-          {containers.length === 1 && <span style={{ color: '#666' }}>容器: {containers[0]}</span>}
-          <Select
-            value={tailLines}
-            onChange={setTailLines}
-            style={{ width: 100 }}
-            options={[
-              { label: '100行', value: 100 },
-              { label: '500行', value: 500 },
-              { label: '1000行', value: 1000 },
-              { label: '2000行', value: 2000 },
-            ]}
-          />
-          <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={loadLogs} loading={loading} />
-          </Tooltip>
-        </Space>
-      }
-    >
-      <pre
-        ref={logRef}
-        style={{
-          background: '#1e1e1e',
-          color: '#d4d4d4',
-          padding: 16,
-          borderRadius: 8,
-          height: 'calc(100vh - 200px)',
-          overflow: 'auto',
-          fontSize: 12,
-          fontFamily: 'Consolas, Monaco, monospace',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-        }}
-      >
-        {loading ? '加载中...' : logs}
-      </pre>
-    </Drawer>
-  );
 };
 
 // ========== Pod 详情抽屉 ==========
@@ -1168,12 +1035,12 @@ const ServiceTopologySection: React.FC<ServiceTopologySectionProps> = ({
 
       {/* Pod 日志查看器 */}
       {selectedNode && selectedNode.type === 'pod' && selectedNode.rawData && (
-        <PodLogViewer
+        <PodLogViewerDrawer
           cloudId={cloudId}
           namespace={selectedNode.namespace}
           podName={selectedNode.name}
           containers={podLogContainers}
-          visible={podLogVisible}
+          open={podLogVisible}
           onClose={() => setPodLogVisible(false)}
           onBack={() => {
             setPodLogVisible(false);
