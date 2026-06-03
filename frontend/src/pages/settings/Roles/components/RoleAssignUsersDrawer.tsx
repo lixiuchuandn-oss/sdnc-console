@@ -383,7 +383,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
     } finally {
       setSaving(false);
     }
-  }, [canWrite, target, userType, delta, onClose, onSaved]);
+  }, [canWrite, target, delta, onClose, onSaved]);
 
   const memberInRoleCount = activeUsers.filter((u) => selected.includes(String(u.id))).length;
 

@@ -194,7 +194,10 @@ export class OfflineUpgradeService {
       let manifestVersion: string | undefined;
       if (fs.existsSync(manifestPath)) {
         try {
-          const raw = fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, '').trim();
+          const raw = fs
+            .readFileSync(manifestPath, 'utf8')
+            .replace(/^\uFEFF/, '')
+            .trim();
           const m = JSON.parse(raw) as { version?: string };
           if (m.version != null) manifestVersion = String(m.version);
         } catch {
