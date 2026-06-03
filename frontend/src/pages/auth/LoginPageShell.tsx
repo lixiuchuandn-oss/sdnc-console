@@ -47,6 +47,28 @@ const LoginPageShell: React.FC<LoginPageShellProps> = ({
       <div className="login-page__content">
         <Card className="login-card login-page__card" variant="borderless">
           <div className="login-header login-page__header">
+            <span className="login-page__brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 48 48" width="44" height="44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="loginBrandGrad" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#2f7bff" />
+                    <stop offset="1" stopColor="#1450d6" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d="M24 3.5 41.5 13v22L24 44.5 6.5 35V13L24 3.5Z"
+                  fill="url(#loginBrandGrad)"
+                  fillOpacity="0.14"
+                  stroke="url(#loginBrandGrad)"
+                  strokeWidth="1.6"
+                  strokeLinejoin="round"
+                />
+                <rect x="19" y="14" width="10" height="20" rx="2" fill="url(#loginBrandGrad)" />
+                <rect x="21.4" y="17.4" width="5.2" height="2" rx="1" fill="#fff" fillOpacity="0.85" />
+                <rect x="21.4" y="21.4" width="5.2" height="2" rx="1" fill="#fff" fillOpacity="0.85" />
+                <rect x="21.4" y="25.4" width="5.2" height="2" rx="1" fill="#fff" fillOpacity="0.85" />
+              </svg>
+            </span>
             <h1 id={headingId} className="login-title login-page__title">
               {renderMarkdownBold(loginTitle)}
             </h1>
