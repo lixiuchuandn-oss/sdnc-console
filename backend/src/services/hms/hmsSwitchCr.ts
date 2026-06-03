@@ -9,6 +9,18 @@ export const HMS_SWITCH_API_VERSION = 'v1';
 export const HMS_SWITCH_KIND = 'Switch';
 export const HMS_SWITCH_PLURAL = 'switches';
 
+export const HMS_SWITCH_DEVICE_PROFILE_GENERIC = 'generic';
+
+function normalizeHmsDeviceProfileForCr(value?: string): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return HMS_SWITCH_DEVICE_PROFILE_GENERIC;
+  const lower = raw.toLowerCase();
+  if (lower === 'default' || lower === 'generit' || lower === 'generic') {
+    return HMS_SWITCH_DEVICE_PROFILE_GENERIC;
+  }
+  return raw;
+}
+
 export type HmsSwitchCrSpecInput = {
   hosts?: string[];
   primaryHost?: string;
@@ -24,6 +36,8 @@ export type HmsSwitchCrSpecInput = {
   corsAllowedOrigins?: string[];
   dialTimeout?: number;
   execTimeout?: number;
+  /** 会话内关闭 CLI 分页；留空则 HSM 使用 deviceProfile 默认 */
+  screenLengthCmd?: string;
 };
 
 export type HmsSwitchCrBody = {
@@ -72,9 +86,32 @@ function normalizeStringList(raw: unknown): string[] {
   return raw.map((x) => String(x ?? '').trim()).filter(Boolean);
 }
 
+/** 合并误拆的管道 CLI（与前端 hmsSwitchCrForm.normalizeCliCommandLines 一致） */
+function normalizeCliCommandLines(text: string): string[] {
+  const raw = String(text || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const line of raw) {
+    const prev = out.length > 0 ? out[out.length - 1]! : '';
+    const continuesPipe =
+      out.length > 0 &&
+      (/^\|/.test(line) || /^include\b/i.test(line) || /\|\s*$/.test(prev));
+    if (continuesPipe) {
+      const joined = `${prev} ${line}`.replace(/\|\s+/g, '| ').replace(/\s+/g, ' ').trim();
+      out[out.length - 1] = joined;
+      continue;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
 function normalizeCommandList(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((x) => String(x ?? '').trim());
+  const merged = normalizeCliCommandLines(raw.map((x) => String(x ?? '').trim()).join('\n'));
+  return merged.length > 0 ? merged : raw.map((x) => String(x ?? '').trim()).filter(Boolean);
 }
 
 export function buildHmsSwitchCrManifest(name: string, specInput: HmsSwitchCrSpecInput) {
@@ -95,7 +132,7 @@ export function buildHmsSwitchCrManifest(name: string, specInput: HmsSwitchCrSpe
     user: String(specInput.user || 'root').trim() || 'root',
     port,
     vendor: String(specInput.vendor || '').trim(),
-    deviceProfile: String(specInput.deviceProfile || '').trim(),
+    deviceProfile: normalizeHmsDeviceProfileForCr(specInput.deviceProfile),
     dialTimeout,
     execTimeout,
     infoCommands: normalizeCommandList(specInput.infoCommands),
@@ -104,6 +141,11 @@ export function buildHmsSwitchCrManifest(name: string, specInput: HmsSwitchCrSpe
     vlanCommands: normalizeCommandList(specInput.vlanCommands),
     corsAllowedOrigins: normalizeStringList(specInput.corsAllowedOrigins),
   };
+
+  const screenLengthCmd = String(specInput.screenLengthCmd ?? '').trim();
+  if (screenLengthCmd) {
+    spec.screenLengthCmd = screenLengthCmd;
+  }
 
   if (specInput.password != null && String(specInput.password).length > 0) {
     spec.password = String(specInput.password);
@@ -171,14 +213,65 @@ export async function getHmsSwitchCr(
   cloud: { endpoint?: string; secretKey?: string | null; config?: any },
   name: string,
 ): Promise<any> {
+  const item = await getHmsSwitchCrRaw(cloud, name);
+  return redactHmsSwitchCr(item);
+}
+
+/** 读取 Switch CR 原文（含 password），仅用于服务端发起 SSH */
+export async function getHmsSwitchCrRaw(
+  cloud: { endpoint?: string; secretKey?: string | null; config?: any },
+  name: string,
+): Promise<any> {
   const token = resolveHarvesterCloudKubeToken(cloud);
   const insecure = !!cloud.config?.ignoreTls;
   const urls = buildCandidateUrls(String(cloud.endpoint || ''), hmsSwitchCrItemPath(name));
 
-  const data = await requestFirstOk(urls, token, insecure, (url) =>
+  return requestFirstOk(urls, token, insecure, (url) =>
     getJsonOnce(url, token, insecure, true),
   );
-  return redactHmsSwitchCr(data);
+}
+
+export type HmsSwitchSshConnectParams = {
+  configName: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+};
+
+export async function buildHmsSwitchSshConnectParams(
+  cloud: { endpoint?: string; secretKey?: string | null; config?: any },
+  name: string,
+): Promise<HmsSwitchSshConnectParams> {
+  const nameTrim = String(name || '').trim();
+  if (!nameTrim) {
+    throw Object.assign(new Error('缺少 Switch 名称'), { status: 400 });
+  }
+  const item = await getHmsSwitchCrRaw(cloud, nameTrim);
+  const spec = item?.spec && typeof item.spec === 'object' ? item.spec : {};
+  const hosts = Array.isArray(spec.hosts) ? spec.hosts.map(String).filter(Boolean) : [];
+  const primaryHost = String(spec.primaryHost || hosts[0] || '').trim();
+  if (!primaryHost) {
+    throw Object.assign(new Error('Switch 未配置管理地址'), { status: 400 });
+  }
+  const password = spec.password != null ? String(spec.password) : '';
+  if (!password) {
+    throw Object.assign(
+      new Error('Switch CR 未配置 SSH 密码，请先在「编辑交换机」中填写密码'),
+      { status: 400 },
+    );
+  }
+  const portNum = Number(spec.port);
+  const port = Number.isFinite(portNum) && portNum > 0 ? portNum : 22;
+  const username = String(spec.user || 'root').trim() || 'root';
+
+  return {
+    configName: nameTrim,
+    host: primaryHost,
+    port,
+    username,
+    password,
+  };
 }
 
 export async function createHmsSwitchCr(
@@ -225,6 +318,11 @@ export async function updateHmsSwitchCr(
   };
   if (!body.spec.password) {
     mergedSpec.password = existing?.spec?.password;
+  }
+  if (Object.prototype.hasOwnProperty.call(body.spec, 'screenLengthCmd')) {
+    const cmd = String(body.spec.screenLengthCmd ?? '').trim();
+    if (cmd) mergedSpec.screenLengthCmd = cmd;
+    else delete mergedSpec.screenLengthCmd;
   }
 
   const manifest = {

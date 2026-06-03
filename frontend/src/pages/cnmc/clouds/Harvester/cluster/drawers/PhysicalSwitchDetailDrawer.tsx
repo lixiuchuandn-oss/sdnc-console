@@ -4,9 +4,7 @@
  */
 import React from 'react';
 import { Button, Drawer } from 'antd';
-import PhysicalSwitchProbeTabs, {
-  type PhysicalSwitchProbeTabKey,
-} from '../components/PhysicalSwitchProbeTabs';
+import PhysicalSwitchProbeTabs from '../components/PhysicalSwitchProbeTabs';
 
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 
@@ -14,8 +12,6 @@ export type PhysicalSwitchDetailDrawerProps = {
   open: boolean;
   record: AswCtlSwitchProbeRecord | null;
   onClose: () => void;
-  /** 本次打开抽屉时默认选中的 Tab（仅在 open 由关→开时应用一次） */
-  initialTab?: PhysicalSwitchProbeTabKey;
   /** 从集群重新拉取 ASW-CTL 列表/探测数据（由 Section 注入）；与云详情 `onRefresh(force)` 约定一致 */
   onRefreshFromCluster?: (force?: boolean) => void;
   refreshLoading?: boolean;
@@ -25,7 +21,6 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
   open,
   record,
   onClose,
-  initialTab = 'overview',
   onRefreshFromCluster,
   refreshLoading = false,
 }) => {
@@ -45,7 +40,7 @@ const PhysicalSwitchDetailDrawer: React.FC<PhysicalSwitchDetailDrawerProps> = ({
       onClose={onClose}
       destroyOnHidden
     >
-      {record ? <PhysicalSwitchProbeTabs record={record} initialTab={initialTab} /> : null}
+      {record ? <PhysicalSwitchProbeTabs record={record} /> : null}
     </Drawer>
   );
 };

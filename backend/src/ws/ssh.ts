@@ -13,6 +13,8 @@ interface ConnectPayload {
   passphrase?: string;
   cols?: number;
   rows?: number;
+  /** linux：兼容 bash 回退；none：网络设备 CLI，不注入 bash/PS1 */
+  bootstrap?: 'linux' | 'none';
 }
 
 interface WsMessage {
@@ -75,7 +77,9 @@ export function createSshWsServer() {
             passphrase,
             cols = 120,
             rows = 30,
+            bootstrap = 'linux',
           } = p;
+          const networkCli = bootstrap === 'none';
           if (!host || !username || (!password && !privateKey)) {
             safeSend({ type: 'error', message: '缺少连接参数（host/username/密码或私钥）' });
             return;
@@ -101,32 +105,40 @@ export function createSshWsServer() {
                   shellStream = stream;
                   console.log('Shell流已创建，发送ready信号');
                   safeSend({ type: 'ready' });
-                  try {
-                    shellStream.write('\r');
-                  } catch {}
-                  setTimeout(() => {
-                    try {
-                      shellStream.write('\x03');
-                    } catch {}
-                  }, 120);
-                  setTimeout(() => {
+                  if (!networkCli) {
                     try {
                       shellStream.write('\r');
                     } catch {}
-                  }, 250);
-                  setTimeout(() => {
+                    setTimeout(() => {
+                      try {
+                        shellStream.write('\x03');
+                      } catch {}
+                    }, 120);
+                    setTimeout(() => {
+                      try {
+                        shellStream.write('\r');
+                      } catch {}
+                    }, 250);
+                    setTimeout(() => {
+                      try {
+                        shellStream.write('export PS1="\\u@\\h:\\w\\$ "\n');
+                      } catch {}
+                    }, 350);
+                    setTimeout(() => {
+                      try {
+                        shellStream.write('printf "\\n"\n');
+                      } catch {}
+                    }, 450);
+                  } else {
                     try {
-                      shellStream.write('export PS1="\\u@\\h:\\w\\$ "\n');
+                      shellStream.write('\r');
                     } catch {}
-                  }, 350);
-                  setTimeout(() => {
-                    try {
-                      shellStream.write('printf "\\n"\n');
-                    } catch {}
-                  }, 450);
+                  }
 
                   let receivedOnce = false;
-                  const fallbackTimer = setTimeout(() => {
+                  const fallbackTimer = networkCli
+                    ? null
+                    : setTimeout(() => {
                     if (receivedOnce) return;
                     try {
                       console.log('Shell无输出，尝试使用 bash -li 作为回退');
@@ -193,9 +205,11 @@ export function createSshWsServer() {
                     safeSend({ type: 'close' });
                     ws.close();
                     ssh.end();
-                    try {
-                      clearTimeout(fallbackTimer);
-                    } catch {}
+                    if (fallbackTimer) {
+                      try {
+                        clearTimeout(fallbackTimer);
+                      } catch {}
+                    }
                   });
                   stream.stderr?.on('data', (data: Buffer) => {
                     const errorStr = data.toString('utf8');

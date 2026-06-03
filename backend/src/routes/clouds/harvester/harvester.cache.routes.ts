@@ -27,6 +27,7 @@ import {
   harvesterHmsSwitchCrGetHandler,
   harvesterHmsSwitchCrListHandler,
   harvesterHmsSwitchCrUpdateHandler,
+  harvesterHmsSwitchSshConnectHandler,
 } from './handlers/hms-switch-cr.handlers';
 import { harvesterDrsOverviewHandler } from './handlers/drs.handlers';
 import {
@@ -180,6 +181,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     '/:id/resources/harvester/hms/switches/:name',
     checkAdminPermission,
     harvesterHmsSwitchCrGetHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/hms/switches/:name/ssh-connect',
+    checkAdminPermission,
+    harvesterHmsSwitchSshConnectHandler,
   );
   router.put(
     '/:id/resources/harvester/hms/switches/:name',

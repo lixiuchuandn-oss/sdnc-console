@@ -6,12 +6,12 @@ describe('formatHmsDeviceProfileLabel', () => {
     expect(formatHmsDeviceProfileLabel('cisco-like')).toBe('思科');
     expect(formatHmsDeviceProfileLabel('winicssec-wos')).toBe('威努特');
     expect(formatHmsDeviceProfileLabel('generic')).toBe('通用');
-    expect(formatHmsDeviceProfileLabel('default')).toBe('默认');
+    expect(formatHmsDeviceProfileLabel('default')).toBe('通用');
   });
 
   it('is case-insensitive for known keys', () => {
     expect(formatHmsDeviceProfileLabel('CISCO')).toBe('思科');
-    expect(formatHmsDeviceProfileLabel('Default')).toBe('默认');
+    expect(formatHmsDeviceProfileLabel('Default')).toBe('通用');
   });
 
   it('prefers remote label when value is unknown', () => {
