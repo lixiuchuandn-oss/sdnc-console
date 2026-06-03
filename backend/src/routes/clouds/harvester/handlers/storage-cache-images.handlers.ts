@@ -1114,6 +1114,30 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       const filename = uploadBasename;
       const inboundBody = body.createBodyReadable();
       bindReadableAbortOnError(inboundBody, abortController);
+      // 逐块推流的取消检查：文件代传是逐块（通常 64KB/块）推流，若每块都做一次
+      // throwIfUploadCancelled 的 SQLite 查询，大文件会触发数十万次 DB 往返且每块都要阻塞等待
+      // 查询返回，严重拖慢吞吐、加重后端负载。这里优先用内存 AbortSignal 做廉价同步判断（同进程
+      // 取消会立即 abort），DB 查询按时间窗（3s）节流，仅用于兜底检测外部写入的 cancelled 状态。
+      let lastCancelDbCheckAt = 0;
+      const checkCancelled = async (): Promise<void> => {
+        if (abortController.signal.aborted) {
+          const err: any = new Error('CANCELLED');
+          err.code = 'ERR_CANCELED';
+          throw err;
+        }
+        const nowTs = Date.now();
+        if (nowTs - lastCancelDbCheckAt < 3000) return;
+        lastCancelDbCheckAt = nowTs;
+        const t = await AppDataSource.getRepository(ImageUploadTask).findOne({
+          where: { id: taskId },
+        });
+        if (t?.taskStatus === 'cancelled') {
+          if (!abortController.signal.aborted) abortController.abort();
+          const err: any = new Error('CANCELLED');
+          err.code = 'ERR_CANCELED';
+          throw err;
+        }
+      };
       const header = Buffer.from(
         `--${boundary}\r\n` +
           `Content-Disposition: form-data; name="chunk"; filename="${filename}"\r\n` +
@@ -1125,14 +1149,12 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       const contentLength = header.length + finalSize + footer.length;
       let sent = 0;
       let lastUpdateAt = 0;
-      let chunkCount = 0;
       const fileAndPaddingStream =
         padding > 0
           ? Readable.from(
               (async function* () {
                 for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0)
-                    await throwIfUploadCancelled(taskId, abortController);
+                  await checkCancelled();
                   const n =
                     typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
                   sent += n;
@@ -1149,15 +1171,14 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
                   }
                   yield chunk;
                 }
-                await throwIfUploadCancelled(taskId, abortController);
+                await checkCancelled();
                 yield Buffer.alloc(padding);
               })(),
             )
           : Readable.from(
               (async function* () {
                 for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0)
-                    await throwIfUploadCancelled(taskId, abortController);
+                  await checkCancelled();
                   const n =
                     typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
                   sent += n;
@@ -1179,10 +1200,10 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
         (async function* () {
           yield header;
           for await (const chunk of fileAndPaddingStream as any) {
-            await throwIfUploadCancelled(taskId, abortController);
+            await checkCancelled();
             yield chunk;
           }
-          await throwIfUploadCancelled(taskId, abortController);
+          await checkCancelled();
           yield footer;
         })(),
       );

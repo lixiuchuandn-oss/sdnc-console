@@ -80,6 +80,22 @@ export const app = express();
 const PORT = Number(process.env.PORT) || 5001;
 export const server = http.createServer(app);
 
+// 大文件上传超时治理：
+// Cloudmap 镜像、离线升级包等通过 Tower 流式代理到后端，单个 HTTP 请求体可能持续数十分钟。
+// Node 默认 server.requestTimeout=300000(5min) 会在「请求体尚未接收完成」时强制中断连接，
+// 直接导致大文件上传超时并异常结束。镜像体积无法预估，无法取一个安全的有限上限，故：
+// - requestTimeout=0 关闭整请求超时；仍保留 headersTimeout 防慢速请求头攻击（Slowloris），
+//   并令 headersTimeout > keepAliveTimeout（Node 推荐，避免 LB/Nginx 复用连接时偶发 502）；
+// - timeout=0 关闭 socket 空闲超时，避免「等待 Harvester 回填 upload URL」（Ceph 最长约 90s）
+//   等无数据窗口被误判为空闲而中断。
+// 如需在公网入口侧重新约束，可用 HTTP_REQUEST_TIMEOUT_MS 显式覆盖（毫秒，0 表示不限）。
+const httpRequestTimeoutMs = Number(process.env.HTTP_REQUEST_TIMEOUT_MS);
+server.requestTimeout =
+  Number.isFinite(httpRequestTimeoutMs) && httpRequestTimeoutMs >= 0 ? httpRequestTimeoutMs : 0;
+server.keepAliveTimeout = 75_000;
+server.headersTimeout = 80_000;
+server.timeout = 0;
+
 // 信任代理：允许解析 X-Forwarded-For 等头信息获取真实客户端 IP
 // 当服务部署在 Nginx 等反向代理后面时需要此配置
 app.set('trust proxy', true);
