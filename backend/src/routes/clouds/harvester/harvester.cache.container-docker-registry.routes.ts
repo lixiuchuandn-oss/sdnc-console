@@ -590,9 +590,38 @@ const registryRequest = async (
 
   // 规范化服务器地址
   let normalizedServer = server.replace(/\/+$/, '');
+  
+  // 处理错误的格式：https://10.20.5.21/v3:30501 -> 10.20.5.21:30501
+  // 提取主机名和端口
+  const extractHostPort = (s: string): string => {
+    // 移除协议前缀
+    let host = s.replace(/^https?:\/\//, '');
+    // 处理 host:port 格式中包含路径的情况（如 10.20.5.21/v3:30501）
+    const match = host.match(/^([^:/]+)(?::(\d+))?/);
+    if (match) {
+      const hostname = match[1];
+      const port = match[2];
+      // 尝试从路径中提取端口（如 /v3:30501）
+      if (!port) {
+        const portMatch = host.match(/:(\d+)/);
+        if (portMatch) {
+          return `${hostname}:${portMatch[1]}`;
+        }
+      }
+      return port ? `${hostname}:${port}` : hostname;
+    }
+    return host;
+  };
+  
+  const hostPort = extractHostPort(normalizedServer);
+  
   if (!normalizedServer.startsWith('http://') && !normalizedServer.startsWith('https://')) {
     // insecure=true 时使用 HTTP，否则使用 HTTPS
-    normalizedServer = insecure ? `http://${normalizedServer}` : `https://${normalizedServer}`;
+    normalizedServer = insecure ? `http://${hostPort}` : `https://${hostPort}`;
+  } else {
+    // 已经有协议前缀，重新构建正确的 URL
+    const protocol = normalizedServer.startsWith('https://') ? 'https' : 'http';
+    normalizedServer = insecure ? `http://${hostPort}` : `https://${hostPort}`;
   }
 
   // 首先尝试获取认证信息

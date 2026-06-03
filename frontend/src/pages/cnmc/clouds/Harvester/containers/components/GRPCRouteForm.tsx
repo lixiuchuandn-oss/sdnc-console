@@ -74,6 +74,7 @@ export interface GRPCRouteFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
+  defaultGateway?: { name: string; namespace: string };
 }
 
 // ============================================================
@@ -97,38 +98,87 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
   onSuccess,
   onCancel,
   defaultNamespace,
+  defaultGateway,
 }) => {
   const [form] = Form.useForm<GRPCRouteFormValues>();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
 
   const currentNamespace = Form.useWatch('namespace', form);
+  
+  // 监听 parentRefs 和 rules 的变化，以便动态更新监听器和端口选项
+  const parentRefs = Form.useWatch('parentRefs', form);
+  const currentRules = Form.useWatch('rules', form);
 
   useEffect(() => {
     if (defaultNamespace) {
       form.setFieldValue('namespace', defaultNamespace);
     }
-  }, [defaultNamespace, form]);
+    if (defaultGateway && defaultNamespace === defaultGateway.namespace) {
+      form.setFieldValue('parentRefs', [{
+        name: defaultGateway.name,
+        namespace: defaultGateway.namespace,
+      }]);
+    }
+  }, [defaultNamespace, defaultGateway, form]);
 
   const gatewayOptions = useMemo(() => {
     if (!gateways || !currentNamespace) return [];
     return gateways
       .filter((g: any) => (g.metadata?.namespace || g.namespace) === currentNamespace)
-      .map((g: any) => ({
-        label: g.metadata?.name || g.name,
-        value: g.metadata?.name || g.name,
-      }));
+      .map((g: any) => {
+        const name = g.metadata?.name || g.name;
+        const alias = g.metadata?.annotations?.['tower.io/alias'] || name;
+        return {
+          label: `${alias} (${name})`,
+          value: name,
+          gateway: g,
+        };
+      });
   }, [gateways, currentNamespace]);
+
+  // 获取监听器选项（基于选中的 Gateway）
+  const getListenerOptions = (gatewayName: string) => {
+    if (!gatewayName) return [];
+    const gateway = gateways?.find((g: any) => 
+      (g.metadata?.namespace || g.namespace) === currentNamespace && 
+      (g.metadata?.name || g.name) === gatewayName
+    );
+    if (!gateway?.spec?.listeners) return [];
+    return gateway.spec.listeners.map((listener: any) => ({
+      label: `${listener.name} (端口: ${listener.port}, 协议: ${listener.protocol})`,
+      value: listener.name,
+    }));
+  };
 
   const serviceOptions = useMemo(() => {
     if (!services || !currentNamespace) return [];
     return services
       .filter((s: any) => (s.metadata?.namespace || s.namespace) === currentNamespace)
-      .map((s: any) => ({
-        label: s.metadata?.name || s.name,
-        value: s.metadata?.name || s.name,
-      }));
+      .map((s: any) => {
+        const name = s.metadata?.name || s.name;
+        const alias = s.metadata?.annotations?.['tower.io/alias'] || name;
+        return {
+          label: `${alias} (${name})`,
+          value: name,
+          service: s,
+        };
+      });
   }, [services, currentNamespace]);
+
+  // 获取Service的端口选项
+  const getServicePortOptions = (serviceName: string) => {
+    if (!serviceName) return [];
+    const service = services?.find((s: any) => 
+      (s.metadata?.namespace || s.namespace) === currentNamespace && 
+      (s.metadata?.name || s.name) === serviceName
+    );
+    if (!service?.spec?.ports) return [];
+    return service.spec.ports.map((port: any) => ({
+      label: `${port.port}${port.name ? ` (${port.name})` : ''}${port.protocol ? ` [${port.protocol}]` : ''}`,
+      value: port.port,
+    }));
+  };
 
   const buildSubmitData = (values: GRPCRouteFormValues): any => {
     const grpcRoute: any = {
@@ -261,46 +311,57 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
         <Form.List name="parentRefs">
           {(fields, { add, remove }) => (
             <>
-              {fields.map(({ key, name: index, ...restField }) => (
-                <Row key={key} gutter={16} style={{ marginBottom: 8 }}>
-                  <Col span={10}>
-                    <Form.Item
-                      {...restField}
-                      name={[index, 'name']}
-                      label="Gateway 名称"
-                      rules={[{ required: true, message: '请选择 Gateway' }]}
-                    >
-                      <Select
-                        placeholder="选择 Gateway"
-                        showSearch
-                        options={gatewayOptions}
-                        notFoundContent="当前项目下没有 Gateway"
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item
-                      {...restField}
-                      name={[index, 'sectionName']}
-                      label={
-                        <span>
-                          监听器
-                          <Tooltip title="可选，指定 Gateway 的监听器名称">
-                            <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
-                          </Tooltip>
-                        </span>
-                      }
-                    >
-                      <Input placeholder="监听器名称" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={4} style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 24 }}>
-                    {fields.length > 1 && (
-                      <MinusCircleOutlined onClick={() => remove(index)} style={{ color: '#999' }} />
-                    )}
-                  </Col>
-                </Row>
-              ))}
+              {fields.map(({ key, name: index, ...restField }) => {
+                const currentGatewayName = form.getFieldValue(['parentRefs', index, 'name']);
+                const listenerOptions = getListenerOptions(currentGatewayName);
+                
+                return (
+                  <Row key={key} gutter={16} style={{ marginBottom: 8 }}>
+                    <Col span={10}>
+                      <Form.Item
+                        {...restField}
+                        name={[index, 'name']}
+                        label="Gateway 名称"
+                        rules={[{ required: true, message: '请选择 Gateway' }]}
+                      >
+                        <Select
+                          placeholder="选择 Gateway"
+                          showSearch
+                          options={gatewayOptions}
+                          notFoundContent="当前项目下没有 Gateway"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        {...restField}
+                        name={[index, 'sectionName']}
+                        label={
+                          <span>
+                            监听器
+                            <Tooltip title="可选，指定 Gateway 的监听器名称">
+                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                            </Tooltip>
+                          </span>
+                        }
+                      >
+                        <Select
+                          placeholder={currentGatewayName ? "选择监听器" : "请先选择 Gateway"}
+                          options={listenerOptions}
+                          allowClear
+                          showSearch
+                          notFoundContent={currentGatewayName ? "该 Gateway 没有配置监听器" : "请先选择 Gateway"}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={4} style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 24 }}>
+                      {fields.length > 1 && (
+                        <MinusCircleOutlined onClick={() => remove(index)} style={{ color: '#999' }} />
+                      )}
+                    </Col>
+                  </Row>
+                );
+              })}
               <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
                 添加 Gateway 引用
               </Button>
@@ -398,52 +459,75 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
 
                   {/* 后端服务 */}
                   <div>
-                    <div style={{ fontWeight: 500, marginBottom: 8 }}>后端服务</div>
+                    <div style={{ fontWeight: 500, marginBottom: 8 }}>
+                      后端服务
+                      <Tooltip title="配置路由的后端服务，支持多个服务实现负载均衡">
+                        <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                      </Tooltip>
+                    </div>
                     <Form.List name={[ruleIndex, 'backendRefs']}>
                       {(backendFields, { add: addBackend, remove: removeBackend }) => (
                         <>
-                          {backendFields.map(({ key: backendKey, name: backendIndex, ...backendRest }) => (
-                            <Row key={backendKey} gutter={8} style={{ marginBottom: 8 }}>
-                              <Col span={10}>
-                                <Form.Item
-                                  {...backendRest}
-                                  name={[backendIndex, 'name']}
-                                  rules={[{ required: true, message: 'Service 名称' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select
-                                    placeholder="Service"
-                                    showSearch
-                                    options={serviceOptions}
-                                  />
-                                </Form.Item>
-                              </Col>
-                              <Col span={6}>
-                                <Form.Item
-                                  {...backendRest}
-                                  name={[backendIndex, 'port']}
-                                  rules={[{ required: true, message: '端口' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <InputNumber min={1} max={65535} placeholder="端口" style={{ width: '100%' }} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={5}>
-                                <Form.Item
-                                  {...backendRest}
-                                  name={[backendIndex, 'weight']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <InputNumber min={1} max={100} placeholder="权重" style={{ width: '100%' }} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={3}>
-                                {backendFields.length > 1 && (
-                                  <MinusCircleOutlined onClick={() => removeBackend(backendIndex)} style={{ color: '#999' }} />
-                                )}
-                              </Col>
-                            </Row>
-                          ))}
+                          {backendFields.map(({ key: backendKey, name: backendIndex, ...backendRest }) => {
+                            const currentServiceName = form.getFieldValue(['rules', ruleIndex, 'backendRefs', backendIndex, 'name']);
+                            const portOptions = getServicePortOptions(currentServiceName);
+                            
+                            return (
+                              <Row key={backendKey} gutter={8} style={{ marginBottom: 8 }}>
+                                <Col span={10}>
+                                  <Form.Item
+                                    {...backendRest}
+                                    name={[backendIndex, 'name']}
+                                    rules={[{ required: true, message: 'Service 名称' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select
+                                      placeholder="Service"
+                                      showSearch
+                                      options={serviceOptions}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={6}>
+                                  <Form.Item
+                                    {...backendRest}
+                                    name={[backendIndex, 'port']}
+                                    rules={[{ required: true, message: '端口' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select
+                                      placeholder={currentServiceName ? "选择端口" : "请先选择 Service"}
+                                      options={portOptions}
+                                      showSearch
+                                      allowClear
+                                      notFoundContent={currentServiceName ? "该 Service 没有配置端口" : "请先选择 Service"}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={5}>
+                                  <Form.Item
+                                    {...backendRest}
+                                    name={[backendIndex, 'weight']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Tooltip title="权重用于负载均衡，数值越大分配的流量越多（范围：1-100）">
+                                      <InputNumber 
+                                        min={1} 
+                                        max={100} 
+                                        placeholder="权重" 
+                                        style={{ width: '100%' }} 
+                                      />
+                                    </Tooltip>
+                                  </Form.Item>
+                                </Col>
+                                <Col span={3}>
+                                  {backendFields.length > 1 && (
+                                    <MinusCircleOutlined onClick={() => removeBackend(backendIndex)} style={{ color: '#999' }} />
+                                  )}
+                                </Col>
+                              </Row>
+                            );
+                          })}
                           <Button type="dashed" size="small" onClick={() => addBackend()} icon={<PlusOutlined />}>
                             添加后端服务
                           </Button>

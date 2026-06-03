@@ -663,6 +663,76 @@ export async function ensureHarborTables() {
 }
 
 /** 云桌面网关：Guacamole 实例与 Connection 映射表 */
+export async function ensureLocalRegistryTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过本地仓库表检查');
+      return;
+    }
+
+    const registryExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='local_registries'`,
+    );
+    if (!Array.isArray(registryExists) || registryExists.length === 0) {
+      dbLog.info('创建 local_registries 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "local_registries" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" varchar NOT NULL,
+          "server" varchar NOT NULL,
+          "namespace" varchar NOT NULL,
+          "nodePort" integer NOT NULL DEFAULT 30500,
+          "storageSize" varchar,
+          "authEnabled" boolean NOT NULL DEFAULT 0,
+          "username" varchar,
+          "password" varchar,
+          "status" varchar NOT NULL DEFAULT 'deploying',
+          "deploymentName" varchar,
+          "serviceName" varchar,
+          "pvcName" varchar,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_local_registries_cloudId" ON "local_registries" ("cloudId")
+      `);
+      dbLog.info('local_registries 表创建成功');
+    }
+
+    const taskExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='registry_image_upload_tasks'`,
+    );
+    if (!Array.isArray(taskExists) || taskExists.length === 0) {
+      dbLog.info('创建 registry_image_upload_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "registry_image_upload_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "registryId" varchar NOT NULL,
+          "fileName" varchar NOT NULL,
+          "targetRepo" varchar,
+          "targetTag" varchar,
+          "status" varchar NOT NULL DEFAULT 'pending',
+          "totalLayers" integer NOT NULL DEFAULT 0,
+          "uploadedLayers" integer NOT NULL DEFAULT 0,
+          "currentLayer" varchar,
+          "error" text,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_registry_image_upload_tasks_registryId" ON "registry_image_upload_tasks" ("registryId")
+      `);
+      dbLog.info('registry_image_upload_tasks 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error('本地仓库表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
 export async function ensureGuacamoleTables() {
   try {
     if (!AppDataSource.isInitialized) {

@@ -383,6 +383,7 @@ export function startServer(): void {
           ensureHarborTables,
           ensureCephMgrDashboardSnapshotTable,
           ensureGuacamoleTables,
+          ensureLocalRegistryTables,
         } = await import('./config/database');
         await ensureRecycleBinTables();
         await ensureKubeOvnSecurityGroupTables();
@@ -394,6 +395,7 @@ export function startServer(): void {
         await ensureHarborTables();
         await ensureCephMgrDashboardSnapshotTable();
         await ensureGuacamoleTables();
+        await ensureLocalRegistryTables();
       } catch (e) {
         logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
       }

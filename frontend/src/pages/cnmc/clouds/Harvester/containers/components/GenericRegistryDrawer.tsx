@@ -32,7 +32,10 @@ interface RegistryConfig {
   password?: string;
   insecure: boolean;
   createdAt: string;
-  type?: 'generic' | 'harbor';
+  type?: 'generic' | 'harbor' | 'local';
+  localRegistryId?: string;
+  namespace?: string;
+  nodePort?: number;
 }
 
 interface Props {
