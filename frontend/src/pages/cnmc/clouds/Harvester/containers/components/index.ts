@@ -62,6 +62,8 @@ export type { GRPCRouteFormModalProps } from './GRPCRouteFormModal';
 // Pod 日志查看组件
 export { default as PodLogViewer } from './PodLogViewer';
 export type { PodLogViewerProps } from './PodLogViewer';
+export { default as PodLogViewerDrawer } from './PodLogViewerDrawer';
+export type { PodLogViewerDrawerProps } from './PodLogViewerDrawer';
 
 // Cron 表达式助手组件
 export { default as CronExpressionHelper } from './CronExpressionHelper';
