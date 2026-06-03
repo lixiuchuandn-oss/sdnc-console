@@ -353,6 +353,8 @@ export function EmbeddedSwitchPortPanelBody({
 
   const missingRecord = record == null;
   const interfacesFailed = !missingRecord && !!record?.interfacesError;
+  const probeFailedButHasPorts =
+    interfacesFailed && ports.length > 0 && !!extracted?.stdout;
 
   const rootClass = [
     'cloudmap-dc-embedded-panel-root',
@@ -456,7 +458,16 @@ export function EmbeddedSwitchPortPanelBody({
           )
         ) : null}
 
-        {interfacesFailed ? (
+        {probeFailedButHasPorts ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="接口探测未完全成功，已根据 CLI 回显绘制端口"
+            description={`${record.interfacesError || ''}。若含 ssh command timeout，请在物理交换机配置将「命令超时」调至 60 秒以上后重新同步。`}
+          />
+        ) : null}
+
+        {interfacesFailed && !probeFailedButHasPorts ? (
           <Alert
             type="error"
             showIcon

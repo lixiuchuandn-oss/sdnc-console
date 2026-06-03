@@ -3,6 +3,7 @@ import { Alert, Collapse, Descriptions, Flex, Tag, Typography } from 'antd';
 import type { TabsProps } from 'antd';
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import AswCliOutputCollapse from '../components/AswCliOutputCollapse';
+import { isHmsProbeDimDegraded } from './hmsSwitchProbeEval';
 import {
   aswCtlServiceHealthLabel,
   aswCtlServiceHealthTone,
@@ -28,7 +29,7 @@ function serviceHealthTag(record: AswCtlSwitchProbeRecord): React.ReactNode {
   return statusTag(aswCtlServiceHealthLabel(record), aswCtlServiceHealthTone(record));
 }
 
-export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel): TabsProps['items'] {
+export function buildPhysicalSwitchProbeOverview(model: SwitchProbeDrawerModel): React.ReactNode {
   const r = model.record;
   const {
     host,
@@ -44,48 +45,45 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
     kpiVlanVal,
   } = model;
 
-  return [
-    {
-      key: 'overview',
-      label: '概览',
-      children: (
-        <Descriptions {...SWITCH_PROBE_DESCR_COL1}>
-          <Descriptions.Item label="ASW-CTL 名称">
-            {r.name != null && String(r.name).trim() ? r.name : '—'}
-          </Descriptions.Item>
-          <Descriptions.Item label="服务地址">
-            {r.baseUrl ? (
-              <Typography.Text copyable={{ text: r.baseUrl }} code>
-                {r.baseUrl}
-              </Typography.Text>
-            ) : (
-              '—'
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label="设备模板">{profile || '—'}</Descriptions.Item>
-          <Descriptions.Item label="型号">{productModel || '—'}</Descriptions.Item>
-          <Descriptions.Item label="管理地址">
-            {host !== '—' ? (
-              <Typography.Text copyable={{ text: host }} code>
-                {host}
-              </Typography.Text>
-            ) : (
-              '—'
-            )}
-          </Descriptions.Item>
-          <Descriptions.Item label="服务健康">{serviceHealthTag(r)}</Descriptions.Item>
-          <Descriptions.Item label="基本信息">{statusTag(kpiInfoVal, kpiInfoTone)}</Descriptions.Item>
-          <Descriptions.Item label="接口状态">{statusTag(kpiIfVal, kpiIfTone)}</Descriptions.Item>
-          <Descriptions.Item label="性能探测">{statusTag(kpiPerfVal, kpiPerfTone)}</Descriptions.Item>
-          <Descriptions.Item label="VLAN 查询">{statusTag(kpiVlanVal, kpiVlanTone)}</Descriptions.Item>
-        </Descriptions>
-      ),
-    },
-    {
-      key: 'cli',
-      label: '系统信息',
-      children: (
-        <Flex vertical gap="middle">
+  return (
+    <Descriptions {...SWITCH_PROBE_DESCR_COL1}>
+      <Descriptions.Item label="ASW-CTL 名称">
+        {r.name != null && String(r.name).trim() ? r.name : '—'}
+      </Descriptions.Item>
+      <Descriptions.Item label="服务地址">
+        {r.baseUrl ? (
+          <Typography.Text copyable={{ text: r.baseUrl }} code>
+            {r.baseUrl}
+          </Typography.Text>
+        ) : (
+          '—'
+        )}
+      </Descriptions.Item>
+      <Descriptions.Item label="设备模板">{profile || '—'}</Descriptions.Item>
+      <Descriptions.Item label="型号">{productModel || '—'}</Descriptions.Item>
+      <Descriptions.Item label="管理地址">
+        {host !== '—' ? (
+          <Typography.Text copyable={{ text: host }} code>
+            {host}
+          </Typography.Text>
+        ) : (
+          '—'
+        )}
+      </Descriptions.Item>
+      <Descriptions.Item label="服务健康">{serviceHealthTag(r)}</Descriptions.Item>
+      <Descriptions.Item label="基本信息">{statusTag(kpiInfoVal, kpiInfoTone)}</Descriptions.Item>
+      <Descriptions.Item label="接口状态">{statusTag(kpiIfVal, kpiIfTone)}</Descriptions.Item>
+      <Descriptions.Item label="性能探测">{statusTag(kpiPerfVal, kpiPerfTone)}</Descriptions.Item>
+      <Descriptions.Item label="VLAN 查询">{statusTag(kpiVlanVal, kpiVlanTone)}</Descriptions.Item>
+    </Descriptions>
+  );
+}
+
+export function buildPhysicalSwitchProbeCliSection(model: SwitchProbeDrawerModel): React.ReactNode {
+  const r = model.record;
+
+  return (
+    <Flex vertical gap="middle">
           {r.healthError ? (
             <Alert
               type="error"
@@ -96,17 +94,39 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
           ) : null}
           {r.infoError ? (
             <Alert
-              type="error"
+              type={
+                isHmsProbeDimDegraded(r, { errorKey: 'infoError', dataKey: 'info' })
+                  ? 'warning'
+                  : 'error'
+              }
               showIcon
-              message={`基本信息探测失败${r.infoHttpStatus ? `（HTTP ${r.infoHttpStatus}）` : ''}`}
+              message={
+                isHmsProbeDimDegraded(r, { errorKey: 'infoError', dataKey: 'info' })
+                  ? `基本信息：HSM 报错但回显可解析${r.infoHttpStatus ? `（HTTP ${r.infoHttpStatus}）` : ''}`
+                  : `基本信息探测失败${r.infoHttpStatus ? `（HTTP ${r.infoHttpStatus}）` : ''}`
+              }
               description={r.infoError}
             />
           ) : null}
           {r.interfacesError ? (
             <Alert
-              type="error"
+              type={
+                isHmsProbeDimDegraded(r, {
+                  errorKey: 'interfacesError',
+                  dataKey: 'interfaces',
+                })
+                  ? 'warning'
+                  : 'error'
+              }
               showIcon
-              message={`接口探测失败${r.interfacesHttpStatus ? `（HTTP ${r.interfacesHttpStatus}）` : ''}`}
+              message={
+                isHmsProbeDimDegraded(r, {
+                  errorKey: 'interfacesError',
+                  dataKey: 'interfaces',
+                })
+                  ? `接口探测：HSM 报错但端口表可解析${r.interfacesHttpStatus ? `（HTTP ${r.interfacesHttpStatus}）` : ''}`
+                  : `接口探测失败${r.interfacesHttpStatus ? `（HTTP ${r.interfacesHttpStatus}）` : ''}`
+              }
               description={r.interfacesError}
             />
           ) : null}
@@ -150,10 +170,12 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
             />
           ) : null}
 
-          {r.infoError ? null : <AswCliOutputCollapse title="基本信息" lines={r.info?.lines || []} />}
-          {r.interfacesError ? null : (
+          {(r.info?.lines?.length || 0) > 0 ? (
+            <AswCliOutputCollapse title="基本信息" lines={r.info?.lines || []} />
+          ) : null}
+          {(r.interfaces?.lines?.length || 0) > 0 ? (
             <AswCliOutputCollapse title="接口状态" lines={r.interfaces?.lines || []} />
-          )}
+          ) : null}
           {r.performanceError ? null : r.performanceNotApplicable ? (
             <Alert type="info" showIcon message={r.performanceNaMessage || '性能探测未配置（HTTP 503）'} />
           ) : (
@@ -173,8 +195,16 @@ export function buildPhysicalSwitchProbeTabItems(model: SwitchProbeDrawerModel):
           {r.vlansError || r.vlansNotApplicable ? null : (
             <AswCliOutputCollapse title="VLAN CLI 回显" lines={r.vlans?.lines || []} />
           )}
-        </Flex>
-      ),
-    },
+    </Flex>
+  );
+}
+
+/** 探测结果 Tab：概览 | CLI 回显（单层，供抽屉与其它详情复用） */
+export function buildPhysicalSwitchProbeRuntimeTabItems(
+  model: SwitchProbeDrawerModel,
+): TabsProps['items'] {
+  return [
+    { key: 'overview', label: '概览', children: buildPhysicalSwitchProbeOverview(model) },
+    { key: 'cli', label: 'CLI 回显', children: buildPhysicalSwitchProbeCliSection(model) },
   ];
 }

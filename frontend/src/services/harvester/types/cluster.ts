@@ -14,6 +14,8 @@ export type HmsSwitchCrSpec = {
   corsAllowedOrigins?: string[];
   dialTimeout?: number;
   execTimeout?: number;
+  /** 会话内关闭 CLI 分页；留空则由 HSM 按 deviceProfile 默认 */
+  screenLengthCmd?: string;
   passwordConfigured?: boolean;
 };
 

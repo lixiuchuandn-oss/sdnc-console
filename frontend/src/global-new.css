@@ -1147,3 +1147,186 @@ html, body, #root {
   width: 100%;
   min-width: 4em;
 }
+
+/* ==========================================================================
+   Web SSH 终端（物理交换机等；抽屉内嵌，无独立路由页）
+   ========================================================================== */
+.web-ssh-terminal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 320px;
+  background: #0c0c0c;
+  border: 1px solid #3c3c3c;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+.web-ssh-terminal--fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.web-ssh-terminal--fullscreen {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.web-ssh-terminal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.web-ssh-terminal__header-lead {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.web-ssh-terminal__header-icon {
+  color: #4fc1ff;
+  font-size: 14px;
+}
+
+.web-ssh-terminal__header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.web-ssh-terminal__title {
+  color: #e8e8e8;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.web-ssh-terminal__subtitle {
+  color: #9d9d9d;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
+}
+
+.web-ssh-terminal__header-actions .web-ssh-terminal__icon-btn {
+  color: #cccccc !important;
+}
+
+.web-ssh-terminal__header-actions .web-ssh-terminal__icon-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.web-ssh-terminal__alert {
+  flex-shrink: 0;
+  padding: 8px 12px 0;
+  background: #1a1a1a;
+}
+
+.web-ssh-terminal__alert .ant-alert {
+  margin-bottom: 0;
+}
+
+.web-ssh-terminal__body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 320px;
+  padding: 8px 10px 8px 14px;
+  background: #0c0c0c;
+  overflow: hidden;
+}
+
+.web-ssh-terminal__xterm-host {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.web-ssh-terminal__xterm-host .xterm {
+  height: 100%;
+}
+
+.web-ssh-terminal__xterm-host .xterm-screen {
+  height: 100%;
+}
+
+.web-ssh-terminal__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 12, 12, 0.72);
+}
+
+.web-ssh-terminal__overlay--muted {
+  color: #9d9d9d;
+  font-size: 13px;
+}
+
+.web-ssh-terminal__footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 12px;
+  background: #252526;
+  border-top: 1px solid #3c3c3c;
+  font-size: 12px;
+  color: #b0b0b0;
+}
+
+.web-ssh-terminal__endpoint {
+  flex: 0 1 auto;
+  max-width: 36%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.web-ssh-terminal__hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #888;
+  font-size: 11px;
+}
+
+.web-ssh-terminal__size {
+  flex: 0 0 auto;
+  color: #888;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.hms-switch-ssh-drawer .ant-drawer-body {
+  display: flex;
+  flex-direction: column;
+  padding: 12px !important;
+  overflow: hidden;
+  height: calc(100vh - 108px);
+  max-height: calc(100vh - 108px);
+  background: #f2f3f5;
+}
+
+.hms-switch-ssh-drawer .ant-drawer-header {
+  border-bottom: 1px solid #e5e6eb;
+}

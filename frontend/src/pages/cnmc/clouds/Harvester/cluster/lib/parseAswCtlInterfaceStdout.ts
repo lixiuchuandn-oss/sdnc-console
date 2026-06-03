@@ -7,6 +7,7 @@
  */
 
 import type { AswCtlProbeLine } from 'services/harvester/types/aswProbe';
+import { sanitizeAswCliStdout } from './sanitizeAswCliStdout';
 
 export type ParsedSwitchPort = {
   name: string;
@@ -242,11 +243,75 @@ function tryParseH3cDisplayInterfaceBriefTable(stdout: string): ParsedSwitchPort
   return ports;
 }
 
+/**
+ * H3C 桥模式数据行（无表头），常见于 `display interface brief | include XGE`。
+ * 列：Interface Link Speed Duplex Type PVID Description
+ */
+function parseH3cBridgeModeBriefDataRow(trimmed: string): {
+  name: string;
+  link: string;
+  speed: string;
+  duplex: string;
+  description: string;
+} | null {
+  const m = trimmed.match(
+    /^((?:GE|XGE|FGE|HGE|WGE|TGE|TE|FE|Ethernet|GigabitEthernet|Ten-GigabitEthernet|FortyGigE|HundredGigE)\S*)\s+(UP|DOWN|ADM)\s+(\S+)\s+(\S+)\s+([AT])\s+(\d+)\s*(.*)$/i,
+  );
+  if (!m) return null;
+  const type = m[5]!;
+  const pvid = m[6]!;
+  const tail = String(m[7] || '').trim();
+  const description = [type, pvid, tail].filter(Boolean).join(' ').trim();
+  return {
+    name: m[1]!,
+    link: m[2]!,
+    speed: m[3]!,
+    duplex: m[4]!,
+    description,
+  };
+}
+
+/**
+ * 解析无表头的 H3C 过滤 brief 行（`| include GE/XGE` 等）。
+ * @returns `null` 表示未识别到任何物理口行；非空为解析结果。
+ */
+function tryParseH3cFilteredBriefLines(stdout: string): ParsedSwitchPort[] | null {
+  if (!stdout || typeof stdout !== 'string') return null;
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const ports: ParsedSwitchPort[] = [];
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (/^<[\w-]+>$/i.test(trimmed)) continue;
+    if (/^display interface/i.test(trimmed)) continue;
+    if (/^screen-length/i.test(trimmed)) continue;
+    if (/^Copyright/i.test(trimmed) || /^\*/.test(trimmed)) continue;
+    if (/^[-=─]+$/.test(trimmed)) continue;
+
+    const row = parseH3cBridgeModeBriefDataRow(trimmed);
+    if (!row) continue;
+    if (!isLikelyH3cPhysicalInterfaceName(row.name)) continue;
+
+    const speedSummary = [row.speed, row.duplex].filter(Boolean).join(' ').trim();
+    ports.push({
+      name: row.name,
+      status: row.link.replace(/\s+/g, ' ').trim(),
+      speed: speedSummary || undefined,
+      rawLine: trimmed,
+    });
+  }
+
+  return ports.length > 0 ? ports : null;
+}
+
 /** CLI 输出是否可能被分页截断（H3C 等设备不支持 `screen-length 0 temporary` 时常见） */
 export function isSwitchInterfaceStdoutLikelyTruncated(stdout: string): boolean {
   const hint = getSwitchInterfaceStdoutParseHint(stdout);
   return (
     hint === 'h3c-screen-length' ||
+    hint === 'pipe-include-failed' ||
+    hint === 'pipe-cmd-split' ||
     hint === 'paged-more' ||
     hint === 'truncated-table' ||
     hint === 'empty-after-cmd'
@@ -263,6 +328,20 @@ export function getSwitchInterfaceStdoutParseHint(stdout: string): string {
 
   if (/screen-length/i.test(normalized) && /Unrecognized command found/i.test(normalized)) {
     return 'h3c-screen-length';
+  }
+  if (
+    /\| include\b/i.test(normalized) &&
+    /Unrecognized command found/i.test(normalized) &&
+    !/^\s*(?:GE|XGE|FGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(normalized)
+  ) {
+    return 'pipe-include-failed';
+  }
+  if (
+    /display interface brief/i.test(normalized) &&
+    /^\s*<[\w-]+>\s*include\b/im.test(normalized) &&
+    !/^\s*(?:GE|XGE|FGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(normalized)
+  ) {
+    return 'pipe-cmd-split';
   }
   if (/----\s*More\s*----/i.test(normalized)) {
     return 'paged-more';
@@ -295,7 +374,11 @@ export function getSwitchInterfaceStdoutParseHint(stdout: string): string {
 export function formatSwitchInterfaceStdoutParseHint(hint: ReturnType<typeof getSwitchInterfaceStdoutParseHint>): string {
   switch (hint) {
     case 'h3c-screen-length':
-      return 'H3C 设备不支持 screen-length 0 temporary，分页未关闭，display interface brief 未返回完整端口表。该命令写在集群侧 HSM/ASW-CTL 服务的设备模板（h3c-huawei-like）内，Compute Tower 界面只能「选择」模板，不能编辑关分页命令。请联系集群管理员修改 HSM 配置（如 device profile 中的 prep/session 命令改为 screen-length disable 或 screen-length 0），改完后在 Tower「集群 → 物理交换机」重新同步。';
+      return 'H3C 设备不支持当前关分页命令（常见为 screen-length 0 temporary），分页未关闭，display interface brief 未返回完整端口表。请在 Tower「集群 → 物理交换机」编辑该交换机，于「高级（可选）」填写关分页命令（如 screen-length disable），留空则使用设备模板默认；保存后重新同步。';
+    case 'pipe-cmd-split':
+      return '接口命令被拆成多条执行（常见：interfaceCommands 里 `| include` 单独一行，或集群 HSM 按 `|` 截断）。请把整条命令写在同一行，例如 display interface brief | include XGE，保存后重新探测同步。';
+    case 'pipe-include-failed':
+      return '设备不识别带 | include 的接口命令，或关分页未关闭导致过滤失败。请确认已配置 screen-length disable，命令超时 ≥60 秒；若仍失败可暂用 display interface brief（全表，较慢）并提高命令超时。';
     case 'paged-more':
     case 'truncated-table':
       return '接口探测输出被分页截断（输出中含 ---- More ---- 或仅有表头无数据行）。请在 HSM/ASW-CTL 中关闭 CLI 分页后重新同步。';
@@ -415,6 +498,7 @@ function parseBroadcomStylePortTable(stdout: string): ParsedSwitchPort[] {
 /** 解析含 Interface / Status 表头的表格块 */
 export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
   if (!stdout || typeof stdout !== 'string') return [];
+  stdout = sanitizeAswCliStdout(stdout);
 
   const broadcom = parseBroadcomStylePortTable(stdout);
   if (broadcom.length > 0) return broadcom;
@@ -423,6 +507,11 @@ export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
   if (huaweiBrief !== null) return huaweiBrief;
 
   const h3cBrief = tryParseH3cDisplayInterfaceBriefTable(stdout);
+  if (h3cBrief !== null && h3cBrief.length > 0) return h3cBrief;
+
+  const h3cFiltered = tryParseH3cFilteredBriefLines(stdout);
+  if (h3cFiltered !== null && h3cFiltered.length > 0) return h3cFiltered;
+
   if (h3cBrief !== null) return h3cBrief;
 
   const lines = stdout.replace(/\r\n/g, '\n').split('\n');
@@ -500,6 +589,7 @@ export function extractInterfacesStdoutFromRecord(record: {
     if (/DETECTED-VALUES/i.test(out) && /CONFIGURED-VALUES/i.test(out)) score += 4;
     if (/^\s*Interface\s+\S+\s+Protocol\b/im.test(out) && /\bPHY\b/.test(out)) score += 5;
     if (/Brief information on interfaces/i.test(out) && /^\s*Interface\s+Link\b/im.test(out)) score += 5;
+    if (/^\s*(?:GE|XGE|FGE|HGE|WGE|TGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(out)) score += 5;
     if (/^\s*(?:GE|XGE|FGE|HGE|WGE|TGE)\d+\/\d+\/\d+\s+/im.test(out)) score += 4;
     if (/^\s*\d+\/\d+\/\d+\s+/m.test(out)) score += 3;
     if (/[\-+]{12,}/.test(out) && /\+/.test(out)) score += 2;

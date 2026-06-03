@@ -1,8 +1,8 @@
 /**
- * HMS Switch CR 详情抽屉：展示声明式配置 + HSM 探测的运行状态。
+ * HMS Switch CR 详情抽屉：一层 Tab「配置 | 概览 | CLI 回显」。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Descriptions, Drawer, Flex, Spin, Tabs, Tag, Typography } from 'antd';
+import { Button, Descriptions, Drawer, Flex, Tabs, Tag, Typography } from 'antd';
 import type { HmsSwitchCr } from 'services/harvester/cluster';
 import {
   fetchAswCtlSwitchesSummary,
@@ -13,7 +13,12 @@ import type {
   AswCtlSwitchesSummaryResponse,
 } from 'services/harvester/types/aswProbe';
 import { formatHmsDeviceProfileLabel } from '../lib/hmsSwitchCrForm';
-import PhysicalSwitchProbeTabs from '../components/PhysicalSwitchProbeTabs';
+import PhysicalSwitchProbeGate from '../components/PhysicalSwitchProbeGate';
+import {
+  buildPhysicalSwitchProbeCliSection,
+  buildPhysicalSwitchProbeOverview,
+} from '../lib/buildPhysicalSwitchProbeTabItems';
+import { buildSwitchProbeDrawerModel } from '../lib/physicalSwitchProbeTabsLib';
 import {
   hmsSwitchCrManagementHost,
   matchAswProbeRecordByCr,
@@ -28,6 +33,7 @@ export type HmsSwitchDetailDrawerProps = {
   onClose: () => void;
   /** 写权限时可触发实时探测并写库 */
   canSync?: boolean;
+  onOpenSsh?: (cr: HmsSwitchCr) => void;
 };
 
 const DESCR_COL1 = {
@@ -48,12 +54,13 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
   cloudId,
   onClose,
   canSync = false,
+  onOpenSsh,
 }) => {
+  const [activeTab, setActiveTab] = useState<'config' | 'overview' | 'cli'>('config');
   const [probeRecord, setProbeRecord] = useState<AswCtlSwitchProbeRecord | null>(null);
   const [probeLoading, setProbeLoading] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [cacheSyncedAt, setCacheSyncedAt] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'config' | 'runtime'>('config');
 
   const loadProbe = useCallback(
     async (live: boolean) => {
@@ -110,11 +117,27 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
     );
   }, [probeRecord, cr?.spec?.vendor]);
 
+  const spec = useMemo(() => cr?.spec || {}, [cr?.spec]);
+
+  const probeDrawerModel = useMemo(
+    () => (probeRecord ? buildSwitchProbeDrawerModel(probeRecord, cr?.spec?.vendor) : null),
+    [probeRecord, cr?.spec?.vendor],
+  );
+
+  const probeGateProps = useMemo(
+    () => ({
+      loading: probeLoading,
+      error: probeError,
+      record: probeRecord,
+      cacheSyncedAt,
+      canSync,
+      onLiveProbe: canSync ? () => void loadProbe(true) : undefined,
+    }),
+    [probeLoading, probeError, probeRecord, cacheSyncedAt, canSync, loadProbe],
+  );
+
   const tabItems = useMemo(() => {
     if (!cr) return [];
-
-    const spec = cr.spec || {};
-
     return [
       {
         key: 'config',
@@ -149,6 +172,9 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
             <Descriptions.Item label="命令超时">
               {spec.execTimeout != null ? `${spec.execTimeout} 秒` : '15 秒'}
             </Descriptions.Item>
+            <Descriptions.Item label="关分页命令">
+              {String(spec.screenLengthCmd || '').trim() || '（设备模板默认）'}
+            </Descriptions.Item>
             <Descriptions.Item label="基本信息命令">
               {commandCountLabel(spec.infoCommands)}
             </Descriptions.Item>
@@ -175,74 +201,40 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
         ),
       },
       {
-        key: 'runtime',
-        label: '运行状态',
+        key: 'overview',
+        label: '概览',
         children: (
-          <Flex vertical gap="middle">
-            {probeLoading ? (
-              <Flex justify="center" style={{ padding: 48 }}>
-                <Spin tip="加载运行状态…" />
-              </Flex>
-            ) : probeError ? (
-              <Alert type="warning" showIcon message="无法加载运行状态" description={probeError} />
-            ) : null}
-
-            {!probeLoading && !probeRecord ? (
-              <Alert
-                type="info"
-                showIcon
-                message="暂无与该管理地址匹配的探测数据"
-                description={
-                  <>
-                    <div>
-                      HSM 需先读取 Switch CR 并完成探测后，此处才会展示型号、接口与 CLI 回显。
-                      {cacheSyncedAt ? (
-                        <>
-                          <br />
-                          末次入库时间：{cacheSyncedAt}
-                        </>
-                      ) : null}
-                    </div>
-                    {canSync ? (
-                      <Button
-                        type="link"
-                        size="small"
-                        style={{ paddingLeft: 0, marginTop: 8 }}
-                        loading={probeLoading}
-                        onClick={() => void loadProbe(true)}
-                      >
-                        立即探测
-                      </Button>
-                    ) : null}
-                  </>
-                }
-              />
-            ) : null}
-
-            {!probeLoading && probeRecord ? (
-              <>
+          <PhysicalSwitchProbeGate {...probeGateProps}>
+            {probeDrawerModel ? (
+              <Flex vertical gap="middle">
                 {runtimeTitle ? (
                   <Typography.Text type="secondary">设备标识：{runtimeTitle}</Typography.Text>
                 ) : null}
-                <PhysicalSwitchProbeTabs record={probeRecord} />
-              </>
+                {buildPhysicalSwitchProbeOverview(probeDrawerModel)}
+              </Flex>
             ) : null}
-          </Flex>
+          </PhysicalSwitchProbeGate>
+        ),
+      },
+      {
+        key: 'cli',
+        label: 'CLI 回显',
+        children: (
+          <PhysicalSwitchProbeGate {...probeGateProps}>
+            {probeDrawerModel ? buildPhysicalSwitchProbeCliSection(probeDrawerModel) : null}
+          </PhysicalSwitchProbeGate>
         ),
       },
     ];
   }, [
     backupHosts,
-    cacheSyncedAt,
-    canSync,
     configName,
     cr,
-    loadProbe,
     managementHost,
-    probeError,
-    probeLoading,
-    probeRecord,
+    probeDrawerModel,
+    probeGateProps,
     runtimeTitle,
+    spec,
   ]);
 
   return (
@@ -254,15 +246,22 @@ const HmsSwitchDetailDrawer: React.FC<HmsSwitchDetailDrawerProps> = ({
       onClose={onClose}
       destroyOnHidden
       extra={
-        <Button size="small" loading={probeLoading} onClick={() => void loadProbe(!!canSync)}>
-          {canSync ? '探测刷新' : '刷新'}
-        </Button>
+        <Flex gap="small">
+          <Button size="small" loading={probeLoading} onClick={() => void loadProbe(!!canSync)}>
+            {canSync ? '探测同步' : '刷新'}
+          </Button>
+          {onOpenSsh && cr ? (
+            <Button size="small" onClick={() => onOpenSsh(cr)}>
+              SSH 终端
+            </Button>
+          ) : null}
+        </Flex>
       }
     >
       {cr ? (
         <Tabs
           activeKey={activeTab}
-          onChange={(k) => setActiveTab(k as typeof activeTab)}
+          onChange={(k) => setActiveTab(k as 'config' | 'overview' | 'cli')}
           items={tabItems}
         />
       ) : null}

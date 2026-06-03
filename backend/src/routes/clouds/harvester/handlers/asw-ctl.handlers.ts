@@ -20,17 +20,42 @@ import {
   persistAswCtlSwitchInventory,
 } from '../../../../services/clouds/harvester/aswCtlInventory';
 import { parseHmsDeviceProfilesPayload } from '../../../../services/clouds/harvester/hmsDeviceProfiles';
+import { getHmsSwitchCr } from '../../../../services/hms/hmsSwitchCr';
+
+/** 北向 JSON 默认 HTTP 超时（毫秒）；接口探测常慢于 info/performance */
+const ASW_CTL_V1_JSON_TIMEOUT_MS_DEFAULT = 120000;
 
 /**
- * 聚合探测里每条 /v1/* JSON 的超时。
- * aswCtlGetJson 库默认 120s：四条并行时整体耗时会接近「最慢一条」的上限，体感像卡住。
- * 可通过环境变量 ASW_CTL_V1_TIMEOUT_MS 调大（毫秒）。
+ * 聚合探测里每条 /v1/* JSON 的超时（Tower → HSM HTTP，非 Switch CR execTimeout 本身）。
+ * 四条并行时整体耗时接近最慢一条。环境变量 ASW_CTL_V1_TIMEOUT_MS 可覆盖默认值。
+ * 指定 Switch CR 时取 max(默认/环境变量, execTimeout×1000+15s)。
  */
-const ASW_CTL_V1_JSON_TIMEOUT_MS = (() => {
-  const n = Number(process.env.ASW_CTL_V1_TIMEOUT_MS);
-  if (Number.isFinite(n) && n >= 5000) return Math.min(n, 300000);
-  return 45000;
-})();
+export function resolveAswCtlV1JsonTimeoutMs(crExecTimeoutSec?: number): number {
+  const env = Number(process.env.ASW_CTL_V1_TIMEOUT_MS);
+  let ms = ASW_CTL_V1_JSON_TIMEOUT_MS_DEFAULT;
+  if (Number.isFinite(env) && env >= 5000) {
+    ms = Math.min(env, 300000);
+  }
+  const exec = Number(crExecTimeoutSec);
+  if (Number.isFinite(exec) && exec > 0) {
+    ms = Math.max(ms, Math.min(exec * 1000 + 15000, 300000));
+  }
+  return ms;
+}
+
+async function resolveV1TimeoutForSwitchProbe(
+  cloud: { endpoint?: string; secretKey?: string | null; config?: any },
+  switchName?: string,
+): Promise<number> {
+  if (!switchName) return resolveAswCtlV1JsonTimeoutMs();
+  try {
+    const cr = await getHmsSwitchCr(cloud, switchName);
+    const exec = cr?.spec?.execTimeout;
+    return resolveAswCtlV1JsonTimeoutMs(exec);
+  } catch {
+    return resolveAswCtlV1JsonTimeoutMs();
+  }
+}
 
 function itemApiKeySent(ep: NormalizedAswEndpoint): boolean {
   return !!resolveAswCtlApiKeySecret(ep.apiKey);
@@ -256,6 +281,15 @@ function resolveAswCtlRouting(cloud: {
   };
 }
 
+/** HTTP 非 2xx 时仍保留含 lines/instances 的探测 JSON，供前端解析 stdout（如 SSH 超时但已回显端口表） */
+function aswCtlProbePayloadOnFailure(res: { ok: boolean; data?: unknown }): any | null {
+  if (res.ok) return (res as { data?: any }).data ?? null;
+  const d = (res as { data?: any }).data;
+  if (!d || typeof d !== 'object') return null;
+  if (Array.isArray((d as any).lines) || Array.isArray((d as any).instances)) return d;
+  return null;
+}
+
 function northPathWithSwitchName(
   pathAfterPrefix: string,
   northPrefix: string,
@@ -273,38 +307,16 @@ async function fetchAswCtlSwitchRow(
   rowId: string,
   northPrefix: string,
   switchName?: string,
+  v1TimeoutMs?: number,
 ): Promise<AswCtlSwitchRow> {
   const path = (seg: string) => northPathWithSwitchName(seg, northPrefix, switchName);
+  const jsonTimeout = v1TimeoutMs ?? resolveAswCtlV1JsonTimeoutMs();
   const [healthRes, infoRes, ifRes, perfRes, vlanRes] = await Promise.all([
     aswCtlProbeHealth(ep.baseUrl, ep.apiKey, insecureTls),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/info'),
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/interfaces'),
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/performance'),
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    ),
-    aswCtlGetJson(
-      ep.baseUrl,
-      path('/switch/vlans'),
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    ),
+    aswCtlGetJson(ep.baseUrl, path('/switch/info'), ep.apiKey, insecureTls, jsonTimeout),
+    aswCtlGetJson(ep.baseUrl, path('/switch/interfaces'), ep.apiKey, insecureTls, jsonTimeout),
+    aswCtlGetJson(ep.baseUrl, path('/switch/performance'), ep.apiKey, insecureTls, jsonTimeout),
+    aswCtlGetJson(ep.baseUrl, path('/switch/vlans'), ep.apiKey, insecureTls, jsonTimeout),
   ]);
 
   let health: any | null = null;
@@ -368,8 +380,8 @@ async function fetchAswCtlSwitchRow(
     healthHttpStatus,
     healthNotApplicable,
     healthNaMessage,
-    info: infoRes.ok ? infoRes.data : null,
-    interfaces: ifRes.ok ? ifRes.data : null,
+    info: infoRes.ok ? infoRes.data : aswCtlProbePayloadOnFailure(infoRes),
+    interfaces: ifRes.ok ? ifRes.data : aswCtlProbePayloadOnFailure(ifRes),
     infoError: infoRes.ok ? undefined : infoRes.message,
     infoHttpStatus: !infoRes.ok ? infoRes.status : undefined,
     interfacesError: ifRes.ok ? undefined : ifRes.message,
@@ -473,12 +485,14 @@ export async function harvesterAswCtlSyncHandler(req: Request, res: Response) {
     const ep = endpoints[0]!;
     const northPrefix = routed.northPrefix;
 
+    const v1TimeoutMs = await resolveV1TimeoutForSwitchProbe(cloud, switchName || undefined);
     const aggregate = await fetchAswCtlSwitchRow(
       ep,
       insecureTls,
       'sync',
       northPrefix,
       switchName || undefined,
+      v1TimeoutMs,
     );
     const probedItems = expandAswCtlSwitchRowToInstances(aggregate, ep);
 
@@ -540,18 +554,21 @@ export async function harvesterAswCtlProbeHandler(req: Request, res: Response) {
     const ep = { ...routed.endpoints[0]! };
     const northPrefix = routed.northPrefix;
 
+    const v1TimeoutMs = await resolveV1TimeoutForSwitchProbe(cloud, switchName || undefined);
     const aggregate = await fetchAswCtlSwitchRow(
       ep,
       insecureTls,
       'probe',
       northPrefix,
       switchName || undefined,
+      v1TimeoutMs,
     );
     const items = expandAswCtlSwitchRowToInstances(aggregate, ep);
 
     return res.json({
       probe: true,
       apiKeyProvided: itemApiKeySent(ep),
+      v1TimeoutMs,
       aggregate,
       items,
     });
@@ -586,25 +603,14 @@ export async function harvesterAswCtlDeviceProfilesHandler(req: Request, res: Re
     const insecureTls = resolveAswCtlInsecureTls(cloud);
     const ep = routed.endpoints[0]!;
     const switchName = req.query.name != null ? String(req.query.name).trim() : '';
+    const v1TimeoutMs = await resolveV1TimeoutForSwitchProbe(cloud, switchName || undefined);
     // 设备模板为集群级列表；先不带 ?name=，与探测同步一致。部分环境带 API Key 时须已有 Switch 名作为上下文再重试。
     let url = northApiPathWithPrefix('/device/profiles', routed.northPrefix);
-    let profRes = await aswCtlGetJson(
-      ep.baseUrl,
-      url,
-      ep.apiKey,
-      insecureTls,
-      ASW_CTL_V1_JSON_TIMEOUT_MS,
-    );
+    let profRes = await aswCtlGetJson(ep.baseUrl, url, ep.apiKey, insecureTls, v1TimeoutMs);
 
     if (!profRes.ok && switchName && /missing switch name/i.test(String(profRes.message || ''))) {
       url = northPathWithSwitchName('/device/profiles', routed.northPrefix, switchName);
-      profRes = await aswCtlGetJson(
-        ep.baseUrl,
-        url,
-        ep.apiKey,
-        insecureTls,
-        ASW_CTL_V1_JSON_TIMEOUT_MS,
-      );
+      profRes = await aswCtlGetJson(ep.baseUrl, url, ep.apiKey, insecureTls, v1TimeoutMs);
     }
 
     if (!profRes.ok && !switchName && /missing switch name/i.test(String(profRes.message || ''))) {

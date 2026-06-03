@@ -22,6 +22,7 @@ export type PhysicalSwitchesTableActions = {
   onEdit: (cr: HmsSwitchCr) => void;
   onDelete: (cr: HmsSwitchCr) => void;
   onHsmProbe: (cr: HmsSwitchCr) => void;
+  onSsh?: (cr: HmsSwitchCr) => void;
 };
 
 export function buildPhysicalSwitchesTableColumns(
@@ -36,6 +37,7 @@ export function buildPhysicalSwitchesTableColumns(
     onEdit,
     onDelete,
     onHsmProbe,
+    onSsh,
   } = actions;
   const probeBusy = !!probingSwitchName;
 
@@ -81,6 +83,7 @@ export function buildPhysicalSwitchesTableColumns(
           state={resolveHmsProbeDimState(r._probe, {
             errorKey: 'infoError',
             dataKey: 'info',
+            vendor: r.spec?.vendor,
           })}
         />
       ),
@@ -123,26 +126,44 @@ export function buildPhysicalSwitchesTableColumns(
       fixed: 'right',
       render: (_: unknown, r) => {
         const items: ResourceActionItem[] = [];
+        const configName = String(r.metadata?.name || '').trim();
+        const rowProbing = probeBusy && configName === probingSwitchName;
+
         if (canRead) {
           items.push(
-            { key: 'detail', label: '查看详情', onClick: () => onDetail(r) },
+            { key: 'detail', label: '详情', onClick: () => onDetail(r) },
             { key: 'yaml-view', label: '查看 YAML', onClick: () => onYaml(r) },
           );
         }
+
         if (canManageSwitchCr) {
-          const configName = String(r.metadata?.name || '').trim();
-          const rowProbing = probeBusy && configName === probingSwitchName;
+          if (items.length > 0) {
+            items.push({ key: 'div-read-ops', type: 'divider' });
+          }
+
+          if (onSsh) {
+            items.push({
+              key: 'ssh',
+              label: 'SSH 终端',
+              disabled: !configName,
+              onClick: () => onSsh(r),
+            });
+          }
+          items.push({
+            key: 'hsm-probe',
+            label: rowProbing ? '探测同步中…' : '探测同步',
+            disabled: !configName || probeBusy,
+            onClick: () => onHsmProbe(r),
+          });
+
           items.push(
-            {
-              key: 'hsm-probe',
-              label: rowProbing ? 'HSM 探测中…' : 'HSM 探测',
-              disabled: !configName || probeBusy,
-              onClick: () => onHsmProbe(r),
-            },
-            { key: 'edit', label: '编辑交换机', onClick: () => onEdit(r) },
+            { key: 'div-ops-edit', type: 'divider' },
+            { key: 'edit', label: '编辑', onClick: () => onEdit(r) },
+            { key: 'div-edit-delete', type: 'divider' },
             { key: 'delete', label: '删除', danger: true, onClick: () => onDelete(r) },
           );
         }
+
         if (!items.length) return '—';
         return (
           <ResourceActionsDropdown

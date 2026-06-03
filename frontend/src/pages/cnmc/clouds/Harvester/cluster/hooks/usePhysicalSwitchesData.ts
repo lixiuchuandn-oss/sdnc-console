@@ -103,11 +103,11 @@ export function usePhysicalSwitchesData(
         const row =
           (matchedCr ? matchAswProbeRecordByCr(probeItemsList, matchedCr) : null) ||
           aggregate;
-        setServiceMonitorRows(buildHmsServiceProbeRows(probeRes, row));
-        message.success('HSM 探测完成');
+        setServiceMonitorRows(buildHmsServiceProbeRows(probeRes, row, matchedCr?.spec?.vendor));
+        message.success('探测同步完成');
       } catch (e) {
         setServiceMonitorRows([]);
-        message.error(apiErrorMessage(e, 'HSM 探测失败'));
+        message.error(apiErrorMessage(e, '探测同步失败'));
       } finally {
         setProbeLoading(false);
         setServiceMonitorLoading(false);

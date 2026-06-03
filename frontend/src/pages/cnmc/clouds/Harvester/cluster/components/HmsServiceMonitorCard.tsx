@@ -9,6 +9,7 @@ import type {
   AswCtlSwitchesSummaryResponse,
   AswCtlSwitchProbeRecord,
 } from 'services/harvester/types/aswProbe';
+import { evaluateHmsProbeDimState, isHmsProbeDimDegraded } from '../lib/hmsSwitchProbeEval';
 
 export type HmsServiceProbeRowStatus = 'success' | 'warning' | 'error' | 'default';
 
@@ -33,6 +34,7 @@ export function aswCtlProbeAggregateFromResponse(
 export function buildHmsServiceProbeRows(
   res: AswCtlSwitchesSummaryResponse | null | undefined,
   row: AswCtlSwitchProbeRecord | null | undefined,
+  vendor?: string | null,
 ): HmsServiceProbeRow[] {
   const rows: HmsServiceProbeRow[] = [];
 
@@ -90,20 +92,20 @@ export function buildHmsServiceProbeRows(
     key: string,
     label: string,
     errorKey: keyof AswCtlSwitchProbeRecord,
-    dataKey: keyof AswCtlSwitchProbeRecord,
+    dataKey: 'info' | 'interfaces' | 'performance' | 'vlans',
     opts?: { naKey?: keyof AswCtlSwitchProbeRecord; naSummary?: string; naMessageKey?: keyof AswCtlSwitchProbeRecord },
   ) => {
-    if (row?.[errorKey]) {
-      rows.push({
-        key,
-        label,
-        status: 'error',
-        summary: '异常',
-        detail: String(row[errorKey]),
-      });
+    if (!row) {
+      rows.push({ key, label, status: 'default', summary: '—' });
       return;
     }
-    if (opts?.naKey && row?.[opts.naKey]) {
+    const dim = evaluateHmsProbeDimState(row, {
+      errorKey,
+      dataKey,
+      naKey: opts?.naKey,
+      vendor: dataKey === 'info' ? vendor : undefined,
+    });
+    if (dim === 'warn' && opts?.naKey && row[opts.naKey]) {
       const detail =
         opts.naMessageKey && row[opts.naMessageKey] != null
           ? String(row[opts.naMessageKey])
@@ -117,13 +119,29 @@ export function buildHmsServiceProbeRows(
       });
       return;
     }
-    const data = row?.[dataKey];
-    if (data && typeof data === 'object' && 'ok' in data && data.ok === false) {
-      rows.push({ key, label, status: 'error', summary: '异常' });
+    if (dim === 'ok') {
+      const degraded = isHmsProbeDimDegraded(row, {
+        errorKey,
+        dataKey,
+        vendor: dataKey === 'info' ? vendor : undefined,
+      });
+      rows.push({
+        key,
+        label,
+        status: degraded ? 'warning' : 'success',
+        summary: degraded ? '部分成功' : '正常',
+        detail: degraded && row[errorKey] ? String(row[errorKey]) : undefined,
+      });
       return;
     }
-    if (data) {
-      rows.push({ key, label, status: 'success', summary: '正常' });
+    if (dim === 'err') {
+      rows.push({
+        key,
+        label,
+        status: 'error',
+        summary: '异常',
+        detail: row[errorKey] ? String(row[errorKey]) : undefined,
+      });
       return;
     }
     rows.push({ key, label, status: 'default', summary: '—' });

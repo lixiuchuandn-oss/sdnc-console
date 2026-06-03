@@ -69,6 +69,19 @@ describe('parseAswCtlInterfaceStdout helpers', () => {
       expect(ports.map((p) => p.name)).toEqual(['GE1/0/1', 'GE1/0/2']);
       expect(ports[0]?.speed).toContain('1000M');
     });
+
+    it('parses filtered brief lines without table header (include XGE)', () => {
+      const filtered = `
+<H3C-CORE-SW>display interface brief | include XGE
+XGE1/0/1 UP 10G(a) F(a) A 11 to 58_enp175s0f1
+XGE1/0/2 UP 10G(a) F(a) A 11 to 59_enp175s0f0
+XGE1/0/48 UP 1G(a) F(a) A 4094 to_IPMI
+`;
+      const ports = parseInterfaceStatusStdout(filtered);
+      expect(ports.map((p) => p.name)).toEqual(['XGE1/0/1', 'XGE1/0/2', 'XGE1/0/48']);
+      expect(ports[0]?.status).toBe('UP');
+      expect(ports[0]?.speed).toContain('10G');
+    });
   });
 
   describe('isSwitchInterfaceStdoutLikelyTruncated', () => {
@@ -98,6 +111,12 @@ Interface            Link
         '<H3C-CORE-SW>screen-length 0 temporary\r\n % Unrecognized command found at \'^\' position.\r\n<H3C-CORE-SW>display interface brief\r\n';
       expect(getSwitchInterfaceStdoutParseHint(syncStdout)).toBe('h3c-screen-length');
       expect(isSwitchInterfaceStdoutLikelyTruncated(syncStdout)).toBe(true);
+    });
+
+    it('detects pipe command split into second CLI line', () => {
+      const splitStdout =
+        '<H3C-CORE-SW>display interface brief\r\n<H3C-CORE-SW>include XGE\r\n % Unrecognized command found';
+      expect(getSwitchInterfaceStdoutParseHint(splitStdout)).toBe('pipe-cmd-split');
     });
   });
 
