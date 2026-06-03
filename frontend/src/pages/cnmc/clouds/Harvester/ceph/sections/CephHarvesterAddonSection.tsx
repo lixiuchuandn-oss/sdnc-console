@@ -7,14 +7,12 @@ import {
   Button,
   Card,
   Col,
-  Collapse,
   Drawer,
   Form,
   Input,
   InputNumber,
   Row,
   Select,
-  Space,
   Steps,
   Switch,
   Tabs,
@@ -46,9 +44,12 @@ import { CEPH_STORAGE_NETWORK_CHANGE_RISK_ITEMS } from '../../shared/lib/highRis
 import ConfigSummaryDescriptions from './harvesterAddon/ConfigSummaryDescriptions';
 import CephPoolSection from './CephPoolSection';
 import FormSection from './harvesterAddon/FormSection';
+import HarvesterAddonAdvancedCollapse from './harvesterAddon/HarvesterAddonAdvancedCollapse';
+import HarvesterAddonWizardFormStack from './harvesterAddon/HarvesterAddonWizardFormStack';
 import HarvesterAddonOperateTabShell, {
   OperateTabRefreshButton,
 } from './harvesterAddon/HarvesterAddonOperateTabShell';
+import HarvesterAddonWizardStepShell from './harvesterAddon/HarvesterAddonWizardStepShell';
 import NodeDiskAssignmentEditor from './harvesterAddon/NodeDiskAssignmentEditor';
 import WizardFooter from './harvesterAddon/WizardFooter';
 import {
@@ -56,9 +57,16 @@ import {
   OSD_STORE_OPTIONS,
   RECLAIM_POLICY_OPTIONS,
   VOLUME_BINDING_OPTIONS,
+  WIZARD_CARD_BODY_STYLES,
+  ADDON_WIZARD_CARD_CLASS,
+  WIZARD_STEP_INFO_MESSAGES,
   WIZARD_STEPS,
+  WIZARD_STEPS_STYLE,
   OPERATE_TAB_BODY_STYLE,
   OPERATE_TAB_EXTRA_ALERT_STYLE,
+  OPERATE_TAB_FIELD_COL_PROPS,
+  OPERATE_TAB_FIELD_COL_THIRD_PROPS,
+  OPERATE_TAB_FIELD_ROW_GUTTER,
   type HarvesterAddonOperateTabKey,
 } from './harvesterAddon/addonUiConstants';
 import { addHarvesterAddonNodeRow } from './harvesterAddon/nodeDiskAssignmentUtils';
@@ -95,6 +103,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
 
   const [form] = Form.useForm<HarvesterAddonFormValues>();
   const expandListOpsRef = useRef<FormListOperation | null>(null);
+  const wizardListOpsRef = useRef<FormListOperation | null>(null);
   const storageNetworkRef = useRef<CephStorageNetworkEditorHandle | null>(null);
   const operateStorageNetworkRef = useRef<CephStorageNetworkEditorHandle | null>(null);
   const [storageNetworkBusy, setStorageNetworkBusy] = useState({ loading: false, saving: false });
@@ -148,13 +157,13 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   );
 
   const renderStepPoolAndSc = () => (
-    <>
+    <HarvesterAddonWizardFormStack>
       <FormSection
         title="数据保护"
         description="决定块存储数据的冗余份数。生产环境通常使用 3 副本以兼顾可靠性与性能。"
       >
-        <Row gutter={[24, 0]}>
-          <Col xs={24} md={12} lg={10}>
+        <Row gutter={OPERATE_TAB_FIELD_ROW_GUTTER}>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
             <Form.Item
               name="replicaSize"
               label="数据副本数"
@@ -164,13 +173,12 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
               <InputNumber
                 min={1}
                 max={7}
-                style={{ width: '100%' }}
                 disabled={ctrl.configLocked}
                 onChange={ctrl.handleReplicaSizeChange}
               />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12} lg={10}>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
             <Form.Item name="compressionMode" label="数据压缩">
               <Select options={COMPRESSION_OPTIONS} disabled={ctrl.configLocked} />
             </Form.Item>
@@ -182,18 +190,18 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
         title="云硬盘行为"
         description="创建块存储云硬盘时的默认回收、扩容与分配策略。"
       >
-        <Row gutter={[24, 0]}>
-          <Col xs={24} md={12} lg={10}>
+        <Row gutter={OPERATE_TAB_FIELD_ROW_GUTTER}>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
             <Form.Item name={['storageClass', 'reclaimPolicy']} label="删除云硬盘时">
               <Select options={RECLAIM_POLICY_OPTIONS} disabled={ctrl.configLocked} />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12} lg={10}>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
             <Form.Item name={['storageClass', 'volumeBindingMode']} label="存储空间分配时机">
               <Select options={VOLUME_BINDING_OPTIONS} disabled={ctrl.configLocked} />
             </Form.Item>
           </Col>
-          <Col xs={24} md={12} lg={10}>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
             <Form.Item
               name={['storageClass', 'allowVolumeExpansion']}
               label="允许在线扩容"
@@ -205,48 +213,34 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
         </Row>
       </FormSection>
 
-      <Collapse
-        ghost
-        items={[
-          {
-            key: 'advanced',
-            label: '高级选项',
-            children: (
-              <FormSection title="严格副本数校验" description="一般保持默认即可。">
-                <Form.Item
-                  name="requireSafeReplicaSize"
-                  label="启用严格副本数校验"
-                  valuePropName="checked"
-                  extra="关闭后允许使用非标准副本数组合，仅在有明确规划时调整。"
-                >
-                  <Switch checkedChildren="启用" unCheckedChildren="关闭" disabled={ctrl.configLocked} />
-                </Form.Item>
-              </FormSection>
-            ),
-          },
-        ]}
-      />
-    </>
+      <HarvesterAddonAdvancedCollapse>
+        <Form.Item
+          name="requireSafeReplicaSize"
+          label="启用严格副本数校验"
+          valuePropName="checked"
+          extra="关闭后允许使用非标准副本数组合，仅在有明确规划时调整。"
+        >
+          <Switch checkedChildren="启用" unCheckedChildren="关闭" disabled={ctrl.configLocked} />
+        </Form.Item>
+      </HarvesterAddonAdvancedCollapse>
+    </HarvesterAddonWizardFormStack>
   );
 
   const renderStepCluster = () => (
-    <>
-      <FormSection
-        title="集群管理"
-        description="管理节点负责维护存储集群元数据与调度；数量通常与数据副本数一致。"
-      >
-        <Row gutter={[24, 0]}>
-          <Col xs={24} md={8} lg={6}>
+    <HarvesterAddonWizardFormStack>
+      <FormSection title="集群服务">
+        <Row gutter={OPERATE_TAB_FIELD_ROW_GUTTER}>
+          <Col {...OPERATE_TAB_FIELD_COL_THIRD_PROPS}>
             <Form.Item name={['cephCluster', 'monCount']} label="管理节点数量">
-              <InputNumber min={1} max={7} style={{ width: '100%' }} disabled={ctrl.configLocked} />
+              <InputNumber min={1} max={7} disabled={ctrl.configLocked} />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8} lg={6}>
+          <Col {...OPERATE_TAB_FIELD_COL_THIRD_PROPS}>
             <Form.Item name={['cephCluster', 'mgrCount']} label="调度服务数量">
-              <InputNumber min={1} max={7} style={{ width: '100%' }} disabled={ctrl.configLocked} />
+              <InputNumber min={1} max={7} disabled={ctrl.configLocked} />
             </Form.Item>
           </Col>
-          <Col xs={24} md={8} lg={6}>
+          <Col {...OPERATE_TAB_FIELD_COL_THIRD_PROPS}>
             <Form.Item
               name={['cephCluster', 'dashboardEnabled']}
               label="内置监控面板"
@@ -258,51 +252,40 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
         </Row>
       </FormSection>
 
-      <Collapse
-        ghost
-        items={[
-          {
-            key: 'advanced',
-            label: '高级选项',
-            children: (
-              <FormSection title="磁盘布局" description="影响单盘上的存储进程划分，一般无需修改。">
-                <Row gutter={[24, 0]}>
-                  <Col xs={24} md={12} lg={10}>
-                    <Form.Item name={['cephCluster', 'osdsPerDevice']} label="每盘存储进程数">
-                      <Input disabled={ctrl.configLocked} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={12} lg={10}>
-                    <Form.Item name={['cephCluster', 'osdObjectstore']} label="磁盘存储引擎">
-                      <Select options={OSD_STORE_OPTIONS} disabled={ctrl.configLocked} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={12} lg={10}>
-                    <Form.Item name={['cephCluster', 'metadataDevice']} label="集群级元数据盘（可选）">
-                      <Input placeholder="留空使用默认" disabled={ctrl.configLocked} />
-                    </Form.Item>
-                  </Col>
-                  <Col xs={24} md={12} lg={10}>
-                    <Form.Item
-                      name={['cephCluster', 'allowMultipleMonPerNode']}
-                      label="允许同一节点部署多个管理节点"
-                      valuePropName="checked"
-                    >
-                      <Switch checkedChildren="允许" unCheckedChildren="禁止" disabled={ctrl.configLocked} />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </FormSection>
-            ),
-          },
-        ]}
-      />
-    </>
+      <HarvesterAddonAdvancedCollapse description="影响单盘上的存储进程划分，一般无需修改。">
+        <Row gutter={OPERATE_TAB_FIELD_ROW_GUTTER}>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
+            <Form.Item name={['cephCluster', 'osdsPerDevice']} label="每盘存储进程数">
+              <Input disabled={ctrl.configLocked} />
+            </Form.Item>
+          </Col>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
+            <Form.Item name={['cephCluster', 'osdObjectstore']} label="磁盘存储引擎">
+              <Select options={OSD_STORE_OPTIONS} disabled={ctrl.configLocked} />
+            </Form.Item>
+          </Col>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
+            <Form.Item name={['cephCluster', 'metadataDevice']} label="集群级元数据盘（可选）">
+              <Input placeholder="留空使用默认" disabled={ctrl.configLocked} />
+            </Form.Item>
+          </Col>
+          <Col {...OPERATE_TAB_FIELD_COL_PROPS}>
+            <Form.Item
+              name={['cephCluster', 'allowMultipleMonPerNode']}
+              label="允许同一节点部署多个管理节点"
+              valuePropName="checked"
+            >
+              <Switch checkedChildren="允许" unCheckedChildren="禁止" disabled={ctrl.configLocked} />
+            </Form.Item>
+          </Col>
+        </Row>
+      </HarvesterAddonAdvancedCollapse>
+    </HarvesterAddonWizardFormStack>
   );
 
   const renderStepConfirm = () => (
-    <>
-      <FormSection title="配置摘要" description="提交前请核对以下参数。">
+    <HarvesterAddonWizardFormStack>
+      <FormSection title="配置摘要">
         <ConfigSummaryDescriptions
           values={ctrl.getWizardFormValues()}
           blockDevicesRaw={ctrl.blockDevicesRaw}
@@ -314,7 +297,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
           专家模式（手动编辑 YAML）
         </Typography.Link>
       ) : null}
-    </>
+    </HarvesterAddonWizardFormStack>
   );
 
   const renderStepStorageNetwork = () => (
@@ -323,32 +306,92 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
       cloudId={cloudId}
       variant="wizard"
       readOnly={ctrl.formDisabled}
+      onBusyChange={setStorageNetworkBusy}
     />
   );
 
+  const renderWizardStepContent = () => {
+    switch (ctrl.currentStep) {
+      case 0:
+        return renderStepStorageNetwork();
+      case 1:
+        return (
+          <NodeDiskAssignmentEditor
+            form={form}
+            nodeOptions={ctrl.nodeOptions}
+            blockDevicesRaw={ctrl.blockDevicesRaw}
+            metaLoading={ctrl.metaLoading}
+            disabled={ctrl.formDisabled}
+            baselineConfig={ctrl.baselineConfig}
+            onRefresh={() => void ctrl.loadMeta(true)}
+            expansionMode
+            listOpsRef={wizardListOpsRef}
+          />
+        );
+      case 2:
+        return renderStepCluster();
+      case 3:
+        return renderStepPoolAndSc();
+      case 4:
+        return renderStepConfirm();
+      default:
+        return null;
+    }
+  };
+
+  const renderWizardStepAlertActions = () => {
+    if (ctrl.currentStep === 0) {
+      return (
+        <OperateTabRefreshButton
+          loading={storageNetworkBusy.loading}
+          disabled={ctrl.formDisabled}
+          onClick={() => void storageNetworkRef.current?.reload()}
+        />
+      );
+    }
+    if (ctrl.currentStep === 1) {
+      return (
+        <>
+          <OperateTabRefreshButton
+            label="刷新磁盘"
+            loading={ctrl.metaLoading}
+            disabled={ctrl.formDisabled}
+            onClick={() => void ctrl.loadMeta(true)}
+          />
+          <Button
+            type="default"
+            disabled={
+              ctrl.formDisabled ||
+              ctrl.nodeOptions.length === 0 ||
+              ctrl.nodeOptions.every((o) => ctrl.expandUsedNodeNames.has(o.value))
+            }
+            onClick={() => {
+              const add = wizardListOpsRef.current?.add;
+              if (add) addHarvesterAddonNodeRow(add, ctrl.nodeOptions, ctrl.watchedExpandNodes);
+            }}
+          >
+            添加节点
+          </Button>
+        </>
+      );
+    }
+    return null;
+  };
+
   const renderProvisionWizard = () => (
-    <Card size="small" styles={{ body: { padding: '20px 24px 8px' } }}>
+    <Card size="small" className={ADDON_WIZARD_CARD_CLASS} styles={WIZARD_CARD_BODY_STYLES}>
       <Steps
         current={ctrl.currentStep}
         items={WIZARD_STEPS.map((step) => ({ title: step.title, description: step.description }))}
         onChange={ctrl.handleStepChange}
-        style={{ marginBottom: 28 }}
+        style={WIZARD_STEPS_STYLE}
       />
-      {ctrl.currentStep === 0 ? renderStepStorageNetwork() : null}
-      {ctrl.currentStep === 1 ? (
-        <NodeDiskAssignmentEditor
-          form={form}
-          nodeOptions={ctrl.nodeOptions}
-          blockDevicesRaw={ctrl.blockDevicesRaw}
-          metaLoading={ctrl.metaLoading}
-          disabled={ctrl.formDisabled}
-          baselineConfig={ctrl.baselineConfig}
-          onRefresh={() => void ctrl.loadMeta(true)}
-        />
-      ) : null}
-      {ctrl.currentStep === 2 ? renderStepCluster() : null}
-      {ctrl.currentStep === 3 ? renderStepPoolAndSc() : null}
-      {ctrl.currentStep === 4 ? renderStepConfirm() : null}
+      <HarvesterAddonWizardStepShell
+        infoMessage={WIZARD_STEP_INFO_MESSAGES[ctrl.currentStep]}
+        alertActions={renderWizardStepAlertActions()}
+      >
+        {renderWizardStepContent()}
+      </HarvesterAddonWizardStepShell>
 
       <WizardFooter>
         {ctrl.currentStep > 0 ? <Button onClick={ctrl.handlePrev}>上一步</Button> : <span />}
@@ -548,7 +591,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   }
 
   return (
-    <PageDetailSection contentPadding={16} autoStyleInputs>
+    <PageDetailSection contentPadding={16} autoStyleInputs={false}>
       <AddonStatusOverview
         status={ctrl.status}
         loading={ctrl.statusLoading}

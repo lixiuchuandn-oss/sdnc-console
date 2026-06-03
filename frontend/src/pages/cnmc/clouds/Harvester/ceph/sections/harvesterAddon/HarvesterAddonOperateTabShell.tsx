@@ -3,10 +3,10 @@
  * 用于「扩容存储」「变更存储网」「SDRS 策略」等 Tab，避免各页重复拼装。
  */
 import React from 'react';
-import { Alert, Button, Space } from 'antd';
+import { Button } from 'antd';
 import WriteGuard from 'components/WriteGuard';
+import HarvesterAddonTabFormShell from './HarvesterAddonTabFormShell';
 import WizardFooter from './WizardFooter';
-import { OPERATE_TAB_BODY_STYLE, OPERATE_TAB_FIELD_MAX_WIDTH, OPERATE_TAB_FORM_CLASS, OPERATE_TAB_INFO_ALERT_PROPS } from './addonUiConstants';
 
 export type OperateTabSubmitConfig = {
   label: string;
@@ -56,21 +56,13 @@ const HarvesterAddonOperateTabShell: React.FC<HarvesterAddonOperateTabShellProps
   submit,
 }) => (
   <>
-    <Alert
-      {...OPERATE_TAB_INFO_ALERT_PROPS}
-      message={infoMessage}
-      action={alertActions ? <Space wrap size={8}>{alertActions}</Space> : undefined}
-    />
-    {extraAlerts}
-    <div
-      className={OPERATE_TAB_FORM_CLASS}
-      style={{
-        ...OPERATE_TAB_BODY_STYLE,
-        ['--harvester-addon-operate-field-max-width' as string]: `${OPERATE_TAB_FIELD_MAX_WIDTH}px`,
-      }}
+    <HarvesterAddonTabFormShell
+      infoMessage={infoMessage}
+      alertActions={alertActions}
+      extraAlerts={extraAlerts}
     >
       {children}
-    </div>
+    </HarvesterAddonTabFormShell>
     {submit ? (
       <WizardFooter>
         <span />
