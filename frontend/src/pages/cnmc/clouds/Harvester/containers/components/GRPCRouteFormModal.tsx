@@ -19,6 +19,7 @@ export interface GRPCRouteFormModalProps {
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
+  defaultGateway?: { name: string; namespace: string };
 }
 
 const GRPCRouteFormModal: React.FC<GRPCRouteFormModalProps> = ({
@@ -30,6 +31,7 @@ const GRPCRouteFormModal: React.FC<GRPCRouteFormModalProps> = ({
   onSuccess,
   onCancel,
   defaultNamespace,
+  defaultGateway,
 }) => {
   return (
     <Modal
@@ -57,6 +59,7 @@ const GRPCRouteFormModal: React.FC<GRPCRouteFormModalProps> = ({
         }}
         onCancel={onCancel}
         defaultNamespace={defaultNamespace}
+        defaultGateway={defaultGateway}
       />
     </Modal>
   );

@@ -19,6 +19,7 @@ export interface HTTPRouteFormModalProps {
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
+  defaultGateway?: { name: string; namespace: string };
 }
 
 const HTTPRouteFormModal: React.FC<HTTPRouteFormModalProps> = ({
@@ -30,6 +31,7 @@ const HTTPRouteFormModal: React.FC<HTTPRouteFormModalProps> = ({
   onSuccess,
   onCancel,
   defaultNamespace,
+  defaultGateway,
 }) => {
   return (
     <Modal
@@ -57,6 +59,7 @@ const HTTPRouteFormModal: React.FC<HTTPRouteFormModalProps> = ({
         }}
         onCancel={onCancel}
         defaultNamespace={defaultNamespace}
+        defaultGateway={defaultGateway}
       />
     </Modal>
   );

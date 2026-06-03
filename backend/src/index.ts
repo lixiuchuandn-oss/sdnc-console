@@ -276,6 +276,8 @@ app.use('/api/users', authMiddleware, userRoutes);
 // Dify 同源反代（须在 clouds 鉴权之前；SSO callback 的 ?token= 为 Dify JWT，不能走 Tower 鉴权）
 app.use('/api/clouds', difyEmbedProxyRouter);
 app.use('/api/clouds', authMiddleware, cloudRoutes);
+// 兼容代理对 multipart 请求丢失 /api 前缀的情况
+app.use('/clouds', authMiddleware, cloudRoutes);
 
 app.use('/api/tenants', authMiddleware, tenantRoutes);
 app.use('/api/cens', authMiddleware, cenRoutes);
@@ -403,6 +405,7 @@ export function startServer(): void {
           ensureHarborTables,
           ensureCephMgrDashboardSnapshotTable,
           ensureGuacamoleTables,
+          ensureLocalRegistryTables,
         } = await import('./config/database');
         await ensureRecycleBinTables();
         await ensureKubeOvnSecurityGroupTables();
@@ -415,6 +418,7 @@ export function startServer(): void {
         await ensureHarborTables();
         await ensureCephMgrDashboardSnapshotTable();
         await ensureGuacamoleTables();
+        await ensureLocalRegistryTables();
       } catch (e) {
         logger.warn('初始化数据库扩展表失败（回收站 / 安全组等）:', e);
       }

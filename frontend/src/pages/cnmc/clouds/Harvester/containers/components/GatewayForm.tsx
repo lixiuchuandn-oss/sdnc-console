@@ -66,7 +66,7 @@ export interface GatewayFormProps {
   cloudId: string;
   namespacesOptions: string[];
   gatewayClasses: any[]; // 可用的 GatewayClass 列表
-  onSuccess: () => void;
+  onSuccess: (gatewayInfo?: { name: string; namespace: string }) => void;
   onCancel: () => void;
   defaultNamespace?: string;
 }
@@ -178,7 +178,12 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
 
       await createGateway(cloudId, values.namespace, submitData);
       message.success('Gateway 创建成功');
-      onSuccess();
+      
+      // 传递新创建的 Gateway 信息给父组件
+      onSuccess({ 
+        name: submitData.metadata.name, 
+        namespace: values.namespace 
+      });
     } catch (error: any) {
       console.error('[GatewayForm] 创建失败:', error);
       const errorMsg = error?.response?.data?.message || error?.message || '创建失败';

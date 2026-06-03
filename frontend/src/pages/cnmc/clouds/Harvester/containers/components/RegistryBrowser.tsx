@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Tree, Input, Empty, Spin, Typography, Tag, message, Space, Tooltip, Button } from 'antd';
+import { Tree, Input, Empty, Spin, Typography, Tag, message, Space, Tooltip, Button, Popconfirm } from 'antd';
 import { 
   DockerOutlined, 
   TagOutlined, 
@@ -26,9 +26,10 @@ import {
   ReloadOutlined,
   LinkOutlined,
   CopyOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import type { TreeDataNode, TreeProps } from 'antd';
-import { getRegistryCatalog, getRegistryTags } from '../../../../../../services/harvesterApi';
+import { getRegistryCatalog, getRegistryTags, deleteRegistryTag } from '../../../../../../services/harvesterApi';
 
 const { Text } = Typography;
 
@@ -91,7 +92,8 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [loadedKeys, setLoadedKeys] = useState<Set<string>>(new Set());
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [treeKey, setTreeKey] = useState(0); // 用于强制重新渲染 Tree 组件
+  const [treeKey, setTreeKey] = useState(0);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   // 是否为选择模式
   const isSelectMode = !!onSelectImage;
@@ -323,6 +325,57 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
   }, []);
 
   /**
+   * 删除标签
+   */
+  const handleDeleteTag = useCallback(async (repository: string, tag: string) => {
+    try {
+      setDeleting(`${repository}:${tag}`);
+      
+      await deleteRegistryTag(
+        cloudId,
+        credential.server,
+        repository,
+        tag,
+        credential.username,
+        credential.password,
+        credential.insecure,
+      );
+      
+      message.success('删除成功');
+      
+      // 3. 重新加载标签列表
+      setLoadedKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(`repo:${repository}`);
+        return next;
+      });
+      
+      // 重新加载该仓库的标签
+      const tagNodes = await loadTags(repository);
+      setTreeData((prevData) => {
+        const updateNode = (nodes: ExtendedTreeDataNode[]): ExtendedTreeDataNode[] => {
+          return nodes.map((n) => {
+            if (n.key === `repo:${repository}`) {
+              return { ...n, children: tagNodes };
+            }
+            if (n.children) {
+              return { ...n, children: updateNode(n.children as ExtendedTreeDataNode[]) };
+            }
+            return n;
+          });
+        };
+        return updateNode(prevData);
+      });
+      setTreeKey(prev => prev + 1);
+    } catch (error: any) {
+      console.error('删除标签失败:', error);
+      message.error(error?.message || '删除失败');
+    } finally {
+      setDeleting(null);
+    }
+  }, [cloudId, credential, loadTags]);
+
+  /**
    * 选择节点
    */
   const handleSelect: TreeProps['onSelect'] = (selectedKeys, info) => {
@@ -441,8 +494,10 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
           titleRender={(node) => {
             const extNode = node as ExtendedTreeDataNode;
             
-            // 标签节点：显示图标、tag名称和复制按钮
+            // 标签节点：显示图标、tag名称和操作按钮
             if (extNode.nodeType === 'tag' && extNode.repository && extNode.tag) {
+              const isDeleting = deleting === `${extNode.repository}:${extNode.tag}`;
+              
               return (
                 <div 
                   style={{ 
@@ -471,6 +526,25 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
                         }}
                       />
                     </Tooltip>
+                    <Popconfirm
+                      title="确认删除此标签？"
+                      onConfirm={(e) => {
+                        e?.stopPropagation();
+                        handleDeleteTag(extNode.repository!, extNode.tag!);
+                      }}
+                      onCancel={(e) => e?.stopPropagation()}
+                    >
+                      <Tooltip title="删除">
+                        <Button
+                          type="text"
+                          size="small"
+                          danger
+                          icon={<DeleteOutlined />}
+                          loading={isDeleting}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </Tooltip>
+                    </Popconfirm>
                   </Space>
                 </div>
               );
@@ -486,7 +560,7 @@ const RegistryBrowser: React.FC<RegistryBrowserProps> = ({
         <Text type="secondary">
           {isSelectMode 
             ? '点击镜像名称展开标签列表，点击标签选择镜像'
-            : '点击镜像名称展开标签列表，点击复制图标复制镜像地址'
+            : '点击镜像名称展开标签列表，可复制、重命名或删除标签'
           }
         </Text>
       </div>

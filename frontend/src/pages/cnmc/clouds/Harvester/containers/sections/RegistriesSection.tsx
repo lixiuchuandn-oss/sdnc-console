@@ -40,11 +40,17 @@ import {
   updateHarborRegistry,
   getRegistryCatalog,
 } from '../../../../../../services/harvesterApi';
+import {
+  fetchLocalRegistries,
+  refreshLocalRegistryStatus,
+  LocalRegistry,
+} from '../../../../../../services/localRegistryApi';
 import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
 import GenericRegistryDrawer from '../components/GenericRegistryDrawer';
 import HarborDetailDrawer from '../../harbor/components/HarborDetailDrawer';
 import ProjectDetailDrawer from '../../harbor/components/ProjectDetailDrawer';
 import RepositoryDetailDrawer from '../../harbor/components/RepositoryDetailDrawer';
+import DeployLocalRegistryModal from '../components/DeployLocalRegistryModal';
 import type { HarborProject, HarborRepository } from '../../harbor/types';
 import {
   createContainerToolbarRefresh,
@@ -76,10 +82,14 @@ interface RegistryConfig {
   insecure: boolean;
   createdAt: string;
   // Harbor 扩展字段
-  type?: 'generic' | 'harbor';
-  status?: 'healthy' | 'unhealthy' | 'unknown';
+  type?: 'generic' | 'harbor' | 'local';
+  status?: 'healthy' | 'unhealthy' | 'unknown' | 'deploying' | 'deleting';
   harborId?: string;
   isBuiltIn?: boolean;
+  // 本地仓库扩展字段
+  localRegistryId?: string;
+  namespace?: string;
+  nodePort?: number;
 }
 
 /**
@@ -314,7 +324,7 @@ const AddRegistryModal: React.FC<{
     if (visible) {
       if (editData) {
         form.setFieldsValue(editData);
-        setRegistryType(editData.type || 'generic');
+        setRegistryType(editData.type === 'harbor' ? 'harbor' : 'generic');
       } else {
         form.resetFields();
         form.setFieldsValue({ insecure: true, type: 'generic' });
@@ -323,6 +333,9 @@ const AddRegistryModal: React.FC<{
       setTestResult(null);
     }
   }, [visible, editData, form]);
+  
+  // 是否是本地仓库（平台部署）
+  const isLocalRegistry = !!editData?.localRegistryId;
   
   // 类型切换处理
   const handleTypeChange = useCallback((type: 'generic' | 'harbor') => {
@@ -460,27 +473,46 @@ const AddRegistryModal: React.FC<{
           return;
         }
       } else {
-        // Generic 类型：保持现有逻辑
-        // 如果是 HTTP 仓库且有 cloudId，则配置到 Harvester containerd-registry
-        if (values.insecure && cloudId && values.server) {
+        // Generic 类型
+        // 如果是本地仓库编辑
+        if (isLocalRegistry && editData?.localRegistryId) {
           try {
-            // 清理 server 地址（去掉协议前缀）
-            let server = values.server.trim();
-            if (server.startsWith('http://')) {
-              server = server.slice(7);
-            } else if (server.startsWith('https://')) {
-              server = server.slice(8);
-            }
-            
-            await addInsecureRegistry(cloudId, server);
+            const { updateLocalRegistry } = await import('../../../../../../services/localRegistryApi');
+            await updateLocalRegistry(cloudId!, editData.localRegistryId, {
+              name: values.name,
+              authEnabled: !!values.username,
+              username: values.username,
+              password: values.password,
+            });
+            message.success('本地仓库已更新');
+            onOk(values);
           } catch (e: any) {
-            // 配置失败但继续保存本地记录
-            console.warn('配置 containerd-registry 失败:', e);
-            message.warning(`containerd 配置失败: ${e.message}，但仓库信息已保存到本地`);
+            message.error(e?.message || '更新本地仓库失败');
+            return;
           }
+        } else {
+          // 普通 Generic 类型：保持现有逻辑
+          // 如果是 HTTP 仓库且有 cloudId，则配置到 Harvester containerd-registry
+          if (values.insecure && cloudId && values.server) {
+            try {
+              // 清理 server 地址（去掉协议前缀）
+              let server = values.server.trim();
+              if (server.startsWith('http://')) {
+                server = server.slice(7);
+              } else if (server.startsWith('https://')) {
+                server = server.slice(8);
+              }
+              
+              await addInsecureRegistry(cloudId, server);
+            } catch (e: any) {
+              // 配置失败但继续保存本地记录
+              console.warn('配置 containerd-registry 失败:', e);
+              message.warning(`containerd 配置失败: ${e.message}，但仓库信息已保存到本地`);
+            }
+          }
+          
+          onOk(values);
         }
-        
-        onOk(values);
       }
       
       form.resetFields();
@@ -513,7 +545,7 @@ const AddRegistryModal: React.FC<{
           rules={[{ required: true, message: '请选择仓库类型' }]}
           initialValue="generic"
         >
-          <Select onChange={handleTypeChange}>
+          <Select onChange={handleTypeChange} disabled={isLocalRegistry}>
             <Select.Option value="generic">
               <Space>
                 <DockerOutlined style={{ color: '#2496ED' }} />
@@ -529,6 +561,22 @@ const AddRegistryModal: React.FC<{
           </Select>
         </Form.Item>
         
+        {/* 本地仓库信息提示 */}
+        {isLocalRegistry && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="平台部署的本地仓库"
+            description={
+              <div>
+                <div>命名空间: {editData?.namespace}</div>
+                <div>NodePort: {editData?.nodePort}</div>
+              </div>
+            }
+          />
+        )}
+        
         {/* 通用字段 */}
         <Form.Item
           name="name"
@@ -541,9 +589,12 @@ const AddRegistryModal: React.FC<{
           name="server"
           label={registryType === 'harbor' ? 'Harbor 地址' : '仓库地址'}
           rules={[{ required: true, message: '请输入仓库地址' }]}
-          extra={registryType === 'harbor' ? '格式: host:port 或完整 URL' : '格式: host:port，如 172.16.3.79:30500'}
+          extra={isLocalRegistry ? '本地仓库地址不可修改' : (registryType === 'harbor' ? '格式: host:port 或完整 URL' : '格式: host:port，如 172.16.3.79:30500')}
         >
-          <Input placeholder={registryType === 'harbor' ? '如：harbor.example.com' : '如：172.16.3.79:30500'} />
+          <Input 
+            placeholder={registryType === 'harbor' ? '如：harbor.example.com' : '如：172.16.3.79:30500'} 
+            disabled={isLocalRegistry}
+          />
         </Form.Item>
         
         {/* Harbor 类型：用户名密码必填 */}
@@ -1068,6 +1119,11 @@ const RegistriesSection: React.FC<Props> = ({
   const [editingRegistry, setEditingRegistry] = useState<RegistryConfig | null>(null);
   const [registryKeyword, setRegistryKeyword] = useState('');
   
+  // 本地仓库（平台部署）状态
+  const [deployedRegistries, setDeployedRegistries] = useState<LocalRegistry[]>([]);
+  const [deployedRegistriesLoading, setDeployedRegistriesLoading] = useState(false);
+  const [deployModalVisible, setDeployModalVisible] = useState(false);
+  
   // 通用仓库管理抽屉状态
   const [genericDrawerVisible, setGenericDrawerVisible] = useState(false);
   const [selectedGenericRegistry, setSelectedGenericRegistry] = useState<RegistryConfig | null>(null);
@@ -1089,9 +1145,21 @@ const RegistriesSection: React.FC<Props> = ({
     const merged = [
       ...localRegistries.map(r => ({ ...r, type: 'generic' as const })),
       ...harborRegistries,
+      ...deployedRegistries.map(r => ({
+        id: `local-${r.id}`,
+        name: r.name,
+        server: r.server,
+        type: 'generic' as const,
+        insecure: true,
+        createdAt: r.createdAt,
+        status: r.status === 'healthy' ? 'healthy' as const : r.status === 'unhealthy' ? 'unhealthy' as const : 'unknown' as const,
+        localRegistryId: r.id,
+        namespace: r.namespace,
+        nodePort: r.nodePort,
+      })),
     ];
     return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [localRegistries, harborRegistries]);
+  }, [localRegistries, harborRegistries, deployedRegistries]);
   
   // 加载本地仓库列表
   useEffect(() => {
@@ -1125,9 +1193,41 @@ const RegistriesSection: React.FC<Props> = ({
     }
   }, []);
   
+  // 加载平台部署的本地仓库列表
+  const loadDeployedRegistries = useCallback(async () => {
+    setDeployedRegistriesLoading(true);
+    try {
+      const res = await fetchLocalRegistries(cloudId);
+      const list: LocalRegistry[] = res?.data || [];
+      setDeployedRegistries(list);
+
+      // 对状态不是 healthy/unhealthy 的仓库，自动刷新一次状态
+      for (const r of list) {
+        if (r.status !== 'healthy' && r.status !== 'unhealthy') {
+          try {
+            const refreshed = await refreshLocalRegistryStatus(cloudId, r.id);
+            if (refreshed?.data) {
+              setDeployedRegistries(prev =>
+                prev.map(p => p.id === r.id ? refreshed.data : p)
+              );
+            }
+          } catch {
+            // 刷新失败不阻塞
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('加载本地仓库列表失败:', e);
+      setDeployedRegistries([]);
+    } finally {
+      setDeployedRegistriesLoading(false);
+    }
+  }, [cloudId]);
+  
   useEffect(() => {
     loadHarborRegistries();
-  }, [loadHarborRegistries]);
+    loadDeployedRegistries();
+  }, [loadHarborRegistries, loadDeployedRegistries]);
   
   // 查看凭证详情
   const handleViewDetail = useCallback((secret: any) => {
@@ -1359,20 +1459,32 @@ const RegistriesSection: React.FC<Props> = ({
       );
       hide();
       message.success('连接测试成功');
-      // 更新 localStorage 和状态
-      const updated = localRegistries.map(r =>
-        r.id === record.id ? { ...r, status: 'healthy' as const } : r
-      );
-      setLocalRegistries(updated);
-      saveRegistries(updated);
+      // 本地部署仓库更新 deployedRegistries，手动添加仓库更新 localRegistries
+      if (record.localRegistryId) {
+        setDeployedRegistries(prev => prev.map(r =>
+          r.id === record.localRegistryId ? { ...r, status: 'healthy' as any } : r
+        ));
+      } else {
+        const updated = localRegistries.map(r =>
+          r.id === record.id ? { ...r, status: 'healthy' as const } : r
+        );
+        setLocalRegistries(updated);
+        saveRegistries(updated);
+      }
     } catch (e: any) {
       hide();
       message.error(e?.message || '连接测试失败');
-      const updated = localRegistries.map(r =>
-        r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
-      );
-      setLocalRegistries(updated);
-      saveRegistries(updated);
+      if (record.localRegistryId) {
+        setDeployedRegistries(prev => prev.map(r =>
+          r.id === record.localRegistryId ? { ...r, status: 'unhealthy' as any } : r
+        ));
+      } else {
+        const updated = localRegistries.map(r =>
+          r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
+        );
+        setLocalRegistries(updated);
+        saveRegistries(updated);
+      }
     }
   }, [cloudId, localRegistries, message]);
   
@@ -1557,7 +1669,7 @@ const RegistriesSection: React.FC<Props> = ({
           );
         }
         
-        // 通用仓库操作
+        // 通用仓库操作（包含本地部署的仓库）
         const items = [
           {
             key: 'manage',
@@ -1586,10 +1698,23 @@ const RegistriesSection: React.FC<Props> = ({
             danger: true,
             onClick: () => {
               void confirmHighRiskDelete({
-                resourceLabel: '仓库',
+                resourceLabel: record.localRegistryId ? '本地仓库' : '仓库',
                 name: record.name,
                 riskItems: CONTAINER_DELETE_RISK_ITEMS,
-                onConfirm: () => handleDeleteRegistry(record),
+                onConfirm: async () => {
+                  if (record.localRegistryId) {
+                    try {
+                      const { deleteLocalRegistry } = await import('../../../../../../services/localRegistryApi');
+                      await deleteLocalRegistry(cloudId, record.localRegistryId!);
+                      message.success('删除成功');
+                      loadDeployedRegistries();
+                    } catch (e: any) {
+                      message.error(e.message || '删除失败');
+                    }
+                  } else {
+                    handleDeleteRegistry(record);
+                  }
+                },
               }).catch(() => {});
             },
           },
@@ -1602,7 +1727,7 @@ const RegistriesSection: React.FC<Props> = ({
         );
       },
     },
-  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, hasContainersWrite]);
+  ], [handleDeleteRegistry, handleTestHarborConnection, handleTestGenericConnection, handleOpenHarbor, hasContainersWrite, cloudId, loadDeployedRegistries, message]);
   
   // 使用列设置 Hook（镜像仓库）
   const { displayColumns: registryDisplayColumns } = useTableColumnSettings(
@@ -1658,6 +1783,9 @@ const RegistriesSection: React.FC<Props> = ({
                   <Button type="primary" icon={<DatabaseOutlined />} onClick={() => { setEditingRegistry(null); setAddRegistryVisible(true); }}>
                     添加仓库
                   </Button>
+                  <Button icon={<DatabaseOutlined />} onClick={() => setDeployModalVisible(true)}>
+                    部署本地仓库
+                  </Button>
                 </WriteGuard>
                 <TableColumnSettingsButton
                   allColumns={registryColumns}
@@ -1667,10 +1795,11 @@ const RegistriesSection: React.FC<Props> = ({
                   <Button
                     type="default"
                     icon={<ReloadOutlined />}
-                    loading={harborLoading}
+                    loading={harborLoading || deployedRegistriesLoading}
                     onClick={() => {
                       setLocalRegistries(loadRegistries());
                       loadHarborRegistries();
+                      loadDeployedRegistries();
                     }}
                   />
                 </Tooltip>
@@ -1694,7 +1823,7 @@ const RegistriesSection: React.FC<Props> = ({
               locale={{
                 emptyText: (
                   <Empty
-                    description='暂无仓库，点击"添加仓库"开始'
+                    description='暂无仓库，点击"添加仓库"或"部署本地仓库"开始'
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                   />
                 ),
@@ -1805,6 +1934,18 @@ const RegistriesSection: React.FC<Props> = ({
           onBack={handleBackToProject}
         />
       )}
+      
+      {/* 部署本地仓库弹窗 */}
+      <DeployLocalRegistryModal
+        visible={deployModalVisible}
+        cloudId={cloudId}
+        namespaces={namespacesOptions}
+        onCancel={() => setDeployModalVisible(false)}
+        onSuccess={() => {
+          setDeployModalVisible(false);
+          loadDeployedRegistries();
+        }}
+      />
     </>  );
 };
 

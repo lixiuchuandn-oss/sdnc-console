@@ -136,6 +136,10 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   const [httpRouteModalOpen, setHttpRouteModalOpen] = useState(false);
   const [grpcRouteModalOpen, setGrpcRouteModalOpen] = useState(false);
   const [gatewayClassModalOpen, setGatewayClassModalOpen] = useState(false);
+  
+  // 默认Gateway引用（用于创建路由时自动填充）
+  const [defaultGatewayForRoute, setDefaultGatewayForRoute] = useState<{ name: string; namespace: string } | undefined>(undefined);
+  
   const [gatewayClassForm] = Form.useForm<{
     name: string;
     controllerName: string;
@@ -1187,11 +1191,20 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         namespacesOptions={namespacesOptions}
         gatewayClasses={gatewayClasses}
         defaultNamespace={formDefaultNs}
-        onSuccess={() => {
+        onSuccess={(_gatewayInfo) => {
           setGatewayModalOpen(false);
           void runContainerSectionRefresh(onRefresh, { force: true });
         }}
         onCancel={() => setGatewayModalOpen(false)}
+        onCreateRoute={(type, gatewayInfo) => {
+          // 设置默认Gateway引用，打开对应的路由创建弹窗
+          setDefaultGatewayForRoute(gatewayInfo);
+          if (type === 'http') {
+            setHttpRouteModalOpen(true);
+          } else {
+            setGrpcRouteModalOpen(true);
+          }
+        }}
       />
 
       {/* HTTPRoute 创建弹窗 */}
@@ -1202,11 +1215,16 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         gateways={gateways}
         services={services}
         defaultNamespace={formDefaultNs}
+        defaultGateway={defaultGatewayForRoute}
         onSuccess={() => {
           setHttpRouteModalOpen(false);
+          setDefaultGatewayForRoute(undefined);
           void runContainerSectionRefresh(onRefresh, { force: true });
         }}
-        onCancel={() => setHttpRouteModalOpen(false)}
+        onCancel={() => {
+          setHttpRouteModalOpen(false);
+          setDefaultGatewayForRoute(undefined);
+        }}
       />
 
       {/* GRPCRoute 创建弹窗 */}
@@ -1217,11 +1235,16 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         gateways={gateways}
         services={services}
         defaultNamespace={formDefaultNs}
+        defaultGateway={defaultGatewayForRoute}
         onSuccess={() => {
           setGrpcRouteModalOpen(false);
+          setDefaultGatewayForRoute(undefined);
           void runContainerSectionRefresh(onRefresh, { force: true });
         }}
-        onCancel={() => setGrpcRouteModalOpen(false)}
+        onCancel={() => {
+          setGrpcRouteModalOpen(false);
+          setDefaultGatewayForRoute(undefined);
+        }}
       />
 
       {/* GatewayClass 创建弹窗 */}
