@@ -108,7 +108,9 @@ export function readVmImageVirtualSizeBytes(obj: unknown): number | undefined {
   return undefined;
 }
 
-function vmImageConditions(record: Record<string, unknown>): Array<{ type?: string; status?: string }> {
+function vmImageConditions(
+  record: Record<string, unknown>,
+): Array<{ type?: string; status?: string }> {
   const status = record.status as Record<string, unknown> | undefined;
   if (Array.isArray(status?.conditions) && status!.conditions!.length > 0) {
     return status!.conditions as Array<{ type?: string; status?: string }>;
@@ -177,8 +179,7 @@ function vmImageRecordIdentity(detail: any): boolean {
 export function mergeHarvesterVmImageDetailRecords(primary: any, incoming: any): any {
   if (!primary) return incoming;
   if (!incoming) return primary;
-  const vs =
-    readVmImageVirtualSizeBytes(incoming) ?? readVmImageVirtualSizeBytes(primary);
+  const vs = readVmImageVirtualSizeBytes(incoming) ?? readVmImageVirtualSizeBytes(primary);
   const status = {
     ...(primary?.status && typeof primary.status === 'object' ? primary.status : {}),
     ...(incoming?.status && typeof incoming.status === 'object' ? incoming.status : {}),
@@ -334,8 +335,14 @@ export async function backfillVmImageVirtualSizeFromClusterDetail(
 ): Promise<any[]> {
   if (!items?.length) return items;
   const need = [...items]
-    .filter((item) => readVmImageVirtualSizeBytes(item) == null && isVmImageReadyForVirtualSize(item))
-    .sort((a, b) => vmImageRecordSortMs(b as Record<string, unknown>) - vmImageRecordSortMs(a as Record<string, unknown>))
+    .filter(
+      (item) => readVmImageVirtualSizeBytes(item) == null && isVmImageReadyForVirtualSize(item),
+    )
+    .sort(
+      (a, b) =>
+        vmImageRecordSortMs(b as Record<string, unknown>) -
+        vmImageRecordSortMs(a as Record<string, unknown>),
+    )
     .slice(0, cap);
   if (!need.length) return items;
 

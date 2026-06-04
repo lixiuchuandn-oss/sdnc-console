@@ -5,7 +5,6 @@
  */
 
 import fs from 'fs';
-import crypto from 'crypto';
 import http from 'http';
 import https from 'https';
 import path from 'path';
@@ -25,7 +24,10 @@ import {
 import { HarvesterImageInventory } from '../../../../entities/harvester/HarvesterImageInventory';
 import { ImageUploadTask } from '../../../../entities/harvester/ImageUploadTask';
 import { UserSpace } from '../../../../entities/UserSpace';
-import { syncHarvesterImages, upsertHarvesterImageInventoryItems } from '../../../../services/clouds/harvester/inventory';
+import {
+  syncHarvesterImages,
+  upsertHarvesterImageInventoryItems,
+} from '../../../../services/clouds/harvester/inventory';
 import {
   fetchHarvesterVmImageDetailFromCluster,
   readVmImageVirtualSizeBytes,
@@ -94,7 +96,11 @@ function uniqueNamespaceWhere(
 
 function harvesterVmImageImportFailure(detail: unknown): string | null {
   if (!detail || typeof detail !== 'object') return null;
-  const d = detail as { status?: { conditions?: Array<{ type?: string; status?: string; message?: string; reason?: string }> } };
+  const d = detail as {
+    status?: {
+      conditions?: Array<{ type?: string; status?: string; message?: string; reason?: string }>;
+    };
+  };
   const conds = Array.isArray(d.status?.conditions) ? d.status!.conditions! : [];
   const imported = conds.find((c) => c?.type === 'Imported');
   if (imported?.status === 'False') {
@@ -120,7 +126,10 @@ function isInternalTowerDbErrorMessage(msg: unknown): boolean {
 }
 
 function isInternalTowerDbError(e: unknown): boolean {
-  return isInternalTowerDbErrorMessage((e as { message?: string })?.message || e) || isSqliteTransactionError(e);
+  return (
+    isInternalTowerDbErrorMessage((e as { message?: string })?.message || e) ||
+    isSqliteTransactionError(e)
+  );
 }
 
 const reconcileLiveFetchAt = new Map<string, number>();
@@ -293,10 +302,7 @@ function deriveLonghornImageStorageClassFromName(name: string): string | undefin
   return undefined;
 }
 
-function resolveImageStorageClassName(
-  i: HarvesterImageInventory,
-  r: Record<string, any>,
-): string {
+function resolveImageStorageClassName(i: HarvesterImageInventory, r: Record<string, any>): string {
   const name = String(r.metadata?.name || r.name || i.name || '').trim();
   const ann = (r.metadata?.annotations || {}) as Record<string, string>;
 
@@ -373,9 +379,7 @@ function mapImageInventoryToListItem(
   const sourceType = r.spec?.sourceType || r.sourceType || '';
   const clusterProgress = readVmImageImportProgress(r);
   const effectiveProgress: number =
-    typeof clusterProgress === 'number' &&
-    Number.isFinite(clusterProgress) &&
-    clusterProgress >= 0
+    typeof clusterProgress === 'number' && Number.isFinite(clusterProgress) && clusterProgress >= 0
       ? clusterProgress
       : progress;
   let state = 'Unknown';
@@ -417,10 +421,6 @@ function mapImageInventoryToListItem(
       ...(storageClassName ? { storageClassName } : {}),
     },
   };
-}
-
-function readVirtualSizeFromVmImage(obj: unknown): number | undefined {
-  return readVmImageVirtualSizeBytes(obj);
 }
 
 /** 镜像在 Harvester 已导入完成时：拉集群详情（含 virtualSize）写入 Tower 库存 */
@@ -539,8 +539,7 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
     const count = await repo.count({ where: whereCondition });
     const proxyBusy = hasImageUploadProxyInFlightForCloud(id);
     const shouldSync =
-      !proxyBusy &&
-      (count === 0 || (String(force) === 'true' && String(skipSync) !== 'true'));
+      !proxyBusy && (count === 0 || (String(force) === 'true' && String(skipSync) !== 'true'));
 
     if (shouldSync) {
       try {
@@ -550,9 +549,7 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
         if (count === 0) throw e;
       }
     } else if (proxyBusy && String(force) === 'true' && String(skipSync) !== 'true') {
-      console.debug(
-        `[images] skip full inventory sync for cloud ${id}: upload proxy in flight`,
-      );
+      console.debug(`[images] skip full inventory sync for cloud ${id}: upload proxy in flight`);
     }
 
     const items = await repo.find({ where: whereCondition });
@@ -945,10 +942,7 @@ async function ensureImageUploadMergedPreallocated(task: ImageUploadTask): Promi
   return relPath;
 }
 
-function chunkWriteOffset(
-  chunkSize: number,
-  chunkIndex: number,
-): number {
+function chunkWriteOffset(chunkSize: number, chunkIndex: number): number {
   return Math.max(0, Math.floor(chunkSize)) * Math.max(0, Math.floor(chunkIndex));
 }
 
@@ -989,10 +983,7 @@ function setReceivedChunkIndices(task: ImageUploadTask, indices: number[]): void
 /** 并行分片上传时串行化 receivedChunksJson 更新，避免读-改-写丢片 */
 const imageUploadChunkLockTails = new Map<string, Promise<void>>();
 
-async function withImageUploadChunkLock<T>(
-  taskId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+async function withImageUploadChunkLock<T>(taskId: string, fn: () => Promise<T>): Promise<T> {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -1177,16 +1168,6 @@ function bindReadableAbortOnError(readable: Readable, abortController: AbortCont
       /* ignore */
     }
   });
-}
-
-function destroyReadablePair(a: Readable, b: Readable): void {
-  for (const s of [a, b]) {
-    try {
-      s.destroy();
-    } catch {
-      /* ignore */
-    }
-  }
 }
 
 function clampProgress(v: number): number {
@@ -1588,35 +1569,6 @@ type ImageUploadBodySource = {
   bindRequestStream?: Readable;
 };
 
-function createHarvesterPutProgressTransform(
-  taskId: string,
-  total: number,
-  abortController: AbortController,
-): Transform {
-  let sent = 0;
-  let lastUpdateAt = 0;
-  return new Transform({
-    transform(chunk, _encoding, callback) {
-      if (abortController.signal.aborted) {
-        callback(new Error('CANCELLED'));
-        return;
-      }
-      const n = chunk.length || Buffer.byteLength(chunk);
-      sent += n;
-      const now = Date.now();
-      if (now - lastUpdateAt > 2000) {
-        lastUpdateAt = now;
-        void updateTaskProgress(taskId, {
-          bytesUploaded: Math.min(sent, total),
-        }).catch(() => {
-          /* ignore DB noise during upload byte tracking */
-        });
-      }
-      callback(null, chunk);
-    },
-  });
-}
-
 async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: ImageUploadBodySource) {
   if (getImageUploadInFlightTaskIds().has(taskId)) return;
   const repo = AppDataSource.getRepository(ImageUploadTask);
@@ -1769,8 +1721,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     }
 
     const createdImageName = created?.metadata?.name || existingName || '';
-    const createdImageNamespace =
-      created?.metadata?.namespace || existingNs || task.namespace;
+    const createdImageNamespace = created?.metadata?.namespace || existingNs || task.namespace;
 
     if (createdImageName) {
       task.createdImageName = createdImageName;
@@ -1983,11 +1934,7 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
 
     // 3) 代传完成后，继续轮询集群导入进度直至 Imported
     const importDeadline =
-      Date.now() +
-      Math.max(
-        30 * 60 * 1000,
-        Math.ceil(total / (50 * 1024 * 1024)) * 10 * 60 * 1000,
-      );
+      Date.now() + Math.max(30 * 60 * 1000, Math.ceil(total / (50 * 1024 * 1024)) * 10 * 60 * 1000);
     let imported = false;
     while (Date.now() < importDeadline && !imported) {
       await throwIfUploadCancelled(taskId, abortController);
@@ -2275,14 +2222,8 @@ export async function harvesterImageUploadTaskDiskCheckHandler(req: Request, res
     if (fileSize < 1) {
       return res.status(400).json({ message: '缺少参数：fileSize' });
     }
-    const chunkSize = Math.max(
-      0,
-      Math.floor(Number(req.query?.chunkSize) || 0),
-    );
-    const result = await checkImageUploadDiskSpace(
-      fileSize,
-      chunkSize > 0 ? chunkSize : undefined,
-    );
+    const chunkSize = Math.max(0, Math.floor(Number(req.query?.chunkSize) || 0));
+    const result = await checkImageUploadDiskSpace(fileSize, chunkSize > 0 ? chunkSize : undefined);
     if (!result.sufficient) {
       return res.status(507).json({ message: result.message, data: result });
     }
@@ -2296,8 +2237,8 @@ export async function harvesterImageUploadTaskDiskCheckHandler(req: Request, res
 export async function harvesterImageUploadTaskCreateHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { namespace, displayName, imageType, filename, fileSize, chunkSize } =
-      (req.body || {}) as Record<string, unknown>;
+    const { namespace, displayName, imageType, filename, fileSize, chunkSize } = (req.body ||
+      {}) as Record<string, unknown>;
     if (!namespace) return res.status(400).json({ message: '缺少参数：namespace' });
     const size = Math.max(0, Math.floor(Number(fileSize) || 0));
     if (size < 1) {
@@ -2651,7 +2592,7 @@ export async function harvesterImageUploadTaskCompleteChunksHandler(req: Request
     }
 
     const totalChunks = Math.max(0, Math.floor(Number(task.totalChunks) || 0));
-    let received = reconcileReceivedChunkIndices(task);
+    const received = reconcileReceivedChunkIndices(task);
     if (received.length !== totalChunks) {
       return res.status(409).json({
         message: '分片未收齐，无法合并',
@@ -2676,8 +2617,7 @@ export async function harvesterImageUploadTaskCompleteChunksHandler(req: Request
       await AppDataSource.getRepository(ImageUploadTask).save(task);
     }
 
-    const relPath =
-      String(task.localFileRelPath || '').trim() || imageTaskMergedRelPath(task.id);
+    const relPath = String(task.localFileRelPath || '').trim() || imageTaskMergedRelPath(task.id);
     const destPath = path.join(getImageUploadTempRoot(), relPath);
     if (!fs.existsSync(destPath)) {
       return res.status(409).json({ message: '镜像文件尚未就绪，请继续上传分片' });

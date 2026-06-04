@@ -1,9 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import {
-  ensureImageUploadTempRoot,
-  getImageUploadTempRoot,
-} from './towerTempPaths';
+import { ensureImageUploadTempRoot, getImageUploadTempRoot } from './towerTempPaths';
 
 export { ensureImageUploadTempRoot, getImageUploadTempRoot };
 
@@ -35,10 +32,7 @@ export function formatStorageBytes(bytes: number): string {
 /**
  * 镜像上传在暂存目录上的峰值占用：分片按偏移直写单一 .merged 文件，峰值约 fileSize。
  */
-export function computeImageUploadPeakDiskBytes(
-  fileSize: number,
-  _chunkSize?: number,
-): number {
+export function computeImageUploadPeakDiskBytes(fileSize: number, _chunkSize?: number): number {
   return Math.max(0, Math.floor(Number(fileSize) || 0));
 }
 

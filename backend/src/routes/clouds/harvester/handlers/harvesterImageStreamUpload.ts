@@ -67,9 +67,7 @@ export async function harvesterNativeStreamUpload(
             return;
           }
           const body = Buffer.concat(chunks).toString('utf8');
-          finish(
-            new Error(`Harvester upload failed HTTP ${code}: ${body.slice(0, 800)}`),
-          );
+          finish(new Error(`Harvester upload failed HTTP ${code}: ${body.slice(0, 800)}`));
         });
       },
     );

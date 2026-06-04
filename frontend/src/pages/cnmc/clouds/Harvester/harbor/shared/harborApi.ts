@@ -6,7 +6,7 @@
  * @module harborApi
  */
 
-import { apiRequest, apiPost, apiPut, apiDelete } from '../../../../../../services/api';
+import { apiRequest, apiPost, apiPut, apiDelete, API_BASE_URL } from '../../../../../../services/api';
 import type {
   HarborRegistry,
   HarborRegistryForm,
@@ -805,6 +805,90 @@ export const getHarborSelectorTags = async (
 ): Promise<string[]> => {
   const result = await apiRequest(
     `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/tags`,
+  );
+  return result?.data || result;
+};
+
+// ==================== 镜像上传 ====================
+
+export interface HarborUploadTask {
+  id: string;
+  fileName: string;
+  targetRepo?: string;
+  targetTag?: string;
+  status: 'pending' | 'parsing' | 'uploading' | 'completed' | 'failed';
+  totalLayers: number;
+  uploadedLayers: number;
+  currentLayer?: string;
+  error?: string;
+  registryType: 'local-registry' | 'harbor';
+  harborId?: string;
+  projectName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HarborUploadResult {
+  taskId: string;
+  fileName: string;
+  targetRepo?: string;
+  targetTag?: string;
+  status: string;
+}
+
+export const uploadImageToHarbor = async (
+  harborId: string,
+  projectName: string,
+  files: { file: File; repoName: string; tag: string }[],
+): Promise<{ tasks: HarborUploadResult[] }> => {
+  const formData = new FormData();
+
+  files.forEach((item, index) => {
+    formData.append('files', item.file);
+    formData.append(`repoName${index + 1}`, item.repoName);
+    formData.append(`tag${index + 1}`, item.tag);
+  });
+
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+  const response = await fetch(
+    `${API_BASE_URL}${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/upload`,
+    {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    },
+  );
+
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.message || '上传失败');
+  }
+
+  return result.data;
+};
+
+export const getHarborUploadTasks = async (
+  harborId: string,
+  projectName: string,
+  params?: { status?: string; limit?: number },
+): Promise<HarborUploadTask[]> => {
+  const query = new URLSearchParams();
+  if (params?.status) query.append('status', params.status);
+  if (params?.limit) query.append('limit', String(params.limit));
+
+  const result = await apiRequest(
+    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/upload-tasks?${query}`,
+  );
+  return result?.data || result;
+};
+
+export const getHarborUploadTask = async (
+  harborId: string,
+  projectName: string,
+  taskId: string,
+): Promise<HarborUploadTask> => {
+  const result = await apiRequest(
+    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/upload-tasks/${taskId}`,
   );
   return result?.data || result;
 };
