@@ -20,8 +20,10 @@
  */
 import React, { useMemo } from 'react';
 import { Divider } from 'antd';
-import { buildNodeSelectorFromLabelForm, FAILURE_DOMAIN_NODE_LABEL } from '../../lib/vmFailureDomainNodeSelector';
 import { formatHugepagesSummary, formatNumaSummary } from '../../lib/numaHugepagesSpec';
+import { findDeploymentSetById } from '../../lib/vmDeploymentSet';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
+import { formatDeploymentSetSchedulingSummary } from 'services/harvester/deploymentSetScheduling';
 
 /**
  * 组件 Props 定义
@@ -45,6 +47,8 @@ interface WizardSummaryProps {
   kubeSubnets: any[];
   /** 默认内存 Gi（当表单未填写时兜底显示） */
   memGi: number;
+  /** 部署集列表（用于预览名称） */
+  deploymentSets?: DeploymentSetRow[];
   /** 预览区域下方可扩展的自定义节点（如按钮/额外说明） */
   children?: React.ReactNode;
 }
@@ -59,6 +63,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
   netModeState,
   kubeSubnets,
   memGi,
+  deploymentSets,
   children
 }) => {
   // [数据处理] 聚合计算预览数据
@@ -183,21 +188,14 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
           if (hostModeState === 'node' && selectedNodeName) return `指定主机：${selectedNodeName}`;
           if (hostModeState === 'label') {
             const fd = String((v as any).failureDomainName || '').trim();
-            const selector = buildNodeSelectorFromLabelForm({
-              failureDomainName: fd,
-              nodeSelectorPairs: (v as any).nodeSelectorPairs,
-            });
-            if (!selector) return '-';
-            if (fd) {
-              const rest = Object.entries(selector)
-                .filter(([k]) => k !== FAILURE_DOMAIN_NODE_LABEL)
-                .map(([k, val]) => `${k}=${val}`)
-                .join(', ');
-              return rest ? `故障域：${fd}；其它：${rest}` : `故障域：${fd}`;
+            return fd ? `故障域：${fd}` : '-';
+          }
+          if (hostModeState === 'auto') {
+            const set = findDeploymentSetById(deploymentSets, v.deploymentSetId);
+            if (set) return `自动调度（部署集：${set.name}）`;
+            if (v.metricAutoScheduled) {
+              return '自动调度至合适的主机（参与指标自动调度）';
             }
-            return `按标签：${Object.entries(selector)
-              .map(([k, val]) => `${k}=${val}`)
-              .join(', ')}`;
           }
           return '自动调度至合适的主机';
         })()
@@ -267,16 +265,15 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
       // 运行策略
       runStrategy,
 
-      podScheduling: (function () {
-        const pa = v.podAffinity;
-        const paa = v.podAntiAffinity;
-        const req = (pa?.required?.length || 0) + (paa?.required?.length || 0);
-        const pref = (pa?.preferred?.length || 0) + (paa?.preferred?.length || 0);
-        if (req + pref === 0) return undefined;
-        return `${req} 条必须 / ${pref} 条优先`;
+      deploymentSet: (function () {
+        if (hostModeState === 'node' || v.metricAutoScheduled) return undefined;
+        const set = findDeploymentSetById(deploymentSets, v.deploymentSetId);
+        if (!set) return undefined;
+        const scheduling = formatDeploymentSetSchedulingSummary(set);
+        return scheduling ? `${set.name}（${scheduling}）` : set.name;
       })(),
     };
-  }, [formSnapshot, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi]);
+  }, [formSnapshot, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi, deploymentSets]);
 
   return (
     <div className="wizard-preview">
@@ -307,10 +304,10 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <span className="wizard-summary-label" title="名称">名称</span>
             <span className="wizard-summary-value" title={summary.info.name}>{summary.info.name}</span>
           </div>
-          {summary.podScheduling ? (
+          {summary.deploymentSet ? (
             <div className="wizard-summary-item">
-              <span className="wizard-summary-label" title="虚拟机间调度">虚拟机间调度</span>
-              <span className="wizard-summary-value" title={summary.podScheduling}>{summary.podScheduling}</span>
+              <span className="wizard-summary-label" title="部署集">部署集</span>
+              <span className="wizard-summary-value" title={summary.deploymentSet}>{summary.deploymentSet}</span>
             </div>
           ) : null}
 

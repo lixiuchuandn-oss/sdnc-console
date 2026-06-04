@@ -3,10 +3,17 @@
 export type ComputeClusterOperateTabKey =
   | 'nodes'
   | 'failure_domains'
+  | 'deployment_sets'
   | 'drs_rules'
   | 'migrations';
 
-const OPERATE_TAB_KEYS = new Set<string>(['nodes', 'failure_domains', 'drs_rules', 'migrations']);
+const OPERATE_TAB_KEYS = new Set<string>([
+  'nodes',
+  'failure_domains',
+  'deployment_sets',
+  'drs_rules',
+  'migrations',
+]);
 
 export function parseComputeClusterOperateTabKey(
   raw: string | null | undefined,
@@ -25,6 +32,8 @@ export const LEGACY_COMPUTE_CLUSTER_OPERATE_TAB: Readonly<
   compute_failure_domains: 'failure_domains',
   failure_domains: 'failure_domains',
   ha_failure_domains: 'failure_domains',
+  compute_deployment_sets: 'deployment_sets',
+  deployment_sets: 'deployment_sets',
   compute_drs_rules: 'drs_rules',
   drs: 'drs_rules',
   compute_migrations: 'migrations',

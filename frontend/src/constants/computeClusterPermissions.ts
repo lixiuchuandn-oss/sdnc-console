@@ -70,6 +70,14 @@ export function canReadMigrationsTab(checkPerm: (act: string) => boolean): boole
   );
 }
 
+export function canReadDeploymentSetsTab(checkPerm: (act: string) => boolean): boolean {
+  return canReadComputeCluster(checkPerm);
+}
+
+export function canWriteDeploymentSets(checkPerm: (act: string) => boolean): boolean {
+  return canWriteComputeCluster(checkPerm);
+}
+
 export function canWriteMigrationsTab(checkPerm: (act: string) => boolean): boolean {
   return (
     canWriteComputeCluster(checkPerm) ||

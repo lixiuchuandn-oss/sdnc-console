@@ -111,13 +111,7 @@ export function hasLabelModeNodeSelector(input: {
   failureDomainName?: string;
   nodeSelectorPairs?: NodeSelectorPair[];
 }): boolean {
-  if (String(input.failureDomainName || '').trim()) return true;
-  const arr = Array.isArray(input.nodeSelectorPairs) ? input.nodeSelectorPairs : [];
-  return arr.some((p) => {
-    const key = String(p?.key || '').trim();
-    const value = String(p?.value || '').trim();
-    return !!(key && value && key !== FAILURE_DOMAIN_NODE_LABEL);
-  });
+  return !!String(input.failureDomainName || '').trim();
 }
 
 function readVmNodeSelectorForFailureDomain(vm: any): Record<string, unknown> | undefined {

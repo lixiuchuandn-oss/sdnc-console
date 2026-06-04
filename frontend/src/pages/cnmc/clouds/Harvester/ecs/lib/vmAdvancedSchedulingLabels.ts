@@ -13,7 +13,7 @@ export const VM_ADVANCED_SCHEDULING_HINT = {
 } as const;
 
 export function vmFailureDomainRequiredMessage(): string {
-  return `请选择故障域，或在「${VM_ADVANCED_SCHEDULING_COLLAPSE.nodeLabels}」中配置`;
+  return '请选择故障域';
 }
 
 /** 指定主机时落点已定，清空高级调度相关表单字段 */
@@ -22,9 +22,6 @@ export function clearVmAdvancedSchedulingFormFields(form: {
 }): void {
   form.setFieldsValue({
     failureDomainName: undefined,
-    nodeSelectorPairs: undefined,
-    podAffinity: undefined,
-    podAntiAffinity: undefined,
   });
 }
 

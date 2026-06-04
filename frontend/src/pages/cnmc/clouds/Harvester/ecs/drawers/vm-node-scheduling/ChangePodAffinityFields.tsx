@@ -1,92 +1,56 @@
 /**
- * 虚拟机间亲和/反亲和表单区（复用容器域 PodAffinityEditor）。
+ * 虚拟机 · 部署集变配表单。
  */
 import React, { useEffect } from 'react';
-import { Collapse, Typography } from 'antd';
-import PodAffinityEditor, {
-  type PodAffinityEditorHandle,
-} from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
-import { parsePodAffinityFromK8s } from '../../lib/podAffinityK8s';
-import {
-  VM_ADVANCED_SCHEDULING_COLLAPSE,
-  VM_ADVANCED_SCHEDULING_HINT,
-} from '../../lib/vmAdvancedSchedulingLabels';
-import { VmAdvancedSchedulingCollapseLabel } from '../../lib/VmAdvancedSchedulingCollapseLabel';
+import { Alert } from 'antd';
+import VmDeploymentSetField from '../../lib/VmDeploymentSetField';
+import { isVmFixedHostScheduling, readVmDeploymentSetId } from '../../lib/vmDeploymentSet';
+import { readVmMetricAutoScheduled } from '../../lib/vmSchedulingExclusion';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 
 type Props = {
   form: any;
   record: any;
-  namespacesOptions: string[];
-  podAffinityRef: React.RefObject<PodAffinityEditorHandle>;
-  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle>;
+  cloudId: string;
+  onDeploymentSetsLoaded?: (sets: DeploymentSetRow[]) => void;
 };
 
 const ChangePodAffinityFields: React.FC<Props> = ({
   form,
   record,
-  namespacesOptions,
-  podAffinityRef,
-  podAntiAffinityRef,
+  cloudId,
+  onDeploymentSetsLoaded,
 }) => {
+  const initialSetId = readVmDeploymentSetId(record);
+  const fixedHost = isVmFixedHostScheduling(record);
+  const metricAutoScheduled = readVmMetricAutoScheduled(record);
+
   useEffect(() => {
     if (!record) return;
-    const affinity = record?.spec?.template?.spec?.affinity;
     form.setFieldsValue({
-      podAffinity: parsePodAffinityFromK8s(affinity?.podAffinity),
-      podAntiAffinity: parsePodAffinityFromK8s(affinity?.podAntiAffinity),
+      deploymentSetId: fixedHost ? undefined : initialSetId,
     });
-  }, [record, form]);
+  }, [record, form, initialSetId, fixedHost]);
 
   return (
-    <div>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        通过标签选择器约束本虚拟机与其它虚拟机（Pod）的调度关系。拓扑域常用{' '}
-        <Typography.Text code>kubernetes.io/hostname</Typography.Text>（同/不同宿主机）或{' '}
-        <Typography.Text code>topology.kubernetes.io/zone</Typography.Text>（可用区）。
-        与「节点亲和性」（VM–宿主机）相互独立，可同时配置。
-      </Typography.Paragraph>
-      <Collapse
-        defaultActiveKey={['podAffinity', 'podAntiAffinity']}
-        items={[
-          {
-            key: 'podAffinity',
-            label: (
-              <VmAdvancedSchedulingCollapseLabel
-                title={VM_ADVANCED_SCHEDULING_COLLAPSE.podAffinity}
-                hint={VM_ADVANCED_SCHEDULING_HINT.podAffinity}
-              />
-            ),
-            children: (
-              <PodAffinityEditor
-                ref={podAffinityRef}
-                name="podAffinity"
-                label={VM_ADVANCED_SCHEDULING_COLLAPSE.podAffinity}
-                namespacesOptions={namespacesOptions}
-                compact
-              />
-            ),
-          },
-          {
-            key: 'podAntiAffinity',
-            label: (
-              <VmAdvancedSchedulingCollapseLabel
-                title={VM_ADVANCED_SCHEDULING_COLLAPSE.podAntiAffinity}
-                hint={VM_ADVANCED_SCHEDULING_HINT.podAntiAffinity}
-              />
-            ),
-            children: (
-              <PodAffinityEditor
-                ref={podAntiAffinityRef}
-                name="podAntiAffinity"
-                label={VM_ADVANCED_SCHEDULING_COLLAPSE.podAntiAffinity}
-                namespacesOptions={namespacesOptions}
-                compact
-              />
-            ),
-          },
-        ]}
+    <>
+      {metricAutoScheduled && !fixedHost ? (
+        <Alert
+          type="info"
+          showIcon
+          message="该虚拟机已参与指标自动调度。保存部署集后将自动移除指标自动调度配置。"
+          style={{ marginBottom: 12 }}
+        />
+      ) : null}
+      <VmDeploymentSetField
+        cloudId={cloudId}
+        form={form}
+        disabled={fixedHost}
+        disabledReason="指定主机模式下不支持部署集"
+        initialSetId={fixedHost ? undefined : initialSetId}
+        onSetsLoaded={onDeploymentSetsLoaded}
       />
-    </div>
+    </>
   );
 };
 

@@ -4,9 +4,14 @@ import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants'
 import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptions';
 import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
 import { buildPodAffinityForK8s } from '../../lib/podAffinityK8s';
+import { buildDeploymentSetPodAffinityConfig } from 'services/harvester/deploymentSetScheduling';
 import { findGpuResource, getGpuNodeName, getGpuResourceName } from '../../lib/gpuResourceResolve';
 import { buildNodeSelectorFromLabelForm } from '../../lib/vmFailureDomainNodeSelector';
 import { buildManualNumaNodes } from '../../lib/numaHugepagesSpec';
+import { buildVmAutoScheduledAnnotations } from '../../lib/vmAutoScheduledAnnotation';
+import { buildVmPodTemplateLabels } from '../../lib/vmDeploymentSet';
+import { resolveExclusiveVmScheduling } from '../../lib/vmSchedulingExclusion';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 
 /**
  * ==============================================================================
@@ -257,6 +262,8 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   nodeSelectorPairs: [],
   failureDomainName: undefined,
   hostMode: 'auto',
+  metricAutoScheduled: false,
+  deploymentSetId: undefined,
   netMode: 'flat_subnet',
   gpuMode: 'none',
   gpuCount: 0,
@@ -605,6 +612,8 @@ export const buildHarvesterVmPayload = (params: {
   nadOptions?: any[];
   /** USB 资源列表（用于节点固定，与 StepOthers 下拉同源） */
   usbResources?: any[];
+  /** 选中的部署集（由 deploymentSetId 解析） */
+  deploymentSet?: DeploymentSetRow | null;
 }) => {
   const {
     v,
@@ -618,8 +627,15 @@ export const buildHarvesterVmPayload = (params: {
     vmId,
     nadOptions,
     usbResources,
+    deploymentSet,
   } = params;
-  
+
+  const { writeMetricAnnotation, effectiveDeploymentSet } = resolveExclusiveVmScheduling(
+    hostModeState,
+    v.metricAutoScheduled,
+    deploymentSet,
+  );
+
   // --- 1. GPU 资源处理 ---
   const gpuMode = String(v.gpuMode || 'none').toLowerCase();
   const primaryPciHost =
@@ -984,13 +1000,17 @@ export const buildHarvesterVmPayload = (params: {
              ...(harvesterCustomIpEntries.length > 0
                ? { 'harvesterhci.io/custom-ip': JSON.stringify(harvesterCustomIpEntries) }
                : {}),
+             ...(writeMetricAnnotation ? buildVmAutoScheduledAnnotations() : {}),
         }
     },
     spec: {
         runStrategy: v.runStrategy || "RerunOnFailure",
         template: {
             metadata: {
-                labels: { "harvesterhci.io/vmName": vmId || v.name },
+                labels: buildVmPodTemplateLabels(
+                  String(vmId || v.name),
+                  effectiveDeploymentSet,
+                ),
                 annotations: {}
             },
             spec: {
@@ -999,9 +1019,12 @@ export const buildHarvesterVmPayload = (params: {
                 nodeSelector: nodeSelector,
                 affinity: (function () {
                   if (hostModeState === 'node') return undefined;
+                  if (!effectiveDeploymentSet || effectiveDeploymentSet.schedulingPolicy === 'none')
+                    return undefined;
+                  const cfg = buildDeploymentSetPodAffinityConfig(effectiveDeploymentSet);
                   const a: Record<string, unknown> = {};
-                  const pa = buildPodAffinityForK8s(v.podAffinity);
-                  const paa = buildPodAffinityForK8s(v.podAntiAffinity);
+                  const pa = buildPodAffinityForK8s(cfg?.podAffinity);
+                  const paa = buildPodAffinityForK8s(cfg?.podAntiAffinity);
                   if (pa) a.podAffinity = pa;
                   if (paa) a.podAntiAffinity = paa;
                   return Object.keys(a).length > 0 ? a : undefined;

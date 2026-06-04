@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 import PageDetailSection from 'components/PageDetailSection';
 import {
   canReadComputeCluster,
+  canReadDeploymentSetsTab,
   canReadDrsTab,
   canReadFailureDomainsTab,
   canReadMigrationsTab,
@@ -14,9 +15,11 @@ import {
 import type { HarvesterSectionOnRefresh } from '../../ceph/lib/cephSectionRefresh';
 import NodesSection from './NodesSection';
 import FailureDomainSection from './FailureDomainSection';
+import DeploymentSetSection from './DeploymentSetSection';
 import DrsRulesSection from './DrsRulesSection';
 import DrsMigrationsSection from './DrsMigrationsSection';
 import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
+import { useDeploymentSetsData } from '../hooks/useDeploymentSetsData';
 import { useDrsSectionData } from '../hooks/useDrsSectionData';
 import type { NodeRow } from '../lib/nodesSectionUtils';
 import ComputeClusterStatusHero from './computeCluster/ComputeClusterStatusHero';
@@ -54,22 +57,25 @@ const ComputeClusterSection: React.FC<ComputeClusterSectionProps> = ({
   }, [cloudId, initialOperateTab, operateTabFromQuery]);
 
   const canReadFd = canReadFailureDomainsTab(checkPerm);
+  const canReadDs = canReadDeploymentSetsTab(checkPerm);
   const canReadDrs = canReadDrsTab(checkPerm);
   const canReadMig = canReadMigrationsTab(checkPerm);
 
   const { loading: fdLoading, overview: fdOverview } = useFailureDomainsData(cloudId, canReadFd);
+  const { loading: dsLoading, overview: dsOverview } = useDeploymentSetsData(cloudId, canReadDs);
   const { loading: drsLoading, summary: drsSummary } = useDrsSectionData(cloudId, canReadDrs);
 
   const heroStats = useMemo(
     () => ({
       nodeCount: nodes?.length ?? 0,
       failureDomainCount: fdOverview?.domains?.length ?? 0,
+      deploymentSetCount: dsOverview?.deploymentSets?.length ?? 0,
       drsRuleCount: drsSummary.metricRuleCount ?? 0,
       migrationCount: drsSummary.reallocationMigrationCount ?? 0,
       enabledDrsRuleCount: drsSummary.enabledMetricRuleCount,
       runningMigrationCount: drsSummary.runningReallocationMigrationCount,
     }),
-    [nodes, fdOverview, drsSummary],
+    [nodes, fdOverview, dsOverview, drsSummary],
   );
 
   const tabItems = useMemo(
@@ -97,6 +103,12 @@ const ComputeClusterSection: React.FC<ComputeClusterSectionProps> = ({
           children: <FailureDomainSection cloudId={cloudId} checkPerm={checkPerm} />,
         },
         {
+          key: 'deployment_sets' as const,
+          label: '部署集',
+          visible: canReadDs,
+          children: <DeploymentSetSection cloudId={cloudId} checkPerm={checkPerm} />,
+        },
+        {
           key: 'drs_rules' as const,
           label: 'DRS 规则',
           visible: canReadDrs,
@@ -113,6 +125,7 @@ const ComputeClusterSection: React.FC<ComputeClusterSectionProps> = ({
       ].filter((item) => item.visible),
     [
       canReadFd,
+      canReadDs,
       canReadDrs,
       canReadMig,
       checkPerm,
@@ -141,7 +154,7 @@ const ComputeClusterSection: React.FC<ComputeClusterSectionProps> = ({
 
   return (
     <PageDetailSection contentPadding={16}>
-      <ComputeClusterStatusHero loading={nodesLoading || fdLoading || drsLoading} stats={heroStats} />
+      <ComputeClusterStatusHero loading={nodesLoading || fdLoading || dsLoading || drsLoading} stats={heroStats} />
       <Tabs
         activeKey={operateTabKey}
         onChange={(key) => setOperateTabKey(key as ComputeClusterOperateTabKey)}

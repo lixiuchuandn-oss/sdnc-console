@@ -38,6 +38,12 @@ import {
   harvesterFailureDomainUpdateHandler,
 } from './handlers/failure-domain.handlers';
 import {
+  harvesterDeploymentSetCreateHandler,
+  harvesterDeploymentSetDeleteHandler,
+  harvesterDeploymentSetsOverviewHandler,
+  harvesterDeploymentSetUpdateHandler,
+} from './handlers/deployment-set.handlers';
+import {
   harvesterSdrsDisksHandler,
   harvesterSdrsOverviewHandler,
   harvesterSdrsPolicyGetHandler,
@@ -256,6 +262,28 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     '/:id/resources/harvester/failure-domains/:domainId/nodes',
     checkAdminPermission,
     harvesterFailureDomainSetNodesHandler,
+  );
+
+  // 虚拟机部署集
+  router.get(
+    '/:id/resources/harvester/deployment-sets/overview',
+    checkAdminPermission,
+    harvesterDeploymentSetsOverviewHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/deployment-sets',
+    checkAdminPermission,
+    harvesterDeploymentSetCreateHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/deployment-sets/:setId',
+    checkAdminPermission,
+    harvesterDeploymentSetUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/deployment-sets/:setId',
+    checkAdminPermission,
+    harvesterDeploymentSetDeleteHandler,
   );
 
   // 存储 DRS（SDRS）

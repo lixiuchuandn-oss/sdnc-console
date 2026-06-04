@@ -7,6 +7,7 @@ import {
   ApartmentOutlined,
   CloudServerOutlined,
   ClusterOutlined,
+  DeploymentUnitOutlined,
   SwapOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
@@ -14,6 +15,7 @@ import {
 export type ComputeClusterHeroStats = {
   nodeCount: number;
   failureDomainCount: number;
+  deploymentSetCount: number;
   drsRuleCount: number;
   migrationCount: number;
   enabledDrsRuleCount?: number;
@@ -98,7 +100,7 @@ const ComputeClusterStatusHero: React.FC<ComputeClusterStatusHeroProps> = ({ loa
                   maxWidth: 560,
                 }}
               >
-                管理物理计算节点、故障域划分、CDRS 调度规则与 DRS 触发的迁移记录。
+                管理物理计算节点、故障域划分、虚拟机部署集、CDRS 调度规则与 DRS 触发的迁移记录。
               </Typography.Paragraph>
             </div>
           </Col>
@@ -123,6 +125,17 @@ const ComputeClusterStatusHero: React.FC<ComputeClusterStatusHeroProps> = ({ loa
                   <ApartmentOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />
                   <span style={{ color: '#fff', fontSize: 24, fontWeight: 600, lineHeight: 1 }}>
                     {stats.failureDomainCount}
+                  </span>
+                </div>
+              </div>
+              <div style={statTileStyle}>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>
+                  部署集
+                </Typography.Text>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+                  <DeploymentUnitOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />
+                  <span style={{ color: '#fff', fontSize: 24, fontWeight: 600, lineHeight: 1 }}>
+                    {stats.deploymentSetCount}
                   </span>
                 </div>
               </div>
