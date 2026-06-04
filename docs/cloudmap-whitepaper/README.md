@@ -1,12 +1,17 @@
 # Cloudmap 超融合平台 · 技术白皮书（Markdown 源稿）
 
-> **唯一可维护源稿**在本目录 `source/`；Word 由脚本生成，勿手改 `output/*.docx` 后再反向当源稿。
+> **唯一可维护源稿**在本目录 `source/`；Word 由脚本生成，勿手改 `output/*.docx` 后再反向当源稿。  
+> **使用手册**（操作步骤）见 [`user-manual/README.md`](./user-manual/README.md)。
 
 ## 目录结构
 
 ```
 docs/cloudmap-whitepaper/
-├── README.md                 # 本文件：流程与约定
+├── README.md                 # 本文件：白皮书流程与约定
+├── user-manual/              # 《使用手册》源稿（与白皮书 3.x 对照）
+│   ├── README.md
+│   ├── writing-style.md
+│   └── source/ …
 ├── writing-style.md          # 写作硬性约束（政企白皮书口径）
 ├── source/
 │   ├── manifest.txt          # 章节合并顺序（build 按此读取）
@@ -47,27 +52,34 @@ docs/cloudmap-whitepaper/
 
    ```powershell
    cd docs/cloudmap-whitepaper
-   .\scripts\build-docx.ps1 -CopyToDeployment
+   # 技术白皮书
+   .\scripts\build-docx.ps1 -Variant whitepaper -CopyToDeployment
+   # 使用手册
+   .\scripts\build-docx.ps1 -Variant manual -CopyToDeployment
    ```
 
    ```bash
-   COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
+   VARIANT=whitepaper COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
+   VARIANT=manual COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
    ```
 
 4. **浏览器预览整本**（需 Pandoc）：
 
    ```powershell
    cd docs/cloudmap-whitepaper
-   .\scripts\build-html.ps1 -Open
+   .\scripts\build-html.ps1 -Variant whitepaper -Open
+   .\scripts\build-html.ps1 -Variant manual -Open
    ```
 
    ```bash
-   OPEN=1 ./scripts/build-html.sh
+   OPEN=1 VARIANT=manual ./scripts/build-html.sh
    ```
 
-   输出 `output/cloudmap-whitepaper.html`，含目录；标题编号以源稿 md 中的章节号为准（构建时不启用 Pandoc 自动编号）。样式见 `templates/preview.css`。
+   输出分别为 `output/cloudmap-whitepaper.html` 与 `user-manual/output/cloudmap-user-manual.html`。
 
-5. **交付**：`output/` 下 docx；加 `-CopyToDeployment` 时同步到 `deployment/`（该目录不入 git）。
+5. **交付**：`output/` 下 docx；加 `-CopyToDeployment` 时同步到 `deployment/`（该目录不入 git）：
+   - 白皮书 → `Cloudmap_whitepaper.docx`
+   - 使用手册 → `Cloudmap_user_manual.docx`
 
 ## 从旧 Word 迁移（一次性）
 
@@ -90,11 +102,12 @@ pandoc -o docs/cloudmap-whitepaper/templates/reference.docx --print-default-data
 
 ## 与仓库其他文档的关系
 
-| 文档                                        | 关系                                   |
-| ------------------------------------------- | -------------------------------------- |
-| `docs/cloudmap-whitepaper/writing-style.md` | 白皮书专用写作约束                     |
-| `deployment/*.docx`                         | **生成输出**（gitignore），非源稿      |
-| `AGENTS.md`                                 | 产品能力以代码为准；白皮书须与实现一致 |
+| 文档                                                    | 关系                                   |
+| ------------------------------------------------------- | -------------------------------------- |
+| `docs/cloudmap-whitepaper/writing-style.md`             | 白皮书专用写作约束                     |
+| `docs/cloudmap-whitepaper/user-manual/writing-style.md` | 使用手册写作约束（操作步骤）           |
+| `deployment/*.docx`                                     | **生成输出**（gitignore），非源稿      |
+| `AGENTS.md`                                             | 产品能力以代码为准；白皮书须与实现一致 |
 
 ## 维护建议
 

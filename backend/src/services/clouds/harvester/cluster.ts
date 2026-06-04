@@ -1,5 +1,6 @@
 import { HarvesterTestParams } from './types';
 import { requestOnce, getJsonOnce, requestJson } from './utils';
+import { getKubevirtCapabilityFlags } from './kubevirtConfig';
 
 // ====================================================================================================
 // 文件路径: backend/src/services/clouds/harvester/cluster.ts
@@ -579,14 +580,30 @@ export const getHarvesterCapabilities = async ({
   architecture: string;
   recommendedMachineType: string;
   version?: string;
+  kubevirt?: {
+    hugepages2MiAvailable: boolean;
+    hugepages1GiAvailable: boolean;
+    numaFeatureGate: boolean;
+  };
 }> => {
   // [架构检测] Detect Architecture from Nodes
   let architecture = 'amd64'; // default
+  let hugepages2MiAvailable = false;
+  let hugepages1GiAvailable = false;
   try {
     const nodes = await listHarvesterNodesStandard({ endpoint, token, insecure });
     if (nodes.length > 0) {
       const arch = nodes[0]?.architecture;
       if (arch) architecture = arch;
+    }
+    for (const node of nodes) {
+      const alloc =
+        node?.status?.allocatable || node?.allocatable || node?.raw?.status?.allocatable || {};
+      const hp2 = alloc['hugepages-2Mi'];
+      const hp1 = alloc['hugepages-1Gi'];
+      if (hp2 && String(hp2) !== '0') hugepages2MiAvailable = true;
+      if (hp1 && String(hp1) !== '0') hugepages1GiAvailable = true;
+      if (hugepages2MiAvailable && hugepages1GiAvailable) break;
     }
   } catch (e) {
     console.warn('Failed to detect Harvester architecture:', e);
@@ -602,9 +619,16 @@ export const getHarvesterCapabilities = async ({
     recommendedMachineType = 'q35';
   }
 
+  const kvFlags = await getKubevirtCapabilityFlags({ endpoint, token, insecure });
+
   return {
     architecture,
     recommendedMachineType,
+    kubevirt: {
+      hugepages2MiAvailable,
+      hugepages1GiAvailable,
+      numaFeatureGate: kvFlags.numaFeatureGate,
+    },
   };
 };
 

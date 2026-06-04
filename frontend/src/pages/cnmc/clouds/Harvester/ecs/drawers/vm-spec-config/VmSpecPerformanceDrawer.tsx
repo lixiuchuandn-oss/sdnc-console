@@ -18,9 +18,18 @@ import {
   Row,
   Select,
   Space,
+  Tooltip,
   Typography,
 } from "antd";
+import { QuestionCircleOutlined } from "@ant-design/icons";
 import { fillCpuAdvancedFormFromVm } from "./lib/fillCpuAdvancedFormFromVm";
+import NumaModeFormFields from "../../components/NumaModeFormFields";
+import {
+  HUGEpages_PAGE_SIZE_OPTIONS,
+  HUGEpages_HINT,
+  HUGEpages_RECONFIG_HINT,
+  validateVmPerformanceAdvancedForm,
+} from "../../lib/numaHugepagesSpec";
 import { buildVmReconfigureSubmitCtx } from "../../lib/vmMutation/vmReconfigureSubmitContext";
 import { VmReconfigureSubmitSkipFinalize } from "../../lib/vmMutation/vmReconfigureSubmitTypes";
 import { submitVmReconfigureCpuAdvanced } from "./lib/submitCpuAdvanced";
@@ -164,6 +173,7 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
                     form?.setFieldsValue?.({
                       dedicatedCPUPlacement: false,
                       isolateEmulatorThread: false,
+                      numaMode: 'off',
                     });
                     return;
                   }
@@ -258,6 +268,16 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
 
       <Row gutter={12} style={{ marginBottom: 0 }}>
         <Col span={6}>
+          <div style={{ lineHeight: "32px" }}>NUMA 亲和</div>
+        </Col>
+        <Col span={18}>
+          <NumaModeFormFields form={form} onWarn={(msg) => message.warning(msg)} />
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
           <div style={{ lineHeight: "32px" }}>CPU QoS</div>
         </Col>
         <Col span={18}>
@@ -289,6 +309,52 @@ const VmSpecPerformanceCpuFields: React.FC<VmSpecPerformanceCpuFieldsProps> = ({
             <Form.Item noStyle name="memoryLimitGi">
               <InputNumber min={0} max={4096} precision={0} style={{ width: 100 }} suffix="GiB" />
             </Form.Item>
+          </Space>
+          <div style={{ marginBottom: 24 }} />
+        </Col>
+      </Row>
+
+      <Row gutter={12} style={{ marginBottom: 0 }}>
+        <Col span={6}>
+          <div style={{ lineHeight: "32px" }}>大页内存</div>
+        </Col>
+        <Col span={18}>
+          <Space>
+            <Form.Item name="hugepagesEnabled" valuePropName="checked" noStyle>
+              <Checkbox
+                onChange={(e) => {
+                  const checked = !!e.target.checked;
+                  if (checked) {
+                    const err = validateVmPerformanceAdvancedForm({
+                      ...(form?.getFieldsValue?.(true) || {}),
+                      hugepagesEnabled: true,
+                    });
+                    if (err) {
+                      message.warning(err);
+                      form?.setFieldsValue?.({ hugepagesEnabled: false });
+                    }
+                  }
+                }}
+              >
+                启用
+              </Checkbox>
+            </Form.Item>
+            <Form.Item noStyle shouldUpdate={(p, c) => p.hugepagesEnabled !== c.hugepagesEnabled}>
+              {({ getFieldValue }) => (
+                <Form.Item name="hugepagesPageSize" noStyle>
+                  <Select
+                    options={HUGEpages_PAGE_SIZE_OPTIONS}
+                    style={{ width: 120 }}
+                    disabled={!getFieldValue("hugepagesEnabled")}
+                  />
+                </Form.Item>
+              )}
+            </Form.Item>
+            <Tooltip title={`${HUGEpages_HINT}。${HUGEpages_RECONFIG_HINT}。`}>
+              <QuestionCircleOutlined
+                style={{ color: 'rgba(0,0,0,.45)', fontSize: 12, cursor: 'help' }}
+              />
+            </Tooltip>
           </Space>
           <div style={{ marginBottom: 24 }} />
         </Col>

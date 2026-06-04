@@ -296,7 +296,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
         </Col>
         <Col span={12}>
           <Form.Item label="运行位置" name="hostMode" preserve> 
-            <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
+            <Radio.Group buttonStyle="solid" block onChange={(e)=> setHostModeState(e.target.value)}>
               <Radio.Button value="auto">自动调度</Radio.Button>
               <Radio.Button value="node">指定主机</Radio.Button>
               <Radio.Button value="label">故障域</Radio.Button>

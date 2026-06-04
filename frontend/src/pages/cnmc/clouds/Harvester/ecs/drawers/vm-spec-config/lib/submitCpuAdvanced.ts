@@ -10,6 +10,7 @@ import { message } from 'antd';
 import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from '../../../lib/vmMutation/vmReconfigureSubmitContext';
 import { shouldSkipCpuAdvancedRestartConfirm } from './cpuAdvancedQosOnlyChange';
+import { validateVmPerformanceAdvancedForm, isNumaModeEnabled } from '../../../lib/numaHugepagesSpec';
 
 export async function submitVmReconfigureCpuAdvanced(
   ctx: VmReconfigureSubmitCtx,
@@ -25,6 +26,23 @@ export async function submitVmReconfigureCpuAdvanced(
     );
     return;
   }
+  const perfErr = validateVmPerformanceAdvancedForm({
+    hugepagesEnabled: values.hugepagesEnabled,
+    hugepagesPageSize: values.hugepagesPageSize,
+    hotExpandEnabled: values.enableHotPlug,
+    memoryLimitGi: values.memoryLimitGi,
+    numaMode: values.numaMode,
+    numaManualNodeCount: values.numaManualNodeCount,
+    dedicatedCPUPlacement: values.dedicatedCPUPlacement || isNumaModeEnabled(values.numaMode),
+    enableHotPlug: values.enableHotPlug,
+    cpuSockets: values.cpuSockets,
+    cpuCores: values.cpuCores,
+    cpuThreads: values.cpuThreads,
+  });
+  if (perfErr) {
+    message.warning(perfErr);
+    return;
+  }
   const advancedPayload: any = {
     cpuSockets: values.cpuSockets,
     cpuCores: values.cpuCores,
@@ -33,6 +51,12 @@ export async function submitVmReconfigureCpuAdvanced(
     cpuModelCustom: values.cpuModelCustom,
     dedicatedCPUPlacement: values.dedicatedCPUPlacement,
     isolateEmulatorThread: values.isolateEmulatorThread,
+    hugepagesEnabled: !!values.hugepagesEnabled,
+    hugepagesPageSize: values.hugepagesEnabled ? values.hugepagesPageSize || '2Mi' : null,
+    numaMode: values.numaMode || 'off',
+    numaManualNodeCount:
+      values.numaMode === 'manual' ? Number(values.numaManualNodeCount || 2) : null,
+    numaGuestMappingPassthrough: values.numaMode === 'auto',
   };
 
   if (values.dedicatedCPUPlacement) {

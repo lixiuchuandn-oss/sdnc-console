@@ -21,6 +21,7 @@
 import React, { useMemo } from 'react';
 import { Divider } from 'antd';
 import { buildNodeSelectorFromLabelForm, FAILURE_DOMAIN_NODE_LABEL } from '../../lib/vmFailureDomainNodeSelector';
+import { formatHugepagesSummary, formatNumaSummary } from '../../lib/numaHugepagesSpec';
 
 /**
  * 组件 Props 定义
@@ -107,6 +108,8 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     const cpuMode = String(v.cpuModel || 'host-passthrough');
     const cpuBind = v.dedicatedCPUPlacement ? '启用' : '未启用';
     const cpuIso = v.isolateEmulatorThread ? '启用' : '未启用';
+    const hugepagesSummary = formatHugepagesSummary(v.hugepagesEnabled, v.hugepagesPageSize);
+    const numaSummary = formatNumaSummary(v.numaMode, v.numaManualNodeCount);
     const cpuQos = (function () {
       const req = v.cpuRequest;
       const lim = v.cpuLimit;
@@ -211,6 +214,8 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
         cpuMode: (function () { const m = cpuMode; return (m && m !== 'host-passthrough') ? m : undefined; })(),
         cpuBind: v.dedicatedCPUPlacement ? cpuBind : undefined,
         cpuIso: v.isolateEmulatorThread ? cpuIso : undefined,
+        hugepages: v.hugepagesEnabled ? hugepagesSummary : undefined,
+        numa: v.numaMode && v.numaMode !== 'off' ? numaSummary : undefined,
         qos: cpuQos !== '-' ? cpuQos : undefined
       },
 
@@ -346,6 +351,18 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <div className="wizard-summary-item">
               <span className="wizard-summary-label" title="CPU 隔离">CPU 隔离</span>
               <span className="wizard-summary-value" title={summary.compute.cpuIso}>{summary.compute.cpuIso}</span>
+            </div>
+          ) : null}
+          {summary.compute.hugepages ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="大页内存">大页内存</span>
+              <span className="wizard-summary-value" title={summary.compute.hugepages}>{summary.compute.hugepages}</span>
+            </div>
+          ) : null}
+          {summary.compute.numa ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="NUMA 亲和">NUMA 亲和</span>
+              <span className="wizard-summary-value" title={summary.compute.numa}>{summary.compute.numa}</span>
             </div>
           ) : null}
           {summary.compute.qos ? (

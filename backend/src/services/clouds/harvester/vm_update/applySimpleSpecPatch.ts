@@ -4,6 +4,7 @@
 import { requestJson } from '../utils';
 import { getHarvesterSettingValue } from '../cluster';
 import { supportCPUAndMemoryHotplug } from './hotplug';
+import { resolveManualNumaNodesForPatch } from './validateNuma';
 
 export type SimpleSpecPatchParams = {
   endpoint: string;
@@ -32,6 +33,9 @@ export const applySimpleHarvesterVMSpecPatch = async (p: SimpleSpecPatchParams):
   };
   const ensureCpu = () => {
     if (!domain.cpu) domain.cpu = {};
+  };
+  const ensureMemory = () => {
+    if (!domain.memory) domain.memory = {};
   };
 
   // 1. Simple CPU
@@ -426,6 +430,79 @@ export const applySimpleHarvesterVMSpecPatch = async (p: SimpleSpecPatchParams):
     if (!isMemHotPlug) {
       ensureResources();
       domain.resources.limits.memory = spec.memoryLimit;
+    }
+  }
+
+  // 4b. Hugepages
+  if (spec.hugepagesEnabled === true && spec.hugepagesPageSize) {
+    ensureMemory();
+    const currentPageSize = current?.spec?.template?.spec?.domain?.memory?.hugepages?.pageSize;
+    if (currentPageSize !== spec.hugepagesPageSize) {
+      domain.memory.hugepages = { pageSize: spec.hugepagesPageSize };
+    }
+    const guestMem =
+      domain.memory.guest ??
+      current?.spec?.template?.spec?.domain?.memory?.guest ??
+      current?.spec?.template?.spec?.domain?.resources?.requests?.memory;
+    if (guestMem) {
+      ensureResources();
+      domain.resources.requests.memory = guestMem;
+      domain.resources.limits.memory = guestMem;
+      if (!domain.memory.guest) {
+        domain.memory.guest = guestMem;
+      }
+    }
+  } else if (spec.hugepagesEnabled === false) {
+    ensureMemory();
+    if (current?.spec?.template?.spec?.domain?.memory?.hugepages) {
+      domain.memory.hugepages = null;
+    }
+  } else if (spec.hugepagesPageSize && !spec.hugepagesEnabled) {
+    const currentHuge = current?.spec?.template?.spec?.domain?.memory?.hugepages;
+    if (currentHuge?.pageSize) {
+      ensureMemory();
+      if (currentHuge.pageSize !== spec.hugepagesPageSize) {
+        domain.memory.hugepages = { pageSize: spec.hugepagesPageSize };
+      }
+    }
+  }
+
+  // 4c. NUMA
+  const resolvedNumaMode =
+    spec.numaMode ??
+    (spec.numaGuestMappingPassthrough === true
+      ? 'auto'
+      : spec.numaManualNodeCount
+        ? 'manual'
+        : spec.numaGuestMappingPassthrough === false
+          ? 'off'
+          : undefined);
+
+  const ensureNumaDedicatedCpu = () => {
+    ensureCpu();
+    const currentDedicated = current?.spec?.template?.spec?.domain?.cpu?.dedicatedCpuPlacement;
+    if (currentDedicated !== true) {
+      domain.cpu.dedicatedCpuPlacement = true;
+      ensureResources();
+      (domain.resources.requests as any).cpu = null;
+      (domain.resources.limits as any).cpu = null;
+    }
+  };
+
+  if (resolvedNumaMode === 'auto' || spec.numaGuestMappingPassthrough === true) {
+    ensureNumaDedicatedCpu();
+    const currentNuma = current?.spec?.template?.spec?.domain?.cpu?.numa?.guestMappingPassthrough;
+    if (!currentNuma) {
+      domain.cpu.numa = { guestMappingPassthrough: {} };
+    }
+  } else if (resolvedNumaMode === 'manual') {
+    ensureNumaDedicatedCpu();
+    const nodes = resolveManualNumaNodesForPatch(spec, current);
+    domain.cpu.numa = { nodes };
+  } else if (resolvedNumaMode === 'off' || spec.numaGuestMappingPassthrough === false) {
+    ensureCpu();
+    if (current?.spec?.template?.spec?.domain?.cpu?.numa) {
+      domain.cpu.numa = null;
     }
   }
 
