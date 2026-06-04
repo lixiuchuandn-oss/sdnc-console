@@ -74,7 +74,7 @@ const VmDeploymentSetField: React.FC<VmDeploymentSetFieldProps> = ({
     const current = form.getFieldValue?.('deploymentSetId');
     if (current) return;
     form.setFieldsValue({ deploymentSetId: initialSetId });
-  }, [initialSetId, sets, form]);
+  }, [disabled, initialSetId, sets, form]);
 
   const options = useMemo(() => buildDeploymentSetSelectOptions(sets), [sets]);
 
