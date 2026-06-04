@@ -7,7 +7,6 @@ import {
   validateVmPerformanceAdvancedForm,
   formatHugepagesSummary,
   formatNumaSummary,
-  buildManualNumaNodes,
   describeManualNumaPreview,
   normalizeNumaMode,
 } from './numaHugepagesSpec';

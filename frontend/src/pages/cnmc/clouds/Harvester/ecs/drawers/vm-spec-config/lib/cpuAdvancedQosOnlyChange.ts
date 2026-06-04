@@ -29,10 +29,6 @@ function normNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function normBool(v: unknown): boolean {
-  return !!v;
-}
-
 function normStr(v: unknown): string {
   if (v === undefined || v === null) return "";
   return String(v).trim();

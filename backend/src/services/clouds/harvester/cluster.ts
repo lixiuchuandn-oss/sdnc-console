@@ -598,10 +598,7 @@ export const getHarvesterCapabilities = async ({
     }
     for (const node of nodes) {
       const alloc =
-        node?.status?.allocatable ||
-        node?.allocatable ||
-        node?.raw?.status?.allocatable ||
-        {};
+        node?.status?.allocatable || node?.allocatable || node?.raw?.status?.allocatable || {};
       const hp2 = alloc['hugepages-2Mi'];
       const hp1 = alloc['hugepages-1Gi'];
       if (hp2 && String(hp2) !== '0') hugepages2MiAvailable = true;

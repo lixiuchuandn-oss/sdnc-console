@@ -25,7 +25,9 @@ export function buildManualNumaNodes(
     const end = Math.round((i + 1) * perCpu) - 1;
     out.push({
       vcpus: start >= end ? String(start) : `${start}-${end}`,
-      memory: Number.isInteger(perMemGi) ? `${perMemGi}Gi` : `${perMemGi.toFixed(3).replace(/\.?0+$/, '')}Gi`,
+      memory: Number.isInteger(perMemGi)
+        ? `${perMemGi}Gi`
+        : `${perMemGi.toFixed(3).replace(/\.?0+$/, '')}Gi`,
     });
   }
   return out;
@@ -68,7 +70,10 @@ export function validateManualNumaParams(input: ManualNumaValidateInput): string
   if (totalMemoryGi <= 0) {
     return '须先配置有效的虚拟机内存';
   }
-  if (Math.abs(totalMemoryGi / nodes - totalMemoryGi / nodes) > 0 || totalMemoryGi / nodes < 0.001) {
+  if (
+    Math.abs(totalMemoryGi / nodes - totalMemoryGi / nodes) > 0 ||
+    totalMemoryGi / nodes < 0.001
+  ) {
     // equal split check: prefer integer Gi per node when using Gi quantities
     const per = totalMemoryGi / nodes;
     if (!Number.isFinite(per) || per <= 0) {

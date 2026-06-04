@@ -52,11 +52,8 @@ export function validateHugepagesSpec(spec: Record<string, unknown>, current: an
     throw new Error('大页内存暂不支持与 CPU/内存热扩容同时启用');
   }
 
-  const currentPageSize =
-    current?.spec?.template?.spec?.domain?.memory?.hugepages?.pageSize;
-  const pageSize = String(
-    spec.hugepagesPageSize ?? (enabling ? currentPageSize : '') ?? '',
-  ).trim();
+  const currentPageSize = current?.spec?.template?.spec?.domain?.memory?.hugepages?.pageSize;
+  const pageSize = String(spec.hugepagesPageSize ?? (enabling ? currentPageSize : '') ?? '').trim();
 
   if (enabling || (spec.hugepagesPageSize && !disabling)) {
     if (!ALLOWED_PAGE_SIZES.has(pageSize)) {

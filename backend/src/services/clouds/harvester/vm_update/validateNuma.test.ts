@@ -28,10 +28,7 @@ describe('validateNumaSpec', () => {
 
   it('rejects manual when sockets not divisible', () => {
     expect(() =>
-      validateNumaSpec(
-        { numaMode: 'manual', numaManualNodeCount: 2, cpuSockets: 3 },
-        baseVm,
-      ),
+      validateNumaSpec({ numaMode: 'manual', numaManualNodeCount: 2, cpuSockets: 3 }, baseVm),
     ).toThrow(/插槽/);
   });
 
