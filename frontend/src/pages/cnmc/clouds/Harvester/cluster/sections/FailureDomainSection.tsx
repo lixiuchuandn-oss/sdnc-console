@@ -1,13 +1,14 @@
 /**
  * 集群 · 故障域
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Input, Table, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import WriteGuard from 'components/WriteGuard';
+import { fetchCloudProviderEcs } from 'services/api';
 import {
   createFailureDomain,
   deleteFailureDomain,
@@ -21,6 +22,8 @@ import FailureDomainFormModal, {
 } from '../modals/FailureDomainFormModal';
 import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
 import { buildFailureDomainsTableColumns } from '../lib/failureDomainsTableColumns';
+import { assessFailureDomainDeleteBlocked } from '../lib/failureDomainDeleteGuard';
+import { buildFailureDomainAssignableNodeNames } from '../lib/failureDomainAssignableNodes';
 import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
 import {
   createHarvesterToolbarRefresh,
@@ -56,6 +59,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
   const canWrite = canWriteFailureDomains(checkPerm);
 
   const { loading, overview, error, reload } = useFailureDomainsData(cloudId, canRead);
+  const [vms, setVms] = useState<any[]>([]);
   const [keyword, setKeyword] = useState('');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<FailureDomainRow | null>(null);
@@ -64,15 +68,36 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
   const [assignDomain, setAssignDomain] = useState<FailureDomainRow | null>(null);
   const [assignSaving, setAssignSaving] = useState(false);
 
+  useEffect(() => {
+    if (!cloudId || !canRead) {
+      setVms([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchCloudProviderEcs(cloudId, false)
+      .then((json: unknown) => {
+        if (cancelled) return;
+        const data = (json as { data?: unknown[] })?.data;
+        setVms(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setVms([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudId, canRead]);
+
   const domains = useMemo(() => overview?.domains ?? [], [overview?.domains]);
   const filtered = useMemo(() => filterDomains(domains, keyword), [domains, keyword]);
-  const allNodeNames = useMemo(() => {
-    const set = new Set<string>(overview?.unassignedNodeNames ?? []);
-    for (const d of domains) {
-      for (const n of d.nodeNames || []) set.add(n);
-    }
-    return Array.from(set).sort();
-  }, [domains, overview?.unassignedNodeNames]);
+  const assignableNodeNames = useMemo(
+    () =>
+      buildFailureDomainAssignableNodeNames({
+        unassignedNodeNames: overview?.unassignedNodeNames,
+        domain: assignDomain,
+      }),
+    [assignDomain, overview?.unassignedNodeNames],
+  );
 
   const handleRefresh = useMemo(() => createHarvesterToolbarRefresh(reload), [reload]);
 
@@ -97,6 +122,11 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
 
   const handleDelete = useCallback(
     (row: FailureDomainRow) => {
+      const blocked = assessFailureDomainDeleteBlocked(row.name, vms);
+      if (blocked) {
+        message.warning(blocked);
+        return;
+      }
       void confirmHighRiskDelete({
         resourceLabel: '故障域',
         name: row.name,
@@ -108,7 +138,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
         },
       }).catch(() => {});
     },
-    [cloudId, reload],
+    [cloudId, reload, vms],
   );
 
   const handleFormSubmit = useCallback(
@@ -235,7 +265,7 @@ const FailureDomainSection: React.FC<FailureDomainSectionProps> = ({
       <FailureDomainAssignNodesModal
         open={assignOpen}
         domain={assignDomain}
-        allNodeNames={allNodeNames}
+        selectableNodeNames={assignableNodeNames}
         onClose={() => {
           setAssignOpen(false);
           setAssignDomain(null);

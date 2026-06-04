@@ -5,6 +5,10 @@ import type {
   FailureDomainType,
 } from 'services/harvester/failureDomains';
 import { FAILURE_DOMAIN_TYPE_LABELS } from 'services/harvester/failureDomains';
+import {
+  FAILURE_DOMAIN_NAME_MAX_LENGTH,
+  validateFailureDomainNameField,
+} from '../lib/failureDomainNameValidation';
 
 export type FailureDomainFormValues = {
   name: string;
@@ -57,16 +61,20 @@ const FailureDomainFormModal: React.FC<Props> = ({
       confirmLoading={saving}
       destroyOnClose
       onOk={() => {
-        void form.validateFields().then((values) => onSubmit(values));
+        void form
+          .validateFields()
+          .then((values) => onSubmit(values))
+          .catch(() => undefined);
       }}
     >
       <Form form={form} layout="vertical">
         <Form.Item
           name="name"
           label="名称"
-          rules={[{ required: true, message: '请输入故障域名称' }]}
+          extra="用于节点标签与虚拟机调度，仅支持字母、数字、连字符、下划线、点；中文说明请写在描述中"
+          rules={[{ required: true, message: '请输入故障域名称' }, { validator: validateFailureDomainNameField }]}
         >
-          <Input placeholder="如 rack-a、zone-1" maxLength={64} />
+          <Input placeholder="如 rack-a、zone-1" maxLength={FAILURE_DOMAIN_NAME_MAX_LENGTH} />
         </Form.Item>
         <Form.Item name="domainType" label="类型" rules={[{ required: true }]}>
           <Select options={TYPE_OPTIONS} />

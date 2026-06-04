@@ -43,10 +43,13 @@ import type { PodAffinityEditorHandle } from '../../../containers/components/wor
 import StepOthersPodAffinity from './StepOthersPodAffinity';
 import {
   fetchFailureDomainOverview,
-  FAILURE_DOMAIN_TYPE_LABELS,
   type FailureDomainRow,
 } from 'services/harvester/failureDomains';
 import { vmFailureDomainRequiredMessage } from '../../lib/vmAdvancedSchedulingLabels';
+import {
+  buildVmFailureDomainSelectOptions,
+  VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT,
+} from '../../lib/vmFailureDomainNodeSelector';
 
 /**
  * 组件 Props 定义
@@ -127,15 +130,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
   const [failureDomainsLoading, setFailureDomainsLoading] = useState(false);
 
   const failureDomainOptions = useMemo(
-    () =>
-      failureDomains.map((d) => {
-        const typeLabel = FAILURE_DOMAIN_TYPE_LABELS[d.domainType] || d.domainType;
-        const nodeCount = d.nodeNames?.length ?? 0;
-        return {
-          value: d.name,
-          label: `${d.name}（${typeLabel} · ${nodeCount} 节点）`,
-        };
-      }),
+    () => buildVmFailureDomainSelectOptions(failureDomains),
     [failureDomains],
   );
 
@@ -348,7 +343,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
               options={failureDomainOptions}
               optionFilterProp="label"
               notFoundContent={
-                failureDomainsLoading ? <Spin size="small" /> : '暂无故障域，请先在集群中创建'
+                failureDomainsLoading ? <Spin size="small" /> : VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT
               }
             />
           </Form.Item>

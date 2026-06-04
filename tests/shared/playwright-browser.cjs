@@ -1,4 +1,14 @@
-const { chromium } = require('playwright');
+let chromium;
+try {
+  chromium = require('playwright').chromium;
+} catch (e) {
+  if (e && e.code === 'MODULE_NOT_FOUND') {
+    throw new Error(
+      '未安装 playwright。请在 tests 目录执行: npm install（postinstall 会自动下载 Chromium）',
+    );
+  }
+  throw e;
+}
 
 async function launchTowerBrowser(options = {}) {
   const { headless = false, slowMo = 220 } = options;

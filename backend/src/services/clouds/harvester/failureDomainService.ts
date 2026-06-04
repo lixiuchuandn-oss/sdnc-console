@@ -4,13 +4,16 @@
 import { randomUUID } from 'crypto';
 import { AppDataSource } from '../../../config/database';
 import { HarvesterNodeInventory } from '../../../entities/harvester/HarvesterNodeInventory';
+import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';
 import { getJsonOnce, requestJson } from './utils';
 import {
   FAILURE_DOMAIN_NODE_LABEL,
   type FailureDomainOverview,
   type FailureDomainRow,
   type FailureDomainType,
+  type VmFailureDomainRef,
 } from './failureDomainTypes';
+import { validateFailureDomainName } from './failureDomainName';
 
 const VALID_TYPES = new Set<FailureDomainType>(['rack', 'zone', 'host']);
 
@@ -156,7 +159,8 @@ export async function createFailureDomain(
   input: { name: string; domainType?: FailureDomainType; description?: string; sortOrder?: number },
 ): Promise<FailureDomainRow> {
   const name = String(input.name || '').trim();
-  if (!name) throw new Error('缺少故障域名称');
+  const nameErr = validateFailureDomainName(name);
+  if (nameErr) throw Object.assign(new Error(nameErr), { status: 400 });
   const dup = await AppDataSource.query(
     `SELECT id FROM cloud_failure_domains WHERE cloudId = ? AND name = ? LIMIT 1`,
     [cloudId, name],
@@ -211,7 +215,8 @@ export async function updateFailureDomain(
 
   const oldName = String(existing[0].name || '').trim();
   const newName = input.name != null ? String(input.name).trim() : oldName;
-  if (!newName) throw new Error('故障域名称不能为空');
+  const nameErr = validateFailureDomainName(newName);
+  if (nameErr) throw Object.assign(new Error(nameErr), { status: 400 });
   if (newName !== oldName) {
     const dup = await AppDataSource.query(
       `SELECT id FROM cloud_failure_domains WHERE cloudId = ? AND name = ? AND id != ? LIMIT 1`,
@@ -263,8 +268,86 @@ export async function updateFailureDomain(
   return row;
 }
 
+/** 从 VM 库存/原始对象读取 nodeSelector 中的故障域名称 */
+export function readVmFailureDomainName(vmLike: unknown): string | undefined {
+  const row = vmLike as {
+    rawData?: { spec?: { template?: { spec?: { nodeSelector?: Record<string, unknown> } } } };
+    spec?: { template?: { spec?: { nodeSelector?: Record<string, unknown> } } };
+    template?: { spec?: { nodeSelector?: Record<string, unknown> } };
+  };
+  const nodeSelector =
+    row?.rawData?.spec?.template?.spec?.nodeSelector ||
+    row?.spec?.template?.spec?.nodeSelector ||
+    row?.template?.spec?.nodeSelector;
+  if (!nodeSelector || typeof nodeSelector !== 'object') return undefined;
+  const val = String(nodeSelector[FAILURE_DOMAIN_NODE_LABEL] ?? '').trim();
+  return val || undefined;
+}
+
+export function formatFailureDomainDeleteBlockedMessage(
+  domainName: string,
+  vms: VmFailureDomainRef[],
+): string {
+  const labels = vms.map((v) => v.displayName).filter(Boolean);
+  if (labels.length === 0) return '故障域仍被虚拟机使用，无法删除';
+  if (labels.length === 1) {
+    return `故障域「${domainName}」仍被虚拟机「${labels[0]}」使用，无法删除`;
+  }
+  return `故障域「${domainName}」仍被以下虚拟机使用，无法删除：${labels.join('、')}`;
+}
+
+export async function findVmsUsingFailureDomain(
+  cloudId: string,
+  domainName: string,
+): Promise<VmFailureDomainRef[]> {
+  const name = String(domainName || '').trim();
+  if (!name) return [];
+
+  const repo = AppDataSource.getRepository(HarvesterVmInventory);
+  const allVms = await repo.find({ where: { cloudId } });
+  const out: VmFailureDomainRef[] = [];
+  const seen = new Set<string>();
+
+  for (const vm of allVms) {
+    const fd = readVmFailureDomainName(vm);
+    if (fd !== name) continue;
+
+    const ns = String(vm.namespace || vm.rawData?.metadata?.namespace || '').trim();
+    const vmName = String(vm.name || vm.rawData?.metadata?.name || '').trim();
+    if (!vmName) continue;
+
+    const key = `${ns}/${vmName}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const ann =
+      (vm.annotations as Record<string, string> | undefined) ||
+      (vm.rawData?.metadata?.annotations as Record<string, string> | undefined) ||
+      {};
+    const displayName = String(ann['tower.io/alias'] || vmName).trim() || vmName;
+    out.push({ namespace: ns, name: vmName, displayName });
+  }
+
+  return out.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'));
+}
+
 export async function deleteFailureDomain(cloudId: string, domainId: string, cloud: any) {
   const id = String(domainId || '').trim();
+  const domainRows = await AppDataSource.query(
+    `SELECT id, name FROM cloud_failure_domains WHERE id = ? AND cloudId = ? LIMIT 1`,
+    [id, cloudId],
+  );
+  if (!domainRows?.length) throw Object.assign(new Error('故障域不存在'), { status: 404 });
+  const domainName = String(domainRows[0].name || '').trim();
+
+  const usingVms = await findVmsUsingFailureDomain(cloudId, domainName);
+  if (usingVms.length) {
+    throw Object.assign(
+      new Error(formatFailureDomainDeleteBlockedMessage(domainName, usingVms)),
+      { status: 409, code: 'FAILURE_DOMAIN_IN_USE', resources: usingVms },
+    );
+  }
+
   const nodes = await AppDataSource.query(
     `SELECT nodeName FROM cloud_failure_domain_nodes WHERE cloudId = ? AND failureDomainId = ?`,
     [cloudId, id],

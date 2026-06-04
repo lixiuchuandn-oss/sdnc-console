@@ -22,10 +22,13 @@ import { buildHarvesterNodePickerTableColumns } from "../shared/lib/harvesterNod
 import { useHarvesterNodeResourceMaps } from "../shared/lib/useHarvesterNodeResourceMaps";
 import {
   fetchFailureDomainOverview,
-  FAILURE_DOMAIN_TYPE_LABELS,
   type FailureDomainRow,
 } from "services/harvester/failureDomains";
-import { parseFailureDomainFromNodeSelector } from "../../lib/vmFailureDomainNodeSelector";
+import {
+  buildVmFailureDomainSelectOptions,
+  parseFailureDomainFromNodeSelector,
+  VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT,
+} from "../../lib/vmFailureDomainNodeSelector";
 import { VM_ADVANCED_SCHEDULING_COLLAPSE } from "../../lib/vmAdvancedSchedulingLabels";
 import VmNodeSelectorPairsEditor from "../../lib/VmNodeSelectorPairsEditor";
 
@@ -93,17 +96,14 @@ const ChangeNodeScheduling: React.FC<Props> = ({
     };
   }, [cloudId]);
 
+  const failureDomainName = Form.useWatch("failureDomainName", form);
+
   const failureDomainOptions = useMemo(
     () =>
-      failureDomains.map((d) => {
-        const typeLabel = FAILURE_DOMAIN_TYPE_LABELS[d.domainType] || d.domainType;
-        const nodeCount = d.nodeNames?.length ?? 0;
-        return {
-          value: d.name,
-          label: `${d.name}（${typeLabel} · ${nodeCount} 节点）`,
-        };
+      buildVmFailureDomainSelectOptions(failureDomains, {
+        extraIncludeNames: failureDomainName ? [String(failureDomainName)] : [],
       }),
-    [failureDomains],
+    [failureDomains, failureDomainName],
   );
 
   useEffect(() => {
@@ -322,6 +322,9 @@ const ChangeNodeScheduling: React.FC<Props> = ({
               placeholder="选择故障域"
               options={failureDomainOptions}
               optionFilterProp="label"
+              notFoundContent={
+                failureDomainsLoading ? undefined : VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT
+              }
             />
           </Form.Item>
           <Collapse

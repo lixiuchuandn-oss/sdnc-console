@@ -23,3 +23,9 @@ export type FailureDomainOverview = {
   unassignedNodeNames: string[];
   nodeLabelKey: string;
 };
+
+export type VmFailureDomainRef = {
+  namespace: string;
+  name: string;
+  displayName: string;
+};
