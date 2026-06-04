@@ -42,8 +42,15 @@ export class ImageUploadTask {
   @Column({ type: 'integer', nullable: true })
   fileSize?: number;
 
+  @Column({ type: 'text', nullable: true })
+  fileMd5?: string;
+
+  @Column({ type: 'text', nullable: true })
+  storedFileMd5?: string;
+
   /** 本地 qcow2 解析或集群 detail 得到的虚拟容量（字节），供列表即时展示 */
   @Column({ type: 'integer', nullable: true })
+  virtualSizeBytes?: number;
 
   @Column({ type: 'integer', nullable: true })
   chunkSize?: number;

@@ -354,7 +354,7 @@ describe('imagesSectionActions', () => {
     ] as any[];
     expect(planImageListProgressPoll(tasks, images)).toEqual({
       pollUploadTasks: true,
-      pollInventory: false,
+      pollInventory: true,
     });
   });
 
@@ -490,7 +490,7 @@ describe('imagesSectionActions', () => {
         } as any,
         { isRunning: true },
       ),
-    ).toBe('分片 69/74（并行上传第 69–72 片，4 路）');
+    ).toBe('分片 69/74（并行上传第 70、71、72 片）');
   });
 
   it('formatImageUploadTaskChunkLine ignores stale chunk index already received', () => {
