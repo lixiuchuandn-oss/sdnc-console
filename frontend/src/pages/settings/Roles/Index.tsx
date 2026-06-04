@@ -199,6 +199,11 @@ const AccessRolesPage: React.FC = () => {
     setAssignUserTarget(null);
   }, []);
 
+  useEffect(() => {
+    if (!createOpen) return;
+    createForm.resetFields();
+  }, [createOpen, createForm]);
+
   const handleCreate = useCallback(async () => {
     if (!canWrite) {
       message.warning('无权限执行该操作');
@@ -552,7 +557,10 @@ const AccessRolesPage: React.FC = () => {
       <Modal
         title="新建授权角色"
         open={createOpen}
-        onCancel={() => setCreateOpen(false)}
+        onCancel={() => {
+          setCreateOpen(false);
+          createForm.resetFields();
+        }}
         onOk={() => createForm.submit()}
         okText="创建"
         okButtonProps={{ disabled: !canWrite }}

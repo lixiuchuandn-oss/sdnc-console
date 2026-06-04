@@ -384,6 +384,13 @@ const AccessUsersPage: React.FC = () => {
     [canWriteUsers, createForm],
   );
 
+  useEffect(() => {
+    if (!createOpen) return;
+    createForm.resetFields();
+    const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    createForm.setFieldsValue({ username: rand });
+  }, [createOpen, createForm]);
+
   return (
     <PageContainer titleLevel={3} asCard={false}>
       <Tabs
@@ -409,7 +416,7 @@ const AccessUsersPage: React.FC = () => {
         <div className="toolbar-actions">
           {canWriteUsers ? <Button type="primary" onClick={() => setSecurityDrawerOpen(true)}>安全设定</Button> : null}
           {canWriteUsers ? (
-            <Button type="primary" onClick={() => { const rand = `user-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`; createForm.setFieldsValue({ username: rand }); setCreateOpen(true); }}>新建系统用户</Button>
+            <Button type="primary" onClick={() => setCreateOpen(true)}>新建系统用户</Button>
           ) : null}
           {canWriteUsers ? <Dropdown menu={batchMenuProps}><Button icon={<EllipsisOutlined />} /></Dropdown> : null}
           <TableColumnSettingsButton allColumns={defaultColumns} settingsKey="sys_users_v1" />
@@ -455,7 +462,10 @@ const AccessUsersPage: React.FC = () => {
       <Modal
         title="新建系统用户"
         open={createOpen}
-        onCancel={() => setCreateOpen(false)}
+        onCancel={() => {
+          setCreateOpen(false);
+          createForm.resetFields();
+        }}
         onOk={() => createForm.submit()}
         okText="创建"
         okButtonProps={{ disabled: !canWriteUsers }}
