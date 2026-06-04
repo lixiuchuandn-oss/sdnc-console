@@ -1,16 +1,16 @@
 import React from 'react';
-import { Progress, Tag } from 'antd';
+import { Modal, Progress, Tag, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { OsIcon } from 'components/OsIcon';
 import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
 import { isImagePublicByScenario, resolveVmImageKind } from 'utils/harvesterUtils';
-import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
-import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import { resolveImageListStateKey } from './vmImageStatus';
 import {
   formatImageSizeGb,
   getImageActualFileBytes,
+  getImageStorageClassName,
+  getImageListDisplayVirtualSizeBytes,
   getImageCreatedMs,
   getImageDisplayAlias,
   getImageRowId,
@@ -18,6 +18,15 @@ import {
   getImageStatusText,
   type ImageListRecord,
 } from './imagesSectionUtils';
+import {
+  imageListLocalUploadDeleteConfirmContent,
+  isLocalUploadImageRow,
+  isImageRowDeleteBlockedBySync,
+  isTowerUploadVirtualRow,
+  resolveImageListDisplayProgress,
+  resolveImageListFailureMessage,
+  shouldDeleteClusterImageForLocalUploadRow,
+} from './imagesSectionActions';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type ImagesTableActions = {
@@ -27,6 +36,7 @@ export type ImagesTableActions = {
   onOpenYaml: (record: ImageListRecord) => void;
   onEditLabels: (record: ImageListRecord) => void;
   onDeleteRow: (record: ImageListRecord) => void;
+  onSyncUploadTask?: (record: ImageListRecord) => void;
 };
 
 function renderImageStatusTag(r?: ImageListRecord | string): React.ReactElement {
@@ -43,6 +53,8 @@ function renderImageStatusTag(r?: ImageListRecord | string): React.ReactElement 
     if (k === 'ready') return 'green';
     if (k === 'failed') return 'red';
     if (k === 'imported') return 'success';
+    if (k === 'pending_sync') return 'gold';
+    if (k === 'syncing') return 'blue';
     if (k === 'downloading') return 'blue';
     if (k === 'uploading') return 'blue';
     if (k === 'importing') return 'blue';
@@ -55,8 +67,15 @@ function renderImageStatusTag(r?: ImageListRecord | string): React.ReactElement 
 }
 
 export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsType<ImageListRecord> {
-  const { isTenant, hasImagesWrite, ensureImagesWrite, onOpenYaml, onEditLabels, onDeleteRow } =
-    actions;
+  const {
+    isTenant,
+    hasImagesWrite,
+    ensureImagesWrite,
+    onOpenYaml,
+    onEditLabels,
+    onDeleteRow,
+    onSyncUploadTask,
+  } = actions;
 
   return [
     {
@@ -120,20 +139,39 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
     {
       title: '状态',
       key: 'status',
-      render: (_: unknown, r: ImageListRecord) => renderImageStatusTag(r),
+      render: (_: unknown, r: ImageListRecord) => {
+        const stateKey = resolveImageListStateKey(r);
+        const failMsg = stateKey === 'failed' ? resolveImageListFailureMessage(r) : undefined;
+        return (
+          <div style={{ maxWidth: 280 }}>
+            {renderImageStatusTag(r)}
+            {failMsg ? (
+              <Typography.Text
+                type="danger"
+                style={{ fontSize: 12, display: 'block', marginTop: 4 }}
+                ellipsis={{ tooltip: failMsg }}
+              >
+                {failMsg}
+              </Typography.Text>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       title: '进度',
       key: 'progress',
       render: (_: unknown, r: ImageListRecord) => {
-        const status = r?.status as Record<string, unknown> | undefined;
-        const progress = Number(status?.progress ?? r?.progress);
-        if (!Number.isFinite(progress) || progress <= 0) return '-';
+        const stateKey = resolveImageListStateKey(r);
+        const progress = resolveImageListDisplayProgress(r);
+        if (progress == null) {
+          return stateKey === 'failed' ? <Progress percent={100} size="small" status="exception" /> : '-';
+        }
         return (
           <Progress
             percent={Math.round(progress)}
             size="small"
-            status={progress >= 100 ? 'success' : 'active'}
+            status={stateKey === 'failed' ? 'exception' : progress >= 100 ? 'success' : 'active'}
           />
         );
       },
@@ -152,12 +190,9 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
       title: '虚拟大小',
       key: 'vsize',
       render: (_: unknown, r: ImageListRecord) => {
-        const status = r?.status as Record<string, unknown> | undefined;
-        const spec = r?.spec as Record<string, unknown> | undefined;
-        const vsize = r?.virtualSize ?? status?.virtualSize ?? spec?.virtualSize;
-        if (vsize == null || vsize === '') return '-';
-        const num = typeof vsize === 'string' ? Number(vsize) : (vsize as number);
-        return Number.isFinite(num) && Number(num) > 0 ? formatImageSizeGb(num) : '-';
+        const vsize = getImageListDisplayVirtualSizeBytes(r);
+        if (vsize == null) return '-';
+        return formatImageSizeGb(vsize);
       },
     },
     {
@@ -174,11 +209,8 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
             title: '存储类',
             key: 'sc',
             render: (_: unknown, r: ImageListRecord) => {
-              const status = r?.status as Record<string, unknown> | undefined;
-              const spec = r?.spec as Record<string, unknown> | undefined;
-              return String(
-                r?.storageClassName || spec?.storageClassName || status?.storageClassName || '-',
-              );
+              const sc = getImageStorageClassName(r);
+              return sc || '-';
             },
           },
         ]
@@ -203,18 +235,38 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
         const name = getImageRowId(r);
         const alias = getImageDisplayAlias(r);
         const deleteLabel = alias ? `${alias} (${name})` : name;
+        const virtual = isTowerUploadVirtualRow(r);
+        const stateKey = resolveImageListStateKey(r);
+        const localUpload = isLocalUploadImageRow(r);
+        const deleteClusterImage = localUpload && shouldDeleteClusterImageForLocalUploadRow(r);
+        const canSync = virtual && ['pending_sync', 'failed'].includes(stateKey);
+        const deleteBlockedBySync = isImageRowDeleteBlockedBySync(r);
 
         return (
           <ResourceActionsDropdown
             buttonProps={{ className: 'row-actions-trigger' }}
             items={filterMenuItemsForReadOnly([
-              ...(!isTenant
+              ...(canSync
+                ? [
+                    {
+                      key: 'sync',
+                      label: '同步',
+                      disabled: !hasImagesWrite,
+                      onClick: () => {
+                        if (!ensureImagesWrite()) return;
+                        onSyncUploadTask?.(r);
+                      },
+                    },
+                    { type: 'divider' as const },
+                  ]
+                : []),
+              ...(!isTenant && !virtual
                 ? [{ key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }]
                 : []),
               {
                 key: 'editLabels',
                 label: '编辑标签',
-                disabled: !hasImagesWrite,
+                disabled: !hasImagesWrite || virtual,
                 onClick: () => onEditLabels(r),
               },
               { type: 'divider' },
@@ -222,17 +274,22 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
                 key: 'delete',
                 label: '删除',
                 danger: true,
-                disabled: !hasImagesWrite,
-                onClick: () => {
-                  if (!ensureImagesWrite()) return;
-                  void confirmHighRiskDelete({
-                    resourceLabel: '镜像',
-                    name,
-                    description: `确定要删除镜像「${deleteLabel}」吗？此操作不可恢复。`,
-                    riskItems: DELETE_RISK_ITEMS,
-                    onConfirm: () => void onDeleteRow(r),
-                  }).catch(() => undefined);
-                },
+                disabled: !hasImagesWrite || deleteBlockedBySync,
+                onClick: () =>
+                  Modal.confirm({
+                    title: localUpload
+                      ? deleteClusterImage
+                        ? '确认删除镜像？'
+                        : '确认删除镜像暂存数据？'
+                      : '确认删除镜像？',
+                    content: localUpload
+                      ? imageListLocalUploadDeleteConfirmContent(r)
+                      : `确定要删除镜像 ${deleteLabel} 吗？此操作不可恢复。`,
+                    onOk: async () => {
+                      if (!ensureImagesWrite()) return;
+                      await onDeleteRow(r);
+                    },
+                  }),
               },
             ], hasImagesWrite)}
           />

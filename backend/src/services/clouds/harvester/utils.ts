@@ -191,6 +191,8 @@ const translateErrorMessage = (error: any): string => {
       return '域名解析失败：无法找到 Harvester 地址';
     case 'EPIPE':
       return '管道损坏：数据传输中断';
+    case 'EPROTO':
+      return 'HTTPS/TLS 协议错误：与 Harvester 的加密连接失败，请检查证书或开启忽略 TLS 校验';
     default:
       return error?.message || '未知网络错误';
   }

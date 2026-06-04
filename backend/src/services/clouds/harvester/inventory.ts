@@ -31,10 +31,21 @@ import { HarvesterScheduleVmBackupInventory } from '../../../entities/harvester/
 import { HarvesterClusterNetworkInventory } from '../../../entities/harvester/HarvesterClusterNetworkInventory';
 import { HarvesterVlanConfigInventory } from '../../../entities/harvester/HarvesterVlanConfigInventory';
 import { HarvesterMigrationInventory } from '../../../entities/harvester/HarvesterMigrationInventory';
-import { getJsonOnce } from './utils';
+import { getJsonOnce, resolveHarvesterCloudKubeToken } from './utils';
 import { logger } from '../../../utils/logger';
 import { fetchHmsNodeNics } from '../../hms/nodeNics';
 import { fetchHmsNodeHardwareInfo } from '../../hms/nodeHardwareInfo';
+import {
+  isSqliteDb,
+  withSqliteTransactionRetry,
+  withSqliteWriteLock,
+} from '../../../utils/sqliteWriteLock';
+import { hasImageUploadProxyInFlightForCloud } from '../../../routes/clouds/harvester/handlers/imageUploadRuntime';
+import {
+  backfillVmImageVirtualSizeFromClusterDetail,
+  readVmImageVirtualSizeBytes,
+} from './vmImageClusterApi';
+import { injectVmImageVirtualSize } from './qcow2VirtualSize';
 
 const invLog = logger.child('Compute-Inventory');
 
@@ -102,32 +113,102 @@ import {
  * @param items 远端返回的原始列表
  * @param mapper 将远端对象映射为库存实体的函数（会自动补充 cloudId）
  */
-const inventoryUpsertChains = new Map<string, Promise<void>>();
+function mapHarvesterImageInventoryEntity(cloudId: string, item: any) {
+  const name = item.name || item.metadata?.name || '';
+  const statusSc = String(item.status?.storageClassName || '').trim();
+  const derivedSc =
+    statusSc ||
+    (() => {
+      const m = /^image-([a-z0-9]+)$/i.exec(String(name).trim());
+      return m?.[1] ? `longhorn-image-${m[1]}` : '';
+    })();
+  const annSc = String(item.metadata?.annotations?.['harvesterhci.io/storageClassName'] || '').trim();
+  const storageClassName =
+    derivedSc ||
+    String(item.storageClassName || '').trim() ||
+    String(item.spec?.storageClassName || '').trim() ||
+    (annSc && annSc !== 'longhorn' ? annSc : '') ||
+    annSc;
+  return {
+    cloudId,
+    uid: item.metadata?.uid || item.id,
+    name,
+    namespace: item.namespace || item.metadata?.namespace,
+    displayName: item.displayName || item.spec?.displayName,
+    progress: item.status?.progress ?? 0,
+    size: String(item.size || item.status?.size || item.status?.downloadedBytes || '0'),
+    storageClassName,
+    labels: item.metadata?.labels,
+    annotations: item.metadata?.annotations,
+    rawData: item,
+  };
+}
+
+/** 增量 upsert 时合并 status，避免 POST 创建快照覆盖后续 sync 得到的 virtualSize 等字段 */
+function mergeVmImageRawData(existing: any, incoming: any): any {
+  if (!incoming || typeof incoming !== 'object') return existing;
+  if (!existing || typeof existing !== 'object') return incoming;
+  const exStatus =
+    existing.status && typeof existing.status === 'object' && !Array.isArray(existing.status)
+      ? existing.status
+      : {};
+  const inStatus =
+    incoming.status && typeof incoming.status === 'object' && !Array.isArray(incoming.status)
+      ? incoming.status
+      : {};
+  const virtualSize =
+    inStatus.virtualSize ??
+    inStatus.virtualsize ??
+    exStatus.virtualSize ??
+    exStatus.virtualsize ??
+    incoming.virtualSize ??
+    existing.virtualSize;
+  const mergedStatus = { ...exStatus, ...inStatus };
+  if (virtualSize != null && Number(virtualSize) > 0) {
+    mergedStatus.virtualSize = virtualSize;
+  }
+  const merged: any = {
+    ...existing,
+    ...incoming,
+    status: mergedStatus,
+  };
+  if (virtualSize != null && Number(virtualSize) > 0) {
+    merged.virtualSize = virtualSize;
+  } else {
+    delete merged.virtualSize;
+  }
+  return merged;
+}
 
 /**
- * SQLite 实质单写入端；并行多个 `AppDataSource.transaction` 会叠加 SAVEPOINT（typeorm_*），
- * 不同库存锁键并行 upsert 时易触发 SQLITE_ERROR: no such savepoint（如查询 VLAN 同步入库）。
- * 故在 sqlite 下将所有 inventory upsert 串到同一等待链。
+ * 增量写入镜像库存（不 DELETE 全表），用于代传创建 VMImage 后或单条进度更新。
  */
-const SQLITE_INVENTORY_UPSERT_GLOBAL_KEY = '__sqlite_inventory_upserts_serial__';
+export async function upsertHarvesterImageInventoryItems(cloudId: string, items: any[]): Promise<void> {
+  if (!items?.length) return;
+  const repo = AppDataSource.getRepository(HarvesterImageInventory);
+  const lockKey = `HarvesterImageInventory:${cloudId}`;
+
+  await withSqliteWriteLock(lockKey, async () => {
+    await withSqliteTransactionRetry(async () => {
+      for (const item of items) {
+        const mapped = mapHarvesterImageInventoryEntity(cloudId, item);
+        const uid = String(mapped.uid || '').trim();
+        if (!uid) continue;
+        const existing = await repo.findOne({ where: { cloudId, uid } });
+        if (existing) {
+          const mergedRaw = mergeVmImageRawData(existing.rawData, mapped.rawData);
+          Object.assign(existing, mapped, { rawData: mergedRaw });
+          await repo.save(existing);
+        } else {
+          await repo.save(repo.create(mapped));
+        }
+      }
+    });
+  });
+}
 
 async function withInventoryUpsertLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const lockKey =
-    AppDataSource.options.type === 'sqlite' ? SQLITE_INVENTORY_UPSERT_GLOBAL_KEY : key;
-  const prev = inventoryUpsertChains.get(lockKey) ?? Promise.resolve();
-  let release!: () => void;
-  const next = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const chained = prev.then(() => next);
-  inventoryUpsertChains.set(lockKey, chained);
-  await prev;
-  try {
-    return await fn();
-  } finally {
-    release();
-    if (inventoryUpsertChains.get(lockKey) === chained) inventoryUpsertChains.delete(lockKey);
-  }
+  return withSqliteWriteLock(key, fn);
 }
 
 /**
@@ -161,8 +242,10 @@ const upsertItems = async (
 
   await withInventoryUpsertLock(lockKey, async () => {
     if (!items || items.length === 0) {
-      await AppDataSource.transaction(async (manager: any) => {
-        await deleteInventoryByCloudId(manager, repo.target, cloudId);
+      await withSqliteTransactionRetry(async () => {
+        await AppDataSource.transaction(async (manager: any) => {
+          await deleteInventoryByCloudId(manager, repo.target, cloudId);
+        });
       });
       return;
     }
@@ -174,17 +257,19 @@ const upsertItems = async (
 
     /** SQLite：子网 `rawData` 极大时，TypeORM+sqlite3 的批量 INSERT 在个别环境会生成非法 SQL（如 SQLITE_ERROR: near "-"）。逐行 save 走单行 INSERT，其它库存仍批量 save。 */
     const sqliteSubnetRowByRow =
-      AppDataSource.options.type === 'sqlite' && repo.target === KubeOvnSubnetInventory;
+      isSqliteDb() && repo.target === KubeOvnSubnetInventory;
 
-    await AppDataSource.transaction(async (manager: any) => {
-      await deleteInventoryByCloudId(manager, repo.target, cloudId);
-      if (sqliteSubnetRowByRow) {
-        for (const row of entities) {
-          await manager.save(repo.target, row);
+    await withSqliteTransactionRetry(async () => {
+      await AppDataSource.transaction(async (manager: any) => {
+        await deleteInventoryByCloudId(manager, repo.target, cloudId);
+        if (sqliteSubnetRowByRow) {
+          for (const row of entities) {
+            await manager.save(repo.target, row);
+          }
+        } else {
+          await manager.save(repo.target, entities);
         }
-      } else {
-        await manager.save(repo.target, entities);
-      }
+      });
     });
   });
 };
@@ -195,31 +280,77 @@ const upsertItems = async (
  * @param cloud 云账号配置（包含 endpoint / secretKey）
  * @param insecure 是否忽略 TLS 校验
  */
-export const syncHarvesterImages = async (cloud: any, insecure: boolean) => {
+export const syncHarvesterImages = async (
+  cloud: any,
+  insecure: boolean,
+  opts?: { allowDuringUploadProxy?: boolean },
+) => {
+  const cloudId = String(cloud?.id || '').trim();
+  if (
+    !opts?.allowDuringUploadProxy &&
+    cloudId &&
+    hasImageUploadProxyInFlightForCloud(cloudId)
+  ) {
+    invLog.debug(`${cloud.name}: skip full image sync while upload proxy in flight`);
+    return;
+  }
+
   const items = await listHarvesterImagesStandard({
     endpoint: cloud.endpoint,
-    token: cloud.secretKey,
+    token: resolveHarvesterCloudKubeToken(cloud),
     insecure,
-    version: (cloud.config as any)?.harvesterVersion,
+    config: cloud.config,
   } as any);
 
-  invLog.debug(`${cloud.name}: 镜像同步完成，共 ${items.length} 条`);
+  let enrichedItems = items;
+  try {
+    enrichedItems = await backfillVmImageVirtualSizeFromClusterDetail(
+      cloud,
+      enrichedItems,
+      insecure,
+    );
+  } catch (e: any) {
+    invLog.warn(`${cloud.name}: 镜像 virtualSize 详情补全失败:`, e?.message || e);
+  }
+
+  // 全量同步会 DELETE 后重建：集群列表常缺 virtualSize，保留上传就绪时已写入库存的值
+  if (cloudId) {
+    const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
+    const existingRows = await imageRepo.find({ where: { cloudId } });
+    const preservedVsByUid = new Map<string, number>();
+    for (const row of existingRows) {
+      const vs = readVmImageVirtualSizeBytes(row.rawData);
+      const uid = String(row.uid || '').trim();
+      if (uid && vs != null) preservedVsByUid.set(uid, vs);
+    }
+    if (preservedVsByUid.size > 0) {
+      enrichedItems = enrichedItems.map((item) => {
+        const uid = String(item?.metadata?.uid || item?.id || '').trim();
+        if (!uid || readVmImageVirtualSizeBytes(item) != null) return item;
+        const vs = preservedVsByUid.get(uid);
+        return vs != null ? injectVmImageVirtualSize(item, vs) : item;
+      });
+    }
+  }
+
+  invLog.debug(`${cloud.name}: 镜像同步完成，共 ${enrichedItems.length} 条`);
 
   const repo = AppDataSource.getRepository(HarvesterImageInventory);
-  await upsertItems(repo, cloud.id, items, (item) => ({
-    // [修复] listHarvesterImagesStandard 返回的数据中，name 和 namespace 已经提取到顶层
-    // 优先使用顶层的 name 和 namespace，如果没有则从 metadata 中获取
-    uid: item.metadata?.uid || item.id,
-    name: item.name || item.metadata?.name,
-    namespace: item.namespace || item.metadata?.namespace,
-    displayName: item.displayName || item.spec?.displayName,
-    progress: item.status?.progress ?? 0,
-    size: String(item.size || item.status?.size || item.status?.downloadedBytes || '0'),
-    storageClassName: item.storageClassName || item.spec?.storageClassName,
-    labels: item.metadata?.labels,
-    annotations: item.metadata?.annotations,
-    rawData: item,
-  }));
+  await upsertItems(repo, cloud.id, enrichedItems, (item) => {
+    const mapped = mapHarvesterImageInventoryEntity(cloud.id, item);
+    return {
+      uid: mapped.uid,
+      name: mapped.name,
+      namespace: mapped.namespace,
+      displayName: mapped.displayName,
+      progress: mapped.progress,
+      size: mapped.size,
+      storageClassName: mapped.storageClassName,
+      labels: mapped.labels,
+      annotations: mapped.annotations,
+      rawData: mapped.rawData,
+    };
+  });
 };
 
 /**

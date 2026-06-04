@@ -53,7 +53,8 @@ export const AppDataSource = new DataSource({
   // - 启用 WAL (Write-Ahead Logging) 模式，提升并发读写性能
   // - WAL 模式允许多个读取器和一个写入器同时工作，减少锁定冲突
   extra: {
-    busyTimeout: 5000, // 5 秒超时
+    // 后台 Cloud/Harbor 同步写库时，登录等读请求需等待锁释放；开发环境同步量大，5s 易超时
+    busyTimeout: 30000,
   },
   // 同时支持 ts-node 运行和编译后的 js 文件
   entities: [path.join(__dirname, '..', 'entities', '**', '*.{ts,js}')],
@@ -72,6 +73,7 @@ export async function enableWalMode() {
       return;
     }
     const result = await AppDataSource.query('PRAGMA journal_mode = WAL;');
+    await AppDataSource.query('PRAGMA busy_timeout = 30000;');
     dbLog.info('WAL 模式已启用:', result);
   } catch (error) {
     dbLog.warn('启用 WAL 模式失败:', error instanceof Error ? error.message : String(error));
@@ -336,6 +338,13 @@ export async function ensureImageUploadTaskTableColumns() {
   };
   await addCol('createdImageName', '"createdImageName" text');
   await addCol('createdImageNamespace', '"createdImageNamespace" text');
+  await addCol('fileMd5', '"fileMd5" text');
+  await addCol('storedFileMd5', '"storedFileMd5" text');
+  await addCol('chunkSize', '"chunkSize" integer');
+  await addCol('totalChunks', '"totalChunks" integer');
+  await addCol('receivedChunksJson', '"receivedChunksJson" text');
+  await addCol('localFileRelPath', '"localFileRelPath" text');
+  await addCol('virtualSizeBytes', '"virtualSizeBytes" integer');
 }
 
 export async function ensureImageUploadTaskTable() {

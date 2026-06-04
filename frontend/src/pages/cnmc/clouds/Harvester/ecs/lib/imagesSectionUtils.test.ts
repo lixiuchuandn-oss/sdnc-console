@@ -2,6 +2,9 @@ import {
   filterAndSortImages,
   formatImageSizeGb,
   getImageActualFileBytes,
+  getImageStorageClassName,
+  getImageVirtualSizeBytes,
+  getImageListDisplayVirtualSizeBytes,
   getImageRowId,
   imageStatusLabelZh,
 } from './imagesSectionUtils';
@@ -9,6 +12,56 @@ import {
 describe('imagesSectionUtils', () => {
   it('getImageActualFileBytes reads status.size', () => {
     expect(getImageActualFileBytes({ status: { size: 1024 } })).toBe(1024);
+  });
+
+  it('getImageVirtualSizeBytes reads top-level and status.virtualSize', () => {
+    expect(
+      getImageVirtualSizeBytes({
+        virtualSize: 214748364800,
+        status: { size: 4712693760, virtualSize: 214748364800 },
+      }),
+    ).toBe(214748364800);
+    expect(formatImageSizeGb(214748364800)).toBe('200.00GB');
+  });
+
+  it('getImageListDisplayVirtualSizeBytes only when ready and import complete', () => {
+    const readyRow = {
+      state: 'Active',
+      sourceType: 'upload',
+      virtualSize: 214748364800,
+      status: {
+        progress: 100,
+        size: 4712693760,
+        virtualSize: 214748364800,
+        conditions: [{ type: 'Imported', status: 'True' }],
+      },
+    };
+    expect(getImageListDisplayVirtualSizeBytes(readyRow)).toBe(214748364800);
+    expect(
+      getImageListDisplayVirtualSizeBytes({
+        state: 'syncing',
+        virtualSize: 214748364800,
+        status: { progress: 21, size: 1000, virtualSize: 214748364800 },
+        sourceType: 'upload',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('getImageStorageClassName derives longhorn-image from image id', () => {
+    expect(
+      getImageStorageClassName({
+        metadata: { name: 'image-ir55m', annotations: { 'harvesterhci.io/storageClassName': 'longhorn' } },
+      }),
+    ).toBe('longhorn-image-ir55m');
+  });
+
+  it('getImageStorageClassName prefers status.storageClassName', () => {
+    expect(
+      getImageStorageClassName({
+        metadata: { name: 'image-abc' },
+        status: { storageClassName: 'longhorn-image-abc' },
+      }),
+    ).toBe('longhorn-image-abc');
   });
 
   it('getImageRowId prefers metadata.name', () => {
@@ -20,7 +73,7 @@ describe('imagesSectionUtils', () => {
   });
 
   it('imageStatusLabelZh maps ready', () => {
-    expect(imageStatusLabelZh('ready')).toBe('就绪');
+    expect(imageStatusLabelZh('ready')).toBe('已就绪');
   });
 
   it('filterAndSortImages filters by keyword', () => {

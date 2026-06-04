@@ -3,7 +3,7 @@
  * frontend/src/pages/cnmc/clouds/Harvester/ecs/modals/ImageCreateModal.tsx
  *
  * === 功能 ===
- * - 浏览器上传：创建 Tower 上传任务并以 raw body POST 至后端代传 Harvester。
+ * - 浏览器上传：分片上传至 Tower，合并后校验文件大小，状态为「待同步」。
  * - URL 导入：调用 createHarvesterImage（集群侧拉取）。
  * - Windows 工具：仅提供 ImageUploader.exe 下载入口。
  *
@@ -14,20 +14,29 @@
  * === 浏览器上传字段 ===
  * - 选文件后根据文件名自动填充显示名（去扩展名）与类型（扩展名 → iso | disk，与后端 imageType 一致）。
  */
-import React, { useCallback, useEffect, useState, type MutableRefObject } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Col, Form, Input, message, Modal, Row, Select, Tabs, Typography, Upload } from 'antd';
 import { DownloadOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { API_BASE_URL, getApiErrorMessage } from '../../../../../../services/api';
 import {
   createHarvesterImage,
+  checkHarvesterImageUploadDiskSpace,
   createHarvesterImageUploadTask,
-  fetchHarvesterImageUploadTask,
   fetchHarvesterImages,
   fetchHarvesterStorageClasses,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
+import { pickImageUploadChunkSize } from '../lib/chunkedImageUpload';
 import { pickDefaultStorageClassName } from '../../../../../../utils/harvesterUtils';
-import { getToken } from '../../../../../../utils/tokenStorage';
+
+export type StartBrowserChunkedUploadParams = {
+  file: File;
+  namespace: string;
+  displayName?: string;
+  imageType?: string;
+  /** 弹窗侧已创建的任务，抽屉内直接续传分片，避免重复创建 */
+  existingTask?: HarvesterImageUploadTask;
+};
 
 // ---------------------------------------------------------------------------
 // 类型与纯函数（无 React 依赖，便于单测或复用）
@@ -44,10 +53,10 @@ export type ImageCreateModalProps = {
   onUrlImportSuccess?: () => void;
   /** 浏览器上传任务创建成功后调用，用于刷新镜像列表 */
   onBrowserUploadSuccess?: () => void;
-  /** 合并/更新侧边栏「上传任务」列表中的单条记录 */
-  onUploadTaskUpsert: (task: HarvesterImageUploadTask) => void;
-  /** 与 ImagesSection 共用，取消任务时可 abort 浏览器直传 fetch */
-  uploadControllersRef: MutableRefObject<Map<string, AbortController>>;
+  /** 开始上传时打开上传任务抽屉 */
+  onUploadStarted?: () => void;
+  /** 由 ImagesSection 托管分片上传（避免关弹窗后上传中断） */
+  onStartBrowserUpload: (params: StartBrowserChunkedUploadParams) => void;
 };
 
 /** 与 handleStartTaskUpload 中 disk 类型映射一致（后端 disk → qcow2） */
@@ -95,11 +104,6 @@ function getOptionalClientMaxBodyBytes(): number | null {
   return Math.floor(mb * 1024 * 1024);
 }
 
-/** 网关/反向代理返回 413 等非成功时的通用说明 */
-function formatGatewayBodyTooLargeHint(): string {
-  return '上传请求被拒绝（常为反向代理或对请求体大小有限制）。请管理员调大 Nginx client_max_body_size 等网关限制；或改用 URL 导入 / 桌面上传工具。';
-}
-
 function inferUrlImportFromUrl(urlStr: string): BrowserUploadInference {
   const s = String(urlStr || '').trim();
   if (!s) return { displayName: '', imageType: undefined };
@@ -134,8 +138,8 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   ensureWrite,
   onUrlImportSuccess,
   onBrowserUploadSuccess,
-  onUploadTaskUpsert,
-  uploadControllersRef,
+  onUploadStarted,
+  onStartBrowserUpload,
 }) => {
   const [form] = Form.useForm();
   const [createTab, setCreateTab] = useState<'browser' | 'desktop' | 'url'>('browser');
@@ -245,68 +249,44 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       return;
     }
 
+    try {
+      await checkHarvesterImageUploadDiskSpace(
+        cloudId,
+        file.size,
+        pickImageUploadChunkSize(file.size),
+      );
+    } catch (e: unknown) {
+      message.error(getApiErrorMessage(e, 'Tower 镜像暂存目录空间不足'));
+      return;
+    }
+
     setUploadingTask(true);
     try {
-      const created: any = await createHarvesterImageUploadTask(cloudId, {
+      const chunkSize = pickImageUploadChunkSize(file.size);
+      const created: unknown = await createHarvesterImageUploadTask(cloudId, {
         namespace,
         displayName,
         imageType,
+        filename: file.name,
+        fileSize: file.size,
+        chunkSize,
       });
-      const task = (created?.data || created) as HarvesterImageUploadTask;
+      const task = ((created as { data?: HarvesterImageUploadTask })?.data ||
+        created) as HarvesterImageUploadTask;
       if (!task?.id) throw new Error('创建任务失败：未返回 taskId');
 
-      onUploadTaskUpsert(task);
+      onUploadStarted?.();
       onClose();
       setToolFile(null);
       form.setFieldsValue({ toolDisplayName: '', toolImageType: undefined });
-      message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
-      // 触发镜像列表刷新
-      onBrowserUploadSuccess?.();
-
-      const controller = new AbortController();
-      uploadControllersRef.current.set(task.id, controller);
-
-      const taskFileUrl = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`;
-
-      // 弹窗已关，上传在后台继续；失败仅 message，不阻塞 UI
-      void (async () => {
-        try {
-          const token = getToken();
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/octet-stream',
-            'X-File-Name': encodeURIComponent(file.name),
-            'X-File-Size': String(file.size),
-          };
-          if (token) headers.Authorization = `Bearer ${token}`;
-
-          const uploadResp = await fetch(taskFileUrl, {
-            method: 'POST',
-            headers,
-            body: file,
-            signal: controller.signal,
-          });
-          if (!uploadResp.ok) {
-            const text = await uploadResp.text();
-            const lower = `${text}`.toLowerCase();
-            if (
-              uploadResp.status === 413 ||
-              lower.includes('413') ||
-              lower.includes('request entity too large') ||
-              lower.includes('entity too large')
-            ) {
-              throw new Error(formatGatewayBodyTooLargeHint());
-            }
-            throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
-          }
-          const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
-          onUploadTaskUpsert((latest?.data || latest) as HarvesterImageUploadTask);
-        } catch (e: any) {
-          if (controller.signal.aborted) return;
-          message.error(e?.message || '文件上传失败');
-        } finally {
-          uploadControllersRef.current.delete(task.id);
-        }
-      })();
+      message.success('开始分片上传，可在「上传任务」查看进度');
+      onStartBrowserUpload({
+        file,
+        namespace,
+        displayName,
+        imageType,
+        existingTask: task,
+      });
     } catch (e: unknown) {
       message.error(getApiErrorMessage(e, '提交上传任务失败'));
     } finally {

@@ -1,6 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import { logOperation } from '../utils/audit';
 
+function sanitizeAuditBody(req: Request): unknown {
+  const body = req.body;
+  if (Buffer.isBuffer(body)) {
+    return `[binary ${body.length} bytes]`;
+  }
+  if (body instanceof Uint8Array) {
+    return `[binary ${body.byteLength} bytes]`;
+  }
+  if (req.path.includes('/upload-tasks/') && req.path.includes('/chunks/')) {
+    return '[image-chunk]';
+  }
+  if (body == null || typeof body !== 'object') {
+    return body;
+  }
+  try {
+    return { ...(body as Record<string, unknown>) };
+  } catch {
+    return '[non-serializable body]';
+  }
+}
+
 export const auditMiddleware = (req: Request, res: Response, next: NextFunction) => {
   // Only log state-changing methods
   if (req.method === 'GET' || req.method === 'OPTIONS' || req.method === 'HEAD') {
@@ -10,25 +31,29 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
   // Use on('finish') to log after the response is sent, ensuring we capture the final status
   // and that req.user is populated by auth middleware if applicable
   res.on('finish', () => {
-    // Skip if it's a 404 (route not found) usually not worth auditing as an "operation"
-    // unless it's a security scan attempt. For now, let's keep it.
+    try {
+      // Skip if it's a 404 (route not found) usually not worth auditing as an "operation"
+      // unless it's a security scan attempt. For now, let's keep it.
 
-    const success = res.statusCode >= 200 && res.statusCode < 400;
+      const success = res.statusCode >= 200 && res.statusCode < 400;
 
-    // Sanitize request body
-    const details = {
-      path: req.path,
-      method: req.method,
-      query: req.query,
-      body: { ...req.body },
-    };
+      const bodyForAudit = sanitizeAuditBody(req);
+      const details = {
+        path: req.path,
+        method: req.method,
+        query: req.query,
+        body: bodyForAudit,
+      };
 
-    // Remove sensitive fields
-    if (details.body.password) details.body.password = '***';
-    if (details.body.cipher) details.body.cipher = '***';
-    if (details.body.token) details.body.token = '***';
-    if (details.body.confirmPassword) details.body.confirmPassword = '***';
-    if (details.body.newPassword) details.body.newPassword = '***';
+      // Remove sensitive fields
+      if (details.body && typeof details.body === 'object') {
+        const b = details.body as Record<string, unknown>;
+        if (b.password) b.password = '***';
+        if (b.cipher) b.cipher = '***';
+        if (b.token) b.token = '***';
+        if (b.confirmPassword) b.confirmPassword = '***';
+        if (b.newPassword) b.newPassword = '***';
+      }
 
     // Construct action name
     // e.g., POST /api/vms -> CREATE VM (heuristic)
@@ -116,6 +141,9 @@ export const auditMiddleware = (req: Request, res: Response, next: NextFunction)
     }
 
     logOperation(req, action, JSON.stringify(details), success, resourceType, resourceId);
+    } catch (err) {
+      console.error('[Audit] finish handler failed:', err instanceof Error ? err.message : err);
+    }
   });
 
   next();

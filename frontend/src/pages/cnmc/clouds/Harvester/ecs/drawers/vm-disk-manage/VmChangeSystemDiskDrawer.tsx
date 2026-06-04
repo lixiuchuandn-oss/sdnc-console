@@ -24,6 +24,7 @@ import { LoadingOutlined } from "@ant-design/icons";
 import {
   fetchHarvesterImages,
   fetchHarvesterStorageClasses,
+  getHarvesterImagesListItems,
 } from "../../../../../../../services/harvesterApi";
 import { rebootCloudProviderEcs } from "../../../../../../../services/api";
 import { translateKnownApiErrorMessage } from "../../../../../../../utils/k8sErrorMessages";
@@ -161,11 +162,7 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
   const reloadImages = useCallback(async () => {
     try {
       const res = await fetchHarvesterImages(cloudId);
-      const items = Array.isArray(res?.data?.items)
-        ? res.data.items
-        : Array.isArray(res?.items)
-          ? res.items
-          : [];
+      const items = getHarvesterImagesListItems(res);
       setImages(items);
       return items;
     } catch {
@@ -248,11 +245,7 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
           return items;
         }),
         fetchHarvesterImages(cloudId).then((res) => {
-          const items = Array.isArray(res?.data?.items)
-            ? res.data.items
-            : Array.isArray(res?.items)
-              ? res.items
-              : [];
+          const items = getHarvesterImagesListItems(res);
           setImages(items);
           return items;
         }),

@@ -40,6 +40,7 @@ import {
 } from '../permissions';
 import { randomUUID } from 'crypto';
 import { OfflineUpgradeService } from '../services/OfflineUpgradeService';
+import { ensureTowerGeneralUploadTempRoot } from '../utils/towerTempPaths';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 
@@ -751,11 +752,10 @@ router.delete('/rbac/assignments/:id', checkRbacPermission, async (req: any, res
 });
 
 // 批量上传告警日志（csv/xls/xlsx）
-// - 使用 Multer 将前端上传的文件先保存到临时目录 temp_uploads
+// - 使用 Multer 将前端上传的文件先保存到 Tower 暂存目录（见 TOWER_TEMP_ROOT / utils/towerTempPaths.ts）
 // - 再根据 getSecurityLogsDir()（环境变量或遗留配置）移动到目标目录
 // - 原始文件名会做简单的字符过滤，避免特殊字符导致的路径问题
-const tempUploadsDir = path.join(process.cwd(), 'temp_uploads');
-if (!fs.existsSync(tempUploadsDir)) fs.mkdirSync(tempUploadsDir, { recursive: true });
+const tempUploadsDir = ensureTowerGeneralUploadTempRoot();
 const upload = multer({ dest: tempUploadsDir });
 
 const offlineUpgradeStorage = multer.diskStorage({

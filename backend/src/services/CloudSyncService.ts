@@ -1,4 +1,5 @@
 import { AppDataSource } from '../config/database';
+import { hasImageUploadProxyInFlightForCloud } from '../routes/clouds/harvester/handlers/imageUploadRuntime';
 import { Cloud } from '../entities/Cloud';
 import { callAliyunEcs } from './clouds/aliyun/client';
 import { huaweiListServers } from './clouds/huaweicloud/client';
@@ -87,7 +88,14 @@ export class CloudSyncService {
    */
   public startSyncJob(intervalMs: number = 300000) {
     cloudSyncLog.info('Starting background sync job...');
-    this.syncAllClouds(); // 立即运行一次
+    const deferImmediate =
+      process.env.TOWER_BACKGROUND_SYNC_IMMEDIATE === '0' ||
+      (process.env.NODE_ENV === 'development' && process.env.TOWER_BACKGROUND_SYNC_IMMEDIATE !== '1');
+    if (deferImmediate) {
+      cloudSyncLog.info('开发环境跳过启动时立即云同步，避免与登录争抢 SQLite（可设 TOWER_BACKGROUND_SYNC_IMMEDIATE=1 恢复）');
+    } else {
+      this.syncAllClouds();
+    }
     setInterval(() => {
       this.syncAllClouds();
     }, intervalMs);
@@ -218,7 +226,9 @@ export class CloudSyncService {
       await syncHarvesterStorageClasses(cloud, insecure);
       await syncHarvesterLoadBalancers(cloud, insecure);
       await syncHarvesterLoadBalancerIPPools(cloud, insecure);
-      await syncHarvesterImages(cloud, insecure);
+      if (!hasImageUploadProxyInFlightForCloud(String(cloud.id || ''))) {
+        await syncHarvesterImages(cloud, insecure);
+      }
       await syncHarvesterVolumes(cloud, insecure);
       await syncHarvesterNads(cloud, insecure);
       await syncKubeOvnVpcs(cloud, insecure);
