@@ -204,6 +204,13 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
     setHarvesterNamespaces,
   ]);
 
+  const reloadImagesInventory = useCallback(
+    (force?: boolean, skipSync?: boolean) => {
+      return loadTabResource('images', force !== false, skipSync ?? true);
+    },
+    [loadTabResource],
+  );
+
   const computeTabOnRefresh = useMemo(() => {
     const deps = {
       loadTabResource,
@@ -480,6 +487,7 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           loading={resourceLoading.images}
           vms={ecs}
           onRefresh={computeTabOnRefresh.images}
+          onImagesInventoryReload={reloadImagesInventory}
           isTenant={isTenant}
         />
         <DebugJSON data={rawImages} show={showLog} />

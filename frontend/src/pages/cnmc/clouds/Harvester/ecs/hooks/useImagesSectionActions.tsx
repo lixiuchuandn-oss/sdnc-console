@@ -1,32 +1,43 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { message } from 'antd';
+import { Modal, message } from 'antd';
 import {
-  cancelHarvesterImageUploadTask,
   deleteHarvesterImage,
   deleteHarvesterImageUploadTask,
-  fetchHarvesterImageUploadTask,
   fetchHarvesterImageUploadTasks,
+  syncHarvesterImageUploadTask,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
 import {
+  HARVESTER_IMAGES_AFTER_UPLOAD_SYNC_OPTIONS,
+  HARVESTER_IMAGES_SYNC_START_OPTIONS,
+  cancelHarvesterImagesInventoryNotify,
+  notifyHarvesterImagesInventoryChanged,
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
-import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
-import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
-import type { ImageListRecord } from '../lib/imagesSectionUtils';
-import { getImageRowId, getImageRowNamespace } from '../lib/imagesSectionUtils';
+import { getImageRowId, getImageRowNamespace, type ImageListRecord } from '../lib/imagesSectionUtils';
 import { resolveImageListStateKey } from '../lib/vmImageStatus';
 import {
-  IMAGE_LIST_PROGRESS_REFRESH_STATES,
+  applyUploadTaskToListState,
   assessImageDeleteBlockedByVms,
+  fetchLinkedUploadTaskId,
   filterImageListAfterDelete,
-  getImageDeleteInUseErrorMessage,
-  isImageDeleteInUseHttpError,
+  findUploadTaskForImageRow,
+  formatHarvesterImageDeleteError,
+  getImageRowDeleteBlockedMessage,
+  getTowerUploadTaskIdFromRow,
+  isLocalUploadImageRow,
   mapBatchImageDelete,
+  mergeUploadTasksIntoImageList,
   mergeUploadTasksSorted,
+  planImageListProgressPoll,
+  resolveImageDeleteSuccessMessage,
+  resolveLinkedUploadTaskId,
   selectImagesByRowKeys,
+  shouldDeleteClusterImageForLocalUploadRow,
   summarizeBatchImageDeleteMessage,
+  taskAffectsImageList,
+  uploadTaskIdsForDeletedImageKeys,
 } from '../lib/imagesSectionActions';
 
 export type UseImagesSectionActionsParams = {
@@ -34,284 +45,449 @@ export type UseImagesSectionActionsParams = {
   images: ImageListRecord[];
   vms: ImageListRecord[];
   onRefresh?: HarvesterSectionOnRefresh;
+  /** 镜像库存刷新（skipSync 控制是否对端 sync），用于 URL 导入进度与上传 success 后拉库存 */
+  onImagesInventoryReload?: (
+    force?: boolean,
+    skipSync?: boolean,
+  ) => void | Promise<void>;
   hasImagesWrite: boolean;
   ensureImagesWrite: () => boolean;
 };
+
+/** 镜像列表轮询：活跃同步 5s；等任务终态 10s；对端全量 sync 限频 120s */
+const IMAGE_LIST_TASK_POLL_MS = 5000;
+const IMAGE_LIST_TASK_TERMINAL_POLL_MS = 10000;
+const IMAGE_LIST_FULL_SYNC_MIN_INTERVAL_MS = 120000;
+/** cancelled/failed 等触发的 skipSync 库存刷新防抖（毫秒） */
+const IMAGE_INVENTORY_SKIP_SYNC_DEBOUNCE_MS = 400;
 
 export function useImagesSectionActions({
   cloudId,
   images,
   vms,
   onRefresh,
-  hasImagesWrite,
+  onImagesInventoryReload,
+  hasImagesWrite: _hasImagesWrite,
   ensureImagesWrite,
 }: UseImagesSectionActionsParams) {
   const [localImages, setLocalImages] = useState<ImageListRecord[]>(images);
-  const [toolTaskList, setToolTaskList] = useState<HarvesterImageUploadTask[]>([]);
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
-  const [taskDrawerLoading, setTaskDrawerLoading] = useState(false);
-  const [taskProgressCache, setTaskProgressCache] = useState<Map<string, number>>(new Map());
+  /** 全量上传任务（抽屉与轮询共用，避免重复 fetch upload-tasks） */
+  const [uploadTasks, setUploadTasks] = useState<HarvesterImageUploadTask[]>([]);
+  /** 仅 uploaded/proxying/failed 等需合并进镜像列表的任务，避免 ingest 进度刷新拖慢主表 */
+  const [listTaskList, setListTaskList] = useState<HarvesterImageUploadTask[]>([]);
+  const [uploadTasksLoading, setUploadTasksLoading] = useState(false);
 
-  const prevProgressRef = useRef<Map<string, number>>(new Map());
-  const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
-  const toolTaskListRef = useRef<HarvesterImageUploadTask[]>([]);
+  const listTaskListRef = useRef(listTaskList);
+  listTaskListRef.current = listTaskList;
+  const uploadTasksRef = useRef(uploadTasks);
+  uploadTasksRef.current = uploadTasks;
+  const localImagesRef = useRef(localImages);
+  localImagesRef.current = localImages;
   const onRefreshRef = useRef(onRefresh);
-  toolTaskListRef.current = toolTaskList;
   onRefreshRef.current = onRefresh;
+  const onImagesInventoryReloadRef = useRef(onImagesInventoryReload);
+  onImagesInventoryReloadRef.current = onImagesInventoryReload;
+  const lastFullInventorySyncAtRef = useRef(0);
+  const inventoryReloadInFlightRef = useRef(false);
+  const lastUploadTaskPollAtRef = useRef(0);
+  const skipSyncInventoryReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploadTasksInflightRef = useRef(false);
 
-  useEffect(() => {
-    setLocalImages(images);
-  }, [images]);
-
-  useEffect(() => {
-    if (!onRefresh) return;
-    let shouldRefresh = false;
-    for (const img of localImages) {
-      const stateKey = resolveImageListStateKey(img);
-      if (!IMAGE_LIST_PROGRESS_REFRESH_STATES.includes(stateKey as (typeof IMAGE_LIST_PROGRESS_REFRESH_STATES)[number])) {
-        continue;
-      }
-      const status = img?.status as Record<string, unknown> | undefined;
-      const progress = Number(status?.progress ?? img?.progress ?? 0);
-      const rowName = getImageRowId(img);
-      const prevProgress = prevProgressRef.current.get(rowName);
-      if (prevProgress !== undefined && prevProgress !== progress) {
-        shouldRefresh = true;
-      }
-      if (progress > 0 && progress < 100 && prevProgress === undefined) {
-        prevProgressRef.current.set(rowName, progress);
-        shouldRefresh = true;
-      }
-      if (prevProgress !== undefined) {
-        prevProgressRef.current.set(rowName, progress);
-      }
+  const requestSkipSyncInventoryReload = useCallback(() => {
+    const reload = onImagesInventoryReloadRef.current;
+    if (!reload) return;
+    if (skipSyncInventoryReloadTimerRef.current != null) {
+      clearTimeout(skipSyncInventoryReloadTimerRef.current);
     }
-    if (!shouldRefresh) return;
-    const timer = window.setTimeout(() => {
-      void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
-    }, 3000);
-    return () => window.clearTimeout(timer);
-  }, [localImages, onRefresh]);
-
-  useEffect(() => {
-    if (!cloudId) return;
-    let stopped = false;
-    const loadTasks = async () => {
-      try {
-        const resp: { data?: { items?: HarvesterImageUploadTask[] }; items?: HarvesterImageUploadTask[] } =
-          await fetchHarvesterImageUploadTasks(cloudId, 20);
-        const items = resp?.data?.items || resp?.items || [];
-        if (!stopped) setToolTaskList(Array.isArray(items) ? items : []);
-      } catch {
-        // ignore background load failure
-      }
-    };
-    void loadTasks();
-    return () => {
-      stopped = true;
-    };
-  }, [cloudId]);
-
-  useEffect(() => {
-    if (!cloudId) return;
-    const timer = window.setInterval(async () => {
-      const active = toolTaskListRef.current.filter((t) =>
-        ['pending', 'ingesting', 'proxying', 'success'].includes(String(t?.status || '')),
-      );
-      if (active.length === 0) return;
-      try {
-        const next = await Promise.all(
-          active.map(async (t) => {
-            try {
-              const resp = await fetchHarvesterImageUploadTask(cloudId, t.id);
-              const r = resp as { data?: HarvesterImageUploadTask };
-              return (r?.data ?? r) as HarvesterImageUploadTask;
-            } catch {
-              return t;
-            }
-          }),
-        );
-        const newlyCompleted = next.filter(
-          (x) =>
-            x.status === 'success' &&
-            !toolTaskListRef.current.some((t) => t.id === x.id && t.status === 'success'),
-        );
-        const progressChanged = next.some((x) => {
-          const oldTask = toolTaskListRef.current.find((t) => t.id === x.id);
-          return oldTask && oldTask.progress !== x.progress;
-        });
-
-        setToolTaskList((prev) => mergeUploadTasksSorted(prev, next));
-
-        if (progressChanged || newlyCompleted.length > 0) {
-          onRefreshRef.current?.(true, true);
-        }
-      } catch {
-        // ignore polling failure
-      }
-    }, 2000);
-    return () => window.clearInterval(timer);
-  }, [cloudId]);
-
-  const getSmoothProgress = useCallback(
-    (task: HarvesterImageUploadTask): number => {
-      const current = Number(task.progress || 0);
-      const cached = taskProgressCache.get(task.id) || 0;
-      const smooth = Math.max(current, cached);
-      if (smooth > cached) {
-        setTaskProgressCache((prev) => {
-          const next = new Map(prev);
-          next.set(task.id, smooth);
-          return next;
-        });
-      }
-      return smooth;
-    },
-    [taskProgressCache],
-  );
-
-  const loadUploadTasks = useCallback(
-    async (silent = true) => {
-      try {
-        if (!silent) setTaskDrawerLoading(true);
-        const resp: { data?: { items?: HarvesterImageUploadTask[] }; items?: HarvesterImageUploadTask[] } =
-          await fetchHarvesterImageUploadTasks(cloudId, 50);
-        const items = resp?.data?.items || resp?.items || [];
-        setToolTaskList(Array.isArray(items) ? items : []);
-      } catch (e: unknown) {
-        if (!silent) message.error((e as { message?: string })?.message || '加载上传任务失败');
-      } finally {
-        if (!silent) setTaskDrawerLoading(false);
-      }
-    },
-    [cloudId],
-  );
-
-  const upsertTask = useCallback((task: HarvesterImageUploadTask) => {
-    setToolTaskList((prev) => mergeUploadTasksSorted(prev, task));
+    skipSyncInventoryReloadTimerRef.current = setTimeout(() => {
+      skipSyncInventoryReloadTimerRef.current = null;
+      void Promise.resolve(reload(true, true)).catch(() => undefined);
+    }, IMAGE_INVENTORY_SKIP_SYNC_DEBOUNCE_MS);
   }, []);
 
-  const handleDeleteUploadTask = useCallback(
-    async (task: HarvesterImageUploadTask) => {
-      try {
-        if (!ensureImagesWrite()) return;
-        await deleteHarvesterImageUploadTask(cloudId, task.id);
-        message.success('任务记录已删除');
-        setToolTaskList((prev) => prev.filter((x) => x.id !== task.id));
-      } catch (e: unknown) {
-        message.error((e as { message?: string })?.message || '删除任务记录失败');
+  useEffect(() => {
+    setLocalImages((prev) => {
+      if (!Array.isArray(images)) return prev;
+      // 库存刷新中父组件可能短暂下发空数组，避免列表只剩 upload 虚拟行
+      if (images.length === 0 && prev.length > 0) return prev;
+      return images;
+    });
+    // 库存行已就绪后移除 success 任务 overlay，避免长期占用虚拟行
+    setListTaskList((prev) => {
+      if (!Array.isArray(images) || images.length === 0) return prev;
+      if (!prev.some((t) => String(t.status || '') === 'success')) return prev;
+      const next = prev.filter((t) => {
+        if (String(t.status || '') !== 'success') return true;
+        const row = images.find((img) => findUploadTaskForImageRow(img, [t]));
+        if (!row) return true;
+        return resolveImageListStateKey(row) !== 'ready';
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [images]);
+
+  const scheduleImagesInventoryAfterUploadSync = useCallback(() => {
+    const reload = onImagesInventoryReloadRef.current;
+    if (reload) {
+      notifyHarvesterImagesInventoryChanged(
+        cloudId,
+        reload,
+        HARVESTER_IMAGES_AFTER_UPLOAD_SYNC_OPTIONS,
+      );
+      return;
+    }
+    void runHarvesterSectionRefresh(onRefreshRef.current, { force: true, silent: true });
+  }, [cloudId]);
+
+  const applyUploadTasksSnapshot = useCallback(
+    (items: HarvesterImageUploadTask[], opts?: { batchTerminalReload?: boolean }) => {
+      let shouldScheduleSuccessSync = false;
+      let needsTerminalInventoryReload = false;
+
+      setUploadTasks(mergeUploadTasksSorted([], items));
+
+      setListTaskList((prev) => {
+        let next = prev;
+        for (const task of items) {
+          const { next: merged, becameSuccess } = applyUploadTaskToListState(next, task);
+          if (becameSuccess) shouldScheduleSuccessSync = true;
+          next = merged;
+        }
+        return next;
+      });
+
+      if (opts?.batchTerminalReload) {
+        needsTerminalInventoryReload = items.some((task) => {
+          const st = String(task.status || '').toLowerCase();
+          return (st === 'cancelled' || st === 'failed') && taskAffectsImageList(task);
+        });
       }
+
+      if (shouldScheduleSuccessSync) scheduleImagesInventoryAfterUploadSync();
+      if (needsTerminalInventoryReload) requestSkipSyncInventoryReload();
     },
-    [cloudId, ensureImagesWrite],
+    [requestSkipSyncInventoryReload, scheduleImagesInventoryAfterUploadSync],
   );
 
-  const handleCancelUploadTask = useCallback(
-    async (task: HarvesterImageUploadTask) => {
+  const reloadUploadTasks = useCallback(
+    async (showLoading = false, batchTerminalReload = false) => {
+      if (!cloudId || uploadTasksInflightRef.current) return;
+      uploadTasksInflightRef.current = true;
       try {
-        if (!ensureImagesWrite()) return;
-        uploadControllersRef.current.get(task.id)?.abort();
-        const resp = (await cancelHarvesterImageUploadTask(cloudId, task.id)) as {
+        if (showLoading) setUploadTasksLoading(true);
+        const resp = (await fetchHarvesterImageUploadTasks(cloudId, 50)) as {
+          data?: { items?: HarvesterImageUploadTask[] };
+          items?: HarvesterImageUploadTask[];
+        };
+        const items = resp?.data?.items || resp?.items || [];
+        applyUploadTasksSnapshot(Array.isArray(items) ? items : [], { batchTerminalReload });
+      } catch {
+        /* ignore */
+      } finally {
+        uploadTasksInflightRef.current = false;
+        if (showLoading) setUploadTasksLoading(false);
+      }
+    },
+    [applyUploadTasksSnapshot, cloudId],
+  );
+
+  useEffect(() => {
+    if (!cloudId) return;
+
+    void reloadUploadTasks(false, true);
+
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+
+      const tasks = listTaskListRef.current;
+      const imgs = localImagesRef.current;
+      const mergedForPoll = mergeUploadTasksIntoImageList(imgs, tasks);
+      const { pollUploadTasks, pollInventory } = planImageListProgressPoll(tasks, mergedForPoll);
+      if (!pollUploadTasks) return;
+
+      const now = Date.now();
+      const taskPollInterval = pollInventory
+        ? IMAGE_LIST_TASK_POLL_MS
+        : IMAGE_LIST_TASK_TERMINAL_POLL_MS;
+      if (now - lastUploadTaskPollAtRef.current >= taskPollInterval) {
+        lastUploadTaskPollAtRef.current = now;
+        void reloadUploadTasks(false);
+      }
+
+      if (!pollInventory) return;
+
+      const reload = onImagesInventoryReloadRef.current;
+      if (!reload || inventoryReloadInFlightRef.current) return;
+
+      const hasActiveTowerUpload = tasks.some((t) => {
+        const st = String(t.status || '').toLowerCase();
+        return ['pending', 'ingesting', 'uploaded', 'proxying'].includes(st);
+      });
+
+      const needFullSync =
+        !hasActiveTowerUpload &&
+        (lastFullInventorySyncAtRef.current === 0 ||
+          now - lastFullInventorySyncAtRef.current >= IMAGE_LIST_FULL_SYNC_MIN_INTERVAL_MS);
+
+      inventoryReloadInFlightRef.current = true;
+      void Promise.resolve(reload(true, hasActiveTowerUpload || !needFullSync))
+        .catch(() => undefined)
+        .finally(() => {
+          inventoryReloadInFlightRef.current = false;
+        });
+      if (needFullSync) {
+        lastFullInventorySyncAtRef.current = now;
+      }
+    }, IMAGE_LIST_TASK_POLL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+      cancelHarvesterImagesInventoryNotify(cloudId);
+      if (skipSyncInventoryReloadTimerRef.current != null) {
+        clearTimeout(skipSyncInventoryReloadTimerRef.current);
+        skipSyncInventoryReloadTimerRef.current = null;
+      }
+    };
+  }, [cloudId, reloadUploadTasks]);
+
+  const onListTaskChange = useCallback(
+    (task: HarvesterImageUploadTask) => {
+      let shouldRefreshInventory = false;
+      const st = String(task.status || '').toLowerCase();
+      const isCancelled = st === 'cancelled';
+      const isFailed = st === 'failed';
+
+      setUploadTasks((prev) => mergeUploadTasksSorted(prev, task));
+      setListTaskList((prev) => {
+        const { next, becameSuccess } = applyUploadTaskToListState(prev, task);
+        if (becameSuccess) shouldRefreshInventory = true;
+        return next;
+      });
+
+      if (shouldRefreshInventory) {
+        scheduleImagesInventoryAfterUploadSync();
+      } else if (isCancelled || isFailed) {
+        requestSkipSyncInventoryReload();
+      }
+    },
+    [requestSkipSyncInventoryReload, scheduleImagesInventoryAfterUploadSync],
+  );
+
+  /** 抽屉删除任务记录时从 listTaskList 移除，避免虚拟行残留；success 后刷新库存以保留镜像行 */
+  const onListTaskRemove = useCallback(
+    (taskId: string, opts?: { refreshInventory?: boolean }) => {
+      setUploadTasks((prev) => prev.filter((x) => x.id !== taskId));
+      setListTaskList((prev) => prev.filter((x) => x.id !== taskId));
+      if (opts?.refreshInventory === false) return;
+      const reload = onImagesInventoryReloadRef.current;
+      if (reload) {
+        requestSkipSyncInventoryReload();
+        return;
+      }
+      void runHarvesterSectionRefresh(onRefreshRef.current, { force: true, silent: true });
+    },
+    [requestSkipSyncInventoryReload],
+  );
+
+  const handleSyncUploadTask = useCallback(
+    async (r: ImageListRecord): Promise<HarvesterImageUploadTask | undefined> => {
+      const taskId = getTowerUploadTaskIdFromRow(r);
+      if (!taskId) return undefined;
+      if (!ensureImagesWrite()) return undefined;
+      try {
+        const resp = (await syncHarvesterImageUploadTask(cloudId, taskId)) as {
           data?: HarvesterImageUploadTask;
         };
         const next = (resp?.data || resp) as HarvesterImageUploadTask;
-        if (next?.id) upsertTask(next);
-        else {
-          const latest = (await fetchHarvesterImageUploadTask(cloudId, task.id)) as {
-            data?: HarvesterImageUploadTask;
-          };
-          upsertTask((latest?.data || latest) as HarvesterImageUploadTask);
+        if (next?.id) {
+          onListTaskChange(next);
+          notifyHarvesterImagesInventoryChanged(
+            cloudId,
+            onImagesInventoryReloadRef.current,
+            HARVESTER_IMAGES_SYNC_START_OPTIONS,
+          );
         }
-        onRefreshRef.current?.(true, true);
-        prevProgressRef.current.clear();
-        message.success('已取消');
+        message.success('已开始同步至 Harvester');
+        return next?.id ? next : undefined;
       } catch (e: unknown) {
-        message.error((e as { message?: string })?.message || '取消失败');
+        message.error((e as { message?: string })?.message || '启动同步失败');
+        return undefined;
       }
     },
-    [cloudId, ensureImagesWrite, upsertTask],
+    [cloudId, ensureImagesWrite, onListTaskChange],
   );
 
   const handleDeleteRow = useCallback(
     async (r: ImageListRecord) => {
-      const name = getImageRowId(r);
-      if (!name) return;
-      const ns = getImageRowNamespace(r);
-      const blocked = assessImageDeleteBlockedByVms(r, vms);
-      if (blocked) {
-        message.warning(blocked);
+      const blockedMsg = getImageRowDeleteBlockedMessage(r);
+      if (blockedMsg) {
+        message.warning(blockedMsg);
         return;
       }
-      try {
-        await deleteHarvesterImage(cloudId, ns, name);
-        message.success('删除成功');
-        setLocalImages((prev) => filterImageListAfterDelete(prev, new Set([`${ns}/${name}`])));
-        void runHarvesterSectionRefresh(onRefresh, { force: true });
-      } catch (e: unknown) {
-        if (isImageDeleteInUseHttpError(e)) {
-          message.error(getImageDeleteInUseErrorMessage());
-        } else {
-          message.error((e as { message?: string })?.message || '删除失败');
+      if (!ensureImagesWrite()) return;
+
+      const cachedTasks = listTaskListRef.current;
+      const localUpload = isLocalUploadImageRow(r, cachedTasks);
+      let taskId = resolveLinkedUploadTaskId(r, cachedTasks);
+      if (localUpload && !taskId) {
+        taskId = await fetchLinkedUploadTaskId(cloudId, r, cachedTasks);
+      }
+
+      const deleteCluster = !localUpload || shouldDeleteClusterImageForLocalUploadRow(r);
+      if (localUpload && !taskId && !deleteCluster) {
+        message.warning('未关联上传任务，无法删除本地暂存；请在上传任务抽屉中操作');
+        return;
+      }
+      if (deleteCluster) {
+        const blocked = assessImageDeleteBlockedByVms(r, vms);
+        if (blocked) {
+          message.warning(blocked);
+          return;
         }
       }
+
+      const ns = getImageRowNamespace(r);
+      const name = getImageRowId(r);
+      try {
+        if (deleteCluster && name) {
+          try {
+            await deleteHarvesterImage(cloudId, ns, name);
+            setLocalImages((prev) =>
+              filterImageListAfterDelete(prev, new Set([`${ns}/${name}`])),
+            );
+          } catch (e: unknown) {
+            const status = (e as { status?: number })?.status;
+            if (status !== 404) throw e;
+          }
+        }
+        if (localUpload && taskId) {
+          await deleteHarvesterImageUploadTask(cloudId, taskId);
+          onListTaskRemove(taskId);
+        }
+        message.success(
+          resolveImageDeleteSuccessMessage({
+            localUpload,
+            deleteCluster,
+            deletedTask: Boolean(localUpload && taskId),
+          }),
+        );
+        if (deleteCluster) {
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
+        }
+      } catch (e: unknown) {
+        message.error(
+          localUpload
+            ? (e as { message?: string })?.message || '删除失败'
+            : formatHarvesterImageDeleteError(e, { vms }),
+        );
+      }
     },
-    [cloudId, onRefresh, vms],
+    [cloudId, ensureImagesWrite, onListTaskRemove, onRefresh, vms],
   );
 
   const batchDelete = useCallback(
     (selectedKeys: React.Key[], sourceImages: ImageListRecord[], onDone?: () => void) => {
       if (!ensureImagesWrite()) return;
       if (!Array.isArray(sourceImages) || selectedKeys.length === 0) return;
-      void confirmHighRiskOperation({
+      Modal.confirm({
         title: '确认批量删除所选镜像？',
-        description: `确定要删除选中的 ${selectedKeys.length} 个镜像吗？此操作不可恢复。`,
-        riskItems: DELETE_RISK_ITEMS,
-        requireTypeConfirm: false,
-        confirmText: '删除',
-        operationSummary: `确认批量删除 ${selectedKeys.length} 个镜像`,
-        onConfirm: async () => {
+        onOk: async () => {
           try {
             const targets = selectImagesByRowKeys(sourceImages, selectedKeys as Array<string | number>);
             if (targets.length === 0) {
               message.warning('未找到可删除的镜像');
               return;
             }
-            const results = await mapBatchImageDelete(targets, async (r) => {
-              const blocked = assessImageDeleteBlockedByVms(r, vms);
-              if (blocked) throw new Error(blocked);
-              await deleteHarvesterImage(cloudId, getImageRowNamespace(r), getImageRowId(r));
-            });
+            const cachedTasks = listTaskListRef.current;
+            const needsTaskFetch = targets.some(
+              (r) =>
+                isLocalUploadImageRow(r, cachedTasks) &&
+                !resolveLinkedUploadTaskId(r, cachedTasks),
+            );
+            let allUploadTasks = uploadTasksRef.current;
+            if (needsTaskFetch) {
+              try {
+                const resp = (await fetchHarvesterImageUploadTasks(cloudId, 50)) as {
+                  data?: { items?: HarvesterImageUploadTask[] };
+                  items?: HarvesterImageUploadTask[];
+                };
+                const items = resp?.data?.items || resp?.items || [];
+                allUploadTasks = Array.isArray(items) ? items : allUploadTasks;
+              } catch {
+                allUploadTasks = uploadTasksRef.current;
+              }
+            }
+            const removedTaskIds = new Set<string>();
+            const results = await mapBatchImageDelete(
+              targets,
+              async (r) => {
+                const rowBlocked = getImageRowDeleteBlockedMessage(r);
+                if (rowBlocked) throw new Error(rowBlocked);
+                const localUpload = isLocalUploadImageRow(r, allUploadTasks);
+                let taskId = resolveLinkedUploadTaskId(r, allUploadTasks);
+                if (localUpload && !taskId) {
+                  taskId = await fetchLinkedUploadTaskId(cloudId, r, allUploadTasks);
+                }
+                const deleteCluster = !localUpload || shouldDeleteClusterImageForLocalUploadRow(r);
+                if (localUpload && !taskId && !deleteCluster) {
+                  throw new Error('未关联上传任务，无法删除本地暂存');
+                }
+                if (deleteCluster) {
+                  const blocked = assessImageDeleteBlockedByVms(r, vms);
+                  if (blocked) throw new Error(blocked);
+                  const ns = getImageRowNamespace(r);
+                  const name = getImageRowId(r);
+                  if (name) {
+                    try {
+                      await deleteHarvesterImage(cloudId, ns, name);
+                    } catch (e: unknown) {
+                      if ((e as { status?: number })?.status !== 404) throw e;
+                    }
+                  }
+                }
+                if (localUpload && taskId) {
+                  await deleteHarvesterImageUploadTask(cloudId, taskId);
+                  removedTaskIds.add(taskId);
+                }
+              },
+              { vms },
+            );
             const { success, error, deletedKeys } = summarizeBatchImageDeleteMessage(results);
             if (success) {
               message.success(success);
               setLocalImages((prev) => filterImageListAfterDelete(prev, deletedKeys));
+              for (const taskId of removedTaskIds) {
+                onListTaskRemove(taskId);
+              }
+              for (const taskId of uploadTaskIdsForDeletedImageKeys(
+                listTaskListRef.current,
+                deletedKeys,
+              )) {
+                onListTaskRemove(taskId);
+              }
             }
             if (error) message.error(error);
             onDone?.();
             void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: unknown) {
             message.error((e as { message?: string })?.message || '批量删除失败');
-            throw e;
           }
         },
-      }).catch(() => undefined);
+      });
     },
-    [cloudId, ensureImagesWrite, onRefresh, vms],
+    [cloudId, ensureImagesWrite, onListTaskRemove, onRefresh, vms],
   );
 
   return {
     localImages,
-    toolTaskList,
-    taskDrawerOpen,
-    setTaskDrawerOpen,
-    taskDrawerLoading,
-    loadUploadTasks,
-    getSmoothProgress,
-    upsertTask,
-    uploadControllersRef,
-    handleDeleteUploadTask,
-    handleCancelUploadTask,
+    listTaskList,
+    uploadTasks,
+    uploadTasksLoading,
+    reloadUploadTasks,
+    onListTaskChange,
+    onListTaskRemove,
+    handleSyncUploadTask,
     handleDeleteRow,
     batchDelete,
-    hasImagesWrite,
   };
 }

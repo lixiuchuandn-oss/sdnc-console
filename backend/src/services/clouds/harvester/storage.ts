@@ -1,5 +1,9 @@
 import { logger } from '../../../utils/logger';
 import { HarvesterTestParams } from './types';
+import {
+  buildHarvesterVmImageListUrls,
+  resolveHarvesterClusterApiRoots,
+} from './vmImageClusterApi';
 import { getJsonOnce, requestJson } from './utils';
 
 const harvesterStorageLog = logger.child('Harvester-Storage');
@@ -719,27 +723,15 @@ export const listHarvesterImagesStandard = async ({
   endpoint,
   token,
   insecure = false,
+  config,
 }: HarvesterTestParams): Promise<any[]> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-  const candidates = [
-    `${origin}/apis/harvesterhci.io/v1beta1/virtualmachineimages`,
-    `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages`,
-    `${origin}/apis/harvesterhci.io/v1/virtualmachineimages`,
-  ];
+  const roots = resolveHarvesterClusterApiRoots(endpoint, config);
+  const candidates = buildHarvesterVmImageListUrls(roots);
   let json: any = null;
   let lastErr: any = null;
-  // let hitUrl: string | null = null;
   for (const url of candidates) {
     try {
       json = await getJsonOnce(url, token, insecure, true);
-      // hitUrl = url;
       if (json) break;
     } catch (e: any) {
       lastErr = e;
@@ -758,28 +750,35 @@ export const listHarvesterImagesStandard = async ({
       ? json?.items
       : [];
 
-  return items.map((img: any) => ({
-    ...img,
-    name: img?.metadata?.name || img?.name || '',
-    namespace: img?.metadata?.namespace || img?.namespace || '',
-    displayName: img?.spec?.displayName || img?.spec?.name || '',
-    size: img?.status?.size || img?.spec?.size || img?.status?.downloadedBytes || 0,
-    virtualSize: img?.status?.virtualSize || img?.status?.virtualsize || 0,
-    storageClassName:
-      img?.spec?.storageClassName ||
-      img?.status?.storageClassName ||
-      img?.spec?.pvcStorageClassName ||
-      '',
-    links: {
-      download: img?.links?.download || '',
-      view:
-        img?.links?.view ||
-        `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
-      remove: img?.links?.remove || '',
-      self: img?.links?.self || '',
-      update: img?.links?.update || '',
-    },
-  }));
+  return items.map((img: any) => {
+    const virtualSizeRaw = img?.status?.virtualSize ?? img?.status?.virtualsize ?? img?.virtualSize;
+    const virtualSizeNum = Number(virtualSizeRaw);
+    const virtualSize =
+      Number.isFinite(virtualSizeNum) && virtualSizeNum > 0 ? virtualSizeNum : undefined;
+    return {
+      ...img,
+      name: img?.metadata?.name || img?.name || '',
+      namespace: img?.metadata?.namespace || img?.namespace || '',
+      displayName: img?.spec?.displayName || img?.spec?.name || '',
+      size: img?.status?.size || img?.spec?.size || img?.status?.downloadedBytes || 0,
+      ...(virtualSize != null ? { virtualSize } : {}),
+      storageClassName:
+        img?.spec?.storageClassName ||
+        img?.status?.storageClassName ||
+        img?.spec?.pvcStorageClassName ||
+        img?.metadata?.annotations?.['harvesterhci.io/storageClassName'] ||
+        '',
+      links: {
+        download: img?.links?.download || '',
+        view:
+          img?.links?.view ||
+          `${roots.apiPrefix}/apis/harvesterhci.io/v1beta1/namespaces/${img?.metadata?.namespace || 'default'}/virtualmachineimages/${img?.metadata?.name || img?.name}`,
+        remove: img?.links?.remove || '',
+        self: img?.links?.self || '',
+        update: img?.links?.update || '',
+      },
+    };
+  });
 };
 
 /**

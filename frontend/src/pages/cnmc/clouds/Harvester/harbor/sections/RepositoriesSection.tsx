@@ -11,6 +11,8 @@ import {
   ReloadOutlined, 
   DownOutlined,
   CopyOutlined,
+  UploadOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { getHarborRepositories, deleteHarborRepository, getHarborRegistry } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
@@ -18,6 +20,8 @@ import {
   confirmHighRiskDelete,
   DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
+import HarborUploadModal from '../components/HarborUploadModal';
+import HarborUploadTasksDrawer from '../components/HarborUploadTasksDrawer';
 import type { HarborRepository, HarborRegistry } from '../types';
 
 const { Text } = Typography;
@@ -42,6 +46,8 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
   const [repositoryName, setRepositoryName] = useState<string>('');
   const [tag, setTag] = useState<string>('latest');
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [tasksDrawerVisible, setTasksDrawerVisible] = useState(false);
   const tagInputRef = useRef<any>(null);
   const firstInputRef = useRef<any>(null);
   const lastButtonRef = useRef<any>(null);
@@ -251,6 +257,19 @@ return (
         <Button icon={<ReloadOutlined />} onClick={loadRepositories}>
           刷新
         </Button>
+        <Button 
+          type="primary" 
+          icon={<UploadOutlined />}
+          onClick={() => setUploadModalVisible(true)}
+        >
+          上传镜像
+        </Button>
+        <Button 
+          icon={<UnorderedListOutlined />}
+          onClick={() => setTasksDrawerVisible(true)}
+        >
+          上传任务
+        </Button>
         <Button type="link" onClick={() => {
           setDropdownVisible(!dropdownVisible);
           if (!dropdownVisible) {
@@ -422,6 +441,25 @@ return (
           showTotal: (total) => `共 ${total} 条`,
           defaultPageSize: 10,
         }}
+      />
+
+      <HarborUploadModal
+        visible={uploadModalVisible}
+        harborId={harborId}
+        projectName={projectName}
+        existingRepos={repositories.map(r => r.name)}
+        onClose={() => setUploadModalVisible(false)}
+        onSuccess={() => {
+          setUploadModalVisible(false);
+          loadRepositories();
+        }}
+      />
+
+      <HarborUploadTasksDrawer
+        visible={tasksDrawerVisible}
+        harborId={harborId}
+        projectName={projectName}
+        onClose={() => setTasksDrawerVisible(false)}
       />
     </div>
   );

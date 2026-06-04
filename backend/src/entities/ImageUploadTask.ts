@@ -15,14 +15,19 @@ export enum UploadTaskStatus {
   FAILED = 'failed',
 }
 
+export enum RegistryType {
+  LOCAL_REGISTRY = 'local-registry',
+  HARBOR = 'harbor',
+}
+
 @Entity('registry_image_upload_tasks')
 export class ImageUploadTask {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Index()
-  @Column()
-  registryId!: string;
+  @Column({ nullable: true })
+  registryId?: string;
 
   @Column()
   fileName!: string;
@@ -51,6 +56,20 @@ export class ImageUploadTask {
 
   @Column({ nullable: true, type: 'text' })
   error?: string;
+
+  @Column({
+    type: 'simple-enum',
+    enum: RegistryType,
+    default: RegistryType.LOCAL_REGISTRY,
+  })
+  registryType!: RegistryType;
+
+  @Index()
+  @Column({ nullable: true })
+  harborId?: string;
+
+  @Column({ nullable: true })
+  projectName?: string;
 
   @CreateDateColumn()
   createdAt!: Date;
