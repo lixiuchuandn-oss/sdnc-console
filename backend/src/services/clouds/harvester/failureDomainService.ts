@@ -342,10 +342,11 @@ export async function deleteFailureDomain(cloudId: string, domainId: string, clo
 
   const usingVms = await findVmsUsingFailureDomain(cloudId, domainName);
   if (usingVms.length) {
-    throw Object.assign(
-      new Error(formatFailureDomainDeleteBlockedMessage(domainName, usingVms)),
-      { status: 409, code: 'FAILURE_DOMAIN_IN_USE', resources: usingVms },
-    );
+    throw Object.assign(new Error(formatFailureDomainDeleteBlockedMessage(domainName, usingVms)), {
+      status: 409,
+      code: 'FAILURE_DOMAIN_IN_USE',
+      resources: usingVms,
+    });
   }
 
   const nodes = await AppDataSource.query(
