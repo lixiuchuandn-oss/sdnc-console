@@ -510,14 +510,15 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
                                     name={[backendIndex, 'weight']}
                                     style={{ marginBottom: 0 }}
                                   >
-                                    <Tooltip title="权重用于负载均衡，数值越大分配的流量越多（范围：1-100）">
-                                      <InputNumber 
-                                        min={1} 
-                                        max={100} 
-                                        placeholder="权重" 
-                                        style={{ width: '100%' }} 
-                                      />
-                                    </Tooltip>
+                                     <Tooltip title="权重用于负载均衡，按各后端权重的比值分配流量。例如：后端A权重70、后端B权重30，则A分配70%流量、B分配30%流量。范围：1-100">
+                                       <InputNumber 
+                                         min={1} 
+                                         max={100} 
+                                         placeholder="权重"
+                                         defaultValue={100}
+                                         style={{ width: '100%' }} 
+                                       />
+                                     </Tooltip>
                                   </Form.Item>
                                 </Col>
                                 <Col span={3}>
