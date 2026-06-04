@@ -115,6 +115,7 @@ npm run test     # 运行测试
 
 ```
 Compute.Tower/
+├── tests/                      # 业务域测试（与 backend/frontend 同级，见 tests/README.md）
 ├── backend/                    # 后端服务
 │   ├── src/
 │   │   ├── index.ts           # 服务入口（Express 挂载、静态资源、WebSocket）

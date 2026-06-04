@@ -1,0 +1,19 @@
+{
+  "name": "compute-tower-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Compute Tower business-domain tests",
+  "scripts": {
+    "test:auth:api": "node auth/admin-login.api.test.cjs",
+    "test:auth:browser": "node auth/admin-login.browser.test.cjs",
+    "test:cloudmap:connection": "node cnmc/cloudmap/pool-test-connection.api.test.cjs",
+    "test:cloudmap:create": "node cnmc/cloudmap/pool-create.api.test.cjs",
+    "test:images:fixture": "node harvester/images/fixtures/generate-demo-iso.cjs --size=2m",
+    "test:images:upload": "node harvester/images/browser-upload.browser.test.cjs",
+    "test:images:sync": "node harvester/images/browser-sync.browser.test.cjs",
+    "test:images:upload-sync": "node harvester/images/browser-upload-and-sync.browser.test.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.60.0"
+  }
+}

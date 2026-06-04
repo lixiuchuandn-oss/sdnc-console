@@ -1,0 +1,24 @@
+const fs = require('fs');
+const { webBase, adminUser, adminPassword } = require('../../shared/load-env.cjs');
+const { towerLogin, resolveCloudId } = require('../../shared/tower-api.cjs');
+const { launchTowerBrowser, newMaximizedPage, adminLoginPage } = require('../../shared/playwright-browser.cjs');
+const { demoIsoPath, openImagesPage, browserUploadImage, searchImageRow, syncImageRow, pollImageRowStatus } = require('./lib/images-page.cjs');
+const displayName = process.env.TOWER_IMAGE_DISPLAY_NAME || `tower-e2e-${String(Date.now()).slice(-6)}`;
+(async () => {
+  const filePath = demoIsoPath();
+  if (!fs.existsSync(filePath)) throw new Error('generate demo iso first');
+  if (fs.statSync(filePath).size < 1024 * 1024) console.warn('file < 1MiB: sync may fail on Ceph/CDI');
+  const cloudId = await resolveCloudId(await towerLogin(), process.env.TOWER_CLOUD_ID);
+  const browser = await launchTowerBrowser({ headless: process.env.HEADLESS === '1' });
+  const { page } = await newMaximizedPage(browser);
+  await adminLoginPage(page, webBase, adminUser, adminPassword);
+  await openImagesPage(page, cloudId);
+  await browserUploadImage(page, filePath, displayName);
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.waitForTimeout(1000);
+  await syncImageRow(page, await searchImageRow(page, displayName));
+  const result = await pollImageRowStatus(page, displayName);
+  console.log(JSON.stringify({ cloudId, displayName, ...result }, null, 2));
+  await browser.close();
+  process.exit(result.ok ? 0 : 1);
+})().catch((e) => { console.error(e.message); process.exit(2); });
