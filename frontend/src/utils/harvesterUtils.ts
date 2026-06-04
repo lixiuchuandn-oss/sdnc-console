@@ -692,13 +692,14 @@ function harvesterVmDisplayLabel(vm: any): { ns: string; name: string; label: st
 export function findVmByVolumeClaimName(
   volumeNamespace: string,
   volumeName: string,
-  vms: any[],
+  vms?: any[],
 ): { ns: string; name: string; label: string; displayName: string } | null {
   const volName = String(volumeName || '').trim();
-  if (!volName || !Array.isArray(vms)) return null;
+  if (!volName) return null;
+  const list = Array.isArray(vms) ? vms : [];
   const volNs = String(volumeNamespace || '').trim();
 
-  for (const vm of vms) {
+  for (const vm of list) {
     const { ns: vmNs, name: vmName } = harvesterVmDisplayLabel(vm);
     if (!vmName) continue;
     if (volNs && vmNs && volNs !== vmNs) continue;
@@ -732,7 +733,7 @@ export function findVmByVolumeClaimName(
   const guessed = guessVmNameFromHarvesterVolumeName(volName);
   if (!guessed) return null;
 
-  for (const vm of vms) {
+  for (const vm of list) {
     const row = harvesterVmDisplayLabel(vm);
     if (row.name === guessed && (!volNs || row.ns === volNs)) return row;
   }
@@ -743,6 +744,98 @@ export function findVmByVolumeClaimName(
     label: guessed,
     displayName: guessed,
   };
+}
+
+const HARVESTER_IMAGE_DELETE_IN_USE_RE =
+  /cannot delete image\s+(\S+)\s*:\s*being used by volume\s+(\S+)/gi;
+
+/** 剥离 Harvester 删除镜像 webhook / 网关前缀，便于解析核心英文原因 */
+export function stripHarvesterImageDeleteErrorPrefixes(raw: string): string {
+  let s = String(raw || '').trim();
+  for (let i = 0; i < 4; i += 1) {
+    const next = s
+      .replace(/^删除镜像失败:\s*/i, '')
+      .replace(/^删除失败[：:]\s*/i, '')
+      .replace(/^请求无法处理[：:]\s*/i, '')
+      .replace(/^admission webhook\s+"[^"]+"\s+denied the request:\s*/i, '')
+      .trim();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+function formatImageInUseByVmLabels(labels: string[]): string {
+  const uniq = [...new Set(labels.map((x) => String(x || '').trim()).filter(Boolean))];
+  if (uniq.length === 0) return '镜像仍被虚拟机使用，无法删除';
+  if (uniq.length === 1) return `镜像仍被虚拟机「${uniq[0]}」使用，无法删除`;
+  return `镜像仍被以下虚拟机使用，无法删除：${uniq.join('、')}`;
+}
+
+/**
+ * 将 Harvester「镜像仍被卷/虚拟机占用」类 webhook 报错转为可读中文（仅说明占用虚拟机）。
+ * @returns 能识别则返回中文；否则返回 null
+ */
+export function formatHarvesterImageDeleteInUseMessage(
+  raw: string,
+  opts?: { vms?: any[] },
+): string | null {
+  const normalized = stripHarvesterImageDeleteErrorPrefixes(raw);
+  const source = normalized || String(raw || '').trim();
+  if (!source) return null;
+
+  const vms = opts?.vms ?? [];
+  const vmLabels: string[] = [];
+  const seen = new Set<string>();
+
+  const pushLabel = (label: string) => {
+    const s = String(label || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    vmLabels.push(s);
+  };
+
+  let matched = false;
+  HARVESTER_IMAGE_DELETE_IN_USE_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = HARVESTER_IMAGE_DELETE_IN_USE_RE.exec(source)) !== null) {
+    matched = true;
+    const imageRef = m[1].trim();
+    const volRef = m[2].trim().replace(/[.,;]+$/, '');
+    const slash = volRef.indexOf('/');
+    const volNs = slash >= 0 ? volRef.slice(0, slash) : '';
+    const volName = slash >= 0 ? volRef.slice(slash + 1) : volRef;
+
+    const vm = findVmByVolumeClaimName(volNs, volName, vms);
+    if (vm?.label) {
+      pushLabel(vm.label);
+      continue;
+    }
+
+    const guessed = guessVmNameFromHarvesterVolumeName(volName);
+    if (guessed) pushLabel(guessed);
+
+    const imgSlash = imageRef.indexOf('/');
+    const imgNs = imgSlash >= 0 ? imageRef.slice(0, imgSlash) : '';
+    const imgName = imgSlash >= 0 ? imageRef.slice(imgSlash + 1) : imageRef;
+    if (imgNs && imgName && vms.length > 0) {
+      for (const row of findVmsReferencingHarvesterImage(imgNs, imgName, vms)) {
+        pushLabel(row.label);
+      }
+    }
+  }
+
+  if (matched) return formatImageInUseByVmLabels(vmLabels);
+
+  const lower = source.toLowerCase();
+  if (
+    lower.includes('cannot delete image') &&
+    (lower.includes('being used by volume') || lower.includes('in use'))
+  ) {
+    return '镜像仍被虚拟机使用，无法删除';
+  }
+
+  return null;
 }
 
 /**

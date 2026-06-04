@@ -1,6 +1,9 @@
 import React from 'react';
 import { Alert, Button, Checkbox, Form, Input, Modal, Space, Spin } from 'antd';
 
+/** 须高于常见详情 Drawer(1000) 与嵌套次级抽屉(1100–1150)，避免确认框被遮挡 */
+const HIGH_RISK_OPERATION_MODAL_Z_INDEX = 1300;
+
 export type HighRiskAlertConfig = {
   type?: 'warning' | 'error' | 'info' | 'success';
   message: React.ReactNode;
@@ -102,6 +105,7 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
       destroyOnClose
       forceRender
       width={width}
+      zIndex={HIGH_RISK_OPERATION_MODAL_Z_INDEX}
       maskClosable={false}
       keyboard={false}
       footer={footer}

@@ -1,3 +1,5 @@
+import { formatHarvesterImageDeleteInUseMessage } from './harvesterUtils';
+
 /**
  * 统一入口：后端 / K8s / 集群常见英文错误 → 中文提示。
  * 请在此新增规则；errorHandler、requestManager 仅调用 translateKnownApiErrorMessage，避免分散重复。
@@ -12,6 +14,15 @@ export function translateKnownApiErrorMessage(raw: string): string {
   if (!msg) return String(raw ?? '');
 
   const lower = msg.toLowerCase();
+
+  // --- Harvester：删除镜像时仍被虚拟机占用（保留英文原文，由镜像页结合 VM 库存解析具体虚拟机）---
+  if (
+    lower.includes('cannot delete image') &&
+    (lower.includes('being used by volume') || lower.includes('in use'))
+  ) {
+    const friendly = formatHarvesterImageDeleteInUseMessage(msg);
+    if (friendly && friendly !== '镜像仍被虚拟机使用，无法删除') return friendly;
+  }
 
   // --- Harvester：未配置备份目标（需在集群设置中配置 Backup Target）---
   if (lower.includes('backup target is not set')) {

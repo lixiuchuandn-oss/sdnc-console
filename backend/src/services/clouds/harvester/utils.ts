@@ -198,10 +198,16 @@ const translateErrorMessage = (error: any): string => {
   }
 };
 
+/** Harvester / Rancher Kube API Bearer（形如 token-xxxxx:yyyy） */
+export function looksLikeHarvesterKubeToken(value: unknown): boolean {
+  const s = typeof value === 'string' ? value.trim() : '';
+  return /^token-[a-z0-9]+:/i.test(s);
+}
+
 /**
  * 资源池（Cloud）维度的 Harvester / Rancher Kube Bearer。
- * 与 `clouds.ts` 中 Cloudmap 连接测试一致：Cloudmap 常将 API 令牌放在 config.apiToken / config.token，
- * secretKey 可能与其它用途共存或为空；优先使用配置中的令牌，再回退 secretKey。
+ * Cloudmap 常将 API 令牌放在 config.apiToken / config.token；secretKey 也可能持有 kube token。
+ * Edge 等场景 config.apiToken 可能是 UI 登录口令（非 kube token），此时应回退 secretKey。
  */
 export function resolveHarvesterCloudKubeToken(cloud: {
   secretKey?: string | null;
@@ -209,10 +215,21 @@ export function resolveHarvesterCloudKubeToken(cloud: {
 }): string {
   const cfg = (cloud?.config || {}) as { apiToken?: unknown; token?: unknown };
   const fromApi = typeof cfg.apiToken === 'string' ? cfg.apiToken.trim() : '';
-  if (fromApi) return fromApi;
   const fromTok = typeof cfg.token === 'string' ? cfg.token.trim() : '';
+  const fromSecret = String(cloud?.secretKey || '').trim();
+
+  if (
+    fromSecret &&
+    looksLikeHarvesterKubeToken(fromSecret) &&
+    ((fromApi && !looksLikeHarvesterKubeToken(fromApi)) ||
+      (fromTok && !looksLikeHarvesterKubeToken(fromTok)))
+  ) {
+    return fromSecret;
+  }
+
+  if (fromApi) return fromApi;
   if (fromTok) return fromTok;
-  return String(cloud?.secretKey || '').trim();
+  return fromSecret;
 }
 
 /**

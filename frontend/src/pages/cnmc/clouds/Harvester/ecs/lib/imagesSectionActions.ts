@@ -1,4 +1,8 @@
-import { findVmByVolumeClaimName, findVmsReferencingHarvesterImage } from 'utils/harvesterUtils';
+import {
+  findVmsReferencingHarvesterImage,
+  formatHarvesterImageDeleteInUseMessage,
+  stripHarvesterImageDeleteErrorPrefixes,
+} from 'utils/harvesterUtils';
 import type { HarvesterImageUploadTask } from '../../../../../../services/harvesterApi';
 import { fetchHarvesterImageUploadTasks } from '../../../../../../services/harvesterApi';
 import {
@@ -64,8 +68,11 @@ export function isImageDeleteInUseHttpError(err: unknown): boolean {
 }
 
 export function getImageDeleteInUseErrorMessage(): string {
-  return '删除失败：该镜像仍被虚拟机使用，请先删除相关虚拟机后再试。';
+  return '镜像仍被虚拟机使用，无法删除';
 }
+
+const IMAGE_IN_USE_FRIENDLY_RE =
+  /^镜像仍被虚拟机「[^」]+」使用，无法删除$|^镜像仍被以下虚拟机使用，无法删除：/;
 
 /** 将 Harvester 删除镜像 webhook / API 英文报错转为可读中文 */
 export function formatHarvesterImageDeleteError(
@@ -75,44 +82,60 @@ export function formatHarvesterImageDeleteError(
   const raw = extractImageDeleteErrorText(err);
   if (!raw) return '删除失败';
 
-  const byVolume = raw.match(
-    /cannot delete image\s+(\S+)\s*:\s*being used by volume\s+(\S+)/i,
-  );
-  if (byVolume) {
-    const imageRef = byVolume[1].trim();
-    const volRef = byVolume[2].trim().replace(/[.,;]+$/, '');
-    const imageName = imageRef.includes('/') ? imageRef.split('/').pop()! : imageRef;
-    const slash = volRef.indexOf('/');
-    const volNs = slash >= 0 ? volRef.slice(0, slash) : '';
-    const volName = slash >= 0 ? volRef.slice(slash + 1) : volRef;
-    const vm = findVmByVolumeClaimName(volNs, volName, opts?.vms ?? []);
-    const vmName = vm?.displayName || vm?.name;
-    if (vmName) {
-      return `删除失败：镜像「${imageName}」仍被虚拟机「${vmName}」使用，请先删除该虚拟机后再试。`;
-    }
-    return `删除失败：镜像「${imageName}」仍被虚拟机使用，请先删除相关虚拟机后再试。`;
+  if (IMAGE_IN_USE_FRIENDLY_RE.test(raw)) return raw;
+
+  for (const candidate of collectImageDeleteErrorCandidates(err)) {
+    const inUse = formatHarvesterImageDeleteInUseMessage(candidate, opts);
+    if (inUse && !isGenericImageInUseMessage(inUse)) return inUse;
   }
 
-  if (isImageDeleteInUseHttpError(err) || /cannot delete image/i.test(raw)) {
+  const stripped = stripHarvesterImageDeleteErrorPrefixes(raw);
+  if (stripped && stripped !== raw) {
+    const nested = formatHarvesterImageDeleteInUseMessage(stripped, opts);
+    if (nested && !isGenericImageInUseMessage(nested)) return nested;
+  }
+
+  const friendlyFromRaw = formatHarvesterImageDeleteInUseMessage(raw, opts);
+  if (friendlyFromRaw) return friendlyFromRaw;
+
+  if (isImageDeleteInUseHttpError(err) || /cannot delete image/i.test(stripped || raw)) {
     return getImageDeleteInUseErrorMessage();
   }
 
-  const stripped = raw
-    .replace(/^删除镜像失败:\s*/i, '')
-    .replace(/^请求无法处理：\s*/i, '')
-    .replace(/^admission webhook\s+"[^"]+"\s+denied the request:\s*/i, '')
-    .trim();
-  if (stripped && stripped !== raw) {
-    const nested = formatHarvesterImageDeleteError({ message: stripped }, opts);
-    if (nested !== stripped) return nested;
-  }
+  return raw.startsWith('删除') || raw.startsWith('镜像仍被') ? raw : `删除失败：${raw}`;
+}
 
-  return raw.startsWith('删除') ? raw : `删除失败：${raw}`;
+function isGenericImageInUseMessage(msg: string): boolean {
+  return msg === getImageDeleteInUseErrorMessage();
+}
+
+function collectImageDeleteErrorCandidates(err: unknown): string[] {
+  const e = err as {
+    message?: string;
+    responseData?: { message?: string; error?: string };
+  };
+  const out: string[] = [];
+  const push = (v: unknown) => {
+    const s = typeof v === 'string' ? v.trim() : '';
+    if (s && !out.includes(s)) out.push(s);
+  };
+  push(e?.responseData?.message);
+  push(e?.responseData?.error);
+  push(e?.message);
+  return out;
 }
 
 function extractImageDeleteErrorText(err: unknown): string {
-  const e = err as { message?: string };
-  return String(e?.message || err || '').trim();
+  const candidates = collectImageDeleteErrorCandidates(err);
+  const detailed = candidates.find((m) =>
+    /cannot delete image|being used by volume|admission webhook/i.test(m),
+  );
+  if (detailed) return detailed;
+
+  const friendly = candidates.find((m) => IMAGE_IN_USE_FRIENDLY_RE.test(m));
+  if (friendly) return friendly;
+
+  return String(candidates[0] || err || '').trim();
 }
 
 export function getImageBatchDeleteLabel(r: ImageListRecord): string {

@@ -61,9 +61,41 @@ describe('imagesSectionActions', () => {
         message:
           '删除镜像失败: 请求无法处理：admission webhook "validator.harvesterhci.io" denied the request: Cannot delete image default/ubuntu_4_0_20.04_x86_1000G: being used by volume test/id-vm-97v0gg392o6-disk-maxzdh-f09wq',
       }),
-    ).toBe(
-      '删除失败：镜像「ubuntu_4_0_20.04_x86_1000G」仍被虚拟机「id-vm-97v0gg392o6」使用，请先删除该虚拟机后再试。',
-    );
+    ).toBe('镜像仍被虚拟机「id-vm-97v0gg392o6」使用，无法删除');
+  });
+
+  it('formatHarvesterImageDeleteError translates webhook without delete prefix', () => {
+    expect(
+      formatHarvesterImageDeleteError({
+        message:
+          '请求无法处理：admission webhook "validator.harvesterhci.io" denied the request: Cannot delete image default/re: being used by volume test/id-vm-jyhaxe2mmpo-disk-r058op-z7ipa',
+      }),
+    ).toBe('镜像仍被虚拟机「id-vm-jyhaxe2mmpo」使用，无法删除');
+  });
+
+  it('formatHarvesterImageDeleteError keeps vm name when message already translated', () => {
+    expect(
+      formatHarvesterImageDeleteError({
+        message: '镜像仍被虚拟机「id-vm-jyhaxe2mmpo」使用，无法删除',
+        status: 422,
+      }),
+    ).toBe('镜像仍被虚拟机「id-vm-jyhaxe2mmpo」使用，无法删除');
+  });
+
+  it('formatHarvesterImageDeleteError parses vm from responseData when message is generic', () => {
+    expect(
+      formatHarvesterImageDeleteError(
+        {
+          message: '镜像仍被虚拟机使用，无法删除',
+          status: 422,
+          responseData: {
+            message:
+              '请求无法处理：admission webhook "validator.harvesterhci.io" denied the request: Cannot delete image default/re: being used by volume test/id-vm-jyhaxe2mmpo-disk-r058op-z7ipa',
+          },
+        },
+        { vms: [] },
+      ),
+    ).toBe('镜像仍被虚拟机「id-vm-jyhaxe2mmpo」使用，无法删除');
   });
 
   it('formatHarvesterImageDeleteError prefers vm alias from inventory', () => {
@@ -92,9 +124,7 @@ describe('imagesSectionActions', () => {
           ],
         },
       ),
-    ).toBe(
-      '删除失败：镜像「img-a」仍被虚拟机「vm-ja8l-6ef9」使用，请先删除该虚拟机后再试。',
-    );
+    ).toBe('镜像仍被虚拟机「vm-ja8l-6ef9」使用，无法删除');
   });
 
   it('summarizeBatchImageDeleteMessage', () => {

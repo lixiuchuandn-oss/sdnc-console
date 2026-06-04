@@ -375,11 +375,7 @@ export function useImagesSectionActions({
           void runHarvesterSectionRefresh(onRefresh, { force: true });
         }
       } catch (e: unknown) {
-        message.error(
-          localUpload
-            ? (e as { message?: string })?.message || '删除失败'
-            : formatHarvesterImageDeleteError(e, { vms }),
-        );
+        message.error(formatHarvesterImageDeleteError(e, { vms }));
       }
     },
     [cloudId, ensureImagesWrite, onListTaskRemove, onRefresh, vms],
