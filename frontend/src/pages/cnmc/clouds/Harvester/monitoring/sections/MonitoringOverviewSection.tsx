@@ -3,8 +3,16 @@
  * 设计文档：plan/设计-监控服务-概览.md
  * 参考：Compute.Tower-Monitoring Dashboard 布局与交互
  */
-import React from 'react';
+import React, { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Row, Col, Alert } from 'antd';
+import {
+  CLUSTER_RESOURCES_VIEW,
+  NODES_OVERVIEW_VIEW,
+  VMS_OVERVIEW_VIEW,
+  type OpsDashboardView,
+} from '../lib/opsDashboardViews';
+import { opsDashboardAlertsListPath } from '../lib/opsDashboardNavigation';
 import { MonitoringOverviewLanesProvider } from '../MonitoringOverviewLanesContext';
 import { AlertsCard } from '../components/AlertsCard';
 import { CPUCard } from '../components/CPUCard';
@@ -50,11 +58,39 @@ const CARD_COLUMN_FILL_STYLE: React.CSSProperties = {
   width: '100%',
 };
 
+const CLICKABLE_CARD_SLOT_STYLE: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  cursor: 'pointer',
+};
+
 interface MonitoringOverviewSectionProps {
   cloudId: string;
 }
 
 const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ cloudId }) => {
+  const navigate = useNavigate();
+
+  const goToOpsDashboardView = useCallback(
+    (view: OpsDashboardView) => {
+      if (!cloudId) return;
+      navigate(opsDashboardAlertsListPath(cloudId, view));
+    },
+    [cloudId, navigate],
+  );
+
+  const handleOpsDashboardKeyDown = useCallback(
+    (view: OpsDashboardView) => (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        goToOpsDashboardView(view);
+      }
+    },
+    [goToOpsDashboardView],
+  );
+
   if (!cloudId) {
     return (
       <div>
@@ -74,10 +110,22 @@ const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ c
           </Col>
           <Col xs={24} lg={7} style={COL_FILL_STYLE}>
             <div style={{ ...CARD_COLUMN_FILL_STYLE, gap: CARD_GAP }}>
-              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <div
+                role="button"
+                tabIndex={0}
+                style={CLICKABLE_CARD_SLOT_STYLE}
+                onClick={() => goToOpsDashboardView(CLUSTER_RESOURCES_VIEW)}
+                onKeyDown={handleOpsDashboardKeyDown(CLUSTER_RESOURCES_VIEW)}
+              >
                 <CPUCard />
               </div>
-              <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <div
+                role="button"
+                tabIndex={0}
+                style={CLICKABLE_CARD_SLOT_STYLE}
+                onClick={() => goToOpsDashboardView(CLUSTER_RESOURCES_VIEW)}
+                onKeyDown={handleOpsDashboardKeyDown(CLUSTER_RESOURCES_VIEW)}
+              >
                 <MemoryCard />
               </div>
             </div>
@@ -91,7 +139,13 @@ const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ c
 
         <Row gutter={[CARD_GAP, CARD_GAP]} style={ROW_STRETCH_STYLE}>
           <Col xs={24} md={12} lg={8} style={COL_FILL_STYLE}>
-            <div style={CARD_COLUMN_FILL_STYLE}>
+            <div
+              role="button"
+              tabIndex={0}
+              style={CLICKABLE_CARD_SLOT_STYLE}
+              onClick={() => goToOpsDashboardView(NODES_OVERVIEW_VIEW)}
+              onKeyDown={handleOpsDashboardKeyDown(NODES_OVERVIEW_VIEW)}
+            >
               <HostsCard />
             </div>
           </Col>
@@ -101,7 +155,13 @@ const MonitoringOverviewSection: React.FC<MonitoringOverviewSectionProps> = ({ c
             </div>
           </Col>
           <Col xs={24} md={24} lg={8} style={COL_FILL_STYLE}>
-            <div style={CARD_COLUMN_FILL_STYLE}>
+            <div
+              role="button"
+              tabIndex={0}
+              style={CLICKABLE_CARD_SLOT_STYLE}
+              onClick={() => goToOpsDashboardView(VMS_OVERVIEW_VIEW)}
+              onKeyDown={handleOpsDashboardKeyDown(VMS_OVERVIEW_VIEW)}
+            >
               <VMCard />
             </div>
           </Col>
