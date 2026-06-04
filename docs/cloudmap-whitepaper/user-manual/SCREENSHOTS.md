@@ -48,6 +48,22 @@ npm run manual:shots:vm
 
 脚本：`npm run manual:shots:vm`
 
+
+## 第 3.3 章 · ch03-volumes/
+
+| 文件 | 说明 |
+|------|------|
+| volume-list-page.png | 虚拟云盘列表 |
+| volume-list-toolbar.png | 筛选栏与创建云盘 |
+| volume-create-modal.png | 创建云盘弹窗 |
+| volume-attach-modal.png | 挂载到云主机 |
+| volume-resize-modal.png | 编辑配置（扩容） |
+| volume-snapshot-create-modal.png | 从云盘创建快照 |
+| snapshot-list-page.png | 云盘快照列表 |
+| volume-snapshot-restore-modal.png | 恢复云盘快照 |
+
+脚本：`npm run manual:shots:volumes`
+
 ## 第 3.2.7 · assets/image-*.png
 
 | 文件 | 说明 |
