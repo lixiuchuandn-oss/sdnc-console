@@ -26,8 +26,6 @@ import {
 import {
   uploadImageToHarbor,
   getHarborUploadTask,
-  HarborUploadResult,
-  HarborUploadTask,
 } from '../shared/harborApi';
 
 const { Dragger } = Upload;

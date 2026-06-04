@@ -1,7 +1,7 @@
 /**
  * Harbor 上传任务历史抽屉组件
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Drawer,
   Table,
@@ -11,13 +11,10 @@ import {
   Tag,
   Progress,
   message,
-  Popconfirm,
   Empty,
 } from 'antd';
 import {
   ReloadOutlined,
-  DeleteOutlined,
-  EyeOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
@@ -42,7 +39,7 @@ const HarborUploadTasksDrawer: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
 
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
     setLoading(true);
     try {
       const result = await getHarborUploadTasks(harborId, projectName, {
@@ -55,13 +52,13 @@ const HarborUploadTasksDrawer: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [harborId, projectName, statusFilter]);
 
   useEffect(() => {
     if (visible) {
       loadTasks();
     }
-  }, [visible, harborId, projectName, statusFilter]);
+  }, [visible, loadTasks]);
 
   const renderStatus = (status: string) => {
     switch (status) {

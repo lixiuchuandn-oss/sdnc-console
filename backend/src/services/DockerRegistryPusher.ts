@@ -101,9 +101,7 @@ function httpRequest(
 
     const allowInsecure = insecure || rejectUnauthorized === false;
     const agent =
-      isHttps && allowInsecure
-        ? new https.Agent({ rejectUnauthorized: false })
-        : undefined;
+      isHttps && allowInsecure ? new https.Agent({ rejectUnauthorized: false }) : undefined;
 
     const reqOptions: http.RequestOptions = {
       hostname: parsedUrl.hostname,
@@ -254,9 +252,7 @@ async function uploadBlob(
   );
 
   if (startRes.status !== 202) {
-    throw new Error(
-      `启动上传失败: ${startRes.status} ${startRes.body.toString()}`,
-    );
+    throw new Error(`启动上传失败: ${startRes.status} ${startRes.body.toString()}`);
   }
 
   let location = startRes.headers['location'] as string;
@@ -282,9 +278,7 @@ async function uploadBlob(
   );
 
   if (uploadRes.status !== 201) {
-    throw new Error(
-      `上传 blob 失败: ${uploadRes.status} ${uploadRes.body.toString()}`,
-    );
+    throw new Error(`上传 blob 失败: ${uploadRes.status} ${uploadRes.body.toString()}`);
   }
 
   onProgress?.(data.length, data.length);
@@ -313,17 +307,14 @@ async function pushManifest(
     rejectUnauthorized,
     manifest,
     {
-      'Content-Type':
-        'application/vnd.docker.distribution.manifest.v2+json',
+      'Content-Type': 'application/vnd.docker.distribution.manifest.v2+json',
     },
     username,
     password,
   );
 
   if (res.status !== 201 && res.status !== 200) {
-    throw new Error(
-      `推送 manifest 失败: ${res.status} ${res.body.toString()}`,
-    );
+    throw new Error(`推送 manifest 失败: ${res.status} ${res.body.toString()}`);
   }
 }
 

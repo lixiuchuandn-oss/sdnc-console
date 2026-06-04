@@ -9,11 +9,7 @@ import { Router, Response } from 'express';
 import multer from 'multer';
 import { AppDataSource } from '../../config/database';
 import { HarborRegistry } from '../../entities/harbor/HarborRegistry';
-import {
-  ImageUploadTask,
-  UploadTaskStatus,
-  RegistryType,
-} from '../../entities/ImageUploadTask';
+import { ImageUploadTask, UploadTaskStatus, RegistryType } from '../../entities/ImageUploadTask';
 import { parseDockerImageFromBuffer } from '../../services/ImageTarParser';
 import { pushImageToRegistry } from '../../services/DockerRegistryPusher';
 import { registriesRoutes } from './registries.routes';
