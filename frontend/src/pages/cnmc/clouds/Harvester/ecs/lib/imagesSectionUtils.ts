@@ -4,7 +4,8 @@ import {
   isSystemNamespace,
   resolveVmImageKind,
 } from 'utils/harvesterUtils';
-import { resolveImageListStateKey } from './vmImageStatus';
+import { isClusterVmImageImportComplete, resolveImageListStateKey } from './vmImageStatus';
+import { IMAGE_LIST_STATE_LABEL_ZH } from './imagesSectionConstants';
 
 /** 列表行：Harvester 镜像 API 原始对象或 Tower 标准化包装 */
 export type ImageListRecord = Record<string, unknown>;
@@ -36,6 +37,100 @@ export function getImageActualFileBytes(r: ImageListRecord): number | undefined 
         : NaN;
   if (Number.isFinite(n) && n > 0) return n;
   return undefined;
+}
+
+/** 解析 K8s quantity / 数字为字节（与后端 vmImageClusterApi 一致） */
+export function parseKubernetesQuantityToBytes(raw: unknown): number | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+  const s = String(raw).trim();
+  if (!s) return undefined;
+  const plain = Number(s);
+  if (Number.isFinite(plain) && plain > 0) return plain;
+  const m = /^([\d.]+)\s*([KMGTPE]i?)?$/i.exec(s.replace(/\s+/g, ''));
+  if (!m) return undefined;
+  const amount = Number(m[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return undefined;
+  const unit = (m[2] || '').toLowerCase();
+  const binary: Record<string, number> = {
+    '': 1,
+    k: 1e3,
+    ki: 1024,
+    m: 1e6,
+    mi: 1024 ** 2,
+    g: 1e9,
+    gi: 1024 ** 3,
+    t: 1e12,
+    ti: 1024 ** 4,
+    p: 1e15,
+    pi: 1024 ** 5,
+    e: 1e18,
+    ei: 1024 ** 6,
+  };
+  const mult = binary[unit];
+  if (mult == null) return undefined;
+  const bytes = Math.round(amount * mult);
+  return bytes > 0 ? bytes : undefined;
+}
+
+/** 镜像虚拟容量：优先顶层/status.virtualSize（qcow2 逻辑盘大小），ISO 可回退实际文件大小 */
+export function getImageVirtualSizeBytes(r: ImageListRecord): number | undefined {
+  const status = r?.status as Record<string, unknown> | undefined;
+  const spec = r?.spec as Record<string, unknown> | undefined;
+  for (const raw of [
+    r?.virtualSize,
+    status?.virtualSize,
+    status?.virtualsize,
+    spec?.virtualSize,
+  ]) {
+    const parsed = parseKubernetesQuantityToBytes(raw);
+    if (parsed != null) return parsed;
+  }
+  if (resolveVmImageKind(r) === 'iso') {
+    return getImageActualFileBytes(r);
+  }
+  return undefined;
+}
+
+/** 列表「虚拟大小」列：仅 Harvester 已就绪且进度 100% 后展示 */
+export function getImageListDisplayVirtualSizeBytes(r: ImageListRecord): number | undefined {
+  if (resolveImageListStateKey(r) !== 'ready') return undefined;
+  if (!isClusterVmImageImportComplete(r)) return undefined;
+  return getImageVirtualSizeBytes(r);
+}
+
+/** Harvester 镜像专用存储类：优先 status，其次由 image-xxx 推导 longhorn-image-xxx */
+export function getImageStorageClassName(r: ImageListRecord): string {
+  const status = r?.status as Record<string, unknown> | undefined;
+  const spec = r?.spec as Record<string, unknown> | undefined;
+  const meta = r?.metadata as Record<string, unknown> | undefined;
+  const ann = (meta?.annotations || {}) as Record<string, string>;
+  const name = getImageRowId(r);
+
+  const statusSc = String(status?.storageClassName || '').trim();
+  if (statusSc) return statusSc;
+
+  const derived = (() => {
+    const m = /^image-([a-z0-9]+)$/i.exec(name);
+    return m?.[1] ? `longhorn-image-${m[1]}` : '';
+  })();
+  if (derived) return derived;
+
+  for (const candidate of [
+    String(r?.storageClassName || '').trim(),
+    String(spec?.storageClassName || spec?.targetStorageClassName || '').trim(),
+    String(ann['harvesterhci.io/storageClassName'] || '').trim(),
+  ]) {
+    if (candidate.startsWith('longhorn-image-')) return candidate;
+  }
+
+  const specSc = String(spec?.storageClassName || spec?.targetStorageClassName || '').trim();
+  if (specSc && specSc !== 'longhorn') return specSc;
+  const topSc = String(r?.storageClassName || '').trim();
+  if (topSc && topSc !== 'longhorn') return topSc;
+  const annSc = String(ann['harvesterhci.io/storageClassName'] || '').trim();
+  if (annSc && annSc !== 'longhorn') return annSc;
+  return derived || annSc || topSc || specSc;
 }
 
 export function getImageRowId(r: ImageListRecord): string {
@@ -73,19 +168,7 @@ export function getImageCreatedMs(r: ImageListRecord): number {
 
 export function imageStatusLabelZh(s?: string): string {
   const k = String(s || '').toLowerCase();
-  const m: Record<string, string> = {
-    imported: '已导入',
-    pending: '等待',
-    downloading: '下载中',
-    uploading: '上传中',
-    importing: '导入中',
-    exporting: '导出中',
-    ready: '就绪',
-    failed: '失败',
-    cancelled: '已取消',
-    unknown: '未知',
-  };
-  return m[k] || (s || '-');
+  return IMAGE_LIST_STATE_LABEL_ZH[k] || (s || '-');
 }
 
 export function getImageStatusText(stateKey: string, sourceType?: string): string {
@@ -98,19 +181,7 @@ export function getImageStatusText(stateKey: string, sourceType?: string): strin
     if (st === 'upload') return '上传中';
   }
 
-  const m: Record<string, string> = {
-    imported: '已导入',
-    pending: '等待',
-    downloading: '下载中',
-    uploading: '上传中',
-    importing: '导入中',
-    exporting: '导出中',
-    ready: '就绪',
-    failed: '失败',
-    cancelled: '已取消',
-    unknown: '未知',
-  };
-  return m[k] || stateKey || '-';
+  return IMAGE_LIST_STATE_LABEL_ZH[k] || stateKey || '-';
 }
 
 export function expandImageOsFilterKeywords(val: string): string[] {

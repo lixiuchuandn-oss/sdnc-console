@@ -74,7 +74,7 @@ export async function tryLoadComputeTab(
       if (checkPerm('clouds.images:read') || checkPerm('clouds.ecs:read')) {
         await loadResource(
           'images',
-          () => fetchHarvesterImages(cloudId, force),
+          () => fetchHarvesterImages(cloudId, force, skipSync),
           (json) => {
             const list: any[] = Array.isArray((json as any)?.data?.items)
               ? (json as any).data.items

@@ -2,6 +2,7 @@ import { message } from 'antd';
 import { clearGetCacheForPath } from 'utils/requestManager';
 import {
   createHarvesterToolbarRefresh,
+  notifyHarvesterImagesInventoryChanged,
   reloadHarvesterNamespacesList,
   runHarvesterSectionRefresh,
 } from './harvesterSectionRefresh';
@@ -58,5 +59,22 @@ describe('harvesterSectionRefresh', () => {
       '/api/clouds/cloud-1/resources/harvester/namespaces',
     );
     expect(onRefresh).toHaveBeenCalledWith(true, true);
+  });
+
+  it('notifyHarvesterImagesInventoryChanged dedupes pending delayed reloads', () => {
+    jest.useFakeTimers();
+    const reload = jest.fn().mockResolvedValue(undefined);
+    notifyHarvesterImagesInventoryChanged('cloud-1', reload, {
+      inventoryDelaysMs: [0, 2000],
+      statusSyncDelaysMs: [5000],
+    });
+    notifyHarvesterImagesInventoryChanged('cloud-1', reload, {
+      inventoryDelaysMs: [0],
+      statusSyncDelaysMs: [],
+    });
+    expect(reload).toHaveBeenCalledTimes(2);
+    jest.advanceTimersByTime(2000);
+    expect(reload).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
   });
 });
