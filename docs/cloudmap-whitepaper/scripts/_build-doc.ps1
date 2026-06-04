@@ -86,13 +86,26 @@ if ($Format -eq 'docx') {
 & $pandocExe @pandocArgs
 Write-Host "Generated: $Output" -ForegroundColor Green
 
+function Copy-AssetTree {
+    param(
+        [Parameter(Mandatory = $true)][string]$AssetsSrc,
+        [Parameter(Mandatory = $true)][string]$AssetsOut
+    )
+    if (-not (Test-Path $AssetsSrc)) { return }
+    New-Item -ItemType Directory -Force -Path $AssetsOut | Out-Null
+    # 目录须复制到 $AssetsOut 父级；若目标已存在空目录，Copy-Item -Destination $子路径 不会写入文件
+    Get-ChildItem -LiteralPath $AssetsSrc -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $AssetsOut -Recurse -Force
+    }
+}
+
 if ($Format -eq 'html') {
+    $assetsOut = Join-Path $OutputDir "assets"
+    if (Test-Path $assetsOut) {
+        Remove-Item -LiteralPath $assetsOut -Recurse -Force
+    }
     foreach ($assetsSrc in @((Join-Path $Source "assets"), $whitepaperAssets)) {
-        if (Test-Path $assetsSrc) {
-            $assetsOut = Join-Path $OutputDir "assets"
-            New-Item -ItemType Directory -Force -Path $assetsOut | Out-Null
-            Copy-Item -Force (Join-Path $assetsSrc "*") $assetsOut -ErrorAction SilentlyContinue
-        }
+        Copy-AssetTree -AssetsSrc $assetsSrc -AssetsOut $assetsOut
     }
     if ($Open) {
         Start-Process $Output
