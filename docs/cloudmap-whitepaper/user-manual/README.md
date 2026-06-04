@@ -21,6 +21,7 @@ user-manual/
 │   ├── manifest.txt          # 合并顺序
 │   ├── 01-阅读指南.md
 │   ├── 02-控制台导航与资源池.md
+│   ├── assets/               # 手册截图（Pandoc 相对路径引用）
 │   └── ch03/                 # 与白皮书第 3 章对照
 └── output/                   # 生成物（gitignore）
 ```
