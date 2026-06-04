@@ -48,7 +48,7 @@ async function ensureMultiCloudConfigStep(page, modal) {
     await modal.locator('.ant-card').filter({ hasText: 'Cloudmap' }).first().click();
     await page.waitForTimeout(600);
   }
-  await modal.getByText('\u914d\u7f6e\u4e91\u8d26\u53f7').waitFor({ timeout: 15000 });
+  await modal.locator('.modal-group-title').filter({ hasText: '\u914d\u7f6e\u4e91\u8d26\u53f7' }).waitFor({ timeout: 15000 });
 }
 
 async function main() {

@@ -1,8 +1,13 @@
 # Manual screenshot scripts
 
-Output: docs/cloudmap-whitepaper/user-manual/source/assets/
+## Before capture (required for multi-cloud UI)
 
-## Run
+```powershell
+cd ..\backend
+node dev/issue-enterprise-license.cjs --activate
+```
+
+Then refresh the browser session and run:
 
 ```powershell
 cd tests
@@ -10,9 +15,4 @@ npm run manual:shots:pool
 npm run manual:shots:images
 ```
 
-## ch02-pool
-
-- Header: edge pool modal (single pool)
-- multi-pool-* only when platform.multi-cloud is licensed
-
-See user-manual/SCREENSHOTS.md
+See ../docs/cloudmap-whitepaper/user-manual/SCREENSHOTS.md
