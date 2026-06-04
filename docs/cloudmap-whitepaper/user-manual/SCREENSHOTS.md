@@ -18,6 +18,7 @@ cd D:\Compute.Tower\tests
 npm run manual:shots:pool
 npm run manual:shots:images
 npm run manual:shots:vm
+npm run manual:shots:volumes
 ```
 
 ## 第 2 章 · ch02-pool/
@@ -47,7 +48,6 @@ npm run manual:shots:vm
 | vm-wizard-step-advanced.png | 创建向导 · 高级设置 |
 
 脚本：`npm run manual:shots:vm`
-
 
 ## 第 3.3 章 · ch03-volumes/
 
