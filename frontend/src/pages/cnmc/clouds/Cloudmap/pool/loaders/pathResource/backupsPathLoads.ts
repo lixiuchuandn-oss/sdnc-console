@@ -9,7 +9,7 @@ import {
   canReadVmBackups,
 } from '../../../../Harvester/cbr/lib/cbrPermissions';
 
-/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射�?`backups` */
+/** 云备份域（`panels/backups`）：`handleTabChange` 将若干内层段统一映射为 `backups` */
 export async function tryLoadBackupTab(
   key: string,
   force: boolean,

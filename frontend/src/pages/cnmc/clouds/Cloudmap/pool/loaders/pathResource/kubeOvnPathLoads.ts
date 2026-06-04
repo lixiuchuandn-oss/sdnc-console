@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** Kube-OVN / VPC ???`panels/kube_ovn`??VPC???? EIP/SNAT/DNAT ???? */
+/** Kube-OVN / VPC 域（`panels/kube_ovn`）：VPC、子网、EIP/SNAT/DNAT 与路径别名 */
 export async function tryLoadKubeOvnVpcTab(
   key: string,
   force: boolean,

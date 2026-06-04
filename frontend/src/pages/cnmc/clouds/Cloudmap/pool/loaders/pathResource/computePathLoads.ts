@@ -12,7 +12,7 @@ import {
 } from './computeEcsListLoad';
 import { fetchComputeMigrationsList } from './computeMigrationsLoad';
 
-/** ?????`panels/compute`??`CLOUDMAP_COMPUTE_INNER_MENU` ?????*/
+/** 云主机域（`panels/compute`）：`CLOUDMAP_COMPUTE_INNER_MENU` 中按需项 */
 export async function tryLoadComputeTab(
   key: string,
   force: boolean,

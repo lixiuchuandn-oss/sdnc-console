@@ -9,7 +9,7 @@ import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMerged
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 
-/** ?????? ce??????????????????ce.publicConfig????????????? */
+/** 读取平台侧 ce 配置；优先 ce.publicConfig，否则从根级扁平字段组装 */
 function getCePublicConfig(ce: any): Record<string, any> {
   if (!ce || typeof ce !== 'object') return {};
   if (ce.publicConfig && typeof ce.publicConfig === 'object') {
@@ -22,7 +22,7 @@ function getCePublicConfig(ce: any): Record<string, any> {
   return legacy;
 }
 
-/** ?????????ce.lanConfig[]??????? lanName/lanIpv4 ?????? */
+/** 读取 LAN 列表：ce.lanConfig[]，映射 lanName/lanIpv4 等 */
 function readLanListFromCe(ce: any): any[] {
   if (!ce || typeof ce !== 'object') return [];
   if (Array.isArray((ce as any).lanConfig)) return (ce as any).lanConfig;
@@ -135,8 +135,8 @@ const CEWizard: React.FC = () => {
   const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
 
   /**
-   * ??? IPv4/IPv6 ????????? VR3??vr3_info????????VR3 ????????????????????????
-   * force????????? VR3 ????????????? true?????? isFieldTouched ?????? IP ?????????
+   * WAN/LAN IPv4/IPv6 仅从 VR3（vr3_info）回填；force 为 true 时忽略 isFieldTouched
+   * force：强制用 VR3 覆盖；否则用户已 touch 的 IP 字段不覆盖
    */
   const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
@@ -174,7 +174,7 @@ const CEWizard: React.FC = () => {
   const prevWanNameRef = useRef<string | undefined>(undefined);
   const prevLanNameRef = useRef<string | undefined>(undefined);
   const hadVr3InfoRef = useRef(false);
-  /** ????????? vr3????????????????????????????????? vr3Info ??????????????????????????? */
+  /** 记录上一轮 vr3：未改口名时勿用新 vr3Info 覆盖用户已编辑的 WAN/LAN IP */
   const prevVr3InfoSnapshotRef = useRef<any>(null);
 
   useEffect(() => {
@@ -255,7 +255,7 @@ const CEWizard: React.FC = () => {
     })();
   }, [uuid, form]);
 
-  /** ???? /api/vr-instances/:uuid ??? vr1/2/3????? IP ?? VR3 ??????? autoFillFromIface / mirror?? */
+  /** 拉取 VR 缓存合并数据；网卡 IP 供 autoFillFromIface / mirror 使用 */
   const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
     setIfaceLoading(true);
@@ -312,7 +312,7 @@ const CEWizard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingCfg, csmctlCfg, vr3Info, mirrorForm]);
 
-  /** ??? host IPv4 CIDR ??????????? 130.1.1.9/24 ??? 130.1.1.0/24?? */
+  /** 将 host IPv4 CIDR 转为网段，如 130.1.1.9/24 → 130.1.1.0/24 */
   const ipv4NetworkFromCidr = (cidr: string): string | undefined => {
     const s = String(cidr || '').trim();
     const [ip, maskStr] = s.split('/');
@@ -446,13 +446,13 @@ const CEWizard: React.FC = () => {
   const sortJsonKeys = (obj: any): any => {
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
     
-    // ???????????????????????
+    // 递归排序 JSON 键（展示/对比用）
     const copy = { ...obj };
     Object.keys(copy).forEach(k => {
       copy[k] = sortJsonKeys(copy[k]);
     });
 
-    // ??????????????????uuid, role, ce ?????
+    // 关键字段 uuid、role、ce 等优先排序
     const keys = Object.keys(copy).sort((a, b) => {
        const prio = (k: string) => {
          if (k === 'uuid') return -1;
@@ -479,7 +479,7 @@ const CEWizard: React.FC = () => {
   const watchedValues = Form.useWatch([], form);
   const configPreview = useMemo(
     () => buildConfigFromValues(form.getFieldsValue(true) || {}),
-    // buildConfigFromValues ????????????????? watchedValues ?????
+    // buildConfigFromValues 使用当前 watchedValues 快照
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [watchedValues, form],
   );
@@ -496,7 +496,7 @@ const CEWizard: React.FC = () => {
       }
       setCurrent((c) => Math.min(2, c + 1));
     } catch {
-      /* ??????????????? */
+      /* 校验未通过，留在当前步 */
     }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
@@ -538,7 +538,7 @@ const CEWizard: React.FC = () => {
       if (uuid) (cfg as any).uuid = uuid;
       setLoading(true);
 
-      // 1. ????????????????????????????????????????????????????
+      // 1. 先保存到平台（saveVRConfig + setVRRole），失败则中止设备下发
       let finalCfg = cfg;
       try {
         const existing = await getVRConfig(uuid);
@@ -551,11 +551,12 @@ const CEWizard: React.FC = () => {
         finalCfg = sortJsonKeys({ ...cleanExisting, ...cfg });
         await saveVRConfig(uuid, finalCfg);
         await setVRRole(uuid, 'CE');
-      } catch (e) {
+      } catch (e: any) {
         console.warn('handleDispatch: saveVRConfig/setVRRole failed:', e);
+        throw new Error(e?.message || '保存到平台失败，已中止设备下发');
       }
 
-      // 2. ?? PE/Standard/SASE ?? vrController.updateVRConfig ??????????? ?uuid= ????? other
+      // 2. 再经代理 POST /V2/ctcontrol/VR2/VRConfig，other 为 uuid=...
       const path = '/V2/ctcontrol/VR2/VRConfig';
       const method = 'POST';
       const other = `uuid=${uuid}`;
@@ -572,7 +573,7 @@ const CEWizard: React.FC = () => {
   };
 
   const renderCoreContent = () => {
-    // ?? Form ???? + ?????????????????? 0/1 ?????????? <Form> ?????????????????? form ?????/?????
+    // 左侧 Form 编辑 + 右侧 mirror；步骤 0/1 用 display 切换，避免卸载 form 丢值
     const summaryValues = form.getFieldsValue(true);
     return (
       <>

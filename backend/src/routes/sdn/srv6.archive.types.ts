@@ -1,0 +1,15 @@
+export type {
+  Srv6ActivateAfDelta,
+  Srv6BgpNeighborDelta,
+  Srv6CeFingerprint,
+  Srv6EndpointFingerprint,
+  Srv6EndpointInjectedDelta,
+  Srv6EndpointSlot,
+  Srv6InjectedDelta,
+  Srv6Ipv6RouteDelta,
+  Srv6NdcDelta,
+  Srv6PeFingerprint,
+  Srv6RdRtDelta,
+  Srv6RdRtMeta,
+  Srv6TunnelArchiveFields,
+} from '../../entities/vRouter/srv6Tunnel.types';

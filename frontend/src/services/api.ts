@@ -1399,11 +1399,24 @@ export const fetchSrv6Tunnels = async (options?: { skipCache?: boolean }) => {
 
 
 
-export const createSrv6Tunnel = async (payload: { name: string; peA: string; peB: string; ceA: string; ceB: string }) => {
+export type Srv6TunnelWritePayload = {
+  name: string;
+  peA: string;
+  peB: string;
+  ceA: string;
+  ceB: string;
+  peAInnerIf?: string;
+  peBInnerIf?: string;
+  rdRtMeta?: { rtCommon: string; rdMap: Record<string, string> } | null;
+  injectedDelta?: Record<string, unknown>;
+  endpointFingerprint?: Record<string, unknown>;
+};
+
+export const createSrv6Tunnel = async (payload: Srv6TunnelWritePayload) => {
   return await apiPost('/api/networks/srv6', payload);
 };
 
-export const updateSrv6Tunnel = async (id: string, payload: { name: string; peA: string; peB: string; ceA: string; ceB: string }) => {
+export const updateSrv6Tunnel = async (id: string, payload: Srv6TunnelWritePayload) => {
   return await apiPut(`/api/networks/srv6/${id}`, payload);
 };
 
@@ -1416,8 +1429,16 @@ export const fetchSrv6Tunnel = async (id: string) => {
   return await apiRequest(`/api/networks/srv6/${id}`);
 };
 
-export const deleteSrv6Tunnel = async (id: string) => {
-  return await apiDelete(`/api/networks/srv6/${id}`);
+/** 默认回退平台库并 push 设备；传 revertPlatform/revertDevice 为 false 可关闭 */
+export const deleteSrv6Tunnel = async (
+  id: string,
+  options?: { revertPlatform?: boolean; revertDevice?: boolean },
+) => {
+  const qs: string[] = [];
+  if (options?.revertPlatform === false) qs.push('revertPlatform=0');
+  if (options?.revertDevice === false) qs.push('revertDevice=0');
+  const suffix = qs.length ? `?${qs.join('&')}` : '';
+  return await apiDelete(`/api/networks/srv6/${id}${suffix}`);
 };
 
 // ===== IPsec VPN =====

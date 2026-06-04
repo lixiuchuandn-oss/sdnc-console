@@ -1,12 +1,21 @@
 import { Router, Request, Response } from 'express';
+import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { vrController } from '../../services/vrouter/vrController';
 import {
+  buildEndpointFingerprintFromRows,
+  mergeArchiveIntoTunnel,
+  parseSrv6ArchiveFromBody,
+  validateTunnelArchiveRequired,
+} from './srv6.archive';
+import { deleteSrv6TunnelWithRevert } from './srv6.delete';
+import {
   hasSrv6EndpointConflict,
   hasSrv6NameConflict,
   normalizeSrv6TunnelPayload,
+  validateSrv6VrEndpointsForCreate,
 } from './srv6.validation';
 
 export const srv6Routes = Router();
@@ -52,6 +61,29 @@ const sanitizeConfig = (config: any) => {
     }
   }
   return config;
+};
+
+const applyArchiveToTunnelEntity = (
+  entity: SRv6Tunnel,
+  body: unknown,
+  vrRows: { uuid: string; role?: string | null; config_json?: string | null }[],
+  endpoints: { peA: string; peB: string; ceA: string; ceB: string },
+) => {
+  const parsed = parseSrv6ArchiveFromBody(body);
+  if (!parsed.ok) return parsed;
+
+  let fingerprint = parsed.archive.endpointFingerprint;
+  if (!fingerprint) {
+    fingerprint = buildEndpointFingerprintFromRows(endpoints, vrRows, {
+      peAInnerIf: parsed.archive.peAInnerIf || undefined,
+      peBInnerIf: parsed.archive.peBInnerIf || undefined,
+    });
+  }
+  mergeArchiveIntoTunnel(entity, {
+    ...parsed.archive,
+    endpointFingerprint: fingerprint ?? parsed.archive.endpointFingerprint,
+  });
+  return { ok: true as const };
 };
 
 // 列表：获取所有 SRv6 隧道
@@ -107,10 +139,34 @@ srv6Routes.post('/', async (req, res, next) => {
       return;
     }
 
+    const endpointIds = [
+      normalized.value.peA,
+      normalized.value.peB,
+      normalized.value.ceA,
+      normalized.value.ceB,
+    ];
+    const vrRows = await vrConfigRepo().find({ where: { uuid: In(endpointIds) } });
+    const vrCheck = validateSrv6VrEndpointsForCreate(normalized.value, vrRows);
+    if (!vrCheck.ok) {
+      res.status(400).json({ message: vrCheck.message });
+      return;
+    }
+
     const item = repo().create({
       ...normalized.value,
       status: SRv6Status.CREATING,
     });
+    const archiveApplied = applyArchiveToTunnelEntity(item, req.body, vrRows, normalized.value);
+    if (!archiveApplied.ok) {
+      res.status(400).json({ message: archiveApplied.message });
+      return;
+    }
+    const archiveCheck = validateTunnelArchiveRequired(item);
+    if (!archiveCheck.ok) {
+      res.status(400).json({ message: archiveCheck.message });
+      return;
+    }
+
     const saved = await repo().save(item);
     // 模拟异步完成：短暂延迟后置为 available
     setTimeout(async () => {
@@ -162,6 +218,33 @@ srv6Routes.put('/:id', async (req, res, next) => {
     }
 
     repo().merge(current, normalized.value);
+    const vrRows = await vrConfigRepo().find({
+      where: {
+        uuid: In([
+          normalized.value.peA,
+          normalized.value.peB,
+          normalized.value.ceA,
+          normalized.value.ceB,
+        ]),
+      },
+    });
+    const archiveApplied = applyArchiveToTunnelEntity(
+      current,
+      req.body,
+      vrRows,
+      normalized.value,
+    );
+    if (!archiveApplied.ok) {
+      res.status(400).json({ message: archiveApplied.message });
+      return;
+    }
+
+    const archiveCheck = validateTunnelArchiveRequired(current);
+    if (!archiveCheck.ok) {
+      res.status(400).json({ message: archiveCheck.message });
+      return;
+    }
+
     const saved = await repo().save(current);
     res.json(saved);
   } catch (e) {
@@ -289,7 +372,7 @@ srv6Routes.get('/:id', async (req, res, next) => {
   }
 });
 
-// 删除：根据 ID 删除隧道
+// 删除：默认回退平台库并 push 设备（revertPlatform=0 / revertDevice=0 可显式关闭）
 srv6Routes.delete('/:id', async (req, res, next) => {
   try {
     {
@@ -307,8 +390,21 @@ srv6Routes.delete('/:id', async (req, res, next) => {
       res.status(404).json({ message: '未找到隧道' });
       return;
     }
-    await repo().delete({ id });
-    res.json({ success: true });
+
+    const q = req.query;
+    const revertPlatform = q.revertPlatform !== '0' && q.revertPlatform !== 'false';
+    const revertDevice = q.revertDevice !== '0' && q.revertDevice !== 'false';
+
+    try {
+      const result = await deleteSrv6TunnelWithRevert(item, { revertPlatform, revertDevice });
+      res.json({ success: true, ...result });
+    } catch (e: any) {
+      const code = e?.statusCode === 400 || e?.statusCode === 409 ? e.statusCode : 500;
+      res.status(code).json({
+        message: e?.message || '删除失败',
+        warnings: e?.warnings,
+      });
+    }
   } catch (e) {
     next(e);
   }

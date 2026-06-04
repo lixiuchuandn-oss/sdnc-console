@@ -397,8 +397,9 @@ const StandardWizard: React.FC = () => {
         const newCfg = sortJsonKeys({ ...(existing || {}), ...cfg });
         await saveVRConfig(uuid, newCfg);
         await setVRRole(uuid, '标准');
-      } catch (e) {
+      } catch (e: any) {
         console.warn('保存到本地数据库失败:', e);
+        throw new Error(e?.message || '保存到平台失败，已中止设备下发');
       }
 
       // 2. 下发配置到设备 (专家模式接口)

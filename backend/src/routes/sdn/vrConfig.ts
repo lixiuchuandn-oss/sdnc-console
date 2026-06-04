@@ -268,6 +268,16 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
     let record = await repo.findOne({ where: { uuid } });
     const jsonStr = typeof config === 'string' ? config : JSON.stringify(config);
 
+    const { assertSrv6VrConfigUpsertAllowed } = await import('./srv6.vrLock');
+    try {
+      await assertSrv6VrConfigUpsertAllowed(uuid, jsonStr);
+    } catch (lockErr: any) {
+      if (lockErr?.statusCode === 400 || lockErr?.statusCode === 409) {
+        return res.status(lockErr.statusCode).json({ code: lockErr.statusCode, msg: lockErr.message });
+      }
+      throw lockErr;
+    }
+
     if (record) {
       record.config_json = jsonStr;
       if (cloudId !== undefined) record.cloudId = cloudId;
@@ -316,6 +326,15 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
 
     const repo = AppDataSource.getRepository(VRConfig);
     let record = await repo.findOne({ where: { uuid } });
+    const { assertSrv6VrSetRoleAllowed } = await import('./srv6.vrLock');
+    try {
+      await assertSrv6VrSetRoleAllowed(uuid, normalized);
+    } catch (lockErr: any) {
+      if (lockErr?.statusCode === 409) {
+        return res.status(409).json({ code: 409, msg: lockErr.message });
+      }
+      throw lockErr;
+    }
     if (record) {
       record.role = normalized;
       await repo.save(record);

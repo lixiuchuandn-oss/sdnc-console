@@ -7,7 +7,7 @@ import {
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** ?????`panels/flat_network`??????? EIP/SNAT/DNAT ???? */
+/** 扁平子网域（`panels/flat_network`）：扁平 EIP/SNAT/DNAT 与路径别名 */
 export async function tryLoadKubeOvnFlatTab(
   key: string,
   force: boolean,

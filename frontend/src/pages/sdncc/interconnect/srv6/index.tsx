@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge } from 'antd';
+import { Button, Checkbox, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge } from 'antd';
 import type { MenuProps } from 'antd';
 import { ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -16,7 +16,7 @@ interface Srv6TunnelRow {
   peB: string;
   ceA: string;
   ceB: string;
-  status: 'creating' | 'available';
+  status: string;
   createdAt: string;
 }
 
@@ -71,20 +71,44 @@ const SRv6Page: React.FC = () => {
         setHealthSteps(initialHealthSteps);
         setHealthModalOpen(true);
         break;
-      case 'delete':
+      case 'delete': {
+        let revertPlatform = true;
+        let revertDevice = true;
         Modal.confirm({
           title: '确认删除该隧道？',
-          content: `确定删除：${row.name}`,
+          content: (
+            <div>
+              <p style={{ marginBottom: 8 }}>确定删除：{row.name}</p>
+              <Checkbox
+                defaultChecked
+                onChange={(e) => {
+                  revertPlatform = e.target.checked;
+                }}
+              >
+                回退平台库中的隧道注入项
+              </Checkbox>
+              <br />
+              <Checkbox
+                defaultChecked
+                onChange={(e) => {
+                  revertDevice = e.target.checked;
+                }}
+              >
+                同步回退到底层设备（对四端执行 deploy/push，默认开启）
+              </Checkbox>
+            </div>
+          ),
           okText: '删除',
           okButtonProps: { danger: true },
           cancelText: '取消',
           onOk: async () => {
             try {
-              const { deleteSrv6Tunnel } = await import('../../../../services/api');
-              await deleteSrv6Tunnel(row.id);
+              const { deleteSrv6Tunnel, fetchSrv6Tunnels } = await import('../../../../services/api');
+              const res: any = await deleteSrv6Tunnel(row.id, { revertPlatform, revertDevice });
+              if (Array.isArray(res?.warnings) && res.warnings.length) {
+                message.warning(res.warnings.join('；'));
+              }
               message.success('隧道已删除');
-              // 刷新列表
-              const { fetchSrv6Tunnels } = await import('../../../../services/api');
               const list = await fetchSrv6Tunnels();
               const rows: Srv6TunnelRow[] = (Array.isArray(list) ? list : []).map((it: any) => ({
                 id: it.id,
@@ -103,6 +127,7 @@ const SRv6Page: React.FC = () => {
           },
         });
         break;
+      }
       default:
         break;
     }
@@ -115,7 +140,18 @@ const SRv6Page: React.FC = () => {
     { title: 'PE-B', dataIndex: 'peB', key: 'peB' },
     { title: 'CE-A', dataIndex: 'ceA', key: 'ceA' },
     { title: 'CE-B', dataIndex: 'ceB', key: 'ceB' },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => (<Tag color={s === 'available' ? 'green' : 'blue'}>{s === 'available' ? '可用' : '创建中'}</Tag>) },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (s: string) => {
+        if (s === 'available') return <Tag color="green">可用</Tag>;
+        if (s === 'degraded') return <Tag color="orange">已降级</Tag>;
+        if (s === 'error') return <Tag color="red">异常</Tag>;
+        if (s === 'deploying') return <Tag color="blue">下发中</Tag>;
+        return <Tag color="blue">创建中</Tag>;
+      },
+    },
     { title: '创建时间', dataIndex: 'createdAt', key: 'time', render: (d: string) => new Date(d).toLocaleString() },
     {
       title: '操作',

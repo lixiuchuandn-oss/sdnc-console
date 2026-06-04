@@ -91,6 +91,8 @@ const SRv6CreatePage: React.FC = () => {
             peB: item.peB,
             ceA: item.ceA,
             ceB: item.ceB,
+            peAInnerIf: item.peAInnerIf || undefined,
+            peBInnerIf: item.peBInnerIf || undefined,
           });
           setFormValues({
             tunnelName: item.name,
@@ -98,7 +100,10 @@ const SRv6CreatePage: React.FC = () => {
             peB: item.peB,
             ceA: item.ceA,
             ceB: item.ceB,
+            peAInnerIf: item.peAInnerIf,
+            peBInnerIf: item.peBInnerIf,
           });
+          if (item.rdRtMeta) setRdRtMeta(item.rdRtMeta);
           // 编辑模式：加载各端已有配置，便于拼装下发 JSON
           if (item.peA) await fetchAndSetPeConfig('peA', item.peA);
           if (item.peB) await fetchAndSetPeConfig('peB', item.peB);
@@ -1122,7 +1127,27 @@ const SRv6CreatePage: React.FC = () => {
     setPlatformSaveLoading(true);
     try {
       const { createSrv6Tunnel, updateSrv6Tunnel } = await import('../../../../services/api');
-      const payload = { name: tunnelName, peA: String(peA), peB: String(peB), ceA: String(ceA), ceB: String(ceB) };
+      const { buildTunnelArchive } = await import('./srv6Archive');
+      const archive = buildTunnelArchive({
+        peAInnerIf: values?.peAInnerIf,
+        peBInnerIf: values?.peBInnerIf,
+        peConfigs,
+        ceConfigs,
+        peStorageCfgs: {
+          peA: peAPreviewStorageCfg,
+          peB: peBPreviewStorageCfg,
+        },
+        cePreviewCfgs: { ceA: ceAPreviewCfg, ceB: ceBPreviewCfg },
+        rdRtMeta,
+      });
+      const payload = {
+        name: tunnelName,
+        peA: String(peA),
+        peB: String(peB),
+        ceA: String(ceA),
+        ceB: String(ceB),
+        ...archive,
+      };
       if (editId) {
         await updateSrv6Tunnel(editId, payload);
       } else {
