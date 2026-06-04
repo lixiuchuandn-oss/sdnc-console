@@ -751,8 +751,7 @@ export const listHarvesterImagesStandard = async ({
       : [];
 
   return items.map((img: any) => {
-    const virtualSizeRaw =
-      img?.status?.virtualSize ?? img?.status?.virtualsize ?? img?.virtualSize;
+    const virtualSizeRaw = img?.status?.virtualSize ?? img?.status?.virtualsize ?? img?.virtualSize;
     const virtualSizeNum = Number(virtualSizeRaw);
     const virtualSize =
       Number.isFinite(virtualSizeNum) && virtualSizeNum > 0 ? virtualSizeNum : undefined;

@@ -67,7 +67,7 @@ export function useImagesSectionActions({
   vms,
   onRefresh,
   onImagesInventoryReload,
-  hasImagesWrite,
+  hasImagesWrite: _hasImagesWrite,
   ensureImagesWrite,
 }: UseImagesSectionActionsParams) {
   const [localImages, setLocalImages] = useState<ImageListRecord[]>(images);

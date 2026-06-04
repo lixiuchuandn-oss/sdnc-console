@@ -50,9 +50,7 @@ export function respondGlobalImageUploadBusy(res: Response, e: GlobalImageUpload
 const UPLOAD_ACTIVE_STATUSES = ['pending', 'ingesting'] as const;
 const SYNC_ACTIVE_STATUSES = ['proxying'] as const;
 
-async function findOtherActiveUploadTask(
-  excludeTaskId?: string,
-): Promise<ImageUploadTask | null> {
+async function findOtherActiveUploadTask(excludeTaskId?: string): Promise<ImageUploadTask | null> {
   const repo = AppDataSource.getRepository(ImageUploadTask);
   const tasks = await repo.find({
     where: { taskStatus: In([...UPLOAD_ACTIVE_STATUSES]) },

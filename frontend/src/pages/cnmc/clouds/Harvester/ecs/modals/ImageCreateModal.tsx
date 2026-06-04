@@ -137,7 +137,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   variant,
   ensureWrite,
   onUrlImportSuccess,
-  onBrowserUploadSuccess,
+  onBrowserUploadSuccess: _onBrowserUploadSuccess,
   onUploadStarted,
   onStartBrowserUpload,
 }) => {
