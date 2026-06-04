@@ -20,6 +20,18 @@ describe('sanitizeAswCliStdout', () => {
     expect(out).toContain('BOARD TYPE');
   });
 
+  it('strips K8s Status Unauthorized JSON from CLI text', () => {
+    const raw = [
+      '<H3C>display version',
+      '{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Unauthorized","reason":"Unauthorized","code":401}',
+      'H3C Comware Software, Version 7.1.070',
+    ].join('\n');
+    const out = sanitizeAswCliStdout(raw);
+    expect(out).not.toContain('"kind":"Status"');
+    expect(out).not.toMatch(/Unauthorized.*"code"\s*:\s*401/);
+    expect(out).toContain('H3C Comware Software');
+  });
+
   it('formatAswCliLineForDisplay prefers stdout', () => {
     const text = formatAswCliLineForDisplay({
       stdout: 'line1\r\r\nline2\r\r\n',

@@ -1,3 +1,4 @@
+import { classifyStorageKindFromStorageClassName } from "../../../../../../../../utils/harvesterUtils";
 import { isCloudInitVolume } from "../../../lib/vmCloudInitSpec";
 import { PVC_ACCESS_MODE_ZH, PVC_PHASE_ZH } from "./vmDiskManageDrawerConstants";
 import type {
@@ -195,12 +196,29 @@ export function blockDiskBusTypeChangedFromBaseline(
 }
 
 /**
- * 解绑此类总线的磁盘时，可不弹「立即重启 / 手动重启」（SCSI 热解绑常见；iscsi 作拼写兼容）。
- * 其余总线（virtio、sata 等）解绑后仍提示重启。
+ * 解绑后是否跳过「立即重启 / 手动重启」确认：
+ * - Longhorn + SCSI：热卸载后可不弹（与 Harvester 在线 SCSI 行为一致）；
+ * - Ceph + SCSI：仍须提示重启；
+ * - 其余总线（virtio、sata 等）解绑后仍提示重启。
  */
-export function diskDetachSkipsVmRestartPrompt(bus: string): boolean {
+export function diskDetachSkipsVmRestartPrompt(
+  bus: string,
+  storageClassName?: string,
+): boolean {
   const b = String(bus || "").toLowerCase().trim();
-  return b === "scsi" || b === "iscsi";
+  if (b !== "scsi" && b !== "iscsi") return false;
+  const kind = classifyStorageKindFromStorageClassName(
+    String(storageClassName || "").trim(),
+  );
+  return kind !== "ceph";
+}
+
+/** 保存前是否对解绑卷调用 Harvester removeVolume 热卸载（与 {@link diskDetachSkipsVmRestartPrompt} 对齐）。 */
+export function diskDetachUsesHotplugRemoveVolume(
+  bus: string,
+  storageClassName?: string,
+): boolean {
+  return diskDetachSkipsVmRestartPrompt(bus, storageClassName);
 }
 
 export function initDiskSlice(disk: any): VmDiskEditorSlice {

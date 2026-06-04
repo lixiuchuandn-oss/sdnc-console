@@ -334,6 +334,7 @@ export function readVmDetailVolumeDetails(
       let pvcAlias = "";
       let pvcPhase = "";
       let pvcAccessModes = "";
+      let storageClassName = "";
 
       if (claimName && pvcSource && pvcSource.length > 0) {
         const pvc = pvcSource.find((p: any) => {
@@ -359,6 +360,9 @@ export function readVmDetailVolumeDetails(
           pvcAccessModes = Array.isArray(modes)
             ? modes.map((m: any) => String(m ?? "").trim()).filter(Boolean).join("、")
             : "";
+          storageClassName = String(
+            actualPvc?.spec?.storageClassName || pvc?.storageClassName || "",
+          ).trim();
 
           const pvcImageId =
             actualPvc?.metadata?.annotations?.["harvesterhci.io/imageId"];
@@ -394,6 +398,7 @@ export function readVmDetailVolumeDetails(
         alias: pvcAlias,
         pvcPhase,
         pvcAccessModes,
+        storageClassName,
         capacityBytes,
         bootOrder: diskInfo?.bootOrder,
         bus: diskInfo?.disk?.bus || diskInfo?.cdrom?.bus || "-",
