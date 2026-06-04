@@ -753,7 +753,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
     } catch (error: any) {
       csmHttpLog.error('tenants route', errBrief(error));
       const status = Number(error?.status) || 500;
-      res.status(status).json({ message: error?.message || 'CSM 租户查询失败', error: error.message });
+      res
+        .status(status)
+        .json({ message: error?.message || 'CSM 租户查询失败', error: error.message });
     }
   });
 
@@ -776,7 +778,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
     } catch (error: any) {
       csmHttpLog.error('security domains route', errBrief(error));
       const status = Number(error?.status) || 500;
-      res.status(status).json({ message: error?.message || 'CSM 安全域查询失败', error: error.message });
+      res
+        .status(status)
+        .json({ message: error?.message || 'CSM 安全域查询失败', error: error.message });
     }
   });
 

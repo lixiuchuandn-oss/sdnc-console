@@ -3,8 +3,10 @@ import { Alert, Button, Drawer, Flex, Form, Input, InputNumber, Select } from 'a
 import type { MetricRuleTableRow } from '../lib/drsMetricRuleUtils';
 import {
   METRIC_RULE_TYPE_OPTIONS,
+  METRIC_SAFE_THRESHOLD_MIN,
   metricRuleCrToFormValues,
   metricRuleFormValuesToSpec,
+  validateMetricSafeThreshold,
   type MetricRuleFormValues,
 } from '../lib/drsMetricRuleForm';
 
@@ -97,10 +99,26 @@ const MetricRuleConfigDrawer: React.FC<MetricRuleConfigDrawerProps> = ({
         <Form.Item
           name="metricSafeThreshold"
           label="安全阈值（%）"
-          tooltip="节点指标低于该百分比时允许调度"
-          rules={[{ required: true, message: '请输入安全阈值' }]}
+          dependencies={['metricType']}
+          tooltip={`节点指标低于该百分比时允许调度；CPU / 内存阈值不低于 ${METRIC_SAFE_THRESHOLD_MIN}%`}
+          rules={[
+            { required: true, message: '请输入安全阈值' },
+            ({ getFieldValue }) => ({
+              validator: async (_, value) => {
+                const metricType = getFieldValue('metricType') as 'cpu' | 'memory';
+                const err = validateMetricSafeThreshold(metricType, Number(value));
+                if (err) throw new Error(err);
+              },
+            }),
+          ]}
         >
-          <InputNumber min={0} max={100} precision={0} style={{ width: '100%' }} addonAfter="%" />
+          <InputNumber
+            min={METRIC_SAFE_THRESHOLD_MIN}
+            max={100}
+            precision={0}
+            style={{ width: '100%' }}
+            addonAfter="%"
+          />
         </Form.Item>
         <Form.Item
           name="migrateMaxCount"
