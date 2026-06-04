@@ -1,15 +1,17 @@
 ## 3.0 Cloudmap 侧栏功能索引
 
-本表覆盖 **Cloudmap 资源池** 侧栏全部 Tab（以 `cloudmapPoolNavRows.ts` 为准）。**path** 为池内 URL 段（`…/pools/{cloudId}/` 之后）。
+本表覆盖 **Cloudmap 资源池** 侧栏全部 Tab（以 `cloudmapPoolNavRows.ts` 为准）。**path** 为池内 URL 段（`…/admin/clouds/{cloudId}/` 之后）。
+
+**手册章节** 列：优先写 `manifest.txt` 中的文件名；若操作写在合订节内，写为 **`3-14` §3.14.2**（表示 `3-14-监控告警与日志.md` 内的小节）。覆盖状态见 [COVERAGE.md](../../COVERAGE.md)。
 
 | 侧栏分组          | Tab            | path                                    | 手册章节      |
 | ----------------- | -------------- | --------------------------------------- | ------------- |
 | **资源总览**      | 集群总览       | `resource_hub/overview`                 | 3.1.1         |
 |                   | 机房拓扑       | `resource_hub/datacenter_topology`      | 3.1.2         |
 |                   | 网络拓扑       | `resource_hub/network_topology`         | 3.1.2         |
-| **云监控**        | 运维监控       | `monitoring_alerts/alerts-list`         | 3.14.1        |
-|                   | 运维告警       | `monitoring_alerts/ops-alert-dashboard` | 3.14.2        |
-|                   | 接入管理       | `monitoring_alerts/access-management`   | 3.14.3        |
+| **云监控**        | 运维监控       | `monitoring_alerts/alerts-list`         | 3-14 §3.14.1  |
+|                   | 运维告警       | `monitoring_alerts/ops-alert-dashboard` | 3-14 §3.14.2  |
+|                   | 接入管理       | `monitoring_alerts/access-management`   | 3-14 §3.14.3  |
 | **集群·计算资源** | 计算配置       | `cluster/compute_cluster`               | 3.1.3         |
 |                   | 项目管理       | `cluster/compute_projects`              | 3.1.4         |
 |                   | GPU 管理       | `cluster/compute_gpu`                   | 3.1.5、3.2.5  |
@@ -69,9 +71,9 @@
 |                   | 弹性公网 IP    | `kube_ovn/kubeovn_eips`                 | 3.4.4         |
 |                   | SNAT           | `kube_ovn/kubeovn_snat`                 | 3.4.4         |
 |                   | DNAT           | `kube_ovn/kubeovn_dnat`                 | 3.4.4         |
-| **日志管理**      | 日志采集对象   | `logs_config/logs-target`               | 3.14.1        |
-|                   | 日志接收端     | `logs_config/log-outputs`               | 3.14.1        |
-|                   | 日志采集配置   | `logs_config/logs-flow-config`          | 3.14.1        |
+| **日志管理**      | 日志采集对象   | `logs_config/logs-target`               | 3-14-1        |
+|                   | 日志接收端     | `logs_config/log-outputs`               | 3-14-1        |
+|                   | 日志采集配置   | `logs_config/logs-flow-config`          | 3-14-1        |
 
 **创建向导六步**（从 **云主机实例** 进入，无独立 Tab）：3.2.1–3.2.3、3.2.8–3.2.11。
 

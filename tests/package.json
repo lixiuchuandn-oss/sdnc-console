@@ -11,7 +11,9 @@
     "test:images:fixture": "node harvester/images/fixtures/generate-demo-iso.cjs --size=2m",
     "test:images:upload": "node harvester/images/browser-upload.browser.test.cjs",
     "test:images:sync": "node harvester/images/browser-sync.browser.test.cjs",
-    "test:images:upload-sync": "node harvester/images/browser-upload-and-sync.browser.test.cjs"
+    "test:images:upload-sync": "node harvester/images/browser-upload-and-sync.browser.test.cjs",
+    "manual:shots:images": "node harvester/images/capture-manual-screenshots.browser.cjs",
+    "manual:shots:pool": "node manual/capture-ch02-pool.browser.cjs"
   },
   "devDependencies": {
     "playwright": "1.60.0"

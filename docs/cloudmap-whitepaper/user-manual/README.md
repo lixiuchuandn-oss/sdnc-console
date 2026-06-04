@@ -17,6 +17,8 @@
 user-manual/
 ├── README.md                 # 本文件
 ├── writing-style.md          # 手册写作约束
+├── COVERAGE.md               # 白皮书 ↔ 手册覆盖映射
+├── SCREENSHOTS.md            # 截图清单与 Playwright 重跑说明
 ├── source/
 │   ├── manifest.txt          # 合并顺序
 │   ├── 01-阅读指南.md
@@ -24,6 +26,9 @@ user-manual/
 │   ├── assets/               # 手册截图（Pandoc 相对路径引用）
 │   └── ch03/                 # 与白皮书第 3 章对照
 └── output/                   # 生成物（gitignore）
+
+tests/manual/                 # 手册截图脚本（按章扩展）
+tests/shared/manual-screenshot.cjs
 ```
 
 ## 生成 Word
@@ -57,5 +62,15 @@ VARIANT=manual COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
 ## 维护建议
 
 - 界面改版时 **先改手册步骤**，再按需回写白皮书「实现」句。
-- 新功能合入：白皮书写能力，手册写 **入口 + 步骤 + 注意**。
+- 新功能合入：白皮书写能力，手册写 **入口 + 步骤 + 注意**；更新 `COVERAGE.md` 状态。
+- 需要配图时：在 `SCREENSHOTS.md` 登记 → 增加 `tests/manual/capture-*.browser.cjs` → `npm run manual:shots:*`（见 `tests/manual/README.md`）。
 - 写作细则见 `writing-style.md`。
+
+## 完善路线图（摘要）
+
+| 阶段 | 内容 |
+|------|------|
+| 0 | `COVERAGE` / `SCREENSHOTS` / 截图共享库（当前） |
+| 1 | 修 `3-0` 索引、manifest 与白皮书缺口对齐 |
+| 2 | 轮 1 加深：02 接入、3.2 创建向导、3.3 云盘、3.9 备份、`06` FAQ |
+| 3 | 按 `SCREENSHOTS.md` 批量配图 |
