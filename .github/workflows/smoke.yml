@@ -27,7 +27,7 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install dependencies
-        run: npm ci
+        run: bash ../.github/scripts/npm-ci.sh
       - name: Build backend
         run: npx tsc
       - name: Start server and probe health + login

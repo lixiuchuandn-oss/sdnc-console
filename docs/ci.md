@@ -85,6 +85,7 @@ CI=true NODE_OPTIONS=--max-old-space-size=4096 npx react-scripts build
 | 后端 ESLint warning | **`--max-warnings=0`**（与 `npm run lint` 一致）              | 保持为零                                                                     |
 | Prettier            | CI 校验 **`backend/src`** + **`docs/`**                       | `frontend/` 仍靠 lint-staged；全仓前端格式化见 `quality-improvement-plan.md` |
 | E2E / 冒烟          | **`Smoke (API health + auth)`**（health + 登录 + 受保护 API） | UI 级 Playwright（Cloudmap Tab 等）另线补充                                  |
+| `npm ci` 网络抖动   | 仓库根 `.npmrc` 提高 fetch 重试；CI 用 `.github/scripts/npm-ci.sh` 最多 3 次 | 若仍 `ECONNRESET`，在 Actions 里重跑 workflow                                 |
 
 **在 `main` CI 全绿且团队习惯走 PR 之前，不要先开严格的 Required checks**，否则容易全员合不进去。
 
