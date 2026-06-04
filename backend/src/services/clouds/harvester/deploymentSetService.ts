@@ -252,10 +252,9 @@ export async function deleteDeploymentSet(cloudId: string, setId: string): Promi
   const vmCounts = await countVmsBySetId(cloudId);
   const count = vmCounts.get(id) || 0;
   if (count > 0) {
-    throw Object.assign(
-      new Error(`仍有 ${count} 台虚拟机归属该部署集，请先解除关联后再删除`),
-      { status: 409 },
-    );
+    throw Object.assign(new Error(`仍有 ${count} 台虚拟机归属该部署集，请先解除关联后再删除`), {
+      status: 409,
+    });
   }
 
   await AppDataSource.query(`DELETE FROM cloud_deployment_sets WHERE id = ? AND cloudId = ?`, [
