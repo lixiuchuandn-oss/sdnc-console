@@ -16,6 +16,9 @@ export const METRIC_RULE_API_VERSION = 'v1';
 export const METRIC_RULE_KIND = 'MetricRule';
 export const METRIC_RULE_PLURAL = 'metricrules';
 
+/** CPU / 内存类指标的安全阈值下限（%） */
+export const METRIC_SAFE_THRESHOLD_MIN = 50;
+
 const METRIC_RULE_API_GROUPS = [METRIC_RULE_API_GROUP, METRIC_RULE_LEGACY_API_GROUP] as const;
 
 export function metricRuleCrCollectionPath(apiGroup = METRIC_RULE_API_GROUP): string {
@@ -208,8 +211,17 @@ export function buildMetricRuleCrManifest(name: string, specInput: MetricRuleCrS
     throw Object.assign(new Error('metricType 须为 cpu 或 memory'), { status: 400 });
   }
   const threshold = Number(specInput.metricSafeThreshold);
-  if (Number.isNaN(threshold) || threshold < 0 || threshold > 100) {
+  if (Number.isNaN(threshold) || threshold > 100) {
     throw Object.assign(new Error('metricSafeThreshold 须在 0–100 之间'), { status: 400 });
+  }
+  if (
+    (metricType === 'cpu' || metricType === 'memory') &&
+    threshold < METRIC_SAFE_THRESHOLD_MIN
+  ) {
+    throw Object.assign(
+      new Error(`metricSafeThreshold 不能低于 ${METRIC_SAFE_THRESHOLD_MIN}%（CPU / 内存）`),
+      { status: 400 },
+    );
   }
   const migrateConcurrentNum = Number(specInput.migrateConcurrentNum ?? 1);
   const migrateMaxCount = Number(specInput.migrateMaxCount ?? 1);
