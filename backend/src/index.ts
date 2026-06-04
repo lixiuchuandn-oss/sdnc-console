@@ -27,6 +27,12 @@ import { auditLogRoutes } from './routes/auditLogs';
 import { auditMiddleware } from './middleware/audit';
 import { authMiddleware } from './middleware/auth';
 import { resolveStaticPublicRoot } from './utils/resolveStaticPublicRoot';
+import {
+  ensureTowerTempRoot,
+  getImageUploadTempRoot,
+  getTowerGeneralUploadTempRoot,
+  getTowerTempRoot,
+} from './utils/towerTempPaths';
 
 import { initializeAdmin } from './seeders/initAdmin';
 import { initializeRoles } from './seeders/initRoles';
@@ -178,6 +184,16 @@ if (fs.existsSync(staticPath)) {
 } else {
   logger.warn('未找到静态资源目录，已关闭静态托管');
 }
+
+ensureTowerTempRoot();
+logger.info(
+  'Tower 暂存目录:',
+  getTowerTempRoot(),
+  '| 镜像上传:',
+  getImageUploadTempRoot(),
+  '| 通用上传:',
+  getTowerGeneralUploadTempRoot(),
+);
 
 // 工具下载路由（镜像直传上传工具）：
 // - 磁盘默认路径：{cwd}/tools/uploader/ImageUploader.exe；在 backend 目录启动时另尝试 {cwd}/../tools/uploader/ImageUploader.exe
@@ -404,55 +420,63 @@ export function startServer(): void {
         logger.warn('安全域 category 历史数据合并失败:', e);
       }
 
-      // 启动云资源同步任务
-      try {
-        const { CloudSyncService } = await import('./services/CloudSyncService');
-        CloudSyncService.getInstance().startSyncJob();
-      } catch (e) {
-        logger.warn('启动云资源同步任务失败:', e);
-      }
+      // 后台同步（Cloud/VR/Harbor 等）在开发环境默认关闭，避免 SQLite 写锁导致登录挂起；生产或未设置 TOWER_SKIP_BACKGROUND_SYNC 时正常启动
+      const skipBackgroundSync = process.env.TOWER_SKIP_BACKGROUND_SYNC === '1';
+      if (skipBackgroundSync) {
+        logger.info(
+          'TOWER_SKIP_BACKGROUND_SYNC=1，已跳过后台 Cloud/VR/Harbor/回收站/审计同步（本地开发）。需要同步时可 unset 该变量或设 TOWER_BACKGROUND_SYNC_IMMEDIATE=1',
+        );
+      } else {
+        // 启动云资源同步任务
+        try {
+          const { CloudSyncService } = await import('./services/CloudSyncService');
+          CloudSyncService.getInstance().startSyncJob();
+        } catch (e) {
+          logger.warn('启动云资源同步任务失败:', e);
+        }
 
-      // 启动 VR 列表同步任务
-      try {
-        const { VRCacheService } = await import('./services/vrouter/VRCacheService');
-        // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
-        setTimeout(() => {
-          VRCacheService.getInstance().startSyncJob();
-        }, 10000);
-      } catch (e) {
-        logger.warn('启动 VR 列表同步任务失败:', e);
-      }
+        // 启动 VR 列表同步任务
+        try {
+          const { VRCacheService } = await import('./services/vrouter/VRCacheService');
+          // 延迟 10s 启动第一次同步，避免和启动时的数据库操作冲突
+          setTimeout(() => {
+            VRCacheService.getInstance().startSyncJob();
+          }, 10000);
+        } catch (e) {
+          logger.warn('启动 VR 列表同步任务失败:', e);
+        }
 
-      // 启动回收站定时任务
-      try {
-        const { RecycleBinTaskService } =
-          await import('./services/clouds/harvester/RecycleBinTaskService');
-        // 延迟 15s 启动，避免和启动时的数据库操作冲突
-        setTimeout(() => {
-          logger.info('启动回收站定时任务服务');
-          RecycleBinTaskService.getInstance().startTasks();
-        }, 15000);
-      } catch (e) {
-        logger.error('启动回收站定时任务失败:', e);
-      }
+        // 启动回收站定时任务
+        try {
+          const { RecycleBinTaskService } =
+            await import('./services/clouds/harvester/RecycleBinTaskService');
+          // 延迟 15s 启动，避免和启动时的数据库操作冲突
+          setTimeout(() => {
+            logger.info('启动回收站定时任务服务');
+            RecycleBinTaskService.getInstance().startTasks();
+          }, 15000);
+        } catch (e) {
+          logger.error('启动回收站定时任务失败:', e);
+        }
 
-      // 启动审计日志清理任务（每天执行一次）
-      try {
-        const { AuditLogRetentionService } = await import('./services/AuditLogRetentionService');
-        setTimeout(() => {
-          AuditLogRetentionService.getInstance().start();
-        }, 20000);
-      } catch (e) {
-        logger.error('启动审计日志清理任务失败:', e);
-      }
+        // 启动审计日志清理任务（每天执行一次）
+        try {
+          const { AuditLogRetentionService } = await import('./services/AuditLogRetentionService');
+          setTimeout(() => {
+            AuditLogRetentionService.getInstance().start();
+          }, 20000);
+        } catch (e) {
+          logger.error('启动审计日志清理任务失败:', e);
+        }
 
-      // 启动 Harbor 项目同步任务
-      try {
-        const { harborProjectSyncService } =
-          await import('./services/harbor/HarborProjectSyncService');
-        harborProjectSyncService.startSync();
-      } catch (e) {
-        logger.error('启动 Harbor 项目同步任务失败:', e);
+        // 启动 Harbor 项目同步任务
+        try {
+          const { harborProjectSyncService } =
+            await import('./services/harbor/HarborProjectSyncService');
+          harborProjectSyncService.startSync();
+        } catch (e) {
+          logger.error('启动 Harbor 项目同步任务失败:', e);
+        }
       }
 
       // WebSocket 服务实例

@@ -10,6 +10,7 @@ import {
   fetchHarvesterNads,
   fetchHarvesterStorageClasses,
   fetchHarvesterVolume,
+  getHarvesterImagesListItems,
 } from "../../../../../../../../services/harvesterApi";
 import { isSystemStorageClass } from "../../../../../../../../utils/harvesterUtils";
 
@@ -98,12 +99,7 @@ export function useVmAddDataDiskDrawerData(opts: {
   const reloadImages = useCallback(async () => {
     try {
       const res = await fetchHarvesterImages(cloudId);
-      const items = Array.isArray(res?.data?.items)
-        ? res.data.items
-        : Array.isArray(res?.items)
-          ? res.items
-          : [];
-      setImages(items);
+      setImages(getHarvesterImagesListItems(res));
     } catch {
       /* ignore */
     }

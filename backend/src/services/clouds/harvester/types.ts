@@ -6,4 +6,5 @@ export interface HarvesterTestParams {
   endpoint: string;
   token: string;
   insecure?: boolean;
+  config?: { clusterId?: string; harvesterVersion?: string; [key: string]: unknown };
 }

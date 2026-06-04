@@ -5,9 +5,9 @@
  */
 
 import fs from 'fs';
+import crypto from 'crypto';
 import http from 'http';
 import https from 'https';
-import os from 'os';
 import path from 'path';
 import { Readable, Transform } from 'stream';
 import { pipeline } from 'stream/promises';
@@ -25,7 +25,16 @@ import {
 import { HarvesterImageInventory } from '../../../../entities/harvester/HarvesterImageInventory';
 import { ImageUploadTask } from '../../../../entities/harvester/ImageUploadTask';
 import { UserSpace } from '../../../../entities/UserSpace';
-import { syncHarvesterImages } from '../../../../services/clouds/harvester/inventory';
+import { syncHarvesterImages, upsertHarvesterImageInventoryItems } from '../../../../services/clouds/harvester/inventory';
+import {
+  fetchHarvesterVmImageDetailFromCluster,
+  readVmImageVirtualSizeBytes,
+  readVmImageImportProgress,
+  isHarvesterVmImageImportComplete,
+  resolveVmImageVirtualSizeFromCluster,
+  buildHarvesterVmImageDetailUrls,
+  resolveHarvesterClusterApiRoots,
+} from '../../../../services/clouds/harvester/vmImageClusterApi';
 import {
   getPublicScenarioNamespaceNames,
   mergePublicScenarioNamespacesFromQuery,
@@ -37,7 +46,29 @@ import {
   type VmImageStorageProfile,
 } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
-
+import {
+  assertGlobalImageTaskSlot,
+  isGlobalImageUploadBusyError,
+  respondGlobalImageUploadBusy,
+} from './imageUploadGlobalConcurrency';
+import { harvesterNativeStreamUpload } from './harvesterImageStreamUpload';
+import {
+  checkImageUploadDiskSpace,
+  ensureImageUploadTempRoot,
+  getImageUploadTempRoot,
+  imageUploadTaskMergedAbsPath,
+} from '../../../../utils/imageUploadStorage';
+import { isSqliteTransactionError, withSqliteWriteLock } from '../../../../utils/sqliteWriteLock';
+import {
+  deleteImageUploadAbortController,
+  getImageUploadAbortController,
+  getImageUploadInFlightTaskIds,
+  hasImageUploadProxyInFlightForCloud,
+  isUploadTaskTransferInFlight,
+  registerImageUploadProxyEnd,
+  registerImageUploadProxyStart,
+  setImageUploadAbortController,
+} from './imageUploadRuntime';
 // ---------------------------------------------------------------------------
 // 镜像列表：命名空间条件与公共空间（tower.io/scenario=public）
 // ---------------------------------------------------------------------------
@@ -61,30 +92,304 @@ function uniqueNamespaceWhere(
   return out;
 }
 
+function harvesterVmImageImportFailure(detail: unknown): string | null {
+  if (!detail || typeof detail !== 'object') return null;
+  const d = detail as { status?: { conditions?: Array<{ type?: string; status?: string; message?: string; reason?: string }> } };
+  const conds = Array.isArray(d.status?.conditions) ? d.status!.conditions! : [];
+  const imported = conds.find((c) => c?.type === 'Imported');
+  if (imported?.status === 'False') {
+    return String(imported.message || imported.reason || 'Harvester 导入镜像失败');
+  }
+  return null;
+}
+
+function harvesterVmImageImportSucceeded(detail: unknown): boolean {
+  return isHarvesterVmImageImportComplete(detail);
+}
+
+function isInternalTowerDbErrorMessage(msg: unknown): boolean {
+  const lower = String(msg || '').toLowerCase();
+  return (
+    lower.includes('sqlite_error') ||
+    lower.includes('cannot start a transaction') ||
+    lower.includes('cannot commit') ||
+    lower.includes('no transaction is active') ||
+    lower.includes('no such savepoint') ||
+    lower.includes('typeorm')
+  );
+}
+
+function isInternalTowerDbError(e: unknown): boolean {
+  return isInternalTowerDbErrorMessage((e as { message?: string })?.message || e) || isSqliteTransactionError(e);
+}
+
+const reconcileLiveFetchAt = new Map<string, number>();
+const RECONCILE_LIVE_FETCH_MS = 5000;
+
+async function withUploadTaskWriteLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  return withSqliteWriteLock(key, fn);
+}
+
+function harvesterVmImageUploadTerminalFailure(detail: unknown): string | null {
+  if (!detail || typeof detail !== 'object') return null;
+  const d = detail as {
+    status?: {
+      conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }>;
+    };
+  };
+  const imported = (d.status?.conditions || []).find((c) => c?.type === 'Imported');
+  if (imported?.status !== 'False' && imported?.status !== 'false') return null;
+
+  const reason = String(imported?.reason || '').trim();
+  const msg = String(imported?.message || '').trim();
+  const terminalReasons = ['UploadFailed', 'ImportFailed', 'Canceled', 'Cancelled'];
+  if (terminalReasons.includes(reason)) {
+    return msg || reason || 'Harvester 导入镜像失败';
+  }
+  const lower = `${msg} ${reason}`.toLowerCase();
+  if (
+    lower.includes('upload failed') ||
+    lower.includes('context canceled') ||
+    lower.includes('connection refused') ||
+    lower.includes('proxy error') ||
+    lower.includes(' i/o timeout') ||
+    lower.includes('eof')
+  ) {
+    return msg || reason || 'Harvester 导入镜像失败';
+  }
+  return null;
+}
+
+async function fetchVmImageDetailForTaskReconcile(
+  task: ImageUploadTask,
+  cloud: any,
+  invRaw: unknown,
+): Promise<unknown> {
+  const terminalFromInv = harvesterVmImageUploadTerminalFailure(invRaw);
+  if (terminalFromInv) return invRaw;
+  if (harvesterVmImageImportSucceeded(invRaw)) return invRaw;
+  if (!cloud || !task.createdImageName || !task.createdImageNamespace) return invRaw;
+
+  const insecure = !!(cloud.config as any)?.ignoreTls;
+  const fetchLive = async () => {
+    try {
+      return await fetchHarvesterVmImageDetailFromCluster(
+        cloud,
+        task.createdImageNamespace!,
+        task.createdImageName!,
+        insecure,
+      );
+    } catch {
+      return null;
+    }
+  };
+
+  if (task.taskStatus === 'proxying') {
+    const live = await fetchLive();
+    return live || invRaw;
+  }
+
+  const lastFetch = reconcileLiveFetchAt.get(task.id) || 0;
+  if (Date.now() - lastFetch < RECONCILE_LIVE_FETCH_MS) return invRaw;
+  reconcileLiveFetchAt.set(task.id, Date.now());
+  const live = await fetchLive();
+  return live || invRaw;
+}
+
+/** proxying 任务与库存对齐：底座 Imported=False 时回写 failed，避免列表长期显示同步中 */
+async function reconcileUploadTasksWithInventory(
+  tasks: ImageUploadTask[],
+  cloud?: any,
+): Promise<ImageUploadTask[]> {
+  if (!tasks.length) return tasks;
+  const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
+  const taskRepo = AppDataSource.getRepository(ImageUploadTask);
+  const out: ImageUploadTask[] = [];
+  for (const task of tasks) {
+    const needsInventoryReconcile =
+      (task.taskStatus === 'proxying' ||
+        task.taskStatus === 'cancelled' ||
+        (task.taskStatus === 'failed' && isInternalTowerDbErrorMessage(task.errorMessage))) &&
+      task.createdImageName &&
+      task.createdImageNamespace;
+    if (!needsInventoryReconcile) {
+      out.push(task);
+      continue;
+    }
+    try {
+      const inv = await imageRepo.findOne({
+        where: {
+          cloudId: task.cloudId,
+          namespace: task.createdImageNamespace,
+          name: task.createdImageName,
+        },
+      });
+      const detail = await fetchVmImageDetailForTaskReconcile(task, cloud, inv?.rawData);
+      const insecure = !!(cloud?.config as any)?.ignoreTls;
+
+      if (detail && task.taskStatus === 'proxying') {
+        const hp = clampProgress(Number(readVmImageImportProgress(detail) || 0));
+        const prevProxy = clampProgress(Number(task.proxyProgress || 0));
+        if (hp > prevProxy) {
+          task.proxyProgress = hp;
+          task.progress = Math.max(clampProgress(Number(task.progress || 0)), hp);
+          task.updatedAt = new Date();
+          await withUploadTaskWriteLock(`upload-task:${task.id}`, () => taskRepo.save(task));
+        }
+        try {
+          await upsertHarvesterImageInventoryItems(String(task.cloudId), [detail]);
+        } catch {
+          /* 轮询对齐库存进度失败不阻断 */
+        }
+      }
+
+      const inFlight = getImageUploadInFlightTaskIds().has(task.id);
+      const failMsg = inFlight
+        ? harvesterVmImageUploadTerminalFailure(detail)
+        : harvesterVmImageImportFailure(detail);
+      if (failMsg) {
+        if (getImageUploadInFlightTaskIds().has(task.id)) {
+          getImageUploadAbortController(task.id)?.abort();
+        }
+        task.taskStatus = 'failed';
+        task.phase = 'finished';
+        task.errorCode = 'IMPORT_FAILED';
+        task.errorMessage = failMsg;
+        task.finishedAt = new Date();
+        task.updatedAt = new Date();
+        await withUploadTaskWriteLock(`upload-task:${task.id}`, () => taskRepo.save(task));
+      } else if (harvesterVmImageImportSucceeded(detail)) {
+        const imgNs = String(task.createdImageNamespace || '').trim();
+        const imgName = String(task.createdImageName || '').trim();
+        if (cloud && imgNs && imgName) {
+          try {
+            await upsertVmImageDetailToInventory(cloud, '', imgNs, imgName, insecure, detail);
+          } catch {
+            /* 就绪后写 virtualSize 失败不阻断任务终态 */
+          }
+        }
+        task.taskStatus = 'success';
+        task.phase = 'finished';
+        task.errorCode = undefined;
+        task.errorMessage = undefined;
+        task.proxyProgress = 100;
+        task.progress = 100;
+        task.finishedAt = task.finishedAt || new Date();
+        task.updatedAt = new Date();
+        await withUploadTaskWriteLock(`upload-task:${task.id}`, () => taskRepo.save(task));
+      }
+    } catch {
+      /* ignore reconcile errors */
+    }
+    out.push(task);
+  }
+  return out;
+}
+
+function deriveLonghornImageStorageClassFromName(name: string): string | undefined {
+  const n = String(name || '').trim();
+  const m = /^image-([a-z0-9]+)$/i.exec(n);
+  if (m?.[1]) return `longhorn-image-${m[1]}`;
+  return undefined;
+}
+
+function resolveImageStorageClassName(
+  i: HarvesterImageInventory,
+  r: Record<string, any>,
+): string {
+  const name = String(r.metadata?.name || r.name || i.name || '').trim();
+  const ann = (r.metadata?.annotations || {}) as Record<string, string>;
+
+  const statusSc = String(r.status?.storageClassName || '').trim();
+  if (statusSc) return statusSc;
+
+  const derived = deriveLonghornImageStorageClassFromName(name);
+  if (derived) return derived;
+
+  const specSc = String(r.spec?.storageClassName || r.spec?.targetStorageClassName || '').trim();
+  if (specSc && specSc !== 'longhorn') return specSc;
+
+  for (const candidate of [
+    String(r.storageClassName || '').trim(),
+    String(i.storageClassName || '').trim(),
+    String(ann['harvesterhci.io/storageClassName'] || '').trim(),
+  ]) {
+    if (candidate.startsWith('longhorn-image-')) return candidate;
+  }
+
+  if (specSc) return specSc;
+  if (derived) return derived;
+
+  const annSc = String(ann['harvesterhci.io/storageClassName'] || '').trim();
+  const invSc = String(i.storageClassName || r.storageClassName || '').trim();
+  if (invSc && invSc !== 'longhorn') return invSc;
+  if (annSc && annSc !== 'longhorn') return annSc;
+  return annSc || invSc || String(r.storageClassName || '').trim();
+}
+
+function resolveImageInventoryDisplayFields(
+  i: HarvesterImageInventory,
+  r: Record<string, any>,
+): { size: number; virtualSize?: number; storageClassName: string } {
+  const invSizeNum = Number(i.size);
+  const statusSizeRaw = r.status?.size ?? r.status?.downloadedBytes;
+  const statusSizeNum = Number(statusSizeRaw);
+  const topSizeNum = Number(r.size);
+  const size =
+    (Number.isFinite(statusSizeNum) && statusSizeNum > 0 ? statusSizeNum : 0) ||
+    (Number.isFinite(invSizeNum) && invSizeNum > 0 ? invSizeNum : 0) ||
+    (Number.isFinite(topSizeNum) && topSizeNum > 0 ? topSizeNum : 0);
+
+  const virtualSize = readVmImageVirtualSizeBytes(r);
+
+  const storageClassName = resolveImageStorageClassName(i, r);
+  return { size, virtualSize, storageClassName };
+}
+
 function mapImageInventoryToListItem(
   i: HarvesterImageInventory,
   publicScenarioNsSet: Set<string>,
 ): Record<string, unknown> {
-  const r = i.rawData || {};
+  const r = (i.rawData || {}) as Record<string, any>;
   const name = r.metadata?.name || i.name || '';
   const namespace = r.metadata?.namespace || i.namespace || '';
   const displayName = r.spec?.displayName || i.displayName || name;
-  const size = r.status?.size || i.size || 0;
-  const progress = r.status?.progress || i.progress || 0;
-  const conditions = r.status?.conditions || [];
+  const { size, virtualSize, storageClassName } = resolveImageInventoryDisplayFields(i, r);
+  const rawProgress = Number(r.status?.progress);
+  const invProgress = Number(i.progress);
+  const progress =
+    Number.isFinite(invProgress) && invProgress > 0
+      ? invProgress
+      : Number.isFinite(rawProgress) && rawProgress > 0
+        ? rawProgress
+        : invProgress || rawProgress || 0;
+  const conditions = (
+    Array.isArray(r.status?.conditions)
+      ? r.status.conditions
+      : Array.isArray(r.conditions)
+        ? r.conditions
+        : []
+  ) as Array<{ type?: string; status?: string }>;
   const sourceType = r.spec?.sourceType || r.sourceType || '';
+  const clusterProgress = readVmImageImportProgress(r);
+  const effectiveProgress: number =
+    typeof clusterProgress === 'number' &&
+    Number.isFinite(clusterProgress) &&
+    clusterProgress >= 0
+      ? clusterProgress
+      : progress;
   let state = 'Unknown';
-  const imported = conditions.find((c: { type?: string }) => c.type === 'Imported');
-  if (imported?.status === 'True') state = 'Active';
+  const imported = conditions.find((c) => c?.type === 'Imported');
+  if (imported?.status === 'True' || imported?.status === 'true') state = 'Active';
   else if (imported?.status === 'False') state = 'Failed';
-  // progress 为 0 且尚无 Imported 结论时勿标成 Downloading（缓存缺 conditions 时易全员误判）
-  else if (progress > 0 && progress < 100) {
-    // 根据 sourceType 区分不同的状态
+  else if (effectiveProgress > 0 && effectiveProgress < 100) {
     if (sourceType === 'upload') state = 'Uploading';
-    else if (sourceType === 'download') state = 'Importing';
     else if (sourceType === 'export') state = 'Exporting';
+    else if (sourceType === 'download') state = 'Importing';
     else state = 'Downloading';
-  }
+  } else if (effectiveProgress >= 100 && isHarvesterVmImageImportComplete(r)) state = 'Active';
+  else if (sourceType === 'download') state = 'Importing';
+  else if (sourceType === 'upload') state = 'Uploading';
 
   return {
     ...r,
@@ -94,12 +399,52 @@ function mapImageInventoryToListItem(
     namespacePublicByScenario: publicScenarioNsSet.has(namespace),
     displayName,
     size,
+    ...(virtualSize != null ? { virtualSize } : {}),
+    storageClassName,
     progress,
     state,
     sourceType,
     createdAt: r.metadata?.creationTimestamp,
     conditions,
+    status: {
+      ...(r.status && typeof r.status === 'object' && !Array.isArray(r.status) ? r.status : {}),
+      ...(size > 0 ? { size } : {}),
+      ...(virtualSize != null && virtualSize > 0 ? { virtualSize } : {}),
+      ...(storageClassName ? { storageClassName } : {}),
+    },
+    spec: {
+      ...(r.spec && typeof r.spec === 'object' ? r.spec : {}),
+      ...(storageClassName ? { storageClassName } : {}),
+    },
   };
+}
+
+function readVirtualSizeFromVmImage(obj: unknown): number | undefined {
+  return readVmImageVirtualSizeBytes(obj);
+}
+
+/** 镜像在 Harvester 已导入完成时：拉集群详情（含 virtualSize）写入 Tower 库存 */
+async function upsertVmImageDetailToInventory(
+  cloud: { id?: string; secretKey?: string; config?: any; endpoint?: string },
+  _origin: string,
+  namespace: string,
+  name: string,
+  insecure: boolean,
+  detailHint?: unknown,
+): Promise<void> {
+  const cloudId = String(cloud.id || '').trim();
+  if (!cloudId || !namespace || !name) return;
+  const resolved = await resolveVmImageVirtualSizeFromCluster(
+    cloud,
+    namespace,
+    name,
+    insecure,
+    detailHint,
+  );
+  const detail = resolved.detail;
+  if (!detail || !isHarvesterVmImageImportComplete(detail)) return;
+  if (readVmImageVirtualSizeBytes(detail) == null && resolved.virtualSize == null) return;
+  await upsertHarvesterImageInventoryItems(cloudId, [detail]);
 }
 
 /**
@@ -192,7 +537,10 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
 
     const { force, skipSync } = req.query;
     const count = await repo.count({ where: whereCondition });
-    const shouldSync = count === 0 || (String(force) === 'true' && String(skipSync) !== 'true');
+    const proxyBusy = hasImageUploadProxyInFlightForCloud(id);
+    const shouldSync =
+      !proxyBusy &&
+      (count === 0 || (String(force) === 'true' && String(skipSync) !== 'true'));
 
     if (shouldSync) {
       try {
@@ -201,6 +549,10 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
         console.warn('Sync Images failed, falling back to empty/stale', e);
         if (count === 0) throw e;
       }
+    } else if (proxyBusy && String(force) === 'true' && String(skipSync) !== 'true') {
+      console.debug(
+        `[images] skip full inventory sync for cloud ${id}: upload proxy in flight`,
+      );
     }
 
     const items = await repo.find({ where: whereCondition });
@@ -223,46 +575,23 @@ export async function harvesterImageDetailHandler(req: Request, res: Response) {
     const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
-    const base = (cloud.endpoint || '').replace(/\/+$/, '');
-    let origin = base;
-    try {
-      const u = new URL(base);
-      origin = `${u.protocol}//${u.host}`;
-    } catch {
-      origin = base.replace(/\/v[0-9].*$/, '');
-    }
+    const { detail, virtualSize } = await resolveVmImageVirtualSizeFromCluster(
+      cloud,
+      namespace,
+      name,
+      insecure,
+    );
+    if (!detail) return res.status(404).json({ message: '镜像不存在' });
 
-    // 多路径兼容：不同 Harvester/Rancher 版本返回路径不一致
-    const candidates = [
-      `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
-        namespace,
-      )}/virtualmachineimages/${encodeURIComponent(name)}`,
-      `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
-        namespace,
-      )}/virtualmachineimages/${encodeURIComponent(name)}`,
-      `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
-        namespace,
-      )}/virtualmachineimages/${encodeURIComponent(name)}`,
-      `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
-        namespace,
-      )}/virtualmachineimages/${encodeURIComponent(name)}`,
-      `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages/${encodeURIComponent(
-        namespace,
-      )}/${encodeURIComponent(name)}`,
-    ];
-    let json: any = null;
-    let lastErr: any = null;
-    for (const url of candidates) {
+    if (virtualSize != null && isHarvesterVmImageImportComplete(detail)) {
       try {
-        json = await getJsonOnce(url, cloud.secretKey || '', insecure, true);
-        if (json) break;
-      } catch (e: any) {
-        lastErr = e;
+        await upsertHarvesterImageInventoryItems(_id, [detail]);
+      } catch {
+        /* 单条 detail 写库存失败不阻断查询 */
       }
     }
-    if (!json && lastErr) throw lastErr;
 
-    res.json({ message: '查询成功', data: json });
+    res.json({ message: '查询成功', data: detail });
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({ message: '查询镜像详情失败', error: error.message });
@@ -448,7 +777,6 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
     }
   }
 }
-// restart trigger
 
 /**
  * PATCH /:id/resources/harvester/images/:namespace/:name/patch - Patch 镜像
@@ -565,25 +893,239 @@ export async function harvesterImageDeleteHandler(req: Request, res: Response) {
     )}/${encodeURIComponent(name)}`;
     await requestJson('DELETE', url, cloud.secretKey || '', insecure, undefined);
 
-    // 同步删除本地数据库中的镜像记录
     const repo = AppDataSource.getRepository(HarvesterImageInventory);
     await repo.delete({ cloudId: id, namespace, name });
 
     res.json({ message: '删除成功' });
   } catch (error: any) {
     if (res.headersSent) return;
-    res.status(500).json({ message: '删除镜像失败', error: error.message });
+    const status = Number(error?.status);
+    const httpStatus = status >= 400 && status < 600 ? status : 500;
+    const detail = String(error?.message || '').trim();
+    res.status(httpStatus).json({
+      message: detail || '删除镜像失败',
+      error: detail || undefined,
+    });
   }
 }
 
 // Harvester 镜像上传任务：multer 落盘目录、并发去重、取消用 AbortController
-const imageTaskTempRoot = path.join(os.tmpdir(), 'compute-tower', 'image-upload-tasks');
-if (!fs.existsSync(imageTaskTempRoot)) {
-  fs.mkdirSync(imageTaskTempRoot, { recursive: true });
+ensureImageUploadTempRoot();
+const imageTaskUpload = multer({ dest: getImageUploadTempRoot() });
+
+function globalImageTaskSlotOpts(excludeTaskId?: string) {
+  return { excludeTaskId, inFlightTaskIds: getImageUploadInFlightTaskIds() };
 }
-const imageTaskUpload = multer({ dest: imageTaskTempRoot });
-const imageUploadInFlight = new Set<string>();
-const imageUploadAbortControllers = new Map<string, AbortController>();
+
+/** 浏览器分片上传默认片大小 32MiB（大文件创建任务时会按体积分档） */
+export const IMAGE_UPLOAD_DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
+/** 单片上限 64MiB，需与 raw body limit 一致 */
+export const IMAGE_UPLOAD_MAX_CHUNK_SIZE = 64 * 1024 * 1024;
+
+function imageTaskMergedRelPath(taskId: string): string {
+  return `${taskId}.merged`;
+}
+
+function imageTaskMergedAbsPath(task: ImageUploadTask): string {
+  return imageUploadTaskMergedAbsPath(task);
+}
+
+/** 创建任务时预分配 .merged，分片按偏移直写，无需末尾再合并 */
+async function ensureImageUploadMergedPreallocated(task: ImageUploadTask): Promise<string> {
+  const relPath = imageTaskMergedRelPath(task.id);
+  const absPath = path.join(getImageUploadTempRoot(), relPath);
+  await fs.promises.mkdir(path.dirname(absPath), { recursive: true });
+  const size = Math.max(0, Math.floor(Number(task.fileSize) || 0));
+  const fh = await fs.promises.open(absPath, 'w');
+  try {
+    await fh.truncate(size);
+  } finally {
+    await fh.close();
+  }
+  return relPath;
+}
+
+function chunkWriteOffset(
+  chunkSize: number,
+  chunkIndex: number,
+): number {
+  return Math.max(0, Math.floor(chunkSize)) * Math.max(0, Math.floor(chunkIndex));
+}
+
+async function writeChunkToMergedFile(
+  mergedPath: string,
+  offset: number,
+  body: Buffer,
+): Promise<void> {
+  const fh = await fs.promises.open(mergedPath, 'r+');
+  try {
+    await fh.write(body, 0, body.length, offset);
+  } finally {
+    await fh.close();
+  }
+}
+
+function parseReceivedChunkIndices(raw: unknown): number[] {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((x) => Math.floor(Number(x)))
+      .filter((n) => Number.isInteger(n) && n >= 0)
+      .sort((a, b) => a - b);
+  } catch {
+    return [];
+  }
+}
+
+function setReceivedChunkIndices(task: ImageUploadTask, indices: number[]): void {
+  const uniq = [...new Set(indices.filter((n) => Number.isInteger(n) && n >= 0))].sort(
+    (a, b) => a - b,
+  );
+  task.receivedChunksJson = JSON.stringify(uniq);
+}
+
+/** 并行分片上传时串行化 receivedChunksJson 更新，避免读-改-写丢片 */
+const imageUploadChunkLockTails = new Map<string, Promise<void>>();
+
+async function withImageUploadChunkLock<T>(
+  taskId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const prev = imageUploadChunkLockTails.get(taskId) ?? Promise.resolve();
+  const tail = prev.then(() => gate);
+  imageUploadChunkLockTails.set(taskId, tail);
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (imageUploadChunkLockTails.get(taskId) === tail) {
+      imageUploadChunkLockTails.delete(taskId);
+    }
+  }
+}
+
+function reconcileReceivedChunkIndices(task: ImageUploadTask): number[] {
+  return parseReceivedChunkIndices(task.receivedChunksJson);
+}
+
+async function persistChunkReceivedIndices(
+  taskId: string,
+  chunkIndex: number,
+): Promise<ImageUploadTask> {
+  return withImageUploadChunkLock(taskId, async () => {
+    const repo = AppDataSource.getRepository(ImageUploadTask);
+    const fresh = await repo.findOne({ where: { id: taskId } });
+    if (!fresh) throw new Error('任务不存在');
+
+    const totalChunks = Math.max(0, Math.floor(Number(fresh.totalChunks) || 0));
+    const fileSize = Math.max(0, Math.floor(Number(fresh.fileSize) || 0));
+    const cs = Math.max(1, Math.floor(Number(fresh.chunkSize) || IMAGE_UPLOAD_DEFAULT_CHUNK_SIZE));
+    const received = reconcileReceivedChunkIndices(fresh);
+    if (!received.includes(chunkIndex)) received.push(chunkIndex);
+    received.sort((a, b) => a - b);
+    setReceivedChunkIndices(fresh, received);
+
+    fresh.taskStatus = 'ingesting';
+    fresh.phase = 'ingesting';
+    fresh.startedAt = fresh.startedAt || new Date();
+    fresh.errorCode = undefined;
+    fresh.errorMessage = undefined;
+
+    const lastChunkSize = expectedChunkByteSize(fileSize, cs, totalChunks, totalChunks - 1);
+    let bytesDone = 0;
+    for (const idx of received) {
+      bytesDone += idx < totalChunks - 1 ? cs : lastChunkSize;
+    }
+    fresh.bytesUploaded = Math.min(fileSize, bytesDone);
+    fresh.ingestProgress = computeChunkIngestProgress(received.length, totalChunks);
+    fresh.progress = roundIngestProgress(fresh.ingestProgress);
+    return repo.save(fresh);
+  });
+}
+
+function computeTotalChunks(fileSize: number, chunkSize: number): number {
+  const size = Math.max(0, Math.floor(fileSize));
+  const cs = Math.max(1, Math.floor(chunkSize));
+  if (size < 1) return 0;
+  return Math.ceil(size / cs);
+}
+
+/** 某分片 index 应有的字节数（最后一片可能小于 chunkSize） */
+function expectedChunkByteSize(
+  fileSize: number,
+  chunkSize: number,
+  totalChunks: number,
+  chunkIndex: number,
+): number {
+  const cs = Math.max(1, Math.floor(chunkSize));
+  const total = Math.max(0, Math.floor(totalChunks));
+  const idx = Math.floor(chunkIndex);
+  if (idx < 0 || idx >= total) return 0;
+  if (idx < total - 1) return cs;
+  return Math.max(0, Math.floor(fileSize) - cs * Math.max(0, total - 1));
+}
+
+function cleanupImageUploadTaskFiles(task: ImageUploadTask): void {
+  /* 兼容旧版分片目录 */
+  const legacyChunkDir = path.join(getImageUploadTempRoot(), 'chunks', task.id);
+  try {
+    if (fs.existsSync(legacyChunkDir)) fs.rmSync(legacyChunkDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
+  const root = getImageUploadTempRoot();
+  const rel = String(task.localFileRelPath || '').trim();
+  if (rel) {
+    try {
+      const abs = path.join(root, rel);
+      if (fs.existsSync(abs)) fs.unlinkSync(abs);
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const defaultMerged = path.join(root, `${task.id}.merged`);
+    if (fs.existsSync(defaultMerged)) fs.unlinkSync(defaultMerged);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function clearImageUploadTaskLocalFileRelPath(taskId: string): Promise<void> {
+  try {
+    const repo = AppDataSource.getRepository(ImageUploadTask);
+    const task = await repo.findOne({ where: { id: taskId } });
+    if (task?.localFileRelPath) {
+      task.localFileRelPath = undefined;
+      await repo.save(task);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function assertImageUploadTaskAccess(
+  req: Request,
+  cloudId: string,
+  taskId: string,
+): Promise<{ task: ImageUploadTask; isAdmin: boolean } | null> {
+  const user = (req as any)?.user;
+  const userId = String(user?.id || '');
+  const role = String(user?.role || '');
+  const isAdmin = ['super_admin', 'admin'].includes(role);
+  const repo = AppDataSource.getRepository(ImageUploadTask);
+  const task = await repo.findOne({ where: { id: taskId, cloudId } });
+  if (!task) return null;
+  if (!isAdmin && task.createdBy !== userId) return null;
+  return { task, isAdmin };
+}
 
 function isCancelError(e: any): boolean {
   const code = String(e?.code || '');
@@ -593,7 +1135,7 @@ function isCancelError(e: any): boolean {
 }
 
 function abortUploadTask(taskId: string) {
-  const c = imageUploadAbortControllers.get(taskId);
+  const c = getImageUploadAbortController(taskId);
   if (c && !c.signal.aborted) c.abort();
 }
 
@@ -652,7 +1194,29 @@ function clampProgress(v: number): number {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
+/** 分片 ingest 进度（保留两位小数，避免 TB 级文件长期显示 0%） */
+function roundIngestProgress(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(100, Math.round(v * 100) / 100));
+}
+
+function computeChunkIngestProgress(receivedCount: number, totalChunks: number): number {
+  if (totalChunks < 1 || receivedCount < 1) return 0;
+  return roundIngestProgress((receivedCount / totalChunks) * 100);
+}
+
 function formatImageUploadTaskError(e: any): string {
+  if (isInternalTowerDbError(e)) {
+    return 'Tower 同步状态更新失败，请刷新镜像列表后重试';
+  }
+  const code = String(e?.code || '');
+  const msg = String(e?.message || e || '');
+  if (code === 'EPROTO' || /write EPROTO|SSL routines|tlsv1 alert/i.test(msg)) {
+    return '与 Harvester 传输镜像数据时 HTTPS/TLS 连接失败。请确认云环境已开启「忽略 TLS 证书校验」，或检查 Harvester 网关/证书配置后重试';
+  }
+  if (code === 'ECONNRESET' || code === 'EPIPE' || /socket hang up/i.test(msg)) {
+    return '与 Harvester 传输镜像数据时连接被中断，请稍后重试';
+  }
   if (axios.isAxiosError(e) && e.response) {
     const data = e.response.data;
     const detail =
@@ -664,6 +1228,28 @@ function formatImageUploadTaskError(e: any): string {
     return `Harvester API HTTP ${e.status}: ${String(detail).slice(0, 800)}`;
   }
   return String(e?.message || e);
+}
+
+function isRetryableHarvesterStreamUploadError(e: unknown): boolean {
+  const err = e as { code?: string; message?: string };
+  const code = String(err?.code || '');
+  const msg = String(err?.message || '');
+  return (
+    code === 'EPROTO' ||
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    /write EPROTO|socket hang up|SSL routines/i.test(msg)
+  );
+}
+
+async function withHarvesterStreamUploadRetry(run: () => Promise<void>): Promise<void> {
+  try {
+    await run();
+  } catch (first) {
+    if (!isRetryableHarvesterStreamUploadError(first)) throw first;
+    await new Promise((r) => setTimeout(r, 1500));
+    await run();
+  }
 }
 
 /** CDI DataVolume 准入：存储容量至少 1MiB（与 datavolume-validate.cdi.kubevirt.io 一致） */
@@ -748,7 +1334,7 @@ async function ingestOctetStreamToTempFile(
         void updateTaskProgress(taskId, {
           ingestProgress,
           bytesUploaded: received,
-          progress: Math.max(0, Math.min(5, Math.floor(ingestProgress * 0.05))),
+          progress: clampProgress(ingestProgress),
         }).catch(() => {
           /* ignore progress DB noise */
         });
@@ -760,7 +1346,7 @@ async function ingestOctetStreamToTempFile(
   await updateTaskProgress(taskId, {
     ingestProgress: 100,
     bytesUploaded: expectedSize > 0 ? Math.min(received, expectedSize) : received,
-    progress: 5,
+    progress: 100,
   });
 }
 
@@ -827,6 +1413,9 @@ function sanitizeTask(task: ImageUploadTask) {
     imageType: task.imageType,
     filename: task.filename,
     fileSize: task.fileSize,
+    chunkSize: task.chunkSize,
+    totalChunks: task.totalChunks,
+    receivedChunks: parseReceivedChunkIndices(task.receivedChunksJson),
     status: task.taskStatus,
     phase: task.phase,
     progress: task.progress,
@@ -842,6 +1431,8 @@ function sanitizeTask(task: ImageUploadTask) {
     finishedAt: task.finishedAt,
     expiresAt: task.expiresAt,
     retryCount: task.retryCount,
+    createdImageName: task.createdImageName,
+    createdImageNamespace: task.createdImageNamespace,
   };
 }
 
@@ -866,31 +1457,125 @@ function resolveUploadUrl(payload: any): string | null {
   return null;
 }
 
+async function pollHarvesterVmImageUploadUrl(
+  origin: string,
+  cloud: { endpoint?: string; secretKey?: string; config?: any },
+  namespace: string,
+  name: string,
+  insecure: boolean,
+  opts: {
+    created?: any;
+    pollMax: number;
+    taskId: string;
+    abortController: AbortController;
+  },
+): Promise<string | null> {
+  let uploadUrl = resolveUploadUrl(opts.created);
+  if (uploadUrl) return uploadUrl;
+
+  const directDetailCandidates = (() => {
+    const roots = resolveHarvesterClusterApiRoots(cloud.endpoint || '', cloud.config);
+    return [...buildHarvesterVmImageDetailUrls(roots, namespace, name)];
+  })();
+  const selfLink = String(opts.created?.links?.self || '').trim();
+  if (selfLink) {
+    if (/^https?:\/\//i.test(selfLink)) {
+      directDetailCandidates.unshift(selfLink);
+    } else if (selfLink.startsWith('/')) {
+      directDetailCandidates.unshift(`${origin}${selfLink}`);
+    }
+  }
+
+  for (let i = 0; i < opts.pollMax && !uploadUrl; i++) {
+    await throwIfUploadCancelled(opts.taskId, opts.abortController);
+    for (const detailUrl of directDetailCandidates) {
+      try {
+        const detail = await getJsonOnce(detailUrl, cloud.secretKey || '', insecure, true);
+        uploadUrl = resolveUploadUrl(detail);
+        if (uploadUrl) break;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!uploadUrl) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  if (!uploadUrl && name) {
+    uploadUrl = `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages/${encodeURIComponent(
+      namespace,
+    )}/${encodeURIComponent(name)}?action=upload`;
+  }
+  return uploadUrl;
+}
+
+function cleanupImageUploadLocalFile(localPath?: string): void {
+  if (!localPath) return;
+  try {
+    if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function updateTaskProgress(
   taskId: string,
   patch: Partial<ImageUploadTask>,
 ): Promise<ImageUploadTask | null> {
-  const repo = AppDataSource.getRepository(ImageUploadTask);
-  const t = await repo.findOne({ where: { id: taskId } });
-  if (!t) return null;
-  Object.assign(t, patch);
-  t.updatedAt = new Date();
-  const saved = await repo.save(t);
+  return withUploadTaskWriteLock(`upload-task:${taskId}`, async () => {
+    const repo = AppDataSource.getRepository(ImageUploadTask);
+    const t = await repo.findOne({ where: { id: taskId } });
+    if (!t) return null;
+    Object.assign(t, patch);
+    t.updatedAt = new Date();
+    const saved = await repo.save(t);
 
-  // 同步更新镜像库存记录的进度
-  if (patch.progress !== undefined && t.cloudId && t.namespace && t.createdImageName) {
-    try {
-      const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
-      await imageRepo.update(
-        { cloudId: t.cloudId, namespace: t.namespace, name: t.createdImageName },
-        { progress: patch.progress },
-      );
-    } catch (e) {
-      console.warn('Failed to update image inventory progress', e);
+    // 代传中进度由 upload-task overlay 展示，勿高频写库存表（减轻 SQLite 争用）
+    const progressOnly =
+      patch.taskStatus === undefined &&
+      patch.phase === undefined &&
+      (patch.progress !== undefined || patch.proxyProgress !== undefined);
+    if (
+      !progressOnly &&
+      patch.progress !== undefined &&
+      t.cloudId &&
+      t.createdImageNamespace &&
+      t.createdImageName
+    ) {
+      try {
+        const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
+        await imageRepo.update(
+          {
+            cloudId: t.cloudId,
+            namespace: t.createdImageNamespace,
+            name: t.createdImageName,
+          },
+          { progress: saved.progress },
+        );
+      } catch (e) {
+        console.warn('Failed to update image inventory progress', e);
+      }
     }
-  }
 
-  return saved;
+    return saved;
+  });
+}
+
+/** 代传进度写入：SQLite 繁忙时跳过，避免 setInterval 未捕获异常拖垮代传 */
+async function safeUpdateTaskProgress(
+  taskId: string,
+  patch: Partial<ImageUploadTask>,
+): Promise<void> {
+  try {
+    await updateTaskProgress(taskId, patch);
+  } catch (e) {
+    if (isInternalTowerDbError(e)) {
+      console.warn('[image-upload-task] progress save skipped (db busy)', taskId);
+      return;
+    }
+    throw e;
+  }
 }
 
 /** 磁盘文件或 HTTP 请求体 → Harvester 的统一字节源描述 */
@@ -919,15 +1604,12 @@ function createHarvesterPutProgressTransform(
       const n = chunk.length || Buffer.byteLength(chunk);
       sent += n;
       const now = Date.now();
-      if (now - lastUpdateAt > 500) {
+      if (now - lastUpdateAt > 2000) {
         lastUpdateAt = now;
-        const p = total > 0 ? clampProgress((sent / total) * 100) : 0;
         void updateTaskProgress(taskId, {
           bytesUploaded: Math.min(sent, total),
-          proxyProgress: p,
-          progress: clampProgress(1 + Math.floor(p * 0.7)),
         }).catch(() => {
-          /* ignore DB noise during progress */
+          /* ignore DB noise during upload byte tracking */
         });
       }
       callback(null, chunk);
@@ -936,14 +1618,16 @@ function createHarvesterPutProgressTransform(
 }
 
 async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: ImageUploadBodySource) {
-  if (imageUploadInFlight.has(taskId)) return;
-  imageUploadInFlight.add(taskId);
-  const abortController = new AbortController();
-  imageUploadAbortControllers.set(taskId, abortController);
+  if (getImageUploadInFlightTaskIds().has(taskId)) return;
   const repo = AppDataSource.getRepository(ImageUploadTask);
+  const taskForCloud = await repo.findOne({ where: { id: taskId } });
+  const cloudId = String(taskForCloud?.cloudId || cloud?.id || '').trim();
+  registerImageUploadProxyStart(cloudId, taskId);
+  const abortController = new AbortController();
+  setImageUploadAbortController(taskId, abortController);
   let proxyCompleted = false;
   try {
-    const task = await repo.findOne({ where: { id: taskId } });
+    const task = taskForCloud;
     if (!task) return;
     if (task.taskStatus === 'cancelled') return;
 
@@ -1022,86 +1706,92 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     ];
     let created: any = null;
     let createLastErr: any = null;
-    for (const createUrl of createCandidates) {
-      try {
-        created = await requestJson('POST', createUrl, cloud.secretKey || '', insecure, payload);
-        if (created) break;
-      } catch (e: any) {
-        createLastErr = e;
+    const existingName = String(task.createdImageName || '').trim();
+    const existingNs = String(task.createdImageNamespace || task.namespace || '').trim();
+
+    if (existingName && existingNs) {
+      const existingDetail = await fetchHarvesterVmImageDetailFromCluster(
+        cloud,
+        existingNs,
+        existingName,
+        insecure,
+      );
+      if (existingDetail) {
+        if (harvesterVmImageImportSucceeded(existingDetail)) {
+          try {
+            await upsertVmImageDetailToInventory(
+              cloud,
+              origin,
+              existingNs,
+              existingName,
+              insecure,
+              existingDetail,
+            );
+          } catch {
+            /* ignore */
+          }
+          await updateTaskProgress(taskId, {
+            taskStatus: 'success',
+            phase: 'finished',
+            proxyProgress: 100,
+            progress: 100,
+            finishedAt: new Date(),
+          });
+          cleanupImageUploadLocalFile(body.unlinkPath);
+          void clearImageUploadTaskLocalFileRelPath(taskId);
+          void syncHarvesterImages(cloud, insecure, { allowDuringUploadProxy: true }).catch(
+            () => undefined,
+          );
+          return;
+        }
+        if (!harvesterVmImageImportFailure(existingDetail)) {
+          created = existingDetail;
+        } else {
+          task.createdImageName = undefined;
+          task.createdImageNamespace = undefined;
+          await repo.save(task);
+        }
       }
     }
-    if (!created && createLastErr) {
-      throw new Error(formatImageUploadTaskError(createLastErr));
+
+    if (!created) {
+      for (const createUrl of createCandidates) {
+        try {
+          created = await requestJson('POST', createUrl, cloud.secretKey || '', insecure, payload);
+          if (created) break;
+        } catch (e: any) {
+          createLastErr = e;
+        }
+      }
+      if (!created && createLastErr) {
+        throw new Error(formatImageUploadTaskError(createLastErr));
+      }
     }
-    let uploadUrl = resolveUploadUrl(created);
 
-    // 兼容不同 Harvester 版本：创建响应可能没有立即返回 upload URL，需要轮询详情
-    const createdImageName = created?.metadata?.name || '';
-    const createdImageNamespace = created?.metadata?.namespace || task.namespace;
+    const createdImageName = created?.metadata?.name || existingName || '';
+    const createdImageNamespace =
+      created?.metadata?.namespace || existingNs || task.namespace;
 
-    // 保存创建的镜像名称到任务记录，以便后续同步进度
     if (createdImageName) {
       task.createdImageName = createdImageName;
       task.createdImageNamespace = createdImageNamespace;
       await repo.save(task);
-    }
-    if (!uploadUrl) {
-      const imageName = createdImageName;
-      const imageNamespace = created?.metadata?.namespace || task.namespace;
-      const directDetailCandidates: string[] = imageName
-        ? [
-            `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
-              imageNamespace,
-            )}/virtualmachineimages/${encodeURIComponent(imageName)}`,
-            `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
-              imageNamespace,
-            )}/virtualmachineimages/${encodeURIComponent(imageName)}`,
-            `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
-              imageNamespace,
-            )}/virtualmachineimages/${encodeURIComponent(imageName)}`,
-            `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
-              imageNamespace,
-            )}/virtualmachineimages/${encodeURIComponent(imageName)}`,
-            `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages/${encodeURIComponent(
-              imageNamespace,
-            )}/${encodeURIComponent(imageName)}`,
-          ]
-        : [];
-
-      const selfLink = String(created?.links?.self || '').trim();
-      if (selfLink) {
-        if (/^https?:\/\//i.test(selfLink)) {
-          directDetailCandidates.unshift(selfLink);
-        } else if (selfLink.startsWith('/')) {
-          directDetailCandidates.unshift(`${origin}${selfLink}`);
-        }
-      }
-
-      // CDI/Ceph 控制器回填 upload URL 通常慢于 Longhorn backingimage
-      const pollMax = uploadStorageProfile.kind === 'ceph' ? 90 : 20;
-      for (let i = 0; i < pollMax && !uploadUrl; i++) {
-        await throwIfUploadCancelled(taskId, abortController);
-        for (const detailUrl of directDetailCandidates) {
-          try {
-            const detail = await getJsonOnce(detailUrl, cloud.secretKey || '', insecure, true);
-            uploadUrl = resolveUploadUrl(detail);
-            if (uploadUrl) break;
-          } catch {
-            // ignore, try next candidate
-          }
-        }
-        if (!uploadUrl) {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
+      try {
+        await upsertHarvesterImageInventoryItems(String(cloud.id || task.cloudId), [created]);
+      } catch {
+        /* 单条增量入库失败不阻断代传 */
       }
     }
 
-    // 兜底：按 uploader 原理，直接构造 action=upload URL
-    if (!uploadUrl && createdImageName) {
-      uploadUrl = `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages/${encodeURIComponent(
-        createdImageNamespace,
-      )}/${encodeURIComponent(createdImageName)}?action=upload`;
-    }
+    const pollMax = uploadStorageProfile.kind === 'ceph' ? 90 : 20;
+    const uploadUrl = await pollHarvesterVmImageUploadUrl(
+      origin,
+      cloud,
+      createdImageNamespace,
+      createdImageName,
+      insecure,
+      { created, pollMax, taskId, abortController },
+    );
 
     if (!uploadUrl) throw new Error('Harvester 未返回 upload URL');
 
@@ -1119,196 +1809,170 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
     const uploadTarget = /^https?:\/\//i.test(String(uploadUrl || ''))
       ? String(uploadUrl)
       : `${origin}${String(uploadUrl).startsWith('/') ? '' : '/'}${String(uploadUrl)}`;
-    const isHttp = uploadTarget.startsWith('http:');
-    const httpAgent = new http.Agent({ keepAlive: true });
-    const httpsAgent = new https.Agent({ keepAlive: true, rejectUnauthorized: !insecure });
 
     await updateTaskProgress(taskId, {
       taskStatus: 'proxying',
       phase: 'proxying',
-      progress: Math.max(1, task.progress || 1),
+      progress: 0,
       proxyProgress: 0,
     });
 
-    const pollDetailCandidates = [
-      `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
-        createdImageNamespace,
-      )}/virtualmachineimages/${encodeURIComponent(createdImageName)}`,
-      `${origin}/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
-        createdImageNamespace,
-      )}/virtualmachineimages/${encodeURIComponent(createdImageName)}`,
-      `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/namespaces/${encodeURIComponent(
-        createdImageNamespace,
-      )}/virtualmachineimages/${encodeURIComponent(createdImageName)}`,
-      `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1/namespaces/${encodeURIComponent(
-        createdImageNamespace,
-      )}/virtualmachineimages/${encodeURIComponent(createdImageName)}`,
-      `${origin}/v1/harvester/harvesterhci.io.virtualmachineimages/${encodeURIComponent(
-        createdImageNamespace,
-      )}/${encodeURIComponent(createdImageName)}`,
-    ];
+    const pollDetailCandidates = (() => {
+      const roots = resolveHarvesterClusterApiRoots(cloud.endpoint || '', cloud.config);
+      return buildHarvesterVmImageDetailUrls(roots, createdImageNamespace, createdImageName);
+    })();
 
     // action=upload 与 uploader 对齐：使用 multipart/form-data + 字段名 chunk + size 参数
     if (uploadTarget.includes('action=upload')) {
       const finalSize = proxyByteSize;
       const finalTarget = withUploadSizeQuery(uploadTarget, finalSize);
       const padding = Math.max(0, finalSize - total);
-
-      const boundary = `HarvesterBoundary${Date.now()}${Math.random().toString(16).slice(2)}`;
       const filename = uploadBasename;
-      const inboundBody = body.createBodyReadable();
-      bindReadableAbortOnError(inboundBody, abortController);
-      const header = Buffer.from(
-        `--${boundary}\r\n` +
-          `Content-Disposition: form-data; name="chunk"; filename="${filename}"\r\n` +
-          `Content-Type: application/octet-stream\r\n` +
-          `Content-Length: ${finalSize}\r\n` +
-          `\r\n`,
-      );
-      const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
-      const contentLength = header.length + finalSize + footer.length;
-      let sent = 0;
-      let lastUpdateAt = 0;
-      let chunkCount = 0;
-      const fileAndPaddingStream =
-        padding > 0
-          ? Readable.from(
-              (async function* () {
-                for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0)
-                    await throwIfUploadCancelled(taskId, abortController);
-                  const n =
-                    typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
-                  sent += n;
-                  const now = Date.now();
-                  if (now - lastUpdateAt > 500) {
-                    lastUpdateAt = now;
-                    const p = total > 0 ? clampProgress((sent / total) * 100) : 0;
-                    await updateTaskProgress(taskId, {
-                      bytesUploaded: Math.min(sent, total),
-                      proxyProgress: p,
-                      // 代理上传阶段占比 0-70
-                      progress: clampProgress(1 + Math.floor(p * 0.7)),
-                    });
-                  }
-                  yield chunk;
-                }
-                await throwIfUploadCancelled(taskId, abortController);
-                yield Buffer.alloc(padding);
-              })(),
-            )
-          : Readable.from(
-              (async function* () {
-                for await (const chunk of inboundBody as any) {
-                  if (++chunkCount % 32 === 0)
-                    await throwIfUploadCancelled(taskId, abortController);
-                  const n =
-                    typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk?.length || 0;
-                  sent += n;
-                  const now = Date.now();
-                  if (now - lastUpdateAt > 500) {
-                    lastUpdateAt = now;
-                    const p = total > 0 ? clampProgress((sent / total) * 100) : 0;
-                    await updateTaskProgress(taskId, {
-                      bytesUploaded: Math.min(sent, total),
-                      proxyProgress: p,
-                      progress: clampProgress(1 + Math.floor(p * 0.7)),
-                    });
-                  }
-                  yield chunk;
-                }
-              })(),
-            );
-      const fullBody = Readable.from(
-        (async function* () {
-          yield header;
-          for await (const chunk of fileAndPaddingStream as any) {
-            await throwIfUploadCancelled(taskId, abortController);
-            yield chunk;
-          }
-          await throwIfUploadCancelled(taskId, abortController);
-          yield footer;
-        })(),
-      );
 
-      await updateTaskProgress(taskId, {
-        proxyProgress: 30,
-        progress: 30,
-      });
       const followHarvesterProgress = async () => {
-        let detail: any = null;
-        for (const detailUrl of pollDetailCandidates) {
-          try {
-            detail = await getJsonOnce(detailUrl, cloud.secretKey || '', insecure, true);
-            if (detail) break;
-          } catch {
-            // try next
+        try {
+          let detail: any = null;
+          for (const detailUrl of pollDetailCandidates) {
+            try {
+              detail = await getJsonOnce(detailUrl, cloud.secretKey || '', insecure, true);
+              if (detail) break;
+            } catch {
+              // try next
+            }
+          }
+          if (!detail) return;
+          const failMsg = harvesterVmImageUploadTerminalFailure(detail);
+          if (failMsg) {
+            if (!abortController.signal.aborted) abortController.abort();
+            await safeUpdateTaskProgress(taskId, {
+              taskStatus: 'failed',
+              phase: 'finished',
+              errorCode: 'IMPORT_FAILED',
+              errorMessage: failMsg,
+              finishedAt: new Date(),
+            });
+            return;
+          }
+          const hp = clampProgress(Number(detail?.status?.progress || 0));
+          await safeUpdateTaskProgress(taskId, {
+            progress: hp,
+            proxyProgress: hp,
+          });
+        } catch (e) {
+          if (!isInternalTowerDbError(e)) {
+            console.warn('[image-upload-task] followHarvesterProgress error', taskId, e);
           }
         }
-        if (!detail) return;
-        const hp = clampProgress(Number(detail?.status?.progress || 0));
-        const mapped = Math.max(1, Math.min(99, hp));
-        await updateTaskProgress(taskId, { progress: mapped });
       };
-      const harvesterProgressTimer = setInterval(() => {
-        void followHarvesterProgress();
-      }, 2000);
-      try {
-        await axios.post(finalTarget, fullBody, {
-          maxBodyLength: Infinity,
-          timeout: 0,
-          httpAgent: isHttp ? httpAgent : undefined,
-          httpsAgent: !isHttp ? httpsAgent : undefined,
+
+      const runMultipartUploadOnce = async () => {
+        const boundary = `HarvesterBoundary${Date.now()}${Math.random().toString(16).slice(2)}`;
+        const inboundBody = body.createBodyReadable();
+        bindReadableAbortOnError(inboundBody, abortController);
+        const header = Buffer.from(
+          `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="chunk"; filename="${filename}"\r\n` +
+            `Content-Type: application/octet-stream\r\n` +
+            `Content-Length: ${finalSize}\r\n` +
+            `\r\n`,
+        );
+        const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+        const contentLength = header.length + finalSize + footer.length;
+        let sent = 0;
+        let lastUpdateAt = 0;
+        let chunkCount = 0;
+
+        await harvesterNativeStreamUpload({
+          method: 'POST',
+          url: finalTarget,
+          insecure,
           signal: abortController.signal,
           headers: {
             Authorization: `Bearer ${cloud.secretKey || ''}`,
             'Content-Type': `multipart/form-data; boundary=${boundary}`,
             'Content-Length': contentLength,
           },
-          validateStatus: (s) => s >= 200 && s < 300,
+          async pump(write) {
+            await write(header);
+            for await (const chunk of inboundBody as AsyncIterable<Buffer | string>) {
+              if (++chunkCount % 32 === 0) {
+                await throwIfUploadCancelled(taskId, abortController);
+              }
+              const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              sent += buf.length;
+              const now = Date.now();
+              if (now - lastUpdateAt > 2000) {
+                lastUpdateAt = now;
+                await updateTaskProgress(taskId, {
+                  bytesUploaded: Math.min(sent, total),
+                });
+              }
+              await write(buf);
+            }
+            await throwIfUploadCancelled(taskId, abortController);
+            if (padding > 0) await write(Buffer.alloc(padding));
+            await write(footer);
+          },
         });
+      };
+
+      try {
+        const harvesterProgressTimer = setInterval(() => {
+          void followHarvesterProgress();
+        }, 10000);
+        try {
+          await withHarvesterStreamUploadRetry(runMultipartUploadOnce);
+        } finally {
+          clearInterval(harvesterProgressTimer);
+        }
       } catch (uploadErr: any) {
         throw new Error(formatImageUploadTaskError(uploadErr));
-      } finally {
-        clearInterval(harvesterProgressTimer);
       }
       await updateTaskProgress(taskId, {
         bytesUploaded: total,
-        proxyProgress: 100,
-        progress: 90,
       });
     } else {
-      const rawIn = body.createBodyReadable();
-      const progressStream = createHarvesterPutProgressTransform(taskId, total, abortController);
-      const bump = () => destroyReadablePair(rawIn, progressStream);
-      rawIn.on('error', bump);
-      progressStream.on('error', bump);
-      const abortOnSignal = () => bump();
-      abortController.signal.addEventListener('abort', abortOnSignal, { once: true });
-      rawIn.pipe(progressStream);
       if (total < 1) {
         throw new Error(
           '无法确定镜像文件大小，CDI 直传需要有效的 Content-Length（请确认文件已完整落盘）',
         );
       }
-      try {
-        await axios.put(uploadTarget, progressStream, {
-          maxBodyLength: Infinity,
-          timeout: 0,
-          httpAgent: isHttp ? httpAgent : undefined,
-          httpsAgent: !isHttp ? httpsAgent : undefined,
+      const runPutUploadOnce = async () => {
+        const rawIn = body.createBodyReadable();
+        bindReadableAbortOnError(rawIn, abortController);
+        let sent = 0;
+        let lastUpdateAt = 0;
+        await harvesterNativeStreamUpload({
+          method: 'PUT',
+          url: uploadTarget,
+          insecure,
           signal: abortController.signal,
           headers: {
             Authorization: `Bearer ${cloud.secretKey || ''}`,
             'Content-Type': 'application/octet-stream',
             'Content-Length': String(total),
           },
-          validateStatus: (s) => s >= 200 && s < 300,
+          async pump(write) {
+            for await (const chunk of rawIn as AsyncIterable<Buffer | string>) {
+              await throwIfUploadCancelled(taskId, abortController);
+              const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              sent += buf.length;
+              const now = Date.now();
+              if (now - lastUpdateAt > 2000) {
+                lastUpdateAt = now;
+                void updateTaskProgress(taskId, {
+                  bytesUploaded: Math.min(sent, total),
+                }).catch(() => undefined);
+              }
+              await write(buf);
+            }
+          },
         });
+      };
+      try {
+        await withHarvesterStreamUploadRetry(runPutUploadOnce);
       } catch (uploadErr: any) {
         throw new Error(formatImageUploadTaskError(uploadErr));
-      } finally {
-        abortController.signal.removeEventListener('abort', abortOnSignal);
       }
     }
 
@@ -1317,44 +1981,58 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       proxyCompleted = true;
     }
 
-    // 3) 上传动作完成后，继续跟踪 Harvester 导入进度（70-99）
-    await updateTaskProgress(taskId, { phase: 'proxying', progress: 70 });
-    const importDeadline = Date.now() + 30 * 60 * 1000;
+    // 3) 代传完成后，继续轮询集群导入进度直至 Imported
+    const importDeadline =
+      Date.now() +
+      Math.max(
+        30 * 60 * 1000,
+        Math.ceil(total / (50 * 1024 * 1024)) * 10 * 60 * 1000,
+      );
     let imported = false;
     while (Date.now() < importDeadline && !imported) {
       await throwIfUploadCancelled(taskId, abortController);
-      let detail: any = null;
-      for (const detailUrl of pollDetailCandidates) {
-        try {
-          detail = await getJsonOnce(detailUrl, cloud.secretKey || '', insecure, true);
-          if (detail) break;
-        } catch {
-          // try next
-        }
-      }
+      const detail = await fetchHarvesterVmImageDetailFromCluster(
+        cloud,
+        createdImageNamespace,
+        createdImageName,
+        insecure,
+      );
       if (detail) {
         const hp = clampProgress(Number(detail?.status?.progress || 0));
-        const conds = Array.isArray(detail?.status?.conditions) ? detail.status.conditions : [];
-        const importedCond = conds.find((c: any) => c?.type === 'Imported');
-        if (importedCond?.status === 'True' || hp >= 100) {
+        if (isHarvesterVmImageImportComplete(detail)) {
           imported = true;
           break;
         }
-        if (importedCond?.status === 'False') {
-          throw new Error(
-            importedCond?.message || importedCond?.reason || 'Harvester 导入镜像失败',
-          );
+        const terminalFail = harvesterVmImageUploadTerminalFailure(detail);
+        if (terminalFail) {
+          throw new Error(terminalFail);
         }
-        await updateTaskProgress(taskId, {
-          progress: Math.max(70, Math.min(99, 70 + Math.floor(hp * 0.29))),
-        });
+        const repo = AppDataSource.getRepository(ImageUploadTask);
+        const current = await repo.findOne({ where: { id: taskId } });
+        const currentProxy = clampProgress(Number(current?.proxyProgress || 0));
+        const nextProxy = Math.max(currentProxy, hp);
+        if (nextProxy !== currentProxy) {
+          await safeUpdateTaskProgress(taskId, {
+            progress: nextProxy,
+            proxyProgress: nextProxy,
+          });
+        }
       }
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 10000));
     }
     if (!imported) {
       throw new Error('Harvester 导入进度等待超时');
     }
 
+    const imgNs = createdImageNamespace;
+    const imgName = createdImageName;
+    if (imgNs && imgName) {
+      try {
+        await upsertVmImageDetailToInventory(cloud, origin, imgNs, imgName, insecure);
+      } catch {
+        /* 单条 detail 入库失败不阻断 */
+      }
+    }
     await updateTaskProgress(taskId, {
       taskStatus: 'success',
       phase: 'finished',
@@ -1363,6 +2041,11 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       bytesUploaded: total,
       finishedAt: new Date(),
     });
+    void syncHarvesterImages(cloud, !!(cloud.config as any)?.ignoreTls, {
+      allowDuringUploadProxy: true,
+    }).catch(() => undefined);
+    cleanupImageUploadLocalFile(body.unlinkPath);
+    void clearImageUploadTaskLocalFileRelPath(taskId);
   } catch (e: any) {
     if (isCancelError(e)) {
       await updateTaskProgress(taskId, {
@@ -1384,13 +2067,8 @@ async function runImageUploadTaskWithBody(taskId: string, cloud: any, body: Imag
       throw new Error(formatImageUploadTaskError(e));
     }
   } finally {
-    imageUploadInFlight.delete(taskId);
-    imageUploadAbortControllers.delete(taskId);
-    try {
-      if (body.unlinkPath && fs.existsSync(body.unlinkPath)) fs.unlinkSync(body.unlinkPath);
-    } catch {
-      /* ignore unlink errors */
-    }
+    registerImageUploadProxyEnd(cloudId, taskId);
+    deleteImageUploadAbortController(taskId);
   }
 }
 
@@ -1428,6 +2106,8 @@ export async function harvesterImageUploadProxyHandler(req: Request, res: Respon
       const cloud = (req as any).cloud;
       const file = (req as any).file as Express.Multer.File | undefined;
       if (!file) return res.status(400).json({ message: '缺少上传文件，字段名应为 file' });
+
+      await assertGlobalImageTaskSlot(globalImageTaskSlotOpts());
 
       const repo = AppDataSource.getRepository(ImageUploadTask);
       const now = new Date();
@@ -1471,6 +2151,10 @@ export async function harvesterImageUploadProxyHandler(req: Request, res: Respon
       });
     } catch (error: any) {
       if (res.headersSent) return;
+      if (isGlobalImageUploadBusyError(error)) {
+        respondGlobalImageUploadBusy(res, error);
+        return;
+      }
       res.status(500).json({ message: '代理上传失败', error: error.message });
     }
   });
@@ -1585,11 +2269,54 @@ async function saveImageUploadTaskRecord(task: ImageUploadTask): Promise<ImageUp
   }
 }
 
+export async function harvesterImageUploadTaskDiskCheckHandler(req: Request, res: Response) {
+  try {
+    const fileSize = Math.max(0, Math.floor(Number(req.query?.fileSize) || 0));
+    if (fileSize < 1) {
+      return res.status(400).json({ message: '缺少参数：fileSize' });
+    }
+    const chunkSize = Math.max(
+      0,
+      Math.floor(Number(req.query?.chunkSize) || 0),
+    );
+    const result = await checkImageUploadDiskSpace(
+      fileSize,
+      chunkSize > 0 ? chunkSize : undefined,
+    );
+    if (!result.sufficient) {
+      return res.status(507).json({ message: result.message, data: result });
+    }
+    return res.json({ message: result.message, data: result });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({ message: '检查磁盘空间失败', error: error.message });
+  }
+}
+
 export async function harvesterImageUploadTaskCreateHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { namespace, displayName, imageType } = (req.body || {}) as any;
+    const { namespace, displayName, imageType, filename, fileSize, chunkSize } =
+      (req.body || {}) as Record<string, unknown>;
     if (!namespace) return res.status(400).json({ message: '缺少参数：namespace' });
+    const size = Math.max(0, Math.floor(Number(fileSize) || 0));
+    if (size < 1) {
+      return res.status(400).json({ message: '缺少参数：fileSize（分片上传需声明文件大小）' });
+    }
+
+    const cs = Math.max(
+      1024 * 1024,
+      Math.min(
+        IMAGE_UPLOAD_MAX_CHUNK_SIZE,
+        Math.floor(Number(chunkSize) || IMAGE_UPLOAD_DEFAULT_CHUNK_SIZE),
+      ),
+    );
+    const totalChunks = computeTotalChunks(size, cs);
+
+    const diskCheck = await checkImageUploadDiskSpace(size, cs);
+    if (!diskCheck.sufficient) {
+      return res.status(507).json({ message: diskCheck.message, data: diskCheck });
+    }
 
     const userId = String((req as any)?.user?.id || '');
     if (!userId) return res.status(401).json({ message: '未登录或用户无效' });
@@ -1600,6 +2327,7 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
 
     try {
       await ensureImageUploadTaskTable();
+      await ensureImageUploadTaskTableColumns();
     } catch (schemaErr: any) {
       const detail = schemaErr?.message || String(schemaErr);
       console.error('[image-upload-task-create] schema init failed:', detail, schemaErr);
@@ -1609,13 +2337,20 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
       });
     }
 
+    await assertGlobalImageTaskSlot(globalImageTaskSlotOpts());
+
     const now = new Date();
     const expires = new Date(now.getTime() + 30 * 60 * 1000);
     const task = AppDataSource.getRepository(ImageUploadTask).create({
       cloudId: id,
-      namespace,
-      displayName: displayName || undefined,
-      imageType: imageType || undefined,
+      namespace: String(namespace),
+      displayName: displayName ? String(displayName) : undefined,
+      imageType: imageType ? String(imageType) : undefined,
+      filename: filename ? String(filename) : undefined,
+      fileSize: size,
+      chunkSize: cs,
+      totalChunks,
+      receivedChunksJson: '[]',
       taskStatus: 'pending',
       phase: 'pending',
       progress: 0,
@@ -1627,9 +2362,16 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
       retryCount: 0,
     });
     const saved = await saveImageUploadTaskRecord(task);
-    res.json({ message: '创建成功', data: sanitizeTask(saved) });
+    const relPath = await ensureImageUploadMergedPreallocated(saved);
+    saved.localFileRelPath = relPath;
+    const withMerged = await saveImageUploadTaskRecord(saved);
+    res.json({ message: '创建成功', data: sanitizeTask(withMerged) });
   } catch (error: any) {
     if (res.headersSent) return;
+    if (isGlobalImageUploadBusyError(error)) {
+      respondGlobalImageUploadBusy(res, error);
+      return;
+    }
     const detail = error?.message || String(error);
     console.error('[image-upload-task-create]', detail, error);
     res.status(500).json({
@@ -1660,7 +2402,8 @@ export async function harvesterImageUploadTaskGetHandler(req: Request, res: Resp
     if (!task) return res.status(404).json({ message: '任务不存在' });
     if (!isAdmin && task.createdBy !== userId)
       return res.status(403).json({ message: '无权访问该任务' });
-    res.json({ message: '查询成功', data: sanitizeTask(task) });
+    const [reconciled] = await reconcileUploadTasksWithInventory([task], (req as any).cloud);
+    res.json({ message: '查询成功', data: sanitizeTask(reconciled) });
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({ message: '查询任务失败', error: error.message });
@@ -1685,11 +2428,28 @@ export async function harvesterImageUploadTaskListHandler(req: Request, res: Res
       order: { createdAt: 'DESC' },
       take: limit,
     });
-    res.json({ message: '查询成功', data: { items: tasks.map(sanitizeTask) } });
+    const reconciled = await reconcileUploadTasksWithInventory(tasks, (req as any).cloud);
+    res.json({ message: '查询成功', data: { items: reconciled.map(sanitizeTask) } });
   } catch (error: any) {
     if (res.headersSent) return;
     res.status(500).json({ message: '查询任务列表失败', error: error.message });
   }
+}
+
+function releaseStaleUploadTaskInFlight(task: ImageUploadTask): void {
+  if (!isUploadTaskTransferInFlight(task.id)) return;
+  const st = String(task.taskStatus || '').toLowerCase();
+  if (['success', 'failed', 'cancelled'].includes(st)) {
+    registerImageUploadProxyEnd(task.cloudId, task.id);
+  }
+}
+
+function isUploadTaskDeleteBlockedByRuntime(task: ImageUploadTask): boolean {
+  releaseStaleUploadTaskInFlight(task);
+  if (isUploadTaskTransferInFlight(task.id)) return true;
+  const st = String(task.taskStatus || '').toLowerCase();
+  // 仅阻止本地分片仍可能写入中的状态；proxying/uploaded 无 in-flight 视为 stale，允许删记录
+  return st === 'pending' || st === 'ingesting';
 }
 
 /**
@@ -1703,26 +2463,29 @@ export async function harvesterImageUploadTaskDeleteHandler(req: Request, res: R
     const role = String(user?.role || '');
     const isAdmin = ['super_admin', 'admin'].includes(role);
     const repo = AppDataSource.getRepository(ImageUploadTask);
-    const task = await repo.findOne({ where: { id: taskId, cloudId: id } });
+    let task = await repo.findOne({ where: { id: taskId, cloudId: id } });
     if (!task) return res.status(404).json({ message: '任务不存在' });
     if (!isAdmin && task.createdBy !== userId)
       return res.status(403).json({ message: '无权删除该任务' });
-    if (
-      ['pending', 'ingesting', 'proxying'].includes(task.taskStatus) ||
-      imageUploadInFlight.has(task.id)
-    ) {
+
+    const [reconciled] = await reconcileUploadTasksWithInventory([task], (req as any).cloud);
+    task = reconciled;
+
+    if (isUploadTaskDeleteBlockedByRuntime(task)) {
       return res.status(409).json({ message: '任务正在执行，暂不允许删除' });
     }
+    cleanupImageUploadTaskFiles(task);
     await repo.delete({ id: task.id });
     return res.json({ message: '删除成功' });
   } catch (error: any) {
     if (res.headersSent) return;
-    return res.status(500).json({ message: '删除任务失败', error: error.message });
+    return res.status(500).json({ message: '删除任务记录失败', error: error.message });
   }
 }
 
 /**
  * POST /:id/resources/harvester/images/upload-tasks/:taskId/cancel - 取消上传任务
+ * 硬取消：删除已传分片与临时文件，不可断点续传。
  */
 export async function harvesterImageUploadTaskCancelHandler(req: Request, res: Response) {
   try {
@@ -1736,20 +2499,304 @@ export async function harvesterImageUploadTaskCancelHandler(req: Request, res: R
     if (!task) return res.status(404).json({ message: '任务不存在' });
     if (!isAdmin && task.createdBy !== userId)
       return res.status(403).json({ message: '无权操作该任务' });
-    if (!['pending', 'ingesting', 'proxying', 'failed'].includes(task.taskStatus)) {
+    if (!['pending', 'ingesting', 'uploaded', 'proxying', 'failed'].includes(task.taskStatus)) {
       return res.status(409).json({ message: '任务当前状态不允许取消' });
     }
+    abortUploadTask(task.id);
+
+    cleanupImageUploadTaskFiles(task);
     task.taskStatus = 'cancelled';
     task.phase = 'finished';
     task.finishedAt = new Date();
     task.errorCode = undefined;
     task.errorMessage = undefined;
+    task.receivedChunksJson = '[]';
+    task.ingestProgress = 0;
+    task.progress = 0;
+    task.bytesUploaded = 0;
+    task.localFileRelPath = undefined;
     await repo.save(task);
-    abortUploadTask(task.id);
     return res.json({ message: '取消成功', data: sanitizeTask(task) });
   } catch (error: any) {
     if (res.headersSent) return;
     return res.status(500).json({ message: '取消任务失败', error: error.message });
+  }
+}
+
+/**
+ * GET /:id/resources/harvester/images/upload-tasks/:taskId/chunks
+ * 返回已收到的分片 index 列表（用于断点续传）
+ */
+export async function harvesterImageUploadTaskChunksListHandler(req: Request, res: Response) {
+  try {
+    const { id, taskId } = req.params;
+    const access = await assertImageUploadTaskAccess(req, id, taskId);
+    if (!access) return res.status(404).json({ message: '任务不存在或无权访问' });
+    const { task } = access;
+    res.json({
+      message: '查询成功',
+      data: {
+        taskId: task.id,
+        totalChunks: task.totalChunks,
+        chunkSize: task.chunkSize,
+        fileSize: task.fileSize,
+        receivedChunks: reconcileReceivedChunkIndices(task),
+      },
+    });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({ message: '查询分片状态失败', error: error.message });
+  }
+}
+
+/**
+ * PUT /:id/resources/harvester/images/upload-tasks/:taskId/chunks/:index
+ * 上传单个分片（body 为 application/octet-stream），仅校验分片字节数。
+ */
+export async function harvesterImageUploadTaskChunkPutHandler(req: Request, res: Response) {
+  try {
+    const { id, taskId, index: indexRaw } = req.params;
+    const access = await assertImageUploadTaskAccess(req, id, taskId);
+    if (!access) return res.status(404).json({ message: '任务不存在或无权访问' });
+    const { task } = access;
+
+    const chunkIndex = Math.floor(Number(indexRaw));
+    const totalChunks = Math.max(0, Math.floor(Number(task.totalChunks) || 0));
+    if (!Number.isInteger(chunkIndex) || chunkIndex < 0 || chunkIndex >= totalChunks) {
+      return res.status(400).json({ message: '无效的分片 index' });
+    }
+    if (task.taskStatus === 'cancelled') {
+      return res.status(409).json({ message: '任务已取消，无法继续上传分片' });
+    } else if (!['pending', 'ingesting', 'failed'].includes(task.taskStatus)) {
+      return res.status(409).json({ message: '任务当前状态不允许上传分片' });
+    }
+
+    await assertGlobalImageTaskSlot(globalImageTaskSlotOpts(task.id));
+
+    const fileSize = Math.max(0, Math.floor(Number(task.fileSize) || 0));
+    const cs = Math.max(1, Math.floor(Number(task.chunkSize) || IMAGE_UPLOAD_DEFAULT_CHUNK_SIZE));
+    const expectedBytes = expectedChunkByteSize(fileSize, cs, totalChunks, chunkIndex);
+
+    let mergedPath = imageTaskMergedAbsPath(task);
+    if (!fs.existsSync(mergedPath)) {
+      const relPath = await ensureImageUploadMergedPreallocated(task);
+      task.localFileRelPath = relPath;
+      const repo = AppDataSource.getRepository(ImageUploadTask);
+      await repo.save(task);
+      mergedPath = imageTaskMergedAbsPath(task);
+    }
+
+    const receivedBefore = reconcileReceivedChunkIndices(task);
+    if (receivedBefore.includes(chunkIndex)) {
+      const saved = await persistChunkReceivedIndices(task.id, chunkIndex);
+      return res.json({
+        message: '分片已存在',
+        data: sanitizeTask(saved),
+      });
+    }
+
+    const chunks: Buffer[] = [];
+    let byteLen = 0;
+    if (Buffer.isBuffer(req.body)) {
+      byteLen = req.body.length;
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        req.on('data', (buf) => {
+          const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+          byteLen += b.length;
+          chunks.push(b);
+        });
+        req.on('end', () => resolve());
+        req.on('error', reject);
+      });
+    }
+    const body = Buffer.isBuffer(req.body) ? req.body : Buffer.concat(chunks, byteLen);
+
+    if (expectedBytes > 0 && body.length !== expectedBytes) {
+      return res.status(400).json({
+        message: '分片大小与声明不符',
+        error: `分片 ${chunkIndex} 期望 ${expectedBytes} 字节，实际 ${body.length} 字节`,
+      });
+    }
+
+    const offset = chunkWriteOffset(cs, chunkIndex);
+    await writeChunkToMergedFile(mergedPath, offset, body);
+
+    const saved = await persistChunkReceivedIndices(task.id, chunkIndex);
+
+    res.json({ message: '分片上传成功', data: sanitizeTask(saved) });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    if (isGlobalImageUploadBusyError(error)) {
+      respondGlobalImageUploadBusy(res, error);
+      return;
+    }
+    res.status(500).json({ message: '分片上传失败', error: error.message });
+  }
+}
+
+/**
+ * POST /:id/resources/harvester/images/upload-tasks/:taskId/complete-chunks
+ * 校验分片齐全与 .merged 文件大小（分片已按偏移直写，无需再合并）
+ */
+export async function harvesterImageUploadTaskCompleteChunksHandler(req: Request, res: Response) {
+  try {
+    const { id, taskId } = req.params;
+    const access = await assertImageUploadTaskAccess(req, id, taskId);
+    if (!access) return res.status(404).json({ message: '任务不存在或无权访问' });
+    const { task } = access;
+
+    if (task.taskStatus === 'cancelled') {
+      return res.status(409).json({ message: '任务已取消，无法完成合并' });
+    }
+
+    const totalChunks = Math.max(0, Math.floor(Number(task.totalChunks) || 0));
+    let received = reconcileReceivedChunkIndices(task);
+    if (received.length !== totalChunks) {
+      return res.status(409).json({
+        message: '分片未收齐，无法合并',
+        data: {
+          received: received.length,
+          totalChunks,
+          missing: Array.from({ length: totalChunks }, (_, i) => i).filter(
+            (i) => !received.includes(i),
+          ),
+        },
+      });
+    }
+    for (let i = 0; i < totalChunks; i++) {
+      if (!received.includes(i)) {
+        return res.status(409).json({ message: `缺少分片 ${i}` });
+      }
+    }
+
+    const jsonOnly = parseReceivedChunkIndices(task.receivedChunksJson);
+    if (jsonOnly.length !== received.length) {
+      setReceivedChunkIndices(task, received);
+      await AppDataSource.getRepository(ImageUploadTask).save(task);
+    }
+
+    const relPath =
+      String(task.localFileRelPath || '').trim() || imageTaskMergedRelPath(task.id);
+    const destPath = path.join(getImageUploadTempRoot(), relPath);
+    if (!fs.existsSync(destPath)) {
+      return res.status(409).json({ message: '镜像文件尚未就绪，请继续上传分片' });
+    }
+
+    const stat = fs.statSync(destPath);
+    const mergedSize = Math.max(0, Math.floor(Number(stat.size) || 0));
+    const expectedSize = Math.max(0, Math.floor(Number(task.fileSize) || 0));
+    if (expectedSize < 1) {
+      try {
+        fs.unlinkSync(destPath);
+      } catch {
+        /* ignore */
+      }
+      return res.status(400).json({ message: '任务缺少 fileSize，无法校验文件' });
+    }
+    if (mergedSize !== expectedSize) {
+      try {
+        fs.unlinkSync(destPath);
+      } catch {
+        /* ignore */
+      }
+      return res.status(400).json({
+        message: '文件大小与上传前不一致',
+        error: `期望 ${expectedSize} 字节，实际 ${mergedSize} 字节`,
+        code: 'FILE_SIZE_MISMATCH',
+      });
+    }
+
+    try {
+      const legacyChunkDir = path.join(getImageUploadTempRoot(), 'chunks', task.id);
+      if (fs.existsSync(legacyChunkDir)) {
+        fs.rmSync(legacyChunkDir, { recursive: true, force: true });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const repo = AppDataSource.getRepository(ImageUploadTask);
+    task.localFileRelPath = relPath;
+    task.taskStatus = 'uploaded';
+    task.phase = 'uploaded';
+    task.ingestProgress = 100;
+    task.progress = 100;
+    task.bytesUploaded = mergedSize;
+    task.errorCode = undefined;
+    task.errorMessage = undefined;
+    await repo.save(task);
+
+    res.json({ message: '文件已就绪，等待同步至 Harvester', data: sanitizeTask(task) });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    res.status(500).json({ message: '合并分片失败', error: error.message });
+  }
+}
+
+/**
+ * POST /:id/resources/harvester/images/upload-tasks/:taskId/sync
+ * 将已合并的本地文件同步（代传）至 Harvester
+ */
+export async function harvesterImageUploadTaskSyncHandler(req: Request, res: Response) {
+  try {
+    const { id, taskId } = req.params;
+    const access = await assertImageUploadTaskAccess(req, id, taskId);
+    if (!access) return res.status(404).json({ message: '任务不存在或无权访问' });
+    const { task } = access;
+    const cloud = (req as any).cloud;
+
+    if (!['uploaded', 'failed'].includes(task.taskStatus)) {
+      return res.status(409).json({
+        message:
+          task.taskStatus === 'proxying'
+            ? '同步已在进行中'
+            : '任务当前状态不允许同步（需为待同步或同步失败）',
+      });
+    }
+    if (getImageUploadInFlightTaskIds().has(task.id)) {
+      return res.status(409).json({ message: '同步已在进行中' });
+    }
+
+    await assertGlobalImageTaskSlot(globalImageTaskSlotOpts(task.id));
+
+    const absPath = imageTaskMergedAbsPath(task);
+    if (!fs.existsSync(absPath)) {
+      return res.status(400).json({
+        message:
+          task.taskStatus === 'failed'
+            ? '本地暂存文件已清理，请删除任务后重新上传'
+            : '合并文件不存在，请重新上传',
+      });
+    }
+
+    const repo = AppDataSource.getRepository(ImageUploadTask);
+    task.taskStatus = 'proxying';
+    task.phase = 'proxying';
+    task.progress = 0;
+    task.proxyProgress = 0;
+    task.startedAt = task.startedAt || new Date();
+    task.errorCode = undefined;
+    task.errorMessage = undefined;
+    task.finishedAt = undefined;
+    task.retryCount = (task.retryCount || 0) + 1;
+    await repo.save(task);
+
+    void runImageUploadTask(task.id, cloud, absPath).catch((err) => {
+      console.warn('[image-upload-task-sync]', task.id, err?.message || err);
+    });
+
+    res.status(202).json({
+      message: '已开始同步至 Harvester',
+      data: sanitizeTask(task),
+    });
+  } catch (error: any) {
+    if (res.headersSent) return;
+    if (isGlobalImageUploadBusyError(error)) {
+      respondGlobalImageUploadBusy(res, error);
+      return;
+    }
+    res.status(500).json({ message: '启动同步失败', error: error.message });
   }
 }
 
@@ -1803,6 +2850,8 @@ async function handleHarvesterImageUploadTaskOctetStream(
     return;
   }
 
+  await assertGlobalImageTaskSlot(globalImageTaskSlotOpts(task.id));
+
   task.filename = filename;
   if (fileSize > 0) task.fileSize = fileSize;
   task.taskStatus = 'ingesting';
@@ -1815,7 +2864,7 @@ async function handleHarvesterImageUploadTaskOctetStream(
   task.errorMessage = undefined;
   await repo.save(task);
 
-  const tempPath = path.join(imageTaskTempRoot, `${task.id}-${Date.now()}`);
+  const tempPath = path.join(getImageUploadTempRoot(), `${task.id}-${Date.now()}`);
   const ingestAbort = new AbortController();
   try {
     await ingestOctetStreamToTempFile(req, tempPath, fileSize, task.id, ingestAbort);
@@ -1832,7 +2881,7 @@ async function handleHarvesterImageUploadTaskOctetStream(
   const writtenSize = fs.statSync(tempPath).size || 0;
   task.fileSize = writtenSize;
   task.ingestProgress = 100;
-  task.progress = 5;
+  task.progress = 100;
   await repo.save(task);
 
   void runImageUploadTask(task.id, cloud, tempPath).catch((err) => {
@@ -1860,6 +2909,10 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
       await handleHarvesterImageUploadTaskOctetStream(req, res);
     } catch (e: any) {
       if (!res.headersSent) {
+        if (isGlobalImageUploadBusyError(e)) {
+          respondGlobalImageUploadBusy(res, e);
+          return;
+        }
         if (isCancelError(e)) return;
         res.status(500).json({
           message: '上传镜像文件失败',
@@ -1895,6 +2948,8 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
         return res.status(409).json({ message: '任务当前状态不允许上传文件' });
       }
 
+      await assertGlobalImageTaskSlot(globalImageTaskSlotOpts(task.id));
+
       task.filename = file.originalname;
       task.fileSize = file.size;
       task.taskStatus = 'ingesting';
@@ -1918,6 +2973,10 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
       });
     } catch (error: any) {
       if (res.headersSent) return;
+      if (isGlobalImageUploadBusyError(error)) {
+        respondGlobalImageUploadBusy(res, error);
+        return;
+      }
       res.status(500).json({ message: '提交上传任务失败', error: error.message });
     }
   });

@@ -10,6 +10,7 @@ import {
 export type ImageUploadTaskStatus =
   | 'pending'
   | 'ingesting'
+  | 'uploaded'
   | 'proxying'
   | 'success'
   | 'failed'
@@ -41,6 +42,23 @@ export class ImageUploadTask {
   @Column({ type: 'integer', nullable: true })
   fileSize?: number;
 
+  /** 本地 qcow2 解析或集群 detail 得到的虚拟容量（字节），供列表即时展示 */
+  @Column({ type: 'integer', nullable: true })
+
+  @Column({ type: 'integer', nullable: true })
+  chunkSize?: number;
+
+  @Column({ type: 'integer', nullable: true })
+  totalChunks?: number;
+
+  /** JSON 数组：已收到的分片 index 列表 */
+  @Column({ type: 'text', nullable: true })
+  receivedChunksJson?: string;
+
+  /** 相对 imageTaskTempRoot 的合并文件路径 */
+  @Column({ type: 'text', nullable: true })
+  localFileRelPath?: string;
+
   @Column({ type: 'text', nullable: true })
   createdImageName?: string;
 
@@ -51,7 +69,7 @@ export class ImageUploadTask {
   taskStatus!: ImageUploadTaskStatus;
 
   @Column({ type: 'text', default: 'pending' })
-  phase!: 'pending' | 'ingesting' | 'proxying' | 'finished';
+  phase!: 'pending' | 'ingesting' | 'uploaded' | 'proxying' | 'finished';
 
   @Column({ type: 'integer', default: 0 })
   progress!: number;

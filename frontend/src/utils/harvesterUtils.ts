@@ -466,20 +466,46 @@ function getVmImageConditionsList(r: any): any[] {
   return [];
 }
 
-export function resolveVmImageListStateKey(r: any): string {
-  if (typeof r?.state === 'string' && r.state.trim() !== '') {
-    const mapped = mapVmImageListStateRaw(r.state);
-    if (mapped !== 'unknown') return mapped;
+function isVmImageImportCompleteForPicker(r: any): boolean {
+  const conditions = getVmImageConditionsList(r);
+  const imported = conditions.find((c: any) => c?.type === 'Imported');
+  if (vmImageConditionStatusIsTrue(imported?.status)) return true;
+  if (vmImageConditionStatusIsFalse(imported?.status)) return false;
+  const statusP = Number(r?.status?.progress);
+  const progress = Number.isFinite(statusP) ? statusP : Number(r?.progress);
+  if (Number.isFinite(progress) && progress < 100) return false;
+  if (Number.isFinite(progress) && progress >= 100) {
+    const size = Number(r?.status?.size ?? r?.size);
+    return size > 0;
   }
+  return false;
+}
+
+export function resolveVmImageListStateKey(r: any): string {
   const conditions = getVmImageConditionsList(r);
   const imported = conditions.find((c: any) => c?.type === 'Imported');
   if (vmImageConditionStatusIsTrue(imported?.status)) return 'ready';
   if (vmImageConditionStatusIsFalse(imported?.status)) return 'failed';
 
-  const progress = Number(r?.status?.progress ?? r?.progress);
-  if (Number.isFinite(progress)) {
-    if (progress >= 100) return 'ready';
-    if (progress > 0 && progress < 100) return 'downloading';
+  const statusP = Number(r?.status?.progress);
+  const progress = Number.isFinite(statusP) ? statusP : Number(r?.progress);
+  if (Number.isFinite(progress) && progress < 100) {
+    const sourceType = String(r?.sourceType || r?.spec?.sourceType || '').toLowerCase();
+    if (sourceType === 'upload') return 'uploading';
+    if (sourceType === 'download') return 'importing';
+    return 'downloading';
+  }
+
+  if (typeof r?.state === 'string' && r.state.trim() !== '') {
+    const mapped = mapVmImageListStateRaw(r.state);
+    if (mapped === 'ready' && !isVmImageImportCompleteForPicker(r)) {
+      return 'unknown';
+    }
+    if (mapped !== 'unknown') return mapped;
+  }
+
+  if (Number.isFinite(progress) && progress >= 100 && isVmImageImportCompleteForPicker(r)) {
+    return 'ready';
   }
 
   if (typeof r?.status === 'string' && r.status.trim() !== '') return mapVmImageListStateRaw(r.status);
@@ -614,9 +640,8 @@ export function findVmsReferencingHarvesterImage(
     const k = `${vmNs}/${vmName}`;
     if (seen.has(k)) return;
     seen.add(k);
-    const alias = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    const label = alias ? `${alias}（${vmNs}/${vmName}）` : `${vmNs}/${vmName}`;
-    out.push({ ns: vmNs, name: vmName, label });
+    const displayName = harvesterVmUserFacingName(vm) || vmName;
+    out.push({ ns: vmNs, name: vmName, label: displayName });
   };
 
   for (const vm of vms) {
@@ -636,6 +661,88 @@ export function findVmsReferencingHarvesterImage(
     }
   }
   return out;
+}
+
+/** Harvester 数据卷名常见格式：{vmName}-disk-{suffix} / {vmName}-disk-0-{suffix} */
+export function guessVmNameFromHarvesterVolumeName(volumeName: string): string | null {
+  const v = String(volumeName || '').trim();
+  if (!v) return null;
+  const disk = v.match(/^(.+?)-disk-(?:\d+-)?[a-z0-9-]+$/i);
+  if (disk?.[1]) return disk[1];
+  const vol = v.match(/^(.+?)-volume-[a-z0-9-]+$/i);
+  if (vol?.[1]) return vol[1];
+  return null;
+}
+
+export function harvesterVmUserFacingName(vm: any): string {
+  const alias = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+  if (alias) return alias;
+  return String(vm?.metadata?.name || vm?.name || '').trim();
+}
+
+function harvesterVmDisplayLabel(vm: any): { ns: string; name: string; label: string; displayName: string } {
+  const vmNs = String(vm?.metadata?.namespace || vm?.namespace || '').trim();
+  const vmName = String(vm?.metadata?.name || vm?.name || '').trim();
+  const displayName = harvesterVmUserFacingName(vm);
+  const label = displayName !== vmName ? displayName : `${vmNs}/${vmName}`;
+  return { ns: vmNs, name: vmName, label, displayName: displayName || vmName };
+}
+
+/** 根据 PVC/卷名反查关联虚拟机（用于镜像删除失败提示） */
+export function findVmByVolumeClaimName(
+  volumeNamespace: string,
+  volumeName: string,
+  vms: any[],
+): { ns: string; name: string; label: string; displayName: string } | null {
+  const volName = String(volumeName || '').trim();
+  if (!volName || !Array.isArray(vms)) return null;
+  const volNs = String(volumeNamespace || '').trim();
+
+  for (const vm of vms) {
+    const { ns: vmNs, name: vmName } = harvesterVmDisplayLabel(vm);
+    if (!vmName) continue;
+    if (volNs && vmNs && volNs !== vmNs) continue;
+
+    const vols = vm?.spec?.template?.spec?.volumes || vm?.spec?.volumes || [];
+    for (const vol of vols) {
+      const claim = vol?.persistentVolumeClaim?.claimName;
+      if (claim && String(claim) === volName) {
+        return harvesterVmDisplayLabel(vm);
+      }
+    }
+
+    const vctRaw = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+    if (vctRaw) {
+      try {
+        const vct = JSON.parse(String(vctRaw));
+        if (Array.isArray(vct)) {
+          for (const t of vct) {
+            const tName = String(t?.metadata?.name || '').trim();
+            if (tName && (volName === tName || volName.startsWith(`${tName}-`))) {
+              return harvesterVmDisplayLabel(vm);
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const guessed = guessVmNameFromHarvesterVolumeName(volName);
+  if (!guessed) return null;
+
+  for (const vm of vms) {
+    const row = harvesterVmDisplayLabel(vm);
+    if (row.name === guessed && (!volNs || row.ns === volNs)) return row;
+  }
+
+  return {
+    ns: volNs,
+    name: guessed,
+    label: guessed,
+    displayName: guessed,
+  };
 }
 
 /**

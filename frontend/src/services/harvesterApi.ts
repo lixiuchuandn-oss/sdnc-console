@@ -1,4 +1,6 @@
-import { apiRequest, apiPost, apiDelete, apiPatch, apiPut } from './api';
+import { apiRequest, apiPost, apiDelete, apiPatch, apiPut, API_BASE_URL, getAuthHeaders } from './api';
+import { requestManager } from '../utils/requestManager';
+import { getToken } from '../utils/tokenStorage';
 import { appendMergePublicScenarioParam } from './harvester/internal/queryParams';
 
 /**
@@ -527,10 +529,23 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
 };
 
 /**
+ * 从列表 API 响应中取出 items 数组（兼容 data.items 与顶层 items）
+ */
+export function getHarvesterImagesListItems(
+  res: { data?: { items?: Record<string, unknown>[] }; items?: Record<string, unknown>[] } | null | undefined,
+): Record<string, unknown>[] {
+  const fromData = res?.data?.items;
+  if (Array.isArray(fromData)) return fromData;
+  const legacy = res?.items;
+  if (Array.isArray(legacy)) return legacy;
+  return [];
+}
+
+/**
  * 获取 Harvester 镜像列表
  * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
+ * @param force 是否强制刷新（绕过前端 GET 缓存）
+ * @param skipSync true 时请求带 skipSync=true，后端只读 Tower 库存、不触发 syncHarvesterImages 全量同步
  * @returns Promise<any>
  */
 export const fetchHarvesterImages = async (
@@ -541,12 +556,12 @@ export const fetchHarvesterImages = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  void skipSync;
+  if (skipSync) params.append('skipSync', 'true');
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
-  return await apiRequest(
+  return apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`,
-    { skipCache: force }
+    { skipCache: force },
   );
 };
 
@@ -558,8 +573,20 @@ export type HarvesterImageUploadTask = {
   imageType?: string;
   filename?: string;
   fileSize?: number;
-  status: 'pending' | 'ingesting' | 'proxying' | 'success' | 'failed' | 'cancelled';
-  phase: 'pending' | 'ingesting' | 'proxying' | 'finished';
+  chunkSize?: number;
+  totalChunks?: number;
+  receivedChunks?: number[];
+  createdImageName?: string;
+  createdImageNamespace?: string;
+  status:
+    | 'pending'
+    | 'ingesting'
+    | 'uploaded'
+    | 'proxying'
+    | 'success'
+    | 'failed'
+    | 'cancelled';
+  phase: 'pending' | 'ingesting' | 'uploaded' | 'proxying' | 'finished';
   progress: number;
   ingestProgress: number;
   proxyProgress: number;
@@ -574,9 +601,40 @@ export type HarvesterImageUploadTask = {
 
 export const createHarvesterImageUploadTask = async (
   cloudId: string,
-  payload: { namespace: string; displayName?: string; imageType?: string },
+  payload: {
+    namespace: string;
+    displayName?: string;
+    imageType?: string;
+    filename?: string;
+    fileSize?: number;
+    chunkSize?: number;
+  },
 ) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks`, payload);
+};
+
+export type HarvesterImageUploadDiskCheck = {
+  path: string;
+  freeBytes: number;
+  requiredBytes: number;
+  sufficient: boolean;
+  message: string;
+};
+
+/** 提交上传前检查 Tower 镜像暂存目录剩余空间 */
+export const checkHarvesterImageUploadDiskSpace = async (
+  cloudId: string,
+  fileSize: number,
+  chunkSize?: number,
+) => {
+  const size = Math.max(1, Math.floor(Number(fileSize) || 0));
+  const params = new URLSearchParams({ fileSize: String(size) });
+  const cs = Math.floor(Number(chunkSize) || 0);
+  if (cs > 0) params.set('chunkSize', String(cs));
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/disk-check?${params.toString()}`,
+    { skipCache: true },
+  );
 };
 
 export const fetchHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
@@ -598,6 +656,101 @@ export const deleteHarvesterImageUploadTask = async (cloudId: string, taskId: st
 export const cancelHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
   return await apiPost(
     `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+  );
+};
+
+export const fetchHarvesterImageUploadTaskChunks = async (cloudId: string, taskId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/chunks`,
+    { skipCache: true },
+  );
+};
+
+export const uploadHarvesterImageChunk = async (
+  cloudId: string,
+  taskId: string,
+  index: number,
+  body: Blob | ArrayBuffer,
+  options?: {
+    signal?: AbortSignal;
+    onUploadProgress?: (loaded: number, total: number) => void;
+  },
+): Promise<unknown> => {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/octet-stream',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/chunks/${index}`;
+
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.responseType = 'text';
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      options.signal.addEventListener(
+        'abort',
+        () => {
+          xhr.abort();
+          reject(new DOMException('Aborted', 'AbortError'));
+        },
+        { once: true },
+      );
+    }
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) options?.onUploadProgress?.(ev.loaded, ev.total);
+    };
+
+    xhr.onload = () => {
+      const text = xhr.responseText || '';
+      let json: unknown = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        json = { message: text };
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(json);
+        return;
+      }
+      reject(
+        new Error(
+          (json as { message?: string })?.message || text || `分片上传失败 HTTP ${xhr.status}`,
+        ),
+      );
+    };
+
+    xhr.onerror = () => {
+      reject(
+        new Error(
+          '分片上传网络失败。请确认后端 5001 端口可用，且网关 client_max_body_size ≥ 64MB。',
+        ),
+      );
+    };
+
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
+    xhr.send(body);
+  });
+};
+
+export const completeHarvesterImageUploadChunks = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/complete-chunks`,
+    {},
+  );
+};
+
+export const syncHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/sync`,
     {},
   );
 };
@@ -777,7 +930,19 @@ export const deleteHarvesterVolume = async (cloudId: string, namespace: string, 
  * @returns Promise<any>
  */
 export const deleteHarvesterImage = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+  return await requestManager(
+    {
+      method: 'DELETE',
+      endpoint: `/api/clouds/${cloudId}/resources/harvester/images/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+      headers: getAuthHeaders(),
+      options: {
+        enableDeduplication: false,
+        enableCache: false,
+        enableRetry: false,
+      },
+    },
+    API_BASE_URL,
+  );
 };
 
 /**
