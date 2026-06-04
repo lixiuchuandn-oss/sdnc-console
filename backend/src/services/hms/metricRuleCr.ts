@@ -214,10 +214,7 @@ export function buildMetricRuleCrManifest(name: string, specInput: MetricRuleCrS
   if (Number.isNaN(threshold) || threshold > 100) {
     throw Object.assign(new Error('metricSafeThreshold 须在 0–100 之间'), { status: 400 });
   }
-  if (
-    (metricType === 'cpu' || metricType === 'memory') &&
-    threshold < METRIC_SAFE_THRESHOLD_MIN
-  ) {
+  if ((metricType === 'cpu' || metricType === 'memory') && threshold < METRIC_SAFE_THRESHOLD_MIN) {
     throw Object.assign(
       new Error(`metricSafeThreshold 不能低于 ${METRIC_SAFE_THRESHOLD_MIN}%（CPU / 内存）`),
       { status: 400 },
