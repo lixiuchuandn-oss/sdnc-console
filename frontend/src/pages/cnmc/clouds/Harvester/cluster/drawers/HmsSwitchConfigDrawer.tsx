@@ -242,7 +242,11 @@ const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
     async (values: HmsSwitchFormValues) => {
       const name = String(values.name || '').trim();
       const spec = hmsSwitchFormValuesToSpec(values, isEdit);
-      await onSubmit({ name, spec });
+      try {
+        await onSubmit({ name, spec });
+      } catch {
+        // 错误已在 onSubmit 中 message 提示，避免 Form onFinish 未捕获导致整页红屏
+      }
     },
     [isEdit, onSubmit],
   );

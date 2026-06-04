@@ -188,7 +188,7 @@ async function requestFirstOk<T>(
     }
   }
   if (lastErr) throw lastErr;
-  throw new Error('HMS Switch CR API 不可用');
+  throw Object.assign(new Error('底层未部署服务'), { status: 404 });
 }
 
 export async function listHmsSwitchCrs(cloud: {

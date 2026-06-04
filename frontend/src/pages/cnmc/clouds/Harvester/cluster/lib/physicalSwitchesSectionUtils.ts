@@ -1,5 +1,7 @@
 import type { HmsSwitchCr } from 'services/harvester/cluster';
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
+import { getApiErrorMessage } from '../../../../../../services/api';
+import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
 import { matchAswProbeRecordByCr } from './physicalSwitchRecordUtils';
 import { switchProbeProductModel } from './hmsSwitchProbeStatus';
 
@@ -77,6 +79,5 @@ export function probeMetaFromSummaryResponse(res: {
 }
 
 export function apiErrorMessage(e: unknown, fallback: string): string {
-  const err = e as { response?: { data?: { message?: string } }; message?: string };
-  return err?.response?.data?.message || err?.message || fallback;
+  return translateKnownApiErrorMessage(getApiErrorMessage(e, fallback));
 }

@@ -6,6 +6,62 @@
 const ANSI_ESCAPE_RE = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const C0_CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
+function isK8sStatusJsonLine(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith('{') || !t.includes('"kind"')) return false;
+  if (!/"kind"\s*:\s*"Status"/.test(t)) return false;
+  try {
+    const o = JSON.parse(t) as { kind?: string };
+    return o?.kind === 'Status';
+  } catch {
+    return true;
+  }
+}
+
+/** 按花括号平衡剥离 `{"kind":"Status",...}`（避免 metadata:{} 导致正则过早截断） */
+function removeK8sStatusJsonBlobs(s: string): string {
+  const marker = '{"kind"';
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const start = s.indexOf(marker, i);
+    if (start < 0) {
+      out += s.slice(i);
+      break;
+    }
+    const head = s.slice(start, start + 96);
+    if (!/"kind"\s*:\s*"Status"/.test(head)) {
+      out += s.slice(i, start + 1);
+      i = start + 1;
+      continue;
+    }
+    out += s.slice(i, start);
+    let depth = 0;
+    let j = start;
+    for (; j < s.length; j++) {
+      const ch = s[j];
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          j += 1;
+          break;
+        }
+      }
+    }
+    i = j;
+  }
+  return out;
+}
+
+/** 去掉嵌入的 K8s Status JSON 行/片段（含 Unauthorized 等） */
+export function stripK8sStatusJsonFromCliText(raw: string): string {
+  let s = removeK8sStatusJsonBlobs(String(raw || ''));
+  if (!s) return '';
+  const lines = s.split('\n').filter((line) => !isK8sStatusJsonLine(line));
+  return lines.join('\n');
+}
+
 /** 去掉 C0 控制符（保留 \t \n）与 ANSI 转义 */
 export function sanitizeAswCliStdout(raw?: string | null): string {
   if (raw == null) return '';
@@ -16,6 +72,7 @@ export function sanitizeAswCliStdout(raw?: string | null): string {
   s = s.replace(ANSI_ESCAPE_RE, '');
   s = s.replace(/\r\r\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   s = s.replace(C0_CONTROL_RE, '');
+  s = stripK8sStatusJsonFromCliText(s);
   return s.replace(/\n{3,}/g, '\n\n').trimEnd();
 }
 
@@ -29,7 +86,10 @@ export function formatAswCliLineForDisplay(line: {
   const err = sanitizeAswCliStdout(line.stderr);
   if (out) parts.push(out);
   if (err) parts.push(err.trim() ? `[stderr]\n${err}` : '');
-  if (line.error) parts.push(String(line.error));
+  if (line.error) {
+    const errText = stripK8sStatusJsonFromCliText(String(line.error)).trim();
+    if (errText) parts.push(errText);
+  }
   return parts.filter(Boolean).join('\n\n') || '';
 }
 

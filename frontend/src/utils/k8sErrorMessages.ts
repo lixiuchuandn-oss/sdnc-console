@@ -190,5 +190,68 @@ export function translateKnownApiErrorMessage(raw: string): string {
 
   if (msg.startsWith('无法迁移')) return msg;
 
+  // --- K8s Status JSON（如 401 Unauthorized），不展示原始 JSON 行 ---
+  if (msg.includes('"kind":"Status"') || msg.includes('"kind": "Status"')) {
+    const tryParseStatus = (json: string) => {
+      try {
+        const st = JSON.parse(json) as {
+          kind?: string;
+          message?: string;
+          reason?: string;
+          code?: number;
+        };
+        if (st?.kind !== 'Status') return null;
+        if (st?.code === 401 || String(st?.reason || '').toLowerCase() === 'unauthorized') {
+          return '未授权，请检查集群访问凭证或资源池登录配置';
+        }
+        const hint = String(st?.message || st?.reason || '').trim();
+        return hint || '请求失败';
+      } catch {
+        return null;
+      }
+    };
+    const trimmed = msg.trim();
+    const whole = tryParseStatus(trimmed);
+    if (whole) return whole;
+    const marker = '{"kind"';
+    const start = msg.indexOf(marker);
+    if (start >= 0) {
+      let depth = 0;
+      for (let j = start; j < msg.length; j++) {
+        const ch = msg[j];
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            const parsed = tryParseStatus(msg.slice(start, j + 1));
+            if (parsed) return parsed;
+            break;
+          }
+        }
+      }
+    }
+    return '请求失败';
+  }
+
+  // --- HSM / HMS Switch CR 未部署（集群无 hms.rivercloud.com Switch API）---
+  if (
+    msg.includes('底层未部署服务') ||
+    msg.includes('未找到 HMS Switch CR API') ||
+    lower.includes('hms switch cr api') ||
+    (lower.includes('hsm crd') && lower.includes('hms.rivercloud.com')) ||
+    lower.includes('hms switch cr api 不可用')
+  ) {
+    return '底层未部署服务';
+  }
+
+  // --- K8s / CR 资源已存在（如 HMS Switch 配置名重复）---
+  if (lower.includes('already exists')) {
+    const quoted = msg.match(/"([^"]+)"\s+already exists/i);
+    if (quoted?.[1]) {
+      return `配置名称「${quoted[1]}」已存在，请更换名称后重试`;
+    }
+    return '资源已存在，请更换名称后重试';
+  }
+
   return msg;
 }

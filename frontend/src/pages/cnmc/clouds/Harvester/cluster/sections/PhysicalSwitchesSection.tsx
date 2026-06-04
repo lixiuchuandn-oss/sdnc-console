@@ -4,7 +4,7 @@
  * Cloudmap「集群 → 物理交换机」：管理 Switch CR，并展示 HSM 探测状态。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Flex, Input, Modal, Select, Table, Typography } from 'antd';
+import { Alert, Button, Flex, Input, Modal, Select, Table, Typography } from 'antd';
 import { RadarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
@@ -52,6 +52,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
 
   const {
     hmsSwitchConfigs,
+    hmsServiceUnavailable,
     probeItems,
     probeMeta,
     serviceMonitorRows,
@@ -152,6 +153,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     cloudId,
     canManageSwitchCr,
     editingSwitchCr,
+    hmsSwitchConfigs,
     loadAll,
     closeConfigDrawer,
     setConfigSaving,
@@ -278,6 +280,15 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         </div>
       }
     >
+      {hmsServiceUnavailable ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={hmsServiceUnavailable}
+          description="请在集群底座部署 HSM 服务后刷新本页。"
+        />
+      ) : null}
       <Table
         className="std-table"
         scroll={{ x: true }}
