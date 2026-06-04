@@ -18,7 +18,8 @@
     "manual:shots:volumes": "node manual/capture-ch03-volumes.browser.cjs",
     "manual:shots:backups": "node manual/capture-ch03-backups.browser.cjs",
     "manual:shots:vm-detail": "node manual/capture-ch03-vm-detail.browser.cjs",
-    "manual:shots:network": "node manual/capture-ch03-network.browser.cjs"
+    "manual:shots:network": "node manual/capture-ch03-network.browser.cjs",
+    "manual:shots:monitoring": "node manual/capture-ch03-monitoring.browser.cjs"
   },
   "devDependencies": {
     "playwright": "1.60.0"
