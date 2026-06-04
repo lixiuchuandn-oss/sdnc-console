@@ -37,9 +37,10 @@ export interface OpsDashboardNodesSectionProps {
 const PANEL_HEIGHT = 320;
 const CHART_HEIGHT = 240;
 const PREVIEW_CHART_HEIGHT = 480;
-const TABLE_PANEL_HEIGHT = 320;
-const TABLE_SCROLL_Y = 220;
-const PREVIEW_TABLE_SCROLL_Y = 420;
+const TABLE_PANEL_HEIGHT = 400;
+const TABLE_SCROLL_Y = 300;
+const PREVIEW_TABLE_SCROLL_Y = 560;
+const PREVIEW_TABLE_MODAL_WIDTH = 1200;
 const OVERVIEW_CARD_ROW_HEIGHT = 300;
 
 const OVERVIEW_CARD_COL_FILL_STYLE: React.CSSProperties = {
@@ -306,7 +307,7 @@ const NODES_PANEL_GROUPS: NodesPanelGroup[] = [
         id: 'node-disk-space-usage',
         title: '磁盘使用情况',
         description:
-          '按挂载点展示磁盘总量、可用量、已用量和已用占比，便于快速识别空间紧张的文件系统。',
+          '按块设备（分区）展示磁盘总量、可用量、已用量和已用占比；同一设备被绑定挂载到多个路径时会折叠为一行，便于快速识别空间紧张的设备。',
         col: { xs: 24, lg: 24 },
         sizeQuery: {
           key: 'A',
@@ -724,6 +725,7 @@ const OpsDashboardNodesSectionBody: React.FC<OpsDashboardNodesSectionProps> = ({
         loading={previewPanelInitialLoading}
         error={previewPanelError}
         isEmpty={previewPanelEmpty}
+        width={previewPanel?.kind === 'diskSpaceTable' ? PREVIEW_TABLE_MODAL_WIDTH : undefined}
       >
         {previewPanel
           ? renderNodesPanelBody(previewPanel, results, chartMin, chartMax, {
