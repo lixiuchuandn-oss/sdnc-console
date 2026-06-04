@@ -28,6 +28,7 @@ import {
   Card,
   Alert,
   Tooltip,
+  Collapse,
 } from 'antd';
 import {
   PlusOutlined,
@@ -57,6 +58,11 @@ export interface GRPCRouteFormValues {
         service?: string;
         method?: string;
       };
+      headers?: Array<{
+        type?: 'Exact' | 'RegularExpression';
+        name: string;
+        value: string;
+      }>;
     }>;
     backendRefs: Array<{
       name: string;
@@ -232,6 +238,13 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
               match.method.method = m.method.method;
             }
           }
+          if (m.headers && m.headers.length > 0) {
+            match.headers = m.headers.map((h) => ({
+              type: h.type || 'Exact',
+              name: h.name,
+              value: h.value,
+            }));
+          }
           return match;
         }),
         backendRefs: rule.backendRefs?.map((b) => ({
@@ -273,7 +286,7 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
       initialValues={{
         name: generateVmWizardStyleDisplayName('grpcroute'),
         parentRefs: [{}],
-        rules: [{ matches: [{}], backendRefs: [{}] }],
+        rules: [{ matches: [{}], backendRefs: [{ weight: 100 }] }],
       }}
     >
       {/* 基本信息 */}
@@ -414,40 +427,108 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
                       {(matchFields, { add: addMatch, remove: removeMatch }) => (
                         <>
                           {matchFields.map(({ key: matchKey, name: matchIndex, ...matchRest }) => (
-                            <Row key={matchKey} gutter={8} style={{ marginBottom: 8 }}>
-                              <Col span={6}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'method', 'type']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select options={METHOD_TYPE_OPTIONS} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={8}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'method', 'service']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Input placeholder="服务名 (如: myservice.MyService)" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={8}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'method', 'method']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Input placeholder="方法名 (如: MyMethod)" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={2}>
-                                {matchFields.length > 1 && (
-                                  <MinusCircleOutlined onClick={() => removeMatch(matchIndex)} style={{ color: '#999' }} />
-                                )}
-                              </Col>
-                            </Row>
+                            <div key={matchKey} style={{ marginBottom: 12, padding: 8, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 4 }}>
+                              <Row gutter={8} style={{ marginBottom: 8 }}>
+                                <Col span={6}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'method', 'type']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select options={METHOD_TYPE_OPTIONS} />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={8}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'method', 'service']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input placeholder="服务名 (如: myservice.MyService)" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={8}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'method', 'method']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input placeholder="方法名 (如: MyMethod)" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={2}>
+                                  {matchFields.length > 1 && (
+                                    <MinusCircleOutlined onClick={() => removeMatch(matchIndex)} style={{ color: '#999' }} />
+                                  )}
+                                </Col>
+                              </Row>
+                              
+                              {/* 请求头匹配 */}
+                              <Collapse
+                                ghost
+                                items={[
+                                  {
+                                    key: 'headers',
+                                    label: '请求头匹配',
+                                    children: (
+                                      <div>
+                                        <Form.List name={[matchIndex, 'headers']}>
+                                          {(headerFields, { add: addHeader, remove: removeHeader }) => (
+                                            <>
+                                              {headerFields.map(({ key: headerKey, name: headerIndex, ...headerRest }) => (
+                                                <Row key={headerKey} gutter={8} style={{ marginBottom: 8 }}>
+                                                  <Col span={6}>
+                                                    <Form.Item
+                                                      {...headerRest}
+                                                      name={[headerIndex, 'type']}
+                                                      initialValue="Exact"
+                                                      style={{ marginBottom: 0 }}
+                                                    >
+                                                      <Select
+                                                        options={[
+                                                          { value: 'Exact', label: '精确' },
+                                                          { value: 'RegularExpression', label: '正则' },
+                                                        ]}
+                                                      />
+                                                    </Form.Item>
+                                                  </Col>
+                                                  <Col span={8}>
+                                                    <Form.Item
+                                                      {...headerRest}
+                                                      name={[headerIndex, 'name']}
+                                                      rules={[{ required: true, message: '头名称' }]}
+                                                      style={{ marginBottom: 0 }}
+                                                    >
+                                                      <Input placeholder="头名称" />
+                                                    </Form.Item>
+                                                  </Col>
+                                                  <Col span={8}>
+                                                    <Form.Item
+                                                      {...headerRest}
+                                                      name={[headerIndex, 'value']}
+                                                      rules={[{ required: true, message: '头值' }]}
+                                                      style={{ marginBottom: 0 }}
+                                                    >
+                                                      <Input placeholder="头值" />
+                                                    </Form.Item>
+                                                  </Col>
+                                                  <Col span={2}>
+                                                    <MinusCircleOutlined onClick={() => removeHeader(headerIndex)} style={{ color: '#999' }} />
+                                                  </Col>
+                                                </Row>
+                                              ))}
+                                              <Button type="dashed" size="small" onClick={() => addHeader()} icon={<PlusOutlined />}>
+                                                添加请求头
+                                              </Button>
+                                            </>
+                                          )}
+                                        </Form.List>
+                                      </div>
+                                    ),
+                                  },
+                                ]}
+                              />
+                            </div>
                           ))}
                           <Button type="dashed" size="small" onClick={() => addMatch({})} icon={<PlusOutlined />}>
                             添加匹配条件
@@ -529,7 +610,7 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
                               </Row>
                             );
                           })}
-                          <Button type="dashed" size="small" onClick={() => addBackend()} icon={<PlusOutlined />}>
+                          <Button type="dashed" size="small" onClick={() => addBackend({ weight: 100 })} icon={<PlusOutlined />}>
                             添加后端服务
                           </Button>
                         </>
@@ -538,7 +619,7 @@ const GRPCRouteForm: React.FC<GRPCRouteFormProps> = ({
                   </div>
                 </Card>
               ))}
-              <Button type="dashed" onClick={() => addRule({ matches: [{}], backendRefs: [{}] })} block icon={<PlusOutlined />}>
+              <Button type="dashed" onClick={() => addRule({ matches: [{}], backendRefs: [{ weight: 100 }] })} block icon={<PlusOutlined />}>
                 添加规则
               </Button>
             </>

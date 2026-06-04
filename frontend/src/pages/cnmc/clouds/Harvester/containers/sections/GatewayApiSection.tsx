@@ -50,6 +50,8 @@ import {
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal } from '../components';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { GatewayDetailDrawer } from '../drawers/GatewayDetailDrawer';
+import { HTTPRouteDetailDrawer } from '../drawers/HTTPRouteDetailDrawer';
+import { GRPCRouteDetailDrawer } from '../drawers/GRPCRouteDetailDrawer';
 import {
   createContainerToolbarRefresh,
   runContainerSectionRefresh,
@@ -158,6 +160,14 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   // Gateway 详情抽屉状态
   const [gatewayDetailOpen, setGatewayDetailOpen] = useState(false);
   const [gatewayDetailRecord, setGatewayDetailRecord] = useState<any>(null);
+
+  // HTTPRoute 详情抽屉状态
+  const [httpRouteDetailOpen, setHttpRouteDetailOpen] = useState(false);
+  const [httpRouteDetailRecord, setHttpRouteDetailRecord] = useState<any>(null);
+
+  // GRPCRoute 详情抽屉状态
+  const [grpcRouteDetailOpen, setGrpcRouteDetailOpen] = useState(false);
+  const [grpcRouteDetailRecord, setGrpcRouteDetailRecord] = useState<any>(null);
 
   // 安装 NGINX Gateway 状态
   const [installNginxLoading, setInstallNginxLoading] = useState(false);
@@ -622,7 +632,15 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         const hasAlias = !!alias;
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{hasAlias ? alias : id}</span>
+            <a
+              onClick={() => {
+                setHttpRouteDetailRecord(record);
+                setHttpRouteDetailOpen(true);
+              }}
+              style={{ color: '#1890ff', cursor: 'pointer' }}
+            >
+              {hasAlias ? alias : id}
+            </a>
             <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
               <Button
                 type="text"
@@ -688,8 +706,16 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             items={filterMenuItemsForReadOnly(
               [
                 {
+                  key: 'detail',
+                  label: '查看详情',
+                  onClick: () => {
+                    setHttpRouteDetailRecord(record);
+                    setHttpRouteDetailOpen(true);
+                  },
+                },
+                {
                   key: 'yaml',
-                  label: 'YAML 编辑',
+                  label: '查看 YAML',
                   onClick: () => handleOpenYamlEdit(record, 'httproute'),
                 },
                 {
@@ -732,7 +758,15 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         const hasAlias = !!alias;
         return (
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{hasAlias ? alias : id}</span>
+            <a
+              onClick={() => {
+                setGrpcRouteDetailRecord(record);
+                setGrpcRouteDetailOpen(true);
+              }}
+              style={{ color: '#1890ff', cursor: 'pointer' }}
+            >
+              {hasAlias ? alias : id}
+            </a>
             <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
               <Button
                 type="text"
@@ -798,8 +832,16 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
             items={filterMenuItemsForReadOnly(
               [
                 {
+                  key: 'detail',
+                  label: '查看详情',
+                  onClick: () => {
+                    setGrpcRouteDetailRecord(record);
+                    setGrpcRouteDetailOpen(true);
+                  },
+                },
+                {
                   key: 'yaml',
-                  label: 'YAML 编辑',
+                  label: '查看 YAML',
                   onClick: () => handleOpenYamlEdit(record, 'grpcroute'),
                 },
                 {
@@ -1399,12 +1441,8 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
                 ? 'GRPCRoute YAML'
                 : '资源 YAML'
         }
-        editable={yamlEditingType === 'httproute' || yamlEditingType === 'grpcroute'}
-        onSave={
-          yamlEditingType === 'httproute' || yamlEditingType === 'grpcroute'
-            ? handleSaveYaml
-            : undefined
-        }
+        editable={false}
+        onSave={undefined}
       />
 
       {/* Gateway 详情抽屉 */}
@@ -1415,6 +1453,28 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
           setGatewayDetailRecord(null);
         }}
         gateway={gatewayDetailRecord}
+        cloudId={cloudId}
+      />
+
+      {/* HTTPRoute 详情抽屉 */}
+      <HTTPRouteDetailDrawer
+        open={httpRouteDetailOpen}
+        onClose={() => {
+          setHttpRouteDetailOpen(false);
+          setHttpRouteDetailRecord(null);
+        }}
+        httpRoute={httpRouteDetailRecord}
+        cloudId={cloudId}
+      />
+
+      {/* GRPCRoute 详情抽屉 */}
+      <GRPCRouteDetailDrawer
+        open={grpcRouteDetailOpen}
+        onClose={() => {
+          setGrpcRouteDetailOpen(false);
+          setGrpcRouteDetailRecord(null);
+        }}
+        grpcRoute={grpcRouteDetailRecord}
         cloudId={cloudId}
       />
     </PageDetailSection>

@@ -27,6 +27,7 @@ import {
   App,
   Card,
   Tooltip,
+  Collapse,
 } from 'antd';
 import {
   PlusOutlined,
@@ -56,6 +57,16 @@ export interface HTTPRouteFormValues {
         value: string;
       };
       method?: string;
+      headers?: Array<{
+        type?: 'Exact' | 'RegularExpression';
+        name: string;
+        value: string;
+      }>;
+      queryParams?: Array<{
+        type?: 'Exact' | 'RegularExpression';
+        name: string;
+        value: string;
+      }>;
     }>;
     backendRefs: Array<{
       name: string;
@@ -240,13 +251,32 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
     // 路由规则
     if (values.rules && values.rules.length > 0) {
       httpRoute.spec.rules = values.rules.map((rule) => ({
-        matches: rule.matches?.map((m) => ({
-          path: {
-            type: m.path?.type || 'PathPrefix',
-            value: m.path?.value || '/',
-          },
-          ...(m.method && { method: m.method }),
-        })),
+        matches: rule.matches?.map((m) => {
+          const match: any = {
+            path: {
+              type: m.path?.type || 'PathPrefix',
+              value: m.path?.value || '/',
+            },
+          };
+          if (m.method) {
+            match.method = m.method;
+          }
+          if (m.headers && m.headers.length > 0) {
+            match.headers = m.headers.map((h) => ({
+              type: h.type || 'Exact',
+              name: h.name,
+              value: h.value,
+            }));
+          }
+          if (m.queryParams && m.queryParams.length > 0) {
+            match.queryParams = m.queryParams.map((q) => ({
+              type: q.type || 'Exact',
+              name: q.name,
+              value: q.value,
+            }));
+          }
+          return match;
+        }),
         backendRefs: rule.backendRefs?.map((b) => ({
           name: b.name,
           port: b.port,
@@ -287,7 +317,7 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
       initialValues={{
         name: generateVmWizardStyleDisplayName('httproute'),
         parentRefs: [{}],
-        rules: [{ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{}] }],
+        rules: [{ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{ weight: 100 }] }],
       }}
     >
       {/* 基本信息 */}
@@ -421,41 +451,179 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
                       {(matchFields, { add: addMatch, remove: removeMatch }) => (
                         <>
                           {matchFields.map(({ key: matchKey, name: matchIndex, ...matchRest }) => (
-                            <Row key={matchKey} gutter={8} style={{ marginBottom: 8 }}>
-                              <Col span={8}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'path', 'type']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select options={PATH_TYPE_OPTIONS} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={10}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'path', 'value']}
-                                  rules={[{ required: true, message: '路径' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Input placeholder="路径 (如: /api)" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={4}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'method']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select options={HTTP_METHOD_OPTIONS} placeholder="方法" allowClear />
-                                </Form.Item>
-                              </Col>
-                              <Col span={2}>
-                                {matchFields.length > 1 && (
-                                  <MinusCircleOutlined onClick={() => removeMatch(matchIndex)} style={{ color: '#999' }} />
-                                )}
-                              </Col>
-                            </Row>
+                            <div key={matchKey} style={{ marginBottom: 12, padding: 8, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 4 }}>
+                              <Row gutter={8} style={{ marginBottom: 8 }}>
+                                <Col span={8}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'path', 'type']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select options={PATH_TYPE_OPTIONS} />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={10}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'path', 'value']}
+                                    rules={[{ required: true, message: '路径' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input placeholder="路径 (如: /api)" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={4}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'method']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select options={HTTP_METHOD_OPTIONS} placeholder="方法" allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={2}>
+                                  {matchFields.length > 1 && (
+                                    <MinusCircleOutlined onClick={() => removeMatch(matchIndex)} style={{ color: '#999' }} />
+                                  )}
+                                </Col>
+                              </Row>
+                              
+                              {/* 高级匹配配置 */}
+                              <Collapse
+                                ghost
+                                items={[
+                                  {
+                                    key: 'advanced',
+                                    label: '高级匹配（请求头、查询参数）',
+                                    children: (
+                                      <div>
+                                        {/* 请求头匹配 */}
+                                        <div style={{ marginBottom: 12 }}>
+                                          <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>
+                                            请求头匹配
+                                            <Tooltip title="匹配 HTTP 请求头，支持精确匹配和正则匹配">
+                                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                                            </Tooltip>
+                                          </div>
+                                          <Form.List name={[matchIndex, 'headers']}>
+                                            {(headerFields, { add: addHeader, remove: removeHeader }) => (
+                                              <>
+                                                {headerFields.map(({ key: headerKey, name: headerIndex, ...headerRest }) => (
+                                                  <Row key={headerKey} gutter={8} style={{ marginBottom: 8 }}>
+                                                    <Col span={6}>
+                                                      <Form.Item
+                                                        {...headerRest}
+                                                        name={[headerIndex, 'type']}
+                                                        initialValue="Exact"
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Select
+                                                          options={[
+                                                            { value: 'Exact', label: '精确' },
+                                                            { value: 'RegularExpression', label: '正则' },
+                                                          ]}
+                                                        />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...headerRest}
+                                                        name={[headerIndex, 'name']}
+                                                        rules={[{ required: true, message: '头名称' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="头名称 (如: Content-Type)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...headerRest}
+                                                        name={[headerIndex, 'value']}
+                                                        rules={[{ required: true, message: '头值' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="头值 (如: application/json)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={2}>
+                                                      <MinusCircleOutlined onClick={() => removeHeader(headerIndex)} style={{ color: '#999' }} />
+                                                    </Col>
+                                                  </Row>
+                                                ))}
+                                                <Button type="dashed" size="small" onClick={() => addHeader()} icon={<PlusOutlined />}>
+                                                  添加请求头
+                                                </Button>
+                                              </>
+                                            )}
+                                          </Form.List>
+                                        </div>
+                                        
+                                        {/* 查询参数匹配 */}
+                                        <div>
+                                          <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>
+                                            查询参数匹配
+                                            <Tooltip title="匹配 URL 查询参数，支持精确匹配和正则匹配">
+                                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                                            </Tooltip>
+                                          </div>
+                                          <Form.List name={[matchIndex, 'queryParams']}>
+                                            {(paramFields, { add: addParam, remove: removeParam }) => (
+                                              <>
+                                                {paramFields.map(({ key: paramKey, name: paramIndex, ...paramRest }) => (
+                                                  <Row key={paramKey} gutter={8} style={{ marginBottom: 8 }}>
+                                                    <Col span={6}>
+                                                      <Form.Item
+                                                        {...paramRest}
+                                                        name={[paramIndex, 'type']}
+                                                        initialValue="Exact"
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Select
+                                                          options={[
+                                                            { value: 'Exact', label: '精确' },
+                                                            { value: 'RegularExpression', label: '正则' },
+                                                          ]}
+                                                        />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...paramRest}
+                                                        name={[paramIndex, 'name']}
+                                                        rules={[{ required: true, message: '参数名' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="参数名 (如: version)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...paramRest}
+                                                        name={[paramIndex, 'value']}
+                                                        rules={[{ required: true, message: '参数值' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="参数值 (如: v1)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={2}>
+                                                      <MinusCircleOutlined onClick={() => removeParam(paramIndex)} style={{ color: '#999' }} />
+                                                    </Col>
+                                                  </Row>
+                                                ))}
+                                                <Button type="dashed" size="small" onClick={() => addParam()} icon={<PlusOutlined />}>
+                                                  添加查询参数
+                                                </Button>
+                                              </>
+                                            )}
+                                          </Form.List>
+                                        </div>
+                                      </div>
+                                    ),
+                                  },
+                                ]}
+                              />
+                            </div>
                           ))}
                           <Button type="dashed" size="small" onClick={() => addMatch({ path: { type: 'PathPrefix', value: '/' } })} icon={<PlusOutlined />}>
                             添加匹配条件
@@ -537,16 +705,16 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
                                </Row>
                              );
                            })}
-                           <Button type="dashed" size="small" onClick={() => addBackend()} icon={<PlusOutlined />}>
-                             添加后端服务
-                           </Button>
+                            <Button type="dashed" size="small" onClick={() => addBackend({ weight: 100 })} icon={<PlusOutlined />}>
+                              添加后端服务
+                            </Button>
                          </>
                        )}
                      </Form.List>
                    </div>
                 </Card>
               ))}
-              <Button type="dashed" onClick={() => addRule({ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{}] })} block icon={<PlusOutlined />}>
+              <Button type="dashed" onClick={() => addRule({ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{ weight: 100 }] })} block icon={<PlusOutlined />}>
                 添加规则
               </Button>
             </>
