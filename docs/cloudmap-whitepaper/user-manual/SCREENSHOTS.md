@@ -20,6 +20,7 @@ npm run manual:shots:images
 npm run manual:shots:vm
 npm run manual:shots:volumes
 npm run manual:shots:backups
+npm run manual:shots:vm-detail
 ```
 
 ## 第 2 章 · ch02-pool/
@@ -64,8 +65,24 @@ npm run manual:shots:backups
 | volume-snapshot-restore-modal.png | 恢复云盘快照 |
 
 脚本：`npm run manual:shots:volumes
-npm run manual:shots:backups`
+npm run manual:shots:backups
+npm run manual:shots:vm-detail`
 
+
+
+## 第 3.2.12 章 · ch03-vm-detail/
+
+| 文件 | 说明 |
+|------|------|
+| vm-detail-drawer-detail-tab.png | 详情抽屉 · 详情 Tab |
+| vm-detail-tab-performance.png | 性能 Tab |
+| vm-detail-tab-backup.png | 备份/快照 Tab |
+| vm-detail-more-menu.png | … 更多操作菜单 |
+| vm-detail-node-scheduling.png | 调度策略 · 节点选择器 |
+| vm-detail-disk-manage.png | 资源配置 · 磁盘管理 |
+| vm-detail-spec-config.png | 资源配置 · 调整规格 |
+
+脚本：`npm run manual:shots:vm-detail`
 
 ## 第 3.9 章 · ch03-backups/
 
@@ -82,7 +99,8 @@ npm run manual:shots:backups`
 | schedule-backup-create-modal.png | 创建定时策略弹窗 |
 | restore-tasks-list-page.png | 恢复任务列表 |
 
-脚本：`npm run manual:shots:backups`
+脚本：`npm run manual:shots:backups
+npm run manual:shots:vm-detail`
 
 ## 第 3.2.7 · assets/image-*.png
 
