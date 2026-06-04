@@ -11,6 +11,8 @@ import {
   HomeOutlined,
   LoginOutlined,
   FileTextOutlined,
+  ClusterOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import PageDetailContainer from '../../../../components/PageDetailContainer';
 import {
@@ -32,6 +34,8 @@ import CsmPoolAssetsSection from './sections/CsmPoolAssetsSection';
 import CsmVirtualElementsSection from './sections/CsmVirtualElementsSection';
 import CsmElementGroupsSection from './sections/CsmElementGroupsSection';
 import CsmPoolPoliciesSection from './sections/CsmPoolPoliciesSection';
+import CsmPoolSecurityDomainsSection from './sections/CsmPoolSecurityDomainsSection';
+import CsmPoolTenantsSection from './sections/CsmPoolTenantsSection';
 
 export interface CloudItem {
   id: string;
@@ -340,6 +344,26 @@ const CloudDetailCsm: React.FC<{
               </Space>
             ),
             children: <CsmPoolPoliciesSection cloudId={cloudId} />,
+          },
+          {
+            key: 'securityDomains',
+            label: (
+              <Space size={4}>
+                <ClusterOutlined />
+                <span>安全域</span>
+              </Space>
+            ),
+            children: <CsmPoolSecurityDomainsSection cloudId={cloudId} />,
+          },
+          {
+            key: 'tenants',
+            label: (
+              <Space size={4}>
+                <TeamOutlined />
+                <span>租户</span>
+              </Space>
+            ),
+            children: <CsmPoolTenantsSection cloudId={cloudId} />,
           },
         ]}
       />

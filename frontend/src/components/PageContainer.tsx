@@ -179,6 +179,7 @@ const PageContainer = <T extends Record<string, any> = any>({
 
       {tabList && tabList.length > 0 && (
         <Tabs
+          className="page-container-tab-bar-only"
           activeKey={tabActiveKey}
           onChange={onTabChange}
           tabBarExtraContent={tabBarExtraContent}

@@ -53,10 +53,10 @@ const TenantsWorkspace: React.FC = () => {
             <Select
               className="toolbar-filter-sm"
               allowClear
-              placeholder="是否有用户"
+              placeholder="是否有租户组织用户"
               options={[
-                { value: 'yes', label: '有用户' },
-                { value: 'no', label: '无用户' },
+                { value: 'yes', label: '有' },
+                { value: 'no', label: '无' },
               ]}
             />
           </Form.Item>

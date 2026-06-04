@@ -204,7 +204,7 @@ export function useTenantsPage() {
       return;
     }
     if (counts.some((x) => x.n < 0)) {
-      message.error('无法校验部分租户的组织用户数量，请稍后重试');
+      message.error('无法校验部分租户的租户组织用户数量，请稍后重试');
       return;
     }
 
@@ -275,7 +275,7 @@ export function useTenantsPage() {
         render: (_: unknown, record: Tenant) => tenantOrgCountMap[record.id] ?? '-',
       },
       {
-        title: '用户数量',
+        title: '租户组织用户',
         key: 'userCount',
         render: (_: unknown, record: Tenant) => tenantUserCountMap[record.id] ?? '-',
       },
@@ -320,7 +320,7 @@ export function useTenantsPage() {
                 void (async () => {
                   const n = await refreshTenantUserCount(record.id);
                   if (n < 0) {
-                    message.error('无法校验组织用户数量，请稍后重试');
+                    message.error('无法校验租户组织用户数量，请稍后重试');
                     return;
                   }
                   if (n > 0) {

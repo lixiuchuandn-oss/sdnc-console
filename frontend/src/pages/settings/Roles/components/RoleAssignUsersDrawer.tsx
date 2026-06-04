@@ -367,7 +367,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         ...delta.needAdd.map((userId) =>
           apiPost('/api/system/rbac/assignments', {
             roleId: target.id,
-            userType: 'system',
+            userType,
             userId,
           }),
         ),
@@ -383,7 +383,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
     } finally {
       setSaving(false);
     }
-  }, [canWrite, target, delta, onClose, onSaved]);
+  }, [canWrite, target, userType, delta, onClose, onSaved]);
 
   const memberInRoleCount = activeUsers.filter((u) => selected.includes(String(u.id))).length;
 

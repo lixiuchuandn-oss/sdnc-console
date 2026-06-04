@@ -929,6 +929,34 @@ export const fetchCsmElementGroups = async (cloudId: string) => {
 
 export const fetchCloudmapElementGroups = fetchCsmElementGroups;
 
+/** CSM v2：租户分页（Tower BFF 聚合为 items） */
+export const fetchCsmTenants = async (cloudId: string) => {
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/tenants`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+/** CSM v2：安全域搜索（Tower BFF 聚合为 items） */
+export const fetchCsmSecurityDomains = async (cloudId: string) => {
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/domains`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
 export const fetchCsmServiceChains = async (cloudId: string, params?: { pool_id?: string }) => {
   const token = getToken();
   const qs = params?.pool_id ? `?pool_id=${encodeURIComponent(params.pool_id)}` : '';

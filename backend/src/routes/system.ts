@@ -590,7 +590,7 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     }
     const tenantUserCount = await tenantUserRepo.count({ where: { role: id } });
     if (tenantUserCount > 0) {
-      return res.status(400).json({ message: '该角色已关联租户用户，无法删除' });
+      return res.status(400).json({ message: '该角色已关联租户组织用户，无法删除' });
     }
 
     await repo.remove(row);

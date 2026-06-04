@@ -65,6 +65,14 @@ export function assertCsmTargetCloud(cloud: Cloud): void {
   }
 }
 
+export function csmConfigFromCloud(cloud: Cloud): CsmConfig {
+  return toCsmConfig(cloud);
+}
+
+export function csmRepairAuthFromCloud(cloud: Cloud): CsmRepairAuthOptions | undefined {
+  return repairAuthFromCloud(cloud);
+}
+
 function toCsmConfig(cloud: Cloud): CsmConfig {
   return {
     endpoint: String(cloud.endpoint || '').trim(),

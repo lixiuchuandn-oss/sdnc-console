@@ -34,6 +34,12 @@ import { cloneRoleGrantIds } from './lib/cloneRoleGrantIds';
 import { suggestCopyRoleName } from './lib/suggestCopyRoleName';
 import { useRoleListColumns } from './lib/useRoleListColumns';
 
+type RoleScopeTab = 'system' | 'tenant';
+
+function formatRoleTabLabel(title: string, count: number): string {
+  return `${title} (${count})`;
+}
+
 const AccessRolesPage: React.FC = () => {
   const { modal } = App.useApp();
   const { definitions: permissionDefinitions } = usePermissionDefinitions();
@@ -65,7 +71,8 @@ const AccessRolesPage: React.FC = () => {
   const [grantFromCopy, setGrantFromCopy] = useState(false);
 
   const [roleKw, setRoleKw] = useState('');
-  const [roleType, setRoleType] = useState<string>('');
+  const [roleKindFilter, setRoleKindFilter] = useState<'系统策略' | '自定义策略' | ''>('');
+  const [roleTab, setRoleTab] = useState<RoleScopeTab>('system');
 
   const [kw, setKw] = useState('');
   const [permVerb, setPermVerb] = useState<'全部' | 'read' | 'write'>('全部');
@@ -202,7 +209,29 @@ const AccessRolesPage: React.FC = () => {
   useEffect(() => {
     if (!createOpen) return;
     createForm.resetFields();
-  }, [createOpen, createForm]);
+    createForm.setFieldsValue({ scope: roleTab });
+  }, [createOpen, createForm, roleTab]);
+
+  useEffect(() => {
+    setSelectedRowKeys([]);
+  }, [roleTab]);
+
+  const systemRoleCount = useMemo(
+    () => roles.filter((r) => r.scope === 'system').length,
+    [roles],
+  );
+  const tenantRoleCount = useMemo(
+    () => roles.filter((r) => r.scope === 'tenant').length,
+    [roles],
+  );
+
+  const roleTabList = useMemo(
+    () => [
+      { key: 'system', tab: formatRoleTabLabel('系统角色', systemRoleCount) },
+      { key: 'tenant', tab: formatRoleTabLabel('租户组织角色', tenantRoleCount) },
+    ],
+    [systemRoleCount, tenantRoleCount],
+  );
 
   const handleCreate = useCallback(async () => {
     if (!canWrite) {
@@ -359,8 +388,8 @@ const AccessRolesPage: React.FC = () => {
     }
     if (shouldUseTenantPermissionBoundary(grantTarget)) {
       return isTenantRootBuiltinRole(grantTarget)
-        ? '内置云租户根用户目录为租户角色可选上限；本角色权限不可在此修改。'
-        : '租户角色可选范围不超过内置「云租户根用户」目录；取消勾选后菜单项仍会展示';
+        ? '内置云租户根用户目录为租户组织角色可选上限；本角色权限不可在此修改。'
+        : '租户组织角色可选范围不超过内置「云租户根用户」目录；取消勾选后菜单项仍会展示';
     }
     return undefined;
   }, [grantTarget, grantFromCopy]);
@@ -420,18 +449,20 @@ const AccessRolesPage: React.FC = () => {
           ? (r.name || '').toLowerCase().includes(roleKw.toLowerCase()) ||
             (r.description || '').toLowerCase().includes(roleKw.toLowerCase())
           : true;
-        const matchType = !roleType
-          ? true
-          : r.type === roleType ||
-            (roleType === '系统策略' && r.scope === 'system') ||
-            (roleType === '自定义策略' && r.scope === 'tenant');
-        return matchKw && matchType;
+        const matchKind = !roleKindFilter ? true : r.type === roleKindFilter;
+        return matchKw && matchKind && r.scope === roleTab;
       }),
-    [roles, roleKw, roleType],
+    [roles, roleKw, roleKindFilter, roleTab],
   );
 
   return (
-    <PageContainer titleLevel={3} asCard={false}>
+    <PageContainer
+      titleLevel={3}
+      asCard={false}
+      tabList={roleTabList}
+      tabActiveKey={roleTab}
+      onTabChange={(key) => setRoleTab(key as RoleScopeTab)}
+    >
       <div className="page-toolbar">
         <Form
           className="toolbar-container"
@@ -440,7 +471,7 @@ const AccessRolesPage: React.FC = () => {
           form={filterForm}
           onValuesChange={(_, all) => {
             setRoleKw(all.keyword || '');
-            setRoleType(all.type ?? '');
+            setRoleKindFilter((all.roleKind as '系统策略' | '自定义策略' | undefined) || '');
           }}
         >
           <Form.Item name="keyword">
@@ -451,9 +482,9 @@ const AccessRolesPage: React.FC = () => {
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             />
           </Form.Item>
-          <Form.Item name="type">
+          <Form.Item name="roleKind">
             <Select className="toolbar-filter-sm" placeholder="全部类型" allowClear>
-              <Select.Option value="系统策略">系统角色</Select.Option>
+              <Select.Option value="系统策略">内置角色</Select.Option>
               <Select.Option value="自定义策略">自定义角色</Select.Option>
             </Select>
           </Form.Item>
@@ -463,7 +494,7 @@ const AccessRolesPage: React.FC = () => {
             onClick={() => {
               filterForm.resetFields();
               setRoleKw('');
-              setRoleType('');
+              setRoleKindFilter('');
             }}
           >
             重置
@@ -473,7 +504,7 @@ const AccessRolesPage: React.FC = () => {
         <div className="toolbar-actions">
           {canWrite && (
             <Button type="primary" onClick={() => setCreateOpen(true)}>
-              新建角色
+              {roleTab === 'tenant' ? '新建租户组织角色' : '新建系统角色'}
             </Button>
           )}
           {canWrite ? (
@@ -555,7 +586,7 @@ const AccessRolesPage: React.FC = () => {
       />
 
       <Modal
-        title="新建授权角色"
+        title={roleTab === 'tenant' ? '新建租户组织角色' : '新建系统角色'}
         open={createOpen}
         onCancel={() => {
           setCreateOpen(false);
@@ -577,15 +608,8 @@ const AccessRolesPage: React.FC = () => {
           >
             <Input placeholder="例如：安全管理员" />
           </Form.Item>
-          <Form.Item
-            name="scope"
-            label="角色范围"
-            rules={[{ required: true, message: '请选择角色范围' }]}
-          >
-            <Select placeholder="请选择角色范围">
-              <Select.Option value="system">系统角色</Select.Option>
-              <Select.Option value="tenant">租户角色</Select.Option>
-            </Select>
+          <Form.Item name="scope" hidden rules={[{ required: true }]}>
+            <Input />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea placeholder="角色用途说明（可选）" autoSize={{ minRows: 3, maxRows: 6 }} />
@@ -622,9 +646,9 @@ const AccessRolesPage: React.FC = () => {
             label="角色范围"
             rules={[{ required: true, message: '请选择角色范围' }]}
           >
-            <Select placeholder="请选择角色范围">
+            <Select placeholder="请选择角色范围" disabled>
               <Select.Option value="system">系统角色</Select.Option>
-              <Select.Option value="tenant">租户角色</Select.Option>
+              <Select.Option value="tenant">租户组织角色</Select.Option>
             </Select>
           </Form.Item>
           <Form.Item name="description" label="描述">

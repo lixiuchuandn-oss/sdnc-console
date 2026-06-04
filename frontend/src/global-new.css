@@ -589,6 +589,17 @@ html, body, #root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; /* 确保数字字体一致 */
 }
 
+/*
+ * PageContainer tabList：仅 Tab 栏，内容在 children 中切换；副标题与 Tab 之间无 Divider
+ */
+.page-container-tab-bar-only .ant-tabs-content-holder {
+  display: none;
+}
+
+.page-container-tab-bar-only .ant-tabs-nav {
+  margin-bottom: 16px;
+}
+
 /* 
  * 列表页工具栏容器 (Toolbar Container)
  * 对应 PageContainer 规范中的 left 区域 Form 结构

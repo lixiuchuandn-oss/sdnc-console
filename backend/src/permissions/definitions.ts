@@ -105,7 +105,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   // TENANTS - 租户管理
   tenants: '租户管理',
   organizations: '组织管理',
-  'tenant-users': '组织用户管理',
+  'tenant-users': '租户组织用户管理',
   users: '用户管理',
 
   // CNMC - 权限管控

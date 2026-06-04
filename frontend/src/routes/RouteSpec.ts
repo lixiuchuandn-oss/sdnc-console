@@ -323,7 +323,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'TENANTS',
     group: '租户管理',
     title: '组织管理',
-    subtitle: '管理租户下的组织架构树，支持创建多级组织、分配组织用户、配置计算资源配额，实现基于组织架构的权限隔离与资源分配。',
+    subtitle: '管理租户下的组织架构树，支持创建多级组织、分配租户组织用户、配置计算资源配额，实现基于组织架构的权限隔离与资源分配。',
     breadcrumbLabel: '组织管理',
     hidden: true,
     parentId: 'tenants-list',
@@ -341,8 +341,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'TENANTS',
     group: '租户管理',
-    title: '组织用户管理',
-    subtitle: '管理租户下的组织用户账号，支持创建、编辑、删除用户，分配角色权限，按租户、组织、角色、状态等维度进行筛选和批量操作。',
+    title: '租户组织用户管理',
+    subtitle: '管理租户下的租户组织用户账号，支持创建、编辑、删除用户，分配租户组织角色，按租户、组织、角色、状态等维度进行筛选和批量操作。',
     icon: 'UserSwitchOutlined',
     requiredActions: {
       page: 'tenant-users:read',
@@ -423,7 +423,7 @@ export const routeSpecs: RouteSpec[] = [
   // SDNCC 平台 (SDN 控制中心)
   // ============================================================================
   
-  // Group: 安全管理面（级联、应用等；安全域/安全服务已归「流量编排」）
+  // Group: 安全管理面（级联、应用等；Tower 安全域在「流量编排」；CSM 安全域在池详情 Tab）
 
   {
     id: 'cascade-channels',
@@ -727,6 +727,44 @@ export const routeSpecs: RouteSpec[] = [
     requiredFeature: 'sdn.interconnect',
   },
 
+  // Group: 安全资源池（CSM 资源池；池详情 Tab 含 CSM 安全域/租户，见 csmPoolSidebar）
+  {
+    id: 'traffic-csm-pools',
+    path: '/admin/security/traffic/csm-pools',
+    element: 'CsmPoolsPage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '安全资源池',
+    title: '资源池管理',
+    subtitle: '接入与管理 CSM 安全控制面资源池，支持连接测试、编辑与批量删除。',
+    icon: 'CloudUploadOutlined',
+    order: 1,
+    requiredActions: {
+      page: 'security.services:read',
+      read: 'security.services:read',
+      write: 'security.services:write',
+    },
+    requiredFeature: 'sdn.traffic',
+  },
+  {
+    id: 'traffic-csm-pool-detail',
+    path: '/admin/security/traffic/csm-pools/:cloudId',
+    element: 'CsmPoolDetailPage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '安全资源池',
+    title: 'CSM 资源池详情',
+    breadcrumbLabel: '详情',
+    hidden: true,
+    parentId: 'traffic-csm-pools',
+    requiredActions: {
+      page: 'security.services:read',
+      read: 'security.services:read',
+      write: 'security.services:write',
+    },
+    requiredFeature: 'sdn.traffic',
+  },
+
   // Group: 流量编排
   {
     id: 'security-domain',
@@ -742,7 +780,7 @@ export const routeSpecs: RouteSpec[] = [
     requiredActions: {
       page: 'networks.security-domain:read',
       read: 'networks.security-domain:read',
-      write: 'networks.security-domain:write'
+      write: 'networks.security-domain:write',
     },
     requiredFeature: 'sdn.cascade',
   },
@@ -760,27 +798,9 @@ export const routeSpecs: RouteSpec[] = [
     requiredActions: {
       page: 'networks.security-domain:read',
       read: 'networks.security-domain:read',
-      write: 'networks.security-domain:write'
+      write: 'networks.security-domain:write',
     },
     requiredFeature: 'sdn.cascade',
-  },
-  {
-    id: 'traffic-csm-pools',
-    path: '/admin/security/traffic/csm-pools',
-    element: 'CsmPoolsPage',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全资源池',
-    subtitle: '接入与管理 CSM 安全控制面资源池，与多云资源池解耦，在流量编排域统一维护。',
-    icon: 'SafetyCertificateOutlined',
-    order: 2,
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write',
-    },
-    requiredFeature: 'sdn.traffic',
   },
   {
     id: 'security-services',
@@ -799,24 +819,6 @@ export const routeSpecs: RouteSpec[] = [
       write: 'security.services:write'
     },
     requiredFeature: 'sdn.cascade',
-  },
-  {
-    id: 'traffic-csm-pool-detail',
-    path: '/admin/security/traffic/csm-pools/:cloudId',
-    element: 'CsmPoolDetailPage',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: 'CSM 资源池详情',
-    breadcrumbLabel: '详情',
-    hidden: true,
-    parentId: 'traffic-csm-pools',
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write',
-    },
-    requiredFeature: 'sdn.traffic',
   },
   // ============================================================================
   // CNSOC 平台 (AI SOC 安全运营中心)

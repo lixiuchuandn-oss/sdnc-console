@@ -50,14 +50,30 @@ import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../routes/cloudmapPoolNavRows';
 
 const { Text } = Typography;
 
-export function usePoolsListPage() {
+export type PoolsListScope = 'cnmc' | 'csm';
+
+export type UsePoolsListPageOptions = {
+  /** cnmc：多云资源池（排除 CSM）；csm：仅 CSM 安全资源池 */
+  scope?: PoolsListScope;
+};
+
+export function usePoolsListPage(options: UsePoolsListPageOptions = {}) {
+  const scope: PoolsListScope = options.scope ?? 'cnmc';
   const navigate = useNavigate();
   const { user } = useAuth();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const perms = user && Array.isArray(user.permissions) ? user.permissions : [];
-  const canWriteClouds = hasPermissionForAction(perms, 'clouds.resource-pools:write');
-  const canSetDefaultPool = canWriteClouds;
+  const readAction =
+    scope === 'csm' ? 'security.services:read' : 'clouds.resource-pools:read';
+  const writeAction =
+    scope === 'csm' ? 'security.services:write' : 'clouds.resource-pools:write';
+  const canReadPage = hasPermissionForAction(perms, readAction);
+  const canWriteClouds = hasPermissionForAction(perms, writeAction);
+  const canSetDefaultPool = scope === 'cnmc' && canWriteClouds;
   const canAccessPoolDetail = useMemo(() => {
+    if (scope === 'csm') {
+      return hasPermissionForAction(perms, 'security.services:read');
+    }
     return CLOUDMAP_POOL_NAV_ROWS.some((row) => {
       if (row.poolPageReadAnyOf?.length) {
         return row.poolPageReadAnyOf.some((act) => hasPermissionForAction(perms, act));
@@ -65,7 +81,7 @@ export function usePoolsListPage() {
       if (!row.poolPageAction) return false;
       return hasPermissionForAction(perms, row.poolPageAction);
     });
-  }, [perms]);
+  }, [scope, perms]);
 
   const [filterForm] = Form.useForm();
   const [clouds, setClouds] = useState<Cloud[]>([]);
@@ -95,6 +111,18 @@ export function usePoolsListPage() {
 
   const reloadSummaryClouds =
     (useOutletContext<Partial<AdminLayoutOutletContext>>() || {}).reloadSummaryClouds;
+
+  const scopeClouds = useMemo(
+    () => (clouds || []).filter((c) => (scope === 'csm' ? isCsmCloud(c) : !isCsmCloud(c))),
+    [clouds, scope],
+  );
+
+  const vendorProviderOptions = useMemo(() => {
+    if (scope === 'csm') {
+      return cloudProviders.filter((p) => p.id === 'cloudmap.csm');
+    }
+    return cloudProviders.filter((p) => p.id !== 'cloudmap.csm');
+  }, [scope]);
 
   const fetchClouds = useCallback(async (skipCache: boolean = false) => {
     try {
@@ -135,6 +163,7 @@ export function usePoolsListPage() {
   }, []);
 
   useEffect(() => {
+    if (scope === 'csm') return;
     let total = 0;
     let online = 0;
     (clouds || [])
@@ -144,9 +173,10 @@ export function usePoolsListPage() {
         online += Number(c.runningVmCount || 0);
       });
     setVmStats({ total, online, offline: Math.max(0, total - online) });
-  }, [clouds]);
+  }, [clouds, scope]);
 
   useEffect(() => {
+    if (scope === 'csm') return;
     const loadVpcStats = async () => {
       try {
         const ids = (clouds || []).filter((c) => !isCsmCloud(c)).map((c) => c.id);
@@ -191,12 +221,17 @@ export function usePoolsListPage() {
       }
     };
     if (clouds.length > 0) void loadVpcStats();
-  }, [clouds]);
+  }, [clouds, scope]);
+
+  const writeDeniedMessage =
+    scope === 'csm'
+      ? '权限不足：需要安全服务写入权限（security.services:write）'
+      : '权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）';
 
   const testConnection = useCallback(
     async (cloudId: string) => {
       if (!canWriteClouds) {
-        message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
+        message.error(writeDeniedMessage);
         return;
       }
       setTestingConnection(cloudId);
@@ -211,7 +246,7 @@ export function usePoolsListPage() {
         setTestingConnection(null);
       }
     },
-    [canWriteClouds, fetchClouds, reloadSummaryClouds],
+    [canWriteClouds, writeDeniedMessage, fetchClouds, reloadSummaryClouds],
   );
 
   const getStatusText = (status: string) => CLOUD_STATUS_MAP[status] || '未知';
@@ -220,19 +255,19 @@ export function usePoolsListPage() {
   const handleEdit = useCallback(
     (cloud: Cloud) => {
       if (!canWriteClouds) {
-        message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
+        message.error(writeDeniedMessage);
         return;
       }
       setEditingCloud(cloud);
       setEditModalVisible(true);
     },
-    [canWriteClouds],
+    [canWriteClouds, writeDeniedMessage],
   );
 
   const handleDelete = useCallback(
     (cloudId: string) => {
       if (!canWriteClouds) {
-        message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
+        message.error(writeDeniedMessage);
         return;
       }
 
@@ -253,7 +288,7 @@ export function usePoolsListPage() {
         },
       });
     },
-    [canWriteClouds, fetchClouds, reloadSummaryClouds],
+    [canWriteClouds, fetchClouds, reloadSummaryClouds, writeDeniedMessage],
   );
 
   const tableColumns: ColumnsType<Cloud> = useMemo(
@@ -422,11 +457,12 @@ export function usePoolsListPage() {
     ],
   );
 
-  const { displayColumns: activeColumns } = useTableColumnSettings(tableColumns, 'clouds-list');
+  const tableSettingsKey = scope === 'csm' ? 'csm-pools-list' : 'clouds-list';
+
+  const { displayColumns: activeColumns } = useTableColumnSettings(tableColumns, tableSettingsKey);
 
   const filteredClouds = useMemo(() => {
-    const filtered = (clouds || []).filter((c) => {
-      if (isCsmCloud(c)) return false;
+    const filtered = scopeClouds.filter((c) => {
       if (keyword && !c.name.toLowerCase().includes(keyword.toLowerCase())) return false;
       if (statusFilter?.length && !statusFilter.includes(c.status)) return false;
       if (typeFilter?.length && !typeFilter.includes(c.type)) return false;
@@ -440,10 +476,10 @@ export function usePoolsListPage() {
       const tb = Date.parse(String(b.createdAt || '')) || 0;
       return tb - ta;
     });
-  }, [clouds, keyword, statusFilter, typeFilter, vendorFilter]);
+  }, [scopeClouds, keyword, statusFilter, typeFilter, vendorFilter]);
 
   const { totalCnt, onlineCnt, offlineCnt, containerCounts, vmCounts, vpcCounts } = useMemo(() => {
-    const cnmcClouds = (clouds || []).filter((c) => !isCsmCloud(c));
+    const cnmcClouds = scopeClouds;
     const total = cnmcClouds.length;
     const online = cnmcClouds.filter((c) => c.status === 'online').length;
     const offline = total - online;
@@ -463,7 +499,7 @@ export function usePoolsListPage() {
       vmCounts: vmStats,
       vpcCounts: vpcStats,
     };
-  }, [clouds, vmStats, vpcStats]);
+  }, [scopeClouds, vmStats, vpcStats]);
 
   const handleFilterChange = (_changed: Partial<CloudsFilterFormValues>, all: CloudsFilterFormValues) => {
     setKeyword(all.keyword || '');
@@ -482,7 +518,7 @@ export function usePoolsListPage() {
 
   const handleBulkDelete = useCallback(async () => {
     if (!canWriteClouds) {
-      message.error('权限不足：需要资源池写入权限（clouds.resource-pools:write 或 clouds:write）');
+      message.error(writeDeniedMessage);
       return;
     }
     Modal.confirm({
@@ -528,7 +564,7 @@ export function usePoolsListPage() {
         }
       },
     });
-  }, [canWriteClouds, selectedRowKeys, fetchClouds, clouds, reloadSummaryClouds]);
+  }, [canWriteClouds, selectedRowKeys, fetchClouds, clouds, reloadSummaryClouds, writeDeniedMessage]);
 
   const bulkActionsMenu: MenuProps = {
     items: filterMenuItemsForReadOnly(
@@ -551,6 +587,10 @@ export function usePoolsListPage() {
   }, [fetchClouds, reloadSummaryClouds]);
 
   return {
+    scope,
+    canReadPage,
+    readAction,
+    writeAction,
     canWriteClouds,
     filterForm,
     handleFilterChange,
@@ -578,6 +618,7 @@ export function usePoolsListPage() {
     tableColumns,
     CLOUD_STATUS_MAP,
     CLOUD_TYPE_MAP,
-    cloudProviders,
+    cloudProviders: vendorProviderOptions,
+    tableSettingsKey,
   };
 }

@@ -540,6 +540,7 @@ export function useTenantUsersPage() {
     canReadTenantUsers,
     canWriteTenantUsers,
     canWriteRoleAssignments,
+    users,
     filteredUsers,
     columns,
     baseColumns,

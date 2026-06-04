@@ -13,10 +13,10 @@ export function showTenantDeleteBlockedByOrgUsersModal(
     content: (
       <div>
         <p style={{ marginBottom: 12 }}>
-          租户「{tenantName}」下仍有组织用户（共 <strong>{userCount}</strong> 个），无法删除。
+          租户「{tenantName}」下仍有租户组织用户（共 <strong>{userCount}</strong> 个），无法删除。
         </p>
         <p style={{ marginBottom: 0, color: '#8c8c8c', fontSize: 13 }}>
-          请先在「租户用户」中删除全部组织用户后，再删除租户。
+          请先在「租户组织用户管理」中删除全部租户组织用户后，再删除租户。
         </p>
       </div>
     ),
@@ -114,11 +114,11 @@ export function showBatchTenantDeleteBlockedModal(
     okText: '知道了',
     content: (
       <div>
-        <p style={{ marginBottom: 12 }}>以下租户仍包含组织用户，无法删除（需先删除租户下全部组织用户）：</p>
+        <p style={{ marginBottom: 12 }}>以下租户仍包含租户组织用户，无法删除（需先删除租户下全部租户组织用户）：</p>
         <ul style={{ margin: '0 0 0 18px', padding: 0 }}>
           {items.map(({ id, label, n }) => (
             <li key={id} style={{ marginBottom: 4 }}>
-              「{label}」：{n} 名组织用户
+              「{label}」：{n} 名租户组织用户
             </li>
           ))}
         </ul>
