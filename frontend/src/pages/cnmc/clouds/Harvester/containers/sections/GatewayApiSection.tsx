@@ -24,7 +24,6 @@ import {
   InfoCircleOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
-import yaml from 'js-yaml';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -42,9 +41,6 @@ import {
   deleteGatewayClass,
   createGatewayClass,
   patchHarvesterContainerResource,
-  updateGateway,
-  updateHttpRoute,
-  updateGrpcRoute,
   installNginxGatewayFabric,
 } from '../../../../../../services/harvesterApi';
 import { GatewayFormModal, HTTPRouteFormModal, GRPCRouteFormModal } from '../components';
@@ -152,7 +148,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   // YAML 抽屉状态
   const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
   const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
-  const [yamlEditingRecord, setYamlEditingRecord] = useState<any>(null);
   const [yamlEditingType, setYamlEditingType] = useState<
     'gateway' | 'httproute' | 'grpcroute' | null
   >(null);
@@ -318,7 +313,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
         message.warning('当前行缺少 View Link，无法拉取 YAML');
         return;
       }
-      setYamlEditingRecord(record);
       setYamlEditingType(type);
       setYamlViewLink(link);
       setYamlDrawerOpen(true);
@@ -330,7 +324,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
   const handleCloseYamlEdit = useCallback(() => {
     setYamlDrawerOpen(false);
     setYamlViewLink(undefined);
-    setYamlEditingRecord(null);
     setYamlEditingType(null);
   }, []);
 
