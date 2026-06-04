@@ -21,6 +21,7 @@ npm run manual:shots:vm
 npm run manual:shots:volumes
 npm run manual:shots:backups
 npm run manual:shots:vm-detail
+npm run manual:shots:network
 ```
 
 ## 第 2 章 · ch02-pool/
@@ -66,7 +67,8 @@ npm run manual:shots:vm-detail
 
 脚本：`npm run manual:shots:volumes
 npm run manual:shots:backups
-npm run manual:shots:vm-detail`
+npm run manual:shots:vm-detail
+npm run manual:shots:network`
 
 
 
@@ -82,7 +84,27 @@ npm run manual:shots:vm-detail`
 | vm-detail-disk-manage.png | 资源配置 · 磁盘管理 |
 | vm-detail-spec-config.png | 资源配置 · 调整规格 |
 
-脚本：`npm run manual:shots:vm-detail`
+脚本：`npm run manual:shots:vm-detail
+npm run manual:shots:network`
+
+
+## 第 3.4 章 · ch03-network/
+
+| 文件 | 说明 |
+|------|------|
+| flat-subnet-list-page.png | 扁平子网列表 |
+| flat-subnet-list-toolbar.png | 创建扁平子网 |
+| flat-subnet-create-modal.png | 创建扁平子网弹窗 |
+| flat-security-group-list-page.png | 安全组列表 |
+| flat-eip-list-page.png | 扁平域公网 IP |
+| flat-eip-create-modal.png | 创建公网 IP |
+| vpc-list-page.png | VPC 列表 |
+| vpc-create-modal.png | 创建 VPC |
+| vpc-subnet-list-page.png | VPC 子网列表 |
+| vpc-subnet-create-modal.png | 新建 VPC 子网 |
+| vpc-eip-list-page.png | VPC 域 EIP |
+
+脚本：`npm run manual:shots:network`
 
 ## 第 3.9 章 · ch03-backups/
 
@@ -100,7 +122,8 @@ npm run manual:shots:vm-detail`
 | restore-tasks-list-page.png | 恢复任务列表 |
 
 脚本：`npm run manual:shots:backups
-npm run manual:shots:vm-detail`
+npm run manual:shots:vm-detail
+npm run manual:shots:network`
 
 ## 第 3.2.7 · assets/image-*.png
 
