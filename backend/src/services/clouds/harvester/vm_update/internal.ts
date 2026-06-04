@@ -3,6 +3,8 @@ import { supportCPUAndMemoryHotplug } from './hotplug';
 import { hasOnlySimpleVmSpecFields } from './specFields';
 import { applySimpleHarvesterVMSpecPatch } from './applySimpleSpecPatch';
 import { applyComplexHarvesterVMSpecPatch } from './applyComplexSpecPatch';
+import { validateHugepagesSpec } from './validateHugepages';
+import { validateNumaSpec } from './validateNuma';
 
 export const updateHarvesterVMSpecInternal = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
@@ -56,6 +58,9 @@ export const updateHarvesterVMSpecInternal = async (
   console.log(`  maxGuest: ${currentMemoryForLog.maxGuest ?? 'undefined'}`);
 
   console.log('\n' + '-'.repeat(80));
+
+  validateHugepagesSpec(spec, current);
+  validateNumaSpec(spec, current);
 
   if (hasOnlySimpleVmSpecFields(spec)) {
     return applySimpleHarvesterVMSpecPatch({

@@ -14,6 +14,10 @@ const RESTART_COMPARE_KEYS = [
   "cpuModelCustom",
   "dedicatedCPUPlacement",
   "isolateEmulatorThread",
+  "hugepagesEnabled",
+  "hugepagesPageSize",
+  "numaMode",
+  "numaManualNodeCount",
 ] as const;
 
 /** 可走「无重启确认」路径的 QoS 键（与表单 / submit 载荷一致） */
@@ -42,7 +46,13 @@ function restartFieldEqual(key: (typeof RESTART_COMPARE_KEYS)[number], a: unknow
       return normNum(a) === normNum(b);
     case "dedicatedCPUPlacement":
     case "isolateEmulatorThread":
-      return normBool(a) === normBool(b);
+    case "hugepagesEnabled":
+    case "numaMode":
+      return normStr(a || "off") === normStr(b || "off");
+    case "numaManualNodeCount":
+      return normNum(a) === normNum(b);
+    case "hugepagesPageSize":
+      return normStr(a || "2Mi") === normStr(b || "2Mi");
     case "cpuModel":
       return normStr(a || "host-passthrough") === normStr(b || "host-passthrough");
     case "cpuModelCustom":

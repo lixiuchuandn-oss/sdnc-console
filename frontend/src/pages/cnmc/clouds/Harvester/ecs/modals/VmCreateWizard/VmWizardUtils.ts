@@ -6,6 +6,7 @@ import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOpt
 import { buildPodAffinityForK8s } from '../../lib/podAffinityK8s';
 import { findGpuResource, getGpuNodeName, getGpuResourceName } from '../../lib/gpuResourceResolve';
 import { buildNodeSelectorFromLabelForm } from '../../lib/vmFailureDomainNodeSelector';
+import { buildManualNumaNodes } from '../../lib/numaHugepagesSpec';
 
 /**
  * ==============================================================================
@@ -260,6 +261,10 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   gpuMode: 'none',
   gpuCount: 0,
   hotExpandEnabled: false,
+  hugepagesEnabled: false,
+  hugepagesPageSize: '2Mi',
+  numaMode: 'off',
+  numaManualNodeCount: 2,
   bootUseEfi: false,
   efiPersistent: false,
   efiSecureBoot: false,
@@ -1007,8 +1012,24 @@ export const buildHarvesterVmPayload = (params: {
                         sockets: sockets,
                         threads: threads,
                         maxSockets: hotExpandEnabled ? sockets * 4 : undefined,
-                        dedicatedCpuPlacement: !!v.dedicatedCPUPlacement,
+                        dedicatedCpuPlacement: !!(v.dedicatedCPUPlacement || v.numaMode === 'auto' || v.numaMode === 'manual'),
                         isolateEmulatorThread: !!v.isolateEmulatorThread,
+                        ...(function () {
+                          const mode = String(v.numaMode || 'off');
+                          if (mode === 'auto') {
+                            return { numa: { guestMappingPassthrough: {} } };
+                          }
+                          if (mode === 'manual') {
+                            const total = sockets * cores * threads;
+                            const nodes = buildManualNumaNodes(
+                              total,
+                              Number(v.numaManualNodeCount || 2),
+                              actualMemGi,
+                            );
+                            return nodes.length ? { numa: { nodes } } : {};
+                          }
+                          return {};
+                        })(),
                         model: (function () {
                           const m = String(v.cpuModel || '').trim();
                           if (m === 'custom') return String(v.cpuModelCustom || '').trim() || undefined;
@@ -1017,7 +1038,10 @@ export const buildHarvesterVmPayload = (params: {
                     },
                     memory: {
                         guest: memory,
-                        maxGuest: hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined
+                        maxGuest: hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined,
+                        ...(v.hugepagesEnabled && v.hugepagesPageSize
+                          ? { hugepages: { pageSize: String(v.hugepagesPageSize) } }
+                          : {})
                     },
                     resources: {
                         limits: (function () {

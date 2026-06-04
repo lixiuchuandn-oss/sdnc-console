@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
-# Cloudmap 白皮书：Markdown 源稿 -> HTML（浏览器预览整本）
+# Cloudmap 白皮书 / 使用手册：Markdown -> HTML
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="$ROOT/source"
-OUTPUT_DIR="$ROOT/output"
-MANIFEST="$SOURCE/manifest.txt"
-OUTPUT="${1:-$OUTPUT_DIR/cloudmap-whitepaper.html}"
+VARIANT="${VARIANT:-whitepaper}"
+OUTPUT="${1:-}"
 OPEN="${OPEN:-0}"
+
+if [[ "$VARIANT" == "manual" ]]; then
+  DOC_ROOT="$ROOT/user-manual"
+  DEFAULT_NAME="cloudmap-user-manual.html"
+  TITLE="Cloudmap 使用手册"
+else
+  DOC_ROOT="$ROOT"
+  DEFAULT_NAME="cloudmap-whitepaper.html"
+  TITLE="Cloudmap Whitepaper"
+fi
+
+SOURCE="$DOC_ROOT/source"
+OUTPUT_DIR="$DOC_ROOT/output"
+MANIFEST="$SOURCE/manifest.txt"
+OUTPUT="${OUTPUT:-$OUTPUT_DIR/$DEFAULT_NAME}"
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "缺少 $MANIFEST" >&2
@@ -28,6 +41,7 @@ for rel in "${FILES[@]}"; do
 done
 
 CSS="$ROOT/templates/preview.css"
+WP_ASSETS="$ROOT/source/assets"
 ARGS=(
   "${INPUTS[@]}"
   -o "$OUTPUT"
@@ -36,19 +50,20 @@ ARGS=(
   --standalone
   --toc
   --toc-depth=3
-  --metadata title="Cloudmap Whitepaper"
-  "--resource-path=$SOURCE"
+  --metadata "title=$TITLE"
+  "--resource-path=$SOURCE:$WP_ASSETS"
 )
 [[ -f "$CSS" ]] && ARGS+=( "--css=../templates/preview.css" )
 
 pandoc "${ARGS[@]}"
 
-ASSETS_SRC="$SOURCE/assets"
-ASSETS_OUT="$OUTPUT_DIR/assets"
-if [[ -d "$ASSETS_SRC" ]]; then
-  mkdir -p "$ASSETS_OUT"
-  cp -f "$ASSETS_SRC"/* "$ASSETS_OUT"/
-fi
+for ASSETS_SRC in "$SOURCE/assets" "$WP_ASSETS"; do
+  if [[ -d "$ASSETS_SRC" ]]; then
+    ASSETS_OUT="$OUTPUT_DIR/assets"
+    mkdir -p "$ASSETS_OUT"
+    cp -f "$ASSETS_SRC"/* "$ASSETS_OUT"/ 2>/dev/null || true
+  fi
+done
 
 echo "已生成: $OUTPUT"
 

@@ -40,6 +40,7 @@ import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
+import { validateVmPerformanceAdvancedForm } from '../lib/numaHugepagesSpec';
 import { hasLabelModeNodeSelector } from '../lib/vmFailureDomainNodeSelector';
 import {
   clearVmAdvancedSchedulingFormFields,
@@ -573,6 +574,27 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
 
       const sizeError = validateImageSize(v, images || []);
       if (sizeError) { message.error(sizeError); return; }
+
+      const perfErr = validateVmPerformanceAdvancedForm({
+        hugepagesEnabled: v.hugepagesEnabled,
+        hugepagesPageSize: v.hugepagesPageSize,
+        hotExpandEnabled: v.hotExpandEnabled,
+        memory: v.memory,
+        memoryLimitGi: v.memoryLimitGi,
+        numaMode: v.numaMode,
+        numaManualNodeCount: v.numaManualNodeCount,
+        dedicatedCPUPlacement:
+          v.dedicatedCPUPlacement || v.numaMode === 'auto' || v.numaMode === 'manual',
+        cpuSockets: v.cpuSockets,
+        cpuCores: v.cpuCores,
+        cpuThreads: v.cpuThreads,
+        cpu: v.cpu,
+      });
+      if (perfErr) {
+        message.error(perfErr);
+        setStep(1);
+        return;
+      }
 
       if (
         podAffinityRef.current?.getHasLabelErrors() ||

@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
-# Cloudmap 白皮书：Markdown 源稿 -> Word
+# Cloudmap 白皮书 / 使用手册：Markdown -> Word
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SOURCE="$ROOT/source"
-OUTPUT_DIR="$ROOT/output"
-MANIFEST="$SOURCE/manifest.txt"
-OUTPUT="${1:-$OUTPUT_DIR/cloudmap-whitepaper.docx}"
+VARIANT="${VARIANT:-whitepaper}"
+OUTPUT="${1:-}"
 COPY_DEPLOY="${COPY_TO_DEPLOYMENT:-0}"
+
+if [[ "$VARIANT" == "manual" ]]; then
+  DOC_ROOT="$ROOT/user-manual"
+  DEFAULT_NAME="cloudmap-user-manual.docx"
+  DEPLOY_NAME="Cloudmap_user_manual.docx"
+else
+  DOC_ROOT="$ROOT"
+  DEFAULT_NAME="cloudmap-whitepaper.docx"
+  DEPLOY_NAME="Cloudmap_whitepaper.docx"
+fi
+
+SOURCE="$DOC_ROOT/source"
+OUTPUT_DIR="$DOC_ROOT/output"
+MANIFEST="$SOURCE/manifest.txt"
+OUTPUT="${OUTPUT:-$OUTPUT_DIR/$DEFAULT_NAME}"
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "缺少 $MANIFEST" >&2
@@ -28,7 +41,8 @@ for rel in "${FILES[@]}"; do
 done
 
 REF="$ROOT/templates/reference.docx"
-ARGS=( "${INPUTS[@]}" -o "$OUTPUT" --from markdown --to docx --toc --toc-depth=3 "--resource-path=$SOURCE" )
+WP_ASSETS="$ROOT/source/assets"
+ARGS=( "${INPUTS[@]}" -o "$OUTPUT" --from markdown --to docx --toc --toc-depth=3 "--resource-path=$SOURCE:$WP_ASSETS" )
 [[ -f "$REF" ]] && ARGS+=( "--reference-doc=$REF" )
 
 pandoc "${ARGS[@]}"
@@ -37,6 +51,6 @@ echo "已生成: $OUTPUT"
 if [[ "$COPY_DEPLOY" == "1" ]]; then
   DEPLOY="$(cd "$ROOT/../.." && pwd)/deployment"
   mkdir -p "$DEPLOY"
-  cp -f "$OUTPUT" "$DEPLOY/Cloudmap_超融合平台技术白皮书.docx"
-  echo "已复制到: $DEPLOY/Cloudmap_超融合平台技术白皮书.docx"
+  cp -f "$OUTPUT" "$DEPLOY/$DEPLOY_NAME"
+  echo "已复制到: $DEPLOY/$DEPLOY_NAME"
 fi

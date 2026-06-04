@@ -17,6 +17,11 @@ export const VM_SPEC_SIMPLE_FIELDS = [
   'evictionStrategy',
   'maxSockets',
   'maxMemory',
+  'hugepagesEnabled',
+  'hugepagesPageSize',
+  'numaGuestMappingPassthrough',
+  'numaMode',
+  'numaManualNodeCount',
 ] as const;
 
 export const hasOnlySimpleVmSpecFields = (spec: Record<string, unknown>): boolean =>
