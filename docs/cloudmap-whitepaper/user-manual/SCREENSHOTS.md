@@ -19,6 +19,7 @@ npm run manual:shots:pool
 npm run manual:shots:images
 npm run manual:shots:vm
 npm run manual:shots:volumes
+npm run manual:shots:backups
 ```
 
 ## 第 2 章 · ch02-pool/
@@ -62,7 +63,26 @@ npm run manual:shots:volumes
 | snapshot-list-page.png | 云盘快照列表 |
 | volume-snapshot-restore-modal.png | 恢复云盘快照 |
 
-脚本：`npm run manual:shots:volumes`
+脚本：`npm run manual:shots:volumes
+npm run manual:shots:backups`
+
+
+## 第 3.9 章 · ch03-backups/
+
+| 文件 | 说明 |
+|------|------|
+| vm-backup-list-page.png | 云主机备份列表 |
+| vm-backup-list-toolbar.png | 创建备份 |
+| vm-backup-create-modal.png | 创建虚拟机备份 |
+| vm-backup-restore-modal.png | 恢复虚拟机 |
+| vm-snapshot-list-page.png | 云主机快照列表 |
+| vm-snapshot-create-modal.png | 创建虚拟机快照 |
+| schedule-backup-list-page.png | 定时策略列表 |
+| schedule-backup-list-toolbar.png | 创建定时策略 |
+| schedule-backup-create-modal.png | 创建定时策略弹窗 |
+| restore-tasks-list-page.png | 恢复任务列表 |
+
+脚本：`npm run manual:shots:backups`
 
 ## 第 3.2.7 · assets/image-*.png
 
