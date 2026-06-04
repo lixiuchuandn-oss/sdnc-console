@@ -1,33 +1,60 @@
-# 浣跨敤鎵嬪唽 路 鎴浘娓呭崟
+# 使用手册 · 截图清单
 
-## 鍓嶇疆锛氬叏鍔熻兘鎺堟潈锛堟湰鍦版埅鍥惧繀鍋氾級
+## 前置：全功能授权（本地截图必做）
 
-鎵嬪唽鎴浘闇€ **澶氫簯绠＄悊** 绛夎兘鍔涙椂锛屽厛鍦?`backend/` 绛惧彂骞舵縺娲讳紒涓氱増 License锛?
+手册截图需 **多云管理** 等能力时，先在 `backend/` 签发并激活企业版 License：
+
 ```powershell
 cd D:\Compute.Tower\backend
-node scripts/issue-enterprise-license.cjs --activate
+node dev/issue-enterprise-license.cjs --activate
 ```
 
-鑴氭湰鍐欏叆 `backend/data/license.key`锛堝凡鍦?.gitignore锛屽嬁鎻愪氦锛夈€傛縺娲诲悗 **鍒锋柊娴忚鍣?* 鍐嶈窇 Playwright銆?
-## 鍛戒护
+脚本写入 `backend/data/license.key`（已在 .gitignore，勿提交）。激活后 **刷新浏览器** 再跑 Playwright。
+
+## 命令
 
 ```powershell
 cd D:\Compute.Tower\tests
 npm run manual:shots:pool
 npm run manual:shots:images
+npm run manual:shots:vm
 ```
 
-## 绗?2 绔?路 ch02-pool/
+## 第 2 章 · ch02-pool/
 
-| 鏂囦欢 | 璇存槑 |
+| 文件 | 说明 |
 |------|------|
-| header-pool-strip.png | 椤舵爮鍙敤鍖?|
-| header-edge-pool-modal.png | 鎺ュ叆杈圭紭浜戯紙鍗曟睜锛?|
-| multi-pool-list.png | 璧勬簮姹犵鐞嗗垪琛?|
-| multi-pool-wizard-select.png | 鏂板璧勬簮姹?路 閫?Cloudmap |
-| multi-pool-wizard-config.png | 閰嶇疆浜戣处鍙?|
-| multi-pool-wizard-test.png | 杩炴帴娴嬭瘯 |
+| header-pool-strip.png | 顶栏可用区 |
+| header-edge-pool-modal.png | 接入边缘云（单池） |
+| multi-pool-list.png | 资源池管理列表 |
+| multi-pool-wizard-select.png | 新增资源池 · 选 Cloudmap |
+| multi-pool-wizard-config.png | 配置云账号 |
+| multi-pool-wizard-test.png | 连接测试 |
 
-## 绗?3.2.7 路 assets/image-*.png
+脚本：`npm run manual:shots:pool`
 
-鑴氭湰锛歚npm run manual:shots:images`
+## 第 3.2 章 · ch03-vm/
+
+| 文件 | 说明 |
+|------|------|
+| vm-list-toolbar.png | 云主机列表 · 快速创建 / 创建向导 |
+| vm-quick-create-modal.png | 快速创建弹窗 |
+| vm-wizard-step-basic.png | 创建向导 · 基本信息 |
+| vm-wizard-step-compute.png | 创建向导 · 计算与规格 |
+| vm-wizard-step-disks.png | 创建向导 · 存储与磁盘 |
+| vm-wizard-step-networks.png | 创建向导 · 网络与连接 |
+| vm-wizard-step-login.png | 创建向导 · 登录与凭据 |
+| vm-wizard-step-advanced.png | 创建向导 · 高级设置 |
+
+脚本：`npm run manual:shots:vm`
+
+## 第 3.2.7 · assets/image-*.png
+
+| 文件 | 说明 |
+|------|------|
+| image-list-toolbar.png | 镜像列表工具栏 |
+| image-create-browser-upload.png | 浏览器上传 Tab |
+| image-upload-tasks-drawer.png | 上传任务抽屉 |
+| image-list-pending-sync.png | 待同步列表行 |
+
+脚本：`npm run manual:shots:images`
