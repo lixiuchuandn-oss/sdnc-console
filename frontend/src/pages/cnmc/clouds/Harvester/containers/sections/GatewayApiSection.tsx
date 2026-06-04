@@ -310,37 +310,6 @@ const GatewayApiSection: React.FC<GatewayApiSectionProps> = ({
     [aliasRecord, aliasResourceType, getApiPath, cloudId, onRefresh, aliasForm],
   );
 
-  // YAML 编辑 - 保存 YAML
-  const handleSaveYaml = useCallback(
-    async (yamlText: string) => {
-      if (!yamlEditingRecord || !yamlEditingType) return;
-      const ns = yamlEditingRecord?.metadata?.namespace;
-      const name = yamlEditingRecord?.metadata?.name;
-
-      let data: unknown;
-      try {
-        data = yaml.load(yamlText);
-      } catch {
-        message.error('YAML 格式错误');
-        throw new Error('YAML 格式错误');
-      }
-
-      switch (yamlEditingType) {
-        case 'gateway':
-          await updateGateway(cloudId, ns, name, data);
-          break;
-        case 'httproute':
-          await updateHttpRoute(cloudId, ns, name, data);
-          break;
-        case 'grpcroute':
-          await updateGrpcRoute(cloudId, ns, name, data);
-          break;
-      }
-      void runContainerSectionRefresh(onRefresh, { force: true });
-    },
-    [cloudId, yamlEditingRecord, yamlEditingType, onRefresh],
-  );
-
   // 打开 YAML 抽屉
   const handleOpenYamlEdit = useCallback(
     (record: any, type: 'gateway' | 'httproute' | 'grpcroute') => {
