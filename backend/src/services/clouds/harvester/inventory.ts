@@ -122,7 +122,9 @@ function mapHarvesterImageInventoryEntity(cloudId: string, item: any) {
       const m = /^image-([a-z0-9]+)$/i.exec(String(name).trim());
       return m?.[1] ? `longhorn-image-${m[1]}` : '';
     })();
-  const annSc = String(item.metadata?.annotations?.['harvesterhci.io/storageClassName'] || '').trim();
+  const annSc = String(
+    item.metadata?.annotations?.['harvesterhci.io/storageClassName'] || '',
+  ).trim();
   const storageClassName =
     derivedSc ||
     String(item.storageClassName || '').trim() ||
@@ -183,7 +185,10 @@ function mergeVmImageRawData(existing: any, incoming: any): any {
 /**
  * 增量写入镜像库存（不 DELETE 全表），用于代传创建 VMImage 后或单条进度更新。
  */
-export async function upsertHarvesterImageInventoryItems(cloudId: string, items: any[]): Promise<void> {
+export async function upsertHarvesterImageInventoryItems(
+  cloudId: string,
+  items: any[],
+): Promise<void> {
   if (!items?.length) return;
   const repo = AppDataSource.getRepository(HarvesterImageInventory);
   const lockKey = `HarvesterImageInventory:${cloudId}`;
@@ -256,8 +261,7 @@ const upsertItems = async (
     });
 
     /** SQLite：子网 `rawData` 极大时，TypeORM+sqlite3 的批量 INSERT 在个别环境会生成非法 SQL（如 SQLITE_ERROR: near "-"）。逐行 save 走单行 INSERT，其它库存仍批量 save。 */
-    const sqliteSubnetRowByRow =
-      isSqliteDb() && repo.target === KubeOvnSubnetInventory;
+    const sqliteSubnetRowByRow = isSqliteDb() && repo.target === KubeOvnSubnetInventory;
 
     await withSqliteTransactionRetry(async () => {
       await AppDataSource.transaction(async (manager: any) => {
@@ -286,11 +290,7 @@ export const syncHarvesterImages = async (
   opts?: { allowDuringUploadProxy?: boolean },
 ) => {
   const cloudId = String(cloud?.id || '').trim();
-  if (
-    !opts?.allowDuringUploadProxy &&
-    cloudId &&
-    hasImageUploadProxyInFlightForCloud(cloudId)
-  ) {
+  if (!opts?.allowDuringUploadProxy && cloudId && hasImageUploadProxyInFlightForCloud(cloudId)) {
     invLog.debug(`${cloud.name}: skip full image sync while upload proxy in flight`);
     return;
   }

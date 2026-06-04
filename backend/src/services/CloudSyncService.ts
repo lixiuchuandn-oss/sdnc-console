@@ -90,9 +90,12 @@ export class CloudSyncService {
     cloudSyncLog.info('Starting background sync job...');
     const deferImmediate =
       process.env.TOWER_BACKGROUND_SYNC_IMMEDIATE === '0' ||
-      (process.env.NODE_ENV === 'development' && process.env.TOWER_BACKGROUND_SYNC_IMMEDIATE !== '1');
+      (process.env.NODE_ENV === 'development' &&
+        process.env.TOWER_BACKGROUND_SYNC_IMMEDIATE !== '1');
     if (deferImmediate) {
-      cloudSyncLog.info('开发环境跳过启动时立即云同步，避免与登录争抢 SQLite（可设 TOWER_BACKGROUND_SYNC_IMMEDIATE=1 恢复）');
+      cloudSyncLog.info(
+        '开发环境跳过启动时立即云同步，避免与登录争抢 SQLite（可设 TOWER_BACKGROUND_SYNC_IMMEDIATE=1 恢复）',
+      );
     } else {
       this.syncAllClouds();
     }
