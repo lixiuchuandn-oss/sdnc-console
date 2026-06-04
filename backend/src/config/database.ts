@@ -522,6 +522,77 @@ export async function ensureFailureDomainTables() {
   }
 }
 
+/** Cloudmap 虚拟机部署集（Tower 本地，供 Pod 亲和/反亲和引用） */
+export async function ensureDeploymentSetTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过部署集表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_deployment_sets'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_deployment_sets 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_deployment_sets" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" text NOT NULL,
+          "namespace" text NOT NULL,
+          "labels" text,
+          "description" text,
+          "sortOrder" integer NOT NULL DEFAULT 0,
+          "schedulingPolicy" text NOT NULL DEFAULT 'none',
+          "schedulingStrength" text NOT NULL DEFAULT 'preferred',
+          "topologyKey" text NOT NULL DEFAULT 'kubernetes.io/hostname',
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_deployment_sets_cloudId_name"
+        ON "cloud_deployment_sets" ("cloudId", "name")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_deployment_sets_cloudId"
+        ON "cloud_deployment_sets" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_deployment_sets_cloudId_namespace"
+        ON "cloud_deployment_sets" ("cloudId", "namespace")
+      `);
+      dbLog.info('部署集表创建成功');
+    }
+    await ensureDeploymentSetSchedulingColumns();
+  } catch (error) {
+    dbLog.error('部署集表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function ensureDeploymentSetSchedulingColumns() {
+  const cols: Array<{ name?: string }> = await AppDataSource.query(
+    `PRAGMA table_info("cloud_deployment_sets")`,
+  );
+  const names = new Set(cols.map((c) => String(c.name || '')));
+  if (!names.has('schedulingPolicy')) {
+    await AppDataSource.query(
+      `ALTER TABLE "cloud_deployment_sets" ADD COLUMN "schedulingPolicy" text NOT NULL DEFAULT 'none'`,
+    );
+  }
+  if (!names.has('schedulingStrength')) {
+    await AppDataSource.query(
+      `ALTER TABLE "cloud_deployment_sets" ADD COLUMN "schedulingStrength" text NOT NULL DEFAULT 'preferred'`,
+    );
+  }
+  if (!names.has('topologyKey')) {
+    await AppDataSource.query(
+      `ALTER TABLE "cloud_deployment_sets" ADD COLUMN "topologyKey" text NOT NULL DEFAULT 'kubernetes.io/hostname'`,
+    );
+  }
+}
+
 /** Cloudmap 存储 DRS（SDRS）策略与任务 */
 export async function ensureSdrsTables() {
   try {

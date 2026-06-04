@@ -217,6 +217,18 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             initialOperateTab="failure_domains"
           />
         );
+      case 'compute_deployment_sets':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="deployment_sets"
+          />
+        );
       case 'compute_projects':
         return (
           <NamespacesSection

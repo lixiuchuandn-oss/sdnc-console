@@ -35,7 +35,7 @@ export async function submitVmReconfigureChangeNodeScheduling(
     throw new VmReconfigureSubmitSkipFinalize();
   }
   if (mode === 'label') {
-    if (!hasLabelModeNodeSelector({ failureDomainName, nodeSelectorPairs })) {
+    if (!hasLabelModeNodeSelector({ failureDomainName })) {
       message.error(vmFailureDomainRequiredMessage());
       throw new VmReconfigureSubmitSkipFinalize();
     }
@@ -65,7 +65,7 @@ export async function submitVmReconfigureChangeNodeScheduling(
     }
   } else if (mode === 'label') {
     updateParams.nodeSelector =
-      buildNodeSelectorFromLabelForm({ failureDomainName, nodeSelectorPairs }) ?? null;
+      buildNodeSelectorFromLabelForm({ failureDomainName }) ?? null;
   }
 
   await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);

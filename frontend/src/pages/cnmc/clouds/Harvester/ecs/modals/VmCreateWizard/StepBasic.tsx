@@ -14,7 +14,7 @@
  * 3. [调度策略]:
  *    - 自动调度: 让 K8s 调度器决定。
  *    - 指定主机: 强制调度到特定节点 (nodeName)。
- *    - 故障域: 选择集群已定义的故障域（写入 nodeSelector），可叠加节点标签。
+ *    - 故障域: 选择集群已定义的故障域（写入 nodeSelector）。
  * 4. [能力检测]: 根据资源池 ID 获取 Harvester 集群能力（写入 clusterArch / machineType；表单项隐藏，提交与校验仍注册）。
  * ------------------------------------------------------------------------------
  *
@@ -29,7 +29,7 @@
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Typography, Button, Row, Col, Alert, Spin } from 'antd';
+import { Form, Input, Select, Radio, Space, Table, Typography, Button, Row, Col, Alert, Spin, Checkbox } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from 'services/harvester/vm';
 import {
@@ -39,8 +39,10 @@ import {
 import { useHarvesterPublicNamespaces } from '../../../shared/context/HarvesterPublicNamespacesContext';
 import { useHarvesterNodeResourceMaps } from '../../drawers/shared/lib/useHarvesterNodeResourceMaps';
 import { buildHarvesterNodePickerTableColumns } from '../../drawers/shared/lib/harvesterNodePickerTableColumns';
-import type { PodAffinityEditorHandle } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
-import StepOthersPodAffinity from './StepOthersPodAffinity';
+import VmDeploymentSetField from '../../lib/VmDeploymentSetField';
+import { applyDeploymentSetToWizardForm } from '../../lib/vmDeploymentSet';
+import { setMetricAutoScheduledExclusive } from '../../lib/vmSchedulingExclusion';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 import {
   fetchFailureDomainOverview,
   type FailureDomainRow,
@@ -95,9 +97,7 @@ interface StepBasicProps {
   isTenant?: boolean;
   /** 命名空间原始对象（用于按 tower.io/scenario 默认选中） */
   namespaceRecords?: any[];
-  namespacesOptions: string[];
-  podAffinityRef: React.RefObject<PodAffinityEditorHandle>;
-  podAntiAffinityRef: React.RefObject<PodAffinityEditorHandle>;
+  onDeploymentSetsLoaded?: (sets: DeploymentSetRow[]) => void;
 }
 
 const StepBasic: React.FC<StepBasicProps> = ({
@@ -120,11 +120,11 @@ const StepBasic: React.FC<StepBasicProps> = ({
   filteredNodes,
   isTenant,
   namespaceRecords,
-  namespacesOptions,
-  podAffinityRef,
-  podAntiAffinityRef,
+  onDeploymentSetsLoaded,
 }) => {
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
+  const deploymentSetId = Form.useWatch('deploymentSetId', form);
+  const metricAutoScheduled = Form.useWatch('metricAutoScheduled', form);
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
   const [failureDomains, setFailureDomains] = useState<FailureDomainRow[]>([]);
   const [failureDomainsLoading, setFailureDomainsLoading] = useState(false);
@@ -157,6 +157,12 @@ const StepBasic: React.FC<StepBasicProps> = ({
       cancelled = true;
     };
   }, [cloudId, hostModeState]);
+
+  useEffect(() => {
+    if (hostModeState === 'node') {
+      applyDeploymentSetToWizardForm(form, null);
+    }
+  }, [hostModeState, form]);
 
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } =
     useHarvesterNodeResourceMaps(cloudId);
@@ -299,6 +305,21 @@ const StepBasic: React.FC<StepBasicProps> = ({
           </Form.Item>
         </Col>
       </Row>
+      {hostModeState === 'auto' ? (
+        <Form.Item
+          name="metricAutoScheduled"
+          valuePropName="checked"
+          preserve
+          style={{ marginBottom: 12 }}
+        >
+          <Checkbox
+            disabled={!!deploymentSetId}
+            onChange={(e) => setMetricAutoScheduledExclusive(form, e.target.checked)}
+          >
+            参与指标自动调度
+          </Checkbox>
+        </Form.Item>
+      ) : null}
       {isTenant && visibleNamespaceOptions.length === 0 ? (
         <Alert
           type="warning"
@@ -320,20 +341,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
           <Form.Item
             name="failureDomainName"
             preserve
-            rules={[
-              {
-                validator: async (_, value) => {
-                  const fd = String(value || '').trim();
-                  const pairs = form.getFieldValue('nodeSelectorPairs') || [];
-                  const hasOther = (Array.isArray(pairs) ? pairs : []).some(
-                    (p: { key?: string; value?: string }) =>
-                      String(p?.key || '').trim() && String(p?.value || '').trim(),
-                  );
-                  if (fd || hasOther) return;
-                  throw new Error(vmFailureDomainRequiredMessage());
-                },
-              },
-            ]}
+            rules={[{ required: true, message: vmFailureDomainRequiredMessage() }]}
           >
             <Select
               allowClear
@@ -466,14 +474,18 @@ const StepBasic: React.FC<StepBasicProps> = ({
             <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
           </Form.Item>
         </Col>
+        <Col span={24}>
+          {hostModeState !== 'node' ? (
+            <VmDeploymentSetField
+              cloudId={cloudId}
+              form={form}
+              disabled={metricAutoScheduled === true}
+              disabledReason="已启用指标自动调度，不能同时使用部署集"
+              onSetsLoaded={onDeploymentSetsLoaded}
+            />
+          ) : null}
+        </Col>
       </Row>
-
-      <StepOthersPodAffinity
-        hostModeState={hostModeState}
-        namespacesOptions={namespacesOptions}
-        podAffinityRef={podAffinityRef}
-        podAntiAffinityRef={podAntiAffinityRef}
-      />
     </>
   );
 };

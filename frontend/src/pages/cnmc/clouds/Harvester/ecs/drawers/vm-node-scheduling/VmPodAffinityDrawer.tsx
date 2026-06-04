@@ -1,17 +1,16 @@
 /**
- * 虚拟机 · 虚拟机间亲和/反亲和（podAffinity / podAntiAffinity）：详情「调度策略」入口。
+ * 虚拟机 · 部署集（pod 标签 + 由部署集策略生成的亲和/反亲和）：详情「调度策略」入口。
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button, Drawer, Flex, Form, message } from 'antd';
-import type { PodAffinityEditorHandle } from '../../../containers/components/workloadForm/editors/PodAffinityEditor';
-import { fetchHarvesterNamespaces } from 'services/harvester/clusterInventory';
 import { buildVmReconfigureSubmitCtx } from '../../lib/vmMutation/vmReconfigureSubmitContext';
 import { VmReconfigureSubmitSkipFinalize } from '../../lib/vmMutation/vmReconfigureSubmitTypes';
 import { useVmManageDrawerCssVars } from '../shared/lib/useVmManageDrawerCssVars';
 import { useVmSpecPostSubmit } from '../vm-spec-config/lib/useVmSpecPostSubmit';
 import ChangePodAffinityFields from './ChangePodAffinityFields';
 import { submitVmReconfigureChangePodAffinity } from './lib/submitPodAffinity';
-import '../shared/styles/vmManageDrawer.css';
+import { isVmFixedHostScheduling } from '../../lib/vmDeploymentSet';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 
 export type VmPodAffinityDrawerProps = {
   open: boolean;
@@ -39,11 +38,10 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
 }) => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
-  const [namespaceOptions, setNamespaceOptions] = useState<string[]>([]);
-  const podAffinityRef = useRef<PodAffinityEditorHandle>(null);
-  const podAntiAffinityRef = useRef<PodAffinityEditorHandle>(null);
+  const [deploymentSets, setDeploymentSets] = useState<DeploymentSetRow[]>([]);
   const vmManageCssVars = useVmManageDrawerCssVars();
   const activeRecord = latestVm || vmData;
+  const fixedHost = isVmFixedHostScheduling(activeRecord);
 
   const { openRestartConfirm, fetchAggregatedVm } = useVmSpecPostSubmit({
     cloudId,
@@ -56,33 +54,6 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
     vmData?.metadata?.uid ||
     `${vmData?.metadata?.namespace || ''}/${vmData?.metadata?.name || ''}`;
 
-  const namespacesOptions = useMemo(() => {
-    const vmNs = activeRecord?.metadata?.namespace;
-    const merged = new Set<string>(namespaceOptions);
-    if (vmNs) merged.add(String(vmNs));
-    return Array.from(merged).sort();
-  }, [namespaceOptions, activeRecord?.metadata?.namespace]);
-
-  useEffect(() => {
-    if (!open || !cloudId) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res: any = await fetchHarvesterNamespaces(cloudId, false, true);
-        const items = res?.data?.items || res?.items || [];
-        const names = items
-          .map((ns: any) => ns?.metadata?.name)
-          .filter((n: string) => n && String(n).trim());
-        if (!cancelled) setNamespaceOptions(names);
-      } catch {
-        if (!cancelled) setNamespaceOptions([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, cloudId]);
-
   useEffect(() => {
     if (!open || !vmData) return;
     form.resetFields();
@@ -90,18 +61,14 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
 
   const handleSubmit = async () => {
     if (!hasEcsWrite) return;
+    if (fixedHost) {
+      message.warning('指定主机模式下不支持部署集');
+      return;
+    }
     const vmName = activeRecord?.metadata?.name;
     const namespace = activeRecord?.metadata?.namespace;
     if (!vmName || !namespace) {
       message.error('缺少虚拟机名称或命名空间');
-      return;
-    }
-
-    const hasLabelErrors =
-      podAffinityRef.current?.getHasLabelErrors() ||
-      podAntiAffinityRef.current?.getHasLabelErrors();
-    if (hasLabelErrors) {
-      message.error('请修正标签键/值格式后再提交');
       return;
     }
 
@@ -125,7 +92,10 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
         onOk: onApplied,
         onClose,
       });
-      await submitVmReconfigureChangePodAffinity(ctx, values, vmName, namespace);
+      await submitVmReconfigureChangePodAffinity(ctx, values, vmName, namespace, {
+        activeRecord: latestVm || vmData,
+        deploymentSets,
+      });
       await onApplied?.();
       onClose?.();
     } catch (e: any) {
@@ -145,7 +115,7 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
   return (
     <Drawer
       placement="right"
-      width={880}
+      width={480}
       open={open}
       onClose={onClose}
       closable={false}
@@ -162,7 +132,7 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
           <Button
             type="primary"
             loading={submitting}
-            disabled={!hasEcsWrite}
+            disabled={!hasEcsWrite || fixedHost}
             onClick={() => void handleSubmit()}
           >
             提交
@@ -175,9 +145,8 @@ const VmPodAffinityDrawer: React.FC<VmPodAffinityDrawerProps> = ({
           <ChangePodAffinityFields
             form={form}
             record={activeRecord}
-            namespacesOptions={namespacesOptions}
-            podAffinityRef={podAffinityRef}
-            podAntiAffinityRef={podAntiAffinityRef}
+            cloudId={cloudId}
+            onDeploymentSetsLoaded={setDeploymentSets}
           />
         </Form>
       </div>

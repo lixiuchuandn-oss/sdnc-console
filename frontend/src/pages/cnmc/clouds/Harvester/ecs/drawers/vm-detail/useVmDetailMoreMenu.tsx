@@ -24,6 +24,7 @@ import {
   FundViewOutlined,
   DashboardOutlined,
 } from "@ant-design/icons";
+import { isVmFixedHostScheduling } from "../../lib/vmDeploymentSet";
 import type { VmDetailDrawerProps } from "./shell/types";
 
 type ActionMenuCtx = Pick<
@@ -80,6 +81,8 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     setPerformanceSettingsOpen,
     setHotplugSettingsOpen,
   } = ctx;
+
+  const fixedHostScheduling = isVmFixedHostScheduling(vmData);
 
   return useMemo(
     () => {
@@ -225,12 +228,16 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
             },
             {
               key: "pod_affinity",
-              label: "虚拟机间亲和性",
+              label: "部署集",
               icon: <TeamOutlined />,
-              disabled: !hasEcsWrite,
+              disabled: !hasEcsWrite || fixedHostScheduling,
               onClick: () => {
                 if (!hasEcsWrite) {
                   message.error(ecsWriteMsg);
+                  return;
+                }
+                if (fixedHostScheduling) {
+                  message.warning("指定主机模式下不支持部署集");
                   return;
                 }
                 setPodAffinityOpen(true);
@@ -351,6 +358,7 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     },
     [
       vmData,
+      fixedHostScheduling,
       hasEcsWrite,
       isRunning,
       isStopped,

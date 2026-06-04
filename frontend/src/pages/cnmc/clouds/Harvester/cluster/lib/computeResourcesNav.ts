@@ -10,7 +10,7 @@ export type ComputeResourceInnerSeg = (typeof COMPUTE_RESOURCE_INNER_SEGS)[numbe
 
 
 
-/** 计算配置（节点 / 故障域 / DRS / 迁移）统一入口 */
+/** 计算配置（节点 / 故障域 / 部署集 / DRS / 迁移）统一入口 */
 
 export const COMPUTE_CLUSTER_INNER_SEG = 'compute_cluster' as const;
 
@@ -41,6 +41,10 @@ export const LEGACY_COMPUTE_CLUSTER_SEG_MAP: Readonly<Record<string, typeof COMP
     cluster_nodes: COMPUTE_CLUSTER_INNER_SEG,
 
     compute_failure_domains: COMPUTE_CLUSTER_INNER_SEG,
+
+    compute_deployment_sets: COMPUTE_CLUSTER_INNER_SEG,
+
+    deployment_sets: COMPUTE_CLUSTER_INNER_SEG,
 
     failure_domains: COMPUTE_CLUSTER_INNER_SEG,
 

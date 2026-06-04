@@ -15,7 +15,6 @@ import {
   Space,
   Typography,
   Flex,
-  Collapse,
 } from "antd";
 import { ReloadOutlined } from "@ant-design/icons";
 import { buildHarvesterNodePickerTableColumns } from "../shared/lib/harvesterNodePickerTableColumns";
@@ -29,8 +28,6 @@ import {
   parseFailureDomainFromNodeSelector,
   VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT,
 } from "../../lib/vmFailureDomainNodeSelector";
-import { VM_ADVANCED_SCHEDULING_COLLAPSE } from "../../lib/vmAdvancedSchedulingLabels";
-import VmNodeSelectorPairsEditor from "../../lib/VmNodeSelectorPairsEditor";
 
 const SCHEDULING_MODE_DESCRIPTION: Record<
   "auto" | "fixed" | "label",
@@ -43,7 +40,7 @@ const SCHEDULING_MODE_DESCRIPTION: Record<
     "将虚拟机固定在同一台物理主机上运行，适用于依赖本机硬件、与他机同机部署或需固定物理落点等场景。所选主机异常将直接影响可用性；无此类约束时建议使用自动调度。",
 
   label:
-    "选择集群已定义的故障域，限定 VM 落在对应物理节点；可与节点标签组合。优先、避让等调度偏好请使用「节点亲和性」。",
+    "选择集群已定义的故障域，限定 VM 落在对应物理节点。优先、避让等调度偏好请使用「节点亲和性」。",
 };
 
 type Props = {
@@ -141,7 +138,9 @@ const ChangeNodeScheduling: React.FC<Props> = ({
     let mode: "auto" | "fixed" | "label" = "auto";
     if (currentNode) {
       mode = "fixed";
-    } else if (failureDomainName || labelPairs.length > 0) {
+    } else if (failureDomainName) {
+      mode = "label";
+    } else if (labelPairs.length > 0) {
       mode = "label";
     }
 
@@ -149,7 +148,6 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       nodeSchedulingMode: mode,
       fixedNode: currentNode || undefined,
       failureDomainName,
-      nodeSelectorPairs: labelPairs.length > 0 ? labelPairs : undefined,
     });
   }, [record, form]);
 
@@ -159,12 +157,10 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       form.setFieldsValue({
         fixedNode: undefined,
         failureDomainName: undefined,
-        nodeSelectorPairs: undefined,
       });
     } else if (nodeSchedulingMode === "fixed") {
       form.setFieldsValue({
         failureDomainName: undefined,
-        nodeSelectorPairs: undefined,
       });
     } else if (nodeSchedulingMode === "label") {
       form.setFieldsValue({
@@ -313,32 +309,19 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       )}
 
       {nodeSchedulingMode === "label" && (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          <Form.Item name="failureDomainName" label="故障域">
-            <Select
-              allowClear
-              showSearch
-              loading={failureDomainsLoading}
-              placeholder="选择故障域"
-              options={failureDomainOptions}
-              optionFilterProp="label"
-              notFoundContent={
-                failureDomainsLoading ? undefined : VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT
-              }
-            />
-          </Form.Item>
-          <Collapse
-            ghost
-            defaultActiveKey={[]}
-            items={[
-              {
-                key: 'nodeSelector',
-                label: VM_ADVANCED_SCHEDULING_COLLAPSE.nodeLabels,
-                children: <VmNodeSelectorPairsEditor />,
-              },
-            ]}
+        <Form.Item name="failureDomainName" label="故障域">
+          <Select
+            allowClear
+            showSearch
+            loading={failureDomainsLoading}
+            placeholder="选择故障域"
+            options={failureDomainOptions}
+            optionFilterProp="label"
+            notFoundContent={
+              failureDomainsLoading ? undefined : VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT
+            }
           />
-        </Space>
+        </Form.Item>
       )}
 
       <Form.Item name="fixedNode" hidden>
