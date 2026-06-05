@@ -9,7 +9,7 @@ const MANUAL_ASSETS_DIR = path.join(
   '..',
   '..',
   'docs',
-  'cloudmap-whitepaper',
+  'cloudmap',
   'user-manual',
   'source',
   'assets',

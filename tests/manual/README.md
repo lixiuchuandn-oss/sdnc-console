@@ -15,4 +15,4 @@ npm run manual:shots:pool
 npm run manual:shots:images
 ```
 
-See ../docs/cloudmap-whitepaper/user-manual/SCREENSHOTS.md
+See ../docs/cloudmap/user-manual/SCREENSHOTS.md

@@ -19,7 +19,7 @@ import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** Cloudmap `panels/cluster` ??????????????????????????????/GPU/USB/PCI/?????/VLAN/???????? */
+/** Lazy-load Cloudmap `panels/cluster` resources by sidebar path. */
 export async function tryLoadClusterTab(
   key: string,
   force: boolean,
