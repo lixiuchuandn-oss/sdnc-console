@@ -3,6 +3,7 @@ import {
   DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY,
   DEPLOYMENT_SET_POD_LABEL,
 } from './deploymentSetConstants';
+import { formatDeploymentSetPlacementSummary } from './deploymentSetPlacement';
 
 export type DeploymentSetSchedulingPolicy = 'none' | 'affinity' | 'anti_affinity';
 export type DeploymentSetSchedulingStrength = 'preferred' | 'required';
@@ -27,41 +28,30 @@ export const DEPLOYMENT_SET_SCHEDULING_STRENGTH_OPTIONS: {
 ];
 
 export const DEPLOYMENT_SET_TOPOLOGY_KEY_OPTIONS = [
-  { value: 'kubernetes.io/hostname', label: 'kubernetes.io/hostname（宿主机）' },
-  { value: 'topology.kubernetes.io/zone', label: 'topology.kubernetes.io/zone（可用区）' },
-  { value: 'topology.kubernetes.io/region', label: 'topology.kubernetes.io/region（区域）' },
+  { value: 'kubernetes.io/hostname', label: '物理机（宿主机）' },
+  { value: 'topology.cloudmap.io/failure-domain', label: '故障域（与计算配置一致）' },
+  { value: 'topology.kubernetes.io/zone', label: '可用区' },
+  { value: 'topology.kubernetes.io/region', label: '区域' },
 ];
 
 export function formatDeploymentSetSchedulingSummary(row: {
   schedulingPolicy?: DeploymentSetSchedulingPolicy;
   schedulingStrength?: DeploymentSetSchedulingStrength;
+  topologyKey?: string;
 }): string | null {
-  const policy = row.schedulingPolicy || 'none';
-  if (policy === 'none') return null;
-  const policyLabel =
-    DEPLOYMENT_SET_SCHEDULING_POLICY_OPTIONS.find((o) => o.value === policy)?.label || policy;
-  const strength = row.schedulingStrength || 'preferred';
-  const strengthLabel =
-    DEPLOYMENT_SET_SCHEDULING_STRENGTH_OPTIONS.find((o) => o.value === strength)?.label || strength;
-  return `${policyLabel} · ${strengthLabel}`;
+  return formatDeploymentSetPlacementSummary(row);
 }
 
-/** Select 下拉项：名称 + 调度策略 + 约束强度 */
+/** Select 下拉项：名称 + 置放策略摘要 */
 export function formatDeploymentSetSelectOptionLabel(row: {
   name: string;
   schedulingPolicy?: DeploymentSetSchedulingPolicy;
   schedulingStrength?: DeploymentSetSchedulingStrength;
+  topologyKey?: string;
 }): string {
-  const policy = row.schedulingPolicy || 'none';
-  const policyLabel =
-    DEPLOYMENT_SET_SCHEDULING_POLICY_OPTIONS.find((o) => o.value === policy)?.label || policy;
-  if (policy === 'none') {
-    return `${row.name}（${policyLabel}）`;
-  }
-  const strength = row.schedulingStrength || 'preferred';
-  const strengthLabel =
-    DEPLOYMENT_SET_SCHEDULING_STRENGTH_OPTIONS.find((o) => o.value === strength)?.label || strength;
-  return `${row.name}（${policyLabel} · ${strengthLabel}）`;
+  const summary = formatDeploymentSetSchedulingSummary(row);
+  if (!summary) return `${row.name}（不启用）`;
+  return `${row.name}（${summary}）`;
 }
 
 /** VM 引用部署集时生成表单 PodAffinityConfig（与 podAffinityK8s 兼容） */

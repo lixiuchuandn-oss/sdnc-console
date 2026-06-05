@@ -19,6 +19,19 @@ function handleError(res: Response, e: any, fallback: string) {
   });
 }
 
+function readDeploymentSetMutationBody(body: Record<string, any>) {
+  return {
+    name: body.name,
+    namespace: body.namespace,
+    labels: body.labels,
+    description: body.description,
+    sortOrder: body.sortOrder,
+    schedulingPolicy: body.schedulingPolicy,
+    schedulingStrength: body.schedulingStrength,
+    topologyKey: body.topologyKey,
+  };
+}
+
 /** GET /:id/resources/harvester/deployment-sets/overview */
 export async function harvesterDeploymentSetsOverviewHandler(req: Request, res: Response) {
   try {
@@ -43,13 +56,7 @@ export async function harvesterDeploymentSetCreateHandler(req: Request, res: Res
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
 
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const data = await createDeploymentSet(id, {
-      name: body.name,
-      namespace: body.namespace,
-      labels: body.labels,
-      description: body.description,
-      sortOrder: body.sortOrder,
-    });
+    const data = await createDeploymentSet(id, readDeploymentSetMutationBody(body));
     res.json({ message: '创建成功', data });
   } catch (e: any) {
     handleError(res, e, '创建部署集失败');
@@ -65,13 +72,7 @@ export async function harvesterDeploymentSetUpdateHandler(req: Request, res: Res
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
 
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const data = await updateDeploymentSet(id, setId, {
-      name: body.name,
-      namespace: body.namespace,
-      labels: body.labels,
-      description: body.description,
-      sortOrder: body.sortOrder,
-    });
+    const data = await updateDeploymentSet(id, setId, readDeploymentSetMutationBody(body));
     res.json({ message: '更新成功', data });
   } catch (e: any) {
     handleError(res, e, '更新部署集失败');

@@ -89,19 +89,12 @@ export function buildDeploymentSetsTableColumns(
       },
     },
     {
-      title: '调度策略',
+      title: '置放策略',
       key: 'scheduling',
       render: (_: unknown, row) => {
         const summary = formatDeploymentSetSchedulingSummary(row);
         if (!summary) return null;
-        const topology = String(row.topologyKey || '').trim();
-        return topology ? (
-          <Tooltip title={topology}>
-            <span>{summary}</span>
-          </Tooltip>
-        ) : (
-          summary
-        );
+        return summary;
       },
     },
     {
