@@ -1126,7 +1126,7 @@ const RegistriesSection: React.FC<Props> = ({
   
   // 通用仓库管理抽屉状态
   const [genericDrawerVisible, setGenericDrawerVisible] = useState(false);
-  const [selectedGenericRegistry, setSelectedGenericRegistry] = useState<RegistryConfig | null>(null);
+  const [selectedGenericRegistryId, setSelectedGenericRegistryId] = useState<string | null>(null);
   
   // Harbor 抽屉状态
   const [harborDrawerVisible, setHarborDrawerVisible] = useState(false);
@@ -1160,6 +1160,12 @@ const RegistriesSection: React.FC<Props> = ({
     ];
     return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [localRegistries, harborRegistries, deployedRegistries]);
+  
+  // 从 allRegistries 中查找选中的仓库（自动同步状态）
+  const selectedGenericRegistry = useMemo(() => {
+    if (!selectedGenericRegistryId) return null;
+    return allRegistries.find(r => r.id === selectedGenericRegistryId) || null;
+  }, [selectedGenericRegistryId, allRegistries]);
   
   // 加载本地仓库列表
   useEffect(() => {
@@ -1559,7 +1565,7 @@ const RegistriesSection: React.FC<Props> = ({
             if (record.type === 'harbor' && record.harborId) {
               handleOpenHarbor(record.harborId);
             } else {
-              setSelectedGenericRegistry(record);
+              setSelectedGenericRegistryId(record.id);
               setGenericDrawerVisible(true);
             }
           }}>{name}</Link>
@@ -1697,7 +1703,7 @@ const RegistriesSection: React.FC<Props> = ({
             key: 'manage',
             label: '进入管理',
             onClick: () => {
-              setSelectedGenericRegistry(record);
+              setSelectedGenericRegistryId(record.id);
               setGenericDrawerVisible(true);
             },
           },
@@ -1923,7 +1929,7 @@ const RegistriesSection: React.FC<Props> = ({
           cloudId={cloudId}
           onClose={() => {
             setGenericDrawerVisible(false);
-            setSelectedGenericRegistry(null);
+            setSelectedGenericRegistryId(null);
           }}
           onRefresh={() => {
             setLocalRegistries(loadRegistries());

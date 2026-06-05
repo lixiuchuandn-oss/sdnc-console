@@ -10,7 +10,7 @@
  * - 镜像：镜像列表和 Tag
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Drawer, Tabs, Card, Descriptions, Tag, Space, Statistic, Alert, Button, Typography, message } from 'antd';
 import { 
   LockOutlined, 
@@ -39,6 +39,7 @@ interface RegistryConfig {
   localRegistryId?: string;
   namespace?: string;
   nodePort?: number;
+  status?: 'healthy' | 'unhealthy' | 'unknown' | 'deploying' | 'deleting';
 }
 
 interface Props {
@@ -60,6 +61,23 @@ const GenericRegistryDrawer: React.FC<Props> = ({
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'healthy' | 'unhealthy'>('unknown');
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
+
+  // 从 registry.status 初始化 connectionStatus
+  useEffect(() => {
+    if (registry?.status) {
+      // 将外部表格的状态映射到详情抽屉的连接状态
+      const statusMap: Record<string, 'unknown' | 'healthy' | 'unhealthy'> = {
+        healthy: 'healthy',
+        unhealthy: 'unhealthy',
+        unknown: 'unknown',
+        deploying: 'unknown',
+        deleting: 'unknown',
+      };
+      setConnectionStatus(statusMap[registry.status] || 'unknown');
+    } else {
+      setConnectionStatus('unknown');
+    }
+  }, [registry]);
 
   const protocol = registry?.insecure ? 'HTTP' : 'HTTPS';
   const hasAuth = !!registry?.username;
