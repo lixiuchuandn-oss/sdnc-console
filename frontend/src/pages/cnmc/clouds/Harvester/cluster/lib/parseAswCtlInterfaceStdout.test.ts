@@ -4,7 +4,9 @@ import {
   getSwitchInterfaceStdoutParseHint,
   isHuaweiStyleLogicalInterfaceName,
   isH3cStyleLogicalInterfaceName,
+  isProbablyH3cComwareInterfaceStdout,
   isSwitchInterfaceStdoutLikelyTruncated,
+  parseH3cInterfaceStatusStdout,
   parseInterfaceStatusStdout,
 } from './parseAswCtlInterfaceStdout';
 
@@ -35,6 +37,7 @@ describe('parseAswCtlInterfaceStdout helpers', () => {
       expect(classifyPortStatus('up')).toBe('up');
       expect(classifyPortStatus('down')).toBe('down');
       expect(classifyPortStatus('admin down')).toBe('admin');
+      expect(classifyPortStatus('ADM')).toBe('admin');
       expect(classifyPortStatus('')).toBe('unknown');
     });
   });
@@ -52,6 +55,7 @@ describe('parseAswCtlInterfaceStdout helpers', () => {
       expect(isH3cStyleLogicalInterfaceName('Vlan1')).toBe(true);
       expect(isH3cStyleLogicalInterfaceName('Loop0')).toBe(true);
       expect(isH3cStyleLogicalInterfaceName('NULL0')).toBe(true);
+      expect(isH3cStyleLogicalInterfaceName('MGE0/0/0')).toBe(true);
       expect(isH3cStyleLogicalInterfaceName('XGE1/0/49')).toBe(false);
     });
   });
@@ -81,6 +85,35 @@ XGE1/0/48 UP 1G(a) F(a) A 4094 to_IPMI
       expect(ports.map((p) => p.name)).toEqual(['XGE1/0/1', 'XGE1/0/2', 'XGE1/0/48']);
       expect(ports[0]?.status).toBe('UP');
       expect(ports[0]?.speed).toContain('10G');
+    });
+
+    it('prefers bridge mode table when route + bridge sections both present (S6800-54QF)', () => {
+      const dual = `
+<H3C-CORE-SW>display interface brief
+Brief information on interfaces in route mode:
+Interface            Link Protocol Primary IP      Description
+MGE0/0/0             DOWN DOWN     --
+Vlan1                UP   UP       --
+Brief information on interfaces in bridge mode:
+Interface            Link Speed   Duplex Type PVID Description
+FGE1/0/49            DOWN auto    A      A    1
+FGE1/0/54            DOWN auto    A      A    1
+XGE1/0/1             UP   10G(a)  F(a)   A    11   uplink
+XGE1/0/15            ADM  auto    A      A    1
+XGE1/0/48            UP   1G(a)   F(a)   A    4094 ipmi
+`;
+      expect(isProbablyH3cComwareInterfaceStdout(dual)).toBe(true);
+      const ports = parseH3cInterfaceStatusStdout(dual)!;
+      expect(ports.map((p) => p.name)).toEqual([
+        'FGE1/0/49',
+        'FGE1/0/54',
+        'XGE1/0/1',
+        'XGE1/0/15',
+        'XGE1/0/48',
+      ]);
+      expect(ports.find((p) => p.name === 'MGE0/0/0')).toBeUndefined();
+      expect(ports.find((p) => p.name === 'XGE1/0/15')?.status).toBe('ADM');
+      expect(classifyPortStatus('ADM')).toBe('admin');
     });
   });
 

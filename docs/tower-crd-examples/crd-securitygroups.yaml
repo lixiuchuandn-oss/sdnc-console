@@ -1,0 +1,194 @@
+---
+# Tower · Kube-OVN 扁平子网安全组
+# 安装：kubectl apply -f crd-securitygroups.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: securitygroups.tower.rivercloud.com
+  labels:
+    tower.io/component: platform
+spec:
+  group: tower.rivercloud.com
+  scope: Cluster
+  names:
+    kind: SecurityGroup
+    listKind: SecurityGroupList
+    plural: securitygroups
+    singular: securitygroup
+    shortNames:
+      - tsg
+      - tower-sg
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: Tower Kube-OVN 扁平子网安全组（规则 + VM 成员）。
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - cloudId
+                - name
+                - subnetName
+              properties:
+                id:
+                  type: string
+                  description: Tower 资源 UUID；建议与 metadata.name 一致。
+                  pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                cloudId:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                name:
+                  type: string
+                  description: 安全组名称；(cloudId, subnetName, name) 唯一。
+                  minLength: 1
+                  maxLength: 128
+                description:
+                  type: string
+                  maxLength: 512
+                subnetName:
+                  type: string
+                  description: Kube-OVN Subnet metadata.name（扁平子网）。
+                  minLength: 1
+                  maxLength: 253
+                rules:
+                  type: array
+                  description: 访问控制规则；PUT rules API 对应整组替换。
+                  items:
+                    type: object
+                    required:
+                      - priority
+                      - direction
+                      - action
+                      - match
+                    properties:
+                      id:
+                        type: string
+                        pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                      priority:
+                        type: integer
+                        format: int32
+                      direction:
+                        type: string
+                        enum:
+                          - from-lport
+                          - to-lport
+                      action:
+                        type: string
+                        enum:
+                          - drop
+                          - allow
+                          - pass
+                      match:
+                        type: string
+                        minLength: 1
+                        maxLength: 1024
+                members:
+                  type: array
+                  description: 绑定虚拟机；(vmNamespace, vmName) 组内唯一。
+                  items:
+                    type: object
+                    required:
+                      - vmNamespace
+                      - vmName
+                    properties:
+                      id:
+                        type: string
+                        pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                      vmNamespace:
+                        type: string
+                        minLength: 1
+                        maxLength: 253
+                      vmName:
+                        type: string
+                        minLength: 1
+                        maxLength: 253
+            status:
+              type: object
+              properties:
+                ruleCount:
+                  type: integer
+                  format: int32
+                  minimum: 0
+                memberCount:
+                  type: integer
+                  format: int32
+                  minimum: 0
+                aclSync:
+                  type: object
+                  properties:
+                    state:
+                      type: string
+                      enum:
+                        - Synced
+                        - Failed
+                        - Pending
+                        - Disabled
+                    message:
+                      type: string
+                    lastSyncTime:
+                      type: string
+                      format: date-time
+                    expandedRuleCount:
+                      type: integer
+                      format: int32
+                observedGeneration:
+                  type: integer
+                  format: int64
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - 'True'
+                          - 'False'
+                          - Unknown
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Cloud
+          type: string
+          jsonPath: .spec.cloudId
+        - name: Subnet
+          type: string
+          jsonPath: .spec.subnetName
+        - name: Name
+          type: string
+          jsonPath: .spec.name
+        - name: Rules
+          type: integer
+          jsonPath: .status.ruleCount
+        - name: Members
+          type: integer
+          jsonPath: .status.memberCount
+        - name: ACL
+          type: string
+          jsonPath: .status.aclSync.state
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

@@ -1,0 +1,109 @@
+{
+  "profile": "h3c-comware-like",
+  "displayName": "H3C Comware",
+  "displayNameZh": "H3C Comware（华三）",
+  "version": "1.0.0",
+  "status": "draft-for-hsm",
+  "applicableVendors": ["H3C"],
+  "replacesProfile": "h3c-huawei-like",
+  "notes": "与 h3c-huawei-like 分离：H3C 关分页、接口全表与 Tower 前面板解析已按 Comware 实测（S6800-54QF）对齐。华为设备请继续使用 huawei 或 h3c-huawei-like，勿使用本模板。",
+  "session": {
+    "protocol": "ssh",
+    "defaultPort": 22,
+    "defaultUser": "admin",
+    "dialTimeoutSec": 15,
+    "execTimeoutSec": 90,
+    "screenLengthCmd": "screen-length disable",
+    "screenLengthCmdMustRunBeforeProbe": true,
+    "deprecatedScreenLengthCmd": [
+      "screen-length 0 temporary",
+      "screen-length 0"
+    ],
+    "promptPatterns": [
+      "<H3C[-\\w]*>",
+      "\\[H3C[-\\w]*\\]"
+    ]
+  },
+  "commands": {
+    "infoCommands": [
+      "display version"
+    ],
+    "interfaceCommands": [
+      "display interface brief"
+    ],
+    "performanceCommands": [
+      "display cpu-usage",
+      "display memory"
+    ],
+    "vlanCommands": [
+      "display vlan"
+    ]
+  },
+  "commandRules": {
+    "oneCommandPerArrayItem": true,
+    "pipeMustStayOnSameLine": true,
+    "doNotSplitPipeInclude": true,
+    "examples": {
+      "valid": [
+        "display interface brief",
+        "display interface brief | include XGE"
+      ],
+      "invalid": [
+        ["display interface brief", "| include XGE"],
+        ["display interface brief", "include XGE"]
+      ]
+    }
+  },
+  "interfaceCommandGuidance": {
+    "recommended": "display interface brief",
+    "reason": "L3 交换机回显含 route mode + bridge mode 两段；物理口在 bridge mode 段。Tower 已按 Comware 桥模式表解析（48 XGE + 6 FGE 等）。",
+    "avoidAsDefault": [
+      "display interface brief | include XGE"
+    ],
+    "avoidReason": "过滤 XGE 会漏 FGE/QSFP+ 口（如 FGE1/0/49–54）。若必须用 include，需另加 FGE 或更宽过滤，且仍须关分页。"
+  },
+  "towerConsumption": {
+    "switchCrFields": [
+      "deviceProfile",
+      "screenLengthCmd",
+      "infoCommands",
+      "interfaceCommands",
+      "performanceCommands",
+      "vlanCommands",
+      "execTimeout",
+      "dialTimeout",
+      "vendor"
+    ],
+    "probeApiPaths": [
+      "GET /v1/hms/switch/info",
+      "GET /v1/hms/switch/interfaces",
+      "GET /v1/hms/switch/performance",
+      "GET /v1/hms/switch/vlans"
+    ],
+    "responseShape": {
+      "lines[]": {
+        "command": "实际执行的 CLI",
+        "stdout": "完整回显（清洗前）",
+        "stderr": "可选",
+        "ok": "可选"
+      },
+      "device_profile": "应回写 h3c-comware-like"
+    },
+    "frontendParser": "parseH3cInterfaceStatusStdout（Tower frontend，Comware 专用，与华为 VRP 分支独立）"
+  },
+  "acceptance": {
+    "referenceDevice": {
+      "model": "S6800-54QF",
+      "boardType": "S6800-54QF",
+      "ports": "48SFP+ (XGE1/0/1–48) + 6QSFP+ (FGE1/0/49–54)"
+    },
+    "mustPass": [
+      "screen-length disable 执行成功，无 Unrecognized command",
+      "display interface brief 返回 bridge mode 段且含 XGE 与 FGE 物理口",
+      "interfaces 探测解析出 >= 54 个物理口（S6800-54QF）",
+      "display cpu-usage 含「N% in last 5 seconds」",
+      "display memory 含 Mem: Total Used Free ... FreeRatio",
+      "display version 含 BOARD TYPE 或 H3C Comware Software"
+    ]
+  }
+}

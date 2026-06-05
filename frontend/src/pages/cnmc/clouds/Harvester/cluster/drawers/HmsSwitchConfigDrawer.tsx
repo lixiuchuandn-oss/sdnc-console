@@ -395,11 +395,11 @@ const HmsSwitchConfigDrawer: React.FC<HmsSwitchConfigDrawerProps> = ({
             <Form.Item
               name="interfaceCommandsText"
               label="接口状态命令"
-              tooltip="覆盖 interfaceCommands。带 | include 的整条命令须写在同一行（勿把 | include 换到第二行，否则 HSM 会当成第二条命令而失败）。须配合关分页 screen-length disable、命令超时建议 60～90 秒。"
+              tooltip="覆盖 interfaceCommands。H3C L3 交换机建议 display interface brief（全表，须 screen-length disable、超时 60～90 秒）；| include 过滤须写同一行，且需覆盖 XGE 与 FGE，否则 QSFP 口可能缺失。"
             >
               <Input.TextArea
                 rows={2}
-                placeholder="display interface brief | include XGE"
+                placeholder="display interface brief"
                 style={{ fontFamily: 'Consolas, monospace' }}
               />
             </Form.Item>

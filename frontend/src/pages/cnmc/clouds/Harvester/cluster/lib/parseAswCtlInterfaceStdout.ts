@@ -31,6 +31,7 @@ export function classifyPortStatus(status: string): PortStatusKind {
     .trim();
   if (!s) return 'unknown';
   if (/\badmin\w*\s*down\b|\badmindown\b/i.test(s)) return 'admin';
+  if (/^adm$/i.test(s) || /^adm\b/.test(s)) return 'admin';
   if (/\bup\b/.test(s) && !/\bdown\b/.test(s)) return 'up';
   if (/\bdown\b/.test(s)) return 'down';
   if (s === 'up') return 'up';
@@ -55,6 +56,7 @@ export function isH3cStyleLogicalInterfaceName(name: string): boolean {
   if (/^InLoop\d*$/i.test(n)) return true;
   if (/^REG\d*$/i.test(n)) return true;
   if (/^M-GE/i.test(n)) return true;
+  if (/^MGE\d/i.test(n)) return true;
   if (/^Tunnel\d*$/i.test(n)) return true;
   if (/^Vsi-/i.test(n)) return true;
   if (/^(?:RAGG|BAGG|Bridge-Aggregation)\d/i.test(n)) return true;
@@ -167,80 +169,137 @@ function parseH3cRouteModeDataRow(
   };
 }
 
-/**
- * H3C Comware V7 `display interface brief`（路由模式 Interface/Link/Protocol，或桥模式 Interface/Link/Speed/PVID）。
- * @returns `null` 表示非该版式；`[]` 表示已识别表头但无物理口；非空为解析结果。
- */
-function tryParseH3cDisplayInterfaceBriefTable(stdout: string): ParsedSwitchPort[] | null {
-  if (!stdout || typeof stdout !== 'string') return null;
+/** CLI 回显是否像 H3C Comware（与华为/Broadcom 分流，避免误走 H3C 逻辑） */
+export function isProbablyH3cComwareInterfaceStdout(stdout: string): boolean {
+  if (!stdout || typeof stdout !== 'string') return false;
   const normalized = stdout.replace(/\r\n/g, '\n');
-  if (!/Brief information on interfaces/i.test(normalized) && !/^\s*Interface\s+Link\b/im.test(normalized)) {
-    return null;
+  if (/Brief information on interfaces/i.test(normalized)) return true;
+  if (/brief information of interfaces/i.test(normalized)) return true;
+  if (/H3C Comware/i.test(normalized) || /New H3C Technologies/i.test(normalized)) return true;
+  if (/^<H3C[\w-]*>/im.test(normalized)) return true;
+  if (
+    /^\s*(?:GE|XGE|FGE|HGE|WGE|TGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(normalized) &&
+    !normalized.split('\n').some((l) => isHuaweiDisplayInterfaceBriefHeaderLine(l.trim()))
+  ) {
+    return true;
   }
+  return false;
+}
 
-  const lines = normalized.split('\n');
-  let headerIdx = -1;
-  let bridgeMode = false;
-  for (let i = 0; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (isH3cBridgeModeBriefHeaderLine(t)) {
-      headerIdx = i;
-      bridgeMode = true;
-      break;
-    }
-    if (isH3cRouteModeBriefHeaderLine(t)) {
-      headerIdx = i;
-      break;
-    }
+function shouldSkipH3cBriefNoiseLine(trimmed: string): boolean {
+  if (!trimmed) return true;
+  if (/^[-=─]+$/.test(trimmed)) return true;
+  if (/^<[\w-]+>$/i.test(trimmed)) return true;
+  if (/^Brief information on interfaces/i.test(trimmed)) return true;
+  if (/^Link:\s*ADM/i.test(trimmed)) return true;
+  if (/^Protocol:\s*\(s\)/i.test(trimmed)) return true;
+  if (/^Speed:\s*\(a\)/i.test(trimmed)) return true;
+  if (/^Duplex:\s*\(a\)/i.test(trimmed)) return true;
+  if (/^Type:\s*A\s+-/i.test(trimmed)) return true;
+  if (/^The brief information of interfaces in bridge mode/i.test(trimmed)) return true;
+  return false;
+}
+
+function dedupeSwitchPortsByName(ports: ParsedSwitchPort[]): ParsedSwitchPort[] {
+  const seen = new Map<string, ParsedSwitchPort>();
+  for (const p of ports) {
+    if (!p.name) continue;
+    if (!seen.has(p.name)) seen.set(p.name, p);
   }
-  if (headerIdx < 0) return null;
+  return [...seen.values()];
+}
 
-  const ports: ParsedSwitchPort[] = [];
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const trimmed = rawLine.trim();
-    if (!trimmed) continue;
-    if (/^[-=─]+$/.test(trimmed)) continue;
-    if (/^<[\w-]+>$/i.test(trimmed)) continue;
-    if (/^Brief information on interfaces/i.test(trimmed)) continue;
-    if (/^Link:\s*ADM/i.test(trimmed)) continue;
-    if (/^Protocol:\s*\(s\)/i.test(trimmed)) continue;
-    if (/^The brief information of interfaces in bridge mode/i.test(trimmed)) continue;
-
-    if (bridgeMode) {
-      const parts = splitTableRow(trimmed);
-      if (parts.length < 2) continue;
-      const name = parts[0]!;
-      if (/^interface$/i.test(name)) continue;
-      if (!isLikelyH3cPhysicalInterfaceName(name)) continue;
-
-      const link = parts[1] || '';
-      const speed = parts[2] || '';
-      const duplex = parts[3] || '';
-      const speedSummary = [speed, duplex].filter(Boolean).join(' ').trim();
-      ports.push({
-        name,
-        status: link.replace(/\s+/g, ' ').trim(),
-        speed: speedSummary || undefined,
-        rawLine: trimmed,
-      });
-      continue;
-    }
-
-    const routeRow = parseH3cRouteModeDataRow(trimmed);
-    if (!routeRow) continue;
-    const { name, link, protocol, rest } = routeRow;
-    if (!isLikelyH3cPhysicalInterfaceName(name)) continue;
-
-    const status = `${link} / ${protocol}`.replace(/\s+/g, ' ').trim();
-    ports.push({
-      name,
-      status,
-      speed: rest || undefined,
+function parseH3cBridgeModeTableRow(trimmed: string): ParsedSwitchPort | null {
+  const parts = splitTableRow(trimmed);
+  if (parts.length < 2) {
+    const filtered = parseH3cBridgeModeBriefDataRow(trimmed);
+    if (!filtered || !isLikelyH3cPhysicalInterfaceName(filtered.name)) return null;
+    const speedSummary = [filtered.speed, filtered.duplex].filter(Boolean).join(' ').trim();
+    return {
+      name: filtered.name,
+      status: filtered.link.replace(/\s+/g, ' ').trim(),
+      speed: speedSummary || undefined,
       rawLine: trimmed,
-    });
+    };
+  }
+  const name = parts[0]!;
+  if (/^interface$/i.test(name)) return null;
+  if (!isLikelyH3cPhysicalInterfaceName(name)) return null;
+  const link = parts[1] || '';
+  const speed = parts[2] || '';
+  const duplex = parts[3] || '';
+  const speedSummary = [speed, duplex].filter(Boolean).join(' ').trim();
+  return {
+    name,
+    status: link.replace(/\s+/g, ' ').trim(),
+    speed: speedSummary || undefined,
+    rawLine: trimmed,
+  };
+}
+
+/** H3C：解析全部「桥模式 Interface/Link/Speed/PVID」表段（L3 设备物理口通常在此段）。 */
+function parseH3cBridgeModeSections(stdout: string): ParsedSwitchPort[] {
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const ports: ParsedSwitchPort[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]!.trim();
+    if (!isH3cBridgeModeBriefHeaderLine(t)) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j]!.trim();
+      if (/^Brief information on interfaces/i.test(trimmed)) break;
+      if (shouldSkipH3cBriefNoiseLine(trimmed)) continue;
+      const row = parseH3cBridgeModeTableRow(trimmed);
+      if (row) ports.push(row);
+    }
   }
   return ports;
+}
+
+/** H3C：解析「路由模式 Interface/Link/Protocol」表段（仅无桥模式物理口时回退）。 */
+function parseH3cRouteModeSections(stdout: string): ParsedSwitchPort[] {
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const ports: ParsedSwitchPort[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]!.trim();
+    if (!isH3cRouteModeBriefHeaderLine(t) || isH3cBridgeModeBriefHeaderLine(t)) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j]!.trim();
+      if (/^Brief information on interfaces/i.test(trimmed)) break;
+      if (shouldSkipH3cBriefNoiseLine(trimmed)) continue;
+      const routeRow = parseH3cRouteModeDataRow(trimmed);
+      if (!routeRow) continue;
+      const { name, link, protocol, rest } = routeRow;
+      if (!isLikelyH3cPhysicalInterfaceName(name)) continue;
+      const status = `${link} / ${protocol}`.replace(/\s+/g, ' ').trim();
+      ports.push({
+        name,
+        status,
+        speed: rest || undefined,
+        rawLine: trimmed,
+      });
+    }
+  }
+  return ports;
+}
+
+/**
+ * H3C Comware 专用入口：桥模式表 → 过滤 brief 行 → 路由模式表。
+ * @returns `null` 表示非 H3C 回显；`[]` 表示已识别 H3C 但无物理口。
+ */
+export function parseH3cInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] | null {
+  if (!stdout || typeof stdout !== 'string') return null;
+  if (!isProbablyH3cComwareInterfaceStdout(stdout)) return null;
+
+  const bridgePorts = dedupeSwitchPortsByName(parseH3cBridgeModeSections(stdout));
+  if (bridgePorts.length > 0) return bridgePorts;
+
+  const filtered = tryParseH3cFilteredBriefLines(stdout);
+  if (filtered !== null && filtered.length > 0) return dedupeSwitchPortsByName(filtered);
+
+  const routePorts = dedupeSwitchPortsByName(parseH3cRouteModeSections(stdout));
+  if (routePorts.length > 0) return routePorts;
+
+  return [];
 }
 
 /**
@@ -378,7 +437,7 @@ export function formatSwitchInterfaceStdoutParseHint(hint: ReturnType<typeof get
     case 'pipe-cmd-split':
       return '接口命令被拆成多条执行（常见：interfaceCommands 里 `| include` 单独一行，或集群 HSM 按 `|` 截断）。请把整条命令写在同一行，例如 display interface brief | include XGE，保存后重新探测同步。';
     case 'pipe-include-failed':
-      return '设备不识别带 | include 的接口命令，或关分页未关闭导致过滤失败。请确认已配置 screen-length disable，命令超时 ≥60 秒；若仍失败可暂用 display interface brief（全表，较慢）并提高命令超时。';
+      return '设备不识别带 | include 的接口命令，或关分页未关闭导致过滤失败。H3C 建议优先使用 display interface brief（全表，须 screen-length disable、命令超时 ≥60 秒）；若仅用 | include，请同时覆盖 XGE 与 FGE（如两条命令或更宽过滤），否则 QSFP 口可能缺失。';
     case 'paged-more':
     case 'truncated-table':
       return '接口探测输出被分页截断（输出中含 ---- More ---- 或仅有表头无数据行）。请在 HSM/ASW-CTL 中关闭 CLI 分页后重新同步。';
@@ -506,13 +565,8 @@ export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
   const huaweiBrief = tryParseHuaweiDisplayInterfaceBriefTable(stdout);
   if (huaweiBrief !== null) return huaweiBrief;
 
-  const h3cBrief = tryParseH3cDisplayInterfaceBriefTable(stdout);
-  if (h3cBrief !== null && h3cBrief.length > 0) return h3cBrief;
-
-  const h3cFiltered = tryParseH3cFilteredBriefLines(stdout);
-  if (h3cFiltered !== null && h3cFiltered.length > 0) return h3cFiltered;
-
-  if (h3cBrief !== null) return h3cBrief;
+  const h3c = parseH3cInterfaceStatusStdout(stdout);
+  if (h3c !== null) return h3c;
 
   const lines = stdout.replace(/\r\n/g, '\n').split('\n');
   let headerIdx = -1;

@@ -8,9 +8,11 @@ import {
   ClockCircleOutlined,
   CloseCircleOutlined,
   CloudServerOutlined,
+  ClusterOutlined,
   DatabaseOutlined,
   ExclamationCircleOutlined,
   HddOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { CephHarvesterAddonStatusResponse } from '../../../../../../../services/cephApi';
 import {
@@ -147,6 +149,28 @@ const statTileStyle: React.CSSProperties = {
   backdropFilter: 'blur(6px)',
 };
 
+type HeroStatTileProps = {
+  label: string;
+  value: React.ReactNode;
+  icon: React.ReactNode;
+  valueFontSize?: number;
+};
+
+const HeroStatTile: React.FC<HeroStatTileProps> = ({
+  label,
+  value,
+  icon,
+  valueFontSize = 24,
+}) => (
+  <div style={statTileStyle}>
+    <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>{label}</Typography.Text>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+      {icon}
+      <span style={{ color: '#fff', fontSize: valueFontSize, fontWeight: 600, lineHeight: 1 }}>{value}</span>
+    </div>
+  </div>
+);
+
 const AddonStatusOverview: React.FC<AddonStatusOverviewProps> = ({
   status,
   loading,
@@ -161,6 +185,8 @@ const AddonStatusOverview: React.FC<AddonStatusOverviewProps> = ({
   const nodeCount = showLiveStats ? stats.nodeCount || lockedNodes || 0 : 0;
   const diskCount = showLiveStats ? stats.diskCount || lockedDisks || 0 : 0;
   const replicaSize = showLiveStats ? status?.config?.replicaSize ?? 0 : 0;
+  const monCount = showLiveStats ? status?.config?.cephCluster?.monCount ?? 0 : 0;
+  const mgrCount = showLiveStats ? status?.config?.cephCluster?.mgrCount ?? 0 : 0;
 
   if (loading && !status) {
     return (
@@ -250,39 +276,31 @@ const AddonStatusOverview: React.FC<AddonStatusOverviewProps> = ({
                   justifyContent: 'flex-start',
                 }}
               >
-                <div style={statTileStyle}>
-                  <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>
-                    存储节点
-                  </Typography.Text>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <CloudServerOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />
-                    <span style={{ color: '#fff', fontSize: 24, fontWeight: 600, lineHeight: 1 }}>
-                      {nodeCount}
-                    </span>
-                  </div>
-                </div>
-                <div style={statTileStyle}>
-                  <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>
-                    数据盘
-                  </Typography.Text>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <HddOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />
-                    <span style={{ color: '#fff', fontSize: 24, fontWeight: 600, lineHeight: 1 }}>
-                      {diskCount}
-                    </span>
-                  </div>
-                </div>
-                <div style={statTileStyle}>
-                  <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>
-                    数据副本
-                  </Typography.Text>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-                    <DatabaseOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />
-                    <span style={{ color: '#fff', fontSize: 24, fontWeight: 600, lineHeight: 1 }}>
-                      {replicaSize}
-                    </span>
-                  </div>
-                </div>
+                <HeroStatTile
+                  label="存储节点"
+                  value={nodeCount}
+                  icon={<CloudServerOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="数据盘"
+                  value={diskCount}
+                  icon={<HddOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="数据副本"
+                  value={replicaSize}
+                  icon={<DatabaseOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="MON 节点"
+                  value={monCount}
+                  icon={<ClusterOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="MGR 服务"
+                  value={mgrCount}
+                  icon={<NodeIndexOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
               </div>
             </Col>
           ) : null}
