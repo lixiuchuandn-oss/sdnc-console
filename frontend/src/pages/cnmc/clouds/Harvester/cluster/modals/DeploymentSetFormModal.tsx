@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Button, Form, Input, InputNumber, Modal, Select, Space } from 'antd';
+import React, { useEffect, useMemo } from 'react';
+import { Alert, Button, Collapse, Form, Input, InputNumber, Modal, Select, Space } from 'antd';
 import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 import {
@@ -9,6 +9,15 @@ import {
   DEPLOYMENT_SET_TOPOLOGY_KEY_OPTIONS,
   type DeploymentSetSchedulingPolicy,
 } from 'services/harvester/deploymentSetScheduling';
+import {
+  DEPLOYMENT_SET_PLACEMENT_PRESET_OPTIONS,
+  getDeploymentSetCapacityWarning,
+  getDeploymentSetPlacementPresetHint,
+  inferPlacementPresetFromScheduling,
+  resolvePlacementPresetToScheduling,
+  type DeploymentSetCapacityContext,
+  type DeploymentSetPlacementPreset,
+} from 'services/harvester/deploymentSetPlacement';
 import {
   DEPLOYMENT_SET_NAME_MAX_LENGTH,
   labelsFormListToRecord,
@@ -21,6 +30,7 @@ export type DeploymentSetFormValues = {
   namespace?: string;
   description?: string;
   sortOrder?: number;
+  placementPreset: DeploymentSetPlacementPreset;
   schedulingPolicy: DeploymentSetSchedulingPolicy;
   schedulingStrength: 'preferred' | 'required';
   topologyKey: string;
@@ -31,6 +41,7 @@ type Props = {
   open: boolean;
   editing: DeploymentSetRow | null;
   namespaceOptions: { value: string; label: string }[];
+  capacityContext?: DeploymentSetCapacityContext;
   onClose: () => void;
   onSubmit: (values: DeploymentSetFormValues & { labels: Record<string, string> }) => Promise<void>;
   saving: boolean;
@@ -40,21 +51,27 @@ const DeploymentSetFormModal: React.FC<Props> = ({
   open,
   editing,
   namespaceOptions,
+  capacityContext,
   onClose,
   onSubmit,
   saving,
 }) => {
   const [form] = Form.useForm<DeploymentSetFormValues>();
+  const placementPreset = Form.useWatch('placementPreset', form);
   const schedulingPolicy = Form.useWatch('schedulingPolicy', form);
+  const schedulingStrength = Form.useWatch('schedulingStrength', form);
+  const topologyKey = Form.useWatch('topologyKey', form);
 
   useEffect(() => {
     if (!open) return;
     if (editing) {
+      const preset = inferPlacementPresetFromScheduling(editing);
       form.setFieldsValue({
         name: editing.name,
         namespace: editing.namespace || undefined,
         description: editing.description,
         sortOrder: editing.sortOrder,
+        placementPreset: preset,
         schedulingPolicy: editing.schedulingPolicy || 'none',
         schedulingStrength: editing.schedulingStrength || 'preferred',
         topologyKey: editing.topologyKey || DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY,
@@ -64,12 +81,50 @@ const DeploymentSetFormModal: React.FC<Props> = ({
       form.resetFields();
       form.setFieldsValue({
         labelPairs: [],
+        placementPreset: 'none',
         schedulingPolicy: 'none',
         schedulingStrength: 'preferred',
         topologyKey: DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY,
       });
     }
   }, [open, editing, form]);
+
+  const presetHint = useMemo(
+    () => getDeploymentSetPlacementPresetHint(placementPreset),
+    [placementPreset],
+  );
+
+  const capacityWarning = useMemo(() => {
+    if (!capacityContext) return null;
+    const preset = placementPreset || 'none';
+    const scheduling =
+      preset === 'custom'
+        ? {
+            schedulingPolicy: schedulingPolicy || 'none',
+            schedulingStrength: schedulingStrength || 'preferred',
+            topologyKey: topologyKey || DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY,
+          }
+        : resolvePlacementPresetToScheduling(preset);
+    return getDeploymentSetCapacityWarning(editing?.vmCount ?? 0, scheduling, capacityContext);
+  }, [
+    capacityContext,
+    placementPreset,
+    schedulingPolicy,
+    schedulingStrength,
+    topologyKey,
+    editing?.vmCount,
+  ]);
+
+  const placementOptions = useMemo(
+    () => [
+      ...DEPLOYMENT_SET_PLACEMENT_PRESET_OPTIONS.map((o) => ({
+        value: o.value,
+        label: o.label,
+      })),
+      { value: 'custom' as const, label: '自定义（高级）' },
+    ],
+    [],
+  );
 
   return (
     <Modal
@@ -78,23 +133,24 @@ const DeploymentSetFormModal: React.FC<Props> = ({
       onCancel={onClose}
       confirmLoading={saving}
       destroyOnClose
-      width={560}
+      width={600}
       onOk={() => {
         void form
           .validateFields()
           .then((values) => {
             const labels = labelsFormListToRecord(values.labelPairs);
-            const schedulingPolicy = values.schedulingPolicy || 'none';
+            const preset = values.placementPreset || 'none';
+            const resolved = resolvePlacementPresetToScheduling(preset, {
+              schedulingPolicy: values.schedulingPolicy,
+              schedulingStrength: values.schedulingStrength,
+              topologyKey: values.topologyKey,
+            });
             return onSubmit({
               ...values,
               labels,
-              schedulingPolicy,
-              schedulingStrength:
-                schedulingPolicy === 'none' ? 'preferred' : values.schedulingStrength || 'preferred',
-              topologyKey:
-                schedulingPolicy === 'none'
-                  ? DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY
-                  : values.topologyKey || DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY,
+              schedulingPolicy: resolved.schedulingPolicy,
+              schedulingStrength: resolved.schedulingStrength,
+              topologyKey: resolved.topologyKey,
             });
           })
           .catch(() => undefined);
@@ -117,18 +173,63 @@ const DeploymentSetFormModal: React.FC<Props> = ({
             optionFilterProp="label"
           />
         </Form.Item>
-        <Form.Item name="schedulingPolicy" label="调度策略">
-          <Select options={DEPLOYMENT_SET_SCHEDULING_POLICY_OPTIONS} />
+        <Form.Item
+          name="placementPreset"
+          label="置放策略"
+          extra="控制同部署集虚拟机之间是尽量分散还是聚集，以及按物理机、故障域或可用区划分。"
+        >
+          <Select
+            options={placementOptions}
+            onChange={(value: DeploymentSetPlacementPreset) => {
+              if (value === 'custom') return;
+              const resolved = resolvePlacementPresetToScheduling(value);
+              form.setFieldsValue({
+                schedulingPolicy: resolved.schedulingPolicy,
+                schedulingStrength: resolved.schedulingStrength,
+                topologyKey: resolved.topologyKey,
+              });
+            }}
+          />
         </Form.Item>
-        {schedulingPolicy && schedulingPolicy !== 'none' ? (
-          <>
-            <Form.Item name="schedulingStrength" label="约束强度">
-              <Select options={DEPLOYMENT_SET_SCHEDULING_STRENGTH_OPTIONS} />
-            </Form.Item>
-            <Form.Item name="topologyKey" label="拓扑域">
-              <Select options={DEPLOYMENT_SET_TOPOLOGY_KEY_OPTIONS} />
-            </Form.Item>
-          </>
+        {presetHint ? (
+          <Alert type="info" showIcon message={presetHint} style={{ marginBottom: 16 }} />
+        ) : null}
+        {capacityWarning ? (
+          <Alert type="warning" showIcon message={capacityWarning} style={{ marginBottom: 16 }} />
+        ) : null}
+        {placementPreset === 'custom' ? (
+          <Collapse
+            ghost
+            defaultActiveKey={['advanced']}
+            items={[
+              {
+                key: 'advanced',
+                label: '高级调度参数',
+                children: (
+                  <>
+                    <Form.Item name="schedulingPolicy" label="调度策略">
+                      <Select options={DEPLOYMENT_SET_SCHEDULING_POLICY_OPTIONS} />
+                    </Form.Item>
+                    {schedulingPolicy && schedulingPolicy !== 'none' ? (
+                      <>
+                        <Form.Item name="schedulingStrength" label="约束强度">
+                          <Select options={DEPLOYMENT_SET_SCHEDULING_STRENGTH_OPTIONS} />
+                        </Form.Item>
+                        <Form.Item
+                          name="topologyKey"
+                          label="分散/聚集范围"
+                          extra="决定「同一组」按什么划分：物理机、故障域、可用区等。"
+                        >
+                          <Select options={DEPLOYMENT_SET_TOPOLOGY_KEY_OPTIONS} />
+                        </Form.Item>
+                      </>
+                    ) : null}
+                  </>
+                ),
+              },
+            ]}
+            style={{ marginBottom: 16 }}
+          />
         ) : null}
         <Form.Item label="自定义标签">
           <Form.List name="labelPairs">

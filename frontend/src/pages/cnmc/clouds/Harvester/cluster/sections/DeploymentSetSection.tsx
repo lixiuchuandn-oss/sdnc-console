@@ -8,17 +8,23 @@ import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import WriteGuard from 'components/WriteGuard';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
-import { fetchHarvesterNamespaces } from 'services/harvester/clusterInventory';
+import { fetchHarvesterNamespaces, fetchHarvesterNodes } from 'services/harvester/clusterInventory';
 import {
   createDeploymentSet,
   deleteDeploymentSet,
   updateDeploymentSet,
   type DeploymentSetRow,
 } from 'services/harvester/deploymentSets';
+import {
+  buildDeploymentSetCapacityContext,
+  getDeploymentSetCapacityWarning,
+  resolvePlacementPresetToScheduling,
+} from 'services/harvester/deploymentSetPlacement';
 import DeploymentSetFormModal, {
   type DeploymentSetFormValues,
 } from '../modals/DeploymentSetFormModal';
 import { useDeploymentSetsData } from '../hooks/useDeploymentSetsData';
+import { useFailureDomainsData } from '../hooks/useFailureDomainsData';
 import { buildDeploymentSetsTableColumns } from '../lib/deploymentSetsTableColumns';
 import {
   buildDeploymentSetNamespaceOptions,
@@ -46,6 +52,10 @@ const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, ch
   const canWrite = canWriteDeploymentSets(checkPerm);
 
   const { loading, overview, error, reload } = useDeploymentSetsData(cloudId, canRead);
+  const { overview: fdOverview } = useFailureDomainsData(cloudId, canRead);
+  const [clusterNodes, setClusterNodes] = useState<Array<{ metadata?: { name?: string; labels?: Record<string, string> } }>>(
+    [],
+  );
   const [keyword, setKeyword] = useState('');
   const [namespaceFilter, setNamespaceFilter] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -81,6 +91,50 @@ const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, ch
       cancelled = true;
     };
   }, [cloudId, canRead]);
+
+  useEffect(() => {
+    if (!cloudId || !canRead) {
+      setClusterNodes([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchHarvesterNodes(cloudId, true)
+      .then((json: unknown) => {
+        if (cancelled) return;
+        const items = (json as { data?: { items?: unknown[] } })?.data?.items;
+        setClusterNodes(Array.isArray(items) ? (items as typeof clusterNodes) : []);
+      })
+      .catch(() => {
+        if (!cancelled) setClusterNodes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudId, canRead]);
+
+  const capacityContext = useMemo(
+    () =>
+      buildDeploymentSetCapacityContext({
+        nodes: clusterNodes,
+        failureDomains: fdOverview?.domains,
+      }),
+    [clusterNodes, fdOverview?.domains],
+  );
+
+  const capacityAlerts = useMemo(() => {
+    const rows = overview?.deploymentSets ?? [];
+    return rows
+      .map((row) => {
+        const scheduling = resolvePlacementPresetToScheduling('custom', {
+          schedulingPolicy: row.schedulingPolicy,
+          schedulingStrength: row.schedulingStrength,
+          topologyKey: row.topologyKey,
+        });
+        const warning = getDeploymentSetCapacityWarning(row.vmCount, scheduling, capacityContext);
+        return warning ? `「${row.name}」：${warning}` : null;
+      })
+      .filter(Boolean) as string[];
+  }, [overview?.deploymentSets, capacityContext]);
 
   const rows = useMemo(() => overview?.deploymentSets ?? [], [overview?.deploymentSets]);
   const filterNsOptions = useMemo(() => buildDeploymentSetNamespaceOptions(rows), [rows]);
@@ -233,6 +287,21 @@ const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, ch
         {error ? (
           <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
         ) : null}
+        {capacityAlerts.length > 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="置放容量提示"
+            description={(
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {capacityAlerts.map((text) => (
+                  <li key={text}>{text}</li>
+                ))}
+              </ul>
+            )}
+            style={{ marginBottom: 16 }}
+          />
+        ) : null}
         <Table
           className="std-table"
           bordered={false}
@@ -249,6 +318,7 @@ const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, ch
         open={formOpen}
         editing={editing}
         namespaceOptions={namespaceOptionsForForm}
+        capacityContext={capacityContext}
         onClose={() => {
           setFormOpen(false);
           setEditing(null);

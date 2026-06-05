@@ -15,6 +15,14 @@ export {
   formatDeploymentSetSchedulingSummary,
 } from './deploymentSetScheduling';
 
+export {
+  DEPLOYMENT_SET_PLACEMENT_PRESET_OPTIONS,
+  formatDeploymentSetPlacementSummary,
+  formatTopologyScopeLabel,
+  inferPlacementPresetFromScheduling,
+  resolvePlacementPresetToScheduling,
+} from './deploymentSetPlacement';
+
 export { DEPLOYMENT_SET_POD_LABEL };
 
 export type DeploymentSetRow = {
