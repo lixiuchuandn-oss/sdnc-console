@@ -8,6 +8,15 @@ import { requestJson, getJsonOnce } from './utils';
  */
 export const TOWER_NAMESPACE_MANAGED_FINALIZER = 'tower.io/managed';
 
+/** 与前端 `harvesterUtils` · `SYSTEM_NAMESPACE_EXACT_NAMES` 对齐 */
+export const SYSTEM_NAMESPACE_EXACT_NAMES = [
+  'hci-manager-system',
+  'rook-ceph',
+  'harbor-system',
+] as const;
+
+const SYSTEM_NAMESPACE_EXACT_NAME_SET = new Set<string>(SYSTEM_NAMESPACE_EXACT_NAMES);
+
 export const isProtectedNamespace = (name: string): boolean => {
   if (!name) return false;
   const lower = name.toLowerCase();
@@ -31,6 +40,7 @@ export const isProtectedNamespace = (name: string): boolean => {
     'fleet-local',
     'cloud-public',
     'harvester-public',
+    ...SYSTEM_NAMESPACE_EXACT_NAMES,
   ];
   if (exactBlacklist.includes(lower)) return true;
 
@@ -67,6 +77,7 @@ export const isSystemNamespaceName = (name: string): boolean => {
     .trim()
     .toLowerCase();
   if (!n) return false;
+  if (SYSTEM_NAMESPACE_EXACT_NAME_SET.has(n)) return true;
   const prefixes = [
     'cattle',
     'fleet',

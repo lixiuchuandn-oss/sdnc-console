@@ -22,6 +22,7 @@ import { getVmInstanceId } from '../lib/vmSectionUtils';
 import { runHarvesterSectionRefresh } from '../../shared/lib/harvesterSectionRefresh';
 import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
 import { VM_RECYCLE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
+import { buildHarvesterVncPageUrl } from '../lib/harvesterVncPageUrl';
 import {
   assessVmMigrateEligibility,
   buildVmAliasPatch,
@@ -188,7 +189,7 @@ export function useVmSectionActions({
       try {
         const { ns, name } = resolveVmNsName(iid, r, SafeRead);
         if (ns && name) {
-          const url = `/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
+          const url = buildHarvesterVncPageUrl(cloudId, ns, name);
           window.open(url, '_blank');
           return;
         }

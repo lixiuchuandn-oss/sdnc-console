@@ -16,6 +16,13 @@
 // 1. 命名空间与存储类
 // =============================================================================
 
+/** 系统命名空间精确名（与后端 `namespace.ts` · `SYSTEM_NAMESPACE_EXACT_NAMES` 对齐） */
+const SYSTEM_NAMESPACE_EXACT_NAMES = new Set([
+  'hci-manager-system',
+  'rook-ceph',
+  'harbor-system',
+]);
+
 /**
  * 判断命名空间是否为 Harvester 系统命名空间
  *
@@ -25,6 +32,7 @@
  */
 export const isSystemNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
+  if (SYSTEM_NAMESPACE_EXACT_NAMES.has(n)) return true;
   const prefixes = [
     'cattle',
     'fleet',

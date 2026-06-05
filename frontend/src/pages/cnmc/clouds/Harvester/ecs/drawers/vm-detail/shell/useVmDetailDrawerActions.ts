@@ -17,6 +17,12 @@ import {
 } from "../../../../shared/lib/highRiskConfirm";
 import { VM_ABORT_MIGRATION_RISK_ITEMS } from "../../../../shared/lib/highRiskOperationPresets";
 import { openVmDetailEjectCdromModal } from "../VmDetailEjectCdromModal";
+import {
+  formatVmStartErrorMessage,
+  isVmAlreadyRunningError,
+  VM_ALREADY_RUNNING_HINT,
+} from "../../../lib/vmOperationErrors";
+import { buildHarvesterVncPageUrl } from "../../../lib/harvesterVncPageUrl";
 
 export function useVmDetailDrawerActions(opts: {
   cloudId: string;
@@ -49,9 +55,21 @@ export function useVmDetailDrawerActions(opts: {
       const name = SafeRead.vmId(vmData);
       await startCloudProviderEcs(cloudId, `${ns}/${name}`);
       message.success("启动指令已发送");
-      void runHarvesterSectionRefresh(onRefresh, { force: true });
+      window.setTimeout(() => {
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
+      }, 1500);
     } catch (e: any) {
-      message.error(e.message || "启动失败");
+      if (isVmAlreadyRunningError(e)) {
+        message.warning(VM_ALREADY_RUNNING_HINT);
+        window.setTimeout(() => {
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
+        }, 500);
+        return;
+      }
+      message.error(formatVmStartErrorMessage(e));
+      window.setTimeout(() => {
+        void runHarvesterSectionRefresh(onRefresh, { force: true });
+      }, 500);
     }
   };
 
@@ -138,7 +156,7 @@ export function useVmDetailDrawerActions(opts: {
     const ns = SafeRead.namespace(vmData);
     const name = SafeRead.vmId(vmData);
     if (ns && name) {
-      const url = `/clouds/${encodeURIComponent(cloudId)}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
+      const url = buildHarvesterVncPageUrl(cloudId, ns, name);
       window.open(url, "_blank");
     } else {
       message.warning("无法解析实例信息");

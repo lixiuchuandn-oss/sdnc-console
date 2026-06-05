@@ -590,7 +590,14 @@ export function buildVmTableColumns(actions: VmTableActions): ColumnsType<any> {
                     tooltip: isResizing
                       ? `无法启动: 关联磁盘 ${pvcName} 正在后端扩容中，请稍候...`
                       : undefined,
-                    onClick: () => !isResizing && onStart(iid),
+                    onClick: () => {
+                      if (isResizing) return;
+                      if (!hasEcsWrite) {
+                        message.error('无权限执行该操作');
+                        return;
+                      }
+                      onStart(iid);
+                    },
                   },
                 ]
               : []),
