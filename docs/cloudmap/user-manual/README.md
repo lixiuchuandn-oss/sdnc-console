@@ -2,7 +2,7 @@
 
 > **可维护源稿**在 `source/`；Word 由脚本生成。能力背景见 [技术白皮书](../whitepaper/README.md)。
 
-## 与白皮书的关系
+## 白皮书关系
 
 | 文档 | 路径 | 读者 | 内容 |
 |------|------|------|------|
@@ -27,7 +27,7 @@ user-manual/
 └── output/                   # 生成物（gitignore）
 ```
 
-## 生成 Word / HTML
+## 生成文档
 
 版式与参考技术手册一致（微软雅黑标题、宋体正文、1.5 倍行距、章前分页、表格灰表头）。构建前自动执行 `../scripts/prepare-reference-docx.ps1` 套用 `../templates/reference.docx`。
 

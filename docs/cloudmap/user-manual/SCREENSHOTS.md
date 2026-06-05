@@ -25,7 +25,7 @@ npm run manual:shots:network
 npm run manual:shots:monitoring
 ```
 
-## 绗?2 绔?路 ch02-pool/
+## 绗?2 绔?路 ch02-pool
 
 | 鏂囦欢                       | 璇存槑                       |
 | ---------------------------- | ---------------------------- |
@@ -38,7 +38,7 @@ npm run manual:shots:monitoring
 
 鑴氭湰锛歚npm run manual:shots:pool`
 
-## 绗?3.2 绔?路 ch03-vm/
+## 绗?3.2 绔?路 ch03-vm
 
 | 鏂囦欢                      | 璇存槑                                     |
 | --------------------------- | ------------------------------------------ |
@@ -53,7 +53,7 @@ npm run manual:shots:monitoring
 
 鑴氭湰锛歚npm run manual:shots:vm`
 
-## 绗?3.3 绔?路 ch03-volumes/
+## 绗?3.3 绔?路 ch03-volumes
 
 | 鏂囦欢                            | 璇存槑                   |
 | --------------------------------- | ------------------------ |
@@ -72,7 +72,7 @@ npm run manual:shots:vm-detail
 npm run manual:shots:network
 npm run manual:shots:monitoring`
 
-## 绗?3.2.12 绔?路 ch03-vm-detail/
+## 绗?3.2.12 绔?路 ch03-vm-detail
 
 | 鏂囦欢                          | 璇存槑                          |
 | ------------------------------- | ------------------------------- |
@@ -88,7 +88,7 @@ npm run manual:shots:monitoring`
 npm run manual:shots:network
 npm run manual:shots:monitoring`
 
-## 绗?3.4 绔?路 ch03-network/
+## 绗?3.4 绔?路 ch03-network
 
 | 鏂囦欢                            | 璇存槑                   |
 | --------------------------------- | ------------------------ |
@@ -107,7 +107,7 @@ npm run manual:shots:monitoring`
 鑴氭湰锛歚npm run manual:shots:network
 npm run manual:shots:monitoring`
 
-## 绗?3.9 绔?路 ch03-backups/
+## 绗?3.9 绔?路 ch03-backups
 
 | 鏂囦欢                           | 璇存槑                   |
 | -------------------------------- | ------------------------ |
@@ -127,7 +127,7 @@ npm run manual:shots:vm-detail
 npm run manual:shots:network
 npm run manual:shots:monitoring`
 
-## 绗?3.2.7 路 assets/image-\*.png
+## 绗?3.2.7 路 assets image-\*.png
 
 | 鏂囦欢                          | 璇存槑                |
 | ------------------------------- | --------------------- |
@@ -138,7 +138,7 @@ npm run manual:shots:monitoring`
 
 鑴氭湰锛歚npm run manual:shots:images`
 
-## §3.14 云监控 → `ch03-monitoring/`
+## §3.14 云监控 → `ch03-monitoring `
 
 | 截图                             | 说明                    |
 | -------------------------------- | ----------------------- |
