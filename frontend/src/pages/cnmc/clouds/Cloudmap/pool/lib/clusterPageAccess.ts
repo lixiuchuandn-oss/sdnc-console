@@ -135,7 +135,6 @@ export function canViewClusterSidebarLeaf(
     return canViewPlatformNetworkHub(checkPerm, ctx);
   }
 
-  const { canReadPublicSubnets, canReadNetworkScope, canReadLoadBalancers } = ctx;
   switch (normalized) {
     case 'cluster_usb':
       return checkPerm('clouds.usb-devices:read');
