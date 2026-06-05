@@ -8,12 +8,12 @@
 
 ## 1. 为什么要从 `h3c-huawei-like` 拆出
 
-| 维度 | `h3c-huawei-like`（现状） | `h3c-comware-like`（本模板） |
-|------|---------------------------|------------------------------|
-| 适用 | H3C + 华为 VRP 共用 | **仅 H3C Comware** |
-| 关分页 | 常见默认 `screen-length 0 temporary` | **`screen-length disable`**（S6800 等实测可用） |
-| 接口命令 | 常配 `\| include XGE` | **`display interface brief` 全表** |
-| Tower 解析 | 华为走 VRP 表；H3C 走 Comware 分支 | 不变；本模板保证 **回显完整** 供 Comware 解析 |
+| 维度       | `h3c-huawei-like`（现状）            | `h3c-comware-like`（本模板）                    |
+| ---------- | ------------------------------------ | ----------------------------------------------- |
+| 适用       | H3C + 华为 VRP 共用                  | **仅 H3C Comware**                              |
+| 关分页     | 常见默认 `screen-length 0 temporary` | **`screen-length disable`**（S6800 等实测可用） |
+| 接口命令   | 常配 `\| include XGE`                | **`display interface brief` 全表**              |
+| Tower 解析 | 华为走 VRP 表；H3C 走 Comware 分支   | 不变；本模板保证 **回显完整** 供 Comware 解析   |
 
 华为请继续用 `huawei` 或 `h3c-huawei-like`，**不要**挂到本 profile。
 
@@ -21,12 +21,12 @@
 
 ## 2. Profile 标识
 
-| 字段 | 值 |
-|------|-----|
-| **profile id** | `h3c-comware-like` |
-| **展示名** | H3C Comware / H3C Comware（华三） |
-| **vendor 建议** | Switch CR `spec.vendor = "H3C"` |
-| **替代关系** | 新建后，H3C 新接入默认用本 profile；存量可迁移 |
+| 字段            | 值                                             |
+| --------------- | ---------------------------------------------- |
+| **profile id**  | `h3c-comware-like`                             |
+| **展示名**      | H3C Comware / H3C Comware（华三）              |
+| **vendor 建议** | Switch CR `spec.vendor = "H3C"`                |
+| **替代关系**    | 新建后，H3C 新接入默认用本 profile；存量可迁移 |
 
 ---
 
@@ -51,12 +51,12 @@ screenLengthCmd: screen-length disable
 
 与 Tower `Switch` CR（`hms.rivercloud.com/v1`）字段一一对应：
 
-| CR 字段 | 默认命令（每行一条，按序执行） |
-|---------|--------------------------------|
-| `infoCommands` | `display version` |
-| `interfaceCommands` | `display interface brief` |
+| CR 字段               | 默认命令（每行一条，按序执行）          |
+| --------------------- | --------------------------------------- |
+| `infoCommands`        | `display version`                       |
+| `interfaceCommands`   | `display interface brief`               |
 | `performanceCommands` | `display cpu-usage`<br>`display memory` |
-| `vlanCommands` | `display vlan` |
+| `vlanCommands`        | `display vlan`                          |
 
 ### 3.3 命令约束（HSM 必须遵守）
 
@@ -166,13 +166,13 @@ Tower 行为摘要：
 
 ## 7. 验收标准
 
-| # | 检查项 | 通过条件 |
-|---|--------|----------|
-| 1 | 关分页 | 无 `Unrecognized command`；brief 无 `---- More ----` |
-| 2 | 接口完整 | bridge mode 含 XGE1/0/1–48 与 FGE1/0/49–54（S6800-54QF） |
-| 3 | Tower 解析 | 前面板 ≥ 54 口，且无单独仅 MGE 的误判 |
-| 4 | 性能 | cpu-usage / memory 有有效 stdout |
-| 5 | 版本 | info 含 `BOARD TYPE` 或 `H3C Comware` |
+| #   | 检查项     | 通过条件                                                 |
+| --- | ---------- | -------------------------------------------------------- |
+| 1   | 关分页     | 无 `Unrecognized command`；brief 无 `---- More ----`     |
+| 2   | 接口完整   | bridge mode 含 XGE1/0/1–48 与 FGE1/0/49–54（S6800-54QF） |
+| 3   | Tower 解析 | 前面板 ≥ 54 口，且无单独仅 MGE 的误判                    |
+| 4   | 性能       | cpu-usage / memory 有有效 stdout                         |
+| 5   | 版本       | info 含 `BOARD TYPE` 或 `H3C Comware`                    |
 
 ---
 

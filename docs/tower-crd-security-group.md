@@ -11,13 +11,13 @@
 
 ## 1. 设计原则
 
-| 原则 | 说明 |
-|------|------|
-| **与 HMS Switch 对齐** | API 组 `tower.rivercloud.com/v1`、**Cluster 作用域**、标准 CRUD |
-| **与 Tower 字段 1:1** | spec 字段名、枚举、校验与 Tower 后端一致 |
-| **稳定主键** | `metadata.name` 建议用 Tower 资源 UUID |
-| **按云实例隔离** | 必填 `spec.cloudId`；列表用 label `tower.io/cloud-id` |
-| **嵌套 spec** | `spec.rules` / `spec.members` 同 CR（对应 Tower「整表替换 rules」） |
+| 原则                   | 说明                                                                |
+| ---------------------- | ------------------------------------------------------------------- |
+| **与 HMS Switch 对齐** | API 组 `tower.rivercloud.com/v1`、**Cluster 作用域**、标准 CRUD     |
+| **与 Tower 字段 1:1**  | spec 字段名、枚举、校验与 Tower 后端一致                            |
+| **稳定主键**           | `metadata.name` 建议用 Tower 资源 UUID                              |
+| **按云实例隔离**       | 必填 `spec.cloudId`；列表用 label `tower.io/cloud-id`               |
+| **嵌套 spec**          | `spec.rules` / `spec.members` 同 CR（对应 Tower「整表替换 rules」） |
 
 **不在 CR 内建模**：安全组 → Kube-OVN 扁平子网 `Subnet.spec.acls` 展开下发（Tower 现逻辑在 `kubeOvnSecurityGroupAclPush`）；底座 controller 可选写 `status.aclSync`，或仍由 Tower BFF 触发。
 
@@ -25,8 +25,8 @@
 
 ## 2. API 总览
 
-| Kind | Plural | 作用域 | 说明 |
-|------|--------|--------|------|
+| Kind            | Plural           | 作用域  | 说明                                      |
+| --------------- | ---------------- | ------- | ----------------------------------------- |
 | `SecurityGroup` | `securitygroups` | Cluster | Kube-OVN 扁平子网安全组（规则 + VM 成员） |
 
 ```text
@@ -61,15 +61,15 @@ GET/PUT/PATCH/DELETE /apis/tower.rivercloud.com/v1/securitygroups/{name}
 
 ### 3.2 spec 字段
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `id` | string | 推荐 | Tower UUID，同 metadata.name |
-| `cloudId` | string | 是 | 资源池 ID |
-| `name` | string | 是 | 组名，≤128 字符 |
-| `description` | string | 否 | 描述 |
-| `subnetName` | string | 是 | Kube-OVN Subnet `metadata.name` |
-| `rules` | []Rule | 否 | 访问控制规则（整组替换） |
-| `members` | []Member | 否 | 绑定的 VM |
+| 字段          | 类型     | 必填 | 说明                            |
+| ------------- | -------- | ---- | ------------------------------- |
+| `id`          | string   | 推荐 | Tower UUID，同 metadata.name    |
+| `cloudId`     | string   | 是   | 资源池 ID                       |
+| `name`        | string   | 是   | 组名，≤128 字符                 |
+| `description` | string   | 否   | 描述                            |
+| `subnetName`  | string   | 是   | Kube-OVN Subnet `metadata.name` |
+| `rules`       | []Rule   | 否   | 访问控制规则（整组替换）        |
+| `members`     | []Member | 否   | 绑定的 VM                       |
 
 **Rule**：`priority`、`direction`（`from-lport`|`to-lport`）、`action`（`drop`|`allow`|`pass`）、`match`。
 
@@ -82,22 +82,22 @@ GET/PUT/PATCH/DELETE /apis/tower.rivercloud.com/v1/securitygroups/{name}
 
 ### 3.3 status 字段（controller 可选）
 
-| 字段 | 说明 |
-|------|------|
-| `ruleCount` / `memberCount` | 与 spec 同步 |
-| `aclSync` | 最近 ACL 下发状态 |
-| `conditions[]` | 标准 condition |
+| 字段                        | 说明              |
+| --------------------------- | ----------------- |
+| `ruleCount` / `memberCount` | 与 spec 同步      |
+| `aclSync`                   | 最近 ACL 下发状态 |
+| `conditions[]`              | 标准 condition    |
 
 ### 3.4 Tower HTTP 映射
 
-| Tower API | CR 操作 |
-|-----------|---------|
-| `GET .../kube-ovn-security-groups` | list + filter cloudId |
-| `GET .../kube-ovn-security-groups/:sgId` | get |
-| `POST .../kube-ovn-security-groups` | create |
-| `PUT .../kube-ovn-security-groups/:sgId` | patch name/description |
-| `PUT .../kube-ovn-security-groups/:sgId/rules` | 替换 `spec.rules` |
-| members API | 更新 `spec.members` |
+| Tower API                                      | CR 操作                |
+| ---------------------------------------------- | ---------------------- |
+| `GET .../kube-ovn-security-groups`             | list + filter cloudId  |
+| `GET .../kube-ovn-security-groups/:sgId`       | get                    |
+| `POST .../kube-ovn-security-groups`            | create                 |
+| `PUT .../kube-ovn-security-groups/:sgId`       | patch name/description |
+| `PUT .../kube-ovn-security-groups/:sgId/rules` | 替换 `spec.rules`      |
+| members API                                    | 更新 `spec.members`    |
 
 ---
 
