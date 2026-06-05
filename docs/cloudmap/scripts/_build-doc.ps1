@@ -34,12 +34,53 @@ if (-not $pandocExe) {
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-$files = Get-Content $Manifest -Encoding UTF8 | Where-Object { $_ -and -not $_.StartsWith("#") }
+$files = @(Get-Content $Manifest -Encoding UTF8 | Where-Object { $_ -and -not $_.StartsWith("#") } | ForEach-Object { $_.Trim() })
 $inputs = @()
+$tmpBuildDir = $null
+
+function Get-ManualChapterEndSet {
+    param([string[]]$ManifestRelPaths)
+    $ends = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    for ($i = 0; $i -lt $ManifestRelPaths.Count; $i++) {
+        $rel = $ManifestRelPaths[$i]
+        $next = if ($i + 1 -lt $ManifestRelPaths.Count) { $ManifestRelPaths[$i + 1] } else { $null }
+        if ($rel -match '^\d{2}-[^/]+\.md$') {
+            if (-not $next -or $next -match '^(ch03/|\d{2}-)') {
+                [void]$ends.Add($rel)
+            }
+        }
+        if ($rel -match '^ch03/' -and $next -and $next -match '^\d{2}-[^/]+\.md$') {
+            [void]$ends.Add($rel)
+        }
+    }
+    return $ends
+}
+
+function Add-ChapterTrailingBlankLine {
+    param([string]$Content)
+    return $Content.TrimEnd("`r", "`n", " ", "`t") + "`n`n"
+}
+
+$chapterEnds = $null
+if ($Variant -eq 'manual') {
+    $chapterEnds = Get-ManualChapterEndSet -ManifestRelPaths $files
+    $tmpBuildDir = Join-Path ([IO.Path]::GetTempPath()) ("cloudmap-manual-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $tmpBuildDir | Out-Null
+}
+
 foreach ($rel in $files) {
-    $p = Join-Path $Source $rel.Trim()
+    $p = Join-Path $Source $rel
     if (-not (Test-Path $p)) { Write-Error "Missing source file: $p" }
-    $inputs += $p
+    if ($chapterEnds -and $chapterEnds.Contains($rel)) {
+        $raw = [System.IO.File]::ReadAllText($p, [System.Text.UTF8Encoding]::new($false))
+        $patched = Add-ChapterTrailingBlankLine $raw
+        $tmpName = ($rel -replace '[/\\:]', '_')
+        $tmpPath = Join-Path $tmpBuildDir $tmpName
+        [System.IO.File]::WriteAllText($tmpPath, $patched, (New-Object System.Text.UTF8Encoding $false))
+        $inputs += $tmpPath
+    } else {
+        $inputs += $p
+    }
 }
 
 $defaultName = if ($Variant -eq 'manual') { "cloudmap-user-manual" } else { "cloudmap-whitepaper" }
@@ -51,18 +92,38 @@ if (-not $Output) {
 $refDoc = Join-Path (Join-Path $Root "templates") "reference.docx"
 $whitepaperAssets = Join-Path (Join-Path (Join-Path $Root "whitepaper") "source") "assets"
 
+$prepareRef = Join-Path $PSScriptRoot "prepare-reference-docx.ps1"
+if ($Format -eq 'docx' -and (Test-Path $prepareRef)) {
+    & $prepareRef -RefPath $refDoc
+}
+
 if ($Format -eq 'docx') {
+    $luaFilter = Join-Path (Join-Path $Root "templates") "filters\docx-cleanup.lua"
+    $chapterBreakFilter = Join-Path (Join-Path $Root "templates") "filters\manual-chapter-break.lua"
+    $tocDepth = if ($Variant -eq 'manual') { "2" } else { "3" }
     $pandocArgs = @(
         $inputs
         "-o", $Output
         "--from", "markdown"
         "--to", "docx"
         "--toc"
-        "--toc-depth=3"
+        "--toc-depth=$tocDepth"
         "--resource-path=$Source;$whitepaperAssets"
     )
+    $bodyFormatFilter = Join-Path (Join-Path $Root "templates") "filters\manual-body-format.lua"
+    if ($Variant -eq 'manual' -and (Test-Path $bodyFormatFilter)) {
+        $pandocArgs += @("--lua-filter=$bodyFormatFilter")
+    }
+    if (Test-Path $luaFilter) {
+        $pandocArgs += @("--lua-filter=$luaFilter")
+    }
+    if ($Variant -eq 'manual' -and (Test-Path $chapterBreakFilter)) {
+        $pandocArgs += @("--lua-filter=$chapterBreakFilter")
+    }
     if (Test-Path $refDoc) {
         $pandocArgs += @("--reference-doc=$refDoc")
+    } else {
+        Write-Host "Tip: run scripts/customize-reference-docx.ps1 after generating templates/reference.docx" -ForegroundColor Yellow
     }
 } else {
     $css = Join-Path (Join-Path $Root "templates") "preview.css"
@@ -81,9 +142,133 @@ if ($Format -eq 'docx') {
     if (Test-Path $css) {
         $pandocArgs += @("--css=../templates/preview.css")
     }
+    $chapterBreakFilter = Join-Path (Join-Path $Root "templates") "filters\manual-chapter-break.lua"
+    if ($Variant -eq 'manual' -and (Test-Path $chapterBreakFilter)) {
+        $pandocArgs += @("--lua-filter=$chapterBreakFilter")
+    }
 }
 
-& $pandocExe @pandocArgs
+function Clear-DocxBodyIndent {
+    param([Parameter(Mandatory = $true)][string]$DocxPath)
+    if (-not (Test-Path $DocxPath)) { return }
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("docx-ind-" + [Guid]::NewGuid().ToString("N"))
+    $docDir = Join-Path $tmp "doc"
+    New-Item -ItemType Directory -Path $docDir -Force | Out-Null
+    $zip = Join-Path $tmp "d.zip"
+    Copy-Item -LiteralPath $DocxPath -Destination $zip -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $docDir)
+    $noInd = '<w:ind w:left="0" w:right="0" w:firstLine="0" w:firstLineChars="0" w:hanging="0"/>'
+    foreach ($rel in @('word\document.xml')) {
+        $partPath = Join-Path $docDir $rel
+        if (-not (Test-Path $partPath)) { continue }
+        $xml = [System.IO.File]::ReadAllText($partPath, [System.Text.UTF8Encoding]::new($false))
+        $xml = [regex]::Replace($xml, '<w:ind\s+[^>]*/>', $noInd)
+        [System.IO.File]::WriteAllText($partPath, $xml, (New-Object System.Text.UTF8Encoding $false))
+    }
+    Remove-Item -LiteralPath $DocxPath -Force
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($docDir, $DocxPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Remove-Item -LiteralPath $tmp -Recurse -Force
+}
+
+function Set-DocxPageMargins {
+    param(
+        [Parameter(Mandatory = $true)][string]$DocxPath,
+        [double]$MarginCm = 1.9
+    )
+    if (-not (Test-Path $DocxPath)) { return }
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $marginTwips = [string]([int][Math]::Round($MarginCm / 2.54 * 1440))
+    $pgMar = '<w:pgMar w:top="' + $marginTwips + '" w:right="' + $marginTwips + '" w:bottom="' + $marginTwips + '" w:left="' + $marginTwips + '" w:header="708" w:footer="708" w:gutter="0"/>'
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("docx-mar-" + [Guid]::NewGuid().ToString("N"))
+    $docDir = Join-Path $tmp "doc"
+    New-Item -ItemType Directory -Path $docDir -Force | Out-Null
+    $zip = Join-Path $tmp "d.zip"
+    Copy-Item -LiteralPath $DocxPath -Destination $zip -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $docDir)
+    $partPath = Join-Path $docDir "word\document.xml"
+    if (Test-Path $partPath) {
+        $xml = [System.IO.File]::ReadAllText($partPath, [System.Text.UTF8Encoding]::new($false))
+        if ($xml -match '<w:pgMar\s') {
+            $xml = [regex]::Replace($xml, '<w:pgMar\s[^>]*/>', $pgMar)
+        } else {
+            $xml = [regex]::Replace($xml, '<w:sectPr>', ('<w:sectPr>' + $pgMar))
+        }
+        [System.IO.File]::WriteAllText($partPath, $xml, (New-Object System.Text.UTF8Encoding $false))
+    }
+    Remove-Item -LiteralPath $DocxPath -Force
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($docDir, $DocxPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Remove-Item -LiteralPath $tmp -Recurse -Force
+}
+
+function Set-DocxTableLayout {
+    param([Parameter(Mandatory = $true)][string]$DocxPath)
+    if (-not (Test-Path $DocxPath)) { return }
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("docx-tbl-" + [Guid]::NewGuid().ToString("N"))
+    $docDir = Join-Path $tmp "doc"
+    New-Item -ItemType Directory -Path $docDir -Force | Out-Null
+    $zip = Join-Path $tmp "d.zip"
+    Copy-Item -LiteralPath $DocxPath -Destination $zip -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $docDir)
+    $partPath = Join-Path $docDir "word\document.xml"
+    if (Test-Path $partPath) {
+        $xml = [System.IO.File]::ReadAllText($partPath, [System.Text.UTF8Encoding]::new($false))
+        $tblPr = '<w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblLayout w:type="autofit"/></w:tblPr>'
+        $xml = [regex]::Replace($xml, '<w:tbl>(?!\s*<w:tblPr>)', ('<w:tbl>' + $tblPr))
+        # Repeat the header row at the top of each page a table spans. Newer pandoc
+        # emits <w:tblHeader/> itself; for older output that only marks the first row
+        # via cnfStyle, add it (guarded so we never duplicate the element).
+        $xml = [regex]::Replace($xml, '(<w:trPr>)(?![^<]*<w:tblHeader)((?:(?!</w:trPr>).)*<w:cnfStyle w:firstRow="1"[^>]*/>)', '$1<w:tblHeader/>$2')
+        [System.IO.File]::WriteAllText($partPath, $xml, (New-Object System.Text.UTF8Encoding $false))
+    }
+    Remove-Item -LiteralPath $DocxPath -Force
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($docDir, $DocxPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Remove-Item -LiteralPath $tmp -Recurse -Force
+}
+
+function Set-DocxTocHeadingText {
+    param(
+        [Parameter(Mandatory = $true)][string]$DocxPath,
+        [string]$Text = "目录"
+    )
+    if (-not (Test-Path $DocxPath)) { return }
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("docx-toc-" + [Guid]::NewGuid().ToString("N"))
+    $docDir = Join-Path $tmp "doc"
+    New-Item -ItemType Directory -Path $docDir -Force | Out-Null
+    $zip = Join-Path $tmp "d.zip"
+    Copy-Item -LiteralPath $DocxPath -Destination $zip -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $docDir)
+    $partPath = Join-Path $docDir "word\document.xml"
+    if (Test-Path $partPath) {
+        $xml = [System.IO.File]::ReadAllText($partPath, [System.Text.UTF8Encoding]::new($false))
+        $xml = $xml -replace '(<w:t[^>]*>)Table of Contents(</w:t>)', ('${1}' + $Text + '${2}')
+        [System.IO.File]::WriteAllText($partPath, $xml, (New-Object System.Text.UTF8Encoding $false))
+    }
+    Remove-Item -LiteralPath $DocxPath -Force
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($docDir, $DocxPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Remove-Item -LiteralPath $tmp -Recurse -Force
+}
+
+try {
+    & $pandocExe @pandocArgs
+    if ($LASTEXITCODE -ne 0) { throw "pandoc failed with exit code $LASTEXITCODE" }
+    if ($Variant -eq 'manual' -and $Format -eq 'docx' -and (Test-Path $Output)) {
+        Clear-DocxBodyIndent -DocxPath $Output
+        Set-DocxTableLayout -DocxPath $Output
+        Set-DocxPageMargins -DocxPath $Output -MarginCm 1.9
+        Set-DocxTocHeadingText -DocxPath $Output -Text "目录"
+    }
+} finally {
+    if ($tmpBuildDir -and (Test-Path $tmpBuildDir)) {
+        Remove-Item -LiteralPath $tmpBuildDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 Write-Host "Generated: $Output" -ForegroundColor Green
 
 function Copy-AssetTree {

@@ -29,6 +29,8 @@ user-manual/
 
 ## 生成 Word / HTML
 
+版式与参考技术手册一致（微软雅黑标题、宋体正文、1.5 倍行距、章前分页、表格灰表头）。构建前自动执行 `../scripts/prepare-reference-docx.ps1` 套用 `../templates/reference.docx`。
+
 在 **`docs/cloudmap`** 目录执行（需 [Pandoc](https://pandoc.org/)）：
 
 ```powershell

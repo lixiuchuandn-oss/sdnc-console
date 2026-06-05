@@ -41,8 +41,20 @@ for rel in "${FILES[@]}"; do
 done
 
 REF="$ROOT/templates/reference.docx"
+LUA_FILTER="$ROOT/templates/filters/docx-cleanup.lua"
+BODY_FILTER="$ROOT/templates/filters/manual-body-format.lua"
+CHAPTER_FILTER="$ROOT/templates/filters/manual-chapter-break.lua"
 WP_ASSETS="$ROOT/whitepaper/source/assets"
-ARGS=( "${INPUTS[@]}" -o "$OUTPUT" --from markdown --to docx --toc --toc-depth=3 "--resource-path=$SOURCE:$WP_ASSETS" )
+TOC_DEPTH=3
+[[ "$VARIANT" == "manual" ]] && TOC_DEPTH=2
+ARGS=( "${INPUTS[@]}" -o "$OUTPUT" --from markdown --to docx --toc "--toc-depth=$TOC_DEPTH" "--resource-path=$SOURCE:$WP_ASSETS" )
+if [[ "$VARIANT" == "manual" && -f "$BODY_FILTER" ]]; then
+  ARGS+=( "--lua-filter=$BODY_FILTER" )
+fi
+[[ -f "$LUA_FILTER" ]] && ARGS+=( "--lua-filter=$LUA_FILTER" )
+if [[ "$VARIANT" == "manual" && -f "$CHAPTER_FILTER" ]]; then
+  ARGS+=( "--lua-filter=$CHAPTER_FILTER" )
+fi
 [[ -f "$REF" ]] && ARGS+=( "--reference-doc=$REF" )
 
 pandoc "${ARGS[@]}"
