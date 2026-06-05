@@ -10,7 +10,7 @@
  * - 选择 ISO 镜像时在该表单项校验：至少添加一块非光驱数据盘（随数据盘列表联动重新校验）。
  */
 import React, { useEffect, useMemo } from 'react';
-import { Form, Input, Select, Space, Button, Row, Col, Typography, Tag } from 'antd';
+import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 import { MinusCircleOutlined } from '@ant-design/icons';
 import { isHarvesterVmImageReady, isSystemStorageClass, resolveVmImageKind } from '../../../../../../../utils/harvesterUtils';
@@ -207,28 +207,6 @@ const StepDisks: React.FC<StepDisksProps> = ({
     });
     if (changed) form.setFieldsValue({ extraDisks: next });
   }, [resolvedDefaultStorageClassName, form]);
-
-  const storageClassSelectOptions = useMemo(
-    () =>
-      (storageClasses || [])
-        .filter((x) => !isSystemStorageClass(storageClassNameFromItem(x)))
-        .map((x) => {
-          const nm = storageClassNameFromItem(x);
-          const isDef = !!nm && nm === resolvedDefaultStorageClassName;
-          return {
-            label: isDef ? (
-              <Space size={6}>
-                <span>{nm}</span>
-                <Tag color="blue">默认</Tag>
-              </Space>
-            ) : (
-              nm
-            ),
-            value: nm,
-          };
-        }),
-    [storageClasses, resolvedDefaultStorageClassName],
-  );
 
   const watchedRootSource = Form.useWatch('rootSourceType', form);
   const rootSourceType = watchedRootSource || 'image';
