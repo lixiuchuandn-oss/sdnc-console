@@ -27,6 +27,7 @@
 
 ## 3. 界面路径写法
 
+- **`source/` 下正文会导出为 Word 外发用户**：只写文档名、章节号、控制台菜单路径；**禁止** 写仓库路径（如 `docs/cloudmap/…`、`user-manual/…`）、源码路径（如 `pages/`、`.ts`）、维护文件（`COVERAGE.md`、`manifest.txt`）。维护说明写在 `writing-style.md`、`README.md` 等 **不进入 manifest** 的文件。
 - 用 **`>`** 连接：`多云管理 > 资源池管理 > 某 Cloudmap 池 > 计算 > 虚拟机`。
 - 按钮、Tab、字段名与 **控制台中文文案** 一致，不加英文 slug。
 - **权限原子** 只在 **第 4 章** 与 `docs/cloudmap-pool-rbac.md` 维护；功能节不写权限清单。
