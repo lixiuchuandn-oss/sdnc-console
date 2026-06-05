@@ -1403,6 +1403,7 @@ const CloudConsolePage: React.FC = () => {
         if (!canAccessMainResource('vm')) break;
         if (pvcs.length === 0) loadPvcs(currentCloudId);
         if (images.length === 0) loadImages(currentCloudId);
+        if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
         break;
       case 'image':
         if (!canAccessMainResource('image')) break;

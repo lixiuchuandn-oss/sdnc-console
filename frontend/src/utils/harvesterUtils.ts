@@ -227,13 +227,19 @@ export const isClusterDefaultStorageClass = (sc: any): boolean => {
 };
 
 /**
- * 解析集群「默认」存储类名称：优先 is-default-class，否则取列表第一项（与创建向导 useHarvesterData 一致）
+ * 解析集群「默认」存储类名称：优先 is-default-class，否则取用户可选列表首项。
+ * 与 backend pickDefaultStorageClassNameFromRecords 一致（排除镜像/系统专用 StorageClass）。
  */
 export const pickDefaultStorageClassName = (storageClasses?: any[]): string | undefined => {
   const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
-  const pickName = (sc: any) => sc?.metadata?.name || sc?.name;
-  const hit = list.find(isClusterDefaultStorageClass);
-  return pickName(hit) || pickName(list[0]) || undefined;
+  const pickName = (sc: any): string => {
+    const n = String(sc?.metadata?.name || sc?.name || '').trim();
+    return n && !isSystemStorageClass(n) ? n : '';
+  };
+  const usable = list.filter((sc) => pickName(sc));
+  const pool = usable.length > 0 ? usable : list;
+  const hit = pool.find(isClusterDefaultStorageClass);
+  return pickName(hit) || pickName(pool[0]) || undefined;
 };
 
 // =============================================================================

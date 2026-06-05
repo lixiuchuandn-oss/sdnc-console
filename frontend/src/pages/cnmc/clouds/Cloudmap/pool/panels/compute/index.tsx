@@ -67,6 +67,7 @@ export type CloudmapComputeRoutePanelProps = {
   ecs: any[];
   rawEcs: any;
   namespacesOptions: string[];
+  tenantNamespaces: string[];
   nodesOptions: string[];
   nsFilter: string;
   setNsFilter: (v: string) => void;
@@ -134,6 +135,7 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
     ecs,
     rawEcs,
     namespacesOptions,
+    tenantNamespaces,
     nodesOptions,
     nsFilter,
     setNsFilter,
@@ -489,6 +491,9 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           onRefresh={computeTabOnRefresh.images}
           onImagesInventoryReload={reloadImagesInventory}
           isTenant={isTenant}
+          tenantDefaultNamespace={
+            isTenant ? (nsFilter || tenantNamespaces[0] || undefined) : undefined
+          }
         />
         <DebugJSON data={rawImages} show={showLog} />
         </>

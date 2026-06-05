@@ -44,6 +44,7 @@ const VmAddNewDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
     reloadScs,
     ensureNadsLoaded,
     scOptions,
+    defaultStorageClassName,
     isHotPlugInProgress,
   } = useVmAddDataDiskDrawerData({
     open,
@@ -92,12 +93,14 @@ const VmAddNewDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
 
   useEffect(() => {
     if (!open || created) return;
-    const first = scOptions?.[0]?.value;
-    if (first == null || first === "") return;
+    const def =
+      defaultStorageClassName ||
+      (scOptions?.[0]?.value != null ? String(scOptions[0].value) : "");
+    if (!def) return;
     const cur = form.getFieldValue("newDiskSc");
     if (cur != null && String(cur).trim() !== "") return;
-    form.setFieldsValue({ newDiskSc: first });
-  }, [open, created, scOptions, form]);
+    form.setFieldsValue({ newDiskSc: def });
+  }, [open, created, defaultStorageClassName, scOptions, form]);
 
   const footerDisabled = !hasEcsWrite || isHotPlugInProgress;
 
@@ -206,7 +209,11 @@ const VmAddNewDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
           >
             <Select
               options={scOptions}
-              placeholder="请选择存储类"
+              placeholder={
+                defaultStorageClassName
+                  ? `默认 ${defaultStorageClassName}`
+                  : "请选择存储类"
+              }
               onOpenChange={(open) => {
                 if (open) void reloadScs();
               }}

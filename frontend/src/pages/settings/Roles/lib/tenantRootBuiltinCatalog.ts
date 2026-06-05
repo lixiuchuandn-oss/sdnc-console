@@ -3,7 +3,7 @@ import { isTenantConsoleUmbrellaPermission } from './tenantConsoleUmbrellaPermis
 /**
  * 与 backend/src/seeders/initRoles.ts 中租户边界公式保持一致。
  * - buildTenantRootRoleCatalogBoundaryFromActions：角色抽屉目录（含 clouds.images:write）
- * - buildTenantRootBuiltinCatalogFromActions：内置根用户种子（镜像仅 read）
+ * - buildTenantRootBuiltinCatalogFromActions：内置根用户种子（含镜像读写）
  */
 const TENANT_ROOT_NON_CNMC_PREFIXES = [
   'tenants',
@@ -84,11 +84,9 @@ function isTenantRootConfigurableCloudPermission(permission: string): boolean {
   return true;
 }
 
-/** 内置云租户根用户种子（镜像仅 read） */
+/** 内置云租户根用户种子（含镜像读写） */
 function isTenantRootBuiltinCloudPermission(permission: string): boolean {
-  if (!isTenantRootConfigurableCloudPermission(permission)) return false;
-  if (permission === 'clouds.images:write') return false;
-  return true;
+  return isTenantRootConfigurableCloudPermission(permission);
 }
 
 /** 租户角色权限抽屉固定目录（与 /rbac/actions.tenantRootBoundary 一致） */

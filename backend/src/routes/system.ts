@@ -334,7 +334,7 @@ router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
   // 预定义的权限原子列表，来自 constants/permissions.ts
   // 这些是系统中所有可用的权限原子
   const actions: string[] = [...ALL_PERMISSIONS].sort();
-  // 租户角色抽屉固定展示目录（可含 clouds.images:write；内置根用户种子另见 buildTenantRootBuiltinPermissions）
+  // 租户角色抽屉固定展示目录（与内置根用户种子公式一致，见 buildTenantRootBuiltinPermissions）
   const tenantRootBoundary = buildTenantRootRoleCatalogBoundary(ALL_PERMISSIONS).sort();
 
   // 注意：分组、平台等元数据由后端权限体系提供（/rbac/permissions）
