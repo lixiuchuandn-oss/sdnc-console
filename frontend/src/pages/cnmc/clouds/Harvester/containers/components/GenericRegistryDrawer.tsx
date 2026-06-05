@@ -10,7 +10,7 @@
  * - 镜像：镜像列表和 Tag
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Drawer, Tabs, Card, Descriptions, Tag, Space, Statistic, Alert, Button, Typography, message } from 'antd';
 import { 
   LockOutlined, 
@@ -23,6 +23,7 @@ import {
 import RegistryBrowser from './RegistryBrowser';
 import ImageUploadModal from './ImageUploadModal';
 import { getRegistryCatalog } from '../../../../../../services/harvesterApi';
+import { refreshLocalRegistryStatus } from '../../../../../../services/localRegistryApi';
 
 const { Text, Paragraph } = Typography;
 
@@ -38,6 +39,7 @@ interface RegistryConfig {
   localRegistryId?: string;
   namespace?: string;
   nodePort?: number;
+  status?: 'healthy' | 'unhealthy' | 'unknown' | 'deploying' | 'deleting';
 }
 
 interface Props {
@@ -60,6 +62,23 @@ const GenericRegistryDrawer: React.FC<Props> = ({
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'healthy' | 'unhealthy'>('unknown');
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
 
+  // 从 registry.status 初始化 connectionStatus
+  useEffect(() => {
+    if (registry?.status) {
+      // 将外部表格的状态映射到详情抽屉的连接状态
+      const statusMap: Record<string, 'unknown' | 'healthy' | 'unhealthy'> = {
+        healthy: 'healthy',
+        unhealthy: 'unhealthy',
+        unknown: 'unknown',
+        deploying: 'unknown',
+        deleting: 'unknown',
+      };
+      setConnectionStatus(statusMap[registry.status] || 'unknown');
+    } else {
+      setConnectionStatus('unknown');
+    }
+  }, [registry]);
+
   const protocol = registry?.insecure ? 'HTTP' : 'HTTPS';
   const hasAuth = !!registry?.username;
 
@@ -78,13 +97,41 @@ const GenericRegistryDrawer: React.FC<Props> = ({
       );
       setConnectionStatus('healthy');
       message.success('连接测试成功');
+      
+      // 如果是本地仓库，调用后端 API 持久化状态
+      if (registry.localRegistryId) {
+        try {
+          await refreshLocalRegistryStatus(cloudId, registry.localRegistryId);
+        } catch (e) {
+          console.warn('持久化本地仓库状态失败:', e);
+        }
+      }
+      
+      // 通知外层表格刷新
+      if (onRefresh) {
+        onRefresh();
+      }
     } catch (e: any) {
       setConnectionStatus('unhealthy');
       message.error(e?.message || '连接测试失败');
+      
+      // 如果是本地仓库，调用后端 API 持久化状态
+      if (registry.localRegistryId) {
+        try {
+          await refreshLocalRegistryStatus(cloudId, registry.localRegistryId);
+        } catch (err) {
+          console.warn('持久化本地仓库状态失败:', err);
+        }
+      }
+      
+      // 通知外层表格刷新
+      if (onRefresh) {
+        onRefresh();
+      }
     } finally {
       setTesting(false);
     }
-  }, [registry, cloudId]);
+  }, [registry, cloudId, onRefresh]);
 
   const registryCredential = useMemo(() => {
     if (!registry) return null;
