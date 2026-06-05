@@ -14,6 +14,10 @@ export const CLOUD_STORAGE_DASHBOARD_READ = 'clouds.storage-dashboard:read';
 export const CLOUD_STORAGE_DASHBOARD_WRITE = 'clouds.storage-dashboard:write';
 export const CLOUD_STORAGE_ADDON_READ = 'clouds.storage-addon:read';
 export const CLOUD_STORAGE_ADDON_WRITE = 'clouds.storage-addon:write';
+
+/** Cloudmap 集群 · 存储配置页（概览 / Addon / RBD Mirror 扁平 Tab）唯一读入口 */
+export const CLOUD_STORAGE_CONFIG_PAGE_READ = CLOUD_STORAGE_ADDON_READ;
+export const CLOUD_STORAGE_CONFIG_PAGE_WRITE = CLOUD_STORAGE_ADDON_WRITE;
 export const CLOUD_STORAGE_RBD_MIRROR_READ = 'clouds.storage-rbd-mirror:read';
 export const CLOUD_STORAGE_RBD_MIRROR_WRITE = 'clouds.storage-rbd-mirror:write';
 export const CLOUD_STORAGE_S3_BUCKETS_READ = 'clouds.storage-s3-buckets:read';
@@ -50,13 +54,27 @@ export function isUnifiedStorageReadBase(base: string): boolean {
   return (UNIFIED_STORAGE_READ_BASES as readonly string[]).includes(base);
 }
 
+/** 存储配置 Hub（含历史 overview / rbd_mirror pathSeg）是否可读 */
+export function canReadStorageConfigPage(checkPerm: (action: string) => boolean): boolean {
+  if (checkPerm(CLOUD_STORAGE_CONFIG_PAGE_READ)) return true;
+  if (checkPerm(CLOUD_STORAGE_CONFIG_PAGE_WRITE)) return true;
+  if (checkPerm(CLOUD_UNIFIED_STORAGE_READ) || checkPerm(CLOUD_UNIFIED_STORAGE_WRITE)) return true;
+  if (checkPerm(LEGACY_CLOUD_CEPH_READ) || checkPerm(LEGACY_CLOUD_CEPH_WRITE)) return true;
+  /** 收敛前存量子域读权限仍放行本页 */
+  if (checkPerm(CLOUD_STORAGE_DASHBOARD_READ)) return true;
+  if (checkPerm(CLOUD_STORAGE_RBD_MIRROR_READ)) return true;
+  if (checkPerm(LEGACY_CLOUD_STORAGE_DRS_READ)) return true;
+  if (checkPerm(LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_READ)) return true;
+  return false;
+}
+
 /** 集群 · 存储服务 pathSeg → 入口 read */
 export const CLUSTER_STORAGE_INNER_READ: Readonly<Record<string, string>> = {
-  overview: CLOUD_STORAGE_DASHBOARD_READ,
-  harvester_addon: CLOUD_STORAGE_ADDON_READ,
-  /** 历史 URL `cluster/storage_pools` 与统一存储配置同权 */
-  storage_pools: CLOUD_STORAGE_ADDON_READ,
-  rbd_mirror: CLOUD_STORAGE_RBD_MIRROR_READ,
+  overview: CLOUD_STORAGE_CONFIG_PAGE_READ,
+  harvester_addon: CLOUD_STORAGE_CONFIG_PAGE_READ,
+  /** 历史 URL `cluster/storage_pools` 与存储配置同权 */
+  storage_pools: CLOUD_STORAGE_CONFIG_PAGE_READ,
+  rbd_mirror: CLOUD_STORAGE_CONFIG_PAGE_READ,
   rgw_s3_buckets: CLOUD_STORAGE_S3_BUCKETS_READ,
   rgw_users: CLOUD_STORAGE_RGW_USERS_READ,
   object_gateways: CLOUD_STORAGE_OBJECT_GATEWAY_READ,

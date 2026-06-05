@@ -52,7 +52,7 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
   cluster_compute: '计算资源',
   /** 物理网络、集群网络（Hero + Tab） */
   cluster_network_management: '网络管理',
-  /** 存储概览、配置、池、StorageClass、RBD Mirror */
+  /** 存储配置（含概览/RBD Mirror Tab）、StorageClass */
   cluster_storage: '统一存储',
   cluster_storage_object: '对象存储',
   /** USB / PCI / 网卡（GPU 归入计算资源） */
@@ -211,22 +211,11 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolNavSubgroup: 'cluster_network_management',
   },
   {
-    id: 'cloudmap-pool-cluster-storage_overview',
-    pathSuffix: 'cluster/overview',
-    poolPageAction: 'clouds.storage-dashboard:read',
-    title: '存储概览',
-    order: 39,
-    icon: 'DatabaseOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-    poolNavSubgroup: 'cluster_storage',
-  },
-  {
     id: 'cloudmap-pool-cluster-harvester_addon',
     pathSuffix: 'cluster/harvester_addon',
     poolPageAction: 'clouds.storage-addon:read',
     title: '存储配置',
-    order: 39.1,
+    order: 39,
     icon: 'PlusCircleOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
@@ -239,17 +228,6 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     title: 'StorageClass',
     order: 39.3,
     icon: 'ClusterOutlined',
-    poolNavGroup: '集群',
-    poolMenuParentKey: CLUSTER,
-    poolNavSubgroup: 'cluster_storage',
-  },
-  {
-    id: 'cloudmap-pool-cluster-rbd_mirror',
-    pathSuffix: 'cluster/rbd_mirror',
-    poolPageAction: 'clouds.storage-rbd-mirror:read',
-    title: 'RBD Mirror',
-    order: 39.4,
-    icon: 'DatabaseOutlined',
     poolNavGroup: '集群',
     poolMenuParentKey: CLUSTER,
     poolNavSubgroup: 'cluster_storage',

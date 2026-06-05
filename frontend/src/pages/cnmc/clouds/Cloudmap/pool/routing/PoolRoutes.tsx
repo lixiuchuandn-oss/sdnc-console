@@ -344,13 +344,16 @@ function clusterCephLegacyNavigateTo(
     return `${base}/cluster/rgw_s3_buckets`;
   }
   if (inner === 'overview') {
-    return `${base}/cluster/overview`;
+    return `${base}/cluster/harvester_addon?operateTab=overview`;
+  }
+  if (inner === 'rbd_mirror') {
+    return `${base}/cluster/harvester_addon?operateTab=rbd_mirror`;
   }
   if (inner === 'block_storage' || inner === 'storage_pools') {
-    return `${base}/cluster/storage_pools`;
+    return `${base}/cluster/harvester_addon?operateTab=storage_pools`;
   }
   const seg =
-    inner && isClusterCephPoolInnerSeg(inner) ? inner : 'overview';
+    inner && isClusterCephPoolInnerSeg(inner) ? inner : 'harvester_addon';
   return `${base}/cluster/${encodeURIComponent(seg)}`;
 }
 

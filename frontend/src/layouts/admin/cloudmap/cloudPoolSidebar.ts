@@ -8,6 +8,8 @@ import { remapLegacyClusterInnerSeg } from '../../../pages/cnmc/clouds/Harvester
 import { legacyComputeClusterOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
 import { legacyPhysicalNetworkOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
 import { legacyPlatformNetworkOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
+import { legacyStorageConfigOperateTab } from '../../../pages/cnmc/clouds/Harvester/ceph/sections/unifiedStorageConfig/unifiedStorageConfigUiConstants';
+import { STORAGE_CONFIG_INNER_SEG } from '../../../pages/cnmc/clouds/Harvester/ceph/lib/storageResourcesNav';
 import { createElement, type ReactNode } from 'react';
 import {
   AlertOutlined,
@@ -276,9 +278,7 @@ export function cloudmapPoolBasePath(cloudId: string): string {
 
 /** 集群 · 存储服务（Rook/Ceph/RGW）池内 `poolInnerSeg` */
 export const CLUSTER_CEPH_POOL_INNER_SEGS = [
-  'overview',
   'harvester_addon',
-  'rbd_mirror',
   'rgw_s3_buckets',
   'rgw_users',
   'object_gateways',
@@ -293,10 +293,13 @@ function clusterCephPoolInnerPath(
   base: string,
   inner: string | undefined,
 ): string {
+  const raw = (inner || '').trim();
+  const operateTab = legacyStorageConfigOperateTab(raw);
+  if (operateTab) {
+    return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=${operateTab}`;
+  }
   const seg =
-    inner && isClusterCephPoolInnerSeg(inner)
-      ? inner
-      : CLUSTER_CEPH_POOL_INNER_SEGS[0];
+    raw && isClusterCephPoolInnerSeg(raw) ? raw : STORAGE_CONFIG_INNER_SEG;
   return `${base}/cluster/${encodeURIComponent(seg)}`;
 }
 
@@ -311,9 +314,14 @@ export function cloudmapRemapLegacyCephPoolPath(pathname: string, cloudId: strin
   if (inner === 'object_storage') {
     return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
   }
-  if (inner === 'overview') return `${base}/cluster/overview`;
+  if (inner === 'overview') {
+    return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=overview`;
+  }
   if (inner === 'block_storage' || inner === 'storage_pools') {
-    return `${base}/cluster/harvester_addon`;
+    return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=storage_pools`;
+  }
+  if (inner === 'rbd_mirror') {
+    return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=rbd_mirror`;
   }
   return clusterCephPoolInnerPath(base, inner);
 }
@@ -342,10 +350,10 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
   const parts = rest.split('/').filter(Boolean);
   const base = cloudmapPoolBasePath(cloudId);
   if (parts[0] === 'resource_hub' && parts[1] === 'ceph_storage_overview') {
-    return `${base}/cluster/overview`;
+    return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=overview`;
   }
   if (parts[0] === 'storage' && parts[1] === 'rbd_mirror') {
-    return `${base}/cluster/rbd_mirror`;
+    return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=rbd_mirror`;
   }
   if (parts[0] === 'storage' && parts[1] === 'block_storage') {
     return `${base}/cluster/harvester_addon`;
@@ -371,7 +379,8 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
     const legacyTab =
       legacyComputeClusterOperateTab(parts[1]) ??
       legacyPhysicalNetworkOperateTab(parts[1]) ??
-      legacyPlatformNetworkOperateTab(parts[1]);
+      legacyPlatformNetworkOperateTab(parts[1]) ??
+      legacyStorageConfigOperateTab(parts[1]);
     const mapped = remapLegacyClusterInnerSeg(parts[1]);
     if (mapped !== parts[1]) {
       const path = `${base}/cluster/${encodeURIComponent(mapped)}`;
@@ -465,7 +474,7 @@ export function cloudmapLegacyQueryToPath(
       return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
     }
     if (rawSub === 'overview') {
-      return `${base}/cluster/overview`;
+      return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=overview`;
     }
     if (rawSub === 'storage_pools' || rawSub === 'block_storage') {
       return `${base}/cluster/harvester_addon`;
@@ -484,7 +493,7 @@ export function cloudmapLegacyQueryToPath(
       return `${base}/cluster/harvester_addon`;
     }
     if (rawSub === 'rbd_mirror') {
-      return `${base}/cluster/rbd_mirror`;
+      return `${base}/cluster/${encodeURIComponent(STORAGE_CONFIG_INNER_SEG)}?operateTab=rbd_mirror`;
     }
   }
   if (tab === 'unified_storage') {
@@ -505,7 +514,8 @@ export function cloudmapLegacyQueryToPath(
       const legacyTab =
         legacyComputeClusterOperateTab(csRaw) ??
         legacyPhysicalNetworkOperateTab(csRaw) ??
-        legacyPlatformNetworkOperateTab(csRaw);
+        legacyPlatformNetworkOperateTab(csRaw) ??
+        legacyStorageConfigOperateTab(csRaw);
       const path = `${base}/cluster/${encodeURIComponent(cs)}`;
       return legacyTab && csRaw !== cs ? `${path}?operateTab=${legacyTab}` : path;
     }

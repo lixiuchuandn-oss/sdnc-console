@@ -3,12 +3,14 @@
  */
 import { CLOUDMAP_POOL_NAV_ROWS } from '../../../../../../routes/cloudmapPoolNavRows';
 import {
+  canReadStorageConfigPage,
   CLUSTER_STORAGE_INNER_READ,
   CLOUD_UNIFIED_STORAGE_READ,
   isUnifiedStorageReadBase,
   LEGACY_CLOUD_CEPH_READ,
   LEGACY_CLOUD_CEPH_WRITE,
 } from '../../../../../../constants/unifiedStoragePermissions';
+import { isStorageConfigInnerSeg } from '../../../Harvester/ceph/lib/storageResourcesNav';
 import { isClusterCephPoolInnerSeg } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../constants/cloudPermissions';
 import {
@@ -42,10 +44,23 @@ export function clusterStorageInnerReadAction(innerSeg: string): string | undefi
   return CLUSTER_STORAGE_INNER_READ[innerSeg];
 }
 
+export function canViewStorageConfigHub(checkPerm: (action: string) => boolean): boolean {
+  return canReadStorageConfigPage(checkPerm);
+}
+
 export function canViewClusterStorageInner(
   innerSeg: string,
   checkPerm: (action: string) => boolean,
 ): boolean {
+  const normalized = remapLegacyClusterInnerSeg(innerSeg);
+  if (
+    isStorageConfigInnerSeg(normalized) ||
+    normalized === 'overview' ||
+    normalized === 'rbd_mirror' ||
+    innerSeg === 'storage_pools'
+  ) {
+    return canViewStorageConfigHub(checkPerm);
+  }
   const act = clusterStorageInnerReadAction(innerSeg);
   if (!act) return false;
   if (checkPerm(act)) return true;
