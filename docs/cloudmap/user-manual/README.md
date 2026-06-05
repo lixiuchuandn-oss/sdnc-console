@@ -9,7 +9,7 @@
 | 技术白皮书 | `../whitepaper/source/` | 采购、架构、项目负责人 | 能力、架构、价值 |
 | **使用手册** | `source/` | 运维、租户管理员 | 控制台操作步骤 |
 
-章节 **3.x 节号与白皮书对齐**；正文写操作路径，原理与部署形态查白皮书对应小节。
+使用手册第 3 章按 Cloudmap 资源池菜单组织；白皮书仅用于能力背景说明，不作为手册目录编号。
 
 ## 源稿目录
 
@@ -17,13 +17,13 @@
 user-manual/
 ├── README.md
 ├── writing-style.md
-├── COVERAGE.md               # 白皮书 ↔ 手册覆盖映射
+├── COVERAGE.md               # 使用手册目录覆盖表
 ├── SCREENSHOTS.md            # 截图清单与 Playwright 说明
 ├── source/
 │   ├── manifest.txt
 │   ├── 01-阅读指南.md … 07-术语与索引.md
 │   ├── assets/               # 手册截图
-│   └── ch03/                 # 与白皮书第 3 章对照
+│   └── ch03/                 # 资源池功能章节
 └── output/                   # 生成物（gitignore）
 ```
 
@@ -56,6 +56,6 @@ VARIANT=manual COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
 | 阶段 | 内容 |
 |------|------|
 | 0 | `COVERAGE` / `SCREENSHOTS` / 截图共享库（当前） |
-| 1 | 修 `3-0` 索引、manifest 与白皮书缺口对齐 |
-| 2 | 轮 1 加深：02 接入、3.2 创建向导、3.3 云盘、3.9 备份、`06` FAQ |
+| 1 | 按资源池功能目录重排 manifest 与 ch03 |
+| 2 | 轮 1 加深：02 接入、云主机创建向导、云存储、云备份、`06` FAQ |
 | 3 | 按 `SCREENSHOTS.md` 批量配图 |

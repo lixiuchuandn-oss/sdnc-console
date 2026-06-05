@@ -1,10 +1,10 @@
-﻿## 3.3.2 StorageClass 与 RBD Mirror
+### 6.5 StorageClass 与 RBD Mirror
 
 **参见白皮书**：3.3.5、3.3.7。
 
 ---
 
-### 3.3.2.1 StorageClass
+#### 6.5.1 StorageClass
 
 **Tab**：`集群 > 统一存储 > StorageClass`
 
@@ -34,7 +34,7 @@
 
 ---
 
-### 3.3.2.2 RBD Mirror
+#### 6.5.2 RBD Mirror
 
 **Tab**：`集群 > 统一存储 > RBD Mirror`
 
@@ -50,7 +50,7 @@
 
 ---
 
-### 3.3.2.3 与云盘的关系
+#### 6.5.3 与云盘的关系
 
 | 操作                | 使用的 SC              |
 | ------------------- | ---------------------- |
