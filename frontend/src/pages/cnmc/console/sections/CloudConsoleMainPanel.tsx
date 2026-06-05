@@ -402,6 +402,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
+            tenantDefaultNamespace={isTenantUser ? (nsValue || namespacesOptions[0]) : undefined}
           />
         );
 

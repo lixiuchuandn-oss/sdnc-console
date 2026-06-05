@@ -105,11 +105,9 @@ function isTenantRootConfigurableCloudPermission(permission: string): boolean {
   return true;
 }
 
-/** 内置「云租户根用户」种子用 clouds.* 权限（镜像仅 read） */
+/** 内置「云租户根用户」种子用 clouds.* 权限（含 clouds.images:read/write） */
 function isTenantRootBuiltinCloudPermission(permission: string): boolean {
-  if (!isTenantRootConfigurableCloudPermission(permission)) return false;
-  if (permission === 'clouds.images:write') return false;
-  return true;
+  return isTenantRootConfigurableCloudPermission(permission);
 }
 
 /** 租户角色配置权限抽屉固定目录（/rbac/actions.tenantRootBoundary） */
@@ -123,7 +121,7 @@ export function buildTenantRootRoleCatalogBoundary(
   });
 }
 
-/** 云租户根用户内置权限列表（供种子与手动同步脚本共用；镜像仅 read） */
+/** 云租户根用户内置权限列表（供种子与手动同步脚本共用；含镜像读写） */
 export function buildTenantRootBuiltinPermissions(
   allPermissions: readonly string[] = ALL_PERMISSIONS,
 ): string[] {
@@ -219,14 +217,14 @@ export async function initializeRoles() {
     // - CNMC：不含多云管理、资源总览、云监控、集群、日志管理分组
     // - 租户控制台入口由账号类型（tenant）判定，不再授予 clouds.console:*
     // - 云主机/存储等写操作按 clouds.ecs:write 等 poolPageAction 校验
-    // - 镜像：仅 clouds.images:read，不含 clouds.images:write
+    // - 镜像：clouds.images:read/write
     // - 扁平网络：仅 clouds.subnets.flat:read；不含流量镜像/安全组/EIP/SNAT/DNAT
     // - 虚拟网元：不含 clouds.vne（虚拟路由器）
     // - 其余 clouds.*（云主机、云存储、VPC 网络等）：保留显式 read/write
     await ensureRole({
       name: '云租户根用户',
       description:
-        '租户管理员：不含租户/SDN/安全/系统设置等平台入口；CNMC 不含多云管理、资源总览、云监控、集群、日志管理；扁平网络仅扁平子网只读；不含虚拟路由器；资源控制台可访问与操作；镜像仅查看。',
+        '租户管理员：不含租户/SDN/安全/系统设置等平台入口；CNMC 不含多云管理、资源总览、云监控、集群、日志管理；扁平网络仅扁平子网只读；不含虚拟路由器；资源控制台可访问与操作；含云主机镜像读写。',
       scope: 'tenant',
       permissions: buildTenantRootBuiltinPermissions(CURATED_PERMISSIONS),
       status: 'active',

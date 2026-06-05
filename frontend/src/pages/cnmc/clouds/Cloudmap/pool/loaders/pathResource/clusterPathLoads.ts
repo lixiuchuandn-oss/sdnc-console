@@ -19,7 +19,7 @@ import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 
-/** Cloudmap `panels/cluster` ??????????????????????????????/GPU/USB/PCI/?????/VLAN/???????? */
+/** Lazy-load Cloudmap `panels/cluster` resources by sidebar path. */
 export async function tryLoadClusterTab(
   key: string,
   force: boolean,
@@ -298,6 +298,8 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'cluster_physical_network':
+    case 'cluster_platform_network':
     case 'cluster_physical_switches':
     case 'compute_drs_rules':
     case 'compute_migrations':
