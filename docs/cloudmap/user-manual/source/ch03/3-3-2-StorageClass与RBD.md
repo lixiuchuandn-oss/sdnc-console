@@ -8,7 +8,7 @@
 
 **Tab**：`集群 > 统一存储 > StorageClass`（`cluster/storage_classes`）
 
-**适用角色**：`clouds.storage-classes:read` / write。
+**适用角色**：平台管理员或存储运维。**参见**：第 4 章（StorageClass 权限）。
 
 #### 查看
 
@@ -41,7 +41,7 @@
 **场景**：Ceph **跨集群/跨池** RBD 镜像复制（灾备）。
 
 1. **列表**：CephRBDMirror CR、Peer 状态、同步 lag。
-2. **创建 / 编辑**（须 write）：
+2. **创建 / 编辑**：
    - 配置 **peer 集群** 地址、Pool、Secret。
 3. **详情 / YAML**：查看同步配置。
 4. **Reload** 刷新 Rook bundle。

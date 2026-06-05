@@ -22,7 +22,7 @@
 
 **Tab**：`集群 > 统一存储 > 存储配置`（path：`cluster/harvester_addon`）
 
-**适用角色**：`clouds.storage-addon:write` 或 `clouds:write`。
+**适用角色**：平台管理员或存储运维。**参见**：第 4 章（统一存储部署权限）。
 
 **前置**：各节点磁盘未被错误占用；网络规划就绪。
 
@@ -56,7 +56,7 @@
 **Tab 内子页**：`存储池`
 
 1. 查看 Rook **CephBlockPool** 列表：名称、副本、应用。
-2. **创建 / 编辑 / 删除** Pool（须 write；删除为高风险，有二次确认）。
+2. **创建 / 编辑 / 删除** Pool（删除为高风险，有二次确认）。
 3. **Reload** 同步 Rook bundle。
 
 #### 扩容存储
