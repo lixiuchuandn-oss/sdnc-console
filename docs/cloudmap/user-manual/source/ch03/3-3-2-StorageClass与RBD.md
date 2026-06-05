@@ -1,4 +1,4 @@
-## 3.3.2 StorageClass 与 RBD Mirror
+﻿## 3.3.2 StorageClass 与 RBD Mirror
 
 **参见白皮书**：3.3.5、3.3.7。
 
@@ -6,7 +6,7 @@
 
 ### 3.3.2.1 StorageClass
 
-**Tab**：`集群 > 统一存储 > StorageClass`（`cluster/storage_classes`）
+**Tab**：`集群 > 统一存储 > StorageClass`
 
 **适用角色**：平台管理员或存储运维。**参见**：第 4 章（StorageClass 权限）。
 
@@ -36,7 +36,7 @@
 
 ### 3.3.2.2 RBD Mirror
 
-**Tab**：`集群 > 统一存储 > RBD Mirror`（`cluster/rbd_mirror`）
+**Tab**：`集群 > 统一存储 > RBD Mirror`
 
 **场景**：Ceph **跨集群/跨池** RBD 镜像复制（灾备）。
 

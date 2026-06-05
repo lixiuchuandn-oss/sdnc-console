@@ -29,7 +29,8 @@
 
 - **`source/` 下正文会导出为 Word 外发用户**：只写文档名、章节号、控制台菜单路径；**禁止** 写仓库路径（如 `docs/cloudmap/…`、`user-manual/…`）、源码路径（如 `pages/`、`.ts`）、维护文件（`COVERAGE.md`、`manifest.txt`）。维护说明写在 `writing-style.md`、`README.md` 等 **不进入 manifest** 的文件。
 - 用 **`>`** 连接：`多云管理 > 资源池管理 > 某 Cloudmap 池 > 计算 > 虚拟机`。
-- 按钮、Tab、字段名与 **控制台中文文案** 一致，不加英文 slug。
+- 按钮、Tab、字段名与 **控制台中文文案** 一致；**禁止** 在正文写 URL 路由（如 `resource_hub/datacenter_topology`）、前端组件名（如 React Flow、CodeMirror）、内部服务缩写（如 HMS），除非与界面原文完全一致且用户可见。
+- **入口/Tab** 只写侧栏中文路径：`资源总览 > 机房拓扑`，不写括号里的 path。
 - **权限原子** 只在 **第 4 章** 与 `docs/cloudmap-pool-rbac.md` 维护；功能节不写权限清单。
 - **不写控制台通则**：如「无 write 时按钮隐藏、非置灰」「无权限 Tab 不显示」等 RBAC 默认行为，视为读者已知，**全文不提**。
 
