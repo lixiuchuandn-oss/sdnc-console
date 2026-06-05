@@ -1,6 +1,6 @@
 /** Cloudmap 集群 · 计算资源：URL pathSeg、侧栏子页与 loadKey 映射 */
 
-
+import { remapLegacyNetworkInnerSeg } from './networkResourcesNav';
 
 export const COMPUTE_RESOURCE_INNER_SEGS = ['compute_projects', 'compute_gpu'] as const;
 
@@ -120,7 +120,9 @@ export function remapLegacyClusterInnerSeg(seg: string): string {
 
   const mapped = remapLegacyComputeInnerSeg(seg);
 
-  return LEGACY_CLUSTER_SHELL_SEG_MAP[mapped] || mapped;
+  const networkMapped = remapLegacyNetworkInnerSeg(mapped);
+
+  return LEGACY_CLUSTER_SHELL_SEG_MAP[networkMapped] || networkMapped;
 
 }
 

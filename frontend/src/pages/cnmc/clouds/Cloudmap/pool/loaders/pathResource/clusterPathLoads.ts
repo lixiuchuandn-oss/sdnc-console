@@ -298,6 +298,8 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'cluster_physical_network':
+    case 'cluster_platform_network':
     case 'cluster_physical_switches':
     case 'compute_drs_rules':
     case 'compute_migrations':

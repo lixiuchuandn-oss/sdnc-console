@@ -18,6 +18,10 @@ import {
   remapLegacyClusterInnerSeg,
   type ComputeResourceInnerSeg,
 } from '../../../Harvester/cluster/lib/computeResourcesNav';
+import {
+  isPhysicalNetworkInnerSeg,
+  isPlatformNetworkInnerSeg,
+} from '../../../Harvester/cluster/lib/networkResourcesNav';
 import { canReadComputeCluster } from '../../../../../../constants/computeClusterPermissions';
 
 const CLUSTER_INNER_ORDER: readonly string[] = CLOUDMAP_POOL_NAV_ROWS.filter((r) =>
@@ -66,6 +70,33 @@ export function canViewComputeClusterInner(checkPerm: (action: string) => boolea
   return canReadComputeCluster(checkPerm);
 }
 
+export function canViewPhysicalNetworkHub(
+  checkPerm: (action: string) => boolean,
+  ctx: { canReadPublicSubnets: boolean },
+): boolean {
+  return (
+    checkPerm('clouds.cluster-networks:read') ||
+    checkPerm(CLOUD_PROVIDER_NETWORKS_READ) ||
+    ctx.canReadPublicSubnets ||
+    checkPerm('clouds.vlans:read')
+  );
+}
+
+export function canViewPlatformNetworkHub(
+  checkPerm: (action: string) => boolean,
+  ctx: {
+    canReadNetworkScope: boolean;
+    canReadLoadBalancers: boolean;
+  },
+): boolean {
+  return (
+    checkPerm('clouds.cluster-networks:read') ||
+    ctx.canReadNetworkScope ||
+    ctx.canReadLoadBalancers ||
+    checkPerm('clouds.ip-pools:read')
+  );
+}
+
 export function canViewClusterSidebarLeaf(
   leafKey: string,
   checkPerm: (action: string) => boolean,
@@ -82,29 +113,19 @@ export function canViewClusterSidebarLeaf(
   if (isComputeResourceInnerSeg(normalized)) {
     return canViewComputeResourceInner(normalized, checkPerm);
   }
+  if (isPhysicalNetworkInnerSeg(normalized)) {
+    return canViewPhysicalNetworkHub(checkPerm, ctx);
+  }
+  if (isPlatformNetworkInnerSeg(normalized)) {
+    return canViewPlatformNetworkHub(checkPerm, ctx);
+  }
 
   const { canReadPublicSubnets, canReadNetworkScope, canReadLoadBalancers } = ctx;
   switch (normalized) {
-    case 'cluster_physical_switches':
-      return checkPerm('clouds.cluster-networks:read');
-    case 'kubeovn_public_networks':
-      return checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
-    case 'kubeovn_public_subnets':
-      return canReadPublicSubnets;
-    case 'cluster_vlans':
-      return checkPerm('clouds.vlans:read') || checkPerm(CLOUD_PROVIDER_NETWORKS_READ);
     case 'cluster_usb':
       return checkPerm('clouds.usb-devices:read');
-    case 'clusterNetworks':
-      return checkPerm('clouds.cluster-networks:read');
     case 'storage_classes':
       return checkPerm('clouds.storage-classes:read');
-    case 'nads':
-      return canReadNetworkScope;
-    case 'load_balancers':
-      return canReadLoadBalancers;
-    case 'ippools':
-      return checkPerm('clouds.ip-pools:read');
     case 'cluster_pci':
     case 'cluster_sriov':
       return checkPerm('clouds.pci-devices:read');

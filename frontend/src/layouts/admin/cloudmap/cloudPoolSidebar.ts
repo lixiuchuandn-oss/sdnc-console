@@ -6,6 +6,8 @@ import { routeSpecs, type RouteSpec } from '../../../routes/RouteSpec';
 import { CLOUDMAP_POOL_NAV_SUBGROUP_LABELS } from '../../../routes/cloudmapPoolNavRows';
 import { remapLegacyClusterInnerSeg } from '../../../pages/cnmc/clouds/Harvester/cluster/lib/computeResourcesNav';
 import { legacyComputeClusterOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
+import { legacyPhysicalNetworkOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import { legacyPlatformNetworkOperateTab } from '../../../pages/cnmc/clouds/Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
 import { createElement, type ReactNode } from 'react';
 import {
   AlertOutlined,
@@ -366,7 +368,10 @@ export function cloudmapRemapDroppedPoolLeafPath(pathname: string, cloudId: stri
     return clusterCephPoolInnerPath(base, 'rgw_s3_buckets');
   }
   if (parts[0] === 'cluster' && parts[1]) {
-    const legacyTab = legacyComputeClusterOperateTab(parts[1]);
+    const legacyTab =
+      legacyComputeClusterOperateTab(parts[1]) ??
+      legacyPhysicalNetworkOperateTab(parts[1]) ??
+      legacyPlatformNetworkOperateTab(parts[1]);
     const mapped = remapLegacyClusterInnerSeg(parts[1]);
     if (mapped !== parts[1]) {
       const path = `${base}/cluster/${encodeURIComponent(mapped)}`;
@@ -490,15 +495,19 @@ export function cloudmapLegacyQueryToPath(
     const csRaw = (sp.get('cluster_sub') || '').trim();
     const cs = csRaw ? remapLegacyClusterInnerSeg(csRaw) : '';
     const clusterSeg = (sp.get('cluster_segment') || '').trim();
-    if (
-      clusterSeg &&
-      cs === 'clusterNetworks' &&
-      isValidCloudmapPoolInnerSeg('cluster', clusterSeg)
-    ) {
-      return `${base}/cluster/${encodeURIComponent(clusterSeg)}`;
+    if (clusterSeg && cs === 'clusterNetworks') {
+      const operateTab = legacyPlatformNetworkOperateTab(clusterSeg);
+      if (operateTab) {
+        return `${base}/cluster/cluster_platform_network?operateTab=${operateTab}`;
+      }
     }
     if (cs && isValidCloudmapPoolInnerSeg('cluster', cs)) {
-      return `${base}/cluster/${encodeURIComponent(remapLegacyClusterInnerSeg(cs))}`;
+      const legacyTab =
+        legacyComputeClusterOperateTab(csRaw) ??
+        legacyPhysicalNetworkOperateTab(csRaw) ??
+        legacyPlatformNetworkOperateTab(csRaw);
+      const path = `${base}/cluster/${encodeURIComponent(cs)}`;
+      return legacyTab && csRaw !== cs ? `${path}?operateTab=${legacyTab}` : path;
     }
     return `${base}/cluster/${encodeURIComponent(cloudmapDefaultPoolInnerSeg('cluster'))}`;
   }
@@ -525,8 +534,10 @@ export function cloudmapLegacyClusterThreeSegmentToTwo(
   if (parts.length !== 3) return null;
   if (parts[0] !== 'cluster' || parts[1] !== 'clusterNetworks') return null;
   const seg = parts[2];
-  if (!isValidCloudmapPoolInnerSeg('cluster', seg)) return null;
-  const nextPath = `${cloudmapPoolBasePath(cloudId)}/cluster/${encodeURIComponent(seg)}`;
+  const operateTab = legacyPlatformNetworkOperateTab(seg);
+  const nextPath = operateTab
+    ? `${cloudmapPoolBasePath(cloudId)}/cluster/cluster_platform_network?operateTab=${operateTab}`
+    : `${cloudmapPoolBasePath(cloudId)}/cluster/cluster_platform_network`;
   const next = `${nextPath}${search}`;
   const cur = `${pathname}${search}`;
   return next !== cur ? next : null;
@@ -564,7 +575,12 @@ export function cloudmapClusterSegmentQueryToPath(
   }
 
   if (qSeg) {
-    const nextPath = cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: qSeg });
+    const operateTab = legacyPlatformNetworkOperateTab(qSeg);
+    const nextPath = operateTab
+      ? `${cloudmapPoolBasePath(cloudId)}/cluster/cluster_platform_network?operateTab=${operateTab}`
+      : cloudmapPathForNav(cloudId, 'cluster', {
+          poolInnerSeg: remapLegacyClusterInnerSeg(qSeg),
+        });
     const next = `${nextPath}${suffix}`;
     const cur = `${pathname}${search}`;
     return next !== cur ? next : null;

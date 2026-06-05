@@ -18,6 +18,8 @@ import {
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
 import { legacyComputeClusterOperateTab } from '../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
+import { legacyPhysicalNetworkOperateTab } from '../../../Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import { legacyPlatformNetworkOperateTab } from '../../../Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
 
 export type UseCloudmapPoolPathSyncParams = {
   cloudId: string;
@@ -179,7 +181,11 @@ export function useCloudmapPoolPathSync({
                 ? 'sdrs_policy'
                 : resolved === 'compute_cluster'
                   ? legacyComputeClusterOperateTab(inner)
-                  : null;
+                  : resolved === 'cluster_physical_network'
+                    ? legacyPhysicalNetworkOperateTab(inner)
+                    : resolved === 'cluster_platform_network'
+                      ? legacyPlatformNetworkOperateTab(inner)
+                      : null;
           const basePath = cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved });
           navigate(
             legacyOperateTab ? `${basePath}?operateTab=${legacyOperateTab}` : basePath,

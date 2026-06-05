@@ -13,6 +13,8 @@ export type ClusterInnerTabKey =
   | 'compute_migrations'
   | 'compute_gpu'
   | 'cluster_usb'
+  | 'cluster_physical_network'
+  | 'cluster_platform_network'
   | 'clusterNetworks'
   | 'storage_classes'
   | 'nads'
