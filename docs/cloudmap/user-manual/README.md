@@ -1,15 +1,6 @@
 # Cloudmap 超融合平台 · 使用手册（Markdown 源稿）
 
-> **可维护源稿**在 `source/`；Word 由脚本生成。能力背景见 [技术白皮书](../whitepaper/README.md)。
-
-## 白皮书关系
-
-| 文档 | 路径 | 读者 | 内容 |
-|------|------|------|------|
-| 技术白皮书 | `../whitepaper/source/` | 采购、架构、项目负责人 | 能力、架构、价值 |
-| **使用手册** | `source/` | 运维、租户管理员 | 控制台操作步骤 |
-
-使用手册第 3 章按 Cloudmap 资源池菜单组织；白皮书仅用于能力背景说明，不作为手册目录编号。
+本目录维护 Cloudmap 使用手册源稿。正文源文件位于 `source/`，面向运维人员和租户管理员，内容聚焦控制台操作步骤。
 
 ## 源稿目录
 
@@ -46,8 +37,6 @@ VARIANT=manual COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
 
 ## 维护建议
 
-- 界面改版时 **先改手册步骤**，再按需回写白皮书「实现」句。
-- 新功能：白皮书写能力，手册写 **入口 + 步骤 + 注意**；更新 `COVERAGE.md`。
 - 配图：`SCREENSHOTS.md` 登记 → `tests/manual/capture-*.browser.cjs` → 见 `tests/manual/README.md`。
 - 写作细则见 `writing-style.md`。
 
