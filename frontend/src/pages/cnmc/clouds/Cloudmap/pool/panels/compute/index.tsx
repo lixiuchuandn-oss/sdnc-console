@@ -27,6 +27,12 @@ import {
   stopCloudProviderEcs,
   unpauseCloudProviderEcs,
 } from '../../api';
+import {
+  formatVmStartErrorMessage,
+  isVmAlreadyRunningError,
+  isVmVolumeResizingStartError,
+  VM_ALREADY_RUNNING_HINT,
+} from '../../../../Harvester/ecs/lib/vmOperationErrors';
 
 const DebugJSON: React.FC<{ data: any; show: boolean }> = ({ data, show }) => {
   if (!show) return null;
@@ -365,18 +371,17 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
 
                     await startCloudProviderEcs(cloudId, iid);
                     message.success('启动成功');
-                    reloadVmListAfterMutation();
+                    window.setTimeout(() => reloadVmListAfterMutation(), 1500);
                   } catch (e: any) {
-                    const errMsg = e?.message || String(e);
-                    if (
-                      errMsg.includes('resizing volume') ||
-                      errMsg.includes('Resizing')
-                    ) {
+                    if (isVmVolumeResizingStartError(e)) {
                       message.warning(
                         '启动被拒绝: 关联磁盘正在进行扩容操作，请等待扩容完成后再试。',
                       );
+                    } else if (isVmAlreadyRunningError(e)) {
+                      message.warning(VM_ALREADY_RUNNING_HINT);
+                      reloadVmListAfterMutation();
                     } else {
-                      message.error(errMsg || '启动失败');
+                      message.error(formatVmStartErrorMessage(e));
                     }
                   }
                 }}

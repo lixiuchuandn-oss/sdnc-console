@@ -49,18 +49,20 @@ const TenantConsoleSider: React.FC<TenantConsoleSiderProps> = ({ collapsed }) =>
       style={{ flexShrink: 0 }}
     >
       <TenantConsoleSiderBrand collapsed={collapsed} />
-      <Menu
-        theme="dark"
-        mode="inline"
-        selectedKeys={model.selectedKeys}
-        openKeys={model.openKeys}
-        defaultOpenKeys={model.defaultOpenKeys}
-        onOpenChange={model.onOpenChange}
-        items={model.items}
-        onClick={model.onClick}
-        inlineCollapsed={collapsed}
-        className="tenant-console-sider-menu"
-      />
+      <div className="tenant-console-sider-scroll">
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={model.selectedKeys}
+          openKeys={model.openKeys}
+          defaultOpenKeys={model.defaultOpenKeys}
+          onOpenChange={model.onOpenChange}
+          items={model.items}
+          onClick={model.onClick}
+          inlineCollapsed={collapsed}
+          className="tenant-console-sider-menu"
+        />
+      </div>
     </Sider>
   );
 };

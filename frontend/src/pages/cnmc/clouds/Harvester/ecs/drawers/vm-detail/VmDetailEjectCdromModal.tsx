@@ -7,7 +7,10 @@ import {
 } from "../../../../../../../services/harvesterApi";
 import { rebootCloudProviderEcs } from "../../../../../../../services/api";
 import { VM_DETAIL_DRAWER_TEXT_SECONDARY } from "./lib/uiTokens";
-import type { VmDetailDrawerSafeRead } from "../../lib/vmSafeRead";
+import {
+  type VmDetailDrawerSafeRead,
+  readVmTemplateCdromDisk,
+} from "../../lib/vmSafeRead";
 import { runHarvesterSectionRefresh } from "../../../shared/lib/harvesterSectionRefresh";
 import { confirmHighRiskOperation } from "../../../shared/lib/highRiskConfirm";
 import { VM_RESTART_RISK_ITEMS } from "../../../shared/lib/highRiskOperationPresets";
@@ -27,9 +30,11 @@ export function openVmDetailEjectCdromModal(opts: {
     );
     return;
   }
-  const disks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
-  const cdrom = disks[0];
-  if (!cdrom) return;
+  const cdrom = readVmTemplateCdromDisk(vmData);
+  if (!cdrom?.name) {
+    message.warning("未找到可弹出的 CD-ROM 设备");
+    return;
+  }
 
   const statusStr = String(SafeRead.status(vmData)).toLowerCase();
   const isRunning = !["stopped", "shutoff", "down", "offline"].includes(
@@ -151,5 +156,13 @@ export function openVmDetailEjectCdromModal(opts: {
         hide();
       }
     },
-  }).catch(() => {});
+  }).catch((e: unknown) => {
+    const msg = String((e as { message?: string })?.message || "");
+    if (!msg || msg.includes("用户取消")) return;
+    if (msg.includes("HighRiskOperationProvider")) {
+      message.error("操作确认组件未就绪，请刷新页面后重试");
+      return;
+    }
+    message.error(msg);
+  });
 }

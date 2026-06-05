@@ -77,6 +77,22 @@ export function readVmNamespace(r: any): string {
   return r?.metadata?.namespace || r?.namespace || "";
 }
 
+/** VM 模板 domain.devices.disks 中的 CD-ROM 设备（ISO 启动等） */
+export function readVmTemplateCdromDisk(
+  vmData: unknown,
+): { name?: string; cdrom?: unknown } | undefined {
+  const disks = (vmData as { spec?: { template?: { spec?: { domain?: { devices?: { disks?: unknown[] } } } } } })
+    ?.spec?.template?.spec?.domain?.devices?.disks;
+  if (!Array.isArray(disks)) return undefined;
+  return disks.find((d) => !!(d as { cdrom?: unknown })?.cdrom) as
+    | { name?: string; cdrom?: unknown }
+    | undefined;
+}
+
+export function vmTemplateHasCdromBoot(vmData: unknown): boolean {
+  return !!readVmTemplateCdromDisk(vmData);
+}
+
 /**
  * 状态那一列显示啥字：Running、Stopped、Migrating……
  * 先看是不是还在热迁移（没迁完就一律显示 Migrating，别明明在迁却显示 Running），
