@@ -1,25 +1,14 @@
-﻿/**
+/**
  * Capture screenshots for user-manual section 3.2.7 (browser image upload).
  */
-const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const fs = require('fs');
 const { launchTowerBrowser, newMaximizedPage, adminLoginPage } = require('../../shared/playwright-browser.cjs');
 const { webBase, cloudId: envCloudId, adminUser, adminPassword } = require('../../shared/load-env.cjs');
 const { towerLogin, resolveCloudId } = require('../../shared/tower-api.cjs');
+const { shot } = require('../../shared/manual-screenshot.cjs');
 const { demoIsoPath, openImagesPage } = require('./lib/images-page.cjs');
-
-const OUT_DIR = path.join(
-  __dirname,
-  '..',
-  '..',
-  '..',
-  'docs',
-  'cloudmap-whitepaper',
-  'user-manual',
-  'source',
-  'assets',
-);
 
 const DEMO_NAME = `manual-screenshot-${Date.now().toString(36)}`;
 
@@ -27,21 +16,10 @@ async function ensureDemoIso() {
   const iso = demoIsoPath();
   if (fs.existsSync(iso) && fs.statSync(iso).size >= 1024 * 1024) return iso;
   execSync('node fixtures/generate-demo-iso.cjs --size=2m', {
-    cwd: path.join(__dirname),
+    cwd: __dirname,
     stdio: 'inherit',
   });
   return demoIsoPath();
-}
-
-async function shot(page, name, locator) {
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-  const file = path.join(OUT_DIR, name);
-  if (locator) {
-    await locator.screenshot({ path: file });
-  } else {
-    await page.screenshot({ path: file, fullPage: false });
-  }
-  console.log('wrote', file);
 }
 
 async function main() {
@@ -65,17 +43,17 @@ async function main() {
     await modal.locator('input[type=file]').setInputFiles(isoPath);
     await page.waitForTimeout(600);
     await modal.locator('#toolDisplayName').fill(DEMO_NAME);
-    await shot(page, 'image-create-browser-upload.png', modal);
+    await shot(page, 'image-create-browser-upload.png', { locator: modal });
 
     await modal.getByRole('button', { name: '\u63d0\u4ea4\u4efb\u52a1' }).click();
     const drawer = page.locator('.ant-drawer').filter({ hasText: '\u955c\u50cf\u4e0a\u4f20\u4efb\u52a1' });
     await drawer.waitFor({ timeout: 30000 });
     await drawer
-      .getByText(/文件已上传至 Tower|待同步|分片上传|上传中/)
+      .getByText(/\u6587\u4ef6\u5df2\u4e0a\u4f20\u81f3 Tower|\u5f85\u540c\u6b65|\u5206\u7247\u4e0a\u4f20|\u4e0a\u4f20\u4e2d/)
       .first()
       .waitFor({ timeout: 180000 });
     await page.waitForTimeout(800);
-    await shot(page, 'image-upload-tasks-drawer.png', drawer);
+    await shot(page, 'image-upload-tasks-drawer.png', { locator: drawer });
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
@@ -83,9 +61,10 @@ async function main() {
     await page.waitForTimeout(2500);
     const row = page.locator('tr.ant-table-row').filter({ hasText: DEMO_NAME }).first();
     await row.waitFor({ timeout: 60000 });
-    await page.locator('.ant-table-wrapper').first().screenshot({ path: path.join(OUT_DIR, 'image-list-pending-sync.png') });
-    console.log('wrote', path.join(OUT_DIR, 'image-list-pending-sync.png'));
-    await shot(page, 'image-list-pending-sync.png');
+    await row.scrollIntoViewIfNeeded();
+    await shot(page, 'image-list-pending-sync.png', {
+      locator: page.locator('.ant-table-wrapper').first(),
+    });
   } finally {
     await browser.close();
   }

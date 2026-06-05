@@ -19,7 +19,15 @@
     "test:images:upload-sync": "node harvester/images/browser-upload-and-sync.browser.test.cjs",
     "test:failure-domains:api": "node harvester/failure-domains/api-crud.api.test.cjs",
     "test:failure-domains:browser": "node harvester/failure-domains/browser-crud.browser.test.cjs",
-    "test:failure-domains:browser-filter": "node harvester/failure-domains/browser-assign-filter.browser.test.cjs"
+    "test:failure-domains:browser-filter": "node harvester/failure-domains/browser-assign-filter.browser.test.cjs",
+    "manual:shots:images": "node harvester/images/capture-manual-screenshots.browser.cjs",
+    "manual:shots:pool": "node manual/capture-ch02-pool.browser.cjs",
+    "manual:shots:vm": "node manual/capture-ch03-vm-create.browser.cjs",
+    "manual:shots:volumes": "node manual/capture-ch03-volumes.browser.cjs",
+    "manual:shots:backups": "node manual/capture-ch03-backups.browser.cjs",
+    "manual:shots:vm-detail": "node manual/capture-ch03-vm-detail.browser.cjs",
+    "manual:shots:network": "node manual/capture-ch03-network.browser.cjs",
+    "manual:shots:monitoring": "node manual/capture-ch03-monitoring.browser.cjs"
   },
   "devDependencies": {
     "playwright": "1.60.0"
