@@ -1,5 +1,7 @@
 ## 3.0 Cloudmap 侧栏功能索引
 
+> **维护用**：本文件 **不进 manifest**，不导出 Word。用户查 Tab 对应章节用 **第 2 章 §2.4**。
+
 本表覆盖 **Cloudmap 资源池** 侧栏全部 Tab（与控制台现网菜单一致）。**path** 为池内 URL 路径段（完整地址形如 `…/admin/clouds/{资源池 ID}/` + path）。
 
 **手册章节** 列指引本手册中写操作说明的节号；合订节内的小节写作 **`3-14` §3.14.2** 形式。
@@ -34,7 +36,7 @@
 | **集群·直通设备** | USB设备        | `cluster/cluster_usb`                   | 3.2.5         |
 |                   | PCI设备        | `cluster/cluster_pci`                   | 3.2.5         |
 |                   | 网卡           | `cluster/cluster_sriov`                 | 3.2.5、3.2.8  |
-| **云主机**        | 云主机实例     | `compute/ecs`                           | 3.2.0–3.2.12  |
+| **云主机**        | 云主机实例     | `compute/ecs`                           | 3.2.1–3.2.12  |
 |                   | 云主机镜像     | `compute/images`                        | 3.2.7         |
 |                   | 云主机模板     | `compute/templates`                     | 3.2.7         |
 |                   | 回收站         | `compute/recycle_bin`                   | 3.2.7         |
