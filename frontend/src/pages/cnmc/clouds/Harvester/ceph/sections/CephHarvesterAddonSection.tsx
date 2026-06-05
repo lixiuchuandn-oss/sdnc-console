@@ -21,11 +21,10 @@ import {
 import type { FormListOperation } from 'antd/es/form';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import {
-  CLOUD_STORAGE_ADDON_READ,
+  canReadStorageConfigPage,
   CLOUD_STORAGE_ADDON_WRITE,
-  LEGACY_CLOUD_STORAGE_DRS_READ,
+  CLOUD_STORAGE_CONFIG_PAGE_WRITE,
   LEGACY_CLOUD_STORAGE_DRS_WRITE,
-  LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_READ,
   LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_WRITE,
 } from '../../../../../../constants/unifiedStoragePermissions';
 import { useStorageDrsData } from '../../cluster/hooks/useStorageDrsData';
@@ -74,6 +73,12 @@ import { addHarvesterAddonNodeRow } from './harvesterAddon/nodeDiskAssignmentUti
 export type CephHarvesterAddonSectionProps = {
   cloudId: string;
   checkPerm: (act: string) => boolean;
+  /** 嵌入存储配置 Hub 时省略外层壳层与 Hero */
+  embedInHub?: boolean;
+  /** Hub 扁平 Tab：仅渲染当前 operateTab 面板，不嵌套 Tabs */
+  flatMode?: boolean;
+  /** 未部署集群：仅渲染开通向导 */
+  wizardOnly?: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
   /** 存储池 Tab 刷新（池层 loadTabResource） */
   poolsOnRefresh?: HarvesterSectionOnRefresh;
@@ -85,17 +90,17 @@ export type CephHarvesterAddonSectionProps = {
 const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
   cloudId,
   checkPerm,
+  embedInHub = false,
+  flatMode = false,
+  wizardOnly = false,
   onRefresh,
   poolsOnRefresh,
   onDeployed,
   initialOperateTab,
 }) => {
-  const canRead =
-    checkPerm(CLOUD_STORAGE_ADDON_READ) ||
-    checkPerm(LEGACY_CLOUD_STORAGE_DRS_READ) ||
-    checkPerm(LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_READ) ||
-    checkPerm('clouds.unified-storage:read');
+  const canRead = embedInHub ? true : canReadStorageConfigPage(checkPerm);
   const canWrite =
+    checkPerm(CLOUD_STORAGE_CONFIG_PAGE_WRITE) ||
     checkPerm(CLOUD_STORAGE_ADDON_WRITE) ||
     checkPerm(LEGACY_CLOUD_STORAGE_DRS_WRITE) ||
     checkPerm(LEGACY_CLOUD_UNIFIED_STORAGE_POOLS_WRITE) ||
@@ -408,11 +413,7 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
     </Card>
   );
 
-  const renderOperatePanel = () => (
-    <Tabs
-      activeKey={ctrl.operateTabKey}
-      onChange={(key) => ctrl.setOperateTabKey(key as HarvesterAddonOperateTabKey)}
-      items={[
+  const operateTabItems = [
         {
           key: 'config',
           label: '配置详情',
@@ -578,25 +579,31 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
             </>
           ),
         },
-      ]}
-    />
-  );
+  ] as const;
 
-  if (!canRead) {
+  const renderOperatePanel = () => {
+    if (flatMode) {
+      const active = operateTabItems.find((item) => item.key === ctrl.operateTabKey);
+      return active?.children ?? null;
+    }
     return (
-      <PageDetailSection contentPadding={16}>
-        <Alert type="warning" showIcon message="无权限查看存储配置" />
-      </PageDetailSection>
-    );
-  }
-
-  return (
-    <PageDetailSection contentPadding={16} autoStyleInputs={false}>
-      <AddonStatusOverview
-        status={ctrl.status}
-        loading={ctrl.statusLoading}
-        isRunningCluster={ctrl.isRunningCluster}
+      <Tabs
+        activeKey={ctrl.operateTabKey}
+        onChange={(key) => ctrl.setOperateTabKey(key as HarvesterAddonOperateTabKey)}
+        items={operateTabItems.map(({ key, label, children }) => ({ key, label, children }))}
       />
+    );
+  };
+
+  const body = (
+    <>
+      {!embedInHub ? (
+        <AddonStatusOverview
+          status={ctrl.status}
+          loading={ctrl.statusLoading}
+          isRunningCluster={ctrl.isRunningCluster}
+        />
+      ) : null}
 
       {ctrl.status?.phase === 'failed' ? (
         <Alert
@@ -617,7 +624,11 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
         preserve
       >
         {renderHiddenFields()}
-        {ctrl.isRunningCluster ? renderOperatePanel() : renderProvisionWizard()}
+        {wizardOnly
+          ? renderProvisionWizard()
+          : ctrl.isRunningCluster
+            ? renderOperatePanel()
+            : renderProvisionWizard()}
       </Form>
 
       <Drawer
@@ -647,6 +658,27 @@ const CephHarvesterAddonSection: React.FC<CephHarvesterAddonSectionProps> = ({
           <Input.TextArea rows={18} placeholder="留空则根据向导自动生成配置" spellCheck={false} />
         </Form.Item>
       </Drawer>
+    </>
+  );
+
+  if (!canRead) {
+    if (embedInHub) {
+      return <Alert type="warning" showIcon message="无权限查看存储配置" />;
+    }
+    return (
+      <PageDetailSection contentPadding={16}>
+        <Alert type="warning" showIcon message="无权限查看存储配置" />
+      </PageDetailSection>
+    );
+  }
+
+  if (embedInHub) {
+    return body;
+  }
+
+  return (
+    <PageDetailSection contentPadding={16} autoStyleInputs={false}>
+      {body}
     </PageDetailSection>
   );
 };

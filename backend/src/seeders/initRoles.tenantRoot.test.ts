@@ -15,10 +15,10 @@ describe('buildTenantRootBuiltinPermissions', () => {
     expect(perms).toContain('clouds.restore-tasks:write');
   });
 
-  it('excludes clouds.images:write for builtin tenant root seed', () => {
+  it('includes clouds.images read/write for builtin tenant root seed', () => {
     const perms = buildTenantRootBuiltinPermissions(ALL_PERMISSIONS);
     expect(perms).toContain('clouds.images:read');
-    expect(perms).not.toContain('clouds.images:write');
+    expect(perms).toContain('clouds.images:write');
   });
 });
 

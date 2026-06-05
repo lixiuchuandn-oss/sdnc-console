@@ -1,21 +1,19 @@
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { createClusterTabOnRefresh } from '../../loaders/clusterRefresh';
-import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
-import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
-import LoadBalancersSection from '../../../../Harvester/nad/sections/LoadBalancersSection';
-import IPPoolsSection from '../../../../Harvester/nad/sections/IPPoolsSection';
-import ProviderNetworksSection from '../../../../Harvester/kube-ovn/sections/ProviderNetworksSection';
-import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
-import VlansSection from '../../../../Harvester/kube-ovn/sections/VlansSection';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
-import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
 import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
 import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import ComputeClusterSection from '../../../../Harvester/cluster/sections/ComputeClusterSection';
+import PhysicalNetworkSection from '../../../../Harvester/cluster/sections/PhysicalNetworkSection';
+import PlatformNetworkSection from '../../../../Harvester/cluster/sections/PlatformNetworkSection';
 import type { ComputeClusterOperateTabKey } from '../../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
+import type { PhysicalNetworkOperateTabKey } from '../../../../Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import { legacyPhysicalNetworkOperateTab } from '../../../../Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import type { PlatformNetworkOperateTabKey } from '../../../../Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
+import { legacyPlatformNetworkOperateTab } from '../../../../Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
 import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
@@ -100,7 +98,18 @@ export type CloudmapClusterRoutePanelProps = {
   resourceLoading: Record<string, boolean>;
   /** 历史 compute_nodes / compute_drs_rules 等书签 → operateTab */
   initialComputeClusterTab?: ComputeClusterOperateTabKey;
+  initialPhysicalNetworkTab?: PhysicalNetworkOperateTabKey;
+  initialPlatformNetworkTab?: PlatformNetworkOperateTabKey;
 };
+
+function countPublicSubnetsFromRaw(rawSubnets: unknown): number {
+  const items: any[] = Array.isArray((rawSubnets as any)?.data?.items)
+    ? (rawSubnets as any).data.items
+    : Array.isArray((rawSubnets as any)?.items)
+      ? (rawSubnets as any).items
+      : [];
+  return items.length;
+}
 
 const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (props) => {
   const {
@@ -116,16 +125,16 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     harvesterNodes,
     rawNodes: _rawNodes,
     harvesterClusterNetworks,
-    rawClusterNetworks,
+    rawClusterNetworks: _rawClusterNetworks,
     harvesterNads,
-    rawNads,
+    rawNads: _rawNads,
     harvesterLoadBalancers,
-    rawLoadBalancers,
+    rawLoadBalancers: _rawLoadBalancers,
     harvesterIPPools,
-    rawIPPools,
+    rawIPPools: _rawIPPools,
     harvesterKubeOvnProviderNetworks,
     harvesterVlans,
-    rawVlans,
+    rawVlans: _rawVlans,
     rawSubnets,
     harvesterNamespacesForManagement,
     harvesterStorageClasses,
@@ -137,6 +146,8 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     rawPciDevices,
     resourceLoading,
     initialComputeClusterTab,
+    initialPhysicalNetworkTab,
+    initialPlatformNetworkTab,
   } = props;
 
   const visCtx = {
@@ -275,48 +286,31 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             isTenant={isTenant}
           />
         );
+      case 'cluster_physical_network':
       case 'cluster_physical_switches':
-        return (
-          <>
-            <PhysicalSwitchesSection cloudId={cloudId} checkPerm={checkPerm} />
-          </>
-        );
       case 'kubeovn_public_networks':
-        return (
-          <>
-            <ProviderNetworksSection
-              cloudId={cloudId}
-              parentNetworks={harvesterKubeOvnProviderNetworks}
-              parentVlans={harvesterVlans}
-              parentLoading={!!resourceLoading.providerNetworksTab}
-              onParentRefresh={clusterTabOnRefresh.kubeovn_public_networks}
-            />
-            <DebugJSON data={rawSubnets} show={showLog} />
-          </>
-        );
       case 'kubeovn_public_subnets':
-        return (
-          <>
-            <UnderlaySubnetsSection
-              cloudId={cloudId}
-              mode="public"
-              onSubnetsChanged={() => void clusterTabOnRefresh.kubeovn_public_subnets(true, true)}
-            />
-            <DebugJSON data={rawSubnets} show={showLog} />
-          </>
-        );
       case 'cluster_vlans':
         return (
-          <>
-            <VlansSection
-              cloudId={cloudId}
-              vlans={harvesterVlans}
-              providerNetworks={harvesterKubeOvnProviderNetworks}
-              loading={resourceLoading.vlans}
-              onRefresh={clusterTabOnRefresh.cluster_vlans}
-            />
-            <DebugJSON data={rawVlans} show={showLog} />
-          </>
+          <PhysicalNetworkSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            canReadPublicSubnets={canReadPublicSubnets}
+            loadTabResource={loadTabResource}
+            providerNetworks={harvesterKubeOvnProviderNetworks}
+            vlans={harvesterVlans}
+            publicSubnetCount={countPublicSubnetsFromRaw(rawSubnets)}
+            providerNetworksLoading={!!resourceLoading.providerNetworksTab}
+            vlansLoading={!!resourceLoading.vlans}
+            onRefreshProviderNetworks={clusterTabOnRefresh.kubeovn_public_networks}
+            onRefreshPublicSubnets={clusterTabOnRefresh.kubeovn_public_subnets}
+            onRefreshVlans={clusterTabOnRefresh.cluster_vlans}
+            initialOperateTab={
+              seg === 'cluster_physical_network'
+                ? initialPhysicalNetworkTab
+                : legacyPhysicalNetworkOperateTab(seg) ?? initialPhysicalNetworkTab
+            }
+          />
         );
       case 'cluster_usb':
         return (
@@ -330,18 +324,37 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             isTenant={isTenant}
           />
         );
+      case 'cluster_platform_network':
       case 'clusterNetworks':
+      case 'nads':
+      case 'load_balancers':
+      case 'ippools':
         return (
-          <>
-            <NetworksSection
-              cloudId={cloudId}
-              clusterNetworks={harvesterClusterNetworks}
-              loading={resourceLoading.clusterNetworks}
-              onRefresh={clusterTabOnRefresh.clusterNetworks}
-              isTenant={isTenant}
-            />
-            <DebugJSON data={rawClusterNetworks} show={showLog} />
-          </>
+          <PlatformNetworkSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            canReadNetworkScope={canReadNetworkScope}
+            canReadLoadBalancers={canReadLoadBalancers}
+            isTenant={isTenant}
+            loadTabResource={loadTabResource}
+            clusterNetworks={harvesterClusterNetworks}
+            clusterNetworksLoading={!!resourceLoading.clusterNetworks}
+            nads={harvesterNads}
+            nadsLoading={!!resourceLoading.nads}
+            loadBalancers={harvesterLoadBalancers}
+            loadBalancersLoading={!!resourceLoading.loadBalancers}
+            ippools={harvesterIPPools}
+            ippoolsLoading={!!resourceLoading.ippools}
+            onRefreshClusterNetworks={clusterTabOnRefresh.clusterNetworks}
+            onRefreshNads={clusterTabOnRefresh.nads}
+            onRefreshLoadBalancers={clusterTabOnRefresh.load_balancers}
+            onRefreshIppools={clusterTabOnRefresh.ippools}
+            initialOperateTab={
+              seg === 'cluster_platform_network'
+                ? initialPlatformNetworkTab
+                : legacyPlatformNetworkOperateTab(seg) ?? initialPlatformNetworkTab
+            }
+          />
         );
       case 'storage_classes':
         return (
@@ -353,42 +366,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               onRefresh={clusterTabOnRefresh.storage_classes}
             />
             <DebugJSON data={harvesterStorageClasses} show={showLog} />
-          </>
-        );
-      case 'nads':
-        return (
-          <>
-            <NadsSection
-              nads={harvesterNads}
-              loading={resourceLoading.nads}
-              onRefresh={clusterTabOnRefresh.nads}
-              cloudId={cloudId}
-            />
-            <DebugJSON data={rawNads} show={showLog} />
-          </>
-        );
-      case 'load_balancers':
-        return (
-          <>
-            <LoadBalancersSection
-              cloudId={cloudId}
-              loadBalancers={harvesterLoadBalancers}
-              loading={resourceLoading.loadBalancers}
-              onRefresh={clusterTabOnRefresh.load_balancers}
-            />
-            <DebugJSON data={rawLoadBalancers} show={showLog} />
-          </>
-        );
-      case 'ippools':
-        return (
-          <>
-            <IPPoolsSection
-              cloudId={cloudId}
-              ippools={harvesterIPPools}
-              loading={resourceLoading.ippools}
-              onRefresh={clusterTabOnRefresh.ippools}
-            />
-            <DebugJSON data={rawIPPools} show={showLog} />
           </>
         );
       case 'cluster_pci':

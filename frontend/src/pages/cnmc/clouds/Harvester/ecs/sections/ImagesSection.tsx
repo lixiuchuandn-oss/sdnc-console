@@ -63,6 +63,8 @@ type Props = {
   onImagesInventoryReload?: HarvesterImagesInventoryReload;
   vms?: ImageListRecord[];
   isTenant?: boolean;
+  /** 租户上传镜像默认命名空间（侧栏 ns 或首个授权 ns） */
+  tenantDefaultNamespace?: string;
 };
 
 const ImagesSection: React.FC<Props> = ({
@@ -73,6 +75,7 @@ const ImagesSection: React.FC<Props> = ({
   onImagesInventoryReload,
   vms = [],
   isTenant = false,
+  tenantDefaultNamespace,
 }) => {
   const { user } = useAuth();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
@@ -340,7 +343,9 @@ const ImagesSection: React.FC<Props> = ({
         open={creating}
         onClose={() => setCreating(false)}
         cloudId={cloudId}
-        variant="full"
+        variant={isTenant ? 'standard' : 'full'}
+        isTenant={isTenant}
+        tenantDefaultNamespace={tenantDefaultNamespace}
         ensureWrite={ensureImagesWrite}
         onUrlImportSuccess={() =>
           notifyHarvesterImagesInventoryChanged(cloudId, onImagesInventoryReload, {
