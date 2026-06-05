@@ -32,8 +32,8 @@ function Image(el)
   if is_toolbar_shot(el) then
     el.attributes.width = "8cm"
   elseif is_compact_ui_shot(el) then
+    -- Modal/wizard: cap width only; fixed height stretches non-16:10 crops in Word.
     el.attributes.width = "12cm"
-    el.attributes.height = "7.5cm"
   else
     el.attributes.width = "14cm"
   end
