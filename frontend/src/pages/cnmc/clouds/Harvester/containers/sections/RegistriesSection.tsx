@@ -1461,9 +1461,20 @@ const RegistriesSection: React.FC<Props> = ({
       message.success('连接测试成功');
       // 本地部署仓库更新 deployedRegistries，手动添加仓库更新 localRegistries
       if (record.localRegistryId) {
-        setDeployedRegistries(prev => prev.map(r =>
-          r.id === record.localRegistryId ? { ...r, status: 'healthy' as any } : r
-        ));
+        // 调用后端 API 持久化状态
+        try {
+          const refreshed = await refreshLocalRegistryStatus(cloudId, record.localRegistryId);
+          if (refreshed?.data) {
+            setDeployedRegistries(prev =>
+              prev.map(r => r.id === record.localRegistryId ? refreshed.data : r)
+            );
+          }
+        } catch {
+          // 持久化失败，仅更新前端状态
+          setDeployedRegistries(prev => prev.map(r =>
+            r.id === record.localRegistryId ? { ...r, status: 'healthy' as any } : r
+          ));
+        }
       } else {
         const updated = localRegistries.map(r =>
           r.id === record.id ? { ...r, status: 'healthy' as const } : r
@@ -1475,9 +1486,20 @@ const RegistriesSection: React.FC<Props> = ({
       hide();
       message.error(e?.message || '连接测试失败');
       if (record.localRegistryId) {
-        setDeployedRegistries(prev => prev.map(r =>
-          r.id === record.localRegistryId ? { ...r, status: 'unhealthy' as any } : r
-        ));
+        // 调用后端 API 持久化状态
+        try {
+          const refreshed = await refreshLocalRegistryStatus(cloudId, record.localRegistryId);
+          if (refreshed?.data) {
+            setDeployedRegistries(prev =>
+              prev.map(r => r.id === record.localRegistryId ? refreshed.data : r)
+            );
+          }
+        } catch {
+          // 持久化失败，仅更新前端状态
+          setDeployedRegistries(prev => prev.map(r =>
+            r.id === record.localRegistryId ? { ...r, status: 'unhealthy' as any } : r
+          ));
+        }
       } else {
         const updated = localRegistries.map(r =>
           r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
@@ -1905,6 +1927,7 @@ const RegistriesSection: React.FC<Props> = ({
           }}
           onRefresh={() => {
             setLocalRegistries(loadRegistries());
+            loadDeployedRegistries();
           }}
         />
       )}

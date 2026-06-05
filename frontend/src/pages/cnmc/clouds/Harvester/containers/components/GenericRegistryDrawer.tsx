@@ -23,6 +23,7 @@ import {
 import RegistryBrowser from './RegistryBrowser';
 import ImageUploadModal from './ImageUploadModal';
 import { getRegistryCatalog } from '../../../../../../services/harvesterApi';
+import { refreshLocalRegistryStatus } from '../../../../../../services/localRegistryApi';
 
 const { Text, Paragraph } = Typography;
 
@@ -78,13 +79,41 @@ const GenericRegistryDrawer: React.FC<Props> = ({
       );
       setConnectionStatus('healthy');
       message.success('连接测试成功');
+      
+      // 如果是本地仓库，调用后端 API 持久化状态
+      if (registry.localRegistryId) {
+        try {
+          await refreshLocalRegistryStatus(cloudId, registry.localRegistryId);
+        } catch (e) {
+          console.warn('持久化本地仓库状态失败:', e);
+        }
+      }
+      
+      // 通知外层表格刷新
+      if (onRefresh) {
+        onRefresh();
+      }
     } catch (e: any) {
       setConnectionStatus('unhealthy');
       message.error(e?.message || '连接测试失败');
+      
+      // 如果是本地仓库，调用后端 API 持久化状态
+      if (registry.localRegistryId) {
+        try {
+          await refreshLocalRegistryStatus(cloudId, registry.localRegistryId);
+        } catch (err) {
+          console.warn('持久化本地仓库状态失败:', err);
+        }
+      }
+      
+      // 通知外层表格刷新
+      if (onRefresh) {
+        onRefresh();
+      }
     } finally {
       setTesting(false);
     }
-  }, [registry, cloudId]);
+  }, [registry, cloudId, onRefresh]);
 
   const registryCredential = useMemo(() => {
     if (!registry) return null;
