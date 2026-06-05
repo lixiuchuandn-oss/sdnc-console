@@ -1,0 +1,19 @@
+{
+  "id": "fixture-ready",
+  "description": "Imported=True means ready",
+  "record": {
+    "metadata": { "name": "img-fix-ready", "namespace": "default" },
+    "spec": { "sourceType": "upload" },
+    "status": {
+      "progress": 100,
+      "size": 5000,
+      "conditions": [{ "type": "Imported", "status": "True" }]
+    }
+  },
+  "expect": {
+    "listStateKey": "ready",
+    "importComplete": true,
+    "terminalFailure": false,
+    "activeImportInProgress": false
+  }
+}

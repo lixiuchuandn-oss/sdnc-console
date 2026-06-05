@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { createComputeTabOnRefresh } from '../../loaders/computeRefresh';
 import { Empty, message } from 'antd';
 import {
@@ -11,6 +11,9 @@ import {
   LazyRecycleBinSection,
   LazyMigrationsSection,
 } from '../../../../Harvester/ecs/lazySections';
+import { HarvesterPersistentImageUploadDrawer } from '../../../../Harvester/ecs/components/HarvesterPersistentImageUploadDrawer';
+import type { ImageUploadTasksDrawerHandle } from '../../../../Harvester/ecs/components/ImageUploadTasksDrawer';
+import type { HarvesterImageUploadTask } from '../../../../../../../services/harvesterApi';
 import {
   deleteCloudProviderEcs,
   fetchHarvesterImages,
@@ -213,6 +216,31 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
     [loadTabResource],
   );
 
+  const imageUploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
+  const uploadCallbacksRef = useRef<{
+    onListTaskChange?: (task: HarvesterImageUploadTask) => void;
+    onListTaskRemove?: (taskId: string, opts?: { refreshInventory?: boolean }) => void;
+  }>({});
+
+  const persistentImageUploadDrawer =
+    cloudId && checkPerm('clouds.images:read') ? (
+      <HarvesterPersistentImageUploadDrawer
+        ref={imageUploadDrawerRef}
+        cloudId={cloudId}
+        onListTaskChange={(task) => uploadCallbacksRef.current.onListTaskChange?.(task)}
+        onListTaskRemove={(taskId, opts) =>
+          uploadCallbacksRef.current.onListTaskRemove?.(taskId, opts)
+        }
+      />
+    ) : null;
+
+  const withImageUploadDrawer = (node: React.ReactNode) => (
+    <>
+      {node}
+      {persistentImageUploadDrawer}
+    </>
+  );
+
   const computeTabOnRefresh = useMemo(() => {
     const deps = {
       loadTabResource,
@@ -230,11 +258,13 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
   }, [loadTabResource, refreshVmSectionAuxiliaries]);
 
   if (!canViewComputeInner(innerActiveKey, checkPerm)) {
-    return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
+    return withImageUploadDrawer(
+      <Empty description="无权限访问" style={{ marginTop: 48 }} />,
+    );
   }
 
   if (innerActiveKey === 'ecs') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazyVmSection
@@ -475,12 +505,12 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
               />
         <DebugJSON data={rawEcs} show={showLog} />
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
   if (innerActiveKey === 'images') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazyImagesSection
@@ -494,15 +524,19 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           tenantDefaultNamespace={
             isTenant ? (nsFilter || tenantNamespaces[0] || undefined) : undefined
           }
+          uploadDrawerRef={imageUploadDrawerRef}
+          onRegisterUploadCallbacks={(callbacks) => {
+            uploadCallbacksRef.current = callbacks;
+          }}
         />
         <DebugJSON data={rawImages} show={showLog} />
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
   if (innerActiveKey === 'templates') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazyTemplatesSection
@@ -515,12 +549,12 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
         />
         <DebugJSON data={rawTemplates} show={showLog} />
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
   if (innerActiveKey === 'ssh_keys') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazySshKeysSection
@@ -531,12 +565,12 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
         />
         <DebugJSON data={rawSshKeys} show={showLog} />
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
   if (innerActiveKey === 'cloud_inits') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazyCloudInitsSection
@@ -547,12 +581,12 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
         />
         <DebugJSON data={rawCloudInits} show={showLog} />
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
   if (innerActiveKey === 'recycle_bin') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazyRecycleBinSection
@@ -592,12 +626,12 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           </div>
         )}
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
   if (innerActiveKey === 'migrations') {
-    return (
+    return withImageUploadDrawer(
       <EcsSectionSuspense>
         <>
         <LazyMigrationsSection
@@ -610,11 +644,13 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
         />
         <DebugJSON data={rawMigrations} show={showLog} />
         </>
-      </EcsSectionSuspense>
+      </EcsSectionSuspense>,
     );
   }
 
-  return <Empty description="未知页面" style={{ marginTop: 48 }} />;
+  return withImageUploadDrawer(
+    <Empty description="未知页面" style={{ marginTop: 48 }} />,
+  );
 };
 
 export default CloudmapComputeRoutePanel;

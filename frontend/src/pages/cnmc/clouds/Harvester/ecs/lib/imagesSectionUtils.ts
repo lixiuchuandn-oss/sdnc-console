@@ -39,6 +39,30 @@ export function getImageActualFileBytes(r: ImageListRecord): number | undefined 
   return undefined;
 }
 
+/**
+ * 同步到 Ceph 等场景下，集群 status.size 常为 PVC/虚拟盘容量，而非 qcow2 稀疏文件体积。
+ */
+export function clusterReportedSizeLooksLikeVirtualCapacity(
+  reportedBytes: number | undefined,
+  virtualBytes: number | undefined,
+  fileBytesHint?: number,
+): boolean {
+  if (reportedBytes == null || !Number.isFinite(reportedBytes) || reportedBytes <= 0) {
+    return false;
+  }
+  if (virtualBytes != null && virtualBytes > 0 && reportedBytes >= virtualBytes * 0.9) {
+    return true;
+  }
+  if (
+    fileBytesHint != null &&
+    fileBytesHint > 0 &&
+    reportedBytes > fileBytesHint * 1.5
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** 解析 K8s quantity / 数字为字节（与后端 vmImageClusterApi 一致） */
 export function parseKubernetesQuantityToBytes(raw: unknown): number | undefined {
   if (raw == null) return undefined;

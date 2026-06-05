@@ -33,7 +33,6 @@ import {
   getTowerUploadTaskProgress,
   getUploadDrawerDisplayStatus,
   getUploadTaskDeleteBlockedMessage,
-  isUploadTaskInSyncPhase,
   isUploadTaskDeleteBlocked,
   mergeUploadTasksSorted,
   shouldRefreshInventoryAfterUploadTaskDelete,
@@ -41,6 +40,12 @@ import {
   uploadTaskDeleteConfirmContent,
 } from '../lib/imagesSectionActions';
 import type { StartBrowserChunkedUploadParams } from '../modals/ImageCreateModal';
+import {
+  abortChunkUploadController,
+  clearChunkUploadController,
+  getChunkUploadControllersMap,
+  registerChunkUploadController,
+} from '../lib/imageUploadChunkControllers';
 
 export type ImageUploadTasksDrawerHandle = {
   openDrawer: (reload?: boolean) => void;
@@ -108,7 +113,6 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
     /** 本地源文件不可读（NotReadableError）后需续传的任务 */
     const [resumeHintTaskIds, setResumeHintTaskIds] = useState<Set<string>>(() => new Set());
 
-    const uploadControllersRef = useRef<Map<string, AbortController>>(new Map());
     const tasksRef = useRef(tasks);
     tasksRef.current = tasks;
 
@@ -131,8 +135,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
     }, []);
 
     const forceStopLocalUpload = useCallback((taskId: string) => {
-      uploadControllersRef.current.get(taskId)?.abort();
-      uploadControllersRef.current.delete(taskId);
+      abortChunkUploadController(taskId);
     }, []);
 
     const stripTaskLocalUploadOverlay = useCallback((taskId: string) => {
@@ -180,13 +183,18 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       }
     }, [uploadTasks, clearResumeHint]);
 
+    useEffect(() => {
+      if (!open) return;
+      void loadTasks(uploadTasks.length === 0);
+    }, [open, loadTasks, uploadTasks.length]);
+
     const runBrowserChunkedUpload = useCallback(
       (params: StartBrowserChunkedUploadParams & { existingTask?: HarvesterImageUploadTask }) => {
         const controller = new AbortController();
         void (async () => {
           let taskId = params.existingTask?.id;
           if (taskId) {
-            uploadControllersRef.current.set(taskId, controller);
+            registerChunkUploadController(taskId, controller);
             clearResumeHint(taskId);
           }
           try {
@@ -200,7 +208,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
               signal: controller.signal,
               onTaskUpsert: (task) => {
                 taskId = task.id;
-                uploadControllersRef.current.set(task.id, controller);
+                registerChunkUploadController(task.id, controller);
                 upsertDrawerTask(task);
               },
             });
@@ -235,7 +243,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
               }
             }
           } finally {
-            if (taskId) uploadControllersRef.current.delete(taskId);
+            if (taskId) clearChunkUploadController(taskId);
           }
         })();
       },
@@ -313,16 +321,11 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       ],
     );
 
+    // 分片上传中的任务由本地 controller 驱动；其余状态由 store 统一 list 轮询
     useEffect(() => {
       if (!cloudId) return;
-      const pollMs = open ? 5000 : 10000;
       const timer = window.setInterval(async () => {
-        const hasLocalUpload = uploadControllersRef.current.size > 0;
-        const candidates = tasksRef.current.filter((t) => {
-          const st = String(t.status || '');
-          if (hasLocalUpload && uploadControllersRef.current.has(t.id)) return false;
-          return ['pending', 'ingesting', 'uploaded'].includes(st);
-        });
+        const candidates = tasksRef.current.filter((t) => getChunkUploadControllersMap().has(t.id));
         if (candidates.length === 0) return;
         try {
           const next = await Promise.all(
@@ -343,16 +346,15 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
         } catch {
           /* ignore */
         }
-      }, pollMs);
+      }, 3000);
       return () => window.clearInterval(timer);
-    }, [cloudId, open, onListTaskChange]);
+    }, [cloudId, onListTaskChange]);
 
     const handleCancelUploadTask = useCallback(
       async (task: HarvesterImageUploadTask) => {
         try {
           if (!ensureImagesWrite()) return;
-          uploadControllersRef.current.get(task.id)?.abort();
-          uploadControllersRef.current.delete(task.id);
+          abortChunkUploadController(task.id);
           const resp = (await cancelHarvesterImageUploadTask(cloudId, task.id)) as {
             data?: HarvesterImageUploadTask;
           };
@@ -411,7 +413,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       () => ({
         openDrawer: (reload = true) => {
           setOpen(true);
-          if (reload) void loadTasks(true);
+          if (reload || uploadTasks.length === 0) void loadTasks(true);
         },
         startUpload: (params) => {
           setOpen(true);
@@ -425,11 +427,11 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
           setTasks((prev) => prev.filter((x) => x.id !== taskId));
         },
       }),
-      [loadTasks, runBrowserChunkedUpload, resumeBrowserChunkedUpload, upsertDrawerTask],
+      [loadTasks, uploadTasks, runBrowserChunkedUpload, resumeBrowserChunkedUpload, upsertDrawerTask],
     );
 
     const isUploadTaskRunning = (taskId: string) =>
-      isUploadTaskActivelyUploading(taskId, uploadControllersRef.current);
+      isUploadTaskActivelyUploading(taskId, getChunkUploadControllersMap());
 
     return (
       <Drawer
@@ -460,6 +462,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
               const wantsResumePick = resumeHintTaskIds.has(t.id);
               const isCancelled = st === 'cancelled';
               const isUploadComplete = displayStatus === 'uploaded';
+              const isUploadFailed = displayStatus === 'failed';
               const isIngestPaused = isIngestUploadPaused(t, isRunning);
               const needsResumeUpload =
                 !isCancelled &&
@@ -469,13 +472,12 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
               const resumeHintText = wantsResumePick
                 ? LOCAL_SOURCE_FILE_RESUME_HINT
                 : '上传已中断。请选择同一文件继续断点上传。';
-              const inSyncPhase = isUploadTaskInSyncPhase(t);
               const progressPercent = getTowerUploadTaskProgress(t);
               const chunkLine = formatImageUploadTaskChunkLine(t, { isRunning });
               const progressStatus =
-                displayStatus === 'failed'
+                isUploadFailed
                   ? 'exception'
-                  : displayStatus === 'uploaded'
+                  : isUploadComplete
                     ? 'success'
                     : displayStatus === 'cancelled'
                       ? 'normal'
@@ -493,7 +495,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
                           ? 'orange'
                           : displayStatus === 'uploaded'
                             ? 'green'
-                            : displayStatus === 'failed'
+                            : isUploadFailed
                               ? 'red'
                               : displayStatus === 'cancelled'
                                 ? 'default'
@@ -525,14 +527,14 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
                       {resumeHintText}
                     </Typography.Text>
                   ) : null}
-                  {isUploadComplete && !inSyncPhase ? (
+                  {isUploadComplete ? (
                     <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                      文件已上传至 Tower，请在镜像列表点击「同步」。待同步期间可在列表删除镜像数据，不可在此删除任务记录。
+                      文件已上传至 Tower。请在镜像列表点击「同步」；底座导入进度与成败请见镜像列表，与上传任务无关。
                     </Typography.Text>
                   ) : null}
-                  {isUploadComplete && inSyncPhase ? (
+                  {isUploadFailed ? (
                     <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                      文件已上传至 Tower，同步进度请见左侧镜像列表。
+                      上传到 Tower 失败，可取消后重新上传。
                     </Typography.Text>
                   ) : null}
                   {isCancelled ? (

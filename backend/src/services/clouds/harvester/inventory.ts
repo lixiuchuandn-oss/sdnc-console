@@ -202,6 +202,24 @@ export async function upsertHarvesterImageInventoryItems(
         const existing = await repo.findOne({ where: { cloudId, uid } });
         if (existing) {
           const mergedRaw = mergeVmImageRawData(existing.rawData, mapped.rawData);
+          const newSizeNum = Number(mapped.size);
+          const oldSizeNum = Number(existing.size);
+          const virtualSize = readVmImageVirtualSizeBytes(mergedRaw);
+          if (
+            Number.isFinite(newSizeNum) &&
+            newSizeNum > 0 &&
+            virtualSize != null &&
+            virtualSize > 0 &&
+            newSizeNum >= virtualSize * 0.9 &&
+            Number.isFinite(oldSizeNum) &&
+            oldSizeNum > 0 &&
+            oldSizeNum < newSizeNum
+          ) {
+            mapped.size = String(existing.size);
+            if (mergedRaw?.status && typeof mergedRaw.status === 'object') {
+              mergedRaw.status = { ...mergedRaw.status, size: oldSizeNum };
+            }
+          }
           Object.assign(existing, mapped, { rawData: mergedRaw });
           await repo.save(existing);
         } else {
@@ -318,17 +336,45 @@ export const syncHarvesterImages = async (
     const imageRepo = AppDataSource.getRepository(HarvesterImageInventory);
     const existingRows = await imageRepo.find({ where: { cloudId } });
     const preservedVsByUid = new Map<string, number>();
+    const preservedSparseSizeByUid = new Map<string, number>();
     for (const row of existingRows) {
       const vs = readVmImageVirtualSizeBytes(row.rawData);
       const uid = String(row.uid || '').trim();
       if (uid && vs != null) preservedVsByUid.set(uid, vs);
+      const oldSize = Number(row.size);
+      if (uid && vs != null && Number.isFinite(oldSize) && oldSize > 0 && oldSize < vs * 0.9) {
+        preservedSparseSizeByUid.set(uid, oldSize);
+      }
     }
-    if (preservedVsByUid.size > 0) {
+    if (preservedVsByUid.size > 0 || preservedSparseSizeByUid.size > 0) {
       enrichedItems = enrichedItems.map((item) => {
         const uid = String(item?.metadata?.uid || item?.id || '').trim();
-        if (!uid || readVmImageVirtualSizeBytes(item) != null) return item;
-        const vs = preservedVsByUid.get(uid);
-        return vs != null ? injectVmImageVirtualSize(item, vs) : item;
+        let next = item;
+        if (uid && readVmImageVirtualSizeBytes(item) == null) {
+          const vs = preservedVsByUid.get(uid);
+          if (vs != null) next = injectVmImageVirtualSize(next, vs);
+        }
+        if (uid) {
+          const preservedSize = preservedSparseSizeByUid.get(uid);
+          const vs = readVmImageVirtualSizeBytes(next);
+          const clusterSize = Number(next?.status?.size ?? next?.size ?? 0);
+          if (
+            preservedSize != null &&
+            vs != null &&
+            Number.isFinite(clusterSize) &&
+            clusterSize >= vs * 0.9
+          ) {
+            next = {
+              ...next,
+              size: preservedSize,
+              status: {
+                ...(next?.status && typeof next.status === 'object' ? next.status : {}),
+                size: preservedSize,
+              },
+            };
+          }
+        }
+        return next;
       });
     }
   }

@@ -16,6 +16,10 @@ function Read-JsonVersion($pkgPath) {
 Write-Host "==> 编译后端 (tsc) ..."
 Push-Location $BackendRoot
 npm run build
+if ($LASTEXITCODE -ne 0) {
+  Pop-Location
+  throw "后端编译失败 (exit $LASTEXITCODE)，已中止打包"
+}
 Pop-Location
 
 Write-Host "==> 编译前端 (react-scripts build) ..."
@@ -26,6 +30,10 @@ if (Get-Command npx -ErrorAction SilentlyContinue) {
   npx react-scripts build
 } else {
   npm run build
+}
+if ($LASTEXITCODE -ne 0) {
+  Pop-Location
+  throw "前端编译失败 (exit $LASTEXITCODE)，已中止打包"
 }
 Pop-Location
 

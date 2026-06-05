@@ -19,12 +19,12 @@ export const IMAGE_STATUS_FILTER_OPTIONS = [
   'ready',
   'failed',
   'uploading',
+  'syncing',
   'importing',
   'exporting',
   'downloading',
   'cancelled',
   'pending_sync',
-  'syncing',
   'unknown',
 ] as const;
 

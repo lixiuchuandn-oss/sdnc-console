@@ -3,7 +3,7 @@
  *
  * 数据由上层 `CloudConsole.tsx` 拉取后注入；本组件只负责导航与渲染子模块。
  */
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Empty } from 'antd';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLicense } from '../../../../contexts/LicenseContext';
@@ -16,6 +16,9 @@ import {
   LazyCloudInitsSection,
   LazyImagesSection,
 } from '../../clouds/Harvester/ecs/lazySections';
+import { HarvesterPersistentImageUploadDrawer } from '../../clouds/Harvester/ecs/components/HarvesterPersistentImageUploadDrawer';
+import type { ImageUploadTasksDrawerHandle } from '../../clouds/Harvester/ecs/components/ImageUploadTasksDrawer';
+import type { HarvesterImageUploadTask } from '../../../../services/harvesterApi';
 import {
   ConsoleMainPanelSectionSuspense,
   LazyVolumesSection,
@@ -190,6 +193,15 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
       return name && !isSystemNamespace(name);
     });
   }, [namespaces]);
+
+  const imageUploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
+  const uploadCallbacksRef = useRef<{
+    onListTaskChange?: (task: HarvesterImageUploadTask) => void;
+    onListTaskRemove?: (taskId: string, opts?: { refreshInventory?: boolean }) => void;
+  }>({});
+
+  const showPersistentImageUploadDrawer =
+    !!cloudId && (!canAccessMainResource || canAccessMainResource('image'));
 
   const fullTabConfig = useMemo((): NavCategory[] => buildMainNavCategories(ovnVpcEnabled), [ovnVpcEnabled]);
 
@@ -403,6 +415,10 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             vms={vms}
             isTenant={isTenantUser}
             tenantDefaultNamespace={isTenantUser ? (nsValue || namespacesOptions[0]) : undefined}
+            uploadDrawerRef={imageUploadDrawerRef}
+            onRegisterUploadCallbacks={(callbacks) => {
+              uploadCallbacksRef.current = callbacks;
+            }}
           />
         );
 
@@ -584,6 +600,16 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   return (
     <div className="cloud-console-panel-root">
       <ConsoleMainPanelSectionSuspense>{renderContent()}</ConsoleMainPanelSectionSuspense>
+      {showPersistentImageUploadDrawer ? (
+        <HarvesterPersistentImageUploadDrawer
+          ref={imageUploadDrawerRef}
+          cloudId={cloudId}
+          onListTaskChange={(task) => uploadCallbacksRef.current.onListTaskChange?.(task)}
+          onListTaskRemove={(taskId, opts) =>
+            uploadCallbacksRef.current.onListTaskRemove?.(taskId, opts)
+          }
+        />
+      ) : null}
     </div>
   );
 };

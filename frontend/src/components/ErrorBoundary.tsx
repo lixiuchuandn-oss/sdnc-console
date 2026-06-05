@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Result, Button } from 'antd';
+import { isChunkLoadError, tryAutoReloadOnChunkError } from '../utils/chunkLoadError';
 
 interface Props {
   children: ReactNode;
@@ -40,9 +41,11 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    if (tryAutoReloadOnChunkError(error)) return;
+
     // 记录错误信息（可以发送到错误监控服务）
     console.error('Error caught by boundary:', error, errorInfo);
-    
+
     this.setState({
       error,
       errorInfo,
@@ -55,6 +58,10 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   handleReset = () => {
+    if (isChunkLoadError(this.state.error)) {
+      window.location.reload();
+      return;
+    }
     this.setState({
       hasError: false,
       error: null,

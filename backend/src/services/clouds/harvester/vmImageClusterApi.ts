@@ -110,13 +110,23 @@ export function readVmImageVirtualSizeBytes(obj: unknown): number | undefined {
 
 function vmImageConditions(
   record: Record<string, unknown>,
-): Array<{ type?: string; status?: string }> {
+): Array<{ type?: string; status?: string; reason?: string; message?: string }> {
   const status = record.status as Record<string, unknown> | undefined;
   if (Array.isArray(status?.conditions) && status!.conditions!.length > 0) {
-    return status!.conditions as Array<{ type?: string; status?: string }>;
+    return status!.conditions as Array<{
+      type?: string;
+      status?: string;
+      reason?: string;
+      message?: string;
+    }>;
   }
   if (Array.isArray(record.conditions) && record.conditions.length > 0) {
-    return record.conditions as Array<{ type?: string; status?: string }>;
+    return record.conditions as Array<{
+      type?: string;
+      status?: string;
+      reason?: string;
+      message?: string;
+    }>;
   }
   return [];
 }
@@ -134,6 +144,143 @@ export function readVmImageImportProgress(obj: unknown): number | undefined {
   return undefined;
 }
 
+function isHarvesterVmImageImportCompleteForProgressGate(obj: unknown): boolean {
+  const r = normalizeHarvesterVmImageRecord(obj);
+  if (!r || typeof r !== 'object') return false;
+  const record = r as Record<string, unknown>;
+  const conds = vmImageConditions(record);
+  const imported = conds.find((c) => c?.type === 'Imported');
+  if (imported?.status === 'True' || imported?.status === 'true') return true;
+  const progressRaw = readVmImageImportProgress(obj);
+  if (!Number.isFinite(progressRaw) || (progressRaw as number) < 100) return false;
+  const status = record.status as Record<string, unknown> | undefined;
+  const size = Number(status?.size ?? record.size);
+  return size > 0;
+}
+
+const HARVESTER_IMPORT_FINALIZE_PROGRESS_MIN = 95;
+
+/** progress≥95 收尾或 100% 未就绪：Imported=False 的 Failed/Cancelled 多为瞬态 */
+export function isActiveHarvesterVmImageImportInProgress(obj: unknown): boolean {
+  const progressRaw = readVmImageImportProgress(obj);
+  if (!Number.isFinite(progressRaw)) return false;
+  const progress = progressRaw as number;
+  if (progress >= 100 && !isHarvesterVmImageImportCompleteForProgressGate(obj)) return true;
+  if (progress >= HARVESTER_IMPORT_FINALIZE_PROGRESS_MIN && progress < 100) return true;
+  return false;
+}
+
+function isExplicitUserHarvesterVmImageImportCancel(obj: unknown): boolean {
+  const r = normalizeHarvesterVmImageRecord(obj);
+  if (!r || typeof r !== 'object') return false;
+  const record = r as Record<string, unknown>;
+  const conds = vmImageConditions(record);
+  const imported = conds.find((c) => c?.type === 'Imported');
+  if (imported?.status === 'False' || imported?.status === 'false') {
+    const msg = String(imported?.message || '').toLowerCase();
+    if (
+      msg.includes('user cancel') ||
+      msg.includes('cancelled by user') ||
+      msg.includes('用户取消') ||
+      msg.includes('用户中止')
+    ) {
+      return true;
+    }
+  }
+  const status = record.status as Record<string, unknown> | undefined;
+  const statusMsg = String(status?.message || '').toLowerCase();
+  return (
+    statusMsg.includes('user cancel') ||
+    statusMsg.includes('cancelled by user') ||
+    statusMsg.includes('用户取消')
+  );
+}
+
+/** Imported=False 是否为底座已确认的终态失败（非导入中瞬态/陈旧库存） */
+export function isHarvesterVmImageImportedTerminalFailure(obj: unknown): boolean {
+  const r = normalizeHarvesterVmImageRecord(obj);
+  if (!r || typeof r !== 'object') return false;
+  const record = r as Record<string, unknown>;
+  const conds = vmImageConditions(record);
+  const imported = conds.find((c) => c?.type === 'Imported');
+  if (imported?.status !== 'False' && imported?.status !== 'false') return false;
+
+  if (isActiveHarvesterVmImageImportInProgress(obj)) return false;
+
+  const reason = String(imported?.reason || '').trim();
+  const msg = String(imported?.message || '').trim();
+  const terminalReasons = ['UploadFailed', 'ImportFailed', 'Canceled', 'Cancelled', 'UploadCanceled'];
+  if (terminalReasons.includes(reason)) return true;
+
+  const lower = `${msg} ${reason}`.toLowerCase();
+  if (
+    lower.includes('context canceled') ||
+    lower.includes('context cancelled') ||
+    lower.includes('operation canceled') ||
+    lower.includes('operation cancelled')
+  ) {
+    return false;
+  }
+  if (
+    lower.includes('upload failed') ||
+    lower.includes('import failed') ||
+    lower.includes('connection refused') ||
+    lower.includes('proxy error') ||
+    lower.includes(' i/o timeout') ||
+    lower.includes('eof') ||
+    lower.includes('larger than the reported available storage') ||
+    lower.includes('larger pvc is required')
+  ) {
+    return true;
+  }
+  if (
+    lower.includes('user cancel') ||
+    lower.includes('cancelled by user') ||
+    lower.includes('用户取消') ||
+    lower.includes('用户中止')
+  ) {
+    return false;
+  }
+
+  const progress = readVmImageImportProgress(obj);
+  if (Number.isFinite(progress) && (progress as number) < 100) return false;
+
+  return false;
+}
+
+/** 底座 CR 是否为用户/系统取消导入 */
+export function isHarvesterVmImageImportCancelled(obj: unknown): boolean {
+  const r = normalizeHarvesterVmImageRecord(obj);
+  if (!r || typeof r !== 'object') return false;
+  if (isActiveHarvesterVmImageImportInProgress(obj) && !isExplicitUserHarvesterVmImageImportCancel(obj)) {
+    return false;
+  }
+  const record = r as Record<string, unknown>;
+  const status = record.status as Record<string, unknown> | undefined;
+  const statusStr = String(status?.state ?? record.state ?? status?.phase ?? '').toLowerCase();
+  if (statusStr === 'cancelled') return true;
+
+  const conds = vmImageConditions(record);
+  const cancelledCondition = conds.find((c) => c?.type === 'Cancelled');
+  if (cancelledCondition?.status === 'True' || cancelledCondition?.status === 'true') return true;
+
+  const imported = conds.find((c) => c?.type === 'Imported');
+  if (imported?.status === 'False' || imported?.status === 'false') {
+    const reason = String(imported?.reason || '').trim();
+    if (['Canceled', 'Cancelled', 'UploadCanceled'].includes(reason)) return true;
+    const msg = String(imported?.message || '').toLowerCase();
+    if (
+      msg.includes('user cancel') ||
+      msg.includes('cancelled by user') ||
+      msg.includes('用户取消') ||
+      msg.includes('用户中止')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * 镜像是否已在 Harvester 导入完成。
  * Steve metadata.state.name=active 仅表示 CR 已创建，上传中也会是 active，不能当作已就绪。
@@ -145,7 +292,13 @@ export function isHarvesterVmImageImportComplete(obj: unknown): boolean {
   const conds = vmImageConditions(record);
   const imported = conds.find((c) => c?.type === 'Imported');
   if (imported?.status === 'True' || imported?.status === 'true') return true;
-  if (imported?.status === 'False' || imported?.status === 'false') return false;
+  // Imported=False 仅在底座已确认终态失败时阻断就绪；CDI 转换中可能长期为 False
+  if (
+    (imported?.status === 'False' || imported?.status === 'false') &&
+    isHarvesterVmImageImportedTerminalFailure(obj)
+  ) {
+    return false;
+  }
 
   const progressRaw = readVmImageImportProgress(obj);
   if (!Number.isFinite(progressRaw)) return false;

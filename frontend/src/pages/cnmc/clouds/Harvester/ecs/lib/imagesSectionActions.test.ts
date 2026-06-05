@@ -1,6 +1,7 @@
 import {
   applyUploadTaskToListState,
   assessImageDeleteBlockedByVms,
+  getImageRowDeleteBlockedMessage,
   formatImageUploadTaskChunkLine,
   imageTypeFieldsFromUploadTask,
   filterImageListAfterDelete,
@@ -12,22 +13,28 @@ import {
   getUploadDrawerDisplayStatus,
   getUploadTaskDeleteBlockedMessage,
   isUploadTaskDeleteBlocked,
-  isUploadTaskInSyncPhase,
+  isTowerImageIngestComplete,
+  shouldHideSupersededTowerUploadInventoryRow,
+  canShowTowerUploadSyncAction,
+  enrichImageRowSizeFromUploadTask,
   isImageListFailedSyncRow,
   isImageListTowerUploadDeleteRow,
   isLocalUploadImageRow,
   shouldDeleteClusterImageForLocalUploadRow,
   mergeUploadTasksSorted,
   mergeUploadTasksIntoImageList,
-  getHarvesterSyncProgress,
   planImageListProgressPoll,
   resolveImageListDisplayProgress,
   resolveImageDeleteSuccessMessage,
   resolveLinkedUploadTaskId,
+  resolveLinkedUploadTaskIdsForDelete,
+  parseTowerUploadVirtualTaskIdFromRow,
+  mergeUploadTasksForLookup,
   selectImagesByRowKeys,
   summarizeBatchImageDeleteMessage,
 } from './imagesSectionActions';
 import { resolveImageListStateKey } from './vmImageStatus';
+import { getImageActualFileBytes, getImageRowId } from './imagesSectionUtils';
 
 describe('imagesSectionActions', () => {
   const img = { metadata: { name: 'img-a', namespace: 'ns1' }, displayName: 'Alpha' };
@@ -39,6 +46,17 @@ describe('imagesSectionActions', () => {
   it('selectImagesByRowKeys', () => {
     const rows = selectImagesByRowKeys([img, { metadata: { name: 'b' } }], ['img-a']);
     expect(rows).toHaveLength(1);
+  });
+
+  it('selectImagesByRowKeys resolves virtual rows by task id', () => {
+    const virtual = {
+      __towerUploadVirtual: true,
+      __towerUploadTaskId: 'task-abc',
+      metadata: { name: 'tower-upload-task-abc', namespace: 'ns1' },
+    };
+    const rows = selectImagesByRowKeys([virtual as any], ['task-abc']);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toBe(virtual);
   });
 
   it('getImageBatchDeleteLabel prefers alias', () => {
@@ -127,6 +145,15 @@ describe('imagesSectionActions', () => {
     ).toBe('镜像仍被虚拟机「vm-ja8l-6ef9」使用，无法删除');
   });
 
+  it('summarizeBatchImageDeleteMessage reports partial task delete failure', () => {
+    const summary = summarizeBatchImageDeleteMessage(
+      [{ ok: true, name: 'img-a', ns: 'ns1', id: 'img-a' }],
+      { taskDeleteFailedCount: 1 },
+    );
+    expect(summary.success).toContain('删除成功');
+    expect(summary.warning).toContain('上传任务记录删除失败');
+  });
+
   it('summarizeBatchImageDeleteMessage', () => {
     const out = summarizeBatchImageDeleteMessage([
       { ok: true, name: 'a', ns: 'ns', id: 'a' },
@@ -164,7 +191,7 @@ describe('imagesSectionActions', () => {
     ).toBe('qcow2');
   });
 
-  it('applyUploadTaskToListState removes success and signals inventory refresh', () => {
+  it('applyUploadTaskToListState merges success and signals inventory refresh', () => {
     const prev = [{ id: 't1', status: 'proxying' } as any];
     const { next, becameSuccess } = applyUploadTaskToListState(prev, {
       id: 't1',
@@ -208,7 +235,7 @@ describe('imagesSectionActions', () => {
     expect(becameSuccess).toBe(false);
   });
 
-  it('mergeUploadTasksIntoImageList overlays cancelled on syncing inventory row', () => {
+  it('mergeUploadTasksIntoImageList only attaches taskId without overriding cluster state', () => {
     const images = [
       {
         metadata: { name: 'img-x', namespace: 'ns1' },
@@ -229,8 +256,9 @@ describe('imagesSectionActions', () => {
     ] as any[];
     const merged = mergeUploadTasksIntoImageList(images, tasks);
     expect(merged).toHaveLength(1);
-    expect(merged[0].state).toBe('cancelled');
-    expect(resolveImageListStateKey(merged[0])).toBe('cancelled');
+    expect(merged[0].__towerUploadTaskId).toBe('task-cancel');
+    expect(merged[0].state).toBe('syncing');
+    expect(resolveImageListStateKey(merged[0])).toBe('syncing');
   });
 
   it('mergeUploadTasksIntoImageList shows failed when cluster import failed but upload task cancelled', () => {
@@ -258,7 +286,6 @@ describe('imagesSectionActions', () => {
     ] as any[];
     const merged = mergeUploadTasksIntoImageList(images, tasks);
     expect(merged).toHaveLength(1);
-    expect(merged[0].state).toBe('failed');
     expect(resolveImageListStateKey(merged[0])).toBe('failed');
   });
 
@@ -324,7 +351,37 @@ describe('imagesSectionActions', () => {
     expect(merged[0].name).toBe('tower-upload-task-ingest-cancel');
   });
 
-  it('mergeUploadTasksIntoImageList clears progress on failed sync overlay', () => {
+  it('mergeUploadTasksIntoImageList shows failed when task proxying but cluster import failed', () => {
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'img-x', namespace: 'ns1' },
+          spec: { sourceType: 'upload' },
+          state: 'Uploading',
+          progress: 60,
+          status: {
+            progress: 60,
+            conditions: [
+              { type: 'Imported', status: 'False', reason: 'ImportFailed', message: 'cdi convert failed' },
+            ],
+          },
+        },
+      ] as any[],
+      [
+        {
+          id: 'task-p',
+          status: 'proxying',
+          proxyProgress: 60,
+          progress: 60,
+          createdImageName: 'img-x',
+          createdImageNamespace: 'ns1',
+        },
+      ] as any[],
+    );
+    expect(resolveImageListStateKey(merged[0])).toBe('failed');
+  });
+
+  it('mergeUploadTasksIntoImageList keeps cluster in-progress when task failed but cluster still importing', () => {
     const merged = mergeUploadTasksIntoImageList(
       [
         {
@@ -339,40 +396,200 @@ describe('imagesSectionActions', () => {
         {
           id: 'task-f',
           status: 'failed',
+          ingestProgress: 100,
+          createdImageName: 'img-x',
+          createdImageNamespace: 'ns1',
+          errorMessage: 'Harvester 上传失败 HTTP 504: Gateway Timeout',
+        },
+      ] as any[],
+    );
+    expect(resolveImageListStateKey(merged[0])).toBe('syncing');
+    expect(canShowTowerUploadSyncAction(merged[0], [])).toBe(false);
+  });
+
+  it('mergeUploadTasksIntoImageList does not mask terminal cluster failure from task state', () => {
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'img-x', namespace: 'ns1' },
+          spec: { sourceType: 'upload' },
+          state: 'syncing',
+          progress: 42,
+          status: {
+            progress: 42,
+            conditions: [
+              { type: 'Imported', status: 'False', reason: 'ImportFailed', message: 'cdi error' },
+            ],
+          },
+        },
+      ] as any[],
+      [
+        {
+          id: 'task-f',
+          status: 'failed',
+          ingestProgress: 100,
           createdImageName: 'img-x',
           createdImageNamespace: 'ns1',
           errorMessage: 'Harvester 导入镜像失败',
         },
       ] as any[],
     );
-    expect(merged[0].state).toBe('failed');
-    expect(merged[0].progress).toBeUndefined();
+    expect(resolveImageListStateKey(merged[0])).toBe('failed');
+    expect(resolveImageListDisplayProgress(merged[0])).toBeNull();
+    expect(
+      canShowTowerUploadSyncAction(merged[0], [
+        {
+          id: 'task-f',
+          status: 'failed',
+          ingestProgress: 100,
+          createdImageName: 'img-x',
+          createdImageNamespace: 'ns1',
+        },
+      ] as any[]),
+    ).toBe(true);
+    expect(canShowTowerUploadSyncAction(merged[0], [])).toBe(false);
   });
 
-  it('planImageListProgressPoll stops inventory poll when cluster import failed', () => {
+  it('canShowTowerUploadSyncAction hides sync for ingest-only failed task', () => {
+    const row = {
+      __towerUploadVirtual: true,
+      __towerUploadTaskId: 't-ingest',
+      name: 'tower-upload-t-ingest',
+      state: 'failed',
+    } as any;
+    expect(
+      canShowTowerUploadSyncAction(
+        row,
+        [{ id: 't-ingest', status: 'failed', ingestProgress: 40 }] as any[],
+      ),
+    ).toBe(false);
+    expect(
+      canShowTowerUploadSyncAction(row, [{ id: 't-ingest', status: 'uploaded' }] as any[]),
+    ).toBe(true);
+  });
+
+  it('mergeUploadTasksIntoImageList hides failed row when sync retry started without createdImageName', () => {
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'image-cjvvc', namespace: 'default' },
+          __towerUploadTaskId: 'task-retry',
+          spec: { sourceType: 'upload', displayName: 'OpenEuler-22.03-aarch64' },
+          state: 'Failed',
+          status: {
+            conditions: [{ type: 'Imported', status: 'False', message: 'upload failed' }],
+          },
+        },
+      ] as any[],
+      [
+        {
+          id: 'task-retry',
+          status: 'proxying',
+          namespace: 'default',
+          displayName: 'OpenEuler-22.03-aarch64',
+        },
+      ] as any[],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].__towerUploadVirtual).toBe(true);
+    expect(resolveImageListStateKey(merged[0])).toBe('syncing');
+  });
+
+  it('mergeUploadTasksIntoImageList hides superseded failed row after sync retry', () => {
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'image-cjvvc', namespace: 'default' },
+          spec: { sourceType: 'upload', displayName: 'OpenEuler-22.03-aarch64' },
+          state: 'Failed',
+          status: {
+            conditions: [{ type: 'Imported', status: 'False', message: 'upload failed' }],
+          },
+        },
+        {
+          metadata: { name: 'image-59j9k', namespace: 'default' },
+          spec: { sourceType: 'upload', displayName: 'OpenEuler-22.03-aarch64' },
+          state: 'Active',
+          progress: 12,
+          status: { progress: 12 },
+        },
+      ] as any[],
+      [
+        {
+          id: 'task-retry',
+          status: 'proxying',
+          createdImageName: 'image-59j9k',
+          createdImageNamespace: 'default',
+          displayName: 'OpenEuler-22.03-aarch64',
+        },
+      ] as any[],
+    );
+    expect(merged).toHaveLength(1);
+    expect(getImageRowId(merged[0])).toBe('image-59j9k');
+    expect(
+      shouldHideSupersededTowerUploadInventoryRow(
+        {
+          metadata: { name: 'image-cjvvc', namespace: 'default' },
+          spec: { sourceType: 'upload', displayName: 'OpenEuler-22.03-aarch64' },
+        } as any,
+        [
+          {
+            id: 'task-retry',
+            status: 'proxying',
+            createdImageName: 'image-59j9k',
+            createdImageNamespace: 'default',
+            displayName: 'OpenEuler-22.03-aarch64',
+          },
+        ] as any[],
+      ),
+    ).toBe(true);
+  });
+
+  it('planImageListProgressPoll keeps inventory poll when Imported=False is transient', () => {
     const tasks = [{ id: 't1', status: 'proxying', createdImageName: 'img-a', createdImageNamespace: 'ns1' }] as any[];
     const images = [
       {
         metadata: { name: 'img-a', namespace: 'ns1' },
-        status: { conditions: [{ type: 'Imported', status: 'False', message: 'failed' }] },
+        status: { progress: 42, conditions: [{ type: 'Imported', status: 'False', message: 'failed' }] },
       },
     ] as any[];
     expect(planImageListProgressPoll(tasks, images)).toEqual({
       pollUploadTasks: true,
-      pollInventory: false,
+      pollInventory: true,
     });
   });
 
-  it('planImageListProgressPoll stops all polling for terminal failed upload task', () => {
+  it('planImageListProgressPoll stops polling only for terminal cluster import failure', () => {
     expect(
       planImageListProgressPoll(
         [{ id: 't1', status: 'failed', createdImageName: 'img-a', createdImageNamespace: 'ns1' }] as any[],
-        [{ metadata: { name: 'img-a', namespace: 'ns1' } }] as any[],
+        [
+          {
+            metadata: { name: 'img-a', namespace: 'ns1' },
+            status: {
+              conditions: [{ type: 'Imported', status: 'False', reason: 'ImportFailed', message: 'import failed' }],
+            },
+          },
+        ] as any[],
       ),
     ).toEqual({ pollUploadTasks: false, pollInventory: false });
   });
 
-  it('planImageListProgressPoll skips inventory poll during active proxying', () => {
+  it('planImageListProgressPoll keeps polling for false failed upload task', () => {
+    expect(
+      planImageListProgressPoll(
+        [{ id: 't1', status: 'failed', createdImageName: 'img-a', createdImageNamespace: 'ns1' }] as any[],
+        [
+          {
+            metadata: { name: 'img-a', namespace: 'ns1' },
+            status: { progress: 55, conditions: [{ type: 'Imported', status: 'False' }] },
+          },
+        ] as any[],
+      ),
+    ).toEqual({ pollUploadTasks: true, pollInventory: true });
+  });
+
+  it('planImageListProgressPoll keeps inventory poll during active proxying', () => {
     const tasks = [{ id: 't1', status: 'proxying', createdImageName: 'img-a', createdImageNamespace: 'ns1' }] as any[];
     const images = [
       {
@@ -446,28 +663,12 @@ describe('imagesSectionActions', () => {
     expect(merged[0].proxyProgress).toBe(99);
   });
 
-  it('getHarvesterSyncProgress uses cluster proxyProgress only', () => {
+  it('resolveImageListDisplayProgress shows 100 for ready images', () => {
     expect(
-      getHarvesterSyncProgress({
-        status: 'uploaded',
-        progress: 100,
-        proxyProgress: 0,
-      } as any),
-    ).toBeNull();
-    expect(
-      getHarvesterSyncProgress({
-        status: 'proxying',
-        progress: 50,
-        proxyProgress: 0,
-      } as any),
-    ).toBe(50);
-    expect(
-      getHarvesterSyncProgress({
-        status: 'proxying',
-        progress: 50,
-        proxyProgress: 33,
-      } as any),
-    ).toBe(50);
+      resolveImageListDisplayProgress({
+        status: { conditions: [{ type: 'Imported', status: 'True' }], progress: 100, size: 5000 },
+      }),
+    ).toBe(100);
   });
 
   it('resolveImageListDisplayProgress shows dash until cluster reports progress', () => {
@@ -547,23 +748,128 @@ describe('imagesSectionActions', () => {
     ).toBe('ready');
   });
 
-  it('resolveImageListStateKey stays uploading when steve active but cluster progress 21', () => {
+  it('resolveImageListStateKey stays syncing when steve active but cluster progress 21', () => {
     expect(
       resolveImageListStateKey({
         state: 'Active',
         sourceType: 'upload',
         status: { progress: 21, size: 1000 },
       }),
-    ).toBe('uploading');
+    ).toBe('syncing');
   });
 
-  it('mergeUploadTasksIntoImageList keeps syncing when task success but cluster at 21%', () => {
+  it('mergeUploadTasksIntoImageList hides virtual row when cluster ready but task still proxying', () => {
     const merged = mergeUploadTasksIntoImageList(
       [
         {
+          metadata: { name: 'image-7rmdv', namespace: 'default' },
+          spec: { sourceType: 'upload', displayName: 'fw_2_1_GRSZ-FW-V8.0_x86_240325' },
+          state: 'Active',
+          status: {
+            progress: 100,
+            size: 100000000,
+            virtualSize: 8589934592,
+            conditions: [{ type: 'Imported', status: 'True' }],
+          },
+        },
+      ] as any[],
+      [
+        {
+          id: 'ad225731-4762-4bc8-8e16-e79eac9b18ef',
+          status: 'proxying',
+          namespace: 'default',
+          displayName: 'fw_2_1_GRSZ-FW-V8.0_x86_240325',
+        },
+      ] as any[],
+    );
+    expect(merged).toHaveLength(1);
+    expect(getImageRowId(merged[0])).toBe('image-7rmdv');
+    expect(merged[0].__towerUploadVirtual).toBeFalsy();
+    expect(resolveImageListStateKey(merged[0])).toBe('ready');
+  });
+
+  it('enrichImageRowSizeFromUploadTask keeps sparse fileSize after upload task success', () => {
+    const virtual = 300 * 1024 ** 3;
+    const file = 11 * 1024 ** 3;
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'image-g95gh', namespace: 'default' },
+          spec: { sourceType: 'upload', displayName: '05444' },
+          status: { size: virtual, virtualSize: virtual, progress: 100 },
+          storageClassName: 'ceph-new',
+        },
+      ] as any[],
+      [
+        {
+          id: 'task-ceph',
+          status: 'success',
+          namespace: 'default',
+          createdImageName: 'image-g95gh',
+          createdImageNamespace: 'default',
+          displayName: '05444',
+          fileSize: file,
+          virtualSizeBytes: virtual,
+        },
+      ] as any[],
+    );
+    expect(getImageActualFileBytes(merged[0])).toBe(file);
+  });
+
+  it('enrichImageRowSizeFromUploadTask prefers sparse fileSize over ceph PVC virtual capacity', () => {
+    const virtual = 300 * 1024 ** 3;
+    const file = 11 * 1024 ** 3;
+    const row = enrichImageRowSizeFromUploadTask(
+      {
+        sourceType: 'upload',
+        status: { size: virtual, virtualSize: virtual, progress: 3 },
+        storageClassName: 'ceph-new',
+      },
+      {
+        id: 'task-1',
+        status: 'proxying',
+        fileSize: file,
+        virtualSizeBytes: virtual,
+      } as any,
+    );
+    expect(getImageActualFileBytes(row)).toBe(file);
+  });
+
+  it('mergeUploadTasksIntoImageList merges proxying task onto cluster row before createdImageName arrives', () => {
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'image-8grbh', namespace: 'default' },
+          spec: { sourceType: 'upload', displayName: 'fw' },
+          state: 'Uploading',
+          status: { progress: 12, size: 1000 },
+        },
+      ] as any[],
+      [
+        {
+          id: 'task-fw',
+          status: 'proxying',
+          namespace: 'default',
+          displayName: 'fw',
+        },
+      ] as any[],
+    );
+    expect(merged).toHaveLength(1);
+    expect(getImageRowId(merged[0])).toBe('image-8grbh');
+    expect(merged[0].__towerUploadVirtual).toBeFalsy();
+    expect(merged[0].__towerUploadTaskId).toBe('task-fw');
+    expect(resolveImageListStateKey(merged[0])).toBe('syncing');
+  });
+
+  it('mergeUploadTasksIntoImageList reflects cluster progress while proxying', () => {
+    const merged = mergeUploadTasksIntoImageList(
+      [
+        {
+          metadata: { name: 'image-7nm7g', namespace: 'default' },
           name: 'image-7nm7g',
           namespace: 'default',
           state: 'Uploading',
+          spec: { sourceType: 'upload' },
           sourceType: 'upload',
           status: { progress: 21, size: 1000 },
         },
@@ -571,40 +877,108 @@ describe('imagesSectionActions', () => {
       [
         {
           id: 't1',
-          status: 'success',
+          status: 'proxying',
           createdImageName: 'image-7nm7g',
           createdImageNamespace: 'default',
         },
       ] as any,
     );
     expect(resolveImageListStateKey(merged[0])).toBe('syncing');
-    expect(merged[0].progress).toBe(21);
+    expect(resolveImageListDisplayProgress(merged[0])).toBe(21);
   });
 
-  it('resolveImageListStateKey prefers cluster Imported=False over syncing overlay', () => {
+  it('resolveImageListStateKey keeps syncing at 99% when Imported=False is transient', () => {
     expect(
       resolveImageListStateKey({
-        state: 'syncing',
+        state: 'Failed',
+        spec: { sourceType: 'upload' },
         progress: 99,
         status: {
           progress: 99,
-          conditions: [{ type: 'Imported', status: 'False', message: 'import failed' }],
+          conditions: [{ type: 'Imported', status: 'False', reason: 'ImportFailed', message: 'import failed' }],
         },
       }),
-    ).toBe('failed');
+    ).toBe('syncing');
+  });
+
+  it('resolveImageListStateKey keeps importing at 100% until Imported=True or size ready', () => {
+    expect(
+      resolveImageListStateKey({
+        spec: { sourceType: 'download' },
+        status: {
+          progress: 100,
+          conditions: [{ type: 'Imported', status: 'False', reason: 'Cancelled' }],
+        },
+      }),
+    ).toBe('importing');
+  });
+
+  it('resolveImageListStateKey treats transient Imported=False as in-progress', () => {
+    expect(
+      resolveImageListStateKey({
+        state: 'syncing',
+        spec: { sourceType: 'upload' },
+        status: {
+          progress: 42,
+          conditions: [{ type: 'Imported', status: 'False' }],
+        },
+      }),
+    ).toBe('syncing');
   });
 
   it('assessImageDeleteBlockedByVms returns null when unused', () => {
     expect(assessImageDeleteBlockedByVms(img, [])).toBeNull();
   });
 
-  it('isUploadTaskDeleteBlocked blocks uploaded, pending and ingesting', () => {
+  it('assessImageDeleteBlockedByVms detects ceph vm via volumeClaimTemplates imageId', () => {
+    const cephVm = {
+      metadata: {
+        namespace: 'ns1',
+        name: 'vm-ceph-1',
+        annotations: {
+          'harvesterhci.io/volumeClaimTemplates': JSON.stringify([
+            {
+              metadata: {
+                name: 'vm-ceph-1-disk-0-abc',
+                annotations: { 'harvesterhci.io/imageId': 'ns1/img-a' },
+              },
+            },
+          ]),
+        },
+      },
+    };
+    expect(assessImageDeleteBlockedByVms(img, [cephVm])).toContain('vm-ceph-1');
+    expect(getImageRowDeleteBlockedMessage(img, [cephVm])).toContain('无法删除');
+  });
+
+  it('getImageRowDeleteBlockedMessage returns null when vm uses different image', () => {
+    const otherVm = {
+      metadata: {
+        namespace: 'ns1',
+        name: 'vm-other',
+        annotations: {
+          'harvesterhci.io/volumeClaimTemplates': JSON.stringify([
+            {
+              metadata: {
+                name: 'vm-other-disk-0-abc',
+                annotations: { 'harvesterhci.io/imageId': 'ns1/other-img' },
+              },
+            },
+          ]),
+        },
+      },
+    };
+    expect(getImageRowDeleteBlockedMessage(img, [otherVm])).toBeNull();
+  });
+
+  it('isUploadTaskDeleteBlocked blocks uploaded, sync-phase and ingest states', () => {
     expect(isUploadTaskDeleteBlocked({ id: '1', status: 'uploaded' } as any)).toBe(true);
     expect(isUploadTaskDeleteBlocked({ id: '2', status: 'pending' } as any)).toBe(true);
     expect(isUploadTaskDeleteBlocked({ id: '3', status: 'ingesting' } as any)).toBe(true);
-    expect(isUploadTaskDeleteBlocked({ id: '4', status: 'proxying' } as any)).toBe(false);
-    expect(isUploadTaskDeleteBlocked({ id: '5', status: 'failed' } as any)).toBe(false);
+    expect(isUploadTaskDeleteBlocked({ id: '4', status: 'proxying' } as any)).toBe(true);
+    expect(isUploadTaskDeleteBlocked({ id: '5', status: 'failed' } as any)).toBe(true);
     expect(isUploadTaskDeleteBlocked({ id: '6', status: 'success' } as any)).toBe(false);
+    expect(isUploadTaskDeleteBlocked({ id: '7', status: 'cancelled' } as any)).toBe(false);
   });
 
   it('getUploadTaskDeleteBlockedMessage returns user-facing hints', () => {
@@ -614,18 +988,24 @@ describe('imagesSectionActions', () => {
     expect(getUploadTaskDeleteBlockedMessage({ id: '2', status: 'ingesting' } as any)).toContain(
       '分片上传',
     );
-    expect(getUploadTaskDeleteBlockedMessage({ id: '3', status: 'proxying' } as any)).toBeNull();
-    expect(getUploadTaskDeleteBlockedMessage({ id: '4', status: 'failed' } as any)).toBeNull();
+    expect(
+      getUploadTaskDeleteBlockedMessage({ id: '3', status: 'proxying', ingestProgress: 100 } as any),
+    ).toContain('镜像列表');
+    expect(
+      getUploadTaskDeleteBlockedMessage({ id: '4', status: 'failed', ingestProgress: 40 } as any),
+    ).toContain('上传失败');
+    expect(getUploadTaskDeleteBlockedMessage({ id: '5', status: 'success' } as any)).toBeNull();
   });
 
-  it('resolveImageDeleteSuccessMessage allows cluster-only delete without task', () => {
+  it('resolveImageDeleteSuccessMessage reports task delete failure for local upload', () => {
     expect(
       resolveImageDeleteSuccessMessage({
         localUpload: true,
         deleteCluster: true,
         deletedTask: false,
+        taskDeleteFailed: true,
       }),
-    ).toBe('镜像已删除');
+    ).toContain('上传任务记录删除失败');
     expect(
       resolveImageDeleteSuccessMessage({
         localUpload: true,
@@ -633,6 +1013,28 @@ describe('imagesSectionActions', () => {
         deletedTask: true,
       }),
     ).toBe('镜像及上传任务已删除');
+  });
+
+  it('parseTowerUploadVirtualTaskIdFromRow extracts task id', () => {
+    expect(
+      parseTowerUploadVirtualTaskIdFromRow({
+        name: 'tower-upload-abc-123',
+        namespace: 'default',
+      } as any),
+    ).toBe('abc-123');
+  });
+
+  it('resolveLinkedUploadTaskIdsForDelete merges row marker and virtual name', async () => {
+    const row = {
+      name: 'tower-upload-task-1',
+      namespace: 'default',
+      spec: { sourceType: 'upload' },
+      __towerUploadTaskId: 'task-2',
+    } as any;
+    const ids = await resolveLinkedUploadTaskIdsForDelete('cloud-1', row, [
+      { id: 'task-2', status: 'success', namespace: 'default' } as any,
+    ]);
+    expect(ids.sort()).toEqual(['task-1', 'task-2'].sort());
   });
 
   it('shouldDeleteClusterImageForLocalUploadRow true for inventory upload row', () => {
@@ -685,7 +1087,7 @@ describe('imagesSectionActions', () => {
     ).toBe('task-list');
   });
 
-  it('getUploadDrawerDisplayStatus masks sync-phase as uploaded', () => {
+  it('getUploadDrawerDisplayStatus only reflects Tower ingest not cluster sync', () => {
     expect(getUploadDrawerDisplayStatus({ id: '1', status: 'uploaded' } as any)).toBe('uploaded');
     expect(getUploadDrawerDisplayStatus({ id: '2', status: 'proxying', ingestProgress: 100 } as any)).toBe(
       'uploaded',
@@ -700,8 +1102,45 @@ describe('imagesSectionActions', () => {
     expect(
       getUploadDrawerDisplayStatus({ id: '6', status: 'failed', ingestProgress: 40 } as any),
     ).toBe('failed');
-    expect(isUploadTaskInSyncPhase({ id: '7', status: 'proxying' } as any)).toBe(true);
-    expect(isUploadTaskInSyncPhase({ id: '8', status: 'uploaded' } as any)).toBe(false);
+    expect(isTowerImageIngestComplete({ id: '7', status: 'proxying', ingestProgress: 100 } as any)).toBe(
+      true,
+    );
+    expect(isTowerImageIngestComplete({ id: '8', status: 'uploaded' } as any)).toBe(true);
+    expect(isTowerImageIngestComplete({ id: '9', status: 'ingesting', ingestProgress: 40 } as any)).toBe(
+      false,
+    );
+  });
+
+  it('planImageListProgressPoll always polls inventory during proxying even when row ready', () => {
+    const row = {
+      metadata: { name: 'image-a', namespace: 'default' },
+      status: { conditions: [{ type: 'Imported', status: 'True' }], progress: 100 },
+    };
+    const plan = planImageListProgressPoll(
+      [{ id: 't1', status: 'proxying', createdImageName: 'image-a', createdImageNamespace: 'default' }] as any[],
+      [row as any],
+    );
+    expect(plan.pollUploadTasks).toBe(true);
+    expect(plan.pollInventory).toBe(true);
+  });
+
+  it('resolveImageDeleteSuccessMessage reports partial delete outcomes', () => {
+    expect(
+      resolveImageDeleteSuccessMessage({
+        localUpload: true,
+        deleteCluster: true,
+        deletedTask: false,
+        taskDeleteFailed: true,
+      }),
+    ).toContain('上传任务记录删除失败');
+    expect(
+      resolveImageDeleteSuccessMessage({
+        localUpload: true,
+        deleteCluster: true,
+        deletedTask: true,
+        clusterNotFound: true,
+      }),
+    ).toContain('不存在或已删除');
   });
 
   it('isLocalUploadImageRow detects upload source and virtual rows', () => {
@@ -743,12 +1182,59 @@ describe('imagesSectionActions', () => {
 
   it('isImageListTowerUploadDeleteRow covers pending_sync and failed', () => {
     expect(
-      isImageListTowerUploadDeleteRow({ state: 'pending_sync', metadata: { name: 'a' } } as any),
+      isImageListTowerUploadDeleteRow({
+        __towerUploadVirtual: true,
+        state: 'pending_sync',
+        metadata: { name: 'a' },
+      } as any),
     ).toBe(true);
-    expect(isImageListFailedSyncRow({ state: 'failed', metadata: { name: 'a' } } as any)).toBe(true);
     expect(
-      isImageListTowerUploadDeleteRow({ state: 'ready', metadata: { name: 'a' } } as any),
+      isImageListFailedSyncRow({
+        metadata: { name: 'a' },
+        status: {
+          conditions: [{ type: 'Imported', status: 'False', reason: 'ImportFailed', message: 'x' }],
+        },
+      } as any),
+    ).toBe(true);
+    expect(
+      isImageListTowerUploadDeleteRow({
+        status: { conditions: [{ type: 'Imported', status: 'True' }] },
+        metadata: { name: 'a' },
+      } as any),
     ).toBe(false);
+  });
+
+  it('mergeUploadTasksSorted prefers proxying over failed after sync retry', () => {
+    const merged = mergeUploadTasksSorted(
+      [
+        {
+          id: 't1',
+          status: 'failed',
+          progress: 45,
+          proxyProgress: 45,
+          updatedAt: '2026-06-02T12:00:00Z',
+        } as any,
+      ],
+      {
+        id: 't1',
+        status: 'proxying',
+        progress: 0,
+        proxyProgress: 0,
+        updatedAt: '2026-06-02T12:00:03Z',
+      } as any,
+    );
+    expect(merged[0].status).toBe('proxying');
+    expect(merged[0].proxyProgress).toBe(0);
+  });
+
+  it('resolveImageListDisplayProgress reads cluster progress only not upload task', () => {
+    const row = {
+      metadata: { name: 'image-new', namespace: 'default' },
+      spec: { sourceType: 'upload' },
+      status: { progress: 12 },
+    } as any;
+    expect(resolveImageListDisplayProgress(row)).toBe(12);
+    expect(resolveImageListDisplayProgress({ ...row, status: { progress: 0 } })).toBeNull();
   });
 
   it('mergeUploadTasksSorted prefers failed over stale proxying', () => {

@@ -573,6 +573,7 @@ export type HarvesterImageUploadTask = {
   imageType?: string;
   filename?: string;
   fileSize?: number;
+  virtualSizeBytes?: number;
   chunkSize?: number;
   totalChunks?: number;
   receivedChunks?: number[];
@@ -649,8 +650,15 @@ export const fetchHarvesterImageUploadTasks = async (cloudId: string, limit = 20
   });
 };
 
-export const deleteHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`);
+export const deleteHarvesterImageUploadTask = async (
+  cloudId: string,
+  taskId: string,
+  opts?: { force?: boolean },
+) => {
+  const force = opts?.force ? '?force=true' : '';
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}${force}`,
+  );
 };
 
 export const cancelHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {

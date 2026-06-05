@@ -1,4 +1,5 @@
 import {
+  clusterReportedSizeLooksLikeVirtualCapacity,
   filterAndSortImages,
   formatImageSizeGb,
   getImageActualFileBytes,
@@ -12,6 +13,13 @@ import {
 describe('imagesSectionUtils', () => {
   it('getImageActualFileBytes reads status.size', () => {
     expect(getImageActualFileBytes({ status: { size: 1024 } })).toBe(1024);
+  });
+
+  it('clusterReportedSizeLooksLikeVirtualCapacity detects PVC size during ceph sync', () => {
+    const virtual = 300 * 1024 ** 3;
+    const file = 11 * 1024 ** 3;
+    expect(clusterReportedSizeLooksLikeVirtualCapacity(virtual, virtual, file)).toBe(true);
+    expect(clusterReportedSizeLooksLikeVirtualCapacity(file, virtual, file)).toBe(false);
   });
 
   it('getImageVirtualSizeBytes reads top-level and status.virtualSize', () => {

@@ -624,14 +624,89 @@ export function getSystemResourceProtectionHint(resource: any, resourceType?: st
   return '系统内置资源，禁止删除';
 }
 
+/** 解析 harvesterhci.io/imageId 或 ns/name 形式镜像引用 */
+export function parseHarvesterImageRef(
+  imageRef: string,
+  defaultNamespace = '',
+): { namespace: string; name: string } | null {
+  const raw = String(imageRef || '').trim();
+  if (!raw) return null;
+  if (raw.includes('/')) {
+    const idx = raw.indexOf('/');
+    const namespace = raw.slice(0, idx).trim();
+    const name = raw.slice(idx + 1).trim();
+    if (namespace && name) return { namespace, name };
+  }
+  const name = raw.trim();
+  const ns = String(defaultNamespace || '').trim();
+  if (name && ns) return { namespace: ns, name };
+  return null;
+}
+
+function harvesterImageRefMatchesTarget(
+  ref: { namespace: string; name: string } | null,
+  imageNamespace: string,
+  imageMetadataName: string,
+): boolean {
+  if (!ref) return false;
+  return ref.name === imageMetadataName && (!ref.namespace || ref.namespace === imageNamespace);
+}
+
+function collectHarvesterImageRefsFromVm(vm: any): string[] {
+  const refs: string[] = [];
+  const push = (v: unknown) => {
+    const s = String(v || '').trim();
+    if (s) refs.push(s);
+  };
+
+  push(vm?.metadata?.annotations?.['harvesterhci.io/imageId']);
+  push(vm?.metadata?.annotations?.['harvesterhci.io/imageID']);
+  push(vm?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId']);
+  push(vm?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageID']);
+
+  const vctRaw = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+  if (vctRaw) {
+    try {
+      const vct = JSON.parse(String(vctRaw));
+      if (Array.isArray(vct)) {
+        for (const item of vct) {
+          push(item?.metadata?.annotations?.['harvesterhci.io/imageId']);
+          push(item?.metadata?.annotations?.['harvesterhci.io/imageID']);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const dvTemplates = [
+    ...(Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : []),
+    ...(Array.isArray(vm?.spec?.template?.spec?.dataVolumeTemplates)
+      ? vm.spec.template.spec.dataVolumeTemplates
+      : []),
+  ];
+  for (const t of dvTemplates) {
+    push(t?.metadata?.annotations?.['harvesterhci.io/imageId']);
+    push(t?.metadata?.annotations?.['harvesterhci.io/imageID']);
+    const srcImg = t?.spec?.source?.image;
+    if (srcImg && typeof srcImg === 'object') {
+      const iname = String(srcImg.name || '').trim();
+      const ins = String(srcImg.namespace || '').trim();
+      if (iname) refs.push(ins ? `${ins}/${iname}` : iname);
+    }
+  }
+
+  return refs;
+}
+
 /**
  * 查找仍引用指定 Harvester VirtualMachineImage（命名空间 + metadata.name）的虚拟机，供删除镜像前提示。
- * 以 dataVolumeTemplates[].spec.source.image 为主；不同 Harvester 版本如有遗漏可再扩展。
+ * 覆盖 dataVolumeTemplates、volumeClaimTemplates 与 harvesterhci.io/imageId（Ceph 镜像常见）。
  */
 export function findVmsReferencingHarvesterImage(
   imageNamespace: string,
   imageMetadataName: string,
-  vms: any[],
+  vms: readonly any[],
 ): Array<{ ns: string; name: string; label: string }> {
   const imgNs = String(imageNamespace || '').trim();
   const imgName = String(imageMetadataName || '').trim();
@@ -651,6 +726,18 @@ export function findVmsReferencingHarvesterImage(
   };
 
   for (const vm of vms) {
+    const vmNs = String(vm?.metadata?.namespace || vm?.namespace || '').trim();
+    let matched = false;
+    for (const ref of collectHarvesterImageRefsFromVm(vm)) {
+      const parsed = parseHarvesterImageRef(ref, vmNs);
+      if (harvesterImageRefMatchesTarget(parsed, imgNs, imgName)) {
+        pushVm(vm);
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
     const templates = vm?.spec?.dataVolumeTemplates;
     if (Array.isArray(templates)) {
       for (const t of templates) {

@@ -51,7 +51,7 @@ import {
   IMAGE_UPLOAD_MAX_CHUNK_SIZE,
   harvesterImageUploadProxyHandler,
   harvesterImageUploadTokenHandler,
-} from './handlers/storage-cache-images.handlers';
+} from './handlers/images';
 import { harvesterStorageClassListHandler } from './handlers/storage-cache-classes.handlers';
 import {
   harvesterSnapshotListHandler,

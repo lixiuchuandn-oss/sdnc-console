@@ -360,6 +360,8 @@ if (fs.existsSync(path.join(staticPath, 'index.html'))) {
     if (req.path.startsWith('/api') || req.path.startsWith('/ws')) {
       return next();
     }
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     res.sendFile(path.join(staticPath, 'index.html'));
   });
 }

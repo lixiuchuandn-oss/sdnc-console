@@ -1,11 +1,11 @@
 import React from 'react';
-import { Modal, Progress, Tag, Typography } from 'antd';
+import { Modal, Progress, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 
 import { OsIcon } from 'components/OsIcon';
 import ResourceActionsDropdown from 'components/ResourceActionsDropdown';
 import { isImagePublicByScenario, resolveVmImageKind } from 'utils/harvesterUtils';
-import { resolveImageListStateKey } from './vmImageStatus';
+import { resolveImageListStateKey, resolveVmImageImportFailureMessage } from './vmImageStatus';
 import {
   formatImageSizeGb,
   getImageActualFileBytes,
@@ -18,13 +18,14 @@ import {
   getImageStatusText,
   type ImageListRecord,
 } from './imagesSectionUtils';
+import type { HarvesterImageUploadTask } from '../../../../../../services/harvesterApi';
 import {
+  canShowTowerUploadSyncAction,
   imageListLocalUploadDeleteConfirmContent,
   isLocalUploadImageRow,
-  isImageRowDeleteBlockedBySync,
+  getImageRowDeleteBlockedMessage,
   isTowerUploadVirtualRow,
   resolveImageListDisplayProgress,
-  resolveImageListFailureMessage,
   shouldDeleteClusterImageForLocalUploadRow,
 } from './imagesSectionActions';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
@@ -33,6 +34,8 @@ export type ImagesTableActions = {
   isTenant: boolean;
   hasImagesWrite: boolean;
   ensureImagesWrite: () => boolean;
+  vms?: readonly ImageListRecord[];
+  uploadTasks?: readonly HarvesterImageUploadTask[];
   onOpenYaml: (record: ImageListRecord) => void;
   onEditLabels: (record: ImageListRecord) => void;
   onDeleteRow: (record: ImageListRecord) => void;
@@ -54,8 +57,8 @@ function renderImageStatusTag(r?: ImageListRecord | string): React.ReactElement 
     if (k === 'failed') return 'red';
     if (k === 'imported') return 'success';
     if (k === 'pending_sync') return 'gold';
-    if (k === 'syncing') return 'blue';
     if (k === 'downloading') return 'blue';
+    if (k === 'syncing') return 'blue';
     if (k === 'uploading') return 'blue';
     if (k === 'importing') return 'blue';
     if (k === 'exporting') return 'blue';
@@ -75,6 +78,8 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
     onEditLabels,
     onDeleteRow,
     onSyncUploadTask,
+    uploadTasks = [],
+    vms = [],
   } = actions;
 
   return [
@@ -141,7 +146,7 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
       key: 'status',
       render: (_: unknown, r: ImageListRecord) => {
         const stateKey = resolveImageListStateKey(r);
-        const failMsg = stateKey === 'failed' ? resolveImageListFailureMessage(r) : undefined;
+        const failMsg = stateKey === 'failed' ? resolveVmImageImportFailureMessage(r) : undefined;
         return (
           <div style={{ maxWidth: 280 }}>
             {renderImageStatusTag(r)}
@@ -165,13 +170,15 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
         const stateKey = resolveImageListStateKey(r);
         const progress = resolveImageListDisplayProgress(r);
         if (progress == null) {
-          return stateKey === 'failed' ? <Progress percent={100} size="small" status="exception" /> : '-';
+          return '-';
         }
+        const isReady = stateKey === 'ready';
         return (
           <Progress
             percent={Math.round(progress)}
             size="small"
-            status={stateKey === 'failed' ? 'exception' : progress >= 100 ? 'success' : 'active'}
+            status={isReady || progress >= 100 ? 'success' : 'active'}
+            format={isReady ? () => '完成' : undefined}
           />
         );
       },
@@ -236,11 +243,11 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
         const alias = getImageDisplayAlias(r);
         const deleteLabel = alias ? `${alias} (${name})` : name;
         const virtual = isTowerUploadVirtualRow(r);
-        const stateKey = resolveImageListStateKey(r);
         const localUpload = isLocalUploadImageRow(r);
         const deleteClusterImage = localUpload && shouldDeleteClusterImageForLocalUploadRow(r);
-        const canSync = virtual && ['pending_sync', 'failed'].includes(stateKey);
-        const deleteBlockedBySync = isImageRowDeleteBlockedBySync(r);
+        const canSync = canShowTowerUploadSyncAction(r, uploadTasks);
+        const deleteBlockedMessage = getImageRowDeleteBlockedMessage(r, vms);
+        const deleteDisabled = !hasImagesWrite || Boolean(deleteBlockedMessage);
 
         return (
           <ResourceActionsDropdown
@@ -272,9 +279,15 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
               { type: 'divider' },
               {
                 key: 'delete',
-                label: '删除',
+                label: deleteBlockedMessage ? (
+                  <Tooltip title={deleteBlockedMessage}>
+                    <span>删除</span>
+                  </Tooltip>
+                ) : (
+                  '删除'
+                ),
                 danger: true,
-                disabled: !hasImagesWrite || deleteBlockedBySync,
+                disabled: deleteDisabled,
                 onClick: () =>
                   Modal.confirm({
                     title: localUpload

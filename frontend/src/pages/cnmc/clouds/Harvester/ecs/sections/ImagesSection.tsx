@@ -3,7 +3,7 @@
  * 列表列与筛选见 `ecs/lib/imagesSectionUtils.ts`、`imagesTableColumns.tsx`；
  * 删除/上传任务见 `imagesSectionActions.ts`、`hooks/useImagesSectionActions.tsx`。
  */
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Table,
   Input,
@@ -42,10 +42,7 @@ import {
   mergeUploadTasksIntoImageList,
 } from '../lib/imagesSectionActions';
 import { useImagesSectionActions } from '../hooks/useImagesSectionActions';
-import {
-  ImageUploadTasksDrawer,
-  type ImageUploadTasksDrawerHandle,
-} from '../components/ImageUploadTasksDrawer';
+import type { ImageUploadTasksDrawerHandle } from '../components/ImageUploadTasksDrawer';
 import {
   createHarvesterToolbarRefresh,
   notifyHarvesterImagesInventoryChanged,
@@ -65,6 +62,13 @@ type Props = {
   isTenant?: boolean;
   /** 租户上传镜像默认命名空间（侧栏 ns 或首个授权 ns） */
   tenantDefaultNamespace?: string;
+  /** 计算 Tab 级常驻上传抽屉 ref（切换子 Tab 不丢失） */
+  uploadDrawerRef?: React.RefObject<ImageUploadTasksDrawerHandle | null>;
+  /** 向常驻抽屉注册列表侧回调 */
+  onRegisterUploadCallbacks?: (callbacks: {
+    onListTaskChange?: (task: HarvesterImageUploadTask) => void;
+    onListTaskRemove?: (taskId: string, opts?: { refreshInventory?: boolean }) => void;
+  }) => void;
 };
 
 const ImagesSection: React.FC<Props> = ({
@@ -76,6 +80,8 @@ const ImagesSection: React.FC<Props> = ({
   vms = [],
   isTenant = false,
   tenantDefaultNamespace,
+  uploadDrawerRef: uploadDrawerRefProp,
+  onRegisterUploadCallbacks,
 }) => {
   const { user } = useAuth();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
@@ -107,9 +113,6 @@ const ImagesSection: React.FC<Props> = ({
   const {
     localImages,
     listTaskList,
-    uploadTasks,
-    uploadTasksLoading,
-    reloadUploadTasks,
     onListTaskChange,
     onListTaskRemove,
     handleSyncUploadTask,
@@ -125,25 +128,16 @@ const ImagesSection: React.FC<Props> = ({
     ensureImagesWrite,
   });
 
-  const uploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
-  const resumeFileInputRef = useRef<HTMLInputElement>(null);
-  const resumeTaskRef = useRef<HarvesterImageUploadTask | null>(null);
+  const fallbackUploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
+  const uploadDrawerRef = uploadDrawerRefProp ?? fallbackUploadDrawerRef;
 
-  const handlePickResumeFile = useCallback(() => {
-    resumeFileInputRef.current?.click();
-  }, []);
-
-  const handleResumeFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = '';
-      const task = resumeTaskRef.current;
-      if (!file || !task) return;
-      uploadDrawerRef.current?.resumeUpload(task, file);
-      resumeTaskRef.current = null;
-    },
-    [],
-  );
+  useEffect(() => {
+    onRegisterUploadCallbacks?.({
+      onListTaskChange,
+      onListTaskRemove,
+    });
+    return () => onRegisterUploadCallbacks?.({});
+  }, [onListTaskChange, onListTaskRemove, onRegisterUploadCallbacks]);
 
   const handleOpenYaml = useCallback(
     (record: ImageListRecord) => {
@@ -153,14 +147,6 @@ const ImagesSection: React.FC<Props> = ({
       );
     },
     [openYamlDrawer],
-  );
-
-  const handleListTaskRemove = useCallback(
-    (taskId: string, opts?: { refreshInventory?: boolean }) => {
-      onListTaskRemove(taskId, opts);
-      uploadDrawerRef.current?.removeTask(taskId);
-    },
-    [onListTaskRemove],
   );
 
   const mergedImages = useMemo(
@@ -184,6 +170,8 @@ const ImagesSection: React.FC<Props> = ({
         isTenant,
         hasImagesWrite,
         ensureImagesWrite,
+        vms,
+        uploadTasks: listTaskList,
         onOpenYaml: (r) => handleOpenYaml(r),
         onEditLabels: (r) => {
           setLabelEditRecord(r);
@@ -195,7 +183,17 @@ const ImagesSection: React.FC<Props> = ({
           if (next?.id) uploadDrawerRef.current?.upsertTask(next);
         },
       }),
-    [isTenant, hasImagesWrite, ensureImagesWrite, handleOpenYaml, handleDeleteRow, handleSyncUploadTask],
+    [
+      isTenant,
+      hasImagesWrite,
+      ensureImagesWrite,
+      vms,
+      listTaskList,
+      handleOpenYaml,
+      handleDeleteRow,
+      handleSyncUploadTask,
+      uploadDrawerRef,
+    ],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
@@ -297,7 +295,7 @@ const ImagesSection: React.FC<Props> = ({
           </WriteGuard>
           <Button
             onClick={() => {
-              uploadDrawerRef.current?.openDrawer(false);
+              uploadDrawerRef.current?.openDrawer();
             }}
           >
             上传任务
@@ -321,7 +319,7 @@ const ImagesSection: React.FC<Props> = ({
                         return;
                       }
                       if (key === 'batchDelete') {
-                        batchDelete(selectedKeys, images, () => setSelectedKeys([]));
+                        batchDelete(selectedKeys, filtered, () => setSelectedKeys([]));
                       }
                     },
                   }}
@@ -358,26 +356,6 @@ const ImagesSection: React.FC<Props> = ({
         }
         onUploadStarted={() => uploadDrawerRef.current?.openDrawer(true)}
         onStartBrowserUpload={(params) => uploadDrawerRef.current?.startUpload(params)}
-      />
-      <ImageUploadTasksDrawer
-        ref={uploadDrawerRef}
-        cloudId={cloudId}
-        hasImagesWrite={hasImagesWrite}
-        ensureImagesWrite={ensureImagesWrite}
-        uploadTasks={uploadTasks}
-        uploadTasksLoading={uploadTasksLoading}
-        reloadUploadTasks={reloadUploadTasks}
-        onListTaskChange={onListTaskChange}
-        onListTaskRemove={handleListTaskRemove}
-        resumeTaskRef={resumeTaskRef}
-        onPickResumeFile={handlePickResumeFile}
-      />
-      <input
-        ref={resumeFileInputRef}
-        type="file"
-        accept=".iso,.img,.qcow2,.raw,.vmdk,.vdi,.vhd,.vhdx,.qed"
-        style={{ display: 'none' }}
-        onChange={handleResumeFileChange}
       />
       <Table
         className="std-table"
