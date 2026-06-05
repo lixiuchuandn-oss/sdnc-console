@@ -22,8 +22,9 @@
 | [integrate-guacamole.md](./integrate-guacamole.md)                                       | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                |
 | [hsm-device-profile-h3c-comware.md](./hsm-device-profile-h3c-comware.md)                 | **HSM 设备模板**：H3C Comware 专用 `h3c-comware-like`（JSON + 验收，交 HSM 实现）              |
 | [tower-crd-security-group.md](./tower-crd-security-group.md)                             | **Tower 底座 CRD**：安全组 `SecurityGroup`（部署集 CRD 暂缓，待功能定稿）                        |
-| [cloudmap-whitepaper/README.md](./cloudmap-whitepaper/README.md)                         | **Cloudmap 融合边缘云技术白皮书**：Markdown 源稿、`manifest` 合并顺序、Pandoc 生成 Word          |
-| [cloudmap-whitepaper/user-manual/README.md](./cloudmap-whitepaper/user-manual/README.md) | **Cloudmap 使用手册**：控制台操作步骤，章节与白皮书 3.x 对照（**可提交**）                     |
+| [cloudmap/README.md](./cloudmap/README.md)                                                 | **Cloudmap 文档总览**：白皮书 + 使用手册、构建脚本与目录约定                                   |
+| [cloudmap/whitepaper/README.md](./cloudmap/whitepaper/README.md)                         | **Cloudmap 技术白皮书**：Markdown 源稿、`manifest` 合并顺序、Pandoc 生成 Word                  |
+| [cloudmap/user-manual/README.md](./cloudmap/user-manual/README.md)                       | **Cloudmap 使用手册**：控制台操作步骤，章节与白皮书 3.x 对照（**可提交**）                     |
 
 **源码旁文档**（不在此 Hub，但与 Hub 并列权威）：
 
