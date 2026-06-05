@@ -71,6 +71,27 @@ import {
   registerImageUploadProxyStart,
   setImageUploadAbortController,
 } from './imageUploadRuntime';
+import { checkTenantAccess, isNamespaceAllowed } from '../harvester.direct.helpers';
+
+/** 租户镜像写操作：禁止写入未授权的命名空间（如 default） */
+async function rejectIfTenantImageNamespaceDenied(
+  req: Request,
+  cloudId: string,
+  namespace: string,
+  res: Response,
+): Promise<boolean> {
+  const { allowed, namespace: tenantNamespace } = await checkTenantAccess(req, cloudId);
+  if (!allowed) {
+    res.status(403).json({ message: 'Access denied to this resource pool' });
+    return true;
+  }
+  const ns = String(namespace || '').trim();
+  if (tenantNamespace && !isNamespaceAllowed(tenantNamespace, ns)) {
+    res.status(403).json({ message: 'Access denied to this namespace' });
+    return true;
+  }
+  return false;
+}
 // ---------------------------------------------------------------------------
 // 镜像列表：命名空间条件与公共空间（tower.io/scenario=public）
 // ---------------------------------------------------------------------------
@@ -615,6 +636,8 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
 
     if (!namespace || !(name || displayName))
       return res.status(400).json({ message: '缺少必填参数：namespace、name 或 displayName' });
+
+    if (await rejectIfTenantImageNamespaceDenied(req, _id, String(namespace), res)) return;
 
     const displayStr = displayName || name || 'image';
 
@@ -2049,6 +2072,7 @@ export async function harvesterImageUploadProxyHandler(req: Request, res: Respon
       const displayName = String((req.body as any)?.displayName || '').trim();
       const imageType = String((req.body as any)?.imageType || '').trim();
       if (!namespace) return res.status(400).json({ message: '缺少参数：namespace' });
+      if (await rejectIfTenantImageNamespaceDenied(req, id, namespace, res)) return;
 
       const cloud = (req as any).cloud;
       const file = (req as any).file as Express.Multer.File | undefined;
@@ -2240,6 +2264,7 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
     const { namespace, displayName, imageType, filename, fileSize, chunkSize } = (req.body ||
       {}) as Record<string, unknown>;
     if (!namespace) return res.status(400).json({ message: '缺少参数：namespace' });
+    if (await rejectIfTenantImageNamespaceDenied(req, id, String(namespace), res)) return;
     const size = Math.max(0, Math.floor(Number(fileSize) || 0));
     if (size < 1) {
       return res.status(400).json({ message: '缺少参数：fileSize（分片上传需声明文件大小）' });

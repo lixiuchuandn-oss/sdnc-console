@@ -9,7 +9,7 @@
  * - 块设备总线可选 VirtIO / SCSI / SATA / IDE / NVMe；CD-ROM 总线与 VmWizardUtils 提交一致（ARM64→SCSI，否则 SATA）。总线说明统一用 Form.Item `tooltip`。
  * - 选择 ISO 镜像时在该表单项校验：至少添加一块非光驱数据盘（随数据盘列表联动重新校验）。
  */
-import React from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Form, Input, Select, Space, Button, Row, Col, Typography } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 import { MinusCircleOutlined } from '@ant-design/icons';
@@ -188,6 +188,26 @@ const StepDisks: React.FC<StepDisksProps> = ({
   storageClassLoading,
   isArm64 = false,
 }) => {
+  const resolvedDefaultStorageClassName = useMemo(
+    () => defaultStorageClassName,
+    [defaultStorageClassName],
+  );
+
+  useEffect(() => {
+    const sc = resolvedDefaultStorageClassName;
+    if (!sc) return;
+    const disks = (form.getFieldValue('extraDisks') || []) as Record<string, unknown>[];
+    let changed = false;
+    const next = disks.map((d) => {
+      if (d?.sourceType === 'existing') return d;
+      const cur = String(d?.storageClassName || '').trim();
+      if (cur) return d;
+      changed = true;
+      return { ...d, storageClassName: sc };
+    });
+    if (changed) form.setFieldsValue({ extraDisks: next });
+  }, [resolvedDefaultStorageClassName, form]);
+
   const watchedRootSource = Form.useWatch('rootSourceType', form);
   const rootSourceType = watchedRootSource || 'image';
 
@@ -202,7 +222,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
 
     if (v === 'image' || v === 'iso') {
       try {
-        const sc = defaultStorageClassName;
+        const sc = resolvedDefaultStorageClassName;
         if (!sc) reloadStorageClasses();
         form.setFieldsValue({ storageClassName: sc || form.getFieldValue('storageClassName') });
       } catch {
@@ -236,7 +256,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
 
   const onRootImageChange = (val: string) => {
     try {
-      if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) {
+      if (!resolvedDefaultStorageClassName && !form.getFieldValue('storageClassName')) {
         reloadStorageClasses();
       }
       const it = findImageBySelectValue(images, val);
@@ -246,7 +266,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
       const isIso = kind === 'iso';
       const sc =
         (it?.storageClassName as string | undefined) ||
-        defaultStorageClassName ||
+        resolvedDefaultStorageClassName ||
         form.getFieldValue('storageClassName');
       form.setFieldsValue({
         storageClassName: sc,
@@ -268,13 +288,13 @@ const StepDisks: React.FC<StepDisksProps> = ({
 
   const onRootIsoSelectChange = (val: string) => {
     try {
-      if (!defaultStorageClassName && !form.getFieldValue('storageClassName')) {
+      if (!resolvedDefaultStorageClassName && !form.getFieldValue('storageClassName')) {
         reloadStorageClasses();
       }
       const it = findImageBySelectValue(images, val);
       const sc =
         (it?.storageClassName as string | undefined) ||
-        defaultStorageClassName ||
+        resolvedDefaultStorageClassName ||
         form.getFieldValue('storageClassName');
       form.setFieldsValue({
         storageClassName: sc,
@@ -541,7 +561,7 @@ const StepDisks: React.FC<StepDisksProps> = ({
                                     const gi = parseSizeToGi(raw);
                                     const sc =
                                       (it?.storageClassName as string | undefined) ||
-                                      defaultStorageClassName ||
+                                      resolvedDefaultStorageClassName ||
                                       form.getFieldValue(['extraDisks', fieldName, 'storageClassName']);
                                     const curr = [...(form.getFieldValue('extraDisks') || [])] as Record<
                                       string,
@@ -770,17 +790,18 @@ const StepDisks: React.FC<StepDisksProps> = ({
               <Button
                 color="primary"
                 variant="filled"
-                onClick={() =>
+                onClick={() => {
+                  if (!resolvedDefaultStorageClassName) reloadStorageClasses();
                   add({
                     type: 'disk',
                     bus: 'virtio',
                     sourceType: 'new',
                     name: `disk-${generateDiskSuffix()}`,
-                    storageClassName: defaultStorageClassName || 'longhorn',
+                    storageClassName: resolvedDefaultStorageClassName,
                     volumeMode: 'Block',
                     size: 40,
-                  })
-                }
+                  });
+                }}
               >
                 + 新建空白卷
               </Button>

@@ -179,6 +179,7 @@ const ComputeRoute: React.FC = () => {
       ecs={p.ecs}
       rawEcs={p.rawEcs}
       namespacesOptions={p.namespacesOptions}
+      tenantNamespaces={p.tenantNamespaces}
       nodesOptions={p.nodesOptions}
       nsFilter={p.nsFilter}
       setNsFilter={p.setNsFilter}
