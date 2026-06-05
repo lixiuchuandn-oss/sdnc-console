@@ -20,7 +20,9 @@
 
 ## 3. 界面路径写法
 
-- **`source/` 下正文会导出为 Word 外发用户**：只写文档名、章节号、控制台菜单路径；**禁止** 写仓库路径（如 `docs/cloudmap/…`、`user-manual/…`）、源码路径（如 `pages/`、`.ts`）、维护文件（`COVERAGE.md`、`manifest.txt`）。维护说明写在 `writing-style.md`、`README.md` 等 **不进入 manifest** 的文件。
+- **外发正文只写用户可见信息**：只写文档名、章节号、控制台菜单路径、按钮名、字段名和操作结果。
+- **外发正文禁止研发细节**：禁止出现仓库目录、源稿目录、构建产物目录、脚本路径、测试路径、源码文件名、内部维护文件名和版本控制信息，例如 `source/`、`docs/cloudmap/`、`user-manual/`、`output/`、`manifest.txt`、`README.md`、`SCREENSHOTS.md`、`tests/`、`pages/`、`.ts`、`.tsx`、`.md` 等。
+- **外发正文禁止维护口吻**：不要写“源稿”“构建”“生成物”“gitignore”“Playwright”“Pandoc”“复制到部署目录”等维护者行为。用户拿到 Word 后只需要知道怎么在控制台操作。
 - 用 **`>`** 连接：`多云管理 > 资源池管理 > 某 Cloudmap 池 > 计算 > 虚拟机`。
 - 按钮、Tab、字段名与 **控制台中文文案** 一致；**禁止** 在正文写 URL 路由（如 `resource_hub/datacenter_topology`）、前端组件名（如 React Flow、CodeMirror）、内部服务缩写（如 HMS），除非与界面原文完全一致且用户可见。
 - **入口/Tab** 只写侧栏中文路径：`资源总览 > 机房拓扑`，不写括号里的 path。
