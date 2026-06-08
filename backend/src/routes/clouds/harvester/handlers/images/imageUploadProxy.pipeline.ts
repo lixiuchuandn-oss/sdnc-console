@@ -31,6 +31,10 @@ import {
 } from '../../../../../services/clouds/harvester/qcow2VirtualSize';
 import { getJsonOnce, requestJson } from '../../../../../services/clouds/harvester/utils';
 import { harvesterNativeStreamUpload } from '../harvesterImageStreamUpload';
+import {
+  IMAGE_UPLOAD_CHANNEL_ANNOTATION,
+  IMAGE_UPLOAD_CHANNEL_TOWER_CHUNKED,
+} from '../../../../../constants/imageUploadChannel';
 import { deleteVmImageCdiStorageOrphans } from '../imageUploadCdiCleanup';
 import {
   attachImageUploadProxyRun,
@@ -407,7 +411,10 @@ export async function runImageUploadTaskWithBody(
           generateName: 'image-',
           namespace: task.namespace,
           labels: uploadLabels,
-          annotations: uploadAnnotations,
+          annotations: {
+            ...uploadAnnotations,
+            [IMAGE_UPLOAD_CHANNEL_ANNOTATION]: IMAGE_UPLOAD_CHANNEL_TOWER_CHUNKED,
+          },
         },
         spec: buildHarvesterVmImageSpecFields({
           profile: uploadStorageProfile,

@@ -2,6 +2,7 @@
  * 镜像列表 UI 状态键（与前端 resolveImageListStateKey / shared fixtures 契约一致）。
  * 列表 API 通过 listStateKey 下发；前端可优先信 API 字段。
  */
+import { resolveUploadSourceInProgressListStateKey } from '../../../constants/imageUploadChannel';
 import {
   isActiveHarvesterVmImageImportInProgress,
   isHarvesterVmImageImportCancelled,
@@ -46,8 +47,8 @@ function mapBackendVmImageState(raw: string): string {
   return k || 'unknown';
 }
 
-function resolveInProgressStateKeyBySourceType(sourceType: string): string {
-  if (sourceType === 'upload') return 'syncing';
+function resolveInProgressStateKeyBySourceType(sourceType: string, r: any): string {
+  if (sourceType === 'upload') return resolveUploadSourceInProgressListStateKey(r);
   if (sourceType === 'download') return 'importing';
   if (sourceType === 'export') return 'exporting';
   return 'downloading';
@@ -124,7 +125,7 @@ export function resolveHarvesterImageListStateKey(r: any): string {
   if (conditionStatusIsTrue(imported?.status)) return 'ready';
 
   if (isActiveHarvesterVmImageImportInProgress(r)) {
-    return resolveInProgressStateKeyBySourceType(sourceType);
+    return resolveInProgressStateKeyBySourceType(sourceType, r);
   }
 
   if (conditionStatusIsFalse(imported?.status) && isHarvesterVmImageImportedTerminalFailure(r)) {
@@ -140,7 +141,7 @@ export function resolveHarvesterImageListStateKey(r: any): string {
   if (clusterProgress !== undefined) {
     if (clusterProgress >= 100 && isHarvesterVmImageImportComplete(r)) return 'ready';
     if (clusterProgress > 0 && clusterProgress < 100) {
-      return resolveInProgressStateKeyBySourceType(sourceType);
+      return resolveInProgressStateKeyBySourceType(sourceType, r);
     }
   }
 
@@ -150,7 +151,9 @@ export function resolveHarvesterImageListStateKey(r: any): string {
   const backendMapped = mapBackendVmImageState(String(r?.state || ''));
   if (backendMapped === 'failed' && isHarvesterVmImageImportedTerminalFailure(r)) return 'failed';
   if (backendMapped === 'ready' && isHarvesterVmImageImportComplete(r)) return 'ready';
-  if (backendMapped === 'uploading' && sourceType === 'upload') return 'syncing';
+  if (backendMapped === 'uploading' && sourceType === 'upload') {
+    return resolveUploadSourceInProgressListStateKey(r);
+  }
   if (backendMapped === 'failed' || backendMapped === 'cancelled') return 'unknown';
   if (['uploading', 'importing', 'exporting', 'downloading'].includes(backendMapped)) {
     return backendMapped;

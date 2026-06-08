@@ -18,6 +18,11 @@ import {
   TOWER_UPLOAD_TASK_ID_KEY,
   TOWER_UPLOAD_VIRTUAL_ROW_FLAG,
 } from './constants';
+import {
+  IMAGE_UPLOAD_CHANNEL_DESKTOP,
+  imageRowBlocksUploadTaskMatch,
+  readImageUploadChannel,
+} from './imageUploadChannel';
 import { assessImageDeleteBlockedByVms } from './imageDeleteActions';
 import { isTowerImageIngestComplete, mergeUploadTasksSorted } from './imageUploadTaskCore';
 
@@ -76,10 +81,20 @@ export function isUploadTaskSyncRetryable(task: HarvesterImageUploadTask): boole
  * 镜像列表是否展示「同步」：待同步/同步失败且有关联上传任务。
  * 合并到库存行后无 __towerUploadVirtual，但仍带 __towerUploadTaskId。
  */
+export function isDesktopDirectUploadImageRow(
+  r: ImageListRecord,
+  tasks: readonly HarvesterImageUploadTask[] = [],
+): boolean {
+  if (readImageUploadChannel(r) === IMAGE_UPLOAD_CHANNEL_DESKTOP) return true;
+  if (findUploadTaskForImageRow(r, tasks)) return false;
+  return false;
+}
+
 export function canShowTowerUploadSyncAction(
   r: ImageListRecord,
   tasks: readonly HarvesterImageUploadTask[] = [],
 ): boolean {
+  if (isDesktopDirectUploadImageRow(r, tasks)) return false;
   const stateKey = resolveImageListStateKey(r);
   if (!['pending_sync', 'failed'].includes(stateKey)) return false;
 
@@ -527,6 +542,7 @@ function uploadTaskImageMatchStrength(
   task: HarvesterImageUploadTask,
   allImages: readonly ImageListRecord[],
 ): number {
+  if (imageRowBlocksUploadTaskMatch(img)) return 0;
   if (isTowerUploadVirtualRow(img)) {
     const taskId = getTowerUploadTaskIdFromRow(img) || parseTowerUploadVirtualTaskIdFromRow(img);
     return taskId === task.id ? 100 : 0;

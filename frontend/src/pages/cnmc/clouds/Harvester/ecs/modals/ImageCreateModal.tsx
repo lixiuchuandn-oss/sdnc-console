@@ -497,7 +497,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   const renderDesktopToolPanel = () => (
     <div style={{ padding: '0 8px' }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        适用于大文件或浏览器上传不稳定的环境。下载 Windows 桌面工具后本地运行，按向导登录 Tower、选择 Cloudmap 资源池与命名空间，将镜像直传至集群。
+        适用于大文件或浏览器上传不稳定的环境。下载 Windows 桌面工具后本地运行，按向导登录 Tower、选择 Cloudmap 资源池与项目，将镜像直传至集群。
       </Typography.Paragraph>
       <Button type="primary" icon={<DownloadOutlined />} onClick={openImageUploaderDownload}>
         下载 ImageUploader.exe

@@ -4,6 +4,11 @@
 
  */
 
+import {
+  isDesktopDirectUploadImageRowStandalone,
+  resolveUploadSourceInProgressListStateKey,
+} from './images/imageUploadChannel';
+
 
 
 function mapBackendVmImageState(raw: string): string {
@@ -272,9 +277,8 @@ export function isClusterVmImageImportComplete(r: any): boolean {
 
 
 
-function resolveInProgressStateKeyBySourceType(sourceType: string): string {
-  // 本地上传镜像在列表点「同步」后，底座导入阶段展示为同步中（非浏览器上传到 Tower）
-  if (sourceType === 'upload') return 'syncing';
+function resolveInProgressStateKeyBySourceType(sourceType: string, r: any): string {
+  if (sourceType === 'upload') return resolveUploadSourceInProgressListStateKey(r);
   if (sourceType === 'download') return 'importing';
   if (sourceType === 'export') return 'exporting';
   return 'downloading';
@@ -327,6 +331,12 @@ function isClusterImportCancelled(r: any): boolean {
 export function resolveImageListStateKey(r: any): string {
   const fromApi = String(r?.listStateKey || '').trim().toLowerCase();
   if (fromApi && fromApi !== 'unknown' && !r?.__towerUploadVirtual) {
+    if (
+      fromApi === 'syncing' &&
+      isDesktopDirectUploadImageRowStandalone(r)
+    ) {
+      return 'uploading';
+    }
     return fromApi;
   }
 
@@ -343,7 +353,7 @@ export function resolveImageListStateKey(r: any): string {
   if (conditionStatusIsTrue(imported?.status)) return 'ready';
 
   if (isActiveClusterVmImageImportInProgress(r)) {
-    return resolveInProgressStateKeyBySourceType(sourceType);
+    return resolveInProgressStateKeyBySourceType(sourceType, r);
   }
 
   if (conditionStatusIsFalse(imported?.status) && isVmImageImportedTerminalFailure(r)) {
@@ -359,7 +369,7 @@ export function resolveImageListStateKey(r: any): string {
   if (clusterProgress !== undefined) {
     if (clusterProgress >= 100 && isClusterVmImageImportComplete(r)) return 'ready';
     if (clusterProgress > 0 && clusterProgress < 100) {
-      return resolveInProgressStateKeyBySourceType(sourceType);
+      return resolveInProgressStateKeyBySourceType(sourceType, r);
     }
   }
 
@@ -369,7 +379,9 @@ export function resolveImageListStateKey(r: any): string {
   const backendMapped = mapBackendVmImageState(String(r?.state || ''));
   if (backendMapped === 'failed' && isVmImageImportedTerminalFailure(r)) return 'failed';
   if (backendMapped === 'ready' && isClusterVmImageImportComplete(r)) return 'ready';
-  if (backendMapped === 'uploading' && sourceType === 'upload') return 'syncing';
+  if (backendMapped === 'uploading' && sourceType === 'upload') {
+    return resolveUploadSourceInProgressListStateKey(r);
+  }
   if (backendMapped === 'failed' || backendMapped === 'cancelled') {
     return 'unknown';
   }

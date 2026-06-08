@@ -215,55 +215,83 @@ logger.info(
   getTowerGeneralUploadTempRoot(),
 );
 
-// 工具下载路由（镜像直传上传工具）：
-// - 磁盘默认路径：{cwd}/tools/uploader/ImageUploader.exe；在 backend 目录启动时另尝试 {cwd}/../tools/uploader/ImageUploader.exe
-// - 也可通过 CLOUDMAP_UPLOADER_PATH 指向任意绝对路径
-// - 浏览器下载文件名与磁盘一致为 ImageUploader.exe；保留 cloudmap-uploader.exe 别名 URL 以兼容旧链接
+// 工具下载路由（镜像直传桌面工具，仅下发仓库内直传版 ImageUploader.exe）
 const IMAGE_UPLOADER_EXE = 'ImageUploader.exe';
-const resolveHarvesterUploaderToolPath = (): { path: string; found: boolean } => {
+const UPLOADER_BUILD_ID_RE = /direct-harvester-\d{8}/;
+
+const resolveHarvesterUploaderToolPath = (): string | null => {
   const rel = path.join('tools', 'uploader', IMAGE_UPLOADER_EXE);
-  const candidates = [
-    process.env.CLOUDMAP_UPLOADER_PATH?.trim(),
-    path.join(process.cwd(), rel),
-    path.join(process.cwd(), '..', rel),
-  ].filter((p): p is string => Boolean(p));
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return { path: p, found: true };
+  for (const p of [path.join(process.cwd(), rel), path.join(process.cwd(), '..', rel)]) {
+    if (fs.existsSync(p)) return p;
   }
-  return { path: candidates[0] || path.join(process.cwd(), rel), found: false };
+  return null;
 };
+
+const readHarvesterUploaderBuildId = (filePath: string): string | null => {
+  try {
+    const stat = fs.statSync(filePath);
+    // Go 编译后 rodata 中的构建标识可能在 3MB+ 处，仅扫前 2MB 会误判为非直传版
+    const sampleBytes = Math.min(stat.size, 16 * 1024 * 1024);
+    const fd = fs.openSync(filePath, 'r');
+    const sample = Buffer.alloc(sampleBytes);
+    fs.readSync(fd, sample, 0, sampleBytes, 0);
+    fs.closeSync(fd);
+    return sample.toString('latin1').match(UPLOADER_BUILD_ID_RE)?.[0] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const harvesterUploaderToolPath = resolveHarvesterUploaderToolPath();
+if (harvesterUploaderToolPath) {
+  const buildId = readHarvesterUploaderBuildId(harvesterUploaderToolPath);
+  const stat = fs.statSync(harvesterUploaderToolPath);
+  logger.info(
+    '镜像上传工具:',
+    harvesterUploaderToolPath,
+    `size=${stat.size}`,
+    buildId ? `build=${buildId}` : 'build=无效（非直传版，拒绝下发）',
+  );
+} else {
+  logger.warn('镜像上传工具未找到，下载接口将返回 404');
+}
 
 const sendHarvesterImageUploaderTool = (req: express.Request, res: express.Response) => {
   try {
-    const { path: toolPath, found } = resolveHarvesterUploaderToolPath();
-    logger.debug('工具下载路径:', toolPath, 'found:', found);
-    if (found) {
-      logger.debug('工具文件存在，开始下发');
-      res.download(toolPath, IMAGE_UPLOADER_EXE, (err) => {
-        if (err) {
-          logger.error('工具下发失败:', err);
-          if (!res.headersSent) res.status(500).send('Send error');
-        }
-      });
-    } else {
-      logger.warn(
-        '工具文件不存在，已尝试 CLOUDMAP_UPLOADER_PATH、cwd/tools、cwd/../tools:',
-        toolPath,
-      );
+    const toolPath = resolveHarvesterUploaderToolPath();
+    if (!toolPath) {
       res
         .status(404)
         .type('text/plain; charset=utf-8')
         .send(
-          '未找到 ImageUploader.exe。请将编译产物放到 backend/tools/uploader/，或设置环境变量 CLOUDMAP_UPLOADER_PATH 指向可执行文件绝对路径。源码与构建说明见仓库 tools/uploader/README.txt。',
+          '未找到 ImageUploader.exe。请在 tools/uploader 执行 build.bat，将产物放到 backend/tools/uploader/ 或仓库 tools/uploader/。说明见 tools/uploader/README.txt。',
         );
+      return;
     }
+    const buildId = readHarvesterUploaderBuildId(toolPath);
+    if (!buildId) {
+      logger.warn('镜像上传工具缺少直传构建标识，拒绝下发:', toolPath);
+      res
+        .status(503)
+        .type('text/plain; charset=utf-8')
+        .send('当前 ImageUploader.exe 不是直传版，请在 tools/uploader 执行 build.bat 后重试。');
+      return;
+    }
+    logger.info('下发镜像上传工具:', toolPath, `build=${buildId}`);
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('X-Uploader-Build-Id', buildId);
+    res.download(toolPath, IMAGE_UPLOADER_EXE, (err) => {
+      if (err) {
+        logger.error('工具下发失败:', err);
+        if (!res.headersSent) res.status(500).send('Send error');
+      }
+    });
   } catch (e: any) {
     logger.error('工具下载异常:', e);
     res.status(500).send(e?.message || 'Server error');
   }
 };
 app.get('/api/tools/imageuploader.exe', sendHarvesterImageUploaderTool);
-app.get('/api/tools/cloudmap-uploader.exe', sendHarvesterImageUploaderTool);
 
 // 路由挂载区域：
 // 1) CSMCTL 代理路由（/api-proxy）：

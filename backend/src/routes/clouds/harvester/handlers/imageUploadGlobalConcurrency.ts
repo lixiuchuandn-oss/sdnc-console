@@ -46,6 +46,17 @@ export function respondGlobalImageUploadBusy(res: Response, e: GlobalImageUpload
 const UPLOAD_ACTIVE_STATUSES = ['pending', 'ingesting'] as const;
 const SYNC_ACTIVE_STATUSES = ['proxying'] as const;
 
+/**
+ * 浏览器分片本地上传：创建任务时显式携带 chunkSize。
+ * 桌面工具整文件上传、upload-proxy 代传、URL 导入均不携带，不受全局并发限制。
+ */
+export function requestDeclaresLocalChunkedUpload(
+  body: Record<string, unknown> | undefined,
+): boolean {
+  if (!body) return false;
+  return Math.max(0, Math.floor(Number(body.chunkSize) || 0)) > 0;
+}
+
 async function findOtherActiveUploadTask(excludeTaskId?: string): Promise<ImageUploadTask | null> {
   const repo = AppDataSource.getRepository(ImageUploadTask);
   const tasks = await repo.find({
@@ -80,7 +91,8 @@ async function findActiveSyncTask(
 }
 
 /**
- * 全资源池互斥：同时仅允许一个上传（pending/ingesting）与一个同步（proxying），且二者不可并行。
+ * 浏览器分片本地上传全局互斥：同时仅允许一个上传（pending/ingesting）与一个同步（proxying），且二者不可并行。
+ * 桌面工具整文件上传、upload-proxy 与 URL 导入不调用本函数。
  * @param excludeTaskId 当前任务自身（续传/分片/重试同步时不与自己冲突）
  */
 export async function assertGlobalImageTaskSlot(opts?: {

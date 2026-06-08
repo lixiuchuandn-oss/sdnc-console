@@ -745,14 +745,74 @@ describe('imagesSectionActions', () => {
     ).toBe('ready');
   });
 
-  it('resolveImageListStateKey stays syncing when steve active but cluster progress 21', () => {
+  it('resolveImageListStateKey stays syncing for tower-chunked upload at cluster progress 21', () => {
     expect(
       resolveImageListStateKey({
         state: 'Active',
         sourceType: 'upload',
+        metadata: {
+          annotations: { 'compute-tower.io/upload-channel': 'tower-chunked' },
+        },
         status: { progress: 21, size: 1000 },
       }),
     ).toBe('syncing');
+  });
+
+  it('resolveImageListStateKey shows uploading for desktop direct upload in progress', () => {
+    expect(
+      resolveImageListStateKey({
+        state: 'Active',
+        sourceType: 'upload',
+        metadata: {
+          annotations: { 'compute-tower.io/upload-channel': 'desktop-uploader' },
+        },
+        status: { progress: 21, size: 1000 },
+      }),
+    ).toBe('uploading');
+  });
+
+  it('canShowTowerUploadSyncAction hides sync for failed desktop direct upload', () => {
+    const row = {
+      metadata: {
+        name: 'img-desktop-fail',
+        namespace: 'default',
+        annotations: { 'compute-tower.io/upload-channel': 'desktop-uploader' },
+      },
+      spec: { sourceType: 'upload' },
+      status: {
+        progress: 12,
+        conditions: [{ type: 'Imported', status: 'False', reason: 'UploadFailed' }],
+      },
+    } as any;
+    expect(resolveImageListStateKey(row)).toBe('failed');
+    expect(canShowTowerUploadSyncAction(row, [])).toBe(false);
+  });
+
+  it('canShowTowerUploadSyncAction shows sync for failed tower-chunked upload with task', () => {
+    const row = {
+      metadata: {
+        name: 'img-browser-fail',
+        namespace: 'default',
+        annotations: { 'compute-tower.io/upload-channel': 'tower-chunked' },
+      },
+      spec: { sourceType: 'upload' },
+      __towerUploadTaskId: 'task-browser-1',
+      status: {
+        progress: 12,
+        conditions: [{ type: 'Imported', status: 'False', reason: 'UploadFailed' }],
+      },
+    } as any;
+    const tasks = [
+      {
+        id: 'task-browser-1',
+        status: 'failed',
+        ingestProgress: 100,
+        createdImageName: 'img-browser-fail',
+        createdImageNamespace: 'default',
+      },
+    ] as any[];
+    expect(resolveImageListStateKey(row)).toBe('failed');
+    expect(canShowTowerUploadSyncAction(row, tasks)).toBe(true);
   });
 
   it('mergeUploadTasksIntoImageList hides virtual row when cluster ready but task still proxying', () => {

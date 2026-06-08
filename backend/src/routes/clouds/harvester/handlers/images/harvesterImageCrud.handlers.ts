@@ -4,6 +4,11 @@
 import { Request, Response } from 'express';
 import { FindOptionsWhere } from 'typeorm';
 
+import {
+  IMAGE_UPLOAD_CHANNEL_ANNOTATION,
+  IMAGE_UPLOAD_CHANNEL_DESKTOP,
+  IMAGE_UPLOAD_CHANNEL_TOWER_CHUNKED,
+} from '../../../../../constants/imageUploadChannel';
 import { AppDataSource } from '../../../../../config/database';
 import { HarvesterImageInventory } from '../../../../../entities/harvester/HarvesterImageInventory';
 import { ImageUploadTask } from '../../../../../entities/harvester/ImageUploadTask';
@@ -240,6 +245,7 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
       diskFormat,
       targetStorageClassName,
       _storageClassParameters,
+      uploadChannel: uploadChannelRaw,
     } = (req.body || {}) as any;
 
     if (!namespace || !(name || displayName))
@@ -297,6 +303,12 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
         storageProfile,
       },
     );
+    const uploadChannel = String(uploadChannelRaw || '').trim().toLowerCase();
+    const uploadChannelAnnotation =
+      uploadChannel === IMAGE_UPLOAD_CHANNEL_DESKTOP ||
+      uploadChannel === IMAGE_UPLOAD_CHANNEL_TOWER_CHUNKED
+        ? uploadChannel
+        : '';
     const body = {
       apiVersion: 'harvesterhci.io/v1beta1',
       kind: 'VirtualMachineImage',
@@ -305,7 +317,12 @@ export async function harvesterImageCreateHandler(req: Request, res: Response) {
         generateName: name ? undefined : 'image-',
         namespace,
         labels: createLabels,
-        annotations: createAnnotations,
+        annotations: {
+          ...createAnnotations,
+          ...(uploadChannelAnnotation
+            ? { [IMAGE_UPLOAD_CHANNEL_ANNOTATION]: uploadChannelAnnotation }
+            : {}),
+        },
       },
       spec: buildHarvesterVmImageSpecFields({
         profile: storageProfile,

@@ -1,5 +1,5 @@
 /**
- * POST …/images/upload-token — 为 uploader 签发 Kubernetes TokenRequest 短期凭证。
+ * POST …/images/upload-token — 为桌面直传工具签发 Harvester 上传凭证。
  */
 import http from 'http';
 import https from 'https';
@@ -9,10 +9,22 @@ import axios from 'axios';
 
 import { resolveHarvesterOrigin } from './imageUploadTask.reconcile';
 
+function isTokenRequestNotFound(err: any): boolean {
+  const status = Number(err?.response?.status);
+  if (status === 404) return true;
+  const raw = err?.response?.data;
+  const text =
+    typeof raw === 'string'
+      ? raw
+      : raw
+        ? JSON.stringify(raw)
+        : String(err?.message || '');
+  return /NotFound/i.test(text) && /requested resource/i.test(text);
+}
+
 /**
  * POST /:id/resources/harvester/images/upload-token
- * 为指定命名空间下的 ServiceAccount 签发短期 Token（Kubernetes TokenRequest）。
- * tools/uploader 直连 Harvester 前向 Tower 申请短期凭证时使用。
+ * 优先尝试 TokenRequest 短期凭证；集群无 image-uploader 等 SA 时回退资源池凭证（与代传管线一致）。
  */
 export async function harvesterImageUploadTokenHandler(req: Request, res: Response) {
   try {
@@ -73,6 +85,7 @@ export async function harvesterImageUploadTokenHandler(req: Request, res: Respon
               expirationSeconds,
               token,
               expiresAt: expTs || undefined,
+              credentialSource: 'token-request',
             },
           });
         }
@@ -81,8 +94,31 @@ export async function harvesterImageUploadTokenHandler(req: Request, res: Respon
         lastErr = e;
       }
     }
+
+    const clusterToken = String(cloud.secretKey || '').trim();
+    if (clusterToken) {
+      if (isTokenRequestNotFound(lastErr)) {
+        console.info(
+          '[upload-token] TokenRequest 不可用，回退资源池凭证',
+          namespace,
+          serviceAccountName,
+        );
+      }
+      return res.json({
+        message: 'ok',
+        data: {
+          namespace,
+          serviceAccountName,
+          expirationSeconds,
+          token: clusterToken,
+          credentialSource: 'cluster',
+        },
+      });
+    }
+
     return res.status(502).json({
-      message: '签发上传 Token 失败（请确认集群支持 TokenRequest 且 ServiceAccount 存在）',
+      message:
+        '签发上传 Token 失败（请确认资源池已配置集群凭证，或集群存在 image-uploader ServiceAccount）',
       error: lastErr?.response?.data
         ? JSON.stringify(lastErr.response.data)
         : lastErr?.message || String(lastErr),

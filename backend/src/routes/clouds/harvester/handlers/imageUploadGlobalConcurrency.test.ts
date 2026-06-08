@@ -1,6 +1,7 @@
 import {
   formatGlobalImageUploadBusyMessage,
   GlobalImageUploadBusyError,
+  requestDeclaresLocalChunkedUpload,
 } from './imageUploadGlobalConcurrency';
 
 describe('imageUploadGlobalConcurrency', () => {
@@ -9,6 +10,14 @@ describe('imageUploadGlobalConcurrency', () => {
     const expected = '镜像上传进行中的任务已达到上限，请稍后再试';
     expect(formatGlobalImageUploadBusyMessage('upload', task)).toBe(expected);
     expect(formatGlobalImageUploadBusyMessage('sync', task)).toBe(expected);
+  });
+
+  it('requestDeclaresLocalChunkedUpload true only when chunkSize is provided', () => {
+    expect(requestDeclaresLocalChunkedUpload({ fileSize: 1024, chunkSize: 8 * 1024 * 1024 })).toBe(
+      true,
+    );
+    expect(requestDeclaresLocalChunkedUpload({ fileSize: 1024 })).toBe(false);
+    expect(requestDeclaresLocalChunkedUpload(undefined)).toBe(false);
   });
 
   it('GlobalImageUploadBusyError exposes code and busy task', () => {

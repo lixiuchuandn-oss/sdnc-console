@@ -18,6 +18,7 @@ import { probeQcow2VirtualSizeFromPaths } from '../../../../../services/clouds/h
 import {
   assertGlobalImageTaskSlot,
   isGlobalImageUploadBusyError,
+  requestDeclaresLocalChunkedUpload,
   respondGlobalImageUploadBusy,
 } from '../imageUploadGlobalConcurrency';
 import {
@@ -103,8 +104,6 @@ export async function harvesterImageUploadProxyHandler(req: Request, res: Respon
       const cloud = (req as any).cloud;
       const file = (req as any).file as Express.Multer.File | undefined;
       if (!file) return res.status(400).json({ message: '缺少上传文件，字段名应为 file' });
-
-      await assertGlobalImageTaskSlot(globalImageTaskSlotOpts());
 
       const repo = AppDataSource.getRepository(ImageUploadTask);
       const now = new Date();
@@ -237,7 +236,9 @@ export async function harvesterImageUploadTaskCreateHandler(req: Request, res: R
       });
     }
 
-    await assertGlobalImageTaskSlot(globalImageTaskSlotOpts());
+    if (requestDeclaresLocalChunkedUpload((req.body || {}) as Record<string, unknown>)) {
+      await assertGlobalImageTaskSlot(globalImageTaskSlotOpts());
+    }
 
     const now = new Date();
     const expires = new Date(now.getTime() + 30 * 60 * 1000);
@@ -806,8 +807,6 @@ async function handleHarvesterImageUploadTaskOctetStream(
     return;
   }
 
-  await assertGlobalImageTaskSlot(globalImageTaskSlotOpts(task.id));
-
   task.filename = filename;
   if (fileSize > 0) task.fileSize = fileSize;
   task.taskStatus = 'ingesting';
@@ -907,8 +906,6 @@ export async function harvesterImageUploadTaskFileHandler(req: Request, res: Res
       if (!['pending', 'failed'].includes(task.taskStatus)) {
         return res.status(409).json({ message: '任务当前状态不允许上传文件' });
       }
-
-      await assertGlobalImageTaskSlot(globalImageTaskSlotOpts(task.id));
 
       task.filename = file.originalname;
       task.fileSize = file.size;
