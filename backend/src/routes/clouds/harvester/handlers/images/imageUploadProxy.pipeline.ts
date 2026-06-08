@@ -67,6 +67,10 @@ import {
   resolveUploadTaskAfterTowerProxyError,
 } from './imageUploadTask.reconcile';
 import {
+  minMultipartFilePrefixBytes,
+  takeAtLeastFromAsyncIterator,
+} from './imageUploadMultipart';
+import {
   finalizeImageUploadTaskFilesCleanup,
   flushDeferredImageUploadCleanup,
   imageTaskMergedAbsPath,
@@ -543,18 +547,6 @@ export async function runImageUploadTaskWithBody(
         diskFormat: uploadDiskFormat,
         virtualSizeBytes,
       });
-      if (
-        uploadStorageProfile.kind === 'ceph' &&
-        uploadDiskFormat === 'qcow2' &&
-        proxySizes.uploadUrlSize > proxySizes.fileByteTotal
-      ) {
-        imageUploadTaskLog.info('ceph qcow2 upload: CDI DataVolume size from virtual size', {
-          taskId,
-          fileByteTotal: proxySizes.fileByteTotal,
-          uploadUrlSize: proxySizes.uploadUrlSize,
-          virtualSizeBytes,
-        });
-      }
       const uploadBasename =
         task.filename ||
         body.preferredBasename ||
@@ -658,12 +650,24 @@ export async function runImageUploadTaskWithBody(
                   'Content-Length': contentLength,
                 },
                 async pump(write) {
-                  await write(header);
-                  for await (const chunk of inboundBody as AsyncIterable<Buffer | string>) {
+                  const bodyIter = (inboundBody as AsyncIterable<Buffer | string>)[
+                    Symbol.asyncIterator
+                  ]();
+                  const { prefix: filePrefix, iter: bodyRest } =
+                    await takeAtLeastFromAsyncIterator(
+                      bodyIter,
+                      minMultipartFilePrefixBytes(header.length),
+                    );
+                  // 与 Harvester 首读 1024B 对齐：multipart 头 + qcow2 文件头须在同一 TCP 首包
+                  await write(Buffer.concat([header, filePrefix]));
+                  sent += filePrefix.length;
+                  for (;;) {
+                    const step = await bodyRest.next();
+                    if (step.done) break;
                     if (++chunkCount % 32 === 0) {
                       await throwIfUploadCancelled(taskId, abortController);
                     }
-                    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                    const buf = Buffer.isBuffer(step.value) ? step.value : Buffer.from(step.value);
                     sent += buf.length;
                     const now = Date.now();
                     if (now - lastUpdateAt > 2000) {

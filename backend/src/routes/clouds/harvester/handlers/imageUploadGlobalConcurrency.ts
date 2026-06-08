@@ -20,14 +20,10 @@ export class GlobalImageUploadBusyError extends Error {
 }
 
 export function formatGlobalImageUploadBusyMessage(
-  kind: 'upload' | 'sync',
-  task: Pick<ImageUploadTask, 'displayName' | 'filename' | 'id'>,
+  _kind: 'upload' | 'sync',
+  _task: Pick<ImageUploadTask, 'displayName' | 'filename' | 'id'>,
 ): string {
-  const label = String(task.displayName || task.filename || task.id).trim();
-  if (kind === 'sync') {
-    return `全平台已有进行中的镜像同步任务（${label}），请等待完成或取消后再试`;
-  }
-  return `全平台已有进行中的镜像上传任务（${label}），请等待完成或取消后再试`;
+  return '镜像上传进行中的任务已达到上限，请稍后再试';
 }
 
 export function isGlobalImageUploadBusyError(e: unknown): e is GlobalImageUploadBusyError {

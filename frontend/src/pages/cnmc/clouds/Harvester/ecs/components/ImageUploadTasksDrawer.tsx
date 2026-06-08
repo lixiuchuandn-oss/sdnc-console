@@ -529,7 +529,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
                   ) : null}
                   {isUploadComplete ? (
                     <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                      文件已上传至 Tower。请在镜像列表点击「同步」；底座导入进度与成败请见镜像列表，与上传任务无关。
+                      文件已上传至平台。请在镜像列表点击「操作-同步」
                     </Typography.Text>
                   ) : null}
                   {isUploadFailed ? (
