@@ -3,6 +3,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Form, Select } from 'antd';
+import type { FormInstance } from 'antd/es/form';
 import {
   fetchDeploymentSetOverview,
   type DeploymentSetRow,
@@ -10,13 +11,16 @@ import {
 import {
   applyDeploymentSetToWizardForm,
   buildDeploymentSetSelectOptions,
+  filterDeploymentSetsByProjectNamespace,
   findDeploymentSetById,
 } from '../lib/vmDeploymentSet';
 import { applyDeploymentSetExclusive } from '../lib/vmSchedulingExclusion';
 
 export type VmDeploymentSetFieldProps = {
   cloudId: string | undefined;
-  form: { setFieldsValue: (v: Record<string, unknown>) => void; getFieldValue?: (name: string) => unknown };
+  form: FormInstance;
+  /** 业务项目（namespace）；未传时从表单 namespace 字段读取 */
+  projectNamespace?: string;
   /** 指定主机、指标自动调度等场景下不可用 */
   disabled?: boolean;
   disabledReason?: string;
@@ -28,6 +32,7 @@ export type VmDeploymentSetFieldProps = {
 const VmDeploymentSetField: React.FC<VmDeploymentSetFieldProps> = ({
   cloudId,
   form,
+  projectNamespace: projectNamespaceProp,
   disabled = false,
   disabledReason = '当前模式下不支持部署集',
   initialSetId,
@@ -35,6 +40,14 @@ const VmDeploymentSetField: React.FC<VmDeploymentSetFieldProps> = ({
 }) => {
   const [sets, setSets] = useState<DeploymentSetRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const watchedNamespace = Form.useWatch('namespace', form);
+  const effectiveProjectNamespace = String(
+    projectNamespaceProp ?? watchedNamespace ?? '',
+  ).trim();
+  const visibleSets = useMemo(
+    () => filterDeploymentSetsByProjectNamespace(sets, effectiveProjectNamespace),
+    [sets, effectiveProjectNamespace],
+  );
 
   useEffect(() => {
     if (!cloudId || cloudId === 'all') {
@@ -70,13 +83,32 @@ const VmDeploymentSetField: React.FC<VmDeploymentSetFieldProps> = ({
   }, [disabled, form]);
 
   useEffect(() => {
-    if (disabled || !initialSetId || !sets.length) return;
+    if (disabled || !initialSetId || !visibleSets.length) return;
     const current = form.getFieldValue?.('deploymentSetId');
     if (current) return;
+    if (!findDeploymentSetById(visibleSets, initialSetId)) return;
     form.setFieldsValue({ deploymentSetId: initialSetId });
-  }, [disabled, initialSetId, sets, form]);
+  }, [disabled, initialSetId, visibleSets, form]);
 
-  const options = useMemo(() => buildDeploymentSetSelectOptions(sets), [sets]);
+  useEffect(() => {
+    if (disabled) return;
+    const currentId = form.getFieldValue?.('deploymentSetId');
+    if (!currentId) return;
+    if (!findDeploymentSetById(visibleSets, String(currentId))) {
+      applyDeploymentSetToWizardForm(form, null);
+    }
+  }, [disabled, visibleSets, form]);
+
+  const options = useMemo(
+    () => buildDeploymentSetSelectOptions(visibleSets),
+    [visibleSets],
+  );
+
+  const selectPlaceholder = !effectiveProjectNamespace
+    ? '请先选择项目'
+    : visibleSets.length
+      ? '未选择部署集'
+      : '当前项目下暂无可用部署集';
 
   if (disabled) {
     return (
@@ -92,11 +124,11 @@ const VmDeploymentSetField: React.FC<VmDeploymentSetFieldProps> = ({
         allowClear
         showSearch
         loading={loading}
-        placeholder="未选择部署集"
+        placeholder={selectPlaceholder}
         options={options}
         optionFilterProp="label"
         onChange={(value) => {
-          const set = findDeploymentSetById(sets, value as string | undefined);
+          const set = findDeploymentSetById(visibleSets, value as string | undefined);
           applyDeploymentSetExclusive(form, set);
         }}
       />

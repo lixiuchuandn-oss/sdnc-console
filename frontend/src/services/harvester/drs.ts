@@ -1,11 +1,14 @@
 import { apiDelete, apiPost, apiPut, apiRequest } from '../api';
 
 export type MetricRuleCrSpec = {
-  metricType: 'cpu' | 'memory';
-  metricSafeThreshold: number;
+  cpuSafeThreshold: number;
+  cpuScore: number;
+  memorySafeThreshold: number;
+  memoryScore: number;
   migrateConcurrentNum: number;
   migrateMaxCount: number;
   randTopN: number;
+  maxMigratePeriod: number;
 };
 
 export type DrsOverviewSummary = {

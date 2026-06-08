@@ -12,11 +12,17 @@ type MetricRuleRowBase = {
   };
   name?: string;
   spec?: {
-    metricType?: string;
-    metricSafeThreshold?: number;
+    cpuSafeThreshold?: number;
+    cpuScore?: number;
+    memorySafeThreshold?: number;
+    memoryScore?: number;
     migrateConcurrentNum?: number;
     migrateMaxCount?: number;
     randTopN?: number;
+    maxMigratePeriod?: number;
+    /** 旧版字段，仅展示兼容 */
+    metricType?: string;
+    metricSafeThreshold?: number;
     enabled?: boolean;
     disabled?: boolean;
   };
@@ -31,6 +37,16 @@ function pickSpec(r: unknown): NonNullable<MetricRuleRowBase['spec']> {
   return pickRow(r).spec || {};
 }
 
+function formatPercent(v: unknown): string {
+  if (v == null || Number.isNaN(Number(v))) return '—';
+  return `${v}%`;
+}
+
+function formatScore(v: unknown): string {
+  if (v == null || Number.isNaN(Number(v))) return '—';
+  return String(v);
+}
+
 export const metricRuleRowFields = {
   base: pickRow,
   name: (r: unknown) => {
@@ -39,16 +55,61 @@ export const metricRuleRowFields = {
   },
   /** 集群级 CR，无 namespace */
   scopeLabel: () => '集群',
-  metricType: (r: unknown) => {
-    const t = pickSpec(r).metricType;
-    const s = t != null ? String(t).trim() : '';
-    if (!s) return '—';
-    return s === 'cpu' ? 'CPU' : s === 'memory' ? '内存' : s;
+  metricTypesLabel: (r: unknown) => {
+    const spec = pickSpec(r);
+    const parts: string[] = [];
+    if (spec.cpuScore != null ? Number(spec.cpuScore) > 0 : false) parts.push('CPU');
+    if (spec.memoryScore != null ? Number(spec.memoryScore) > 0 : false) parts.push('内存');
+    if (parts.length > 0) return parts.join(' / ');
+
+    const legacyType = String(spec.metricType || '').trim().toLowerCase();
+    if (legacyType === 'cpu') return 'CPU';
+    if (legacyType === 'memory') return '内存';
+    return '—';
   },
-  metricSafeThreshold: (r: unknown) => {
-    const v = pickSpec(r).metricSafeThreshold;
+  cpuSafeThreshold: (r: unknown) => {
+    const spec = pickSpec(r);
+    const enabled = spec.cpuScore != null ? Number(spec.cpuScore) > 0 : false;
+    if (!enabled) return '—';
+    if (spec.cpuSafeThreshold != null) return formatPercent(spec.cpuSafeThreshold);
+    if (String(spec.metricType || '').toLowerCase() === 'cpu') {
+      return formatPercent(spec.metricSafeThreshold);
+    }
+    return '—';
+  },
+  cpuScore: (r: unknown) => {
+    const score = pickSpec(r).cpuScore;
+    if (score == null || Number(score) <= 0) return '—';
+    return formatScore(score);
+  },
+  memorySafeThreshold: (r: unknown) => {
+    const spec = pickSpec(r);
+    const enabled = spec.memoryScore != null ? Number(spec.memoryScore) > 0 : false;
+    if (!enabled) return '—';
+    if (spec.memorySafeThreshold != null) return formatPercent(spec.memorySafeThreshold);
+    if (String(spec.metricType || '').toLowerCase() === 'memory') {
+      return formatPercent(spec.metricSafeThreshold);
+    }
+    return '—';
+  },
+  memoryScore: (r: unknown) => {
+    const score = pickSpec(r).memoryScore;
+    if (score == null || Number(score) <= 0) return '—';
+    return formatScore(score);
+  },
+  healthScoreLabel: (r: unknown) => {
+    const spec = pickSpec(r);
+    const parts: string[] = [];
+    const cpuScore = spec.cpuScore;
+    const memoryScore = spec.memoryScore;
+    if (cpuScore != null && Number(cpuScore) > 0) parts.push(`CPU ${cpuScore}`);
+    if (memoryScore != null && Number(memoryScore) > 0) parts.push(`内存 ${memoryScore}`);
+    return parts.length > 0 ? parts.join(' / ') : '—';
+  },
+  maxMigratePeriod: (r: unknown) => {
+    const v = pickSpec(r).maxMigratePeriod;
     if (v == null || Number.isNaN(Number(v))) return '—';
-    return `${v}%`;
+    return `${v} 小时`;
   },
   migrateMaxCount: (r: unknown) => {
     const v = pickSpec(r).migrateMaxCount;
@@ -84,7 +145,7 @@ export function filterMetricRulesForTable(
   if (!k) return [...items];
   return items.filter((item) => {
     const name = metricRuleRowFields.name(item).toLowerCase();
-    const metricType = metricRuleRowFields.metricType(item).toLowerCase();
-    return name.includes(k) || metricType.includes(k);
+    const metricTypes = metricRuleRowFields.metricTypesLabel(item).toLowerCase();
+    return name.includes(k) || metricTypes.includes(k);
   });
 }

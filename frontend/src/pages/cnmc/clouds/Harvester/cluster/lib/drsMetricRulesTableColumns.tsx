@@ -33,14 +33,29 @@ export function buildMetricRulesTableColumns(
       render: () => <Tag>集群</Tag>,
     },
     {
-      title: '指标类型',
-      key: 'metricType',
-      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.metricType(r),
+      title: '调度指标',
+      key: 'metricTypes',
+      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.metricTypesLabel(r),
     },
     {
-      title: '安全阈值',
-      key: 'metricSafeThreshold',
-      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.metricSafeThreshold(r),
+      title: 'CPU 安全阈值',
+      key: 'cpuSafeThreshold',
+      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.cpuSafeThreshold(r),
+    },
+    {
+      title: '内存 安全阈值',
+      key: 'memorySafeThreshold',
+      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.memorySafeThreshold(r),
+    },
+    {
+      title: '目的节点健康状态计算比例',
+      key: 'healthScore',
+      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.healthScoreLabel(r),
+    },
+    {
+      title: '统计时间范围',
+      key: 'maxMigratePeriod',
+      render: (_: unknown, r: MetricRuleTableRow) => metricRuleRowFields.maxMigratePeriod(r),
     },
     {
       title: '最大迁移 VM 数',

@@ -2,8 +2,8 @@
  * 计算资源 · DRS 调度规则（MetricRule CR）
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Alert, Button, Input, Table } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Alert, Button, Input, Table, Tooltip } from 'antd';
+import { QuestionCircleOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
@@ -14,6 +14,7 @@ import MetricRuleConfigDrawer from '../drawers/MetricRuleConfigDrawer';
 import { useMetricRuleCrActions } from '../hooks/useMetricRuleCrActions';
 import { useDrsSectionData } from '../hooks/useDrsSectionData';
 import { buildMetricRulesTableColumns } from '../lib/drsMetricRulesTableColumns';
+import { METRIC_RULE_MAX_COUNT } from '../lib/drsMetricRuleForm';
 import {
   filterMetricRulesForTable,
   metricRuleRowFields,
@@ -26,6 +27,22 @@ import {
 } from '../../../../../../constants/computeClusterPermissions';
 
 const METRIC_RULES_TABLE_KEY = 'harvester_drs_metric_rules_table';
+
+const METRIC_RULE_CDRS_INFO_TOOLTIP = (
+  <>
+    集群级 CDRS 调度规则
+    <br />
+    CPU 与内存调度条件可同时配置，满足任一条件即可触发迁移
+  </>
+);
+
+const METRIC_RULE_SINGLE_LIMIT_TOOLTIP = (
+  <>
+    集群仅允许配置 {METRIC_RULE_MAX_COUNT} 条调度规则
+    <br />
+    如需调整策略，请编辑或删除已有规则后再新建
+  </>
+);
 
 export type DrsRulesSectionProps = {
   cloudId: string;
@@ -54,10 +71,14 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
     setEditingMetricRule(null);
   }, []);
 
+  const hasReachedRuleLimit = metricRules.length >= METRIC_RULE_MAX_COUNT;
+  const showCreateMetricRuleAction = canManageMetricRule && metricRulesAvailable;
+
   const openCreateMetricRule = useCallback(() => {
+    if (hasReachedRuleLimit) return;
     setEditingMetricRule(null);
     setMetricRuleDrawerOpen(true);
-  }, []);
+  }, [hasReachedRuleLimit]);
 
   const openEditMetricRule = useCallback((record: MetricRuleTableRow) => {
     setEditingMetricRule(record);
@@ -68,6 +89,7 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
     cloudId,
     canManageMetricRule,
     editingMetricRule,
+    existingRuleCount: metricRules.length,
     loadAll,
     closeConfigDrawer: closeMetricRuleDrawer,
     setConfigSaving: setMetricRuleSaving,
@@ -118,7 +140,7 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
           <>
             <Input
               allowClear
-              placeholder="规则名称 / 指标类型（cpu、memory）"
+              placeholder="规则名称 / 调度指标（CPU、内存）"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
               value={metricKeyword}
               onChange={(e) => setMetricKeyword(e.target.value)}
@@ -131,10 +153,28 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
         }
         toolbarRight={
           <div className="toolbar-actions">
-            {canManageMetricRule && metricRulesAvailable ? (
-              <Button type="primary" onClick={openCreateMetricRule}>
-                创建调度规则
-              </Button>
+            {showCreateMetricRuleAction ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Button
+                  type="primary"
+                  disabled={hasReachedRuleLimit}
+                  onClick={openCreateMetricRule}
+                >
+                  创建调度规则
+                </Button>
+                <Tooltip title={METRIC_RULE_CDRS_INFO_TOOLTIP}>
+                  <QuestionCircleOutlined
+                    style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }}
+                  />
+                </Tooltip>
+                {hasReachedRuleLimit ? (
+                  <Tooltip title={METRIC_RULE_SINGLE_LIMIT_TOOLTIP}>
+                    <QuestionCircleOutlined
+                      style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }}
+                    />
+                  </Tooltip>
+                ) : null}
+              </span>
             ) : null}
             <TableColumnSettingsButton
               allColumns={metricRuleColumnsAll}
@@ -155,7 +195,6 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
             }
           />
         ) : null}
-
         <Table
           className="std-table"
           bordered={false}

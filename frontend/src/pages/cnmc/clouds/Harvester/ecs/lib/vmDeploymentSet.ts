@@ -37,6 +37,16 @@ export function findDeploymentSetById(
   return (sets || []).find((s) => s.id === sid);
 }
 
+/** 仅保留与虚拟机业务项目（namespace）相同的部署集 */
+export function filterDeploymentSetsByProjectNamespace(
+  sets: DeploymentSetRow[] | undefined,
+  projectNamespace: string | undefined | null,
+): DeploymentSetRow[] {
+  const ns = String(projectNamespace || '').trim();
+  if (!ns) return [];
+  return (sets || []).filter((s) => String(s.namespace || '').trim() === ns);
+}
+
 /** 创建向导：选择/清空部署集 */
 export function applyDeploymentSetToWizardForm(
   form: { setFieldsValue: (v: Record<string, unknown>) => void },

@@ -29,7 +29,7 @@
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Typography, Button, Row, Col, Alert, Spin, Checkbox } from 'antd';
+import { App, Form, Input, Select, Radio, Space, Table, Typography, Button, Row, Col, Alert, Spin, Checkbox } from 'antd';
 import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from 'services/harvester/vm';
 import {
@@ -41,7 +41,7 @@ import { useHarvesterNodeResourceMaps } from '../../drawers/shared/lib/useHarves
 import { buildHarvesterNodePickerTableColumns } from '../../drawers/shared/lib/harvesterNodePickerTableColumns';
 import VmDeploymentSetField from '../../lib/VmDeploymentSetField';
 import { applyDeploymentSetToWizardForm } from '../../lib/vmDeploymentSet';
-import { setMetricAutoScheduledExclusive } from '../../lib/vmSchedulingExclusion';
+import { trySetMetricAutoScheduledExclusive } from '../../lib/vmSchedulingExclusion';
 import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 import {
   fetchFailureDomainOverview,
@@ -122,6 +122,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
   namespaceRecords,
   onDeploymentSetsLoaded,
 }) => {
+  const { message } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const deploymentSetId = Form.useWatch('deploymentSetId', form);
   const metricAutoScheduled = Form.useWatch('metricAutoScheduled', form);
@@ -314,7 +315,14 @@ const StepBasic: React.FC<StepBasicProps> = ({
         >
           <Checkbox
             disabled={!!deploymentSetId}
-            onChange={(e) => setMetricAutoScheduledExclusive(form, e.target.checked)}
+            onChange={(e) => {
+              const err = trySetMetricAutoScheduledExclusive(
+                form,
+                e.target.checked,
+                hostModeState,
+              );
+              if (err) message.error(err);
+            }}
           >
             参与指标自动调度
           </Checkbox>

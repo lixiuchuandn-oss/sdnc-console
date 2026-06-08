@@ -40,7 +40,11 @@ import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
 import { findDeploymentSetById, applyDeploymentSetToWizardForm } from '../lib/vmDeploymentSet';
-import { applyDeploymentSetExclusive } from '../lib/vmSchedulingExclusion';
+import {
+  applyDeploymentSetExclusive,
+  collectVmWizardMetricAutoScheduledConflicts,
+  getVmWizardMetricAutoScheduledConflictMessage,
+} from '../lib/vmSchedulingExclusion';
 import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 import { validateVmPerformanceAdvancedForm } from '../lib/numaHugepagesSpec';
 import { hasLabelModeNodeSelector } from '../lib/vmFailureDomainNodeSelector';
@@ -498,6 +502,14 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         }
       }
 
+      const metricConflictMsg = getVmWizardMetricAutoScheduledConflictMessage(
+        form.getFieldsValue(true) as Record<string, unknown>,
+      );
+      if (metricConflictMsg) {
+        message.error(metricConflictMsg);
+        throw new Error('metric-auto-scheduled-conflict');
+      }
+
       setStepValid((prev) => { const a = [...prev]; a[targetStep] = true; return a; });
       return true;
     } catch (error) {
@@ -557,6 +569,17 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         return;
       }
       v.namespace = resolvedNamespace;
+
+      const metricConflictMsg = getVmWizardMetricAutoScheduledConflictMessage(v);
+      if (metricConflictMsg) {
+        message.error(metricConflictMsg);
+        const conflicts = collectVmWizardMetricAutoScheduledConflicts(v);
+        if (conflicts.includes('GPU')) setStep(1);
+        else if (conflicts.some((c) => c === '直通网卡' || c === '直通SR-IOV')) setStep(3);
+        else if (conflicts.includes('USB设备')) setStep(5);
+        else setStep(0);
+        return;
+      }
 
       const sizeError = validateImageSize(v, images || []);
       if (sizeError) { message.error(sizeError); return; }
@@ -849,7 +872,15 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   }
                 }
                 if (Object.prototype.hasOwnProperty.call(changed, 'metricAutoScheduled') && changed.metricAutoScheduled === true) {
-                  try { applyDeploymentSetToWizardForm(form, null); } catch {}
+                  const metricConflictMsg = getVmWizardMetricAutoScheduledConflictMessage(
+                    form.getFieldsValue(true) as Record<string, unknown>,
+                  );
+                  if (metricConflictMsg) {
+                    message.error(metricConflictMsg);
+                    try { form.setFieldsValue({ metricAutoScheduled: false }); } catch {}
+                  } else {
+                    try { applyDeploymentSetToWizardForm(form, null); } catch {}
+                  }
                 }
                 if (Object.prototype.hasOwnProperty.call(changed, 'deploymentSetId') && changed.deploymentSetId) {
                   try {
