@@ -3,16 +3,22 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
-	"flag"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"flag"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"mime/multipart"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +64,11 @@ type UploadTokenApiResponse struct {
 type LoginApiResponse struct {
 	Token   string `json:"token"`
 	Message string `json:"message"`
+}
+
+type LoginPublicKeyResponse struct {
+	KeyID     string `json:"keyId"`
+	PublicKey string `json:"publicKey"`
 }
 
 type CreateImageRequest struct {
@@ -443,6 +454,95 @@ func fetchHarvesterClouds(cfg Config) ([]Cloud, error) {
 	return list, nil
 }
 
+func fetchLoginPublicKey(towerURL string) (*LoginPublicKeyResponse, error) {
+	towerURL = normalizeTowerURL(towerURL)
+	req, err := http.NewRequest("GET", towerURL+"/api/auth/login-public-key", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, wrapTowerConnError("获取登录公钥失败", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("获取登录公钥失败: HTTP %d %s", resp.StatusCode, string(respBody))
+	}
+	var info LoginPublicKeyResponse
+	if err := json.Unmarshal(respBody, &info); err != nil {
+		return nil, fmt.Errorf("解析登录公钥失败: %v", err)
+	}
+	if strings.TrimSpace(info.PublicKey) == "" {
+		return nil, fmt.Errorf("登录公钥响应无效")
+	}
+	return &info, nil
+}
+
+func loginPasswordNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func encryptLoginPassword(publicKeyPEM, password string) (string, error) {
+	block, _ := pem.Decode([]byte(publicKeyPEM))
+	if block == nil {
+		return "", fmt.Errorf("登录公钥 PEM 无效")
+	}
+	pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("解析登录公钥失败: %w", err)
+	}
+	rsaPub, ok := pubAny.(*rsa.PublicKey)
+	if !ok {
+		return "", fmt.Errorf("登录公钥不是 RSA 密钥")
+	}
+	payload, err := json.Marshal(map[string]any{
+		"password": password,
+		"ts":       time.Now().UnixMilli(),
+		"nonce":    loginPasswordNonce(),
+	})
+	if err != nil {
+		return "", err
+	}
+	cipher, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, payload, nil)
+	if err != nil {
+		return "", fmt.Errorf("RSA 加密失败: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(cipher), nil
+}
+
+func buildLoginRequestBody(towerURL, username, password string) (map[string]string, error) {
+	keyInfo, err := fetchLoginPublicKey(towerURL)
+	if err != nil {
+		return nil, err
+	}
+	if keyInfo != nil {
+		cipher, err := encryptLoginPassword(keyInfo.PublicKey, password)
+		if err != nil {
+			return nil, err
+		}
+		body := map[string]string{
+			"username": username,
+			"cipher":   cipher,
+		}
+		if kid := strings.TrimSpace(keyInfo.KeyID); kid != "" {
+			body["keyId"] = kid
+		}
+		return body, nil
+	}
+	return map[string]string{
+		"username": username,
+		"password": password,
+	}, nil
+}
+
 func loginTower(towerURL, username, password string) (string, error) {
 	towerURL = normalizeTowerURL(towerURL)
 	username = strings.TrimSpace(username)
@@ -450,9 +550,9 @@ func loginTower(towerURL, username, password string) (string, error) {
 	if towerURL == "" || username == "" || password == "" {
 		return "", fmt.Errorf("缺少登录参数")
 	}
-	bodyMap := map[string]string{
-		"username": username,
-		"password": password,
+	bodyMap, err := buildLoginRequestBody(towerURL, username, password)
+	if err != nil {
+		return "", err
 	}
 	body, _ := json.Marshal(bodyMap)
 	req, _ := http.NewRequest("POST", towerURL+"/api/auth/login", bytes.NewBuffer(body))
