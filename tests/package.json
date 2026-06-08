@@ -27,7 +27,13 @@
     "manual:shots:backups": "node manual/capture-ch03-backups.browser.cjs",
     "manual:shots:vm-detail": "node manual/capture-ch03-vm-detail.browser.cjs",
     "manual:shots:network": "node manual/capture-ch03-network.browser.cjs",
-    "manual:shots:monitoring": "node manual/capture-ch03-monitoring.browser.cjs"
+    "manual:shots:monitoring": "node manual/capture-ch03-monitoring.browser.cjs",
+    "manual:shots:overview": "node manual/capture-ch03-overview.browser.cjs",
+    "manual:shots:cluster": "node manual/capture-ch03-cluster.browser.cjs",
+    "manual:shots:containers": "node manual/capture-ch03-containers.browser.cjs",
+    "manual:shots:misc": "node manual/capture-ch03-misc.browser.cjs",
+    "manual:shots:enable-md": "node manual/enable-manual-assets.cjs",
+    "manual:shots:all": "npm run manual:shots:pool && npm run manual:shots:images && npm run manual:shots:vm && npm run manual:shots:volumes && npm run manual:shots:backups && npm run manual:shots:vm-detail && npm run manual:shots:network && npm run manual:shots:monitoring && npm run manual:shots:overview && npm run manual:shots:cluster && npm run manual:shots:containers && npm run manual:shots:misc && npm run manual:shots:enable-md"
   },
   "devDependencies": {
     "playwright": "1.60.0"

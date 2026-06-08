@@ -137,8 +137,7 @@ VPC 网络提供逻辑隔离的私有网络，含 **VPC、子网、弹性公网 
 
 **入口**：`VPC 网络 > SNAT`
 
-<!-- 待补截图：VPC 域 SNAT 列表与创建。建议保存为 assets/ch03-network/vpc-snat-list.png 后取消下一行注释 -->
-<!-- ![VPC 域 SNAT](assets/ch03-network/vpc-snat-list.png) -->
+![VPC 域 SNAT](assets/ch03-network/vpc-snat-list.png)
 
 1. 查看列表：名称、ID、CIDR、所属 VPC、公网 IP、创建时间；按名称/ID、VPC 筛选。
 2. 单击 **创建 SNAT 网关**，填写：
@@ -158,8 +157,7 @@ VPC 网络提供逻辑隔离的私有网络，含 **VPC、子网、弹性公网 
 
 **入口**：`VPC 网络 > DNAT`
 
-<!-- 待补截图：VPC 域 DNAT 列表与创建。建议保存为 assets/ch03-network/vpc-dnat-list.png 后取消下一行注释 -->
-<!-- ![VPC 域 DNAT](assets/ch03-network/vpc-dnat-list.png) -->
+![VPC 域 DNAT](assets/ch03-network/vpc-dnat-list.png)
 
 1. 查看列表：名称、ID、公网 IP、公网端口、协议、内部 IP、内部端口、所属 VPC、创建时间；按名称/ID、VPC、协议筛选。
 2. 单击 **创建 DNAT 规则**，填写：

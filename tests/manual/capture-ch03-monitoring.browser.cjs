@@ -62,6 +62,11 @@ async function main() {
     await clickDashboardView(page, '\u8282\u70b9\u6982\u89c8');
     await shot(page, 'ops-dashboard-nodes-tab.png', { subdir: SUBDIR, locator: root });
 
+    await clickDashboardView(page, '\u4e91\u4e3b\u673a\u6982\u89c8');
+    await shot(page, 'ops-dashboard-vms-tab.png', { subdir: SUBDIR, locator: root });
+    await clickDashboardView(page, '\u4e91\u4e3b\u673a\u8d44\u6e90');
+    await shot(page, 'ops-dashboard-vm-resources.png', { subdir: SUBDIR, locator: root });
+
     await openPoolPage(page, cloudId, 'monitoring_alerts/ops-alert-dashboard', '\u544a\u8b66\u4e2d\u5fc3\u6982\u89c8');
     await shot(page, 'ops-alert-overview.png', { subdir: SUBDIR, locator: root });
 

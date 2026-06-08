@@ -113,6 +113,59 @@ async function main() {
     await specDrawer.waitFor({ timeout: 15000 });
     await page.waitForTimeout(600);
     await shot(page, 'vm-detail-spec-config.png', { subdir: SUBDIR, locator: specDrawer });
+    await closeNestedDrawer(page, specDrawer);
+
+    if (!(await mainDrawer(page).isVisible())) {
+      drawer = await openFirstVmDetail(page, cloudId);
+    } else {
+      drawer = mainDrawer(page);
+    }
+
+    await switchTab(page, drawer, '\u8be6\u60c5');
+    const moreBtn2 = drawer.locator('button').filter({ has: page.locator('.anticon-ellipsis') });
+    await moreBtn2.click();
+    const cloneItem = page.locator('.ant-dropdown-menu-item').filter({ hasText: '\u514b\u9686' }).first();
+    if (await cloneItem.isVisible().catch(() => false)) {
+      await cloneItem.click();
+      const cloneModal = page.locator('.ant-modal').filter({ hasText: '\u514b\u9686\u865a\u62df\u673a' }).last();
+      await cloneModal.waitFor({ timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(600);
+      if (await cloneModal.isVisible().catch(() => false)) {
+        await shot(page, 'vm-detail-clone-modal.png', { subdir: SUBDIR, locator: cloneModal });
+        await page.keyboard.press('Escape');
+      }
+    } else {
+      await page.keyboard.press('Escape');
+    }
+
+    if (!(await mainDrawer(page).isVisible())) {
+      drawer = await openFirstVmDetail(page, cloudId);
+    } else {
+      drawer = mainDrawer(page);
+    }
+    await switchTab(page, drawer, '\u8be6\u60c5');
+    const moreBtn3 = drawer.locator('button').filter({ has: page.locator('.anticon-ellipsis') });
+    await moreBtn3.click();
+    const migrateItem = page.locator('.ant-dropdown-menu-item').filter({ hasText: '\u70ed\u8fc1\u79fb' }).first();
+    if (await migrateItem.isVisible().catch(() => false)) {
+      const disabled = await migrateItem.evaluate((el) =>
+        el.classList.contains('ant-dropdown-menu-item-disabled'),
+      );
+      if (!disabled) {
+        await migrateItem.click();
+        const migrateModal = page.locator('.ant-modal').filter({ hasText: '\u70ed\u8fc1\u79fb' }).last();
+        await migrateModal.waitFor({ timeout: 15000 }).catch(() => {});
+        await page.waitForTimeout(600);
+        if (await migrateModal.isVisible().catch(() => false)) {
+          await shot(page, 'vm-detail-migrate-modal.png', { subdir: SUBDIR, locator: migrateModal });
+          await page.keyboard.press('Escape');
+        }
+      } else {
+        await page.keyboard.press('Escape');
+      }
+    } else {
+      await page.keyboard.press('Escape');
+    }
   } finally {
     await browser.close();
   }

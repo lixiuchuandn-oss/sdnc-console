@@ -17,7 +17,12 @@ async function openPoolPage(page, cloudId, pathSuffix, waitButtonName) {
     waitUntil: 'domcontentloaded',
   });
   if (waitButtonName) {
-    await page.getByRole('button', { name: waitButtonName }).waitFor({ timeout: 60000 });
+    await page
+      .getByRole('button', { name: waitButtonName })
+      .waitFor({ timeout: 60000 })
+      .catch(async () => {
+        await page.locator('tr.ant-table-row, .ant-empty').first().waitFor({ timeout: 30000 }).catch(() => {});
+      });
   } else {
     await page.locator('tr.ant-table-row, .ant-empty').first().waitFor({ timeout: 60000 }).catch(() => {});
   }
@@ -62,6 +67,44 @@ async function main() {
     await openPoolPage(page, cloudId, 'flat_network/security_groups', '\u65b0\u5efa\u5b89\u5168\u7ec4');
     await shot(page, 'flat-security-group-list-page.png', { subdir: SUBDIR });
 
+    const aclOpened = await (async () => {
+      const rows = page.locator('tr.ant-table-row');
+      const count = await rows.count();
+      for (let i = 0; i < Math.min(count, 20); i++) {
+        const row = rows.nth(i);
+        const trigger = row.locator('.row-actions-trigger').first();
+        if ((await trigger.count()) === 0) continue;
+        await trigger.click();
+        const item = page.getByRole('menuitem', { name: '\u8bbf\u95ee\u63a7\u5236' });
+        try {
+          await item.waitFor({ state: 'visible', timeout: 3000 });
+          await item.click();
+          return true;
+        } catch {
+          await page.keyboard.press('Escape');
+        }
+      }
+      return false;
+    })();
+    if (aclOpened) {
+      const aclDrawer = page.locator('.ant-drawer').last();
+      await aclDrawer.waitFor({ timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(800);
+      await shot(page, 'security-group-acl-drawer.png', { subdir: SUBDIR, locator: aclDrawer });
+      await page.keyboard.press('Escape');
+    }
+
+    await openPoolPage(page, cloudId, 'flat_network/flat_kubeovn_snat', '\u521b\u5efa SNAT \u7f51\u5173');
+    await shot(page, 'flat-snat-list.png', { subdir: SUBDIR });
+    await page.getByRole('button', { name: '\u521b\u5efa SNAT \u7f51\u5173' }).click().catch(() => {});
+    const flatSnatModal = modal(page, 'SNAT');
+    if (await flatSnatModal.isVisible().catch(() => false)) {
+      await page.keyboard.press('Escape');
+    }
+
+    await openPoolPage(page, cloudId, 'flat_network/flat_kubeovn_dnat', '\u521b\u5efa DNAT \u89c4\u5219');
+    await shot(page, 'flat-dnat-list.png', { subdir: SUBDIR });
+
     // --- VPC ---
     await openPoolPage(page, cloudId, 'kube_ovn/vpcs', '\u521b\u5efa VPC');
     await shot(page, 'vpc-list-page.png', { subdir: SUBDIR });
@@ -85,6 +128,12 @@ async function main() {
     // --- VPC EIP tab ---
     await openPoolPage(page, cloudId, 'kube_ovn/kubeovn_eips', '\u521b\u5efa\u516c\u7f51IP');
     await shot(page, 'vpc-eip-list-page.png', { subdir: SUBDIR });
+
+    await openPoolPage(page, cloudId, 'kube_ovn/kubeovn_snat', '\u521b\u5efa SNAT \u7f51\u5173');
+    await shot(page, 'vpc-snat-list.png', { subdir: SUBDIR });
+
+    await openPoolPage(page, cloudId, 'kube_ovn/kubeovn_dnat', '\u521b\u5efa DNAT \u89c4\u5219');
+    await shot(page, 'vpc-dnat-list.png', { subdir: SUBDIR });
   } finally {
     await browser.close();
   }

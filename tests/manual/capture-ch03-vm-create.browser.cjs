@@ -46,6 +46,8 @@ async function main() {
     await page.waitForTimeout(1200);
 
     await openEcsList(page, cloudId);
+    await shot(page, 'vm-list-overview.png', { subdir: SUBDIR });
+
     const toolbar = page.locator('.toolbar-actions').first();
     await toolbar.waitFor({ timeout: 15000 });
     await shot(page, 'vm-list-toolbar.png', { subdir: SUBDIR, locator: toolbar });
