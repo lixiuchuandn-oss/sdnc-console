@@ -508,7 +508,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
                     </Tag>
                   </div>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    命名空间：{t.namespace || '-'}
+                    项目：{t.namespace || '-'}
                   </Typography.Text>
                   <Progress
                     percent={progressPercent}

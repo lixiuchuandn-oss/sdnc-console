@@ -54,6 +54,7 @@ import {
   IMAGE_UPLOAD_TASK_FETCH_LIMIT,
   hydrateUploadTasksFromSessionCache,
   registerUploadTaskReloadSideEffects,
+  syncUploadTasksSessionCache,
   unregisterUploadTaskReloadSideEffects,
   uploadTaskBatchNeedsInventorySideEffects,
   uploadTaskItemsNeedSuccessInventorySync,
@@ -268,15 +269,23 @@ export function useImagesSectionActions({
       const isCancelled = st === 'cancelled';
       const isFailed = st === 'failed';
 
+      const nextUploadTasks = mergeUploadTasksSorted(uploadTasksRef.current, task);
+      const { next: nextListTaskList, becameSuccess } = applyUploadTaskToListState(
+        listTaskListRef.current,
+        task,
+      );
+      if (becameSuccess) shouldRefreshInventory = true;
+      listTaskListRef.current = nextListTaskList;
+      uploadTasksRef.current = nextUploadTasks;
+
       setUploadTasksState({
-        uploadTasks: mergeUploadTasksSorted(uploadTasksRef.current, task),
-        listTaskList: (() => {
-          const { next, becameSuccess } = applyUploadTaskToListState(listTaskListRef.current, task);
-          if (becameSuccess) shouldRefreshInventory = true;
-          listTaskListRef.current = next;
-          return next;
-        })(),
+        uploadTasks: nextUploadTasks,
+        listTaskList: nextListTaskList,
       });
+
+      if (isCancelled || isFailed || st === 'success') {
+        syncUploadTasksSessionCache(cloudId, nextUploadTasks);
+      }
 
       if (shouldRefreshInventory) {
         scheduleImagesInventoryAfterUploadSync();
@@ -284,7 +293,12 @@ export function useImagesSectionActions({
         requestSkipSyncInventoryReload();
       }
     },
-    [requestSkipSyncInventoryReload, scheduleImagesInventoryAfterUploadSync, setUploadTasksState],
+    [
+      cloudId,
+      requestSkipSyncInventoryReload,
+      scheduleImagesInventoryAfterUploadSync,
+      setUploadTasksState,
+    ],
   );
 
   /** 抽屉删除任务记录时从 listTaskList 移除，避免虚拟行残留；success 后刷新库存以保留镜像行 */

@@ -12,7 +12,10 @@ export function applyUploadTaskToListState(
       !wasAlreadySuccess && (prev.some((x) => x.id === task.id) || !!task.createdImageName);
     return { next: mergeUploadTasksSorted(prev, task), becameSuccess: shouldNotify };
   }
-  if (['uploaded', 'proxying', 'failed', 'cancelled'].includes(st)) {
+  if (st === 'cancelled') {
+    return { next: prev.filter((x) => x.id !== task.id), becameSuccess: false };
+  }
+  if (['uploaded', 'proxying', 'failed'].includes(st)) {
     return { next: mergeUploadTasksSorted(prev, task), becameSuccess: false };
   }
   return { next: [...prev], becameSuccess: false };
@@ -84,6 +87,14 @@ function uploadTaskLifecycleRank(status: string): number {
 
 function isUploadTaskTerminalStatus(status: string): boolean {
   return ['cancelled', 'success', 'failed'].includes(String(status || '').toLowerCase());
+}
+
+/** 用户/服务端明确取消：已清空分片，不可断点续传 */
+export function isHardCancelledUploadTask(task: HarvesterImageUploadTask): boolean {
+  return (
+    String(task.status || '').toLowerCase() === 'cancelled' &&
+    (!Array.isArray(task.receivedChunks) || task.receivedChunks.length === 0)
+  );
 }
 
 const UPLOAD_TASK_IN_PROGRESS_STATUSES = ['proxying', 'uploaded', 'ingesting', 'pending'];
@@ -168,15 +179,21 @@ function mergeUploadTaskRecord(
     const pickedSt = String(picked.status || '').toLowerCase();
     const other = picked === a ? b : a;
     const otherSt = String(other.status || '').toLowerCase();
-    // 本地上传阶段：仅当 cancelled 不比进行中记录更新时，视为陈旧取消（Tab 切换轮询回退）
+    // 本地上传阶段：陈旧取消可被更新的进行中记录覆盖；明确取消（分片已清空）始终保留
     if (
       pickedSt === 'cancelled' &&
       ['pending', 'ingesting', 'uploaded'].includes(otherSt)
     ) {
-      const pickedTs = new Date(picked.updatedAt || 0).getTime();
-      const otherTs = new Date(other.updatedAt || 0).getTime();
-      if (pickedTs <= otherTs) {
+      if (isHardCancelledUploadTask(picked)) {
+        /* keep picked */
+      } else if (isHardCancelledUploadTask(other)) {
         picked = other;
+      } else {
+        const pickedTs = new Date(picked.updatedAt || 0).getTime();
+        const otherTs = new Date(other.updatedAt || 0).getTime();
+        if (pickedTs <= otherTs) {
+          picked = other;
+        }
       }
     }
     if (String(picked.status || '').toLowerCase() === 'cancelled') {

@@ -2,6 +2,7 @@ import type { HarvesterImageUploadTask } from '../../../../../../services/harves
 import { fetchHarvesterImageUploadTasks } from '../../../../../../services/harvesterApi';
 import {
   applyUploadTaskToListState,
+  isHardCancelledUploadTask,
   mergeUploadTasksSorted,
   taskAffectsImageList,
 } from './images/imageUploadTaskCore';
@@ -147,6 +148,9 @@ export async function reloadUploadTasksForCloud(
       let nextUploadTasks = mergeUploadTasksSorted(mergeUploadTasksSorted([], items), localOnly);
       let nextListTaskList = prev.listTaskList;
       for (const task of items) {
+        if (isHardCancelledUploadTask(task)) {
+          nextListTaskList = nextListTaskList.filter((x) => x.id !== task.id);
+        }
         const { next } = applyUploadTaskToListState(nextListTaskList, task);
         nextListTaskList = next;
       }

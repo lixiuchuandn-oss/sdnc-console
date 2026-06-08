@@ -222,7 +222,7 @@ describe('imagesSectionActions', () => {
     expect(becameSuccess).toBe(false);
   });
 
-  it('applyUploadTaskToListState merges cancelled tasks for list overlay', () => {
+  it('applyUploadTaskToListState removes cancelled tasks from image list overlay', () => {
     const prev = [{ id: 't3', status: 'proxying', proxyProgress: 40 } as any];
     const { next, becameSuccess } = applyUploadTaskToListState(prev, {
       id: 't3',
@@ -230,8 +230,7 @@ describe('imagesSectionActions', () => {
       createdImageName: 'img-x',
       createdImageNamespace: 'ns1',
     } as any);
-    expect(next).toHaveLength(1);
-    expect(next[0].status).toBe('cancelled');
+    expect(next).toHaveLength(0);
     expect(becameSuccess).toBe(false);
   });
 
@@ -256,7 +255,7 @@ describe('imagesSectionActions', () => {
     ] as any[];
     const merged = mergeUploadTasksIntoImageList(images, tasks);
     expect(merged).toHaveLength(1);
-    expect(merged[0].__towerUploadTaskId).toBe('task-cancel');
+    expect(merged[0].__towerUploadTaskId).toBeUndefined();
     expect(merged[0].state).toBe('syncing');
     expect(resolveImageListStateKey(merged[0])).toBe('syncing');
   });
@@ -336,7 +335,7 @@ describe('imagesSectionActions', () => {
     ).toBe('failed');
   });
 
-  it('mergeUploadTasksIntoImageList adds virtual row for cancelled ingest-only task', () => {
+  it('mergeUploadTasksIntoImageList omits virtual row for cancelled ingest-only task', () => {
     const merged = mergeUploadTasksIntoImageList([], [
       {
         id: 'task-ingest-cancel',
@@ -346,9 +345,7 @@ describe('imagesSectionActions', () => {
         filename: 'local.iso',
       },
     ] as any[]);
-    expect(merged).toHaveLength(1);
-    expect(merged[0].state).toBe('cancelled');
-    expect(merged[0].name).toBe('tower-upload-task-ingest-cancel');
+    expect(merged).toHaveLength(0);
   });
 
   it('mergeUploadTasksIntoImageList shows failed when task proxying but cluster import failed', () => {
@@ -1066,6 +1063,33 @@ describe('imagesSectionActions', () => {
         progress: 0,
         ingestProgress: 0,
         updatedAt: '2026-01-01T00:01:00Z',
+      } as any,
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe('cancelled');
+    expect(merged[0].receivedChunks).toEqual([]);
+  });
+
+  it('mergeUploadTasksSorted keeps hard-cancelled over newer ingesting local overlay', () => {
+    const merged = mergeUploadTasksSorted(
+      [
+        {
+          id: 't1',
+          status: 'ingesting',
+          receivedChunks: [0, 1],
+          totalChunks: 36,
+          progress: 5.6,
+          ingestProgress: 5.6,
+          updatedAt: '2026-06-08T12:00:05Z',
+        } as any,
+      ],
+      {
+        id: 't1',
+        status: 'cancelled',
+        receivedChunks: [],
+        progress: 0,
+        ingestProgress: 0,
+        updatedAt: '2026-06-08T12:00:00Z',
       } as any,
     );
     expect(merged).toHaveLength(1);

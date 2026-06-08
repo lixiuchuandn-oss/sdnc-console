@@ -347,8 +347,8 @@ export function resolveImageListDisplayProgress(r: ImageListRecord): number | nu
 }
 
 function taskShowsInImageList(task: HarvesterImageUploadTask): boolean {
-  // 列表状态/进度只看底座；任务仅用于虚拟行（无 CR）与操作按钮关联
-  return ['uploaded', 'proxying', 'failed', 'cancelled'].includes(String(task.status || ''));
+  // 列表状态/进度只看底座；已取消任务仅在「上传任务」抽屉展示
+  return ['uploaded', 'proxying', 'failed'].includes(String(task.status || ''));
 }
 
 /** 库存已有同镜像 ready 行时，不再生成 tower-upload 虚拟行（任务状态可能尚未收成 success） */
@@ -726,7 +726,7 @@ export function mergeUploadTasksIntoImageList(
   const listTasks = tasks.filter(taskShowsInImageList);
   const enrichTasks = tasks.filter((task) => {
     const st = String(task.status || '');
-    return ['uploaded', 'proxying', 'failed', 'success', 'cancelled'].includes(st);
+    return ['uploaded', 'proxying', 'failed', 'success'].includes(st);
   });
   const visibleImages = images.filter(
     (img) => !shouldHideSupersededTowerUploadInventoryRow(img, listTasks),
