@@ -47,6 +47,7 @@ export function buildAdminPlatformCenters(): AdminSidebarCenter[] {
         label: s.title || s.breadcrumbLabel || s.id,
         icon: iconOf(s.icon),
         requiredFeature: s.requiredFeature,
+        requiredLicenseType: s.requiredLicenseType,
       }));
     const groupItems = Array.from(new Set(groupedSpecs.map((s) => String(s.group || ''))))
       .sort((a, b) => {
@@ -81,8 +82,20 @@ function menuItemRequiredFeature(item: AdminMenuItem): string | undefined {
   return typeof rf === 'string' ? rf : undefined;
 }
 
+function menuItemRequiredLicenseType(item: AdminMenuItem): 'enterprise' | undefined {
+  const rt = item.requiredLicenseType;
+  return rt === 'enterprise' ? rt : undefined;
+}
+
+function menuItemLicenseAllowed(item: AdminMenuItem, ctx: AdminMenuAccessContext): boolean {
+  const requiredFeature = menuItemRequiredFeature(item);
+  if (requiredFeature && !ctx.hasFeature(requiredFeature)) return false;
+  if (menuItemRequiredLicenseType(item) === 'enterprise' && !ctx.isEnterpriseLicense()) return false;
+  return true;
+}
+
 function stripRequiredFeature(item: AdminMenuItem): AdminMenuItem {
-  const { requiredFeature: _requiredFeature, ...rest } = item;
+  const { requiredFeature: _requiredFeature, requiredLicenseType: _requiredLicenseType, ...rest } = item;
   if (rest.children) {
     return { ...rest, children: rest.children.map(stripRequiredFeature) };
   }
@@ -91,6 +104,7 @@ function stripRequiredFeature(item: AdminMenuItem): AdminMenuItem {
 
 export type AdminMenuAccessContext = {
   hasFeature: (feature: string) => boolean;
+  isEnterpriseLicense: () => boolean;
   canAccessPath: (path: string) => boolean;
 };
 
@@ -103,6 +117,7 @@ export function filterVisibleAdminCenters(
 
   return centers
     .filter((c) => {
+      if (c.key === '/admin/cen_tenants' && !ctx.isEnterpriseLicense()) return false;
       if (c.key === '/admin/cen_sdn' && !hasFeature('platform.sdn')) return false;
       if (c.key === '/admin/cen_secops' && !hasFeature('platform.aisoc')) return false;
       return true;
@@ -116,19 +131,14 @@ export function filterVisibleAdminCenters(
             ...p,
             children: (p.children || [])
               .filter(
-                (it) =>
-                  canAccessPath(menuItemKey(it)) &&
-                  (!menuItemRequiredFeature(it) || hasFeature(menuItemRequiredFeature(it)!)),
+                (it) => canAccessPath(menuItemKey(it)) && menuItemLicenseAllowed(it, ctx),
               )
               .map(stripRequiredFeature),
           };
         })
         .filter((p) => {
           if (p.children) return (p.children || []).length > 0;
-          return (
-            canAccessPath(menuItemKey(p)) &&
-            (!menuItemRequiredFeature(p) || hasFeature(menuItemRequiredFeature(p)!))
-          );
+          return canAccessPath(menuItemKey(p)) && menuItemLicenseAllowed(p, ctx);
         })
         .map(stripRequiredFeature),
     }))

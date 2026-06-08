@@ -6,7 +6,13 @@ import { getRequiredActionForPath, hasPermissionForAction } from '../utils/acces
 import { Spin } from 'antd';
 import { routeSpecs } from '../routes/RouteSpec';
 import { fetchAdminDefaultHomeFromApi } from '../utils/adminHome';
-import { canAccessAdminPath, findFirstAccessibleAdminPath, normalizeAdminPath } from '../utils/adminAccessFallback';
+import {
+  canAccessAdminPath,
+  findFirstAccessibleAdminPath,
+  normalizeAdminPath,
+  type AdminLicenseGate,
+} from '../utils/adminAccessFallback';
+import { routeLicenseAllowed } from '../utils/licenseAccess';
 import { isTenantAccount, resolveTenantConsolePath } from '../utils/accountType';
 
 interface AdminRouteProps {
@@ -15,7 +21,11 @@ interface AdminRouteProps {
 
 const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
   const { user, loading, logout } = useAuth();
-  const { hasFeature } = useLicense();
+  const { hasFeature, isEnterpriseLicense } = useLicense();
+  const licenseGate = React.useMemo<AdminLicenseGate>(
+    () => ({ hasFeature, isEnterpriseLicense }),
+    [hasFeature, isEnterpriseLicense],
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const [accessResolveState, setAccessResolveState] = React.useState<'ok' | 'resolving' | 'denied'>('ok');
@@ -38,7 +48,7 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
 
   const currentPath = normalizeAdminPath(location.pathname);
   const pathAccessible = user
-    ? canAccessAdminPath(location.pathname + location.search, user, hasFeature)
+    ? canAccessAdminPath(location.pathname + location.search, user, licenseGate)
     : false;
 
   React.useEffect(() => {
@@ -67,7 +77,7 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
       try {
         const home = await fetchAdminDefaultHomeFromApi();
         const apiPath = normalizeAdminPath(home?.defaultPath || '');
-        if (apiPath && apiPath !== currentPath && canAccessAdminPath(apiPath, user, hasFeature)) {
+        if (apiPath && apiPath !== currentPath && canAccessAdminPath(apiPath, user, licenseGate)) {
           target = apiPath;
         }
       } catch {
@@ -75,8 +85,8 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
       }
 
       if (!target) {
-        const local = normalizeAdminPath(findFirstAccessibleAdminPath(user, hasFeature));
-        if (local && local !== currentPath && canAccessAdminPath(local, user, hasFeature)) {
+        const local = normalizeAdminPath(findFirstAccessibleAdminPath(user, licenseGate));
+        if (local && local !== currentPath && canAccessAdminPath(local, user, licenseGate)) {
           target = local;
         }
       }
@@ -95,7 +105,7 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
     return () => {
       cancelled = true;
     };
-  }, [loading, user, pathAccessible, currentPath, navigate, hasFeature]);
+  }, [loading, user, pathAccessible, currentPath, navigate, licenseGate]);
 
   if (loading) {
     return (
@@ -140,12 +150,15 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
     return orderedSpecs.find((r) => matchesPath(p, normalizeAdminPath(r.path)));
   })();
 
-  if (currentSpec?.requiredFeature && !hasFeature(currentSpec.requiredFeature)) {
+  if (currentSpec && !routeLicenseAllowed(currentSpec, licenseGate)) {
     const needMultiCloudForPools = currentSpec.requiredFeature === 'platform.multi-cloud';
     const canOpenPoolList = hasFeature('platform.multi-cloud');
+    const needEnterprise = currentSpec.requiredLicenseType === 'enterprise' && !isEnterpriseLicense();
     return (
       <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'100vh', gap:16 }}>
-        <div style={{ fontSize:18, color:'#595959' }}>当前授权未包含该功能</div>
+        <div style={{ fontSize:18, color:'#595959' }}>
+          {needEnterprise ? '当前为试用版授权，该功能需企业版授权' : '当前授权未包含该功能'}
+        </div>
         {needMultiCloudForPools && !canOpenPoolList && (
           <div style={{ fontSize:14, color:'#8c8c8c', maxWidth:420, textAlign:'center' }}>
             默认授权不含多云管理；资源池完整列表与运维能力需开通「多云管理」授权。未开通时可使用顶栏「可用区」进入已绑定池内总览（需控制台读权限）。

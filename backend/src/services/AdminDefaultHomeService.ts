@@ -121,6 +121,7 @@ type HomeCandRow = {
   homePageAllowedRoles?: string[];
   homePageOnlyWithoutFeature?: string;
   requiredFeature?: string;
+  requiredLicenseType?: 'enterprise';
   homePageReplaceParamFrom?: 'favoriteCloudId';
 };
 
@@ -163,6 +164,7 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     path: '/admin/tenants',
     pageAction: 'tenants:read',
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
   },
   {
     id: 'tenant-users',
@@ -170,6 +172,7 @@ const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
     path: '/admin/tenants/users',
     pageAction: 'tenant-users:read',
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
   },
   {
     id: 'settings-audit-logs',
@@ -197,6 +200,11 @@ const SORTED_CANDIDATES = [...HOME_PAGE_CANDIDATES].sort(
 
 function hasLicenseFeature(feature: string): boolean {
   return licenseService.hasFeature(feature);
+}
+
+function licenseSatisfiesEdition(required?: 'enterprise'): boolean {
+  if (!required) return true;
+  return licenseService.isEnterprise();
 }
 
 /** 默认资源池：系统设置 favorite.cloudId；未配置时取最早创建的云资源池 */
@@ -309,6 +317,17 @@ export async function resolveAdminDefaultHome(
         });
         continue;
       }
+    }
+
+    if (spec.requiredLicenseType && !licenseSatisfiesEdition(spec.requiredLicenseType)) {
+      steps.push({
+        ...baseStep,
+        outcome: 'skipped',
+        reason: 'requiredLicenseType',
+        meta: { requiredLicenseType: spec.requiredLicenseType },
+        rbacOk: spec.homePageSkipPermissionCheck ? undefined : true,
+      });
+      continue;
     }
 
     if (spec.homePageReplaceParamFrom === 'favoriteCloudId') {

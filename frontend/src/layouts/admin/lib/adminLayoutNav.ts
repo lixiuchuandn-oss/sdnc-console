@@ -85,6 +85,7 @@ export function buildGroupMenuChildren(specs: RouteSpec[]) {
           label: root.title || root.breadcrumbLabel || root.id,
           icon: iconOf(root.icon),
           requiredFeature: root.requiredFeature,
+          requiredLicenseType: root.requiredLicenseType,
         };
       }
       return {
@@ -92,12 +93,19 @@ export function buildGroupMenuChildren(specs: RouteSpec[]) {
         label: root.title || root.breadcrumbLabel || root.id,
         icon: iconOf(root.icon),
         requiredFeature: root.requiredFeature,
+        requiredLicenseType: root.requiredLicenseType,
         children: [
-          { key: root.path, label: '资源池列表', requiredFeature: root.requiredFeature },
+          {
+            key: root.path,
+            label: '资源池列表',
+            requiredFeature: root.requiredFeature,
+            requiredLicenseType: root.requiredLicenseType,
+          },
           ...subs.map((s) => ({
             key: s.path,
             label: s.title || s.breadcrumbLabel || s.id,
             requiredFeature: s.requiredFeature,
+            requiredLicenseType: s.requiredLicenseType,
           })),
         ],
       };

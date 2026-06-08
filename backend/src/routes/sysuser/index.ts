@@ -8,6 +8,7 @@ import { RBACRole } from '../../entities/RBACRole';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { AuthRequest } from '../../middleware/auth';
+import { requireEnterpriseLicense } from '../../middleware/enterpriseLicense';
 import bcrypt from 'bcryptjs';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
@@ -43,8 +44,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 });
 
-// 获取所有租户用户列表（用于用户管理页面）
-router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
+// 获取所有租户用户列表（用于用户管理页面；企业版授权）
+router.get('/tenant-users', requireEnterpriseLicense, async (req: AuthRequest, res: Response) => {
   try {
     const tenantUserRepository = AppDataSource.getRepository(TenantUser);
     const organizationRepository = AppDataSource.getRepository(Organization);

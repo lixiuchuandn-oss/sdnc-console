@@ -19,6 +19,8 @@ export interface RouteSpec {
   parentId?: string;
   subtitle?: string;
   requiredFeature?: string;
+  /** 仅指定授权版本可访问（如租户组织/用户页仅 enterprise） */
+  requiredLicenseType?: 'enterprise';
   /** @deprecated 标记为废弃的路由 */
   deprecated?: boolean;
   /**
@@ -313,6 +315,7 @@ export const routeSpecs: RouteSpec[] = [
     },
     order: 1,
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
     homePagePriority: 4
   },
   {
@@ -333,6 +336,7 @@ export const routeSpecs: RouteSpec[] = [
       write: 'organizations:write'
     },
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
   },
   {
     id: 'tenant-users',
@@ -351,6 +355,7 @@ export const routeSpecs: RouteSpec[] = [
     },
     order: 3,
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
     homePagePriority: 5
   },
 

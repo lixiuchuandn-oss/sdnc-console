@@ -17,6 +17,7 @@ import { SecuritySettingsDrawer } from './SecuritySettings';
 import CloudDesktopUsersPanel from './CloudDesktopUsersPanel';
 import TenantUsersWorkspace from '../../tenants/sections/TenantUsersWorkspace';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { useCloudDesktopPermission } from '../../../hooks/useCloudDesktopPermission';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { fetchCloudDesktopUsers } from '../../../services/guacamoleApi';
@@ -51,6 +52,8 @@ const AccessUsersPage: React.FC = () => {
     isSuperAdmin ||
     hasPermissionForAction(userPerms, 'tenant-users:read') ||
     hasPermissionForAction(userPerms, 'tenant-users:write');
+  const { isEnterpriseLicense } = useLicense();
+  const canShowTenantUsersTab = isEnterpriseLicense() && canReadTenantUsers;
   const { canRead: canReadDesktop } = useCloudDesktopPermission();
   const [users, setUsers] = useState<SysUser[]>([]);
   const [loading, setLoading] = useState(false);
@@ -79,13 +82,13 @@ const AccessUsersPage: React.FC = () => {
     if (!canReadDesktop && userTab === 'desktop') {
       setUserTab('system');
     }
-    if (!canReadTenantUsers && userTab === 'tenant') {
+    if (!canShowTenantUsersTab && userTab === 'tenant') {
       setUserTab('system');
     }
-  }, [canReadDesktop, canReadTenantUsers, userTab]);
+  }, [canReadDesktop, canShowTenantUsersTab, userTab]);
 
   useEffect(() => {
-    if (!canReadTenantUsers) {
+    if (!canShowTenantUsersTab) {
       setTenantUserCount(0);
       return;
     }
@@ -103,7 +106,7 @@ const AccessUsersPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [canReadTenantUsers]);
+  }, [canShowTenantUsersTab]);
 
   useEffect(() => {
     if (!canReadDesktop) {
@@ -454,14 +457,14 @@ const AccessUsersPage: React.FC = () => {
     const tabs: Array<{ key: string; tab: string }> = [
       { key: 'system', tab: formatAccessUsersTabLabel('系统用户', users.length) },
     ];
-    if (canReadTenantUsers) {
+    if (canShowTenantUsersTab) {
       tabs.push({ key: 'tenant', tab: formatAccessUsersTabLabel('租户组织用户', tenantUserCount) });
     }
     if (canReadDesktop) {
       tabs.push({ key: 'desktop', tab: formatAccessUsersTabLabel('云桌面用户', desktopUserCount) });
     }
     return tabs;
-  }, [users.length, tenantUserCount, desktopUserCount, canReadTenantUsers, canReadDesktop]);
+  }, [users.length, tenantUserCount, desktopUserCount, canShowTenantUsersTab, canReadDesktop]);
 
   return (
     <PageContainer
@@ -515,10 +518,8 @@ const AccessUsersPage: React.FC = () => {
       />
       </div>
 
-      {canReadTenantUsers ? (
-        <div style={{ display: userTab === 'tenant' ? undefined : 'none' }}>
-          <TenantUsersWorkspace embedded onTotalChange={setTenantUserCount} />
-        </div>
+      {canShowTenantUsersTab && userTab === 'tenant' ? (
+        <TenantUsersWorkspace embedded onTotalChange={setTenantUserCount} />
       ) : null}
 
       {canReadDesktop ? (

@@ -40,12 +40,23 @@ import {
 } from '../permissions';
 import { randomUUID } from 'crypto';
 import { OfflineUpgradeService } from '../services/OfflineUpgradeService';
+import { licenseService } from '../services/LicenseService';
 import { ensureTowerGeneralUploadTempRoot } from '../utils/towerTempPaths';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 
 const systemLog = logger.child('System');
 const systemAssignLog = logger.child('System-Assign');
+
+const ENTERPRISE_TENANT_ROLE_MSG =
+  '当前为试用版授权，租户组织角色功能需企业版授权';
+
+function rejectTenantRoleWithoutEnterprise(scope: unknown, res: any): boolean {
+  if (String(scope || '').trim() !== 'tenant') return false;
+  if (licenseService.isEnterprise()) return false;
+  res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+  return true;
+}
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
@@ -386,7 +397,9 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
       grantedCountByRoleId.set(k, (grantedCountByRoleId.get(k) || 0) + 1);
     }
     // Transform to frontend Policy format
-    const list = roles.map((r) => {
+    const enterprise = licenseService.isEnterprise();
+    const visibleRoles = enterprise ? roles : roles.filter((r) => r.scope !== 'tenant');
+    const list = visibleRoles.map((r) => {
       let actions: string[] = [];
       let conditions: any = undefined;
       try {
@@ -438,6 +451,7 @@ router.post('/rbac/roles', checkRbacPermission, async (req: any, res) => {
       checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
+    if (rejectTenantRoleWithoutEnterprise(scope, res)) return;
     if (!name?.trim()) return res.status(400).json({ message: '角色名称不能为空' });
     const repo = AppDataSource.getRepository(RBACRole);
     const existed = await repo.findOne({ where: { name } });
@@ -473,6 +487,10 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (rejectTenantRoleWithoutEnterprise(scope ?? row.scope, res)) return;
+    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
+      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    }
     if (isBuiltInRbacRoleName(row.name) && permissions !== undefined) {
       return res.status(400).json({ message: '系统预置角色不允许修改权限' });
     }
@@ -524,6 +542,9 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
+      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    }
     if (isBuiltInRbacRoleName(row.name)) {
       return res.status(400).json({ message: '系统预置角色不允许修改权限' });
     }
@@ -559,6 +580,9 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
+      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    }
 
     if (isBuiltInRbacRoleName(row.name)) {
       return res.status(400).json({ message: '系统预置角色不允许删除' });

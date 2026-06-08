@@ -342,6 +342,11 @@ class LicenseService {
     }
     return this.currentStatus.payload.features.includes(feature);
   }
+
+  /** 当前授权是否为有效企业版（租户组织/用户/租户角色等企业版能力） */
+  public isEnterprise(): boolean {
+    return this.currentStatus.active && this.currentStatus.payload?.type === 'enterprise';
+  }
 }
 
 export const licenseService = new LicenseService();

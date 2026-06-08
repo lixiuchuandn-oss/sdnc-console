@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireEnterpriseLicense } from '../../middleware/enterpriseLicense';
 import { registerTenantCrudRoutes } from './tenantCrudRoutes';
 import { registerTenantOrganizationRoutes } from './tenantOrganizationRoutes';
 import { registerTenantRepairRoutes } from './tenantRepairRoutes';
@@ -10,6 +11,8 @@ import { registerTenantUserRoutes } from './tenantUserRoutes';
  * 各 register 内部已保证字面量路径（如 available-resource-pools）先于参数路由注册。
  */
 const router = Router();
+
+router.use(requireEnterpriseLicense);
 
 registerTenantCrudRoutes(router);
 registerTenantRepairRoutes(router);

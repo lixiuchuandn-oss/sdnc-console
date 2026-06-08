@@ -7,6 +7,7 @@ import { useTableColumnSettings } from '../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../components/TableColumnSettingsButton';
 import { apiRequest, apiPost, apiDelete, apiPatch } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { expandRoleGrantOnCheck } from '../../../utils/roleGrantExpand';
 import type { RBACRole } from './types';
@@ -44,6 +45,8 @@ const AccessRolesPage: React.FC = () => {
   const { modal } = App.useApp();
   const { definitions: permissionDefinitions } = usePermissionDefinitions();
   const { user } = useAuth();
+  const { isEnterpriseLicense } = useLicense();
+  const enterpriseLicensed = isEnterpriseLicense();
   const userPerms = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
   const role = String(user?.role || '').toLowerCase();
   const canWrite = role === 'super_admin' || hasPermissionForAction(userPerms, 'system.roles:write');
@@ -225,13 +228,19 @@ const AccessRolesPage: React.FC = () => {
     [roles],
   );
 
-  const roleTabList = useMemo(
-    () => [
-      { key: 'system', tab: formatRoleTabLabel('系统角色', systemRoleCount) },
-      { key: 'tenant', tab: formatRoleTabLabel('租户组织角色', tenantRoleCount) },
-    ],
-    [systemRoleCount, tenantRoleCount],
-  );
+  const roleTabList = useMemo(() => {
+    const tabs = [{ key: 'system', tab: formatRoleTabLabel('系统角色', systemRoleCount) }];
+    if (enterpriseLicensed) {
+      tabs.push({ key: 'tenant', tab: formatRoleTabLabel('租户组织角色', tenantRoleCount) });
+    }
+    return tabs;
+  }, [systemRoleCount, tenantRoleCount, enterpriseLicensed]);
+
+  useEffect(() => {
+    if (!enterpriseLicensed && roleTab === 'tenant') {
+      setRoleTab('system');
+    }
+  }, [enterpriseLicensed, roleTab]);
 
   const handleCreate = useCallback(async () => {
     if (!canWrite) {
