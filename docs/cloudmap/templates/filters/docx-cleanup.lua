@@ -13,12 +13,26 @@ local function is_compact_ui_shot(el)
     or src:match("wizard%-config")
     or src:match("wizard%-select")
     or src:match("edge%-pool%-modal")
+    or src:match("%-create%.png")
+    or src:match("drs%-rule%-create")
 end
 
 -- Toolbar crops are narrow UI strips (one or two buttons). At the default 14cm
 -- they blow up into a huge, pixelated button. Keep them small.
 local function is_toolbar_shot(el)
   return tostring(el.src or ""):lower():match("toolbar") ~= nil
+end
+
+local function basename(path)
+  return tostring(path or ""):match("([^/\\]+)$") or tostring(path or "")
+end
+
+local function image_caption_text(el)
+  local text = pandoc.utils.stringify(el.caption or {})
+  if text ~= "" then
+    return text
+  end
+  return basename(el.src)
 end
 
 function Image(el)
@@ -38,4 +52,22 @@ function Image(el)
     el.attributes.width = "14cm"
   end
   return el
+end
+
+function Para(el)
+  if not is_docx or #el.content ~= 1 or el.content[1].t ~= "Image" then
+    return nil
+  end
+
+  local img = el.content[1]
+  local caption = image_caption_text(img)
+  img.caption = {}
+
+  return {
+    pandoc.Para({ img }),
+    pandoc.Para(
+      { pandoc.Str(caption) },
+      pandoc.Attr("", {}, { ["custom-style"] = "ImageCaption" })
+    ),
+  }
 end

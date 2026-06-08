@@ -5,39 +5,66 @@ const {
   runManualCapture,
   openPoolPage,
   shot,
-  modal,
   clickAntTab,
   clickTableRowMenu,
+  waitForAntModalSettled,
 } = require('./manual-capture-helpers.cjs');
 
 const SUBDIR = 'ch03-cluster';
 
+async function captureCreateModal(page, { createBtn, modalHeading, file }) {
+  const btn = page.getByRole('button', { name: createBtn });
+  if ((await btn.count()) === 0) {
+    console.log('skip modal shot (no button):', file);
+    return;
+  }
+  await btn.click();
+  const m = page.locator('.ant-modal').filter({ hasText: modalHeading }).last();
+  await waitForAntModalSettled(page, m, { delayMs: 800 });
+  const content = m.locator('.ant-modal-content').first();
+  await shot(page, file, { subdir: SUBDIR, locator: content });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+}
+
 async function captureComputeCluster(page, cloudId) {
   const tabs = [
     { operateTab: 'nodes', file: 'compute-nodes-list.png' },
-    { operateTab: 'failure_domains', file: 'failure-domains-list.png', createBtn: '创建故障域', modalTitle: '故障域' },
-    { operateTab: 'deployment_sets', file: 'deployment-sets-list.png', createBtn: '创建部署集', modalTitle: '部署集' },
-    { operateTab: 'drs_rules', file: 'drs-rules-list.png', createBtn: '创建调度规则', modalTitle: '调度' },
+    {
+      operateTab: 'failure_domains',
+      skipListShot: true,
+      createBtn: '创建故障域',
+      modalHeading: '创建故障域',
+      modalFile: 'failure-domain-create-modal.png',
+    },
+    {
+      operateTab: 'deployment_sets',
+      skipListShot: true,
+      createBtn: '创建部署集',
+      modalHeading: '创建部署集',
+      modalFile: 'deployment-set-create-modal.png',
+    },
+    { operateTab: 'drs_rules', file: 'drs-rules-list.png', skipListShot: true, createBtn: '创建调度规则' },
     { operateTab: 'migrations', file: 'drs-migrations-list.png' },
   ];
 
   for (const tab of tabs) {
     await openPoolPage(page, cloudId, `cluster/compute_cluster?operateTab=${tab.operateTab}`);
-    await shot(page, tab.file, { subdir: SUBDIR });
-    if (tab.createBtn) {
+    if (tab.file && !tab.skipListShot) {
+      await shot(page, tab.file, { subdir: SUBDIR });
+    }
+    if (tab.modalFile) {
+      await captureCreateModal(page, {
+        createBtn: tab.createBtn,
+        modalHeading: tab.modalHeading,
+        file: tab.modalFile,
+      });
+    } else if (tab.createBtn && tab.operateTab === 'drs_rules') {
       await page.getByRole('button', { name: tab.createBtn }).click().catch(() => {});
-      const m = modal(page, tab.modalTitle);
       const drawerEl = page.locator('.ant-drawer').last();
-      await page.waitForTimeout(600);
-      if (tab.operateTab === 'drs_rules' && (await drawerEl.isVisible().catch(() => false))) {
+      await page.waitForTimeout(800);
+      if (await drawerEl.isVisible().catch(() => false)) {
         await shot(page, 'drs-rule-create.png', { subdir: SUBDIR, locator: drawerEl });
-        await page.keyboard.press('Escape');
-      } else if (await m.isVisible().catch(() => false)) {
-        const modalFiles = {
-          failure_domains: 'failure-domain-create-modal.png',
-          deployment_sets: 'deployment-set-create-modal.png',
-        };
-        await shot(page, modalFiles[tab.operateTab], { subdir: SUBDIR, locator: m });
         await page.keyboard.press('Escape');
       }
     }

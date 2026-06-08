@@ -25,15 +25,15 @@ user-manual/
 在 **`docs/cloudmap`** 目录执行（需 [Pandoc](https://pandoc.org/)）：
 
 ```powershell
-.\scripts\build-docx.ps1 -Variant manual -CopyToDeployment
+.\scripts\build-docx.ps1 -Variant manual
 .\scripts\build-html.ps1 -Variant manual -Open
 ```
 
 ```bash
-VARIANT=manual COPY_TO_DEPLOYMENT=1 ./scripts/build-docx.sh
+VARIANT=manual ./scripts/build-docx.sh
 ```
 
-输出：`output/cloudmap-user-manual.docx`；加 `-CopyToDeployment` 时同步 `deployment/Cloudmap_user_manual.docx`。
+输出：`output/cloudmap-user-manual.docx`
 
 ## 维护建议
 

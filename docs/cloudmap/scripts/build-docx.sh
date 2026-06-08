@@ -4,16 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VARIANT="${VARIANT:-whitepaper}"
 OUTPUT="${1:-}"
-COPY_DEPLOY="${COPY_TO_DEPLOYMENT:-0}"
 
 if [[ "$VARIANT" == "manual" ]]; then
   DOC_ROOT="$ROOT/user-manual"
   DEFAULT_NAME="cloudmap-user-manual.docx"
-  DEPLOY_NAME="Cloudmap_user_manual.docx"
 else
   DOC_ROOT="$ROOT/whitepaper"
   DEFAULT_NAME="cloudmap-whitepaper.docx"
-  DEPLOY_NAME="Cloudmap_whitepaper.docx"
 fi
 
 SOURCE="$DOC_ROOT/source"
@@ -59,10 +56,3 @@ fi
 
 pandoc "${ARGS[@]}"
 echo "已生成: $OUTPUT"
-
-if [[ "$COPY_DEPLOY" == "1" ]]; then
-  DEPLOY="$(cd "$ROOT/../.." && pwd)/deployment"
-  mkdir -p "$DEPLOY"
-  cp -f "$OUTPUT" "$DEPLOY/$DEPLOY_NAME"
-  echo "已复制到: $DEPLOY/$DEPLOY_NAME"
-fi

@@ -21,8 +21,8 @@ docs/cloudmap/
 
 ```powershell
 cd docs/cloudmap
-.\scripts\build-docx.ps1 -Variant manual -CopyToDeployment
-.\scripts\build-docx.ps1 -Variant whitepaper -CopyToDeployment
+.\scripts\build-docx.ps1 -Variant manual
+.\scripts\build-docx.ps1 -Variant whitepaper
 ```
 
 详见 [whitepaper/README.md](./whitepaper/README.md) 与 [user-manual/README.md](./user-manual/README.md)。

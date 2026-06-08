@@ -9,7 +9,6 @@ param(
     [string]$Format,
 
     [string]$Output = "",
-    [switch]$CopyToDeployment,
     [switch]$Open
 )
 
@@ -89,7 +88,38 @@ if (-not $Output) {
     $Output = Join-Path $OutputDir "$defaultName.$ext"
 }
 
-$refDoc = Join-Path (Join-Path $Root "templates") "reference.docx"
+function Resolve-WritableOutputPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $Path
+    }
+    try {
+        $stream = [System.IO.File]::Open(
+            $Path,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+        $stream.Close()
+        return $Path
+    } catch {
+        $dir = [System.IO.Path]::GetDirectoryName($Path)
+        $base = [System.IO.Path]::GetFileNameWithoutExtension($Path)
+        $ext = [System.IO.Path]::GetExtension($Path)
+        $alt = Join-Path $dir ($base + '-new' + $ext)
+        Write-Host "WARN: output file is locked (close Word if open):" -ForegroundColor Yellow
+        Write-Host "      $Path" -ForegroundColor Yellow
+        Write-Host "      -> $alt" -ForegroundColor Yellow
+        return $alt
+    }
+}
+
+if ($Format -eq 'docx') {
+    $Output = Resolve-WritableOutputPath -Path $Output
+}
+
+$templatesDir = Join-Path $Root "templates"
+$refDoc = Join-Path $templatesDir "reference.docx"
 $whitepaperAssets = Join-Path (Join-Path (Join-Path $Root "whitepaper") "source") "assets"
 
 $prepareRef = Join-Path $PSScriptRoot "prepare-reference-docx.ps1"
@@ -106,6 +136,7 @@ if ($Format -eq 'docx') {
         "-o", $Output
         "--from", "markdown"
         "--to", "docx"
+        "--data-dir=$templatesDir"
         "--toc"
         "--toc-depth=$tocDepth"
         "--resource-path=$Source;$whitepaperAssets"
@@ -120,6 +151,7 @@ if ($Format -eq 'docx') {
     if ($Variant -eq 'manual' -and (Test-Path $chapterBreakFilter)) {
         $pandocArgs += @("--lua-filter=$chapterBreakFilter")
     }
+    $pandocArgs += @("--metadata", "lang=zh-CN")
     if (Test-Path $refDoc) {
         $pandocArgs += @("--reference-doc=$refDoc")
     } else {
@@ -230,6 +262,36 @@ function Set-DocxTableLayout {
     Remove-Item -LiteralPath $tmp -Recurse -Force
 }
 
+function Set-DocxThemeFontLang {
+    param([Parameter(Mandatory = $true)][string]$DocxPath)
+    if (-not (Test-Path $DocxPath)) { return }
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("docx-lang-" + [Guid]::NewGuid().ToString("N"))
+    $docDir = Join-Path $tmp "doc"
+    New-Item -ItemType Directory -Path $docDir -Force | Out-Null
+    $zip = Join-Path $tmp "d.zip"
+    Copy-Item -LiteralPath $DocxPath -Destination $zip -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $docDir)
+    $partPath = Join-Path $docDir "word\settings.xml"
+    if (Test-Path $partPath) {
+        $xml = [System.IO.File]::ReadAllText($partPath, [System.Text.UTF8Encoding]::new($false))
+        if ($xml -match '<w:themeFontLang\s[^>]*/>') {
+            $xml = [regex]::Replace(
+                $xml,
+                '<w:themeFontLang\s[^>]*/>',
+                '<w:themeFontLang w:val="en-US" w:eastAsia="zh-CN" />'
+            )
+        } else {
+            $xml = $xml -replace '</w:settings>', '<w:themeFontLang w:val="en-US" w:eastAsia="zh-CN" /></w:settings>'
+        }
+        [System.IO.File]::WriteAllText($partPath, $xml, (New-Object System.Text.UTF8Encoding $false))
+    }
+    Remove-Item -LiteralPath $DocxPath -Force
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($docDir, $DocxPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    Remove-Item -LiteralPath $tmp -Recurse -Force
+}
+
 function Set-DocxTocHeadingText {
     param(
         [Parameter(Mandatory = $true)][string]$DocxPath,
@@ -247,7 +309,31 @@ function Set-DocxTocHeadingText {
     $partPath = Join-Path $docDir "word\document.xml"
     if (Test-Path $partPath) {
         $xml = [System.IO.File]::ReadAllText($partPath, [System.Text.UTF8Encoding]::new($false))
-        $xml = $xml -replace '(<w:t[^>]*>)Table of Contents(</w:t>)', ('${1}' + $Text + '${2}')
+        $tocRPr = (
+            '<w:rPr>' +
+            '<w:rFonts w:ascii="Microsoft YaHei" w:eastAsia="Microsoft YaHei" w:hAnsi="Microsoft YaHei" w:cs="Microsoft YaHei" w:hint="eastAsia" />' +
+            '<w:b /><w:bCs /><w:color w:val="0070C0" /><w:sz w:val="30" /><w:szCs w:val="30" />' +
+            '<w:lang w:val="en-US" w:eastAsia="zh-CN" />' +
+            '</w:rPr>'
+        )
+        $tocPara = (
+            '<w:p><w:pPr><w:pStyle w:val="TOCHeading" /></w:pPr><w:r>' +
+            $tocRPr +
+            '<w:t xml:space="preserve">' + $Text + '</w:t></w:r></w:p>'
+        )
+        if ($xml -match '(?s)<w:p><w:pPr><w:pStyle w:val="TOCHeading" /></w:pPr>.*?</w:p>') {
+            $xml = [regex]::Replace(
+                $xml,
+                '(?s)<w:p><w:pPr><w:pStyle w:val="TOCHeading" /></w:pPr>.*?</w:p>',
+                $tocPara,
+                1
+            )
+        } else {
+            foreach ($variant in @('Table of Contents', '目錄', 'Contents', 'TABLE OF CONTENTS')) {
+                $escaped = [regex]::Escape($variant)
+                $xml = $xml -replace ('(<w:t[^>]*>)' + $escaped + '(</w:t>)'), ('${1}' + $Text + '${2}')
+            }
+        }
         [System.IO.File]::WriteAllText($partPath, $xml, (New-Object System.Text.UTF8Encoding $false))
     }
     Remove-Item -LiteralPath $DocxPath -Force
@@ -262,6 +348,7 @@ try {
         Clear-DocxBodyIndent -DocxPath $Output
         Set-DocxTableLayout -DocxPath $Output
         Set-DocxPageMargins -DocxPath $Output -MarginCm 1.9
+        Set-DocxThemeFontLang -DocxPath $Output
         Set-DocxTocHeadingText -DocxPath $Output -Text "目录"
     }
 } finally {
@@ -295,13 +382,4 @@ if ($Format -eq 'html') {
     if ($Open) {
         Start-Process $Output
     }
-}
-
-if ($CopyToDeployment) {
-    $deploy = Join-Path (Split-Path -Parent (Split-Path -Parent $Root)) "deployment"
-    if (-not (Test-Path $deploy)) { New-Item -ItemType Directory -Path $deploy | Out-Null }
-    $destName = if ($Variant -eq 'manual') { "Cloudmap_user_manual.docx" } else { "Cloudmap_whitepaper.docx" }
-    $dest = Join-Path $deploy $destName
-    Copy-Item -Force $Output $dest
-    Write-Host "Copied to: $dest" -ForegroundColor Green
 }

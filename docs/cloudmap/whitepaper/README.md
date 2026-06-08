@@ -25,12 +25,12 @@ whitepaper/
 3. **生成 Word**（在 `docs/cloudmap` 目录）：
 
    ```powershell
-   .\scripts\build-docx.ps1 -Variant whitepaper -CopyToDeployment
+   .\scripts\build-docx.ps1 -Variant whitepaper
    ```
 
 4. **HTML 预览**：`.\scripts\build-html.ps1 -Variant whitepaper -Open`
 
-交付物：`output/cloudmap-whitepaper.docx`；加 `-CopyToDeployment` 时同步 `deployment/Cloudmap_whitepaper.docx`。
+交付物：`output/cloudmap-whitepaper.docx`。
 
 ## 从旧 Word 迁移（一次性）
 

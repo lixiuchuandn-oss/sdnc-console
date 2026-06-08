@@ -365,7 +365,22 @@ if (Test-Path $documentPath) {
     [System.IO.File]::WriteAllText($documentPath, $docXml, (New-Object System.Text.UTF8Encoding $false))
 }
 
+$settingsPath = Join-Path $docDir "word\settings.xml"
+if (Test-Path $settingsPath) {
+    $settings = [System.IO.File]::ReadAllText($settingsPath, [System.Text.Encoding]::UTF8)
+    if ($settings -match '<w:themeFontLang\s[^>]*/>') {
+        $settings = [regex]::Replace(
+            $settings,
+            '<w:themeFontLang\s[^>]*/>',
+            '<w:themeFontLang w:val="en-US" w:eastAsia="zh-CN" />'
+        )
+    } else {
+        $settings = $settings -replace '</w:settings>', '<w:themeFontLang w:val="en-US" w:eastAsia="zh-CN" /></w:settings>'
+    }
+    [System.IO.File]::WriteAllText($settingsPath, $settings, (New-Object System.Text.UTF8Encoding $false))
+}
+
 if (Test-Path $RefPath) { Remove-Item -LiteralPath $RefPath -Force }
 [System.IO.Compression.ZipFile]::CreateFromDirectory($docDir, $RefPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 Remove-Item -LiteralPath $tmp -Recurse -Force
-Write-Host "Reference template: body $BodyFontName 五号/1.5倍行距, margins 1.9cm, headings $HeadingFontName #$HeadingColor -> $RefPath" -ForegroundColor Green
+Write-Host "Reference template updated: $RefPath" -ForegroundColor Green
