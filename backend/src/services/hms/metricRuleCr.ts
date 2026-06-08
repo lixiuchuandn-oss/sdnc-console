@@ -16,8 +16,14 @@ export const METRIC_RULE_API_VERSION = 'v1';
 export const METRIC_RULE_KIND = 'MetricRule';
 export const METRIC_RULE_PLURAL = 'metricrules';
 
-/** CPU / 内存类指标的安全阈值下限（%） */
+/** CPU / 内存安全阈值下限（%） */
 export const METRIC_SAFE_THRESHOLD_MIN = 50;
+export const METRIC_SCORE_SUM = 10;
+/** 关闭调度条件时的默认安全阈值 / 占用比例 */
+export const METRIC_DISABLED_SAFE_THRESHOLD = 500;
+export const METRIC_DISABLED_SCORE = 0;
+/** 集群级 MetricRule 仅允许一条 */
+export const METRIC_RULE_MAX_COUNT = 1;
 
 const METRIC_RULE_API_GROUPS = [METRIC_RULE_API_GROUP, METRIC_RULE_LEGACY_API_GROUP] as const;
 
@@ -30,11 +36,17 @@ export function metricRuleCrItemPath(name: string, apiGroup = METRIC_RULE_API_GR
 }
 
 export type MetricRuleCrSpecInput = {
-  metricType?: 'cpu' | 'memory' | string;
-  metricSafeThreshold?: number;
+  cpuSafeThreshold?: number;
+  cpuScore?: number;
+  memorySafeThreshold?: number;
+  memoryScore?: number;
   migrateConcurrentNum?: number;
   migrateMaxCount?: number;
   randTopN?: number;
+  maxMigratePeriod?: number;
+  /** 旧版字段，仅读取兼容 */
+  metricType?: 'cpu' | 'memory' | string;
+  metricSafeThreshold?: number;
 };
 
 export type MetricRuleCrBody = {
@@ -52,10 +64,22 @@ export type ListMetricRuleCrsResult = {
 
 function isMetricRuleLike(o: unknown): boolean {
   if (!o || typeof o !== 'object') return false;
-  const row = o as { kind?: string; spec?: { metricType?: unknown } };
+  const row = o as {
+    kind?: string;
+    spec?: {
+      metricType?: unknown;
+      cpuSafeThreshold?: unknown;
+      memorySafeThreshold?: unknown;
+    };
+  };
   const kind = String(row.kind || '').toLowerCase();
   if (kind === 'metricrule') return true;
-  return row.spec?.metricType != null;
+  const spec = row.spec || {};
+  return (
+    spec.metricType != null ||
+    spec.cpuSafeThreshold != null ||
+    spec.memorySafeThreshold != null
+  );
 }
 
 /** 仅当响应形态像 K8s/Steve 列表时才采纳，避免 200 错页被当成空列表 */
@@ -199,50 +223,153 @@ async function buildKubeApiUrls(
   return roots.map((root) => `${root.replace(/\/+$/, '')}${seg}`);
 }
 
+function isCpuEnabled(specInput: MetricRuleCrSpecInput): boolean {
+  return Number(specInput.cpuScore) > METRIC_DISABLED_SCORE;
+}
+
+function isMemoryEnabled(specInput: MetricRuleCrSpecInput): boolean {
+  return Number(specInput.memoryScore) > METRIC_DISABLED_SCORE;
+}
+
+function validateSafeThreshold(label: string, value: number): string | undefined {
+  if (Number.isNaN(value)) return `${label} 无效`;
+  if (value < METRIC_SAFE_THRESHOLD_MIN || value > 100) {
+    return `${label} 须在 ${METRIC_SAFE_THRESHOLD_MIN}–100 之间`;
+  }
+  return undefined;
+}
+
+function validateDisabledMetric(
+  label: string,
+  threshold: number,
+  score: number,
+): string | undefined {
+  if (threshold !== METRIC_DISABLED_SAFE_THRESHOLD) {
+    return `关闭 ${label} 时安全阈值须为 ${METRIC_DISABLED_SAFE_THRESHOLD}`;
+  }
+  if (score !== METRIC_DISABLED_SCORE) {
+    return `关闭 ${label} 时占用比例须为 ${METRIC_DISABLED_SCORE}`;
+  }
+  return undefined;
+}
+
+function validateScores(
+  cpuEnabled: boolean,
+  memoryEnabled: boolean,
+  cpuScore: number,
+  memoryScore: number,
+): string | undefined {
+  if (cpuEnabled && !memoryEnabled) {
+    if (cpuScore !== METRIC_SCORE_SUM) {
+      return `仅配置 CPU 时 cpuScore 须为 ${METRIC_SCORE_SUM}`;
+    }
+    if (memoryScore !== METRIC_DISABLED_SCORE) {
+      return `关闭内存时 memoryScore 须为 ${METRIC_DISABLED_SCORE}`;
+    }
+    return undefined;
+  }
+  if (!cpuEnabled && memoryEnabled) {
+    if (memoryScore !== METRIC_SCORE_SUM) {
+      return `仅配置内存时 memoryScore 须为 ${METRIC_SCORE_SUM}`;
+    }
+    if (cpuScore !== METRIC_DISABLED_SCORE) {
+      return `关闭 CPU 时 cpuScore 须为 ${METRIC_DISABLED_SCORE}`;
+    }
+    return undefined;
+  }
+  if (cpuEnabled && memoryEnabled) {
+    if (Number.isNaN(cpuScore) || Number.isNaN(memoryScore)) {
+      return 'cpuScore / memoryScore 无效';
+    }
+    if (cpuScore + memoryScore !== METRIC_SCORE_SUM) {
+      return `cpuScore 与 memoryScore 之和须为 ${METRIC_SCORE_SUM}`;
+    }
+    if (cpuScore < 1 || memoryScore < 1) {
+      return '占用比例须大于 0';
+    }
+  }
+  return undefined;
+}
+
 export function buildMetricRuleCrManifest(name: string, specInput: MetricRuleCrSpecInput) {
   const nameTrim = String(name || '').trim();
   if (!nameTrim) {
     throw Object.assign(new Error('缺少 MetricRule 名称'), { status: 400 });
   }
-  const metricType = String(specInput.metricType || '')
-    .trim()
-    .toLowerCase();
-  if (metricType !== 'cpu' && metricType !== 'memory') {
-    throw Object.assign(new Error('metricType 须为 cpu 或 memory'), { status: 400 });
-  }
-  const threshold = Number(specInput.metricSafeThreshold);
-  if (Number.isNaN(threshold) || threshold > 100) {
-    throw Object.assign(new Error('metricSafeThreshold 须在 0–100 之间'), { status: 400 });
-  }
-  if ((metricType === 'cpu' || metricType === 'memory') && threshold < METRIC_SAFE_THRESHOLD_MIN) {
+
+  const cpuScore = Number(specInput.cpuScore);
+  const memoryScore = Number(specInput.memoryScore);
+  const cpuEnabled = isCpuEnabled(specInput);
+  const memoryEnabled = isMemoryEnabled(specInput);
+  if (!cpuEnabled && !memoryEnabled) {
     throw Object.assign(
-      new Error(`metricSafeThreshold 不能低于 ${METRIC_SAFE_THRESHOLD_MIN}%（CPU / 内存）`),
+      new Error('请至少配置 CPU 或内存其中一种调度条件（两者为或关系）'),
       { status: 400 },
     );
   }
+
+  const scoreErr = validateScores(cpuEnabled, memoryEnabled, cpuScore, memoryScore);
+  if (scoreErr) {
+    throw Object.assign(new Error(scoreErr), { status: 400 });
+  }
+
+  const cpuSafeThreshold = Number(specInput.cpuSafeThreshold);
+  const memorySafeThreshold = Number(specInput.memorySafeThreshold);
+
+  if (cpuEnabled) {
+    const thresholdErr = validateSafeThreshold('cpuSafeThreshold', cpuSafeThreshold);
+    if (thresholdErr) {
+      throw Object.assign(new Error(thresholdErr), { status: 400 });
+    }
+  } else {
+    const disabledErr = validateDisabledMetric('CPU', cpuSafeThreshold, cpuScore);
+    if (disabledErr) {
+      throw Object.assign(new Error(disabledErr), { status: 400 });
+    }
+  }
+
+  if (memoryEnabled) {
+    const thresholdErr = validateSafeThreshold('memorySafeThreshold', memorySafeThreshold);
+    if (thresholdErr) {
+      throw Object.assign(new Error(thresholdErr), { status: 400 });
+    }
+  } else {
+    const disabledErr = validateDisabledMetric('内存', memorySafeThreshold, memoryScore);
+    if (disabledErr) {
+      throw Object.assign(new Error(disabledErr), { status: 400 });
+    }
+  }
+
+  const spec: Record<string, number> = {
+    cpuSafeThreshold: Math.floor(cpuSafeThreshold),
+    cpuScore: Math.floor(cpuScore),
+    memorySafeThreshold: Math.floor(memorySafeThreshold),
+    memoryScore: Math.floor(memoryScore),
+  };
+
   const migrateConcurrentNum = Number(specInput.migrateConcurrentNum ?? 1);
   const migrateMaxCount = Number(specInput.migrateMaxCount ?? 1);
   const randTopN = Number(specInput.randTopN ?? 1);
-  if ([migrateConcurrentNum, migrateMaxCount, randTopN].some((n) => !Number.isFinite(n) || n < 1)) {
+  const maxMigratePeriod = Number(specInput.maxMigratePeriod ?? 24);
+  if ([migrateConcurrentNum, migrateMaxCount, randTopN, maxMigratePeriod].some((n) => !Number.isFinite(n) || n < 1)) {
     throw Object.assign(
-      new Error('migrateConcurrentNum / migrateMaxCount / randTopN 须为大于 0 的整数'),
-      {
-        status: 400,
-      },
+      new Error(
+        'migrateConcurrentNum / migrateMaxCount / randTopN / maxMigratePeriod 须为大于 0 的整数',
+      ),
+      { status: 400 },
     );
   }
+
+  spec.migrateConcurrentNum = Math.floor(migrateConcurrentNum);
+  spec.migrateMaxCount = Math.floor(migrateMaxCount);
+  spec.randTopN = Math.floor(randTopN);
+  spec.maxMigratePeriod = Math.floor(maxMigratePeriod);
 
   return {
     apiVersion: `${METRIC_RULE_API_GROUP}/${METRIC_RULE_API_VERSION}`,
     kind: METRIC_RULE_KIND,
     metadata: { name: nameTrim },
-    spec: {
-      metricType,
-      metricSafeThreshold: threshold,
-      migrateConcurrentNum: Math.floor(migrateConcurrentNum),
-      migrateMaxCount: Math.floor(migrateMaxCount),
-      randTopN: Math.floor(randTopN),
-    },
+    spec,
   };
 }
 
@@ -336,6 +463,14 @@ export async function createMetricRuleCr(
   cloud: { endpoint?: string; secretKey?: string | null; config?: any },
   body: MetricRuleCrBody,
 ): Promise<any> {
+  const existing = await listMetricRuleCrs(cloud);
+  if (existing.apiAvailable && existing.items.length >= METRIC_RULE_MAX_COUNT) {
+    throw Object.assign(
+      new Error(`集群仅允许配置 ${METRIC_RULE_MAX_COUNT} 条调度规则，请先编辑或删除已有规则`),
+      { status: 409 },
+    );
+  }
+
   const token = resolveHarvesterCloudKubeToken(cloud);
   const insecure = !!cloud.config?.ignoreTls;
   const manifest = buildMetricRuleCrManifest(body.name, body.spec);
@@ -360,16 +495,15 @@ export async function updateMetricRuleCr(
     getJsonOnce(url, token, insecure, true),
   );
 
+  const built = buildMetricRuleCrManifest(nameTrim, body.spec);
   const manifest = {
     ...existing,
-    ...buildMetricRuleCrManifest(nameTrim, {
-      ...(existing?.spec || {}),
-      ...body.spec,
-    }),
+    ...built,
     metadata: {
       ...(existing?.metadata || {}),
       name: nameTrim,
     },
+    spec: built.spec,
   };
 
   return requestFirstOk(urls, token, insecure, (url) =>

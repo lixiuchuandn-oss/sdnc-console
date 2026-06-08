@@ -11,11 +11,13 @@ import { apiErrorMessage } from '../lib/physicalSwitchesSectionUtils';
 import { metricRuleRowFields } from '../lib/drsMetricRuleUtils';
 import { confirmHighRiskDelete, DRS_RULE_RISK_ITEMS } from '../../shared/lib/highRiskConfirm';
 import { runHarvesterSectionRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import { METRIC_RULE_MAX_COUNT } from '../lib/drsMetricRuleForm';
 
 export type UseMetricRuleCrActionsOptions = {
   cloudId: string;
   canManageMetricRule: boolean;
   editingMetricRule: MetricRuleTableRow | null;
+  existingRuleCount: number;
   loadAll: (force?: boolean) => Promise<void>;
   closeConfigDrawer: () => void;
   setConfigSaving: (v: boolean) => void;
@@ -25,6 +27,7 @@ export function useMetricRuleCrActions({
   cloudId,
   canManageMetricRule,
   editingMetricRule,
+  existingRuleCount,
   loadAll,
   closeConfigDrawer,
   setConfigSaving,
@@ -64,6 +67,10 @@ export function useMetricRuleCrActions({
           await updateHarvesterMetricRuleCr(cloudId, editName, { spec });
           message.success('调度规则已更新');
         } else {
+          if (existingRuleCount >= METRIC_RULE_MAX_COUNT) {
+            message.error(`集群仅允许配置 ${METRIC_RULE_MAX_COUNT} 条调度规则，请先编辑或删除已有规则`);
+            return;
+          }
           await createHarvesterMetricRuleCr(cloudId, { name: payload.name, spec });
           message.success('调度规则已创建');
         }
@@ -76,7 +83,15 @@ export function useMetricRuleCrActions({
         setConfigSaving(false);
       }
     },
-    [canManageMetricRule, cloudId, closeConfigDrawer, editingMetricRule, loadAll, setConfigSaving],
+    [
+      canManageMetricRule,
+      cloudId,
+      closeConfigDrawer,
+      editingMetricRule,
+      existingRuleCount,
+      loadAll,
+      setConfigSaving,
+    ],
   );
 
   return { handleDeleteMetricRule, handleSubmitMetricRule };

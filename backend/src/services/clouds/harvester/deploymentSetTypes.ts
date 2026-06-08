@@ -1,4 +1,4 @@
-/** 虚拟机部署集：Tower 本地定义，供 Pod 亲和/反亲和标签引用 */
+/** 虚拟机部署集：集群 DeploySet CR，供 Pod 亲和/反亲和标签引用 */
 
 import type {
   DeploymentSetSchedulingPolicy,

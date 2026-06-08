@@ -4,7 +4,11 @@
 import React, { useEffect } from 'react';
 import { Alert } from 'antd';
 import VmDeploymentSetField from '../../lib/VmDeploymentSetField';
-import { isVmFixedHostScheduling, readVmDeploymentSetId } from '../../lib/vmDeploymentSet';
+import {
+  isVmFixedHostScheduling,
+  readVmDeploymentSetId,
+} from '../../lib/vmDeploymentSet';
+import { readVmNamespace } from '../../lib/vmSafeRead';
 import { readVmMetricAutoScheduled } from '../../lib/vmSchedulingExclusion';
 import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 
@@ -45,6 +49,7 @@ const ChangePodAffinityFields: React.FC<Props> = ({
       <VmDeploymentSetField
         cloudId={cloudId}
         form={form}
+        projectNamespace={readVmNamespace(record)}
         disabled={fixedHost}
         disabledReason="指定主机模式下不支持部署集"
         initialSetId={fixedHost ? undefined : initialSetId}

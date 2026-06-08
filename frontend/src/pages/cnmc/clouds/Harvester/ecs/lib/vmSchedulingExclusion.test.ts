@@ -1,5 +1,8 @@
 import {
   applyDeploymentSetExclusive,
+  collectVmWizardMetricAutoScheduledConflicts,
+  formatMetricAutoScheduledConflictMessage,
+  getVmWizardMetricAutoScheduledConflictMessage,
   resolveExclusiveVmScheduling,
   setMetricAutoScheduledExclusive,
 } from './vmSchedulingExclusion';
@@ -48,5 +51,52 @@ describe('vmSchedulingExclusion', () => {
     applyDeploymentSetExclusive(form, nextSet);
     expect(values.deploymentSetId).toBe('ds-2');
     expect(values.metricAutoScheduled).toBe(false);
+  });
+
+  it('collectVmWizardMetricAutoScheduledConflicts detects GPU and passthrough nic', () => {
+    expect(
+      collectVmWizardMetricAutoScheduledConflicts({
+        hostMode: 'auto',
+        metricAutoScheduled: true,
+        gpuMode: 'passthrough',
+        gpuPickKey: 'gpu-1',
+      }),
+    ).toEqual(['GPU']);
+    expect(
+      collectVmWizardMetricAutoScheduledConflicts({
+        hostMode: 'auto',
+        metricAutoScheduled: true,
+        netMode: 'passthrough_sriov',
+      }),
+    ).toEqual(['直通SR-IOV']);
+    expect(
+      collectVmWizardMetricAutoScheduledConflicts({
+        hostMode: 'auto',
+        metricAutoScheduled: true,
+        usbDevices: ['usb-a'],
+      }),
+    ).toEqual(['USB设备']);
+    expect(
+      collectVmWizardMetricAutoScheduledConflicts({
+        hostMode: 'auto',
+        metricAutoScheduled: false,
+        netMode: 'passthrough',
+      }),
+    ).toEqual([]);
+  });
+
+  it('formatMetricAutoScheduledConflictMessage joins multiple conflicts', () => {
+    expect(
+      formatMetricAutoScheduledConflictMessage(['GPU', 'USB设备']),
+    ).toBe('GPU、USB设备与参与指标自动调度冲突');
+    expect(
+      getVmWizardMetricAutoScheduledConflictMessage({
+        hostMode: 'auto',
+        metricAutoScheduled: true,
+        gpuMode: 'vgpu',
+        gpuResourceName: 'nvidia.com/gpu',
+        netMode: 'passthrough',
+      }),
+    ).toBe('GPU、直通网卡与参与指标自动调度冲突');
   });
 });

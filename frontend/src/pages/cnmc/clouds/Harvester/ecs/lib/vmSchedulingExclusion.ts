@@ -64,3 +64,111 @@ export function applyDeploymentSetExclusive(
     form.setFieldsValue({ metricAutoScheduled: false });
   }
 }
+
+export type VmWizardMetricAutoScheduledConflictLabel =
+  | 'GPU'
+  | '直通网卡'
+  | '直通SR-IOV'
+  | 'USB设备';
+
+type VmWizardMetricAutoScheduledFormSlice = {
+  hostMode?: string;
+  metricAutoScheduled?: unknown;
+  gpuMode?: unknown;
+  gpuPickKey?: unknown;
+  gpuPcideviceName?: unknown;
+  gpuResourceName?: unknown;
+  netMode?: unknown;
+  primaryNic?: unknown;
+  netIfaces?: unknown;
+  usbDevices?: unknown;
+};
+
+function hasWizardGpuConfigured(v: VmWizardMetricAutoScheduledFormSlice): boolean {
+  const mode = String(v.gpuMode || 'none').toLowerCase();
+  if (mode === 'none') return false;
+  return !!(
+    String(v.gpuPickKey || '').trim() ||
+    String(v.gpuPcideviceName || '').trim() ||
+    String(v.gpuResourceName || '').trim()
+  );
+}
+
+function isWizardPassthroughNetMode(mode: unknown): 'passthrough' | 'passthrough_sriov' | null {
+  const m = String(mode || '');
+  if (m === 'passthrough') return 'passthrough';
+  if (m === 'passthrough_sriov') return 'passthrough_sriov';
+  return null;
+}
+
+function hasWizardUsbPassthrough(v: VmWizardMetricAutoScheduledFormSlice): boolean {
+  const list = Array.isArray(v.usbDevices) ? v.usbDevices : [];
+  return list.some((item) => String(item ?? '').trim() !== '');
+}
+
+/** 创建向导：指标自动调度与 GPU / 直通网卡 / USB 透传互斥项 */
+export function collectVmWizardMetricAutoScheduledConflicts(
+  v: VmWizardMetricAutoScheduledFormSlice,
+): VmWizardMetricAutoScheduledConflictLabel[] {
+  if (!shouldWriteVmAutoScheduledAnnotation(v.hostMode, v.metricAutoScheduled)) {
+    return [];
+  }
+  const conflicts: VmWizardMetricAutoScheduledConflictLabel[] = [];
+  if (hasWizardGpuConfigured(v)) conflicts.push('GPU');
+  const primaryPt = isWizardPassthroughNetMode(v.netMode);
+  if (primaryPt === 'passthrough') conflicts.push('直通网卡');
+  if (primaryPt === 'passthrough_sriov') conflicts.push('直通SR-IOV');
+  const netIfaces = Array.isArray(v.netIfaces) ? v.netIfaces : [];
+  for (const nic of netIfaces) {
+    const pt = isWizardPassthroughNetMode((nic as { mode?: unknown })?.mode);
+    if (pt === 'passthrough' && !conflicts.includes('直通网卡')) conflicts.push('直通网卡');
+    if (pt === 'passthrough_sriov' && !conflicts.includes('直通SR-IOV')) {
+      conflicts.push('直通SR-IOV');
+    }
+  }
+  if (hasWizardUsbPassthrough(v)) conflicts.push('USB设备');
+  return conflicts;
+}
+
+export function formatMetricAutoScheduledConflictMessage(
+  conflicts: VmWizardMetricAutoScheduledConflictLabel[],
+): string | null {
+  if (!conflicts.length) return null;
+  if (conflicts.length === 1) return `${conflicts[0]}与参与指标自动调度冲突`;
+  return `${conflicts.join('、')}与参与指标自动调度冲突`;
+}
+
+export function getVmWizardMetricAutoScheduledConflictMessage(
+  v: VmWizardMetricAutoScheduledFormSlice,
+): string | null {
+  return formatMetricAutoScheduledConflictMessage(
+    collectVmWizardMetricAutoScheduledConflicts(v),
+  );
+}
+
+/** 勾选指标自动调度；若与 GPU/直通网卡/USB 冲突则保持未勾选并返回提示文案 */
+export function trySetMetricAutoScheduledExclusive(
+  form: {
+    setFieldsValue: (v: Record<string, unknown>) => void;
+    getFieldsValue?: (all?: boolean) => unknown;
+  },
+  checked: boolean,
+  hostMode?: string,
+): string | null {
+  if (!checked) {
+    form.setFieldsValue({ metricAutoScheduled: false });
+    return null;
+  }
+  const base = (form.getFieldsValue?.(true) || {}) as VmWizardMetricAutoScheduledFormSlice;
+  const conflictMsg = getVmWizardMetricAutoScheduledConflictMessage({
+    ...base,
+    hostMode: hostMode ?? base.hostMode,
+    metricAutoScheduled: true,
+  });
+  if (conflictMsg) {
+    form.setFieldsValue({ metricAutoScheduled: false });
+    return conflictMsg;
+  }
+  setMetricAutoScheduledExclusive(form, true);
+  return null;
+}
