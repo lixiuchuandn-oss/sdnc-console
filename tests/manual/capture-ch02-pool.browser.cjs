@@ -3,20 +3,64 @@
  * A) Header strip: edge pool (CloudWizardeasy) — single/default pool, no multi-cloud wizard.
  * B) /admin/clouds: full CloudWizard — requires platform.multi-cloud license.
  */
-const { launchTowerBrowser, newMaximizedPage, adminLoginPage } = require('../shared/playwright-browser.cjs');
+const { launchTowerBrowser, newMaximizedPage } = require('../shared/playwright-browser.cjs');
 const { webBase, adminUser, adminPassword, cloudmapEndpoint, cloudmapToken } = require('../shared/load-env.cjs');
 const { shot } = require('../shared/manual-screenshot.cjs');
+const { waitForAntModalSettled } = require('./manual-capture-helpers.cjs');
 
 const SUBDIR = 'ch02-pool';
 const DOC_ENDPOINT = 'https://10.0.0.1/v3';
 const DOC_TOKEN = 'token-doc-example-do-not-use';
+
+async function captureLoginPage(page, webBase) {
+  await page.goto(`${webBase}/admin/login`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.waitForSelector('#admin-login_username');
+  const loginPage = page.locator('.login-page').first();
+  await loginPage.waitFor({ timeout: 15000 });
+  await page
+    .waitForFunction(
+      () => {
+        const el = document.querySelector('.login-page');
+        if (!el) return false;
+        const bg = window.getComputedStyle(el).backgroundImage;
+        return Boolean(bg && bg !== 'none');
+      },
+      { timeout: 10000 },
+    )
+    .catch(() => {});
+  await page.waitForTimeout(800);
+  await shot(page, 'login-page.png', { subdir: SUBDIR, locator: loginPage });
+}
+
+async function captureHeaderNoPool(page, webBase, user, password) {
+  await page.route('**/api/clouds**', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    }
+    return route.continue();
+  });
+  await page.goto(`${webBase}/admin/login`, { waitUntil: 'domcontentloaded', timeout: 120000 });
+  await page.waitForSelector('#admin-login_username');
+  await page.fill('#admin-login_username', user);
+  await page.fill('#admin-login_password', password);
+  await page.locator('button[type=submit]').click();
+  await page.waitForURL(/\/admin\/(?!login)/, { timeout: 60000 });
+  await page.waitForTimeout(2000);
+  const strip = page.locator('[aria-label="\u53ef\u7528\u533a\u4e0e\u8d44\u6e90\u6c60"]');
+  await strip.waitFor({ timeout: 20000 });
+  await page.getByText('\u6682\u65e0\u591a\u4e91\u8d44\u6e90\u6c60').waitFor({ timeout: 15000 }).catch(() => {});
+  await shot(page, 'header-no-pool.png', { subdir: SUBDIR, locator: strip });
+  await page.unroute('**/api/clouds**');
+  await page.goto(`${webBase}/admin/dashboard`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(2500);
+}
 
 async function openHeaderEdgeWizard(page) {
   const btn = page.locator('button.admin-header-pool-icon-btn').first();
   await btn.waitFor({ timeout: 20000 });
   await btn.click();
   const modal = page.locator('.ant-modal').filter({ hasText: /\u63a5\u5165\u8fb9\u7f18\u4e91|\u7f16\u8f91\u8fb9\u7f18\u4e91/ });
-  await modal.waitFor({ timeout: 15000 });
+  await waitForAntModalSettled(page, modal);
   return modal;
 }
 
@@ -36,7 +80,7 @@ async function tryOpenMultiCloudWizard(page) {
   }
   await addBtn.click();
   const modal = page.locator('.ant-modal').filter({ hasText: '\u65b0\u589e\u8d44\u6e90\u6c60' });
-  await modal.waitFor({ timeout: 15000 });
+  await waitForAntModalSettled(page, modal, { delayMs: 2000 });
   return modal;
 }
 
@@ -63,8 +107,9 @@ async function main() {
   const { page } = await newMaximizedPage(browser);
 
   try {
-    await adminLoginPage(page, webBase, adminUser, adminPassword);
-    await page.waitForTimeout(1500);
+    await captureLoginPage(page, webBase);
+    await captureHeaderNoPool(page, webBase, adminUser, adminPassword);
+    await page.waitForTimeout(800);
 
     // --- A: Header single-pool (edge) ---
     await shot(page, 'header-pool-strip.png', { subdir: SUBDIR });
@@ -80,6 +125,7 @@ async function main() {
     if (useLiveTest) {
       await edgeModal.getByRole('button', { name: '\u8fde\u63a5\u6d4b\u8bd5' }).click();
       await edgeModal.getByText('\u8fde\u63a5\u6210\u529f').waitFor({ timeout: 90000 }).catch(() => {});
+      await waitForAntModalSettled(page, edgeModal, { delayMs: 500 });
       await shot(page, 'header-edge-connection-test.png', { locator: edgeModal, subdir: SUBDIR });
     }
 
@@ -89,6 +135,7 @@ async function main() {
     // --- B: Multi-cloud resource pool list ---
     const multiModal = await tryOpenMultiCloudWizard(page);
     if (multiModal) {
+      await waitForAntModalSettled(page, multiModal, { delayMs: 500 });
       await shot(page, 'multi-pool-list.png', { subdir: SUBDIR });
 
       const onSelect = await multiModal.getByText('\u6b22\u8fce\u4f7f\u7528\u4e91\u8d44\u6e90\u63a5\u5165\u5411\u5bfc').isVisible().catch(() => false);
@@ -97,6 +144,7 @@ async function main() {
         await page.waitForTimeout(400);
         await multiModal.locator('.ant-card').filter({ hasText: 'Cloudmap' }).first().click();
         await page.waitForTimeout(500);
+        await waitForAntModalSettled(page, multiModal, { delayMs: 800 });
         await shot(page, 'multi-pool-wizard-select.png', { locator: multiModal, subdir: SUBDIR });
       }
 
@@ -104,6 +152,7 @@ async function main() {
       await multiModal.getByLabel('\u540d\u79f0').fill('manual-doc-multi');
       await multiModal.getByLabel('\u7aef\u70b9').fill(endpoint);
       await multiModal.getByLabel('Cloudmap API \u4ee4\u724c').fill(useLiveTest ? token : DOC_TOKEN);
+      await waitForAntModalSettled(page, multiModal, { delayMs: 800 });
       await shot(page, 'multi-pool-wizard-config.png', { locator: multiModal, subdir: SUBDIR });
 
       await multiModal.getByRole('button', { name: '\u4e0b\u4e00\u6b65' }).click();
@@ -114,6 +163,7 @@ async function main() {
       } else {
         await page.waitForTimeout(1200);
       }
+      await waitForAntModalSettled(page, multiModal, { delayMs: 800 });
       await shot(page, 'multi-pool-wizard-test.png', { locator: multiModal, subdir: SUBDIR });
       await page.keyboard.press('Escape');
     }

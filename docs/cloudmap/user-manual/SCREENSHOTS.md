@@ -22,7 +22,7 @@ npm run manual:shots:all
 
 | 脚本 | 说明 |
 |------|------|
-| `manual:shots:pool` | 第 2 章 · 控制台与资源池 |
+| `manual:shots:pool` | 第 2 章 · 登录页、顶栏与资源池接入 |
 | `manual:shots:images` | 镜像浏览器上传 |
 | `manual:shots:vm` | 云主机列表 / 快速创建 / 创建向导 |
 | `manual:shots:volumes` | 云存储 |
@@ -42,7 +42,7 @@ npm run manual:shots:all
 
 ## 已登记模块（文件名见各 capture 脚本）
 
-- `ch02-pool/` — 6 张
+- `ch02-pool/` — 8 张（含 `login-page`、`header-no-pool`、顶栏与接入向导）
 - `ch03-vm/` — 列表、工具栏、向导、回收站
 - `ch03-vm-detail/` — 详情抽屉、改配、迁移、克隆
 - `ch03-volumes/` — 8 张

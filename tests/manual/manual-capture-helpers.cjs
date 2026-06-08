@@ -98,6 +98,29 @@ async function runManualCapture(mainFn) {
   }
 }
 
+async function waitForAntModalSettled(page, modal, opts = {}) {
+  const delayMs = opts.delayMs ?? 1500;
+  await modal.waitFor({ state: 'visible', timeout: opts.timeout ?? 15000 });
+  await page
+    .waitForFunction(
+      () => {
+        const wraps = Array.from(document.querySelectorAll('.ant-modal-wrap'));
+        const active = wraps.find((w) => {
+          const st = window.getComputedStyle(w);
+          return st.display !== 'none' && st.visibility !== 'hidden';
+        });
+        if (!active) return false;
+        const modalEl = active.querySelector('.ant-modal');
+        if (!modalEl) return false;
+        const opacity = Number.parseFloat(window.getComputedStyle(modalEl).opacity || '0');
+        return opacity > 0.95;
+      },
+      { timeout: 10000 },
+    )
+    .catch(() => {});
+  await page.waitForTimeout(delayMs);
+}
+
 module.exports = {
   webBase,
   shot,
@@ -109,4 +132,5 @@ module.exports = {
   clickAntTab,
   clickTableRowMenu,
   runManualCapture,
+  waitForAntModalSettled,
 };
