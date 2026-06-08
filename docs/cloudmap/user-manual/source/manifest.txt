@@ -8,10 +8,11 @@ ch03/_chapter.md
 ch03/4-资源总览.md
 ch03/5-云监控.md
 ch03/6-集群.md
-ch03/6-3-平台网络.md
-ch03/6-4-统一存储.md
-ch03/6-5-StorageClass.md
-ch03/6-6-对象存储.md
+ch03/6-1-计算资源.md
+ch03/6-2-网络管理.md
+ch03/6-3-统一存储.md
+ch03/6-4-对象存储.md
+ch03/6-5-直通设备.md
 ch03/7-云主机.md
 ch03/7-1-快速创建.md
 ch03/7-2-创建向导.md
