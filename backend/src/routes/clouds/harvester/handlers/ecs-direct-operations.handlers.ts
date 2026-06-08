@@ -186,6 +186,8 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
         }
         const payload = {
           iid: item.id,
+          instanceId:
+            namespace && name ? `${namespace}/${name}` : String(item.id || ''),
           status,
           nodeName,
           ips: Array.from(new Set(ips)),
@@ -305,7 +307,11 @@ export async function harvesterEcsStreamHandler(req: any, res: Response, next: a
             const key = `${ns}/${name}`;
             if (event.type === 'DELETED') {
               vmCache.delete(key);
-              send('vm_deleted', { iid: obj.metadata?.uid });
+              send('vm_deleted', {
+                iid: obj.metadata?.uid,
+                instanceId: `${ns}/${name}`,
+                metadata: obj.metadata,
+              });
             } else {
               vmCache.set(key, obj);
               const eventType = event.type === 'ADDED' ? 'vm_created' : 'vm_status';
@@ -551,6 +557,9 @@ export async function harvesterEcsMigrateHandler(req: Request, res: Response) {
     const { resolvedId, error } = await resolveTenantVmId(namespace, instanceId, cloud, isTenant);
     if (error) return res.status(error.status).json({ message: error.message });
 
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const targetNode = String(body.nodeName ?? body.targetNode ?? '').trim() || undefined;
+
     const result = await harvesterMigrateVM(
       {
         endpoint: cloud.endpoint || (cloud.config as any)?.endpoint,
@@ -558,7 +567,7 @@ export async function harvesterEcsMigrateHandler(req: Request, res: Response) {
         insecure: !!(cloud.config as any)?.ignoreTls || !!(cloud.config as any)?.insecure,
       },
       resolvedId,
-      req.body.targetNode,
+      targetNode,
     );
     res.json(result);
   } catch (error: any) {

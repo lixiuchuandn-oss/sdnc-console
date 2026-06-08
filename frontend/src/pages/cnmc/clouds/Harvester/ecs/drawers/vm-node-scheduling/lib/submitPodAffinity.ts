@@ -15,7 +15,7 @@ import {
   readVmDeploymentSetId,
 } from '../../../lib/vmDeploymentSet';
 import {
-  buildClearMetricAutoScheduledVmMetadataAnnotations,
+  buildClearMetricAutoScheduledTemplateMetadataAnnotations,
   readVmMetricAutoScheduled,
 } from '../../../lib/vmSchedulingExclusion';
 
@@ -64,7 +64,10 @@ export async function submitVmReconfigureChangePodAffinity(
     payload.templateMetadataLabels = labelPatch;
   }
   if (nextSet && readVmMetricAutoScheduled(activeRecord)) {
-    payload.vmMetadataAnnotations = buildClearMetricAutoScheduledVmMetadataAnnotations();
+    const clearAnn = buildClearMetricAutoScheduledTemplateMetadataAnnotations();
+    payload.templateMetadataAnnotations = clearAnn;
+    // 兼容旧版写在 VM 根 metadata 上的注解
+    payload.vmMetadataAnnotations = clearAnn;
   }
 
   await updateHarvesterVmSpec(cloudId, namespace, vmName, payload);

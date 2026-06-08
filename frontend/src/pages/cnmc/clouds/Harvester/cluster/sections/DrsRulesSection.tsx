@@ -162,18 +162,17 @@ const DrsRulesSection: React.FC<DrsRulesSectionProps> = ({ cloudId, checkPerm })
                 >
                   创建调度规则
                 </Button>
-                <Tooltip title={METRIC_RULE_CDRS_INFO_TOOLTIP}>
+                <Tooltip
+                  title={
+                    hasReachedRuleLimit
+                      ? METRIC_RULE_SINGLE_LIMIT_TOOLTIP
+                      : METRIC_RULE_CDRS_INFO_TOOLTIP
+                  }
+                >
                   <QuestionCircleOutlined
                     style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }}
                   />
                 </Tooltip>
-                {hasReachedRuleLimit ? (
-                  <Tooltip title={METRIC_RULE_SINGLE_LIMIT_TOOLTIP}>
-                    <QuestionCircleOutlined
-                      style={{ color: 'rgba(0,0,0,.45)', cursor: 'help', fontSize: 12 }}
-                    />
-                  </Tooltip>
-                ) : null}
               </span>
             ) : null}
             <TableColumnSettingsButton

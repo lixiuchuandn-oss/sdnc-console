@@ -17,7 +17,7 @@
  *    - 暂停/恢复 (Pause/Unpause): 暂停 VM 实例的执行
  *
  * 2. [迁移管理]:
- *    - 热迁移 (Migrate): 将运行中的 VM 迁移到其他节点
+ *    - 热迁移 (Migrate): 指定节点走 Harvester action=migrate；自动调度走 VMIM CR
  *    - 取消迁移 (Abort Migration): 终止正在进行的迁移任务
  *
  * 3. [删除与恢复]:
@@ -294,12 +294,8 @@ export const harvesterUnpauseVM = async (
  * 将运行中的虚拟机迁移到其他节点，迁移过程中 VM 保持运行状态（热迁移）。
  *
  * [实现原理]
- * 创建 VirtualMachineInstanceMigration 对象，KubeVirt 控制器会自动执行迁移流程。
- *
- * [参数说明]
- * - targetNode: 可选，指定目标节点名称。若提供，通过 VMIM spec.addedNodeSelector
- *   （kubernetes.io/hostname）将可迁移节点收窄到该主机；未提供则由调度器自动选择。
- *   仍须满足 VM 既有 nodeSelector/nodeAffinity 及存储热迁等约束。
+ * - 指定 targetNode：Harvester Steve `?action=migrate`，body `{ nodeName }`（与底座 UI 一致）
+ * - 未指定 targetNode：创建 VirtualMachineInstanceMigration，由 KubeVirt 调度器自动选节点
  *
  * @param params Harvester 连接参数
  * @param instanceId 虚拟机实例标识
@@ -323,10 +319,14 @@ export const harvesterMigrateVM = async (
   const path = await resolveVmPath({ endpoint, token, insecure }, instanceId);
   if (!path) throw new Error('无法解析实例标识');
 
-  // Create VirtualMachineInstanceMigration
+  const node = targetNode != null ? String(targetNode).trim() : '';
+  if (node) {
+    const url = `${origin}/v1/harvester/kubevirt.io.virtualmachines/${encodeURIComponent(path.namespace)}/${encodeURIComponent(path.name)}?action=migrate`;
+    return await requestJson('POST', url, token, insecure, { nodeName: node });
+  }
+
   const migrationName = `${path.name}-mig-${Date.now().toString(36)}`;
   const url = `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent(path.namespace)}/virtualmachineinstancemigrations`;
-
   const payload: any = {
     apiVersion: 'kubevirt.io/v1',
     kind: 'VirtualMachineInstanceMigration',
@@ -338,15 +338,6 @@ export const harvesterMigrateVM = async (
       vmiName: path.name,
     },
   };
-
-  const node = targetNode != null ? String(targetNode).trim() : '';
-  if (node) {
-    // KubeVirt：用 addedNodeSelector 将迁移目标收窄到指定节点（与固定节点调度同一标签键）
-    // 勿写 spec.targetNode / targetNodeName（属 status 或旧版无效字段，会被 API 忽略或 400）
-    payload.spec.addedNodeSelector = {
-      'kubernetes.io/hostname': node,
-    };
-  }
 
   return await requestJson('POST', url, token, insecure, payload);
 };

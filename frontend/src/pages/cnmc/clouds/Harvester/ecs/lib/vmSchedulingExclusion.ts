@@ -1,5 +1,5 @@
 /**
- * 指标自动调度（VM 根注解）与部署集（Pod 标签 + 亲和/反亲和）互斥。
+ * 指标自动调度（Pod template metadata 注解）与部署集（Pod 标签 + 亲和/反亲和）互斥。
  */
 import {
   shouldWriteVmAutoScheduledAnnotation,
@@ -8,18 +8,37 @@ import {
 } from './vmAutoScheduledAnnotation';
 import { applyDeploymentSetToWizardForm, type DeploymentSetLike } from './vmDeploymentSet';
 
-export function readVmMetricAutoScheduled(record: unknown): boolean {
-  const r = record as {
-    metadata?: { annotations?: Record<string, string> };
-    rawData?: { metadata?: { annotations?: Record<string, string> } };
-  } | null;
-  const ann = r?.metadata?.annotations || r?.rawData?.metadata?.annotations;
+function readMetricAutoScheduledFromAnnotations(
+  ann: Record<string, string> | undefined,
+): boolean {
   return ann?.[VM_AUTO_SCHEDULED_ANNOTATION_KEY] === VM_AUTO_SCHEDULED_ANNOTATION_VALUE;
 }
 
-/** 变配绑定部署集时清除指标自动调度注解 */
-export function buildClearMetricAutoScheduledVmMetadataAnnotations(): Record<string, null> {
+export function readVmMetricAutoScheduled(record: unknown): boolean {
+  const r = record as {
+    metadata?: { annotations?: Record<string, string> };
+    spec?: { template?: { metadata?: { annotations?: Record<string, string> } } };
+    rawData?: {
+      metadata?: { annotations?: Record<string, string> };
+      spec?: { template?: { metadata?: { annotations?: Record<string, string> } } };
+    };
+  } | null;
+  const templateAnn =
+    r?.spec?.template?.metadata?.annotations ||
+    r?.rawData?.spec?.template?.metadata?.annotations;
+  if (readMetricAutoScheduledFromAnnotations(templateAnn)) return true;
+  const rootAnn = r?.metadata?.annotations || r?.rawData?.metadata?.annotations;
+  return readMetricAutoScheduledFromAnnotations(rootAnn);
+}
+
+/** 变配绑定部署集时清除 spec.template.metadata 上的指标自动调度注解 */
+export function buildClearMetricAutoScheduledTemplateMetadataAnnotations(): Record<string, null> {
   return { [VM_AUTO_SCHEDULED_ANNOTATION_KEY]: null };
+}
+
+/** @deprecated 使用 buildClearMetricAutoScheduledTemplateMetadataAnnotations */
+export function buildClearMetricAutoScheduledVmMetadataAnnotations(): Record<string, null> {
+  return buildClearMetricAutoScheduledTemplateMetadataAnnotations();
 }
 
 /** 提交 payload：二者不可同时生效 */
