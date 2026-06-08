@@ -830,30 +830,74 @@ const CloudConsolePage: React.FC = () => {
     cloudId?: string,
     force: boolean = false,
     mergePublicScenarioOverride?: boolean,
+    skipSync: boolean = false,
+    silent: boolean = false,
   ) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
 
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const mergePublic =
         mergePublicScenarioOverride !== undefined
           ? mergePublicScenarioOverride
           : shouldMergePublicScenarioForTenantConsole(harvesterCategory, harvesterResource);
-      const json = await fetchHarvesterImages(cid, force, false, mergeTenantPublicScope(mergePublic));
-      const items: any[] = Array.isArray((json as any)?.data?.items) 
-          ? (json as any).data.items 
-          : (Array.isArray((json as any)?.items) ? (json as any).items : []);
-      
+      const json = await fetchHarvesterImages(
+        cid,
+        force,
+        skipSync,
+        mergeTenantPublicScope(mergePublic),
+      );
+      const items: any[] = Array.isArray((json as any)?.data?.items)
+        ? (json as any).data.items
+        : Array.isArray((json as any)?.items)
+          ? (json as any).items
+          : [];
+
       setImages(Array.isArray(items) ? items : []);
     } catch (e: any) {
       console.error('[CloudConsole] loadImages error:', e);
-      setImages([]);
+      if (!silent) {
+        setImages([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
+
+  /** 镜像库存轮询（上传同步进度）；默认 skipSync，不触发全局 loading */
+  const reloadImagesInventory = useCallback(
+    async (force?: boolean, skipSync?: boolean) => {
+      const cid = currentCloudId;
+      if (!cid || cid === 'all') return;
+      try {
+        const mergePublic = shouldMergePublicScenarioForTenantConsole(
+          harvesterCategory,
+          harvesterResource,
+        );
+        const json = await fetchHarvesterImages(
+          cid,
+          force !== false,
+          skipSync ?? true,
+          mergeTenantPublicScope(mergePublic),
+        );
+        const items: any[] = Array.isArray((json as any)?.data?.items)
+          ? (json as any).data.items
+          : Array.isArray((json as any)?.items)
+            ? (json as any).items
+            : [];
+        setImages(Array.isArray(items) ? items : []);
+      } catch (e: any) {
+        console.error('[CloudConsole] reloadImagesInventory error:', e);
+      }
+    },
+    [currentCloudId, harvesterCategory, harvesterResource, mergeTenantPublicScope],
+  );
 
   // 加载模板列表
   const loadTemplates = async (cloudId?: string, force = false) => {
@@ -1927,6 +1971,7 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                   onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                   onRefreshImages={(force?: boolean) => loadImages(currentCloudId, force ?? true)}
+                  onImagesInventoryReload={reloadImagesInventory}
                   onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
                   backupsTabOnRefresh={backupsTabOnRefresh}
                   onRefreshCloudInits={() => loadCloudInits(currentCloudId)}

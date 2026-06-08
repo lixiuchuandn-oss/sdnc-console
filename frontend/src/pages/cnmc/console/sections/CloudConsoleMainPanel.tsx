@@ -34,6 +34,7 @@ import {
   LazyUnderlaySubnetsSection,
 } from '../lib/lazyMainPanelSections';
 import type { BackupsSectionOnRefresh } from '../../clouds/Cloudmap/pool/loaders/backupsRefresh';
+import type { HarvesterImagesInventoryReload } from '../../clouds/Harvester/shared/lib/harvesterSectionRefresh';
 import {
   buildMainNavCategories,
   type NavCategory,
@@ -100,6 +101,8 @@ interface Props {
   onRefreshVolumes?: () => void;
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: (force?: boolean) => void;
+  /** 镜像库存轮询（上传同步到底座时的列表进度） */
+  onImagesInventoryReload?: HarvesterImagesInventoryReload;
   onRefreshSnapshots?: () => void;
   backupsTabOnRefresh?: {
     backups: BackupsSectionOnRefresh;
@@ -165,6 +168,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   onRefreshVolumes,
   onRefreshStorageClasses,
   onRefreshImages,
+  onImagesInventoryReload,
   onRefreshSnapshots,
   backupsTabOnRefresh,
   onRefreshCloudInits,
@@ -411,6 +415,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             images={images}
             loading={loading}
             onRefresh={onRefreshImages}
+            onImagesInventoryReload={onImagesInventoryReload}
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
@@ -571,6 +576,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onRefreshVolumes,
     onRefreshStorageClasses,
     onRefreshImages,
+    onImagesInventoryReload,
     onRefreshSnapshots,
     backupsTabOnRefresh,
     onRefreshCloudInits,
