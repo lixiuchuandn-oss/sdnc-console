@@ -82,6 +82,55 @@ export function reloadHarvesterNamespacesList(
   runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
 }
 
+export function harvesterEcsListCachePath(cloudId: string): string {
+  return `/api/clouds/${cloudId}/resources/ecs`;
+}
+
+/** 热迁移提交后延迟拉列表：迁移完成前即时刷新拿不到新节点 */
+export const HARVESTER_ECS_AFTER_MIGRATE_SYNC_DELAYS_MS = [
+  3000, 8000, 20000, 45000, 90000,
+] as const;
+
+type PendingEcsAfterMigrateNotify = {
+  timerIds: ReturnType<typeof setTimeout>[];
+};
+
+const pendingEcsAfterMigrateNotifyByCloud = new Map<
+  string,
+  PendingEcsAfterMigrateNotify
+>();
+
+export function cancelHarvesterEcsAfterMigrateNotify(cloudId: string): void {
+  const pending = pendingEcsAfterMigrateNotifyByCloud.get(cloudId);
+  if (!pending) return;
+  for (const id of pending.timerIds) clearTimeout(id);
+  pendingEcsAfterMigrateNotifyByCloud.delete(cloudId);
+}
+
+/** 热迁移后按间隔 force 刷新云主机列表（清 GET 缓存 + sync） */
+export function notifyHarvesterEcsAfterMigrate(
+  cloudId: string,
+  onRefresh?: HarvesterSectionOnRefresh,
+  options?: { delaysMs?: readonly number[] },
+): void {
+  if (!cloudId || !onRefresh) return;
+  cancelHarvesterEcsAfterMigrateNotify(cloudId);
+
+  const delays = options?.delaysMs ?? HARVESTER_ECS_AFTER_MIGRATE_SYNC_DELAYS_MS;
+  const pending: PendingEcsAfterMigrateNotify = { timerIds: [] };
+  for (const ms of delays) {
+    pending.timerIds.push(
+      setTimeout(() => {
+        clearGetCacheForPath(harvesterEcsListCachePath(cloudId));
+        runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
+      }, ms),
+    );
+  }
+  if (pending.timerIds.length > 0) {
+    pendingEcsAfterMigrateNotifyByCloud.set(cloudId, pending);
+  }
+}
+
 export function harvesterBackupsListCachePath(cloudId: string): string {
   return `/api/clouds/${cloudId}/resources/harvester/backups`;
 }

@@ -1000,7 +1000,6 @@ export const buildHarvesterVmPayload = (params: {
              ...(harvesterCustomIpEntries.length > 0
                ? { 'harvesterhci.io/custom-ip': JSON.stringify(harvesterCustomIpEntries) }
                : {}),
-             ...(writeMetricAnnotation ? buildVmAutoScheduledAnnotations() : {}),
         }
     },
     spec: {
@@ -1011,7 +1010,9 @@ export const buildHarvesterVmPayload = (params: {
                   String(vmId || v.name),
                   effectiveDeploymentSet,
                 ),
-                annotations: {}
+                annotations: {
+                  ...(writeMetricAnnotation ? buildVmAutoScheduledAnnotations() : {}),
+                },
             },
             spec: {
                 evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,

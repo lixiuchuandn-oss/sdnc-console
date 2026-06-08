@@ -12,6 +12,11 @@ import {
   vmAliasInventoryKey,
   type VmAliasAppliedDetail,
 } from '../../../Harvester/ecs/lib/vmTowerAlias';
+import {
+  ecsRowIdentityKeys,
+  indexEcsStatusUpdate,
+  pickEcsStatusUpdate,
+} from './ecsRowIdentity';
 
 export type UseCloudmapPoolEcsParams = {
   cloudId: string;
@@ -97,11 +102,16 @@ export function useCloudmapPoolEcs({
       es.addEventListener('vm_deleted', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));
-          const iid = String(json?.iid || '');
-          if (!iid) return;
+          const keys = ecsRowIdentityKeys({
+            id: json?.iid,
+            InstanceId: json?.instanceId,
+            metadata: json?.metadata,
+          });
+          if (keys.length === 0) return;
+          const keySet = new Set(keys);
           setEcs((prev) =>
             (prev || []).filter(
-              (x: any) => String(x?.InstanceId || x?.id || '') !== iid,
+              (x: any) => !ecsRowIdentityKeys(x).some((k) => keySet.has(k)),
             ),
           );
         } catch {}
@@ -110,9 +120,8 @@ export function useCloudmapPoolEcs({
       es.addEventListener('vm_status', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));
-          const iid = String(json?.iid || '');
-          if (!iid) return;
-          vmStatusBuffer.current.set(iid, json);
+          if (!json?.iid && !json?.instanceId && !json?.metadata) return;
+          indexEcsStatusUpdate(vmStatusBuffer.current, json);
         } catch {}
       });
 
@@ -162,9 +171,8 @@ export function useCloudmapPoolEcs({
       setEcs((prev) => {
         let hasChanges = false;
         const next = (prev || []).map((x: any) => {
-          const xiid = String(x?.InstanceId || x?.id || '');
-          if (updates.has(xiid)) {
-            const json = updates.get(xiid);
+          const json = pickEcsStatusUpdate(x, updates);
+          if (json) {
             const statusStr = String(json?.status || '');
             const nodeName = String(json?.nodeName || '');
             const ips = Array.isArray(json?.ips) ? json.ips : [];
@@ -174,8 +182,9 @@ export function useCloudmapPoolEcs({
             );
             const currentNode = String(
               x?.vmi?.status?.nodeName ||
-                x?.status?.nodeName ||
                 x?.Extra?.NodeName ||
+                x?.nodeName ||
+                x?.status?.nodeName ||
                 '',
             );
 
@@ -208,10 +217,19 @@ export function useCloudmapPoolEcs({
 
             if (!newItem.Extra) newItem.Extra = {};
             newItem.Extra.NodeName = nodeName;
+            newItem.nodeName = nodeName;
 
-            if (!newItem.vmi) newItem.vmi = { status: {} };
-            if (!newItem.vmi.status) newItem.vmi.status = {};
-            newItem.vmi.status.nodeName = nodeName;
+            newItem.vmi = {
+              ...(x.vmi || {}),
+              status: {
+                ...(x.vmi?.status || {}),
+                nodeName,
+              },
+            };
+
+            if (typeof newItem.status === 'object' && newItem.status !== null) {
+              newItem.status = { ...newItem.status, nodeName };
+            }
 
             if (ips.length > 0) {
               newItem.ips = ips;

@@ -1,4 +1,4 @@
-/** 运行位置为「自动调度」时写入 VM metadata.annotations，供 HMS 指标调度识别 */
+/** 运行位置为「自动调度」时写入 spec.template.metadata.annotations，供 HMS 指标调度识别 */
 
 export const VM_AUTO_SCHEDULED_ANNOTATION_KEY = 'hci.manager.system/auto-scheduled';
 export const VM_AUTO_SCHEDULED_ANNOTATION_VALUE = 'metric';

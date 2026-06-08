@@ -6,7 +6,7 @@
  * - 自动探测当前 VM 所在节点（优先使用 VM.status.nodeName，必要时回查 VMI）；
  * - 展示当前节点与目标节点的资源对比：CPU / 内存（含 metrics 占用率）；
  * - 支持选择“最佳节点（自动调度）”或指定目标节点；
- * - 提交时调用 migrateHarvesterVm，携带 instanceId 与目标节点。
+ * - 提交时调用 migrateHarvesterVm：指定节点走 Harvester action=migrate；自动调度走 VMIM。
  */
 import React, { useState, useEffect, useMemo } from 'react';
 import { Form, Modal, Select, message, Typography, Table, Space, Progress } from 'antd';
@@ -18,6 +18,7 @@ import {
   fetchHarvesterVMAggregated,
 } from '../../../../../../services/harvesterApi';
 import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorMessages';
+import { notifyHarvesterEcsAfterMigrate } from '../../shared/lib/harvesterSectionRefresh';
 
 const { Text } = Typography;
 
@@ -271,7 +272,11 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
         throw new Error('无法识别虚拟机 ID');
       }
 
-      const target = values?.targetNode === '__AUTO__' ? undefined : values?.targetNode;
+      const rawTarget = values?.targetNode ?? form.getFieldValue('targetNode');
+      const target =
+        rawTarget === '__AUTO__' || rawTarget == null || String(rawTarget).trim() === ''
+          ? undefined
+          : String(rawTarget).trim();
       if (target && currentNodeName && String(target) === String(currentNodeName)) {
         throw new Error('目标节点不能与当前节点相同');
       }
@@ -279,6 +284,41 @@ const VmMigrateModal: React.FC<VmMigrateModalProps> = ({
 
       message.success('迁移任务已提交，在迁移记录页面可看到迁移进度');
       onOk();
+      notifyHarvesterEcsAfterMigrate(cloudId, onOk);
+
+      const startNode =
+        latestVm?.vmi?.status?.nodeName ||
+        latestVm?.status?.nodeName ||
+        latestVm?.nodeName ||
+        currentNodeName;
+      if (vmNs && vmVmName) {
+        void (async () => {
+          const deadline = Date.now() + 10 * 60 * 1000;
+          while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            try {
+              const res: any = await fetchHarvesterVMAggregated(cloudId, vmNs, vmVmName);
+              const data = res?.data?.vm ? res.data : res;
+              const vmi = data?.related?.vmi || data?.vmi;
+              const nn =
+                vmi?.status?.nodeName ||
+                data?.vm?.status?.nodeName ||
+                data?.vm?.nodeName;
+              if (!nn) continue;
+              if (target && String(nn) === String(target)) {
+                onOk();
+                return;
+              }
+              if (startNode && String(nn) !== String(startNode)) {
+                onOk();
+                return;
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        })();
+      }
       onClose();
     } catch (error: any) {
       const status = Number(error?.status ?? 0);

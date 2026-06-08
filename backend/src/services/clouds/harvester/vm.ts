@@ -371,7 +371,7 @@ export const listHarvesterVMsStandard = async ({
     }
 
     // Node
-    const nodeName = vm?.status?.nodeName || vmi?.status?.nodeName || '';
+    const nodeName = vmi?.status?.nodeName || vm?.status?.nodeName || '';
 
     // Networks (Parse Multus annotations)
     const networksArr: any[] = Array.isArray(vm?.spec?.template?.spec?.networks)

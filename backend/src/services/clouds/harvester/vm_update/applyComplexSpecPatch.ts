@@ -1274,6 +1274,31 @@ export const applyComplexHarvesterVMSpecPatch = async (
     }
   }
 
+  // --- 7.6 Pod template metadata.annotations（如指标自动调度 hci.manager.system/auto-scheduled）---
+  const templateMetadataAnnotationsRaw = spec?.templateMetadataAnnotations;
+  if (templateMetadataAnnotationsRaw !== undefined) {
+    delete spec.templateMetadataAnnotations;
+    if (!newSpec.template.metadata) newSpec.template.metadata = {};
+    if (!newSpec.template.metadata.annotations) newSpec.template.metadata.annotations = {};
+    if (templateMetadataAnnotationsRaw === null) {
+      newSpec.template.metadata.annotations = undefined;
+    } else if (
+      templateMetadataAnnotationsRaw &&
+      typeof templateMetadataAnnotationsRaw === 'object'
+    ) {
+      for (const [k, v] of Object.entries(templateMetadataAnnotationsRaw)) {
+        if (v === null || v === undefined || v === '') {
+          delete newSpec.template.metadata.annotations[k];
+        } else {
+          newSpec.template.metadata.annotations[k] = String(v);
+        }
+      }
+      if (Object.keys(newSpec.template.metadata.annotations).length === 0) {
+        newSpec.template.metadata.annotations = undefined;
+      }
+    }
+  }
+
   // --- 8. Affinity（node / pod / podAnti）按字段局部合并 ---
   // spec.affinity === null：清空整块 affinity；否则仅更新 patch 中出现的键（值为 null 表示删除该键）
   if (spec.affinity !== undefined) {

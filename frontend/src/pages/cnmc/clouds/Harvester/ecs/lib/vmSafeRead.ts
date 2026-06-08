@@ -793,7 +793,11 @@ export function createVmListSafeRead(
       r?.createdAt || r?.metadata?.creationTimestamp,
     status: readVmStatus,
     node: (r: any) =>
-      r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || "",
+      r?.vmi?.status?.nodeName ||
+      r?.Extra?.NodeName ||
+      r?.nodeName ||
+      r?.status?.nodeName ||
+      "",
     runStrategy: (r: any) => r?.spec?.runStrategy || "",
     evictionStrategy: (r: any) =>
       r?.spec?.evictionStrategy ||

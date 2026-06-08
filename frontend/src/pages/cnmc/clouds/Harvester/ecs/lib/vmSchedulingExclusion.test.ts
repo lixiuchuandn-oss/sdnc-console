@@ -3,6 +3,7 @@ import {
   collectVmWizardMetricAutoScheduledConflicts,
   formatMetricAutoScheduledConflictMessage,
   getVmWizardMetricAutoScheduledConflictMessage,
+  readVmMetricAutoScheduled,
   resolveExclusiveVmScheduling,
   setMetricAutoScheduledExclusive,
 } from './vmSchedulingExclusion';
@@ -83,6 +84,27 @@ describe('vmSchedulingExclusion', () => {
         netMode: 'passthrough',
       }),
     ).toEqual([]);
+  });
+
+  it('readVmMetricAutoScheduled reads template metadata annotations first', () => {
+    expect(
+      readVmMetricAutoScheduled({
+        spec: {
+          template: {
+            metadata: {
+              annotations: { 'hci.manager.system/auto-scheduled': 'metric' },
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      readVmMetricAutoScheduled({
+        metadata: {
+          annotations: { 'hci.manager.system/auto-scheduled': 'metric' },
+        },
+      }),
+    ).toBe(true);
   });
 
   it('formatMetricAutoScheduledConflictMessage joins multiple conflicts', () => {

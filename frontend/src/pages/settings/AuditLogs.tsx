@@ -643,7 +643,8 @@ const AuditLogs: React.FC = () => {
         
         // 操作参数
         if (body.force !== undefined) bodyParts.push(`强制: ${body.force ? '是' : '否'}`);
-        if (body.targetNode) bodyParts.push(`目标节点: ${body.targetNode}`);
+        if (body.nodeName) bodyParts.push(`目标节点: ${body.nodeName}`);
+        else if (body.targetNode) bodyParts.push(`目标节点: ${body.targetNode}`);
         if (body.targetHost) bodyParts.push(`目标主机: ${body.targetHost}`);
         if (body.description) bodyParts.push(`描述: ${body.description}`);
         if (body.reason) bodyParts.push(`原因: ${body.reason}`);

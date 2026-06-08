@@ -228,7 +228,7 @@ export async function harvesterEcsListHandler(req: Request, res: Response) {
         });
       }
 
-      const nodeName = vm?.status?.nodeName || vmi?.status?.nodeName || '';
+      const nodeName = vmi?.status?.nodeName || vm?.status?.nodeName || '';
 
       const networksArr: any[] = Array.isArray(vm?.spec?.template?.spec?.networks)
         ? vm?.spec?.template?.spec?.networks
