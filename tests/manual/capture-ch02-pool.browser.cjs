@@ -95,6 +95,20 @@ async function ensureMultiCloudConfigStep(page, modal) {
   await modal.locator('.modal-group-title').filter({ hasText: '\u914d\u7f6e\u4e91\u8d26\u53f7' }).waitFor({ timeout: 15000 });
 }
 
+async function captureGlobalSearch(page) {
+  const visitBtn = page.getByRole('button', { name: '\u8bbf\u95ee' });
+  if ((await visitBtn.count()) > 0) {
+    await visitBtn.click().catch(() => {});
+    await page.waitForTimeout(2000);
+  }
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/\u641c\u7d22\u9875\u9762/).waitFor({ state: 'visible', timeout: 15000 });
+  await page.waitForTimeout(800);
+  await shot(page, 'header-global-search.png', { subdir: SUBDIR });
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+}
+
 async function main() {
   const endpoint = String(cloudmapEndpoint || process.env.TOWER_CLOUDMAP_ENDPOINT || DOC_ENDPOINT).trim();
   const token = String(cloudmapToken || process.env.TOWER_CLOUDMAP_TOKEN || DOC_TOKEN).trim();
@@ -113,6 +127,7 @@ async function main() {
 
     // --- A: Header single-pool (edge) ---
     await shot(page, 'header-pool-strip.png', { subdir: SUBDIR });
+    await captureGlobalSearch(page);
 
     const edgeModal = await openHeaderEdgeWizard(page);
     await fillEdgePoolForm(edgeModal, {
