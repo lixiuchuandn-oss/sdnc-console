@@ -45,7 +45,10 @@ export function readQcow2VirtualSizeBytesFromFile(filePath: string): number | un
   }
 }
 
-/** Ceph/CDI DataVolume 容量：qcow2 须容纳 virtual size，ISO/raw 用文件大小 */
+/**
+ * CDI DataVolume 请求容量（仅供文档/测试参考）。
+ * 上传 URL 的 size= 须为文件字节数；Harvester 从 qcow2 头解析 virtualSize 后再创建 DV。
+ */
 export function resolveCephCdiDataVolumeByteSize(opts: {
   fileByteSize: number;
   virtualSizeBytes?: number;
@@ -72,7 +75,10 @@ export type ImageProxyUploadSizes = {
   fileByteTotal: number;
   /** 实际发送字节（Longhorn 含 512 对齐填充） */
   streamByteSize: number;
-  /** upload URL 的 size= 参数（Ceph qcow2 为 max(file, virtual)） */
+  /**
+   * upload URL 的 size= 参数：须为**实际文件字节数**（与 Harvester cdi/upload.go 一致）。
+   * virtualSize 由 Harvester 从 qcow2 头解析，勿将 virtual size 写入 size=。
+   */
   uploadUrlSize: number;
 };
 
@@ -95,19 +101,8 @@ export function resolveImageProxyUploadSizes(opts: {
 }): ImageProxyUploadSizes {
   const fileByteTotal = Math.max(0, Math.floor(Number(opts.fileByteTotal) || 0));
   const streamByteSize = computeProxyStreamByteSize(fileByteTotal, opts.storageKind);
-  let uploadUrlSize = streamByteSize;
-  const vs = Math.max(0, Math.floor(Number(opts.virtualSizeBytes) || 0));
-  if (
-    opts.storageKind === 'ceph' &&
-    (isQcow2DiskFormat(opts.diskFormat) || vs > fileByteTotal)
-  ) {
-    uploadUrlSize = resolveCephCdiDataVolumeByteSize({
-      fileByteSize: fileByteTotal,
-      virtualSizeBytes: opts.virtualSizeBytes,
-      diskFormat: opts.diskFormat || (vs > fileByteTotal ? 'qcow2' : undefined),
-    });
-  }
-  return { fileByteTotal, streamByteSize, uploadUrlSize };
+  // Harvester CDI：size= → status.size（文件体积）；virtualSize 从上传流 qcow2 头解析后写 status.virtualSize
+  return { fileByteTotal, streamByteSize, uploadUrlSize: streamByteSize };
 }
 
 /** 集群 VMImage 详情解析出 virtualSize 后，写入顶层与 status 字段 */

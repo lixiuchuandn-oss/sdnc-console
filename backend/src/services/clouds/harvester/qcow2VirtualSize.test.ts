@@ -54,7 +54,7 @@ describe('resolveCephCdiDataVolumeByteSize', () => {
 });
 
 describe('resolveImageProxyUploadSizes', () => {
-  it('ceph qcow2: stream=file, url=virtual', () => {
+  it('ceph qcow2: upload URL size= is file bytes not virtual size', () => {
     const sizes = resolveImageProxyUploadSizes({
       fileByteTotal: 12884901888,
       storageKind: 'ceph',
@@ -62,7 +62,7 @@ describe('resolveImageProxyUploadSizes', () => {
       virtualSizeBytes: 322122547200,
     });
     expect(sizes.streamByteSize).toBe(12884901888);
-    expect(sizes.uploadUrlSize).toBe(322122547200);
+    expect(sizes.uploadUrlSize).toBe(12884901888);
   });
 
   it('longhorn: stream padded to 512', () => {

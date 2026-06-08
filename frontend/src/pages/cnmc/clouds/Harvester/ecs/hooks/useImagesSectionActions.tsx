@@ -346,7 +346,7 @@ export function useImagesSectionActions({
             HARVESTER_IMAGES_SYNC_START_OPTIONS,
           );
         }
-        message.success('已开始同步至 Harvester');
+        message.success('已开始同步');
         return next?.id ? next : undefined;
       } catch (e: unknown) {
         message.error((e as { message?: string })?.message || '启动同步失败');

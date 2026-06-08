@@ -4,11 +4,11 @@ import {
 } from './imageUploadGlobalConcurrency';
 
 describe('imageUploadGlobalConcurrency', () => {
-  it('formatGlobalImageUploadBusyMessage distinguishes upload and sync', () => {
+  it('formatGlobalImageUploadBusyMessage uses unified limit message', () => {
     const task = { id: 't1', displayName: 'openEuler', filename: 'a.qcow2' };
-    expect(formatGlobalImageUploadBusyMessage('upload', task)).toContain('上传');
-    expect(formatGlobalImageUploadBusyMessage('sync', task)).toContain('同步');
-    expect(formatGlobalImageUploadBusyMessage('upload', task)).toContain('openEuler');
+    const expected = '镜像上传进行中的任务已达到上限，请稍后再试';
+    expect(formatGlobalImageUploadBusyMessage('upload', task)).toBe(expected);
+    expect(formatGlobalImageUploadBusyMessage('sync', task)).toBe(expected);
   });
 
   it('GlobalImageUploadBusyError exposes code and busy task', () => {
@@ -21,6 +21,6 @@ describe('imageUploadGlobalConcurrency', () => {
     });
     expect(err.code).toBe('IMAGE_UPLOAD_GLOBAL_BUSY');
     expect(err.busyKind).toBe('sync');
-    expect(err.message).toContain('centos');
+    expect(err.message).toBe('镜像上传进行中的任务已达到上限，请稍后再试');
   });
 });

@@ -743,7 +743,7 @@ export async function harvesterImageUploadTaskSyncHandler(req: Request, res: Res
     });
 
     res.status(202).json({
-      message: '已开始同步至 Harvester',
+      message: '已开始同步',
       data: sanitizeTask(task),
     });
   } catch (error: any) {
