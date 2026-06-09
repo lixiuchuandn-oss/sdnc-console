@@ -209,6 +209,15 @@ export function createApiPermissionMiddleware(options?: {
 
       // 云主机 API：云数据库 / 虚拟路由器页复用 harvester/vms，允许对应独立原子
       if (actionBase === 'clouds.ecs') {
+        if (path.includes('/deployment-sets')) {
+          return isRead
+            ? ['clouds.ecs:read', 'clouds.compute-cluster:read']
+            : [
+                'clouds.ecs:write',
+                'clouds.vm-create-wizard:write',
+                'clouds.compute-cluster:write',
+              ];
+        }
         return isRead
           ? ['clouds.ecs:read', 'clouds.paas-databases:read', 'clouds.vne:read']
           : ['clouds.ecs:write', 'clouds.paas-databases:write', 'clouds.vne:write'];

@@ -69,9 +69,18 @@ export const isSystemNamespace = (name: string): boolean => {
  * 判断是否为公共命名空间 (Public Namespace)
  * 公共命名空间对租户可见（只读），对管理员可见（读写）
  */
+/** 与后端 `constants/publicNamespaceNames` · LEGACY_PUBLIC_NAMESPACE_NAMES 对齐 */
+const LEGACY_PUBLIC_NAMESPACE_NAMES = [
+  'cloud-public',
+  'default',
+  'harvester-public',
+  'log-audit-system',
+  'compute-tower-system',
+] as const;
+
 export const isPublicNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  return ['cloud-public', 'default', 'harvester-public'].includes(n);
+  return (LEGACY_PUBLIC_NAMESPACE_NAMES as readonly string[]).includes(n);
 };
 
 /** 镜像列表项是否属于公共空间（仅信列表接口下发的 namespacePublicByScenario，与库存 label 一致） */

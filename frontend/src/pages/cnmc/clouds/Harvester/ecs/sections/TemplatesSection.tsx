@@ -26,6 +26,7 @@ import {
   buildTemplateNamespaceOptions,
   buildTemplateYamlRecord,
   filterHiddenBaseTemplates,
+  filterTemplatesBaseRows,
   filterTemplateListRows,
   getTemplateNamespace,
   getTemplateName,
@@ -88,7 +89,13 @@ const TemplatesSection: React.FC<Props> = ({
   const [quickCreateAutoStart, setQuickCreateAutoStart] = useState(true);
   const [quickCreating, setQuickCreating] = useState(false);
 
-  const baseData = useMemo(() => filterHiddenBaseTemplates(templates), [templates]);
+  const baseData = useMemo(() => {
+    const hiddenFiltered = filterHiddenBaseTemplates(templates);
+    return filterTemplatesBaseRows(hiddenFiltered, {
+      isTenant: !!isTenant,
+      isPublicNamespace,
+    });
+  }, [templates, isTenant, isPublicNamespace]);
 
   const namespaceOptions = useMemo(
     () => buildTemplateNamespaceOptions(baseData),
@@ -279,17 +286,19 @@ const TemplatesSection: React.FC<Props> = ({
               className="toolbar-filter-sm"
             />
           )}
-          <Select
-            allowClear
-            placeholder="作用域"
-            value={selectedScope || undefined}
-            onChange={(val) => setSelectedScope((val as any) || '')}
-            options={[
-              { value: 'public', label: '公共模板' },
-              { value: 'private', label: '私有模板' },
-            ]}
-            className="toolbar-filter-sm"
-          />
+          {!isTenant && (
+            <Select
+              allowClear
+              placeholder="作用域"
+              value={selectedScope || undefined}
+              onChange={(val) => setSelectedScope((val as any) || '')}
+              options={[
+                { value: 'public', label: '公共模板' },
+                { value: 'private', label: '私有模板' },
+              ]}
+              className="toolbar-filter-sm"
+            />
+          )}
           <button
             type="button"
             className="toolbar-reset-btn"

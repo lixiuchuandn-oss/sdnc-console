@@ -86,6 +86,20 @@ export function filterHiddenBaseTemplates(templates: any[]): any[] {
   );
 }
 
+/** 租户侧：仅保留授权业务项目（排除系统/公共命名空间）内的模板 */
+export function filterTemplatesBaseRows(
+  templates: any[],
+  opts: { isTenant: boolean; isPublicNamespace: (name: string) => boolean },
+): any[] {
+  return (templates || []).filter((t: any) => {
+    const ns = getTemplateNamespace(t);
+    if (opts.isTenant) {
+      return !!ns && !isSystemNamespace(ns) && !opts.isPublicNamespace(ns);
+    }
+    return true;
+  });
+}
+
 export function buildTemplateNamespaceOptions(templates: any[]): { value: string; label: string }[] {
   const nsSet = new Set<string>();
   templates.forEach((t: any) => {

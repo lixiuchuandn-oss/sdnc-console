@@ -42,6 +42,8 @@ type Props = {
   editing: DeploymentSetRow | null;
   namespaceOptions: { value: string; label: string }[];
   capacityContext?: DeploymentSetCapacityContext;
+  /** 锁定项目（不可修改），如租户 VM 向导内快速创建 */
+  lockedNamespace?: string;
   onClose: () => void;
   onSubmit: (values: DeploymentSetFormValues & { labels: Record<string, string> }) => Promise<void>;
   saving: boolean;
@@ -52,6 +54,7 @@ const DeploymentSetFormModal: React.FC<Props> = ({
   editing,
   namespaceOptions,
   capacityContext,
+  lockedNamespace,
   onClose,
   onSubmit,
   saving,
@@ -85,9 +88,10 @@ const DeploymentSetFormModal: React.FC<Props> = ({
         schedulingPolicy: 'none',
         schedulingStrength: 'preferred',
         topologyKey: DEFAULT_DEPLOYMENT_SET_TOPOLOGY_KEY,
+        namespace: lockedNamespace || undefined,
       });
     }
-  }, [open, editing, form]);
+  }, [open, editing, form, lockedNamespace]);
 
   const presetHint = useMemo(
     () => getDeploymentSetPlacementPresetHint(placementPreset),
@@ -165,13 +169,17 @@ const DeploymentSetFormModal: React.FC<Props> = ({
           <Input placeholder="如 web-tier、db-set-a" maxLength={DEPLOYMENT_SET_NAME_MAX_LENGTH} />
         </Form.Item>
         <Form.Item name="namespace" label="项目">
-          <Select
-            allowClear
-            showSearch
-            placeholder="不限定项目（可选）"
-            options={namespaceOptions}
-            optionFilterProp="label"
-          />
+          {lockedNamespace ? (
+            <Input disabled />
+          ) : (
+            <Select
+              allowClear
+              showSearch
+              placeholder="不限定项目（可选）"
+              options={namespaceOptions}
+              optionFilterProp="label"
+            />
+          )}
         </Form.Item>
         <Form.Item
           name="placementPreset"

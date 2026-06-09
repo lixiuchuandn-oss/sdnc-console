@@ -489,6 +489,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
               form={form}
               disabled={metricAutoScheduled === true}
               disabledReason="已启用指标自动调度，不能同时使用部署集"
+              allowCreate={isTenant}
               onSetsLoaded={onDeploymentSetsLoaded}
             />
           ) : null}
