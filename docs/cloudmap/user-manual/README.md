@@ -35,6 +35,14 @@ VARIANT=manual ./scripts/build-docx.sh
 
 输出：`output/cloudmap-user-manual.docx`
 
+## 相关文档
+
+| 文档 | 路径 |
+|------|------|
+| 技术白皮书 | `../whitepaper/` |
+| 招标参数 | `../tender-parameters/` |
+| Hub 总览 | `../README.md` |
+
 ## 维护建议
 
 - 配图：`SCREENSHOTS.md` 登记 → `tests/manual/capture-*.browser.cjs` → 见 `tests/manual/README.md`。

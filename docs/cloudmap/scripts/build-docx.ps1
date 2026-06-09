@@ -1,6 +1,6 @@
 # Cloudmap whitepaper: Markdown -> Word
 param(
-    [ValidateSet('whitepaper', 'manual')]
+    [ValidateSet('whitepaper', 'manual', 'tender')]
     [string]$Variant = 'whitepaper',
     [string]$Output = ""
 )

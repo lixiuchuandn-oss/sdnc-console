@@ -1,7 +1,7 @@
 # Shared Pandoc build for whitepaper / user-manual
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('whitepaper', 'manual')]
+    [ValidateSet('whitepaper', 'manual', 'tender')]
     [string]$Variant,
 
     [Parameter(Mandatory = $true)]
@@ -16,7 +16,11 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_pandoc.ps1")
 
 $Root = Split-Path -Parent $PSScriptRoot
-$DocRoot = if ($Variant -eq 'manual') { Join-Path $Root "user-manual" } else { Join-Path $Root "whitepaper" }
+$DocRoot = switch ($Variant) {
+    'manual' { Join-Path $Root "user-manual" }
+    'tender' { Join-Path $Root "tender-parameters" }
+    default  { Join-Path $Root "whitepaper" }
+}
 $Source = Join-Path $DocRoot "source"
 $OutputDir = Join-Path $DocRoot "output"
 $Manifest = Join-Path $Source "manifest.txt"
@@ -82,7 +86,11 @@ foreach ($rel in $files) {
     }
 }
 
-$defaultName = if ($Variant -eq 'manual') { "cloudmap-user-manual" } else { "cloudmap-whitepaper" }
+$defaultName = switch ($Variant) {
+    'manual'  { "cloudmap-user-manual" }
+    'tender'  { "cloudmap-tender-parameters" }
+    default   { "cloudmap-whitepaper" }
+}
 $ext = if ($Format -eq 'html') { "html" } else { "docx" }
 if (-not $Output) {
     $Output = Join-Path $OutputDir "$defaultName.$ext"
@@ -130,7 +138,7 @@ if ($Format -eq 'docx' -and (Test-Path $prepareRef)) {
 if ($Format -eq 'docx') {
     $luaFilter = Join-Path (Join-Path $Root "templates") "filters\docx-cleanup.lua"
     $chapterBreakFilter = Join-Path (Join-Path $Root "templates") "filters\manual-chapter-break.lua"
-    $tocDepth = if ($Variant -eq 'manual') { "2" } else { "3" }
+    $tocDepth = if ($Variant -eq 'manual') { "2" } else { "3" } # tender: 3
     $pandocArgs = @(
         $inputs
         "-o", $Output
@@ -142,7 +150,7 @@ if ($Format -eq 'docx') {
         "--resource-path=$Source;$whitepaperAssets"
     )
     $bodyFormatFilter = Join-Path (Join-Path $Root "templates") "filters\manual-body-format.lua"
-    if ($Variant -eq 'manual' -and (Test-Path $bodyFormatFilter)) {
+    if (($Variant -eq 'manual' -or $Variant -eq 'tender') -and (Test-Path $bodyFormatFilter)) {
         $pandocArgs += @("--lua-filter=$bodyFormatFilter")
     }
     if (Test-Path $luaFilter) {
@@ -159,7 +167,11 @@ if ($Format -eq 'docx') {
     }
 } else {
     $css = Join-Path (Join-Path $Root "templates") "preview.css"
-    $title = if ($Variant -eq 'manual') { "Cloudmap 使用手册" } else { "Cloudmap Whitepaper" }
+    $title = switch ($Variant) {
+        'manual' { "Cloudmap 使用手册" }
+        'tender' { "Cloudmap 招标参数" }
+        default  { "Cloudmap Whitepaper" }
+    }
     $pandocArgs = @(
         $inputs
         "-o", $Output
@@ -344,7 +356,7 @@ function Set-DocxTocHeadingText {
 try {
     & $pandocExe @pandocArgs
     if ($LASTEXITCODE -ne 0) { throw "pandoc failed with exit code $LASTEXITCODE" }
-    if ($Variant -eq 'manual' -and $Format -eq 'docx' -and (Test-Path $Output)) {
+    if (($Variant -eq 'manual' -or $Variant -eq 'tender') -and $Format -eq 'docx' -and (Test-Path $Output)) {
         Clear-DocxBodyIndent -DocxPath $Output
         Set-DocxTableLayout -DocxPath $Output
         Set-DocxPageMargins -DocxPath $Output -MarginCm 1.9

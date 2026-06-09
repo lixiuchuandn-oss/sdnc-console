@@ -5,13 +5,20 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VARIANT="${VARIANT:-whitepaper}"
 OUTPUT="${1:-}"
 
-if [[ "$VARIANT" == "manual" ]]; then
-  DOC_ROOT="$ROOT/user-manual"
-  DEFAULT_NAME="cloudmap-user-manual.docx"
-else
-  DOC_ROOT="$ROOT/whitepaper"
-  DEFAULT_NAME="cloudmap-whitepaper.docx"
-fi
+case "$VARIANT" in
+  manual)
+    DOC_ROOT="$ROOT/user-manual"
+    DEFAULT_NAME="cloudmap-user-manual.docx"
+    ;;
+  tender)
+    DOC_ROOT="$ROOT/tender-parameters"
+    DEFAULT_NAME="cloudmap-tender-parameters.docx"
+    ;;
+  *)
+    DOC_ROOT="$ROOT/whitepaper"
+    DEFAULT_NAME="cloudmap-whitepaper.docx"
+    ;;
+esac
 
 SOURCE="$DOC_ROOT/source"
 OUTPUT_DIR="$DOC_ROOT/output"
@@ -45,7 +52,7 @@ WP_ASSETS="$ROOT/whitepaper/source/assets"
 TOC_DEPTH=3
 [[ "$VARIANT" == "manual" ]] && TOC_DEPTH=2
 ARGS=( "${INPUTS[@]}" -o "$OUTPUT" --from markdown --to docx --toc "--toc-depth=$TOC_DEPTH" "--resource-path=$SOURCE:$WP_ASSETS" )
-if [[ "$VARIANT" == "manual" && -f "$BODY_FILTER" ]]; then
+if [[ ("$VARIANT" == "manual" || "$VARIANT" == "tender") && -f "$BODY_FILTER" ]]; then
   ARGS+=( "--lua-filter=$BODY_FILTER" )
 fi
 [[ -f "$LUA_FILTER" ]] && ARGS+=( "--lua-filter=$LUA_FILTER" )

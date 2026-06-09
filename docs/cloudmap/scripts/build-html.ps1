@@ -1,6 +1,6 @@
 # Cloudmap whitepaper: Markdown -> HTML preview
 param(
-    [ValidateSet('whitepaper', 'manual')]
+    [ValidateSet('whitepaper', 'manual', 'tender')]
     [string]$Variant = 'whitepaper',
     [string]$Output = "",
     [switch]$Open

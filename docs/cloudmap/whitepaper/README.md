@@ -45,6 +45,7 @@ python docs/cloudmap/scripts/split-ch03.py
 | ------------ | ----------------------------- |
 | 写作约束     | `writing-style.md`            |
 | 使用手册     | `../user-manual/`             |
+| 招标参数     | `../tender-parameters/`       |
 | 手册覆盖对照 | `../user-manual/COVERAGE.md`  |
 | 构建脚本     | `../scripts/`                 |
 | 版式模板     | `../templates/reference.docx` |
