@@ -15,4 +15,9 @@ describe('Harvester compute-cluster permission mapping', () => {
     const path = '/api/clouds/pool-1/resources/harvester/failure-domains/overview';
     expect(permissionRegistry.resolveFromApi('GET', path)).toBe('clouds.compute-cluster:read');
   });
+
+  it('maps deployment-sets overview to clouds.ecs read', () => {
+    const path = '/api/clouds/pool-1/resources/harvester/deployment-sets/overview';
+    expect(permissionRegistry.resolveFromApi('GET', path)).toBe('clouds.ecs:read');
+  });
 });

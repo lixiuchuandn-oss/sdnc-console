@@ -2,6 +2,7 @@
  * 公共空间命名：与集群 tower.io/scenario=public 对齐（读命名空间库存）
  */
 import { AppDataSource } from '../../../config/database';
+import { LEGACY_PUBLIC_NAMESPACE_NAMES } from '../../../constants/publicNamespaceNames';
 import { HarvesterNamespaceInventory } from '../../../entities/harvester/HarvesterNamespaceInventory';
 
 export const TOWER_SCENARIO_LABEL = 'tower.io/scenario';
@@ -10,12 +11,22 @@ export const TOWER_SCENARIO_LABEL = 'tower.io/scenario';
 export async function getPublicScenarioNamespaceNames(cloudId: string): Promise<string[]> {
   const nsRepo = AppDataSource.getRepository(HarvesterNamespaceInventory);
   const rows = await nsRepo.find({ where: { cloudId } });
+  const seen = new Set<string>();
   const names: string[] = [];
+  const add = (n: string) => {
+    const s = String(n || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    names.push(s);
+  };
   for (const row of rows) {
     const labels = row.rawData?.metadata?.labels ?? row.labels ?? {};
     if (String(labels[TOWER_SCENARIO_LABEL] ?? '').toLowerCase() === 'public' && row.name) {
-      names.push(row.name);
+      add(row.name);
     }
+  }
+  for (const legacy of LEGACY_PUBLIC_NAMESPACE_NAMES) {
+    add(legacy);
   }
   return names;
 }
@@ -23,7 +34,7 @@ export async function getPublicScenarioNamespaceNames(cloudId: string): Promise<
 /**
  * GET 查询参数 `mergePublicScenarioNamespaces`：
  * - 未传或 `true`：租户库存类查询仍合并 `tower.io/scenario=public` 命名空间（兼容旧客户端）
- * - `false`：租户仅按 UserSpace 命名空间，不合并公共场景命名空间（云主机控制台「仅镜像/模板/扁平子网」走合并，其余走 false）
+ * - `false`：租户仅按 UserSpace 命名空间，不合并公共场景命名空间（镜像/实例/扁平子网等按需传 true；模板列表固定不合并）
  */
 export function mergePublicScenarioNamespacesFromQuery(req: { query?: any }): boolean {
   const v = String(req.query?.mergePublicScenarioNamespaces ?? '').toLowerCase();
@@ -57,6 +68,5 @@ export async function buildTenantNamespaceInventoryWhere(
 
 /** 解绑等场景：视为「公共资源、不拦解绑」的命名空间集合（label + 历史名兼容） */
 export async function getPublicNamespaceNameSetForUnbind(cloudId: string): Promise<Set<string>> {
-  const fromLabel = await getPublicScenarioNamespaceNames(cloudId);
-  return new Set([...fromLabel, 'cloud-public', 'default']);
+  return new Set(await getPublicScenarioNamespaceNames(cloudId));
 }

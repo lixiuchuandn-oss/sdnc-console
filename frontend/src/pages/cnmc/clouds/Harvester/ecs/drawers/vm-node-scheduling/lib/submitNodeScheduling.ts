@@ -11,6 +11,13 @@ import {
   hasLabelModeNodeSelector,
 } from '../../../lib/vmFailureDomainNodeSelector';
 import { vmFailureDomainRequiredMessage } from '../../../lib/vmAdvancedSchedulingLabels';
+import { buildVmAutoScheduledAnnotations } from '../../../lib/vmAutoScheduledAnnotation';
+import {
+  buildClearMetricAutoScheduledTemplateMetadataAnnotations,
+  getVmRecordMetricAutoScheduledConflictMessage,
+  readVmMetricAutoScheduled,
+} from '../../../lib/vmSchedulingExclusion';
+import { readVmDeploymentSetId } from '../../../lib/vmDeploymentSet';
 
 export type SubmitNodeSchedulingOptions = {
   pciDevices?: any[];
@@ -50,6 +57,22 @@ export async function submitVmReconfigureChangeNodeScheduling(
     gpuResources: opts?.gpuResources,
   });
 
+  const wantsMetricAutoScheduled = mode === 'auto' && values.metricAutoScheduled === true;
+  if (wantsMetricAutoScheduled) {
+    const conflictMsg = getVmRecordMetricAutoScheduledConflictMessage(activeRecord, {
+      pciDevices: opts?.pciDevices,
+      gpuResources: opts?.gpuResources,
+    });
+    if (conflictMsg) {
+      message.error(conflictMsg);
+      throw new VmReconfigureSubmitSkipFinalize();
+    }
+    if (readVmDeploymentSetId(activeRecord)) {
+      message.error('已绑定部署集，不能同时参与指标自动调度');
+      throw new VmReconfigureSubmitSkipFinalize();
+    }
+  }
+
   let updateParams: any = {};
 
   if (mode === 'auto') {
@@ -66,6 +89,14 @@ export async function submitVmReconfigureChangeNodeScheduling(
   } else if (mode === 'label') {
     updateParams.nodeSelector =
       buildNodeSelectorFromLabelForm({ failureDomainName }) ?? null;
+  }
+
+  if (wantsMetricAutoScheduled) {
+    updateParams.templateMetadataAnnotations = buildVmAutoScheduledAnnotations();
+  } else if (readVmMetricAutoScheduled(activeRecord)) {
+    const clearAnn = buildClearMetricAutoScheduledTemplateMetadataAnnotations();
+    updateParams.templateMetadataAnnotations = clearAnn;
+    updateParams.vmMetadataAnnotations = clearAnn;
   }
 
   await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);

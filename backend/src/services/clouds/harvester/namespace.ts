@@ -1,3 +1,4 @@
+import { isLegacyPublicNamespaceName } from '../../../constants/publicNamespaceNames';
 import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 
@@ -62,12 +63,7 @@ export const isProtectedNamespace = (name: string): boolean => {
 /**
  * 与前端 `harvesterUtils.isPublicNamespace` 一致：列表 excludeSystem 时仍返回这些名字
  */
-export const isPublicNamespaceName = (name: string): boolean => {
-  const n = String(name || '')
-    .trim()
-    .toLowerCase();
-  return ['cloud-public', 'default', 'harvester-public'].includes(n);
-};
+export const isPublicNamespaceName = isLegacyPublicNamespaceName;
 
 /**
  * 与前端 `harvesterUtils.isSystemNamespace` 一致（前缀判定）
@@ -283,7 +279,7 @@ export const createHarvesterNamespace = async (
 
   // 如果没有提供场景信息，尝试从注解中推断
   if (!options?.scenario && annotations) {
-    if (name === 'cloud-public' || annotations['tower.io/public']) {
+    if (isLegacyPublicNamespaceName(name) || annotations['tower.io/public']) {
       labels['tower.io/scenario'] = 'public';
     } else if (annotations['tower.io/tenant'] || annotations['tower.io/organization']) {
       labels['tower.io/scenario'] = 'tenant';

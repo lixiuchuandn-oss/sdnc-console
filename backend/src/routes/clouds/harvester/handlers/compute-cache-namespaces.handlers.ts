@@ -24,7 +24,7 @@ import { requestJson, getJsonOnce } from '../../../../services/clouds/harvester/
  * 查询参数：
  * - force / skipSync：同步策略（见实现内注释）
  * - excludeSystem=true：在返回前过滤「系统/受保护」命名空间；规则与前端 `harvesterUtils` 对齐——
- *   公共名（cloud-public、default、harvester-public）始终保留；系统前缀与 `isSystemNamespace` 一致；
+ *   公共名（见 `constants/publicNamespaceNames`）始终保留；系统前缀与 `isSystemNamespace` 一致；
  *   其余仍受 `isProtectedNamespace` 约束（如 monitoring-system、user-*）。
  */
 export async function harvesterNamespaceListHandler(req: Request, res: Response) {

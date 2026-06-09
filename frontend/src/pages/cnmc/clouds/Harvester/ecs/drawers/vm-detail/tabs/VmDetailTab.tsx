@@ -30,6 +30,7 @@ import {
   VM_DETAIL_DRAWER_TEXT_SPLIT,
 } from "..";
 import { cloudInitDetailSummaries } from "../../../lib/vmCloudInitSpec";
+import { readVmMetricAutoScheduled } from "../../../lib/vmSchedulingExclusion";
 
 function formatMemoryParts(val: any): [string, string] {
   if (!val) return ["-", ""];
@@ -870,6 +871,25 @@ const VmDetailTab: React.FC<VmDetailTabProps> = ({
                         );
                       })()}
                     </Descriptions.Item>
+                    {(() => {
+                      const nodeSelector =
+                        vmData?.spec?.template?.spec?.nodeSelector;
+                      const isAutoScheduling =
+                        !nodeSelector || Object.keys(nodeSelector).length === 0;
+                      if (!isAutoScheduling) return null;
+                      const metricAutoScheduled = readVmMetricAutoScheduled(vmData);
+                      return (
+                        <Descriptions.Item label="参与指标自动调度">
+                          {metricAutoScheduled ? (
+                            <Tag color="green" style={{ margin: 0 }}>
+                              已启用
+                            </Tag>
+                          ) : (
+                            <span style={{ color: VM_DETAIL_DRAWER_TEXT_SECONDARY }}>未启用</span>
+                          )}
+                        </Descriptions.Item>
+                      );
+                    })()}
                     <Descriptions.Item
                       label={
                         <Tooltip title="节点亲和性：根据节点标签进行调度（如网络标签要求）">

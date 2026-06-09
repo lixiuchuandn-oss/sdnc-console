@@ -514,6 +514,9 @@ export class PermissionRegistry {
               ) {
                 // 集群状态/代理等能力继续复用 ecs 权限
                 permissionBase = 'clouds.ecs';
+              } else if (actualResourceType === 'deployment-sets') {
+                // VM 创建向导 / 变配引用部署集（租户无 compute-cluster 权限）
+                permissionBase = 'clouds.ecs';
               }
             }
           }

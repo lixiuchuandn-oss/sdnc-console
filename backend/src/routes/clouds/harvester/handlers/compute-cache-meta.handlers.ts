@@ -6,7 +6,6 @@
 
 import { Request, Response } from 'express';
 import { AppDataSource } from '../../../../config/database';
-import { In } from 'typeorm';
 import { UserSpace } from '../../../../entities/UserSpace';
 import { HarvesterSshKeyInventory } from '../../../../entities/harvester/HarvesterSshKeyInventory';
 import { HarvesterCloudInitInventory } from '../../../../entities/harvester/HarvesterCloudInitInventory';
@@ -280,52 +279,65 @@ export async function harvesterTemplateListHandler(req: Request, res: Response) 
 
     let whereCondition: any = { cloudId: id };
 
-    // [多租户权限] 模板查询逻辑较复杂
-    // 租户不仅可以看到自己的模板，通常还可以看到公共模板 (public)
+    // [多租户权限] 租户仅可见 UserSpace 授权命名空间内的模板，不合并公共场景命名空间
     const reqAny = req as any;
     const isTenantUser = reqAny.user?.tenantId && reqAny.user?.role !== 'sase_device';
     const isTenantRole = reqAny.user?.role === 'tenant';
     const isTenant = isTenantUser || isTenantRole;
 
     if (isTenant) {
-      const tenantId = reqAny.user.tenantId;
       const userSpaceRepo = AppDataSource.getRepository(UserSpace);
+      const userOrgId = reqAny.user?.organizationId;
+      const whereClause: any[] = [];
 
-      const orgId = reqAny.user?.organizationId;
-      const whereUs: any = { tenantId, cloudId: id, status: 'active' };
-      if (orgId) whereUs.organizationId = orgId;
-      const us = await userSpaceRepo.findOne({ where: whereUs });
-
-      const namespacesFromUserSpace = (us?.namespace || '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const orgNs = orgId ? `ns-${orgId}` : '';
-      if (orgNs && !namespacesFromUserSpace.includes(orgNs)) {
-        namespacesFromUserSpace.push(orgNs);
-        if (us) {
-          us.namespace = namespacesFromUserSpace.join(',');
-          try {
-            await userSpaceRepo.save(us);
-          } catch (e) {
-            // ignore
-          }
-        }
+      if (userOrgId) {
+        whereClause.push({
+          tenantId: reqAny.user.tenantId,
+          cloudId: id,
+          status: 'active',
+          organizationId: userOrgId,
+        });
+        whereClause.push({
+          tenantId: reqAny.user.tenantId,
+          cloudId: id,
+          status: 'active',
+          organizationId: null,
+        });
+      } else {
+        whereClause.push({
+          tenantId: reqAny.user.tenantId,
+          cloudId: id,
+          status: 'active',
+          organizationId: null,
+        });
       }
 
-      const mergePublic = mergePublicScenarioNamespacesFromQuery(req);
-      const allowedNamespaces = Array.from(
-        new Set([
-          ...namespacesFromUserSpace,
-          ...(mergePublic ? await getPublicScenarioNamespaceNames(id) : []),
-        ]),
-      );
-
-      if (allowedNamespaces.length === 0) {
+      const matches = await userSpaceRepo.find({ where: whereClause });
+      if (!matches || matches.length === 0) {
         return res.json({ message: '查询成功', data: { items: [] } });
       }
-      whereCondition = { cloudId: id, namespace: In(allowedNamespaces) };
+
+      const uniqueNamespaces = new Set<string>();
+      matches.forEach((m) => {
+        if (m.namespace) {
+          m.namespace.split(',').forEach((ns) => {
+            const trimmed = ns.trim();
+            if (trimmed) uniqueNamespaces.add(trimmed);
+          });
+        }
+      });
+
+      if (userOrgId) {
+        uniqueNamespaces.add(`ns-${userOrgId}`);
+      }
+
+      if (uniqueNamespaces.size === 0) {
+        return res.json({ message: '查询成功', data: { items: [] } });
+      }
+
+      whereCondition = await buildTenantNamespaceInventoryWhere(id, Array.from(uniqueNamespaces), {
+        mergePublicScenarioNamespaces: false,
+      });
     }
 
     const totalCount = await repo.count({ where: { cloudId: id } });

@@ -6,6 +6,8 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  App,
+  Checkbox,
   Form,
   Segmented,
   Table,
@@ -28,6 +30,11 @@ import {
   parseFailureDomainFromNodeSelector,
   VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT,
 } from "../../lib/vmFailureDomainNodeSelector";
+import { readVmDeploymentSetId } from "../../lib/vmDeploymentSet";
+import {
+  readVmMetricAutoScheduled,
+  trySetVmRecordMetricAutoScheduledExclusive,
+} from "../../lib/vmSchedulingExclusion";
 
 const SCHEDULING_MODE_DESCRIPTION: Record<
   "auto" | "fixed" | "label",
@@ -50,6 +57,7 @@ type Props = {
   nodes?: any[];
   reloadNodes?: () => Promise<any>;
   nodesLoading?: boolean;
+  pciDevices?: any[];
 };
 
 const ChangeNodeScheduling: React.FC<Props> = ({
@@ -59,7 +67,9 @@ const ChangeNodeScheduling: React.FC<Props> = ({
   nodes = [],
   reloadNodes,
   nodesLoading = false,
+  pciDevices = [],
 }) => {
+  const { message } = App.useApp();
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } =
     useHarvesterNodeResourceMaps(cloudId);
   const [nodeKeyword, setNodeKeyword] = useState("");
@@ -148,10 +158,12 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       nodeSchedulingMode: mode,
       fixedNode: currentNode || undefined,
       failureDomainName,
+      metricAutoScheduled: mode === "auto" ? readVmMetricAutoScheduled(record) : false,
     });
   }, [record, form]);
 
   const nodeSchedulingMode = Form.useWatch("nodeSchedulingMode", form);
+  const deploymentSetId = readVmDeploymentSetId(record);
   useEffect(() => {
     if (nodeSchedulingMode === "auto") {
       form.setFieldsValue({
@@ -166,6 +178,9 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       form.setFieldsValue({
         fixedNode: undefined,
       });
+    }
+    if (nodeSchedulingMode !== "auto") {
+      form.setFieldsValue({ metricAutoScheduled: false });
     }
   }, [nodeSchedulingMode, form]);
 
@@ -245,6 +260,30 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       >
         {SCHEDULING_MODE_DESCRIPTION[schedulingModeForHelp]}
       </Typography.Paragraph>
+
+      {nodeSchedulingMode === "auto" ? (
+        <Form.Item
+          name="metricAutoScheduled"
+          valuePropName="checked"
+          style={{ marginBottom: 16 }}
+        >
+          <Checkbox
+            disabled={!!deploymentSetId}
+            onChange={(e) => {
+              const err = trySetVmRecordMetricAutoScheduledExclusive(
+                form,
+                e.target.checked,
+                record,
+                nodeSchedulingMode,
+                { pciDevices },
+              );
+              if (err) message.error(err);
+            }}
+          >
+            参与指标自动调度
+          </Checkbox>
+        </Form.Item>
+      ) : null}
 
       {nodeSchedulingMode === "fixed" && (
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>

@@ -8,14 +8,13 @@ export const LEGACY_TENANT_CLOUD_CONSOLE_PATH = '/admin/clouds/console' as const
 
 /**
  * 租户云主机控制台：GET 列表是否合并「公共场景命名空间」(tower.io/scenario=public) 的资源。
- * 与后端 query `mergePublicScenarioNamespaces` 对齐：仅镜像、模板、扁平子网（及实例页依赖的公共镜像）为 true。
+ * 与后端 query `mergePublicScenarioNamespaces` 对齐：镜像、实例页（公共镜像）、扁平子网为 true；模板仅租户自有命名空间。
  */
 export function shouldMergePublicScenarioForTenantConsole(
   activeCategory: string,
   activeResource: string,
 ): boolean {
   if (activeCategory === 'compute' && activeResource === 'image') return true;
-  if (activeCategory === 'compute' && activeResource === 'template') return true;
   /** 实例列表依赖公共镜像（创建/展示） */
   if (activeCategory === 'compute' && activeResource === 'vm') return true;
   if (activeCategory === 'flatnet' && activeResource === 'flat-subnet') return true;

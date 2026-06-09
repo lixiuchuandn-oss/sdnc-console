@@ -1,6 +1,7 @@
 import {
   applyDeploymentSetExclusive,
   collectVmWizardMetricAutoScheduledConflicts,
+  collectVmRecordMetricAutoScheduledConflicts,
   formatMetricAutoScheduledConflictMessage,
   getVmWizardMetricAutoScheduledConflictMessage,
   readVmMetricAutoScheduled,
@@ -105,6 +106,39 @@ describe('vmSchedulingExclusion', () => {
         },
       }),
     ).toBe(true);
+  });
+
+  it('collectVmRecordMetricAutoScheduledConflicts detects GPU and USB on VM record', () => {
+    expect(
+      collectVmRecordMetricAutoScheduledConflicts({
+        spec: {
+          template: {
+            spec: {
+              domain: {
+                devices: {
+                  hostDevices: [{ name: 'usb1', deviceName: 'usb-device' }],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual(['USB设备']);
+    expect(
+      collectVmRecordMetricAutoScheduledConflicts({
+        spec: {
+          template: {
+            spec: {
+              domain: {
+                devices: {
+                  gpus: [{ deviceName: 'nvidia.com/gpu' }],
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual(['GPU']);
   });
 
   it('formatMetricAutoScheduledConflictMessage joins multiple conflicts', () => {
