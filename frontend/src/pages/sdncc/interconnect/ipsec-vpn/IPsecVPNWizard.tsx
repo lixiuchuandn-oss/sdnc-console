@@ -38,6 +38,9 @@ const IPsecVPNWizard: React.FC = () => {
   const [_fullLocalConfig, _setFullLocalConfig] = useState<any>(null);
   const [_fullPeerConfig, _setFullPeerConfig] = useState<any>(null);
   const _deployedRef = React.useRef(false);
+  /** 防止进入第 4 步时重复自动触发下发（与 SRv6 Create 下发向导一致） */
+  const deployAutoStartedRef = React.useRef(false);
+  const manualStepTimersRef = React.useRef<number[]>([]);
 
   // Manual Step State
   const [manualStep, setManualStep] = useState(0);
@@ -53,12 +56,19 @@ const IPsecVPNWizard: React.FC = () => {
     { title: '回查对端结果', desc: '验证对端设备是否成功加载配置' }
   ];
 
+  const deployGetOpts = { skipCache: true, enableDeduplication: false } as const;
+
+  const clearManualStepTimers = () => {
+    manualStepTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    manualStepTimersRef.current = [];
+  };
+
   const executeManualStep = async (stepIndex: number) => {
-    const vrId = form.getFieldValue('localVrId');
-    const peerVrId = form.getFieldValue('peerVrId');
-    
+    const localVrId = String(form.getFieldValue('localVrId') || '').trim();
+    const peerVrId = String(form.getFieldValue('peerVrId') || '').trim();
+
     setManualStatus(prev => ({ ...prev, [stepIndex]: 'process' }));
-    setManualLogs(prev => ({ ...prev, [stepIndex]: 'Executing...' }));
+    setManualLogs(prev => ({ ...prev, [stepIndex]: '执行中…' }));
 
     try {
       let res: any;
@@ -66,55 +76,72 @@ const IPsecVPNWizard: React.FC = () => {
 
       switch (stepIndex) {
         case 0: // Preview Local
-          res = await apiRequest(`/api/networks/ipsec/deploy/preview?vrId=${vrId}`);
-          logMsg = `[Local Config Preview]\n${JSON.stringify(res.config, null, 2)}`;
+          if (!localVrId) throw new Error('缺少本端 VR UUID，请返回上一步确认已选择本端网关');
+          res = await apiRequest(
+            `/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`,
+            deployGetOpts,
+          );
+          if (res?.error) throw new Error(res.error);
+          logMsg = `[本端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
           break;
         
         case 1: // Push Local
-          res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId });
+          if (!localVrId) throw new Error('缺少本端 VR UUID');
+          res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: localVrId });
           
           if (res.error) throw new Error(res.error);
-          logMsg = `[Local Push Response]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
+          logMsg = `[本端下发响应]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
           
           if (res.status !== 200 && res.status !== 201) throw new Error(`Device returned status ${res.status}`);
           break;
 
         case 2: // Verify Local
-          res = await apiRequest(`/api/networks/ipsec/deploy/verify?vrId=${vrId}`);
+          if (!localVrId) throw new Error('缺少本端 VR UUID');
+          res = await apiRequest(
+            `/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(localVrId)}`,
+            deployGetOpts,
+          );
           if (res.error) throw new Error(res.error);
-          logMsg = `[Local Verify]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
+          logMsg = `[本端回查]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
           if (res.ipsecCount === 0) throw new Error('Verification failed: No IPsec connections found on device.');
           break;
 
         case 3: // Preview Peer
           if (!peerVrId) {
-             logMsg = 'No Peer VR selected, skipping.';
+             logMsg = '未选择对端 VR，跳过。';
              break;
           }
-          res = await apiRequest(`/api/networks/ipsec/deploy/preview?vrId=${peerVrId}`);
-          logMsg = `[Peer Config Preview]\n${JSON.stringify(res.config, null, 2)}`;
+          res = await apiRequest(
+            `/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`,
+            deployGetOpts,
+          );
+          if (res?.error) throw new Error(res.error);
+          logMsg = `[对端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
           break;
 
         case 4: // Push Peer
           if (!peerVrId) {
-             logMsg = 'No Peer VR selected, skipping.';
+             logMsg = '未选择对端 VR，跳过。';
              break;
           }
           res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: peerVrId });
           
           if (res.error) throw new Error(res.error);
-          logMsg = `[Peer Push Response]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
+          logMsg = `[对端下发响应]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
           if (res.status !== 200 && res.status !== 201) throw new Error(`Device returned status ${res.status}`);
           break;
 
         case 5: // Verify Peer
            if (!peerVrId) {
-             logMsg = 'No Peer VR selected, skipping.';
+             logMsg = '未选择对端 VR，跳过。';
              break;
           }
-          res = await apiRequest(`/api/networks/ipsec/deploy/verify?vrId=${peerVrId}`);
+          res = await apiRequest(
+            `/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(peerVrId)}`,
+            deployGetOpts,
+          );
           if (res.error) throw new Error(res.error);
-          logMsg = `[Peer Verify]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
+          logMsg = `[对端回查]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
           if (res.ipsecCount === 0) throw new Error('Verification failed: No IPsec connections found on peer device.');
           break;
       }
@@ -125,7 +152,8 @@ const IPsecVPNWizard: React.FC = () => {
 
       // Auto-execute next step
       if (stepIndex < 5) {
-        setTimeout(() => executeManualStep(stepIndex + 1), 500);
+        const timer = window.setTimeout(() => void executeManualStep(stepIndex + 1), 500);
+        manualStepTimersRef.current.push(timer);
       } else {
         message.success('全部流程结束');
       }
@@ -137,18 +165,27 @@ const IPsecVPNWizard: React.FC = () => {
     }
   };
 
-  // Reset manual state when entering step 4
+  // 进入第 4 步时重置并自动开始下发（仅触发一次，避免 requestManager 去重挂死）
   useEffect(() => {
-    if (current === 3) {
-      setManualStep(0);
-      setManualLogs({});
-      setManualStatus({
-        0: 'wait', 1: 'wait', 2: 'wait', 3: 'wait', 4: 'wait', 5: 'wait'
-      });
-      // Auto-start
-      setTimeout(() => executeManualStep(0), 500);
+    if (current !== 3) {
+      clearManualStepTimers();
+      deployAutoStartedRef.current = false;
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (deployAutoStartedRef.current) return;
+    deployAutoStartedRef.current = true;
+    setManualStep(0);
+    setManualLogs({});
+    setManualStatus({
+      0: 'wait', 1: 'wait', 2: 'wait', 3: 'wait', 4: 'wait', 5: 'wait',
+    });
+    const t = window.setTimeout(() => void executeManualStep(0), 500);
+    manualStepTimersRef.current.push(t);
+    return () => {
+      clearManualStepTimers();
+      deployAutoStartedRef.current = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入第 4 步时触发自动下发链
   }, [current]);
 
   // 1. 精确监听 Checkbox 状态，确保 React 能够感知变化
@@ -739,11 +776,14 @@ const IPsecVPNWizard: React.FC = () => {
                         onChange={(val: string) => prefillFromVrPreset('local', val)}
                         filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
                       >
-                        {vrs.map(vr => (
-                          <Option key={vr.uuid || vr.id} value={vr.uuid || vr.id}>
-                            {vr.name || vr.uuid || vr.id}
-                          </Option>
-                        ))}
+                        {vrs.map(vr => {
+                          const vid = String(vr.uuid || vr.id || '').trim();
+                          return (
+                            <Option key={vid} value={vid}>
+                              {vr.name || vid}
+                            </Option>
+                          );
+                        })}
                       </Select>
                     </Form.Item>
                   </Col>
@@ -815,11 +855,14 @@ const IPsecVPNWizard: React.FC = () => {
                         onChange={(val: string) => prefillFromVrPreset('remote', val)}
                         filterOption={(input, option) => (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())}
                       >
-                        {vrs.map(vr => (
-                          <Option key={vr.uuid || vr.id} value={vr.uuid || vr.id}>
-                            {vr.name || vr.uuid || vr.id}
-                          </Option>
-                        ))}
+                        {vrs.map(vr => {
+                          const vid = String(vr.uuid || vr.id || '').trim();
+                          return (
+                            <Option key={vid} value={vid}>
+                              {vr.name || vid}
+                            </Option>
+                          );
+                        })}
                       </Select>
                     </Form.Item>
                   </Col>
