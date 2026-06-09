@@ -12,6 +12,7 @@ import { formatDeploymentSetSchedulingSummary } from 'services/harvester/deploym
 
 export type DeploymentSetsTableActions = {
   canWrite: boolean;
+  onOpenYaml: (record: DeploymentSetRow) => void;
   onEdit: (record: DeploymentSetRow) => void;
   onDelete: (record: DeploymentSetRow) => void;
 };
@@ -33,7 +34,7 @@ function renderLabelsCell(labels: Record<string, string>): React.ReactNode {
 export function buildDeploymentSetsTableColumns(
   actions: DeploymentSetsTableActions,
 ): ColumnsType<DeploymentSetRow> {
-  const { canWrite, onEdit, onDelete } = actions;
+  const { canWrite, onOpenYaml, onEdit, onDelete } = actions;
 
   return [
     {
@@ -103,7 +104,9 @@ export function buildDeploymentSetsTableColumns(
       align: 'left',
       fixed: 'right',
       render: (_: unknown, row) => {
-        const items: ResourceActionItem[] = [];
+        const items: ResourceActionItem[] = [
+          { key: 'view_yaml', label: '查看YAML', onClick: () => onOpenYaml(row) },
+        ];
         if (canWrite) {
           items.push(
             { key: 'edit', label: '编辑', onClick: () => onEdit(row) },

@@ -28,6 +28,8 @@ npm install            # postinstall 自动执行 playwright install chromium
 npm run test:auth:api
 npm run test:cloudmap:connection
 npm run test:failure-domains:api
+npm run test:deployment-sets:api
+npm run test:security-groups:api
 ```
 
 ### 浏览器 E2E（需要 Playwright）
@@ -45,6 +47,8 @@ npm run test:auth:browser
 npm run test:images:browser
 npm run test:failure-domains:browser
 npm run test:failure-domains:browser-filter
+npm run test:deployment-sets:browser
+npm run test:security-groups:browser
 ```
 
 故障域可选环境变量：`TOWER_FD_NODE_NAME`、`TOWER_FD_NAME_PREFIX`。

@@ -43,6 +43,8 @@ import {
   confirmHighRiskDelete,
   DELETE_NETWORK_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
+import ResourceLinkYamlDrawer from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 
 const { Paragraph } = Typography;
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';
@@ -195,6 +197,9 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
     hasPermissionForAction(user?.permissions || [], 'clouds.security-groups.vpc:write') ||
     hasPermissionForAction(user?.permissions || [], 'clouds.vpcs:write') ||
     hasPermissionForAction(user?.permissions || [], 'clouds:write');
+
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const [keyword, setKeyword] = useState('');
   const [memberFilter, setMemberFilter] = useState<string>('');
@@ -429,6 +434,16 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
       setEditSubmitting(false);
     }
   };
+
+  const handleOpenSecurityGroupYaml = useCallback(
+    (record: SecurityGroupRow) => {
+      openYamlDrawer(
+        { kind: 'SecurityGroup', name: record.id, metadata: { name: record.id } },
+        { title: `安全组 · ${record.name}` },
+      );
+    },
+    [openYamlDrawer],
+  );
 
   const confirmDeleteSecurityGroup = useCallback(
     (record: SecurityGroupRow) => {
@@ -696,13 +711,22 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         key: 'actions',
         fixed: 'right' as const,
         render: (_: unknown, record: SecurityGroupRow) => {
-          if (!canWrite) return '—';
           const menuItems: MenuProps['items'] = [
-            { key: 'edit', label: '编辑安全组', onClick: () => openEditModal(record) },
-            { key: 'rules', label: '访问控制', onClick: () => openRulesDrawer(record) },
-            { type: 'divider' },
-            { key: 'delete', label: '删除', danger: true, onClick: () => confirmDeleteSecurityGroup(record) },
+            { key: 'view_yaml', label: '查看YAML', onClick: () => handleOpenSecurityGroupYaml(record) },
           ];
+          if (canWrite) {
+            menuItems.push(
+              { key: 'edit', label: '编辑安全组', onClick: () => openEditModal(record) },
+              { key: 'rules', label: '访问控制', onClick: () => openRulesDrawer(record) },
+              { type: 'divider' },
+              {
+                key: 'delete',
+                label: '删除',
+                danger: true,
+                onClick: () => confirmDeleteSecurityGroup(record),
+              },
+            );
+          }
           return (
             <ResourceActionsDropdown
               items={menuItems}
@@ -712,7 +736,14 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
         },
       },
     ],
-    [canWrite, openRulesDrawer, subnetDisplayByName, openEditModal, confirmDeleteSecurityGroup],
+    [
+      canWrite,
+      handleOpenSecurityGroupYaml,
+      openRulesDrawer,
+      subnetDisplayByName,
+      openEditModal,
+      confirmDeleteSecurityGroup,
+    ],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(
@@ -882,6 +913,14 @@ const SecurityGroupsSection: React.FC<Props> = ({ cloudId }) => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
+        cloudId={cloudId}
+        title={yamlDrawerTitle}
+        viewLink={yamlViewLink}
+      />
 
       <SecurityGroupAccessControlDrawer
         AntDrawer={Drawer}

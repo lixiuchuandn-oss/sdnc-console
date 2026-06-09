@@ -34,6 +34,8 @@ const CLUSTER_KIND_PATH: Record<string, (name: string) => string> = {
     `/apis/network.harvesterhci.io/v1beta1/clusternetworks/${encodeURIComponent(name)}`,
   Switch: (name) => `/apis/hms.rivercloud.com/v1/switches/${encodeURIComponent(name)}`,
   MetricRule: (name) => `/apis/hms.rivercloud.com/v1/metricrules/${encodeURIComponent(name)}`,
+  DeploySet: (name) => `/apis/hms.rivercloud.com/v1/deploysets/${encodeURIComponent(name)}`,
+  SecurityGroup: (name) => `/apis/hms.rivercloud.com/v1/securitygroups/${encodeURIComponent(name)}`,
 };
 
 const NAMESPACED_KIND_PATH: Record<string, (ns: string, name: string) => string> = {

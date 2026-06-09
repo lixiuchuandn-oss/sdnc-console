@@ -31,6 +31,8 @@ import {
   filterDeploymentSets,
 } from '../lib/deploymentSetsSectionUtils';
 import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import ResourceLinkYamlDrawer from '../../shared/components/ResourceLinkYamlDrawer';
+import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarvesterResourceLinkYamlDrawer';
 import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
@@ -50,6 +52,9 @@ export type DeploymentSetSectionProps = {
 const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, checkPerm }) => {
   const canRead = canReadDeploymentSetsTab(checkPerm);
   const canWrite = canWriteDeploymentSets(checkPerm);
+
+  const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
+    useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const { loading, overview, error, reload } = useDeploymentSetsData(cloudId, canRead);
   const { overview: fdOverview } = useFailureDomainsData(cloudId, canRead);
@@ -221,14 +226,26 @@ const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, ch
     [cloudId, editing, reload],
   );
 
+  const handleOpenDeploymentSetYaml = useCallback(
+    (row: DeploymentSetRow) => {
+      const crName = String(row.id || row.name || '').trim();
+      openYamlDrawer(
+        { kind: 'DeploySet', name: crName, metadata: { name: crName } },
+        { title: `部署集 · ${row.name}` },
+      );
+    },
+    [openYamlDrawer],
+  );
+
   const columnsAll = useMemo(
     () =>
       buildDeploymentSetsTableColumns({
         canWrite,
+        onOpenYaml: handleOpenDeploymentSetYaml,
         onEdit: openEdit,
         onDelete: handleDelete,
       }),
-    [canWrite, handleDelete, openEdit],
+    [canWrite, handleDelete, handleOpenDeploymentSetYaml, openEdit],
   );
 
   const { displayColumns: columns } = useTableColumnSettings(columnsAll, TABLE_KEY);
@@ -313,6 +330,14 @@ const DeploymentSetSection: React.FC<DeploymentSetSectionProps> = ({ cloudId, ch
           pagination={{ size: 'small', showSizeChanger: true }}
         />
       </PageDetailSection>
+
+      <ResourceLinkYamlDrawer
+        open={yamlDrawerOpen}
+        onClose={closeYamlDrawer}
+        cloudId={cloudId}
+        title={yamlDrawerTitle}
+        viewLink={yamlViewLink}
+      />
 
       <DeploymentSetFormModal
         open={formOpen}

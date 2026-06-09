@@ -13,10 +13,16 @@ if (!script) {
 
 const testsRoot = path.join(__dirname, '..');
 const abs = path.isAbsolute(script) ? script : path.resolve(process.cwd(), script);
-const env = { ...process.env, HEADED: '1', HEADLESS: '0' };
+const testArg = path.relative(testsRoot, abs).split(path.sep).join('/');
+const env = {
+  ...process.env,
+  HEADED: '1',
+  HEADLESS: '0',
+  TOWER_PLAYWRIGHT_SLOW_MO: process.env.TOWER_PLAYWRIGHT_SLOW_MO || '500',
+};
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
-const run = spawnSync(npx, ['playwright', 'test', abs, ...process.argv.slice(3)], {
+const run = spawnSync(npx, ['playwright', 'test', testArg, ...process.argv.slice(3)], {
   cwd: testsRoot,
   stdio: 'inherit',
   env,
@@ -24,5 +30,7 @@ const run = spawnSync(npx, ['playwright', 'test', abs, ...process.argv.slice(3)]
 });
 if (run.status !== 0) process.exit(run.status ?? 1);
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-spawnSync(npm, ['run', 'allure:report'], { cwd: testsRoot, stdio: 'inherit', env, shell: true });
+if (!/^(1|true|yes)$/i.test(String(env.ALLURE_SKIP || '').trim())) {
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  spawnSync(npm, ['run', 'allure:report'], { cwd: testsRoot, stdio: 'inherit', env, shell: true });
+}

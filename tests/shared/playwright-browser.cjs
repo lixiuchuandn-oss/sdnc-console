@@ -19,9 +19,19 @@ function resolvePlaywrightHeadless() {
   return false;
 }
 
+function resolvePlaywrightSlowMo(headless) {
+  const raw = String(process.env.TOWER_PLAYWRIGHT_SLOW_MO || '').trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return headless ? 0 : 220;
+}
+
 async function launchTowerBrowser(options = {}) {
   const headless = options.headless !== undefined ? options.headless : resolvePlaywrightHeadless();
-  const slowMo = options.slowMo !== undefined ? options.slowMo : resolvePlaywrightHeadless() ? 0 : 220;
+  const slowMo =
+    options.slowMo !== undefined ? options.slowMo : resolvePlaywrightSlowMo(headless);
   try {
     return await chromium.launch({ channel: 'msedge', headless, slowMo, args: ['--start-maximized'] });
   } catch {
