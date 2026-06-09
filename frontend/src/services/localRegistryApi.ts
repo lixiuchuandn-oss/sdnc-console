@@ -51,6 +51,14 @@ export const checkLocalRegistryPort = async (cloudId: string, port: number) => {
   );
 };
 
+/** 从 start（默认 30500）起推荐第一个未被占用的 NodePort */
+export const suggestLocalRegistryPort = async (cloudId: string, start = 30500) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/local-registry/suggest-port?start=${start}`,
+    { skipCache: true },
+  );
+};
+
 export const createLocalRegistry = async (cloudId: string, payload: CreateLocalRegistryPayload) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/local-registry`, payload);
 };
@@ -91,9 +99,43 @@ export const refreshLocalRegistryStatus = async (cloudId: string, registryId: st
   );
 };
 
+/** 将本地仓库地址写入 Harvester containerd-registry，允许节点 HTTP 拉取 */
+export const configureLocalRegistryPull = async (cloudId: string, registryId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/configure-pull`,
+  );
+};
+
+export const testLocalRegistryConnection = async (cloudId: string, registryId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/test`,
+  );
+};
+
+export const syncLocalRegistryPullSecret = async (
+  cloudId: string,
+  registryId: string,
+  params: { namespace: string; secretName?: string },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/sync-pull-secret`,
+    params,
+  );
+};
+
 export const fetchImageUploadTasks = async (cloudId: string, registryId: string) => {
   return await apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/upload-tasks`
+  );
+};
+
+export const deleteImageUploadTask = async (
+  cloudId: string,
+  registryId: string,
+  taskId: string,
+) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/local-registry/${registryId}/upload-tasks/${taskId}`,
   );
 };
 

@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import RegistryBrowser, { RegistryCredential } from './RegistryBrowser';
 import HarborImageSelector from './HarborImageSelector';
+import { syncLocalRegistryPullSecret } from '../../../../../../services/localRegistryApi';
 
 const { Text } = Typography;
 
@@ -63,6 +64,7 @@ export interface RegistryBrowserDrawerProps {
     password?: string;
     insecure: boolean;
     source?: string;
+    localRegistryId?: string;
   }>;
   /** 仓库变更回调 */
   onRegistryChange?: (credential: RegistryCredential) => void;
@@ -114,16 +116,37 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
     resetState();
   }, [resetState]);
 
-  // 处理镜像选择（从已有凭证浏览）
-  const handleSelectImage = useCallback((image: string) => {
+  const normalizeServer = (server: string) =>
+    server.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+
+  const resolvePullSecretForImage = useCallback(async (): Promise<string | undefined> => {
+    if (!credential?.server) return undefined;
+    const currentServer = normalizeServer(credential.server);
+    const registry = registries.find((r) => normalizeServer(r.server) === currentServer);
+    if (!registry?.localRegistryId || !registry.username || !namespace) {
+      return undefined;
+    }
+    try {
+      const res = await syncLocalRegistryPullSecret(cloudId, registry.localRegistryId, {
+        namespace,
+      });
+      return res?.data?.secretName as string | undefined;
+    } catch (e: any) {
+      message.warning(e?.message || '同步拉取凭证失败，请手动配置镜像拉取凭证');
+      return undefined;
+    }
+  }, [credential?.server, registries, namespace, cloudId]);
+
+  // 处理镜像选择（从已有凭证 / 本地仓库浏览）
+  const handleSelectImage = useCallback(async (image: string) => {
     setSelectedImage(image);
-    // 选择模式下，自动触发回调
     if (isSelectMode) {
-      onSelectImage!(image);
+      const secretName = await resolvePullSecretForImage();
+      onSelectImage!(image, secretName);
       setSelectedImage(null);
       onClose();
     }
-  }, [isSelectMode, onSelectImage, onClose]);
+  }, [isSelectMode, onSelectImage, onClose, resolvePullSecretForImage]);
 
   // 处理镜像选择（从 Harbor）
   const handleHarborSelect = useCallback((imageRef: string, secret?: string) => {

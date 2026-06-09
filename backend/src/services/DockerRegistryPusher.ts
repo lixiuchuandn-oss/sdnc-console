@@ -33,6 +33,20 @@ interface BearerChallenge {
   scope?: string;
 }
 
+/** 小请求默认超时（HEAD/POST 启动上传等） */
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+/** 大 blob 上传最长等待 2 小时 */
+const MAX_REQUEST_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+/** 每 MB  payload 额外增加 1 秒超时 */
+const TIMEOUT_MS_PER_MB = 1_000;
+
+function computeRequestTimeoutMs(body?: Buffer): number {
+  if (!body || body.length === 0) return DEFAULT_REQUEST_TIMEOUT_MS;
+  const sizeMb = body.length / (1024 * 1024);
+  const timeout = DEFAULT_REQUEST_TIMEOUT_MS + sizeMb * TIMEOUT_MS_PER_MB;
+  return Math.min(Math.max(timeout, DEFAULT_REQUEST_TIMEOUT_MS), MAX_REQUEST_TIMEOUT_MS);
+}
+
 /**
  * 解析 Www-Authenticate Bearer challenge 头部
  */
@@ -93,7 +107,9 @@ function httpRequest(
   rejectUnauthorized?: boolean,
   body?: Buffer,
   headers?: Record<string, string>,
+  timeoutMs?: number,
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+  const timeout = timeoutMs ?? computeRequestTimeoutMs(body);
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
     const isHttps = parsedUrl.protocol === 'https:';
@@ -125,10 +141,8 @@ function httpRequest(
     });
 
     req.on('error', reject);
-    req.on('socket', (socket) => {
-      socket.setTimeout(60000, () => {
-        req.destroy(new Error('Request timeout'));
-      });
+    req.setTimeout(timeout, () => {
+      req.destroy(new Error(`Request timeout (${Math.round(timeout / 1000)}s)`));
     });
 
     if (body) {
@@ -150,8 +164,22 @@ async function registryRequest(
   headers: Record<string, string>,
   username?: string,
   password?: string,
+  timeoutMs?: number,
 ): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
-  const res = await httpRequest(url, method, insecure, rejectUnauthorized, body, headers);
+  const requestHeaders = { ...headers };
+  if (username && password) {
+    requestHeaders.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
+  }
+
+  const res = await httpRequest(
+    url,
+    method,
+    insecure,
+    rejectUnauthorized,
+    body,
+    requestHeaders,
+    timeoutMs,
+  );
 
   if (res.status !== 401 || !username || !password) return res;
 
@@ -172,7 +200,7 @@ async function registryRequest(
   return httpRequest(url, method, insecure, rejectUnauthorized, body, {
     ...headers,
     Authorization: `Bearer ${token}`,
-  });
+  }, timeoutMs);
 }
 
 /**
@@ -263,6 +291,7 @@ async function uploadBlob(
     location = `${protocol}://${server}${location}`;
   }
 
+  const blobTimeoutMs = computeRequestTimeoutMs(data);
   const uploadRes = await registryRequest(
     `${location}${location.includes('?') ? '&' : '?'}digest=${digest}`,
     'PUT',
@@ -275,6 +304,7 @@ async function uploadBlob(
     },
     username,
     password,
+    blobTimeoutMs,
   );
 
   if (uploadRes.status !== 201) {

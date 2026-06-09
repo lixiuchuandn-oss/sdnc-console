@@ -4,7 +4,11 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Modal, Form, Input, InputNumber, Switch, Select, Alert, Space, Spin, App } from 'antd';
 import { DatabaseOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { checkLocalRegistryPort, createLocalRegistry } from '../../../../../../services/localRegistryApi';
+import {
+  checkLocalRegistryPort,
+  createLocalRegistry,
+  suggestLocalRegistryPort,
+} from '../../../../../../services/localRegistryApi';
 
 interface Props {
   visible: boolean;
@@ -28,17 +32,32 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
   const [portStatus, setPortStatus] = useState<'checking' | 'available' | 'conflict' | null>(null);
 
   useEffect(() => {
-    if (visible) {
-      form.resetFields();
-      form.setFieldsValue({
-        namespace: 'default',
-        nodePort: 30500,
-        storageSize: '10Gi',
-        authEnabled: false,
-      });
-      setPortStatus(null);
-    }
-  }, [visible, form]);
+    if (!visible || !cloudId) return;
+    let cancelled = false;
+    form.resetFields();
+    form.setFieldsValue({
+      namespace: 'default',
+      storageSize: '10Gi',
+      authEnabled: false,
+    });
+    setPortStatus('checking');
+    void (async () => {
+      try {
+        const res = await suggestLocalRegistryPort(cloudId);
+        if (cancelled) return;
+        const port = Number(res?.data?.port);
+        form.setFieldsValue({ nodePort: Number.isFinite(port) ? port : 30500 });
+        setPortStatus('available');
+      } catch {
+        if (cancelled) return;
+        form.setFieldsValue({ nodePort: 30500 });
+        setPortStatus(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, cloudId, form]);
 
   const checkPort = useCallback(async (port: number) => {
     if (!port || port < 30000 || port > 32767) {

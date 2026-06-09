@@ -43,6 +43,7 @@ import {
 import {
   fetchLocalRegistries,
   refreshLocalRegistryStatus,
+  testLocalRegistryConnection,
   LocalRegistry,
 } from '../../../../../../services/localRegistryApi';
 import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
@@ -90,6 +91,7 @@ interface RegistryConfig {
   localRegistryId?: string;
   namespace?: string;
   nodePort?: number;
+  authEnabled?: boolean;
 }
 
 /**
@@ -1156,6 +1158,9 @@ const RegistriesSection: React.FC<Props> = ({
         localRegistryId: r.id,
         namespace: r.namespace,
         nodePort: r.nodePort,
+        authEnabled: r.authEnabled,
+        username: r.authEnabled ? r.username : undefined,
+        password: r.authEnabled ? r.password : undefined,
       })),
     ];
     return merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -1455,14 +1460,18 @@ const RegistriesSection: React.FC<Props> = ({
   const handleTestGenericConnection = useCallback(async (record: RegistryConfig) => {
     const hide = message.loading('正在测试连接...');
     try {
-      await getRegistryCatalog(
-        cloudId,
-        record.server,
-        record.username,
-        record.password,
-        record.insecure,
-        1,
-      );
+      if (record.localRegistryId) {
+        await testLocalRegistryConnection(cloudId, record.localRegistryId);
+      } else {
+        await getRegistryCatalog(
+          cloudId,
+          record.server,
+          record.username,
+          record.password,
+          record.insecure,
+          1,
+        );
+      }
       hide();
       message.success('连接测试成功');
       // 本地部署仓库更新 deployedRegistries，手动添加仓库更新 localRegistries
@@ -1637,11 +1646,14 @@ const RegistriesSection: React.FC<Props> = ({
     {
       title: '认证',
       key: 'auth',
-      render: (_: any, record: RegistryConfig) => (
-        <Tag color={record.username ? 'blue' : 'default'}>
-          {record.username ? '已配置' : '无需认证'}
-        </Tag>
-      ),
+      render: (_: any, record: RegistryConfig) => {
+        const hasAuth = record.authEnabled || !!record.username;
+        return (
+          <Tag color={hasAuth ? 'blue' : 'default'}>
+            {hasAuth ? '已启用' : '无需认证'}
+          </Tag>
+        );
+      },
     },
     {
       title: '添加时间',

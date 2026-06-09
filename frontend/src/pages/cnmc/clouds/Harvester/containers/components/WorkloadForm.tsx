@@ -58,11 +58,8 @@ import { createEmptyContainer, toContainerEditorFields } from './workloadForm/co
 import { buildK8sResource } from './workloadForm/buildK8sResource';
 import { buildActiveContainerFromEditor } from './workloadForm/containerFormSync';
 import { parseEditWorkloadFormInit } from './workloadForm/parseEditWorkloadFormInit';
-import {
-  buildMergedRegistryList,
-  loadHarvesterRegistriesFromLocalStorage,
-  localRegistryToCredential,
-} from './workloadForm/registryCredentials';
+import { localRegistryToCredential } from './workloadForm/registryCredentials';
+import { useMergedRegistryList } from './workloadForm/hooks/useMergedRegistryList';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
 
 import { WorkloadFormStepContent } from './workloadForm/steps';
@@ -144,12 +141,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
   const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
-  const localStorageRegistries = useMemo(() => loadHarvesterRegistriesFromLocalStorage(), []);
-
-  const allRegistries = useMemo(
-    () => buildMergedRegistryList(localStorageRegistries, secretsWithCredentials),
-    [localStorageRegistries, secretsWithCredentials],
-  );
+  const allRegistries = useMergedRegistryList(cloudId, secretsWithCredentials);
 
   const handleBrowseRegistry = useCallback(() => {
     if (allRegistries.length > 0) {
@@ -172,7 +164,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         message.error('解析镜像凭证失败，请检查凭证配置');
       }
     } else {
-      message.warning('请先在镜像仓库中添加仓库或创建凭证');
+      message.warning('请先在镜像仓库中添加仓库、部署本地仓库或创建凭证');
     }
   }, [allRegistries, form, message]);
 
@@ -966,6 +958,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         cloudId={cloudId}
         credential={browserCredential}
         registries={allRegistries}
+        namespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
         onRegistryChange={setBrowserCredential}
         currentImage={form.getFieldValue('image')}
         onClose={() => {

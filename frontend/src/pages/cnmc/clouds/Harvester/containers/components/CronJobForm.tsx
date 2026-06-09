@@ -47,6 +47,8 @@ import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer, CronExpressionHelper } from './index';
+import { localRegistryToCredential } from './workloadForm/registryCredentials';
+import { useMergedRegistryList } from './workloadForm/hooks/useMergedRegistryList';
 
 // ============================================================
 // 类型定义
@@ -272,136 +274,29 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
   const [scheduleValue, setScheduleValue] = useState('0 2 * * *');
   const [selectedPreset, setSelectedPreset] = useState<string>('0 2 * * *');
 
-  /**
-   * 加载 localStorage 中的仓库列表
-   */
-  const localStorageRegistries = useMemo(() => {
-    try {
-      const data = localStorage.getItem('harvester-registries');
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
-  }, []);
+  const allRegistries = useMergedRegistryList(cloudId, secretsWithCredentials);
 
-  /**
-   * 将 Secret 对象转换为 RegistryBrowser 需要的 credential 格式
-   */
-  const secretToCredential = useCallback((secret: any) => {
-    if (!secret) return null;
-
-    try {
-      const data = secret?.data?.['.dockerconfigjson'];
-      if (!data) return null;
-
-      const decoded = atob(data);
-      const config = JSON.parse(decoded);
-      const auths = config.auths || {};
-      const server = Object.keys(auths)[0];
-
-      if (!server) return null;
-
-      const auth = auths[server];
-      let username: string | undefined;
-      let password: string | undefined;
-
-      if (auth?.auth) {
-        try {
-          const decodedAuth = atob(auth.auth);
-          const [u, p] = decodedAuth.split(':');
-          username = u;
-          password = p;
-        } catch {
-          username = auth?.username;
-          password = auth?.password;
-        }
-      } else {
-        username = auth?.username;
-        password = auth?.password;
-      }
-
-      return {
-        name: secret?.metadata?.name,
-        namespace: secret?.metadata?.namespace,
-        server,
-        username: username || undefined,
-        password: password || undefined,
-        insecure: !server.startsWith('https://'),
-      };
-    } catch {
-      return null;
-    }
-  }, []);
-
-  /**
-   * 合并 Secrets 和 localStorage 仓库列表
-   */
-  const allRegistries = useMemo(() => {
-    const registries: any[] = [];
-
-    localStorageRegistries.forEach((reg: any) => {
-      registries.push({
-        source: 'localStorage',
-        id: reg.id,
-        name: reg.name,
-        server: reg.server,
-        username: reg.username,
-        password: reg.password,
-        insecure: reg.insecure,
-      });
-    });
-
-    if (secretsWithCredentials && secretsWithCredentials.length > 0) {
-      secretsWithCredentials.forEach((secret: any) => {
-        const credential = secretToCredential(secret);
-        if (credential) {
-          registries.push({
-            source: 'secret',
-            id: secret?.metadata?.name,
-            name: secret?.metadata?.name,
-            server: credential.server,
-            username: credential.username,
-            password: credential.password,
-            insecure: credential.insecure,
-          });
-        }
-      });
-    }
-
-    return registries;
-  }, [localStorageRegistries, secretsWithCredentials, secretToCredential]);
-
-  /**
-   * 将 registry 对象转换为 credential
-   */
-  const registryToCredential = useCallback((registry: any) => {
-    return {
-      server: registry.server,
-      username: registry.username,
-      password: registry.password,
-      insecure: registry.insecure,
-    };
-  }, []);
-
-  /**
-   * 打开仓库浏览器
-   */
   const openRegistryBrowser = useCallback(() => {
-    if (allRegistries.length > 0) {
-      const currentImage = form.getFieldValue('image') || '';
-      const serverFromImage = currentImage.split('/')[0];
-      
-      let targetCredential = registryToCredential(allRegistries[0]);
-      if (serverFromImage && serverFromImage.includes('.')) {
-        const matchingRegistry = allRegistries.find(r => r.server === serverFromImage);
-        if (matchingRegistry) {
-          targetCredential = registryToCredential(matchingRegistry);
-        }
-      }
-      setBrowserCredential(targetCredential);
+    if (allRegistries.length === 0) {
+      message.warning('请先在镜像仓库中添加仓库、部署本地仓库或创建凭证');
+      return;
     }
+    const currentImage = form.getFieldValue('image') || '';
+    const serverFromImage = currentImage.split('/')[0];
+    let targetCredential = localRegistryToCredential(allRegistries[0]);
+    if (serverFromImage) {
+      const matchingRegistry = allRegistries.find((r) => r.server === serverFromImage);
+      if (matchingRegistry) {
+        targetCredential = localRegistryToCredential(matchingRegistry);
+      }
+    }
+    if (!targetCredential) {
+      message.error('解析镜像凭证失败，请检查凭证配置');
+      return;
+    }
+    setBrowserCredential(targetCredential);
     setRegistryBrowserVisible(true);
-  }, [allRegistries, form, registryToCredential]);
+  }, [allRegistries, form, message]);
 
   // 初始化默认值
   useEffect(() => {
@@ -660,8 +555,20 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
   };
 
   // 从镜像浏览器选择镜像
-  const handleSelectImage = (image: string) => {
+  const handleSelectImage = (image: string, secret?: string) => {
     form.setFieldsValue({ image });
+    if (secret) {
+      const currentSecrets = form.getFieldValue('imagePullSecrets') || [];
+      if (!currentSecrets.includes(secret)) {
+        form.setFieldsValue({ imagePullSecrets: [...currentSecrets, secret] });
+        message.success(`已选择镜像: ${image}，并自动添加拉取凭证: ${secret}`);
+      } else {
+        message.success(`已选择镜像: ${image}`);
+      }
+    } else {
+      message.success(`已选择镜像: ${image}`);
+    }
+    setRegistryBrowserVisible(false);
   };
 
   // 渲染步骤内容
@@ -1018,6 +925,7 @@ spec:
         cloudId={cloudId}
         credential={browserCredential}
         registries={allRegistries}
+        namespace={form.getFieldValue('namespace') || defaultNamespace || 'default'}
         onRegistryChange={setBrowserCredential}
         currentImage={form.getFieldValue('image')}
         onClose={() => setRegistryBrowserVisible(false)}
