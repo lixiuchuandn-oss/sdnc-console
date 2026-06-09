@@ -38,13 +38,13 @@ const CEPH_DASHBOARD_API_ACCEPTS: readonly string[] = [
 /**
  * 本地 / 联调默认 Dashboard 账号（与 tools/ceph-dashboard-api-probe.ps1 演示一致）。
  * - 显式账号：CEPH_DASHBOARD_USER + CEPH_DASHBOARD_PASSWORD（任意环境优先）
- * - 否则：NODE_ENV 非 production 时自动用 admin/Cloudmap@123（npm run dev / 未设 NODE_ENV 的 npm start 均属此类；联调测试集群）
+ * - 否则：NODE_ENV 非 production 时自动用 api/Cloudadmin@123（npm run dev / 未设 NODE_ENV 的 npm start 均属此类；联调测试集群）
  * - 显式关闭默认登录：CEPH_DASHBOARD_DISABLE_DEV_DEFAULTS=1
  * - 生产（NODE_ENV=production）且未配账号：仅 Kube Bearer（Dashboard 常 401）
  * - 仅生产仍需演示会话：CEPH_DASHBOARD_DEV_AUTO_LOGIN=1
  */
-const CEPH_DASHBOARD_DEV_DEFAULT_USER = 'admin';
-const CEPH_DASHBOARD_DEV_DEFAULT_PASSWORD = 'Cloudmap@123';
+const CEPH_DASHBOARD_DEV_DEFAULT_USER = 'api';
+const CEPH_DASHBOARD_DEV_DEFAULT_PASSWORD = 'Cloudadmin@123';
 
 function getCephDashboardLoginCredentials(): { user: string; password: string } | null {
   const u = process.env.CEPH_DASHBOARD_USER?.trim();
@@ -612,7 +612,7 @@ async function fetchCephDashboardWithSession(
 
 /**
  * 经 Kubernetes API `services/proxy` 调用 Ceph Dashboard REST。
- * 非 production（或未显式 production）默认 admin/Cloudmap@123 先登录再拉取；生产用 CEPH_DASHBOARD_USER/PASSWORD 或仅 Bearer。
+ * 非 production（或未显式 production）默认 api/Cloudadmin@123 先登录再拉取；生产用 CEPH_DASHBOARD_USER/PASSWORD 或仅 Bearer。
  */
 /** 供同步入库等复用；与 GET/POST ceph-dashboard/summary 同源拉取逻辑 */
 export async function fetchCephDashboardApi(
