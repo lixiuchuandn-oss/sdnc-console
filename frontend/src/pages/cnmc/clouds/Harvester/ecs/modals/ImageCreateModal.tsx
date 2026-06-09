@@ -28,8 +28,6 @@ import {
 } from '../../../../../../services/harvesterApi';
 import { pickImageUploadChunkSize } from '../lib/chunkedImageUpload';
 import { pickDefaultStorageClassName } from '../../../../../../utils/harvesterUtils';
-import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
-import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 
 export type StartBrowserChunkedUploadParams = {
   file: File;
@@ -63,6 +61,8 @@ export type ImageCreateModalProps = {
   isTenant?: boolean;
   /** 租户当前工作区命名空间（侧栏筛选或首个授权 ns） */
   tenantDefaultNamespace?: string;
+  /** 租户可选命名空间（来自控制台/资源池已加载的授权列表，勿走监控接口） */
+  tenantNamespaceOptions?: { label: string; value: string }[];
 };
 
 /** 与 handleStartTaskUpload 中 disk 类型映射一致（后端 disk → qcow2） */
@@ -148,16 +148,13 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   onStartBrowserUpload,
   isTenant = false,
   tenantDefaultNamespace,
+  tenantNamespaceOptions = [],
 }) => {
-  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const [form] = Form.useForm();
   const [createTab, setCreateTab] = useState<'browser' | 'desktop' | 'url'>('browser');
   const [uploadingTask, setUploadingTask] = useState(false);
   const [toolFile, setToolFile] = useState<File | null>(null);
   const [defaultStorageClassName, setDefaultStorageClassName] = useState<string | undefined>();
-  const [tenantNamespaceOptions, setTenantNamespaceOptions] = useState<
-    { label: string; value: string }[]
-  >([]);
 
   const adminNamespaceOptions = useMemo(
     () => [{ label: '公共镜像仓（默认）', value: 'default' }],
@@ -178,11 +175,13 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    const initialNs = isTenant ? String(tenantDefaultNamespace || '').trim() : 'default';
+    const tenantNsList = tenantNamespaceOptions.map((o) => o.value);
+    const initialNs = isTenant
+      ? resolveTenantNamespace(tenantNsList) || String(tenantDefaultNamespace || '').trim()
+      : 'default';
     form.setFieldsValue({ toolNamespace: initialNs, namespace: initialNs });
     setCreateTab('browser');
     setToolFile(null);
-    setTenantNamespaceOptions([]);
     void (async () => {
       try {
         const res = await fetchHarvesterStorageClasses(cloudId);
@@ -191,22 +190,16 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       } catch {
         setDefaultStorageClassName(undefined);
       }
-      if (!isTenant) return;
-      try {
-        const { data, ok } = await fetchAllowedNamespaces(cloudId);
-        const raw = ok && Array.isArray(data?.namespaces) ? data!.namespaces : [];
-        const privateNs = raw
-          .map((ns) => String(ns || '').trim())
-          .filter((ns) => ns && !isPublicNamespace(ns));
-        const options = privateNs.map((ns) => ({ label: ns, value: ns }));
-        setTenantNamespaceOptions(options);
-        const picked = resolveTenantNamespace(privateNs);
-        if (picked) form.setFieldsValue({ toolNamespace: picked, namespace: picked });
-      } catch {
-        setTenantNamespaceOptions([]);
-      }
     })();
-  }, [open, form, cloudId, isTenant, tenantDefaultNamespace, isPublicNamespace, resolveTenantNamespace]);
+  }, [
+    open,
+    form,
+    cloudId,
+    isTenant,
+    tenantDefaultNamespace,
+    tenantNamespaceOptions,
+    resolveTenantNamespace,
+  ]);
 
   /** URL 导入 Tab：校验 namespace / displayName / url 后创建集群拉取镜像 */
   /** URL 输入失焦：合法 http(s) 时自动补全空的「显示名 / 镜像类型」 */
@@ -364,7 +357,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
               options={namespaceSelectOptions}
               style={{ width: '100%' }}
               disabled={isTenant && tenantNamespaceOptions.length <= 1}
-              placeholder={isTenant ? '加载租户命名空间…' : undefined}
+              placeholder={isTenant ? '请选择命名空间' : undefined}
             />
           </Form.Item>
         </Col>
@@ -412,7 +405,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
               options={namespaceSelectOptions}
               style={{ width: '100%' }}
               disabled={isTenant && tenantNamespaceOptions.length <= 1}
-              placeholder={isTenant ? '加载租户命名空间…' : undefined}
+              placeholder={isTenant ? '请选择命名空间' : undefined}
             />
           </Form.Item>
         </Col>

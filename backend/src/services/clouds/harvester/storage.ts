@@ -177,6 +177,8 @@ export function filterHarvesterAvailableVolumeItems(items: any[], usedPvcSet: Se
       return { ...item, isUsedByVm: usedPvcSet.has(pvcKey) };
     })
     .filter((x: any) => {
+      const pvcName = String(x.pvcName || x.name || '').trim();
+      if (isHarvesterImageBackingPvcName(pvcName)) return false;
       if (!x.pvcName || !x.namespace) return false;
       const st = String(x.state || '').toLowerCase();
       if (blockedPhases.has(st)) return false;
@@ -337,6 +339,16 @@ export const listHarvesterStorageClassesStandard = async ({
     })
     .filter((x: any) => !!x.name);
 };
+
+/**
+ * Harvester 镜像底卷 PVC（VirtualMachineImage 上传后由 CDI/Longhorn 创建的承载卷）。
+ * 云盘列表按 PVC 名称 image-{id} 隐藏，与 harvesterImageInventory.mapper 命名一致。
+ */
+export function isHarvesterImageBackingPvcName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  return /^image-[a-z0-9]+$/i.test(n);
+}
 
 /** 与前端 isSystemStorageClass 一致：镜像/VM 业务应使用用户可选存储池 */
 function isSystemStorageClassName(name: string): boolean {

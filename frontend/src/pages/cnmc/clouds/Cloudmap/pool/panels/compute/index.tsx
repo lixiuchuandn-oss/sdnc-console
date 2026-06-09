@@ -529,6 +529,7 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           tenantDefaultNamespace={
             isTenant ? (nsFilter || tenantNamespaces[0] || undefined) : undefined
           }
+          namespacesOptions={namespacesOptions}
           uploadDrawerRef={imageUploadDrawerRef}
           onRegisterUploadCallbacks={(callbacks) => {
             uploadCallbacksRef.current = callbacks;

@@ -396,6 +396,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
             isTenant={isTenantUser}
+            tenantDefaultNamespace={isTenantUser ? (nsValue || namespacesOptions[0]) : undefined}
           />
         );
       case 'volume-snapshot':
@@ -420,6 +421,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             vms={vms}
             isTenant={isTenantUser}
             tenantDefaultNamespace={isTenantUser ? (nsValue || namespacesOptions[0]) : undefined}
+            namespacesOptions={namespacesOptions}
             uploadDrawerRef={imageUploadDrawerRef}
             onRegisterUploadCallbacks={(callbacks) => {
               uploadCallbacksRef.current = callbacks;

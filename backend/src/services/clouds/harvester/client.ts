@@ -72,6 +72,7 @@ export {
   buildUsedPvcSetFromKubevirtVms,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
+  isHarvesterImageBackingPvcName,
   listHarvesterAvailableVolumesStandard,
   listHarvesterImagesStandard,
   listHarvesterImagesRaw,

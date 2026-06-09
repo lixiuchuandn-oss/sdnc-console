@@ -115,9 +115,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
     pciDevices, reloadPciDevices,
-    usbResources, reloadUsbResources,
+    usbResources, usbResourcesLoaded, usbResourcesLoading, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
-    sshKeyOptions, reloadSshKeys
+    sshKeyOptions, sshKeysLoaded, sshKeysLoading, reloadSshKeys
   } = useHarvesterData(cloudId, currentCloudId, form, isTenant, watchNamespace);
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
@@ -244,17 +244,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     };
     load();
   }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes, form]);
-
-  // 进入“登录设置/其它选项”步骤时，懒加载 SSH 密钥 / USB 资源
-  useEffect(() => {
-    if (step === 4) {
-      try { reloadSshKeys(); } catch {}
-    }
-    if (step === 5) {
-      try { reloadUsbResources(); } catch {}
-      try { reloadSshKeys(); } catch {}
-    }
-  }, [step, reloadUsbResources, reloadSshKeys]);
 
   useEffect(() => {
     if (step === 3) {
@@ -1005,6 +994,8 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                 <StepLoginSettings
                   form={form}
                   sshKeyOptions={sshKeyOptions}
+                  sshKeysLoaded={sshKeysLoaded}
+                  sshKeysLoading={sshKeysLoading}
                   reloadSshKeys={reloadSshKeys}
                 />
               </div>
@@ -1015,9 +1006,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                 <StepOthers
                   form={form}
                   usbResources={usbResources}
+                  usbResourcesLoaded={usbResourcesLoaded}
+                  usbResourcesLoading={usbResourcesLoading}
                   reloadUsbResources={reloadUsbResources}
-                  sshKeyOptions={sshKeyOptions}
-                  reloadSshKeys={reloadSshKeys}
                 />
               </div>
             </div>

@@ -51,6 +51,7 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 
 type Props = {
   cloudId: string;
@@ -62,6 +63,8 @@ type Props = {
   isTenant?: boolean;
   /** 租户上传镜像默认命名空间（侧栏 ns 或首个授权 ns） */
   tenantDefaultNamespace?: string;
+  /** 租户授权命名空间列表（控制台/资源池已加载，勿走监控 allowed-namespaces） */
+  namespacesOptions?: string[];
   /** 计算 Tab 级常驻上传抽屉 ref（切换子 Tab 不丢失） */
   uploadDrawerRef?: React.RefObject<ImageUploadTasksDrawerHandle | null>;
   /** 向常驻抽屉注册列表侧回调 */
@@ -80,6 +83,7 @@ const ImagesSection: React.FC<Props> = ({
   vms = [],
   isTenant = false,
   tenantDefaultNamespace,
+  namespacesOptions,
   uploadDrawerRef: uploadDrawerRefProp,
   onRegisterUploadCallbacks,
 }) => {
@@ -97,6 +101,15 @@ const ImagesSection: React.FC<Props> = ({
     message.error('当前账号没有镜像操作权限（需要 clouds.images:write 或 clouds:write 权限）');
     return false;
   }, [hasImagesWrite]);
+
+  const tenantNamespaceSelectOptions = useMemo(() => {
+    if (!isTenant) return [];
+    return (namespacesOptions || [])
+      .map((ns) => String(ns || '').trim())
+      .filter((ns) => ns && !isSystemNamespace(ns) && !isPublicNamespace(ns))
+      .sort()
+      .map((ns) => ({ label: ns, value: ns }));
+  }, [isTenant, namespacesOptions, isPublicNamespace]);
 
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -344,6 +357,7 @@ const ImagesSection: React.FC<Props> = ({
         variant={isTenant ? 'standard' : 'full'}
         isTenant={isTenant}
         tenantDefaultNamespace={tenantDefaultNamespace}
+        tenantNamespaceOptions={tenantNamespaceSelectOptions}
         ensureWrite={ensureImagesWrite}
         onUrlImportSuccess={() =>
           notifyHarvesterImagesInventoryChanged(cloudId, onImagesInventoryReload, {

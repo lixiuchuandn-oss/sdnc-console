@@ -12,6 +12,7 @@ import {
   buildUsedPvcSetFromKubevirtVms,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
+  isHarvesterImageBackingPvcName,
 } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import { listKubevirtVMsRaw } from '../../../../services/clouds/harvester/vm';
@@ -43,13 +44,16 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
       insecure,
     } as any);
 
-    let filteredItems = items;
+    let filteredItems = items.filter((v: any) => {
+      const name = String(v?.metadata?.name || v?.name || '').trim();
+      return !isHarvesterImageBackingPvcName(name);
+    });
     if (isTenant) {
       filteredItems = tenantNamespace
-        ? items.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace))
+        ? filteredItems.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace))
         : [];
     } else if (tenantNamespace) {
-      filteredItems = items.filter((v: any) =>
+      filteredItems = filteredItems.filter((v: any) =>
         isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace),
       );
     }

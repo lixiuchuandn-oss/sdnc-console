@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Form, Input, Select, InputNumber, App, Modal } from 'antd';
 import { createHarvesterVolume, fetchHarvesterNamespaces } from '../../../../../../services/harvesterApi';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { parseHarvesterNamespaceNames } from '../lib/parseHarvesterNamespaceNames';
 import { generateVolumePvcName } from '../lib/volumePvcNameUtils';
 
@@ -38,6 +39,7 @@ export type VolumeCreateModalProps = {
   onSuccess?: (force?: boolean, silent?: boolean) => void;
   seed?: VolumeCreateSeed | null;
   isTenant?: boolean;
+  tenantDefaultNamespace?: string;
 };
 
 const DEFAULT_VOLUME_SIZE_GIB = 40;
@@ -54,46 +56,85 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
   onSuccess,
   seed,
   isTenant = false,
+  tenantDefaultNamespace,
 }) => {
   const { message } = App.useApp();
   const [form] = Form.useForm<VolumeCreateFormValues>();
   const [creating, setCreating] = useState(false);
+  const [createNsOptions, setCreateNsOptions] = useState<{ value: string; label: string }[]>([]);
 
   const seedRef = useRef(seed);
   seedRef.current = seed;
   const onNamespacesListFetchedRef = useRef(onNamespacesListFetched);
   onNamespacesListFetchedRef.current = onNamespacesListFetched;
 
+  const toNamespaceSelectOptions = useCallback((names: string[]) => {
+    const list = names.filter((n) => n && !isSystemNamespace(n));
+    return list.sort().map((n) => ({ value: n, label: n }));
+  }, []);
+
+  const resolveTenantNamespace = useCallback(
+    (namespaces: string[]): string => {
+      const preferred = String(tenantDefaultNamespace || '').trim();
+      if (preferred && namespaces.includes(preferred)) return preferred;
+      return namespaces[0] || preferred || '';
+    },
+    [tenantDefaultNamespace],
+  );
+
   const refreshNamespaces = useCallback(async () => {
+    if (isTenant) return;
     try {
       const res = await fetchHarvesterNamespaces(cloudId, true, true);
-      const items =
-        (res as { data?: { items?: unknown[] }; items?: unknown[] })?.data?.items ||
-        (res as { items?: unknown[] })?.items ||
-        [];
-      onNamespacesListFetchedRef.current?.(parseHarvesterNamespaceNames(items));
+      const names = parseHarvesterNamespaceNames(res);
+      onNamespacesListFetchedRef.current?.(names);
+      const opts = toNamespaceSelectOptions(names);
+      if (opts.length > 0) {
+        setCreateNsOptions(opts);
+      }
     } catch {
       /* 父级仍可能使用已缓存的 nsOptions */
     }
-  }, [cloudId]);
+  }, [cloudId, isTenant, toNamespaceSelectOptions]);
 
   useEffect(() => {
     if (!open) return;
-    void refreshNamespaces();
+    if (!isTenant) {
+      setCreateNsOptions(nsOptions);
+      void refreshNamespaces();
+    }
     form.resetFields();
     const s = seedRef.current;
     const firstNs = nsOptions[0]?.value;
-    const ns = !isTenant ? (s?.namespace ?? firstNs ?? undefined) : 'default';
+    const tenantNsList = nsOptions.map((o) => o.value);
+    const initialNs = isTenant
+      ? (() => {
+          const seedNs = String(s?.namespace || '').trim();
+          if (seedNs && tenantNsList.includes(seedNs)) return seedNs;
+          const picked = resolveTenantNamespace(tenantNsList);
+          return picked || undefined;
+        })()
+      : (s?.namespace ?? firstNs ?? undefined);
     form.setFieldsValue({
       alias: s?.alias ?? '',
-      namespace: ns,
+      namespace: initialNs,
       sizeGi: s?.sizeGi ?? DEFAULT_VOLUME_SIZE_GIB,
       accessModes: s?.accessModes ?? 'ReadWriteMany',
       volumeMode: s?.volumeMode ?? 'Block',
       storageClassName: s?.storageClassName ?? defaultStorageClassName,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 避免 nsOptions 异步补丁触发整表重置
-  }, [open, openNonce, isTenant, defaultStorageClassName, form, refreshNamespaces]);
+  }, [
+    open,
+    openNonce,
+    isTenant,
+    tenantDefaultNamespace,
+    defaultStorageClassName,
+    form,
+    nsOptions,
+    refreshNamespaces,
+    resolveTenantNamespace,
+  ]);
 
   useEffect(() => {
     if (!open || isTenant) return;
@@ -122,7 +163,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
             : ['ReadWriteMany'];
 
         const payload = {
-          namespace: !isTenant ? String(v.namespace || '') : 'default',
+          namespace: String(v.namespace || ''),
           name: generateVolumePvcName(),
           sizeGi: Number(v.sizeGi || 0),
           accessModes: modes,
@@ -143,7 +184,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
         setCreating(false);
       }
     },
-    [cloudId, isTenant, message, onCancel, onSuccess],
+    [cloudId, message, onCancel, onSuccess],
   );
 
   return (
@@ -165,18 +206,21 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
         </Form.Item>
 
         <Form.Item label="项目" name="namespace" rules={[{ required: true, message: '请选择项目' }]}>
-          {!isTenant ? (
-            <Select
-              showSearch
-              options={nsOptions}
-              style={{ width: '100%' }}
-              onOpenChange={(dropdownOpen) => {
-                if (dropdownOpen) void refreshNamespaces();
-              }}
-            />
-          ) : (
-            <Input disabled style={{ width: '100%' }} />
-          )}
+          <Select
+            showSearch
+            optionFilterProp="label"
+            options={
+              isTenant
+                ? nsOptions
+                : createNsOptions.length > 0
+                  ? createNsOptions
+                  : nsOptions
+            }
+            style={{ width: '100%' }}
+            onOpenChange={(dropdownOpen) => {
+              if (dropdownOpen && !isTenant) void refreshNamespaces();
+            }}
+          />
         </Form.Item>
 
         <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}>

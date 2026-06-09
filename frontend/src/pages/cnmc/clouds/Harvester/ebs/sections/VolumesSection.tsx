@@ -49,6 +49,7 @@ type Props = {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
+  tenantDefaultNamespace?: string;
 };
 
 const VolumesSection: React.FC<Props> = ({
@@ -62,6 +63,7 @@ const VolumesSection: React.FC<Props> = ({
   onRefreshStorageClasses,
   onRefreshImages,
   isTenant,
+  tenantDefaultNamespace,
 }) => {
   const { message } = App.useApp();
   const { user } = useAuth();
@@ -317,6 +319,7 @@ const VolumesSection: React.FC<Props> = ({
         onSuccess={refreshVolumesSilent}
         seed={actions.volumeCreateSeed}
         isTenant={isTenant}
+        tenantDefaultNamespace={tenantDefaultNamespace}
       />
 
       <VolumeAttachModal
@@ -381,6 +384,7 @@ const VolumesSection: React.FC<Props> = ({
         onCloneSuccess={refreshVolumesAfterWrite}
         onBranchToCreateVolume={actions.handleBranchCloneToCreateVolume}
         isTenant={isTenant}
+        tenantDefaultNamespace={tenantDefaultNamespace}
       />
 
       <VolumeDetailDrawer

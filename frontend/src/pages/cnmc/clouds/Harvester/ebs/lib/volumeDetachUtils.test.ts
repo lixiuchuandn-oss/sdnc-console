@@ -76,4 +76,13 @@ describe('parseHarvesterNamespaceNames', () => {
       }),
     ).toEqual(['proj-1', 'default']);
   });
+
+  it('parses raw items array and id field', () => {
+    expect(
+      parseHarvesterNamespaceNames([
+        { id: 'cloud-public', type: 'namespace' },
+        { metadata: { name: 'default' } },
+      ]),
+    ).toEqual(['cloud-public', 'default']);
+  });
 });

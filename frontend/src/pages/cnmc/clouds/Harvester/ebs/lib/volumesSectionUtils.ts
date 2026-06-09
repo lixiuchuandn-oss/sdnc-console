@@ -1,4 +1,4 @@
-import { isSystemNamespace } from 'utils/harvesterUtils';
+import { isHarvesterImageBackingPvcName, isSystemNamespace } from 'utils/harvesterUtils';
 import { parseQuantity } from './volumeQuantityUtils';
 import type { VolumeView } from './volumesSectionTypes';
 
@@ -111,7 +111,7 @@ export function normalizeVolumeList(volumes: unknown[] | undefined): VolumeView[
         raw: item,
       };
     })
-    .filter((v) => !!v.name);
+    .filter((v) => !!v.name && !isHarvesterImageBackingPvcName(v.name));
 
   const uniqueMap = new Map<string, VolumeView>();
   mapped.forEach((v) => {

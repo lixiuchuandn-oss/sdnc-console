@@ -29,6 +29,7 @@ import {
   buildUsedPvcSetFromKubevirtVms,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
+  isHarvesterImageBackingPvcName,
 } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
 
@@ -118,7 +119,11 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
       }
     }
 
-    const items = await repo.find({ where: whereCondition });
+    const items = (await repo.find({ where: whereCondition })).filter((item: any) => {
+      const v = item.rawData || {};
+      const name = String(v?.metadata?.name || v?.name || item.name || '').trim();
+      return !isHarvesterImageBackingPvcName(name);
+    });
 
     const base = (cloud.endpoint || '').replace(/\/+$/, '');
     let origin = base;

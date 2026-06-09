@@ -167,6 +167,16 @@ export const isSystemStorageClass = (name: string): boolean => {
   return false;
 };
 
+/**
+ * Harvester 镜像底卷 PVC 名称（VirtualMachineImage generateName: image-）。
+ * 云盘列表按云盘 ID（PVC name）隐藏此类卷，应在「镜像」页管理。
+ */
+export function isHarvesterImageBackingPvcName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  return /^image-[a-z0-9]+$/i.test(n);
+}
+
 export type HarvesterVolumeStorageKind = 'longhorn' | 'ceph' | 'unknown';
 
 export const HARVESTER_LONGHORN_VOLUME_SNAPSHOT_CLASS = 'longhorn-snapshot';
