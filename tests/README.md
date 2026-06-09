@@ -48,10 +48,14 @@ npm run test:images:browser
 npm run test:failure-domains:browser
 npm run test:failure-domains:browser-filter
 npm run test:deployment-sets:browser
+npm run test:deployment-sets:browser:lifecycle
 npm run test:security-groups:browser
+npm run test:security-groups:browser:lifecycle
 ```
 
 故障域可选环境变量：`TOWER_FD_NODE_NAME`、`TOWER_FD_NAME_PREFIX`。
+
+部署集 / 安全组可选环境变量：`TOWER_DS_NAME_PREFIX`、`TOWER_DS_SET_NAME`、`TOWER_SG_NAME_PREFIX`、`TOWER_SG_GROUP_NAME`、`TOWER_SG_SUBNET_NAME`。
 
 ### 只读 Tab 冒烟（Playwright）
 

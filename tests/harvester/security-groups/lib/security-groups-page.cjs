@@ -61,6 +61,94 @@ async function hasRuntimeErrorOverlay(page) {
   return page.getByText('Uncaught runtime errors').isVisible().catch(() => false);
 }
 
+const { openRowMenu, clickRowMenuItem } = require('../../../lib/pool-row-menu.cjs');
+const { confirmHighRiskDelete } = require('../../../lib/high-risk-delete.cjs');
+const { waitYamlDrawerContains, closeYamlDrawer } = require('../../../lib/yaml-drawer.cjs');
+
+function accessControlDrawer(page) {
+  return page.locator('.ant-drawer').filter({ hasText: '访问控制' });
+}
+
+async function openSecurityGroupEditModal(page, row) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '编辑安全组');
+  const modal = page.locator('.ant-modal').filter({ hasText: '编辑安全组' });
+  await modal.waitFor();
+  return modal;
+}
+
+async function submitSecurityGroupEditModal(modal) {
+  await modal.locator('.ant-modal-footer .ant-btn-primary').click();
+}
+
+async function openSecurityGroupRulesDrawer(page, row) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '访问控制');
+  const drawer = accessControlDrawer(page);
+  await drawer.waitFor();
+  await waitAccessControlDrawerReady(page);
+  return drawer;
+}
+
+async function waitAccessControlDrawerReady(page) {
+  const drawer = accessControlDrawer(page);
+  await drawer.locator('.ant-spin-spinning').waitFor({ state: 'hidden', timeout: 120000 });
+}
+
+async function openSecurityGroupYamlDrawer(page, row) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '查看YAML');
+}
+
+async function addInboundRuleInAccessDrawer(page) {
+  const drawer = accessControlDrawer(page);
+  await drawer.getByRole('button', { name: '添加规则' }).click();
+}
+
+async function saveAccessControlDrawer(page) {
+  const drawer = accessControlDrawer(page);
+  const saveBtn = drawer.getByRole('button', { name: /保\s*存/ }).first();
+  await saveBtn.click();
+  await page.waitForFunction(
+    () => {
+      const root = [...document.querySelectorAll('.ant-drawer')].find((el) => el.innerText.includes('访问控制'));
+      return !root || !root.querySelector('.ant-btn-loading');
+    },
+    null,
+    { timeout: 120000 },
+  );
+}
+
+async function closeAccessControlDrawer(page) {
+  const drawer = accessControlDrawer(page);
+  if (!(await drawer.isVisible().catch(() => false))) return;
+  const closeBtn = drawer.locator('button').filter({ has: page.locator('.anticon-close') }).first();
+  if (await closeBtn.count()) {
+    await closeBtn.click();
+    return;
+  }
+  await page.keyboard.press('Escape');
+}
+
+async function switchAccessControlTab(page, tabLabel) {
+  await page.locator('.ant-segmented-item').filter({ hasText: tabLabel }).click();
+}
+
+async function tryJoinFirstAvailableMember(page) {
+  await switchAccessControlTab(page, '关联云主机');
+  await page.waitForTimeout(500);
+  const joinBtn = accessControlDrawer(page).getByRole('button', { name: '加入' }).first();
+  if (!(await joinBtn.isVisible().catch(() => false))) return false;
+  await joinBtn.click();
+  return true;
+}
+
+async function deleteSecurityGroupFromRow(page, row, resourceName) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '删除');
+  await confirmHighRiskDelete(page, resourceName);
+}
+
 module.exports = {
   flatSecurityGroupsUrl,
   openSecurityGroupsPage,
@@ -70,4 +158,17 @@ module.exports = {
   searchSecurityGroupRow,
   closeAntModal,
   hasRuntimeErrorOverlay,
+  openSecurityGroupEditModal,
+  submitSecurityGroupEditModal,
+  openSecurityGroupRulesDrawer,
+  openSecurityGroupYamlDrawer,
+  addInboundRuleInAccessDrawer,
+  saveAccessControlDrawer,
+  switchAccessControlTab,
+  tryJoinFirstAvailableMember,
+  deleteSecurityGroupFromRow,
+  waitAccessControlDrawerReady,
+  closeAccessControlDrawer,
+  waitYamlDrawerContains,
+  closeYamlDrawer,
 };

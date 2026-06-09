@@ -52,6 +52,29 @@ async function hasRuntimeErrorOverlay(page) {
   return page.getByText('Uncaught runtime errors').isVisible().catch(() => false);
 }
 
+const { openRowMenu, clickRowMenuItem } = require('../../../lib/pool-row-menu.cjs');
+const { confirmHighRiskDelete } = require('../../../lib/high-risk-delete.cjs');
+const { waitYamlDrawerContains, closeYamlDrawer } = require('../../../lib/yaml-drawer.cjs');
+
+async function openDeploymentSetEditModal(page, row) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '编辑');
+  const modal = page.locator('.ant-modal').filter({ hasText: '编辑部署集' });
+  await modal.waitFor();
+  return modal;
+}
+
+async function openDeploymentSetYamlDrawer(page, row) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '查看YAML');
+}
+
+async function deleteDeploymentSetFromRow(page, row, resourceName) {
+  await openRowMenu(page, row);
+  await clickRowMenuItem(page, '删除');
+  await confirmHighRiskDelete(page, resourceName);
+}
+
 module.exports = {
   computeClusterDeploymentSetsUrl,
   openDeploymentSetsPage,
@@ -61,4 +84,9 @@ module.exports = {
   searchDeploymentSetRow,
   closeAntModal,
   hasRuntimeErrorOverlay,
+  openDeploymentSetEditModal,
+  openDeploymentSetYamlDrawer,
+  waitYamlDrawerContains,
+  closeYamlDrawer,
+  deleteDeploymentSetFromRow,
 };

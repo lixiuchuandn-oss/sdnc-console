@@ -90,9 +90,9 @@ async function confirmHighRiskDelete(page, resourceName) {
   await modal.waitFor();
   const ack = modal.getByRole('checkbox');
   if (await ack.count()) await ack.check();
-  const typeInput = modal.locator('input').filter({ visible: true }).last();
+  const typeInput = modal.locator('input:not([type="checkbox"])').filter({ visible: true }).last();
   if (await typeInput.count()) await typeInput.fill(String(resourceName));
-  await modal.getByRole('button', { name: '删除' }).click();
+  await modal.getByRole('button', { name: /删\s*除/ }).click();
 }
 
 async function hasRuntimeErrorOverlay(page) {
