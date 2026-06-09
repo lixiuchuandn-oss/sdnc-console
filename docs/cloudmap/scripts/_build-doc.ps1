@@ -9,17 +9,31 @@ param(
     [string]$Format,
 
     [string]$Output = "",
-    [switch]$Open
+    [switch]$Open,
+
+    # 文档根覆盖（泛化）：指向 docs/cloudmap 之外的独立文档树时仍复用本目录 templates。
+    # 绝对路径或相对仓库根，如 -DocRoot docs/multicloud/whitepaper -Name multicloud-whitepaper
+    [string]$DocRoot = "",
+    [string]$Name = "",
+    [string]$Title = ""
 )
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "_pandoc.ps1")
 
 $Root = Split-Path -Parent $PSScriptRoot
-$DocRoot = switch ($Variant) {
-    'manual' { Join-Path $Root "user-manual" }
-    'tender' { Join-Path $Root "tender-parameters" }
-    default  { Join-Path $Root "whitepaper" }
+$RepoRoot = Split-Path -Parent (Split-Path -Parent $Root)
+$externalDoc = -not [string]::IsNullOrWhiteSpace($DocRoot)
+if ($externalDoc) {
+    if (-not [System.IO.Path]::IsPathRooted($DocRoot)) {
+        $DocRoot = Join-Path $RepoRoot $DocRoot
+    }
+} else {
+    $DocRoot = switch ($Variant) {
+        'manual' { Join-Path $Root "user-manual" }
+        'tender' { Join-Path $Root "tender-parameters" }
+        default  { Join-Path $Root "whitepaper" }
+    }
 }
 $Source = Join-Path $DocRoot "source"
 $OutputDir = Join-Path $DocRoot "output"
@@ -86,10 +100,16 @@ foreach ($rel in $files) {
     }
 }
 
-$defaultName = switch ($Variant) {
-    'manual'  { "cloudmap-user-manual" }
-    'tender'  { "cloudmap-tender-parameters" }
-    default   { "cloudmap-whitepaper" }
+$defaultName = if ($Name) {
+    $Name
+} elseif ($externalDoc) {
+    Split-Path -Leaf $DocRoot
+} else {
+    switch ($Variant) {
+        'manual'  { "cloudmap-user-manual" }
+        'tender'  { "cloudmap-tender-parameters" }
+        default   { "cloudmap-whitepaper" }
+    }
 }
 $ext = if ($Format -eq 'html') { "html" } else { "docx" }
 if (-not $Output) {
@@ -167,10 +187,14 @@ if ($Format -eq 'docx') {
     }
 } else {
     $css = Join-Path (Join-Path $Root "templates") "preview.css"
-    $title = switch ($Variant) {
-        'manual' { "Cloudmap 使用手册" }
-        'tender' { "Cloudmap 招标参数" }
-        default  { "Cloudmap Whitepaper" }
+    $title = if ($Title) {
+        $Title
+    } else {
+        switch ($Variant) {
+            'manual' { "Cloudmap 使用手册" }
+            'tender' { "Cloudmap 招标参数" }
+            default  { "Cloudmap Whitepaper" }
+        }
     }
     $pandocArgs = @(
         $inputs

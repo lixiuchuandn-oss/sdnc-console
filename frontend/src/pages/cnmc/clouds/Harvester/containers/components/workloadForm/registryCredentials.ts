@@ -13,13 +13,25 @@ export interface RegistryBrowserCredential {
 
 /** 与 RegistryBrowserDrawer.registries 项结构对齐 */
 export interface MergedRegistryEntry {
-  source: 'localStorage' | 'secret';
+  source: 'localStorage' | 'secret' | 'deployed';
   id: string;
   name: string;
   server: string;
   username?: string;
   password?: string;
   insecure: boolean;
+  localRegistryId?: string;
+}
+
+/** 平台「部署本地仓库」API 返回项（浏览仓库用） */
+export interface DeployedLocalRegistryInput {
+  id: string;
+  name: string;
+  server: string;
+  authEnabled?: boolean;
+  username?: string;
+  password?: string;
+  status?: string;
 }
 
 const HARVESTER_REGISTRIES_STORAGE_KEY = 'harvester-registries';
@@ -122,6 +134,27 @@ export function localRegistryToCredential(registry: {
   };
 }
 
+function normalizeRegistryServer(server: string): string {
+  return server.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+}
+
+export function mapDeployedLocalRegistries(
+  deployed: DeployedLocalRegistryInput[],
+): MergedRegistryEntry[] {
+  return deployed
+    .filter((r) => r.server && r.status !== 'deleting' && r.status !== 'deploying')
+    .map((r) => ({
+      source: 'deployed' as const,
+      id: `local-${r.id}`,
+      name: r.name || r.server,
+      server: r.server,
+      username: r.authEnabled ? r.username : undefined,
+      password: r.authEnabled ? r.password : undefined,
+      insecure: true,
+      localRegistryId: r.id,
+    }));
+}
+
 export function buildMergedRegistryList(
   localStorageRegistries: Array<{
     id?: string;
@@ -132,14 +165,25 @@ export function buildMergedRegistryList(
     insecure?: boolean;
   }>,
   secretsWithCredentials: unknown[] | undefined,
+  deployedLocalRegistries: DeployedLocalRegistryInput[] = [],
 ): MergedRegistryEntry[] {
   const registries: MergedRegistryEntry[] = [];
+  const seenServers = new Set<string>();
+
+  const pushUnique = (entry: MergedRegistryEntry) => {
+    const key = normalizeRegistryServer(entry.server);
+    if (seenServers.has(key)) return;
+    seenServers.add(key);
+    registries.push(entry);
+  };
+
+  mapDeployedLocalRegistries(deployedLocalRegistries).forEach(pushUnique);
 
   localStorageRegistries.forEach((reg) => {
     if (!reg.server) return;
     const id = reg.id || reg.name || reg.server;
     const name = reg.name || reg.server;
-    registries.push({
+    pushUnique({
       source: 'localStorage',
       id,
       name,
@@ -156,7 +200,7 @@ export function buildMergedRegistryList(
       if (!credential) return;
       const meta = (secret as { metadata?: { name?: string } }).metadata;
       const secretName = meta?.name || credential.server;
-      registries.push({
+      pushUnique({
         source: 'secret',
         id: secretName,
         name: secretName,

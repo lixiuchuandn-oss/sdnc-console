@@ -30,6 +30,28 @@ describe('secretToRegistryCredential', () => {
 });
 
 describe('buildMergedRegistryList', () => {
+  it('includes deployed local registries from platform API', () => {
+    const list = buildMergedRegistryList(
+      [],
+      [],
+      [
+        {
+          id: 'lr-1',
+          name: 'lyf22',
+          server: '10.20.5.28:30501',
+          status: 'healthy',
+        },
+      ],
+    );
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      source: 'deployed',
+      id: 'local-lr-1',
+      server: '10.20.5.28:30501',
+      insecure: true,
+    });
+  });
+
   it('merges localStorage registries and secrets', () => {
     const auth = btoa('a:b');
     const dockerConfig = JSON.stringify({ auths: { 'http://harbor.local': { auth } } });

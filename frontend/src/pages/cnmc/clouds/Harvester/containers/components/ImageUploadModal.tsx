@@ -2,8 +2,8 @@
  * 镜像上传弹窗组件
  */
 import React, { useState } from 'react';
-import { Modal, Form, Input, Upload, message, Progress, Alert } from 'antd';
-import { InboxOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Upload, message, Alert } from 'antd';
+import { InboxOutlined } from '@ant-design/icons';
 import { uploadImageToRegistry } from '../../../../../../services/localRegistryApi';
 
 const { Dragger } = Upload;
@@ -18,6 +18,8 @@ interface Props {
   password?: string;
   onCancel: () => void;
   onSuccess: () => void;
+  /** 本地仓库异步任务创建后回调（用于打开任务抽屉） */
+  onTaskCreated?: (taskId: string) => void;
 }
 
 const ImageUploadModal: React.FC<Props> = ({
@@ -30,12 +32,11 @@ const ImageUploadModal: React.FC<Props> = ({
   password,
   onCancel,
   onSuccess,
+  onTaskCreated,
 }) => {
   const [form] = Form.useForm();
   const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [taskId, setTaskId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleUpload = async () => {
     if (!file) {
@@ -44,8 +45,7 @@ const ImageUploadModal: React.FC<Props> = ({
     }
 
     const values = await form.validateFields();
-    setUploading(true);
-    setUploadProgress(0);
+    setSubmitting(true);
 
     try {
       const res: any = await uploadImageToRegistry(
@@ -59,23 +59,28 @@ const ImageUploadModal: React.FC<Props> = ({
         registryId ? undefined : username,
         registryId ? undefined : password,
       );
-      
-      setTaskId(res?.data?.taskId);
-      message.success('上传任务已创建，后台正在处理');
+
+      const createdTaskId = res?.data?.taskId as string | undefined;
+      if (registryId) {
+        message.success('提交成功，请在「上传任务」中查看进度');
+        if (createdTaskId) {
+          onTaskCreated?.(createdTaskId);
+        }
+      } else {
+        message.success('提交成功');
+      }
       onSuccess();
       handleReset();
     } catch (e: any) {
-      message.error(e.message || '上传失败');
+      message.error(e.message || '提交失败');
     } finally {
-      setUploading(false);
+      setSubmitting(false);
     }
   };
 
   const handleReset = () => {
     form.resetFields();
     setFile(null);
-    setUploadProgress(0);
-    setTaskId(null);
   };
 
   const handleCancel = () => {
@@ -91,7 +96,7 @@ const ImageUploadModal: React.FC<Props> = ({
       onCancel={handleCancel}
       okText="上传"
       cancelText="取消"
-      okButtonProps={{ loading: uploading, disabled: !file }}
+      okButtonProps={{ loading: submitting, disabled: !file }}
       width={600}
       destroyOnClose
     >
@@ -101,6 +106,11 @@ const ImageUploadModal: React.FC<Props> = ({
           showIcon
           style={{ marginBottom: 16 }}
           message={`目标仓库: ${registryServer}`}
+          description={
+            registryId
+              ? '提交后将在后台推送镜像，进度请在「上传任务」中查看'
+              : undefined
+          }
         />
 
         <Form.Item label="镜像文件 (.tar)">
@@ -112,7 +122,7 @@ const ImageUploadModal: React.FC<Props> = ({
             }}
             onRemove={() => setFile(null)}
             fileList={file ? [file as any] : []}
-            disabled={uploading}
+            disabled={submitting}
           >
             <p className="ant-upload-drag-icon">
               <InboxOutlined />
@@ -129,7 +139,7 @@ const ImageUploadModal: React.FC<Props> = ({
           label="目标仓库"
           extra="如: library、myapp，默认为 library"
         >
-          <Input placeholder="library" disabled={uploading} />
+          <Input placeholder="library" disabled={submitting} />
         </Form.Item>
 
         <Form.Item
@@ -137,24 +147,8 @@ const ImageUploadModal: React.FC<Props> = ({
           label="目标标签"
           extra="如: latest、v1.0.0，默认为 latest"
         >
-          <Input placeholder="latest" disabled={uploading} />
+          <Input placeholder="latest" disabled={submitting} />
         </Form.Item>
-
-        {uploading && (
-          <Form.Item label="上传进度">
-            <Progress percent={uploadProgress} status="active" />
-          </Form.Item>
-        )}
-
-        {taskId && (
-          <Alert
-            type="success"
-            showIcon
-            icon={<CheckCircleOutlined />}
-            message="上传任务已创建"
-            description="镜像正在后台处理中，请稍后刷新查看结果"
-          />
-        )}
       </Form>
     </Modal>
   );

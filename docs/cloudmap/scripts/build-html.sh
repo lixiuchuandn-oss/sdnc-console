@@ -2,11 +2,21 @@
 # Cloudmap 白皮书 / 使用手册：Markdown -> HTML
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
 VARIANT="${VARIANT:-whitepaper}"
 OUTPUT="${1:-}"
 OPEN="${OPEN:-0}"
 
-if [[ "$VARIANT" == "manual" ]]; then
+# 文档根覆盖（泛化）：见 build-docx.sh 说明。可选 DOC_NAME / DOC_TITLE。
+# 例：DOC_ROOT=docs/multicloud/whitepaper DOC_NAME=multicloud-whitepaper DOC_TITLE="多云管理平台 Whitepaper" ./scripts/build-html.sh
+if [[ -n "${DOC_ROOT:-}" ]]; then
+  case "$DOC_ROOT" in
+    /*) : ;;
+    *)  DOC_ROOT="$REPO_ROOT/$DOC_ROOT" ;;
+  esac
+  DEFAULT_NAME="${DOC_NAME:-$(basename "$DOC_ROOT")}.html"
+  TITLE="${DOC_TITLE:-Whitepaper}"
+elif [[ "$VARIANT" == "manual" ]]; then
   DOC_ROOT="$ROOT/user-manual"
   DEFAULT_NAME="cloudmap-user-manual.html"
   TITLE="Cloudmap 使用手册"

@@ -26,6 +26,8 @@
 | [cloudmap/whitepaper/README.md](./cloudmap/whitepaper/README.md)         | **Cloudmap 技术白皮书**：Markdown 源稿、`manifest` 合并顺序、Pandoc 生成 Word                  |
 | [cloudmap/user-manual/README.md](./cloudmap/user-manual/README.md)       | **Cloudmap 使用手册**：控制台操作步骤，章节与白皮书 3.x 对照（**可提交**）                     |
 | [cloudmap/tender-parameters/README.md](./cloudmap/tender-parameters/README.md) | **Cloudmap 招标参数**：资源池技术参数、多云平台参数、报价表与竞品摘录（**可提交**）        |
+| [multicloud/README.md](./multicloud/README.md)                           | **多云管理平台文档**：ComputerTower 多云管理（CNMC）产品线，与 Cloudmap 并列；复用 cloudmap 模板/脚本 |
+| [multicloud/whitepaper/README.md](./multicloud/whitepaper/README.md)     | **多云管理平台技术白皮书**：统一纳管异构多云；`manifest` 合并顺序、`DOC_ROOT` 复用 Pandoc 构建      |
 
 **源码旁文档**（不在此 Hub，但与 Hub 并列权威）：
 
