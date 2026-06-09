@@ -42,3 +42,45 @@ HEADLESS=1 npm run test:smoke
 - `../lib/pool-edge-wizard.cjs` — ch02 顶栏向导
 
 CI 在 PR 上执行 `npx playwright test smoke/ --list` 校验用例可加载（不启动浏览器跑全量）。
+
+## 公共测试机定时跑（Windows）
+
+本机已常驻 Tower 前后端时，可用任务计划程序每天自动跑全量冒烟。
+
+### 1. 一次性准备
+
+```powershell
+cd D:\Compute.Tower\tests
+cp .env.example .env   # 按测试环境填写
+npm install
+```
+
+确认手动可绿：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File D:\Compute.Tower\tests\scripts\run-smoke.ps1
+```
+
+日志目录：`tests/logs/smoke-YYYYMMDD-HHmmss.log`
+
+### 2. 创建计划任务（示例：每天 02:00）
+
+以**能访问本机 Tower 的账号**打开「任务计划程序」→ 创建任务：
+
+| 项 | 值 |
+|----|-----|
+| 触发器 | 每天 02:00（或下班后） |
+| 操作 | 启动程序 |
+| 程序 | `powershell.exe` |
+| 参数 | `-NoProfile -ExecutionPolicy Bypass -File "D:\Compute.Tower\tests\scripts\run-smoke.ps1"` |
+| 起始于 | `D:\Compute.Tower` |
+
+建议勾选「不管用户是否登录都要运行」仅当该账号下前后端服务也会自动启动；否则保持登录态跑，并确保 **5000/5001 已先起来**。
+
+### 3. 注意
+
+- 全量约 **15～40 分钟**（集群 Tab 最慢）；避开大家白天密集手工测试时段即可。
+- `pool-edge-wizard` 未配 Cloudmap 凭证时会 skip，不影响其余用例。
+- 失败时看最新 `tests/logs/smoke-*-playwright.log`；摘要见同时间戳的 `smoke-*.log`。
+
+`pool-edge-wizard` 未配 `TOWER_CLOUDMAP_*` 时会 **skip**，全量仍视为通过（12 passed + 1 skipped）。
