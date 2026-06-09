@@ -357,3 +357,19 @@ export function formatImageUploadTaskChunkLine(
 
   return `${base}（并行上传中）`;
 }
+
+/** 取消/查询上传任务时，服务端已无记录（常见于测试清理或幽灵本地任务） */
+export function isUploadTaskNotFoundApiError(error: unknown): boolean {
+  const e = error as {
+    status?: number;
+    message?: string;
+    response?: { status?: number; data?: { message?: string } };
+    responseData?: { message?: string };
+  };
+  const status = e?.status ?? e?.response?.status;
+  if (status === 404) return true;
+  const msg = String(
+    e?.responseData?.message ?? e?.response?.data?.message ?? e?.message ?? '',
+  );
+  return msg.includes('任务不存在') || /\b404\b/.test(msg);
+}

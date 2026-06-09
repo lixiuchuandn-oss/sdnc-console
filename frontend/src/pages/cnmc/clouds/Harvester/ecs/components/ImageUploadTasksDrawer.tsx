@@ -39,6 +39,8 @@ import {
   taskAffectsImageList,
   uploadTaskDeleteConfirmContent,
 } from '../lib/imagesSectionActions';
+import { isUploadTaskNotFoundApiError } from '../lib/images/imageUploadTaskCore';
+import { removeUploadTaskFromStore } from '../lib/imageUploadTasksStore';
 import type { StartBrowserChunkedUploadParams } from '../modals/ImageCreateModal';
 import {
   abortChunkUploadController,
@@ -350,6 +352,20 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       return () => window.clearInterval(timer);
     }, [cloudId, onListTaskChange]);
 
+    const evictMissingUploadTask = useCallback(
+      (taskId: string) => {
+        removeUploadTaskFromStore(cloudId, taskId);
+        abortChunkUploadController(taskId);
+        clearChunkUploadController(taskId);
+        clearResumeHint(taskId);
+        startTransition(() => {
+          setTasks((prev) => prev.filter((x) => x.id !== taskId));
+        });
+        onListTaskRemove?.(taskId);
+      },
+      [cloudId, clearResumeHint, onListTaskRemove],
+    );
+
     const handleCancelUploadTask = useCallback(
       async (task: HarvesterImageUploadTask) => {
         try {
@@ -380,10 +396,15 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
           message.success('取消成功');
           onListTaskChange(cancelled);
         } catch (e: unknown) {
+          if (isUploadTaskNotFoundApiError(e)) {
+            evictMissingUploadTask(task.id);
+            message.warning('任务已不存在，已从列表移除');
+            return;
+          }
           message.error((e as { message?: string })?.message || '取消失败');
         }
       },
-      [cloudId, ensureImagesWrite, onListTaskChange, clearResumeHint],
+      [cloudId, ensureImagesWrite, onListTaskChange, clearResumeHint, evictMissingUploadTask],
     );
 
     const handleDeleteUploadTask = useCallback(

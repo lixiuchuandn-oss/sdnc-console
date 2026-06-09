@@ -10,8 +10,18 @@ try {
   throw e;
 }
 
+/** 默认有头；HEADLESS=1 无头；HEADED=1 强制有头（覆盖 HEADLESS） */
+function resolvePlaywrightHeadless() {
+  const headed = String(process.env.HEADED || '').trim().toLowerCase();
+  if (headed === '1' || headed === 'true' || headed === 'yes') return false;
+  const headless = String(process.env.HEADLESS || '').trim().toLowerCase();
+  if (headless === '1' || headless === 'true' || headless === 'yes') return true;
+  return false;
+}
+
 async function launchTowerBrowser(options = {}) {
-  const { headless = false, slowMo = 220 } = options;
+  const headless = options.headless !== undefined ? options.headless : resolvePlaywrightHeadless();
+  const slowMo = options.slowMo !== undefined ? options.slowMo : resolvePlaywrightHeadless() ? 0 : 220;
   try {
     return await chromium.launch({ channel: 'msedge', headless, slowMo, args: ['--start-maximized'] });
   } catch {
@@ -41,4 +51,4 @@ async function adminLoginPage(page, webBase, user, password) {
   await page.waitForURL(/\/admin\/(?!login)/, { timeout: 60000 });
 }
 
-module.exports = { launchTowerBrowser, newMaximizedPage, adminLoginPage };
+module.exports = { launchTowerBrowser, newMaximizedPage, adminLoginPage, resolvePlaywrightHeadless };

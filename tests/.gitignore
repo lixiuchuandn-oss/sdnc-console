@@ -1,0 +1,5 @@
+allure-results/
+allure-report/
+.env
+harvester/images/fixtures/.tmp/
+images-*-run.log

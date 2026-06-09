@@ -2,30 +2,20 @@
  * Capture screenshots for user-manual section 3.2.7 (browser image upload).
  */
 const path = require('path');
-const { execSync } = require('child_process');
 const fs = require('fs');
 const { launchTowerBrowser, newMaximizedPage, adminLoginPage } = require('../../shared/playwright-browser.cjs');
 const { webBase, cloudId: envCloudId, adminUser, adminPassword } = require('../../shared/load-env.cjs');
 const { towerLogin, resolveCloudId } = require('../../shared/tower-api.cjs');
 const { shot } = require('../../shared/manual-screenshot.cjs');
-const { demoIsoPath, openImagesPage } = require('./lib/images-page.cjs');
+const { imageUploadFilePath, openImagesPage } = require('./lib/images-page.cjs');
 
 const DEMO_NAME = `manual-screenshot-${Date.now().toString(36)}`;
-
-async function ensureDemoIso() {
-  const iso = demoIsoPath();
-  if (fs.existsSync(iso) && fs.statSync(iso).size >= 1024 * 1024) return iso;
-  execSync('node fixtures/generate-demo-iso.cjs --size=2m', {
-    cwd: __dirname,
-    stdio: 'inherit',
-  });
-  return demoIsoPath();
-}
 
 async function main() {
   const token = await towerLogin();
   const cloudId = await resolveCloudId(token, envCloudId || process.env.TOWER_CLOUD_ID);
-  const isoPath = await ensureDemoIso();
+  const isoPath = imageUploadFilePath();
+  if (!fs.existsSync(isoPath)) throw new Error(`TOWER_IMAGE_FILE_PATH not found: ${isoPath}`);
   const browser = await launchTowerBrowser({ slowMo: 80 });
   const { page } = await newMaximizedPage(browser);
 
