@@ -2,23 +2,35 @@
 # Cloudmap 白皮书 / 使用手册：Markdown -> Word
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/../.." && pwd)"
 VARIANT="${VARIANT:-whitepaper}"
 OUTPUT="${1:-}"
 
-case "$VARIANT" in
-  manual)
-    DOC_ROOT="$ROOT/user-manual"
-    DEFAULT_NAME="cloudmap-user-manual.docx"
-    ;;
-  tender)
-    DOC_ROOT="$ROOT/tender-parameters"
-    DEFAULT_NAME="cloudmap-tender-parameters.docx"
-    ;;
-  *)
-    DOC_ROOT="$ROOT/whitepaper"
-    DEFAULT_NAME="cloudmap-whitepaper.docx"
-    ;;
-esac
+# 文档根覆盖（泛化）：DOC_ROOT 指向 docs/cloudmap 之外的独立文档树时，
+# 仍复用 docs/cloudmap/templates 模板与过滤器。DOC_ROOT 为绝对路径或相对仓库根。
+# 例：DOC_ROOT=docs/multicloud/whitepaper DOC_NAME=multicloud-whitepaper ./scripts/build-docx.sh
+if [[ -n "${DOC_ROOT:-}" ]]; then
+  case "$DOC_ROOT" in
+    /*) : ;;
+    *)  DOC_ROOT="$REPO_ROOT/$DOC_ROOT" ;;
+  esac
+  DEFAULT_NAME="${DOC_NAME:-$(basename "$DOC_ROOT")}.docx"
+else
+  case "$VARIANT" in
+    manual)
+      DOC_ROOT="$ROOT/user-manual"
+      DEFAULT_NAME="cloudmap-user-manual.docx"
+      ;;
+    tender)
+      DOC_ROOT="$ROOT/tender-parameters"
+      DEFAULT_NAME="cloudmap-tender-parameters.docx"
+      ;;
+    *)
+      DOC_ROOT="$ROOT/whitepaper"
+      DEFAULT_NAME="cloudmap-whitepaper.docx"
+      ;;
+  esac
+fi
 
 SOURCE="$DOC_ROOT/source"
 OUTPUT_DIR="$DOC_ROOT/output"
