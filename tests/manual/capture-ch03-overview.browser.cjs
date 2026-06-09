@@ -7,7 +7,7 @@ const {
   shot,
 } = require('./manual-capture-helpers.cjs');
 
-const SUBDIR = 'ch03-monitoring';
+const SUBDIR = 'ch03-overview';
 
 async function main() {
   await runManualCapture(async (page, cloudId) => {
