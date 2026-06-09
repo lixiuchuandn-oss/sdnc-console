@@ -11,7 +11,7 @@ whitepaper/
 ├── source/
 │   ├── manifest.txt          # 章节合并顺序
 │   ├── 01-产品概述.md … 14-术语与缩略语.md
-│   └── assets/               # 架构图等（优先稳定 URL）
+│   └── assets/               # 架构图；英文 kebab-case 语义文件名（与 cloudmap 白皮书一致）
 └── output/                   # 生成物（gitignore）
 ```
 

@@ -7,7 +7,7 @@
 - **统一视图**：VPC、子网、安全组、NAT、EIP 等网络资源跨云一致呈现与管理；
 - **租户隔离**：网络资源按租户与资源池授权，隔离供给（见 **第 10 章**）。
 
-![传统混合多云广域网痛点](assets/幻灯片36.png)
+![传统混合多云广域网痛点](assets/legacy-hybrid-wan-pain-points.png)
 
 **图 5-1 传统混合多云广域网痛点**
 
@@ -20,11 +20,11 @@
 - **地址转换**：NAT 规则；
 - **虚拟路由器**：虚拟路由器配置与设备缓存，承载跨网路由与边界能力。
 
-![网络转控分离](assets/幻灯片37.png)
+![网络转控分离](assets/network-control-plane-separation.png)
 
 **图 5-2 网络转控分离**
 
-![智能网络编排](assets/幻灯片38.png)
+![智能网络编排](assets/computing-network-intelligent-orchestration.png)
 
 **图 5-3 智能网络编排**
 
@@ -34,15 +34,15 @@
 - **租户专线**：为租户登记专线（`TenantLeasedLine`），适配跨站点/跨云的租户网络接入；
 - **云边协同基础**：作为中心—区域—边缘三级联动的网络基础（见 **1.3.6**、**第 12 章**）。
 
-![算力网络切片](assets/幻灯片39.png)
+![算力网络切片](assets/network-slicing-multi-tenant.png)
 
 **图 5-4 算力网络切片**
 
-![跨资源池流量编排](assets/幻灯片40.png)
+![跨资源池流量编排](assets/cross-pool-traffic-flow.png)
 
 **图 5-5 跨资源池流量编排**
 
-![按需自动引流](assets/幻灯片41.png)
+![按需自动引流](assets/on-demand-traffic-steering.png)
 
 **图 5-6 按需自动引流**
 
