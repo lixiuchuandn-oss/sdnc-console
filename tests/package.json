@@ -47,6 +47,7 @@
     "test:smoke:misc": "playwright test smoke/misc-tabs.browser.test.cjs",
     "test:smoke:admin": "playwright test smoke/admin-tabs.browser.test.cjs",
     "test:smoke:pool": "playwright test smoke/pool-platform.browser.test.cjs",
+    "test:smoke:pool-wizard": "playwright test smoke/pool-edge-wizard.browser.test.cjs",
     "test:smoke:vm-detail": "playwright test smoke/vm-detail.browser.test.cjs",
     "test:smoke:cluster:report": "npm run test:smoke:cluster && npm run allure:report",
     "test:smoke": "playwright test smoke/",

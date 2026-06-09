@@ -85,3 +85,21 @@ jobs:
         run: npx react-scripts test --watchAll=false
       - name: Production build
         run: npx react-scripts build
+
+  tests-smoke-spec:
+    name: Tests (smoke Playwright spec list)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: List smoke browser tests (syntax check)
+        run: npx playwright test smoke/ --list

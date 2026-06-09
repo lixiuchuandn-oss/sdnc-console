@@ -64,6 +64,7 @@ HEADLESS=1 npm run test:smoke:monitoring   # ch03 §3.14 监控
 HEADLESS=1 npm run test:smoke:misc        # 云数据库 / VNE / 日志
 HEADLESS=1 npm run test:smoke:admin       # ch04 设置 / ch05 租户
 HEADLESS=1 npm run test:smoke:pool        # ch02 登录与资源池列表
+HEADLESS=1 npm run test:smoke:pool-wizard # ch02 边缘云向导测连（需 Cloudmap 凭证）
 HEADLESS=1 npm run test:smoke:vm-detail   # VM 详情抽屉
 HEADLESS=1 npm run test:smoke             # 全部 smoke
 ```

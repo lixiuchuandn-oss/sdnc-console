@@ -51,6 +51,13 @@
 
 环境：`Node 20`；前端 `NODE_OPTIONS=--max-old-space-size=4096`。
 
+### Tests — `Tests (smoke Playwright spec list)`
+
+1. `cd tests && npm ci`
+2. `npx playwright test smoke/ --list`（校验 `smoke/*.browser.test.cjs` 可加载，**不**跑浏览器全量）
+
+全量 Tab 冒烟需本地在线云池，见 `tests/smoke/README.md`。
+
 ---
 
 ## 3. 本地复现（合并前建议跑）
