@@ -378,7 +378,8 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
         }
 
         // 2. 用 manifest digest 执行删除
-        const manifestDigest = manifestResult.digest || manifestResult.data?.config?.digest;
+        const manifestDigest =
+          manifestResult.digest || (manifestResult.data as { config?: { digest?: string } })?.config?.digest;
         if (!manifestDigest) {
           return res.status(400).json({ message: '无法获取镜像 digest' });
         }

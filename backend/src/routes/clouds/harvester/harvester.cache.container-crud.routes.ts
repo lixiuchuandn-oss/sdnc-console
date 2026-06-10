@@ -152,6 +152,8 @@ export const registerHarvesterContainerCrudRoutes = (
         }
 
         const url = buildK8sUrl(base, apiPath, namespace, name);
+
+        const maxRetries = 3;
         let lastError: any;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
