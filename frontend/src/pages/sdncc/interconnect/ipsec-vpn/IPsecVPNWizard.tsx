@@ -7,7 +7,8 @@ import { API_BASE_URL, apiPost, apiRequest, getApiErrorMessage, getAuthHeaders }
 import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
-const IPSEC_DEPLOY_STEP_TIMEOUT_MS = 60_000;
+const IPSEC_DEPLOY_STEP_TIMEOUT_MS = 12_000;
+const IPSEC_DEPLOY_PREVIEW_RETRY_DELAY_MS = 800;
 
 function withDeployTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -134,10 +135,23 @@ const IPsecVPNWizard: React.FC = () => {
         );
       };
 
+      /** 预览步骤：连接池 Stall 时自动重试 1 次（等价于手动再点） */
+      const deployPreviewGet = async (path: string) => {
+        try {
+          return await deployGet(path);
+        } catch (firstErr) {
+          if (isStale()) throw firstErr;
+          console.warn(`[IPsec][deploy] preview retry step=${stepIndex} session=${sessionId} @${new Date().toISOString()}`);
+          await new Promise((resolve) => window.setTimeout(resolve, IPSEC_DEPLOY_PREVIEW_RETRY_DELAY_MS));
+          if (isStale()) throw firstErr;
+          return deployGet(path);
+        }
+      };
+
       switch (stepIndex) {
         case 0: // Preview Local
           if (!localVrId) throw new Error('缺少本端 VR UUID，请返回上一步确认已选择本端网关');
-          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`);
+          res = await deployPreviewGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`);
           if (isStale()) return;
           if (res?.error) throw new Error(res.error);
           logMsg = `[本端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
@@ -166,7 +180,7 @@ const IPsecVPNWizard: React.FC = () => {
             logMsg = '未选择对端 VR，跳过。';
             break;
           }
-          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`);
+          res = await deployPreviewGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`);
           if (isStale()) return;
           if (res?.error) throw new Error(res.error);
           logMsg = `[对端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
@@ -613,51 +627,66 @@ const IPsecVPNWizard: React.FC = () => {
       let saveResultReceived = false;
       let streamError = false;
       if (reader) {
-        let buffer = '';
-        const handleLine = (line: string) => {
-          const chunk = line.trim();
-          if (!chunk) return;
-          try {
-            const data = JSON.parse(chunk);
-            if (data.type === 'error') {
-              message.error(data.message);
-              streamError = true;
-              return;
+        try {
+          let buffer = '';
+          const handleLine = (line: string) => {
+            const chunk = line.trim();
+            if (!chunk) return;
+            try {
+              const data = JSON.parse(chunk);
+              if (data.type === 'error') {
+                message.error(data.message);
+                streamError = true;
+                return;
+              }
+              if (data.type === 'result') {
+                saveResultReceived = true;
+              }
+            } catch (e) {
+              console.error('Parse chunk error', e, chunk);
             }
-            if (data.type === 'result') {
-              saveResultReceived = true;
-            }
-          } catch (e) {
-            console.error('Parse chunk error', e, chunk);
-          }
-        };
+          };
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() || '';
-          for (const line of lines) {
-            handleLine(line);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              handleLine(line);
+              if (streamError) break;
+            }
             if (streamError) break;
           }
-          if (streamError) break;
-        }
 
-        if (!streamError) {
-          buffer += decoder.decode();
-          if (buffer.trim()) handleLine(buffer);
-        }
+          if (!streamError) {
+            buffer += decoder.decode();
+            if (buffer.trim()) handleLine(buffer);
+          }
 
-        console.info(`[IPsec][save] stream done result=${saveResultReceived} error=${streamError} @${new Date().toISOString()}`);
-        if (streamError) {
-          // 已由 handleLine 提示
-        } else if (saveResultReceived) {
-          message.success('配置已保存到本地缓存');
-          setSaveSuccess(true);
-        } else {
-          message.error('连接异常断开');
+          console.info(`[IPsec][save] stream done result=${saveResultReceived} error=${streamError} @${new Date().toISOString()}`);
+          if (streamError) {
+            // 已由 handleLine 提示
+          } else if (saveResultReceived) {
+            message.success('配置已保存到本地缓存');
+            setSaveSuccess(true);
+          } else {
+            message.error('连接异常断开');
+          }
+        } finally {
+          // 显式释放 fetch 占用的 HTTP/1.1 连接，避免后续 deploy/preview 在浏览器连接池 Stall
+          try {
+            await reader.cancel();
+          } catch {
+            /* ignore */
+          }
+          try {
+            await response.body?.cancel();
+          } catch {
+            /* ignore */
+          }
+          console.info(`[IPsec][save] stream connection released @${new Date().toISOString()}`);
         }
       } else {
         message.success('配置已保存到本地缓存');
