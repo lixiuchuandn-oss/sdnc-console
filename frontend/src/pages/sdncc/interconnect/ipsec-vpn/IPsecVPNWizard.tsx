@@ -7,27 +7,6 @@ import { apiPost, apiRequest, createIPsecVPN, getApiErrorMessage, updateIPsecVPN
 import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
-const IPSEC_DEPLOY_STEP_TIMEOUT_MS = 12_000;
-const IPSEC_DEPLOY_PREVIEW_RETRY_DELAY_MS = 800;
-
-function withDeployTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => {
-      try {
-        onTimeout?.();
-      } catch {
-        /* ignore */
-      }
-      reject(new Error('请求超时，请检查网络或稍后重试'));
-    }, ms);
-    promise
-      .then(resolve)
-      .catch(reject)
-      .finally(() => {
-        window.clearTimeout(timer);
-      });
-  });
-}
 
 // Tabs 用于配置预览，保持与 SRv6 创建页一致
 
@@ -63,7 +42,6 @@ const IPsecVPNWizard: React.FC = () => {
   const [deployRunSeq, setDeployRunSeq] = useState(0);
   const deploySessionRef = React.useRef(0);
   const deployingStepRef = React.useRef<{ sessionId: number; stepIndex: number } | null>(null);
-  const deployAbortRef = React.useRef<AbortController | null>(null);
   const prevWizardStepRef = React.useRef(current);
   const manualStepTimersRef = React.useRef<number[]>([]);
 
@@ -92,10 +70,6 @@ const IPsecVPNWizard: React.FC = () => {
     deploySessionRef.current += 1;
     deployingStepRef.current = null;
     clearManualStepTimers();
-    if (deployAbortRef.current) {
-      deployAbortRef.current.abort();
-      deployAbortRef.current = null;
-    }
   };
 
   const executeManualStep = async (stepIndex: number) => {
@@ -116,42 +90,12 @@ const IPsecVPNWizard: React.FC = () => {
       let res: any;
       let logMsg = '';
 
-      const deployGet = (path: string) => {
-        const controller = new AbortController();
-        deployAbortRef.current = controller;
-        const startedAt = Date.now();
-        // 诊断打点：定位“卡在浏览器未发出 / 已发出无响应”用，问题收敛后可移除
-        console.info(`[IPsec][deploy] fetch begin step=${stepIndex} session=${sessionId} @${new Date().toISOString()} ${path}`);
-        return withDeployTimeout(
-          apiRequest(path, { ...deployGetOpts, signal: controller.signal }).finally(() => {
-            if (deployAbortRef.current === controller) deployAbortRef.current = null;
-            console.info(`[IPsec][deploy] fetch end step=${stepIndex} session=${sessionId} elapsed=${Date.now() - startedAt}ms @${new Date().toISOString()}`);
-          }),
-          IPSEC_DEPLOY_STEP_TIMEOUT_MS,
-          () => {
-            console.warn(`[IPsec][deploy] fetch timeout->abort step=${stepIndex} session=${sessionId} elapsed=${Date.now() - startedAt}ms @${new Date().toISOString()}`);
-            controller.abort();
-          },
-        );
-      };
-
-      /** 预览步骤：连接池 Stall 时自动重试 1 次（等价于手动再点） */
-      const deployPreviewGet = async (path: string) => {
-        try {
-          return await deployGet(path);
-        } catch (firstErr) {
-          if (isStale()) throw firstErr;
-          console.warn(`[IPsec][deploy] preview retry step=${stepIndex} session=${sessionId} @${new Date().toISOString()}`);
-          await new Promise((resolve) => window.setTimeout(resolve, IPSEC_DEPLOY_PREVIEW_RETRY_DELAY_MS));
-          if (isStale()) throw firstErr;
-          return deployGet(path);
-        }
-      };
+      const deployGet = (path: string) => apiRequest(path, deployGetOpts);
 
       switch (stepIndex) {
         case 0: // Preview Local
           if (!localVrId) throw new Error('缺少本端 VR UUID，请返回上一步确认已选择本端网关');
-          res = await deployPreviewGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`);
+          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`);
           if (isStale()) return;
           if (res?.error) throw new Error(res.error);
           logMsg = `[本端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
@@ -180,7 +124,7 @@ const IPsecVPNWizard: React.FC = () => {
             logMsg = '未选择对端 VR，跳过。';
             break;
           }
-          res = await deployPreviewGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`);
+          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`);
           if (isStale()) return;
           if (res?.error) throw new Error(res.error);
           logMsg = `[对端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
@@ -253,7 +197,6 @@ const IPsecVPNWizard: React.FC = () => {
     deploySessionRef.current += 1;
     deployingStepRef.current = null;
     clearManualStepTimers();
-    console.info(`[IPsec][deploy] session start seq=${deployRunSeq} session=${deploySessionRef.current} @${new Date().toISOString()}`);
     setManualStep(0);
     setManualLogs({});
     setManualStatus({
@@ -600,7 +543,6 @@ const IPsecVPNWizard: React.FC = () => {
       } else {
         await createIPsecVPN(payload);
       }
-      console.info(`[IPsec][save] json done @${new Date().toISOString()}`);
       message.success('配置已保存到本地缓存');
       setSaveSuccess(true);
     } catch (error: any) {
