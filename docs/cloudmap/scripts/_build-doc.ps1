@@ -208,12 +208,34 @@ if ($Format -eq 'docx') {
         "--resource-path=$Source;$whitepaperAssets"
     )
     if (Test-Path $css) {
-        $pandocArgs += @("--css=../templates/preview.css")
+        Copy-Item -LiteralPath $css -Destination (Join-Path $OutputDir "preview.css") -Force
+        $pandocArgs += @("--css=preview.css")
     }
     $chapterBreakFilter = Join-Path (Join-Path $Root "templates") "filters\manual-chapter-break.lua"
     if ($Variant -eq 'manual' -and (Test-Path $chapterBreakFilter)) {
         $pandocArgs += @("--lua-filter=$chapterBreakFilter")
     }
+}
+
+function Set-HtmlSidebarLayout {
+    param([Parameter(Mandatory = $true)][string]$HtmlPath)
+    if (-not (Test-Path $HtmlPath)) { return }
+    $enc = New-Object System.Text.UTF8Encoding $false
+    $html = [System.IO.File]::ReadAllText($HtmlPath, $enc)
+    if ($html -match 'class="doc-layout"') { return }
+    $pattern = '(?s)(<body>\s*)(<header id="title-block-header">.*?</header>\s*)(<nav id="TOC"[^>]*>.*?</nav>\s*)(.*?)(\s*</body>)'
+    $m = [regex]::Match($html, $pattern)
+    if (-not $m.Success) {
+        Write-Host "WARN: HTML sidebar layout skipped (unexpected structure): $HtmlPath" -ForegroundColor Yellow
+        return
+    }
+    $wrapped = $m.Groups[1].Value +
+        '<div class="doc-layout">' +
+        '<aside class="doc-sidebar">' + $m.Groups[2].Value + $m.Groups[3].Value + '</aside>' +
+        '<main class="doc-content">' + $m.Groups[4].Value + '</main>' +
+        '</div>' + $m.Groups[5].Value
+    $html = $html.Substring(0, $m.Index) + $wrapped + $html.Substring($m.Index + $m.Length)
+    [System.IO.File]::WriteAllText($HtmlPath, $html, $enc)
 }
 
 function Clear-DocxBodyIndent {
@@ -408,6 +430,7 @@ function Copy-AssetTree {
 }
 
 if ($Format -eq 'html') {
+    Set-HtmlSidebarLayout -HtmlPath $Output
     $assetsOut = Join-Path $OutputDir "assets"
     if (Test-Path $assetsOut) {
         Remove-Item -LiteralPath $assetsOut -Recurse -Force

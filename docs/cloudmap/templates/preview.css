@@ -1,106 +1,188 @@
-/* Cloudmap 白皮书 HTML 预览样式 */
+/* Cloudmap / 多云白皮书 HTML 预览：左侧目录 + 右侧正文 */
 :root {
   color-scheme: light;
   --text: #1d2129;
   --muted: #86909c;
   --border: #e5e6eb;
   --bg: #f7f8fa;
+  --sidebar-bg: #fafbfc;
   --link: #165dff;
+  --sidebar-width: 300px;
 }
 
 html {
   font-size: 16px;
   line-height: 1.75;
+  scroll-behavior: smooth;
 }
 
 body {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+  margin: 0;
+  padding: 0;
   color: var(--text);
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   background: #fff;
 }
 
+.doc-layout {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+}
+
+.doc-sidebar {
+  flex: 0 0 var(--sidebar-width);
+  width: var(--sidebar-width);
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 1.25rem 1rem 2rem;
+  border-right: 1px solid var(--border);
+  background: var(--sidebar-bg);
+}
+
+.doc-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 960px;
+  padding: 2rem 2.5rem 4rem;
+  box-sizing: border-box;
+}
+
 header#title-block-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1.25rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border);
 }
 
 header#title-block-header .title {
   margin: 0;
-  font-size: 1.75rem;
-  line-height: 1.3;
+  font-size: 1.15rem;
+  line-height: 1.4;
+  font-weight: 600;
 }
 
 #TOC {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem 1.25rem;
-  margin: 0 0 2.5rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
 }
 
-#TOC > ul {
+#TOC::before {
+  content: "目录";
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+#TOC ul {
   margin: 0;
-  padding-left: 1.25rem;
+  padding-left: 0;
+  list-style: none;
+}
+
+#TOC ul ul {
+  padding-left: 0.85rem;
+  margin-top: 0.15rem;
+}
+
+#TOC li {
+  margin: 0.15rem 0;
+  line-height: 1.45;
+  list-style: none;
 }
 
 #TOC a {
+  display: block;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
   color: var(--text);
   text-decoration: none;
+  font-size: 0.88rem;
 }
 
 #TOC a:hover {
   color: var(--link);
+  background: rgba(22, 93, 255, 0.06);
 }
 
-h1, h2, h3, h4 {
+#TOC > ul > li > a {
+  font-weight: 600;
+}
+
+.doc-content h1,
+.doc-content h2,
+.doc-content h3,
+.doc-content h4 {
   line-height: 1.35;
   margin-top: 2rem;
   margin-bottom: 0.75rem;
+  scroll-margin-top: 1.5rem;
 }
 
-h1 { font-size: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 0.35rem; }
-h2 { font-size: 1.25rem; }
-h3 { font-size: 1.1rem; }
-h4 { font-size: 1rem; color: #4e5969; }
+.doc-content h1 {
+  font-size: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+}
 
-p, li {
+.doc-content h2 {
+  font-size: 1.25rem;
+}
+
+.doc-content h3 {
+  font-size: 1.1rem;
+}
+
+.doc-content h4 {
+  font-size: 1rem;
+  color: #4e5969;
+}
+
+.doc-content p,
+.doc-content li {
   margin: 0.5rem 0;
 }
 
-a {
+.doc-content a {
   color: var(--link);
 }
 
-table {
+.doc-content table {
   width: 100%;
   border-collapse: collapse;
   margin: 1rem 0;
   font-size: 0.95rem;
 }
 
-th, td {
+.doc-content th,
+.doc-content td {
   border: 1px solid var(--border);
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
 
-th {
+.doc-content th {
   background: var(--bg);
   font-weight: 600;
 }
 
-img {
+.doc-content img {
   max-width: 100%;
   height: auto;
   display: block;
   margin: 1rem auto;
 }
 
-code {
+.doc-content code {
   font-family: Consolas, "Courier New", monospace;
   font-size: 0.9em;
   background: var(--bg);
@@ -108,7 +190,7 @@ code {
   border-radius: 4px;
 }
 
-pre {
+.doc-content pre {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -116,7 +198,7 @@ pre {
   overflow-x: auto;
 }
 
-blockquote {
+.doc-content blockquote {
   margin: 1rem 0;
   padding: 0.5rem 1rem;
   border-left: 4px solid var(--border);
@@ -124,13 +206,42 @@ blockquote {
   background: var(--bg);
 }
 
-@media print {
-  body {
-    max-width: none;
-    padding: 0;
+@media (max-width: 960px) {
+  .doc-layout {
+    flex-direction: column;
   }
 
-  #TOC {
+  .doc-sidebar {
+    position: relative;
+    width: 100%;
+    height: auto;
+    max-height: 45vh;
+    flex: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .doc-content {
+    max-width: none;
+    padding: 1.5rem 1.25rem 3rem;
+  }
+}
+
+@media print {
+  .doc-layout {
+    display: block;
+  }
+
+  .doc-sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    max-height: none;
     page-break-after: always;
+  }
+
+  .doc-content {
+    max-width: none;
+    padding: 0;
   }
 }
