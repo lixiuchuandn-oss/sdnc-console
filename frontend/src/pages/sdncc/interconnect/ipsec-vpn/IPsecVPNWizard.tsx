@@ -3,10 +3,24 @@ import { Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { API_BASE_URL, apiRequest, apiPost, getAuthHeaders } from '../../../../services/api';
+import { API_BASE_URL, apiPost, apiRequest, getApiErrorMessage, getAuthHeaders } from '../../../../services/api';
 import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
+const IPSEC_DEPLOY_STEP_TIMEOUT_MS = 60_000;
+
+function withDeployTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error('请求超时，请检查网络或稍后重试')), ms);
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        window.clearTimeout(timer);
+      });
+  });
+}
+
 // Tabs 用于配置预览，保持与 SRv6 创建页一致
 
 const IPsecVPNWizard: React.FC = () => {
@@ -38,8 +52,9 @@ const IPsecVPNWizard: React.FC = () => {
   const [_fullLocalConfig, _setFullLocalConfig] = useState<any>(null);
   const [_fullPeerConfig, _setFullPeerConfig] = useState<any>(null);
   const _deployedRef = React.useRef(false);
-  /** 防止进入第 4 步时重复自动触发下发（与 SRv6 Create 下发向导一致） */
-  const deployAutoStartedRef = React.useRef(false);
+  const [deployRunSeq, setDeployRunSeq] = useState(0);
+  const deploySessionRef = React.useRef(0);
+  const deployingStepRef = React.useRef<number | null>(null);
   const manualStepTimersRef = React.useRef<number[]>([]);
 
   // Manual Step State
@@ -63,130 +78,142 @@ const IPsecVPNWizard: React.FC = () => {
     manualStepTimersRef.current = [];
   };
 
+  const cancelDeploySession = () => {
+    deploySessionRef.current += 1;
+    deployingStepRef.current = null;
+    clearManualStepTimers();
+  };
+
   const executeManualStep = async (stepIndex: number) => {
+    if (deployingStepRef.current === stepIndex) return;
+
+    const sessionId = deploySessionRef.current;
     const localVrId = String(form.getFieldValue('localVrId') || '').trim();
     const peerVrId = String(form.getFieldValue('peerVrId') || '').trim();
+    deployingStepRef.current = stepIndex;
 
-    setManualStatus(prev => ({ ...prev, [stepIndex]: 'process' }));
-    setManualLogs(prev => ({ ...prev, [stepIndex]: '执行中…' }));
+    setManualStatus((prev) => ({ ...prev, [stepIndex]: 'process' }));
+    setManualLogs((prev) => ({ ...prev, [stepIndex]: '执行中…' }));
+
+    const isStale = () => sessionId !== deploySessionRef.current;
 
     try {
       let res: any;
       let logMsg = '';
 
+      const deployGet = (path: string) =>
+        withDeployTimeout(apiRequest(path, deployGetOpts), IPSEC_DEPLOY_STEP_TIMEOUT_MS);
+
       switch (stepIndex) {
         case 0: // Preview Local
           if (!localVrId) throw new Error('缺少本端 VR UUID，请返回上一步确认已选择本端网关');
-          res = await apiRequest(
-            `/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`,
-            deployGetOpts,
-          );
+          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`);
+          if (isStale()) return;
           if (res?.error) throw new Error(res.error);
           logMsg = `[本端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
           break;
-        
+
         case 1: // Push Local
           if (!localVrId) throw new Error('缺少本端 VR UUID');
           res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: localVrId });
-          
+          if (isStale()) return;
           if (res.error) throw new Error(res.error);
           logMsg = `[本端下发响应]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
-          
           if (res.status !== 200 && res.status !== 201) throw new Error(`Device returned status ${res.status}`);
           break;
 
         case 2: // Verify Local
           if (!localVrId) throw new Error('缺少本端 VR UUID');
-          res = await apiRequest(
-            `/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(localVrId)}`,
-            deployGetOpts,
-          );
+          res = await deployGet(`/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(localVrId)}`);
+          if (isStale()) return;
           if (res.error) throw new Error(res.error);
           logMsg = `[本端回查]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
-          if (res.ipsecCount === 0) throw new Error('Verification failed: No IPsec connections found on device.');
+          if (res.ipsecCount === 0) throw new Error('设备上未找到 IPsec 连接，请确认下发是否成功');
           break;
 
         case 3: // Preview Peer
           if (!peerVrId) {
-             logMsg = '未选择对端 VR，跳过。';
-             break;
+            logMsg = '未选择对端 VR，跳过。';
+            break;
           }
-          res = await apiRequest(
-            `/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`,
-            deployGetOpts,
-          );
+          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`);
+          if (isStale()) return;
           if (res?.error) throw new Error(res.error);
           logMsg = `[对端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
           break;
 
         case 4: // Push Peer
           if (!peerVrId) {
-             logMsg = '未选择对端 VR，跳过。';
-             break;
+            logMsg = '未选择对端 VR，跳过。';
+            break;
           }
           res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: peerVrId });
-          
+          if (isStale()) return;
           if (res.error) throw new Error(res.error);
           logMsg = `[对端下发响应]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
           if (res.status !== 200 && res.status !== 201) throw new Error(`Device returned status ${res.status}`);
           break;
 
         case 5: // Verify Peer
-           if (!peerVrId) {
-             logMsg = '未选择对端 VR，跳过。';
-             break;
+          if (!peerVrId) {
+            logMsg = '未选择对端 VR，跳过。';
+            break;
           }
-          res = await apiRequest(
-            `/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(peerVrId)}`,
-            deployGetOpts,
-          );
+          res = await deployGet(`/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(peerVrId)}`);
+          if (isStale()) return;
           if (res.error) throw new Error(res.error);
           logMsg = `[对端回查]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
-          if (res.ipsecCount === 0) throw new Error('Verification failed: No IPsec connections found on peer device.');
+          if (res.ipsecCount === 0) throw new Error('对端设备上未找到 IPsec 连接，请确认下发是否成功');
           break;
       }
 
-      setManualLogs(prev => ({ ...prev, [stepIndex]: logMsg }));
-      setManualStatus(prev => ({ ...prev, [stepIndex]: 'finish' }));
+      if (isStale()) return;
+
+      setManualLogs((prev) => ({ ...prev, [stepIndex]: logMsg }));
+      setManualStatus((prev) => ({ ...prev, [stepIndex]: 'finish' }));
       setManualStep(stepIndex + 1);
 
-      // Auto-execute next step
       if (stepIndex < 5) {
         const timer = window.setTimeout(() => void executeManualStep(stepIndex + 1), 500);
         manualStepTimersRef.current.push(timer);
       } else {
         message.success('全部流程结束');
       }
-
-    } catch (e: any) {
+    } catch (e: unknown) {
+      if (isStale()) return;
       console.error(e);
-      setManualLogs(prev => ({ ...prev, [stepIndex]: `[Error] ${e.message}` }));
-      setManualStatus(prev => ({ ...prev, [stepIndex]: 'error' }));
+      const errMsg = getApiErrorMessage(e, '下发步骤失败');
+      setManualLogs((prev) => ({ ...prev, [stepIndex]: `[错误] ${errMsg}` }));
+      setManualStatus((prev) => ({ ...prev, [stepIndex]: 'error' }));
+    } finally {
+      if (deployingStepRef.current === stepIndex) {
+        deployingStepRef.current = null;
+      }
     }
   };
 
-  // 进入第 4 步时重置并自动开始下发（仅触发一次，避免 requestManager 去重挂死）
+  // 进入第 4 步或用户重新点击“开始下发”时，显式创建一次新的下发会话。
   useEffect(() => {
     if (current !== 3) {
-      clearManualStepTimers();
-      deployAutoStartedRef.current = false;
+      cancelDeploySession();
       return;
     }
-    if (deployAutoStartedRef.current) return;
-    deployAutoStartedRef.current = true;
+    if (deployRunSeq === 0) return;
+
+    deploySessionRef.current += 1;
+    deployingStepRef.current = null;
+    clearManualStepTimers();
     setManualStep(0);
     setManualLogs({});
     setManualStatus({
       0: 'wait', 1: 'wait', 2: 'wait', 3: 'wait', 4: 'wait', 5: 'wait',
     });
-    const t = window.setTimeout(() => void executeManualStep(0), 500);
-    manualStepTimersRef.current.push(t);
+    const t = window.setTimeout(() => void executeManualStep(0), 400);
     return () => {
-      clearManualStepTimers();
-      deployAutoStartedRef.current = false;
+      window.clearTimeout(t);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入第 4 步时触发自动下发链
-  }, [current]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 下发会话由 current + deployRunSeq 显式驱动
+  }, [current, deployRunSeq]);
 
   // 1. 精确监听 Checkbox 状态，确保 React 能够感知变化
   const localIkeAny = Form.useWatch('localIkeRemoteIpAny', form);
@@ -496,6 +523,8 @@ const IPsecVPNWizard: React.FC = () => {
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
   const startDeploy = () => {
+    cancelDeploySession();
+    setDeployRunSeq((seq) => seq + 1);
     setCurrent(3);
   };
 
@@ -546,30 +575,42 @@ const IPsecVPNWizard: React.FC = () => {
 
       let isFinished = false;
       if (reader) {
+        let buffer = '';
+        const handleLine = (line: string) => {
+          const chunk = line.trim();
+          if (!chunk) return false;
+          try {
+            const data = JSON.parse(chunk);
+            if (data.type === 'error') {
+              message.error(data.message);
+              setLoading(false);
+              isFinished = true;
+              return true;
+            }
+            if (data.type === 'result') {
+              isFinished = true;
+              message.success('配置已保存到本地缓存');
+              setSaveSuccess(true);
+            }
+          } catch (e) {
+            console.error('Parse chunk error', e, chunk);
+          }
+          return false;
+        };
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunks = decoder.decode(value).split('\n');
-          for (const chunk of chunks) {
-            if (chunk) {
-              try {
-                const data = JSON.parse(chunk);
-                if (data.type === 'error') {
-                  message.error(data.message);
-                  setLoading(false);
-                  isFinished = true;
-                  return; 
-                } else if (data.type === 'result') {
-                  isFinished = true;
-                  message.success('配置已保存到本地缓存');
-                  setSaveSuccess(true);
-                }
-              } catch (e) {
-                console.error('Parse chunk error', e);
-              }
-            }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (handleLine(line)) return;
           }
         }
+
+        buffer += decoder.decode();
+        if (buffer.trim() && handleLine(buffer)) return;
         
         if (!isFinished) {
            message.error('连接异常断开');
@@ -725,7 +766,10 @@ const IPsecVPNWizard: React.FC = () => {
               layout="vertical" 
               form={form} 
               hideRequiredMark
-              onValuesChange={() => setRefreshKey(k => k + 1)}
+              onValuesChange={() => {
+                setRefreshKey(k => k + 1);
+                setSaveSuccess(false);
+              }}
             >
               <div style={{ display: current === 0 ? 'block' : 'none' }}>
                 <Form.Item 
