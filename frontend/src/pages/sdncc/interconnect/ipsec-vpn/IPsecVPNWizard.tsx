@@ -21,6 +21,41 @@ function withDeployTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/** 下发 preview/verify 直连 fetch，避免与保存流共用连接池时经 requestManager 排队挂起 */
+async function deployFetchJson(path: string): Promise<any> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'GET',
+    headers: {
+      ...getAuthHeaders(),
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+    },
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let errorMsg = `HTTP ${response.status}`;
+    try {
+      const json = JSON.parse(text);
+      errorMsg = json.message || errorMsg;
+    } catch {
+      if (text.trim()) errorMsg = text.trim().slice(0, 200);
+    }
+    throw new Error(errorMsg);
+  }
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+async function releaseStreamReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  try {
+    await reader.cancel();
+  } catch {
+    // ignore
+  }
+}
+
 // Tabs 用于配置预览，保持与 SRv6 创建页一致
 
 const IPsecVPNWizard: React.FC = () => {
@@ -54,7 +89,8 @@ const IPsecVPNWizard: React.FC = () => {
   const _deployedRef = React.useRef(false);
   const [deployRunSeq, setDeployRunSeq] = useState(0);
   const deploySessionRef = React.useRef(0);
-  const deployingStepRef = React.useRef<number | null>(null);
+  const deployingStepRef = React.useRef<{ sessionId: number; stepIndex: number } | null>(null);
+  const prevWizardStepRef = React.useRef(current);
   const manualStepTimersRef = React.useRef<number[]>([]);
 
   // Manual Step State
@@ -71,8 +107,6 @@ const IPsecVPNWizard: React.FC = () => {
     { title: '回查对端结果', desc: '验证对端设备是否成功加载配置' }
   ];
 
-  const deployGetOpts = { skipCache: true, enableDeduplication: false } as const;
-
   const clearManualStepTimers = () => {
     manualStepTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     manualStepTimersRef.current = [];
@@ -85,12 +119,13 @@ const IPsecVPNWizard: React.FC = () => {
   };
 
   const executeManualStep = async (stepIndex: number) => {
-    if (deployingStepRef.current === stepIndex) return;
-
     const sessionId = deploySessionRef.current;
+    const active = deployingStepRef.current;
+    if (active?.sessionId === sessionId && active.stepIndex === stepIndex) return;
+
     const localVrId = String(form.getFieldValue('localVrId') || '').trim();
     const peerVrId = String(form.getFieldValue('peerVrId') || '').trim();
-    deployingStepRef.current = stepIndex;
+    deployingStepRef.current = { sessionId, stepIndex };
 
     setManualStatus((prev) => ({ ...prev, [stepIndex]: 'process' }));
     setManualLogs((prev) => ({ ...prev, [stepIndex]: '执行中…' }));
@@ -102,7 +137,7 @@ const IPsecVPNWizard: React.FC = () => {
       let logMsg = '';
 
       const deployGet = (path: string) =>
-        withDeployTimeout(apiRequest(path, deployGetOpts), IPSEC_DEPLOY_STEP_TIMEOUT_MS);
+        withDeployTimeout(deployFetchJson(path), IPSEC_DEPLOY_STEP_TIMEOUT_MS);
 
       switch (stepIndex) {
         case 0: // Preview Local
@@ -186,7 +221,8 @@ const IPsecVPNWizard: React.FC = () => {
       setManualLogs((prev) => ({ ...prev, [stepIndex]: `[错误] ${errMsg}` }));
       setManualStatus((prev) => ({ ...prev, [stepIndex]: 'error' }));
     } finally {
-      if (deployingStepRef.current === stepIndex) {
+      const activeStep = deployingStepRef.current;
+      if (activeStep?.sessionId === sessionId && activeStep.stepIndex === stepIndex) {
         deployingStepRef.current = null;
       }
     }
@@ -194,8 +230,13 @@ const IPsecVPNWizard: React.FC = () => {
 
   // 进入第 4 步或用户重新点击“开始下发”时，显式创建一次新的下发会话。
   useEffect(() => {
+    const prevStep = prevWizardStepRef.current;
+    prevWizardStepRef.current = current;
+
     if (current !== 3) {
-      cancelDeploySession();
+      if (prevStep === 3) {
+        cancelDeploySession();
+      }
       return;
     }
     if (deployRunSeq === 0) return;
@@ -605,12 +646,18 @@ const IPsecVPNWizard: React.FC = () => {
           const lines = buffer.split(/\r?\n/);
           buffer = lines.pop() || '';
           for (const line of lines) {
-            if (handleLine(line)) return;
+            if (handleLine(line)) {
+              await releaseStreamReader(reader);
+              return;
+            }
           }
         }
 
         buffer += decoder.decode();
-        if (buffer.trim() && handleLine(buffer)) return;
+        if (buffer.trim() && handleLine(buffer)) {
+          await releaseStreamReader(reader);
+          return;
+        }
         
         if (!isFinished) {
            message.error('连接异常断开');
@@ -781,7 +828,10 @@ const IPsecVPNWizard: React.FC = () => {
                       validator: async (_, value) => {
                         if (!value) return Promise.resolve();
                         try {
-                          const json = await apiRequest(`/api/networks/ipsec/check-name?name=${encodeURIComponent(value)}`);
+                          const exclude = id ? `&excludeId=${encodeURIComponent(id)}` : '';
+                          const json = await apiRequest(
+                            `/api/networks/ipsec/check-name?name=${encodeURIComponent(value)}${exclude}`,
+                          );
                           if (json.exists) {
                             return Promise.reject(new Error('该名称已存在'));
                           }

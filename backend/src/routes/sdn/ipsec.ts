@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import { In } from 'typeorm';
+import { In, Not } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { IPsecVPN, IPsecStatus } from '../../entities/vRouter/IPsecVPN';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
@@ -396,6 +396,23 @@ ipsecRoutes.get('/device', async (req, res, next) => {
   }
 });
 
+// Check if IPsec name exists（须在 /:id 之前注册，避免被当成 id=check-name）
+ipsecRoutes.get('/check-name', async (req, res) => {
+  try {
+    const { name, excludeId } = req.query;
+    if (!name) return res.json({ exists: false });
+    const count = await repo().count({
+      where:
+        excludeId && typeof excludeId === 'string'
+          ? { name: String(name), id: Not(excludeId) }
+          : { name: String(name) },
+    });
+    res.json({ exists: count > 0 });
+  } catch (e: any) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
 // Get IPsec VPN by ID
 ipsecRoutes.get('/:id', async (req, res, next) => {
   try {
@@ -724,18 +741,6 @@ ipsecRoutes.put('/:id', async (req, res, next) => {
       res.write(JSON.stringify({ type: 'error', code: 500, message: e.message }) + '\n');
       res.end();
     }
-  }
-});
-
-// Check if IPsec name exists
-ipsecRoutes.get('/check-name', async (req, res) => {
-  try {
-    const { name } = req.query;
-    if (!name) return res.json({ exists: false });
-    const count = await repo().count({ where: { name: String(name) } });
-    res.json({ exists: count > 0 });
-  } catch (e: any) {
-    res.status(500).json({ message: e.message });
   }
 });
 
