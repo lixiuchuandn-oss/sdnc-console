@@ -347,14 +347,12 @@ const GenericRegistryDrawer: React.FC<Props> = ({
           >
             上传镜像
           </Button>
-          {registry.localRegistryId && (
-            <Button
-              icon={<UnorderedListOutlined />}
-              onClick={() => setUploadTasksDrawerVisible(true)}
-            >
-              上传任务
-            </Button>
-          )}
+          <Button
+            icon={<UnorderedListOutlined />}
+            onClick={() => setUploadTasksDrawerVisible(true)}
+          >
+            推送任务
+          </Button>
           <Button 
             icon={<ApiOutlined />} 
             loading={testing}
@@ -397,11 +395,12 @@ const GenericRegistryDrawer: React.FC<Props> = ({
         />
       )}
 
-      {registry.localRegistryId && (
+      {registry && (
         <LocalRegistryUploadTasksDrawer
           visible={uploadTasksDrawerVisible}
           cloudId={cloudId}
           registryId={registry.localRegistryId}
+          registryServer={registry.localRegistryId ? undefined : registry.server}
           onClose={() => setUploadTasksDrawerVisible(false)}
           onTasksChanged={() => {
             setRegistryBrowserKey((k) => k + 1);

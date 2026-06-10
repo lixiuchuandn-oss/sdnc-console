@@ -1,12 +1,22 @@
 /**
  * 镜像上传弹窗组件
  */
-import React, { useState } from 'react';
-import { Modal, Form, Input, Upload, message, Alert } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Modal, Form, Input, Upload, message, Alert, Progress } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
-import { uploadImageToRegistry } from '../../../../../../services/localRegistryApi';
+import {
+  uploadImageToRegistry,
+  type UploadImageProgressHandler,
+} from '../../../../../../services/localRegistryApi';
 
 const { Dragger } = Upload;
+
+type ProgressState = {
+  visible: boolean;
+  percent: number;
+  message: string;
+  status: 'active' | 'success' | 'exception';
+};
 
 interface Props {
   visible: boolean;
@@ -37,6 +47,39 @@ const ImageUploadModal: React.FC<Props> = ({
   const [form] = Form.useForm();
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<ProgressState>({
+    visible: false,
+    percent: 0,
+    message: '',
+    status: 'active',
+  });
+
+  useEffect(() => {
+    if (!visible) {
+      setProgress({ visible: false, percent: 0, message: '', status: 'active' });
+      setSubmitting(false);
+    }
+  }, [visible]);
+
+  const handleProgress: UploadImageProgressHandler = useCallback((info) => {
+    if (info.phase === 'uploading_file') {
+      setProgress({
+        visible: true,
+        percent: info.percent,
+        message: info.message,
+        status: 'active',
+      });
+      return;
+    }
+    if (info.phase === 'processing') {
+      setProgress({
+        visible: true,
+        percent: 100,
+        message: info.message,
+        status: 'active',
+      });
+    }
+  }, []);
 
   const handleUpload = async () => {
     if (!file) {
@@ -46,6 +89,7 @@ const ImageUploadModal: React.FC<Props> = ({
 
     const values = await form.validateFields();
     setSubmitting(true);
+    setProgress({ visible: true, percent: 0, message: '准备上传...', status: 'active' });
 
     try {
       const res: any = await uploadImageToRegistry(
@@ -58,21 +102,27 @@ const ImageUploadModal: React.FC<Props> = ({
         registryId ? undefined : insecure,
         registryId ? undefined : username,
         registryId ? undefined : password,
+        handleProgress,
       );
 
       const createdTaskId = res?.data?.taskId as string | undefined;
-      if (registryId) {
-        message.success('提交成功，请在「上传任务」中查看进度');
-        if (createdTaskId) {
-          onTaskCreated?.(createdTaskId);
-        }
+
+      if (createdTaskId) {
+        onTaskCreated?.(createdTaskId);
+        message.success('文件上传完成，请在「推送任务」中查看推送进度');
       } else {
-        message.success('提交成功');
+        message.success('镜像上传完成');
       }
+
       onSuccess();
       handleReset();
     } catch (e: any) {
-      message.error(e.message || '提交失败');
+      setProgress((prev) => ({
+        ...prev,
+        status: 'exception',
+        message: e?.message || '上传失败',
+      }));
+      message.error(e?.message || '上传失败');
     } finally {
       setSubmitting(false);
     }
@@ -81,9 +131,14 @@ const ImageUploadModal: React.FC<Props> = ({
   const handleReset = () => {
     form.resetFields();
     setFile(null);
+    setProgress({ visible: false, percent: 0, message: '', status: 'active' });
   };
 
   const handleCancel = () => {
+    if (submitting) {
+      message.warning('上传进行中，请等待完成');
+      return;
+    }
     handleReset();
     onCancel();
   };
@@ -97,6 +152,9 @@ const ImageUploadModal: React.FC<Props> = ({
       okText="上传"
       cancelText="取消"
       okButtonProps={{ loading: submitting, disabled: !file }}
+      cancelButtonProps={{ disabled: submitting }}
+      closable={!submitting}
+      maskClosable={!submitting}
       width={600}
       destroyOnClose
     >
@@ -106,12 +164,19 @@ const ImageUploadModal: React.FC<Props> = ({
           showIcon
           style={{ marginBottom: 16 }}
           message={`目标仓库: ${registryServer}`}
-          description={
-            registryId
-              ? '提交后将在后台推送镜像，进度请在「上传任务」中查看'
-              : undefined
-          }
+          description="文件上传完成后将关闭本窗口，解析与推送进度请在「推送任务」中查看"
         />
+
+        {progress.visible && (
+          <div style={{ marginBottom: 16 }}>
+            <Progress
+              percent={progress.percent}
+              status={progress.status}
+              strokeColor={progress.status === 'exception' ? undefined : { from: '#108ee9', to: '#87d068' }}
+            />
+            <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>{progress.message}</div>
+          </div>
+        )}
 
         <Form.Item label="镜像文件 (.tar)">
           <Dragger

@@ -13,11 +13,17 @@ import {
   LOCAL_REGISTRY_NAME_MAX_LENGTH,
   validateLocalRegistryNameField,
 } from '../lib/localRegistryName';
+import {
+  findRegistryServerConflictInList,
+  formatRegistryServerConflictMessage,
+  type RegistryListItemForServerCheck,
+} from '../lib/registryServerAddress';
 
 interface Props {
   visible: boolean;
   cloudId: string;
   namespaces: string[];
+  existingRegistries?: RegistryListItemForServerCheck[];
   onCancel: () => void;
   onSuccess: () => void;
 }
@@ -26,6 +32,7 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
   visible,
   cloudId,
   namespaces,
+  existingRegistries = [],
   onCancel,
   onSuccess,
 }) => {
@@ -33,7 +40,10 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [_checkingPort, setCheckingPort] = useState(false);
-  const [portStatus, setPortStatus] = useState<'checking' | 'available' | 'conflict' | null>(null);
+  const [portStatus, setPortStatus] = useState<'checking' | 'available' | 'port-conflict' | 'server-conflict' | null>(null);
+  const [registryHost, setRegistryHost] = useState('');
+  const [predictedServer, setPredictedServer] = useState('');
+  const [serverConflictMessage, setServerConflictMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible || !cloudId) return;
@@ -45,13 +55,28 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
       authEnabled: false,
     });
     setPortStatus('checking');
+    setRegistryHost('');
+    setPredictedServer('');
+    setServerConflictMessage(null);
     void (async () => {
       try {
         const res = await suggestLocalRegistryPort(cloudId);
         if (cancelled) return;
         const port = Number(res?.data?.port);
+        const host = String(res?.data?.host || '');
+        const server = String(res?.data?.server || (host && port ? `${host}:${port}` : ''));
         form.setFieldsValue({ nodePort: Number.isFinite(port) ? port : 30500 });
-        setPortStatus('available');
+        setRegistryHost(host);
+        setPredictedServer(server);
+        const conflict = server
+          ? findRegistryServerConflictInList(existingRegistries, server)
+          : null;
+        if (conflict) {
+          setPortStatus('server-conflict');
+          setServerConflictMessage(formatRegistryServerConflictMessage(conflict, server));
+        } else {
+          setPortStatus('available');
+        }
       } catch {
         if (cancelled) return;
         form.setFieldsValue({ nodePort: 30500 });
@@ -61,30 +86,68 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [visible, cloudId, form]);
+  }, [visible, cloudId, form, existingRegistries]);
 
   const checkPort = useCallback(async (port: number) => {
     if (!port || port < 30000 || port > 32767) {
       setPortStatus(null);
+      setPredictedServer('');
+      setServerConflictMessage(null);
       return;
     }
     setCheckingPort(true);
     setPortStatus('checking');
+    setServerConflictMessage(null);
     try {
       const res = await checkLocalRegistryPort(cloudId, port);
       const available = res?.data?.available;
-      setPortStatus(available ? 'available' : 'conflict');
+      const host = String(res?.data?.host || registryHost || '');
+      const server = String(res?.data?.server || (host ? `${host}:${port}` : ''));
+      if (host) setRegistryHost(host);
+      setPredictedServer(server);
+
+      const frontendConflict = server
+        ? findRegistryServerConflictInList(existingRegistries, server)
+        : null;
+      const backendConflictMessage = res?.data?.serverConflictMessage as string | undefined;
+      const serverAvailable = res?.data?.serverAvailable !== false && !frontendConflict;
+
+      if (!available) {
+        setPortStatus('port-conflict');
+      } else if (!serverAvailable) {
+        setPortStatus('server-conflict');
+        setServerConflictMessage(
+          backendConflictMessage ||
+            (frontendConflict
+              ? formatRegistryServerConflictMessage(frontendConflict, server)
+              : '仓库地址已被占用'),
+        );
+      } else {
+        setPortStatus('available');
+      }
     } catch {
-      setPortStatus('conflict');
+      setPortStatus('port-conflict');
     } finally {
       setCheckingPort(false);
     }
-  }, [cloudId]);
+  }, [cloudId, existingRegistries, registryHost]);
 
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
       const { sizeGi, ...rest } = values;
+      const server = predictedServer || (registryHost ? `${registryHost}:${values.nodePort}` : '');
+      const conflict = server
+        ? findRegistryServerConflictInList(existingRegistries, server)
+        : null;
+      if (conflict) {
+        message.error(formatRegistryServerConflictMessage(conflict, server));
+        return;
+      }
+      if (portStatus === 'server-conflict' || portStatus === 'port-conflict') {
+        message.error(serverConflictMessage || '当前端口或仓库地址不可用，请更换后重试');
+        return;
+      }
       setLoading(true);
       await createLocalRegistry(cloudId, {
         ...rest,
@@ -113,6 +176,9 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
       onCancel={() => {
         form.resetFields();
         setPortStatus(null);
+        setRegistryHost('');
+        setPredictedServer('');
+        setServerConflictMessage(null);
         onCancel();
       }}
       confirmLoading={loading}
@@ -165,9 +231,13 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
             portStatus === 'checking' ? (
               <Space><Spin size="small" /> 检测中...</Space>
             ) : portStatus === 'available' ? (
-              <span style={{ color: '#52c41a' }}>✓ 端口可用</span>
-            ) : portStatus === 'conflict' ? (
+              <span style={{ color: '#52c41a' }}>
+                ✓ 端口可用{predictedServer ? `，仓库地址：${predictedServer}` : ''}
+              </span>
+            ) : portStatus === 'port-conflict' ? (
               <span style={{ color: '#ff4d4f' }}>✗ 端口已被占用</span>
+            ) : portStatus === 'server-conflict' ? (
+              <span style={{ color: '#ff4d4f' }}>✗ {serverConflictMessage || '仓库地址已被占用'}</span>
             ) : (
               '端口范围 30000-32767'
             )

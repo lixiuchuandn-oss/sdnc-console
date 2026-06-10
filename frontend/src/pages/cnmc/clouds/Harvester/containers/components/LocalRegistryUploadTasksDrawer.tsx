@@ -1,5 +1,5 @@
 /**
- * 本地仓库镜像上传任务抽屉
+ * 本地仓库镜像推送任务抽屉
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -24,7 +24,9 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import {
+  deleteGenericRegistryUploadTask,
   deleteImageUploadTask,
+  fetchGenericRegistryUploadTasks,
   fetchImageUploadTasks,
   ImageUploadTask,
 } from '../../../../../../services/localRegistryApi';
@@ -32,7 +34,10 @@ import {
 interface Props {
   visible: boolean;
   cloudId: string;
-  registryId: string;
+  /** 本地仓库 ID；与 registryServer 二选一 */
+  registryId?: string;
+  /** 通用仓库地址 host:port；无 registryId 时使用 */
+  registryServer?: string;
   onClose: () => void;
   onTasksChanged?: () => void;
 }
@@ -43,6 +48,7 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
   visible,
   cloudId,
   registryId,
+  registryServer,
   onClose,
   onTasksChanged,
 }) => {
@@ -56,7 +62,11 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
   const handleDelete = async (task: ImageUploadTask) => {
     setDeletingId(task.id);
     try {
-      await deleteImageUploadTask(cloudId, registryId, task.id);
+      if (registryId) {
+        await deleteImageUploadTask(cloudId, registryId, task.id);
+      } else if (registryServer) {
+        await deleteGenericRegistryUploadTask(cloudId, registryServer, task.id);
+      }
       message.success('任务记录已删除');
       prevStatusRef.current.delete(task.id);
       await loadTasks(true);
@@ -68,9 +78,12 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
   };
 
   const loadTasks = useCallback(async (silent = false) => {
+    if (!registryId && !registryServer) return;
     if (!silent) setLoading(true);
     try {
-      const res = await fetchImageUploadTasks(cloudId, registryId);
+      const res = registryId
+        ? await fetchImageUploadTasks(cloudId, registryId)
+        : await fetchGenericRegistryUploadTasks(cloudId, registryServer!);
       const list: ImageUploadTask[] = Array.isArray(res?.data) ? res.data : [];
       setAllTasks(list);
       setTasks(statusFilter ? list.filter((t) => t.status === statusFilter) : list);
@@ -93,12 +106,12 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
       prevStatusRef.current = new Map(list.map((t) => [t.id, t.status]));
     } catch (error: any) {
       if (!silent) {
-        message.error(error?.message || '获取上传任务失败');
+        message.error(error?.message || '获取推送任务失败');
       }
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [cloudId, registryId, statusFilter, onTasksChanged]);
+  }, [cloudId, registryId, registryServer, statusFilter, onTasksChanged]);
 
   useEffect(() => {
     if (!visible) return;
@@ -147,7 +160,7 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
       case 'uploading':
         return (
           <Tag icon={<LoadingOutlined spin />} color="processing">
-            {record?.currentLayer === 'manifest' ? '推送清单' : '上传中'}
+            {record?.currentLayer === 'manifest' ? '推送清单' : '推送中'}
           </Tag>
         );
       case 'completed':
@@ -270,7 +283,7 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
 
   return (
     <Drawer
-      title="上传任务"
+      title="推送任务"
       placement="right"
       width={900}
       onClose={onClose}
@@ -304,7 +317,7 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
         >
           <Select.Option value="pending">待处理</Select.Option>
           <Select.Option value="parsing">解析中</Select.Option>
-          <Select.Option value="uploading">上传中</Select.Option>
+          <Select.Option value="uploading">推送中</Select.Option>
           <Select.Option value="completed">已完成</Select.Option>
           <Select.Option value="failed">失败</Select.Option>
         </Select>
@@ -314,7 +327,7 @@ const LocalRegistryUploadTasksDrawer: React.FC<Props> = ({
       </Space>
 
       {tasks.length === 0 && !loading ? (
-        <Empty description="暂无上传任务" />
+        <Empty description="暂无推送任务" />
       ) : (
         <Table
           columns={columns}

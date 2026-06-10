@@ -264,7 +264,7 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
     session?.impactAckLabel ??
     (session?.operationSummary ? (
       <>
-        我已了解影响，确认{session.operationSummary}
+        我已了解影响，{session.operationSummary}
       </>
     ) : (
       HIGH_RISK_ACK_DEFAULT

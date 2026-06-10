@@ -17,6 +17,7 @@ export enum UploadTaskStatus {
 
 export enum RegistryType {
   LOCAL_REGISTRY = 'local-registry',
+  GENERIC = 'generic',
   HARBOR = 'harbor',
 }
 
@@ -28,6 +29,14 @@ export class ImageUploadTask {
   @Index()
   @Column({ nullable: true })
   registryId?: string;
+
+  @Index()
+  @Column({ nullable: true })
+  cloudId?: string;
+
+  /** 通用仓库推送任务的目标地址（host:port） */
+  @Column({ nullable: true })
+  targetServer?: string;
 
   @Column()
   fileName!: string;

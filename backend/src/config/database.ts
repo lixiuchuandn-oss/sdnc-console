@@ -836,9 +836,38 @@ export async function ensureLocalRegistryTables() {
       `);
       dbLog.info('registry_image_upload_tasks 表创建成功');
     }
+
+    await ensureRegistryImageUploadTaskColumns();
   } catch (error) {
     dbLog.error('本地仓库表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
+  }
+}
+
+async function ensureRegistryImageUploadTaskColumns() {
+  const columns: Array<{ name: string; ddl: string }> = [
+    { name: 'cloudId', ddl: '"cloudId" varchar' },
+    { name: 'targetServer', ddl: '"targetServer" varchar' },
+    { name: 'registryType', ddl: '"registryType" varchar NOT NULL DEFAULT \'local-registry\'' },
+    { name: 'harborId', ddl: '"harborId" varchar' },
+    { name: 'projectName', ddl: '"projectName" varchar' },
+  ];
+  for (const col of columns) {
+    try {
+      await AppDataSource.query(
+        `ALTER TABLE "registry_image_upload_tasks" ADD COLUMN ${col.ddl}`,
+      );
+    } catch {
+      /* 列已存在 */
+    }
+  }
+  try {
+    await AppDataSource.query(`
+      CREATE INDEX IF NOT EXISTS "IDX_registry_image_upload_tasks_cloudId_targetServer"
+      ON "registry_image_upload_tasks" ("cloudId", "targetServer")
+    `);
+  } catch {
+    /* ignore */
   }
 }
 

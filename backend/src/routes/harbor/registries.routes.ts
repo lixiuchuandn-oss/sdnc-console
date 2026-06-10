@@ -26,6 +26,10 @@ function canManageHarborRegistry(perms: string[], action: 'create' | 'update' | 
   );
 }
 import { HarborProxyService } from '../../services/harbor/HarborProxyService';
+import {
+  findRegistryServerConflict,
+  formatRegistryServerConflictMessage,
+} from '../../services/registryServerConflict';
 import { logger } from '../../utils/logger';
 
 const harborLog = logger.child('HarborRoutes');
@@ -108,6 +112,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
       // 根据 insecure 参数决定协议
       finalUrl = insecure ? `http://${finalUrl}` : `https://${finalUrl}`;
+    }
+
+    const serverConflict = await findRegistryServerConflict(finalUrl);
+    if (serverConflict) {
+      return res.status(400).json({ message: formatRegistryServerConflictMessage(serverConflict) });
     }
 
     // 加密密码（可逆加密，用于 Harbor API 调用）
@@ -320,6 +329,10 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
       if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
         const useInsecure = insecure !== undefined ? insecure : registry.insecure;
         finalUrl = useInsecure ? `http://${finalUrl}` : `https://${finalUrl}`;
+      }
+      const serverConflict = await findRegistryServerConflict(finalUrl, { harborId: id });
+      if (serverConflict) {
+        return res.status(400).json({ message: formatRegistryServerConflictMessage(serverConflict) });
       }
       registry.url = finalUrl;
     }

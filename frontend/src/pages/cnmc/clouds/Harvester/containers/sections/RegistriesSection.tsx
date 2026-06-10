@@ -51,6 +51,11 @@ import {
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
 import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
+import {
+  findRegistryServerConflictInList,
+  formatRegistryServerConflictMessage,
+  normalizeRegistryServerAddress,
+} from '../lib/registryServerAddress';
 
 const { Text, Link } = Typography;
 
@@ -151,7 +156,8 @@ const AddRegistryModal: React.FC<{
   onCancel: () => void;
   editData?: RegistryConfig | null;
   cloudId?: string;
-}> = ({ visible, onOk, onCancel, editData, cloudId }) => {
+  allRegistries?: RegistryConfig[];
+}> = ({ visible, onOk, onCancel, editData, cloudId, allRegistries = [] }) => {
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
@@ -277,6 +283,15 @@ const AddRegistryModal: React.FC<{
           } else if (server.startsWith('https://')) {
             server = server.slice(8);
           }
+
+          const serverConflict = findRegistryServerConflictInList(allRegistries, server, {
+            id: editData?.id,
+            harborId: editData?.harborId,
+          });
+          if (serverConflict) {
+            message.error(formatRegistryServerConflictMessage(serverConflict, server));
+            return;
+          }
           
           const payload: any = {
             name: values.name,
@@ -332,17 +347,24 @@ const AddRegistryModal: React.FC<{
           }
         } else {
           // 普通 Generic 类型：保持现有逻辑
+          let server = values.server?.trim() || '';
+          if (server.startsWith('http://')) {
+            server = server.slice(7);
+          } else if (server.startsWith('https://')) {
+            server = server.slice(8);
+          }
+
+          const serverConflict = findRegistryServerConflictInList(allRegistries, server, {
+            id: editData?.id,
+          });
+          if (serverConflict) {
+            message.error(formatRegistryServerConflictMessage(serverConflict, server));
+            return;
+          }
+
           // 如果是 HTTP 仓库且有 cloudId，则配置到 Harvester containerd-registry
-          if (values.insecure && cloudId && values.server) {
+          if (values.insecure && cloudId && server) {
             try {
-              // 清理 server 地址（去掉协议前缀）
-              let server = values.server.trim();
-              if (server.startsWith('http://')) {
-                server = server.slice(7);
-              } else if (server.startsWith('https://')) {
-                server = server.slice(8);
-              }
-              
               await addInsecureRegistry(cloudId, server);
             } catch (e: any) {
               // 配置失败但继续保存本地记录
@@ -351,7 +373,7 @@ const AddRegistryModal: React.FC<{
             }
           }
           
-          onOk(values);
+          onOk({ ...values, server });
         }
       }
       
@@ -720,6 +742,15 @@ const RegistriesSection: React.FC<Props> = ({
     setSelectedRepo(null);
   }, []);
   
+  const checkRegistryServerConflict = useCallback((
+    server: string,
+    exclude?: { id?: string; harborId?: string; localRegistryId?: string },
+  ) => {
+    const normalized = normalizeRegistryServerAddress(server);
+    if (!normalized) return null;
+    return findRegistryServerConflictInList(allRegistries, server, exclude);
+  }, [allRegistries]);
+
   // 添加/编辑仓库
   const handleSaveRegistry = useCallback((data: Omit<RegistryConfig, 'id' | 'createdAt'>) => {
     const now = new Date().toISOString();
@@ -755,20 +786,18 @@ const RegistriesSection: React.FC<Props> = ({
     }
     
     // Generic 类型：保存到 localStorage
-    if (editingRegistry && editingRegistry.type === 'generic') {
-      // 编辑 generic 仓库 - 校验重复（排除自身）
+    if (editingRegistry && editingRegistry.type === 'generic' && !editingRegistry.localRegistryId) {
+      // 编辑手动添加的 generic 仓库 - 校验重复（排除自身）
       const nameExists = localRegistries.some((r: RegistryConfig) => 
         r.id !== editingRegistry.id && r.name === data.name
       );
-      const serverExists = localRegistries.some((r: RegistryConfig) => 
-        r.id !== editingRegistry.id && r.server === data.server
-      );
+      const serverConflict = checkRegistryServerConflict(data.server, { id: editingRegistry.id });
       if (nameExists) {
         message.error('仓库名称已存在');
         return;
       }
-      if (serverExists) {
-        message.error('仓库地址已存在');
+      if (serverConflict) {
+        message.error(formatRegistryServerConflictMessage(serverConflict, data.server));
         return;
       }
       
@@ -780,16 +809,16 @@ const RegistriesSection: React.FC<Props> = ({
       setLocalRegistries(updated);
       saveRegistries(updated);
       message.success('仓库已更新');
-    } else if (!editingRegistry || editingRegistry.type === 'generic') {
-      // 新增 generic 仓库 - 校验重复
+    } else if (!editingRegistry || (editingRegistry.type === 'generic' && !editingRegistry.localRegistryId)) {
+      // 新增手动添加的 generic 仓库 - 校验重复
       const nameExists = localRegistries.some((r: RegistryConfig) => r.name === data.name);
-      const serverExists = localRegistries.some((r: RegistryConfig) => r.server === data.server);
+      const serverConflict = checkRegistryServerConflict(data.server);
       if (nameExists) {
         message.error('仓库名称已存在');
         return;
       }
-      if (serverExists) {
-        message.error('仓库地址已存在');
+      if (serverConflict) {
+        message.error(formatRegistryServerConflictMessage(serverConflict, data.server));
         return;
       }
       
@@ -807,7 +836,7 @@ const RegistriesSection: React.FC<Props> = ({
     
     setAddRegistryVisible(false);
     setEditingRegistry(null);
-  }, [localRegistries, editingRegistry, message]);
+  }, [localRegistries, editingRegistry, message, checkRegistryServerConflict]);
   
   // 删除仓库
   const handleDeleteRegistry = useCallback(async (record: RegistryConfig) => {
@@ -1221,6 +1250,7 @@ const RegistriesSection: React.FC<Props> = ({
         }}
         editData={editingRegistry}
         cloudId={cloudId}
+        allRegistries={allRegistries}
       />
       
       {/* Harbor 详情抽屉 */}
@@ -1282,6 +1312,7 @@ const RegistriesSection: React.FC<Props> = ({
         visible={deployModalVisible}
         cloudId={cloudId}
         namespaces={namespacesOptions}
+        existingRegistries={allRegistries}
         onCancel={() => setDeployModalVisible(false)}
         onSuccess={() => {
           setDeployModalVisible(false);

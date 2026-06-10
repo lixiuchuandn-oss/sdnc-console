@@ -23,6 +23,14 @@ import {
   buildLocalRegistryDeploymentName,
   getLocalRegistryNameValidationError,
 } from '../../../services/localRegistryName';
+import {
+  findRegistryServerConflict,
+  formatRegistryServerConflictMessage,
+} from '../../../services/registryServerConflict';
+import {
+  buildHarvesterLocalRegistryServer,
+  resolveHarvesterRegistryHost,
+} from '../../../services/harvesterRegistryHost';
 
 const LOCAL_REGISTRY_IMAGE = 'docker.io/library/registry:2';
 const DEFAULT_STORAGE_SIZE = '10Gi';
@@ -202,9 +210,11 @@ export const registerHarvesterLocalRegistryRoutes = (
         if (port == null) {
           return res.status(409).json({ message: 'NodePort 范围内无可用端口' });
         }
+        const host = resolveHarvesterRegistryHost(cloud);
+        const server = buildHarvesterLocalRegistryServer(cloud, port);
         res.json({
           message: '已推荐可用端口',
-          data: { port, available: true, occupiedCount: occupied.size },
+          data: { port, available: true, occupiedCount: occupied.size, host, server },
         });
       } catch (error: any) {
         console.error('[推荐端口] 错误:', error);
@@ -244,9 +254,21 @@ export const registerHarvesterLocalRegistryRoutes = (
 
         const occupied = await collectOccupiedNodePorts(cloud, localRegistryRepo, id);
         const available = !occupied.has(nodePort);
+        const host = resolveHarvesterRegistryHost(cloud);
+        const server = buildHarvesterLocalRegistryServer(cloud, nodePort);
+        const serverConflict = await findRegistryServerConflict(server);
         res.json({
           message: available ? '端口可用' : '端口已被占用',
-          data: { available, port: nodePort },
+          data: {
+            available,
+            port: nodePort,
+            host,
+            server,
+            serverAvailable: !serverConflict,
+            serverConflictMessage: serverConflict
+              ? formatRegistryServerConflictMessage(serverConflict)
+              : undefined,
+          },
         });
       } catch (error: any) {
         console.error('[检测端口] 错误:', error);
@@ -295,21 +317,13 @@ export const registerHarvesterLocalRegistryRoutes = (
         const serviceName = deploymentName;
         const pvcName = `${deploymentName}-pvc`;
 
-        // 提取主机名（去掉协议和路径）
-        let host = cloud.config?.harvesterHost || '';
-        if (host) {
-          // 去掉可能的路径部分（如 /v3）
-          host = host.replace(/^https?:\/\//, '').split('/')[0];
+        const server = buildHarvesterLocalRegistryServer(cloud, port);
+        const serverConflict = await findRegistryServerConflict(server);
+        if (serverConflict) {
+          return res.status(400).json({
+            message: formatRegistryServerConflictMessage(serverConflict),
+          });
         }
-        if (!host) {
-          try {
-            const url = new URL(base);
-            host = url.hostname;
-          } catch {
-            host = base.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-          }
-        }
-        const server = `${host}:${port}`;
 
         const pvcBody = {
           apiVersion: 'v1',
@@ -1043,6 +1057,8 @@ export const registerHarvesterLocalRegistryRoutes = (
         // 创建上传任务记录
         const task = uploadTaskRepo.create({
           registryId,
+          cloudId,
+          targetServer: registry.server,
           fileName: req.file.originalname || 'image.tar',
           targetRepo: targetRepo || 'library',
           targetTag: targetTag || 'latest',

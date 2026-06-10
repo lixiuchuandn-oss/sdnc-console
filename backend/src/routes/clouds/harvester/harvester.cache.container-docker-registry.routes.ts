@@ -7,11 +7,48 @@ import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
 import { parseDockerImageFromBuffer } from '../../../services/ImageTarParser';
 import { pushImageToRegistry } from '../../../services/DockerRegistryPusher';
 import { probeRegistryConnection, registryApiRequest } from '../../../services/registryClient';
+import { AppDataSource } from '../../../config/database';
+import { ImageUploadTask, RegistryType, UploadTaskStatus } from '../../../entities/ImageUploadTask';
+
+async function pushImageToRegistryWithHttpFallback(
+  parsedImage: Awaited<ReturnType<typeof parseDockerImageFromBuffer>>,
+  options: {
+    server: string;
+    repository: string;
+    tag: string;
+    insecure: boolean;
+    username?: string;
+    password?: string;
+  },
+  onProgress?: Parameters<typeof pushImageToRegistry>[2],
+) {
+  try {
+    await pushImageToRegistry(parsedImage, options, onProgress);
+  } catch (pushError: any) {
+    if (
+      !options.insecure &&
+      (pushError.code === 'EPROTO' ||
+        pushError.code === 'ECONNRESET' ||
+        String(pushError.message).includes('SSL'))
+    ) {
+      console.log('[上传镜像] HTTPS 失败, 回退 HTTP 重试...');
+      await pushImageToRegistry(
+        parsedImage,
+        { ...options, insecure: true },
+        onProgress,
+      );
+    } else {
+      throw pushError;
+    }
+  }
+}
 
 export const registerHarvesterContainerDockerRegistryRoutes = (
   router: Router,
   checkAdminPermission: any,
 ): void => {
+  const uploadTaskRepo = AppDataSource.getRepository(ImageUploadTask);
+
   // ============================================================
   // [Docker Registry V2 API 代理]
   // ============================================================
@@ -422,6 +459,66 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
     },
   );
 
+  /**
+   * [API] 获取通用仓库镜像推送任务列表
+   * GET /:id/resources/harvester/containers/registry/upload-tasks?server=host:port
+   */
+  router.get(
+    '/:id/resources/harvester/containers/registry/upload-tasks',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id: cloudId } = req.params;
+        const server = String(req.query.server || '').trim();
+        if (!server) {
+          return res.status(400).json({ message: '缺少参数: server' });
+        }
+        const tasks = await uploadTaskRepo.find({
+          where: { cloudId, targetServer: server, registryType: RegistryType.GENERIC },
+          order: { createdAt: 'DESC' },
+        });
+        res.json({ message: '查询成功', data: tasks });
+      } catch (error: any) {
+        console.error('[查询通用仓库推送任务] 错误:', error);
+        res.status(500).json({ message: '查询失败', error: error.message });
+      }
+    },
+  );
+
+  /**
+   * [API] 删除通用仓库镜像推送任务记录（仅 completed / failed）
+   * DELETE /:id/resources/harvester/containers/registry/upload-tasks/:taskId
+   */
+  router.delete(
+    '/:id/resources/harvester/containers/registry/upload-tasks/:taskId',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id: cloudId, taskId } = req.params;
+        const server = String(req.query.server || '').trim();
+        const task = await uploadTaskRepo.findOne({
+          where: {
+            id: taskId,
+            cloudId,
+            ...(server ? { targetServer: server } : {}),
+            registryType: RegistryType.GENERIC,
+          },
+        });
+        if (!task) {
+          return res.status(404).json({ message: '任务不存在' });
+        }
+        if (task.status !== UploadTaskStatus.COMPLETED && task.status !== UploadTaskStatus.FAILED) {
+          return res.status(409).json({ message: '仅已完成或失败的任务可删除' });
+        }
+        await uploadTaskRepo.remove(task);
+        res.json({ message: '删除成功' });
+      } catch (error: any) {
+        console.error('[删除通用仓库推送任务] 错误:', error);
+        res.status(500).json({ message: '删除失败', error: error.message });
+      }
+    },
+  );
+
   // 配置 multer 用于通用仓库上传
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -439,6 +536,7 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
     upload.single('file'),
     async (req: any, res: Response) => {
       try {
+        const { id: cloudId } = req.params;
         const { server, insecure, username, password, targetRepo, targetTag } = req.body;
 
         if (!req.file) {
@@ -448,44 +546,89 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
           return res.status(400).json({ message: '缺少仓库地址' });
         }
 
-        const parsedImage = await parseDockerImageFromBuffer(req.file.buffer);
-        const repo = targetRepo || 'library';
-        const tag = targetTag || parsedImage.repoTags[0]?.split(':')[1] || 'latest';
+        const cloud = await fetchCloudOr404(cloudId, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester')) return;
 
+        const registryServer = String(server).trim();
         const isInsecure = insecure === 'true' || insecure === true;
+        const authUser = username ? String(username) : undefined;
+        const authPass = password ? String(password) : undefined;
 
-        try {
-          await pushImageToRegistry(parsedImage, {
-            server: String(server),
-            repository: repo,
-            tag,
-            insecure: isInsecure,
-            username: username || undefined,
-            password: password || undefined,
+        if (authUser && !authPass) {
+          return res.status(400).json({
+            message: '仓库已配置用户名但缺少密码，请在仓库设置中补全密码后重试',
           });
-        } catch (pushError: any) {
-          // HTTPS 连接失败时，自动回退 HTTP 重试
-          if (
-            !isInsecure &&
-            (pushError.code === 'EPROTO' ||
-              pushError.code === 'ECONNRESET' ||
-              String(pushError.message).includes('SSL'))
-          ) {
-            console.log('[上传镜像] HTTPS 失败, 回退 HTTP 重试...');
-            await pushImageToRegistry(parsedImage, {
-              server: String(server),
-              repository: repo,
-              tag,
-              insecure: true,
-              username: username || undefined,
-              password: password || undefined,
-            });
-          } else {
-            throw pushError;
-          }
         }
 
-        res.json({ message: '上传成功', data: { repo, tag } });
+        const task = uploadTaskRepo.create({
+          cloudId,
+          targetServer: registryServer,
+          registryType: RegistryType.GENERIC,
+          fileName: req.file.originalname || 'image.tar',
+          targetRepo: targetRepo || 'library',
+          targetTag: targetTag || 'latest',
+          status: UploadTaskStatus.PARSING,
+          totalLayers: 0,
+          uploadedLayers: 0,
+        });
+        await uploadTaskRepo.save(task);
+
+        const fileBuffer = req.file.buffer;
+        const repo = targetRepo || 'library';
+        const tagHint = targetTag || 'latest';
+
+        (async () => {
+          try {
+            task.status = UploadTaskStatus.PARSING;
+            await uploadTaskRepo.save(task);
+
+            const parsedImage = await parseDockerImageFromBuffer(fileBuffer);
+            const tag = tagHint || parsedImage.repoTags[0]?.split(':')[1] || 'latest';
+            task.targetTag = tag;
+            task.totalLayers = parsedImage.layers.length + 2;
+            task.status = UploadTaskStatus.UPLOADING;
+            await uploadTaskRepo.save(task);
+
+            await pushImageToRegistryWithHttpFallback(
+              parsedImage,
+              {
+                server: registryServer,
+                repository: repo,
+                tag,
+                insecure: isInsecure,
+                username: authUser,
+                password: authPass,
+              },
+              async (progress) => {
+                if (progress.phase === 'uploading') {
+                  task.uploadedLayers = progress.current;
+                  task.currentLayer = progress.currentBlob;
+                  await uploadTaskRepo.save(task);
+                } else if (progress.phase === 'pushing_manifest') {
+                  task.uploadedLayers = Math.max(task.totalLayers - 1, 0);
+                  task.currentLayer = 'manifest';
+                  await uploadTaskRepo.save(task);
+                }
+              },
+            );
+
+            task.uploadedLayers = task.totalLayers;
+            task.currentLayer = undefined;
+            task.status = UploadTaskStatus.COMPLETED;
+            await uploadTaskRepo.save(task);
+          } catch (err: any) {
+            console.error('[通用仓库镜像推送] 错误:', err);
+            task.status = UploadTaskStatus.FAILED;
+            task.error = err?.message || String(err);
+            await uploadTaskRepo.save(task);
+          }
+        })();
+
+        res.json({
+          message: '推送任务已创建',
+          data: { taskId: task.id, repo, tag: tagHint },
+        });
       } catch (error: any) {
         console.error('[上传镜像] 错误:', error);
         res.status(500).json({ message: '上传失败', error: error.message });
