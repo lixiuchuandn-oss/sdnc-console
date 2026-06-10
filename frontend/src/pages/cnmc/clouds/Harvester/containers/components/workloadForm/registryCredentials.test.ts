@@ -1,6 +1,8 @@
 import {
   buildMergedRegistryList,
+  findRegistryForImage,
   localRegistryToCredential,
+  parseImageRegistryHost,
   secretToRegistryCredential,
 } from './registryCredentials';
 
@@ -33,7 +35,6 @@ describe('buildMergedRegistryList', () => {
   it('includes deployed local registries from platform API', () => {
     const list = buildMergedRegistryList(
       [],
-      [],
       [
         {
           id: 'lr-1',
@@ -52,25 +53,19 @@ describe('buildMergedRegistryList', () => {
     });
   });
 
-  it('merges localStorage registries and secrets', () => {
-    const auth = btoa('a:b');
-    const dockerConfig = JSON.stringify({ auths: { 'http://harbor.local': { auth } } });
+  it('merges localStorage registries and harbor registries', () => {
     const list = buildMergedRegistryList(
       [{ id: '1', name: 'local-reg', server: 'http://local', insecure: true }],
-      [
-        {
-          type: 'kubernetes.io/dockerconfigjson',
-          metadata: { name: 'sec-reg' },
-          data: { '.dockerconfigjson': btoa(dockerConfig) },
-        },
-      ],
+      [],
+      [{ id: 'h1', name: 'harbor', url: 'https://harbor.local', username: 'admin' }],
     );
     expect(list).toHaveLength(2);
-    expect(list[0]).toMatchObject({ source: 'localStorage', server: 'http://local' });
-    expect(list[1]).toMatchObject({
-      source: 'secret',
-      name: 'sec-reg',
-      server: 'http://harbor.local',
+    expect(list.find((item) => item.source === 'localStorage')).toMatchObject({
+      server: 'http://local',
+    });
+    expect(list.find((item) => item.source === 'harbor')).toMatchObject({
+      name: 'harbor',
+      harborId: 'h1',
     });
   });
 });
@@ -87,5 +82,36 @@ describe('localRegistryToCredential', () => {
       password: undefined,
       insecure: undefined,
     });
+  });
+});
+
+describe('parseImageRegistryHost', () => {
+  it('extracts host:port from private registry image', () => {
+    expect(parseImageRegistryHost('10.20.5.20:30507/clickhouse:v1.0.0')).toBe('10.20.5.20:30507');
+  });
+
+  it('returns null for docker hub style image', () => {
+    expect(parseImageRegistryHost('nginx:latest')).toBeNull();
+  });
+});
+
+describe('findRegistryForImage', () => {
+  it('matches deployed local registry by image host', () => {
+    const registries = buildMergedRegistryList(
+      [],
+      [
+        {
+          id: 'lr-1',
+          name: 'local',
+          server: '10.20.5.20:30507',
+          authEnabled: true,
+          username: 'test',
+          password: 'pass',
+        },
+      ],
+    );
+    expect(findRegistryForImage('10.20.5.20:30507/clickhouse:v1.0.0', registries)?.name).toBe(
+      'local',
+    );
   });
 });

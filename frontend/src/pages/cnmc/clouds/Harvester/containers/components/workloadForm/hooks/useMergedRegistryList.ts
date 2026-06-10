@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
+import { getHarborRegistries } from '../../../../../../../../services/harvesterApi';
 import { fetchLocalRegistries } from '../../../../../../../../services/localRegistryApi';
 import {
   buildMergedRegistryList,
   DeployedLocalRegistryInput,
+  HarborRegistryInput,
   loadHarvesterRegistriesFromLocalStorage,
   MergedRegistryEntry,
 } from '../registryCredentials';
 
-export function useMergedRegistryList(
-  cloudId: string,
-  secretsWithCredentials: unknown[] | undefined,
-): MergedRegistryEntry[] {
+export function useMergedRegistryList(cloudId: string): MergedRegistryEntry[] {
   const localStorageRegistries = useMemo(() => loadHarvesterRegistriesFromLocalStorage(), []);
   const [deployedRegistries, setDeployedRegistries] = useState<DeployedLocalRegistryInput[]>([]);
+  const [harborRegistries, setHarborRegistries] = useState<HarborRegistryInput[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,8 +29,25 @@ export function useMergedRegistryList(
     };
   }, [cloudId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void getHarborRegistries()
+      .then((res) => {
+        if (cancelled) return;
+        const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        setHarborRegistries(list);
+      })
+      .catch(() => {
+        if (!cancelled) setHarborRegistries([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return useMemo(
-    () => buildMergedRegistryList(localStorageRegistries, secretsWithCredentials, deployedRegistries),
-    [localStorageRegistries, secretsWithCredentials, deployedRegistries],
+    () =>
+      buildMergedRegistryList(localStorageRegistries, deployedRegistries, harborRegistries),
+    [localStorageRegistries, deployedRegistries, harborRegistries],
   );
 }

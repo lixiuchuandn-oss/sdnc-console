@@ -30,6 +30,7 @@ import {
   Tooltip,
   Form,
   Switch,
+  Space,
 } from 'antd';
 import { ReloadOutlined, SearchOutlined, EditTwoTone } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -63,6 +64,10 @@ import {
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
 import { CONTAINER_SCALE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
+import {
+  isLocalRegistryManagedDeployment,
+  REGISTRY_MANAGED_DEPLOYMENT_HINT,
+} from '../lib/registryManagedLocalRegistry';
 
 type Props = {
   deployments: any[];
@@ -477,22 +482,36 @@ const WorkloadTable: React.FC<{
           const alias = record?.metadata?.annotations?.['tower.io/alias'];
           const id = record?.metadata?.name || '';
           const hasAlias = !!alias;
+          const isRegistryManaged =
+            type === 'deployment' && isLocalRegistryManagedDeployment(record);
 
           return (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>{hasAlias ? alias : id}</span>
-              <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<EditTwoTone />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenAliasModal(record);
-                  }}
-                />
-              </Tooltip>
-            </span>
+            <Space size={4}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>{hasAlias ? alias : id}</span>
+                <Tooltip
+                  title={
+                    isRegistryManaged
+                      ? REGISTRY_MANAGED_DEPLOYMENT_HINT
+                      : hasAlias
+                        ? '修改别名'
+                        : '设置别名'
+                  }
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<EditTwoTone />}
+                    disabled={isRegistryManaged}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenAliasModal(record);
+                    }}
+                  />
+                </Tooltip>
+              </span>
+              {isRegistryManaged && <Tag color="processing">本地仓库托管</Tag>}
+            </Space>
           );
         },
       },
@@ -555,13 +574,18 @@ const WorkloadTable: React.FC<{
         fixed: 'right' as const,
         render: (_: any, record: any) => {
           const isSystem = isSystemResource(record);
+          const isRegistryManaged =
+            type === 'deployment' && isLocalRegistryManagedDeployment(record);
           const systemHint = getSystemResourceProtectionHint(record);
+          const protectHint = isRegistryManaged ? REGISTRY_MANAGED_DEPLOYMENT_HINT : systemHint;
+          const editDeleteDisabled = isSystem || isRegistryManaged;
+          const scaleDisabled = isSystem || isRegistryManaged;
           const itemsAll = [
             {
               key: 'edit',
               label: '编辑',
-              disabled: isSystem,
-              tooltip: systemHint,
+              disabled: editDeleteDisabled,
+              tooltip: protectHint,
               onClick: () => onEdit?.(record),
             },
             {
@@ -572,8 +596,8 @@ const WorkloadTable: React.FC<{
             {
               key: 'scale',
               label: '热扩缩容',
-              disabled: isSystem,
-              tooltip: systemHint,
+              disabled: scaleDisabled,
+              tooltip: isRegistryManaged ? protectHint : systemHint,
               onClick: () => handleScale(record),
               show: type === 'deployment' || type === 'statefulset',
             },
@@ -588,8 +612,8 @@ const WorkloadTable: React.FC<{
               key: 'delete',
               label: '删除',
               danger: true,
-              disabled: isSystem,
-              tooltip: systemHint,
+              disabled: editDeleteDisabled,
+              tooltip: protectHint,
               onClick: () => {
                 const alias = record?.metadata?.annotations?.['tower.io/alias'];
                 const id = record?.metadata?.name || '';

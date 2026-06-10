@@ -15,18 +15,29 @@
  * 4. 通过回调函数支持父组件打开详情/日志/终端
  */
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Table, Tag, Empty, Spin } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined, EyeOutlined, FileTextOutlined, CodeOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import { fetchHarvesterPodsBySelector } from '../../../../../../services/harvesterApi';
 
 export interface ServiceRelatedPodsTabProps {
   serviceSelector?: Record<string, string>; // Service.spec.selector
-  pods: any[]; // 所有 Pod 数据
+  serviceNamespace?: string;
+  cloudId?: string;
+  pods: any[]; // 父级传入的 Pod 缓存（可选兜底）
   loading?: boolean;
   onViewDetail?: (pod: any) => void; // 查看详情回调
   onViewLog?: (pod: any) => void; // 查看日志回调
   onOpenTerminal?: (pod: any) => void; // 打开终端回调
+}
+
+function selectorToLabelSelector(selector?: Record<string, string>): string {
+  if (!selector || Object.keys(selector).length === 0) return '';
+  return Object.entries(selector)
+    .filter(([key, value]) => key && value != null && value !== '')
+    .map(([key, value]) => `${key}=${value}`)
+    .join(',');
 }
 
 /**
@@ -44,28 +55,79 @@ const formatTime = (timestamp?: string) => {
 
 const ServiceRelatedPodsTab: React.FC<ServiceRelatedPodsTabProps> = ({
   serviceSelector,
+  serviceNamespace,
+  cloudId,
   pods,
   loading,
   onViewDetail,
   onViewLog,
   onOpenTerminal,
 }) => {
-  // 根据 selector 过滤匹配的 Pod
+  const [fetchedPods, setFetchedPods] = useState<any[]>([]);
+  const [fetchLoading, setFetchLoading] = useState(false);
+
+  const labelSelector = useMemo(
+    () => selectorToLabelSelector(serviceSelector),
+    [serviceSelector],
+  );
+
+  // 有 cloudId 时按 Service 命名空间 + selector 直接查询，避免依赖父级是否已加载 Pod 列表
+  useEffect(() => {
+    if (!cloudId || !serviceNamespace || !labelSelector) {
+      setFetchedPods([]);
+      return;
+    }
+
+    let cancelled = false;
+    setFetchLoading(true);
+    void fetchHarvesterPodsBySelector(cloudId, serviceNamespace, labelSelector)
+      .then((result) => {
+        if (cancelled) return;
+        const items = result?.data?.items || result?.items || [];
+        setFetchedPods(Array.isArray(items) ? items : []);
+      })
+      .catch(() => {
+        if (!cancelled) setFetchedPods([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFetchLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudId, serviceNamespace, labelSelector]);
+
+  const podsSource = useMemo(() => {
+    if (cloudId && serviceNamespace) {
+      if (fetchLoading && fetchedPods.length === 0) {
+        return pods || [];
+      }
+      return fetchedPods;
+    }
+    return pods || [];
+  }, [cloudId, serviceNamespace, fetchLoading, fetchedPods, pods]);
+
+  // 根据 selector 过滤匹配的 Pod（API 按 selector 查询时通常已匹配，此处兼做本地缓存过滤）
   const matchedPods = useMemo(() => {
     if (!serviceSelector || Object.keys(serviceSelector).length === 0) {
       return [];
     }
 
-    return (pods || []).filter((pod: any) => {
+    return podsSource.filter((pod: any) => {
       const raw = pod.rawData || pod;
+      if (serviceNamespace && raw.metadata?.namespace !== serviceNamespace) {
+        return false;
+      }
       const podLabels = raw.metadata?.labels || {};
-      
-      // 检查 Pod 的标签是否匹配 Service 的 selector
+
       return Object.entries(serviceSelector).every(([key, value]) => {
         return podLabels[key] === value;
       });
     });
-  }, [serviceSelector, pods]);
+  }, [serviceSelector, serviceNamespace, podsSource]);
+
+  const effectiveLoading = loading || fetchLoading;
 
   // Pod 状态渲染
   const renderPodStatus = (phase: string) => {
@@ -166,7 +228,7 @@ const ServiceRelatedPodsTab: React.FC<ServiceRelatedPodsTabProps> = ({
     });
   }, [matchedPods]);
 
-  if (loading) {
+  if (effectiveLoading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
         <Spin tip="加载中..." />

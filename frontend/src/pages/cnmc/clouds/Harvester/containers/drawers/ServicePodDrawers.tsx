@@ -63,6 +63,7 @@ export type ServicePodDetailDrawerProps = {
 export type ServiceRelatedPodsDrawerProps = {
   open: boolean;
   onClose: () => void;
+  cloudId: string;
   serviceNamespace?: string;
   serviceName?: string;
   serviceSelector?: Record<string, string>;
@@ -76,6 +77,8 @@ export type ServiceRelatedPodsDrawerProps = {
 export const ServiceRelatedPodsDrawer: React.FC<ServiceRelatedPodsDrawerProps> = ({
   open,
   onClose,
+  cloudId,
+  serviceNamespace,
   serviceSelector,
   pods = [],
   podsLoading,
@@ -91,14 +94,18 @@ export const ServiceRelatedPodsDrawer: React.FC<ServiceRelatedPodsDrawerProps> =
     onClose={onClose}
     destroyOnHidden
   >
-    <ServiceRelatedPodsTab
-      serviceSelector={serviceSelector}
-      pods={pods}
-      loading={podsLoading}
-      onViewDetail={onViewPodDetail}
-      onViewLog={onViewPodLog}
-      onOpenTerminal={onOpenPodTerminal}
-    />
+    {open ? (
+      <ServiceRelatedPodsTab
+        cloudId={cloudId}
+        serviceNamespace={serviceNamespace}
+        serviceSelector={serviceSelector}
+        pods={pods}
+        loading={podsLoading}
+        onViewDetail={onViewPodDetail}
+        onViewLog={onViewPodLog}
+        onOpenTerminal={onOpenPodTerminal}
+      />
+    ) : null}
   </Drawer>
 );
 

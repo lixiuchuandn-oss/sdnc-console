@@ -74,6 +74,10 @@ import {
   CONTAINER_DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
 import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
+import {
+  isRegistryManagedPullSecret,
+  REGISTRY_MANAGED_SECRET_HINT,
+} from '../lib/registryManagedSecret';
 
 const { Text } = Typography;
 
@@ -1213,6 +1217,10 @@ const SecretTable: React.FC<{
   // 删除操作
   const handleDelete = useCallback(
     async (secret: any) => {
+      if (isRegistryManagedPullSecret(secret)) {
+        message.warning(REGISTRY_MANAGED_SECRET_HINT);
+        return;
+      }
       const namespace = secret?.metadata?.namespace;
       const name = secret?.metadata?.name;
 
@@ -1357,7 +1365,14 @@ const SecretTable: React.FC<{
         dataIndex: 'type',
         key: 'type',
         ellipsis: true,
-        render: renderSecretType,
+        render: (type: string, record: any) => (
+          <Space size={4}>
+            {renderSecretType(type)}
+            {isRegistryManagedPullSecret(record) && (
+              <Tag color="processing">仓库认证托管</Tag>
+            )}
+          </Space>
+        ),
       },
       {
         title: '数据条目',
@@ -1381,23 +1396,26 @@ const SecretTable: React.FC<{
         render: (_: any, record: any) => {
           const isSystem = isSystemResource(record, 'secret');
           const systemHint = getSystemResourceProtectionHint(record, 'secret');
+          const isRegistryManaged = isRegistryManagedPullSecret(record);
           const { inUse, usedBy } = checkResourceInUse(
             'secret',
             record?.metadata?.name,
             record?.metadata?.namespace,
           );
-          const deleteDisabled = isSystem || inUse;
-          const deleteTooltip = isSystem
-            ? systemHint
-            : inUse
-              ? `被工作负载使用: ${usedBy.slice(0, 3).join(', ')}${usedBy.length > 3 ? '...' : ''}`
-              : undefined;
+          const deleteDisabled = isSystem || inUse || isRegistryManaged;
+          const deleteTooltip = isRegistryManaged
+            ? REGISTRY_MANAGED_SECRET_HINT
+            : isSystem
+              ? systemHint
+              : inUse
+                ? `被工作负载使用: ${usedBy.slice(0, 3).join(', ')}${usedBy.length > 3 ? '...' : ''}`
+                : undefined;
           const items = [
             {
               key: 'edit',
               label: '编辑',
-              disabled: isSystem,
-              tooltip: systemHint,
+              disabled: isSystem || isRegistryManaged,
+              tooltip: isRegistryManaged ? REGISTRY_MANAGED_SECRET_HINT : systemHint,
               onClick: () => onEditClick(record),
             },
             {
@@ -1631,6 +1649,7 @@ const ConfigsSection: React.FC<Props> = ({
   onQueryAllChange,
 }) => {
   const { user } = useAuth();
+  const { message } = App.useApp();
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const hasContainersWrite = useMemo(
     () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'configs'),
@@ -1784,6 +1803,10 @@ const ConfigsSection: React.FC<Props> = ({
   };
 
   const handleEditSecret = (record: any) => {
+    if (isRegistryManagedPullSecret(record)) {
+      message.warning(REGISTRY_MANAGED_SECRET_HINT);
+      return;
+    }
     setSecretEditMode(true);
     setCurrentSecret(record);
     setSecretModalVisible(true);

@@ -18,7 +18,11 @@ import {
   encodeRegistryDockerConfigSecret,
   encodeRegistryHtpasswdSecret,
 } from '../../../services/registryHtpasswd';
-import { probeRegistryCatalog } from '../../../services/registryClient';
+import { probeRegistryConnection } from '../../../services/registryClient';
+import {
+  buildLocalRegistryDeploymentName,
+  getLocalRegistryNameValidationError,
+} from '../../../services/localRegistryName';
 
 const LOCAL_REGISTRY_IMAGE = 'docker.io/library/registry:2';
 const DEFAULT_STORAGE_SIZE = '10Gi';
@@ -50,6 +54,25 @@ async function restartLocalRegistryDeployment(cloud: any, registry: LocalRegistr
   });
 }
 
+function buildLocalRegistryAuthSecretMetadata(registry: LocalRegistry) {
+  return {
+    name: `${registry.deploymentName}-auth`,
+    namespace: registry.namespace,
+    labels: {
+      'compute-tower.io/managed': 'true',
+      'compute-tower.io/type': 'local-registry-auth-secret',
+      'compute-tower.io/local-registry-id': registry.id,
+      'app.kubernetes.io/name': registry.deploymentName || '',
+      'app.kubernetes.io/managed-by': 'compute-tower',
+    },
+    annotations: {
+      'compute-tower.io/managed': 'true',
+      'compute-tower.io/local-registry-name': registry.name,
+      'compute-tower.io/local-registry-server': registry.server,
+    },
+  };
+}
+
 async function syncLocalRegistryAuthSecret(cloud: any, registry: LocalRegistry): Promise<void> {
   if (!registry.authEnabled || !registry.username || !registry.password) return;
   if (!registry.deploymentName || !registry.namespace) return;
@@ -61,7 +84,7 @@ async function syncLocalRegistryAuthSecret(cloud: any, registry: LocalRegistry):
   const secretBody = {
     apiVersion: 'v1',
     kind: 'Secret',
-    metadata: { name: secretName, namespace: registry.namespace },
+    metadata: buildLocalRegistryAuthSecretMetadata(registry),
     type: 'Opaque',
     data: {
       HTPASSWD: encodeRegistryHtpasswdSecret(registry.username, registry.password),
@@ -250,6 +273,11 @@ export const registerHarvesterLocalRegistryRoutes = (
           return res.status(400).json({ message: '缺少必要参数: name, namespace, nodePort' });
         }
 
+        const nameValidationError = getLocalRegistryNameValidationError(name);
+        if (nameValidationError) {
+          return res.status(400).json({ message: nameValidationError });
+        }
+
         const port = parseInt(String(nodePort), 10);
         if (isNaN(port) || port < 30000 || port > 32767) {
           return res.status(400).json({ message: 'NodePort 端口必须在 30000-32767 范围内' });
@@ -263,7 +291,7 @@ export const registerHarvesterLocalRegistryRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
-        const deploymentName = `docker-registry-${name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+        const deploymentName = buildLocalRegistryDeploymentName(name);
         const serviceName = deploymentName;
         const pvcName = `${deploymentName}-pvc`;
 
@@ -290,8 +318,15 @@ export const registerHarvesterLocalRegistryRoutes = (
             name: pvcName,
             namespace,
             labels: {
+              'compute-tower.io/managed': 'true',
+              'compute-tower.io/type': 'local-registry-pvc',
               'app.kubernetes.io/name': deploymentName,
               'app.kubernetes.io/managed-by': 'compute-tower',
+            },
+            annotations: {
+              'compute-tower.io/managed': 'true',
+              'compute-tower.io/local-registry-name': name,
+              'compute-tower.io/local-registry-server': server,
             },
           },
           spec: {
@@ -318,8 +353,15 @@ export const registerHarvesterLocalRegistryRoutes = (
                 name: `${deploymentName}-auth`,
                 namespace,
                 labels: {
+                  'compute-tower.io/managed': 'true',
+                  'compute-tower.io/type': 'local-registry-auth-secret',
                   'app.kubernetes.io/name': deploymentName,
                   'app.kubernetes.io/managed-by': 'compute-tower',
+                },
+                annotations: {
+                  'compute-tower.io/managed': 'true',
+                  'compute-tower.io/local-registry-name': name,
+                  'compute-tower.io/local-registry-server': server,
                 },
               },
               type: 'Opaque',
@@ -347,8 +389,15 @@ export const registerHarvesterLocalRegistryRoutes = (
             name: deploymentName,
             namespace,
             labels: {
+              'compute-tower.io/managed': 'true',
+              'compute-tower.io/type': 'local-registry-deployment',
               'app.kubernetes.io/name': deploymentName,
               'app.kubernetes.io/managed-by': 'compute-tower',
+            },
+            annotations: {
+              'compute-tower.io/managed': 'true',
+              'compute-tower.io/local-registry-name': name,
+              'compute-tower.io/local-registry-server': server,
             },
           },
           spec: {
@@ -413,8 +462,15 @@ export const registerHarvesterLocalRegistryRoutes = (
             name: serviceName,
             namespace,
             labels: {
+              'compute-tower.io/managed': 'true',
+              'compute-tower.io/type': 'local-registry-service',
               'app.kubernetes.io/name': deploymentName,
               'app.kubernetes.io/managed-by': 'compute-tower',
+            },
+            annotations: {
+              'compute-tower.io/managed': 'true',
+              'compute-tower.io/local-registry-name': name,
+              'compute-tower.io/local-registry-server': server,
             },
           },
           spec: {
@@ -612,7 +668,7 @@ export const registerHarvesterLocalRegistryRoutes = (
             await new Promise((r) => setTimeout(r, 5000));
           }
           try {
-            await probeRegistryCatalog(registry.server, probeOptions);
+            await probeRegistryConnection(registry.server, probeOptions);
             lastError = undefined;
             break;
           } catch (err: any) {
@@ -818,7 +874,7 @@ export const registerHarvesterLocalRegistryRoutes = (
               namespace,
               labels: {
                 'compute-tower.io/managed': 'true',
-                'compute-tower.io/type': 'local-registry-pull-secret',
+                'compute-tower.io/type': 'workload-pull-secret',
                 'compute-tower.io/local-registry-id': registryId,
               },
               annotations: {

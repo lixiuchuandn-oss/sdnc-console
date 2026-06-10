@@ -9,6 +9,10 @@ import {
   createLocalRegistry,
   suggestLocalRegistryPort,
 } from '../../../../../../services/localRegistryApi';
+import {
+  LOCAL_REGISTRY_NAME_MAX_LENGTH,
+  validateLocalRegistryNameField,
+} from '../lib/localRegistryName';
 
 interface Props {
   visible: boolean;
@@ -37,7 +41,7 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
     form.resetFields();
     form.setFieldsValue({
       namespace: 'default',
-      storageSize: '10Gi',
+      sizeGi: 10,
       authEnabled: false,
     });
     setPortStatus('checking');
@@ -80,8 +84,12 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
+      const { sizeGi, ...rest } = values;
       setLoading(true);
-      await createLocalRegistry(cloudId, values);
+      await createLocalRegistry(cloudId, {
+        ...rest,
+        storageSize: `${Number(sizeGi)}Gi`,
+      });
       message.success('本地仓库部署任务已创建');
       onSuccess();
       form.resetFields();
@@ -123,9 +131,13 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
         <Form.Item
           name="name"
           label="仓库名称"
-          rules={[{ required: true, message: '请输入仓库名称' }]}
+          rules={[
+            { required: true, message: '请输入仓库名称' },
+            { validator: validateLocalRegistryNameField },
+          ]}
+          extra="仅支持英文字母、数字和连字符（-），须以字母或数字开头和结尾；将用于生成集群资源名，如 docker-registry-my-registry"
         >
-          <Input placeholder="如：私有镜像仓库" />
+          <Input placeholder="如：my-registry" maxLength={LOCAL_REGISTRY_NAME_MAX_LENGTH} />
         </Form.Item>
 
         <Form.Item
@@ -172,12 +184,8 @@ const DeployLocalRegistryModal: React.FC<Props> = ({
           />
         </Form.Item>
 
-        <Form.Item
-          name="storageSize"
-          label="存储大小"
-          rules={[{ required: true, message: '请输入存储大小' }]}
-        >
-          <Input placeholder="如：10Gi、20Gi" />
+        <Form.Item label="容量(Gi)" name="sizeGi" rules={[{ required: true, message: '请输入容量' }]}>
+          <InputNumber min={1} style={{ width: '100%' }} />
         </Form.Item>
 
         <Form.Item

@@ -182,12 +182,12 @@ router.post('/registries/:id/sync-secret', async (req: AuthRequest, res: Respons
         namespace: namespace,
         labels: {
           'compute-tower.io/managed': 'true',
-          'compute-tower.io/type': 'harbor-pull-secret',
+          'compute-tower.io/type': 'workload-pull-secret',
           'compute-tower.io/harbor-id': id,
         },
         annotations: {
           'compute-tower.io/managed': 'true',
-          'compute-tower.io/type': 'harbor-pull-secret',
+          'compute-tower.io/type': 'workload-pull-secret',
           'compute-tower.io/harbor-name': harbor.name,
           'compute-tower.io/harbor-url': harbor.url,
         },

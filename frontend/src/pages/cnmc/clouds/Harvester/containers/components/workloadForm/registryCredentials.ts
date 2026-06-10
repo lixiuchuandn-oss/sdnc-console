@@ -13,7 +13,7 @@ export interface RegistryBrowserCredential {
 
 /** 与 RegistryBrowserDrawer.registries 项结构对齐 */
 export interface MergedRegistryEntry {
-  source: 'localStorage' | 'secret' | 'deployed';
+  source: 'localStorage' | 'secret' | 'deployed' | 'harbor';
   id: string;
   name: string;
   server: string;
@@ -21,6 +21,17 @@ export interface MergedRegistryEntry {
   password?: string;
   insecure: boolean;
   localRegistryId?: string;
+  harborId?: string;
+}
+
+export interface HarborRegistryInput {
+  id: string;
+  name?: string;
+  url?: string;
+  server?: string;
+  username?: string;
+  password?: string;
+  insecure?: boolean;
 }
 
 /** 平台「部署本地仓库」API 返回项（浏览仓库用） */
@@ -134,8 +145,61 @@ export function localRegistryToCredential(registry: {
   };
 }
 
-function normalizeRegistryServer(server: string): string {
-  return server.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+export function normalizeRegistryServer(server: string): string {
+  const withoutProtocol = server.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+  return withoutProtocol.split('/')[0];
+}
+
+/** 从镜像地址解析仓库 host（含端口），如 10.20.5.20:30507/clickhouse:v1 → 10.20.5.20:30507 */
+export function parseImageRegistryHost(image: string): string | null {
+  const trimmed = image.trim();
+  if (!trimmed) return null;
+
+  const slashIdx = trimmed.indexOf('/');
+  if (slashIdx === -1) return null;
+
+  const first = trimmed.slice(0, slashIdx);
+  const looksLikeRegistry =
+    first.includes('.') || first.includes(':') || first === 'localhost';
+  if (!looksLikeRegistry) return null;
+
+  return normalizeRegistryServer(first);
+}
+
+export function findRegistryForImage(
+  image: string,
+  registries: MergedRegistryEntry[],
+): MergedRegistryEntry | undefined {
+  const host = parseImageRegistryHost(image);
+  if (!host) return undefined;
+
+  return registries.find(
+    (registry) => normalizeRegistryServer(registry.server) === host,
+  );
+}
+
+export function buildGenericPullSecretName(server: string): string {
+  const slug = normalizeRegistryServer(server)
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+    .slice(0, 40);
+  return `tower-reg-${slug || 'registry'}`;
+}
+
+export function mapHarborRegistries(harbors: HarborRegistryInput[]): MergedRegistryEntry[] {
+  return harbors
+    .filter((h) => h.url || h.server)
+    .map((h) => ({
+      source: 'harbor' as const,
+      id: `harbor-${h.id}`,
+      harborId: h.id,
+      name: h.name || h.url || h.server || h.id,
+      server: h.url || h.server || '',
+      username: h.username,
+      password: h.password,
+      insecure: h.insecure ?? false,
+    }));
 }
 
 export function mapDeployedLocalRegistries(
@@ -164,8 +228,8 @@ export function buildMergedRegistryList(
     password?: string;
     insecure?: boolean;
   }>,
-  secretsWithCredentials: unknown[] | undefined,
   deployedLocalRegistries: DeployedLocalRegistryInput[] = [],
+  harborRegistries: HarborRegistryInput[] = [],
 ): MergedRegistryEntry[] {
   const registries: MergedRegistryEntry[] = [];
   const seenServers = new Set<string>();
@@ -178,6 +242,7 @@ export function buildMergedRegistryList(
   };
 
   mapDeployedLocalRegistries(deployedLocalRegistries).forEach(pushUnique);
+  mapHarborRegistries(harborRegistries).forEach(pushUnique);
 
   localStorageRegistries.forEach((reg) => {
     if (!reg.server) return;
@@ -193,24 +258,6 @@ export function buildMergedRegistryList(
       insecure: reg.insecure ?? false,
     });
   });
-
-  if (secretsWithCredentials?.length) {
-    secretsWithCredentials.forEach((secret) => {
-      const credential = secretToRegistryCredential(secret);
-      if (!credential) return;
-      const meta = (secret as { metadata?: { name?: string } }).metadata;
-      const secretName = meta?.name || credential.server;
-      pushUnique({
-        source: 'secret',
-        id: secretName,
-        name: secretName,
-        server: credential.server,
-        username: credential.username,
-        password: credential.password,
-        insecure: credential.insecure ?? false,
-      });
-    });
-  }
 
   return registries;
 }

@@ -336,18 +336,29 @@ export async function tryLoadContainerTab(
       return true;
     case 'services':
       if (canReadContainerTab(checkPerm, 'services')) {
-        await loadResource(
-          'services',
-          () => fetchHarvesterServices(cloudId, force),
-          (json) => {
-            const list: any[] = Array.isArray((json as any)?.data?.items)
-              ? (json as any).data.items
-              : [];
-            setHarvesterServices(Array.isArray(list) ? list : []);
-            setRawServices(json || null);
-          },
-          force,
-        );
+        await Promise.all([
+          loadResource(
+            'services',
+            () => fetchHarvesterServices(cloudId, force),
+            (json) => {
+              const list: any[] = Array.isArray((json as any)?.data?.items)
+                ? (json as any).data.items
+                : [];
+              setHarvesterServices(Array.isArray(list) ? list : []);
+              setRawServices(json || null);
+            },
+            force,
+          ),
+          loadResource(
+            'pods',
+            () => fetchHarvesterPods(cloudId, undefined, force),
+            (json) => {
+              const list: any[] = (json as any)?.data?.items || [];
+              setHarvesterPods(Array.isArray(list) ? list : []);
+            },
+            force,
+          ),
+        ]);
       }
       return true;
     case 'registries':

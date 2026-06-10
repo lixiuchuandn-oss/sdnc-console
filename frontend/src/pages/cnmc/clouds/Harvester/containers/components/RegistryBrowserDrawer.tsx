@@ -20,7 +20,6 @@ import {
   DatabaseOutlined, 
   InfoCircleOutlined,
   EditOutlined,
-  FolderOutlined,
   CloudServerOutlined,
   DockerOutlined,
 } from '@ant-design/icons';
@@ -33,15 +32,14 @@ const { Text } = Typography;
 /**
  * 数据源类型
  */
-type DataSourceType = 'manual' | 'secrets' | 'local' | 'harbor';
+type DataSourceType = 'manual' | 'local' | 'harbor';
 
 /**
  * 数据源选项
  */
 const DATA_SOURCE_OPTIONS = [
   { value: 'manual', label: '手动输入' },
-  { value: 'secrets', label: '已有凭证' },
-  { value: 'local', label: '本地仓库' },
+  { value: 'local', label: '镜像仓库' },
   { value: 'harbor', label: 'Harbor 镜像仓库' },
 ];
 
@@ -93,7 +91,7 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
   // 当前选中的凭证
   const [selectedSecret, setSelectedSecret] = useState<string | undefined>();
   // 数据源类型
-  const [dataSource, setDataSource] = useState<DataSourceType>('secrets');
+  const [dataSource, setDataSource] = useState<DataSourceType>('local');
   // 手动输入的镜像地址
   const [manualImage, setManualImage] = useState<string>('');
 
@@ -253,9 +251,8 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
           </div>
         );
 
-      case 'secrets':
       case 'local':
-        // 已有凭证 和 本地仓库 使用现有的 RegistryBrowser
+        // 镜像仓库浏览
         if (!credential) {
           return (
             <div style={{ textAlign: 'center', padding: 60, color: '#999' }}>
@@ -388,7 +385,6 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
           options={DATA_SOURCE_OPTIONS.map(opt => ({
             ...opt,
             icon: opt.value === 'manual' ? <EditOutlined /> :
-                  opt.value === 'secrets' ? <FolderOutlined /> :
                   opt.value === 'local' ? <DockerOutlined /> :
                   <CloudServerOutlined />,
           }))}

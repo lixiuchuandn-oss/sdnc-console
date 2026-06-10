@@ -29,7 +29,6 @@ import yaml from 'js-yaml';
 import '../../ecs/modals/VmCreateWizard/InstanceWizard.css';
 import {
   RegistryBrowserDrawer,
-  QuickCreateRegistrySecretModal,
   QuickCreateConfigMapModal,
   QuickCreateSecretModal,
 } from './index';
@@ -58,6 +57,7 @@ import { createEmptyContainer, toContainerEditorFields } from './workloadForm/co
 import { buildK8sResource } from './workloadForm/buildK8sResource';
 import { buildActiveContainerFromEditor } from './workloadForm/containerFormSync';
 import { parseEditWorkloadFormInit } from './workloadForm/parseEditWorkloadFormInit';
+import { ensureImagePullSecretsForImages } from './workloadForm/ensureRegistryPullSecret';
 import { localRegistryToCredential } from './workloadForm/registryCredentials';
 import { useMergedRegistryList } from './workloadForm/hooks/useMergedRegistryList';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
@@ -108,9 +108,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [browserVisible, setBrowserVisible] = useState(false);
   const [browserCredential, setBrowserCredential] = useState<any>(null);
 
-  // 快速创建镜像凭证弹窗状态
-  const [showQuickCreateRegistry, setShowQuickCreateRegistry] = useState(false);
-
   // 快速创建 ConfigMap/Secret 弹窗状态
   const [showQuickCreateConfigMap, setShowQuickCreateConfigMap] = useState(false);
   const [showQuickCreateSecret, setShowQuickCreateSecret] = useState(false);
@@ -141,7 +138,7 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 存储配置刷新标记，用于通知 VolumesEditor 重新读取数据
   const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
-  const allRegistries = useMergedRegistryList(cloudId, secretsWithCredentials);
+  const allRegistries = useMergedRegistryList(cloudId);
 
   const handleBrowseRegistry = useCallback(() => {
     if (allRegistries.length > 0) {
@@ -161,10 +158,10 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         setBrowserCredential(targetCredential);
         setBrowserVisible(true);
       } else {
-        message.error('解析镜像凭证失败，请检查凭证配置');
+        message.error('解析镜像仓库失败，请检查仓库配置');
       }
     } else {
-      message.warning('请先在镜像仓库中添加仓库、部署本地仓库或创建凭证');
+      message.warning('请先在镜像仓库中添加仓库或部署本地仓库');
     }
   }, [allRegistries, form, message]);
 
@@ -733,6 +730,24 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   // 提交表单
   const handleSubmit = useCallback(async () => {
     try {
+      if (mode === 'form') {
+        const values = getSyncedFormValues();
+        const namespace = values.namespace || defaultNamespace || 'default';
+        const images = (values.containers || [])
+          .map((container) => container.image)
+          .filter(Boolean) as string[];
+        const secrets = await ensureImagePullSecretsForImages(
+          cloudId,
+          namespace,
+          images,
+          allRegistries,
+          values.imagePullSecrets || [],
+        );
+        if (secrets.length > (values.imagePullSecrets?.length || 0)) {
+          form.setFieldsValue({ imagePullSecrets: secrets });
+        }
+      }
+
       const isYamlValid = mode !== 'yaml' || validateYaml(yamlContent);
 
       const prepared = await prepareWorkloadSubmit({
@@ -798,6 +813,8 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
     flatSubnetOptions,
     kubeSubnets,
     confirmStaticIpRisk,
+    allRegistries,
+    defaultNamespace,
   ]);
 
   // 下一步
@@ -1092,7 +1109,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       cloudId,
                       defaultNamespace,
                       namespacesOptions,
-                      imagePullSecrets,
                       configMaps,
                       secrets,
                       onRefreshConfigMaps: () => onRefreshConfigMaps?.(),
@@ -1211,17 +1227,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
                       >
                         <span style={{ color: '#888' }}>副本</span>
                         <span style={{ color: '#333' }}>{summary.replicas}</span>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          padding: '8px 0',
-                          borderBottom: '1px dashed #f0f0f0',
-                        }}
-                      >
-                        <span style={{ color: '#888' }}>镜像凭证</span>
-                        <span style={{ color: '#333' }}>{summary.imagePullSecrets} 个</span>
                       </div>
                       <div
                         style={{
@@ -1354,27 +1359,6 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
           </div>
         </div>
       )}
-
-      {/* 快速创建镜像拉取凭证弹窗 */}
-      <QuickCreateRegistrySecretModal
-        cloudId={cloudId}
-        namespacesOptions={namespacesOptions}
-        defaultNamespace={form.getFieldValue('namespace') || defaultNamespace}
-        visible={showQuickCreateRegistry}
-        onSuccess={(secret) => {
-          setShowQuickCreateRegistry(false);
-          // 刷新凭证列表
-          if (onRefreshImagePullSecrets) {
-            onRefreshImagePullSecrets();
-          }
-          // 自动选中新创建的凭证
-          const currentSecrets = form.getFieldValue('imagePullSecrets') || [];
-          if (!currentSecrets.includes(secret.name)) {
-            form.setFieldsValue({ imagePullSecrets: [...currentSecrets, secret.name] });
-          }
-        }}
-        onCancel={() => setShowQuickCreateRegistry(false)}
-      />
 
       {/* 快速创建 ConfigMap 弹窗 */}
       <QuickCreateConfigMapModal

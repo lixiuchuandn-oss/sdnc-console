@@ -218,14 +218,24 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
   };
 
   const loadServices = async (force = true) => {
-    await loadResource(
-      'services',
-      () => fetchHarvesterServices(cloudId, force, false),
-      (json) => {
-        setHarvesterServices(json?.data?.items || []);
-      },
-      force,
-    );
+    await Promise.all([
+      loadResource(
+        'services',
+        () => fetchHarvesterServices(cloudId, force, false),
+        (json) => {
+          setHarvesterServices(json?.data?.items || []);
+        },
+        force,
+      ),
+      loadResource(
+        'pods',
+        () => fetchHarvesterPods(cloudId, undefined, force, podsAll),
+        (json) => {
+          setHarvesterPods(json?.data?.items || []);
+        },
+        force,
+      ),
+    ]);
   };
 
   const loadIngresses = async (force = true, all?: boolean) => {
@@ -522,13 +532,8 @@ const CloudmapContainersRoutePanel: React.FC<CloudmapContainersRoutePanelProps> 
   } else if (innerActiveKey === 'registries') {
     content = (
       <LazyRegistriesSection
-        secrets={filterByTenantNs(harvesterImagePullSecrets)}
-        secretsWithCredentials={filterByTenantNs(harvesterSecrets)}
-        loading={resourceLoading.imagePullSecrets}
         namespacesOptions={namespacesOptions}
         cloudId={cloudId}
-        nsValue={nsFilter || undefined}
-        onNsChange={(v) => setNsFilter(v || '')}
         onRefresh={async (force) => loadTabResource('registries', force !== false)}
       />
     );

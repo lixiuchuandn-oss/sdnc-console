@@ -65,6 +65,10 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
 
   const seedRef = useRef(seed);
   seedRef.current = seed;
+  const nsOptionsRef = useRef(nsOptions);
+  nsOptionsRef.current = nsOptions;
+  const defaultStorageClassRef = useRef(defaultStorageClassName);
+  defaultStorageClassRef.current = defaultStorageClassName;
   const onNamespacesListFetchedRef = useRef(onNamespacesListFetched);
   onNamespacesListFetchedRef.current = onNamespacesListFetched;
 
@@ -99,14 +103,15 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
 
   useEffect(() => {
     if (!open) return;
+    const opts = nsOptionsRef.current;
     if (!isTenant) {
-      setCreateNsOptions(nsOptions);
+      setCreateNsOptions(opts);
       void refreshNamespaces();
     }
     form.resetFields();
     const s = seedRef.current;
-    const firstNs = nsOptions[0]?.value;
-    const tenantNsList = nsOptions.map((o) => o.value);
+    const firstNs = opts[0]?.value;
+    const tenantNsList = opts.map((o) => o.value);
     const initialNs = isTenant
       ? (() => {
           const seedNs = String(s?.namespace || '').trim();
@@ -121,20 +126,15 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
       sizeGi: s?.sizeGi ?? DEFAULT_VOLUME_SIZE_GIB,
       accessModes: s?.accessModes ?? 'ReadWriteMany',
       volumeMode: s?.volumeMode ?? 'Block',
-      storageClassName: s?.storageClassName ?? defaultStorageClassName,
+      storageClassName: s?.storageClassName ?? defaultStorageClassRef.current,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 避免 nsOptions 异步补丁触发整表重置
-  }, [
-    open,
-    openNonce,
-    isTenant,
-    tenantDefaultNamespace,
-    defaultStorageClassName,
-    form,
-    nsOptions,
-    refreshNamespaces,
-    resolveTenantNamespace,
-  ]);
+    // 仅在弹窗打开时初始化；勿依赖 nsOptions / defaultStorageClassName，避免异步刷新导致反复 resetFields
+  }, [open, openNonce, isTenant, tenantDefaultNamespace, form, refreshNamespaces, resolveTenantNamespace]);
+
+  useEffect(() => {
+    if (!open || isTenant) return;
+    setCreateNsOptions(nsOptionsRef.current);
+  }, [open, nsOptions, isTenant]);
 
   useEffect(() => {
     if (!open || isTenant) return;
@@ -209,6 +209,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
           <Select
             showSearch
             optionFilterProp="label"
+            getPopupContainer={(trigger) => trigger.parentElement || document.body}
             options={
               isTenant
                 ? nsOptions
@@ -223,12 +224,13 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
           />
         </Form.Item>
 
-        <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}>
+        <Form.Item label="容量(Gi)" name="sizeGi" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: '100%' }} />
         </Form.Item>
 
-        <Form.Item label="访问模式" name="accessModes" initialValue="ReadWriteMany">
+        <Form.Item label="访问模式" name="accessModes" rules={[{ required: true, message: '请选择访问模式' }]}>
           <Select
+            getPopupContainer={(trigger) => trigger.parentElement || document.body}
             options={[
               { value: 'ReadWriteOnce', label: 'RWO' },
               { value: 'ReadWriteMany', label: 'RWX' },
@@ -238,8 +240,9 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
           />
         </Form.Item>
 
-        <Form.Item label="云盘类型" name="volumeMode" initialValue="Block">
+        <Form.Item label="云盘类型" name="volumeMode" rules={[{ required: true, message: '请选择云盘类型' }]}>
           <Select
+            getPopupContainer={(trigger) => trigger.parentElement || document.body}
             options={[
               { value: 'Block', label: 'Block' },
               { value: 'Filesystem', label: 'Filesystem' },
@@ -253,6 +256,7 @@ const VolumeCreateModal: React.FC<VolumeCreateModalProps> = ({
             allowClear
             showSearch
             optionFilterProp="label"
+            getPopupContainer={(trigger) => trigger.parentElement || document.body}
             placeholder="选择存储类"
             options={storageClassOptions}
             style={{ width: '100%' }}

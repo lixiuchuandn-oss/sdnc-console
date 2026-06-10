@@ -1034,7 +1034,7 @@ export const syncVmVolumeSize = async (
  * @param instanceId 实例标识（支持多种格式）
  * @returns 解析后的命名空间和名称，解析失败返回 null
  */
-const resolveVmPath = async (
+export const resolveVmPath = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
 ): Promise<{ namespace: string; name: string } | null> => {

@@ -46,6 +46,10 @@ import {
   runContainerSectionRefresh,
   type ContainerSectionOnRefresh,
 } from '../lib/containerSectionRefresh';
+import {
+  isLocalRegistryManagedService,
+  REGISTRY_MANAGED_SERVICE_HINT,
+} from '../lib/registryManagedLocalRegistry';
 /**
  * 格式化时间 - 将 UTC 时间转换为本地时间显示
  */
@@ -174,6 +178,11 @@ const ServicesSection: React.FC<Props> = ({
   // 删除 Service
   const handleDelete = useCallback(
     async (record: any) => {
+      const rawResource = record?.raw || record;
+      if (isLocalRegistryManagedService(rawResource)) {
+        message.warning(REGISTRY_MANAGED_SERVICE_HINT);
+        return;
+      }
       try {
         await deleteHarvesterService(cloudId, record.namespace, record.name);
         message.success('删除成功');
@@ -186,11 +195,19 @@ const ServicesSection: React.FC<Props> = ({
   );
 
   // 创建 / 编辑 Service（抽屉 · `containers/drawers/ServiceFormDrawer`）
-  const handleEdit = useCallback((record: any) => {
-    setServiceFormDrawerMode('edit');
-    setEditingRecord(record);
-    setServiceFormDrawerOpen(true);
-  }, []);
+  const handleEdit = useCallback(
+    (record: any) => {
+      const rawResource = record?.raw || record;
+      if (isLocalRegistryManagedService(rawResource)) {
+        message.warning(REGISTRY_MANAGED_SERVICE_HINT);
+        return;
+      }
+      setServiceFormDrawerMode('edit');
+      setEditingRecord(record);
+      setServiceFormDrawerOpen(true);
+    },
+    [message],
+  );
 
   const handleOpenCreateService = () => {
     setServiceFormDrawerMode('create');
@@ -224,6 +241,10 @@ const ServicesSection: React.FC<Props> = ({
       const rec = serviceYamlDrawerRecord;
       if (!rec?.namespace || !rec?.name) {
         throw new Error('未能解析 Service 命名空间或名称');
+      }
+      const rawResource = rec?.raw || rec;
+      if (isLocalRegistryManagedService(rawResource)) {
+        throw new Error(REGISTRY_MANAGED_SERVICE_HINT);
       }
       const parsed = yaml.load(yamlText) as Record<string, unknown>;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -491,7 +512,7 @@ const ServicesSection: React.FC<Props> = ({
         title: '类型',
         dataIndex: 'type',
         key: 'type',
-        render: (t: string) => {
+        render: (t: string, record: any) => {
           const colorByType: Record<string, string> = {
             ClusterIP: 'blue',
             NodePort: 'green',
@@ -499,7 +520,15 @@ const ServicesSection: React.FC<Props> = ({
             ExternalName: 'purple',
           };
           const color = colorByType[t];
-          return color ? <Tag color={color}>{t}</Tag> : <Tag>{t}</Tag>;
+          const rawResource = record?.raw || record;
+          return (
+            <Space size={4}>
+              {color ? <Tag color={color}>{t}</Tag> : <Tag>{t}</Tag>}
+              {isLocalRegistryManagedService(rawResource) && (
+                <Tag color="processing">本地仓库托管</Tag>
+              )}
+            </Space>
+          );
         },
       },
       { title: 'Cluster IP', dataIndex: 'clusterIP', key: 'clusterIP' },
@@ -529,7 +558,10 @@ const ServicesSection: React.FC<Props> = ({
         render: (_: any, record: any) => {
           const rawResource = record?.raw || record;
           const isSystem = isSystemResource(rawResource);
+          const isRegistryManaged = isLocalRegistryManagedService(rawResource);
           const systemHint = getSystemResourceProtectionHint(rawResource);
+          const protectHint = isRegistryManaged ? REGISTRY_MANAGED_SERVICE_HINT : systemHint;
+          const editDeleteDisabled = isSystem || isRegistryManaged;
           return (
             <ResourceActionsDropdown
               items={filterMenuItemsForReadOnly(
@@ -551,16 +583,16 @@ const ServicesSection: React.FC<Props> = ({
                         {
                           key: 'edit',
                           label: '编辑服务',
-                          disabled: isSystem,
-                          tooltip: systemHint,
+                          disabled: editDeleteDisabled,
+                          tooltip: protectHint,
                           onClick: () => handleEdit(record),
                         },
                         {
                           key: 'delete',
                           label: '删除',
                           danger: true,
-                          disabled: isSystem,
-                          tooltip: systemHint,
+                          disabled: editDeleteDisabled,
+                          tooltip: protectHint,
                           onClick: () => {
                             void confirmHighRiskDelete({
                               resourceLabel: '服务',
@@ -719,6 +751,7 @@ const ServicesSection: React.FC<Props> = ({
           setRelatedPodsDrawerOpen(false);
           setRelatedPodsRow(null);
         }}
+        cloudId={cloudId}
         serviceNamespace={relatedPodsRow?.namespace}
         serviceName={relatedPodsRow?.name}
         serviceSelector={relatedPodsRow?.raw?.spec?.selector}

@@ -5,15 +5,12 @@
  * ==============================================================================
  * 
  * [功能描述]
- * 该组件负责展示和管理 Kubernetes 镜像仓库相关资源，包括：
- * 1. 镜像凭证 (Secrets) 管理 - dockerconfigjson 类型（支持双轨制命名）
- * 2. 镜像仓库管理 - 添加/删除/浏览仓库（localStorage，本地配置）
+ * 该组件负责展示和管理镜像仓库：手动添加、Harbor、平台部署本地仓库。
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Table, Select, Button, Tag, Space, App, Drawer, Descriptions, Input, Typography, Segmented, Modal, Form, Switch, Empty, Statistic, Card, Divider, Alert, Tooltip } from 'antd';
+import { Table, Select, Button, Tag, Space, App, Descriptions, Input, Typography, Modal, Form, Switch, Empty, Alert, Tooltip } from 'antd';
 import { 
-  KeyOutlined, 
   DatabaseOutlined,
   SearchOutlined,
   CopyOutlined, GlobalOutlined, LockOutlined, ClockCircleOutlined,
@@ -29,16 +26,13 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 import {
-  deleteHarvesterContainerResource,
   addInsecureRegistry,
-  patchHarvesterContainerResource,
-  fetchHarvesterSecretDetail,
   getHarborRegistries,
   testHarborConnection,
   deleteHarborRegistry,
   createHarborRegistry,
   updateHarborRegistry,
-  getRegistryCatalog,
+  testRegistryConnection,
 } from '../../../../../../services/harvesterApi';
 import {
   fetchLocalRegistries,
@@ -46,17 +40,12 @@ import {
   testLocalRegistryConnection,
   LocalRegistry,
 } from '../../../../../../services/localRegistryApi';
-import { RegistryCredentialModal, RegistryBrowserDrawer } from '../components';
 import GenericRegistryDrawer from '../components/GenericRegistryDrawer';
 import HarborDetailDrawer from '../../harbor/components/HarborDetailDrawer';
 import ProjectDetailDrawer from '../../harbor/components/ProjectDetailDrawer';
 import RepositoryDetailDrawer from '../../harbor/components/RepositoryDetailDrawer';
 import DeployLocalRegistryModal from '../components/DeployLocalRegistryModal';
 import type { HarborProject, HarborRepository } from '../../harbor/types';
-import {
-  createContainerToolbarRefresh,
-  runContainerSectionRefresh,
-} from '../lib/containerSectionRefresh';
 import {
   confirmHighRiskDelete,
   CONTAINER_DELETE_RISK_ITEMS,
@@ -67,9 +56,6 @@ const { Text, Link } = Typography;
 
 // 本地存储键名
 const REGISTRIES_STORAGE_KEY = 'harvester-registries';
-
-// API 路径（镜像凭证使用）
-const SECRETS_API_PATH = '/api/v1/secrets';
 
 /**
  * 仓库配置接口
@@ -119,35 +105,9 @@ const saveRegistries = (registries: RegistryConfig[]) => {
 };
 
 type Props = {
-  secrets: any[];
-  secretsWithCredentials?: any[];
-  loading: boolean;
   namespacesOptions: string[];
   cloudId: string;
-  nsValue?: string;
-  onNsChange: (v?: string) => void;
-  onRefresh: (force?: boolean) => void;
-  createDefaultNamespace?: string;
-};
-
-/**
- * 解析仓库服务器地址
- */
-const getRegistryServer = (secret: any) => {
-  // 优先使用后端解析的字段
-  if (secret?._registryServer) {
-    return secret._registryServer;
-  }
-  // 兼容旧逻辑：尝试从 data 解析
-  try {
-    const data = secret?.data?.['.dockerconfigjson'];
-    if (!data || data === '******') return '-';
-    const decoded = atob(data);
-    const config = JSON.parse(decoded);
-    return Object.keys(config.auths || {})[0] || '-';
-  } catch {
-    return '-';
-  }
+  onRefresh?: (force?: boolean) => void;
 };
 
 /**
@@ -180,128 +140,6 @@ const formatTime = (timestamp?: string) => {
     return timestamp;
   }
 };
-
-/**
- * 计算运行时长
- */
-const calculateAge = (timestamp?: string) => {
-  if (!timestamp) return '-';
-  try {
-    const created = new Date(timestamp).getTime();
-    const now = Date.now();
-    const diff = now - created;
-    
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
-    if (days > 0) return `${days}天 ${hours}小时`;
-    if (hours > 0) return `${hours}小时 ${minutes}分钟`;
-    return `${minutes}分钟`;
-  } catch {
-    return '-';
-  }
-};
-
-/**
- * 镜像凭证详情抽屉组件
- */
-const RegistryDetailDrawer: React.FC<{
-  secret: any;
-  visible: boolean;
-  onClose: () => void;
-}> = ({ secret, visible, onClose }) => {
-  if (!secret) return null;
-  
-  const metadata = secret?.metadata || {};
-  const registryServer = getRegistryServer(secret);
-  const data = secret?.data || {};
-  const dataKeys = Object.keys(data);
-  
-  return (
-    <Drawer
-      title={
-        <Space>
-          <KeyOutlined style={{ color: '#1890ff' }} />
-          <span>镜像凭证详情</span>
-        </Space>
-      }
-      placement="right"
-      width={640}
-      open={visible}
-      onClose={onClose}
-      extra={
-        <Button icon={<CopyOutlined />} onClick={() => {
-          navigator.clipboard.writeText(metadata.name);
-          message.success('已复制名称');
-        }}>
-          复制名称
-        </Button>
-      }
-    >
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Statistic 
-          title="仓库地址" 
-          value={registryServer}
-          prefix={<GlobalOutlined />}
-          valueStyle={{ fontSize: 18, fontFamily: 'monospace' }}
-        />
-      </Card>
-      
-      <Descriptions column={2} bordered size="small">
-        <Descriptions.Item label="名称" span={2}>
-          <Text code copyable>{metadata.name}</Text>
-        </Descriptions.Item>
-        <Descriptions.Item label="项目">
-          <Tag color="blue">{metadata.namespace}</Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label="类型">
-          <Tag>kubernetes.io/dockerconfigjson</Tag>
-        </Descriptions.Item>
-        <Descriptions.Item label="运行时长">
-          <Space>
-            <ClockCircleOutlined />
-            {calculateAge(metadata.creationTimestamp)}
-          </Space>
-        </Descriptions.Item>
-        <Descriptions.Item label="创建时间">
-          {formatTime(metadata.creationTimestamp)}
-        </Descriptions.Item>
-      </Descriptions>
-      
-      <Divider orientation="left">标签</Divider>
-      <Space size={4} wrap>
-        {Object.entries(metadata.labels || {}).map(([k, v]) => (
-          <Tag key={k} color="geekblue">{k}={String(v)}</Tag>
-        ))}
-        {Object.keys(metadata.labels || {}).length === 0 && (
-          <Text type="secondary">无标签</Text>
-        )}
-      </Space>
-      
-      <Divider orientation="left">数据键</Divider>
-      <Space size={4} wrap>
-        {dataKeys.length > 0 ? (
-          dataKeys.map((key) => (
-            <Tag key={key} icon={<LockOutlined />} color="purple">{key}</Tag>
-          ))
-        ) : (
-          <Text type="secondary">无数据</Text>
-        )}
-      </Space>
-      
-      <Alert 
-        type="info" 
-        showIcon 
-        icon={<InfoCircleOutlined />}
-        style={{ marginTop: 16 }}
-        message="凭证内容已脱敏，仅显示键名"
-      />
-    </Drawer>
-  );
-};
-
-const message = { success: (msg: string) => console.log(msg) };
 
 /**
  * 添加仓库弹窗组件
@@ -697,421 +535,19 @@ const AddRegistryModal: React.FC<{
 };
 
 /**
- * 凭证表格组件（支持双轨制命名）
- */
-const CredentialTable: React.FC<{
-  secrets: any[];
-  loading: boolean;
-  cloudId: string;
-  keyword: string;
-  onKeywordChange: (v: string) => void;
-  nsValue?: string;
-  onNsChange: (v?: string) => void;
-  namespacesOptions: string[];
-  onViewDetail: (secret: any) => void;
-  onEdit: (secret: any) => void;
-  onDelete: (secret: any) => void;
-  onBrowse: (secret: any) => void;
-  onRefresh: (force?: boolean) => void;
-  onCreateCredential: () => void;
-  hasContainersWrite: boolean;
-}> = ({
-  secrets,
-  loading,
-  cloudId,
-  keyword,
-  onKeywordChange,
-  nsValue,
-  onNsChange,
-  namespacesOptions,
-  onViewDetail,
-  onEdit,
-  onDelete,
-  onBrowse,
-  onRefresh,
-  onCreateCredential,
-  hasContainersWrite,
-}) => {
-  const { message } = App.useApp();
-  const [aliasModalVisible, setAliasModalVisible] = useState(false);
-  const [aliasRecord, setAliasRecord] = useState<any>(null);
-  const [aliasSubmitting, setAliasSubmitting] = useState(false);
-  const [aliasForm] = Form.useForm<{ alias?: string }>();
-
-  const handleToolbarRefresh = useMemo(
-    () => createContainerToolbarRefresh(onRefresh),
-    [onRefresh],
-  );
-
-  // 过滤数据
-  const filteredSecrets = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    return secrets.filter((item: any) => {
-      const name = item?.metadata?.name || '';
-      const ns = item?.metadata?.namespace || '';
-      const alias = item?.metadata?.annotations?.['tower.io/alias'] || '';
-      
-      if (kw && !name.toLowerCase().includes(kw) && !ns.toLowerCase().includes(kw) && !alias.toLowerCase().includes(kw)) {
-        return false;
-      }
-      if (nsValue && ns !== nsValue) {
-        return false;
-      }
-      return true;
-    });
-  }, [secrets, keyword, nsValue]);
-
-  // 打开别名编辑弹窗
-  const handleOpenAliasModal = useCallback((record: any) => {
-    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
-
-  // 提交别名修改
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord) return false;
-    const ns = aliasRecord?.metadata?.namespace;
-    const name = aliasRecord?.metadata?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
-      }
-    }
-
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, SECRETS_API_PATH, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      aliasForm.resetFields();
-      void runContainerSectionRefresh(onRefresh, { force: true });
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, cloudId, message, onRefresh, aliasForm]);
-
-  // 查看 YAML
-  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
-
-  const handleViewYaml = useCallback((record: any) => {
-    openYamlDrawer({ ...record, kind: record?.kind ?? 'Secret' }, { title: 'Secret YAML' });
-  }, [openYamlDrawer]);
-
-  // 表格列
-  const columns = useMemo(() => [
-    {
-      title: '名称',
-      key: 'name',
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const alias = record?.metadata?.annotations?.['tower.io/alias'];
-        const id = record?.metadata?.name || '';
-        const hasAlias = !!alias;
-        
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{hasAlias ? alias : id}</span>
-            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
-              <Button
-                type="text"
-                size="small"
-                icon={<EditTwoTone />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenAliasModal(record);
-                }}
-              />
-            </Tooltip>
-          </span>
-        );
-      },
-    },
-    {
-      title: 'ID',
-      dataIndex: ['metadata', 'name'],
-      key: 'id',
-      ellipsis: true,
-      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
-    },
-    {
-      title: '项目',
-      dataIndex: ['metadata', 'namespace'],
-      key: 'namespace',
-      render: (ns: string) => <Tag>{ns}</Tag>,
-    },
-    {
-      title: '仓库地址',
-      key: 'registryServer',
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const server = getRegistryServer(record);
-        return (
-          <Text code copyable={{ text: server }} ellipsis={{ tooltip: server }}>
-            {server}
-          </Text>
-        );
-      },
-    },
-    {
-      title: '运行时长',
-      key: 'age',
-      render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
-    },
-    {
-      title: '创建时间',
-      dataIndex: ['metadata', 'creationTimestamp'],
-      key: 'creationTimestamp',
-      render: formatTime,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right' as const,
-      render: (_: any, record: any) => {
-        const items = [
-          {
-            key: 'detail',
-            label: '详情',
-            onClick: () => onViewDetail(record),
-          },
-          {
-            key: 'yaml',
-            label: '查看 YAML',
-            onClick: () => handleViewYaml(record),
-          },
-          {
-            key: 'browse',
-            label: '浏览仓库',
-            onClick: () => onBrowse(record),
-          },
-          {
-            key: 'edit',
-            label: '编辑',
-            onClick: () => onEdit(record),
-          },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
-            onClick: () => {
-              const alias = record?.metadata?.annotations?.['tower.io/alias'];
-              const id = record?.metadata?.name || '';
-              const displayName = alias ? `${alias} (${id})` : id;
-              void confirmHighRiskDelete({
-                resourceLabel: '镜像凭证',
-                name: displayName,
-                riskItems: CONTAINER_DELETE_RISK_ITEMS,
-                onConfirm: () => onDelete(record),
-              }).catch(() => {});
-            },
-          },
-        ];
-        return (
-          <ResourceActionsDropdown
-            items={filterMenuItemsForReadOnly(items, hasContainersWrite)}
-            buttonProps={{ className: 'row-actions-trigger' }}
-          />
-        );
-      },
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [handleViewYaml, onViewDetail, onDelete, onEdit, onBrowse, hasContainersWrite]);
-
-  // 使用列设置 Hook
-  const { displayColumns: credentialDisplayColumns } = useTableColumnSettings(
-    columns,
-    'harvester-containers-registries-credentials',
-  );
-
-  return (
-    <div>
-      <div className="page-toolbar">
-        <div className="toolbar-container">
-          <Input
-            className="toolbar-search"
-            allowClear
-            placeholder="名称/项目/别名"
-            suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            value={keyword}
-            onChange={(e) => onKeywordChange(e.target.value)}
-          />
-          <Select
-            className="toolbar-filter-sm"
-            placeholder="筛选项目"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            value={nsValue || undefined}
-            onChange={onNsChange}
-            options={namespacesOptions.map((ns) => ({ label: ns, value: ns }))}
-          />
-          <button
-            type="button"
-            className="toolbar-reset-btn"
-            onClick={() => {
-              onKeywordChange('');
-              onNsChange(undefined);
-            }}
-          >
-            重置
-          </button>
-        </div>
-        <div className="toolbar-actions">
-          <WriteGuard canWrite={hasContainersWrite}>
-            <Button type="primary" icon={<PlusOutlined />} onClick={onCreateCredential}>
-              创建凭证
-            </Button>
-          </WriteGuard>
-          <TableColumnSettingsButton
-            allColumns={columns}
-            settingsKey="harvester-containers-registries-credentials"
-          />
-          <Tooltip title="刷新">
-            <Button
-              type="default"
-              icon={<ReloadOutlined />}
-              onClick={handleToolbarRefresh}
-            />
-          </Tooltip>
-        </div>
-      </div>
-
-      <Table
-        className="std-table"
-        scroll={{ x: true }}
-        bordered={false}
-        rowKey={(record) => `${record?.metadata?.namespace}/${record?.metadata?.name}`}
-        columns={credentialDisplayColumns}
-        dataSource={filteredSecrets}
-        loading={loading}
-        pagination={{
-          showTotal: (total) => `共 ${total} 条`,
-        }}
-      />
-
-      {/* 别名编辑弹窗 */}
-      <Modal
-        title="名称修改"
-        open={aliasModalVisible}
-        centered
-        okText="保存"
-        cancelText="取消"
-        confirmLoading={aliasSubmitting}
-        onOk={async () => {
-          try {
-            const values = await aliasForm.validateFields();
-            await handleSubmitAlias(values?.alias);
-          } catch {}
-        }}
-        onCancel={() => {
-          if (aliasSubmitting) return;
-          setAliasModalVisible(false);
-          setAliasRecord(null);
-          aliasForm.resetFields();
-        }}
-      >
-        <Form form={aliasForm} layout="vertical">
-          <Form.Item
-            name="alias"
-            label="名称"
-            rules={[
-              { max: 64, message: '别名最长 64 个字符' },
-              { required: true, message: '请输入名称' },
-            ]}
-          >
-            <Input
-              autoFocus
-              placeholder="请输入名称（留空则清空别名）"
-              maxLength={64}
-              onPressEnter={async () => {
-                if (aliasSubmitting) return;
-                try {
-                  const values = await aliasForm.validateFields();
-                  await handleSubmitAlias(values?.alias);
-                } catch {}
-              }}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* YAML 查看弹窗 */}
-      {yamlDrawer}
-    </div>
-  );
-};
-
-/**
  * Registries Section 主组件
  */
 const RegistriesSection: React.FC<Props> = ({
-  secrets,
-  secretsWithCredentials: _secretsWithCredentials,
-  loading,
   namespacesOptions,
   cloudId,
-  nsValue,
-  onNsChange,
   onRefresh,
-  createDefaultNamespace,
 }) => {
   const { user } = useAuth();
-  const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
   const { message } = App.useApp();
   const hasContainersWrite = useMemo(
     () => hasContainerSubWritePermission((user?.permissions ?? []) as string[], 'registries'),
     [user?.permissions],
   );
-  
-  // Tab 状态
-  const [activeTab, setActiveTab] = useState('credentials');
-  
-  // 凭证列表状态
-  const [keyword, setKeyword] = useState('');
-  const [detailVisible, setDetailVisible] = useState(false);
-  const [currentSecret, setCurrentSecret] = useState<any>(null);
-  
-  // 创建/编辑凭证弹窗状态
-  const [createModalVisible, setCreateModalVisible] = useState(false);
-  const [editData, setEditData] = useState<any>(null);
-  
-  // 仓库浏览器状态
-  const [browserVisible, setBrowserVisible] = useState(false);
-  const [browserCredential, setBrowserCredential] = useState<any>(null);
   
   // 仓库列表状态（generic + harbor）
   const [localRegistries, setLocalRegistries] = useState<RegistryConfig[]>([]);
@@ -1239,67 +675,6 @@ const RegistriesSection: React.FC<Props> = ({
     loadHarborRegistries();
     loadDeployedRegistries();
   }, [loadHarborRegistries, loadDeployedRegistries]);
-  
-  // 查看凭证详情
-  const handleViewDetail = useCallback((secret: any) => {
-    setCurrentSecret(secret);
-    setDetailVisible(true);
-  }, []);
-  
-  // 删除凭证
-  const handleDeleteSecret = useCallback(async (secret: any) => {
-    const namespace = secret?.metadata?.namespace;
-    const name = secret?.metadata?.name;
-    
-    try {
-      await deleteHarvesterContainerResource(cloudId, SECRETS_API_PATH, namespace, name);
-      message.success('删除成功');
-      void runContainerSectionRefresh(onRefresh, { force: true });
-    } catch (e: any) {
-      message.error(e?.message || '删除失败');
-    }
-  }, [cloudId, message, onRefresh]);
-  
-  // 打开创建凭证弹窗
-  const handleCreateCredential = useCallback(() => {
-    setEditData(null);
-    setCreateModalVisible(true);
-  }, []);
-  
-  // 打开编辑凭证弹窗
-  const handleEditCredential = useCallback(async (secret: any) => {
-    const ns = secret?.metadata?.namespace;
-    const name = secret?.metadata?.name;
-    
-    if (ns && name) {
-      try {
-        // 调用详情 API 并设置 reveal=true 获取未脱敏数据
-        const result = await fetchHarvesterSecretDetail(cloudId, ns, name, true);
-        const fullSecret = result?.data || result;
-        setEditData(fullSecret);
-      } catch (e: any) {
-        console.error('获取凭证详情失败:', e);
-        // 失败时使用列表中的数据
-        setEditData(secret);
-      }
-    } else {
-      setEditData(secret);
-    }
-    
-    setCreateModalVisible(true);
-  }, [cloudId]);
-  
-  // 浏览仓库（从凭证）
-  const handleBrowseFromSecret = useCallback((secret: any) => {
-    const server = getRegistryServer(secret);
-    setBrowserCredential({
-      server,
-      username: '',
-      password: '',
-      insecure: true,
-    });
-    setBrowserVisible(true);
-  }, []);
   
   // 打开 Harbor 详情
   const handleOpenHarbor = useCallback((harborId: string) => {
@@ -1463,13 +838,12 @@ const RegistriesSection: React.FC<Props> = ({
       if (record.localRegistryId) {
         await testLocalRegistryConnection(cloudId, record.localRegistryId);
       } else {
-        await getRegistryCatalog(
+        await testRegistryConnection(
           cloudId,
           record.server,
           record.username,
           record.password,
           record.insecure,
-          1,
         );
       }
       hide();
@@ -1554,13 +928,6 @@ const RegistriesSection: React.FC<Props> = ({
       ));
     }
   }, [message]);
-  
-  // 凭证创建成功回调
-  const handleCredentialSuccess = useCallback(() => {
-    setCreateModalVisible(false);
-    setEditData(null);
-    void runContainerSectionRefresh(onRefresh, { force: true });
-  }, [onRefresh]);
   
   // 仓库表格列（支持 generic + harbor）
   const registryColumns = useMemo(() => [
@@ -1778,34 +1145,6 @@ const RegistriesSection: React.FC<Props> = ({
   return (
     <>
       <PageDetailSection asCard={false}>
-        <Segmented
-          style={{ marginBottom: 12 }}
-          value={activeTab}
-          onChange={setActiveTab}
-          options={[
-            { label: `镜像凭证 (${secrets.length})`, value: 'credentials' },
-            { label: `镜像仓库 (${allRegistries.length})`, value: 'registries' },
-          ]}
-        />
-        {activeTab === 'credentials' ? (
-          <CredentialTable
-            secrets={secrets}
-            loading={loading}
-            cloudId={cloudId}
-            keyword={keyword}
-            onKeywordChange={setKeyword}
-            nsValue={nsValue}
-            onNsChange={onNsChange}
-            namespacesOptions={namespacesOptions}
-            onViewDetail={handleViewDetail}
-            onEdit={handleEditCredential}
-            onDelete={handleDeleteSecret}
-            onBrowse={handleBrowseFromSecret}
-            onRefresh={onRefresh}
-            onCreateCredential={handleCreateCredential}
-            hasContainersWrite={hasContainersWrite}
-          />
-        ) : (
           <div key="registries">
             <div className="page-toolbar">
               <div className="toolbar-container">
@@ -1870,45 +1209,7 @@ const RegistriesSection: React.FC<Props> = ({
               }}
             />
           </div>
-        )}
       </PageDetailSection>
-      
-      {/* 镜像凭证详情抽屉 */}
-      <RegistryDetailDrawer
-        secret={currentSecret}
-        visible={detailVisible}
-        onClose={() => {
-          setDetailVisible(false);
-          setCurrentSecret(null);
-        }}
-      />
-      
-      {/* 创建/编辑凭证弹窗 */}
-      <RegistryCredentialModal
-        visible={createModalVisible}
-        editData={editData}
-        namespaces={namespacesOptions}
-        cloudId={cloudId}
-        defaultNamespace={formDefaultNs}
-        onCancel={() => {
-          setCreateModalVisible(false);
-          setEditData(null);
-        }}
-        onSuccess={handleCredentialSuccess}
-      />
-      
-      {/* 仓库浏览器抽屉 */}
-      {browserVisible && (
-        <RegistryBrowserDrawer
-          cloudId={cloudId}
-          visible={browserVisible}
-          credential={browserCredential}
-          onClose={() => {
-            setBrowserVisible(false);
-            setBrowserCredential(null);
-          }}
-        />
-      )}
       
       {/* 添加/编辑仓库弹窗 */}
       <AddRegistryModal

@@ -18,7 +18,6 @@ export interface WorkloadFormStepContainersProps {
   cloudId: string;
   defaultNamespace?: string;
   namespacesOptions: string[];
-  imagePullSecrets: WorkloadFormProps['imagePullSecrets'];
   configMaps?: WorkloadFormProps['configMaps'];
   secrets?: WorkloadFormProps['secrets'];
   onRefreshConfigMaps?: () => void;
@@ -38,7 +37,6 @@ const WorkloadFormStepContainers: React.FC<WorkloadFormStepContainersProps> = ({
   cloudId,
   defaultNamespace,
   namespacesOptions,
-  imagePullSecrets,
   configMaps,
   secrets,
   onRefreshConfigMaps,
@@ -176,25 +174,6 @@ const WorkloadFormStepContainers: React.FC<WorkloadFormStepContainersProps> = ({
                     </Form.Item>
                   </Col>
                 </Row>
-                <Form.Item
-                  name="imagePullSecrets"
-                  label="镜像拉取凭证"
-                  extra={<span style={{ color: '#999' }}>选择此容器使用的镜像仓库凭证</span>}
-                >
-                  <Select
-                    mode="multiple"
-                    placeholder="选择镜像拉取凭证"
-                    allowClear
-                    options={(imagePullSecrets || []).map((secret) => {
-                      const alias = secret?.metadata?.annotations?.['tower.io/alias'];
-                      const name = secret?.metadata?.name;
-                      return {
-                        label: alias ? `${alias} (${name})` : name,
-                        value: name,
-                      };
-                    })}
-                  />
-                </Form.Item>
                 <Collapse
                   ghost
                   defaultActiveKey={[]}

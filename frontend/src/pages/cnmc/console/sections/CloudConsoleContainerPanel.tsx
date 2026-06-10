@@ -331,15 +331,9 @@ const CloudConsoleContainerPanel: React.FC<CloudConsoleContainerPanelProps> = ({
       case 'ctr-registries':
         return (
           <LazyRegistriesSection
-            secrets={imagePullSecrets}
-            secretsWithCredentials={secrets}
-            loading={!!resourceLoading.imagePullSecrets}
             namespacesOptions={namespacesOptions}
             cloudId={cloudId}
-            nsValue={nsValue}
-            onNsChange={onNsChange}
             onRefresh={onRefreshRegistries}
-            createDefaultNamespace={createDefaultNamespace}
           />
         );
       case 'ctr-pdbs':

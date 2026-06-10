@@ -24,7 +24,7 @@ import {
 import RegistryBrowser from './RegistryBrowser';
 import ImageUploadModal from './ImageUploadModal';
 import LocalRegistryUploadTasksDrawer from './LocalRegistryUploadTasksDrawer';
-import { getRegistryCatalog } from '../../../../../../services/harvesterApi';
+import { testRegistryConnection } from '../../../../../../services/harvesterApi';
 import {
   configureLocalRegistryPull,
   refreshLocalRegistryStatus,
@@ -109,13 +109,12 @@ const GenericRegistryDrawer: React.FC<Props> = ({
       if (registry.localRegistryId) {
         await testLocalRegistryConnection(cloudId, registry.localRegistryId);
       } else {
-        await getRegistryCatalog(
+        await testRegistryConnection(
           cloudId,
           registry.server,
           registry.username,
           registry.password,
           registry.insecure,
-          1,
         );
       }
       setConnectionStatus('healthy');

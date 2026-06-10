@@ -1809,13 +1809,12 @@ export const testRegistryConnection = async (
   password?: string,
   insecure?: boolean,
 ) => {
-  const params = new URLSearchParams();
-  params.append('server', server);
-  if (username) params.append('username', username);
-  if (password) params.append('password', password);
-  if (insecure) params.append('insecure', 'true');
-  
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/test?${params.toString()}`);
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/registry/test`, {
+    server,
+    username,
+    password,
+    insecure: insecure !== false,
+  });
 };
 
 /**

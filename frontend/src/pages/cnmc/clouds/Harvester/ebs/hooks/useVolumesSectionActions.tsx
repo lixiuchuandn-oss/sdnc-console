@@ -36,6 +36,14 @@ import {
   VM_RESTART_RISK_ITEMS,
   VOLUME_DETACH_RISK_ITEMS,
 } from '../../shared/lib/highRiskOperationPresets';
+import {
+  isLocalRegistryManagedVolume,
+  REGISTRY_MANAGED_PVC_HINT,
+} from '../../shared/lib/registryManagedLocalRegistryVolume';
+import {
+  isVolumeUsedByWorkload,
+  volumeWorkloadInUseHint,
+} from '../lib/volumeConsumers';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -123,6 +131,16 @@ export function useVolumesSectionActions({
     if (!ensureDisksWrite()) return;
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter((v) => selectedRowKeys.includes(v.key));
+    const managedTargets = targets.filter((v) => isLocalRegistryManagedVolume(v));
+    if (managedTargets.length > 0) {
+      msg.warning(REGISTRY_MANAGED_PVC_HINT);
+      return;
+    }
+    const inUseTargets = targets.filter((v) => isVolumeUsedByWorkload(v));
+    if (inUseTargets.length > 0) {
+      msg.warning(volumeWorkloadInUseHint(inUseTargets[0]));
+      return;
+    }
 
     void confirmHighRiskOperation({
       title: '批量删除确认',
@@ -161,6 +179,10 @@ export function useVolumesSectionActions({
   const handleAttach = useCallback(
     (r: VolumeView) => {
       if (!ensureDisksWrite()) return;
+      if (isLocalRegistryManagedVolume(r)) {
+        msg.warning(REGISTRY_MANAGED_PVC_HINT);
+        return;
+      }
       if (!vms || (vms as unknown[]).length === 0) {
         void runHarvesterSectionRefresh(onRefresh, { force: true });
       }
@@ -182,6 +204,10 @@ export function useVolumesSectionActions({
   const handleDetach = useCallback(
     async (r: VolumeView) => {
       if (!ensureDisksWrite()) return;
+      if (isLocalRegistryManagedVolume(r)) {
+        msg.warning(REGISTRY_MANAGED_PVC_HINT);
+        return;
+      }
       if (!vms || (vms as unknown[]).length === 0) {
         void runHarvesterSectionRefresh(onRefresh, { force: true });
         msg.loading('正在同步云主机数据，请稍后重试...', 1);
@@ -255,6 +281,9 @@ export function useVolumesSectionActions({
     (r: VolumeView) => {
       const vm = safeRead.attachedVm(r) as VmAttachRecord | undefined;
       const isSystemDisk = checkIsVolumeSystemDisk(r, vm);
+      const isRegistryManaged = isLocalRegistryManagedVolume(r);
+      const isWorkloadInUse = isVolumeUsedByWorkload(r);
+      const workloadInUseHint = volumeWorkloadInUseHint(r);
       const vmLabel = vm ? vmDisplayLabel(vm) : '';
       const diskLabel = r.alias ? `${r.alias}（${r.name}）` : r.name;
 
@@ -264,6 +293,7 @@ export function useVolumesSectionActions({
             label: React.ReactNode;
             disabled?: boolean;
             danger?: boolean;
+            tooltip?: React.ReactNode;
             onClick?: () => void;
           }
         | { type: 'divider'; key?: string }
@@ -290,7 +320,12 @@ export function useVolumesSectionActions({
         {
           key: 'attach',
           label: '挂载到虚拟机',
-          disabled: !!vm || !hasDisksWrite,
+          disabled: !!vm || !hasDisksWrite || isRegistryManaged || isWorkloadInUse,
+          tooltip: isRegistryManaged
+            ? REGISTRY_MANAGED_PVC_HINT
+            : isWorkloadInUse
+              ? workloadInUseHint
+              : undefined,
           onClick: () => handleAttach(r),
         },
         {
@@ -332,7 +367,8 @@ export function useVolumesSectionActions({
           key: 'detach',
           label: '从云主机卸载',
           danger: true,
-          disabled: isSystemDisk || !hasDisksWrite,
+          disabled: isSystemDisk || !hasDisksWrite || isRegistryManaged,
+          tooltip: isRegistryManaged ? REGISTRY_MANAGED_PVC_HINT : undefined,
           onClick: () => void handleDetach(r),
         });
       }
@@ -341,9 +377,24 @@ export function useVolumesSectionActions({
         key: 'delete',
         label: '删除',
         danger: true,
-        disabled: !hasDisksWrite,
+        disabled: !hasDisksWrite || isRegistryManaged || isWorkloadInUse || !!vm,
+        tooltip: isRegistryManaged
+          ? REGISTRY_MANAGED_PVC_HINT
+          : isWorkloadInUse
+            ? workloadInUseHint
+            : vm
+              ? `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除`
+              : undefined,
         onClick: () => {
           if (!ensureDisksWrite()) return;
+          if (isRegistryManaged) {
+            msg.warning(REGISTRY_MANAGED_PVC_HINT);
+            return;
+          }
+          if (isWorkloadInUse) {
+            msg.warning(workloadInUseHint);
+            return;
+          }
           void confirmHighRiskDelete({
             title: '确认删除云盘',
             resourceLabel: '云盘',

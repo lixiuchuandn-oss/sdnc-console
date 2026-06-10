@@ -25,6 +25,7 @@ import {
   useVmAddDataDiskDrawerData,
   type VmDiskAddDrawerBaseProps,
 } from "./lib/vmDiskAddDrawerShared";
+import { isLocalRegistryManagedPvc } from "../../../shared/lib/registryManagedLocalRegistryVolume";
 
 const formatAccessMode = (m: string) => {
   if (m === "ReadWriteOnce") return "RWO (ReadWriteOnce)";
@@ -177,6 +178,7 @@ const VmAttachExistingDiskDrawer: React.FC<VmDiskAddDrawerBaseProps> = ({
   const pvcSelectOptions = useMemo(
     () =>
       (availableDiskPvcs || [])
+        .filter((p: any) => !isLocalRegistryManagedPvc(p?.rawData || p))
         .map((p: any) => {
           const name = getPvcName(p);
           const alias = getPvcAlias(p);

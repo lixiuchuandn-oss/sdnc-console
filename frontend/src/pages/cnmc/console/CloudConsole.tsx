@@ -1194,14 +1194,18 @@ const CloudConsolePage: React.FC = () => {
   };
 
   const loadCtrServices = async (cloudId: string, force = false) => {
-    mergeCtrLoading({ services: true });
+    mergeCtrLoading({ services: true, pods: true });
     try {
-      const res = await fetchHarvesterServices(cloudId, force);
+      const [res, podsRes] = await Promise.all([
+        fetchHarvesterServices(cloudId, force),
+        fetchHarvesterPods(cloudId, undefined, force),
+      ]);
       setCtrServices((res as any)?.data?.items || []);
+      setCtrPods((podsRes as any)?.data?.items || []);
     } catch (e) {
       console.error('[CloudConsole] loadCtrServices', e);
     } finally {
-      mergeCtrLoading({ services: false });
+      mergeCtrLoading({ services: false, pods: false });
     }
   };
 

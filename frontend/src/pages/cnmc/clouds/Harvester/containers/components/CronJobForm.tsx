@@ -47,6 +47,7 @@ import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer, CronExpressionHelper } from './index';
+import { ensureImagePullSecretsForImages } from './workloadForm/ensureRegistryPullSecret';
 import { localRegistryToCredential } from './workloadForm/registryCredentials';
 import { useMergedRegistryList } from './workloadForm/hooks/useMergedRegistryList';
 
@@ -274,7 +275,7 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
   const [scheduleValue, setScheduleValue] = useState('0 2 * * *');
   const [selectedPreset, setSelectedPreset] = useState<string>('0 2 * * *');
 
-  const allRegistries = useMergedRegistryList(cloudId, secretsWithCredentials);
+  const allRegistries = useMergedRegistryList(cloudId);
 
   const openRegistryBrowser = useCallback(() => {
     if (allRegistries.length === 0) {
@@ -291,7 +292,7 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
       }
     }
     if (!targetCredential) {
-      message.error('解析镜像凭证失败，请检查凭证配置');
+      message.error('解析镜像仓库失败，请检查仓库配置');
       return;
     }
     setBrowserCredential(targetCredential);
@@ -533,6 +534,17 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
           setCurrentStep(2);
           return;
         }
+
+        const namespace = allValues.namespace || defaultNamespace || 'default';
+        const secrets = await ensureImagePullSecretsForImages(
+          cloudId,
+          namespace,
+          [allValues.image],
+          allRegistries,
+          allValues.imagePullSecrets || [],
+        );
+        allValues.imagePullSecrets = secrets;
+        form.setFieldsValue({ imagePullSecrets: secrets });
         
         const yamlStr = formValuesToYaml(allValues);
         body = yaml.load(yamlStr) as any;
@@ -741,18 +753,6 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
               <Col span={12}>
                 <Form.Item name="imagePullPolicy" label="镜像拉取策略">
                   <Select options={IMAGE_PULL_POLICY_OPTIONS} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="imagePullSecrets" label="镜像拉取凭证">
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    options={imagePullSecrets.map((s) => ({
-                      label: s.metadata.name,
-                      value: s.metadata.name,
-                    }))}
-                  />
                 </Form.Item>
               </Col>
             </Row>

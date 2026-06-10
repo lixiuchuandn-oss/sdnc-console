@@ -556,6 +556,12 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             label: '关联 Pod',
             children: (
               <ServiceRelatedPodsTab
+                cloudId={cloudId}
+                serviceNamespace={
+                  record?.rawData?.metadata?.namespace
+                  || record?.metadata?.namespace
+                  || record?.namespace
+                }
                 serviceSelector={record?.rawData?.spec?.selector || record?.spec?.selector}
                 pods={pods || []}
                 loading={false}

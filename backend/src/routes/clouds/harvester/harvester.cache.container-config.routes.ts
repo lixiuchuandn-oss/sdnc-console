@@ -18,6 +18,11 @@ import {
   getNamespacedResources,
   setCache,
 } from './harvester.cache.container-shared';
+import {
+  isRegistryManagedPullSecret,
+  isRegistryManagedPullSecretName,
+  REGISTRY_MANAGED_SECRET_MESSAGE,
+} from '../../../services/registryManagedSecret';
 
 export const registerHarvesterContainerConfigRoutes = (
   router: Router,
@@ -589,6 +594,13 @@ export const registerHarvesterContainerConfigRoutes = (
           return res.status(404).json({ message: 'Secret 不存在' });
         }
 
+        if (
+          isRegistryManagedPullSecretName(name) ||
+          isRegistryManagedPullSecret(existingSecret)
+        ) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+        }
+
         // 更新 Secret
         // 注意：使用 stringData 时，K8s 会自动转换为 base64 编码的 data
         const updatedSecret: any = {
@@ -640,6 +652,19 @@ export const registerHarvesterContainerConfigRoutes = (
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
+
+        if (isRegistryManagedPullSecretName(name)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+        }
+
+        const getUrl = buildK8sUrl(base, '/api/v1/secrets', namespace, name);
+        const existingSecret = await getJsonOnce(getUrl, token, insecure, true);
+        if (!existingSecret) {
+          return res.status(404).json({ message: 'Secret 不存在' });
+        }
+        if (isRegistryManagedPullSecret(existingSecret)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+        }
 
         const url = buildK8sUrl(base, '/api/v1/secrets', namespace, name);
         console.log('[Secret 删除] URL:', url);

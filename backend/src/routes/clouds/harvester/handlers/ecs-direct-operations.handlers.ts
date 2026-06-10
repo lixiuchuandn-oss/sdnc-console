@@ -20,6 +20,11 @@ import { Request, Response } from 'express';
 import { AppDataSource } from '../../../../config/database';
 import { HarvesterNamespaceInventory } from '../../../../entities/harvester/HarvesterNamespaceInventory';
 import {
+  isRegistryManagedPvcRef,
+  getVmVolumePvcRef,
+  REGISTRY_MANAGED_PVC_MESSAGE,
+} from '../../../../services/registryManagedLocalRegistryVolumeGuard';
+import {
   getHarvesterVmVncUrl,
   getHarvesterVMAggregated,
   harvesterAddVolumeToVM,
@@ -488,11 +493,18 @@ export async function harvesterEcsAddVolumeHandler(req: Request, res: Response) 
     const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
     if (error) return res.status(error.status).json({ message: error.message });
 
-    const data = await harvesterAddVolumeToVM(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      resolvedId,
-      req.body,
-    );
+    const params = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+    const { pvcNamespace, pvcName } = (req.body || {}) as {
+      pvcNamespace?: string;
+      pvcName?: string;
+    };
+    if (pvcName && pvcNamespace) {
+      if (await isRegistryManagedPvcRef(params, String(pvcNamespace), String(pvcName))) {
+        return res.status(403).json({ message: REGISTRY_MANAGED_PVC_MESSAGE });
+      }
+    }
+
+    const data = await harvesterAddVolumeToVM(params, resolvedId, req.body);
     res.json({ message: '挂载成功', data });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -524,11 +536,19 @@ export async function harvesterEcsRemoveVolumeHandler(req: Request, res: Respons
     const { resolvedId, error } = await resolveTenantVmId(tenantNamespace, instanceId, cloud);
     if (error) return res.status(error.status).json({ message: error.message });
 
-    const data = await harvesterRemoveVolumeFromVM(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
-      resolvedId,
-      req.body,
-    );
+    const params = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+    const { name: diskName } = (req.body || {}) as { name?: string };
+    if (diskName) {
+      const pvcRef = await getVmVolumePvcRef(params, String(resolvedId), String(diskName));
+      if (
+        pvcRef &&
+        (await isRegistryManagedPvcRef(params, pvcRef.namespace, pvcRef.name))
+      ) {
+        return res.status(403).json({ message: REGISTRY_MANAGED_PVC_MESSAGE });
+      }
+    }
+
+    const data = await harvesterRemoveVolumeFromVM(params, resolvedId, req.body);
     res.json({ message: '卸载成功', data });
   } catch (error: any) {
     if (res.headersSent) return;

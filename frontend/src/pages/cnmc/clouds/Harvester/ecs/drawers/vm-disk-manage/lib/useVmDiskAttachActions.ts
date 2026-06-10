@@ -30,6 +30,10 @@ import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from '../../../lib/vmMutation/vm
 import { confirmHighRiskOperation } from '../../../../shared/lib/highRiskConfirm';
 import { VM_RESTART_RISK_ITEMS } from '../../../../shared/lib/highRiskOperationPresets';
 import {
+  isLocalRegistryManagedPvcName,
+  REGISTRY_MANAGED_PVC_HINT,
+} from '../../../../shared/lib/registryManagedLocalRegistryVolume';
+import {
   diskDetachSkipsVmRestartPrompt,
   effectiveDomainDiskBusRaw,
 } from './vmDiskManageDrawerDiskLogic';
@@ -361,6 +365,11 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         String(form.getFieldValue('newDiskPvcClaimName') ?? '').trim() ||
         String(values.newDiskName ?? '').trim();
       const mode = values.newDiskMode || 'spec';
+
+      if (isLocalRegistryManagedPvcName(volName)) {
+        message.warning(REGISTRY_MANAGED_PVC_HINT);
+        return;
+      }
 
       if (diskSrc === 'iso') {
         if (mode === 'hotplug') {
