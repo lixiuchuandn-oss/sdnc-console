@@ -21,41 +21,6 @@ function withDeployTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-/** 下发 preview/verify 直连 fetch，避免与保存流共用连接池时经 requestManager 排队挂起 */
-async function deployFetchJson(path: string): Promise<any> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders(),
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      Pragma: 'no-cache',
-    },
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    let errorMsg = `HTTP ${response.status}`;
-    try {
-      const json = JSON.parse(text);
-      errorMsg = json.message || errorMsg;
-    } catch {
-      if (text.trim()) errorMsg = text.trim().slice(0, 200);
-    }
-    throw new Error(errorMsg);
-  }
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-async function releaseStreamReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
-  try {
-    await reader.cancel();
-  } catch {
-    // ignore
-  }
-}
-
 // Tabs 用于配置预览，保持与 SRv6 创建页一致
 
 const IPsecVPNWizard: React.FC = () => {
@@ -98,6 +63,8 @@ const IPsecVPNWizard: React.FC = () => {
   const [manualLogs, setManualLogs] = useState<Record<number, string>>({});
   const [manualStatus, setManualStatus] = useState<Record<number, 'wait' | 'process' | 'finish' | 'error'>>({});
 
+  const deployGetOpts = { skipCache: true, enableDeduplication: false } as const;
+
   const manualStepsDef = [
     { title: '读取本端配置', desc: '从本地缓存读取并预览本端待下发配置' },
     { title: '下发本端配置', desc: '推送配置到本端 CSMCTL' },
@@ -137,7 +104,7 @@ const IPsecVPNWizard: React.FC = () => {
       let logMsg = '';
 
       const deployGet = (path: string) =>
-        withDeployTimeout(deployFetchJson(path), IPSEC_DEPLOY_STEP_TIMEOUT_MS);
+        withDeployTimeout(apiRequest(path, deployGetOpts), IPSEC_DEPLOY_STEP_TIMEOUT_MS);
 
       switch (stepIndex) {
         case 0: // Preview Local
@@ -614,29 +581,26 @@ const IPsecVPNWizard: React.FC = () => {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder('utf-8');
 
-      let isFinished = false;
+      let saveResultReceived = false;
+      let streamError = false;
       if (reader) {
         let buffer = '';
         const handleLine = (line: string) => {
           const chunk = line.trim();
-          if (!chunk) return false;
+          if (!chunk) return;
           try {
             const data = JSON.parse(chunk);
             if (data.type === 'error') {
               message.error(data.message);
-              setLoading(false);
-              isFinished = true;
-              return true;
+              streamError = true;
+              return;
             }
             if (data.type === 'result') {
-              isFinished = true;
-              message.success('配置已保存到本地缓存');
-              setSaveSuccess(true);
+              saveResultReceived = true;
             }
           } catch (e) {
             console.error('Parse chunk error', e, chunk);
           }
-          return false;
         };
 
         while (true) {
@@ -646,21 +610,24 @@ const IPsecVPNWizard: React.FC = () => {
           const lines = buffer.split(/\r?\n/);
           buffer = lines.pop() || '';
           for (const line of lines) {
-            if (handleLine(line)) {
-              await releaseStreamReader(reader);
-              return;
-            }
+            handleLine(line);
+            if (streamError) break;
           }
+          if (streamError) break;
         }
 
-        buffer += decoder.decode();
-        if (buffer.trim() && handleLine(buffer)) {
-          await releaseStreamReader(reader);
-          return;
+        if (!streamError) {
+          buffer += decoder.decode();
+          if (buffer.trim()) handleLine(buffer);
         }
-        
-        if (!isFinished) {
-           message.error('连接异常断开');
+
+        if (streamError) {
+          // 已由 handleLine 提示
+        } else if (saveResultReceived) {
+          message.success('配置已保存到本地缓存');
+          setSaveSuccess(true);
+        } else {
+          message.error('连接异常断开');
         }
       } else {
         message.success('配置已保存到本地缓存');
@@ -1160,7 +1127,7 @@ const IPsecVPNWizard: React.FC = () => {
                     <Button type="primary" onClick={handleCreate} loading={loading} disabled={saveSuccess}>
                       保存配置
                     </Button>
-                    <Button type="primary" onClick={startDeploy} disabled={!saveSuccess}>
+                    <Button type="primary" onClick={startDeploy} disabled={!saveSuccess || loading}>
                       开始下发
                     </Button>
                   </>
