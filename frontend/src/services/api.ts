@@ -150,6 +150,8 @@ export type ApiGetOptions = {
   cacheTTL?: number;
   /** 默认 true；与运行中列表/进度轮询等同 URL 并发时建议 false */
   enableDeduplication?: boolean;
+  /** 可选：外部中断底层 fetch（如部署步骤超时 abort） */
+  signal?: AbortSignal;
 };
 
 // 通用请求函数（去重、重试；GET 默认不缓存，按需 opt-in）
@@ -160,6 +162,7 @@ export const apiRequest = async (endpoint: string, options?: ApiGetOptions) => {
         method: 'GET',
         endpoint,
         headers: getAuthHeaders(),
+        ...(options?.signal ? { signal: options.signal } : {}),
         options: {
           enableDeduplication: options?.enableDeduplication ?? true,
           enableCache: options?.enableCache ?? false,

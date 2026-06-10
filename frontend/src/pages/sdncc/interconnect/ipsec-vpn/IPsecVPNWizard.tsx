@@ -9,9 +9,16 @@ import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 const { Option } = Select;
 const IPSEC_DEPLOY_STEP_TIMEOUT_MS = 60_000;
 
-function withDeployTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withDeployTimeout<T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = window.setTimeout(() => reject(new Error('请求超时，请检查网络或稍后重试')), ms);
+    const timer = window.setTimeout(() => {
+      try {
+        onTimeout?.();
+      } catch {
+        /* ignore */
+      }
+      reject(new Error('请求超时，请检查网络或稍后重试'));
+    }, ms);
     promise
       .then(resolve)
       .catch(reject)
@@ -55,6 +62,7 @@ const IPsecVPNWizard: React.FC = () => {
   const [deployRunSeq, setDeployRunSeq] = useState(0);
   const deploySessionRef = React.useRef(0);
   const deployingStepRef = React.useRef<{ sessionId: number; stepIndex: number } | null>(null);
+  const deployAbortRef = React.useRef<AbortController | null>(null);
   const prevWizardStepRef = React.useRef(current);
   const manualStepTimersRef = React.useRef<number[]>([]);
 
@@ -83,6 +91,10 @@ const IPsecVPNWizard: React.FC = () => {
     deploySessionRef.current += 1;
     deployingStepRef.current = null;
     clearManualStepTimers();
+    if (deployAbortRef.current) {
+      deployAbortRef.current.abort();
+      deployAbortRef.current = null;
+    }
   };
 
   const executeManualStep = async (stepIndex: number) => {
@@ -103,8 +115,24 @@ const IPsecVPNWizard: React.FC = () => {
       let res: any;
       let logMsg = '';
 
-      const deployGet = (path: string) =>
-        withDeployTimeout(apiRequest(path, deployGetOpts), IPSEC_DEPLOY_STEP_TIMEOUT_MS);
+      const deployGet = (path: string) => {
+        const controller = new AbortController();
+        deployAbortRef.current = controller;
+        const startedAt = Date.now();
+        // 诊断打点：定位“卡在浏览器未发出 / 已发出无响应”用，问题收敛后可移除
+        console.info(`[IPsec][deploy] fetch begin step=${stepIndex} session=${sessionId} @${new Date().toISOString()} ${path}`);
+        return withDeployTimeout(
+          apiRequest(path, { ...deployGetOpts, signal: controller.signal }).finally(() => {
+            if (deployAbortRef.current === controller) deployAbortRef.current = null;
+            console.info(`[IPsec][deploy] fetch end step=${stepIndex} session=${sessionId} elapsed=${Date.now() - startedAt}ms @${new Date().toISOString()}`);
+          }),
+          IPSEC_DEPLOY_STEP_TIMEOUT_MS,
+          () => {
+            console.warn(`[IPsec][deploy] fetch timeout->abort step=${stepIndex} session=${sessionId} elapsed=${Date.now() - startedAt}ms @${new Date().toISOString()}`);
+            controller.abort();
+          },
+        );
+      };
 
       switch (stepIndex) {
         case 0: // Preview Local
@@ -211,6 +239,7 @@ const IPsecVPNWizard: React.FC = () => {
     deploySessionRef.current += 1;
     deployingStepRef.current = null;
     clearManualStepTimers();
+    console.info(`[IPsec][deploy] session start seq=${deployRunSeq} session=${deploySessionRef.current} @${new Date().toISOString()}`);
     setManualStep(0);
     setManualLogs({});
     setManualStatus({
@@ -621,6 +650,7 @@ const IPsecVPNWizard: React.FC = () => {
           if (buffer.trim()) handleLine(buffer);
         }
 
+        console.info(`[IPsec][save] stream done result=${saveResultReceived} error=${streamError} @${new Date().toISOString()}`);
         if (streamError) {
           // 已由 handleLine 提示
         } else if (saveResultReceived) {

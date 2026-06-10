@@ -10,6 +10,8 @@ interface RequestConfig {
   endpoint: string;
   body?: any;
   headers?: Record<string, string>;
+  /** 可选：外部中断底层 fetch（如部署步骤超时 abort）；abort 后不重试 */
+  signal?: AbortSignal;
   // 请求选项
   options?: {
     enableDeduplication?: boolean; // 是否启用请求去重（默认：true）
@@ -182,6 +184,7 @@ async function executeRequest(
     headers: requestHeaders,
     credentials: 'include',
     cache: 'no-store',
+    ...(config.signal ? { signal: config.signal } : {}),
   };
 
   if (body && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
@@ -215,8 +218,10 @@ async function executeRequestWithRetry(
   try {
     return await executeRequest(config, apiBaseUrl);
   } catch (error: any) {
-    // 判断是否应该重试
+    // 判断是否应该重试（已被外部 abort 的请求不重试）
+    const isAborted = error?.name === 'AbortError' || config.signal?.aborted === true;
     const shouldRetry =
+      !isAborted &&
       retryCount > 0 &&
       // 网络错误或 5xx 服务器错误才重试
       (error.status >= 500 || !error.status);
