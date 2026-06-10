@@ -3,7 +3,7 @@ import { Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { API_BASE_URL, apiPost, apiRequest, getApiErrorMessage, getAuthHeaders } from '../../../../services/api';
+import { apiPost, apiRequest, createIPsecVPN, getApiErrorMessage, updateIPsecVPN } from '../../../../services/api';
 import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
@@ -595,110 +595,20 @@ const IPsecVPNWizard: React.FC = () => {
         peerVrLanIP: values?.peerVrLanIP,
       };
 
-      // Do NOT change step. Just save.
-      
-      // 流式响应需要直接使用 fetch，但使用统一的认证头
-      const method = id ? 'PUT' : 'POST';
-      const url = id 
-        ? `/api/networks/ipsec/${id}?stream=1`
-        : `/api/networks/ipsec?stream=1`;
-
-      const response = await fetch(`${API_BASE_URL}${url}`, {
-        method,
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMsg = 'Creation failed';
-        try {
-          const json = JSON.parse(errorText);
-          errorMsg = json.message || errorMsg;
-        } catch {
-          errorMsg = `Request failed (${response.status}): ${errorText.slice(0, 100)}`;
-        }
-        throw new Error(errorMsg);
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder('utf-8');
-
-      let saveResultReceived = false;
-      let streamError = false;
-      if (reader) {
-        try {
-          let buffer = '';
-          const handleLine = (line: string) => {
-            const chunk = line.trim();
-            if (!chunk) return;
-            try {
-              const data = JSON.parse(chunk);
-              if (data.type === 'error') {
-                message.error(data.message);
-                streamError = true;
-                return;
-              }
-              if (data.type === 'result') {
-                saveResultReceived = true;
-              }
-            } catch (e) {
-              console.error('Parse chunk error', e, chunk);
-            }
-          };
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split(/\r?\n/);
-            buffer = lines.pop() || '';
-            for (const line of lines) {
-              handleLine(line);
-              if (streamError) break;
-            }
-            if (streamError) break;
-          }
-
-          if (!streamError) {
-            buffer += decoder.decode();
-            if (buffer.trim()) handleLine(buffer);
-          }
-
-          console.info(`[IPsec][save] stream done result=${saveResultReceived} error=${streamError} @${new Date().toISOString()}`);
-          if (streamError) {
-            // 已由 handleLine 提示
-          } else if (saveResultReceived) {
-            message.success('配置已保存到本地缓存');
-            setSaveSuccess(true);
-          } else {
-            message.error('连接异常断开');
-          }
-        } finally {
-          // 显式释放 fetch 占用的 HTTP/1.1 连接，避免后续 deploy/preview 在浏览器连接池 Stall
-          try {
-            await reader.cancel();
-          } catch {
-            /* ignore */
-          }
-          try {
-            await response.body?.cancel();
-          } catch {
-            /* ignore */
-          }
-          console.info(`[IPsec][save] stream connection released @${new Date().toISOString()}`);
-        }
+      if (id) {
+        await updateIPsecVPN(id, payload);
       } else {
-        message.success('配置已保存到本地缓存');
-        setSaveSuccess(true);
+        await createIPsecVPN(payload);
       }
-
+      console.info(`[IPsec][save] json done @${new Date().toISOString()}`);
+      message.success('配置已保存到本地缓存');
+      setSaveSuccess(true);
     } catch (error: any) {
       console.error('Creation failed:', error);
       if (error.errorFields) {
         message.error('请检查表单填写是否完整');
       } else {
-        message.error(error?.message || '创建失败');
+        message.error(getApiErrorMessage(error, id ? '保存失败' : '创建失败'));
       }
     } finally {
       setLoading(false);

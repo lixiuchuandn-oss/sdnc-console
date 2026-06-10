@@ -1460,6 +1460,10 @@ export const createIPsecVPN = async (payload: any) => {
   return await apiPost('/api/networks/ipsec', payload);
 };
 
+export const updateIPsecVPN = async (id: string, payload: any) => {
+  return await apiPut(`/api/networks/ipsec/${id}`, payload);
+};
+
 export const deleteIPsecVPN = async (id: string) => {
   return await apiDelete(`/api/networks/ipsec/${id}`);
 };
