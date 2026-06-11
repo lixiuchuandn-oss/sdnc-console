@@ -82,7 +82,7 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
         riskItems: DELETE_RISK_ITEMS,
         onConfirm: async () => {
           try {
-            await deleteHarborProject(harbor.id, project.name);
+            await deleteHarborProject(harbor.id, project);
             message.success('项目已删除');
             loadProjects();
           } catch (e: any) {

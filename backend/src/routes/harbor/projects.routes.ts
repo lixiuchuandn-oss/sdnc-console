@@ -267,20 +267,36 @@ router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Re
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, name } = req.params;
+    const { id, name: projectRef } = req.params;
+    const projectIdQuery = req.query.projectId;
+    const harborProjectRef =
+      projectIdQuery != null && String(projectIdQuery).trim() !== ''
+        ? String(projectIdQuery).trim()
+        : projectRef;
 
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    await result.service.deleteProject(name);
+    await result.service.deleteProject(harborProjectRef);
 
-    // 删除本地缓存
+    // 删除本地缓存（按名称或 projectId 匹配）
     const projectRepo = AppDataSource.getRepository(HarborProject);
-    await projectRepo.delete({ harborId: id, name });
+    const localRows = await projectRepo.find({ where: { harborId: id } });
+    const localMatch = localRows.find(
+      (row) =>
+        row.name === projectRef ||
+        row.name === harborProjectRef ||
+        String(row.projectId ?? '') === harborProjectRef,
+    );
+    if (localMatch) {
+      await projectRepo.delete({ id: localMatch.id });
+    } else {
+      await projectRepo.delete({ harborId: id, name: projectRef });
+    }
 
-    harborLog.info(`删除项目: harbor=${id}, project=${name}`);
+    harborLog.info(`删除项目: harbor=${id}, ref=${harborProjectRef}`);
     res.json({ message: '删除成功' });
   } catch (error: any) {
     harborLog.error('删除项目失败:', error.message);

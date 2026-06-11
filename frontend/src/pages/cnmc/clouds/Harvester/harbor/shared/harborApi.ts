@@ -236,10 +236,14 @@ export const updateHarborProject = async (
  */
 export const deleteHarborProject = async (
   harborId: string,
-  projectName: string,
+  project: Pick<HarborProject, 'name' | 'projectId'>,
 ): Promise<void> => {
+  const query =
+    project.projectId != null
+      ? `?projectId=${encodeURIComponent(String(project.projectId))}`
+      : '';
   return await apiDelete(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}`,
+    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(project.name)}${query}`,
   );
 };
 
