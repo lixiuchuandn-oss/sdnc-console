@@ -47,7 +47,11 @@ import { createHarvesterContainerResource } from '../../../../../../services/har
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer } from './index';
 import { ensureImagePullSecretsForImages } from './workloadForm/ensureRegistryPullSecret';
-import { localRegistryToCredential } from './workloadForm/registryCredentials';
+import {
+  filterDockerRegistryEntries,
+  findRegistryForImage,
+  localRegistryToCredential,
+} from './workloadForm/registryCredentials';
 import { useMergedRegistryList } from './workloadForm/hooks/useMergedRegistryList';
 
 // ============================================================
@@ -302,17 +306,26 @@ const JobForm: React.FC<JobFormProps> = ({
   const [browserCredential, setBrowserCredential] = useState<any>(null);
 
   const allRegistries = useMergedRegistryList(cloudId);
+  const dockerRegistries = useMemo(
+    () => filterDockerRegistryEntries(allRegistries),
+    [allRegistries],
+  );
 
   const openRegistryBrowser = useCallback(() => {
-    if (allRegistries.length === 0) {
-      message.warning('请先在镜像仓库中添加仓库、部署本地仓库或创建凭证');
+    if (dockerRegistries.length === 0) {
+      message.warning(
+        allRegistries.some((r) => r.source === 'harbor')
+          ? 'Harbor 镜像请在选择镜像抽屉中切换到「Harbor 镜像仓库」；或部署本地 Docker 仓库'
+          : '请先在镜像仓库中添加仓库、部署本地仓库或创建凭证',
+      );
+      setBrowserCredential(null);
+      setRegistryBrowserVisible(true);
       return;
     }
     const currentImage = form.getFieldValue('image') || '';
-    const serverFromImage = currentImage.split('/')[0];
-    let targetCredential = localRegistryToCredential(allRegistries[0]);
-    if (serverFromImage) {
-      const matchingRegistry = allRegistries.find((r) => r.server === serverFromImage);
+    let targetCredential = localRegistryToCredential(dockerRegistries[0]);
+    if (currentImage) {
+      const matchingRegistry = findRegistryForImage(currentImage, dockerRegistries);
       if (matchingRegistry) {
         targetCredential = localRegistryToCredential(matchingRegistry);
       }
@@ -323,7 +336,7 @@ const JobForm: React.FC<JobFormProps> = ({
     }
     setBrowserCredential(targetCredential);
     setRegistryBrowserVisible(true);
-  }, [allRegistries, form, message]);
+  }, [allRegistries, dockerRegistries, form, message]);
 
   // 初始化默认值
   useEffect(() => {

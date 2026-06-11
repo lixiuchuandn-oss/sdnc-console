@@ -178,6 +178,13 @@ export function findRegistryForImage(
   );
 }
 
+/** Harbor 需走 Harbor API 浏览，不能用于 Docker Registry V2 目录浏览 */
+export function filterDockerRegistryEntries(
+  registries: MergedRegistryEntry[],
+): MergedRegistryEntry[] {
+  return registries.filter((r) => r.source !== 'harbor' && !r.harborId);
+}
+
 export function buildGenericPullSecretName(server: string): string {
   const slug = normalizeRegistryServer(server)
     .replace(/[^a-z0-9]+/gi, '-')

@@ -58,7 +58,11 @@ import { buildK8sResource } from './workloadForm/buildK8sResource';
 import { buildActiveContainerFromEditor } from './workloadForm/containerFormSync';
 import { parseEditWorkloadFormInit } from './workloadForm/parseEditWorkloadFormInit';
 import { ensureImagePullSecretsForImages } from './workloadForm/ensureRegistryPullSecret';
-import { localRegistryToCredential } from './workloadForm/registryCredentials';
+import {
+  filterDockerRegistryEntries,
+  findRegistryForImage,
+  localRegistryToCredential,
+} from './workloadForm/registryCredentials';
 import { useMergedRegistryList } from './workloadForm/hooks/useMergedRegistryList';
 import { useWorkloadFormNetworkOptions } from './workloadForm/hooks/useWorkloadFormNetworkOptions';
 
@@ -139,31 +143,38 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
   const [volumeRefreshKey, setVolumeRefreshKey] = useState(0);
 
   const allRegistries = useMergedRegistryList(cloudId);
+  const dockerRegistries = useMemo(
+    () => filterDockerRegistryEntries(allRegistries),
+    [allRegistries],
+  );
 
   const handleBrowseRegistry = useCallback(() => {
-    if (allRegistries.length > 0) {
-      const currentImage = form.getFieldValue('image');
-      let targetCredential = localRegistryToCredential(allRegistries[0]);
-      if (currentImage) {
-        const serverMatch = currentImage.match(/^([^/]+):?\d*\//);
-        if (serverMatch) {
-          const serverFromImage = serverMatch[1];
-          const matchingRegistry = allRegistries.find((r) => r.server === serverFromImage);
-          if (matchingRegistry) {
-            targetCredential = localRegistryToCredential(matchingRegistry);
-          }
-        }
-      }
-      if (targetCredential) {
-        setBrowserCredential(targetCredential);
-        setBrowserVisible(true);
-      } else {
-        message.error('解析镜像仓库失败，请检查仓库配置');
-      }
-    } else {
-      message.warning('请先在镜像仓库中添加仓库或部署本地仓库');
+    if (dockerRegistries.length === 0) {
+      message.warning(
+        allRegistries.some((r) => r.source === 'harbor')
+          ? 'Harbor 镜像请在选择镜像抽屉中切换到「Harbor 镜像仓库」；或部署本地 Docker 仓库'
+          : '请先在镜像仓库中添加仓库或部署本地仓库',
+      );
+      setBrowserCredential(null);
+      setBrowserVisible(true);
+      return;
     }
-  }, [allRegistries, form, message]);
+
+    const currentImage = form.getFieldValue('image');
+    let targetCredential = localRegistryToCredential(dockerRegistries[0]);
+    if (currentImage) {
+      const matchingRegistry = findRegistryForImage(currentImage, dockerRegistries);
+      if (matchingRegistry) {
+        targetCredential = localRegistryToCredential(matchingRegistry);
+      }
+    }
+    if (targetCredential) {
+      setBrowserCredential(targetCredential);
+      setBrowserVisible(true);
+    } else {
+      message.error('解析镜像仓库失败，请检查仓库配置');
+    }
+  }, [allRegistries, dockerRegistries, form, message]);
 
   const syncContainerEditorToForm = useCallback(
     (container: Partial<WorkloadContainerFormValue> | undefined) => {

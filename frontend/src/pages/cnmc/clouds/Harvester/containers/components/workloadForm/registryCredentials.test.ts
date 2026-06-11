@@ -1,5 +1,6 @@
 import {
   buildMergedRegistryList,
+  filterDockerRegistryEntries,
   findRegistryForImage,
   localRegistryToCredential,
   parseImageRegistryHost,
@@ -67,6 +68,19 @@ describe('buildMergedRegistryList', () => {
       name: 'harbor',
       harborId: 'h1',
     });
+  });
+});
+
+describe('filterDockerRegistryEntries', () => {
+  it('excludes harbor registries from docker registry browser list', () => {
+    const list = buildMergedRegistryList(
+      [{ id: '1', name: 'local-reg', server: '10.0.0.1:5000', insecure: true }],
+      [],
+      [{ id: 'h1', name: 'harbor', url: 'https://cloudhci.harbor.local', username: 'admin' }],
+    );
+    const filtered = filterDockerRegistryEntries(list);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].source).toBe('localStorage');
   });
 });
 
