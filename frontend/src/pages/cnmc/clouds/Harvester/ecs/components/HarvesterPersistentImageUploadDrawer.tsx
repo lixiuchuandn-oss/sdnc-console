@@ -4,18 +4,23 @@
 import React, { forwardRef, useCallback, useImperativeHandle, useRef, useSyncExternalStore } from 'react';
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
-import type { HarvesterImageUploadTask } from '../../../../../../services/harvesterApi';
+import type {
+  HarvesterImageDownloadTask,
+  HarvesterImageUploadTask,
+} from '../../../../../../services/harvesterApi';
 import {
   ImageUploadTasksDrawer,
   type ImageUploadTasksDrawerHandle,
 } from './ImageUploadTasksDrawer';
 import {
+  applyDownloadTaskPatchToStore,
   applyUploadTaskPatchToStore,
   ensureImageUploadTasksPolling,
   getImageUploadTasksSnapshot,
   registerImageUploadTasksReload,
   registerImageUploadTasksSubscriber,
   reloadImageUploadTasksFromStore,
+  removeDownloadTaskFromStore,
   removeUploadTaskFromStore,
   subscribeImageUploadTasks,
   unregisterImageUploadTasksReload,
@@ -25,6 +30,7 @@ import {
   hydrateUploadTasksFromSessionCache,
   reloadUploadTasksForCloud,
 } from '../lib/uploadTaskReload';
+
 export type HarvesterPersistentImageUploadDrawerProps = {
   cloudId: string;
   /** ImagesSection 挂载时可注入，用于触发库存刷新等副作用 */
@@ -54,9 +60,8 @@ export const HarvesterPersistentImageUploadDrawer = forwardRef<
     [cloudId],
   );
   const getSnapshot = useCallback(() => getImageUploadTasksSnapshot(cloudId), [cloudId]);
-  const { uploadTasks, uploadTasksLoading } = useSyncExternalStore(
+  const { uploadTasks, downloadTasks, uploadTasksLoading } = useSyncExternalStore(
     subscribe,
-    getSnapshot,
     getSnapshot,
   );
 
@@ -106,6 +111,21 @@ export const HarvesterPersistentImageUploadDrawer = forwardRef<
     resumeFileInputRef.current?.click();
   }, []);
 
+  const handleDownloadTaskChange = useCallback(
+    (task: HarvesterImageDownloadTask) => {
+      applyDownloadTaskPatchToStore(cloudId, task);
+    },
+    [cloudId],
+  );
+
+  const handleDownloadTaskRemove = useCallback(
+    (taskId: string) => {
+      removeDownloadTaskFromStore(cloudId, taskId);
+      innerDrawerRef.current?.removeDownloadTask(taskId);
+    },
+    [cloudId],
+  );
+
   const handleResumeFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -135,10 +155,13 @@ export const HarvesterPersistentImageUploadDrawer = forwardRef<
         hasImagesWrite={hasImagesWrite}
         ensureImagesWrite={ensureImagesWrite}
         uploadTasks={uploadTasks}
+        downloadTasks={downloadTasks}
         uploadTasksLoading={uploadTasksLoading}
         reloadUploadTasks={reloadUploadTasks}
         onListTaskChange={handleListTaskChange}
         onListTaskRemove={handleListTaskRemove}
+        onDownloadTaskChange={handleDownloadTaskChange}
+        onDownloadTaskRemove={handleDownloadTaskRemove}
         resumeTaskRef={resumeTaskRef}
         onPickResumeFile={handlePickResumeFile}
       />

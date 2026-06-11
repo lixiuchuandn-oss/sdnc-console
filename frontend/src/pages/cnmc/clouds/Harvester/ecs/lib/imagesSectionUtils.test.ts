@@ -1,4 +1,6 @@
 import {
+  buildTenantImageNamespaceSet,
+  canTenantOperateImage,
   clusterReportedSizeLooksLikeVirtualCapacity,
   filterAndSortImages,
   formatImageSizeGb,
@@ -95,5 +97,13 @@ describe('imagesSectionUtils', () => {
     );
     expect(rows).toHaveLength(1);
     expect(getImageRowId(rows[0])).toBe('beta');
+  });
+
+  it('canTenantOperateImage matches metadata.namespace to tenant namespaces', () => {
+    const tenantNs = buildTenantImageNamespaceSet(['proj-a', 'proj-b']);
+    const own = { metadata: { name: 'img-1', namespace: 'proj-a' } };
+    const other = { metadata: { name: 'img-2', namespace: 'other-ns' } };
+    expect(canTenantOperateImage(own, tenantNs)).toBe(true);
+    expect(canTenantOperateImage(other, tenantNs)).toBe(false);
   });
 });

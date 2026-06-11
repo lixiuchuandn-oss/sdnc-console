@@ -30,6 +30,8 @@ import {
   IMAGE_STATUS_FILTER_OPTIONS,
 } from '../lib/imagesSectionConstants';
 import {
+  buildTenantImageNamespaceSet,
+  canTenantOperateImage,
   filterAndSortImages,
   getImageRowId,
   imageStatusLabelZh,
@@ -52,6 +54,9 @@ import {
 } from '../../shared/lib/harvesterSectionRefresh';
 import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { getApiErrorMessage } from '../../../../../../services/api';
+import { startImageDownloadTaskFromRecord } from '../lib/images/imageDownload';
+import { IMAGE_DOWNLOAD_CONCURRENCY_LIMIT_MESSAGE } from '../lib/images/imageDownloadTaskCore';
 
 type Props = {
   cloudId: string;
@@ -111,6 +116,14 @@ const ImagesSection: React.FC<Props> = ({
       .map((ns) => ({ label: ns, value: ns }));
   }, [isTenant, namespacesOptions, isPublicNamespace]);
 
+  const tenantNamespaceSet = useMemo(
+    () =>
+      isTenant
+        ? buildTenantImageNamespaceSet(namespacesOptions, { isPublicNamespace })
+        : undefined,
+    [isTenant, namespacesOptions, isPublicNamespace],
+  );
+
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -120,6 +133,7 @@ const ImagesSection: React.FC<Props> = ({
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [labelEditModalOpen, setLabelEditModalOpen] = useState(false);
   const [labelEditRecord, setLabelEditRecord] = useState<ImageListRecord | null>(null);
+  const [downloadImageLoadingKey, setDownloadImageLoadingKey] = useState<string | null>(null);
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
@@ -139,6 +153,7 @@ const ImagesSection: React.FC<Props> = ({
     onImagesInventoryReload,
     hasImagesWrite,
     ensureImagesWrite,
+    tenantNamespaceSet: isTenant ? tenantNamespaceSet : undefined,
   });
 
   const fallbackUploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
@@ -162,6 +177,32 @@ const ImagesSection: React.FC<Props> = ({
     [openYamlDrawer],
   );
 
+  const handleDownloadImage = useCallback(
+    (record: ImageListRecord) => {
+      const rowKey = getImageRowId(record);
+      if (!rowKey || downloadImageLoadingKey) return;
+      setDownloadImageLoadingKey(rowKey);
+      void startImageDownloadTaskFromRecord(cloudId, record)
+        .then((task) => {
+          uploadDrawerRef.current?.upsertDownloadTask(task);
+          uploadDrawerRef.current?.openDrawer(true);
+          message.success('已创建下载任务，拉取完成后可在「镜像任务」中下载到本地');
+        })
+        .catch((e: unknown) => {
+          const errMsg = getApiErrorMessage(e, '创建下载任务失败');
+          if (errMsg === IMAGE_DOWNLOAD_CONCURRENCY_LIMIT_MESSAGE) {
+            message.warning(errMsg);
+          } else {
+            message.error(errMsg);
+          }
+        })
+        .finally(() => {
+          setDownloadImageLoadingKey(null);
+        });
+    },
+    [cloudId, downloadImageLoadingKey, uploadDrawerRef],
+  );
+
   const mergedImages = useMemo(
     () => mergeUploadTasksIntoImageList(localImages, listTaskList, { isPublicNamespace }),
     [localImages, listTaskList, isPublicNamespace],
@@ -181,6 +222,7 @@ const ImagesSection: React.FC<Props> = ({
     () =>
       buildImagesTableColumns({
         isTenant,
+        tenantNamespaceSet,
         hasImagesWrite,
         ensureImagesWrite,
         vms,
@@ -195,9 +237,12 @@ const ImagesSection: React.FC<Props> = ({
           const next = await handleSyncUploadTask(r);
           if (next?.id) uploadDrawerRef.current?.upsertTask(next);
         },
+        onDownloadImage: (r) => handleDownloadImage(r),
+        downloadImageLoadingKey,
       }),
     [
       isTenant,
+      tenantNamespaceSet,
       hasImagesWrite,
       ensureImagesWrite,
       vms,
@@ -205,6 +250,8 @@ const ImagesSection: React.FC<Props> = ({
       handleOpenYaml,
       handleDeleteRow,
       handleSyncUploadTask,
+      handleDownloadImage,
+      downloadImageLoadingKey,
       uploadDrawerRef,
     ],
   );
@@ -311,7 +358,7 @@ const ImagesSection: React.FC<Props> = ({
               uploadDrawerRef.current?.openDrawer();
             }}
           >
-            上传任务
+            镜像任务
           </Button>
           <WriteGuard canWrite={hasImagesWrite}>
             <Tooltip title={selectedKeys.length === 0 ? '请先选择镜像' : undefined}>
@@ -377,7 +424,14 @@ const ImagesSection: React.FC<Props> = ({
         rowKey={(r) =>
           isTowerUploadVirtualRow(r) ? getTowerUploadTaskIdFromRow(r) : getImageRowId(r)
         }
-        rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
+        rowSelection={{
+          selectedRowKeys: selectedKeys,
+          onChange: setSelectedKeys,
+          getCheckboxProps: (r: ImageListRecord) =>
+            isTenant && tenantNamespaceSet && !canTenantOperateImage(r, tenantNamespaceSet)
+              ? { disabled: true }
+              : {},
+        }}
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}

@@ -211,12 +211,8 @@ export function buildPciDevicesTableColumns(
       key: 'actions',
       fixed: 'right',
       render: (_: unknown, r) => {
-        const row = r as Record<string, unknown> & { links?: { view?: string } };
         const items = [
           ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }] : []),
-          ...(row?.links?.view
-            ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(row.links!.view!, '_blank') }]
-            : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },

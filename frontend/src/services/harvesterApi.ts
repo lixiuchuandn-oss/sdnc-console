@@ -638,6 +638,70 @@ export const checkHarvesterImageUploadDiskSpace = async (
   );
 };
 
+export type HarvesterImageDownloadTask = {
+  id: string;
+  cloudId: string;
+  namespace: string;
+  imageName: string;
+  displayName?: string;
+  filename?: string;
+  fileSize?: number;
+  bytesDownloaded?: number;
+  taskStatus: 'pending' | 'fetching' | 'ready' | 'failed' | 'cancelled';
+  progress?: number;
+  errorMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+export const createHarvesterImageDownloadTask = async (
+  cloudId: string,
+  payload: {
+    namespace: string;
+    imageName: string;
+    displayName?: string;
+    downloadLink?: string;
+    imageType?: string;
+    diskFormat?: string;
+  },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks`,
+    payload,
+    { enableRetry: false },
+  );
+};
+
+export const fetchHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}`,
+    { skipCache: true },
+  );
+};
+
+export const fetchHarvesterImageDownloadTasks = async (cloudId: string, limit = 20) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks?limit=${Math.max(1, Math.min(100, limit))}`,
+    { skipCache: true },
+  );
+};
+
+export const cancelHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+    { enableRetry: false },
+  );
+};
+
+export const deleteHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}`,
+  );
+};
+
 export const fetchHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`, {
     skipCache: true,

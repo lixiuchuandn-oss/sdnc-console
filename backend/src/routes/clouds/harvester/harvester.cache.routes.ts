@@ -59,6 +59,7 @@ import {
   harvesterNodeMaintenancePrecheckHandler,
   harvesterNodeMaintenanceUnhealthyVmsHandler,
 } from './handlers/node-maintenance.handlers';
+import { harvesterAllNodesHmsShutdownHandler } from './handlers/node-hms-shutdown.handlers';
 import {
   harvesterDrsMetricRuleCrCreateHandler,
   harvesterDrsMetricRuleCrDeleteHandler,
@@ -97,15 +98,25 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const cleanPath = path.startsWith('/') ? path : `/${path}`;
           let base = cloud.endpoint.replace(/\/+$/, '');
 
-          // 处理 K8s 原生 API 路径：自动去除 endpoint 版本后缀
-          if (
-            (cleanPath.startsWith('/api/') || cleanPath.startsWith('/apis/')) &&
-            !base.includes('/k8s/clusters/')
-          ) {
-            base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
-          }
+          // Rancher / Steve：/k8s/clusters/... 与 /v1/harvester/... 须挂在 origin 上，不能拼在 /v3 后
+          if (cleanPath.startsWith('/k8s/clusters/') || cleanPath.startsWith('/v1/')) {
+            try {
+              const u = new URL(base);
+              target = `${u.protocol}//${u.host}${cleanPath}`;
+            } catch {
+              target = `${base}${cleanPath}`;
+            }
+          } else {
+            // 处理 K8s 原生 API 路径：自动去除 endpoint 版本后缀
+            if (
+              (cleanPath.startsWith('/api/') || cleanPath.startsWith('/apis/')) &&
+              !base.includes('/k8s/clusters/')
+            ) {
+              base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
+            }
 
-          target = `${base}${cleanPath}`;
+            target = `${base}${cleanPath}`;
+          }
         }
 
         const data = await requestJson(
@@ -328,6 +339,13 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     harvesterSdrsTaskCreateHandler,
   );
 
+  // 一键关机全部计算节点（HMS POST /v1/hms/node/shutdown 代理；须在 nodes/:name 之前注册）
+  router.post(
+    '/:id/resources/harvester/nodes/shutdown',
+    checkAdminPermission,
+    harvesterAllNodesHmsShutdownHandler,
+  );
+
   // 物理节点维护模式（Harvester Steve action 代理）
   router.post(
     '/:id/resources/harvester/nodes/:name/maintenance/precheck',
@@ -349,7 +367,6 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     checkAdminPermission,
     harvesterNodeMaintenanceDisableHandler,
   );
-
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
   registerHarvesterCacheRoutesProvider(router, checkAdminPermission);
 

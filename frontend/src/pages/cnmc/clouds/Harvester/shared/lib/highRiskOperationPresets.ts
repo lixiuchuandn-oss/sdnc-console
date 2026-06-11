@@ -38,6 +38,11 @@ export const NODE_MAINTENANCE_RISK_ITEMS = [
   '强制模式将关机节点上全部虚拟机，并覆盖 maintain-mode-strategy。',
 ] as const;
 
+export const NODE_SHUTDOWN_ALL_RISK_ITEMS = [
+  '将对集群内全部计算节点下发关机指令，整池将不可用。',
+  '一键关机会先把所有虚拟机关机后再关机节点，进行中的任务会强制关闭，建议手动关闭所有虚拟机和进行中的任务后再执行。',
+] as const;
+
 export const CHANGE_OS_RISK_ITEMS = [
   '将删除当前系统盘并重建实例，系统盘数据将会丢失。',
   '虚拟机须重启后新系统盘才会生效；请在业务低峰期执行。',

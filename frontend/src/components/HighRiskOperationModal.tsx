@@ -21,6 +21,8 @@ export type HighRiskOperationModalProps = {
   description?: React.ReactNode;
   /** 风险要点列表（展示为无序列表） */
   riskItems?: readonly string[];
+  /** 须以红色展示的 riskItems 下标（0-based） */
+  dangerRiskItemIndices?: readonly number[];
   /** 预检/详情等自定义区块 */
   extra?: React.ReactNode;
   impactAck?: {
@@ -65,6 +67,7 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
   alert,
   description,
   riskItems,
+  dangerRiskItemIndices,
   extra,
   impactAck,
   typeConfirm,
@@ -147,8 +150,14 @@ const HighRiskOperationModal: React.FC<HighRiskOperationModalProps> = ({
                     风险提示
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 20, color: 'rgba(0,0,0,.65)' }}>
-                    {riskItems.map((item) => (
-                      <li key={item} style={{ marginBottom: 4 }}>
+                    {riskItems.map((item, index) => (
+                      <li
+                        key={`risk-${index}`}
+                        style={{
+                          marginBottom: 4,
+                          color: dangerRiskItemIndices?.includes(index) ? '#ff4d4f' : undefined,
+                        }}
+                      >
                         {item}
                       </li>
                     ))}
