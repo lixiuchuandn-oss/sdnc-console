@@ -26,6 +26,7 @@ import {
 import {
   uploadImageToHarbor,
   getHarborUploadTask,
+  type HarborProjectRef,
 } from '../shared/harborApi';
 
 const { Dragger } = Upload;
@@ -44,7 +45,7 @@ interface UploadFile {
 interface Props {
   visible: boolean;
   harborId: string;
-  projectName: string;
+  project: HarborProjectRef;
   existingRepos: string[];
   onClose: () => void;
   onSuccess: () => void;
@@ -53,7 +54,7 @@ interface Props {
 const HarborUploadModal: React.FC<Props> = ({
   visible,
   harborId,
-  projectName,
+  project,
   existingRepos,
   onClose,
   onSuccess,
@@ -78,7 +79,7 @@ const HarborUploadModal: React.FC<Props> = ({
       for (const file of uploadingFiles) {
         if (!file.taskId) continue;
         try {
-          const task = await getHarborUploadTask(harborId, projectName, file.taskId);
+          const task = await getHarborUploadTask(harborId, project, file.taskId);
           setUploadFiles((prev) =>
             prev.map((f) =>
               f.uid === file.uid
@@ -107,7 +108,7 @@ const HarborUploadModal: React.FC<Props> = ({
 
     const timer = setInterval(pollTasks, 2000);
     return () => clearInterval(timer);
-  }, [uploadFiles, harborId, projectName]);
+  }, [uploadFiles, harborId, project]);
 
   const handleFileChange = (files: File[]) => {
     const newFiles: UploadFile[] = files.map((file) => ({
@@ -161,7 +162,7 @@ const HarborUploadModal: React.FC<Props> = ({
         tag: f.tag,
       }));
 
-      const result = await uploadImageToHarbor(harborId, projectName, files);
+      const result = await uploadImageToHarbor(harborId, project, files);
 
       setUploadFiles((prev) =>
         prev.map((f, index) => ({
@@ -305,7 +306,7 @@ const HarborUploadModal: React.FC<Props> = ({
 
   return (
     <Modal
-      title={`上传镜像到项目 ${projectName}`}
+      title={`上传镜像到项目 ${project.name}`}
       open={visible}
       onOk={handleUpload}
       onCancel={handleClose}

@@ -14,6 +14,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import type { HarborProjectMember } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
 import { 
   getHarborProjectMembers, 
   addHarborProjectMember, 
@@ -27,7 +28,7 @@ import {
 
 interface Props {
   harborId: string;
-  projectName: string;
+  project: HarborProjectRef;
 }
 
 /**
@@ -40,7 +41,7 @@ const ROLE_MAP: Record<number, { name: string; color: string }> = {
   4: { name: '项目管理员', color: 'red' },
 };
 
-const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
+const MembersSection: React.FC<Props> = ({ harborId, project }) => {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<HarborProjectMember[]>([]);
@@ -54,7 +55,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
   const loadMembers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getHarborProjectMembers(harborId, projectName);
+      const res = await getHarborProjectMembers(harborId, project);
       setMembers(Array.isArray(res) ? res : []);
     } catch (e: any) {
       console.error('加载成员列表失败:', e);
@@ -62,7 +63,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectName, message]);
+  }, [harborId, project, message]);
 
   useEffect(() => {
     loadMembers();
@@ -73,7 +74,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
    */
   const handleAddMember = useCallback(async (values: { username: string; roleId: number }) => {
     try {
-      await addHarborProjectMember(harborId, projectName, {
+      await addHarborProjectMember(harborId, project, {
         username: values.username,
         roleId: values.roleId,
       });
@@ -84,7 +85,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
     } catch (e: any) {
       message.error(e?.message || '添加成员失败');
     }
-  }, [harborId, projectName, message, form, loadMembers]);
+  }, [harborId, project, message, form, loadMembers]);
 
   /**
    * 删除成员
@@ -97,7 +98,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
       riskItems: DELETE_RISK_ITEMS,
       onConfirm: async () => {
         try {
-          await deleteHarborProjectMember(harborId, projectName, member.id);
+          await deleteHarborProjectMember(harborId, project, member.id);
           message.success('成员已移除');
           loadMembers();
         } catch (e: any) {
@@ -105,7 +106,7 @@ const MembersSection: React.FC<Props> = ({ harborId, projectName }) => {
         }
       },
     }).catch(() => {});
-  }, [harborId, projectName, message, loadMembers]);
+  }, [harborId, project, message, loadMembers]);
 
   /**
    * 表格列定义

@@ -28,7 +28,8 @@ import {
   getHarborSelectorProjects, 
   getHarborSelectorRepositories, 
   getHarborSelectorTags, 
-  syncHarborSecret 
+  syncHarborSecret,
+  type HarborSelectorProjectRef,
 } from '../../../../../../services/harvesterApi';
 
 const { Text } = Typography;
@@ -67,7 +68,7 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   const [harborLoading, setHarborLoading] = useState(false);
 
   // 项目列表
-  const [projects, setProjects] = useState<string[]>([]);
+  const [projects, setProjects] = useState<HarborSelectorProjectRef[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>();
   const [projectLoading, setProjectLoading] = useState(false);
 
@@ -122,9 +123,14 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
     try {
       const res = await getHarborSelectorProjects(harborId);
       const list = res?.data || res || [];
-      // 后端返回对象数组 { name, projectId, repoCount }，提取 name 字段
-      const names = Array.isArray(list) ? list.map((p: any) => p.name || p) : [];
-      setProjects(names);
+      const normalized = Array.isArray(list)
+        ? list.map((p: any) =>
+            typeof p === 'string'
+              ? { name: p }
+              : { name: p.name, projectId: p.projectId ?? p.project_id },
+          )
+        : [];
+      setProjects(normalized);
     } catch (e: any) {
       message.error(e?.message || '加载项目列表失败');
       setProjects([]);
@@ -136,16 +142,18 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   // 加载仓库列表
   useEffect(() => {
     if (selectedHarbor && selectedProject) {
-      loadRepositories(selectedHarbor, selectedProject);
+      const projectRef = projects.find((p) => (typeof p === 'string' ? p : p.name) === selectedProject)
+        ?? selectedProject;
+      loadRepositories(selectedHarbor, projectRef);
       // 重置下级选择
       setSelectedRepo(undefined);
       setSelectedTag(undefined);
       setRepositories([]);
       setTags([]);
     }
-  }, [selectedHarbor, selectedProject]);
+  }, [selectedHarbor, selectedProject, projects]);
 
-  const loadRepositories = async (harborId: string, project: string) => {
+  const loadRepositories = async (harborId: string, project: HarborSelectorProjectRef) => {
     setRepoLoading(true);
     try {
       const res = await getHarborSelectorRepositories(harborId, project);
@@ -164,14 +172,16 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   // 加载标签列表
   useEffect(() => {
     if (selectedHarbor && selectedProject && selectedRepo) {
-      loadTags(selectedHarbor, selectedProject, selectedRepo);
+      const projectRef = projects.find((p) => (typeof p === 'string' ? p : p.name) === selectedProject)
+        ?? selectedProject;
+      loadTags(selectedHarbor, projectRef, selectedRepo);
       // 重置下级选择
       setSelectedTag(undefined);
       setTags([]);
     }
-  }, [selectedHarbor, selectedProject, selectedRepo]);
+  }, [selectedHarbor, selectedProject, selectedRepo, projects]);
 
-  const loadTags = async (harborId: string, project: string, repo: string) => {
+  const loadTags = async (harborId: string, project: HarborSelectorProjectRef, repo: string) => {
     setTagLoading(true);
     try {
       const res = await getHarborSelectorTags(harborId, project, repo);
@@ -270,7 +280,10 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
           placeholder={selectedHarbor ? "选择项目" : "请先选择 Harbor 实例"}
           value={selectedProject}
           onChange={setSelectedProject}
-          options={projects.map(p => ({ value: p, label: p }))}
+          options={projects.map((p) => {
+            const name = typeof p === 'string' ? p : p.name;
+            return { value: name, label: name };
+          })}
           style={{ width: '100%' }}
           loading={projectLoading}
           disabled={!selectedHarbor}

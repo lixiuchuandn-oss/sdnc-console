@@ -16,6 +16,7 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { HarborRepository } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
 
 // 懒加载 Tab 组件
 const ArtifactsSection = React.lazy(() => import('../sections/ArtifactsSection'));
@@ -23,7 +24,7 @@ const ArtifactsSection = React.lazy(() => import('../sections/ArtifactsSection')
 interface Props {
   visible: boolean;
   harborId: string;
-  projectName: string;
+  project: HarborProjectRef;
   repository: HarborRepository | null;
   cloudId: string;
   onClose: () => void;
@@ -36,7 +37,7 @@ interface Props {
 const RepositoryDetailDrawer: React.FC<Props> = ({
   visible,
   harborId,
-  projectName,
+  project,
   repository,
   cloudId: _cloudId,
   onClose,
@@ -95,7 +96,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
             </Space>
           </Descriptions.Item>
           <Descriptions.Item label="项目">
-            <Tag color="blue">{projectName}</Tag>
+            <Tag color="blue">{project.name}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="制品数量">
             {repository.artifactCount || 0}
@@ -149,7 +150,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
               <React.Suspense fallback={<Spin />}>
                 <ArtifactsSection 
                   harborId={harborId} 
-                  projectName={projectName}
+                  project={project}
                   repositoryName={repository.name}
                 />
               </React.Suspense>

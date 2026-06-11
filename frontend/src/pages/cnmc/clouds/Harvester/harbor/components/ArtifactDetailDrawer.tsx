@@ -7,7 +7,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Drawer, Descriptions, Tabs, Table, Tag, Button, Space, message, Spin, Input } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
-import { getHarborVulnerabilities, getHarborTags, addHarborTag, deleteHarborTag } from '../shared/harborApi';
+import {
+  getHarborVulnerabilities,
+  getHarborTags,
+  addHarborTag,
+  deleteHarborTag,
+  type HarborProjectRef,
+} from '../shared/harborApi';
 import type { HarborArtifact, HarborVulnerabilityItem, HarborTag } from '../types';
 import {
   confirmHighRiskDelete,
@@ -21,8 +27,8 @@ interface Props {
   artifact: HarborArtifact | null;
   /** Harbor 实例 ID */
   harborId: string;
-  /** 项目名称 */
-  projectName: string;
+  /** 项目引用（纯数字项目名需携带 projectId） */
+  project: HarborProjectRef;
   /** 仓库名称 */
   repositoryName: string;
   /** 关闭回调 */
@@ -36,7 +42,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   visible,
   artifact,
   harborId,
-  projectName,
+  project,
   repositoryName,
   onClose,
 }) => {
@@ -61,8 +67,8 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
     setLoading(true);
     try {
       const [vulnRes, tagsRes] = await Promise.all([
-        getHarborVulnerabilities(harborId, projectName, repositoryName, artifact.digest),
-        getHarborTags(harborId, projectName, repositoryName, artifact.digest),
+        getHarborVulnerabilities(harborId, project, repositoryName, artifact.digest),
+        getHarborTags(harborId, project, repositoryName, artifact.digest),
       ]);
       
       // 处理漏洞数据
@@ -82,7 +88,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [artifact, harborId, projectName, repositoryName]);
+  }, [artifact, harborId, project, repositoryName]);
 
   useEffect(() => {
     if (visible && artifact) {
@@ -148,7 +154,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
       return;
     }
     try {
-      await addHarborTag(harborId, projectName, repositoryName, artifact.digest, newTagName.trim());
+      await addHarborTag(harborId, project, repositoryName, artifact.digest, newTagName.trim());
       message.success('标签添加成功');
       setAddTagVisible(false);
       setNewTagName('');
@@ -164,7 +170,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   const handleDeleteTag = async (tagName: string) => {
     if (!artifact) return;
     try {
-      await deleteHarborTag(harborId, projectName, repositoryName, artifact.digest, tagName);
+      await deleteHarborTag(harborId, project, repositoryName, artifact.digest, tagName);
       message.success('标签已删除');
       loadDetails();
     } catch (e: any) {
@@ -180,7 +186,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
     try {
       await Promise.all(
         selectedTagKeys.map((tagName) =>
-          deleteHarborTag(harborId, projectName, repositoryName, artifact.digest, tagName as string)
+          deleteHarborTag(harborId, project, repositoryName, artifact.digest, tagName as string)
         )
       );
       message.success(`已删除 ${selectedTagKeys.length} 个标签`);

@@ -61,6 +61,8 @@ export interface HarborProject {
   projectId: number;
   /** 项目名称 */
   name: string;
+  /** 是否公开（Harbor API 顶层字段） */
+  public?: boolean;
   /** 所有者名称 */
   ownerName?: string;
   /** 仓库数量 */

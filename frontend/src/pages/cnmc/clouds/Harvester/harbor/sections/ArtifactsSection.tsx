@@ -14,13 +14,14 @@ import {
   DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
 import type { HarborArtifact } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
 import ArtifactDetailDrawer from '../components/ArtifactDetailDrawer';
 
 interface Props {
   /** Harbor 实例 ID */
   harborId: string;
-  /** 项目名称 */
-  projectName: string;
+  /** 项目引用（纯数字项目名需携带 projectId） */
+  project: HarborProjectRef;
   /** 仓库名称 */
   repositoryName: string;
 }
@@ -28,7 +29,7 @@ interface Props {
 /**
  * 制品列表组件
  */
-const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryName }) => {
+const ArtifactsSection: React.FC<Props> = ({ harborId, project, repositoryName }) => {
   const [artifacts, setArtifacts] = useState<HarborArtifact[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -44,7 +45,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
   const loadArtifacts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getHarborArtifacts(harborId, projectName, repositoryName, {
+      const res = await getHarborArtifacts(harborId, project, repositoryName, {
         withTag: true,
         withScanOverview: true,
       });
@@ -57,7 +58,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectName, repositoryName]);
+  }, [harborId, project, repositoryName]);
 
   /**
    * 查看制品详情
@@ -72,7 +73,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
    */
   const handleDelete = async (artifact: HarborArtifact) => {
     try {
-      await deleteHarborArtifact(harborId, projectName, repositoryName, artifact.digest);
+      await deleteHarborArtifact(harborId, project, repositoryName, artifact.digest);
       message.success('制品已删除');
       loadArtifacts();
     } catch (e: any) {
@@ -96,7 +97,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
       const tagName = newTagName.trim();
       await Promise.all(
         selectedRowKeys.map((digest) =>
-          addHarborTag(harborId, projectName, repositoryName, digest as string, tagName)
+          addHarborTag(harborId, project, repositoryName, digest as string, tagName)
         )
       );
       message.success(`已为 ${selectedRowKeys.length} 个制品添加标签 "${tagName}"`);
@@ -315,7 +316,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
         visible={drawerVisible}
         artifact={selectedArtifact}
         harborId={harborId}
-        projectName={projectName}
+        project={project}
         repositoryName={repositoryName}
         onClose={() => setDrawerVisible(false)}
       />

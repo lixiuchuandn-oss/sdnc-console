@@ -1,7 +1,7 @@
 /**
  * Harbor 项目管理 Section
  *
- * 展示 Harbor 项目列表，支持创建、编辑、删除项目
+ * 展示 Harbor 项目列表，支持创建、删除项目
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -15,6 +15,8 @@ import {
 } from '@ant-design/icons';
 import type { HarborRegistry, HarborProject, HarborProjectForm } from '../types';
 import { getHarborProjects, createHarborProject, deleteHarborProject } from '../shared/harborApi';
+import { isHarborProjectPublic } from '../shared/projectVisibility';
+import { getApiErrorMessage } from '../../../../../../services/api';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import {
   confirmHighRiskDelete,
@@ -81,12 +83,18 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
         description: `确定要删除项目 "${project.name}" 吗？删除后不可恢复。`,
         riskItems: DELETE_RISK_ITEMS,
         onConfirm: async () => {
+          if ((project.repoCount ?? 0) > 0) {
+            message.error(
+              `无法删除项目「${project.name}」：项目下仍有 ${project.repoCount} 个镜像仓库。请先进入该项目，删除全部仓库与镜像后再试。`,
+            );
+            return;
+          }
           try {
             await deleteHarborProject(harbor.id, project);
             message.success('项目已删除');
             loadProjects();
-          } catch (e: any) {
-            message.error(e?.message || '删除项目失败');
+          } catch (e: unknown) {
+            message.error(getApiErrorMessage(e, '删除项目失败'));
           }
         },
       }).catch(() => {});
@@ -108,7 +116,7 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
       key: 'public',
       width: 120,
       render: (_: any, record: HarborProject) => {
-        const isPublic = record.metadata?.public === 'public';
+        const isPublic = isHarborProjectPublic(record);
         return (
           <Tag color={isPublic ? 'green' : 'blue'} icon={isPublic ? <UnlockOutlined /> : <LockOutlined />}>
             {isPublic ? '公开' : '私有'}
@@ -147,11 +155,6 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
             key: 'repositories',
             label: '查看详情',
             onClick: () => onViewProject?.(record),
-          },
-          {
-            key: 'edit',
-            label: '编辑',
-            onClick: () => message.info('编辑功能开发中'),
           },
           {
             key: 'delete',

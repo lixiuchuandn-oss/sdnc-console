@@ -13,8 +13,65 @@ import { HarborProxyService } from '../../services/harbor/HarborProxyService';
 import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
+import {
+  resolveHarborProjectRef,
+  resolveHarborProjectRefAsync,
+  buildHarborProjectContext,
+} from './harborProjectRef';
 
 const harborLog = logger.child('HarborProjects');
+
+/** 解析创建/更新请求中的 public 字段 */
+function parseHarborPublicValue(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'public';
+  }
+  return false;
+}
+
+/** 解析 Harbor 删除项目失败原因，返回可读中文提示 */
+function resolveHarborDeleteProjectError(
+  error: any,
+  projectName: string,
+): { httpStatus: number; message: string } {
+  const harborStatus = Number(error?.response?.status) || 500;
+  const data = error?.response?.data;
+  const harborDetail =
+    (Array.isArray(data?.errors) && data.errors[0]?.message) ||
+    (typeof data?.message === 'string' ? data.message : '') ||
+    '';
+
+  if (harborStatus === 412) {
+    const lowered = String(harborDetail).toLowerCase();
+    let reason = '项目下仍有镜像仓库、Helm Chart 或其他制品';
+    if (lowered.includes('helm')) {
+      reason = '项目下仍有 Helm Chart';
+    } else if (lowered.includes('repository') || lowered.includes('not empty') || lowered.includes('empty')) {
+      reason = '项目下仍有镜像仓库';
+    }
+    return {
+      httpStatus: 412,
+      message: `无法删除项目「${projectName}」：${reason}。请先进入该项目，删除全部仓库与镜像后再试。`,
+    };
+  }
+
+  if (harborStatus === 403) {
+    return { httpStatus: 403, message: `无权限删除项目「${projectName}」` };
+  }
+  if (harborStatus === 404) {
+    return { httpStatus: 404, message: `项目「${projectName}」不存在或已被删除` };
+  }
+
+  return {
+    httpStatus: harborStatus >= 400 && harborStatus < 600 ? harborStatus : 500,
+    message: harborDetail
+      ? `删除项目「${projectName}」失败：${harborDetail}`
+      : `删除项目「${projectName}」失败`,
+  };
+}
 
 const router = Router();
 
@@ -151,6 +208,7 @@ router.get('/registries/:id/projects', async (req: AuthRequest, res: Response) =
     const transformedProjects = projects.map((p: any) => ({
       projectId: p.project_id,
       name: p.name,
+      public: p.public,
       ownerName: p.owner_name,
       repoCount: p.repo_count,
       metadata: p.metadata,
@@ -190,20 +248,15 @@ router.post('/registries/:id/projects', async (req: AuthRequest, res: Response) 
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    // 转换 public 字段：数字 0/1 或字符串 'true'/'false' → 布尔值
-    let publicValue = false;
-    if (typeof isPublic === 'number') {
-      publicValue = isPublic === 1;
-    } else if (typeof isPublic === 'string') {
-      publicValue = isPublic === 'true';
-    } else if (typeof isPublic === 'boolean') {
-      publicValue = isPublic;
-    }
+    const publicValue = parseHarborPublicValue(isPublic);
 
     const project = await result.service.createProject({
       project_name,
       public: publicValue,
-      metadata,
+      metadata: {
+        ...metadata,
+        public: publicValue ? 'true' : 'false',
+      },
     });
 
     harborLog.info(`创建项目: harbor=${id}, project=${project_name}`);
@@ -227,19 +280,21 @@ router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Respo
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, name } = req.params;
-
+    const { id } = req.params;
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const project = await result.service.getProject(name);
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
+    const project = await result.service.getProject(harborProjectRef, projectRef);
 
     // 转换字段名：snake_case -> camelCase
     const transformedProject = {
       projectId: project.project_id,
       name: project.name,
+      public: project.public,
       ownerName: project.owner_name,
       repoCount: project.repo_count,
       metadata: project.metadata,
@@ -249,6 +304,10 @@ router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Respo
 
     res.json({ message: '查询成功', data: transformedProject });
   } catch (error: any) {
+    const status = Number(error?.response?.status);
+    if (status === 404) {
+      return res.status(404).json({ message: '项目不存在或已被删除' });
+    }
     harborLog.error('获取项目详情失败:', error.message);
     res.status(500).json({ message: '获取项目详情失败', error: error.message });
   }
@@ -259,6 +318,7 @@ router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Respo
  * DELETE /api/harbor/registries/:id/projects/:name
  */
 router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Response) => {
+  const { projectRef: pathProjectRef } = resolveHarborProjectRef(req);
   try {
     const perms: string[] = Array.isArray((req.user as any)?.permissions)
       ? (req.user as any).permissions
@@ -267,17 +327,14 @@ router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Re
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, name: projectRef } = req.params;
-    const projectIdQuery = req.query.projectId;
-    const harborProjectRef =
-      projectIdQuery != null && String(projectIdQuery).trim() !== ''
-        ? String(projectIdQuery).trim()
-        : projectRef;
+    const { id } = req.params;
 
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
+
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
 
     await result.service.deleteProject(harborProjectRef);
 
@@ -299,8 +356,9 @@ router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Re
     harborLog.info(`删除项目: harbor=${id}, ref=${harborProjectRef}`);
     res.json({ message: '删除成功' });
   } catch (error: any) {
-    harborLog.error('删除项目失败:', error.message);
-    res.status(500).json({ message: '删除项目失败', error: error.message });
+    const { httpStatus, message: userMessage } = resolveHarborDeleteProjectError(error, pathProjectRef);
+    harborLog.error(`删除项目失败: ${userMessage}`, error?.response?.data ?? error.message);
+    res.status(httpStatus).json({ message: userMessage, error: error.message });
   }
 });
 
@@ -317,20 +375,24 @@ router.get('/registries/:id/projects/:name/summary', async (req: AuthRequest, re
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, name } = req.params;
-
+    const { id } = req.params;
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const summary = await result.service.getProjectSummary(name);
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
+    const summary = await result.service.getProjectSummary(harborProjectRef);
 
     // Harbor summary API 不返回制品数量，需要遍历仓库计算
     let totalArtifacts = 0;
     let totalPulls = 0;
     try {
-      const repositories = await result.service.getRepositories(name, { pageSize: 100 });
+      const repositories = await result.service.getRepositories(harborProjectRef, {
+        pageSize: 100,
+        ...buildHarborProjectContext(projectRef, harborProjectRef),
+      });
       for (const repo of repositories) {
         totalArtifacts += repo.artifact_count || 0;
         totalPulls += repo.pull_count || 0;
@@ -369,15 +431,16 @@ router.get('/registries/:id/projects/:name/members', async (req: AuthRequest, re
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, name } = req.params;
-
+    const { id } = req.params;
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
     harborLog.info(
-      `获取项目成员: harbor=${id}, project=${name}, harbor_user=${result.harbor.username}, url=${result.harbor.url}, pwd_len=${result.harbor.password?.length}`,
+      `获取项目成员: harbor=${id}, project=${projectRef}, harbor_user=${result.harbor.username}, url=${result.harbor.url}, pwd_len=${result.harbor.password?.length}`,
     );
 
     // 先测试基本 API 是否正常，打印完整响应
@@ -391,7 +454,7 @@ router.get('/registries/:id/projects/:name/members', async (req: AuthRequest, re
     }
 
     try {
-      const members = await result.service.getProjectMembers(name);
+      const members = await result.service.getProjectMembers(harborProjectRef);
 
       // 转换字段名：snake_case -> camelCase
       const transformedMembers = members.map((member: any) => ({
@@ -437,7 +500,7 @@ router.post('/registries/:id/projects/:name/members', async (req: AuthRequest, r
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, name } = req.params;
+    const { id } = req.params;
     const { memberName, memberId, role } = req.body;
 
     if (!role) {
@@ -449,13 +512,17 @@ router.post('/registries/:id/projects/:name/members', async (req: AuthRequest, r
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    await result.service.addProjectMember(name, {
+    const { harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
+    await result.service.addProjectMember(harborProjectRef, {
       member_name: memberName,
       member_group: false,
       role_id: role,
     });
 
-    harborLog.info(`添加项目成员: harbor=${id}, project=${name}, member=${memberName || memberId}`);
+    harborLog.info(
+      `添加项目成员: harbor=${id}, project=${harborProjectRef}, member=${memberName || memberId}`,
+    );
     res.status(201).json({ message: '添加成功' });
   } catch (error: any) {
     harborLog.error('添加项目成员失败:', error.message);
@@ -478,16 +545,17 @@ router.delete(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, name, memberId } = req.params;
-
+      const { id, memberId } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      await result.service.deleteProjectMember(name, Number(memberId));
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
 
-      harborLog.info(`删除项目成员: harbor=${id}, project=${name}, member=${memberId}`);
+      await result.service.deleteProjectMember(harborProjectRef, Number(memberId));
+
+      harborLog.info(`删除项目成员: harbor=${id}, project=${projectRef}, member=${memberId}`);
       res.json({ message: '删除成功' });
     } catch (error: any) {
       harborLog.error('删除项目成员失败:', error.message);
@@ -511,7 +579,7 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project } = req.params;
+      const { id } = req.params;
       const { page, pageSize, q } = req.query;
 
       const result = await getHarborService(id);
@@ -519,10 +587,13 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const repositories = await result.service.getRepositories(project, {
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
+      const repositories = await result.service.getRepositories(harborProjectRef, {
         page: page ? Number(page) : undefined,
         pageSize: pageSize ? Number(pageSize) : undefined,
         q: q ? String(q) : undefined,
+        ...buildHarborProjectContext(projectRef, harborProjectRef),
       });
 
       // 转换字段名：snake_case -> camelCase
@@ -559,17 +630,22 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo } = req.params;
-
+      const { id, repo } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      const repository = await result.service.getRepository(project, decodedRepo);
+      const repository = await result.service.getRepository(
+        harborProjectRef,
+        decodedRepo,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
       // 转换字段名：snake_case -> camelCase
       const transformedRepo = {
@@ -605,23 +681,24 @@ router.delete(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo } = req.params;
-
+      const { id, repo } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      // Harbor 删除仓库需要通过删除所有制品实现
-      await result.service.request({
-        method: 'DELETE',
-        url: `/api/v2.0/projects/${encodeURIComponent(project)}/repositories/${encodeURIComponent(decodedRepo)}`,
-      });
+      await result.service.deleteRepository(
+        harborProjectRef,
+        decodedRepo,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
-      harborLog.info(`删除仓库: harbor=${id}, project=${project}, repo=${decodedRepo}`);
+      harborLog.info(`删除仓库: harbor=${id}, project=${projectRef}, repo=${decodedRepo}`);
       res.json({ message: '删除成功' });
     } catch (error: any) {
       harborLog.error('删除仓库失败:', error.message);
@@ -645,7 +722,7 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo } = req.params;
+      const { id, repo } = req.params;
       const { page, pageSize, q, withTag, withLabel, withScanOverview } = req.query;
 
       const result = await getHarborService(id);
@@ -653,16 +730,19 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      const artifacts = await result.service.getArtifacts(project, decodedRepo, {
+      const artifacts = await result.service.getArtifacts(harborProjectRef, decodedRepo, {
         page: page ? Number(page) : undefined,
         pageSize: pageSize ? Number(pageSize) : undefined,
         q: q ? String(q) : undefined,
         withTag: withTag !== 'false',
         withLabel: withLabel !== 'false',
         withScanOverview: withScanOverview !== 'false',
+        ...buildHarborProjectContext(projectRef, harborProjectRef),
       });
 
       // 转换字段名：snake_case -> camelCase
@@ -697,7 +777,7 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo, ref } = req.params;
+      const { id, repo, ref } = req.params;
       const {
         withTag: _withTag,
         withLabel: _withLabel,
@@ -709,10 +789,17 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      const artifact = await result.service.getArtifact(project, decodedRepo, ref);
+      const artifact = await result.service.getArtifact(
+        harborProjectRef,
+        decodedRepo,
+        ref,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
       // 转换字段名：snake_case -> camelCase
       const transformedArtifact = {
@@ -746,19 +833,25 @@ router.delete(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo, ref } = req.params;
-
+      const { id, repo, ref } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      await result.service.deleteArtifact(project, decodedRepo, ref);
+      await result.service.deleteArtifact(
+        harborProjectRef,
+        decodedRepo,
+        ref,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
-      harborLog.info(`删除制品: harbor=${id}, project=${project}, repo=${decodedRepo}, ref=${ref}`);
+      harborLog.info(`删除制品: harbor=${id}, project=${projectRef}, repo=${decodedRepo}, ref=${ref}`);
       res.json({ message: '删除成功' });
     } catch (error: any) {
       harborLog.error('删除制品失败:', error.message);
@@ -782,7 +875,7 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo, ref } = req.params;
+      const { id, repo, ref } = req.params;
       const { page: _page, pageSize: _pageSize } = req.query;
 
       const result = await getHarborService(id);
@@ -790,10 +883,17 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      const tags = await result.service.getTags(project, decodedRepo, ref);
+      const tags = await result.service.getTags(
+        harborProjectRef,
+        decodedRepo,
+        ref,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
       // 转换字段名：snake_case -> camelCase
       const transformedTags = tags.map((tag: any) => ({
@@ -828,7 +928,7 @@ router.post(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo, ref } = req.params;
+      const { id, repo, ref } = req.params;
       const { name } = req.body;
 
       if (!name) {
@@ -840,13 +940,21 @@ router.post(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      await result.service.createTag(project, decodedRepo, ref, name);
+      await result.service.createTag(
+        harborProjectRef,
+        decodedRepo,
+        ref,
+        name,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
       harborLog.info(
-        `创建标签: harbor=${id}, project=${project}, repo=${decodedRepo}, ref=${ref}, tag=${name}`,
+        `创建标签: harbor=${id}, project=${projectRef}, repo=${decodedRepo}, ref=${ref}, tag=${name}`,
       );
       res.status(201).json({ message: '创建成功' });
     } catch (error: any) {
@@ -871,20 +979,27 @@ router.delete(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo, ref, tag } = req.params;
-
+      const { id, repo, ref, tag } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
-      await result.service.deleteTag(project, decodedRepo, ref, tag);
+      await result.service.deleteTag(
+        harborProjectRef,
+        decodedRepo,
+        ref,
+        tag,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
       harborLog.info(
-        `删除标签: harbor=${id}, project=${project}, repo=${decodedRepo}, ref=${ref}, tag=${tag}`,
+        `删除标签: harbor=${id}, project=${projectRef}, repo=${decodedRepo}, ref=${ref}, tag=${tag}`,
       );
       res.json({ message: '删除成功' });
     } catch (error: any) {
@@ -945,21 +1060,25 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project } = req.params;
-
+      const { id } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const repositories = await result.service.getRepositories(project, { pageSize: 100 });
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
+      const repositories = await result.service.getRepositories(harborProjectRef, {
+        pageSize: 100,
+        ...buildHarborProjectContext(projectRef, harborProjectRef),
+      });
 
       // 简化返回格式（移除仓库名中的项目前缀）
       const simplified = repositories.map((r: any) => {
         // Harbor 返回的仓库名格式为 "project/repository"，需要移除项目前缀
         let repoName = r.name;
-        if (repoName.startsWith(`${project}/`)) {
-          repoName = repoName.substring(project.length + 1);
+        if (repoName.startsWith(`${projectRef}/`)) {
+          repoName = repoName.substring(projectRef.length + 1);
         }
         return {
           name: repoName,
@@ -991,20 +1110,22 @@ router.get(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo } = req.params;
-
+      const { id, repo } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
 
       // 获取所有制品及其标签
-      const artifacts = await result.service.getArtifacts(project, decodedRepo, {
+      const artifacts = await result.service.getArtifacts(harborProjectRef, decodedRepo, {
         pageSize: 100,
         withTag: true,
+        ...buildHarborProjectContext(projectRef, harborProjectRef),
       });
 
       // 提取所有标签

@@ -1286,7 +1286,7 @@ const RegistriesSection: React.FC<Props> = ({
         <ProjectDetailDrawer
           visible={projectDrawerVisible}
           harborId={selectedHarborId!}
-          projectName={selectedProject.name}
+          project={selectedProject}
           cloudId={cloudId}
           onClose={handleCloseAll}
           onBack={handleBackToHarbor}
@@ -1299,7 +1299,7 @@ const RegistriesSection: React.FC<Props> = ({
         <RepositoryDetailDrawer
           visible={repoDrawerVisible}
           harborId={selectedHarborId!}
-          projectName={selectedProject!.name}
+          project={selectedProject!}
           repository={selectedRepo}
           cloudId={cloudId}
           onClose={handleCloseAll}

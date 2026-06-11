@@ -20,19 +20,19 @@ import {
   LoadingOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
-import { getHarborUploadTasks, HarborUploadTask } from '../shared/harborApi';
+import { getHarborUploadTasks, HarborUploadTask, type HarborProjectRef } from '../shared/harborApi';
 
 interface Props {
   visible: boolean;
   harborId: string;
-  projectName: string;
+  project: HarborProjectRef;
   onClose: () => void;
 }
 
 const HarborUploadTasksDrawer: React.FC<Props> = ({
   visible,
   harborId,
-  projectName,
+  project,
   onClose,
 }) => {
   const [tasks, setTasks] = useState<HarborUploadTask[]>([]);
@@ -42,7 +42,7 @@ const HarborUploadTasksDrawer: React.FC<Props> = ({
   const loadTasks = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getHarborUploadTasks(harborId, projectName, {
+      const result = await getHarborUploadTasks(harborId, project, {
         status: statusFilter,
         limit: 100,
       });
@@ -52,7 +52,7 @@ const HarborUploadTasksDrawer: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectName, statusFilter]);
+  }, [harborId, project, statusFilter]);
 
   useEffect(() => {
     if (visible) {

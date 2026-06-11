@@ -12,6 +12,16 @@ import { logger } from '../../utils/logger';
 
 const harborLog = logger.child('HarborProxy');
 
+/** 数字项目名场景下需要携带真实项目名称与 ID */
+export interface HarborProjectContext {
+  projectName?: string;
+  projectId?: number;
+}
+
+export function isNumericHarborProjectName(name: string): boolean {
+  return /^\d+$/.test(name);
+}
+
 export interface HarborTestResult {
   success: boolean;
   version?: string;
@@ -165,13 +175,38 @@ export class HarborProxyService {
   }
 
   /**
+   * 按名称查找项目（用于纯数字项目名被 Harbor 误判为 project_id 时的回退）
+   */
+  private async findProjectByName(name: string): Promise<any | null> {
+    const projects = await this.getProjects({ pageSize: 100, name });
+    return projects.find((p: any) => p.name === name) ?? null;
+  }
+
+  /**
    * 获取项目详情
    */
-  public async getProject(projectNameOrId: string | number): Promise<any> {
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}`,
-    );
-    return response.data;
+  public async getProject(
+    projectNameOrId: string | number,
+    expectedName?: string,
+  ): Promise<any> {
+    const ref = String(projectNameOrId);
+    try {
+      const response = await this.axiosInstance.get(
+        `/api/v2.0/projects/${encodeURIComponent(ref)}`,
+      );
+      const project = response.data;
+      if (expectedName && project.name !== expectedName) {
+        const byName = await this.findProjectByName(expectedName);
+        if (byName) return byName;
+      }
+      return project;
+    } catch (error: any) {
+      if (expectedName) {
+        const byName = await this.findProjectByName(expectedName);
+        if (byName) return byName;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -200,30 +235,6 @@ export class HarborProxyService {
   }
 
   /**
-   * 获取项目下的仓库列表
-   */
-  public async getRepositories(
-    projectName: string,
-    params?: {
-      page?: number;
-      pageSize?: number;
-      q?: string;
-    },
-  ): Promise<any[]> {
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories`,
-      {
-        params: {
-          page: params?.page || 1,
-          page_size: params?.pageSize || 100,
-          ...(params?.q && { q: params.q }),
-        },
-      },
-    );
-    return response.data;
-  }
-
-  /**
    * 提取实际仓库名（去掉项目前缀）
    * 例如：library/alpine -> alpine
    */
@@ -235,43 +246,99 @@ export class HarborProxyService {
     return repositoryName;
   }
 
-  /**
-   * 获取单个仓库详情
-   */
-  public async getRepository(projectName: string, repositoryName: string): Promise<any> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}`,
-    );
-    return response.data;
+  private buildFullRepositoryName(projectName: string, repositoryName: string): string {
+    if (repositoryName.includes('/')) {
+      return repositoryName;
+    }
+    return `${projectName}/${this.extractRepoName(repositoryName)}`;
+  }
+
+  private async resolveNumericProjectId(
+    harborProjectRef: string,
+    context?: HarborProjectContext,
+  ): Promise<number | null> {
+    const projectName = context?.projectName;
+    if (!projectName || !isNumericHarborProjectName(projectName)) {
+      return null;
+    }
+    if (context?.projectId != null) {
+      return context.projectId;
+    }
+    if (/^\d+$/.test(harborProjectRef)) {
+      return Number(harborProjectRef);
+    }
+    const project = await this.findProjectByName(projectName);
+    return project?.project_id ?? null;
+  }
+
+  /** 数字项目名无法走 /projects/{name}/repositories，需用全局仓库 API */
+  private async shouldUseGlobalRepositoryApi(
+    harborProjectRef: string,
+    context?: HarborProjectContext,
+  ): Promise<boolean> {
+    const projectName = context?.projectName;
+    if (projectName && isNumericHarborProjectName(projectName)) {
+      return true;
+    }
+    return /^\d+$/.test(harborProjectRef) && (await this.resolveNumericProjectId(harborProjectRef, context)) != null;
+  }
+
+  private buildRepositoryApiPath(
+    harborProjectRef: string,
+    repositoryName: string,
+    suffix: string,
+    context?: HarborProjectContext,
+    useGlobal?: boolean,
+  ): string {
+    const projectName = context?.projectName ?? harborProjectRef;
+    if (useGlobal) {
+      const fullName = this.buildFullRepositoryName(projectName, repositoryName);
+      return `/api/v2.0/repositories/${encodeURIComponent(fullName)}${suffix}`;
+    }
+    const repoSegment = this.extractRepoName(repositoryName);
+    return `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/repositories/${encodeURIComponent(repoSegment)}${suffix}`;
   }
 
   /**
-   * 获取制品列表
+   * 获取项目下的仓库列表
    */
-  public async getArtifacts(
-    projectName: string,
-    repositoryName: string,
+  public async getRepositories(
+    harborProjectRef: string,
     params?: {
       page?: number;
       pageSize?: number;
       q?: string;
-      withTag?: boolean;
-      withLabel?: boolean;
-      withScanOverview?: boolean;
+      projectName?: string;
+      projectId?: number;
     },
   ): Promise<any[]> {
-    const actualRepoName = this.extractRepoName(repositoryName);
+    const context: HarborProjectContext = {
+      projectName: params?.projectName,
+      projectId: params?.projectId,
+    };
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+
+    if (useGlobal) {
+      const projectId = await this.resolveNumericProjectId(harborProjectRef, context);
+      if (projectId == null) {
+        throw new Error(`无法解析数字项目名「${context.projectName}」的 Harbor 项目 ID`);
+      }
+      const response = await this.axiosInstance.get('/api/v2.0/repositories', {
+        params: {
+          page: params?.page || 1,
+          page_size: params?.pageSize || 100,
+          q: params?.q ? `${params.q} project_id=${projectId}` : `project_id=${projectId}`,
+        },
+      });
+      return response.data;
+    }
 
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts`,
+      `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/repositories`,
       {
         params: {
           page: params?.page || 1,
           page_size: params?.pageSize || 100,
-          with_tag: params?.withTag ?? true,
-          with_label: params?.withLabel ?? false,
-          with_scan_overview: params?.withScanOverview ?? true,
           ...(params?.q && { q: params.q }),
         },
       },
@@ -280,17 +347,87 @@ export class HarborProxyService {
   }
 
   /**
+   * 删除仓库
+   */
+  public async deleteRepository(
+    harborProjectRef: string,
+    repositoryName: string,
+    context?: HarborProjectContext,
+  ): Promise<void> {
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context, useGlobal);
+    await this.axiosInstance.delete(url);
+  }
+
+  /**
+   * 获取单个仓库详情
+   */
+  public async getRepository(
+    harborProjectRef: string,
+    repositoryName: string,
+    context?: HarborProjectContext,
+  ): Promise<any> {
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context, useGlobal);
+    const response = await this.axiosInstance.get(url);
+    return response.data;
+  }
+
+  /**
+   * 获取制品列表
+   */
+  public async getArtifacts(
+    harborProjectRef: string,
+    repositoryName: string,
+    params?: {
+      page?: number;
+      pageSize?: number;
+      q?: string;
+      withTag?: boolean;
+      withLabel?: boolean;
+      withScanOverview?: boolean;
+      projectName?: string;
+      projectId?: number;
+    },
+  ): Promise<any[]> {
+    const context: HarborProjectContext = {
+      projectName: params?.projectName,
+      projectId: params?.projectId,
+    };
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '/artifacts', context, useGlobal);
+
+    const response = await this.axiosInstance.get(url, {
+      params: {
+        page: params?.page || 1,
+        page_size: params?.pageSize || 100,
+        with_tag: params?.withTag ?? true,
+        with_label: params?.withLabel ?? false,
+        with_scan_overview: params?.withScanOverview ?? true,
+        ...(params?.q && { q: params.q }),
+      },
+    });
+    return response.data;
+  }
+
+  /**
    * 获取制品详情
    */
   public async getArtifact(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<any> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`,
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}`,
+      context,
+      useGlobal,
     );
+    const response = await this.axiosInstance.get(url);
     return response.data;
   }
 
@@ -298,28 +435,40 @@ export class HarborProxyService {
    * 删除制品
    */
   public async deleteArtifact(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`,
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}`,
+      context,
+      useGlobal,
     );
+    await this.axiosInstance.delete(url);
   }
 
   /**
    * 获取标签列表
    */
   public async getTags(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<any[]> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`,
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/tags`,
+      context,
+      useGlobal,
     );
+    const response = await this.axiosInstance.get(url);
     return response.data;
   }
 
@@ -327,59 +476,82 @@ export class HarborProxyService {
    * 创建标签
    */
   public async createTag(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
     tag: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.post(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`,
-      { name: tag },
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/tags`,
+      context,
+      useGlobal,
     );
+    await this.axiosInstance.post(url, { name: tag });
   }
 
   /**
    * 删除标签
    */
   public async deleteTag(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
     tagName: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags/${tagName}`,
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/tags/${tagName}`,
+      context,
+      useGlobal,
     );
+    await this.axiosInstance.delete(url);
   }
 
   /**
    * 触发漏洞扫描
    */
   public async triggerScan(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.post(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/scan`,
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/scan`,
+      context,
+      useGlobal,
     );
+    await this.axiosInstance.post(url);
   }
 
   /**
    * 获取漏洞扫描结果
    */
   public async getVulnerabilities(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<any> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/additions/vulnerabilities`,
+    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/additions/vulnerabilities`,
+      context,
+      useGlobal,
     );
+    const response = await this.axiosInstance.get(url);
     return response.data;
   }
 

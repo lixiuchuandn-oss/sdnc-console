@@ -2556,6 +2556,30 @@ export const deleteHarborRegistry = async (harborId: string) => {
 // Harbor 镜像选择器 API
 // ========================================
 
+/** 纯数字项目名需携带 projectId，避免 Harbor 将路径解析为 project_id */
+export type HarborSelectorProjectRef = string | { name: string; projectId?: number };
+
+function withHarborSelectorProjectIdQuery(
+  url: string,
+  project: HarborSelectorProjectRef,
+): string {
+  const name = typeof project === 'string' ? project : project.name;
+  const projectId = typeof project === 'string' ? undefined : project.projectId;
+  if (projectId == null || !/^\d+$/.test(name)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}projectId=${encodeURIComponent(String(projectId))}`;
+}
+
+function buildHarborSelectorProjectPath(
+  harborId: string,
+  project: HarborSelectorProjectRef,
+  suffix: string,
+): string {
+  const name = typeof project === 'string' ? project : project.name;
+  const base = `/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(name)}${suffix}`;
+  return withHarborSelectorProjectIdQuery(base, project);
+}
+
 /**
  * 获取 Harbor 项目列表（用于镜像选择器）
  * @param harborId Harbor 仓库 ID
@@ -2568,22 +2592,35 @@ export const getHarborSelectorProjects = async (harborId: string) => {
 /**
  * 获取 Harbor 项目下的仓库列表（用于镜像选择器）
  * @param harborId Harbor 仓库 ID
- * @param project 项目名称
+ * @param project 项目名称或项目引用
  * @returns Promise<any>
  */
-export const getHarborSelectorRepositories = async (harborId: string, project: string) => {
-  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories`);
+export const getHarborSelectorRepositories = async (
+  harborId: string,
+  project: HarborSelectorProjectRef,
+) => {
+  return await apiRequest(buildHarborSelectorProjectPath(harborId, project, '/repositories'));
 };
 
 /**
  * 获取 Harbor 仓库的标签列表（用于镜像选择器）
  * @param harborId Harbor 仓库 ID
- * @param project 项目名称
+ * @param project 项目名称或项目引用
  * @param repo 仓库名称
  * @returns Promise<any>
  */
-export const getHarborSelectorTags = async (harborId: string, project: string, repo: string) => {
-  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories/${encodeURIComponent(repo)}/tags`);
+export const getHarborSelectorTags = async (
+  harborId: string,
+  project: HarborSelectorProjectRef,
+  repo: string,
+) => {
+  return await apiRequest(
+    buildHarborSelectorProjectPath(
+      harborId,
+      project,
+      `/repositories/${encodeURIComponent(repo)}/tags`,
+    ),
+  );
 };
 
 /**

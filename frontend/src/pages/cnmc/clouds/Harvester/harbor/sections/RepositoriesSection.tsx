@@ -23,14 +23,15 @@ import {
 import HarborUploadModal from '../components/HarborUploadModal';
 import HarborUploadTasksDrawer from '../components/HarborUploadTasksDrawer';
 import type { HarborRepository, HarborRegistry } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
 
 const { Text } = Typography;
 
 interface Props {
   /** Harbor 实例 ID */
   harborId: string;
-  /** 项目名称 */
-  projectName: string;
+  /** 项目引用（纯数字项目名需携带 projectId） */
+  project: HarborProjectRef;
   /** 查看仓库制品回调 */
   onViewRepository?: (repo: HarborRepository) => void;
 }
@@ -38,7 +39,8 @@ interface Props {
 /**
  * 仓库列表组件
  */
-const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRepository }) => {
+const RepositoriesSection: React.FC<Props> = ({ harborId, project, onViewRepository }) => {
+  const projectName = project.name;
   const [repositories, setRepositories] = useState<HarborRepository[]>([]);
   const [harbor, setHarbor] = useState<HarborRegistry | null>(null);
   const [loading, setLoading] = useState(false);
@@ -58,7 +60,7 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
   const loadRepositories = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getHarborRepositories(harborId, projectName);
+      const res = await getHarborRepositories(harborId, project);
       const list = Array.isArray(res) ? res : (res?.data || []);
       setRepositories(list);
     } catch (e: any) {
@@ -67,7 +69,7 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectName]);
+  }, [harborId, project]);
 
   /**
    * 加载 Harbor 信息
@@ -91,7 +93,7 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
    */
   const handleDelete = async (repo: HarborRepository) => {
     try {
-      await deleteHarborRepository(harborId, projectName, repo.name);
+      await deleteHarborRepository(harborId, project, repo.name);
       message.success('仓库已删除');
       loadRepositories();
     } catch (e: any) {
@@ -446,7 +448,7 @@ return (
       <HarborUploadModal
         visible={uploadModalVisible}
         harborId={harborId}
-        projectName={projectName}
+        project={project}
         existingRepos={repositories.map(r => r.name)}
         onClose={() => setUploadModalVisible(false)}
         onSuccess={() => {
@@ -458,7 +460,7 @@ return (
       <HarborUploadTasksDrawer
         visible={tasksDrawerVisible}
         harborId={harborId}
-        projectName={projectName}
+        project={project}
         onClose={() => setTasksDrawerVisible(false)}
       />
     </div>
