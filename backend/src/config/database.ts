@@ -388,6 +388,63 @@ export async function ensureImageUploadTaskTable() {
   }
 }
 
+export async function ensureImageDownloadTaskTable() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 image_download_tasks 表检查');
+      return;
+    }
+
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='image_download_tasks'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 image_download_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "image_download_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" text NOT NULL,
+          "namespace" text NOT NULL,
+          "imageName" text NOT NULL,
+          "displayName" text,
+          "filename" text,
+          "fileSize" integer,
+          "bytesDownloaded" integer NOT NULL DEFAULT (0),
+          "localFileRelPath" text,
+          "taskStatus" text NOT NULL DEFAULT ('pending'),
+          "progress" integer NOT NULL DEFAULT (0),
+          "errorMessage" text,
+          "createdBy" text NOT NULL,
+          "expiresAt" datetime,
+          "startedAt" datetime,
+          "finishedAt" datetime,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_download_tasks_cloud_user_created"
+        ON "image_download_tasks" ("cloudId", "createdBy", "createdAt")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_download_tasks_status_updated"
+        ON "image_download_tasks" ("taskStatus", "updatedAt")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_download_tasks_createdBy"
+        ON "image_download_tasks" ("createdBy")
+      `);
+      dbLog.info('image_download_tasks 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'image_download_tasks 表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 /**
  * users 表增加 passwordChangedAt（管理员密码策略 / 有效期用）
  */

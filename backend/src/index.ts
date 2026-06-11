@@ -449,6 +449,7 @@ export function startServer(): void {
           dropObsoleteKubeOvnIngressInventoryTable,
           ensureHarvesterAswCtlSwitchInventoryTable,
           ensureImageUploadTaskTable,
+          ensureImageDownloadTaskTable,
           ensureDatacenterTopologyTables,
           ensureFailureDomainTables,
           ensureDeploymentSetTables,
@@ -463,6 +464,7 @@ export function startServer(): void {
         await dropObsoleteKubeOvnIngressInventoryTable();
         await ensureHarvesterAswCtlSwitchInventoryTable();
         await ensureImageUploadTaskTable();
+        await ensureImageDownloadTaskTable();
         await ensureDatacenterTopologyTables();
         await ensureFailureDomainTables();
         await ensureDeploymentSetTables();

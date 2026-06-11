@@ -43,13 +43,15 @@ describe('namespacesSectionUtils', () => {
   describe('filterNamespacesForTable', () => {
     const all = [publicNs, adminNs, tenantNs, systemNs];
 
-    it('excludes system namespaces', () => {
+    it('default type filters show tenant only and exclude system', () => {
       const rows = filterNamespacesForTable(all, {
         keyword: '',
-        filterTypes: [...DEFAULT_NAMESPACE_TYPE_FILTERS, 'tenant'],
+        filterTypes: [...DEFAULT_NAMESPACE_TYPE_FILTERS],
         filterStatus: '',
       });
       expect(rows.map((r) => r.metadata?.name)).not.toContain('kube-system');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].metadata?.name).toBe('tenant-a');
     });
 
     it('filters by type union', () => {

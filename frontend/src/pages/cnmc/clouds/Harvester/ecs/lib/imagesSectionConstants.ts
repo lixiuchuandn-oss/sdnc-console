@@ -62,3 +62,17 @@ export function imageUploadTaskStatusLabel(status?: string): string {
   const s = String(status || '').toLowerCase();
   return UPLOAD_TASK_STATUS_ZH[s] || s || '-';
 }
+
+/** 镜像下载任务（Tower 暂存）状态 */
+export const IMAGE_DOWNLOAD_TASK_STATUS_ZH: Record<string, string> = {
+  pending: '准备中',
+  fetching: '拉取中',
+  ready: '可下载',
+  failed: '失败',
+  cancelled: '已取消',
+};
+
+export function imageDownloadTaskStatusLabel(status?: string): string {
+  const s = String(status || '').toLowerCase();
+  return IMAGE_DOWNLOAD_TASK_STATUS_ZH[s] || s || '-';
+}

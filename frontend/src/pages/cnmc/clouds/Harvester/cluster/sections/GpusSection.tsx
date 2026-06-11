@@ -47,7 +47,14 @@ const GpuSection: React.FC<Props> = ({
   const [drawerTab, setDrawerTab] = useState('detail');
 
   const handleOpenYaml = useCallback((record: GpuRow) => {
-    setDrawerRecord({ ...record, kind: record?.kind || 'GPUDevice' });
+    const type = String(record?.type || '').toLowerCase();
+    const kind =
+      type === 'passthrough' || type === 'sriov'
+        ? 'PCIDevice'
+        : type === 'vgpu'
+          ? 'KubeVirt'
+          : record?.kind || 'GPUDevice';
+    setDrawerRecord({ ...record, kind });
     setDrawerTab('detail');
     setDrawerOpen(true);
   }, []);

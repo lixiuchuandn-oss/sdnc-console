@@ -90,7 +90,10 @@ const PciDevicesSection: React.FC<Props> = ({
 
   const handleOpenYaml = useCallback((record: unknown) => {
     const row = record as Record<string, unknown>;
-    setDrawerRecord({ ...row, kind: row?.kind || 'PCIDevice' });
+    setDrawerRecord({
+      ...row,
+      kind: (row?.kind as string) || (row?.metadata as { kind?: string } | undefined)?.kind || 'PCIDevice',
+    });
     setDrawerTab('detail');
     setDrawerOpen(true);
   }, []);

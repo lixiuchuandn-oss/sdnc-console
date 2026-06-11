@@ -1,10 +1,15 @@
-import type { HarvesterImageUploadTask } from '../../../../../../services/harvesterApi';
+import type {
+  HarvesterImageDownloadTask,
+  HarvesterImageUploadTask,
+} from '../../../../../../services/harvesterApi';
+import { mergeDownloadTasksSorted } from './images/imageDownloadTaskCore';
 import { applyUploadTaskToListState, mergeUploadTasksSorted } from './images/imageUploadTaskCore';
 import { reloadUploadTasksForCloud, syncUploadTasksSessionCache } from './uploadTaskReload';
 
 export type ImageUploadTasksSnapshot = {
   uploadTasks: HarvesterImageUploadTask[];
   listTaskList: HarvesterImageUploadTask[];
+  downloadTasks: HarvesterImageDownloadTask[];
   uploadTasksLoading: boolean;
 };
 
@@ -26,6 +31,7 @@ type CloudUploadTasksEntry = {
 const emptySnapshot = (): ImageUploadTasksSnapshot => ({
   uploadTasks: [],
   listTaskList: [],
+  downloadTasks: [],
   uploadTasksLoading: false,
 });
 
@@ -95,6 +101,23 @@ export function removeUploadTaskFromStore(cloudId: string, taskId: string): void
   syncUploadTasksSessionCache(cloudId, nextUploadTasks);
 }
 
+export function applyDownloadTaskPatchToStore(
+  cloudId: string,
+  task: HarvesterImageDownloadTask,
+): void {
+  const snap = getImageUploadTasksSnapshot(cloudId);
+  patchImageUploadTasksSnapshot(cloudId, {
+    downloadTasks: mergeDownloadTasksSorted(snap.downloadTasks, task),
+  });
+}
+
+export function removeDownloadTaskFromStore(cloudId: string, taskId: string): void {
+  const snap = getImageUploadTasksSnapshot(cloudId);
+  patchImageUploadTasksSnapshot(cloudId, {
+    downloadTasks: snap.downloadTasks.filter((x) => x.id !== taskId),
+  });
+}
+
 export function registerImageUploadTasksReload(
   cloudId: string,
   reloadFn?: (showLoading?: boolean, batchTerminalReload?: boolean) => void | Promise<void>,
@@ -150,6 +173,17 @@ function hasActiveUploadTasksInSnapshot(snapshot: ImageUploadTasksSnapshot): boo
 }
 
 /** 镜像 Tab 未挂载时，仍有底座同步/待同步任务则需继续刷新库存进度 */
+function hasActiveDownloadTasksInSnapshot(snapshot: ImageUploadTasksSnapshot): boolean {
+  return snapshot.downloadTasks.some((task) => {
+    const st = String(task.taskStatus || '').toLowerCase();
+    return st === 'pending' || st === 'fetching';
+  });
+}
+
+function hasActiveTransferTasksInSnapshot(snapshot: ImageUploadTasksSnapshot): boolean {
+  return hasActiveUploadTasksInSnapshot(snapshot) || hasActiveDownloadTasksInSnapshot(snapshot);
+}
+
 function needsInventoryPollWhileTabHidden(snapshot: ImageUploadTasksSnapshot): boolean {
   return snapshot.listTaskList.some((task) => {
     const st = String(task.status || '').toLowerCase();
@@ -161,7 +195,7 @@ function needsInventoryPollWhileTabHidden(snapshot: ImageUploadTasksSnapshot): b
 export function runImageUploadTasksPollCycle(cloudId: string): void {
   if (document.visibilityState === 'hidden') return;
   const entry = getEntry(cloudId);
-  if (hasActiveUploadTasksInSnapshot(entry.snapshot)) {
+  if (hasActiveTransferTasksInSnapshot(entry.snapshot)) {
     void entry.reloadFn?.(false);
   }
   const hooks = entry.inventoryPollHooks;
@@ -172,7 +206,7 @@ export function runImageUploadTasksPollCycle(cloudId: string): void {
 
 function maybeStopImageUploadTasksPolling(cloudId: string): void {
   const entry = getEntry(cloudId);
-  if (entry.subscriberCount > 0 || hasActiveUploadTasksInSnapshot(entry.snapshot)) return;
+  if (entry.subscriberCount > 0 || hasActiveTransferTasksInSnapshot(entry.snapshot)) return;
   if (entry.pollTimer != null) {
     window.clearInterval(entry.pollTimer);
     entry.pollTimer = null;

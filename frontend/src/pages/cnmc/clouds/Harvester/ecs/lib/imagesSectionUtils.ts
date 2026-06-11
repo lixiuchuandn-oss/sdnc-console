@@ -167,6 +167,40 @@ export function getImageRowNamespace(r: ImageListRecord): string {
   return String(r?.namespace || meta?.namespace || 'default');
 }
 
+/** 租户可写命名空间集合（与镜像创建弹窗选项同源） */
+export function buildTenantImageNamespaceSet(
+  namespacesOptions?: readonly string[],
+  opts?: { isPublicNamespace?: (ns: string) => boolean },
+): Set<string> {
+  const set = new Set<string>();
+  for (const raw of namespacesOptions || []) {
+    const ns = String(raw || '').trim();
+    if (!ns || isSystemNamespace(ns)) continue;
+    if (opts?.isPublicNamespace?.(ns)) continue;
+    set.add(ns);
+  }
+  return set;
+}
+
+function resolveTenantImageNamespaceSet(
+  tenantNamespaces: ReadonlySet<string> | readonly string[] | undefined,
+): Set<string> {
+  if (!tenantNamespaces) return new Set();
+  if (tenantNamespaces instanceof Set) return new Set(tenantNamespaces);
+  if (Array.isArray(tenantNamespaces)) return buildTenantImageNamespaceSet(tenantNamespaces);
+  return new Set(tenantNamespaces);
+}
+
+/** 租户镜像行操作：仅授权命名空间内镜像可编辑/删除/同步 */
+export function canTenantOperateImage(
+  r: ImageListRecord,
+  tenantNamespaces: ReadonlySet<string> | readonly string[] | undefined,
+): boolean {
+  const set = resolveTenantImageNamespaceSet(tenantNamespaces);
+  if (set.size === 0) return false;
+  return set.has(getImageRowNamespace(r));
+}
+
 export function getImageDisplayAlias(r: ImageListRecord): string {
   const meta = r?.metadata as Record<string, unknown> | undefined;
   const labels = (meta?.labels || {}) as Record<string, string>;

@@ -37,6 +37,7 @@ import {
   isAssignableExistingNamespaceRecord,
   poolMatchesAssignDrawerTab,
 } from '../lib/orgManagePoolHelpers';
+import { InlineOrgAddChildRow, InlineOrgRenameRow } from '../components/InlineOrgTreeNameInput';
 import { DeleteOrgConflict } from '../modals/DeleteOrgConflict';
 import { RemoveAssignmentConflict } from '../modals/RemoveAssignmentConflict';
 
@@ -108,12 +109,10 @@ export function useOrgManagePage() {
   // - sdnVrLoading/sdnVrs：安全域页签“SDN/VR”的加载状态与数据集合
   // 组织树内联编辑/新增相关状态
   const [renameOrgId, setRenameOrgId] = useState<string | null>(null);
-  const [renameName, setRenameName] = useState<string>('');
   const [addingForParentId, setAddingForParentId] = useState<string | null>(null);
-  const [newChildName, setNewChildName] = useState<string>('');
   // 组织树内联编辑说明：
-  // - renameOrgId/renameName：重命名的目标组织与输入值
-  // - addingForParentId/newChildName：在父组织下添加子组织的内联行与名称
+  // - renameOrgId：重命名的目标组织（名称输入在 InlineOrgRenameRow 本地 state）
+  // - addingForParentId：在父组织下添加子组织的内联行（名称输入在 InlineOrgAddChildRow 本地 state）
 
   // --- 页面状态（表单与抽屉）---
   const [userForm] = Form.useForm();
@@ -294,7 +293,6 @@ export function useOrgManagePage() {
     try {
       await apiPut(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
-      setRenameName('');
       if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('重命名成功');
     } catch (e: any) {
@@ -304,18 +302,17 @@ export function useOrgManagePage() {
   };
 
   // 添加子组织保存：校验名称、调用创建接口、刷新组织树
-  const handleAddChildSave = async (parentId: string) => {
+  const handleAddChildSave = async (parentId: string, name: string) => {
     if (!canWriteOrganizations) {
       messageApi.warning('无权限执行该操作');
       return;
     }
     if (!tenantId) return;
-    const name = newChildName.trim();
-    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
     try {
-      await apiPost(`/api/tenants/${tenantId}/organizations`, { name, parentId });
+      await apiPost(`/api/tenants/${tenantId}/organizations`, { name: trimmed, parentId });
       setAddingForParentId(null);
-      setNewChildName('');
       fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('创建组织成功');
     } catch (e: any) {
@@ -724,39 +721,10 @@ export function useOrgManagePage() {
           children.push({
             key: `__new__-${org.id}`,
             title: (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Input
-                  size="small"
-                  value={newChildName}
-                  onChange={(e) => setNewChildName(e.target.value)}
-                  placeholder="请输入组织名称"
-                  style={{ width: 200 }}
-                />
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<CheckOutlined />}
-                  disabled={!newChildName.trim()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddChildSave(org.id);
-                  }}
-                >
-                  保存
-                </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<CloseOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setAddingForParentId(null);
-                    setNewChildName('');
-                  }}
-                >
-                  取消
-                </Button>
-              </div>
+              <InlineOrgAddChildRow
+                onSave={(name) => handleAddChildSave(org.id, name)}
+                onCancel={() => setAddingForParentId(null)}
+              />
             ),
           });
         }
@@ -765,41 +733,21 @@ export function useOrgManagePage() {
           title: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%' }}>
             {renameOrgId === org.id ? (
-              <Input
-                size="small"
-                value={renameName}
-                onChange={(e) => setRenameName(e.target.value)}
-                style={{ width: 180 }}
+              <InlineOrgRenameRow
+                initialName={org.name}
+                onSave={(name) => handleOrgRename(org.id, name)}
+                onCancel={() => setRenameOrgId(null)}
               />
             ) : (
               <Typography.Text style={{ pointerEvents: 'none' }}>{org.name}</Typography.Text>
             )}
             <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', justifyContent: 'flex-end' }}>
-              {canWriteOrganizations && renameOrgId === org.id ? (
-                <>
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<CheckOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!renameName.trim()) return;
-                      handleOrgRename(org.id, renameName.trim());
-                    }}
-                  >保存</Button>
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<CloseOutlined />}
-                    onClick={(e) => { e.stopPropagation(); setRenameOrgId(null); setRenameName(''); }}
-                  >取消</Button>
-                </>
-              ) : canWriteOrganizations ? (
+              {canWriteOrganizations && renameOrgId !== org.id ? (
                 <Button
                   type="link"
                   size="small"
                   icon={<EditOutlined />}
-                  onClick={(e) => { e.stopPropagation(); setRenameOrgId(org.id); setRenameName(org.name); }}
+                  onClick={(e) => { e.stopPropagation(); setRenameOrgId(org.id); }}
                 >重命名</Button>
               ) : null}
               {canWriteOrganizations ? (
@@ -812,7 +760,6 @@ export function useOrgManagePage() {
                     e.stopPropagation();
                     setExpandedKeys(prev => (prev.includes(org.id) ? prev : [...prev, org.id]));
                     setAddingForParentId(org.id);
-                    setNewChildName('');
                   }}
                 >添加子组织</Button>
               ) : null}

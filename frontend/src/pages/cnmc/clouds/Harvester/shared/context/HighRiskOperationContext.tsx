@@ -34,6 +34,7 @@ export type ConfirmHighRiskOperationOptions = {
   };
   description?: React.ReactNode;
   riskItems?: readonly string[];
+  dangerRiskItemIndices?: readonly number[];
   extra?: React.ReactNode;
   /** 为 true 且提供 targetName 时，须输入 targetName 才能确认 */
   requireTypeConfirm?: boolean;
@@ -283,6 +284,7 @@ export const HighRiskOperationProvider: React.FC<{ children: React.ReactNode }> 
         alert={session?.alert}
         description={session?.description}
         riskItems={session?.riskItems}
+        dangerRiskItemIndices={session?.dangerRiskItemIndices}
         extra={extra}
         impactAck={
           requireImpactAck

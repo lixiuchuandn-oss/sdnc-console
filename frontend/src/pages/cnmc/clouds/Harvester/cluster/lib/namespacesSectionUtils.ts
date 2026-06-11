@@ -20,7 +20,7 @@ export type NamespaceListRow = {
   links?: { view?: string };
 };
 
-export const DEFAULT_NAMESPACE_TYPE_FILTERS: NamespaceSectionKind[] = ['public', 'admin'];
+export const DEFAULT_NAMESPACE_TYPE_FILTERS: NamespaceSectionKind[] = ['tenant'];
 
 /**
  * Steve `links.view` 或 `/api/v1/namespaces/{name}`。
