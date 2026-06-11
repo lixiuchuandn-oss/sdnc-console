@@ -42,6 +42,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
 | **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`** |
 | **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
+| **`tests/E2E_COVERAGE.md`** | **Cloudmap 功能 E2E 覆盖索引**（已测 / 仅冒烟 / 暂缓 / 缺口）；终端一览 `cd tests && npm run e2e:status`；登记 `tests/e2e-manifest.cjs` |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
 新增或搬迁源码时：**前端**以 `frontend/src/STRUCTURE.md` 为准，**后端**以 `backend/src/STRUCTURE.md` 为准；对外路径以 `backend/src/index.ts` 的挂载为准。
@@ -115,7 +116,7 @@ npm run test     # 运行测试
 
 ```
 Compute.Tower/
-├── tests/                      # 业务域测试（与 backend/frontend 同级，见 tests/README.md）
+├── tests/                      # 业务域测试（tests/README.md；E2E 覆盖索引 tests/E2E_COVERAGE.md）
 ├── backend/                    # 后端服务
 │   ├── src/
 │   │   ├── index.ts           # 服务入口（Express 挂载、静态资源、WebSocket）
@@ -587,7 +588,7 @@ const addRule = useCallback(() => {
 3. 列表/工具栏/写操作是否满足 **刷新与缓存**、**std-table**（§5.1）、**工具栏**（§5.2）？
 4. 是否引入 ESLint/类型/构建错误？
 5. 是否删除本次改动产生的死代码与重复逻辑？
-6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？
+6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？新增功能 E2E 是否已登记 **`tests/e2e-manifest.cjs`**（见 **`tests/E2E_COVERAGE.md`**）？
 
 ## 认证与权限
 

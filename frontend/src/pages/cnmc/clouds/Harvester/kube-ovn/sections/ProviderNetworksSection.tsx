@@ -32,6 +32,10 @@ import {
   confirmHighRiskDelete,
   DELETE_NETWORK_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
+import {
+  filterNodeInterfacesForProviderNetworkCreate,
+  isNodeInterfaceOccupiedByProviderNetwork,
+} from '../lib/providerNetworkOccupiedInterfaces';
 
 const { Option } = Select;
 
@@ -131,6 +135,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
     [isParentManaged, parentVlans, vlans],
   );
 
+  const existingProviderNetworks = useMemo(
+    () => (isParentManaged ? (parentNetworks || []) : data),
+    [isParentManaged, parentNetworks, data],
+  );
+
   const vlanAliasMap = useMemo(() => {
     const map = new Map<string, { display: string; alias: string }>();
     (vlanListForAlias || []).forEach((v: any) => {
@@ -179,13 +188,22 @@ const ProviderNetworksSection: React.FC<Props> = ({
   const fetchNodesAndInterfaces = useCallback(async () => {
     setNodesLoading(true);
     try {
-      const [nodesRes, clusterNetworksRes] = await Promise.all([
+      const [nodesRes, clusterNetworksRes, pnRes] = await Promise.all([
         fetchHarvesterNodes(cloudId, true),
         fetchHarvesterClusterNetworks(cloudId, true).catch(() => ({ data: { items: [] } })),
+        isParentManaged
+          ? Promise.resolve(null)
+          : fetchKubeOvnProviderNetworks(cloudId, true, true).catch(() => null),
       ]);
 
       const items = nodesRes?.data?.items || [];
       setNodes(items);
+
+      const providerNetworksForOccupancy = isParentManaged
+        ? existingProviderNetworks
+        : Array.isArray(pnRes?.data?.items)
+          ? pnRes.data.items
+          : existingProviderNetworks;
 
       const clusterNetworkNics = new Set<string>();
       const clusterNetworks = clusterNetworksRes?.data?.items || [];
@@ -209,6 +227,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
          * - usedByHarvester=false：未被集群网络占用
          * - state=up：链路可用（瞬时）
          * - 额外兜底：如果该网卡同时出现在 clusterNetwork uplinks.nics 中，也排除
+         * - 已被其它物理网络（ProviderNetwork）占用的节点—网卡对也排除
          */
         const nodeNics: any[] = Array.isArray(node?.nics) ? node.nics : [];
         const filtered = nodeNics
@@ -223,7 +242,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
           .filter((x) => !clusterNetworkNics.has(x.device))
           .map((x) => x.device);
 
-        const uniq = Array.from(new Set(filtered)).sort();
+        const uniq = filterNodeInterfacesForProviderNetworkCreate(
+          nodeName,
+          Array.from(new Set(filtered)),
+          providerNetworksForOccupancy,
+        ).sort();
         nodeIfMap[nodeName] = uniq;
         uniq.forEach((iface) => allInterfaces.add(iface));
       });
@@ -237,7 +260,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
     } finally {
       setNodesLoading(false);
     }
-  }, [cloudId]);
+  }, [cloudId, existingProviderNetworks, isParentManaged]);
 
   const onDefaultInterfaceChange = (value: string) => {
     const newMap = { ...interfaceMap };
@@ -326,6 +349,15 @@ const ProviderNetworksSection: React.FC<Props> = ({
       if (!Object.keys(ifaceBuckets).length) {
         message.warning('没有可下发的节点—网卡映射');
         return;
+      }
+
+      for (const [iface, nodeSet] of Object.entries(ifaceBuckets)) {
+        for (const nodeName of nodeSet) {
+          if (isNodeInterfaceOccupiedByProviderNetwork(nodeName, iface, existingProviderNetworks)) {
+            message.warning(`节点「${nodeName}」上的网卡「${iface}」已被其他物理网络占用`);
+            return;
+          }
+        }
       }
 
       const customInterfaces = Object.keys(ifaceBuckets)
