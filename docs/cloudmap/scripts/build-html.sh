@@ -63,9 +63,21 @@ ARGS=(
   --metadata "title=$TITLE"
   "--resource-path=$SOURCE:$WP_ASSETS"
 )
-[[ -f "$CSS" ]] && ARGS+=( "--css=../templates/preview.css" )
+# 将模板 CSS 拷入输出目录并按同目录引用，避免 DOC_ROOT 指向其它工程时
+# 相对路径 ../templates/preview.css 解析到不存在目录（样式 404）。与 _build-doc.ps1 一致。
+if [[ -f "$CSS" ]]; then
+  cp -f "$CSS" "$OUTPUT_DIR/preview.css"
+  ARGS+=( "--css=preview.css" )
+fi
 
 pandoc "${ARGS[@]}"
+
+# 与 _build-doc.ps1 的 Set-HtmlSidebarLayout 对齐：将 <body> 内容包成
+# 左侧目录(doc-sidebar) + 右侧正文(doc-content)，preview.css 依此布局。
+if command -v perl >/dev/null 2>&1 && ! grep -q 'class="doc-layout"' "$OUTPUT"; then
+  perl -0777 -i -pe 's{(<body>\s*)(<header id="title-block-header">.*?</header>\s*)(<nav id="TOC"[^>]*>.*?</nav>\s*)(.*?)(\s*</body>)}{$1<div class="doc-layout"><aside class="doc-sidebar">$2$3</aside><main class="doc-content">$4</main></div>$5}s' "$OUTPUT"
+  grep -q 'class="doc-layout"' "$OUTPUT" || echo "WARN: HTML 侧边栏布局后处理跳过（结构不符）: $OUTPUT" >&2
+fi
 
 for ASSETS_SRC in "$SOURCE/assets" "$WP_ASSETS"; do
   if [[ -d "$ASSETS_SRC" ]]; then
