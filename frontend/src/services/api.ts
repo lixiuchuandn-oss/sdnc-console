@@ -123,8 +123,12 @@ const _parseErrorResponse = async (response: Response) => {
                         errorMsg += `: ${detail}`;
                      }
                  }
-             } 
-             // 2. Fallback to 'error' field
+             }
+             // 2. VR 配置等接口使用 msg（与 code 成对）
+             else if (data.msg) {
+                 errorMsg = String(data.msg);
+             }
+             // 3. Fallback to 'error' field
              else if (data.error) {
                  errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
              }

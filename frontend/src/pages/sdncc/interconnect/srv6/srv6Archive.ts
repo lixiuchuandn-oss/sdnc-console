@@ -175,10 +175,8 @@ const extractSrv6Prefix = (cfg: any): string | undefined => {
 const isPublicBgpBlock = (b: any) =>
   b && typeof b === 'object' && (!b.vrf || b.vrf === 0 || b.vrf === '0');
 
-const readPePublicBgpIndex = (cfg: any): number => {
-  const pc = cfg?.pe?.publicConfig;
-  if (pc && typeof pc.publicBgpIndex === 'number') return pc.publicBgpIndex;
-  if (typeof cfg?.pe?.publicBgpIndex === 'number') return cfg.pe.publicBgpIndex;
+/** 与 Create.buildPeConfigForPlatformStorage / computePublicBgpIndex 一致：以 bgp[] 实际公网段为准 */
+const computePublicBgpIndex = (cfg: any): number => {
   const bgpArr = Array.isArray(cfg?.bgp) ? cfg.bgp : [];
   const idx = bgpArr.findIndex(isPublicBgpBlock);
   return idx >= 0 ? idx : 0;
@@ -242,9 +240,12 @@ const buildPeInjectedDelta = (
   ceConfigs: { ceA?: any; ceB?: any },
   innerIf: string | undefined,
   rdRtMeta: Srv6RdRtMeta | null,
+  /** 注入后写入平台库的配置：bgpIndex 须与此一致，避免删除回退时摘错段 */
+  injectedSelfCfg?: any,
 ): Srv6EndpointInjectedDelta | undefined => {
   const selfCfg = peConfigs[selfKey];
   if (!selfCfg) return undefined;
+  const idxSource = injectedSelfCfg ?? selfCfg;
   const peerKey = selfKey === 'peA' ? 'peB' : 'peA';
   const ceKey = selfKey === 'peA' ? 'ceA' : 'ceB';
   const peerCfg = peConfigs[peerKey];
@@ -253,7 +254,7 @@ const buildPeInjectedDelta = (
   const vrf = innerIf ? extractInterfaceVrf(selfCfg, innerIf) : undefined;
 
   const delta: Srv6EndpointInjectedDelta = {};
-  const pubIdx = readPePublicBgpIndex(selfCfg);
+  const pubIdx = computePublicBgpIndex(idxSource);
 
   if (peerCfg) {
     const peerPublicIp = extractPortIpv6(peerCfg, 0);
@@ -277,7 +278,7 @@ const buildPeInjectedDelta = (
   if (ceCfg && vrf !== undefined) {
     const cePublicIp = extractPortIp(ceCfg, 0);
     const ceAsnInner = extractBgpAsnAt(ceCfg, 1);
-    const bgpIdx = findBgpIndexByVrf(selfCfg, vrf) ?? 1;
+    const bgpIdx = findBgpIndexByVrf(idxSource, vrf) ?? 1;
     if (cePublicIp) {
       delta.neighbors = [
         ...(delta.neighbors || []),
@@ -287,7 +288,7 @@ const buildPeInjectedDelta = (
   }
 
   if (rdRtMeta?.rtCommon && rdRtMeta.rdMap?.[rdKey] && vrf !== undefined) {
-    const bgpIdx = findBgpIndexByVrf(selfCfg, vrf) ?? 1;
+    const bgpIdx = findBgpIndexByVrf(idxSource, vrf) ?? 1;
     delta.rdRt = [
       {
         bgpIndex: bgpIdx,
@@ -343,8 +344,22 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     input;
 
   const injectedDelta: Srv6InjectedDelta = {};
-  const peADelta = buildPeInjectedDelta('peA', peConfigs, ceConfigs, peAInnerIf, rdRtMeta);
-  const peBDelta = buildPeInjectedDelta('peB', peConfigs, ceConfigs, peBInnerIf, rdRtMeta);
+  const peADelta = buildPeInjectedDelta(
+    'peA',
+    peConfigs,
+    ceConfigs,
+    peAInnerIf,
+    rdRtMeta,
+    peStorageCfgs?.peA,
+  );
+  const peBDelta = buildPeInjectedDelta(
+    'peB',
+    peConfigs,
+    ceConfigs,
+    peBInnerIf,
+    rdRtMeta,
+    peStorageCfgs?.peB,
+  );
   if (peADelta) injectedDelta.peA = peADelta;
   if (peBDelta) injectedDelta.peB = peBDelta;
 

@@ -15,6 +15,75 @@ const neighborMatches = (
   target: { remote_ip: string },
 ) => String(n.remote_ip || '') === String(target.remote_ip);
 
+const isIpv4VpnAf = (af: Record<string, unknown>) =>
+  String(af.address_family || '').toLowerCase() === 'ipv4' &&
+  String(af.modifiler || af.modifier || '').toLowerCase() === 'vpn';
+
+/**
+ * CSMctl 约束：公网 BGP 无 neighbor 时不得保留 ipv4 vpn 的 activate_address_family。
+ * 删除回退后做一次收尾，避免 neighbor 已摘净但 activate 仍残留导致 push 被拒。
+ */
+export const cleanupBgpAfterTunnelEject = (bgp: Record<string, unknown>) => {
+  const neighbors = Array.isArray(bgp.neighbor)
+    ? bgp.neighbor.filter((n) => n && typeof n === 'object')
+    : [];
+  const hasNeighbors = neighbors.length > 0;
+  if (hasNeighbors) {
+    bgp.neighbor = neighbors;
+  } else if ('neighbor' in bgp) {
+    delete bgp.neighbor;
+  }
+
+  if (Array.isArray(bgp.address_family)) {
+    const kept: Record<string, unknown>[] = [];
+    for (const raw of bgp.address_family) {
+      if (!raw || typeof raw !== 'object') continue;
+      const af = { ...(raw as Record<string, unknown>) };
+      if (isIpv4VpnAf(af)) {
+        if (!hasNeighbors) {
+          continue;
+        }
+        if (Array.isArray(af.activate_address_family)) {
+          const act = af.activate_address_family
+            .map(String)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (act.length) af.activate_address_family = act;
+          else delete af.activate_address_family;
+        }
+      }
+      kept.push(af);
+    }
+    if (kept.length) bgp.address_family = kept;
+    else delete bgp.address_family;
+  }
+
+  if (
+    Array.isArray(bgp.neighbor_disable_connected_check) &&
+    bgp.neighbor_disable_connected_check.length === 0
+  ) {
+    delete bgp.neighbor_disable_connected_check;
+  }
+};
+
+const collectTouchedBgpIndices = (delta: Srv6EndpointInjectedDelta): Set<number> => {
+  const indices = new Set<number>();
+  for (const list of [
+    delta.neighbors,
+    delta.neighborDisableConnectedCheck,
+    delta.activateAddressFamily,
+    delta.rdRt,
+  ]) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (item && typeof item === 'object' && typeof (item as { bgpIndex?: number }).bgpIndex === 'number') {
+        indices.add((item as { bgpIndex: number }).bgpIndex);
+      }
+    }
+  }
+  return indices;
+};
+
 /**
  * 从 VR 配置中移除 injectedDelta 记录的条目（仅删除仍匹配的项，避免误删用户手改内容）。
  */
@@ -69,19 +138,25 @@ export const ejectInjectedDeltaFromConfig = (
     const bgpArr = [...(cloned.bgp as unknown[])];
     for (const item of delta.activateAddressFamily) {
       const bgp = bgpArr[item.bgpIndex] as Record<string, unknown> | undefined;
-      if (!bgp || typeof bgp !== 'object') continue;
+      if (!bgp || typeof bgp !== 'object') {
+        skipped.push(`activate:bgp[${item.bgpIndex}] missing`);
+        continue;
+      }
       const afArr = Array.isArray(bgp.address_family) ? [...bgp.address_family] : [];
+      let removed = false;
       for (let i = 0; i < afArr.length; i++) {
         const af = afArr[i] as Record<string, unknown>;
-        if (String(af?.address_family || '').toLowerCase() !== 'ipv4') continue;
-        const mod = String(af.modifiler || af.modifier || '').toLowerCase();
-        if (mod !== 'vpn') continue;
+        if (!isIpv4VpnAf(af)) continue;
         const act = Array.isArray(af.activate_address_family)
           ? [...af.activate_address_family]
           : [];
-        af.activate_address_family = act.filter((ip) => String(ip) !== String(item.peerIp));
+        const next = act.filter((ip) => String(ip) !== String(item.peerIp));
+        if (next.length !== act.length) removed = true;
+        if (next.length) af.activate_address_family = next;
+        else delete af.activate_address_family;
         afArr[i] = af;
       }
+      if (!removed) skipped.push(`activate:${item.peerIp} not found`);
       bgp.address_family = afArr;
       bgpArr[item.bgpIndex] = bgp;
     }
@@ -131,6 +206,18 @@ export const ejectInjectedDeltaFromConfig = (
       if (!touched) skipped.push(`rdRt:bgp[${item.bgpIndex}]`);
       bgp.address_family = afArr;
       bgpArr[item.bgpIndex] = bgp;
+    }
+    cloned.bgp = bgpArr;
+  }
+
+  if (Array.isArray(cloned.bgp)) {
+    const bgpArr = [...(cloned.bgp as unknown[])];
+    for (const idx of collectTouchedBgpIndices(delta)) {
+      const bgp = bgpArr[idx] as Record<string, unknown> | undefined;
+      if (bgp && typeof bgp === 'object') {
+        cleanupBgpAfterTunnelEject(bgp);
+        bgpArr[idx] = bgp;
+      }
     }
     cloned.bgp = bgpArr;
   }

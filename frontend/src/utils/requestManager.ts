@@ -120,7 +120,11 @@ async function parseErrorResponse(response: Response): Promise<never> {
           }
         }
       }
-      // 2. Fallback to 'error' field
+      // 2. VR 配置等接口使用 msg（与 code 成对）
+      else if (responseData.msg) {
+        errorMsg = String(responseData.msg);
+      }
+      // 3. Fallback to 'error' field
       else if (responseData.error) {
         errorMsg = typeof responseData.error === 'string' ? responseData.error : JSON.stringify(responseData.error);
       }

@@ -52,6 +52,13 @@ const slotEndpoints = (
   { slot: 'ceB', vrId: tunnel.ceB },
 ];
 
+const slotLabel = (slot: Srv6EndpointSlot) =>
+  ({ peA: 'PE-A', peB: 'PE-B', ceA: 'CE-A', ceB: 'CE-B' } as const)[slot];
+
+/** 历史隧道无变更清单时，引导用户仅删记录或手工清理 */
+const LEGACY_TUNNEL_DELETE_HINT =
+  '请取消勾选「回退平台库中的隧道注入项」后仅删除隧道记录，或由管理员在四端 VR 上手工还原配置。';
+
 export const revertSrv6TunnelInjections = async (
   tunnel: SRv6Tunnel,
   options: { revertDevice: boolean },
@@ -61,7 +68,9 @@ export const revertSrv6TunnelInjections = async (
   const delta = tunnel.injectedDelta as Srv6InjectedDelta | null | undefined;
 
   if (!delta || typeof delta !== 'object') {
-    const err = new Error('隧道缺少 injectedDelta 关系档案，无法执行删除回退');
+    const err = new Error(
+      `该隧道缺少创建时的配置变更记录（多为历史数据），无法自动回退四端 VR 配置。${LEGACY_TUNNEL_DELETE_HINT}`,
+    );
     (err as Error & { statusCode: number }).statusCode = 400;
     throw err;
   }
@@ -70,14 +79,16 @@ export const revertSrv6TunnelInjections = async (
   for (const { slot, vrId } of slotEndpoints(tunnel)) {
     const entry = delta[slot];
     if (!entry) {
-      const err = new Error(`${slot}：缺少 injectedDelta 注入清单，无法执行删除回退`);
+      const err = new Error(
+        `${slotLabel(slot)}：缺少该端的配置变更记录，无法执行删除回退。${LEGACY_TUNNEL_DELETE_HINT}`,
+      );
       (err as Error & { statusCode: number }).statusCode = 400;
       throw err;
     }
 
     const record = await vrRepo().findOne({ where: { uuid: vrId } });
     if (!record?.config_json) {
-      const err = new Error(`${slot}：VR ${vrId} 配置不存在，无法执行删除回退`);
+      const err = new Error(`${slotLabel(slot)}：对应 VR 配置不存在，无法执行删除回退`);
       (err as Error & { statusCode: number }).statusCode = 409;
       throw err;
     }
@@ -86,7 +97,7 @@ export const revertSrv6TunnelInjections = async (
     try {
       cfg = JSON.parse(record.config_json);
     } catch {
-      const err = new Error(`${slot}：config_json 无法解析，无法执行删除回退`);
+      const err = new Error(`${slotLabel(slot)}：VR 配置格式异常，无法执行删除回退`);
       (err as Error & { statusCode: number }).statusCode = 409;
       throw err;
     }
@@ -94,7 +105,7 @@ export const revertSrv6TunnelInjections = async (
     const { config: nextCfg, skipped } = ejectInjectedDeltaFromConfig(cfg, entry);
     if (skipped.length) {
       const err = new Error(
-        `${slot}：回退时未找到匹配的注入项（${skipped.join('; ')}），已中止删除`,
+        `${slotLabel(slot)}：回退时未能在当前配置中找到创建时下发的对应项（${skipped.join('；')}），已中止删除。请确认四端配置未被手工修改。`,
       );
       (err as Error & { statusCode: number }).statusCode = 409;
       throw err;

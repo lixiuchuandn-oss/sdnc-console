@@ -67,8 +67,11 @@ export const assertSrv6VrConfigUpsertAllowed = async (
   }
 
   if (conflicts.length) {
+    const tunnelNames = [...new Set(refs.map((r) => r.tunnelName).filter(Boolean))];
+    const namesPart = tunnelNames.length ? `引用隧道：${tunnelNames.join('、')}。` : '';
+    const detailPart = `变更冲突：${conflicts.join('；')}`;
     const err = new Error(
-      `该 VR 已被 SRv6 隧道引用，关键配置不可变更。请先删除或重建相关隧道。详情：${conflicts.join('；')}`,
+      `当前 VR 实例已被 SRv6 隧道引用，关键配置不允许修改。如需调整，请先删除相关隧道后再保存。${namesPart}${detailPart}`,
     );
     (err as Error & { statusCode: number }).statusCode = 409;
     throw err;
@@ -86,10 +89,11 @@ export const assertSrv6VrSetRoleAllowed = async (
   if (normalizedRole && refs.every((r) => expectedRoleForSlot(r.slot) === normalizedRole)) {
     return;
   }
-  const names = [...new Set(refs.map((r) => r.tunnelName))];
-  const suffix = nextRole ? `目标角色：${nextRole}。` : '';
+  const names = [...new Set(refs.map((r) => r.tunnelName).filter(Boolean))];
+  const namesPart = names.length ? `引用隧道：${names.join('、')}。` : '';
+  const rolePart = nextRole ? `目标角色：${nextRole}。` : '';
   const err = new Error(
-    `该 VR 已被 SRv6 隧道引用（${names.join('、')}），不可变更角色。${suffix}请先删除或重建相关隧道。`,
+    `当前 VR 实例已被 SRv6 隧道引用，角色不允许修改。如需调整，请先删除相关隧道后再保存。${namesPart}${rolePart}`,
   );
   (err as Error & { statusCode: number }).statusCode = 409;
   throw err;

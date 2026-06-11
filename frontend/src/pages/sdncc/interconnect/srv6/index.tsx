@@ -96,6 +96,9 @@ const SRv6Page: React.FC = () => {
               >
                 同步回退到底层设备（对四端执行 deploy/push，默认开启）
               </Checkbox>
+              <p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
+                历史隧道若创建时未保存配置变更记录，勾选回退将无法删除；请取消「回退平台库」后仅删除隧道记录，再手工清理四端配置。
+              </p>
             </div>
           ),
           okText: '删除',

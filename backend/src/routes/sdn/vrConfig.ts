@@ -273,7 +273,11 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
       await assertSrv6VrConfigUpsertAllowed(uuid, jsonStr);
     } catch (lockErr: any) {
       if (lockErr?.statusCode === 400 || lockErr?.statusCode === 409) {
-        return res.status(lockErr.statusCode).json({ code: lockErr.statusCode, msg: lockErr.message });
+        return res.status(lockErr.statusCode).json({
+          code: lockErr.statusCode,
+          msg: lockErr.message,
+          message: lockErr.message,
+        });
       }
       throw lockErr;
     }
@@ -331,7 +335,7 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
       await assertSrv6VrSetRoleAllowed(uuid, normalized);
     } catch (lockErr: any) {
       if (lockErr?.statusCode === 409) {
-        return res.status(409).json({ code: 409, msg: lockErr.message });
+        return res.status(409).json({ code: 409, msg: lockErr.message, message: lockErr.message });
       }
       throw lockErr;
     }

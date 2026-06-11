@@ -61,6 +61,7 @@ export const handleApiError = (
 
     const parts: string[] = [];
     if (data?.message) parts.push(String(data.message));
+    else if (data?.msg) parts.push(String(data.msg));
     if (typeof data?.error === 'string') parts.push(data.error);
     if (data?.error && typeof data.error === 'object') parts.push(JSON.stringify(data.error));
     const combined =
