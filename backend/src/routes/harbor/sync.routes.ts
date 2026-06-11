@@ -19,6 +19,11 @@ const harborLog = logger.child('HarborSync');
 
 const router = Router();
 
+/** 解密 Harbor 密码（与 HarborProxyService 一致：反转 + Base64） */
+function decryptHarborPassword(encrypted: string): string {
+  return Buffer.from(encrypted, 'base64').toString().split('').reverse().join('');
+}
+
 /**
  * [辅助函数] 构建 dockerconfigjson 数据
  * @param server 仓库地址 (如 registry.example.com)
@@ -172,6 +177,7 @@ router.post('/registries/:id/sync-secret', async (req: AuthRequest, res: Respons
     let registryUrl = harbor.url.replace(/^https?:\/\//, '');
     // 移除端口后的路径（如 registry.example.com/v1 -> registry.example.com）
     registryUrl = registryUrl.split('/')[0];
+    const decryptedPassword = decryptHarborPassword(harbor.password);
 
     // 构建 Secret 对象
     const secretBody = {
@@ -194,7 +200,7 @@ router.post('/registries/:id/sync-secret', async (req: AuthRequest, res: Respons
       },
       type: 'kubernetes.io/dockerconfigjson',
       data: {
-        '.dockerconfigjson': buildDockerConfigJson(registryUrl, harbor.username, harbor.password),
+        '.dockerconfigjson': buildDockerConfigJson(registryUrl, harbor.username, decryptedPassword),
       },
     };
 

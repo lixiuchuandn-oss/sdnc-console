@@ -246,41 +246,15 @@ export class HarborProxyService {
     return repositoryName;
   }
 
-  private buildFullRepositoryName(projectName: string, repositoryName: string): string {
-    if (repositoryName.includes('/')) {
-      return repositoryName;
-    }
-    return `${projectName}/${this.extractRepoName(repositoryName)}`;
-  }
-
-  private async resolveNumericProjectId(
+  /**
+   * 仓库/制品 API 的路径段必须使用项目名（如 66），不能用解析后的 project_id（如 15）。
+   * Harbor 对纯数字项目名：项目级 API 认 ID，仓库子资源认名称。
+   */
+  private resolveRepositoryProjectRef(
     harborProjectRef: string,
     context?: HarborProjectContext,
-  ): Promise<number | null> {
-    const projectName = context?.projectName;
-    if (!projectName || !isNumericHarborProjectName(projectName)) {
-      return null;
-    }
-    if (context?.projectId != null) {
-      return context.projectId;
-    }
-    if (/^\d+$/.test(harborProjectRef)) {
-      return Number(harborProjectRef);
-    }
-    const project = await this.findProjectByName(projectName);
-    return project?.project_id ?? null;
-  }
-
-  /** 数字项目名无法走 /projects/{name}/repositories，需用全局仓库 API */
-  private async shouldUseGlobalRepositoryApi(
-    harborProjectRef: string,
-    context?: HarborProjectContext,
-  ): Promise<boolean> {
-    const projectName = context?.projectName;
-    if (projectName && isNumericHarborProjectName(projectName)) {
-      return true;
-    }
-    return /^\d+$/.test(harborProjectRef) && (await this.resolveNumericProjectId(harborProjectRef, context)) != null;
+  ): string {
+    return context?.projectName ?? harborProjectRef;
   }
 
   private buildRepositoryApiPath(
@@ -288,15 +262,10 @@ export class HarborProxyService {
     repositoryName: string,
     suffix: string,
     context?: HarborProjectContext,
-    useGlobal?: boolean,
   ): string {
-    const projectName = context?.projectName ?? harborProjectRef;
-    if (useGlobal) {
-      const fullName = this.buildFullRepositoryName(projectName, repositoryName);
-      return `/api/v2.0/repositories/${encodeURIComponent(fullName)}${suffix}`;
-    }
+    const projectPathRef = this.resolveRepositoryProjectRef(harborProjectRef, context);
     const repoSegment = this.extractRepoName(repositoryName);
-    return `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/repositories/${encodeURIComponent(repoSegment)}${suffix}`;
+    return `/api/v2.0/projects/${encodeURIComponent(projectPathRef)}/repositories/${encodeURIComponent(repoSegment)}${suffix}`;
   }
 
   /**
@@ -312,29 +281,10 @@ export class HarborProxyService {
       projectId?: number;
     },
   ): Promise<any[]> {
-    const context: HarborProjectContext = {
-      projectName: params?.projectName,
-      projectId: params?.projectId,
-    };
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
-
-    if (useGlobal) {
-      const projectId = await this.resolveNumericProjectId(harborProjectRef, context);
-      if (projectId == null) {
-        throw new Error(`无法解析数字项目名「${context.projectName}」的 Harbor 项目 ID`);
-      }
-      const response = await this.axiosInstance.get('/api/v2.0/repositories', {
-        params: {
-          page: params?.page || 1,
-          page_size: params?.pageSize || 100,
-          q: params?.q ? `${params.q} project_id=${projectId}` : `project_id=${projectId}`,
-        },
-      });
-      return response.data;
-    }
+    const projectPathRef = params?.projectName ?? harborProjectRef;
 
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/repositories`,
+      `/api/v2.0/projects/${encodeURIComponent(projectPathRef)}/repositories`,
       {
         params: {
           page: params?.page || 1,
@@ -354,8 +304,7 @@ export class HarborProxyService {
     repositoryName: string,
     context?: HarborProjectContext,
   ): Promise<void> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
-    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context, useGlobal);
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context);
     await this.axiosInstance.delete(url);
   }
 
@@ -367,8 +316,7 @@ export class HarborProxyService {
     repositoryName: string,
     context?: HarborProjectContext,
   ): Promise<any> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
-    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context, useGlobal);
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context);
     const response = await this.axiosInstance.get(url);
     return response.data;
   }
@@ -394,8 +342,7 @@ export class HarborProxyService {
       projectName: params?.projectName,
       projectId: params?.projectId,
     };
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
-    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '/artifacts', context, useGlobal);
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '/artifacts', context);
 
     const response = await this.axiosInstance.get(url, {
       params: {
@@ -419,13 +366,11 @@ export class HarborProxyService {
     reference: string,
     context?: HarborProjectContext,
   ): Promise<any> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}`,
       context,
-      useGlobal,
     );
     const response = await this.axiosInstance.get(url);
     return response.data;
@@ -440,13 +385,11 @@ export class HarborProxyService {
     reference: string,
     context?: HarborProjectContext,
   ): Promise<void> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}`,
       context,
-      useGlobal,
     );
     await this.axiosInstance.delete(url);
   }
@@ -460,13 +403,11 @@ export class HarborProxyService {
     reference: string,
     context?: HarborProjectContext,
   ): Promise<any[]> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}/tags`,
       context,
-      useGlobal,
     );
     const response = await this.axiosInstance.get(url);
     return response.data;
@@ -482,13 +423,11 @@ export class HarborProxyService {
     tag: string,
     context?: HarborProjectContext,
   ): Promise<void> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}/tags`,
       context,
-      useGlobal,
     );
     await this.axiosInstance.post(url, { name: tag });
   }
@@ -503,13 +442,11 @@ export class HarborProxyService {
     tagName: string,
     context?: HarborProjectContext,
   ): Promise<void> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}/tags/${tagName}`,
       context,
-      useGlobal,
     );
     await this.axiosInstance.delete(url);
   }
@@ -523,13 +460,11 @@ export class HarborProxyService {
     reference: string,
     context?: HarborProjectContext,
   ): Promise<void> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}/scan`,
       context,
-      useGlobal,
     );
     await this.axiosInstance.post(url);
   }
@@ -543,13 +478,11 @@ export class HarborProxyService {
     reference: string,
     context?: HarborProjectContext,
   ): Promise<any> {
-    const useGlobal = await this.shouldUseGlobalRepositoryApi(harborProjectRef, context);
     const url = this.buildRepositoryApiPath(
       harborProjectRef,
       repositoryName,
       `/artifacts/${reference}/additions/vulnerabilities`,
       context,
-      useGlobal,
     );
     const response = await this.axiosInstance.get(url);
     return response.data;
