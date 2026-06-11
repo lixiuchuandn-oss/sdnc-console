@@ -82,13 +82,27 @@ function toCsmConfig(cloud: Cloud): CsmConfig {
   };
 }
 
+function webPortFromEndpoint(endpoint: string): string | undefined {
+  try {
+    const raw = String(endpoint || '').trim();
+    if (!raw) return undefined;
+    const u = new URL(raw.startsWith('http') ? raw : `https://${raw}`);
+    return u.port || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function repairAuthFromCloud(cloud: Cloud): CsmRepairAuthOptions | undefined {
   const cfg = (cloud.config || {}) as Record<string, unknown>;
   const username = String(cfg.csmRepairUsername ?? cfg.csmApiUsername ?? '').trim();
   const passwordEncrypted = String(
     cfg.csmRepairPasswordEncrypted ?? cfg.csmApiPasswordEncrypted ?? '',
   ).trim();
-  const webPort = String(cfg.csmWebPort ?? cfg.csmRepairWebPort ?? '').trim();
+  const webPort =
+    String(cfg.csmWebPort ?? cfg.csmRepairWebPort ?? '').trim() ||
+    webPortFromEndpoint(String(cloud.endpoint || cfg.endpoint || '')) ||
+    '';
   if (!username && !passwordEncrypted) return undefined;
   return {
     username: username || 'admin',

@@ -19,11 +19,40 @@ export type CsmRepairAuthOptions = {
   webPort?: string;
 };
 
+function isCsmAuthFailureMessage(msg: unknown): boolean {
+  return /未登录|登录状态已过期|用户名或密码不正确|password/i.test(String(msg || ''));
+}
+
 function isCsmResponseOk(raw: CsmPagedResponse | null | undefined): boolean {
   if (!raw) return false;
+  if (raw.success === false) return false;
+  const code = Number((raw as { code?: unknown })?.code);
+  if (Number.isFinite(code) && code >= 400) return false;
+  if (isCsmAuthFailureMessage(raw.message)) return false;
   if (raw.success === true) return true;
-  if (raw.errCode === 0) return true;
+  if (raw.errCode === 0 && Array.isArray(raw.data)) return true;
+  if (Array.isArray(raw.data)) return true;
   return false;
+}
+
+/** 从 preAuth 响应提取运营侧 token（拒绝 object 型 data 被 String 成 [object Object]） */
+export function extractCsmAuthToken(resp: unknown): string | null {
+  if (!resp || typeof resp !== 'object') return null;
+  const r = resp as Record<string, unknown>;
+  if (r.success === false) return null;
+  if (isCsmAuthFailureMessage(r.message)) return null;
+
+  const data = r.data;
+  if (typeof data === 'string') {
+    const t = data.trim();
+    return t.length > 0 ? t : null;
+  }
+  if (data && typeof data === 'object') {
+    const nested = data as Record<string, unknown>;
+    if (typeof nested.token === 'string' && nested.token.trim()) return nested.token.trim();
+    if (typeof nested.data === 'string' && nested.data.trim()) return nested.data.trim();
+  }
+  return null;
 }
 
 function extractPageItems(raw: CsmPagedResponse): unknown[] {
@@ -40,8 +69,7 @@ async function obtainCsmToken(
   if (!passwordEncrypted) return null;
   const webPort = auth?.webPort ? String(auth.webPort) : undefined;
   const resp = await csmPreAuthLogin(config, username, passwordEncrypted, webPort);
-  const token = String((resp as any)?.data ?? '').trim();
-  return token || null;
+  return extractCsmAuthToken(resp);
 }
 
 async function csmPostJson<T extends CsmPagedResponse>(
@@ -61,8 +89,10 @@ async function csmPostJson<T extends CsmPagedResponse>(
 
   const token = await obtainCsmToken(config, auth);
   if (token) {
-    raw = await tryOnce({ token });
-    if (isCsmResponseOk(raw)) return raw;
+    for (const extraHeaders of [{ token }, { data: token }] as const) {
+      raw = await tryOnce(extraHeaders);
+      if (isCsmResponseOk(raw)) return raw;
+    }
   }
 
   const msg = String(raw?.message || `CSM 请求失败: ${path}`);

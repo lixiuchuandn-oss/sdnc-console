@@ -29,4 +29,10 @@ module.exports = {
   cloudmapToken: process.env.TOWER_CLOUDMAP_TOKEN || '',
   cloudId: process.env.TOWER_CLOUD_ID || '',
   imageNamespace: process.env.TOWER_IMAGE_NAMESPACE || 'default',
+  csmCloudId: process.env.TOWER_CSM_CLOUD_ID || '',
+  csmEndpointHint: process.env.TOWER_CSM_ENDPOINT_HINT || '',
+  csmRepairUsername: process.env.TOWER_CSM_REPAIR_USERNAME || 'admin',
+  csmRepairPasswordEncrypted: process.env.TOWER_CSM_REPAIR_PASSWORD_ENCRYPTED || '',
+  csmWebPort: process.env.TOWER_CSM_WEB_PORT || '',
+  csmTenantsRequireOk: process.env.TOWER_CSM_TENANTS_REQUIRE_OK === '1',
 };

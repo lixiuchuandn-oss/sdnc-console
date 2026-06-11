@@ -41,6 +41,7 @@ npm run e2e:status
 
 | 域 | 已有 | 缺口 |
 |----|------|------|
+| **CSM 租户** | `sdncc/csm/api-tenants.api.test.cjs` + `browser-tenants` | 租户 v2 需 `csmRepairPasswordEncrypted` 才 200 |
 | 边缘云测连 | API + `smoke/pool-edge-wizard` | 无完整创建池浏览器流程 |
 | 创建资源池 | `cnmc/cloudmap/pool-create.api.test.cjs` | 无浏览器 E2E |
 
