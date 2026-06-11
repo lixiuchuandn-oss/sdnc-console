@@ -19,6 +19,8 @@ import { replicationRoutes } from './replication.routes';
 import { scanRoutes } from './scan.routes';
 import { syncRoutes } from './sync.routes';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
+import { findHarborRegistryForCloud } from '../../services/harbor/harborRegistryAccess';
+import { resolveHarborCloudId } from '../../services/harbor/harborRegistryCloudMiddleware';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
 
@@ -116,7 +118,11 @@ router.post(
           return res.status(400).json({ message: '请选择要上传的文件' });
         }
 
-        const harbor = await harborRegistryRepo.findOne({ where: { id: harborId } });
+        const cloudId = resolveHarborCloudId(req);
+        if (!cloudId) {
+          return res.status(400).json({ message: '缺少必要参数: cloudId' });
+        }
+        const harbor = await findHarborRegistryForCloud(harborId, cloudId);
         if (!harbor) {
           return res.status(404).json({ message: 'Harbor 实例不存在' });
         }

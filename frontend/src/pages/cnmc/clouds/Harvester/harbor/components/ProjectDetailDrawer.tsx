@@ -22,6 +22,7 @@ import {
   getHarborProject, 
   getHarborProjectSummary,
   getHarborRegistry,
+  setHarborApiCloudId,
 } from '../shared/harborApi';
 import type { HarborProject, HarborProjectSummary, HarborRegistry, HarborRepository } from '../types';
 import { isHarborProjectPublic } from '../shared/projectVisibility';
@@ -48,7 +49,7 @@ const ProjectDetailDrawer: React.FC<Props> = ({
   visible,
   harborId,
   project: projectRef,
-  cloudId: _cloudId,
+  cloudId,
   onClose,
   onBack,
   onOpenRepository,
@@ -79,7 +80,7 @@ const ProjectDetailDrawer: React.FC<Props> = ({
       const [projectRes, summaryRes, harborRes] = await Promise.all([
         getHarborProject(harborId, projectRef),
         getHarborProjectSummary(harborId, projectRef),
-        getHarborRegistry(harborId),
+        getHarborRegistry(harborId, cloudId),
       ]);
       setProject(projectRes);
       setSummary(summaryRes);
@@ -90,7 +91,18 @@ const ProjectDetailDrawer: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectRef, visible]);
+  }, [harborId, projectRef, cloudId, visible]);
+
+  useEffect(() => {
+    if (visible && cloudId) {
+      setHarborApiCloudId(cloudId);
+    }
+    return () => {
+      if (visible) {
+        setHarborApiCloudId(undefined);
+      }
+    };
+  }, [visible, cloudId]);
 
   useEffect(() => {
     if (visible) {

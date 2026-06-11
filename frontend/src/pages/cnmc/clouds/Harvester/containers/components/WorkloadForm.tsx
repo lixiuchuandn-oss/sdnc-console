@@ -57,7 +57,10 @@ import { createEmptyContainer, toContainerEditorFields } from './workloadForm/co
 import { buildK8sResource } from './workloadForm/buildK8sResource';
 import { buildActiveContainerFromEditor } from './workloadForm/containerFormSync';
 import { parseEditWorkloadFormInit } from './workloadForm/parseEditWorkloadFormInit';
-import { ensureImagePullSecretsForImages } from './workloadForm/ensureRegistryPullSecret';
+import {
+  ensureImagePullSecretsForImages,
+  ensureImagePullSecretsForK8sResource,
+} from './workloadForm/ensureRegistryPullSecret';
 import {
   filterDockerRegistryEntries,
   findRegistryForImage,
@@ -794,11 +797,23 @@ const WorkloadForm: React.FC<WorkloadFormProps> = ({
         return;
       }
 
+      let submitPayload = prepared.payload;
+      if (mode === 'yaml') {
+        const ensured = await ensureImagePullSecretsForK8sResource(
+          cloudId,
+          submitPayload.resource,
+          allRegistries,
+        );
+        if (ensured.updated) {
+          submitPayload = { ...submitPayload, resource: ensured.resource };
+        }
+      }
+
       setLoading(true);
       await executeWorkloadSubmit({
         cloudId,
         isEditMode,
-        payload: prepared.payload,
+        payload: submitPayload,
         message,
         onSuccess,
       });

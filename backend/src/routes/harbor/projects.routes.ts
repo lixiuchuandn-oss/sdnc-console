@@ -18,6 +18,10 @@ import {
   resolveHarborProjectRefAsync,
   buildHarborProjectContext,
 } from './harborProjectRef';
+import {
+  harborRegistryCloudAccessMiddleware,
+  HarborScopedRequest,
+} from '../../services/harbor/harborRegistryCloudMiddleware';
 
 const harborLog = logger.child('HarborProjects');
 
@@ -74,6 +78,8 @@ function resolveHarborDeleteProjectError(
 }
 
 const router = Router();
+
+router.use('/registries/:id', harborRegistryCloudAccessMiddleware);
 
 /**
  * 转换 Harbor scan_overview 格式为前端期望的格式
@@ -161,18 +167,15 @@ const transformScanOverview = (scanOverview: any): any => {
 /**
  * 获取 HarborProxyService 实例
  */
-const getHarborService = async (
-  registryId: string,
-): Promise<{ harbor: HarborRegistry; service: HarborProxyService } | null> => {
-  const harborRepo = AppDataSource.getRepository(HarborRegistry);
-  const harbor = await harborRepo.findOne({ where: { id: registryId } });
-
+const getHarborService = (
+  req: HarborScopedRequest,
+): { harbor: HarborRegistry; service: HarborProxyService } | null => {
+  const harbor = req.harborRegistry;
   if (!harbor) {
     return null;
   }
 
   const service = HarborProxyService.getInstance(harbor);
-
   return { harbor, service };
 };
 
@@ -192,7 +195,7 @@ router.get('/registries/:id/projects', async (req: AuthRequest, res: Response) =
     const { id } = req.params;
     const { page, pageSize, name, public: isPublic } = req.query;
 
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -243,7 +246,7 @@ router.post('/registries/:id/projects', async (req: AuthRequest, res: Response) 
       return res.status(400).json({ message: '缺少必填字段: project_name' });
     }
 
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -281,7 +284,7 @@ router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Respo
     }
 
     const { id } = req.params;
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -329,7 +332,7 @@ router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Re
 
     const { id } = req.params;
 
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -376,7 +379,7 @@ router.get('/registries/:id/projects/:name/summary', async (req: AuthRequest, re
     }
 
     const { id } = req.params;
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -432,7 +435,7 @@ router.get('/registries/:id/projects/:name/members', async (req: AuthRequest, re
     }
 
     const { id } = req.params;
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -507,7 +510,7 @@ router.post('/registries/:id/projects/:name/members', async (req: AuthRequest, r
       return res.status(400).json({ message: '缺少必填字段: role' });
     }
 
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -546,7 +549,7 @@ router.delete(
       }
 
       const { id, memberId } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -582,7 +585,7 @@ router.get(
       const { id } = req.params;
       const { page, pageSize, q } = req.query;
 
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -631,7 +634,7 @@ router.get(
       }
 
       const { id, repo } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -682,7 +685,7 @@ router.delete(
       }
 
       const { id, repo } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -725,7 +728,7 @@ router.get(
       const { id, repo } = req.params;
       const { page, pageSize, q, withTag, withLabel, withScanOverview } = req.query;
 
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -784,7 +787,7 @@ router.get(
         withScanOverview: _withScanOverview,
       } = req.query;
 
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -834,7 +837,7 @@ router.delete(
       }
 
       const { id, repo, ref } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -878,7 +881,7 @@ router.get(
       const { id, repo, ref } = req.params;
       const { page: _page, pageSize: _pageSize } = req.query;
 
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -935,7 +938,7 @@ router.post(
         return res.status(400).json({ message: '缺少必填字段: name' });
       }
 
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -980,7 +983,7 @@ router.delete(
       }
 
       const { id, repo, ref, tag } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -1024,7 +1027,7 @@ router.get('/registries/:id/selector/projects', async (req: AuthRequest, res: Re
 
     const { id } = req.params;
 
-    const result = await getHarborService(id);
+    const result = getHarborService(req);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -1061,7 +1064,7 @@ router.get(
       }
 
       const { id } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -1111,7 +1114,7 @@ router.get(
       }
 
       const { id, repo } = req.params;
-      const result = await getHarborService(id);
+      const result = getHarborService(req);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }

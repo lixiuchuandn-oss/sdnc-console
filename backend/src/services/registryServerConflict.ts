@@ -16,7 +16,7 @@ export interface RegistryServerConflict {
 
 export async function findRegistryServerConflict(
   serverAddress: string,
-  exclude?: { harborId?: string; localRegistryId?: string },
+  exclude?: { harborId?: string; localRegistryId?: string; cloudId?: string },
 ): Promise<RegistryServerConflict | null> {
   const target = normalizeRegistryServerAddress(serverAddress);
   if (!target) return null;
@@ -24,7 +24,11 @@ export async function findRegistryServerConflict(
   const harborRepo = AppDataSource.getRepository(HarborRegistry);
   const localRepo = AppDataSource.getRepository(LocalRegistry);
 
-  const harbors = await harborRepo.find({ select: ['id', 'name', 'url'] });
+  const harborWhere = exclude?.cloudId ? { cloudId: exclude.cloudId } : {};
+  const harbors = await harborRepo.find({
+    where: harborWhere,
+    select: ['id', 'name', 'url', 'cloudId'],
+  });
   for (const harbor of harbors) {
     if (exclude?.harborId && harbor.id === exclude.harborId) continue;
     if (registryServerAddressesEqual(harbor.url, target)) {
@@ -36,7 +40,11 @@ export async function findRegistryServerConflict(
     }
   }
 
-  const locals = await localRepo.find({ select: ['id', 'name', 'server'] });
+  const localWhere = exclude?.cloudId ? { cloudId: exclude.cloudId } : {};
+  const locals = await localRepo.find({
+    where: localWhere,
+    select: ['id', 'name', 'server', 'cloudId'],
+  });
   for (const local of locals) {
     if (exclude?.localRegistryId && local.id === exclude.localRegistryId) continue;
     if (registryServerAddressesEqual(local.server, target)) {

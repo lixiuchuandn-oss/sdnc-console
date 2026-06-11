@@ -15,6 +15,8 @@
 export interface HarborRegistry {
   /** 唯一标识 */
   id: string;
+  /** 所属资源池 */
+  cloudId?: string;
   /** 显示名称 */
   name: string;
   /** Harbor 服务地址 */
@@ -48,6 +50,8 @@ export interface HarborRegistryForm {
   username: string;
   password: string;
   insecure?: boolean;
+  /** 凭证变更时仅同步该资源池内的 K8s 拉取 Secret */
+  cloudId?: string;
 }
 
 // ==================== 项目管理 ====================

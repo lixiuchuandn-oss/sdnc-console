@@ -6,32 +6,37 @@
  * @see HarborProxyService
  */
 import { Router, Response } from 'express';
-import { AppDataSource } from '../../config/database';
 import { HarborRegistry } from '../../entities/harbor/HarborRegistry';
 import { HarborProxyService } from '../../services/harbor/HarborProxyService';
-import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
+import {
+  harborRegistryCloudAccessMiddleware,
+  HarborScopedRequest,
+} from '../../services/harbor/harborRegistryCloudMiddleware';
 
 const harborLog = logger.child('HarborReplication');
 
 const router = Router();
 
+router.use('/registries/:id', harborRegistryCloudAccessMiddleware);
+
+function getHarborProxyFromRequest(req: HarborScopedRequest): HarborProxyService | null {
+  const harbor = req.harborRegistry;
+  if (!harbor) return null;
+  return HarborProxyService.getInstance(harbor);
+}
+
 /**
  * 获取复制规则列表
  * GET /api/harbor/registries/:id/replication/policies
  */
-router.get('/registries/:id/replication/policies', async (req: AuthRequest, res: Response) => {
+router.get('/registries/:id/replication/policies', async (req: HarborScopedRequest, res: Response) => {
   try {
-    const { id } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxyFromRequest(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
-
-    const proxy = HarborProxyService.getInstance(harbor);
     const policies = await proxy.getReplicationPolicies();
 
     res.json({ message: '查询成功', data: policies });
@@ -45,7 +50,7 @@ router.get('/registries/:id/replication/policies', async (req: AuthRequest, res:
  * 创建复制规则
  * POST /api/harbor/registries/:id/replication/policies
  */
-router.post('/registries/:id/replication/policies', async (req: AuthRequest, res: Response) => {
+router.post('/registries/:id/replication/policies', async (req: HarborScopedRequest, res: Response) => {
   try {
     const perms: string[] = Array.isArray((req.user as any)?.permissions)
       ? (req.user as any).permissions
@@ -55,14 +60,11 @@ router.post('/registries/:id/replication/policies', async (req: AuthRequest, res
     }
 
     const { id } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxyFromRequest(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const proxy = HarborProxyService.getInstance(harbor);
     const result = await proxy.createReplicationPolicy(req.body);
 
     harborLog.info(`创建复制规则: harbor=${id}`);
@@ -77,19 +79,14 @@ router.post('/registries/:id/replication/policies', async (req: AuthRequest, res
  * 获取复制执行记录
  * GET /api/harbor/registries/:id/replication/executions
  */
-router.get('/registries/:id/replication/executions', async (req: AuthRequest, res: Response) => {
+router.get('/registries/:id/replication/executions', async (req: HarborScopedRequest, res: Response) => {
   try {
-    const { id } = req.params;
     const { policyId } = req.query;
 
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxyFromRequest(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
-
-    const proxy = HarborProxyService.getInstance(harbor);
     const executions = await proxy.getReplicationExecutions({
       policyId: policyId ? Number(policyId) : undefined,
     });
@@ -105,7 +102,7 @@ router.get('/registries/:id/replication/executions', async (req: AuthRequest, re
  * 手动触发复制
  * POST /api/harbor/registries/:id/replication/executions
  */
-router.post('/registries/:id/replication/executions', async (req: AuthRequest, res: Response) => {
+router.post('/registries/:id/replication/executions', async (req: HarborScopedRequest, res: Response) => {
   try {
     const perms: string[] = Array.isArray((req.user as any)?.permissions)
       ? (req.user as any).permissions
@@ -121,14 +118,10 @@ router.post('/registries/:id/replication/executions', async (req: AuthRequest, r
       return res.status(400).json({ message: '缺少必要参数: policyId' });
     }
 
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await repo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxyFromRequest(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
-
-    const proxy = HarborProxyService.getInstance(harbor);
     const result = await proxy.triggerReplication(Number(policyId));
 
     harborLog.info(`触发复制执行: harbor=${id}, policyId=${policyId}`);
@@ -145,17 +138,14 @@ router.post('/registries/:id/replication/executions', async (req: AuthRequest, r
  */
 router.get(
   '/registries/:id/replication/policies/:policyId',
-  async (req: AuthRequest, res: Response) => {
+  async (req: HarborScopedRequest, res: Response) => {
     try {
-      const { id, policyId } = req.params;
-      const repo = AppDataSource.getRepository(HarborRegistry);
-      const harbor = await repo.findOne({ where: { id } });
-
-      if (!harbor) {
+      const { policyId } = req.params;
+      const proxy = getHarborProxyFromRequest(req);
+      if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const proxy = HarborProxyService.getInstance(harbor);
       const policy = await proxy.getReplicationPolicy(Number(policyId));
 
       res.json({ message: '查询成功', data: policy });
@@ -172,7 +162,7 @@ router.get(
  */
 router.put(
   '/registries/:id/replication/policies/:policyId',
-  async (req: AuthRequest, res: Response) => {
+  async (req: HarborScopedRequest, res: Response) => {
     try {
       const perms: string[] = Array.isArray((req.user as any)?.permissions)
         ? (req.user as any).permissions
@@ -182,14 +172,11 @@ router.put(
       }
 
       const { id, policyId } = req.params;
-      const repo = AppDataSource.getRepository(HarborRegistry);
-      const harbor = await repo.findOne({ where: { id } });
-
-      if (!harbor) {
+      const proxy = getHarborProxyFromRequest(req);
+      if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const proxy = HarborProxyService.getInstance(harbor);
       const result = await proxy.updateReplicationPolicy(Number(policyId), req.body);
 
       harborLog.info(`更新复制规则: harbor=${id}, policyId=${policyId}`);
@@ -207,7 +194,7 @@ router.put(
  */
 router.delete(
   '/registries/:id/replication/policies/:policyId',
-  async (req: AuthRequest, res: Response) => {
+  async (req: HarborScopedRequest, res: Response) => {
     try {
       const perms: string[] = Array.isArray((req.user as any)?.permissions)
         ? (req.user as any).permissions
@@ -217,14 +204,11 @@ router.delete(
       }
 
       const { id, policyId } = req.params;
-      const repo = AppDataSource.getRepository(HarborRegistry);
-      const harbor = await repo.findOne({ where: { id } });
-
-      if (!harbor) {
+      const proxy = getHarborProxyFromRequest(req);
+      if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const proxy = HarborProxyService.getInstance(harbor);
       await proxy.deleteReplicationPolicy(Number(policyId));
 
       harborLog.info(`删除复制规则: harbor=${id}, policyId=${policyId}`);

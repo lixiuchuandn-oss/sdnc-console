@@ -47,7 +47,10 @@ import yaml from 'js-yaml';
 import { createHarvesterContainerResource } from '../../../../../../services/harvesterApi';
 import { generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName, isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { RegistryBrowserDrawer, CronExpressionHelper } from './index';
-import { ensureImagePullSecretsForImages } from './workloadForm/ensureRegistryPullSecret';
+import {
+  ensureImagePullSecretsForImages,
+  ensureImagePullSecretsForK8sResource,
+} from './workloadForm/ensureRegistryPullSecret';
 import {
   filterDockerRegistryEntries,
   findRegistryForImage,
@@ -527,6 +530,8 @@ const CronJobForm: React.FC<CronJobFormProps> = ({
       
       if (mode === 'yaml') {
         body = yaml.load(yamlValue) as any;
+        const ensured = await ensureImagePullSecretsForK8sResource(cloudId, body, allRegistries);
+        body = ensured.resource;
       } else {
         // 使用 getFieldsValue(true) 获取所有字段值（包括未渲染的字段）
         const allValues = form.getFieldsValue(true) as CronJobFormValues;

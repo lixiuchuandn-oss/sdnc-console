@@ -59,8 +59,7 @@ import {
 
 const { Text, Link } = Typography;
 
-// 本地存储键名
-const REGISTRIES_STORAGE_KEY = 'harvester-registries';
+const getRegistriesStorageKey = (cloudId: string) => `harvester-registries:${cloudId}`;
 
 /**
  * 仓库配置接口
@@ -88,9 +87,10 @@ interface RegistryConfig {
 /**
  * 从 localStorage 加载仓库列表
  */
-const loadRegistries = (): RegistryConfig[] => {
+const loadRegistries = (cloudId: string): RegistryConfig[] => {
+  if (!cloudId) return [];
   try {
-    const data = localStorage.getItem(REGISTRIES_STORAGE_KEY);
+    const data = localStorage.getItem(getRegistriesStorageKey(cloudId));
     const registries = data ? JSON.parse(data) : [];
     // 确保 insecure 字段有默认值
     return registries.map((r: RegistryConfig) => ({
@@ -105,8 +105,9 @@ const loadRegistries = (): RegistryConfig[] => {
 /**
  * 保存仓库列表到 localStorage
  */
-const saveRegistries = (registries: RegistryConfig[]) => {
-  localStorage.setItem(REGISTRIES_STORAGE_KEY, JSON.stringify(registries));
+const saveRegistries = (cloudId: string, registries: RegistryConfig[]) => {
+  if (!cloudId) return;
+  localStorage.setItem(getRegistriesStorageKey(cloudId), JSON.stringify(registries));
 };
 
 type Props = {
@@ -211,7 +212,7 @@ const AddRegistryModal: React.FC<{
       
       // 如果是编辑模式，使用现有 harborId
       if (editData?.harborId) {
-        const res = await testHarborConnection(editData.harborId);
+        const res = await testHarborConnection(editData.harborId, cloudId);
         const success = res?.data?.success || res?.success;
         if (success) {
           setTestResult({ success: true, message: '连接成功' });
@@ -229,6 +230,7 @@ const AddRegistryModal: React.FC<{
             username: values.username,
             password: values.password,
             insecure: values.insecure ?? false,
+            cloudId,
           };
           
           // 创建临时实例
@@ -240,7 +242,7 @@ const AddRegistryModal: React.FC<{
           }
           
           // 测试连接
-          const res = await testHarborConnection(tempId);
+          const res = await testHarborConnection(tempId, cloudId);
           const success = res?.data?.success || res?.success;
           if (success) {
             setTestResult({ success: true, message: '连接成功' });
@@ -251,7 +253,7 @@ const AddRegistryModal: React.FC<{
           }
           
           // 删除临时实例
-          await deleteHarborRegistry(tempId);
+          await deleteHarborRegistry(tempId, cloudId!);
         } catch (err: any) {
           setTestResult({ success: false, message: err?.message || '测试失败' });
           message.error(err?.message || '连接测试失败');
@@ -265,7 +267,7 @@ const AddRegistryModal: React.FC<{
     } finally {
       setTesting(false);
     }
-  }, [editData, message, form]);
+  }, [editData, cloudId, message, form]);
   
   // 提交处理
   const handleOk = async () => {
@@ -298,6 +300,7 @@ const AddRegistryModal: React.FC<{
             url: server,
             username: values.username,
             insecure: values.insecure ?? false,
+            cloudId,
           };
           
           // 编辑模式下，只有填写了密码才传递密码字段
@@ -309,7 +312,24 @@ const AddRegistryModal: React.FC<{
           if (editData?.harborId) {
             // 编辑模式
             result = await updateHarborRegistry(editData.harborId, payload);
-            message.success('Harbor 仓库已更新');
+            const secretSync = (result as {
+              secretSync?: {
+                updated?: number;
+                failed?: number;
+                details?: Array<{ cloudId?: string; ok?: boolean }>;
+              };
+            })?.secretSync;
+            const syncCount = secretSync?.updated ?? 0;
+            const syncFailed = secretSync?.failed ?? 0;
+            if (syncCount > 0) {
+              message.success(`Harbor 仓库已更新，已在本资源池自动同步 ${syncCount} 个 K8s 拉取 Secret`);
+            } else if (syncFailed > 0) {
+              message.warning(`Harbor 仓库已更新，但 ${syncFailed} 个 K8s 拉取 Secret 同步失败，请查看后端日志`);
+            } else if (values.password?.trim()) {
+              message.warning('Harbor 仓库已更新，未找到可同步的 K8s 拉取 Secret（需先在命名空间中创建过 Harbor 拉取凭证）');
+            } else {
+              message.success('Harbor 仓库已更新');
+            }
           } else {
             // 新建模式
             result = await createHarborRegistry(payload);
@@ -599,7 +619,6 @@ const RegistriesSection: React.FC<Props> = ({
   // 仓库抽屉状态
   const [repoDrawerVisible, setRepoDrawerVisible] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<HarborRepository | null>(null);
-  
   // 合并后的仓库列表（按添加时间倒序）
   const allRegistries = useMemo(() => {
     const merged = [
@@ -630,16 +649,24 @@ const RegistriesSection: React.FC<Props> = ({
     return allRegistries.find(r => r.id === selectedGenericRegistryId) || null;
   }, [selectedGenericRegistryId, allRegistries]);
   
-  // 加载本地仓库列表
+  // 加载本地仓库列表（按资源池隔离）
   useEffect(() => {
-    setLocalRegistries(loadRegistries());
-  }, []);
+    if (!cloudId) {
+      setLocalRegistries([]);
+      return;
+    }
+    setLocalRegistries(loadRegistries(cloudId));
+  }, [cloudId]);
   
   // 加载 Harbor 仓库列表
   const loadHarborRegistries = useCallback(async () => {
+    if (!cloudId) {
+      setHarborRegistries([]);
+      return;
+    }
     setHarborLoading(true);
     try {
-      const res = await getHarborRegistries();
+      const res = await getHarborRegistries(cloudId);
       const harborData = (res?.data || res || []).map((item: any) => ({
         ...item,
         id: `harbor-${item.id}`,
@@ -660,7 +687,7 @@ const RegistriesSection: React.FC<Props> = ({
     } finally {
       setHarborLoading(false);
     }
-  }, []);
+  }, [cloudId]);
   
   // 加载平台部署的本地仓库列表
   const loadDeployedRegistries = useCallback(async () => {
@@ -760,7 +787,7 @@ const RegistriesSection: React.FC<Props> = ({
       // 刷新 Harbor 列表
       const reloadHarbor = async () => {
         try {
-          const res = await getHarborRegistries();
+          const res = await getHarborRegistries(cloudId);
           const harborData = (res?.data || res || []).map((item: any) => ({
             ...item,
             id: `harbor-${item.id}`,
@@ -807,7 +834,7 @@ const RegistriesSection: React.FC<Props> = ({
           : r
       );
       setLocalRegistries(updated);
-      saveRegistries(updated);
+      saveRegistries(cloudId, updated);
       message.success('仓库已更新');
     } else if (!editingRegistry || (editingRegistry.type === 'generic' && !editingRegistry.localRegistryId)) {
       // 新增手动添加的 generic 仓库 - 校验重复
@@ -830,20 +857,20 @@ const RegistriesSection: React.FC<Props> = ({
       };
       const updated = [...localRegistries, newRegistry];
       setLocalRegistries(updated);
-      saveRegistries(updated);
+      saveRegistries(cloudId, updated);
       message.success('仓库已添加');
     }
     
     setAddRegistryVisible(false);
     setEditingRegistry(null);
-  }, [localRegistries, editingRegistry, message, checkRegistryServerConflict]);
+  }, [cloudId, localRegistries, editingRegistry, message, checkRegistryServerConflict]);
   
   // 删除仓库
   const handleDeleteRegistry = useCallback(async (record: RegistryConfig) => {
     if (record.type === 'harbor' && record.harborId) {
       // 删除 Harbor 仓库
       try {
-        await deleteHarborRegistry(record.harborId);
+        await deleteHarborRegistry(record.harborId, cloudId);
         message.success('Harbor 仓库已删除');
         // 刷新 Harbor 列表
         setHarborRegistries(prev => prev.filter(r => r.id !== record.id));
@@ -855,10 +882,10 @@ const RegistriesSection: React.FC<Props> = ({
       // 删除 generic 仓库
       const updated = localRegistries.filter((r: RegistryConfig) => r.id !== record.id);
       setLocalRegistries(updated);
-      saveRegistries(updated);
+      saveRegistries(cloudId, updated);
       message.success('仓库已删除');
     }
-  }, [localRegistries, message]);
+  }, [cloudId, localRegistries, message]);
   
   // 测试通用仓库连接
   const handleTestGenericConnection = useCallback(async (record: RegistryConfig) => {
@@ -898,7 +925,7 @@ const RegistriesSection: React.FC<Props> = ({
           r.id === record.id ? { ...r, status: 'healthy' as const } : r
         );
         setLocalRegistries(updated);
-        saveRegistries(updated);
+        saveRegistries(cloudId, updated);
       }
     } catch (e: any) {
       hide();
@@ -923,7 +950,7 @@ const RegistriesSection: React.FC<Props> = ({
           r.id === record.id ? { ...r, status: 'unhealthy' as const } : r
         );
         setLocalRegistries(updated);
-        saveRegistries(updated);
+        saveRegistries(cloudId, updated);
       }
     }
   }, [cloudId, localRegistries, message]);
@@ -934,7 +961,7 @@ const RegistriesSection: React.FC<Props> = ({
     
     const hide = message.loading('正在测试连接...');
     try {
-      const res = await testHarborConnection(record.harborId);
+      const res = await testHarborConnection(record.harborId, cloudId);
       hide();
       const success = res?.data?.success || res?.success;
       if (success) {
@@ -956,8 +983,8 @@ const RegistriesSection: React.FC<Props> = ({
         r.id === record.id ? { ...r, status: 'unhealthy' } : r
       ));
     }
-  }, [message]);
-  
+  }, [cloudId, message]);
+
   // 仓库表格列（支持 generic + harbor）
   const registryColumns = useMemo(() => [
     {
@@ -1205,7 +1232,7 @@ const RegistriesSection: React.FC<Props> = ({
                     icon={<ReloadOutlined />}
                     loading={harborLoading || deployedRegistriesLoading}
                     onClick={() => {
-                      setLocalRegistries(loadRegistries());
+                      setLocalRegistries(loadRegistries(cloudId));
                       loadHarborRegistries();
                       loadDeployedRegistries();
                     }}
@@ -1275,7 +1302,7 @@ const RegistriesSection: React.FC<Props> = ({
             setSelectedGenericRegistryId(null);
           }}
           onRefresh={() => {
-            setLocalRegistries(loadRegistries());
+            setLocalRegistries(loadRegistries(cloudId));
             loadDeployedRegistries();
           }}
         />
@@ -1319,7 +1346,8 @@ const RegistriesSection: React.FC<Props> = ({
           loadDeployedRegistries();
         }}
       />
-    </>  );
+    </>
+  );
 };
 
 export default RegistriesSection;

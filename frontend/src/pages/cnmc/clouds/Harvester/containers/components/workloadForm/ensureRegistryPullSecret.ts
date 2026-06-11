@@ -5,6 +5,11 @@ import {
 import { syncLocalRegistryPullSecret } from '../../../../../../../services/localRegistryApi';
 import { syncHarborSecret } from '../../../harbor/shared/harborApi';
 import {
+  applyImagePullSecretsToK8sResource,
+  extractImagePullSecretNamesFromK8sResource,
+  extractImagesFromK8sResource,
+} from './k8sResourceImages';
+import {
   buildGenericPullSecretName,
   findRegistryForImage,
   MergedRegistryEntry,
@@ -12,8 +17,9 @@ import {
 } from './registryCredentials';
 
 function registryNeedsPullSecret(registry: MergedRegistryEntry): boolean {
-  if (registry.localRegistryId || registry.harborId) {
-    return !!(registry.username || registry.password);
+  // Harbor 凭证保存在后端，前端列表未必带密码
+  if (registry.harborId || registry.localRegistryId) {
+    return true;
   }
   return !!(registry.username && registry.password);
 }
@@ -91,4 +97,35 @@ export async function ensureImagePullSecretsForImages(
   }
 
   return Array.from(secrets);
+}
+
+/** YAML / 原生 K8s 资源提交前：按 Pod 镜像自动同步拉取凭证并写回 imagePullSecrets */
+export async function ensureImagePullSecretsForK8sResource(
+  cloudId: string,
+  resource: Record<string, unknown>,
+  registries: MergedRegistryEntry[],
+): Promise<{ resource: Record<string, unknown>; secrets: string[]; updated: boolean }> {
+  const namespace = ((resource.metadata as Record<string, unknown> | undefined)?.namespace as string) || 'default';
+  const images = extractImagesFromK8sResource(resource);
+  const existing = extractImagePullSecretNamesFromK8sResource(resource);
+
+  const secrets = await ensureImagePullSecretsForImages(
+    cloudId,
+    namespace,
+    images,
+    registries,
+    existing,
+  );
+
+  const existingSet = new Set(existing);
+  const updated = secrets.length !== existing.length || secrets.some((name) => !existingSet.has(name));
+  if (!updated) {
+    return { resource, secrets, updated: false };
+  }
+
+  return {
+    resource: applyImagePullSecretsToK8sResource(resource, secrets),
+    secrets,
+    updated: true,
+  };
 }

@@ -26,6 +26,10 @@ export class HarborRegistry {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
+  @Index()
+  @Column({ name: 'cloud_id', nullable: true })
+  cloudId?: string;
+
   @Column({ length: 100 })
   @Index()
   name!: string;
