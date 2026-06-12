@@ -89,7 +89,7 @@ async function csmPostJson<T extends CsmPagedResponse>(
 
   const token = await obtainCsmToken(config, auth);
   if (token) {
-    for (const extraHeaders of [{ token }, { data: token }] as const) {
+    for (const extraHeaders of [{ token }, { data: token }] as Array<Record<string, string>>) {
       raw = await tryOnce(extraHeaders);
       if (isCsmResponseOk(raw)) return raw;
     }

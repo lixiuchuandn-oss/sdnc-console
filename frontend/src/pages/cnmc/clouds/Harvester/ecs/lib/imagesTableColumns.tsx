@@ -8,7 +8,8 @@ import { isImagePublicByScenario, resolveVmImageKind } from 'utils/harvesterUtil
 import { resolveImageListStateKey, resolveVmImageImportFailureMessage } from './vmImageStatus';
 import {
   formatImageSizeGb,
-  getImageActualFileBytes,
+  getImageListDisplayActualSizeBytes,
+  isVolumeExportedVmImageRecord,
   getImageStorageClassName,
   getImageListDisplayVirtualSizeBytes,
   getImageCreatedMs,
@@ -218,8 +219,10 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
       title: '实际大小',
       key: 'actual_size',
       render: (_: unknown, r: ImageListRecord) => {
-        const bytes = getImageActualFileBytes(r);
-        return bytes != null ? formatImageSizeGb(bytes) : '-';
+        const bytes = getImageListDisplayActualSizeBytes(r);
+        if (bytes != null) return formatImageSizeGb(bytes);
+        if (isVolumeExportedVmImageRecord(r)) return '未知';
+        return '-';
       },
     },
     ...(!isTenant

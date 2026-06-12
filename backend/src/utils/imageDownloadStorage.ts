@@ -5,7 +5,7 @@ import {
   ensureImageDownloadTempRoot,
   getImageDownloadTempRoot,
 } from './towerTempPaths';
-import { formatStorageBytes, getPathAvailableBytes } from './imageUploadStorage';
+import { getPathAvailableBytes } from './imageUploadStorage';
 
 export { ensureImageDownloadTempRoot, getImageDownloadTempRoot };
 
@@ -17,17 +17,18 @@ export function imageDownloadTaskAbsPath(task: {
   return path.join(getImageDownloadTempRoot(), rel);
 }
 
-export async function checkImageDownloadDiskSpace(
-  estimatedBytes: number,
-): Promise<{
+/** 镜像下载：仅校验 Tower 剩余空间是否低于该阈值（不与镜像体积比较） */
+export const IMAGE_DOWNLOAD_MIN_FREE_BYTES = 10 * 1024 ** 3;
+
+export async function checkImageDownloadDiskSpace(): Promise<{
   path: string;
   freeBytes: number;
-  requiredBytes: number;
+  minFreeBytes: number;
   sufficient: boolean;
   message: string;
 }> {
   const dir = ensureImageDownloadTempRoot();
-  const required = Math.max(0, Math.floor(Number(estimatedBytes) || 0));
+  const minFreeBytes = IMAGE_DOWNLOAD_MIN_FREE_BYTES;
   let freeBytes = 0;
   try {
     freeBytes = await getPathAvailableBytes(dir);
@@ -36,16 +37,16 @@ export async function checkImageDownloadDiskSpace(
     return {
       path: dir,
       freeBytes: 0,
-      requiredBytes: required,
+      minFreeBytes,
       sufficient: false,
       message: `无法读取 Tower 镜像下载暂存目录磁盘空间：${detail}`,
     };
   }
-  const sufficient = required < 1 || freeBytes >= required;
+  const sufficient = freeBytes >= minFreeBytes;
   const message = sufficient
     ? '磁盘空间充足'
-    : `Tower 镜像下载暂存目录空间不足（${dir}）：需约 ${formatStorageBytes(required)}，当前可用 ${formatStorageBytes(freeBytes)}`;
-  return { path: dir, freeBytes, requiredBytes: required, sufficient, message };
+    : '平台空间不足';
+  return { path: dir, freeBytes, minFreeBytes, sufficient, message };
 }
 
 export function cleanupImageDownloadFile(absPath: string): void {

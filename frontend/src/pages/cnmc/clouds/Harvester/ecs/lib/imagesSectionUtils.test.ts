@@ -7,7 +7,9 @@ import {
   getImageActualFileBytes,
   getImageStorageClassName,
   getImageVirtualSizeBytes,
+  getImageListDisplayActualSizeBytes,
   getImageListDisplayVirtualSizeBytes,
+  isVolumeExportedVmImageRecord,
   getImageRowId,
   imageStatusLabelZh,
 } from './imagesSectionUtils';
@@ -32,6 +34,33 @@ describe('imagesSectionUtils', () => {
       }),
     ).toBe(214748364800);
     expect(formatImageSizeGb(214748364800)).toBe('200.00GB');
+  });
+
+  it('export-from-volume masks PVC capacity as actual size until sparse file size known', () => {
+    const virtual = 300 * 1024 ** 3;
+    const row = {
+      sourceType: 'export-from-volume',
+      spec: { sourceType: 'export-from-volume' },
+      state: 'Active',
+      virtualSize: virtual,
+      status: {
+        progress: 100,
+        size: virtual,
+        virtualSize: virtual,
+        conditions: [{ type: 'Imported', status: 'True' }],
+      },
+    };
+    expect(isVolumeExportedVmImageRecord(row)).toBe(true);
+    expect(getImageListDisplayActualSizeBytes(row)).toBeUndefined();
+
+    const sparse = 1344995328;
+    expect(
+      getImageListDisplayActualSizeBytes({
+        ...row,
+        size: sparse,
+        status: { ...row.status, size: sparse },
+      }),
+    ).toBe(sparse);
   });
 
   it('getImageListDisplayVirtualSizeBytes only when ready and import complete', () => {

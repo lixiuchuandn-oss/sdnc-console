@@ -114,11 +114,9 @@ export async function harvesterImageDownloadTaskCreateHandler(req: Request, res:
         ),
       ) || 0;
 
-    if (sizeHint > 0) {
-      const disk = await checkImageDownloadDiskSpace(sizeHint);
-      if (!disk.sufficient) {
-        return res.status(507).json({ message: disk.message, data: disk });
-      }
+    const disk = await checkImageDownloadDiskSpace();
+    if (!disk.sufficient) {
+      return res.status(507).json({ message: disk.message, data: disk });
     }
 
     try {

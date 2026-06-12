@@ -123,6 +123,36 @@ export function getImageListDisplayVirtualSizeBytes(r: ImageListRecord): number 
   return getImageVirtualSizeBytes(r);
 }
 
+/** 云盘实例导出为镜像（spec.sourceType=export-from-volume） */
+export function isVolumeExportedVmImageRecord(r: ImageListRecord): boolean {
+  const spec = r?.spec as Record<string, unknown> | undefined;
+  const sourceType = String(r?.sourceType || spec?.sourceType || '').trim().toLowerCase();
+  return sourceType === 'export-from-volume';
+}
+
+/**
+ * 列表「实际大小」列：云盘导出镜像在 Tower 下载并回写前不展示底座 PVC 容量，显示「未知」。
+ */
+export function getImageListDisplayActualSizeBytes(r: ImageListRecord): number | undefined {
+  const bytes = getImageActualFileBytes(r);
+  if (!isVolumeExportedVmImageRecord(r)) {
+    return bytes;
+  }
+  if (resolveImageListStateKey(r) !== 'ready') return undefined;
+  if (!isClusterVmImageImportComplete(r)) return undefined;
+  if (bytes == null || bytes <= 0) return undefined;
+
+  const virtual = getImageVirtualSizeBytes(r);
+  if (
+    virtual != null &&
+    virtual > 0 &&
+    clusterReportedSizeLooksLikeVirtualCapacity(bytes, virtual)
+  ) {
+    return undefined;
+  }
+  return bytes;
+}
+
 /** Harvester 镜像专用存储类：优先 status，其次由 image-xxx 推导 longhorn-image-xxx */
 export function getImageStorageClassName(r: ImageListRecord): string {
   const status = r?.status as Record<string, unknown> | undefined;

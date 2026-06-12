@@ -4,7 +4,7 @@
  */
 import { resolveHarvesterK8sApiBase } from '../../../routes/clouds/harvester/harvester.direct.helpers';
 import { injectVmImageVirtualSize } from './qcow2VirtualSize';
-import { getJsonOnce, resolveHarvesterCloudKubeToken } from './utils';
+import { getJsonOnce, requestJson, resolveHarvesterCloudKubeToken } from './utils';
 
 export type HarvesterClusterApiRoots = {
   /** 带 /k8s/clusters/{id} 或直连 host 的 K8s API 根 */
@@ -127,6 +127,57 @@ export function normalizeHarvesterVmImageRecord(raw: unknown): any {
   if (r.metadata?.name || r.kind === 'VirtualMachineImage') return r;
   if (r.data && typeof r.data === 'object') return normalizeHarvesterVmImageRecord(r.data);
   return r;
+}
+
+/** 云盘实例导出为镜像时 Harvester 写入的 spec.sourceType */
+export const VOLUME_EXPORTED_VM_IMAGE_SOURCE_TYPE = 'export-from-volume';
+
+/** 云盘导出为镜像，与 URL 导入/本地上传区分 */
+export function isVolumeExportedVmImage(record: unknown): boolean {
+  if (!record || typeof record !== 'object') return false;
+  const r = record as Record<string, unknown>;
+  const spec =
+    r.spec && typeof r.spec === 'object' && !Array.isArray(r.spec)
+      ? (r.spec as Record<string, unknown>)
+      : {};
+  const sourceType = String(spec.sourceType || r.sourceType || '').trim().toLowerCase();
+  return sourceType === VOLUME_EXPORTED_VM_IMAGE_SOURCE_TYPE;
+}
+
+/**
+ * 将镜像实际文件体积写入底座 status.size（等价 kubectl patch vmimage merge status.size）。
+ * 仅用于云盘导出镜像在 Tower 拉取完成后回写稀疏 qcow2 体积。
+ */
+export async function patchHarvesterVmImageStatusSize(
+  cloud: HarvesterCloudEndpointLike,
+  namespace: string,
+  name: string,
+  sizeBytes: number,
+  insecure?: boolean,
+): Promise<any | null> {
+  const size = Math.max(0, Math.floor(Number(sizeBytes) || 0));
+  if (!size) return null;
+
+  const insecureFlag = insecure ?? !!(cloud.config as { ignoreTls?: boolean })?.ignoreTls;
+  const token = resolveHarvesterCloudKubeToken(cloud);
+  const roots = await resolveHarvesterClusterApiRootsAsync(cloud);
+  const body = { status: { size } };
+  const urls = buildHarvesterVmImageDetailUrls(roots, namespace, name);
+  let lastErr: unknown = null;
+
+  for (const url of urls) {
+    try {
+      const raw = await requestJson('PATCH', url, token, insecureFlag, body, {
+        'Content-Type': 'application/merge-patch+json',
+      });
+      return normalizeHarvesterVmImageRecord(raw);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  if (lastErr) throw lastErr;
+  return null;
 }
 
 /** 解析 K8s quantity / 数字字符串为字节数 */

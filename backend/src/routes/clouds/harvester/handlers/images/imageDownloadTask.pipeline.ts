@@ -7,8 +7,11 @@ import path from 'path';
 import { AppDataSource } from '../../../../../config/database';
 import { ImageDownloadTask } from '../../../../../entities/harvester/ImageDownloadTask';
 import { streamHarvesterGetToFile } from '../../../../../services/clouds/harvester/harvesterImageStreamDownload';
+import { upsertHarvesterImageInventoryItems } from '../../../../../services/clouds/harvester/inventory';
 import {
   fetchHarvesterVmImageDetailFromCluster,
+  isVolumeExportedVmImage,
+  patchHarvesterVmImageStatusSize,
 } from '../../../../../services/clouds/harvester/vmImageClusterApi';
 import {
   guessVmImageDownloadFilename,
@@ -171,6 +174,70 @@ export async function runImageDownloadTask(
     }
     await repo.save(current);
     downloadLog.info('download ready', { taskId, bytes: result.bytesWritten });
+
+    const actualFileBytes = (() => {
+      try {
+        if (fs.existsSync(absPath)) return fs.statSync(absPath).size;
+      } catch {
+        /* ignore */
+      }
+      return result.bytesWritten;
+    })();
+
+    if (actualFileBytes > 0) {
+      try {
+        const detail = await fetchHarvesterVmImageDetailFromCluster(
+          cloud,
+          current.namespace,
+          current.imageName,
+          conn.insecure,
+        );
+        if (isVolumeExportedVmImage(detail)) {
+          const cloudId = String(cloud?.id || '').trim();
+          let patched: unknown = null;
+          try {
+            patched = await patchHarvesterVmImageStatusSize(
+              cloud,
+              current.namespace,
+              current.imageName,
+              actualFileBytes,
+              conn.insecure,
+            );
+          } catch (patchErr) {
+            downloadLog.warn('patch export image status.size failed', {
+              taskId,
+              err: patchErr instanceof Error ? patchErr.message : String(patchErr),
+            });
+          }
+          if (cloudId) {
+            const toStore =
+              patched && typeof patched === 'object'
+                ? patched
+                : {
+                    ...(detail && typeof detail === 'object' ? detail : {}),
+                    status: {
+                      ...(detail && typeof detail === 'object' && detail.status
+                        ? detail.status
+                        : {}),
+                      size: actualFileBytes,
+                    },
+                  };
+            await upsertHarvesterImageInventoryItems(cloudId, [toStore]);
+          }
+          downloadLog.info('export image status.size synced', {
+            taskId,
+            bytes: actualFileBytes,
+            namespace: current.namespace,
+            imageName: current.imageName,
+          });
+        }
+      } catch (e) {
+        downloadLog.warn('export image size sync skipped', {
+          taskId,
+          err: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
   } catch (e: unknown) {
     const err = e as { message?: string };
     const msg = String(err?.message || e || '下载失败');

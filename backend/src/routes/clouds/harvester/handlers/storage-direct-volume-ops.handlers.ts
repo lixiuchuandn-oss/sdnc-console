@@ -9,7 +9,7 @@ import { HarvesterVmInventory } from '../../../../entities/harvester/HarvesterVm
 import {
   exportImageFromPVC,
   clonePVC,
-  getVolumeExportBlockedByRunningVmMessage,
+  getVolumeExportBlockedByRunningVmMessageLive,
 } from '../../../../services/clouds/harvester/client';
 import {
   checkTenantAccess,
@@ -39,10 +39,12 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
 
     const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
     const inventoryVms = await vmRepo.find({ where: { cloudId: id } });
-    const exportBlocked = getVolumeExportBlockedByRunningVmMessage(
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
       inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
       namespace,
       name,
+      insecure,
     );
     if (exportBlocked) {
       return res.status(400).json({ message: exportBlocked });
@@ -128,10 +130,12 @@ export async function harvesterVolumeExportImageLegacyHandler(req: Request, res:
     const { namespace, pvcName, ...opts } = req.body;
     const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
     const inventoryVms = await vmRepo.find({ where: { cloudId: id } });
-    const exportBlocked = getVolumeExportBlockedByRunningVmMessage(
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
       inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
       namespace,
       pvcName,
+      insecure,
     );
     if (exportBlocked) {
       return res.status(400).json({ message: exportBlocked });
