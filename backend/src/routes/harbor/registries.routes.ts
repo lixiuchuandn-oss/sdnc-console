@@ -60,18 +60,25 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ message: '缺少必要参数: cloudId' });
     }
 
-    const where: any = { cloudId: String(cloudId) };
-    if (isBuiltIn !== undefined) {
-      where.isBuiltIn = isBuiltIn === 'true';
+    const where: any = [];
+    const conditions: string[] = [];
+
+    // 平台内置 Harbor 全部可见
+    conditions.push('registry.isBuiltIn = 1');
+
+    // 用户自建 Harbor 按资源池隔离
+    if (isBuiltIn === undefined || isBuiltIn === 'false') {
+      conditions.push(`(registry.isBuiltIn = 0 AND registry.cloudId = :cloudId)`);
     }
     if (tenantId) {
-      where.tenantId = tenantId;
+      conditions.push(`registry.tenantId = :tenantId`);
     }
 
-    const registries = await repo.find({
-      where,
-      order: { createdAt: 'DESC' },
-    });
+    const registries = await repo
+      .createQueryBuilder('registry')
+      .where(conditions.join(' OR '), { cloudId: String(cloudId), tenantId })
+      .orderBy('registry.createdAt', 'DESC')
+      .getMany();
 
     // 隐藏密码字段
     const result = registries.map((r) => ({
