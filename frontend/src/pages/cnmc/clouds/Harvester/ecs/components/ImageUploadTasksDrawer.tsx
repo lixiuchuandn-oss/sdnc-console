@@ -687,7 +687,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
                     ) : null}
                     {isRunning ? (
                       <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                        正在从集群拉取…
+                        正在从集群努力拉取中，请耐心等待…
                       </Typography.Text>
                     ) : null}
                     <div

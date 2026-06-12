@@ -391,6 +391,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
             loading={loading}
             onRefresh={onRefreshVolumes}
             onRefreshStorageClasses={onRefreshStorageClasses}
+            onRefreshImages={onRefreshImages}
             cloudId={cloudId}
             vms={vms}
             storageClasses={storageClasses}

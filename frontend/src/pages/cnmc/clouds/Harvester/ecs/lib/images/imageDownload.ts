@@ -373,7 +373,7 @@ export async function saveImageDownloadTaskFileToLocalWithCleanup(
 export function formatImageDownloadProgressText(task: HarvesterImageDownloadTask): string {
   const pct = Math.max(0, Math.min(100, Math.floor(Number(task.progress) || 0)));
   if (task.taskStatus === 'fetching') {
-    return `正在从集群拉取… ${pct}%`;
+    return `正在从集群努力拉取中，请耐心等待… ${pct}%`;
   }
   if (task.taskStatus === 'ready') return '已拉取到 Tower，可在任务中下载到本地';
   if (task.taskStatus === 'pending') return '正在创建下载任务…';

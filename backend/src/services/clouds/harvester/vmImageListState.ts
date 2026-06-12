@@ -50,7 +50,7 @@ function mapBackendVmImageState(raw: string): string {
 function resolveInProgressStateKeyBySourceType(sourceType: string, r: any): string {
   if (sourceType === 'upload') return resolveUploadSourceInProgressListStateKey(r);
   if (sourceType === 'download') return 'importing';
-  if (sourceType === 'export') return 'exporting';
+  if (sourceType === 'export-from-volume') return 'exporting';
   return 'downloading';
 }
 
@@ -146,7 +146,7 @@ export function resolveHarvesterImageListStateKey(r: any): string {
   }
 
   if (sourceType === 'download') return 'importing';
-  if (sourceType === 'export') return 'exporting';
+  if (sourceType === 'export-from-volume') return 'exporting';
 
   const backendMapped = mapBackendVmImageState(String(r?.state || ''));
   if (backendMapped === 'failed' && isHarvesterVmImageImportedTerminalFailure(r)) return 'failed';

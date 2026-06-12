@@ -11,6 +11,7 @@ import {
 } from '../../../../../constants/imageUploadChannel';
 import { AppDataSource } from '../../../../../config/database';
 import { HarvesterImageInventory } from '../../../../../entities/harvester/HarvesterImageInventory';
+import { ImageDownloadTask } from '../../../../../entities/harvester/ImageDownloadTask';
 import { ImageUploadTask } from '../../../../../entities/harvester/ImageUploadTask';
 import { UserSpace } from '../../../../../entities/UserSpace';
 import {
@@ -34,6 +35,7 @@ import { getJsonOnce, requestJson } from '../../../../../services/clouds/harvest
 import { hasImageUploadProxyInFlightForCloud } from '../imageUploadRuntime';
 import { deleteVmImageCdiStorageOrphans } from '../imageUploadCdiCleanup';
 import {
+  enrichImageListItemsFromDownloadTasks,
   enrichImageListItemsFromUploadTasks,
   mapImageInventoryToListItem,
   persistHarvesterImageInventoryFromClusterCreate,
@@ -187,6 +189,16 @@ export async function harvesterImageListHandler(req: Request, res: Response) {
       list = enrichImageListItemsFromUploadTasks(list, uploadTasks);
     } catch (e) {
       console.warn('[images] enrich list size from upload tasks failed', e);
+    }
+    try {
+      const downloadTaskRepo = AppDataSource.getRepository(ImageDownloadTask);
+      const downloadTasks = await downloadTaskRepo.find({
+        where: { cloudId: id, taskStatus: 'ready' },
+        order: { updatedAt: 'DESC' },
+      });
+      list = enrichImageListItemsFromDownloadTasks(list, downloadTasks);
+    } catch (e) {
+      console.warn('[images] enrich list size from download tasks failed', e);
     }
 
     res.json({ message: '查询成功', data: { items: list } });

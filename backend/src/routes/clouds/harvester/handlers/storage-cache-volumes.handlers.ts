@@ -27,7 +27,7 @@ import {
   harvesterAddVolumeToVMDirect,
   syncVmVolumeSize,
   buildUsedPvcSetFromKubevirtVms,
-  getVolumeExportBlockedByRunningVmMessage,
+  getVolumeExportBlockedByRunningVmMessageLive,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
   isHarvesterImageBackingPvcName,
@@ -677,10 +677,12 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
 
     const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
     const inventoryVms = await vmRepo.find({ where: { cloudId: cloud.id } });
-    const exportBlocked = getVolumeExportBlockedByRunningVmMessage(
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
       inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
       namespace,
       pvcName,
+      insecure,
     );
     if (exportBlocked) {
       return res.status(400).json({ message: exportBlocked });

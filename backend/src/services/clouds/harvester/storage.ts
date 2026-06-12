@@ -8,6 +8,7 @@ import {
   resolveHarvesterClusterApiRootsAsync,
 } from './vmImageClusterApi';
 import { getJsonOnce, requestJson, resolveHarvesterCloudKubeToken } from './utils';
+import { getHarvesterVM } from './vm';
 
 const harvesterStorageLog = logger.child('Harvester-Storage');
 
@@ -126,11 +127,35 @@ export const listHarvesterVolumesStandard = async (params: HarvesterTestParams):
 export const VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG =
   '请先关闭虚拟机再做导出镜像操作';
 
+const VM_STOPPED_STATUS_TOKENS = new Set(['stopped', 'shutoff', 'down', 'offline']);
+
+function readVmStoppedStatusToken(vm: any): string {
+  if (!vm) return '';
+  if (typeof vm?.status === 'string') return String(vm.status).trim().toLowerCase();
+  const fromStatus =
+    vm?.status?.printableStatus ||
+    vm?.status?.phase ||
+    vm?.Status ||
+    vm?.vmi?.status?.phase ||
+    vm?.vmiRaw?.status?.phase ||
+    '';
+  return String(fromStatus).trim().toLowerCase();
+}
+
 export function isVmStoppedForVolumeExport(vm: any): boolean {
   if (!vm) return true;
   if (vm.spec?.running === false) return true;
-  const status = String(vm?.status?.printableStatus || vm?.status?.phase || '').toLowerCase();
-  return ['stopped', 'shutoff', 'down', 'offline'].includes(status);
+  if (String(vm?.spec?.runStrategy || '').trim() === 'Halted') return true;
+
+  const status = readVmStoppedStatusToken(vm);
+  if (VM_STOPPED_STATUS_TOKENS.has(status)) return true;
+
+  const vmiPhase = String(vm?.vmi?.status?.phase || vm?.vmiRaw?.status?.phase || '')
+    .trim()
+    .toLowerCase();
+  if (vmiPhase === 'running') return false;
+
+  return false;
 }
 
 /** 查找引用指定 PVC 的 KubeVirt VM（同 namespace）。 */
@@ -165,6 +190,39 @@ export function getVolumeExportBlockedByRunningVmMessage(
   if (!attached.length) return null;
   const hasRunning = attached.some((vm) => !isVmStoppedForVolumeExport(vm));
   return hasRunning ? VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG : null;
+}
+
+/** 导出前拉集群 live VM 状态，避免库存缓存仍显示 Running */
+export async function getVolumeExportBlockedByRunningVmMessageLive(
+  cloud: HarvesterCloudEndpointLike,
+  inventoryVms: any[],
+  namespace: string,
+  pvcName: string,
+  insecure?: boolean,
+): Promise<string | null> {
+  const attached = findKubevirtVmsUsingPvc(inventoryVms, namespace, pvcName);
+  if (!attached.length) return null;
+
+  const endpoint = String(cloud.endpoint || cloud.config?.endpoint || '').trim();
+  const token = resolveHarvesterCloudKubeToken(cloud);
+  const insecureFlag = insecure ?? !!(cloud.config as { ignoreTls?: boolean })?.ignoreTls;
+
+  for (const vm of attached) {
+    const ns = String(vm?.metadata?.namespace || '').trim();
+    const name = String(vm?.metadata?.name || '').trim();
+    let candidate = vm;
+    if (ns && name && endpoint && token) {
+      try {
+        candidate = await getHarvesterVM({ endpoint, token, insecure: insecureFlag }, ns, name);
+      } catch {
+        /* 回退库存 */
+      }
+    }
+    if (!isVmStoppedForVolumeExport(candidate)) {
+      return VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG;
+    }
+  }
+  return null;
 }
 
 /** 从 KubeVirt VM 列表构建「已被虚拟机引用」的 PVC 键集合（namespace/pvcName）。 */
