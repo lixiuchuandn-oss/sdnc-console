@@ -23,7 +23,7 @@ import {
   getHarborProjectSummary,
   getHarborRegistry,
 } from '../shared/harborApi';
-import type { HarborProject, HarborProjectSummary, HarborRegistry, HarborRepository } from '../types';
+import type { HarborProject, HarborProjectSummary, HarborRegistry, HarborRepository, HarborProjectWithTenant } from '../types';
 import { isHarborProjectPublic } from '../shared/projectVisibility';
 import type { HarborProjectRef } from '../shared/harborApi';
 
@@ -53,7 +53,7 @@ const ProjectDetailDrawer: React.FC<Props> = ({
   onBack,
   onOpenRepository,
 }) => {
-  const [project, setProject] = useState<HarborProject | null>(null);
+  const [project, setProject] = useState<HarborProjectWithTenant | null>(null);
   const [summary, setSummary] = useState<HarborProjectSummary | null>(null);
   const [harbor, setHarbor] = useState<HarborRegistry | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,6 +84,7 @@ const ProjectDetailDrawer: React.FC<Props> = ({
       setProject(projectRes);
       setSummary(summaryRes);
       setHarbor(harborRes);
+
     } catch (e: any) {
       console.error('加载项目信息失败:', e);
       message.error(e?.message || '加载项目信息失败');
@@ -218,10 +219,11 @@ const ProjectDetailDrawer: React.FC<Props> = ({
               icon: <DatabaseOutlined />,
               children: (
                 <React.Suspense fallback={<Spin />}>
-                  <RepositoriesSection 
-                    harborId={harborId} 
+                  <RepositoriesSection
+                    harborId={harborId}
                     project={projectRef}
                     onViewRepository={onOpenRepository}
+                    currentUserRole={project?.currentUserRole}
                   />
                 </React.Suspense>
               ),
@@ -232,7 +234,12 @@ const ProjectDetailDrawer: React.FC<Props> = ({
               icon: <TeamOutlined />,
               children: (
                 <React.Suspense fallback={<Spin />}>
-                  <MembersSection harborId={harborId} project={projectRef} />
+                  <MembersSection 
+                    harborId={harborId} 
+                    project={projectRef}
+                    harborRegistry={harbor ?? undefined}
+                    isProjectAdmin={project?.currentUserRole === 1}
+                  />
                 </React.Suspense>
               ),
             },

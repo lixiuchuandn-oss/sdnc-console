@@ -19,6 +19,7 @@ import {
   confirmHighRiskDelete,
   DELETE_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 
 interface Props {
   /** 是否显示 */
@@ -33,6 +34,8 @@ interface Props {
   repositoryName: string;
   /** 关闭回调 */
   onClose: () => void;
+  /** 当前用户在该项目中的角色 */
+  currentUserRole?: number;
 }
 
 /**
@@ -45,6 +48,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   project,
   repositoryName,
   onClose,
+  currentUserRole,
 }) => {
   const [vulnerabilities, setVulnerabilities] = useState<HarborVulnerabilityItem[]>([]);
   const [vulnerabilityOverview, setVulnerabilityOverview] = useState<{
@@ -58,6 +62,13 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   const [addTagVisible, setAddTagVisible] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [selectedTagKeys, setSelectedTagKeys] = useState<React.Key[]>([]);
+
+  // 系统管理员判断
+  const { user } = useAuth();
+  const isSystemAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+
+  // 权限判断：系统管理员、项目管理员、开发者、维护人员可以写操作
+  const canWrite = isSystemAdmin || (currentUserRole !== undefined && [1, 2, 4].includes(currentUserRole));
 
   /**
    * 加载详情数据
@@ -344,7 +355,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
                     <Space>
-                      {selectedTagKeys.length > 0 && (
+                      {canWrite && selectedTagKeys.length > 0 && (
                         <Button 
                           danger 
                           icon={<DeleteOutlined />}
@@ -363,13 +374,15 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                           批量删除 ({selectedTagKeys.length})
                         </Button>
                       )}
-                      <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => setAddTagVisible(true)}
-                      >
-                        添加标签
-                      </Button>
+                      {canWrite && (
+                        <Button 
+                          type="primary" 
+                          icon={<PlusOutlined />}
+                          onClick={() => setAddTagVisible(true)}
+                        >
+                          添加标签
+                        </Button>
+                      )}
                     </Space>
                   </div>
 
@@ -424,28 +437,30 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                         key: 'pullTime',
                         render: (t: string) => t ? formatTime(t) : '-',
                       },
-{
+                      {
                         title: '操作',
                         key: 'actions',
                         width: 80,
                         render: (_: any, record: HarborTag) => (
-                          <Button
-                            type="link"
-                            danger
-                            icon={<DeleteOutlined />}
-                            onClick={() =>
-                              void confirmHighRiskDelete({
-                                resourceLabel: '标签',
-                                name: record.name,
-                                description: `确定要删除标签 "${record.name}" 吗？`,
-                                riskItems: DELETE_RISK_ITEMS,
-                                confirmText: '确认',
-                                onConfirm: () => handleDeleteTag(record.name),
-                              }).catch(() => {})
-                            }
-                          >
-                            删除
-                          </Button>
+                          canWrite ? (
+                            <Button
+                              type="link"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={() =>
+                                void confirmHighRiskDelete({
+                                  resourceLabel: '标签',
+                                  name: record.name,
+                                  description: `确定要删除标签 "${record.name}" 吗？`,
+                                  riskItems: DELETE_RISK_ITEMS,
+                                  confirmText: '确认',
+                                  onConfirm: () => handleDeleteTag(record.name),
+                                }).catch(() => {})
+                              }
+                            >
+                              删除
+                            </Button>
+                          ) : null
                         ),
                       },
                     ]}

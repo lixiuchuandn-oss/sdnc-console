@@ -539,10 +539,28 @@ export class HarborProxyService {
       role_id: number;
     },
   ): Promise<any> {
+    // Harbor v2.0 API 要求使用 member_user 对象格式
+    const payload: any = {
+      role_id: member.role_id,
+    };
+
+    if (member.member_group) {
+      // 添加用户组（暂不支持）
+      payload.member_group = {
+        group_name: member.member_name,
+      };
+    } else {
+      // 添加用户
+      payload.member_user = {
+        username: member.member_name,
+      };
+    }
+
     const response = await this.axiosInstance.post(
       `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members`,
-      member,
+      payload,
     );
+
     return response.data;
   }
 
@@ -660,5 +678,94 @@ export class HarborProxyService {
   public async request<T = any>(config: AxiosRequestConfig): Promise<T> {
     const response = await this.axiosInstance.request<T>(config);
     return response.data;
+  }
+
+  // ==================== 用户管理 API ====================
+
+  /**
+   * 创建 Harbor 用户
+   */
+  public async createUser(userData: {
+    username: string;
+    password: string;
+    email: string;
+    realname?: string;
+  }): Promise<{ user_id: number }> {
+    harborLog.info(`[用户API] 创建用户: username=${userData.username}, email=${userData.email}`);
+    const response = await this.axiosInstance.post('/api/v2.0/users', {
+      username: userData.username,
+      password: userData.password,
+      email: userData.email,
+      realname: userData.realname || userData.username,
+    });
+    harborLog.info(`[用户API] 创建成功: user_id=${response.data.user_id}`);
+    return response.data;
+  }
+
+  /**
+   * 获取用户列表
+   */
+  public async listUsers(params?: { page?: number; page_size?: number; name?: string }): Promise<any[]> {
+    const response = await this.axiosInstance.get('/api/v2.0/users', {
+      params: {
+        page: params?.page || 1,
+        page_size: params?.page_size || 100,
+        ...(params?.name && { name: params.name }),
+      },
+    });
+    return response.data;
+  }
+
+  /**
+   * 搜索用户
+   */
+  public async searchUsers(username: string): Promise<any[]> {
+    const response = await this.axiosInstance.get('/api/v2.0/users/search', {
+      params: { username },
+    });
+    return response.data;
+  }
+
+  /**
+   * 获取用户详情
+   */
+  public async getUser(userId: number): Promise<any> {
+    const response = await this.axiosInstance.get(`/api/v2.0/users/${userId}`);
+    return response.data;
+  }
+
+  /**
+   * 更新用户
+   */
+  public async updateUser(
+    userId: number,
+    userData: {
+      email?: string;
+      realname?: string;
+      comment?: string;
+    },
+  ): Promise<void> {
+    await this.axiosInstance.put(`/api/v2.0/users/${userId}`, userData);
+  }
+
+  /**
+   * 删除用户
+   */
+  public async deleteUser(userId: number): Promise<void> {
+    await this.axiosInstance.delete(`/api/v2.0/users/${userId}`);
+  }
+
+  /**
+   * 更新项目成员角色
+   */
+  public async updateProjectMemberRole(
+    projectNameOrId: string | number,
+    memberId: number,
+    roleId: number,
+  ): Promise<void> {
+    await this.axiosInstance.put(
+      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members/${memberId}`,
+      { role_id: roleId },
+    );
   }
 }

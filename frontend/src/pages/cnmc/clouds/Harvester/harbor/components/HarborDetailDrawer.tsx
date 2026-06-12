@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Drawer, Tabs, Spin, message } from 'antd';
 import { getHarborRegistry, testHarborConnection } from '../shared/harborApi';
-import type { HarborRegistry, HarborProject } from '../types';
+import type { HarborRegistry, HarborProjectWithTenant } from '../types';
 
 const HarborIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
   <svg
@@ -41,7 +41,7 @@ interface Props {
   harborId: string;
   cloudId: string;
   onClose: () => void;
-  onOpenProject?: (project: HarborProject) => void;
+  onOpenProject?: (project: HarborProjectWithTenant) => void;
 }
 
 /**

@@ -97,10 +97,85 @@ router.post(
   authMiddleware,
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.image:push')) {
+      const { id: harborId, project } = req.params;
+
+      // 权限校验
+      const userRole = (req.user as any)?.role;
+      const isSystemAdmin = userRole === 'super_admin' || userRole === 'admin';
+      const isTenantUser = (req.user as any)?.isTenantUser || !!(req.user as any)?.tenantId;
+
+      // 1. 系统管理员：检查 RBAC 权限
+      if (isSystemAdmin) {
+        const perms: string[] = Array.isArray((req.user as any)?.permissions)
+          ? (req.user as any).permissions
+          : [];
+        if (!checkPermission(perms, 'harbor.image:push')) {
+          return res.status(403).json({ message: '权限不足' });
+        }
+      }
+      // 2. 租户用户：检查是否为平台内置 Harbor，以及项目写权限
+      else if (isTenantUser) {
+        const harbor = await harborRegistryRepo.findOne({ where: { id: harborId } });
+        if (!harbor) {
+          return res.status(404).json({ message: 'Harbor 实例不存在' });
+        }
+
+        // 外部 Harbor 需要 RBAC 权限
+        if (!(harbor as any).isBuiltIn) {
+          const perms: string[] = Array.isArray((req.user as any)?.permissions)
+            ? (req.user as any).permissions
+            : [];
+          if (!checkPermission(perms, 'harbor.image:push')) {
+            return res.status(403).json({ message: '权限不足' });
+          }
+        }
+
+        // 平台内置 Harbor：检查项目写权限
+        // 需要查询用户在该项目中的角色
+        const { HarborProjectBinding } = await import('../../entities/harbor/HarborProjectBinding');
+        const { HarborUserMapping } = await import('../../entities/harbor/HarborUserMapping');
+        const { TenantUser } = await import('../../entities/TenantUser');
+
+        const bindingRepo = AppDataSource.getRepository(HarborProjectBinding);
+        const mappingRepo = AppDataSource.getRepository(HarborUserMapping);
+        const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+
+        // 查找项目绑定
+        const harborProjectRepo = AppDataSource.getRepository(HarborRegistry);
+        const harborInstance = await harborProjectRepo.findOne({ where: { id: harborId } });
+
+        // 通过 Harbor API 查询用户角色
+        const { HarborProxyService } = await import('../../services/harbor/HarborProxyService');
+        const service = HarborProxyService.getInstance(harbor);
+
+        // 获取用户映射
+        const tenantUser = await tenantUserRepo.findOne({ where: { id: (req.user as any)?.id } });
+        if (!tenantUser) {
+          return res.status(403).json({ message: '用户信息不存在' });
+        }
+
+        const mapping = await mappingRepo.findOne({
+          where: { harborRegistryId: harborId, tenantUserId: tenantUser.id },
+        });
+
+        if (!mapping) {
+          return res.status(403).json({ message: '未找到 Harbor 用户映射' });
+        }
+
+        // 获取项目成员列表
+        const members = await service.getProjectMembers(project);
+        const member = members.find((m: any) => m.entity_name === mapping.harborUsername);
+
+        if (!member) {
+          return res.status(403).json({ message: '您不是该项目的成员' });
+        }
+
+        // 检查写权限：role_id=1,2,4 可以推送镜像
+        const canPush = [1, 2, 4].includes(member.role_id);
+        if (!canPush) {
+          return res.status(403).json({ message: '您没有推送镜像的权限' });
+        }
+      } else {
         return res.status(403).json({ message: '权限不足' });
       }
 

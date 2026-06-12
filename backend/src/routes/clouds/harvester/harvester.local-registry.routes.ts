@@ -548,10 +548,22 @@ export const registerHarvesterLocalRegistryRoutes = (
   /**
    * [API] 获取本地仓库列表
    * GET /:id/resources/harvester/local-registry
+   * 权限：系统管理员 + 租户用户均可访问（本地仓库为平台级资源）
    */
   router.get(
     '/:id/resources/harvester/local-registry',
-    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: '未登录' });
+      }
+      // 系统管理员检查 RBAC 权限
+      if (user.role === 'super_admin' || user.role === 'admin') {
+        return checkAdminPermission(req, res, next);
+      }
+      // 租户用户直接允许访问（本地仓库为平台级资源）
+      next();
+    },
     async (req: any, res: Response) => {
       try {
         const { id: cloudId } = req.params;
@@ -570,10 +582,22 @@ export const registerHarvesterLocalRegistryRoutes = (
   /**
    * [API] 获取单个本地仓库详情
    * GET /:id/resources/harvester/local-registry/:registryId
+   * 权限：系统管理员 + 租户用户均可访问（本地仓库为平台级资源）
    */
   router.get(
     '/:id/resources/harvester/local-registry/:registryId',
-    checkAdminPermission,
+    async (req: any, res: Response, next: any) => {
+      const user = req.user;
+      if (!user) {
+        return res.status(401).json({ message: '未登录' });
+      }
+      // 系统管理员检查 RBAC 权限
+      if (user.role === 'super_admin' || user.role === 'admin') {
+        return checkAdminPermission(req, res, next);
+      }
+      // 租户用户直接允许访问（本地仓库为平台级资源）
+      next();
+    },
     async (req: any, res: Response) => {
       try {
         const { registryId } = req.params;

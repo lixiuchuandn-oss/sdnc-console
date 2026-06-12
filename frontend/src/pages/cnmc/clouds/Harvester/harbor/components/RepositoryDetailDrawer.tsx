@@ -29,6 +29,7 @@ interface Props {
   cloudId: string;
   onClose: () => void;
   onBack: () => void;
+  currentUserRole?: number;
 }
 
 /**
@@ -37,13 +38,17 @@ interface Props {
 const RepositoryDetailDrawer: React.FC<Props> = ({
   visible,
   harborId,
-  project,
+  project: projectProp,
   repository,
   cloudId: _cloudId,
   onClose,
   onBack,
+  currentUserRole: currentUserRoleProp,
 }) => {
   const [activeTab, setActiveTab] = useState('artifacts');
+  const currentUserRole = projectProp.currentUserRole ?? currentUserRoleProp;
+
+  const project = projectProp;
 
   /**
    * 格式化时间
@@ -152,6 +157,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
                   harborId={harborId} 
                   project={project}
                   repositoryName={repository.name}
+                  currentUserRole={currentUserRole}
                 />
               </React.Suspense>
             ),

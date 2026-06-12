@@ -45,7 +45,7 @@ import HarborDetailDrawer from '../../harbor/components/HarborDetailDrawer';
 import ProjectDetailDrawer from '../../harbor/components/ProjectDetailDrawer';
 import RepositoryDetailDrawer from '../../harbor/components/RepositoryDetailDrawer';
 import DeployLocalRegistryModal from '../components/DeployLocalRegistryModal';
-import type { HarborProject, HarborRepository } from '../../harbor/types';
+import type { HarborProject, HarborProjectWithTenant, HarborRepository } from '../../harbor/types';
 import {
   confirmHighRiskDelete,
   CONTAINER_DELETE_RISK_ITEMS,
@@ -594,7 +594,7 @@ const RegistriesSection: React.FC<Props> = ({
 
   // 项目抽屉状态
   const [projectDrawerVisible, setProjectDrawerVisible] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<HarborProject | null>(null);
+  const [selectedProject, setSelectedProject] = useState<HarborProjectWithTenant | null>(null);
 
   // 仓库抽屉状态
   const [repoDrawerVisible, setRepoDrawerVisible] = useState(false);
@@ -705,7 +705,7 @@ const RegistriesSection: React.FC<Props> = ({
   }, []);
 
   // 打开项目详情
-  const handleOpenProject = useCallback((project: HarborProject) => {
+  const handleOpenProject = useCallback((project: HarborProjectWithTenant) => {
     setHarborDrawerVisible(false);
     setSelectedProject(project);
     setProjectDrawerVisible(true);
@@ -1075,27 +1075,32 @@ const RegistriesSection: React.FC<Props> = ({
               label: '测试连接',
               onClick: () => handleTestHarborConnection(record),
             },
-            {
-              key: 'edit',
-              label: '编辑',
-              onClick: () => {
-                setEditingRegistry(record);
-                setAddRegistryVisible(true);
-              },
-            },
-            {
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              onClick: () => {
-                void confirmHighRiskDelete({
-                  resourceLabel: 'Harbor 仓库',
-                  name: record.name,
-                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
-                  onConfirm: () => handleDeleteRegistry(record),
-                }).catch(() => {});
-              },
-            },
+            // 平台内置 Harbor：只有系统管理员可以编辑和删除
+            ...((record.isBuiltIn && user?.role !== 'super_admin' && user?.role !== 'admin')
+              ? []
+              : [
+                  {
+                    key: 'edit',
+                    label: '编辑',
+                    onClick: () => {
+                      setEditingRegistry(record);
+                      setAddRegistryVisible(true);
+                    },
+                  },
+                  {
+                    key: 'delete',
+                    label: '删除',
+                    danger: true,
+                    onClick: () => {
+                      void confirmHighRiskDelete({
+                        resourceLabel: 'Harbor 仓库',
+                        name: record.name,
+                        riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                        onConfirm: () => handleDeleteRegistry(record),
+                      }).catch(() => {});
+                    },
+                  },
+                ]),
           ];
           return (
             <ResourceActionsDropdown
@@ -1304,6 +1309,7 @@ const RegistriesSection: React.FC<Props> = ({
           cloudId={cloudId}
           onClose={handleCloseAll}
           onBack={handleBackToProject}
+          currentUserRole={selectedProject?.currentUserRole}
         />
       )}
       

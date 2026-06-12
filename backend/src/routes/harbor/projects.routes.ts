@@ -2,14 +2,26 @@
  * Harbor 项目管理路由
  *
  * 实现项目、仓库、制品等资源的代理 API。
+ * 支持平台内置 Harbor 的用户体系对接。
  *
  * @see HarborProxyService
+ * @see HarborUserService
  */
 import { Router, Response } from 'express';
 import { AppDataSource } from '../../config/database';
 import { HarborRegistry } from '../../entities/harbor/HarborRegistry';
 import { HarborProject } from '../../entities/harbor/HarborProject';
+import {
+  HarborProjectBinding,
+  HarborProjectCreatorType,
+  HarborProjectVisibility,
+} from '../../entities/harbor/HarborProjectBinding';
+import { HarborUserMapping } from '../../entities/harbor/HarborUserMapping';
+import { TenantUser } from '../../entities/TenantUser';
+import { Tenant } from '../../entities/Tenant';
+import { Organization } from '../../entities/Organization';
 import { HarborProxyService } from '../../services/harbor/HarborProxyService';
+import { HarborUserService } from '../../services/harbor/HarborUserService';
 import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
@@ -30,6 +42,49 @@ function parseHarborPublicValue(value: unknown): boolean {
     return normalized === 'true' || normalized === '1' || normalized === 'public';
   }
   return false;
+}
+
+/**
+ * 检查用户是否有权访问 Harbor 资源
+ * 
+ * 权限规则：
+ * 1. 系统管理员：检查 RBAC 权限
+ * 2. 租户用户：平台内置 Harbor 允许访问，外部 Harbor 需要 RBAC 权限
+ * 
+ * @returns { allowed: boolean, isSystemAdmin: boolean, isTenantUser: boolean }
+ */
+function checkHarborAccess(
+  req: AuthRequest,
+  harbor: HarborRegistry,
+  permission: string,
+): { allowed: boolean; isSystemAdmin: boolean; isTenantUser: boolean } {
+  const userRole = (req.user as any)?.role;
+  const isSystemAdmin = userRole === 'super_admin' || userRole === 'admin';
+  const isTenantUser = (req.user as any)?.isTenantUser || !!(req.user as any)?.tenantId;
+  const isBuiltIn = (harbor as any).isBuiltIn === true;
+
+  // 系统管理员：检查 RBAC 权限
+  if (isSystemAdmin) {
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any).permissions
+      : [];
+    return { allowed: checkPermission(perms, permission), isSystemAdmin, isTenantUser };
+  }
+
+  // 租户用户：平台内置 Harbor 允许访问
+  if (isTenantUser && isBuiltIn) {
+    return { allowed: true, isSystemAdmin, isTenantUser };
+  }
+
+  // 租户用户访问外部 Harbor：检查 RBAC 权限
+  if (isTenantUser) {
+    const perms: string[] = Array.isArray((req.user as any)?.permissions)
+      ? (req.user as any).permissions
+      : [];
+    return { allowed: checkPermission(perms, permission), isSystemAdmin, isTenantUser };
+  }
+
+  return { allowed: false, isSystemAdmin, isTenantUser };
 }
 
 /** 解析 Harbor 删除项目失败原因，返回可读中文提示 */
@@ -179,16 +234,15 @@ const getHarborService = async (
 /**
  * 获取项目列表
  * GET /api/harbor/registries/:id/projects
+ * 
+ * 用户体系对接逻辑：
+ * 1. 系统管理员 → 返回所有项目
+ * 2. 租户用户 → 返回公共项目 + 本租户私有项目
+ * 3. 从 HarborProjectBinding 查询租户归属信息
+ * 4. 合并 Harbor API 返回的项目信息 + 本地绑定信息
  */
 router.get('/registries/:id/projects', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:read')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
     const { page, pageSize, name, public: isPublic } = req.query;
 
@@ -197,24 +251,115 @@ router.get('/registries/:id/projects', async (req: AuthRequest, res: Response) =
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const projects = await result.service.getProjects({
+    const { harbor, service } = result;
+    const userRole = (req.user as any)?.role;
+    const isSystemAdmin = userRole === 'super_admin' || userRole === 'admin';
+    const isTenantUser = (req.user as any)?.isTenantUser || !!(req.user as any)?.tenantId;
+    const isBuiltIn = (harbor as any).isBuiltIn === true;
+
+    // 权限校验：
+    // 1. 系统管理员：检查 RBAC 权限
+    // 2. 租户用户：平台内置 Harbor 允许访问，外部 Harbor 需要 RBAC 权限
+    if (isSystemAdmin) {
+      const perms: string[] = Array.isArray((req.user as any)?.permissions)
+        ? (req.user as any).permissions
+        : [];
+      if (!checkPermission(perms, 'harbor.project:read')) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+    } else if (isTenantUser) {
+      // 租户用户访问外部 Harbor 需要 RBAC 权限
+      if (!isBuiltIn) {
+        const perms: string[] = Array.isArray((req.user as any)?.permissions)
+          ? (req.user as any).permissions
+          : [];
+        if (!checkPermission(perms, 'harbor.project:read')) {
+          return res.status(403).json({ message: '权限不足' });
+        }
+      }
+      // 平台内置 Harbor，租户用户可以访问（项目级别隔离在后续过滤中实现）
+    } else {
+      harborLog.warn('[项目列表] 用户角色不明确');
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    // 获取 Harbor API 项目列表
+    const projects = await service.getProjects({
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       name: name ? String(name) : undefined,
       public: isPublic !== undefined ? isPublic === 'true' : undefined,
     });
 
-    // 转换字段名：snake_case -> camelCase
-    const transformedProjects = projects.map((p: any) => ({
-      projectId: p.project_id,
-      name: p.name,
-      public: p.public,
-      ownerName: p.owner_name,
-      repoCount: p.repo_count,
-      metadata: p.metadata,
-      createdAt: p.creation_time,
-      updatedAt: p.update_time,
-    }));
+    // 获取所有项目的绑定信息
+    const bindingRepo = AppDataSource.getRepository(HarborProjectBinding);
+    const bindings = await bindingRepo.find({
+      where: { harborRegistryId: harbor.id },
+    });
+
+    // 构建项目ID到绑定信息的映射
+    const bindingMap = new Map<number, HarborProjectBinding>();
+    for (const binding of bindings) {
+      bindingMap.set(binding.projectId, binding);
+    }
+
+    // 过滤项目（仅对平台内置 Harbor）
+    let filteredProjects = projects;
+    if (isBuiltIn && !isSystemAdmin) {
+      const tenantId = (req.user as any)?.tenantId;
+      filteredProjects = projects.filter((p: any) => {
+        const binding = bindingMap.get(p.project_id);
+        // Harbor API 返回的公开状态可能在 p.public 或 p.metadata.public
+        // metadata.public 的值是字符串 "true" 或 "false"
+        const publicFromMeta = p.metadata?.public === 'true' || p.metadata?.public === true;
+        const publicFromRoot = p.public === true || p.public === 1 || p.public === 'true';
+        const isPublic = publicFromMeta || publicFromRoot;
+        const isTenantProject = binding && binding.tenantId === tenantId;
+        // 公共项目，或本租户的私有项目
+        return isPublic || isTenantProject;
+      });
+    }
+
+    // 查询租户名称
+    const tenantIds = Array.from(new Set(bindings.map((b) => b.tenantId).filter(Boolean)));
+    const tenantRepo = AppDataSource.getRepository(Tenant);
+    const tenants = await tenantRepo.find({
+      where: tenantIds.map((id) => ({ id })),
+    });
+    const tenantMap = new Map<string, string>();
+    for (const tenant of tenants) {
+      tenantMap.set(tenant.id, tenant.name);
+    }
+
+    // 转换字段名：snake_case -> camelCase，并附加绑定信息
+    const transformedProjects = filteredProjects.map((p: any) => {
+      const binding = bindingMap.get(p.project_id);
+      return {
+        projectId: p.project_id,
+        name: p.name,
+        public: p.public,
+        ownerName: p.owner_name,
+        repoCount: p.repo_count,
+        metadata: p.metadata,
+        createdAt: p.creation_time,
+        updatedAt: p.update_time,
+        // 直接返回租户信息（前端需要）
+        tenantId: binding?.tenantId,
+        tenantName: binding?.tenantId ? tenantMap.get(binding.tenantId) : undefined,
+        // 判断当前用户是否为项目创建者
+        isOwner: binding?.createdBy === (req.user as any)?.id,
+        // 附加绑定信息
+        binding: binding
+          ? {
+              id: binding.id,
+              tenantId: binding.tenantId,
+              createdBy: binding.createdBy,
+              createdByType: binding.createdByType,
+              visibility: binding.visibility,
+            }
+          : null,
+      };
+    });
 
     res.json({ message: '查询成功', data: transformedProjects });
   } catch (error: any) {
@@ -226,16 +371,16 @@ router.get('/registries/:id/projects', async (req: AuthRequest, res: Response) =
 /**
  * 创建项目
  * POST /api/harbor/registries/:id/projects
+ * 
+ * 用户体系对接逻辑：
+ * 1. 判断 Harbor 实例是否为平台内置（harbor.isBuiltIn）
+ * 2. 内置 Harbor：系统管理员可创建公共项目，租户用户只能创建私有项目
+ * 3. 创建 HarborProjectBinding 记录，关联租户
+ * 4. 自动添加创建者为项目管理员（role_id=4）
+ * 5. 如果是组织用户创建，同时添加租户管理员为项目管理员
  */
 router.post('/registries/:id/projects', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:create')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
     const { project_name, public: isPublic, metadata } = req.body;
 
@@ -248,19 +393,187 @@ router.post('/registries/:id/projects', async (req: AuthRequest, res: Response) 
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const publicValue = parseHarborPublicValue(isPublic);
+    const { harbor, service } = result;
 
-    const project = await result.service.createProject({
-      project_name,
-      public: publicValue,
-      metadata: {
-        ...metadata,
-        public: publicValue ? 'true' : 'false',
-      },
-    });
+    // 判断是否为平台内置 Harbor
+    const isBuiltIn = (harbor as any).isBuiltIn === true;
+    const userRole = (req.user as any)?.role;
+    const isSystemAdmin = userRole === 'super_admin' || userRole === 'admin';
+    const isTenantUser = (req.user as any)?.isTenantUser || !!(req.user as any)?.tenantId;
 
-    harborLog.info(`创建项目: harbor=${id}, project=${project_name}`);
-    res.status(201).json({ message: '创建成功', data: project });
+    // 权限校验：
+    // 1. 系统管理员：检查 RBAC 权限
+    // 2. 租户用户：平台内置 Harbor 允许创建，外部 Harbor 需要 RBAC 权限
+    if (isSystemAdmin) {
+      const perms: string[] = Array.isArray((req.user as any)?.permissions)
+        ? (req.user as any).permissions
+        : [];
+      if (!checkPermission(perms, 'harbor.project:create')) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+    } else if (isTenantUser) {
+      // 租户用户访问外部 Harbor 需要 RBAC 权限
+      if (!isBuiltIn) {
+        const perms: string[] = Array.isArray((req.user as any)?.permissions)
+          ? (req.user as any).permissions
+          : [];
+        if (!checkPermission(perms, 'harbor.project:create')) {
+          return res.status(403).json({ message: '权限不足' });
+        }
+      }
+      // 平台内置 Harbor，租户用户可以创建项目
+    } else {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    let publicValue = parseHarborPublicValue(isPublic);
+    let bindingRecord: HarborProjectBinding | null = null;
+
+    // 平台内置 Harbor：执行用户体系对接逻辑
+    if (isBuiltIn) {
+      // 租户用户只能创建私有项目
+      if (!isSystemAdmin) {
+        publicValue = false;
+        harborLog.info(`[项目创建] 租户用户创建项目，强制设为私有: user=${(req.user as any)?.id}, project=${project_name}`);
+      }
+
+      // 创建项目
+      const project = await service.createProject({
+        project_name,
+        public: publicValue,
+        metadata: {
+          ...metadata,
+          public: publicValue ? 'true' : 'false',
+        },
+      });
+
+      // Harbor API 创建项目后可能不返回完整对象，需要查询获取 project_id
+      let projectId = project?.project_id || project?.projectId;
+      if (!projectId) {
+        // 查询刚创建的项目
+        const createdProject = await service.getProject(project_name);
+        projectId = createdProject?.project_id || createdProject?.projectId;
+      }
+
+      if (!projectId) {
+        throw new Error('无法获取项目 ID');
+      }
+
+      // 创建绑定记录
+      const bindingRepo = AppDataSource.getRepository(HarborProjectBinding);
+      bindingRecord = bindingRepo.create({
+        harborRegistryId: harbor.id,
+        projectId: projectId,
+        projectName: project_name,
+        tenantId: isSystemAdmin ? undefined : (req.user as any)?.tenantId,
+        createdBy: (req.user as any)?.id,
+        createdByType: isSystemAdmin ? HarborProjectCreatorType.SYSTEM : HarborProjectCreatorType.TENANT,
+        visibility: publicValue ? HarborProjectVisibility.PUBLIC : HarborProjectVisibility.PRIVATE,
+      });
+      await bindingRepo.save(bindingRecord);
+
+      harborLog.info(
+        `[项目绑定] 创建绑定记录: bindingId=${bindingRecord.id}, tenantId=${bindingRecord.tenantId}, visibility=${bindingRecord.visibility}`,
+      );
+
+      // 添加创建者为项目管理员（role_id=4）
+      try {
+        // 如果是租户用户，需要先获取或创建 Harbor 用户映射
+        if (!isSystemAdmin) {
+          const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+          const creator = await tenantUserRepo.findOne({
+            where: { id: (req.user as any)?.id },
+          });
+
+          if (creator) {
+            const mapping = await HarborUserService.getOrCreateMapping({
+              harborRegistryId: harbor.id,
+              tenantUser: creator,
+            });
+
+            // 添加为项目管理员（role_id=1，Harbor API 的 role_id 含义与文档相反）
+            await service.addProjectMember(projectId, {
+              member_name: mapping.harborUsername,
+              member_group: false,
+              role_id: 1, // 项目管理员（实际测试发现：发送 1 得到项目管理员，发送 5 得到受限访客）
+            });
+
+            harborLog.info(
+              `[项目管理员] 添加创建者为管理员成功: project=${project_name}, harborUser=${mapping.harborUsername}`,
+            );
+
+            // 如果是组织用户创建，同时添加租户管理员为项目管理员
+            if (creator.organizationId) {
+              const orgRepo = AppDataSource.getRepository(Organization);
+              const org = await orgRepo.findOne({
+                where: { id: creator.organizationId },
+              });
+
+              if (org) {
+                // 查找租户管理员（role='admin'）
+                const tenantAdmins = await tenantUserRepo.find({
+                  where: {
+                    tenantId: creator.tenantId,
+                    role: 'admin',
+                    status: 'active',
+                  },
+                });
+
+                for (const admin of tenantAdmins) {
+                  // 跳过创建者自己
+                  if (admin.id === creator.id) continue;
+
+                  const adminMapping = await HarborUserService.getOrCreateMapping({
+                    harborRegistryId: harbor.id,
+                    tenantUser: admin,
+                  });
+
+                  await service.addProjectMember(projectId, {
+                    member_name: adminMapping.harborUsername,
+                    member_group: false,
+                    role_id: 1, // 项目管理员
+                  });
+
+                  harborLog.info(
+                    `[项目管理员] 添加租户管理员为管理员: project=${project_name}, admin=${admin.username}, harborUser=${adminMapping.harborUsername}`,
+                  );
+                }
+              }
+            }
+          }
+        } else {
+          // 系统管理员创建公共项目，使用 Harbor 配置中的管理员账号（已经是项目管理员）
+          harborLog.info(`[项目管理员] 系统管理员创建项目，自动成为管理员: project=${project_name}`);
+        }
+      } catch (adminError: any) {
+        // 添加管理员失败不影响项目创建
+        harborLog.error(`[项目管理员] 添加项目管理员失败: ${adminError.message}`, {
+          error: adminError.message,
+          projectId,
+          projectName: project_name,
+        });
+      }
+
+      harborLog.info(`创建项目: harbor=${id}, project=${project_name}, builtIn=true`);
+      res.status(201).json({
+        message: '创建成功',
+        data: project,
+        binding: bindingRecord,
+      });
+    } else {
+      // 用户自建 Harbor：直接创建项目
+      const project = await service.createProject({
+        project_name,
+        public: publicValue,
+        metadata: {
+          ...metadata,
+          public: publicValue ? 'true' : 'false',
+        },
+      });
+
+      harborLog.info(`创建项目: harbor=${id}, project=${project_name}, builtIn=false`);
+      res.status(201).json({ message: '创建成功', data: project });
+    }
   } catch (error: any) {
     harborLog.error('创建项目失败:', error.message);
     res.status(500).json({ message: '创建项目失败', error: error.message });
@@ -273,22 +586,74 @@ router.post('/registries/:id/projects', async (req: AuthRequest, res: Response) 
  */
 router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:read')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+    const { harbor, service } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:read');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
     const project = await result.service.getProject(harborProjectRef, projectRef);
+
+    // 获取当前用户在该项目中的角色
+    let currentUserRole: number | undefined;
+    try {
+      const members = await service.getProjectMembers(harborProjectRef);
+      const currentUserId = (req.user as any)?.id;
+      const isTenantUser = (req.user as any)?.isTenantUser || !!(req.user as any)?.tenantId;
+
+      // 如果是租户用户，查找对应的 Harbor 用户映射
+      if (isTenantUser && currentUserId) {
+        const mappingRepo = AppDataSource.getRepository(HarborUserMapping);
+        const mapping = await mappingRepo.findOne({
+          where: { harborRegistryId: harbor.id, tenantUserId: currentUserId },
+        });
+
+        if (mapping) {
+          const member = members.find((m: any) => m.entity_name === mapping.harborUsername);
+          if (member) {
+            currentUserRole = member.role_id;
+          } else {
+            harborLog.warn('[项目详情] 未在成员列表中找到用户');
+          }
+        } else {
+          harborLog.warn('[项目详情] 未找到用户映射');
+        }
+      } else {
+        // 系统管理员，查找 admin 用户
+        const member = members.find((m: any) => m.entity_name === 'admin');
+        if (member) {
+          currentUserRole = member.role_id;
+        }
+      }
+    } catch (err: any) {
+      harborLog.warn('[项目详情] 获取当前用户角色失败:', err?.message);
+
+      // 临时解决方案：如果获取角色失败，从项目绑定记录中判断是否为项目创建者
+      try {
+        const bindingRepo = AppDataSource.getRepository(HarborProjectBinding);
+        const binding = await bindingRepo.findOne({
+          where: {
+            harborRegistryId: harbor.id,
+            projectId: project.project_id,
+          },
+        });
+
+        if (binding && binding.createdBy === (req.user as any)?.id) {
+          currentUserRole = 1; // 项目管理员
+          harborLog.info('[项目详情] 从绑定记录推断角色: 项目创建者 = 项目管理员');
+        }
+      } catch (fallbackErr: any) {
+        harborLog.warn('[项目详情] 回退逻辑失败:', fallbackErr?.message);
+      }
+    }
 
     // 转换字段名：snake_case -> camelCase
     const transformedProject = {
@@ -300,6 +665,7 @@ router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Respo
       metadata: project.metadata,
       createdAt: project.creation_time,
       updatedAt: project.update_time,
+      currentUserRole,
     };
 
     res.json({ message: '查询成功', data: transformedProject });
@@ -320,13 +686,6 @@ router.get('/registries/:id/projects/:name', async (req: AuthRequest, res: Respo
 router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Response) => {
   const { projectRef: pathProjectRef } = resolveHarborProjectRef(req);
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:delete')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
 
     const result = await getHarborService(id);
@@ -334,7 +693,13 @@ router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Re
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+    const { harbor, service } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:delete');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
     await result.service.deleteProject(harborProjectRef);
 
@@ -368,20 +733,19 @@ router.delete('/registries/:id/projects/:name', async (req: AuthRequest, res: Re
  */
 router.get('/registries/:id/projects/:name/summary', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:read')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+    const { harbor, service } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:read');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
     const summary = await result.service.getProjectSummary(harborProjectRef);
 
@@ -421,31 +785,36 @@ router.get('/registries/:id/projects/:name/summary', async (req: AuthRequest, re
 /**
  * 获取项目成员列表
  * GET /api/harbor/registries/:id/projects/:name/members
+ * 
+ * 用户体系对接逻辑：
+ * 1. 调用 Harbor API 获取成员列表
+ * 2. 关联 HarborUserMapping 获取 Tower 用户信息
+ * 3. 关联 TenantUser 和 Organization 获取用户详情（真实姓名、组织等）
+ * 4. 返回包含 Tower 用户信息的成员列表
  */
 router.get('/registries/:id/projects/:name/members', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:read')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+    const { harbor, service } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:read');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
     harborLog.info(
-      `获取项目成员: harbor=${id}, project=${projectRef}, harbor_user=${result.harbor.username}, url=${result.harbor.url}, pwd_len=${result.harbor.password?.length}`,
+      `获取项目成员: harbor=${id}, project=${projectRef}, harbor_user=${harbor.username}, url=${harbor.url}, pwd_len=${harbor.password?.length}`,
     );
 
     // 先测试基本 API 是否正常，打印完整响应
     try {
-      const axiosResponse = await result.service.axiosInstance.get('/api/v2.0/systeminfo');
+      const axiosResponse = await service.axiosInstance.get('/api/v2.0/systeminfo');
       harborLog.info(
         `系统信息完整响应: status=${axiosResponse.status}, data_keys=${Object.keys(axiosResponse.data || {}).join(',')}`,
       );
@@ -454,19 +823,90 @@ router.get('/registries/:id/projects/:name/members', async (req: AuthRequest, re
     }
 
     try {
-      const members = await result.service.getProjectMembers(harborProjectRef);
+      const members = await service.getProjectMembers(harborProjectRef);
 
-      // 转换字段名：snake_case -> camelCase
-      const transformedMembers = members.map((member: any) => ({
-        id: member.user_id || member.id,
-        entityName: member.entity_name || member.username,
-        entityType: member.entity_type || 'u', // u=用户, g=用户组
-        roleName: member.role_name,
-        roleId: member.role_id,
-        projectName: member.project_name,
-      }));
+      // 判断是否为平台内置 Harbor
+      const isBuiltIn = (harbor as any).isBuiltIn === true;
 
-      res.json({ message: '查询成功', data: transformedMembers });
+      // 如果是内置 Harbor，关联 Tower 用户信息
+      if (isBuiltIn) {
+        const mappingRepo = AppDataSource.getRepository(HarborUserMapping);
+        const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+        const orgRepo = AppDataSource.getRepository(Organization);
+
+        // 转换字段名并关联 Tower 用户信息
+        const transformedMembers = await Promise.all(
+          members.map(async (member: any) => {
+            const harborUserId = member.user_id || member.id;
+            const harborUsername = member.entity_name || member.username;
+
+            // 查询用户映射
+            const mapping = await mappingRepo.findOne({
+              where: {
+                harborRegistryId: harbor.id,
+                harborUsername,
+              },
+            });
+
+            let towerUserInfo = null;
+            if (mapping) {
+              // 查询租户用户信息
+              const tenantUser = await tenantUserRepo.findOne({
+                where: { id: mapping.tenantUserId },
+              });
+
+              if (tenantUser) {
+                // 查询组织信息
+                const organization = tenantUser.organizationId
+                  ? await orgRepo.findOne({
+                      where: { id: tenantUser.organizationId },
+                    })
+                  : null;
+
+                towerUserInfo = {
+                  id: tenantUser.id,
+                  username: tenantUser.username,
+                  fullName: tenantUser.fullName,
+                  email: tenantUser.email,
+                  role: tenantUser.role,
+                  organization: organization
+                    ? {
+                        id: organization.id,
+                        name: organization.name,
+                        level: organization.level,
+                      }
+                    : null,
+                };
+              }
+            }
+
+            return {
+              id: harborUserId,
+              entityName: harborUsername,
+              entityType: member.entity_type || 'u',
+              roleName: member.role_name,
+              roleId: member.role_id,
+              projectName: member.project_name,
+              // 附加 Tower 用户信息
+              towerUser: towerUserInfo,
+            };
+          }),
+        );
+
+        res.json({ message: '查询成功', data: transformedMembers });
+      } else {
+        // 用户自建 Harbor：仅返回 Harbor 成员信息
+        const transformedMembers = members.map((member: any) => ({
+          id: member.user_id || member.id,
+          entityName: member.entity_name || member.username,
+          entityType: member.entity_type || 'u',
+          roleName: member.role_name,
+          roleId: member.role_id,
+          projectName: member.project_name,
+        }));
+
+        res.json({ message: '查询成功', data: transformedMembers });
+      }
     } catch (memberError: any) {
       harborLog.error(
         `获取项目成员失败: ${memberError.message}, status=${memberError.response?.status}, data=${JSON.stringify(memberError.response?.data)}`,
@@ -490,40 +930,111 @@ router.get('/registries/:id/projects/:name/members', async (req: AuthRequest, re
 /**
  * 添加项目成员
  * POST /api/harbor/registries/:id/projects/:name/members
+ * 
+ * 用户体系对接逻辑：
+ * 1. 接收 Tower 用户 ID（tenantUserId）+ Harbor 密码（首次添加时）+ 角色ID
+ * 2. 校验 Harbor 实例是否为平台内置（用户自建 Harbor 返回错误提示）
+ * 3. 校验当前用户是否为项目管理员
+ * 4. 校验目标用户是否属于当前租户
+ * 5. 调用 HarborUserService.getOrCreateMapping 获取或创建 Harbor 用户
+ * 6. 调用 Harbor API 添加项目成员
  */
 router.post('/registries/:id/projects/:name/members', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:update')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
-    const { memberName, memberId, role } = req.body;
-
-    if (!role) {
-      return res.status(400).json({ message: '缺少必填字段: role' });
-    }
+    const { tenantUserId, password, role, memberName, memberId } = req.body;
 
     const result = await getHarborService(id);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const { harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+    const { harbor, service } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:update');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
 
-    await result.service.addProjectMember(harborProjectRef, {
-      member_name: memberName,
-      member_group: false,
-      role_id: role,
-    });
+    const { harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
-    harborLog.info(
-      `添加项目成员: harbor=${id}, project=${harborProjectRef}, member=${memberName || memberId}`,
-    );
-    res.status(201).json({ message: '添加成功' });
+    // 判断是否为平台内置 Harbor
+    const isBuiltIn = (harbor as any).isBuiltIn === true;
+
+    if (isBuiltIn) {
+      // 平台内置 Harbor：必须使用 Tower 用户 ID
+      if (!tenantUserId) {
+        return res.status(400).json({
+          message: '平台内置 Harbor 需要提供 tenantUserId 参数',
+        });
+      }
+
+      // 获取目标用户信息
+      const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+      const targetUser = await tenantUserRepo.findOne({
+        where: { id: tenantUserId },
+      });
+
+      if (!targetUser) {
+        return res.status(404).json({ message: '目标用户不存在' });
+      }
+
+      // 校验目标用户是否属于当前租户
+      const userRole = (req.user as any)?.role;
+      const isSystemAdmin = userRole === 'super_admin' || userRole === 'admin';
+      const currentTenantId = (req.user as any)?.tenantId;
+
+      if (!isSystemAdmin && targetUser.tenantId !== currentTenantId) {
+        return res.status(403).json({ message: '无法为其他租户的用户添加项目成员' });
+      }
+
+      // 获取或创建 Harbor 用户映射
+      const mapping = await HarborUserService.getOrCreateMapping({
+        harborRegistryId: harbor.id,
+        tenantUser: targetUser,
+        password, // 首次添加时提供的密码
+      });
+
+      // 添加项目成员
+      if (!role) {
+        return res.status(400).json({ message: '缺少必填字段: role' });
+      }
+
+      await service.addProjectMember(harborProjectRef, {
+        member_name: mapping.harborUsername,
+        member_group: false,
+        role_id: role,
+      });
+
+      harborLog.info(
+        `[成员添加] 内置 Harbor: project=${harborProjectRef}, tenantUser=${targetUser.username}, harborUser=${mapping.harborUsername}, role=${role}`,
+      );
+
+      res.status(201).json({
+        message: '添加成功',
+        data: {
+          harborUsername: mapping.harborUsername,
+          tenantUserId: targetUser.id,
+          tenantUsername: targetUser.username,
+          roleId: role,
+        },
+      });
+    } else {
+      // 用户自建 Harbor：直接使用 Harbor 用户名
+      if (!role) {
+        return res.status(400).json({ message: '缺少必填字段: role' });
+      }
+
+      await service.addProjectMember(harborProjectRef, {
+        member_name: memberName,
+        member_group: false,
+        role_id: role,
+      });
+
+      harborLog.info(
+        `[成员添加] 自建 Harbor: project=${harborProjectRef}, member=${memberName || memberId}`,
+      );
+      res.status(201).json({ message: '添加成功' });
+    }
   } catch (error: any) {
     harborLog.error('添加项目成员失败:', error.message);
     res.status(500).json({ message: '添加项目成员失败', error: error.message });
@@ -538,20 +1049,19 @@ router.delete(
   '/registries/:id/projects/:name/members/:memberId',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.project:update')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, memberId } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:update');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       await result.service.deleteProjectMember(harborProjectRef, Number(memberId));
 
@@ -572,13 +1082,6 @@ router.get(
   '/registries/:id/projects/:project/repositories',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.repository:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id } = req.params;
       const { page, pageSize, q } = req.query;
 
@@ -587,7 +1090,13 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.repository:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       const repositories = await result.service.getRepositories(harborProjectRef, {
         page: page ? Number(page) : undefined,
@@ -623,20 +1132,19 @@ router.get(
   '/registries/:id/projects/:project/repositories/:repo',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.repository:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.repository:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -674,20 +1182,19 @@ router.delete(
   '/registries/:id/projects/:project/repositories/:repo',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.repository:delete')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.repository:delete');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -715,13 +1222,6 @@ router.get(
   '/registries/:id/projects/:project/repositories/:repo/artifacts',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo } = req.params;
       const { page, pageSize, q, withTag, withLabel, withScanOverview } = req.query;
 
@@ -730,7 +1230,13 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -770,13 +1276,6 @@ router.get(
   '/registries/:id/projects/:project/repositories/:repo/artifacts/:ref',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo, ref } = req.params;
       const {
         withTag: _withTag,
@@ -789,7 +1288,13 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -826,20 +1331,19 @@ router.delete(
   '/registries/:id/projects/:project/repositories/:repo/artifacts/:ref',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:delete')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo, ref } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:delete');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -868,13 +1372,6 @@ router.get(
   '/registries/:id/projects/:project/repositories/:repo/artifacts/:ref/tags',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo, ref } = req.params;
       const { page: _page, pageSize: _pageSize } = req.query;
 
@@ -883,7 +1380,13 @@ router.get(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -921,13 +1424,6 @@ router.post(
   '/registries/:id/projects/:project/repositories/:repo/artifacts/:ref/tags',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:update')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo, ref } = req.params;
       const { name } = req.body;
 
@@ -940,7 +1436,13 @@ router.post(
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:update');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -972,20 +1474,19 @@ router.delete(
   '/registries/:id/projects/:project/repositories/:repo/artifacts/:ref/tags/:tag',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:update')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo, ref, tag } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:update');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -1015,13 +1516,6 @@ router.delete(
  */
 router.get('/registries/:id/selector/projects', async (req: AuthRequest, res: Response) => {
   try {
-    const perms: string[] = Array.isArray((req.user as any)?.permissions)
-      ? (req.user as any).permissions
-      : [];
-    if (!checkPermission(perms, 'harbor.project:read')) {
-      return res.status(403).json({ message: '权限不足' });
-    }
-
     const { id } = req.params;
 
     const result = await getHarborService(id);
@@ -1029,7 +1523,13 @@ router.get('/registries/:id/selector/projects', async (req: AuthRequest, res: Re
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const projects = await result.service.getProjects({ pageSize: 100 });
+    const { harbor, service } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:read');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    const projects = await service.getProjects({ pageSize: 100 });
 
     // 简化返回格式
     const simplified = projects.map((p: any) => ({
@@ -1053,20 +1553,19 @@ router.get(
   '/registries/:id/selector/projects/:project/repositories',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.repository:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.repository:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       const repositories = await result.service.getRepositories(harborProjectRef, {
         pageSize: 100,
@@ -1103,20 +1602,19 @@ router.get(
   '/registries/:id/selector/projects/:project/repositories/:repo/tags',
   async (req: AuthRequest, res: Response) => {
     try {
-      const perms: string[] = Array.isArray((req.user as any)?.permissions)
-        ? (req.user as any).permissions
-        : [];
-      if (!checkPermission(perms, 'harbor.artifact:read')) {
-        return res.status(403).json({ message: '权限不足' });
-      }
-
       const { id, repo } = req.params;
       const result = await getHarborService(id);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, result.service);
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.artifact:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
 
       // 解码仓库名称（可能包含斜杠）
       const decodedRepo = decodeURIComponent(repo);
@@ -1147,6 +1645,190 @@ router.get(
     } catch (error: any) {
       harborLog.error('获取选择器标签列表失败:', error.message);
       res.status(500).json({ message: '获取选择器标签列表失败', error: error.message });
+    }
+  },
+);
+
+/**
+ * 更新项目成员角色
+ * PUT /api/harbor/registries/:id/projects/:name/members/:memberId
+ * 
+ * 权限：harbor.project:update
+ * 逻辑：调用 HarborProxyService.updateProjectMemberRole
+ */
+router.put(
+  '/registries/:id/projects/:name/members/:memberId',
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id, memberId } = req.params;
+      const { roleId } = req.body;
+
+      if (!roleId) {
+        return res.status(400).json({ message: '缺少必填字段: roleId' });
+      }
+
+      const result = await getHarborService(id);
+      if (!result) {
+        return res.status(404).json({ message: 'Harbor 实例不存在' });
+      }
+
+      const { harbor, service } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:update');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, service);
+
+      await result.service.updateProjectMemberRole(harborProjectRef, Number(memberId), roleId);
+
+      harborLog.info(
+        `更新成员角色: harbor=${id}, project=${projectRef}, member=${memberId}, role=${roleId}`,
+      );
+      res.json({ message: '更新成功' });
+    } catch (error: any) {
+      harborLog.error('更新成员角色失败:', error.message);
+      res.status(500).json({ message: '更新成员角色失败', error: error.message });
+    }
+  },
+);
+
+/**
+ * 获取当前租户下所有组织成员（用于成员选择器）
+ * GET /api/harbor/registries/:id/tenant-users
+ * 
+ * 权限：harbor.project:read
+ * 逻辑：查询 TenantUser 表，关联 Organization，返回用户列表
+ */
+router.get('/registries/:id/tenant-users', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await getHarborService(id);
+    if (!result) {
+      return res.status(404).json({ message: 'Harbor 实例不存在' });
+    }
+
+    const { harbor } = result;
+    const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:read');
+    if (!allowed) {
+      return res.status(403).json({ message: '权限不足' });
+    }
+
+    const userRole = (req.user as any)?.role;
+    const isSystemAdmin = userRole === 'super_admin' || userRole === 'admin';
+
+    const tenantUserRepo = AppDataSource.getRepository(TenantUser);
+    const orgRepo = AppDataSource.getRepository(Organization);
+
+    let users: TenantUser[];
+
+    if (isSystemAdmin) {
+      // 系统管理员可以看到所有用户
+      users = await tenantUserRepo.find({
+        where: { status: 'active' },
+        relations: ['organization'],
+      });
+    } else {
+      // 租户用户只能看到本租户的用户
+      const tenantId = (req.user as any)?.tenantId;
+      if (!tenantId) {
+        return res.status(400).json({ message: '无法获取租户信息' });
+      }
+
+      users = await tenantUserRepo.find({
+        where: { tenantId, status: 'active' },
+        relations: ['organization'],
+      });
+    }
+
+    // 查询所有组织，构建组织路径
+    const allOrgs = await orgRepo.find();
+    const orgMap = new Map<string, Organization>();
+    for (const org of allOrgs) {
+      orgMap.set(org.id, org);
+    }
+
+    // 构建组织路径（从根到当前组织）
+    const buildOrgPath = (org: Organization): string[] => {
+      const path: string[] = [org.name];
+      let current = org;
+      while (current.parentId) {
+        const parent = orgMap.get(current.parentId);
+        if (!parent) break;
+        path.unshift(parent.name);
+        current = parent;
+      }
+      return path;
+    };
+
+    // 转换为前端需要的格式
+    const userList = users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      organization: user.organization
+        ? {
+            id: user.organization.id,
+            name: user.organization.name,
+            level: user.organization.level,
+            path: buildOrgPath(user.organization),
+          }
+        : null,
+    }));
+
+    res.json({ message: '查询成功', data: userList });
+  } catch (error: any) {
+    harborLog.error('获取租户用户列表失败:', error.message);
+    res.status(500).json({ message: '获取租户用户列表失败', error: error.message });
+  }
+});
+
+/**
+ * 检查用户是否已有 Harbor 映射
+ * GET /api/harbor/registries/:id/user-mappings/:tenantUserId
+ * 
+ * 权限：harbor.project:read
+ * 逻辑：查询 HarborUserMapping 表
+ */
+router.get(
+  '/registries/:id/user-mappings/:tenantUserId',
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { id, tenantUserId } = req.params;
+
+      const result = await getHarborService(id);
+      if (!result) {
+        return res.status(404).json({ message: 'Harbor 实例不存在' });
+      }
+
+      const { harbor } = result;
+      const { allowed } = checkHarborAccess(req, harbor, 'harbor.project:read');
+      if (!allowed) {
+        return res.status(403).json({ message: '权限不足' });
+      }
+
+      const mapping = await HarborUserService.getMapping({
+        harborRegistryId: id,
+        tenantUserId,
+      });
+
+      res.json({
+        message: '查询成功',
+        data: mapping
+          ? {
+              id: mapping.id,
+              harborUsername: mapping.harborUsername,
+              syncStatus: mapping.syncStatus,
+              lastSyncAt: mapping.lastSyncAt,
+            }
+          : null,
+      });
+    } catch (error: any) {
+      harborLog.error('检查用户映射失败:', error.message);
+      res.status(500).json({ message: '检查用户映射失败', error: error.message });
     }
   },
 );
