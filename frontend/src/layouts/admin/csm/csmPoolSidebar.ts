@@ -1,5 +1,5 @@
 /**
- * CSM 安全资源池详情侧栏：与 `sdncc/traffic/CsmPools/CloudDetailCsm` Tabs 一致，URL 使用 `?tab=`。
+ * CSM 安全资源池详情侧栏：与 `sdncc/csm/pools/CloudDetailCsm` Tabs 一致，URL 使用 `?tab=`。
  * 路径：`/admin/security/traffic/csm-pools/:cloudId` 时由 AdminLayout 注入。
  */
 import { createElement, type ReactNode } from 'react';
@@ -48,7 +48,7 @@ const TAB_LABEL: Record<CsmPoolTabKey, string> = {
   groups: '安全网元组',
   serviceChains: '服务链',
   policies: '阻断策略',
-  securityDomains: '安全域',
+  securityDomains: 'CSM 安全域',
   tenants: '租户',
 };
 

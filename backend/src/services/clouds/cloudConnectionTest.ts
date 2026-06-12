@@ -4,7 +4,8 @@ import { logger } from '../../utils/logger';
 import { testAliyunConnection } from './aliyun/client';
 import { testHuaweiConnection } from './huaweicloud/client';
 import { testHarvesterConnection } from './harvester/client';
-import { csmRequest } from './csm/client';
+import { csmRequest, csmWebSessionLogin } from './csm/client';
+import { resolveCsmPasswordEncrypted } from './csm/csmWebPassword';
 import { testXinferenceConnection } from './xinference/xinferenceClient';
 import { testMaasConnection } from './maas/maasClient';
 
@@ -62,14 +63,68 @@ export const testCloudConnectionUnified = async (args: {
   }
   if (provider === 'cloudmap.csm') {
     try {
+      const endpoint = String(args.endpoint || '').trim();
       const config = {
-        endpoint: String(args.endpoint || '').trim(),
+        endpoint,
         accessKey: String(args.accessKey || '').trim(),
         secretKey: String(args.secretKey || '').trim(),
         ignoreTls: !!args.config?.ignoreTls,
       };
       await csmRequest(config, '/V2/ctcontrol/VM04/vms', { page_size: 1, page_num: 1 });
-      return { ok: true, message: '连接成功，API调用正常' };
+
+      const encPwd = resolveCsmPasswordEncrypted(
+        (args.config || {}) as Record<string, unknown>,
+      );
+      if (!encPwd) {
+        return {
+          ok: true,
+          message:
+            'OpenAPI 连接成功；未配置控制台密码，租户相关功能可能不可用（请在接入时填写控制台凭据）',
+        };
+      }
+
+      const username = String(args.config?.csmRepairUsername ?? 'admin').trim() || 'admin';
+      let webPort = '';
+      try {
+        const u = new URL(endpoint.startsWith('http') ? endpoint : `https://${endpoint}`);
+        webPort = u.port || '';
+      } catch {
+        webPort = '';
+      }
+      const webLogin = await csmWebSessionLogin(
+        config,
+        username,
+        encPwd,
+        webPort || undefined,
+      );
+      if (!webLogin.success || !webLogin.cookie) {
+        const csmMsg = String(webLogin.message || '').trim();
+        return {
+          ok: false,
+          message: `OpenAPI 正常，但控制台凭据无效：${csmMsg || '控制台登录未返回会话'}`,
+        };
+      }
+
+      try {
+        await csmRequest(
+          config,
+          '/csm/api/v2.0/tenant/page',
+          {},
+          'POST',
+          { current: 1, pageSize: 1, field: '', value: '' },
+          { noAuth: true, cookie: webLogin.cookie, webPort: webPort || undefined },
+        );
+      } catch (tenantErr: unknown) {
+        const tenantMsg =
+          (tenantErr as { message?: string })?.message ||
+          (tenantErr as { response?: { data?: { message?: string } } })?.response?.data?.message;
+        return {
+          ok: false,
+          message: `控制台已登录，但租户接口不可用：${tenantMsg || 'tenant/page 失败'}`,
+        };
+      }
+
+      return { ok: true, message: '连接成功：OpenAPI 与控制台凭据均有效' };
     } catch (err: any) {
       cloudRouteLog.error(
         'Cloudmap connection test failed:',

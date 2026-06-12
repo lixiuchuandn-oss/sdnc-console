@@ -343,7 +343,7 @@ app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 // 4) SASE / 网络与安全能力：
 //    - /api/sase/auth 与 /api/sase/gateways：SASE 专用认证与网关管理
 //    - /api/networks/*：SDN 网络能力（SRv6、IPsec、ACL、NAT 等）
-//    - /api/security-domains：安全域与防护对象
+//    - /api/security-domains：网际路由域（产品名；路径未改）与防护对象
 //    - /api/security/traffic：安全流量编排（服务链）
 //    - /api/services：服务目录与服务实例
 // 5) AISOC 与系统配置：

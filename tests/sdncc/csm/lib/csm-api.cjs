@@ -41,6 +41,7 @@ async function getCsmBff(token, cloudId, subPath) {
 async function patchCsmRepairAuth(token, cloudId, cloud, repairAuth) {
   const cfg = { ...(cloud.config || {}) };
   if (repairAuth.username) cfg.csmRepairUsername = repairAuth.username;
+  if (repairAuth.password) cfg.csmRepairPassword = repairAuth.password;
   if (repairAuth.passwordEncrypted) cfg.csmRepairPasswordEncrypted = repairAuth.passwordEncrypted;
   if (repairAuth.webPort) cfg.csmWebPort = repairAuth.webPort;
   // 仅更新 config，避免 PUT 回写 GET 中已脱敏的 accessKey/secretKey
@@ -50,7 +51,12 @@ async function patchCsmRepairAuth(token, cloudId, cloud, repairAuth) {
 function hasCsmRepairAuthInConfig(cloud) {
   const cfg = cloud?.config || {};
   return Boolean(
-    String(cfg.csmRepairPasswordEncrypted ?? cfg.csmApiPasswordEncrypted ?? '').trim(),
+    String(
+      cfg.csmRepairPassword ??
+        cfg.csmRepairPasswordEncrypted ??
+        cfg.csmApiPasswordEncrypted ??
+        '',
+    ).trim(),
   );
 }
 

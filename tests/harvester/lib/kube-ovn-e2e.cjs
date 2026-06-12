@@ -4,6 +4,8 @@ const VLAN_ALIAS_KEY = 'tower.io/alies';
 const SUBNET_ALIAS_KEY = 'tower.io/alias';
 const SUBNET_TYPE_KEY = 'tower.io/subnet-type';
 const PUBLIC_VPC = 'ovn-cluster';
+const FLAT_VPC = 'ovn-internal';
+const FLAT_OVERLAY_ANNOTATION_KEY = 'tower.io/subnet-type-flat-overlay';
 const OVN_INTERNAL_ROUTE_CIDR = 'tower.io/ovn-internal-route-cidr';
 const SUBNET_FINALIZER = 'tower.io/managed';
 
@@ -99,13 +101,23 @@ async function fetchVlans(token, cloudId, force = false) {
   return listItems(data?.data || data);
 }
 
-async function fetchPublicSubnets(token, cloudId, force = false) {
+async function fetchAllSubnets(token, cloudId, force = false) {
   const qs = force ? '?ovnNetworkScope=all&force=true' : '?ovnNetworkScope=all';
   const { status, data } = await towerApi('GET', `/api/clouds/${cloudId}/resources/subnets${qs}`, null, token);
   if (status !== 200) {
     throw new Error(data?.message || `subnets HTTP ${status}`);
   }
-  return listItems(data?.data || data).filter((row) => subnetType(row) === 'public');
+  return listItems(data?.data || data);
+}
+
+async function fetchPublicSubnets(token, cloudId, force = false) {
+  const items = await fetchAllSubnets(token, cloudId, force);
+  return items.filter((row) => subnetType(row) === 'public');
+}
+
+async function fetchFlatSubnets(token, cloudId, force = false) {
+  const items = await fetchAllSubnets(token, cloudId, force);
+  return items.filter((row) => subnetType(row) === 'flat');
 }
 
 function pickUnusedVlanId(vlans, providerName) {
@@ -140,6 +152,22 @@ function pickUnusedPublicSubnetCidr(publicSubnets) {
   throw new Error('未找到可用的公共子网 CIDR');
 }
 
+function pickUnusedFlatSubnetCidr(flatSubnets) {
+  const used = new Set(
+    (flatSubnets || [])
+      .map((row) => String(row?.spec?.cidrBlock || row?.spec?.cidr || '').trim())
+      .filter(Boolean),
+  );
+  for (let i = 0; i < 200; i++) {
+    const third = Math.floor(Math.random() * 246);
+    const cidr = `10.242.${third}.0/24`;
+    if (!used.has(cidr)) {
+      return { cidrBlock: cidr, gateway: `10.242.${third}.1` };
+    }
+  }
+  throw new Error('未找到可用的扁平子网 CIDR');
+}
+
 function findVlanByAlias(vlans, alias) {
   const target = String(alias || '').trim();
   return vlans.find((row) => aliasFromVlan(row) === target) || null;
@@ -148,6 +176,11 @@ function findVlanByAlias(vlans, alias) {
 function findPublicSubnetByAlias(subnets, alias) {
   const target = String(alias || '').trim();
   return subnets.find((row) => aliasFromSubnet(row) === target) || null;
+}
+
+function findFlatSubnetByAlias(subnets, alias) {
+  const target = String(alias || '').trim();
+  return (subnets || []).find((row) => aliasFromSubnet(row) === target) || null;
 }
 
 async function deleteVlan(token, cloudId, name) {
@@ -198,6 +231,25 @@ async function deletePublicSubnetsByAliasPrefix(token, cloudId, prefix) {
   return removed;
 }
 
+async function deleteFlatSubnetsByAliasPrefix(token, cloudId, prefix) {
+  const subnets = await fetchFlatSubnets(token, cloudId, true);
+  const removed = [];
+  for (const row of subnets) {
+    const alias = aliasFromSubnet(row);
+    if (!alias.startsWith(prefix)) continue;
+    const name = String(row?.metadata?.name || '').trim();
+    if (!name) continue;
+    const { status } = await deletePublicSubnet(token, cloudId, name);
+    if (status === 200) removed.push(alias);
+  }
+  return removed;
+}
+
+async function cleanupTestFlatSubnetArtifacts(token, cloudId, prefix) {
+  const removedSubnets = await deleteFlatSubnetsByAliasPrefix(token, cloudId, prefix);
+  return { removedSubnets };
+}
+
 async function cleanupTestKubeOvnArtifacts(token, cloudId, vlanPrefix, subnetPrefix) {
   const removedSubnets = await deletePublicSubnetsByAliasPrefix(token, cloudId, subnetPrefix);
   const removedVlans = await deleteVlansByAliasPrefix(token, cloudId, vlanPrefix);
@@ -209,6 +261,8 @@ module.exports = {
   SUBNET_ALIAS_KEY,
   SUBNET_TYPE_KEY,
   PUBLIC_VPC,
+  FLAT_VPC,
+  FLAT_OVERLAY_ANNOTATION_KEY,
   OVN_INTERNAL_ROUTE_CIDR,
   SUBNET_FINALIZER,
   generateVlanCrName,
@@ -217,11 +271,15 @@ module.exports = {
   resolveProviderNetworkName,
   createVlan,
   fetchVlans,
+  fetchAllSubnets,
   fetchPublicSubnets,
+  fetchFlatSubnets,
   pickUnusedVlanId,
   pickUnusedPublicSubnetCidr,
+  pickUnusedFlatSubnetCidr,
   findVlanByAlias,
   findPublicSubnetByAlias,
+  findFlatSubnetByAlias,
   aliasFromVlan,
   aliasFromSubnet,
   providerDisplayAlias,
@@ -229,5 +287,7 @@ module.exports = {
   deletePublicSubnet,
   deleteVlansByAliasPrefix,
   deletePublicSubnetsByAliasPrefix,
+  deleteFlatSubnetsByAliasPrefix,
   cleanupTestKubeOvnArtifacts,
+  cleanupTestFlatSubnetArtifacts,
 };

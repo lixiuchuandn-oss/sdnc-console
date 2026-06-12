@@ -112,9 +112,23 @@ export class SecurityDomain {
   @Column({ type: 'text', nullable: true })
   organizationName?: string;
 
-  // Direct Security Service Association (CSM vm_group_id list)
+  /** 网际路由域分型：`internetwork_routing`（可编排）| `csm_mirror`（CSM 恢复镜像） */
+  @Index()
   @Column({ type: 'text', nullable: true })
-  securityServiceIds?: string;
+  roleKind?: 'internetwork_routing' | 'csm_mirror';
+
+  @Column({ type: 'text', nullable: true })
+  csmCloudId?: string;
+
+  @Column({ type: 'text', nullable: true })
+  csmOrgId?: string;
+
+  /** 关联的 CSM 安全域 ID（严格 1:1） */
+  @Column({ type: 'text', nullable: true })
+  linkedCsmSecurityDomainId?: string;
+
+  @Column({ type: 'text', nullable: true })
+  discoveryMode?: 'cloud_api' | 'vr_scan' | 'hybrid';
 
   @CreateDateColumn({ type: 'datetime' })
   createdAt!: Date;

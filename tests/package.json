@@ -6,7 +6,8 @@
   "scripts": {
     "postinstall": "playwright install chromium",
     "test:api": "npm run test:auth:api && npm run test:failure-domains:api && npm run test:deployment-sets:api && npm run test:security-groups:api",
-    "allure:report": "allure generate allure-results -o allure-report --clean",
+    "allure:report": "node shared/allure-report-if.cjs",
+    "allure:generate": "allure generate allure-results -o allure-report --clean",
     "allure:open": "allure open allure-report",
     "pw": "playwright test",
     "test:browser": "playwright test auth/admin-login.browser.test.cjs harvester/images/browser-list-filter.browser.test.cjs harvester/failure-domains/browser-crud.browser.test.cjs harvester/failure-domains/browser-assign-filter.browser.test.cjs && npm run allure:report",

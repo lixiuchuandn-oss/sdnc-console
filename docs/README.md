@@ -6,7 +6,7 @@
 ### 命名约定（Hub 内 `.md`）
 
 - 格式：**`{主题}-{范围}.md`**，全小写 **kebab-case**（仅 `README.md` 例外）。
-- **主题**取固定词表：`code-quality`、`frontend-layout`、`cloudmap-pool-rbac`、`maas-integration`、`remote-access-architecture`；新增文档须先归入或扩展词表，避免 `pr-`、`page-` 等缩写与冗词。
+- **主题**取固定词表：`code-quality`、`frontend-layout`、`cloudmap-pool-rbac`、`edge-gpu-baremetal`、`maas-integration`、`remote-access-architecture`、`internetwork-routing-domain`；新增文档须先归入或扩展词表，避免 `pr-`、`page-` 等缩写与冗词。
 - 交叉引用写完整路径：`docs/frontend-layout.md` §5.2。
 
 | 文档                                                                     | 说明                                                                                           |
@@ -17,6 +17,11 @@
 | [code-quality.md](./code-quality.md)                                     | **代码质量**（§1～§9 合入清单；§10～§12 可选评分；五十条附录）                                 |
 | [frontend-layout.md](./frontend-layout.md)                               | **前端布局**：壳层、三层容器、侧栏与 Tab；列表 **§5.1**、工具栏 **§5.2**（样板 **VmSection**） |
 | [cloudmap-pool-rbac.md](./cloudmap-pool-rbac.md)                         | **Cloudmap 池 RBAC**：以页面为实体（入口 / 展示 / 操作）                                       |
+| [internetwork-routing-domain.md](./internetwork-routing-domain.md)       | **网际路由域与 CSM 安全域**：产品边界、SDN 三组导航 IA、§14 定稿、§16 VR `uuid`/`vm_id` 与创建时推荐绑定、§17 PaaS VR 部署约定、`suggest-vr` backlog        |
+| [vr-sase-downstream-notice.md](./vr-sase-downstream-notice.md)           | **VR / SASE 网关下游通知**：安全域 → 网际路由域更名说明；API/字段不变清单、术语对照、对接建议 |
+| [tenant-full-export-api.md](./tenant-full-export-api.md)               | **租户全量查询（对外）**：`GET /api/tenants/{id}/full` 认证、字段说明、示例与对接清单 |
+| [edge-gpu-baremetal.md](./edge-gpu-baremetal.md)                         | **边缘 GPU 裸机接入与管理**（设计稿，研发用）：架构与实现规格；待项目驱动开发 |
+| [edge-gpu-baremetal-customer-brief.md](./edge-gpu-baremetal-customer-brief.md) | **边缘 GPU 裸机**（客户版）：tower-edge-agent 一体机 + Compute.Tower 能力说明，不含研发细节 |
 | [maas-integration.md](./maas-integration.md)                             | **MAAS 对接**：北向 API、BFF/Adapter、v2/v3 约定                                               |
 | [remote-access-architecture.md](./remote-access-architecture.md)         | **云桌面网关总体架构**：扁平网 + admin 体系、Cloudmap/MAAS、资源池接入；租户暂不涉及           |
 | [integrate-guacamole.md](./integrate-guacamole.md)                       | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                |

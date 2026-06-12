@@ -81,12 +81,7 @@ function assertOkCase(name, res, extra = {}) {
     patchedRepairAuth ||
     hasCsmRepairAuthInConfig(cloud);
 
-  if (requireOk) {
-    if (tenants.status !== 200) {
-      throw new Error(
-        `tenants 期望 HTTP 200，实际 ${tenants.status}: ${JSON.stringify(tenants.data)}`,
-      );
-    }
+  if (tenants.status === 200) {
     if (!Array.isArray(tenants.data?.data?.items)) {
       throw new Error('tenants 响应缺少 data.items 数组');
     }
@@ -95,17 +90,24 @@ function assertOkCase(name, res, extra = {}) {
       ok: true,
       itemCount: tenants.data.data.items.length,
       message: tenants.data?.message,
+      repairAuthConfigured: hasCsmRepairAuthInConfig(cloud) || patchedRepairAuth,
     });
+  } else if (requireOk) {
+    throw new Error(
+      `tenants 期望 HTTP 200，实际 ${tenants.status}: ${JSON.stringify(tenants.data)}`,
+    );
   } else {
     if (tenants.status === 401) {
       throw new Error('tenants 不应返回 Tower JWT 401');
     }
-    const msg = String(tenants.data?.message || tenants.data?.error || '');
+    const msg = String(tenants.data?.message || tenants.data?.error || '').trim();
     const authGap =
-      tenants.status === 502 && /登录状态已过期|未登录|用户名或密码/.test(msg);
+      tenants.status === 502 &&
+      /登录状态已过期|未登录|用户名或密码|运营接口鉴权失败|csmRepairPasswordEncrypted/i.test(msg);
     results.push({
       case: 'tenants-v2-auth-gap',
       ok: authGap,
+      expected: authGap,
       status: tenants.status,
       message: msg,
       hint: authGap
@@ -115,6 +117,9 @@ function assertOkCase(name, res, extra = {}) {
     if (!authGap) {
       throw new Error(`tenants 未预期响应: HTTP ${tenants.status} ${msg}`);
     }
+    console.warn(
+      `[CSM E2E] tenants-v2-auth-gap: HTTP ${tenants.status} — ${msg}`,
+    );
   }
 
   const passed = results.filter((r) => r.ok).length;

@@ -19,7 +19,7 @@ export function registerTenantRepairRoutes(router: Router): void {
       const parts = [
         `租户 ${result.tenants.created + result.tenants.updated}`,
         `组织 ${result.organizations.created + result.organizations.updated}`,
-        `安全域 ${result.securityDomains.created + result.securityDomains.updated}`,
+        `CSM 安全域 ${result.securityDomains.created + result.securityDomains.updated}`,
         `专线 IP ${result.leasedLines.created + result.leasedLines.updated}`,
       ];
 

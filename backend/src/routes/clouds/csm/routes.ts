@@ -21,6 +21,7 @@ import {
   csmAdminLogin,
   csmRequest,
   csmPreAuthLogin,
+  CSM_DEFAULT_ADMIN_PASSWORD_ENCRYPTED,
 } from '../../../services/clouds/csm/client';
 import {
   listCsmSecurityDomainsPaged,
@@ -605,7 +606,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       const passwordRaw = body.password ?? query.password;
       const authPwdRaw = body.authPassword ?? query.authPassword;
       const username = String(usernameRaw || 'admin').trim();
-      const encPwd = String(authPwdRaw || passwordRaw || '+yNpVuicvsiBzpDpeaIq3g==').trim();
+      const encPwd = String(
+        authPwdRaw || passwordRaw || CSM_DEFAULT_ADMIN_PASSWORD_ENCRYPTED,
+      ).trim();
       const payloadBase = { id: String(webId), currentLoginWebPort: webPort };
       const preAuthResp = await csmPreAuthLogin(config, username, encPwd, webPort);
       csmHttpLog.debug('SSO preAuth response', JSON.stringify(preAuthResp).slice(0, 500));
