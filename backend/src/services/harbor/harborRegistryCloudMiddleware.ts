@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../middleware/auth';
 import { HarborRegistry } from '../../entities/harbor/HarborRegistry';
+import { AppDataSource } from '../../config/database';
 import { findHarborRegistryForCloud } from './harborRegistryAccess';
 
 export interface HarborScopedRequest extends AuthRequest {
@@ -30,6 +31,13 @@ export async function harborRegistryCloudAccessMiddleware(
 
     const cloudId = resolveHarborCloudId(req);
     if (!cloudId) {
+      const repo = AppDataSource.getRepository(HarborRegistry);
+      const registry = await repo.findOne({ where: { id: harborId } });
+      if (registry?.isBuiltIn) {
+        req.harborRegistry = registry;
+        next();
+        return;
+      }
       res.status(400).json({ message: '缺少必要参数: cloudId' });
       return;
     }
