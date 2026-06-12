@@ -123,6 +123,36 @@ export function getImageListDisplayVirtualSizeBytes(r: ImageListRecord): number 
   return getImageVirtualSizeBytes(r);
 }
 
+/** 云盘实例导出为镜像（spec.sourceType=export-from-volume） */
+export function isVolumeExportedVmImageRecord(r: ImageListRecord): boolean {
+  const spec = r?.spec as Record<string, unknown> | undefined;
+  const sourceType = String(r?.sourceType || spec?.sourceType || '').trim().toLowerCase();
+  return sourceType === 'export-from-volume';
+}
+
+/**
+ * 列表「实际大小」列：云盘导出镜像在 Tower 下载并回写前不展示底座 PVC 容量，显示「未知」。
+ */
+export function getImageListDisplayActualSizeBytes(r: ImageListRecord): number | undefined {
+  const bytes = getImageActualFileBytes(r);
+  if (!isVolumeExportedVmImageRecord(r)) {
+    return bytes;
+  }
+  if (resolveImageListStateKey(r) !== 'ready') return undefined;
+  if (!isClusterVmImageImportComplete(r)) return undefined;
+  if (bytes == null || bytes <= 0) return undefined;
+
+  const virtual = getImageVirtualSizeBytes(r);
+  if (
+    virtual != null &&
+    virtual > 0 &&
+    clusterReportedSizeLooksLikeVirtualCapacity(bytes, virtual)
+  ) {
+    return undefined;
+  }
+  return bytes;
+}
+
 /** Harvester 镜像专用存储类：优先 status，其次由 image-xxx 推导 longhorn-image-xxx */
 export function getImageStorageClassName(r: ImageListRecord): string {
   const status = r?.status as Record<string, unknown> | undefined;
@@ -165,6 +195,40 @@ export function getImageRowId(r: ImageListRecord): string {
 export function getImageRowNamespace(r: ImageListRecord): string {
   const meta = r?.metadata as Record<string, unknown> | undefined;
   return String(r?.namespace || meta?.namespace || 'default');
+}
+
+/** 租户可写命名空间集合（与镜像创建弹窗选项同源） */
+export function buildTenantImageNamespaceSet(
+  namespacesOptions?: readonly string[],
+  opts?: { isPublicNamespace?: (ns: string) => boolean },
+): Set<string> {
+  const set = new Set<string>();
+  for (const raw of namespacesOptions || []) {
+    const ns = String(raw || '').trim();
+    if (!ns || isSystemNamespace(ns)) continue;
+    if (opts?.isPublicNamespace?.(ns)) continue;
+    set.add(ns);
+  }
+  return set;
+}
+
+function resolveTenantImageNamespaceSet(
+  tenantNamespaces: ReadonlySet<string> | readonly string[] | undefined,
+): Set<string> {
+  if (!tenantNamespaces) return new Set();
+  if (tenantNamespaces instanceof Set) return new Set(tenantNamespaces);
+  if (Array.isArray(tenantNamespaces)) return buildTenantImageNamespaceSet(tenantNamespaces);
+  return new Set(tenantNamespaces);
+}
+
+/** 租户镜像行操作：仅授权命名空间内镜像可编辑/删除/同步 */
+export function canTenantOperateImage(
+  r: ImageListRecord,
+  tenantNamespaces: ReadonlySet<string> | readonly string[] | undefined,
+): boolean {
+  const set = resolveTenantImageNamespaceSet(tenantNamespaces);
+  if (set.size === 0) return false;
+  return set.has(getImageRowNamespace(r));
 }
 
 export function getImageDisplayAlias(r: ImageListRecord): string {

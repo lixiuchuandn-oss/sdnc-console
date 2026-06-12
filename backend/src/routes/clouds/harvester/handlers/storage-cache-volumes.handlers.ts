@@ -27,6 +27,7 @@ import {
   harvesterAddVolumeToVMDirect,
   syncVmVolumeSize,
   buildUsedPvcSetFromKubevirtVms,
+  getVolumeExportBlockedByRunningVmMessageLive,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
   isHarvesterImageBackingPvcName,
@@ -674,11 +675,25 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
     const { displayName, targetStorageClassName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
+    const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+    const inventoryVms = await vmRepo.find({ where: { cloudId: cloud.id } });
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
+      inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
+      namespace,
+      pvcName,
+      insecure,
+    );
+    if (exportBlocked) {
+      return res.status(400).json({ message: exportBlocked });
+    }
+
     const data = await exportImageFromPVC(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+      cloud,
       namespace,
       pvcName,
       { displayName, targetStorageClassName },
+      insecure,
     );
 
     // [数据同步] 导出成功后，直接使用返回的数据入库

@@ -1,5 +1,15 @@
-import type { HarvesterImageUploadTask } from '../../../../../../services/harvesterApi';
-import { fetchHarvesterImageUploadTasks } from '../../../../../../services/harvesterApi';
+import type {
+  HarvesterImageDownloadTask,
+  HarvesterImageUploadTask,
+} from '../../../../../../services/harvesterApi';
+import {
+  fetchHarvesterImageDownloadTasks,
+  fetchHarvesterImageUploadTasks,
+} from '../../../../../../services/harvesterApi';
+import {
+  mergeDownloadTasksSorted,
+  parseHarvesterImageDownloadTasksResponse,
+} from './images/imageDownloadTaskCore';
 import {
   applyUploadTaskToListState,
   isHardCancelledUploadTask,
@@ -120,9 +130,13 @@ export async function reloadUploadTasksForCloud(
     try {
       if (showLoading) patchImageUploadTasksSnapshot(cloudId, { uploadTasksLoading: true });
       let items: HarvesterImageUploadTask[];
+      let downloadItems: HarvesterImageDownloadTask[] = [];
       try {
         const resp = await Promise.race([
-          fetchHarvesterImageUploadTasks(cloudId, IMAGE_UPLOAD_TASK_FETCH_LIMIT),
+          Promise.all([
+            fetchHarvesterImageUploadTasks(cloudId, IMAGE_UPLOAD_TASK_FETCH_LIMIT),
+            fetchHarvesterImageDownloadTasks(cloudId, IMAGE_UPLOAD_TASK_FETCH_LIMIT),
+          ]),
           new Promise<never>((_, reject) => {
             window.setTimeout(
               () => reject(new Error('upload-tasks timeout')),
@@ -130,7 +144,8 @@ export async function reloadUploadTasksForCloud(
             );
           }),
         ]);
-        items = parseHarvesterImageUploadTasksResponse(resp);
+        items = parseHarvesterImageUploadTasksResponse(resp[0]);
+        downloadItems = parseHarvesterImageDownloadTasksResponse(resp[1]);
       } catch (e) {
         const cached = readUploadTasksSessionCache(cloudId);
         if (cached.length) {
@@ -157,6 +172,7 @@ export async function reloadUploadTasksForCloud(
 
       const next: ImageUploadTasksSnapshot = {
         uploadTasks: nextUploadTasks,
+        downloadTasks: mergeDownloadTasksSorted([], downloadItems),
         listTaskList: nextListTaskList,
         uploadTasksLoading: showLoading ? false : prev.uploadTasksLoading,
       };

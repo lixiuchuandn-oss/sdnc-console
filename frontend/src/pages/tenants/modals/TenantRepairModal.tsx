@@ -154,7 +154,7 @@ export default function TenantRepairModal({ open, onClose, onRepaired }: TenantR
       ? {
           message: '从 CSM 资源池恢复（SQLite 灾难恢复）',
           description:
-            '将调用 CSM 租户分页与安全域查询接口，写回 Tower 本地库：租户、根组织、安全域（含 networkCidrs）、专线 IP 记录，并为组织绑定该 CSM 池。不会删除本地已有记录；可重复执行以增量对齐。',
+            '将调用 CSM 租户分页与 CSM 安全域查询接口，写回 Tower 本地库：租户、根组织、CSM 安全域镜像（含 networkCidrs）、专线 IP 记录，并为组织绑定该 CSM 池。不会删除本地已有记录；可重复执行以增量对齐。',
         }
       : {
           message: '从 Cloudmap / Harvester 资源池恢复（IAM CRD）',
@@ -257,7 +257,7 @@ export default function TenantRepairModal({ open, onClose, onRepaired }: TenantR
           <Descriptions.Item label="组织">
             新增 {csmResult.organizations.created} / 更新 {csmResult.organizations.updated}
           </Descriptions.Item>
-          <Descriptions.Item label="安全域">
+          <Descriptions.Item label="CSM 安全域">
             新增 {csmResult.securityDomains.created} / 更新 {csmResult.securityDomains.updated}
           </Descriptions.Item>
           <Descriptions.Item label="专线 IP">

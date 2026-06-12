@@ -35,6 +35,7 @@ import {
   normalizeVolumeList,
 } from '../lib/volumesSectionUtils';
 import { buildVolumesTableColumns } from '../lib/volumesTableColumns';
+import type { VmAttachRecord } from '../lib/volumeDetachUtils';
 
 const TABLE_COLUMNS_SETTINGS_KEY = 'harvester_volumes_table';
 
@@ -339,6 +340,11 @@ const VolumesSection: React.FC<Props> = ({
         onCancel={() => actions.setExportOpen(false)}
         cloudId={cloudId}
         volume={actions.currentRecord}
+        attachedVm={
+          actions.currentRecord
+            ? (actions.safeRead.attachedVm(actions.currentRecord) as VmAttachRecord | undefined)
+            : undefined
+        }
         storageClassOptions={actions.createVolumeStorageClassOptions}
         defaultStorageClassName={actions.defaultStorageClassName}
         storageClasses={actions.storageClasses}

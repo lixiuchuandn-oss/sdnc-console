@@ -88,12 +88,16 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   // 加载 Harbor 列表
   useEffect(() => {
     loadHarbors();
-  }, []);
+  }, [cloudId]);
 
   const loadHarbors = async () => {
+    if (!cloudId) {
+      setHarbors([]);
+      return;
+    }
     setHarborLoading(true);
     try {
-      const res = await getHarborRegistries();
+      const res = await getHarborRegistries(cloudId);
       const list = res?.data || res || [];
       setHarbors(Array.isArray(list) ? list : []);
     } catch (e: any) {
@@ -121,7 +125,7 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   const loadProjects = async (harborId: string) => {
     setProjectLoading(true);
     try {
-      const res = await getHarborSelectorProjects(harborId);
+      const res = await getHarborSelectorProjects(harborId, cloudId);
       const list = res?.data || res || [];
       const normalized = Array.isArray(list)
         ? list.map((p: any) =>
@@ -156,7 +160,7 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   const loadRepositories = async (harborId: string, project: HarborSelectorProjectRef) => {
     setRepoLoading(true);
     try {
-      const res = await getHarborSelectorRepositories(harborId, project);
+      const res = await getHarborSelectorRepositories(harborId, project, cloudId);
       const list = res?.data || res || [];
       // 后端返回对象数组 { name, artifactCount, pullCount }，提取 name 字段
       const names = Array.isArray(list) ? list.map((r: any) => r.name || r) : [];
@@ -184,7 +188,7 @@ const HarborImageSelector: React.FC<HarborImageSelectorProps> = ({
   const loadTags = async (harborId: string, project: HarborSelectorProjectRef, repo: string) => {
     setTagLoading(true);
     try {
-      const res = await getHarborSelectorTags(harborId, project, repo);
+      const res = await getHarborSelectorTags(harborId, project, repo, cloudId);
       const list = res?.data || res || [];
       // 后端返回对象数组 { name, digest, pushTime, pullTime }，提取 name 字段
       const names = Array.isArray(list) ? list.map((t: any) => t.name || t) : [];

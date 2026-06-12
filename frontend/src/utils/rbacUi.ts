@@ -12,6 +12,7 @@ export const WRITE_MENU_ITEM_KEYS = new Set([
   'attach',
   'detach',
   'export',
+  'download',
   'snapshot',
   'clone',
   'force_delete',

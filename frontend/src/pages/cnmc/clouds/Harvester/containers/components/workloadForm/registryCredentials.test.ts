@@ -1,7 +1,9 @@
 import {
   buildMergedRegistryList,
+  filterDockerRegistryEntries,
   findRegistryForImage,
   localRegistryToCredential,
+  normalizeRegistryHostForMatch,
   parseImageRegistryHost,
   secretToRegistryCredential,
 } from './registryCredentials';
@@ -70,6 +72,19 @@ describe('buildMergedRegistryList', () => {
   });
 });
 
+describe('filterDockerRegistryEntries', () => {
+  it('excludes harbor registries from docker registry browser list', () => {
+    const list = buildMergedRegistryList(
+      [{ id: '1', name: 'local-reg', server: '10.0.0.1:5000', insecure: true }],
+      [],
+      [{ id: 'h1', name: 'harbor', url: 'https://cloudhci.harbor.local', username: 'admin' }],
+    );
+    const filtered = filterDockerRegistryEntries(list);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].source).toBe('localStorage');
+  });
+});
+
 describe('localRegistryToCredential', () => {
   it('maps local registry entry', () => {
     expect(
@@ -113,5 +128,22 @@ describe('findRegistryForImage', () => {
     expect(findRegistryForImage('10.20.5.20:30507/clickhouse:v1.0.0', registries)?.name).toBe(
       'local',
     );
+  });
+
+  it('matches harbor registry ignoring protocol and default port', () => {
+    const registries = buildMergedRegistryList(
+      [],
+      [],
+      [{ id: 'h1', name: 'harbor', url: 'https://cloudhci.harbor.local', username: 'admin' }],
+    );
+    expect(findRegistryForImage('cloudhci.harbor.local:443/66/rh:latest', registries)?.harborId).toBe(
+      'h1',
+    );
+  });
+});
+
+describe('normalizeRegistryHostForMatch', () => {
+  it('strips https and default ports', () => {
+    expect(normalizeRegistryHostForMatch('https://Harbor.Example.com:443')).toBe('harbor.example.com');
   });
 });

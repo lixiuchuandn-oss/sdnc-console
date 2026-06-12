@@ -45,6 +45,26 @@ export type HarborProjectRef = Pick<HarborProject, 'name'> & {
   currentUserRole?: number;
 };
 
+/** 当前 Harbor API 请求所属资源池（由详情页/抽屉设置） */
+let harborApiCloudId: string | undefined;
+
+export function setHarborApiCloudId(cloudId: string | undefined): void {
+  harborApiCloudId = cloudId;
+}
+
+function appendCloudId(url: string, cloudId?: string): string {
+  const id = cloudId ?? harborApiCloudId;
+  if (!id) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}cloudId=${encodeURIComponent(id)}`;
+}
+
+function registryUrl(harborId: string, subPath = '', cloudId?: string): string {
+  return appendCloudId(`${API_PREFIX}/registries/${harborId}${subPath}`, cloudId);
+}
+
+/** 纯数字项目名需携带 projectId，避免 Harbor 将路径解析为 project_id */
+
 type HarborProjectRefInput = string | HarborProjectRef;
 
 function normalizeHarborProjectRef(ref: HarborProjectRefInput): HarborProjectRef {
@@ -63,13 +83,14 @@ function buildHarborProjectApiPath(
   ref: HarborProjectRefInput,
   suffix = '',
   searchParams?: URLSearchParams,
+  cloudId?: string,
 ): string {
   const project = normalizeHarborProjectRef(ref);
   let url = `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(project.name)}${suffix}`;
   if (searchParams?.toString()) {
     url += `?${searchParams.toString()}`;
   }
-  return withHarborProjectIdQuery(url, project);
+  return appendCloudId(withHarborProjectIdQuery(url, project), cloudId);
 }
 
 // ==================== 实例管理 ====================
@@ -78,8 +99,10 @@ function buildHarborProjectApiPath(
  * 获取所有可访问的 Harbor 实例
  * @returns Harbor 实例列表
  */
-export const getHarborRegistries = async (): Promise<HarborRegistry[]> => {
-  const result = await apiRequest(`${API_PREFIX}/registries`);
+export const getHarborRegistries = async (cloudId: string): Promise<HarborRegistry[]> => {
+  const result = await apiRequest(
+    `${API_PREFIX}/registries?cloudId=${encodeURIComponent(cloudId)}`,
+  );
   return result?.data || result;
 };
 
@@ -98,8 +121,9 @@ export const createHarborRegistry = async (data: HarborRegistryForm): Promise<Ha
  * @param id Harbor 实例 ID
  * @returns Harbor 实例详情
  */
-export const getHarborRegistry = async (id: string): Promise<HarborRegistry> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${id}`);
+export const getHarborRegistry = async (id: string, cloudId?: string): Promise<HarborRegistry> => {
+  const query = cloudId ? `?cloudId=${encodeURIComponent(cloudId)}` : '';
+  const result = await apiRequest(`${API_PREFIX}/registries/${id}${query}`);
   return result?.data || result;
 };
 
@@ -121,8 +145,8 @@ export const updateHarborRegistry = async (
  * 删除 Harbor 实例
  * @param id Harbor 实例 ID
  */
-export const deleteHarborRegistry = async (id: string): Promise<void> => {
-  return await apiDelete(`${API_PREFIX}/registries/${id}`);
+export const deleteHarborRegistry = async (id: string, cloudId?: string): Promise<void> => {
+  return await apiDelete(registryUrl(id, '', cloudId));
 };
 
 /**
@@ -132,17 +156,18 @@ export const deleteHarborRegistry = async (id: string): Promise<void> => {
  */
 export const testHarborConnection = async (
   id: string,
+  cloudId?: string,
 ): Promise<{ success: boolean; message: string; version?: string }> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${id}/test`, {});
+  const result = await apiPost(registryUrl(id, '/test', cloudId), {});
   return result?.data || result;
 };
 
-export const syncHarborProjects = async (id: string): Promise<{
+export const syncHarborProjects = async (id: string, cloudId?: string): Promise<{
   added: number;
   updated: number;
   deleted: number;
 }> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${id}/sync-projects`, {});
+  const result = await apiPost(registryUrl(id, '/sync-projects', cloudId), {});
   return result?.data || result;
 };
 
@@ -151,8 +176,8 @@ export const syncHarborProjects = async (id: string): Promise<{
  * @param id Harbor 实例 ID
  * @returns 系统信息
  */
-export const getHarborSystemInfo = async (id: string): Promise<HarborSystemInfo> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${id}/systeminfo`);
+export const getHarborSystemInfo = async (id: string, cloudId?: string): Promise<HarborSystemInfo> => {
+  const result = await apiRequest(registryUrl(id, '/systeminfo', cloudId));
   return result?.data || result;
 };
 
@@ -196,8 +221,9 @@ export const getHarborProjects = async (
   if (params?.sort) searchParams.append('sort', params.sort);
 
   const queryString = searchParams.toString();
+  const base = registryUrl(harborId, '/projects');
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects${queryString ? `?${queryString}` : ''}`,
+    queryString ? `${base}${base.includes('?') ? '&' : '?'}${queryString}` : base,
   );
   return result?.data || result;
 };
@@ -230,7 +256,7 @@ export const createHarborProject = async (
     }
   }
   
-  const result = await apiPost(`${API_PREFIX}/registries/${harborId}/projects`, payload);
+  const result = await apiPost(registryUrl(harborId, '/projects'), payload);
   return result?.data || result;
 };
 
@@ -354,8 +380,9 @@ export const getHarborAllRepositories = async (
   if (params?.q) searchParams.append('q', params.q);
 
   const queryString = searchParams.toString();
+  const base = registryUrl(harborId, '/repositories');
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/repositories${queryString ? `?${queryString}` : ''}`,
+    queryString ? `${base}${base.includes('?') ? '&' : '?'}${queryString}` : base,
   );
   return result?.data || result;
 };
@@ -636,7 +663,7 @@ export const getHarborScanMetrics = async (harborId: string): Promise<{
   failed: number;
   ongoing: number;
 }> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${harborId}/scans/metrics`);
+  const result = await apiRequest(registryUrl(harborId, '/scans/metrics'));
   return result?.data || result;
 };
 
@@ -717,7 +744,7 @@ export const cancelHarborUpload = async (uploadId: string): Promise<void> => {
 export const getHarborReplicationPolicies = async (
   harborId: string,
 ): Promise<HarborReplicationPolicy[]> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${harborId}/replication/policies`);
+  const result = await apiRequest(registryUrl(harborId, '/replication/policies'));
   return result?.data || result;
 };
 
@@ -731,7 +758,7 @@ export const createHarborReplicationPolicy = async (
   harborId: string,
   data: Partial<HarborReplicationPolicy>,
 ): Promise<HarborReplicationPolicy> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${harborId}/replication/policies`, data);
+  const result = await apiPost(registryUrl(harborId, '/replication/policies'), data);
   return result?.data || result;
 };
 
@@ -747,10 +774,7 @@ export const updateHarborReplicationPolicy = async (
   policyId: number,
   data: Partial<HarborReplicationPolicy>,
 ): Promise<HarborReplicationPolicy> => {
-  const result = await apiPut(
-    `${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}`,
-    data,
-  );
+  const result = await apiPut(registryUrl(harborId, `/replication/policies/${policyId}`), data);
   return result?.data || result;
 };
 
@@ -763,7 +787,7 @@ export const deleteHarborReplicationPolicy = async (
   harborId: string,
   policyId: number,
 ): Promise<void> => {
-  return await apiDelete(`${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}`);
+  return await apiDelete(registryUrl(harborId, `/replication/policies/${policyId}`));
 };
 
 /**
@@ -777,8 +801,8 @@ export const getHarborReplicationExecutions = async (
   policyId?: number,
 ): Promise<HarborReplicationExecution[]> => {
   const url = policyId
-    ? `${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}/executions`
-    : `${API_PREFIX}/registries/${harborId}/replication/executions`;
+    ? registryUrl(harborId, `/replication/policies/${policyId}/executions`)
+    : registryUrl(harborId, '/replication/executions');
   const result = await apiRequest(url);
   return result?.data || result;
 };
@@ -793,10 +817,7 @@ export const triggerHarborReplication = async (
   harborId: string,
   policyId: number,
 ): Promise<{ executionId: number }> => {
-  const result = await apiPost(
-    `${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}/executions`,
-    {},
-  );
+  const result = await apiPost(registryUrl(harborId, `/replication/policies/${policyId}/executions`), {});
   return result?.data || result;
 };
 
@@ -812,7 +833,7 @@ export const syncHarborSecret = async (
   harborId: string,
   params: HarborSyncSecretParams,
 ): Promise<HarborSyncSecretResult> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${harborId}/sync-secret`, params);
+  const result = await apiPost(registryUrl(harborId, '/sync-secret'), params);
   return result?.data || result;
 };
 
@@ -826,7 +847,7 @@ export const syncHarborSecret = async (
 export const getHarborSelectorProjects = async (
   harborId: string,
 ): Promise<string[]> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${harborId}/selector/projects`);
+  const result = await apiRequest(registryUrl(harborId, '/selector/projects'));
   return result?.data || result;
 };
 
@@ -841,9 +862,11 @@ export const getHarborSelectorRepositories = async (
   projectRef: HarborProjectRefInput,
 ): Promise<string[]> => {
   const project = normalizeHarborProjectRef(projectRef);
-  const url = withHarborProjectIdQuery(
-    `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(project.name)}/repositories`,
-    project,
+  const url = appendCloudId(
+    withHarborProjectIdQuery(
+      `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(project.name)}/repositories`,
+      project,
+    ),
   );
   const result = await apiRequest(url);
   return result?.data || result;
@@ -862,9 +885,11 @@ export const getHarborSelectorTags = async (
   repoName: string,
 ): Promise<string[]> => {
   const project = normalizeHarborProjectRef(projectRef);
-  const url = withHarborProjectIdQuery(
-    `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(project.name)}/repositories/${encodeURIComponent(repoName)}/tags`,
-    project,
+  const url = appendCloudId(
+    withHarborProjectIdQuery(
+      `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(project.name)}/repositories/${encodeURIComponent(repoName)}/tags`,
+      project,
+    ),
   );
   const result = await apiRequest(url);
   return result?.data || result;

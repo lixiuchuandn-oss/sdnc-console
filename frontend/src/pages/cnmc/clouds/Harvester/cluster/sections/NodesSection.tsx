@@ -3,16 +3,19 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { Button, Input, Select, Space, Table, message } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Input, Select, Space, Table, message } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import PhysicalNodeDetailDrawer from '../drawers/PhysicalNodeDetailDrawer';
 import NodeMaintenanceEnableModal from '../modals/NodeMaintenanceEnableModal';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
 import { disableNodeMaintenance } from 'services/harvester/nodeMaintenance';
+import { shutdownAllHarvesterNodesViaHms } from 'services/harvester/nodeHmsShutdown';
 import { getApiErrorMessage } from 'services/api';
 import { nodeDisplayName } from '../lib/nodeMaintenanceStatus';
 import { useNodesResourceBundle } from '../hooks/useNodesResourceBundle';
@@ -33,6 +36,7 @@ import { canWriteClusterNodes } from '../../../../../../constants/computeCluster
 import {
   confirmHighRiskOperation,
   NODE_MAINTENANCE_RISK_ITEMS,
+  NODE_SHUTDOWN_ALL_RISK_ITEMS,
 } from '../../shared/lib/highRiskConfirm';
 
 const COLUMN_SETTINGS_KEY = 'harvester_nodes_table';
@@ -66,6 +70,7 @@ const NodesSection: React.FC<Props> = ({
 
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [maintenanceNode, setMaintenanceNode] = useState<NodeRow | null>(null);
+  const [shutdownAllLoading, setShutdownAllLoading] = useState(false);
 
   const canWrite = checkPerm ? canWriteClusterNodes(checkPerm) : false;
 
@@ -130,6 +135,38 @@ const NodesSection: React.FC<Props> = ({
     setMaintenanceNode(record);
     setMaintenanceOpen(true);
   }, [cloudId]);
+
+  const handleShutdownAllNodes = useCallback(() => {
+    if (!cloudId) {
+      message.warning('缺少云实例上下文');
+      return;
+    }
+    const count = nodes?.length ?? 0;
+    void confirmHighRiskOperation({
+      title: '一键关机',
+      description: `确认对全部计算节点（当前列表 ${count} 个）执行一键关机？`,
+      riskItems: NODE_SHUTDOWN_ALL_RISK_ITEMS,
+      dangerRiskItemIndices: [1],
+      operationSummary: '确认一键关机全部计算节点',
+      confirmText: '确认关机',
+      requireAdminPassword: true,
+      impactAckLabel: '我已阅读并理解上述风险',
+      onConfirm: async ({ adminPassword }) => {
+        setShutdownAllLoading(true);
+        try {
+          await shutdownAllHarvesterNodesViaHms(cloudId, adminPassword ?? '');
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
+          reload(true);
+          message.success('全部节点关机指令已下发');
+        } catch (e) {
+          message.error(getApiErrorMessage(e, '一键关机失败'));
+          throw e;
+        } finally {
+          setShutdownAllLoading(false);
+        }
+      },
+    }).catch(() => {});
+  }, [cloudId, nodes, onRefresh, reload]);
 
   const handleDisableMaintenance = useCallback(
     (record: NodeRow) => {
@@ -200,6 +237,25 @@ const NodesSection: React.FC<Props> = ({
   const listLoading = loading;
   const tableLoading = loading || resourceLoading;
 
+  const moreMenuItems: MenuProps['items'] = useMemo(
+    () => [
+      {
+        key: 'shutdownAll',
+        label: '一键关机（全部节点）',
+        danger: true,
+        disabled: shutdownAllLoading,
+      },
+    ],
+    [shutdownAllLoading],
+  );
+
+  const onMoreMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    ({ key }) => {
+      if (key === 'shutdownAll') handleShutdownAllNodes();
+    },
+    [handleShutdownAllNodes],
+  );
+
   return (
     <PageDetailSection
         asCard={false}
@@ -240,6 +296,11 @@ const NodesSection: React.FC<Props> = ({
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          <WriteGuard canWrite={canWrite}>
+            <Dropdown trigger={['click']} menu={{ items: moreMenuItems, onClick: onMoreMenuClick }}>
+              <Button icon={<EllipsisOutlined />} loading={shutdownAllLoading} />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={COLUMN_SETTINGS_KEY} />
           <Button
             icon={<ReloadOutlined />}

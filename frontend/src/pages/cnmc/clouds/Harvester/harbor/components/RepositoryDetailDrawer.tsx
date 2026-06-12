@@ -6,7 +6,7 @@
  * - 制品：仓库下的制品列表
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Drawer, Tabs, Spin, Descriptions, Card, Statistic, Space, Button, Tag, Row, Col } from 'antd';
 import { 
   DatabaseOutlined, 
@@ -17,6 +17,7 @@ import {
 } from '@ant-design/icons';
 import type { HarborRepository } from '../types';
 import type { HarborProjectRef } from '../shared/harborApi';
+import { setHarborApiCloudId } from '../shared/harborApi';
 
 // 懒加载 Tab 组件
 const ArtifactsSection = React.lazy(() => import('../sections/ArtifactsSection'));
@@ -40,7 +41,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
   harborId,
   project: projectProp,
   repository,
-  cloudId: _cloudId,
+  cloudId,
   onClose,
   onBack,
   currentUserRole: currentUserRoleProp,
@@ -49,6 +50,17 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
   const currentUserRole = projectProp.currentUserRole ?? currentUserRoleProp;
 
   const project = projectProp;
+
+  useEffect(() => {
+    if (visible && cloudId) {
+      setHarborApiCloudId(cloudId);
+    }
+    return () => {
+      if (visible) {
+        setHarborApiCloudId(undefined);
+      }
+    };
+  }, [visible, cloudId]);
 
   /**
    * 格式化时间

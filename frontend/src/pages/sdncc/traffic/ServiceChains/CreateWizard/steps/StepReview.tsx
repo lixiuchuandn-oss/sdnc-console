@@ -144,7 +144,7 @@ const StepReview: React.FC<StepReviewProps> = ({
         <Descriptions.Item label="服务链名称">{values.name || '-'}</Descriptions.Item>
         <Descriptions.Item label="安全资源池">{clusterName || '-'}</Descriptions.Item>
         <Descriptions.Item label="服务链类型">{values.type === 'bypass' ? <Tag color="cyan">旁路</Tag> : <Tag color="blue">串行</Tag>}</Descriptions.Item>
-        <Descriptions.Item label="引流方式">{steeringMode === 'direct' ? '直连引流 (资源池资产)' : 'VR引流 (安全域)'}</Descriptions.Item>
+        <Descriptions.Item label="引流方式">{steeringMode === 'direct' ? '直连引流 (资源池资产)' : 'VR引流 (网际路由域)'}</Descriptions.Item>
         {user?.role === 'super_admin' && (
           <>
             <Descriptions.Item label="所属租户">{tenants.find(t => t.id === values.tenantId)?.name || '-'}</Descriptions.Item>
@@ -160,7 +160,7 @@ const StepReview: React.FC<StepReviewProps> = ({
         bordered
         size="small"
       >
-        <Descriptions.Item label={steeringMode === 'direct' ? '防护对象（CSM 资产）' : '防护对象（VR安全域）'} span={2}>
+        <Descriptions.Item label={steeringMode === 'direct' ? '防护对象（CSM 资产）' : '防护对象（网际路由域）'} span={2}>
           {selectedList.join(', ') || '-'}
         </Descriptions.Item>
         <Descriptions.Item label="总体健康状态">

@@ -27,6 +27,7 @@ import { attachDifyAdminRoutes } from './clouds/difyAdmin.routes';
 import { normalizeMaasEndpoint, validateMaasApiKey } from '../services/clouds/maas/maasClient';
 import { redactCloud } from '../services/clouds/cloudSanitizer';
 import { testCloudConnectionUnified } from '../services/clouds/cloudConnectionTest';
+import { normalizeCsmCloudConfig } from '../services/clouds/csm/csmWebPassword';
 import { extractIdentity } from '../services/clouds/cloudResourceIdentity';
 
 const cloudRouteLog = logger.child('Cloud');
@@ -793,13 +794,18 @@ router.post(
         return res.status(400).json({ message: '云资源名称已存在' });
       }
 
+      const normalizedConfig =
+        provider === 'cloudmap.csm'
+          ? normalizeCsmCloudConfig((config || {}) as Record<string, unknown>)
+          : config;
+
       const test = await testCloudConnectionUnified({
-        provider: config?.provider,
+        provider: normalizedConfig?.provider ?? config?.provider,
         accessKey,
         secretKey,
         region,
         endpoint,
-        config,
+        config: normalizedConfig,
       });
       const isConnected = !!test.ok;
       const connectionMessage = test.message || '';
@@ -818,7 +824,7 @@ router.post(
         endpoint,
         accessKey: provider === 'maas' ? undefined : accessKey,
         secretKey: provider === 'maas' ? undefined : secretKey,
-        config,
+        config: normalizedConfig,
         status: isConnected ? CloudStatus.ONLINE : CloudStatus.OFFLINE,
         createdBy: req.user?.id,
       });
@@ -1037,6 +1043,14 @@ router.put('/:id', createApiPermissionMiddleware(), async (req: AuthRequest, res
           Object.prototype.hasOwnProperty.call(updateData.config, 'endpoint')));
 
     Object.assign(cloud, updateData);
+    if (
+      String((cloud as any).config?.provider || '').toLowerCase() === 'cloudmap.csm' &&
+      updateData.config
+    ) {
+      cloud.config = normalizeCsmCloudConfig(
+        (cloud.config || {}) as Record<string, unknown>,
+      ) as Cloud['config'];
+    }
     cloud.updatedAt = new Date();
 
     const cfgProv = String((cloud as any).config?.provider || '').toLowerCase();

@@ -46,7 +46,7 @@ export function showTenantDelete409Modal(errorMessage: string, resources: Array<
 
         <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
           {resources.length > 0
-            ? '请先解除上述关联后再删除租户（若包含「级联通道」「应用管理」，请到 SDN → 安全管理面处理；资源池/VPC 等请到租户组织管理中解除）。'
+            ? '请先解除上述关联后再删除租户（若包含「邻居」「应用管理」，请到 SDN → 跨域互联处理；资源池/VPC 等请到租户组织管理中解除）。'
             : '请根据页面提示处理后再尝试删除租户。'}
         </p>
       </div>
@@ -97,7 +97,7 @@ export function showBatchTenantDeleteFailuresModal(
         ))}
         <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
           {failures.some((f) => f.resources.length > 0)
-            ? '请先解除上述关联后再删除租户（若包含「级联通道」「应用管理」，请到 SDN → 安全管理面处理；资源池/VPC 等请到租户组织管理中解除）。'
+            ? '请先解除上述关联后再删除租户（若包含「邻居」「应用管理」，请到 SDN → 跨域互联处理；资源池/VPC 等请到租户组织管理中解除）。'
             : '请根据页面提示处理后再尝试删除租户。'}
         </p>
       </div>

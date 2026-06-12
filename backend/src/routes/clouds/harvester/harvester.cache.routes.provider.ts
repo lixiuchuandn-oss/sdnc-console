@@ -51,6 +51,12 @@ import {
   IMAGE_UPLOAD_MAX_CHUNK_SIZE,
   harvesterImageUploadProxyHandler,
   harvesterImageUploadTokenHandler,
+  harvesterImageDownloadTaskCreateHandler,
+  harvesterImageDownloadTaskListHandler,
+  harvesterImageDownloadTaskGetHandler,
+  harvesterImageDownloadTaskCancelHandler,
+  harvesterImageDownloadTaskDeleteHandler,
+  harvesterImageDownloadTaskFileHandler,
 } from './handlers/images';
 import { harvesterStorageClassListHandler } from './handlers/storage-cache-classes.handlers';
 import {
@@ -504,6 +510,83 @@ export function registerHarvesterCacheRoutesProvider(
     '/:id/resources/harvester/images/upload-tasks/:taskId/sync',
     checkAdminPermission,
     createProviderRouter(imageUploadTaskSyncHandlers),
+  );
+
+  const imageDownloadTaskCreateHandlers = {
+    harvester: harvesterImageDownloadTaskCreateHandler,
+    cloudmap: harvesterImageDownloadTaskCreateHandler,
+    'cloudmap.private': harvesterImageDownloadTaskCreateHandler,
+    'cloudmap.edge': harvesterImageDownloadTaskCreateHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/download-tasks',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskCreateHandlers),
+  );
+
+  const imageDownloadTaskListHandlers = {
+    harvester: harvesterImageDownloadTaskListHandler,
+    cloudmap: harvesterImageDownloadTaskListHandler,
+    'cloudmap.private': harvesterImageDownloadTaskListHandler,
+    'cloudmap.edge': harvesterImageDownloadTaskListHandler,
+  };
+  router.get(
+    '/:id/resources/harvester/images/download-tasks',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskListHandlers),
+  );
+
+  const imageDownloadTaskGetHandlers = {
+    harvester: harvesterImageDownloadTaskGetHandler,
+    cloudmap: harvesterImageDownloadTaskGetHandler,
+    'cloudmap.private': harvesterImageDownloadTaskGetHandler,
+    'cloudmap.edge': harvesterImageDownloadTaskGetHandler,
+  };
+  router.get(
+    '/:id/resources/harvester/images/download-tasks/:taskId',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskGetHandlers),
+  );
+
+  const imageDownloadTaskCancelHandlers = {
+    harvester: harvesterImageDownloadTaskCancelHandler,
+    cloudmap: harvesterImageDownloadTaskCancelHandler,
+    'cloudmap.private': harvesterImageDownloadTaskCancelHandler,
+    'cloudmap.edge': harvesterImageDownloadTaskCancelHandler,
+  };
+  router.post(
+    '/:id/resources/harvester/images/download-tasks/:taskId/cancel',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskCancelHandlers),
+  );
+
+  const imageDownloadTaskDeleteHandlers = {
+    harvester: harvesterImageDownloadTaskDeleteHandler,
+    cloudmap: harvesterImageDownloadTaskDeleteHandler,
+    'cloudmap.private': harvesterImageDownloadTaskDeleteHandler,
+    'cloudmap.edge': harvesterImageDownloadTaskDeleteHandler,
+  };
+  router.delete(
+    '/:id/resources/harvester/images/download-tasks/:taskId',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskDeleteHandlers),
+  );
+
+  const imageDownloadTaskFileHandlers = {
+    harvester: harvesterImageDownloadTaskFileHandler,
+    cloudmap: harvesterImageDownloadTaskFileHandler,
+    'cloudmap.private': harvesterImageDownloadTaskFileHandler,
+    'cloudmap.edge': harvesterImageDownloadTaskFileHandler,
+  };
+  router.head(
+    '/:id/resources/harvester/images/download-tasks/:taskId/file',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskFileHandlers),
+  );
+  router.get(
+    '/:id/resources/harvester/images/download-tasks/:taskId/file',
+    checkAdminPermission,
+    createProviderRouter(imageDownloadTaskFileHandlers),
   );
 
   const imageDetailHandlers = {

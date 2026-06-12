@@ -15,6 +15,7 @@ import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
 import { HarborProject } from '../../entities/harbor/HarborProject';
 import { ServiceChain } from '../../entities/ServiceChain';
 import { VpcNetwork } from '../../entities/VpcNetwork';
+import { buildTenantFullExport } from '../../services/tenants/tenantFullExport';
 import { collectTenantDeleteBlockingSnapshot } from './tenantResourceBlocking';
 import { tenantLog } from './tenantRouteLogger';
 
@@ -127,8 +128,37 @@ export function registerTenantCrudRoutes(router: Router): void {
     }
   });
 
+  /** 租户全量导出（组织用户、资源池分配、网际路由域及 CSM 安全域投影） */
+  router.get('/:id/full', async (req, res) => {
+    try {
+      const payload = await buildTenantFullExport(req.params.id);
+      if (!payload) {
+        return res.status(404).json({ message: '租户不存在' });
+      }
+      res.json({
+        message: '查询成功',
+        data: payload,
+      });
+    } catch (error) {
+      tenantLog.error('租户全量查询失败:', error instanceof Error ? error.message : String(error));
+      res.status(500).json({ message: '租户全量查询失败' });
+    }
+  });
+
   router.get('/:id', async (req, res) => {
     try {
+      const scope = String(req.query.scope || req.query.include || '').trim().toLowerCase();
+      if (scope === 'full') {
+        const payload = await buildTenantFullExport(req.params.id);
+        if (!payload) {
+          return res.status(404).json({ message: '租户不存在' });
+        }
+        return res.json({
+          message: '查询成功',
+          data: payload,
+        });
+      }
+
       const tenantRepository = AppDataSource.getRepository(Tenant);
       const tenant = await tenantRepository.findOne({
         where: { id: req.params.id },

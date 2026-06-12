@@ -16,7 +16,12 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
-import { getImageRowId, getImageRowNamespace, type ImageListRecord } from '../lib/imagesSectionUtils';
+import {
+  canTenantOperateImage,
+  getImageRowId,
+  getImageRowNamespace,
+  type ImageListRecord,
+} from '../lib/imagesSectionUtils';
 import { resolveImageListStateKey } from '../lib/vmImageStatus';
 import {
   applyUploadTaskToListState,
@@ -72,6 +77,8 @@ export type UseImagesSectionActionsParams = {
   ) => void | Promise<void>;
   hasImagesWrite: boolean;
   ensureImagesWrite: () => boolean;
+  /** 租户授权命名空间；传入时删除/同步等写操作仅允许该集合内镜像 */
+  tenantNamespaceSet?: ReadonlySet<string>;
 };
 
 /** 镜像列表库存轮询：对端全量 sync 限频 120s */
@@ -86,7 +93,17 @@ export function useImagesSectionActions({
   onRefresh,
   onImagesInventoryReload,
   ensureImagesWrite,
+  tenantNamespaceSet,
 }: UseImagesSectionActionsParams) {
+  const ensureTenantCanOperateImage = useCallback(
+    (r: ImageListRecord) => {
+      if (!tenantNamespaceSet) return true;
+      if (canTenantOperateImage(r, tenantNamespaceSet)) return true;
+      message.warning('仅可操作本租户命名空间内的镜像');
+      return false;
+    },
+    [tenantNamespaceSet],
+  );
   const { loading: authLoading, token } = useAuth();
   const [localImages, setLocalImages] = useState<ImageListRecord[]>(images);
 
@@ -325,7 +342,7 @@ export function useImagesSectionActions({
 
   const handleSyncUploadTask = useCallback(
     async (r: ImageListRecord): Promise<HarvesterImageUploadTask | undefined> => {
-      if (!ensureImagesWrite()) return undefined;
+      if (!ensureImagesWrite() || !ensureTenantCanOperateImage(r)) return undefined;
       const cachedTasks = mergeUploadTasksForLookup(
         listTaskListRef.current,
         uploadTasksRef.current,
@@ -367,11 +384,12 @@ export function useImagesSectionActions({
         return undefined;
       }
     },
-    [cloudId, ensureImagesWrite, onListTaskChange],
+    [cloudId, ensureImagesWrite, ensureTenantCanOperateImage, onListTaskChange],
   );
 
   const handleDeleteRow = useCallback(
     async (r: ImageListRecord) => {
+      if (!ensureTenantCanOperateImage(r)) return;
       const blockedMsg = getImageRowDeleteBlockedMessage(r, vms);
       if (blockedMsg) {
         message.warning(blockedMsg);
@@ -467,7 +485,7 @@ export function useImagesSectionActions({
         message.error(formatHarvesterImageDeleteError(e, { vms }));
       }
     },
-    [cloudId, ensureImagesWrite, onListTaskRemove, onRefresh, vms],
+    [cloudId, ensureImagesWrite, ensureTenantCanOperateImage, onListTaskRemove, onRefresh, vms],
   );
 
   const batchDelete = useCallback(
@@ -479,15 +497,21 @@ export function useImagesSectionActions({
         onOk: async () => {
           try {
             const targets = selectImagesByRowKeys(sourceImages, selectedKeys as Array<string | number>);
-            if (targets.length === 0) {
+            const operableTargets = tenantNamespaceSet
+              ? targets.filter((r) => canTenantOperateImage(r, tenantNamespaceSet))
+              : targets;
+            if (operableTargets.length === 0) {
               message.warning('未找到可删除的镜像');
               return;
+            }
+            if (tenantNamespaceSet && operableTargets.length < targets.length) {
+              message.warning('已跳过非本租户命名空间的镜像');
             }
             const lookupTasks = mergeUploadTasksForLookup(
               listTaskListRef.current,
               uploadTasksRef.current,
             );
-            const needsTaskFetch = targets.some(
+            const needsTaskFetch = operableTargets.some(
               (r) => isLocalUploadImageRow(r, lookupTasks),
             );
             let allUploadTasks = lookupTasks;
@@ -513,7 +537,7 @@ export function useImagesSectionActions({
             let taskDeleteFailedCount = 0;
             let clusterNotFoundCount = 0;
             const results = await mapBatchImageDelete(
-              targets,
+              operableTargets,
               async (r) => {
                 const rowBlocked = getImageRowDeleteBlockedMessage(r, vms);
                 if (rowBlocked) throw new Error(rowBlocked);
@@ -594,7 +618,7 @@ export function useImagesSectionActions({
         },
       });
     },
-    [cloudId, ensureImagesWrite, onListTaskRemove, onRefresh, vms],
+    [cloudId, ensureImagesWrite, onListTaskRemove, onRefresh, tenantNamespaceSet, vms],
   );
 
   return {

@@ -24,6 +24,154 @@ import { getJsonOnce, requestJson } from './utils';
  * ==============================================================================
  */
 
+function resolveHarvesterControlOrigin(endpoint: string): string {
+  const base = String(endpoint || '').replace(/\/+$/, '');
+  try {
+    const u = new URL(base);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return base.replace(/\/v[0-9].*$/, '');
+  }
+}
+
+async function resolveRancherLocalClusterId(
+  origin: string,
+  token: string,
+  insecure: boolean,
+): Promise<string | null> {
+  try {
+    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
+      () => null,
+    );
+    const cItems = Array.isArray((clusters as { data?: unknown[] })?.data)
+      ? (clusters as { data: unknown[] }).data
+      : Array.isArray((clusters as { items?: unknown[] })?.items)
+        ? (clusters as { items: unknown[] }).items
+        : [];
+    const local = cItems.find(
+      (c) =>
+        String((c as { id?: string; Id?: string })?.id || (c as { Id?: string })?.Id || '')
+          .toLowerCase() === 'local',
+    );
+    const any = local || cItems[0];
+    return (
+      String((any as { id?: string; Id?: string })?.id || (any as { Id?: string })?.Id || '')
+        .trim() || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function buildHarvesterPciDeviceListCandidates(origin: string, clusterId: string | null): string[] {
+  return [
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
+        ]
+      : []),
+    `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
+    `${origin}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
+    `${origin}/apis/devices.harvesterhci.io/v1beta1/pcidevices`,
+    `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcidevices`,
+    `${origin}/v1/harvester/devices.harvesterhci.io.pcidevices`,
+    ...(clusterId
+      ? [
+          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/pcidevices`,
+        ]
+      : []),
+  ];
+}
+
+function pickSteveResourceViewLink(item: unknown): string | undefined {
+  const o = item as { links?: { view?: string }; link?: { view?: string } };
+  const v = o?.links?.view || o?.link?.view;
+  return v && String(v).trim() ? String(v).trim() : undefined;
+}
+
+/** 按列表集合 URL + 资源名构造单条 view link（优先 Steve 自带 links.view） */
+export function buildHarvesterCollectionItemViewLink(
+  collectionUrl: string,
+  itemName: string,
+  item?: unknown,
+): string | undefined {
+  const steve = item ? pickSteveResourceViewLink(item) : undefined;
+  if (steve) return steve;
+  const base = String(collectionUrl || '').replace(/\/+$/, '');
+  const name = String(itemName || '').trim();
+  if (!base || !name) return undefined;
+  return `${base}/${encodeURIComponent(name)}`;
+}
+
+/** 探测 PCI 设备列表实际可用的集合 URL（与 listHarvesterPciDevices 同源） */
+export async function probeHarvesterPciDevicesListUrl({
+  endpoint,
+  token,
+  insecure = false,
+}: HarvesterTestParams): Promise<string | null> {
+  const origin = resolveHarvesterControlOrigin(endpoint);
+  const clusterId = await resolveRancherLocalClusterId(origin, token, insecure);
+  for (const url of buildHarvesterPciDeviceListCandidates(origin, clusterId)) {
+    try {
+      const j = await getJsonOnce(url, token, insecure, true);
+      if (j) return url;
+    } catch {
+      /* 探测下一候选 */
+    }
+  }
+  return null;
+}
+
+/** 为 PCI Device raw 补全 links.view（库存缺 view 时列表接口兜底） */
+/** GPU 库存行补全 links.view（直通 GPU 走 PCI 探测路径；vGPU 保留 KubeVirt view） */
+export function enrichHarvesterGpuInventoryRow(
+  row: unknown,
+  pciListCollectionUrl?: string | null,
+): Record<string, unknown> {
+  const r = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+  const type = String(r.type || '').toLowerCase();
+  if (type === 'passthrough' || type === 'sriov') {
+    const enrichedRaw = enrichHarvesterPciDeviceRawWithViewLink(r.raw ?? r, pciListCollectionUrl);
+    const view = (enrichedRaw.links as { view?: string } | undefined)?.view;
+    const links =
+      r.links && typeof r.links === 'object' ? (r.links as Record<string, unknown>) : {};
+    return {
+      ...r,
+      raw: enrichedRaw,
+      ...(view ? { links: { ...links, view } } : {}),
+    };
+  }
+  const view = pickSteveResourceViewLink(r) || pickSteveResourceViewLink(r.raw);
+  if (!view) return r;
+  const links =
+    r.links && typeof r.links === 'object' ? (r.links as Record<string, unknown>) : {};
+  return { ...r, links: { ...links, view } };
+}
+
+export function enrichHarvesterPciDeviceRawWithViewLink(
+  raw: unknown,
+  collectionUrl: string | null | undefined,
+): Record<string, unknown> {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const meta = r.metadata as { name?: string } | undefined;
+  const crName = String(meta?.name ?? r.name ?? '').trim();
+  const existing = pickSteveResourceViewLink(r);
+  const view =
+    existing ||
+    (collectionUrl && crName
+      ? buildHarvesterCollectionItemViewLink(collectionUrl, crName, r)
+      : undefined);
+  if (!view) return r;
+  const links =
+    r.links && typeof r.links === 'object' ? (r.links as Record<string, unknown>) : {};
+  return {
+    ...r,
+    kind: r.kind || 'PCIDevice',
+    links: { ...links, view },
+  };
+}
+
 /**
  * [GPU 资源列表]
  * 获取 Harvester GPU 资源列表（含物理 GPU 和 vGPU）。
@@ -94,11 +242,13 @@ export const listHarvesterGpuResources = async ({
     `${origin}/apis/kubevirt.io/v1/namespaces/${encodeURIComponent('kubevirt')}/kubevirts/${encodeURIComponent('kubevirt')}`,
   ];
   let kv: any = null;
+  let kubevirtViewUrl: string | null = null;
   for (const url of kvCandidates) {
     try {
       const json = await getJsonOnce(url, token, insecure, true);
       if (json && (json?.metadata || json?.spec || json?.configuration)) {
         kv = json;
+        kubevirtViewUrl = pickSteveResourceViewLink(json) || url;
         break;
       }
       const items = Array.isArray(json?.data)
@@ -109,6 +259,10 @@ export const listHarvesterGpuResources = async ({
       if (items && items.length) {
         kv =
           (items || []).find((x: any) => (x?.metadata?.name || x?.name) === 'kubevirt') || items[0];
+        kubevirtViewUrl =
+          pickSteveResourceViewLink(kv) ||
+          buildHarvesterCollectionItemViewLink(url, 'kubevirt', kv) ||
+          url;
         break;
       }
     } catch {}
@@ -123,31 +277,21 @@ export const listHarvesterGpuResources = async ({
       name: d?.mdevName || d?.deviceName || d?.description,
       raw: d,
       links: {
-        view: `${origin}/apis/kubevirt.io/v1/namespaces/harvester-system/kubevirts/kubevirt`,
+        view:
+          kubevirtViewUrl ||
+          `${origin}/apis/kubevirt.io/v1/namespaces/kubevirt/kubevirts/kubevirt`,
       },
     }))
     .filter((x: any) => !!x.resourceName);
-  const pciDevCandidates = [
-    ...(clusterId
-      ? [
-          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
-        ]
-      : []),
-    `${origin}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
-    `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcidevices`,
-    `${origin}/v1/harvester/devices.harvesterhci.io.pcidevices`,
-    ...(clusterId
-      ? [
-          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/pcidevices`,
-        ]
-      : []),
-  ];
+  const pciDevCandidates = buildHarvesterPciDeviceListCandidates(origin, clusterId);
   let pciJson: any = null;
+  let pciListCollectionUrl: string | null = null;
   for (const url of pciDevCandidates) {
     try {
       const j = await getJsonOnce(url, token, insecure, true);
       if (j) {
         pciJson = j;
+        pciListCollectionUrl = url;
         break;
       }
     } catch {}
@@ -198,7 +342,12 @@ export const listHarvesterGpuResources = async ({
         deviceId,
         state,
         links: {
-          view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`,
+          view:
+            buildHarvesterCollectionItemViewLink(
+              pciListCollectionUrl || '',
+              String(it?.metadata?.name || it?.name || ''),
+              it,
+            ) || undefined,
         },
       };
     })
@@ -234,57 +383,20 @@ export const listHarvesterPciDevices = async ({
   token,
   insecure = false,
 }: HarvesterTestParams): Promise<any[]> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
-  }
-
-  let clusterId: string | null = null;
-  try {
-    const clusters = await getJsonOnce(`${origin}/v3/clusters`, token, insecure, true).catch(
-      () => null,
-    );
-    const cItems = Array.isArray((clusters as any)?.data)
-      ? (clusters as any)?.data
-      : Array.isArray((clusters as any)?.items)
-        ? (clusters as any)?.items
-        : [];
-    const local = cItems.find((c: any) => String(c?.id || c?.Id || '').toLowerCase() === 'local');
-    const any = local || cItems[0];
-    clusterId = String(any?.id || any?.Id || '' || '').trim() || null;
-  } catch {}
-
-  const pciDevCandidates = [
-    ...(clusterId
-      ? [
-          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
-          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
-        ]
-      : []),
-    `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices`,
-    `${origin}/apis/pcidevices.harvesterhci.io/v1/pcidevices`,
-    `${origin}/apis/devices.harvesterhci.io/v1beta1/pcidevices`, // Added fallback
-    `${origin}/v1/harvester/pcidevices.harvesterhci.io.pcidevices`,
-    `${origin}/v1/harvester/devices.harvesterhci.io.pcidevices`,
-    ...(clusterId
-      ? [
-          `${origin}/k8s/clusters/${encodeURIComponent(clusterId)}/apis/devices.harvesterhci.io/v1/pcidevices`,
-        ]
-      : []),
-  ];
+  const origin = resolveHarvesterControlOrigin(endpoint);
+  const clusterId = await resolveRancherLocalClusterId(origin, token, insecure);
+  const pciDevCandidates = buildHarvesterPciDeviceListCandidates(origin, clusterId);
   let pciJson: any = null;
+  let pciListCollectionUrl: string | null = null;
   for (const url of pciDevCandidates) {
     try {
       const j = await getJsonOnce(url, token, insecure, true);
       if (j) {
         pciJson = j;
+        pciListCollectionUrl = url;
         break;
       }
-    } catch (e: any) {
+    } catch {
       // Suppress 404 errors during probing
     }
   }
@@ -327,10 +439,15 @@ export const listHarvesterPciDevices = async ({
       classId,
       vendorId: vendor,
       productId: deviceId, // mapping deviceId to productId
-      raw: it,
+      raw: enrichHarvesterPciDeviceRawWithViewLink(it, pciListCollectionUrl),
       uid: it?.metadata?.uid,
       links: {
-        view: `${origin}/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${it?.metadata?.name || it?.name || ''}`,
+        view:
+          buildHarvesterCollectionItemViewLink(
+            pciListCollectionUrl || '',
+            String(it?.metadata?.name || it?.name || ''),
+            it,
+          ) || undefined,
       },
     };
   });

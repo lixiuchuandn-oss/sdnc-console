@@ -638,6 +638,70 @@ export const checkHarvesterImageUploadDiskSpace = async (
   );
 };
 
+export type HarvesterImageDownloadTask = {
+  id: string;
+  cloudId: string;
+  namespace: string;
+  imageName: string;
+  displayName?: string;
+  filename?: string;
+  fileSize?: number;
+  bytesDownloaded?: number;
+  taskStatus: 'pending' | 'fetching' | 'ready' | 'failed' | 'cancelled';
+  progress?: number;
+  errorMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+export const createHarvesterImageDownloadTask = async (
+  cloudId: string,
+  payload: {
+    namespace: string;
+    imageName: string;
+    displayName?: string;
+    downloadLink?: string;
+    imageType?: string;
+    diskFormat?: string;
+  },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks`,
+    payload,
+    { enableRetry: false },
+  );
+};
+
+export const fetchHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}`,
+    { skipCache: true },
+  );
+};
+
+export const fetchHarvesterImageDownloadTasks = async (cloudId: string, limit = 20) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks?limit=${Math.max(1, Math.min(100, limit))}`,
+    { skipCache: true },
+  );
+};
+
+export const cancelHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+    { enableRetry: false },
+  );
+};
+
+export const deleteHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}`,
+  );
+};
+
 export const fetchHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`, {
     skipCache: true,
@@ -2511,8 +2575,8 @@ export const deleteNetworkPolicy = async (cloudId: string, namespace: string, na
  * 获取 Harbor 仓库列表
  * @returns Promise<any>
  */
-export const getHarborRegistries = async () => {
-  return await apiRequest('/api/harbor/registries');
+export const getHarborRegistries = async (cloudId: string) => {
+  return await apiRequest(`/api/harbor/registries?cloudId=${encodeURIComponent(cloudId)}`);
 };
 
 /**
@@ -2520,8 +2584,9 @@ export const getHarborRegistries = async () => {
  * @param harborId Harbor 仓库 ID
  * @returns Promise<any>
  */
-export const testHarborConnection = async (harborId: string) => {
-  return await apiPost(`/api/harbor/registries/${harborId}/test`, {});
+export const testHarborConnection = async (harborId: string, cloudId?: string) => {
+  const query = cloudId ? `?cloudId=${encodeURIComponent(cloudId)}` : '';
+  return await apiPost(`/api/harbor/registries/${harborId}/test${query}`, {});
 };
 
 /**
@@ -2540,7 +2605,8 @@ export const createHarborRegistry = async (payload: any) => {
  * @returns Promise<any>
  */
 export const updateHarborRegistry = async (harborId: string, payload: any) => {
-  return await apiPut(`/api/harbor/registries/${harborId}`, payload);
+  const result = await apiPut(`/api/harbor/registries/${harborId}`, payload);
+  return result?.data ?? result;
 };
 
 /**
@@ -2548,8 +2614,10 @@ export const updateHarborRegistry = async (harborId: string, payload: any) => {
  * @param harborId Harbor 仓库 ID
  * @returns Promise<any>
  */
-export const deleteHarborRegistry = async (harborId: string) => {
-  return await apiDelete(`/api/harbor/registries/${harborId}`);
+export const deleteHarborRegistry = async (harborId: string, cloudId: string) => {
+  return await apiDelete(
+    `/api/harbor/registries/${harborId}?cloudId=${encodeURIComponent(cloudId)}`,
+  );
 };
 
 // ========================================
@@ -2570,14 +2638,21 @@ function withHarborSelectorProjectIdQuery(
   return `${url}${sep}projectId=${encodeURIComponent(String(projectId))}`;
 }
 
+function appendHarborCloudId(url: string, cloudId?: string): string {
+  if (!cloudId) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}cloudId=${encodeURIComponent(cloudId)}`;
+}
+
 function buildHarborSelectorProjectPath(
   harborId: string,
   project: HarborSelectorProjectRef,
   suffix: string,
+  cloudId?: string,
 ): string {
   const name = typeof project === 'string' ? project : project.name;
   const base = `/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(name)}${suffix}`;
-  return withHarborSelectorProjectIdQuery(base, project);
+  return appendHarborCloudId(withHarborSelectorProjectIdQuery(base, project), cloudId);
 }
 
 /**
@@ -2585,8 +2660,10 @@ function buildHarborSelectorProjectPath(
  * @param harborId Harbor 仓库 ID
  * @returns Promise<any>
  */
-export const getHarborSelectorProjects = async (harborId: string) => {
-  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects`);
+export const getHarborSelectorProjects = async (harborId: string, cloudId?: string) => {
+  return await apiRequest(
+    appendHarborCloudId(`/api/harbor/registries/${harborId}/selector/projects`, cloudId),
+  );
 };
 
 /**
@@ -2598,8 +2675,9 @@ export const getHarborSelectorProjects = async (harborId: string) => {
 export const getHarborSelectorRepositories = async (
   harborId: string,
   project: HarborSelectorProjectRef,
+  cloudId?: string,
 ) => {
-  return await apiRequest(buildHarborSelectorProjectPath(harborId, project, '/repositories'));
+  return await apiRequest(buildHarborSelectorProjectPath(harborId, project, '/repositories', cloudId));
 };
 
 /**
@@ -2613,12 +2691,14 @@ export const getHarborSelectorTags = async (
   harborId: string,
   project: HarborSelectorProjectRef,
   repo: string,
+  cloudId?: string,
 ) => {
   return await apiRequest(
     buildHarborSelectorProjectPath(
       harborId,
       project,
       `/repositories/${encodeURIComponent(repo)}/tags`,
+      cloudId,
     ),
   );
 };

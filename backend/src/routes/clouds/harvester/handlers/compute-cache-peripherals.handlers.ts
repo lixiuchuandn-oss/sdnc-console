@@ -22,7 +22,10 @@ import {
   listHarvesterUsbDeviceClaims,
   listK8sNodesRaw,
   buildHarvesterPciDeviceClaimIndex,
+  enrichHarvesterGpuInventoryRow,
+  enrichHarvesterPciDeviceRawWithViewLink,
   findHarvesterPciClaimForPciRow,
+  probeHarvesterPciDevicesListUrl,
   harvesterPciDeviceClaimPassthroughEnabled,
 } from '../../../../services/clouds/harvester/client';
 import { listKubevirtVMsRaw } from '../../../../services/clouds/harvester/vm';
@@ -30,6 +33,12 @@ import {
   buildPciDeviceVmUsageMapFromVms,
   collectAllocatedPciDeviceCrNamesFromVms,
 } from '../../../../services/clouds/harvester/pciVmAllocation';
+
+function pickSteveViewLinkFromRaw(raw: unknown): string | undefined {
+  const o = raw as { links?: { view?: string }; link?: { view?: string } };
+  const v = o?.links?.view || o?.link?.view;
+  return v && String(v).trim() ? String(v).trim() : undefined;
+}
 
 /**
  * GET /:id/resources/harvester/gpus - 获取 GPU 资源列表
@@ -221,7 +230,31 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
       usedByNodeResource.set(key, (usedByNodeResource.get(key) || 0) + count);
     });
 
-    let enriched = (Array.isArray(items) ? items.map((i) => i.rawData) : []).map((r: any) => {
+    const gpuInventoryRows = Array.isArray(items) ? items.map((i) => i.rawData) : [];
+    let pciListCollectionUrlForGpu: string | null = null;
+    if (
+      gpuInventoryRows.some((row) => {
+        const t = String((row as { type?: string })?.type || '').toLowerCase();
+        return (
+          (t === 'passthrough' || t === 'sriov') &&
+          !pickSteveViewLinkFromRaw((row as { raw?: unknown })?.raw ?? row)
+        );
+      })
+    ) {
+      try {
+        pciListCollectionUrlForGpu = await probeHarvesterPciDevicesListUrl({
+          endpoint: cloud.endpoint,
+          token: cloud.secretKey || '',
+          insecure,
+        } as Parameters<typeof probeHarvesterPciDevicesListUrl>[0]);
+      } catch {
+        pciListCollectionUrlForGpu = null;
+      }
+    }
+
+    let enriched = gpuInventoryRows
+      .map((row) => enrichHarvesterGpuInventoryRow(row, pciListCollectionUrlForGpu))
+      .map((r: any) => {
       const { claim, rn, node } = findClaimForRow(r);
       let vmInfo = undefined;
       if (rn && node) {
@@ -298,6 +331,12 @@ export async function harvesterGpuListHandler(req: Request, res: Response) {
             }
           : undefined,
         quota: quota ? { ...quota, used, free } : undefined,
+        _tower: {
+          viewLink:
+            (r?.links as { view?: string } | undefined)?.view ||
+            pickSteveViewLinkFromRaw(r) ||
+            null,
+        },
       };
     });
 
@@ -702,11 +741,29 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
       );
     }
 
+    let pciListCollectionUrl: string | null = null;
+    if (items.some((row) => !pickSteveViewLinkFromRaw(row.rawData))) {
+      try {
+        pciListCollectionUrl = await probeHarvesterPciDevicesListUrl({
+          endpoint: cloud.endpoint,
+          token: cloud.secretKey || '',
+          insecure,
+        } as Parameters<typeof probeHarvesterPciDevicesListUrl>[0]);
+      } catch {
+        pciListCollectionUrl = null;
+      }
+    }
+
     const list = items.map((i) => {
-      const raw = i.rawData;
+      const raw = enrichHarvesterPciDeviceRawWithViewLink(i.rawData, pciListCollectionUrl);
       const claim = findHarvesterPciClaimForPciRow(raw, claimMap, claimByKey);
       const passthroughEnabled = harvesterPciDeviceClaimPassthroughEnabled(claim);
-      const cr = String(raw?.metadata?.name ?? i.name ?? '').trim();
+      const cr = String(
+        (raw as { metadata?: { name?: string }; name?: string })?.metadata?.name ??
+          (raw as { name?: string })?.name ??
+          i.name ??
+          '',
+      ).trim();
       const pciAllocated = !!(cr && busyPciCrNames.has(cr));
       const vmInfo = cr ? pciVmUsage.get(cr) : undefined;
       /** 仅 guest hostDevices 真实挂载算「绑定」；PCIDeviceClaim（直通已启用）不算绑定到 VM/容器 */
@@ -737,6 +794,10 @@ export async function harvesterPciDeviceListHandler(req: Request, res: Response)
           passthroughEnabled,
           pciDeviceClaimName: claim?.metadata?.name || claim?.name || null,
           pciAllocated,
+          viewLink:
+            (raw?.links as { view?: string } | undefined)?.view ||
+            pickSteveViewLinkFromRaw(raw) ||
+            null,
         },
       };
     });

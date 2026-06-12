@@ -22,7 +22,7 @@
  * 1. 被引用模块:
  *    - src/pages/cnmc/pools/sections/PoolsListWorkspace.tsx（云资源列表）
  *    - src/pages/cnmc/pools/modals/CloudWizard.tsx（添加云资源向导）
- *    - Cloudmap：`clouds/Cloudmap/CloudmapPoolShell.tsx`；华为/阿里云：`Hw/HuaweiPoolShell.tsx`、`Aliyun/AliyunPoolShell.tsx`；Rancher：`rancher/RancherPoolVendorShell.tsx`；CSM：`sdncc/traffic/CsmPools/CsmPoolRouteShell.tsx`（见 `App.tsx` 挂载）
+ *    - Cloudmap：`clouds/Cloudmap/CloudmapPoolShell.tsx`；华为/阿里云：`Hw/HuaweiPoolShell.tsx`、`Aliyun/AliyunPoolShell.tsx`；Rancher：`rancher/RancherPoolVendorShell.tsx`；CSM：`sdncc/csm/pools/CsmPoolRouteShell.tsx`（见 `App.tsx` 挂载）
  *
  * 2. 关键数据结构:
  *    - CloudProviderField: 定义表单字段的类型和校验规则。
@@ -652,7 +652,23 @@ export const cloudProviders: CloudProvider[] = [
       { key: 'name', label: '名称', type: 'input', required: true, placeholder: '请输入名称' },
       { key: 'endpoint', label: '端点', type: 'input', required: true, placeholder: 'https://cloudmap.example.com' },
       { key: 'accessKey', label: 'AccessKey', type: 'input', required: true, placeholder: '请输入 AccessKey' },
-      { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey' }
+      { key: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '请输入 SecretKey' },
+      {
+        key: 'csmRepairUsername',
+        label: '控制台用户名',
+        type: 'input',
+        required: false,
+        placeholder: 'admin',
+        help: '租户等运营侧 API 使用；默认 admin',
+      },
+      {
+        key: 'csmRepairPassword',
+        label: '控制台密码',
+        type: 'password',
+        required: false,
+        placeholder: '与 CSM 控制台登录密码一致',
+        help: 'Tower 将按控制台相同方式加密；控制台端口与端点 URL 中的端口一致',
+      },
     ]
   }
 ];

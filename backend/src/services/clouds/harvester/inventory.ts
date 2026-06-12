@@ -1409,7 +1409,14 @@ export const syncHarvesterPciDevices = async (cloud: any, insecure: boolean) => 
     productId: item.productId,
     classId: item.classId,
     description: item.description,
-    rawData: item.raw,
+    rawData: {
+      ...item.raw,
+      kind: item.raw?.kind || 'PCIDevice',
+      links: {
+        ...(item.raw?.links || {}),
+        ...(item.links?.view ? { view: item.links.view } : {}),
+      },
+    },
   }));
 };
 

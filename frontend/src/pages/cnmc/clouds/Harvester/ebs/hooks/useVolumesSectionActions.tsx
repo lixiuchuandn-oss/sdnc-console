@@ -44,6 +44,10 @@ import {
   isVolumeUsedByWorkload,
   volumeWorkloadInUseHint,
 } from '../lib/volumeConsumers';
+import {
+  getVolumeExportBlockedMessage,
+  VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG,
+} from '../lib/volumeExportImageUtils';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -334,6 +338,11 @@ export function useVolumesSectionActions({
           disabled: !hasDisksWrite,
           onClick: () => {
             if (!ensureDisksWrite()) return;
+            const exportBlocked = getVolumeExportBlockedMessage(vm);
+            if (exportBlocked) {
+              msg.warning(VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG);
+              return;
+            }
             setCurrentRecord(r);
             setExportOpen(true);
           },

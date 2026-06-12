@@ -26,7 +26,7 @@ const AliyunPoolShell = lazy(() => import('./pages/cnmc/clouds/Aliyun/AliyunPool
 const RancherPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/rancher/RancherPoolVendorShell'));
 const XinferencePoolVendorShell = lazy(() => import('./pages/cnmc/clouds/Xinference/XinferencePoolVendorShell'));
 const MaasPoolVendorShell = lazy(() => import('./pages/cnmc/clouds/maas/MaasPoolVendorShell'));
-const CsmPoolRouteShell = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolRouteShell'));
+const CsmPoolRouteShell = lazy(() => import('./pages/sdncc/csm/pools/CsmPoolRouteShell'));
 const RancherClusterWorkspace = lazy(() => import('./pages/cnmc/clouds/rancher/RancherClusterWorkspace'));
 const Tenants = lazy(() => import('./pages/tenants/sections/TenantsWorkspace'));
 const GeneralSettings = lazy(() => import('./pages/settings/GeneralSettings'));
@@ -36,32 +36,32 @@ const DesktopGatewaySettings = lazy(() => import('./pages/settings/DesktopGatewa
 
 const LicenseSettingsPage = lazy(() => import('./pages/settings/LicenseSettings'));
 const OfflineUpgradeSettings = lazy(() => import('./pages/settings/OfflineUpgradeSettings'));
-const SRv6Page = lazy(() => import('./pages/sdncc/interconnect/srv6/index'));
-const SRv6CreatePage = lazy(() => import('./pages/sdncc/interconnect/srv6/Create'));
-const IPsecVPNPage = lazy(() => import('./pages/sdncc/interconnect/ipsec-vpn/index'));
-const IPsecVPNWizard = lazy(() => import('./pages/sdncc/interconnect/ipsec-vpn/IPsecVPNWizard'));
-const VRPage = lazy(() => import('./pages/sdncc/interconnect/vr/index'));
-const AddVRInstance = lazy(() => import('./pages/sdncc/interconnect/vr/AddVRInstance'));
-const EditVRConfig = lazy(() => import('./pages/sdncc/interconnect/vr/EditVRConfig'));
-const PEWizard = lazy(() => import('./pages/sdncc/interconnect/vr/wizards/PEWizard'));
-const CEWizard = lazy(() => import('./pages/sdncc/interconnect/vr/wizards/CEWizard'));
-const StandardWizard = lazy(() => import('./pages/sdncc/interconnect/vr/wizards/StandardWizard'));
-const SASEWizard = lazy(() => import('./pages/sdncc/interconnect/vr/wizards/SASEWizard'));
-const ACLPage = lazy(() => import('./pages/sdncc/interconnect/acl/index'));
-const NATPage = lazy(() => import('./pages/sdncc/interconnect/nat/index'));
-const SecurityDomainPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityDomain/index'));
-const SecurityDomainDetail = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityDomain/Detail'));
-const CENPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/cascade-channels/index'));
-const CENDetailPage = lazy(() => import('./pages/sdncc/sec-mgr-plane/cascade-channels/detail'));
+const SRv6Page = lazy(() => import('./pages/sdncc/ibr/srv6/index'));
+const SRv6CreatePage = lazy(() => import('./pages/sdncc/ibr/srv6/Create'));
+const IPsecVPNPage = lazy(() => import('./pages/sdncc/ibr/ipsec-vpn/index'));
+const IPsecVPNWizard = lazy(() => import('./pages/sdncc/ibr/ipsec-vpn/IPsecVPNWizard'));
+const VRPage = lazy(() => import('./pages/sdncc/ibr/routers/index'));
+const AddVRInstance = lazy(() => import('./pages/sdncc/ibr/routers/AddVRInstance'));
+const EditVRConfig = lazy(() => import('./pages/sdncc/ibr/routers/EditVRConfig'));
+const PEWizard = lazy(() => import('./pages/sdncc/ibr/routers/wizards/PEWizard'));
+const CEWizard = lazy(() => import('./pages/sdncc/ibr/routers/wizards/CEWizard'));
+const StandardWizard = lazy(() => import('./pages/sdncc/ibr/routers/wizards/StandardWizard'));
+const SASEWizard = lazy(() => import('./pages/sdncc/ibr/routers/wizards/SASEWizard'));
+const ACLPage = lazy(() => import('./pages/sdncc/ibr/acl/index'));
+const NATPage = lazy(() => import('./pages/sdncc/ibr/nat/index'));
+const SecurityDomainPage = lazy(() => import('./pages/sdncc/cross-domain/internetwork-routing/index'));
+const SecurityDomainDetail = lazy(() => import('./pages/sdncc/cross-domain/internetwork-routing/Detail'));
+const CENPage = lazy(() => import('./pages/sdncc/cross-domain/neighbors/index'));
+const CENDetailPage = lazy(() => import('./pages/sdncc/cross-domain/neighbors/detail'));
 const ComingSoon = lazy(() => import('./pages/coming-soon'));
-const SecurityApps = lazy(() => import('./pages/sdncc/sec-mgr-plane/Applications/index'));
-const SecurityServices = lazy(() => import('./pages/sdncc/sec-mgr-plane/SecurityServices/index'));
+const SecurityApps = lazy(() => import('./pages/sdncc/cross-domain/applications/index'));
+const SecurityServices = lazy(() => import('./pages/sdncc/csm/security-services/index'));
 const AccessRolesPage = lazy(() => import('./pages/settings/Roles/Index'));
 const AccessUsersPage = lazy(() => import('./pages/settings/Users/Index'));
 const CreateServiceChainWizard = lazy(() => import('./pages/sdncc/traffic/ServiceChains/CreateWizard'));
-const CsmPoolsPage = lazy(() => import('./pages/sdncc/traffic/CsmPools/CsmPoolsPage'));
+const CsmPoolsPage = lazy(() => import('./pages/sdncc/csm/pools/index'));
 const CsmPoolDetailPage = lazy(() =>
-  import('./pages/sdncc/traffic/CsmPools/CloudDetailCsm').then((m) => ({ default: m.CsmPoolDetailPage })),
+  import('./pages/sdncc/csm/pools/CloudDetailCsm').then((m) => ({ default: m.CsmPoolDetailPage })),
 );
 const CloudConsolePage = lazy(() => import('./pages/cnmc/console'));
 const HarvesterVNCPage = lazy(() => import('./pages/cnmc/clouds/Harvester/HarvesterVNC'));

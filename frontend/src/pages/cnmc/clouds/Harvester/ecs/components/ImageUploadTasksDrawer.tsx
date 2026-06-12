@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   startTransition,
@@ -10,12 +11,17 @@ import React, {
 import { Button, Drawer, Modal, Progress, Tag, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import {
+  cancelHarvesterImageDownloadTask,
   cancelHarvesterImageUploadTask,
   checkHarvesterImageUploadDiskSpace,
+  deleteHarvesterImageDownloadTask,
   deleteHarvesterImageUploadTask,
+  fetchHarvesterImageDownloadTask,
   fetchHarvesterImageUploadTask,
+  type HarvesterImageDownloadTask,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
+import { getApiErrorMessage } from '../../../../../../services/api';
 import {
   assertResumeUploadFileMatchesTask,
   getChunkUploadErrorMessage,
@@ -26,7 +32,13 @@ import {
   pickImageUploadChunkSize,
   stripTowerUploadLocalOverlay,
 } from '../lib/chunkedImageUpload';
-import { imageUploadTaskStatusLabel } from '../lib/imagesSectionConstants';
+import {
+  formatImageLocalDownloadProgressText,
+  saveImageDownloadTaskFileToLocalWithCleanup,
+  type ImageLocalDownloadProgress,
+} from '../lib/images/imageDownload';
+import { mergeDownloadTasksSorted } from '../lib/images/imageDownloadTaskCore';
+import { imageDownloadTaskStatusLabel, imageUploadTaskStatusLabel } from '../lib/imagesSectionConstants';
 import {
   formatImageUploadTaskChunkLine,
   formatUploadTaskProgressLabel,
@@ -55,6 +67,8 @@ export type ImageUploadTasksDrawerHandle = {
   resumeUpload: (task: HarvesterImageUploadTask, file: File) => void;
   upsertTask: (task: HarvesterImageUploadTask) => void;
   removeTask: (taskId: string) => void;
+  upsertDownloadTask: (task: HarvesterImageDownloadTask) => void;
+  removeDownloadTask: (taskId: string) => void;
 };
 
 type Props = {
@@ -62,9 +76,12 @@ type Props = {
   hasImagesWrite: boolean;
   ensureImagesWrite: () => boolean;
   uploadTasks: HarvesterImageUploadTask[];
+  downloadTasks?: HarvesterImageDownloadTask[];
   uploadTasksLoading?: boolean;
   reloadUploadTasks: (showLoading?: boolean) => void | Promise<void>;
   onListTaskChange: (task: HarvesterImageUploadTask) => void;
+  onDownloadTaskChange?: (task: HarvesterImageDownloadTask) => void;
+  onDownloadTaskRemove?: (taskId: string) => void;
   /** 删除抽屉内任务记录时同步清理镜像列表侧的 listTaskList */
   onListTaskRemove?: (taskId: string, opts?: { refreshInventory?: boolean }) => void;
   resumeTaskRef: React.MutableRefObject<HarvesterImageUploadTask | null>;
@@ -101,9 +118,12 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       hasImagesWrite,
       ensureImagesWrite,
       uploadTasks,
+      downloadTasks = [],
       uploadTasksLoading = false,
       reloadUploadTasks,
       onListTaskChange,
+      onDownloadTaskChange,
+      onDownloadTaskRemove,
       onListTaskRemove,
       resumeTaskRef,
       onPickResumeFile,
@@ -112,6 +132,13 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
   ) {
     const [open, setOpen] = useState(false);
     const [tasks, setTasks] = useState<HarvesterImageUploadTask[]>(uploadTasks);
+    const [downloadTaskList, setDownloadTaskList] =
+      useState<HarvesterImageDownloadTask[]>(downloadTasks);
+    const [localDownloadLoadingId, setLocalDownloadLoadingId] = useState<string | null>(null);
+    const [localDownloadProgress, setLocalDownloadProgress] = useState<{
+      taskId: string;
+      progress: ImageLocalDownloadProgress;
+    } | null>(null);
     /** 本地源文件不可读（NotReadableError）后需续传的任务 */
     const [resumeHintTaskIds, setResumeHintTaskIds] = useState<Set<string>>(() => new Set());
 
@@ -174,6 +201,10 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       },
       [reloadUploadTasks],
     );
+
+    useEffect(() => {
+      setDownloadTaskList(mergeDownloadTasksSorted([], downloadTasks));
+    }, [downloadTasks]);
 
     useEffect(() => {
       setTasks(mergeUploadTasksSorted([], uploadTasks));
@@ -429,12 +460,107 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
       [cloudId, ensureImagesWrite, onListTaskRemove],
     );
 
+    const upsertDrawerDownloadTask = useCallback(
+      (task: HarvesterImageDownloadTask) => {
+        startTransition(() => {
+          setDownloadTaskList((prev) => mergeDownloadTasksSorted(prev, task));
+        });
+        onDownloadTaskChange?.(task);
+      },
+      [onDownloadTaskChange],
+    );
+
+    const handleDownloadTaskToLocal = useCallback(
+      async (task: HarvesterImageDownloadTask) => {
+        if (localDownloadLoadingId) return;
+        setLocalDownloadLoadingId(task.id);
+        setLocalDownloadProgress(null);
+        try {
+          let latest = task;
+          try {
+            const resp = await fetchHarvesterImageDownloadTask(cloudId, task.id);
+            const r = resp as { data?: HarvesterImageDownloadTask };
+            latest = (r?.data ?? r) as HarvesterImageDownloadTask;
+            upsertDrawerDownloadTask(latest);
+          } catch {
+            /* use snapshot */
+          }
+          await saveImageDownloadTaskFileToLocalWithCleanup(cloudId, latest, {
+            onProgress: (progress) => {
+              setLocalDownloadProgress({ taskId: latest.id, progress });
+            },
+          });
+          setDownloadTaskList((prev) => prev.filter((x) => x.id !== latest.id));
+          onDownloadTaskRemove?.(latest.id);
+          message.success('已下载到本地');
+        } catch (e: unknown) {
+          message.error(getApiErrorMessage(e, '下载到本地失败'));
+        } finally {
+          setLocalDownloadLoadingId(null);
+          setLocalDownloadProgress(null);
+        }
+      },
+      [cloudId, localDownloadLoadingId, onDownloadTaskRemove, upsertDrawerDownloadTask],
+    );
+
+    const handleCancelDownloadTask = useCallback(
+      async (task: HarvesterImageDownloadTask) => {
+        try {
+          const resp = (await cancelHarvesterImageDownloadTask(cloudId, task.id)) as {
+            data?: HarvesterImageDownloadTask;
+          };
+          const next = (resp?.data || resp) as HarvesterImageDownloadTask;
+          upsertDrawerDownloadTask({ ...next, taskStatus: 'cancelled' });
+          message.success('已取消下载');
+        } catch (e: unknown) {
+          message.error(getApiErrorMessage(e, '取消失败'));
+        }
+      },
+      [cloudId, upsertDrawerDownloadTask],
+    );
+
+    const handleDeleteDownloadTask = useCallback(
+      async (task: HarvesterImageDownloadTask) => {
+        try {
+          await deleteHarvesterImageDownloadTask(cloudId, task.id);
+          message.success('任务记录已删除');
+          setDownloadTaskList((prev) => prev.filter((x) => x.id !== task.id));
+          onDownloadTaskRemove?.(task.id);
+        } catch (e: unknown) {
+          message.error(getApiErrorMessage(e, '删除任务记录失败'));
+        }
+      },
+      [cloudId, onDownloadTaskRemove],
+    );
+
+    const mergedTaskRows = useMemo(() => {
+      const rows: Array<
+        | { kind: 'upload'; sortMs: number; upload: HarvesterImageUploadTask }
+        | { kind: 'download'; sortMs: number; download: HarvesterImageDownloadTask }
+      > = [];
+      for (const t of tasks) {
+        rows.push({
+          kind: 'upload',
+          sortMs: Date.parse(String(t.createdAt || 0)) || 0,
+          upload: t,
+        });
+      }
+      for (const t of downloadTaskList) {
+        rows.push({
+          kind: 'download',
+          sortMs: Date.parse(String(t.createdAt || 0)) || 0,
+          download: t,
+        });
+      }
+      return rows.sort((a, b) => b.sortMs - a.sortMs);
+    }, [tasks, downloadTaskList]);
+
     useImperativeHandle(
       ref,
       () => ({
         openDrawer: (reload = true) => {
           setOpen(true);
-          if (reload || uploadTasks.length === 0) void loadTasks(true);
+          if (reload || uploadTasks.length === 0 || downloadTasks.length === 0) void loadTasks(true);
         },
         startUpload: (params) => {
           setOpen(true);
@@ -447,8 +573,23 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
         removeTask: (taskId: string) => {
           setTasks((prev) => prev.filter((x) => x.id !== taskId));
         },
+        upsertDownloadTask: (task) => {
+          upsertDrawerDownloadTask(task);
+        },
+        removeDownloadTask: (taskId: string) => {
+          setDownloadTaskList((prev) => prev.filter((x) => x.id !== taskId));
+        },
       }),
-      [loadTasks, uploadTasks, runBrowserChunkedUpload, resumeBrowserChunkedUpload, upsertDrawerTask],
+      [
+        loadTasks,
+        uploadTasks,
+        downloadTasks.length,
+        runBrowserChunkedUpload,
+        resumeBrowserChunkedUpload,
+        upsertDrawerTask,
+        upsertDrawerDownloadTask,
+        onDownloadTaskRemove,
+      ],
     );
 
     const isUploadTaskRunning = (taskId: string) =>
@@ -456,7 +597,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
 
     return (
       <Drawer
-        title="镜像上传任务"
+        title="镜像任务"
         placement="right"
         width={460}
         open={open}
@@ -472,11 +613,141 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
           />
         }
       >
-        {tasks.length === 0 ? (
-          <Typography.Text type="secondary">暂无上传任务</Typography.Text>
+        {mergedTaskRows.length === 0 ? (
+          <Typography.Text type="secondary">暂无上传或下载任务</Typography.Text>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {tasks.map((t) => {
+            {mergedTaskRows.map((row) => {
+              if (row.kind === 'download') {
+                const t = row.download;
+                const st = String(t.taskStatus || '').toLowerCase();
+                const isReady = st === 'ready';
+                const isFailed = st === 'failed';
+                const isCancelled = st === 'cancelled';
+                const isRunning = st === 'pending' || st === 'fetching';
+                const isLocalDownloading = localDownloadLoadingId === t.id;
+                const localProgress =
+                  isLocalDownloading && localDownloadProgress?.taskId === t.id
+                    ? localDownloadProgress.progress
+                    : null;
+                const progressPercent = Math.max(
+                  0,
+                  Math.min(100, Math.floor(Number(t.progress) || 0)),
+                );
+                const displayPercent = isLocalDownloading
+                  ? localProgress?.percent ?? 0
+                  : isReady
+                    ? 100
+                    : progressPercent;
+                const progressStatus = isFailed
+                  ? 'exception'
+                  : isLocalDownloading
+                    ? 'active'
+                    : isReady
+                      ? 'success'
+                      : isCancelled
+                        ? 'normal'
+                        : 'active';
+
+                return (
+                  <div
+                    key={`download-${t.id}`}
+                    style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <Typography.Text ellipsis style={{ maxWidth: 220 }}>
+                        {t.displayName || t.imageName || t.id}
+                      </Typography.Text>
+                      <Tag color={isReady ? 'green' : isFailed ? 'red' : isCancelled ? 'default' : 'blue'}>
+                        下载 · {imageDownloadTaskStatusLabel(st)}
+                      </Tag>
+                    </div>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      项目：{t.namespace || '-'}
+                    </Typography.Text>
+                    <Progress
+                      percent={displayPercent}
+                      size="small"
+                      status={progressStatus}
+                      style={{ marginTop: 6, marginBottom: 4 }}
+                    />
+                    {isLocalDownloading && localProgress ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                        {formatImageLocalDownloadProgressText(localProgress)}
+                      </Typography.Text>
+                    ) : isReady ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                        点击「下载到本地」下载镜像
+                      </Typography.Text>
+                    ) : null}
+                    {isFailed && t.errorMessage ? (
+                      <Typography.Text type="danger" style={{ fontSize: 12, display: 'block' }}>
+                        {t.errorMessage}
+                      </Typography.Text>
+                    ) : null}
+                    {isRunning ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                        正在从集群努力拉取中，请耐心等待…
+                      </Typography.Text>
+                    ) : null}
+                    <div
+                      style={{
+                        marginTop: 8,
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                      }}
+                    >
+                      {isReady && hasImagesWrite ? (
+                        <Button
+                          size="small"
+                          type="primary"
+                          loading={localDownloadLoadingId === t.id}
+                          onClick={() => void handleDownloadTaskToLocal(t)}
+                        >
+                          下载到本地
+                        </Button>
+                      ) : null}
+                      {hasImagesWrite && isRunning ? (
+                        <Button
+                          size="small"
+                          onClick={() =>
+                            Modal.confirm({
+                              title: '确认取消该下载任务？',
+                              content: `将停止从集群拉取：${t.displayName || t.imageName || t.id}`,
+                              onOk: async () => {
+                                await handleCancelDownloadTask(t);
+                              },
+                            })
+                          }
+                        >
+                          取消
+                        </Button>
+                      ) : null}
+                      {hasImagesWrite && !isRunning ? (
+                        <Button
+                          size="small"
+                          danger
+                          onClick={() =>
+                            Modal.confirm({
+                              title: '确认删除该下载任务记录？',
+                              content: `将删除 Tower 暂存文件：${t.displayName || t.imageName || t.id}`,
+                              onOk: async () => {
+                                await handleDeleteDownloadTask(t);
+                              },
+                            })
+                          }
+                        >
+                          删除
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              }
+
+              const t = row.upload;
               const st = String(t.status || '');
               const displayStatus = getUploadDrawerDisplayStatus(t);
               const isRunning = isUploadTaskRunning(t.id);
@@ -505,7 +776,7 @@ export const ImageUploadTasksDrawer = forwardRef<ImageUploadTasksDrawerHandle, P
                       : 'active';
 
               return (
-                <div key={t.id} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}>
+                <div key={`upload-${t.id}`} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                     <Typography.Text ellipsis style={{ maxWidth: 260 }}>
                       {t.displayName || t.filename || t.id}

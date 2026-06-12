@@ -45,9 +45,13 @@ export interface DeployedLocalRegistryInput {
   status?: string;
 }
 
-const HARVESTER_REGISTRIES_STORAGE_KEY = 'harvester-registries';
+const HARVESTER_REGISTRIES_STORAGE_KEY_PREFIX = 'harvester-registries';
 
-export function loadHarvesterRegistriesFromLocalStorage(): Array<{
+export function getHarvesterRegistriesStorageKey(cloudId: string): string {
+  return `${HARVESTER_REGISTRIES_STORAGE_KEY_PREFIX}:${cloudId}`;
+}
+
+export function loadHarvesterRegistriesFromLocalStorage(cloudId: string): Array<{
   id?: string;
   name?: string;
   server?: string;
@@ -55,8 +59,9 @@ export function loadHarvesterRegistriesFromLocalStorage(): Array<{
   password?: string;
   insecure?: boolean;
 }> {
+  if (!cloudId) return [];
   try {
-    const data = localStorage.getItem(HARVESTER_REGISTRIES_STORAGE_KEY);
+    const data = localStorage.getItem(getHarvesterRegistriesStorageKey(cloudId));
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
@@ -150,6 +155,14 @@ export function normalizeRegistryServer(server: string): string {
   return withoutProtocol.split('/')[0];
 }
 
+/** 镜像地址与仓库配置比对用（忽略大小写与默认端口） */
+export function normalizeRegistryHostForMatch(server: string): string {
+  let host = normalizeRegistryServer(server).toLowerCase();
+  if (host.endsWith(':443')) host = host.slice(0, -4);
+  if (host.endsWith(':80')) host = host.slice(0, -3);
+  return host;
+}
+
 /** 从镜像地址解析仓库 host（含端口），如 10.20.5.20:30507/clickhouse:v1 → 10.20.5.20:30507 */
 export function parseImageRegistryHost(image: string): string | null {
   const trimmed = image.trim();
@@ -173,9 +186,17 @@ export function findRegistryForImage(
   const host = parseImageRegistryHost(image);
   if (!host) return undefined;
 
+  const imageHost = normalizeRegistryHostForMatch(host);
   return registries.find(
-    (registry) => normalizeRegistryServer(registry.server) === host,
+    (registry) => normalizeRegistryHostForMatch(registry.server) === imageHost,
   );
+}
+
+/** Harbor 需走 Harbor API 浏览，不能用于 Docker Registry V2 目录浏览 */
+export function filterDockerRegistryEntries(
+  registries: MergedRegistryEntry[],
+): MergedRegistryEntry[] {
+  return registries.filter((r) => r.source !== 'harbor' && !r.harborId);
 }
 
 export function buildGenericPullSecretName(server: string): string {

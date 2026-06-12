@@ -11,6 +11,7 @@ import {
 type LinkRecord = {
   links?: { view?: string };
   link?: { view?: string };
+  _tower?: { viewLink?: string };
   metadata?: { name?: string; namespace?: string; kind?: string };
   namespace?: string;
   name?: string;
@@ -26,7 +27,9 @@ const CLUSTER_KIND_PATH: Record<string, (name: string) => string> = {
   Node: (name) => `/api/v1/nodes/${encodeURIComponent(name)}`,
   Namespace: (name) => `/api/v1/namespaces/${encodeURIComponent(name)}`,
   StorageClass: (name) => `/apis/storage.k8s.io/v1/storageclasses/${encodeURIComponent(name)}`,
-  PCIDevice: (name) => `/apis/pcidevices.harvesterhci.io/v1beta1/pcidevices/${encodeURIComponent(name)}`,
+  PCIDevice: (name) => `/apis/pcidevices.harvesterhci.io/v1/pcidevices/${encodeURIComponent(name)}`,
+  KubeVirt: (name) =>
+    `/apis/kubevirt.io/v1/namespaces/kubevirt/kubevirts/${encodeURIComponent(name || 'kubevirt')}`,
   PCIDeviceClaim: (name) => `/apis/pcidevices.harvesterhci.io/v1beta1/pcideviceclaims/${encodeURIComponent(name)}`,
   USBDevice: (name) => `/apis/devices.harvesterhci.io/v1beta1/usbdevices/${encodeURIComponent(name)}`,
   GPUDevice: (name) => `/apis/devices.harvesterhci.io/v1beta1/gpudevices/${encodeURIComponent(name)}`,
@@ -106,6 +109,9 @@ function pickRecord(record: unknown): LinkRecord {
 export function resolveHarvesterSteveViewLink(record: unknown): string | undefined {
   const r = record as LinkRecord;
   const raw = pickRecord(record);
+  const towerView = r?._tower?.viewLink;
+  if (towerView && String(towerView).trim()) return String(towerView).trim();
+
   const direct = r?.links?.view || r?.link?.view || raw?.links?.view || raw?.link?.view;
   if (direct) return String(direct).trim();
 

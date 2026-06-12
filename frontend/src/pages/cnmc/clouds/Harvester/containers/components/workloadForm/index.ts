@@ -10,6 +10,7 @@ export { buildActiveContainerFromEditor } from './containerFormSync';
 export { parseEditWorkloadFormInit } from './parseEditWorkloadFormInit';
 export {
   buildMergedRegistryList,
+  filterDockerRegistryEntries,
   loadHarvesterRegistriesFromLocalStorage,
   localRegistryToCredential,
   secretToRegistryCredential,

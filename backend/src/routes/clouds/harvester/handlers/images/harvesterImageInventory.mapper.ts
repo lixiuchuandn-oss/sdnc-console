@@ -13,7 +13,9 @@ import {
 } from '../../../../../services/clouds/harvester/vmImageClusterApi';
 import { upsertHarvesterImageInventoryItems } from '../../../../../services/clouds/harvester/inventory';
 import { resolveHarvesterImageListStateKey } from '../../../../../services/clouds/harvester/vmImageListState';
+import type { ImageDownloadTask } from '../../../../../entities/harvester/ImageDownloadTask';
 import type { ImageUploadTask } from '../../../../../entities/harvester/ImageUploadTask';
+import { isVolumeExportedVmImage } from '../../../../../services/clouds/harvester/vmImageClusterApi';
 
 function deriveLonghornImageStorageClassFromName(name: string): string | undefined {
   const n = String(name || '').trim();
@@ -112,6 +114,20 @@ function resolveImageInventoryDisplayFields(
       size = 0;
     }
   }
+
+  // 云盘导出镜像：底座 status.size 常为 PVC 容量；仅 Tower 下载后回写的稀疏体积可信
+  if (isVolumeExportedVmImage(r)) {
+    const virtualBytes = virtualSize ?? readVmImageVirtualSizeBytes(r);
+    const trustedSparse =
+      size > 0 &&
+      virtualBytes != null &&
+      virtualBytes > 0 &&
+      !clusterReportedSizeLooksLikeVirtualCapacity(size, virtualBytes);
+    if (!trustedSparse) {
+      size = 0;
+    }
+  }
+
   return { size, virtualSize, storageClassName };
 }
 
@@ -144,6 +160,44 @@ export function enrichImageListItemSizeFromUploadTask(
     size: fileSize,
     status: { ...status, size: fileSize },
   };
+}
+
+/** 云盘导出镜像：Tower 下载任务就绪后用暂存文件体积补全列表展示（与 patch status.size 互补） */
+export function enrichImageListItemsFromDownloadTasks(
+  items: Record<string, unknown>[],
+  tasks: Pick<ImageDownloadTask, 'namespace' | 'imageName' | 'fileSize' | 'taskStatus'>[],
+): Record<string, unknown>[] {
+  if (!items.length || !tasks.length) return items;
+
+  const taskByImageKey = new Map<string, (typeof tasks)[number]>();
+  for (const task of tasks) {
+    if (String(task.taskStatus || '').toLowerCase() !== 'ready') continue;
+    const fileSize = Math.max(0, Math.floor(Number(task.fileSize) || 0));
+    if (!fileSize) continue;
+    const name = String(task.imageName || '').trim();
+    const ns = String(task.namespace || '').trim();
+    if (!name || !ns) continue;
+    const key = `${ns}/${name}`;
+    const existing = taskByImageKey.get(key);
+    if (!existing || fileSize > Number(existing.fileSize || 0)) {
+      taskByImageKey.set(key, task);
+    }
+  }
+
+  if (!taskByImageKey.size) return items;
+
+  return items.map((item) => {
+    if (!isVolumeExportedVmImage(item)) return item;
+    const name = String(item.name || (item.metadata as any)?.name || '').trim();
+    const namespace = String(item.namespace || (item.metadata as any)?.namespace || '').trim();
+    if (!name || !namespace) return item;
+    const task = taskByImageKey.get(`${namespace}/${name}`);
+    if (!task) return item;
+    return enrichImageListItemSizeFromUploadTask(item, {
+      fileSize: task.fileSize,
+      virtualSizeBytes: undefined,
+    });
+  });
 }
 
 export function enrichImageListItemsFromUploadTasks(
@@ -191,7 +245,7 @@ function resolveLegacySteveState(r: Record<string, any>, sourceType: string): st
   if (imported?.status === 'True' || imported?.status === 'true') return 'Active';
   if (isActiveHarvesterVmImageImportInProgress(r)) {
     if (sourceType === 'upload') return 'Uploading';
-    if (sourceType === 'export') return 'Exporting';
+    if (sourceType === 'export-from-volume') return 'Exporting';
     if (sourceType === 'download') return 'Importing';
     return 'Downloading';
   }
@@ -254,13 +308,22 @@ export function mapImageInventoryToListItem(
     sourceType,
     createdAt: r.metadata?.creationTimestamp,
     conditions,
-    status: {
-      ...(r.status && typeof r.status === 'object' && !Array.isArray(r.status) ? r.status : {}),
-      ...(size > 0 ? { size } : {}),
-      ...(virtualSize != null && virtualSize > 0 ? { virtualSize } : {}),
-      ...(storageClassName ? { storageClassName } : {}),
-      ...(Number.isFinite(effectiveProgress) ? { progress: effectiveProgress } : {}),
-    },
+    status: (() => {
+      const statusBase =
+        r.status && typeof r.status === 'object' && !Array.isArray(r.status)
+          ? ({ ...r.status } as Record<string, unknown>)
+          : ({} as Record<string, unknown>);
+      if (isVolumeExportedVmImage(r) && size <= 0) {
+        delete statusBase.size;
+        delete statusBase.downloadedBytes;
+      } else if (size > 0) {
+        statusBase.size = size;
+      }
+      if (virtualSize != null && virtualSize > 0) statusBase.virtualSize = virtualSize;
+      if (storageClassName) statusBase.storageClassName = storageClassName;
+      if (Number.isFinite(effectiveProgress)) statusBase.progress = effectiveProgress;
+      return statusBase;
+    })(),
     spec: {
       ...(r.spec && typeof r.spec === 'object' ? r.spec : {}),
       ...(storageClassName ? { storageClassName } : {}),

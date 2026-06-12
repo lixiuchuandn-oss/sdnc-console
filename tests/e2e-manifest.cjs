@@ -152,6 +152,16 @@ const ENTRIES = [
     notes: '引用存量 PN；仅清理 tower-e2e-pub-sn*',
   },
   {
+    id: 'csm-pool-tenants',
+    name: 'CSM 租户',
+    manual: 'SDNCC / CSM 资源池',
+    api: 'sdncc/csm/api-tenants.api.test.cjs',
+    browser: 'sdncc/csm/browser-tenants.browser.test.cjs',
+    smoke: null,
+    status: 'partial',
+    notes: 'AK/SK 基线必过；租户 v2 需 config.csmRepairPasswordEncrypted 或 .env 密文',
+  },
+  {
     id: 'vlans',
     name: 'VLAN',
     manual: 'ch03 §6.2',

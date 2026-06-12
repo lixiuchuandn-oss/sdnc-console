@@ -8,12 +8,14 @@ import { isImagePublicByScenario, resolveVmImageKind } from 'utils/harvesterUtil
 import { resolveImageListStateKey, resolveVmImageImportFailureMessage } from './vmImageStatus';
 import {
   formatImageSizeGb,
-  getImageActualFileBytes,
+  getImageListDisplayActualSizeBytes,
+  isVolumeExportedVmImageRecord,
   getImageStorageClassName,
   getImageListDisplayVirtualSizeBytes,
   getImageCreatedMs,
   getImageDisplayAlias,
   getImageRowId,
+  canTenantOperateImage,
   getImageRowNamespace,
   getImageStatusText,
   type ImageListRecord,
@@ -28,10 +30,16 @@ import {
   resolveImageListDisplayProgress,
   shouldDeleteClusterImageForLocalUploadRow,
 } from './imagesSectionActions';
+import {
+  canShowImageDownloadAction,
+  imageDownloadBlockedMessage,
+} from './images/imageDownload';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
 
 export type ImagesTableActions = {
   isTenant: boolean;
+  /** 租户授权命名空间；非租户可省略 */
+  tenantNamespaceSet?: ReadonlySet<string>;
   hasImagesWrite: boolean;
   ensureImagesWrite: () => boolean;
   vms?: readonly ImageListRecord[];
@@ -40,6 +48,8 @@ export type ImagesTableActions = {
   onEditLabels: (record: ImageListRecord) => void;
   onDeleteRow: (record: ImageListRecord) => void;
   onSyncUploadTask?: (record: ImageListRecord) => void;
+  onDownloadImage?: (record: ImageListRecord) => void;
+  downloadImageLoadingKey?: string | null;
 };
 
 function renderImageStatusTag(r?: ImageListRecord | string): React.ReactElement {
@@ -72,12 +82,15 @@ function renderImageStatusTag(r?: ImageListRecord | string): React.ReactElement 
 export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsType<ImageListRecord> {
   const {
     isTenant,
+    tenantNamespaceSet,
     hasImagesWrite,
     ensureImagesWrite,
     onOpenYaml,
     onEditLabels,
     onDeleteRow,
     onSyncUploadTask,
+    onDownloadImage,
+    downloadImageLoadingKey,
     uploadTasks = [],
     vms = [],
   } = actions;
@@ -206,8 +219,10 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
       title: '实际大小',
       key: 'actual_size',
       render: (_: unknown, r: ImageListRecord) => {
-        const bytes = getImageActualFileBytes(r);
-        return bytes != null ? formatImageSizeGb(bytes) : '-';
+        const bytes = getImageListDisplayActualSizeBytes(r);
+        if (bytes != null) return formatImageSizeGb(bytes);
+        if (isVolumeExportedVmImageRecord(r)) return '未知';
+        return '-';
       },
     },
     ...(!isTenant
@@ -239,6 +254,10 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: unknown, r: ImageListRecord) => {
+        if (isTenant && !canTenantOperateImage(r, tenantNamespaceSet)) {
+          return null;
+        }
+
         const name = getImageRowId(r);
         const alias = getImageDisplayAlias(r);
         const deleteLabel = alias ? `${alias} (${name})` : name;
@@ -246,6 +265,10 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
         const localUpload = isLocalUploadImageRow(r);
         const deleteClusterImage = localUpload && shouldDeleteClusterImageForLocalUploadRow(r);
         const canSync = canShowTowerUploadSyncAction(r, uploadTasks);
+        const canDownload = canShowImageDownloadAction(r);
+        const downloadBlocked = imageDownloadBlockedMessage(r);
+        const rowKey = getImageRowId(r);
+        const downloadLoading = downloadImageLoadingKey === rowKey;
         const deleteBlockedMessage = getImageRowDeleteBlockedMessage(r, vms);
         const deleteDisabled = !hasImagesWrite || Boolean(deleteBlockedMessage);
 
@@ -270,6 +293,21 @@ export function buildImagesTableColumns(actions: ImagesTableActions): ColumnsTyp
               ...(!isTenant && !virtual
                 ? [{ key: 'yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }]
                 : []),
+              {
+                key: 'download',
+                label: downloadBlocked ? (
+                  <Tooltip title={downloadBlocked}>
+                    <span>下载镜像</span>
+                  </Tooltip>
+                ) : (
+                  '下载镜像'
+                ),
+                disabled: !canDownload || downloadLoading,
+                onClick: () => {
+                  if (!canDownload || !onDownloadImage) return;
+                  onDownloadImage(r);
+                },
+              },
               {
                 key: 'editLabels',
                 label: '编辑标签',

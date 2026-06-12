@@ -120,7 +120,7 @@ const PERMISSION_NAMES: Record<string, string> = {
   'system.integration': '高级集成',
 
   // SDNCC - 安全管理面
-  'networks.security-domain': '安全域',
+  'networks.security-domain': '网际路由域',
   'networks.cen': '云企业网',
   'networks.cen.attachments': 'CEN连接',
   'security.services': '安全服务',

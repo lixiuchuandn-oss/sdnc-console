@@ -7,6 +7,7 @@ import { SecurityDomain } from '../../entities/SecurityDomain';
 import { Tenant } from '../../entities/Tenant';
 import { TenantLeasedLine } from '../../entities/TenantLeasedLine';
 import {
+  csmRepairAuthFromConfig,
   listCsmSecurityDomainsPaged,
   listCsmTenantsPaged,
   type CsmRepairAuthOptions,
@@ -69,7 +70,7 @@ export function csmConfigFromCloud(cloud: Cloud): CsmConfig {
   return toCsmConfig(cloud);
 }
 
-export function csmRepairAuthFromCloud(cloud: Cloud): CsmRepairAuthOptions | undefined {
+export function csmRepairAuthFromCloud(cloud: Cloud): CsmRepairAuthOptions {
   return repairAuthFromCloud(cloud);
 }
 
@@ -82,19 +83,11 @@ function toCsmConfig(cloud: Cloud): CsmConfig {
   };
 }
 
-function repairAuthFromCloud(cloud: Cloud): CsmRepairAuthOptions | undefined {
-  const cfg = (cloud.config || {}) as Record<string, unknown>;
-  const username = String(cfg.csmRepairUsername ?? cfg.csmApiUsername ?? '').trim();
-  const passwordEncrypted = String(
-    cfg.csmRepairPasswordEncrypted ?? cfg.csmApiPasswordEncrypted ?? '',
-  ).trim();
-  const webPort = String(cfg.csmWebPort ?? cfg.csmRepairWebPort ?? '').trim();
-  if (!username && !passwordEncrypted) return undefined;
-  return {
-    username: username || 'admin',
-    passwordEncrypted: passwordEncrypted || undefined,
-    webPort: webPort || undefined,
-  };
+function repairAuthFromCloud(cloud: Cloud): CsmRepairAuthOptions {
+  return csmRepairAuthFromConfig(
+    (cloud.config || {}) as Record<string, unknown>,
+    String(cloud.endpoint || ''),
+  );
 }
 
 function lockStatusToTenantStatus(lockStatus: unknown): Tenant['status'] {
@@ -154,7 +147,7 @@ export async function repairTenantDataFromCsm(cloudId: string): Promise<TenantCs
   ]);
 
   if (!tenantRows.length && !domainRows.length) {
-    throw Object.assign(new Error(`CSM「${cloud.name}」未返回租户或安全域数据`), { status: 404 });
+    throw Object.assign(new Error(`CSM「${cloud.name}」未返回租户或 CSM 安全域数据`), { status: 404 });
   }
 
   const result: TenantCsmRepairResult = {
@@ -186,7 +179,7 @@ export async function repairTenantDataFromCsm(cloudId: string): Promise<TenantCs
     if (!orgIdToTenantId.has(csmOrgId)) {
       orgIdToTenantId.set(csmOrgId, stableTenantIdFromCsmOrgId(csmOrgId));
       result.warnings.push(
-        `安全域「${domain.name || domain.id}」的 orgId=${csmOrgId} 在租户分页中未出现，已按 orgId 补建租户`,
+        `CSM 安全域「${domain.name || domain.id}」的 orgId=${csmOrgId} 在租户分页中未出现，已按 orgId 补建租户`,
       );
     }
   }
@@ -293,7 +286,7 @@ export async function repairTenantDataFromCsm(cloudId: string): Promise<TenantCs
       const csmDomainId = String(domain.id || '').trim();
       if (!csmDomainId) {
         result.securityDomains.skipped += 1;
-        result.warnings.push('安全域行缺少 id，已跳过');
+        result.warnings.push('CSM 安全域行缺少 id，已跳过');
         continue;
       }
 
@@ -301,7 +294,7 @@ export async function repairTenantDataFromCsm(cloudId: string): Promise<TenantCs
       const tenantId = csmOrgId ? orgIdToTenantId.get(csmOrgId) : undefined;
       if (!tenantId) {
         result.securityDomains.skipped += 1;
-        result.warnings.push(`安全域 ${csmDomainId} 缺少可关联的 orgId，已跳过`);
+        result.warnings.push(`CSM 安全域 ${csmDomainId} 缺少可关联的 orgId，已跳过`);
         continue;
       }
 
@@ -334,11 +327,36 @@ export async function repairTenantDataFromCsm(cloudId: string): Promise<TenantCs
         tenantName: tenant.name,
         organizationName: tenant.name,
         category: 'flat:CSM安全域',
+        roleKind: 'csm_mirror',
+        csmCloudId: cloud.id,
+        csmOrgId,
+        linkedCsmSecurityDomainId: csmDomainId,
       };
 
       const existingDomain = await domainRepo.findOne({ where: { id: domainId } });
+      const isPromotedIrd =
+        existingDomain &&
+        (existingDomain.roleKind === 'internetwork_routing' ||
+          String(existingDomain.vrUuid || '').trim());
+
       if (existingDomain) {
-        Object.assign(existingDomain, domainPayload);
+        if (isPromotedIrd) {
+          existingDomain.name = domainPayload.name!;
+          existingDomain.cidr = domainPayload.cidr;
+          existingDomain.status = domainPayload.status;
+          existingDomain.tags = mergeCsmTags(existingDomain.tags, [
+            csmDomainIdTag(csmDomainId),
+            csmOrgIdTag(csmOrgId),
+            'source=csm-repair',
+          ]);
+          if (!existingDomain.linkedCsmSecurityDomainId) {
+            existingDomain.linkedCsmSecurityDomainId = csmDomainId;
+          }
+          if (!existingDomain.csmCloudId) existingDomain.csmCloudId = cloud.id;
+          if (!existingDomain.csmOrgId) existingDomain.csmOrgId = csmOrgId;
+        } else {
+          Object.assign(existingDomain, domainPayload);
+        }
         await domainRepo.save(existingDomain);
         result.securityDomains.updated += 1;
       } else {

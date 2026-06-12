@@ -10,7 +10,10 @@ import {
 } from '../registryCredentials';
 
 export function useMergedRegistryList(cloudId: string): MergedRegistryEntry[] {
-  const localStorageRegistries = useMemo(() => loadHarvesterRegistriesFromLocalStorage(), []);
+  const localStorageRegistries = useMemo(
+    () => loadHarvesterRegistriesFromLocalStorage(cloudId),
+    [cloudId],
+  );
   const [deployedRegistries, setDeployedRegistries] = useState<DeployedLocalRegistryInput[]>([]);
   const [harborRegistries, setHarborRegistries] = useState<HarborRegistryInput[]>([]);
 
@@ -31,7 +34,7 @@ export function useMergedRegistryList(cloudId: string): MergedRegistryEntry[] {
 
   useEffect(() => {
     let cancelled = false;
-    void getHarborRegistries()
+    void getHarborRegistries(cloudId)
       .then((res) => {
         if (cancelled) return;
         const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
@@ -43,7 +46,7 @@ export function useMergedRegistryList(cloudId: string): MergedRegistryEntry[] {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [cloudId]);
 
   return useMemo(
     () =>

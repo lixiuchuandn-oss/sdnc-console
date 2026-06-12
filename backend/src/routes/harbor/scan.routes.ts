@@ -13,14 +13,19 @@ import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
 import { resolveHarborProjectRefAsync, buildHarborProjectContext } from './harborProjectRef';
+import {
+  harborRegistryCloudAccessMiddleware,
+  HarborScopedRequest,
+} from '../../services/harbor/harborRegistryCloudMiddleware';
 
 const harborLog = logger.child('HarborScan');
 
 const router = Router();
 
-async function getHarborProxy(id: string): Promise<HarborProxyService | null> {
-  const harborRepo = AppDataSource.getRepository(HarborRegistry);
-  const harbor = await harborRepo.findOne({ where: { id } });
+router.use('/registries/:id', harborRegistryCloudAccessMiddleware);
+
+function getHarborProxy(req: HarborScopedRequest): HarborProxyService | null {
+  const harbor = req.harborRegistry;
   if (!harbor) return null;
   return HarborProxyService.getInstance(harbor);
 }
@@ -42,7 +47,7 @@ router.post(
 
       const { id, repo, ref } = req.params;
 
-      const proxy = await getHarborProxy(id);
+      const proxy = getHarborProxy(req);
       if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -80,7 +85,7 @@ router.get(
     try {
       const { id, repo, ref } = req.params;
 
-      const proxy = await getHarborProxy(id);
+      const proxy = getHarborProxy(req);
       if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -162,7 +167,7 @@ router.get('/registries/:id/scans/metrics', async (req: AuthRequest, res: Respon
   try {
     const { id } = req.params;
 
-    const proxy = await getHarborProxy(id);
+    const proxy = getHarborProxy(req);
     if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -184,7 +189,7 @@ router.get('/registries/:id/scanners', async (req: AuthRequest, res: Response) =
   try {
     const { id } = req.params;
 
-    const proxy = await getHarborProxy(id);
+    const proxy = getHarborProxy(req);
     if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -206,7 +211,7 @@ router.get('/registries/:id/projects/:project/scans', async (req: AuthRequest, r
   try {
     const { id } = req.params;
 
-    const proxy = await getHarborProxy(id);
+    const proxy = getHarborProxy(req);
     if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -240,7 +245,7 @@ router.post('/registries/:id/projects/:project/scans', async (req: AuthRequest, 
 
     const { id } = req.params;
 
-    const proxy = await getHarborProxy(id);
+    const proxy = getHarborProxy(req);
     if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -278,7 +283,7 @@ router.post(
 
       const { id } = req.params;
 
-      const proxy = await getHarborProxy(id);
+      const proxy = getHarborProxy(req);
       if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }

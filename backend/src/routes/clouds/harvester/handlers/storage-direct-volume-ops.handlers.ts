@@ -4,7 +4,13 @@
  */
 
 import { Request, Response } from 'express';
-import { exportImageFromPVC, clonePVC } from '../../../../services/clouds/harvester/client';
+import { AppDataSource } from '../../../../config/database';
+import { HarvesterVmInventory } from '../../../../entities/harvester/HarvesterVmInventory';
+import {
+  exportImageFromPVC,
+  clonePVC,
+  getVolumeExportBlockedByRunningVmMessageLive,
+} from '../../../../services/clouds/harvester/client';
 import {
   checkTenantAccess,
   fetchCloudOr404,
@@ -31,12 +37,20 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
     if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源操作')) return;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
-    const result = await exportImageFromPVC(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure },
+    const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+    const inventoryVms = await vmRepo.find({ where: { cloudId: id } });
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
+      inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
       namespace,
       name,
-      req.body,
+      insecure,
     );
+    if (exportBlocked) {
+      return res.status(400).json({ message: exportBlocked });
+    }
+
+    const result = await exportImageFromPVC(cloud, namespace, name, req.body, insecure);
     res.json({ message: '导出镜像任务已提交', data: result });
   } catch (error: any) {
     if (res.headersSent) return;
@@ -114,12 +128,20 @@ export async function harvesterVolumeExportImageLegacyHandler(req: Request, res:
     }
 
     const { namespace, pvcName, ...opts } = req.body;
-    const data = await exportImageFromPVC(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+    const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+    const inventoryVms = await vmRepo.find({ where: { cloudId: id } });
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
+      inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
       namespace,
       pvcName,
-      opts,
+      insecure,
     );
+    if (exportBlocked) {
+      return res.status(400).json({ message: exportBlocked });
+    }
+
+    const data = await exportImageFromPVC(cloud, namespace, pvcName, opts, insecure);
     res.json({ message: '导出镜像成功', data });
   } catch (error: any) {
     if (res.headersSent) return;

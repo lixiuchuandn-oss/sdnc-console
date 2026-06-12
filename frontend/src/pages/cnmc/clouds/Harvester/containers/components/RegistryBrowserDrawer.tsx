@@ -26,6 +26,10 @@ import {
 import RegistryBrowser, { RegistryCredential } from './RegistryBrowser';
 import HarborImageSelector from './HarborImageSelector';
 import { syncLocalRegistryPullSecret } from '../../../../../../services/localRegistryApi';
+import {
+  filterDockerRegistryEntries,
+  type MergedRegistryEntry,
+} from './workloadForm/registryCredentials';
 
 const { Text } = Typography;
 
@@ -54,16 +58,7 @@ export interface RegistryBrowserDrawerProps {
   /** 选择镜像回调（可选，传入时为选择模式） */
   onSelectImage?: (image: string, secret?: string) => void;
   /** 可选的仓库列表（用于仓库切换） */
-  registries?: Array<{
-    id: string;
-    name: string;
-    server: string;
-    username?: string;
-    password?: string;
-    insecure: boolean;
-    source?: string;
-    localRegistryId?: string;
-  }>;
+  registries?: MergedRegistryEntry[];
   /** 仓库变更回调 */
   onRegistryChange?: (credential: RegistryCredential) => void;
   /** 当前选中的镜像地址（用于高亮显示） */
@@ -98,8 +93,14 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
   // 是否为选择模式
   const isSelectMode = !!onSelectImage;
 
+  // 「镜像仓库」Tab 仅展示 Docker Registry，排除 Harbor（Harbor 走独立 Tab）
+  const dockerRegistries = useMemo(
+    () => filterDockerRegistryEntries(registries),
+    [registries],
+  );
+
   // 是否显示仓库选择器
-  const showRegistrySelector = registries.length > 1;
+  const showRegistrySelector = dockerRegistries.length > 1;
 
   // 重置状态
   const resetState = useCallback(() => {
@@ -194,7 +195,7 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
 
   // 处理仓库切换
   const handleRegistryChange = useCallback((registryId: string) => {
-    const registry = registries.find(r => r.id === registryId);
+    const registry = dockerRegistries.find((r) => r.id === registryId);
     if (registry && onRegistryChange) {
       onRegistryChange({
         name: registry.name,
@@ -205,7 +206,7 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
         insecure: registry.insecure,
       });
     }
-  }, [registries, onRegistryChange]);
+  }, [dockerRegistries, onRegistryChange]);
 
   // 渲染数据源内容
   const renderDataSourceContent = useMemo(() => {
@@ -252,7 +253,20 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
         );
 
       case 'local':
-        // 镜像仓库浏览
+        // 镜像仓库浏览（Docker Registry V2，不含 Harbor）
+        if (dockerRegistries.length === 0) {
+          return (
+            <div style={{ padding: '24px 0' }}>
+              <Alert
+                type="info"
+                showIcon
+                message="暂无可用 Docker 镜像仓库"
+                description="Harbor 请切换到「Harbor 镜像仓库」选择；也可部署本地仓库或手动添加 Docker Registry。"
+              />
+            </div>
+          );
+        }
+
         if (!credential) {
           return (
             <div style={{ textAlign: 'center', padding: 60, color: '#999' }}>
@@ -264,18 +278,29 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
 
         return (
           <>
+            <Alert
+              type="info"
+              showIcon
+              message="Harbor 镜像请使用「Harbor 镜像仓库」数据源"
+              style={{ marginBottom: 12 }}
+            />
             {/* 仓库选择器（当有多个仓库时显示） */}
             {showRegistrySelector && (
               <div style={{ marginBottom: 16 }}>
                 <Space style={{ width: '100%' }} direction="vertical" size={8}>
                   <Text strong>切换仓库：</Text>
                   <Select
-                    value={registries.find(r => r.server === credential.server)?.id}
+                    value={dockerRegistries.find((r) => r.server === credential.server)?.id}
                     onChange={handleRegistryChange}
                     placeholder="选择要浏览的仓库"
                     style={{ width: '100%' }}
-                    options={registries.map((registry) => {
-                      const sourceLabel = registry.source === 'localStorage' ? '本地' : 'K8s';
+                    options={dockerRegistries.map((registry) => {
+                      const sourceLabel =
+                        registry.source === 'localStorage'
+                          ? '本地'
+                          : registry.source === 'deployed'
+                            ? '平台'
+                            : 'K8s';
                       return {
                         label: `${registry.name} (${registry.server}) [${sourceLabel}]`,
                         value: registry.id,
@@ -304,9 +329,10 @@ const RegistryBrowserDrawer: React.FC<RegistryBrowserDrawerProps> = ({
     }
   }, [
     dataSource, 
-    credential, 
-    showRegistrySelector, 
-    registries, 
+    credential,
+    dockerRegistries,
+    showRegistrySelector,
+    registries,
     handleRegistryChange, 
     cloudId, 
     handleSelectImage, 

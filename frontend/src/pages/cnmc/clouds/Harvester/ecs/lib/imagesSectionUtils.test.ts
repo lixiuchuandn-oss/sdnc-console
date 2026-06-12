@@ -1,11 +1,15 @@
 import {
+  buildTenantImageNamespaceSet,
+  canTenantOperateImage,
   clusterReportedSizeLooksLikeVirtualCapacity,
   filterAndSortImages,
   formatImageSizeGb,
   getImageActualFileBytes,
   getImageStorageClassName,
   getImageVirtualSizeBytes,
+  getImageListDisplayActualSizeBytes,
   getImageListDisplayVirtualSizeBytes,
+  isVolumeExportedVmImageRecord,
   getImageRowId,
   imageStatusLabelZh,
 } from './imagesSectionUtils';
@@ -30,6 +34,33 @@ describe('imagesSectionUtils', () => {
       }),
     ).toBe(214748364800);
     expect(formatImageSizeGb(214748364800)).toBe('200.00GB');
+  });
+
+  it('export-from-volume masks PVC capacity as actual size until sparse file size known', () => {
+    const virtual = 300 * 1024 ** 3;
+    const row = {
+      sourceType: 'export-from-volume',
+      spec: { sourceType: 'export-from-volume' },
+      state: 'Active',
+      virtualSize: virtual,
+      status: {
+        progress: 100,
+        size: virtual,
+        virtualSize: virtual,
+        conditions: [{ type: 'Imported', status: 'True' }],
+      },
+    };
+    expect(isVolumeExportedVmImageRecord(row)).toBe(true);
+    expect(getImageListDisplayActualSizeBytes(row)).toBeUndefined();
+
+    const sparse = 1344995328;
+    expect(
+      getImageListDisplayActualSizeBytes({
+        ...row,
+        size: sparse,
+        status: { ...row.status, size: sparse },
+      }),
+    ).toBe(sparse);
   });
 
   it('getImageListDisplayVirtualSizeBytes only when ready and import complete', () => {
@@ -95,5 +126,13 @@ describe('imagesSectionUtils', () => {
     );
     expect(rows).toHaveLength(1);
     expect(getImageRowId(rows[0])).toBe('beta');
+  });
+
+  it('canTenantOperateImage matches metadata.namespace to tenant namespaces', () => {
+    const tenantNs = buildTenantImageNamespaceSet(['proj-a', 'proj-b']);
+    const own = { metadata: { name: 'img-1', namespace: 'proj-a' } };
+    const other = { metadata: { name: 'img-2', namespace: 'other-ns' } };
+    expect(canTenantOperateImage(own, tenantNs)).toBe(true);
+    expect(canTenantOperateImage(other, tenantNs)).toBe(false);
   });
 });

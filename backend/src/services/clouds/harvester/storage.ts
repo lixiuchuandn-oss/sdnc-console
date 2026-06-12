@@ -2,9 +2,13 @@ import { logger } from '../../../utils/logger';
 import { HarvesterTestParams } from './types';
 import {
   buildHarvesterVmImageListUrls,
+  buildPvcExportImageActionUrls,
+  HarvesterCloudEndpointLike,
   resolveHarvesterClusterApiRoots,
+  resolveHarvesterClusterApiRootsAsync,
 } from './vmImageClusterApi';
-import { getJsonOnce, requestJson } from './utils';
+import { getJsonOnce, requestJson, resolveHarvesterCloudKubeToken } from './utils';
+import { getHarvesterVM } from './vm';
 
 const harvesterStorageLog = logger.child('Harvester-Storage');
 
@@ -118,6 +122,108 @@ export const listHarvesterVolumesStandard = async (params: HarvesterTestParams):
     };
   });
 };
+
+/** 云盘导出镜像前须先关闭已挂载的虚拟机（与前端 volumeExportImageUtils 一致）。 */
+export const VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG =
+  '请先关闭虚拟机再做导出镜像操作';
+
+const VM_STOPPED_STATUS_TOKENS = new Set(['stopped', 'shutoff', 'down', 'offline']);
+
+function readVmStoppedStatusToken(vm: any): string {
+  if (!vm) return '';
+  if (typeof vm?.status === 'string') return String(vm.status).trim().toLowerCase();
+  const fromStatus =
+    vm?.status?.printableStatus ||
+    vm?.status?.phase ||
+    vm?.Status ||
+    vm?.vmi?.status?.phase ||
+    vm?.vmiRaw?.status?.phase ||
+    '';
+  return String(fromStatus).trim().toLowerCase();
+}
+
+export function isVmStoppedForVolumeExport(vm: any): boolean {
+  if (!vm) return true;
+  if (vm.spec?.running === false) return true;
+  if (String(vm?.spec?.runStrategy || '').trim() === 'Halted') return true;
+
+  const status = readVmStoppedStatusToken(vm);
+  if (VM_STOPPED_STATUS_TOKENS.has(status)) return true;
+
+  const vmiPhase = String(vm?.vmi?.status?.phase || vm?.vmiRaw?.status?.phase || '')
+    .trim()
+    .toLowerCase();
+  if (vmiPhase === 'running') return false;
+
+  return false;
+}
+
+/** 查找引用指定 PVC 的 KubeVirt VM（同 namespace）。 */
+export function findKubevirtVmsUsingPvc(
+  allVms: any[],
+  namespace: string,
+  pvcName: string,
+): any[] {
+  const matched: any[] = [];
+  for (const vm of allVms || []) {
+    const vmNs = vm?.metadata?.namespace || '';
+    if (vmNs !== namespace) continue;
+    const volumes = vm?.spec?.template?.spec?.volumes || [];
+    for (const vol of volumes) {
+      const claimName = vol?.persistentVolumeClaim?.claimName;
+      if (claimName === pvcName) {
+        matched.push(vm);
+        break;
+      }
+    }
+  }
+  return matched;
+}
+
+/** 若 PVC 挂载的 VM 未关机则返回拦截文案，否则返回 null。 */
+export function getVolumeExportBlockedByRunningVmMessage(
+  allVms: any[],
+  namespace: string,
+  pvcName: string,
+): string | null {
+  const attached = findKubevirtVmsUsingPvc(allVms, namespace, pvcName);
+  if (!attached.length) return null;
+  const hasRunning = attached.some((vm) => !isVmStoppedForVolumeExport(vm));
+  return hasRunning ? VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG : null;
+}
+
+/** 导出前拉集群 live VM 状态，避免库存缓存仍显示 Running */
+export async function getVolumeExportBlockedByRunningVmMessageLive(
+  cloud: HarvesterCloudEndpointLike,
+  inventoryVms: any[],
+  namespace: string,
+  pvcName: string,
+  insecure?: boolean,
+): Promise<string | null> {
+  const attached = findKubevirtVmsUsingPvc(inventoryVms, namespace, pvcName);
+  if (!attached.length) return null;
+
+  const endpoint = String(cloud.endpoint || cloud.config?.endpoint || '').trim();
+  const token = resolveHarvesterCloudKubeToken(cloud);
+  const insecureFlag = insecure ?? !!(cloud.config as { ignoreTls?: boolean })?.ignoreTls;
+
+  for (const vm of attached) {
+    const ns = String(vm?.metadata?.namespace || '').trim();
+    const name = String(vm?.metadata?.name || '').trim();
+    let candidate = vm;
+    if (ns && name && endpoint && token) {
+      try {
+        candidate = await getHarvesterVM({ endpoint, token, insecure: insecureFlag }, ns, name);
+      } catch {
+        /* 回退库存 */
+      }
+    }
+    if (!isVmStoppedForVolumeExport(candidate)) {
+      return VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG;
+    }
+  }
+  return null;
+}
 
 /** 从 KubeVirt VM 列表构建「已被虚拟机引用」的 PVC 键集合（namespace/pvcName）。 */
 export function buildUsedPvcSetFromKubevirtVms(allVms: any[]): Set<string> {
@@ -1004,60 +1110,44 @@ export const getHarvesterImage = async (
 
 /**
  * [导出镜像]
- * 从 PVC 导出为 Harvester 虚拟机镜像。
+ * 从 PVC 导出为 Harvester 虚拟机镜像（Steve action API）。
  *
- * [业务规则]
- * 1. 创建 VirtualMachineImage 资源。
- * 2. 设置 sourceType 为 'export-from-volume'。
- * 3. 关联源 PVC 的 namespace 和 name。
+ * POST `/v1/harvester/persistentvolumeclaims/{namespace}/{name}?action=export`
+ * Body: `{ namespace, displayName, storageClassName? }`
  *
- * @param params 连接参数
+ * @param cloud 云实例（endpoint / config.clusterId / token）
  * @param namespace 命名空间
  * @param pvcName PVC 名称
  * @param opts 导出选项（显示名称、目标存储类）
- * @returns Promise<any> 操作结果
+ * @param insecure 是否忽略 TLS（默认读 cloud.config.ignoreTls）
+ * @returns Promise<any> 操作结果（通常为创建的 VirtualMachineImage 或 action 响应体）
  */
 export const exportImageFromPVC = async (
-  { endpoint, token, insecure = false }: HarvesterTestParams,
+  cloud: HarvesterCloudEndpointLike,
   namespace: string,
   pvcName: string,
-  opts: { displayName?: string; targetStorageClassName?: string },
+  opts: { displayName?: string; targetStorageClassName?: string; storageClassName?: string },
+  insecure?: boolean,
 ): Promise<any> => {
-  const base = (endpoint || '').replace(/\/+$/, '');
-  let origin = base;
-  try {
-    const u = new URL(base);
-    origin = `${u.protocol}//${u.host}`;
-  } catch {
-    origin = base.replace(/\/v[0-9].*$/, '');
+  const insecureFlag = insecure ?? !!(cloud.config as { ignoreTls?: boolean })?.ignoreTls;
+  const token = resolveHarvesterCloudKubeToken(cloud);
+  const endpoint = String(cloud.endpoint || cloud.config?.endpoint || '').trim();
+  const roots = await resolveHarvesterClusterApiRootsAsync(cloud);
+  const storageClassName = opts?.storageClassName || opts?.targetStorageClassName;
+  const body: { namespace: string; displayName: string; storageClassName?: string } = {
+    namespace,
+    displayName: opts?.displayName || pvcName,
+  };
+  if (storageClassName) {
+    body.storageClassName = storageClassName;
   }
-  const body = {
-    apiVersion: 'harvesterhci.io/v1beta1',
-    kind: 'VirtualMachineImage',
-    metadata: { generateName: 'image-', namespace },
-    spec: {
-      displayName: opts?.displayName || pvcName,
-      sourceType: 'export-from-volume',
-      pvcName,
-      pvcNamespace: namespace,
-      diskFormat: 'qcow2',
-      ...(opts?.targetStorageClassName
-        ? { targetStorageClassName: opts.targetStorageClassName }
-        : {}),
-    },
-  } as any;
-  const ns = encodeURIComponent(namespace);
-  const candidates = [
-    `${origin}/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachineimages`,
-    `${origin}/k8s/clusters/local/apis/harvesterhci.io/v1beta1/namespaces/${ns}/virtualmachineimages`,
-    `${origin}/apis/harvesterhci.io/v1/namespaces/${ns}/virtualmachineimages`,
-  ];
-  let lastErr: any = null;
+  const candidates = buildPvcExportImageActionUrls(roots, namespace, pvcName, endpoint);
+  let lastErr: unknown = null;
   for (const url of candidates) {
     try {
-      const json = await requestJson('POST', url, token, insecure, body);
+      const json = await requestJson('POST', url, token, insecureFlag, body);
       return json;
-    } catch (e: any) {
+    } catch (e) {
       lastErr = e;
     }
   }
