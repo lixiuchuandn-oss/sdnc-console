@@ -1,5 +1,10 @@
 import type { Srv6EndpointInjectedDelta } from './srv6.archive.types';
 
+/**
+ * @deprecated 主路径已改为 baseline+recompute（P1 删除 / P2 创建更新）。
+ * 本模块保留供单测与历史对照，勿在新流程中作为 config_json 写库依据。
+ */
+
 const vrfKey = (v: unknown) => String(v ?? '');
 
 const routeMatches = (

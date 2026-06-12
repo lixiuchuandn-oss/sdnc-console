@@ -2,8 +2,10 @@ import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { vrController } from '../../services/vrouter/vrController';
-import type { Srv6EndpointSlot, Srv6InjectedDelta } from '../../entities/vRouter/srv6Tunnel.types';
-import { ejectInjectedDeltaFromConfig } from './srv6.eject';
+import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import { parseSrv6Baseline } from './srv6.baseline';
+import { resetSrv6BaselineWhenNoTunnels } from './srv6.baseline';
+import { recomputeVrEffectiveConfig } from './srv6.recompute';
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
 
@@ -59,13 +61,16 @@ const slotLabel = (slot: Srv6EndpointSlot) =>
 const LEGACY_TUNNEL_DELETE_HINT =
   '请取消勾选「回退平台库中的隧道注入项」后仅删除隧道记录，或由管理员在四端 VR 上手工还原配置。';
 
+const BASELINE_MISSING_HINT =
+  '该设备尚未保存向导基线（多为历史隧道），无法自动回退配置。请取消勾选「回退平台库」后仅删除记录，或使用「配置对账」处理。';
+
 export const revertSrv6TunnelInjections = async (
   tunnel: SRv6Tunnel,
   options: { revertDevice: boolean },
 ): Promise<RevertResult> => {
   const warnings: string[] = [];
   const devicePushErrors: string[] = [];
-  const delta = tunnel.injectedDelta as Srv6InjectedDelta | null | undefined;
+  const delta = tunnel.injectedDelta;
 
   if (!delta || typeof delta !== 'object') {
     const err = new Error(
@@ -77,8 +82,7 @@ export const revertSrv6TunnelInjections = async (
 
   const prepared: PreparedRevert[] = [];
   for (const { slot, vrId } of slotEndpoints(tunnel)) {
-    const entry = delta[slot];
-    if (!entry) {
+    if (!delta[slot]) {
       const err = new Error(
         `${slotLabel(slot)}：缺少该端的配置变更记录，无法执行删除回退。${LEGACY_TUNNEL_DELETE_HINT}`,
       );
@@ -93,25 +97,32 @@ export const revertSrv6TunnelInjections = async (
       throw err;
     }
 
-    let cfg: Record<string, unknown>;
+    if (!parseSrv6Baseline(record)) {
+      const err = new Error(`${slotLabel(slot)}：${BASELINE_MISSING_HINT}`);
+      (err as Error & { statusCode: number }).statusCode = 409;
+      throw err;
+    }
+
+    let originalConfig: Record<string, unknown>;
     try {
-      cfg = JSON.parse(record.config_json);
+      originalConfig = JSON.parse(record.config_json) as Record<string, unknown>;
     } catch {
       const err = new Error(`${slotLabel(slot)}：VR 配置格式异常，无法执行删除回退`);
       (err as Error & { statusCode: number }).statusCode = 409;
       throw err;
     }
 
-    const { config: nextCfg, skipped } = ejectInjectedDeltaFromConfig(cfg, entry);
-    if (skipped.length) {
-      const err = new Error(
-        `${slotLabel(slot)}：回退时未能在当前配置中找到创建时下发的对应项（${skipped.join('；')}），已中止删除。请确认四端配置未被手工修改。`,
-      );
+    let nextConfig: Record<string, unknown>;
+    try {
+      nextConfig = await recomputeVrEffectiveConfig(vrId, { excludeTunnelId: tunnel.id });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const err = new Error(`${slotLabel(slot)}：重算生效配置失败（${msg}）`);
       (err as Error & { statusCode: number }).statusCode = 409;
       throw err;
     }
 
-    prepared.push({ slot, vrId, record, originalConfig: cfg, nextConfig: nextCfg });
+    prepared.push({ slot, vrId, record, originalConfig, nextConfig });
   }
 
   const pushed: PreparedRevert[] = [];
@@ -132,8 +143,9 @@ export const revertSrv6TunnelInjections = async (
           throw new Error(respData.msg || respData.message || JSON.stringify(respData));
         }
         pushed.push(item);
-      } catch (e: any) {
-        devicePushErrors.push(`${item.slot}：${e?.message || String(e)}`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        devicePushErrors.push(`${item.slot}：${msg}`);
         break;
       }
     }
@@ -146,8 +158,9 @@ export const revertSrv6TunnelInjections = async (
           stripMeta(JSON.parse(JSON.stringify(item.originalConfig))) as Record<string, unknown>,
         );
         await vrController.updateVRConfig(item.vrId, clean);
-      } catch (e: any) {
-        warnings.push(`${item.slot}：设备回滚原配置失败（${e?.message || String(e)}）`);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        warnings.push(`${item.slot}：设备回滚原配置失败（${msg}）`);
       }
     }
     return { warnings, devicePushErrors };
@@ -161,7 +174,14 @@ export const revertSrv6TunnelInjections = async (
       }
       await manager.delete(SRv6Tunnel, { id: tunnel.id });
     });
-  } catch (e: any) {
+    for (const item of prepared) {
+      try {
+        await resetSrv6BaselineWhenNoTunnels(item.vrId);
+      } catch {
+        warnings.push(`${item.slot}：零隧道基线对齐失败（可通过对账工具修复）`);
+      }
+    }
+  } catch (e: unknown) {
     if (options.revertDevice) {
       for (const item of prepared.slice().reverse()) {
         try {
@@ -169,14 +189,14 @@ export const revertSrv6TunnelInjections = async (
             stripMeta(JSON.parse(JSON.stringify(item.originalConfig))) as Record<string, unknown>,
           );
           await vrController.updateVRConfig(item.vrId, clean);
-        } catch (rollbackErr: any) {
-          warnings.push(
-            `${item.slot}：数据库失败后设备回滚原配置失败（${rollbackErr?.message || String(rollbackErr)}）`,
-          );
+        } catch (rollbackErr: unknown) {
+          const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+          warnings.push(`${item.slot}：数据库失败后设备回滚原配置失败（${msg}）`);
         }
       }
     }
-    const err = new Error(`删除回退已下发但平台库事务失败：${e?.message || String(e)}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    const err = new Error(`删除回退已下发但平台库事务失败：${msg}`);
     (err as Error & { statusCode: number; warnings: string[] }).statusCode = 409;
     (err as Error & { warnings: string[] }).warnings = warnings;
     throw err;

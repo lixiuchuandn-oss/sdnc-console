@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState, useTransition, useDeferredValue } from 'react';
-import { Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
 import { ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
-import { apiRequest, apiPost } from '../../../../services/api';
+import { apiRequest, apiPost, fetchSrv6HubStatus, type Srv6HubVrStatus } from '../../../../services/api';
 import { filterLinkLocalIpv6 } from '../vr/vrIpv6Utils';
 import { buildSrv6PeerRouteDestination } from './srv6Ipv6';
 
@@ -34,13 +34,13 @@ const safeStringify = (obj: any): string => {
 /** SRv6 下发向导步骤（与 IPsec手动下发类似：每台 VR 先预览再推送） */
 const SRV6_DEPLOY_STEP_DEFS: { title: string; desc: string }[] = [
   { title: '预览 PE-A', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 PE-A', desc: '推送到 CSMctl' },
+  { title: '下发 PE-A', desc: '推送到设备' },
   { title: '预览 PE-B', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 PE-B', desc: '推送到 CSMctl' },
+  { title: '下发 PE-B', desc: '推送到设备' },
   { title: '预览 CE-A', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 CE-A', desc: '推送到 CSMctl' },
+  { title: '下发 CE-A', desc: '推送到设备' },
   { title: '预览 CE-B', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 CE-B', desc: '推送到 CSMctl' },
+  { title: '下发 CE-B', desc: '推送到设备' },
 ];
 
 const SRv6CreatePage: React.FC = () => {
@@ -66,6 +66,54 @@ const SRv6CreatePage: React.FC = () => {
   const [deployStatus, setDeployStatus] = useState<Record<number, 'wait' | 'process' | 'finish' | 'error'>>({});
   const deployVrSeqRef = React.useRef<{ label: string; id: string }[]>([]);
   const deployAutoStartedRef = React.useRef(false);
+  const [peHubStatus, setPeHubStatus] = useState<{ peA?: Srv6HubVrStatus; peB?: Srv6HubVrStatus }>({});
+
+  const refreshPeHubStatus = async (target: 'peA' | 'peB', vrUuid?: string) => {
+    const id = String(vrUuid || '').trim();
+    if (!id) {
+      setPeHubStatus((prev) => ({ ...prev, [target]: undefined }));
+      return;
+    }
+    try {
+      const status = await fetchSrv6HubStatus(id);
+      const filtered = editId
+        ? { ...status, tunnels: status.tunnels.filter((t) => t.tunnelId !== editId) }
+        : status;
+      const adjusted = {
+        ...filtered,
+        tunnelCount: filtered.tunnels.length,
+        isHub: filtered.tunnels.length > 1,
+      };
+      setPeHubStatus((prev) => ({ ...prev, [target]: adjusted.tunnelCount > 0 ? adjusted : undefined }));
+    } catch {
+      setPeHubStatus((prev) => ({ ...prev, [target]: undefined }));
+    }
+  };
+
+  const renderPeHubAlert = (target: 'peA' | 'peB', label: string) => {
+    const status = peHubStatus[target];
+    if (!status?.tunnelCount) return null;
+    const names = status.tunnels.map((t) => `「${t.tunnelName}」(${t.slot})`).join('、');
+    const hubNote = status.isHub
+      ? '该 PE 处于 Hub 多隧道模式。'
+      : '该 PE 已被其它隧道引用。';
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message={`${label} ${hubNote}`}
+        description={
+          <>
+            <div>已引用隧道（{status.tunnelCount}）：{names}</div>
+            <div style={{ marginTop: 4, color: 'rgba(0,0,0,.55)' }}>
+              新建隧道须使用不同的公网邻居、内网 VRF 段或内网口；相同的公网邻居、路由标识（RD/RT）或内网口+VRF 组合将被拒绝保存。
+            </div>
+          </>
+        }
+      />
+    );
+  };
 
   // 编辑模式：根据 query 参数回显隧道数据
   const location = useLocation();
@@ -109,6 +157,8 @@ const SRv6CreatePage: React.FC = () => {
           if (item.peB) await fetchAndSetPeConfig('peB', item.peB);
           if (item.ceA) await fetchAndSetCeConfig('ceA', item.ceA);
           if (item.ceB) await fetchAndSetCeConfig('ceB', item.ceB);
+          if (item.peA) await refreshPeHubStatus('peA', item.peA);
+          if (item.peB) await refreshPeHubStatus('peB', item.peB);
         }
       } catch (e) {
         console.warn('编辑模式回显失败:', e);
@@ -843,10 +893,12 @@ const SRv6CreatePage: React.FC = () => {
     if (changed?.peA) {
       await fetchAndSetPeConfig('peA', changed.peA);
       form.setFieldsValue({ peAInnerIf: undefined });
+      await refreshPeHubStatus('peA', changed.peA);
     }
     if (changed?.peB) {
       await fetchAndSetPeConfig('peB', changed.peB);
       form.setFieldsValue({ peBInnerIf: undefined });
+      await refreshPeHubStatus('peB', changed.peB);
     }
     if (changed?.ceA) {
       await fetchAndSetCeConfig('ceA', changed.ceA);
@@ -1153,16 +1205,21 @@ const SRv6CreatePage: React.FC = () => {
       } else {
         await createSrv6Tunnel(payload);
       }
-      const saveOps: Promise<any>[] = [];
-      if (peA && peAPreviewStorageCfg) saveOps.push(saveVRConfig(String(peA), peAPreviewStorageCfg));
-      if (peB && peBPreviewStorageCfg) saveOps.push(saveVRConfig(String(peB), peBPreviewStorageCfg));
-      if (ceA && ceAPreviewCfg) saveOps.push(saveVRConfig(String(ceA), ceAPreviewCfg));
-      if (ceB && ceBPreviewCfg) saveOps.push(saveVRConfig(String(ceB), ceBPreviewCfg));
-      if (saveOps.length) await Promise.all(saveOps);
+      // P2：四端 config_json 由服务端 baseline+Σcontrib 重算落库，不再前端直写注入预览态
       setPlatformSaved(true);
-      message.success(`隧道已${editId ? '更新' : '创建'}，配置已写入平台库。请进入「下发向导」分步推送到 CSMctl。`);
+      message.success(
+        `隧道已${editId ? '更新' : '创建'}，四端生效配置已由平台重算并写入库。请进入「下发向导」分步推送到设备。`,
+      );
     } catch (err: any) {
-      message.error(`保存失败：${err?.message || '请稍后重试'}`);
+      const conflictList = err?.conflicts ?? err?.responseData?.conflicts;
+      const detail =
+        Array.isArray(conflictList) && conflictList.length
+          ? conflictList.map((c: { message?: string }) => c.message).filter(Boolean).join('；')
+          : '';
+      const baseMsg = err?.message || '请稍后重试';
+      const showMsg =
+        detail || (baseMsg.startsWith('无法保存隧道') ? baseMsg : `保存失败：${baseMsg}`);
+      message.error(showMsg, 8);
     } finally {
       setPlatformSaveLoading(false);
     }
@@ -1187,7 +1244,7 @@ const SRv6CreatePage: React.FC = () => {
       } else {
         const res: any = await apiPost('/api/networks/srv6/deploy/push', { vrId: entry.id });
         if (res?.error) throw new Error(res.error);
-        logMsg = `[${entry.label}] 下发 CSMctl 响应\nHTTP 状态: ${res.status}\nBody:\n${JSON.stringify(res.data ?? res, null, 2)}`;
+        logMsg = `[${entry.label}] 下发设备响应\nHTTP 状态: ${res.status}\nBody:\n${JSON.stringify(res.data ?? res, null, 2)}`;
         if (res.status !== 200 && res.status !== 201) throw new Error(`设备侧返回 HTTP ${res.status}`);
       }
       setDeployLogs((prev) => ({ ...prev, [stepIndex]: logMsg }));
@@ -1267,6 +1324,7 @@ const SRv6CreatePage: React.FC = () => {
                   placeholder="选择 PE-A 的 VR 实例"
                 />
               </Form.Item>
+              {renderPeHubAlert('peA', 'PE-A')}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
                 <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('peA')}>角色配置向导</Button>
               </div>
@@ -1313,6 +1371,7 @@ const SRv6CreatePage: React.FC = () => {
                   placeholder="选择 PE-B 的 VR 实例"
                 />
               </Form.Item>
+              {renderPeHubAlert('peB', 'PE-B')}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
                 <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('peB')}>角色配置向导</Button>
               </div>
@@ -1363,7 +1422,7 @@ const SRv6CreatePage: React.FC = () => {
             <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
           </Descriptions>
           <div style={{ marginTop: 16, fontSize: 12, color: '#64748b' }}>
-            请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到 CSMctl（与 IPsec VPN 向导一致）。
+            请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到设备（与 IPsec VPN 向导一致）。
           </div>
         </>
       );

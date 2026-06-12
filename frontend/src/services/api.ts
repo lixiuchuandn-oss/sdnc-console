@@ -1436,6 +1436,70 @@ export const fetchSrv6Tunnel = async (id: string) => {
   return await apiRequest(`/api/networks/srv6/${id}`);
 };
 
+export type Srv6HubVrStatus = {
+  vrUuid: string;
+  tunnelCount: number;
+  isHub: boolean;
+  tunnels: Array<{
+    tunnelId: string;
+    tunnelName: string;
+    slot: 'peA' | 'peB' | 'ceA' | 'ceB';
+    peAInnerIf?: string | null;
+    peBInnerIf?: string | null;
+    innerIfMeta?: { innerIf?: string; innerVrf?: string | number | null };
+  }>;
+};
+
+/** P3：查询某 VR 的 Hub 多隧道引用状态 */
+export const fetchSrv6HubStatus = async (vrUuid: string): Promise<Srv6HubVrStatus> => {
+  return await apiRequest(`/api/networks/srv6/vr/${encodeURIComponent(vrUuid)}/hub`, {
+    skipCache: true,
+  });
+};
+
+export type Srv6ReconcileIssue = {
+  code: string;
+  message: string;
+};
+
+export type Srv6ReconcileItem = {
+  vrUuid: string;
+  vrName?: string | null;
+  tunnelCount: number;
+  issues: Srv6ReconcileIssue[];
+  repaired: boolean;
+  repairActions: string[];
+};
+
+export type Srv6ReconcileReport = {
+  scanned: number;
+  withIssues: number;
+  repaired: number;
+  items: Srv6ReconcileItem[];
+};
+
+/** P4：SRv6 配置对账（只读） */
+export const fetchSrv6Reconcile = async (vrUuid?: string): Promise<Srv6ReconcileReport> => {
+  const qs = vrUuid ? `?vrUuid=${encodeURIComponent(vrUuid)}` : '';
+  return await apiRequest(`/api/networks/srv6/reconcile${qs}`, { skipCache: true });
+};
+
+/** P4：SRv6 配置对账并修复 */
+export const repairSrv6Reconcile = async (options?: {
+  vrUuid?: string;
+  repair?: boolean;
+}): Promise<Srv6ReconcileReport> => {
+  return await apiPost('/api/networks/srv6/reconcile', {
+    vrUuid: options?.vrUuid,
+    repair: options?.repair !== false,
+  });
+};
+
+/** P4：零隧道时重置 VR 基线 */
+export const resetSrv6VrBaseline = async (vrUuid: string) => {
+  return await apiPost(`/api/networks/srv6/vr/${encodeURIComponent(vrUuid)}/baseline/reset`, {});
+};
+
 /** 默认回退平台库并 push 设备；传 revertPlatform/revertDevice 为 false 可关闭 */
 export const deleteSrv6Tunnel = async (
   id: string,

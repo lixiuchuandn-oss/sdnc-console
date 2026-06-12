@@ -35,7 +35,7 @@ export const normalizeSrv6TunnelPayload = (payload: unknown): NormalizeResult =>
   };
 
   if (!value.name || !value.peA || !value.peB || !value.ceA || !value.ceB) {
-    return { ok: false, message: '缺少必要字段：name, peA, peB, ceA, ceB' };
+    return { ok: false, message: '请填写隧道名称并选择四端（PE-A、PE-B、CE-A、CE-B）' };
   }
   if (sameId(value.peA, value.peB)) {
     return { ok: false, message: 'PE-A 与 PE-B 不能相同' };
@@ -302,11 +302,11 @@ const normalizeRole = (role: unknown) => normalizeText(role).toUpperCase();
 const collectPeIssues = (cfg: Record<string, unknown>): string[] => {
   const issues: string[] = [];
   if (!extractSrv6LocatorFromConfig(cfg)) {
-    issues.push('缺少 SRv6 Locator（segment_routing_srv6.locator 或 pe.publicConfig.locatorName）');
+    issues.push('缺少 SRv6 Locator（请在角色配置向导中填写 Locator 名称）');
   }
   const prefix = extractSrv6PrefixFromConfig(cfg);
   if (!prefix) {
-    issues.push('缺少 SRv6 SID 前缀（segment_routing_srv6.prefix 或 pe.publicConfig.sidPrefix）');
+    issues.push('缺少 SRv6 SID 前缀（请在角色配置向导中填写 SID 前缀）');
   } else if (prefix.includes('/')) {
     issues.push('SRv6 SID 前缀不允许包含 / 掩码');
   }
@@ -317,7 +317,7 @@ const collectPeIssues = (cfg: Record<string, unknown>): string[] => {
     issues.push('缺少公网口 IPv6（用于 PE 互联与路由注入）');
   }
   if (!hasInterfaceWithVrf(cfg)) {
-    issues.push('缺少带 VRF 的内网接口（interfaces_* 中须配置 vrf）');
+    issues.push('缺少带 VRF 的内网接口（请在角色配置向导中为内网口指定 VRF）');
   }
   return issues;
 };
@@ -363,7 +363,7 @@ export const validateSrv6VrEndpointsForCreate = (
     }
     const cfg = parseConfigJson(row.config_json);
     if (!cfg) {
-      messages.push(`${slot.label}：config_json 为空或无法解析`);
+      messages.push(`${slot.label}：平台库中的设备配置为空或格式异常`);
       continue;
     }
     const issues =

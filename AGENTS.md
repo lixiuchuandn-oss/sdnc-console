@@ -40,7 +40,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范（强制约定摘要）** |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`** |
+| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`**、**`srv6-baseline-recompute.md`**（SRv6 配置管理实现方案）、**`srv6-release-notes.md`**（SRv6 发版说明） |
 | **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
@@ -307,7 +307,7 @@ Compute.Tower/
 - `/api/clouds/{id}/resources/harvester/containers/pdbs`: PodDisruptionBudget 管理
 
 **SDN 网络**：
-- `/api/networks/srv6`: SRv6 隧道
+- `/api/networks/srv6`：SRv6 隧道 CRUD；`GET|POST /api/networks/srv6/reconcile`（配置对账）；`GET /api/networks/srv6/vr/:vrUuid/hub`（Hub 状态）；`POST /api/networks/srv6/vr/:vrUuid/baseline/reset`（零隧道基线重置）；`GET|POST .../deploy/preview|push`（下发）。**baseline + 贡献 + recompute** 架构见 **`docs/srv6-baseline-recompute.md`** · 发版 **`docs/srv6-release-notes.md`** · 冒烟 **`frontend/.../interconnect/srv6/testcases.md`**
 - `/api/networks/ipsec`: IPsec VPN
 - `/api/networks/acl`: ACL 规则
 - `/api/networks/acl-groups`: ACL 分组

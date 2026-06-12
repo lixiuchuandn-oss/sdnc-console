@@ -10,7 +10,12 @@ import {
   parseSrv6ArchiveFromBody,
   validateTunnelArchiveRequired,
 } from './srv6.archive';
+import { auditSrv6Tunnel, auditSrv6Vr } from './srv6.audit';
+import { forceResetSrv6BaselineFromConfig } from './srv6.baseline';
 import { deleteSrv6TunnelWithRevert } from './srv6.delete';
+import { assertNoSrv6ContributionConflictsForTunnel, findAliveTunnelsByVr } from './srv6.hub';
+import { reconcileAllSrv6Vrs } from './srv6.reconcile';
+import { syncSrv6TunnelPlatformConfigs } from './srv6.sync';
 import {
   hasSrv6EndpointConflict,
   hasSrv6NameConflict,
@@ -168,6 +173,35 @@ srv6Routes.post('/', async (req, res, next) => {
     }
 
     const saved = await repo().save(item);
+
+    try {
+      await assertNoSrv6ContributionConflictsForTunnel(saved, { excludeTunnelId: saved.id });
+      await syncSrv6TunnelPlatformConfigs(saved);
+    } catch (syncErr: unknown) {
+      await repo().delete({ id: saved.id });
+      const err = syncErr as Error & { statusCode?: number; conflicts?: unknown };
+      if (err?.statusCode === 409) {
+        await auditSrv6Tunnel(
+          req,
+          'SRv6 Create Tunnel',
+          `创建失败（贡献冲突）：${saved.name}`,
+          false,
+          saved.id,
+        );
+        res.status(409).json({ message: err.message, conflicts: err.conflicts });
+        return;
+      }
+      throw syncErr;
+    }
+
+    await auditSrv6Tunnel(
+      req,
+      'SRv6 Create Tunnel',
+      `创建隧道：${saved.name}（四端已 sync）`,
+      true,
+      saved.id,
+    );
+
     // 模拟异步完成：短暂延迟后置为 available
     setTimeout(async () => {
       try {
@@ -245,9 +279,122 @@ srv6Routes.put('/:id', async (req, res, next) => {
       return;
     }
 
+    try {
+      await assertNoSrv6ContributionConflictsForTunnel(current, { excludeTunnelId: current.id });
+    } catch (conflictErr: unknown) {
+      const err = conflictErr as Error & { statusCode?: number; conflicts?: unknown };
+      if (err?.statusCode === 409) {
+        await auditSrv6Tunnel(
+          req,
+          'SRv6 Update Tunnel',
+          `更新失败（贡献冲突）：${current.name}`,
+          false,
+          current.id,
+        );
+        res.status(409).json({ message: err.message, conflicts: err.conflicts });
+        return;
+      }
+      throw conflictErr;
+    }
+
     const saved = await repo().save(current);
+    try {
+      await syncSrv6TunnelPlatformConfigs(saved);
+    } catch (syncErr: unknown) {
+      throw syncErr;
+    }
+    await auditSrv6Tunnel(
+      req,
+      'SRv6 Update Tunnel',
+      `更新隧道：${saved.name}（四端已 sync）`,
+      true,
+      saved.id,
+    );
     res.json(saved);
   } catch (e) {
+    next(e);
+  }
+});
+
+/** P4：SRv6 配置对账（只读） */
+srv6Routes.get('/reconcile', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
+      }
+    }
+    const vrUuid = typeof req.query.vrUuid === 'string' ? req.query.vrUuid.trim() : undefined;
+    const report = await reconcileAllSrv6Vrs({ repair: false, vrUuid });
+    res.json(report);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** P4：SRv6 配置对账并可选修复 */
+srv6Routes.post('/reconcile', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (!(role === 'super_admin' || perms.includes('networks.srv6:write'))) {
+        return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
+      }
+    }
+    const vrUuid = typeof req.body?.vrUuid === 'string' ? req.body.vrUuid.trim() : undefined;
+    const repair = req.body?.repair !== false;
+    const report = await reconcileAllSrv6Vrs({ repair, vrUuid });
+    await auditSrv6Vr(
+      req,
+      'SRv6 Reconcile',
+      `对账 ${report.scanned} 个 VR，发现问题 ${report.withIssues}，已修复 ${report.repaired}`,
+      true,
+    );
+    res.json(report);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** P4：零隧道时手动将基线对齐为当前 config_json */
+srv6Routes.post('/vr/:vrUuid/baseline/reset', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (!(role === 'super_admin' || perms.includes('networks.srv6:write'))) {
+        return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
+      }
+    }
+    const vrUuid = String(req.params.vrUuid || '').trim();
+    if (!vrUuid) {
+      res.status(400).json({ message: '缺少 vrUuid' });
+      return;
+    }
+    await forceResetSrv6BaselineFromConfig(vrUuid);
+    await auditSrv6Vr(req, 'SRv6 Baseline Reset', `零隧道重置基线：${vrUuid}`, true, vrUuid);
+    res.json({ success: true, vrUuid });
+  } catch (e: unknown) {
+    const err = e as Error & { statusCode?: number };
+    if (err?.statusCode === 409 || err?.statusCode === 404) {
+      res.status(err.statusCode).json({ message: err.message });
+      return;
+    }
     next(e);
   }
 });
@@ -272,13 +419,13 @@ srv6Routes.get('/deploy/preview', async (req: Request, res: Response) => {
     }
     const vrId = typeof req.query.vrId === 'string' ? req.query.vrId : '';
     if (!vrId) {
-      res.status(400).json({ error: 'Missing vrId' });
+      res.status(400).json({ error: '缺少设备 ID（vrId）' });
       return;
     }
 
     const record = await vrConfigRepo().findOne({ where: { uuid: vrId } });
     if (!record || !record.config_json) {
-      res.status(404).json({ error: 'VR config not found in DB' });
+      res.status(404).json({ error: '平台库中未找到该 VR 配置' });
       return;
     }
 
@@ -307,13 +454,13 @@ srv6Routes.post('/deploy/push', async (req: Request, res: Response) => {
     }
     const { vrId } = req.body || {};
     if (!vrId || typeof vrId !== 'string') {
-      res.status(400).json({ error: 'Missing vrId' });
+      res.status(400).json({ error: '缺少设备 ID（vrId）' });
       return;
     }
 
     const record = await vrConfigRepo().findOne({ where: { uuid: vrId } });
     if (!record || !record.config_json) {
-      res.status(404).json({ error: 'VR config not found in DB' });
+      res.status(404).json({ error: '平台库中未找到该 VR 配置' });
       return;
     }
 
@@ -331,7 +478,7 @@ srv6Routes.post('/deploy/push', async (req: Request, res: Response) => {
       respData.code != 200
     ) {
       throw new Error(
-        `Device returned error: ${respData.msg || respData.message || JSON.stringify(respData)}`,
+        `设备返回错误：${respData.msg || respData.message || JSON.stringify(respData)}`,
       );
     }
 
@@ -339,6 +486,36 @@ srv6Routes.post('/deploy/push', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[SRV6] deploy/push failed', e);
     res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+/** P3：Hub 多隧道 — 查询某 VR 被哪些存活隧道引用 */
+srv6Routes.get('/vr/:vrUuid/hub', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
+      }
+    }
+    const vrUuid = String(req.params.vrUuid || '').trim();
+    if (!vrUuid) {
+      res.status(400).json({ message: '缺少 vrUuid' });
+      return;
+    }
+    const status = await findAliveTunnelsByVr(vrUuid);
+    res.json(status);
+  } catch (e) {
+    next(e);
   }
 });
 
@@ -397,8 +574,22 @@ srv6Routes.delete('/:id', async (req, res, next) => {
 
     try {
       const result = await deleteSrv6TunnelWithRevert(item, { revertPlatform, revertDevice });
+      await auditSrv6Tunnel(
+        req,
+        'SRv6 Delete Tunnel',
+        `删除隧道：${item.name}（回退平台=${revertPlatform}，回退设备=${revertDevice}）`,
+        true,
+        id,
+      );
       res.json({ success: true, ...result });
     } catch (e: any) {
+      await auditSrv6Tunnel(
+        req,
+        'SRv6 Delete Tunnel',
+        `删除失败：${item.name} — ${e?.message || '未知错误'}`,
+        false,
+        id,
+      );
       const code = e?.statusCode === 400 || e?.statusCode === 409 ? e.statusCode : 500;
       res.status(code).json({
         message: e?.message || '删除失败',

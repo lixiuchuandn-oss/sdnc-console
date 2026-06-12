@@ -255,7 +255,7 @@ export const parseSrv6ArchiveFromBody = (
     const rtCommon = normalizeText(meta.rtCommon);
     const rdMap = meta.rdMap;
     if (!rtCommon || !rdMap || typeof rdMap !== 'object') {
-      return { ok: false, message: 'rdRtMeta 格式无效：需要 rtCommon 与 rdMap' };
+      return { ok: false, message: '路由标识（RD/RT）格式无效：缺少公共 RT 或 PE 侧 RD 映射' };
     }
     archive.rdRtMeta = { rtCommon, rdMap: rdMap as Record<string, string> };
   } else if (raw.rdRtMeta === null) {
@@ -264,14 +264,14 @@ export const parseSrv6ArchiveFromBody = (
 
   if (raw.injectedDelta !== undefined) {
     if (raw.injectedDelta !== null && typeof raw.injectedDelta !== 'object') {
-      return { ok: false, message: 'injectedDelta 须为对象' };
+      return { ok: false, message: '隧道配置变更清单格式无效' };
     }
     archive.injectedDelta = (raw.injectedDelta as Srv6InjectedDelta) ?? null;
   }
 
   if (raw.endpointFingerprint !== undefined) {
     if (raw.endpointFingerprint !== null && typeof raw.endpointFingerprint !== 'object') {
-      return { ok: false, message: 'endpointFingerprint 须为对象' };
+      return { ok: false, message: '端点配置指纹格式无效' };
     }
     archive.endpointFingerprint = (raw.endpointFingerprint as Srv6EndpointFingerprint) ?? null;
   }
@@ -326,14 +326,14 @@ export const validateTunnelArchiveRequired = (tunnel: {
   endpointFingerprint?: Srv6EndpointFingerprint | null;
 }): { ok: true } | { ok: false; message: string } => {
   if (!normalizeText(tunnel.peAInnerIf) || !normalizeText(tunnel.peBInnerIf)) {
-    return { ok: false, message: '缺少关系档案：peAInnerIf / peBInnerIf' };
+    return { ok: false, message: '缺少关系档案：须指定 PE-A / PE-B 内网接口' };
   }
   if (!tunnel.rdRtMeta?.rtCommon || !tunnel.rdRtMeta?.rdMap?.peA || !tunnel.rdRtMeta?.rdMap?.peB) {
-    return { ok: false, message: '缺少关系档案：rdRtMeta 须包含 rtCommon 与 peA/peB 的 RD' };
+    return { ok: false, message: '缺少关系档案：须包含公共 RT 与 PE-A / PE-B 的路由标识（RD）' };
   }
   const delta = tunnel.injectedDelta;
   if (!delta?.peA || !delta?.peB || !delta?.ceA || !delta?.ceB) {
-    return { ok: false, message: '缺少关系档案：injectedDelta 须包含 peA/peB/ceA/ceB 四端注入清单' };
+    return { ok: false, message: '缺少关系档案：须包含四端（PE-A、PE-B、CE-A、CE-B）配置变更清单' };
   }
   const hasEntries = (entry: Srv6InjectedDelta[keyof Srv6InjectedDelta]) =>
     !!entry &&
@@ -345,11 +345,11 @@ export const validateTunnelArchiveRequired = (tunnel: {
       entry.neighborDisableConnectedCheck,
     ].some((arr) => Array.isArray(arr) && arr.length > 0);
   if (!hasEntries(delta.peA) || !hasEntries(delta.peB) || !hasEntries(delta.ceA) || !hasEntries(delta.ceB)) {
-    return { ok: false, message: '缺少关系档案：四端 injectedDelta 不能为空' };
+    return { ok: false, message: '缺少关系档案：四端配置变更清单不能为空' };
   }
   const fp = tunnel.endpointFingerprint;
   if (!fp?.peA || !fp?.peB || !fp?.ceA || !fp?.ceB) {
-    return { ok: false, message: '缺少关系档案：endpointFingerprint 须包含四端指纹' };
+    return { ok: false, message: '缺少关系档案：须包含四端配置指纹' };
   }
   return { ok: true };
 };

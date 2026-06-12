@@ -19,6 +19,17 @@ export class VRConfig {
   @Column({ type: 'text' })
   config_json!: string; // 完整配置JSON字符串
 
+  /** SRv6 向导基线（Layer 0）；隧道贡献叠加前快照 */
+  @Column({ type: 'text', nullable: true })
+  srv6BaselineJson?: string | null;
+
+  @Column({ type: 'datetime', nullable: true })
+  srv6BaselineAt?: Date | null;
+
+  /** 首次捕获基线时关联的隧道 id */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  srv6BaselineTunnelId?: string | null;
+
   // 新增：角色（PE/CE），可为空
   @Column({ type: 'varchar', length: 10, nullable: true })
   role?: string;

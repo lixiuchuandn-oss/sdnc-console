@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge } from 'antd';
+import { Button, Checkbox, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge, Table, Alert } from 'antd';
 import type { MenuProps } from 'antd';
 import { ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -49,6 +49,29 @@ const SRv6Page: React.FC = () => {
     { key: 'ipsec', title: 'CE IPsec 隧道配置检查', status: 'wait', description: '' },
   ];
   const [healthSteps, setHealthSteps] = useState<HealthStep[]>(initialHealthSteps);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [reconcileReport, setReconcileReport] = useState<import('../../../../services/api').Srv6ReconcileReport | null>(null);
+
+  const runReconcile = async (repair: boolean) => {
+    setReconcileLoading(true);
+    try {
+      const { fetchSrv6Reconcile, repairSrv6Reconcile } = await import('../../../../services/api');
+      const report = repair ? await repairSrv6Reconcile({ repair: true }) : await fetchSrv6Reconcile();
+      setReconcileReport(report);
+      if (repair) {
+        message.success(`对账完成：已修复 ${report.repaired} 个 VR`);
+      } else if (report.withIssues === 0) {
+        message.success('对账完成：未发现配置漂移');
+      } else {
+        message.warning(`对账完成：发现 ${report.withIssues} 个 VR 存在漂移`);
+      }
+    } catch (e: any) {
+      message.error(`对账失败：${e?.message || '请稍后重试'}`);
+    } finally {
+      setReconcileLoading(false);
+    }
+  };
 
   const getActionMenu = (_row: Srv6TunnelRow): MenuProps['items'] => ([
     { key: 'topology', label: '查看拓扑' },
@@ -136,9 +159,33 @@ const SRv6Page: React.FC = () => {
     }
   };
 
+  const vrTunnelRefCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of tunnels) {
+      for (const id of [t.peA, t.peB, t.ceA, t.ceB]) {
+        if (!id) continue;
+        m.set(id, (m.get(id) || 0) + 1);
+      }
+    }
+    return m;
+  }, [tunnels]);
+
+  const tunnelUsesHubVr = (row: Srv6TunnelRow) =>
+    [row.peA, row.peB, row.ceA, row.ceB].some((id) => (vrTunnelRefCount.get(id) || 0) > 1);
+
   // 初始列
   const fullColumns: ColumnsType<Srv6TunnelRow> = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, row) => (
+        <Space size={6}>
+          <span>{name}</span>
+          {tunnelUsesHubVr(row) ? <Tag color="purple">Hub</Tag> : null}
+        </Space>
+      ),
+    },
     { title: 'PE-A', dataIndex: 'peA', key: 'peA' },
     { title: 'PE-B', dataIndex: 'peB', key: 'peB' },
     { title: 'CE-A', dataIndex: 'ceA', key: 'ceA' },
@@ -263,6 +310,17 @@ const SRv6Page: React.FC = () => {
         onClick: () => navigate('/admin/interconnect/srv6/create'),
         type: 'primary',
       }}
+      secondaryActions={
+        <Button
+          onClick={() => {
+            setReconcileReport(null);
+            setReconcileOpen(true);
+            void runReconcile(false);
+          }}
+        >
+          配置对账
+        </Button>
+      }
       onRefresh={() => { void forceRefresh(); }}
       defaultHiddenColumns={[]} // Display all columns by default
       toolbarLeft={(
@@ -317,6 +375,79 @@ const SRv6Page: React.FC = () => {
         bordered: false
       }}
     >
+      <Modal
+        title="SRv6 配置对账"
+        open={reconcileOpen}
+        onCancel={() => {
+          setReconcileOpen(false);
+          setReconcileReport(null);
+        }}
+        width={900}
+        footer={[
+          <Button key="close" onClick={() => setReconcileOpen(false)}>
+            关闭
+          </Button>,
+          <Button key="scan" loading={reconcileLoading} onClick={() => void runReconcile(false)}>
+            重新扫描
+          </Button>,
+          <Button
+            key="repair"
+            type="primary"
+            loading={reconcileLoading}
+            onClick={() => void runReconcile(true)}
+          >
+            扫描并修复
+          </Button>,
+        ]}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="对账说明"
+          description="检查各 VR 的平台生效配置是否与「向导基线 + 存活隧道叠加」一致；无存活隧道时可将向导基线对齐为当前配置。修复操作会写入审计日志。"
+        />
+        {reconcileReport ? (
+          <div style={{ marginBottom: 8, color: 'rgba(0,0,0,.65)' }}>
+            扫描 {reconcileReport.scanned} 个 VR · 问题 {reconcileReport.withIssues} · 已修复{' '}
+            {reconcileReport.repaired}
+          </div>
+        ) : null}
+        <Table
+          size="small"
+          loading={reconcileLoading}
+          rowKey="vrUuid"
+          pagination={{ pageSize: 8, size: 'small' }}
+          dataSource={reconcileReport?.items?.filter((i) => i.issues.length > 0 || i.repaired) ?? []}
+          locale={{ emptyText: reconcileLoading ? '扫描中…' : '暂无漂移项' }}
+          columns={[
+            { title: 'VR UUID', dataIndex: 'vrUuid', key: 'vrUuid', ellipsis: true },
+            { title: '名称', dataIndex: 'vrName', key: 'vrName', render: (v) => v || '-' },
+            { title: '隧道数', dataIndex: 'tunnelCount', key: 'tunnelCount', width: 72 },
+            {
+              title: '问题',
+              key: 'issues',
+              render: (_: unknown, row) =>
+                row.issues.length
+                  ? row.issues.map((iss) => (
+                      <div key={`${iss.code}-${iss.message}`} style={{ marginBottom: 4 }}>
+                        {iss.message}
+                      </div>
+                    ))
+                  : row.repaired
+                    ? <Tag color="green">已修复</Tag>
+                    : '-',
+            },
+            {
+              title: '修复动作',
+              dataIndex: 'repairActions',
+              key: 'repairActions',
+              render: (acts: string[]) => (acts?.length ? acts.join('；') : '-'),
+            },
+          ]}
+        />
+      </Modal>
+
       <Modal
         title={`健康巡检${healthRow ? ` - ${healthRow.name}` : ''}`}
         open={healthModalOpen}

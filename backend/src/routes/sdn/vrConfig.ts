@@ -282,12 +282,39 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
       throw lockErr;
     }
 
+    const { findSrv6TunnelsReferencingVr } = await import('./srv6.references');
+    const { listAliveContributionsForVr } = await import('./srv6.sync');
+    const { persistSrv6VrEffectiveConfig } = await import('./srv6.sync');
+    const srv6Refs = await findSrv6TunnelsReferencingVr(uuid);
+    const hasSrv6Baseline = Boolean(record?.srv6BaselineJson?.trim());
+
     if (record) {
-      record.config_json = jsonStr;
       if (cloudId !== undefined) record.cloudId = cloudId;
       if (cloudName !== undefined) record.cloudName = cloudName;
       if (vmId !== undefined) record.vmId = vmId;
-      await repo.save(record);
+
+      // P2：有存活隧道引用时，生效配置仅由 baseline+Σcontrib 推导
+      if (hasSrv6Baseline && srv6Refs.length > 0) {
+        await persistSrv6VrEffectiveConfig(uuid);
+        const fresh = await repo.findOne({ where: { uuid } });
+        if (fresh) {
+          if (cloudId !== undefined) fresh.cloudId = cloudId;
+          if (cloudName !== undefined) fresh.cloudName = cloudName;
+          if (vmId !== undefined) fresh.vmId = vmId;
+          await repo.save(fresh);
+          record = fresh;
+        }
+      } else if (hasSrv6Baseline && srv6Refs.length === 0) {
+        // 无存活隧道：允许向导更新，并刷新基线（P4 前过渡）
+        record.config_json = jsonStr;
+        record.srv6BaselineJson = jsonStr;
+        record.srv6BaselineAt = new Date();
+        record.srv6BaselineTunnelId = null;
+        await repo.save(record);
+      } else {
+        record.config_json = jsonStr;
+        await repo.save(record);
+      }
     } else {
       record = repo.create({
         uuid,
@@ -299,7 +326,15 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
       await repo.save(record);
     }
 
-    return res.json({ code: 200, msg: 'ok', data: { uuid } });
+    const recomputed =
+      Boolean(record?.srv6BaselineJson?.trim()) &&
+      (await listAliveContributionsForVr(uuid)).length > 0;
+
+    return res.json({
+      code: 200,
+      msg: 'ok',
+      data: { uuid, srv6Recomputed: recomputed },
+    });
   } catch (err: any) {
     vrConfigLog.error('upsert error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
