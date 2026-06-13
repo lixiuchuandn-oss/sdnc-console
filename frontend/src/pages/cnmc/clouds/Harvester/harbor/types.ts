@@ -86,6 +86,8 @@ export interface HarborProject {
   createdAt: string;
   /** 更新时间 */
   updatedAt?: string;
+  /** 当前用户在项目中的角色 (1=项目管理员, 2=维护者, 3=开发者, 4=访客) */
+  currentUserRole?: number;
 }
 
 /**
@@ -465,4 +467,138 @@ export interface HarborSyncSecretResult {
   namespace: string;
   /** 是否新建 */
   created: boolean;
+}
+
+// ==================== 租户用户（用于成员选择器） ====================
+
+/**
+ * 租户用户（用于成员选择器）
+ */
+export interface HarborTenantUser {
+  /** 用户 ID */
+  id: string;
+  /** 用户名 */
+  username: string;
+  /** 显示名称 */
+  fullName?: string;
+  /** 邮箱 */
+  email?: string;
+  /** 所属组织 ID */
+  organizationId?: string;
+  /** 所属组织 */
+  organization?: {
+    id: string;
+    name: string;
+    level?: number;
+    path?: string[]; // 完整组织路径（从根到当前组织）
+  };
+  /** 是否已有 Harbor 映射 */
+  hasHarborMapping?: boolean;
+}
+
+// ==================== 用户映射 ====================
+
+/**
+ * Harbor 用户映射
+ */
+export interface HarborUserMapping {
+  /** 映射 ID */
+  id: string;
+  /** Harbor 实例 ID */
+  harborRegistryId: string;
+  /** 租户 ID */
+  tenantId: string;
+  /** 租户用户 ID */
+  tenantUserId: string;
+  /** Harbor 用户名 */
+  harborUsername: string;
+  /** Harbor 用户 ID */
+  harborUserId?: number;
+  /** 邮箱 */
+  email?: string;
+  /** 同步状态 */
+  syncStatus: 'synced' | 'pending' | 'failed';
+}
+
+// ==================== 项目绑定 ====================
+
+/**
+ * Harbor 项目租户绑定
+ */
+export interface HarborProjectBinding {
+  /** 绑定 ID */
+  id: string;
+  /** Harbor 实例 ID */
+  harborRegistryId: string;
+  /** 项目 ID */
+  projectId: number;
+  /** 项目名称 */
+  projectName: string;
+  /** 租户 ID（null = 公共项目） */
+  tenantId?: string;
+  /** 创建者 */
+  createdBy: string;
+  /** 创建者类型 */
+  createdByType: 'system' | 'tenant';
+  /** 可见性 */
+  visibility: 'public' | 'private';
+}
+
+// ==================== 扩展项目类型 ====================
+
+/**
+ * 带租户信息的项目
+ */
+export interface HarborProjectWithTenant extends HarborProject {
+  /** 关联的租户 ID */
+  tenantId?: string;
+  /** 租户名称 */
+  tenantName?: string;
+  /** 当前用户是否为项目所有者 */
+  isOwner?: boolean;
+  /** 当前用户在项目中的角色 */
+  currentUserRole?: number;
+}
+
+// ==================== 扩展成员类型 ====================
+
+/**
+ * 带 Tower 用户信息的成员
+ */
+export interface HarborProjectMemberWithUser extends HarborProjectMember {
+  /** Tower 用户信息 */
+  towerUser?: {
+    id: string;
+    username: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+    organization?: {
+      id: string;
+      name: string;
+      level?: number;
+    };
+  };
+}
+
+// ==================== 请求参数 ====================
+
+/**
+ * 添加成员请求参数（Tower 用户 ID）
+ */
+export interface AddHarborProjectMemberParams {
+  /** Tower 租户用户 ID */
+  tenantUserId: string;
+  /** Harbor 密码（首次创建时需要） */
+  harborPassword?: string;
+  /** 角色 ID */
+  role: number;
+}
+
+/**
+ * 更新成员角色请求参数
+ */
+export interface UpdateHarborProjectMemberRoleParams {
+  /** 新角色 ID */
+  roleId: number;
 }

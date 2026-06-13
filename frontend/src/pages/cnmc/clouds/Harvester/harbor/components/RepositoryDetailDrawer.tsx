@@ -17,7 +17,8 @@ import {
 } from '@ant-design/icons';
 import type { HarborRepository } from '../types';
 import type { HarborProjectRef } from '../shared/harborApi';
-import { setHarborApiCloudId } from '../shared/harborApi';
+import { setHarborApiCloudId, getHarborProject } from '../shared/harborApi';
+import type { HarborProjectWithTenant } from '../types';
 
 // 懒加载 Tab 组件
 const ArtifactsSection = React.lazy(() => import('../sections/ArtifactsSection'));
@@ -30,6 +31,7 @@ interface Props {
   cloudId: string;
   onClose: () => void;
   onBack: () => void;
+  currentUserRole?: number;
 }
 
 /**
@@ -38,13 +40,29 @@ interface Props {
 const RepositoryDetailDrawer: React.FC<Props> = ({
   visible,
   harborId,
-  project,
+  project: projectProp,
   repository,
   cloudId,
   onClose,
   onBack,
+  currentUserRole: currentUserRoleProp,
 }) => {
   const [activeTab, setActiveTab] = useState('artifacts');
+  const [fullProject, setFullProject] = useState<HarborProjectWithTenant | null>(null);
+
+  useEffect(() => {
+    if (visible && projectProp.projectId) {
+      getHarborProject(harborId, { projectId: projectProp.projectId, name: projectProp.name })
+        .then(setFullProject)
+        .catch(() => setFullProject(null));
+    } else {
+      setFullProject(null);
+    }
+  }, [visible, harborId, projectProp.projectId, projectProp.name]);
+
+  const currentUserRole = fullProject?.currentUserRole ?? projectProp.currentUserRole ?? currentUserRoleProp;
+
+  const project = projectProp;
 
   useEffect(() => {
     if (visible && cloudId) {
@@ -164,6 +182,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
                   harborId={harborId} 
                   project={project}
                   repositoryName={repository.name}
+                  currentUserRole={currentUserRole}
                 />
               </React.Suspense>
             ),

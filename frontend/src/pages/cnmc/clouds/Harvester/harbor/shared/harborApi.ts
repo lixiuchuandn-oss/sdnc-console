@@ -27,10 +27,23 @@ import type {
   HarborSyncSecretParams,
   HarborSyncSecretResult,
   HarborUploadProgress,
+  HarborTenantUser,
+  HarborUserMapping,
+  HarborProjectBinding,
+  HarborProjectWithTenant,
+  HarborProjectMemberWithUser,
+  AddHarborProjectMemberParams,
+  UpdateHarborProjectMemberRoleParams,
 } from '../types';
 
 /** Harbor API 前缀 */
 const API_PREFIX = '/api/harbor';
+
+/** Harbor 项目引用（携带 projectId，用于 Harbor 路由参数为 project_id） */
+export type HarborProjectRef = Pick<HarborProject, 'name'> & { 
+  projectId?: number;
+  currentUserRole?: number;
+};
 
 /** 当前 Harbor API 请求所属资源池（由详情页/抽屉设置） */
 let harborApiCloudId: string | undefined;
@@ -51,7 +64,6 @@ function registryUrl(harborId: string, subPath = '', cloudId?: string): string {
 }
 
 /** 纯数字项目名需携带 projectId，避免 Harbor 将路径解析为 project_id */
-export type HarborProjectRef = Pick<HarborProject, 'name'> & { projectId?: number };
 
 type HarborProjectRefInput = string | HarborProjectRef;
 
@@ -110,8 +122,9 @@ export const createHarborRegistry = async (data: HarborRegistryForm): Promise<Ha
  * @returns Harbor 实例详情
  */
 export const getHarborRegistry = async (id: string, cloudId?: string): Promise<HarborRegistry> => {
-  const query = cloudId ? `?cloudId=${encodeURIComponent(cloudId)}` : '';
-  const result = await apiRequest(`${API_PREFIX}/registries/${id}${query}`);
+  const cid = cloudId ?? harborApiCloudId;
+  const url = registryUrl(id, '', cid);
+  const result = await apiRequest(url);
   return result?.data || result;
 };
 
@@ -257,7 +270,7 @@ export const createHarborProject = async (
 export const getHarborProject = async (
   harborId: string,
   projectRef: HarborProjectRefInput,
-): Promise<HarborProject> => {
+): Promise<HarborProjectWithTenant> => {
   const result = await apiRequest(buildHarborProjectApiPath(harborId, projectRef));
   return result?.data || result;
 };
@@ -965,4 +978,59 @@ export const getHarborUploadTask = async (
     buildHarborProjectApiPath(harborId, projectRef, `/upload-tasks/${taskId}`),
   );
   return result?.data || result;
+};
+
+// ==================== 用户管理 ====================
+
+/**
+ * 获取租户用户列表（用于成员选择器）
+ */
+export const getHarborTenantUsers = async (
+  harborId: string,
+): Promise<HarborTenantUser[]> => {
+  const result = await apiRequest(`/api/harbor/registries/${harborId}/tenant-users`);
+  return result?.data || result;
+};
+
+/**
+ * 检查用户是否已有 Harbor 映射
+ */
+export const checkHarborUserMapping = async (
+  harborId: string,
+  tenantUserId: string,
+): Promise<{ exists: boolean; mapping?: HarborUserMapping }> => {
+  const result = await apiRequest(`/api/harbor/registries/${harborId}/user-mappings/${tenantUserId}`);
+  return result?.data || result;
+};
+
+// ==================== 成员管理扩展 ====================
+
+/**
+ * 添加项目成员（Tower 用户）
+ */
+export const addHarborProjectMemberByTenantUser = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  params: AddHarborProjectMemberParams,
+): Promise<HarborProjectMember> => {
+  const result = await apiPost(
+    buildHarborProjectApiPath(harborId, projectRef, '/members'),
+    params,
+  );
+  return result?.data || result;
+};
+
+/**
+ * 更新项目成员角色
+ */
+export const updateHarborProjectMemberRole = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  memberId: number,
+  params: UpdateHarborProjectMemberRoleParams,
+): Promise<void> => {
+  await apiPut(
+    `${buildHarborProjectApiPath(harborId, projectRef, '/members')}/${memberId}`,
+    params,
+  );
 };

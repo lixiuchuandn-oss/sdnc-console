@@ -16,6 +16,7 @@ import {
 import type { HarborArtifact } from '../types';
 import type { HarborProjectRef } from '../shared/harborApi';
 import ArtifactDetailDrawer from '../components/ArtifactDetailDrawer';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 
 interface Props {
   /** Harbor 实例 ID */
@@ -24,12 +25,20 @@ interface Props {
   project: HarborProjectRef;
   /** 仓库名称 */
   repositoryName: string;
+  /** 当前用户在该项目中的角色 */
+  currentUserRole?: number;
 }
 
 /**
  * 制品列表组件
  */
-const ArtifactsSection: React.FC<Props> = ({ harborId, project, repositoryName }) => {
+const ArtifactsSection: React.FC<Props> = ({
+  harborId,
+  project,
+  repositoryName,
+  currentUserRole,
+}) => {
+  const { user } = useAuth();
   const [artifacts, setArtifacts] = useState<HarborArtifact[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -38,6 +47,10 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, project, repositoryName }
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addTagModalVisible, setAddTagModalVisible] = useState(false);
   const [newTagName, setNewTagName] = useState('');
+
+  // 权限判断：系统管理员、项目管理员、开发者、维护人员可以写操作
+  const isSystemAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const canWrite = isSystemAdmin || (currentUserRole !== undefined && [1, 2, 4].includes(currentUserRole));
 
   /**
    * 加载制品列表
@@ -250,21 +263,26 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, project, repositoryName }
             label: '详情',
             onClick: () => handleViewDetail(record),
           },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
-            onClick: () => {
-              void confirmHighRiskDelete({
-                resourceLabel: '制品',
-                name: record.digest || record.tags?.[0]?.name || '-',
-                description: '删除制品将同时删除关联的标签，此操作不可恢复。',
-                riskItems: DELETE_RISK_ITEMS,
-                confirmText: '确认',
-                onConfirm: () => handleDelete(record),
-              }).catch(() => {});
-            },
-          },
+          // 只有写权限才显示删除按钮
+          ...(canWrite
+            ? [
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  onClick: () => {
+                    void confirmHighRiskDelete({
+                      resourceLabel: '制品',
+                      name: record.digest || record.tags?.[0]?.name || '-',
+                      description: '删除制品将同时删除关联的标签，此操作不可恢复。',
+                      riskItems: DELETE_RISK_ITEMS,
+                      confirmText: '确认',
+                      onConfirm: () => handleDelete(record),
+                    }).catch(() => {});
+                  },
+                },
+              ]
+            : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
@@ -285,7 +303,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, project, repositoryName }
         <Button icon={<ReloadOutlined />} onClick={loadArtifacts}>
           刷新
         </Button>
-        {selectedRowKeys.length > 0 && (
+        {canWrite && selectedRowKeys.length > 0 && (
           <Button 
             type="primary" 
             icon={<PlusOutlined />}
@@ -319,6 +337,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, project, repositoryName }
         project={project}
         repositoryName={repositoryName}
         onClose={() => setDrawerVisible(false)}
+        currentUserRole={currentUserRole}
       />
 
       {/* 批量添加标签弹窗 */}

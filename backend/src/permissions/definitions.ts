@@ -241,6 +241,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   'harbor.registry:create': '创建 Harbor 实例',
   'harbor.registry:update': '编辑 Harbor 实例配置',
   'harbor.registry:delete': '删除 Harbor 实例',
+  'harbor.project:read': '查看 Harbor 项目列表',
   'harbor.project:create': '创建 Harbor 项目',
   'harbor.project:update': '编辑 Harbor 项目',
   'harbor.project:delete': '删除 Harbor 项目',

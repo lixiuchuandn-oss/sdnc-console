@@ -350,6 +350,7 @@ export const ALL_PERMISSIONS = [
   'harbor:registry:delete', // Harbor 实例 - 删除
 
   // Harbor 项目管理
+  'harbor:project:read', // Harbor 项目 - 查看
   'harbor:project:create', // Harbor 项目 - 创建
   'harbor:project:update', // Harbor 项目 - 编辑
   'harbor:project:delete', // Harbor 项目 - 删除
