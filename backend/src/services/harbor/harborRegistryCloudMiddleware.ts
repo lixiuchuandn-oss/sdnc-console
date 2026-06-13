@@ -30,6 +30,13 @@ export async function harborRegistryCloudAccessMiddleware(
     }
 
     const cloudId = resolveHarborCloudId(req);
+    console.log('[CloudMiddleware] tenant-users请求', {
+      url: req.url,
+      params: req.params,
+      query: req.query,
+      body: req.body,
+      cloudId,
+    });
     if (!cloudId) {
       const repo = AppDataSource.getRepository(HarborRegistry);
       const registry = await repo.findOne({ where: { id: harborId } });
