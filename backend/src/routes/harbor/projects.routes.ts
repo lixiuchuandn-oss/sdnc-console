@@ -1670,7 +1670,7 @@ router.put(
         return res.status(400).json({ message: '缺少必填字段: roleId' });
       }
 
-      const result = await getHarborService(id);
+      const result = await getHarborService(req as HarborScopedRequest);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
@@ -1707,7 +1707,7 @@ router.get('/registries/:id/tenant-users', async (req: AuthRequest, res: Respons
   try {
     const { id } = req.params;
 
-    const result = await getHarborService(id);
+    const result = await getHarborService(req as HarborScopedRequest);
     if (!result) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -1802,7 +1802,7 @@ router.get(
     try {
       const { id, tenantUserId } = req.params;
 
-      const result = await getHarborService(id);
+      const result = await getHarborService(req as HarborScopedRequest);
       if (!result) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
