@@ -122,8 +122,9 @@ export const createHarborRegistry = async (data: HarborRegistryForm): Promise<Ha
  * @returns Harbor 实例详情
  */
 export const getHarborRegistry = async (id: string, cloudId?: string): Promise<HarborRegistry> => {
-  const query = cloudId ? `?cloudId=${encodeURIComponent(cloudId)}` : '';
-  const result = await apiRequest(`${API_PREFIX}/registries/${id}${query}`);
+  const cid = cloudId ?? harborApiCloudId;
+  const url = registryUrl(id, '', cid);
+  const result = await apiRequest(url);
   return result?.data || result;
 };
 

@@ -299,10 +299,15 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const cloudId = req.query?.cloudId;
-    if (!cloudId) {
-      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+
+    let registry: HarborRegistry | null = null;
+    if (cloudId) {
+      registry = await findHarborRegistryForCloud(id, String(cloudId));
+    } else {
+      const repo = AppDataSource.getRepository(HarborRegistry);
+      registry = await repo.findOne({ where: { id } });
     }
-    const registry = await findHarborRegistryForCloud(id, String(cloudId));
+
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
