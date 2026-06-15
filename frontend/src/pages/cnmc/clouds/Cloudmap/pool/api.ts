@@ -38,6 +38,8 @@ export {
   fetchHarvesterTemplates, // 虚拟机模板列表
 } from '../../../../../services/harvesterApi';
 
+export { fetchHarvesterOvnMirrors } from '../../../../../services/harvester/ovnMirrors';
+
 // --- 虚拟卷 · 虚拟卷快照 ---
 export {
   fetchHarvesterSnapshots, // 虚拟卷快照列表

@@ -193,6 +193,8 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds.cloudinits:read') ||
     checkPerm('clouds.recycle-bin:read') ||
     checkPerm('clouds.migrations:read') ||
+    checkPerm('clouds.traffic-mirroring.vpc:read') ||
+    checkPerm('clouds.traffic-mirroring.flat:read') ||
     checkPerm('clouds:read');
 
   const canViewCloudDatabaseTab =

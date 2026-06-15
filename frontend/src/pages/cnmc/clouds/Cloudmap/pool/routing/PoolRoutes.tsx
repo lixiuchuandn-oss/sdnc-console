@@ -208,6 +208,8 @@ const ComputeRoute: React.FC = () => {
       rawCloudInits={p.rawCloudInits}
       harvesterMigrations={p.harvesterMigrations}
       rawMigrations={p.rawMigrations}
+      harvesterOvnMirrors={p.harvesterOvnMirrors}
+      rawOvnMirrors={p.rawOvnMirrors}
     />
   );
 };

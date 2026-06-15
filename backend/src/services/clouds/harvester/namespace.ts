@@ -14,6 +14,7 @@ export const SYSTEM_NAMESPACE_EXACT_NAMES = [
   'hci-manager-system',
   'rook-ceph',
   'harbor-system',
+  'log-audit-system',
 ] as const;
 
 const SYSTEM_NAMESPACE_EXACT_NAME_SET = new Set<string>(SYSTEM_NAMESPACE_EXACT_NAMES);

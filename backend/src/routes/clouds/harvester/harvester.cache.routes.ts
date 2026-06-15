@@ -67,6 +67,13 @@ import {
   harvesterDrsMetricRulesListHandler,
   harvesterDrsMetricRuleCrUpdateHandler,
 } from './handlers/drs-metric-rule-cr.handlers';
+import {
+  harvesterOvnMirrorCrCreateHandler,
+  harvesterOvnMirrorCrDeleteHandler,
+  harvesterOvnMirrorCrGetHandler,
+  harvesterOvnMirrorsListHandler,
+  harvesterOvnMirrorCrUpdateHandler,
+} from './handlers/ovn-mirror-cr.handlers';
 
 /**
  * 注册 Harvester 缓存路由
@@ -295,6 +302,33 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     '/:id/resources/harvester/deployment-sets/:setId',
     checkAdminPermission,
     harvesterDeploymentSetDeleteHandler,
+  );
+
+  // 流量镜像（OvnMirror CR）
+  router.get(
+    '/:id/resources/harvester/ovn-mirrors',
+    checkAdminPermission,
+    harvesterOvnMirrorsListHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/ovn-mirrors',
+    checkAdminPermission,
+    harvesterOvnMirrorCrCreateHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/ovn-mirrors/:name',
+    checkAdminPermission,
+    harvesterOvnMirrorCrGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/ovn-mirrors/:name',
+    checkAdminPermission,
+    harvesterOvnMirrorCrUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/ovn-mirrors/:name',
+    checkAdminPermission,
+    harvesterOvnMirrorCrDeleteHandler,
   );
 
   // 存储 DRS（SDRS）

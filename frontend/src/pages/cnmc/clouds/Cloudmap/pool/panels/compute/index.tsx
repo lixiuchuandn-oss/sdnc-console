@@ -10,6 +10,7 @@ import {
   LazyCloudInitsSection,
   LazyRecycleBinSection,
   LazyMigrationsSection,
+  LazyOvnMirrorsSection,
 } from '../../../../Harvester/ecs/lazySections';
 import { HarvesterPersistentImageUploadDrawer } from '../../../../Harvester/ecs/components/HarvesterPersistentImageUploadDrawer';
 import type { ImageUploadTasksDrawerHandle } from '../../../../Harvester/ecs/components/ImageUploadTasksDrawer';
@@ -93,6 +94,8 @@ export type CloudmapComputeRoutePanelProps = {
   refreshVms: (force?: boolean, skipSync?: boolean) => void | Promise<void>;
   harvesterMigrations: any[];
   rawMigrations: any;
+  harvesterOvnMirrors: any[];
+  rawOvnMirrors: any;
   harvesterImages: any[];
   harvesterNamespaces: any[];
   harvesterVolumes: any[];
@@ -123,6 +126,12 @@ function canViewComputeInner(
   if (key === 'migrations')
     return (
       checkPerm('clouds.migrations:read') || checkPerm('clouds.ecs:read')
+    );
+  if (key === 'traffic_mirror')
+    return (
+      checkPerm('clouds.traffic-mirroring.vpc:read') ||
+      checkPerm('clouds.traffic-mirroring.flat:read') ||
+      checkPerm('clouds.ecs:read')
     );
   return false;
 }
@@ -171,6 +180,8 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
     rawCloudInits,
     harvesterMigrations,
     rawMigrations,
+    harvesterOvnMirrors,
+    rawOvnMirrors,
   } = props;
 
   const reloadVmListAfterMutation = useCallback(() => {
@@ -260,6 +271,7 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
       cloud_inits: createComputeTabOnRefresh('cloud_inits', deps),
       recycle_bin: createComputeTabOnRefresh('recycle_bin', deps),
       migrations: createComputeTabOnRefresh('migrations', deps),
+      traffic_mirror: createComputeTabOnRefresh('traffic_mirror', deps),
     };
   }, [loadTabResource, refreshVmSectionAuxiliaries]);
 
@@ -649,6 +661,28 @@ const CloudmapComputeRoutePanel: React.FC<CloudmapComputeRoutePanelProps> = (
           isTenant={isTenant}
         />
         <DebugJSON data={rawMigrations} show={showLog} />
+        </>
+      </EcsSectionSuspense>,
+    );
+  }
+
+  if (innerActiveKey === 'traffic_mirror') {
+    return withImageUploadDrawer(
+      <EcsSectionSuspense>
+        <>
+        <LazyOvnMirrorsSection
+          cloudId={cloudId}
+          vms={ecs}
+          kubeOvnSubnets={kubeOvnSubnets}
+          subnetsLoading={resourceLoading.subnets}
+          ovnMirrors={harvesterOvnMirrors}
+          loading={resourceLoading.ovnMirrors}
+          apiAvailable={rawOvnMirrors?.available !== false}
+          apiError={rawOvnMirrors?.error}
+          onRefresh={computeTabOnRefresh.traffic_mirror}
+          isTenant={isTenant}
+        />
+        <DebugJSON data={rawOvnMirrors} show={showLog} />
         </>
       </EcsSectionSuspense>,
     );

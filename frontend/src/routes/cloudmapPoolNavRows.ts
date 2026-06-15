@@ -57,7 +57,7 @@ export const CLOUDMAP_POOL_NAV_SUBGROUP_LABELS: Readonly<Record<string, string>>
   cluster_storage_object: '对象存储',
   /** USB / PCI / 网卡（GPU 归入计算资源） */
   cluster_device_passthrough: '直通设备',
-  /** SSH 密钥、CloudInit、迁移记录 */
+  /** SSH 密钥、CloudInit、迁移记录、流量镜像 */
   compute_advanced_config: '高级配置',
 };
 
@@ -379,6 +379,17 @@ export const CLOUDMAP_POOL_NAV_ROWS: readonly CloudmapPoolNavRow[] = [
     poolPageAction: 'clouds.migrations:read',
     title: '迁移记录',
     order: 47,
+    icon: 'DesktopOutlined',
+    poolNavGroup: '云主机',
+    poolMenuParentKey: COMPUTE,
+    poolNavSubgroup: 'compute_advanced_config',
+  },
+  {
+    id: 'cloudmap-pool-compute-traffic-mirror',
+    pathSuffix: 'compute/traffic_mirror',
+    poolPageAction: 'clouds.traffic-mirroring.vpc:read',
+    title: '流量镜像',
+    order: 48,
     icon: 'DesktopOutlined',
     poolNavGroup: '云主机',
     poolMenuParentKey: COMPUTE,

@@ -38,6 +38,7 @@ const CLUSTER_KIND_PATH: Record<string, (name: string) => string> = {
   Switch: (name) => `/apis/hms.rivercloud.com/v1/switches/${encodeURIComponent(name)}`,
   MetricRule: (name) => `/apis/hms.rivercloud.com/v1/metricrules/${encodeURIComponent(name)}`,
   DeploySet: (name) => `/apis/hms.rivercloud.com/v1/deploysets/${encodeURIComponent(name)}`,
+  OvnMirror: (name) => `/apis/hms.rivercloud.com/v1/ovnmirrors/${encodeURIComponent(name)}`,
   SecurityGroup: (name) => `/apis/hms.rivercloud.com/v1/securitygroups/${encodeURIComponent(name)}`,
 };
 

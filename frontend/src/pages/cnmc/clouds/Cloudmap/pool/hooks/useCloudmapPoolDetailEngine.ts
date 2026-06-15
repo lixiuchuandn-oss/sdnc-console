@@ -132,6 +132,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]);
   const [harvesterMigrations, setHarvesterMigrations] = useState<any[]>([]);
   const [rawMigrations, setRawMigrations] = useState<any | null>(null);
+  const [harvesterOvnMirrors, setHarvesterOvnMirrors] = useState<any[]>([]);
+  const [rawOvnMirrors, setRawOvnMirrors] = useState<any | null>(null);
   const [harvesterScheduleVmBackups, setHarvesterScheduleVmBackups] = useState<
     any[]
   >([]);
@@ -348,6 +350,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawImages,
         setHarvesterMigrations,
         setRawMigrations,
+        setHarvesterOvnMirrors,
+        setRawOvnMirrors,
         setHarvesterGpuResources,
         setRawGpu,
         setHarvesterUsbDevices,
@@ -635,6 +639,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterCloudInits,
     harvesterMigrations,
     rawMigrations,
+    harvesterOvnMirrors,
+    rawOvnMirrors,
     rawImages,
     rawTemplates,
     rawSshKeys,

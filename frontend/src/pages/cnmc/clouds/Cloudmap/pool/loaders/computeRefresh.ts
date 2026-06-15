@@ -10,7 +10,8 @@ export type ComputeInnerTabKey =
   | 'ssh_keys'
   | 'cloud_inits'
   | 'recycle_bin'
-  | 'migrations';
+  | 'migrations'
+  | 'traffic_mirror';
 
 export type ComputeTabRefreshDeps = {
   loadTabResource: (
@@ -58,6 +59,10 @@ export function createComputeTabOnRefresh(
     case 'migrations':
       return async (force?: boolean) => {
         await loadTabResource('migrations', force !== false);
+      };
+    case 'traffic_mirror':
+      return async (force?: boolean) => {
+        await loadTabResource('traffic_mirror', force !== false);
       };
     default:
       return () => {};

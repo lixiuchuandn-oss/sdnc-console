@@ -5,7 +5,6 @@ export const LEGACY_PUBLIC_NAMESPACE_NAMES = [
   'cloud-public',
   'default',
   'harvester-public',
-  'log-audit-system',
   'compute-tower-system',
 ] as const;
 
