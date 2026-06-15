@@ -4,6 +4,7 @@ export * from './clusterInventory';
 export * from './resource';
 export * from './cbr';
 export * from './vm';
+export * from './ovnMirrors';
 export * from './kubeOvnRead';
 export * from './types/cluster';
 export * from './types/aswProbe';

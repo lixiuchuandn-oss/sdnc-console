@@ -138,6 +138,8 @@ export function runPoolEssentials(
 
   const shouldPrefetchKubeOvnSubnets =
     checkPerm('clouds:read') ||
+    checkPerm('clouds.traffic-mirroring.vpc:read') ||
+    checkPerm('clouds.traffic-mirroring.flat:read') ||
     canReadFlatSubnets ||
     canReadVpcSubnets ||
     checkPerm('clouds.subnets:read') ||

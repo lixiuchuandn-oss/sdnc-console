@@ -517,6 +517,8 @@ export class PermissionRegistry {
               } else if (actualResourceType === 'deployment-sets') {
                 // VM 创建向导 / 变配引用部署集（租户无 compute-cluster 权限）
                 permissionBase = 'clouds.ecs';
+              } else if (actualResourceType === 'ovn-mirrors') {
+                permissionBase = 'clouds.traffic-mirroring.vpc';
               }
             }
           }

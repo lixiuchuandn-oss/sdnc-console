@@ -11,6 +11,7 @@ import type SshKeysSection from './sections/SshKeysSection';
 import type CloudInitsSection from './sections/CloudInitsSection';
 import type RecycleBinSection from './sections/RecycleBinSection';
 import type MigrationsSection from './sections/MigrationsSection';
+import type OvnMirrorsSection from './sections/OvnMirrorsSection';
 
 const sectionFallback = (
   <div style={{ display: 'flex', justifyContent: 'center', padding: 48, minHeight: 200 }}>
@@ -42,6 +43,9 @@ export const LazyRecycleBinSection = lazyDefaultSection<typeof RecycleBinSection
 );
 export const LazyMigrationsSection = lazyDefaultSection<typeof MigrationsSection>(() =>
   import('./sections/MigrationsSection'),
+);
+export const LazyOvnMirrorsSection = lazyDefaultSection<typeof OvnMirrorsSection>(() =>
+  import('./sections/OvnMirrorsSection'),
 );
 
 export const EcsSectionSuspense: React.FC<{ children: React.ReactNode }> = ({ children }) => (

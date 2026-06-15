@@ -3,6 +3,7 @@ import {
   fetchHarvesterImages,
   fetchHarvesterSshKeys,
   fetchHarvesterTemplates,
+  fetchKubeOvnSubnets,
 } from '../../api';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
 import {
@@ -11,6 +12,7 @@ import {
   syncCloudEcsBeforeLoad,
 } from './computeEcsListLoad';
 import { fetchComputeMigrationsList } from './computeMigrationsLoad';
+import { fetchComputeOvnMirrorsList } from './computeOvnMirrorsLoad';
 
 /** ?????`panels/compute`??`CLOUDMAP_COMPUTE_INNER_MENU` ?????*/
 export async function tryLoadComputeTab(
@@ -35,6 +37,9 @@ export async function tryLoadComputeTab(
     setRawImages,
     setHarvesterMigrations,
     setRawMigrations,
+    setHarvesterOvnMirrors,
+    setRawOvnMirrors,
+    setKubeOvnSubnets,
   } = deps;
 
   switch (key) {
@@ -65,6 +70,47 @@ export async function tryLoadComputeTab(
           (list) => {
             setHarvesterMigrations(Array.isArray(list) ? list : []);
             setRawMigrations({ items: list });
+          },
+          force,
+        );
+      }
+      return true;
+    case 'traffic_mirror':
+      if (
+        checkPerm('clouds.traffic-mirroring.vpc:read') ||
+        checkPerm('clouds.traffic-mirroring.flat:read') ||
+        checkPerm('clouds.ecs:read')
+      ) {
+        if (checkPerm('clouds.ecs:read')) {
+          await loadResource(
+            'ecs',
+            async () => {
+              await syncCloudEcsBeforeLoad(cloudId, force, skipSync);
+              return fetchComputeEcsList(cloudId, force);
+            },
+            (json) => {
+              setEcs(parseEcsListFromJson(json));
+              setRawEcs(json || null);
+            },
+            force,
+          );
+        }
+        await loadResource(
+          'subnets',
+          () => fetchKubeOvnSubnets(cloudId, force),
+          (json) => {
+            const list: unknown[] = (json as { data?: { items?: unknown[] } })?.data?.items || [];
+            setKubeOvnSubnets(Array.isArray(list) ? list : []);
+          },
+          force,
+        );
+        await loadResource(
+          'ovnMirrors',
+          () => fetchComputeOvnMirrorsList(cloudId, force),
+          (result) => {
+            const payload = result || { items: [], available: true };
+            setHarvesterOvnMirrors(Array.isArray(payload.items) ? payload.items : []);
+            setRawOvnMirrors(payload);
           },
           force,
         );

@@ -412,6 +412,8 @@ export const RESOURCE_CONSOLE_FEATURE_ORDER: readonly string[] = [
   'clouds.sshkeys',
   'clouds.recycle-bin',
   'clouds.migrations',
+  'clouds.traffic-mirroring.vpc',
+  'clouds.traffic-mirroring.flat',
   'clouds.drs',
   'clouds.compute-cluster',
   'clouds.storage-addon',
