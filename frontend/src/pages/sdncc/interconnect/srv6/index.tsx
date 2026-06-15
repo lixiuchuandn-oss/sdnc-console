@@ -312,6 +312,7 @@ const SRv6Page: React.FC = () => {
       }}
       secondaryActions={
         <Button
+          type="primary"
           onClick={() => {
             setReconcileReport(null);
             setReconcileOpen(true);
