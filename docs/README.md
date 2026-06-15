@@ -20,8 +20,8 @@
 | [maas-integration.md](./maas-integration.md)                     | **MAAS 对接**：北向 API、BFF/Adapter、v2/v3 约定                                               |
 | [remote-access-architecture.md](./remote-access-architecture.md) | **云桌面网关总体架构**：扁平网 + admin 体系、Cloudmap/MAAS、资源池接入；租户暂不涉及           |
 | [integrate-guacamole.md](./integrate-guacamole.md)               | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                |
-| [srv6-baseline-recompute.md](./srv6-baseline-recompute.md)       | **SRv6 隧道配置管理**：baseline + 贡献 + recompute 实现方案（P1–P4）                          |
-| [srv6-release-notes.md](./srv6-release-notes.md)                 | **SRv6 发版说明**：行为变更、兼容性、升级步骤与签收清单                                         |
+| [srv6-baseline-recompute.md](./srv6-baseline-recompute.md)       | **SRv6 隧道配置管理**：baseline + 贡献 + recompute（P1–P4）；**§14 真 Hub PE 遗留（P5）**     |
+| [srv6-release-notes.md](./srv6-release-notes.md)                 | **SRv6 发版说明**：行为变更、兼容性、**真 Hub 已知限制**、升级步骤与签收清单                 |
 
 **源码旁文档**（不在此 Hub，但与 Hub 并列权威）：
 
@@ -32,6 +32,6 @@
 | `frontend/.../Cloudmap/pool/README.md`                             | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
 | `frontend/.../Harvester/{ecs,cluster,ebs,ceph,database}/README.md` | Harvester / Ceph 各业务域说明                                             |
 | `frontend/.../maas/README.md`                                      | MAAS 池 Tab ↔ Section；对接规格见 **`maas-integration.md`**               |
-| `frontend/.../interconnect/srv6/testcases.md`                      | SRv6 发版前冒烟用例 R1–R7；方案见 **`srv6-baseline-recompute.md`**        |
+| `frontend/.../interconnect/srv6/testcases.md`                      | SRv6 冒烟 R1–R7（**R3/R4 当前跳过**）；P5 验收 **H1–H7** 见 **`srv6-baseline-recompute.md` §14** |
 
 **本地、不入库**：`deployment/`（见 `.gitignore`）。

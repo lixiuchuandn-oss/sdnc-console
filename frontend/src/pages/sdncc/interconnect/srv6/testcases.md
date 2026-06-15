@@ -1,6 +1,7 @@
 # SRv6 隧道 · 发版前冒烟测试用例
 
 > 适用范围：baseline + 贡献 + recompute 架构（P1–P4）上线后的手工验证。  
+> **组网范围**：**CE-A ↔ PE-A ↔ PE-B ↔ CE-B** 标准四端单隧道；**真·Hub PE**（同 Hub 多 Spoke）见 [`docs/srv6-baseline-recompute.md` §14](../../../../../../docs/srv6-baseline-recompute.md#14-遗留事项真hub-pe-组网p5-规划未实现) — **P5 遗留，当前发版跳过 R3/R4**。  
 > 建议环境：具备四端 VR（PE-A、PE-B、CE-A、CE-B）的测试集群，管理员账号。
 
 ## 前置条件
@@ -32,21 +33,30 @@
 
 ## R3 · Hub PE 多隧道（不同 neighbor / VRF）
 
+> **状态**：**P5 遗留 / 当前发版跳过** — 真 Hub（如 PE3 再接 PE2）不在 P1–P4 范围。  
+> **单测级 Hub**：`scenarios.test` 中 t2Ok 要求 **不同 bgpIndex/VRF 段**，与 PE3 真 Hub 不符。  
+> **P5 验收**：实现方案 **§14.5 H1–H3**。
+
 | 项 | 内容 |
 |----|------|
-| **步骤** | 1. 在 R1 同 Hub PE 上创建第二条隧道 T2<br>2. T2 使用**不同**公网邻居或内网 VRF/内网口<br>3. 保存并查看创建页 Hub 提示、列表 Hub 标签 |
-| **期望** | T2 创建成功；Hub PE 显示「Hub 多隧道模式」及已引用隧道列表 |
-| **失败信号** | 误报冲突；Hub 标签未展示 |
+| **步骤** | 1. 在 R1 同 Hub PE 上创建第二条隧道 T2<br>2. T2 使用**不同 Spoke PE** 且 **不同 PE–PE 公网 neighbor**（Hub LAN/VRF/CE **可复用**）<br>3. 保存并查看 Hub 口占用与列表 Hub 标签 |
+| **期望（P5）** | T2 创建成功；Hub 显示口占用；H1–H3 满足 |
+| **当前期望** | **不执行**或预期 **409**（字段级冲突误报）— **不作为 P1–P4 失败** |
+| **失败信号（P5 后）** | 不同 Spoke 仍 409；Hub 口占用未展示 |
 
 ---
 
-## R4 · Hub 冲突拒绝（复用 neighbor）
+## R4 · Hub 冲突拒绝（复用 PE–PE neighbor）
+
+> **状态**：**P5 遗留 / 当前发版跳过** — 当前冲突为字段级互斥，非真 Hub Blocking 键。  
+> **P5 验收**：**§14.5 H6** — 仅报重复 **PE–PE 公网 neighbor** 等 Blocking 主因。
 
 | 项 | 内容 |
 |----|------|
-| **步骤** | 1. 创建 T3，与 T1 **复用相同**公网 BGP 邻居（或相同 RD/RT、内网口+VRF）<br>2. 点击保存 |
-| **期望** | HTTP 409；toast 显示中文冲突说明（如「公网 BGP 邻居 x 已被隧道 xxx 使用」），**不**出现 C-N1、injectedDelta 等内部术语 |
-| **失败信号** | 冲突隧道仍被保存；错误信息为英文或内部字段名 |
+| **步骤** | 1. 创建 T3，与 T1 **复用相同 Hub PE–PE 公网 BGP 邻居**（对端 Spoke 相同）<br>2. 点击保存 |
+| **期望（P5）** | HTTP 409；toast **一条**中文说明（如「公网 PE–PE 邻居 x 已被隧道 xxx 使用」） |
+| **当前期望** | **不执行**或可能 **409 多条**（RD/RT、内网口+VRF、::/0 等）— **不作为 P1–P4 失败** |
+| **失败信号（P5 后）** | 重复 neighbor 仍保存成功；409 堆砌多条从属冲突 |
 
 ---
 
@@ -90,15 +100,25 @@
 
 ---
 
-## 快速检查清单（发版前勾选）
+## 快速检查清单（发版前勾选 · P1–P4）
 
 - [ ] R1 创建 + 四端配置重算
 - [ ] R2 删除回退至基线
-- [ ] R3 Hub 第二隧道成功
-- [ ] R4 冲突 409 + 中文文案
 - [ ] R5 对账扫描/修复 + 审计
 - [ ] R6 VR 指纹锁 409
 - [ ] R7 零隧道基线一致
+- [ ] ~~R3 Hub 第二隧道成功~~ → **P5 / H1–H3**
+- [ ] ~~R4 冲突 409 + 中文文案~~ → **P5 / H6**
+
+### P5 真 Hub 验收（未实现，见 §14.5）
+
+- [ ] H1 同 Hub 多 Spoke、PE–PE neighbor 唯一
+- [ ] H2 Hub WAN 按隧道绑定
+- [ ] H3 Hub LAN/VRF/CE 可复用
+- [ ] H4 Hub RD 唯一复用
+- [ ] H5 每隧道新 RT
+- [ ] H6 409 仅 Blocking 主因
+- [ ] H7 删单隧道不误拆共享项
 
 ---
 
@@ -106,6 +126,7 @@
 
 | 接口 | 用途 |
 |------|------|
-| `GET /api/networks/srv6/vr/:vrUuid/hub` | Hub 状态 |
+| `GET /api/networks/srv6/vr/:vrUuid/hub` | Hub 状态（P5 扩展口占用表） |
+| 实现方案 §14 | 真 Hub 遗留规划与 H1–H7 |
 | `GET/POST /api/networks/srv6/reconcile` | 配置对账 |
 | `POST /api/networks/srv6/vr/:vrUuid/baseline/reset` | 零隧道基线重置 |
