@@ -53,6 +53,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import { compactActionMenuItems, writeMenuItemIf } from '../../../../../../utils/rbacUi';
 
 /** subnet 注解：曾绑 VLAN/物理网下由集群或控制台写入；无 VLAN overlay 应与新建扁平子网一致并清除 */
@@ -866,12 +870,12 @@ const UnderlaySubnetsSection: React.FC<Props> = ({
                         const disp =
                           String(record?.metadata?.annotations?.[TOWER_ALIAS_ANNOTATION] ?? '').trim() ||
                           name;
-                        Modal.confirm({
-                          title: '确认删除',
-                          okType: 'danger',
-                          content: `确定删除该${subnetKindLabel}「${disp}」吗？`,
-                          onOk: () => handleDelete(name),
-                        });
+                        void confirmHighRiskDelete({
+                          resourceLabel: subnetKindLabel,
+                          name: disp,
+                          riskItems: DELETE_NETWORK_RISK_ITEMS,
+                          onConfirm: () => handleDelete(name),
+                        }).catch(() => {});
                       })();
                     },
                   },

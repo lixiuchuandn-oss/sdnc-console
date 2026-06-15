@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { PromQueryResult } from '../hooks/usePromQueries';
 
 /** PromQL 结果是否已有可展示的时间序列（轮询时会保留上一轮数据） */
@@ -28,4 +29,21 @@ export function derivePanelLoadState(results: (PromQueryResult | undefined)[]): 
     if (state.refreshing) refreshing = true;
   }
   return { initialLoading, refreshing };
+}
+
+/**
+ * 概览卡片首次加载判定：
+ * - 首次无可用数据且 loading=true 时展示 loading
+ * - 后续轮询/手动刷新保持静默，仅更新数据
+ */
+export function useOverviewInitialLoading(loading: boolean, hasRenderableData: boolean): boolean {
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRenderableData || !loading) {
+      hasLoadedRef.current = true;
+    }
+  }, [hasRenderableData, loading]);
+
+  return loading && !hasLoadedRef.current;
 }

@@ -7,6 +7,8 @@ import { gbText } from './volumeQuantityUtils';
 import { renderVolumeStatusBadge } from './volumePhaseUtils';
 import { checkIsVolumeSystemDisk, type VolumeSafeRead } from './volumeSafeRead';
 import type { VolumeView } from './volumesSectionTypes';
+import { isLocalRegistryManagedPvcName, isLocalRegistryManagedVolume } from '../../shared/lib/registryManagedLocalRegistryVolume';
+import { getVolumeWorkloadConsumerLabels } from './volumeConsumers';
 
 export type VolumeRowActionItem =
   | {
@@ -14,6 +16,7 @@ export type VolumeRowActionItem =
       label: React.ReactNode;
       disabled?: boolean;
       danger?: boolean;
+      tooltip?: React.ReactNode;
       onClick?: () => void;
     }
   | { type: 'divider'; key?: string };
@@ -44,6 +47,7 @@ export function buildVolumesTableColumns({
       render: (_: string, r: VolumeView) => {
         const vm = safeRead.attachedVm(r);
         const isSystemDisk = checkIsVolumeSystemDisk(r, vm);
+        const isRegistryManaged = isLocalRegistryManagedVolume(r);
         return (
           <span
             style={{
@@ -72,6 +76,11 @@ export function buildVolumesTableColumns({
             {isSystemDisk ? (
               <Tag color="blue" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
                 系统盘
+              </Tag>
+            ) : null}
+            {isRegistryManaged ? (
+              <Tag color="purple" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+                本地仓库托管
               </Tag>
             ) : null}
           </span>
@@ -160,6 +169,17 @@ export function buildVolumesTableColumns({
       key: 'attachedTo',
       render: (_: unknown, r: VolumeView) => {
         const vm = safeRead.attachedVm(r) as Record<string, unknown> | undefined;
+        let workloadLabels = getVolumeWorkloadConsumerLabels(r);
+        if (
+          workloadLabels.length === 0
+          && isLocalRegistryManagedVolume(r)
+          && isLocalRegistryManagedPvcName(r.name)
+        ) {
+          const deploymentName = r.name.replace(/-pvc$/i, '');
+          if (deploymentName) {
+            workloadLabels = [`Deployment/${deploymentName}`];
+          }
+        }
         if (vm) {
           const meta = vm.metadata as { annotations?: Record<string, string>; name?: string } | undefined;
           const alias = meta?.annotations?.['tower.io/alias'];
@@ -170,6 +190,17 @@ export function buildVolumesTableColumns({
             (vm.InstanceName as string) ||
             (vm.InstanceId as string);
           return name;
+        }
+        if (workloadLabels.length > 0) {
+          return (
+            <span title={workloadLabels.join(', ')}>
+              {workloadLabels.map((label) => (
+                <Tag key={label} color="geekblue" style={{ marginInlineEnd: 4 }}>
+                  {label}
+                </Tag>
+              ))}
+            </span>
+          );
         }
         return r.attachedTo.length > 0 ? r.attachedTo.join(', ') : '-';
       },

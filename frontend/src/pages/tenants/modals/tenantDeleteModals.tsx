@@ -13,10 +13,10 @@ export function showTenantDeleteBlockedByOrgUsersModal(
     content: (
       <div>
         <p style={{ marginBottom: 12 }}>
-          租户「{tenantName}」下仍有组织用户（共 <strong>{userCount}</strong> 个），无法删除。
+          租户「{tenantName}」下仍有租户组织用户（共 <strong>{userCount}</strong> 个），无法删除。
         </p>
         <p style={{ marginBottom: 0, color: '#8c8c8c', fontSize: 13 }}>
-          请先在「租户用户」中删除全部组织用户后，再删除租户。
+          请先在「租户组织用户管理」中删除全部租户组织用户后，再删除租户。
         </p>
       </div>
     ),
@@ -46,7 +46,7 @@ export function showTenantDelete409Modal(errorMessage: string, resources: Array<
 
         <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
           {resources.length > 0
-            ? '请先解除上述关联后再删除租户（若包含「级联通道」「应用管理」，请到 SDN → 安全管理面处理；资源池/VPC 等请到租户组织管理中解除）。'
+            ? '请先解除上述关联后再删除租户（若包含「邻居」「应用管理」，请到 SDN → 跨域互联处理；资源池/VPC 等请到租户组织管理中解除）。'
             : '请根据页面提示处理后再尝试删除租户。'}
         </p>
       </div>
@@ -97,7 +97,7 @@ export function showBatchTenantDeleteFailuresModal(
         ))}
         <p style={{ margin: 0, color: '#8c8c8c', fontSize: 12 }}>
           {failures.some((f) => f.resources.length > 0)
-            ? '请先解除上述关联后再删除租户（若包含「级联通道」「应用管理」，请到 SDN → 安全管理面处理；资源池/VPC 等请到租户组织管理中解除）。'
+            ? '请先解除上述关联后再删除租户（若包含「邻居」「应用管理」，请到 SDN → 跨域互联处理；资源池/VPC 等请到租户组织管理中解除）。'
             : '请根据页面提示处理后再尝试删除租户。'}
         </p>
       </div>
@@ -114,11 +114,11 @@ export function showBatchTenantDeleteBlockedModal(
     okText: '知道了',
     content: (
       <div>
-        <p style={{ marginBottom: 12 }}>以下租户仍包含组织用户，无法删除（需先删除租户下全部组织用户）：</p>
+        <p style={{ marginBottom: 12 }}>以下租户仍包含租户组织用户，无法删除（需先删除租户下全部租户组织用户）：</p>
         <ul style={{ margin: '0 0 0 18px', padding: 0 }}>
           {items.map(({ id, label, n }) => (
             <li key={id} style={{ marginBottom: 4 }}>
-              「{label}」：{n} 名组织用户
+              「{label}」：{n} 名租户组织用户
             </li>
           ))}
         </ul>

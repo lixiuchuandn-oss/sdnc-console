@@ -35,6 +35,7 @@ import {
   normalizeVolumeList,
 } from '../lib/volumesSectionUtils';
 import { buildVolumesTableColumns } from '../lib/volumesTableColumns';
+import type { VmAttachRecord } from '../lib/volumeDetachUtils';
 
 const TABLE_COLUMNS_SETTINGS_KEY = 'harvester_volumes_table';
 
@@ -49,6 +50,7 @@ type Props = {
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: HarvesterSectionOnRefresh;
   isTenant?: boolean;
+  tenantDefaultNamespace?: string;
 };
 
 const VolumesSection: React.FC<Props> = ({
@@ -62,6 +64,7 @@ const VolumesSection: React.FC<Props> = ({
   onRefreshStorageClasses,
   onRefreshImages,
   isTenant,
+  tenantDefaultNamespace,
 }) => {
   const { message } = App.useApp();
   const { user } = useAuth();
@@ -317,6 +320,7 @@ const VolumesSection: React.FC<Props> = ({
         onSuccess={refreshVolumesSilent}
         seed={actions.volumeCreateSeed}
         isTenant={isTenant}
+        tenantDefaultNamespace={tenantDefaultNamespace}
       />
 
       <VolumeAttachModal
@@ -336,6 +340,11 @@ const VolumesSection: React.FC<Props> = ({
         onCancel={() => actions.setExportOpen(false)}
         cloudId={cloudId}
         volume={actions.currentRecord}
+        attachedVm={
+          actions.currentRecord
+            ? (actions.safeRead.attachedVm(actions.currentRecord) as VmAttachRecord | undefined)
+            : undefined
+        }
         storageClassOptions={actions.createVolumeStorageClassOptions}
         defaultStorageClassName={actions.defaultStorageClassName}
         storageClasses={actions.storageClasses}
@@ -381,6 +390,7 @@ const VolumesSection: React.FC<Props> = ({
         onCloneSuccess={refreshVolumesAfterWrite}
         onBranchToCreateVolume={actions.handleBranchCloneToCreateVolume}
         isTenant={isTenant}
+        tenantDefaultNamespace={tenantDefaultNamespace}
       />
 
       <VolumeDetailDrawer

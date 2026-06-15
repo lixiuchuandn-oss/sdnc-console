@@ -25,8 +25,8 @@ export function parseQuantity(s: string | number | undefined): number {
 
 export function gbText(bytes: number): string {
   if (!bytes || bytes <= 0) return '-';
-  const gb = bytes / (1024 * 1024 * 1024);
-  return `${gb.toFixed(2)} GB`;
+  const gi = bytes / (1024 * 1024 * 1024);
+  return `${gi.toFixed(2)} Gi`;
 }
 
 /** 卷状态筛选下拉中文标签 */

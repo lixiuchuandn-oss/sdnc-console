@@ -5,6 +5,7 @@ import React, { useState, useEffect, useImperativeHandle } from 'react';
 import { Form, Input, Select, InputNumber, Button, Space, Tag, Row, Col, Card } from 'antd';
 import { PlusOutlined, MinusCircleOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { isSystemNamespace } from '../../../../../../../../utils/harvesterUtils';
+import { VmAdvancedSchedulingCompactEmpty } from '../../../../ecs/lib/VmAdvancedSchedulingCompactEmpty';
 
 import type {
   PodAffinityTerm,
@@ -18,6 +19,8 @@ export interface PodAffinityEditorProps {
   name: 'podAffinity' | 'podAntiAffinity';
   label: string;
   namespacesOptions?: string[];
+  /** 折叠/抽屉内：隐藏重复标题，收紧外边距 */
+  compact?: boolean;
 }
 
 export interface PodAffinityEditorHandle {
@@ -32,7 +35,7 @@ export interface PodAffinityEditorHandle {
  * 使用 Form.useWatch 监听 form 数据，完全依赖 form 状态
  */
 const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityEditorProps>(
-  ({ name, label, namespacesOptions = [] }, ref) => {
+  ({ name, label, namespacesOptions = [], compact = false }, ref) => {
   const form = Form.useFormInstance();
   
   const [requiredRules, setRequiredRules] = useState<PodAffinityTerm[]>([]);
@@ -487,11 +490,64 @@ const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityE
           );
         })}
         {entries.length === 0 && (
-          <div style={{ color: '#999', fontSize: 12 }}>暂无匹配标签</div>
+          <div
+            style={{
+              padding: '4px 10px',
+              borderRadius: 4,
+              border: '1px dashed #e8e8e8',
+              background: '#fafafa',
+              color: '#bfbfbf',
+              fontSize: 12,
+              lineHeight: '20px',
+              textAlign: 'center',
+            }}
+          >
+            点击「添加标签」配置匹配条件
+          </div>
         )}
       </div>
     );
   };
+
+  const isEmpty = requiredRules.length === 0 && preferredRules.length === 0;
+
+  const renderToolbar = () => (
+    <div
+      style={{
+        marginBottom: 12,
+        display: 'flex',
+        justifyContent: compact ? 'flex-end' : 'space-between',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      {!compact ? <span style={{ fontWeight: 500 }}>{label}</span> : null}
+      <Space wrap size={8}>
+        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addRequiredRule}>
+          添加必须规则
+        </Button>
+        <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addPreferredRule}>
+          添加偏好规则
+        </Button>
+      </Space>
+    </div>
+  );
+
+  const renderEmptyState = () => (
+    <VmAdvancedSchedulingCompactEmpty
+      description="暂未配置规则"
+      actions={
+        <Space wrap size={8}>
+          <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={addRequiredRule}>
+            添加必须规则
+          </Button>
+          <Button size="small" icon={<PlusOutlined />} onClick={addPreferredRule}>
+            添加偏好规则
+          </Button>
+        </Space>
+      }
+    />
+  );
 
   // 渲染表达式匹配条件 (matchExpressions)
   const renderMatchExpressions = (ruleType: 'required' | 'preferred', ruleIndex: number) => {
@@ -558,7 +614,20 @@ const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityE
           );
         })}
         {matchExpressions.length === 0 && (
-          <div style={{ color: '#999', fontSize: 12 }}>暂无匹配表达式</div>
+          <div
+            style={{
+              padding: '4px 10px',
+              borderRadius: 4,
+              border: '1px dashed #e8e8e8',
+              background: '#fafafa',
+              color: '#bfbfbf',
+              fontSize: 12,
+              lineHeight: '20px',
+              textAlign: 'center',
+            }}
+          >
+            点击「添加条件」配置匹配表达式
+          </div>
         )}
       </div>
     );
@@ -607,7 +676,7 @@ const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityE
             size="small"
             onClick={() => ruleType === 'required' ? removeRequiredRule(ruleIndex) : removePreferredRule(ruleIndex)}
           >
-            删除规则
+            删除
           </Button>
         }
       >
@@ -692,24 +761,8 @@ const PodAffinityEditor = React.forwardRef<PodAffinityEditorHandle, PodAffinityE
   };
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontWeight: 500 }}>{label}</span>
-        <Space>
-          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addRequiredRule}>
-            添加必须规则
-          </Button>
-          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addPreferredRule}>
-            添加偏好规则
-          </Button>
-        </Space>
-      </div>
-
-      {requiredRules.length === 0 && preferredRules.length === 0 && (
-        <div style={{ color: '#999', fontSize: 12, padding: '8px 0' }}>
-          未配置 Pod 亲和性规则，点击上方按钮添加
-        </div>
-      )}
+    <div style={{ marginBottom: compact ? 0 : 16 }}>
+      {isEmpty ? renderEmptyState() : renderToolbar()}
 
       {/* 必须满足的规则 */}
       {requiredRules.map((_: any, index: number) => renderRule('required', index))}

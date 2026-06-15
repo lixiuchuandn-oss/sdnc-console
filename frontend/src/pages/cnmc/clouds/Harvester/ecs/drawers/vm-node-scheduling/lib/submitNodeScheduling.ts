@@ -6,6 +6,18 @@ import { updateHarvesterVmSpec } from 'services/harvester/vm';
 import type { VmReconfigureSubmitCtx } from '../../../lib/vmMutation/vmReconfigureSubmitContext';
 import { VmReconfigureSubmitSkipFinalize } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
 import { validateNodeSchedulingPassthroughAffinity } from './validateNodeSchedulingPassthrough';
+import {
+  buildNodeSelectorFromLabelForm,
+  hasLabelModeNodeSelector,
+} from '../../../lib/vmFailureDomainNodeSelector';
+import { vmFailureDomainRequiredMessage } from '../../../lib/vmAdvancedSchedulingLabels';
+import { buildVmAutoScheduledAnnotations } from '../../../lib/vmAutoScheduledAnnotation';
+import {
+  buildClearMetricAutoScheduledTemplateMetadataAnnotations,
+  getVmRecordMetricAutoScheduledConflictMessage,
+  readVmMetricAutoScheduled,
+} from '../../../lib/vmSchedulingExclusion';
+import { readVmDeploymentSetId } from '../../../lib/vmDeploymentSet';
 
 export type SubmitNodeSchedulingOptions = {
   pciDevices?: any[];
@@ -23,15 +35,15 @@ export async function submitVmReconfigureChangeNodeScheduling(
   const mode = values.nodeSchedulingMode;
   const fixedNode = values.fixedNode;
   const nodeSelectorPairs = values.nodeSelectorPairs || [];
+  const failureDomainName = values.failureDomainName;
 
   if (mode === 'fixed' && !fixedNode) {
     message.error('请选择要固定的节点');
     throw new VmReconfigureSubmitSkipFinalize();
   }
   if (mode === 'label') {
-    const validPairs = nodeSelectorPairs.filter((p: any) => p?.key && p?.value);
-    if (validPairs.length === 0) {
-      message.error('请至少添加一个标签选择器');
+    if (!hasLabelModeNodeSelector({ failureDomainName })) {
+      message.error(vmFailureDomainRequiredMessage());
       throw new VmReconfigureSubmitSkipFinalize();
     }
   }
@@ -44,6 +56,22 @@ export async function submitVmReconfigureChangeNodeScheduling(
     pciDevices: opts?.pciDevices,
     gpuResources: opts?.gpuResources,
   });
+
+  const wantsMetricAutoScheduled = mode === 'auto' && values.metricAutoScheduled === true;
+  if (wantsMetricAutoScheduled) {
+    const conflictMsg = getVmRecordMetricAutoScheduledConflictMessage(activeRecord, {
+      pciDevices: opts?.pciDevices,
+      gpuResources: opts?.gpuResources,
+    });
+    if (conflictMsg) {
+      message.error(conflictMsg);
+      throw new VmReconfigureSubmitSkipFinalize();
+    }
+    if (readVmDeploymentSetId(activeRecord)) {
+      message.error('已绑定部署集，不能同时参与指标自动调度');
+      throw new VmReconfigureSubmitSkipFinalize();
+    }
+  }
 
   let updateParams: any = {};
 
@@ -59,15 +87,16 @@ export async function submitVmReconfigureChangeNodeScheduling(
       updateParams.nodeSelector = null;
     }
   } else if (mode === 'label') {
-    const nodeSelector: Record<string, string> = {};
-    nodeSelectorPairs.forEach((p: any) => {
-      const key = String(p?.key || '').trim();
-      const value = String(p?.value || '').trim();
-      if (key && value) {
-        nodeSelector[key] = value;
-      }
-    });
-    updateParams.nodeSelector = Object.keys(nodeSelector).length > 0 ? nodeSelector : null;
+    updateParams.nodeSelector =
+      buildNodeSelectorFromLabelForm({ failureDomainName }) ?? null;
+  }
+
+  if (wantsMetricAutoScheduled) {
+    updateParams.templateMetadataAnnotations = buildVmAutoScheduledAnnotations();
+  } else if (readVmMetricAutoScheduled(activeRecord)) {
+    const clearAnn = buildClearMetricAutoScheduledTemplateMetadataAnnotations();
+    updateParams.templateMetadataAnnotations = clearAnn;
+    updateParams.vmMetadataAnnotations = clearAnn;
   }
 
   await updateHarvesterVmSpec(cloudId, namespace, vmName, updateParams);

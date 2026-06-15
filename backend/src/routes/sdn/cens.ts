@@ -4,6 +4,7 @@ import { CloudEnterpriseNetwork, CenStatus } from '../../entities/CloudEnterpris
 import { CenAttachment, CenAttachmentStatus } from '../../entities/CenAttachment';
 import { VpcNetwork } from '../../entities/VpcNetwork';
 import { SecurityDomain } from '../../entities/SecurityDomain';
+import { isOrchestratableInternetworkRoutingDomain } from '../../utils/internetworkRoutingDomain';
 import { AuthRequest } from '../../middleware/auth';
 import { logOperation } from '../../utils/audit';
 
@@ -107,7 +108,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
 
     if (!force && attachments.length > 0) {
       return res.status(400).json({
-        message: `无法删除互联通道，该通道已关联 ${attachments.length} 个安全域，请先解除关联`,
+        message: `无法删除互联通道，该通道已关联 ${attachments.length} 个网际路由域，请先解除关联`,
       });
     }
 
@@ -120,10 +121,10 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     await logOperation(
       req,
       'Delete CEN',
-      `删除云企业网: ${cen.name} (ID: ${id})，关联安全域已解绑`,
+      `删除云企业网: ${cen.name} (ID: ${id})，关联网际路由域已解绑`,
       true,
     );
-    res.json({ message: force ? '已强制删除：已释放挂载安全域并删除 CEN' : 'CEN 删除成功' });
+    res.json({ message: force ? '已强制删除：已释放挂载网际路由域并删除 CEN' : 'CEN 删除成功' });
   } catch (err) {
     console.error('删除 CEN 失败:', err);
     res.status(500).json({ message: '删除失败' });
@@ -188,7 +189,13 @@ router.post('/:id/attachments', async (req: AuthRequest, res: Response) => {
       const domRepo = AppDataSource.getRepository(SecurityDomain);
       securityDomain = await domRepo.findOne({ where: { id: String(securityDomainId) } });
       if (!securityDomain) {
-        return res.status(404).json({ message: '安全域不存在' });
+        return res.status(404).json({ message: '网际路由域不存在' });
+      }
+      if (!isOrchestratableInternetworkRoutingDomain(securityDomain)) {
+        return res.status(400).json({
+          message:
+            '该网际路由域不可编排：须为可编排类型且已绑定网际路由器与防护目标网络（CSM 镜像域须先提升）',
+        });
       }
     }
 

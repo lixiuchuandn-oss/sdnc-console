@@ -159,6 +159,7 @@ export function useResourceLinkYamlDrawer(
   cloudId: string | undefined,
   viewLink: string | undefined,
   active: boolean,
+  staticYaml?: string,
 ): ResourceLinkYamlDrawerModel {
   const [content, setContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -166,8 +167,15 @@ export function useResourceLinkYamlDrawer(
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(10);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const useStatic = staticYaml !== undefined;
 
   const loadContent = useCallback(async () => {
+    if (useStatic) {
+      setContent(staticYaml ?? '');
+      setError('');
+      setLoading(false);
+      return;
+    }
     if (!cloudId || !viewLink) return;
     setLoading(true);
     setError('');
@@ -181,19 +189,27 @@ export function useResourceLinkYamlDrawer(
     } finally {
       setLoading(false);
     }
-  }, [cloudId, viewLink]);
+  }, [cloudId, viewLink, staticYaml, useStatic]);
 
   useEffect(() => {
-    if (active && cloudId && viewLink) {
+    if (!active) return;
+    if (useStatic) {
+      setContent(staticYaml ?? '');
+      setError('');
+      setLoading(false);
+      return;
+    }
+    if (cloudId && viewLink) {
       void loadContent();
     }
-  }, [active, cloudId, viewLink, loadContent]);
+  }, [active, cloudId, viewLink, loadContent, staticYaml, useStatic]);
 
   useEffect(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    if (useStatic) return undefined;
     if (autoRefresh && active && cloudId && viewLink) {
       intervalRef.current = setInterval(() => void loadContent(), refreshInterval * 1000);
     }
@@ -202,7 +218,7 @@ export function useResourceLinkYamlDrawer(
         clearInterval(intervalRef.current);
       }
     };
-  }, [autoRefresh, refreshInterval, active, cloudId, viewLink, loadContent]);
+  }, [autoRefresh, refreshInterval, active, cloudId, viewLink, loadContent, useStatic]);
 
   return {
     content,
@@ -217,19 +233,21 @@ export function useResourceLinkYamlDrawer(
 }
 
 type ToolbarProps = {
-  viewLink: string;
+  toolbarLabel: string;
   editable?: boolean;
   showSave?: boolean;
   saveLoading?: boolean;
   onSaveClick?: () => void;
+  showAutoRefresh?: boolean;
 } & ResourceLinkYamlDrawerModel;
 
-const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
-  viewLink,
+export const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
+  toolbarLabel,
   editable,
   showSave,
   saveLoading,
   onSaveClick,
+  showAutoRefresh = true,
   autoRefresh,
   setAutoRefresh,
   refreshInterval,
@@ -238,11 +256,17 @@ const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
   loading,
 }) => (
   <div className="resource-link-yaml-drawer__header">
-    <div className="resource-link-yaml-drawer__toolbar-url">Request URL: {viewLink}</div>
+    <div className="resource-link-yaml-drawer__toolbar-url">{toolbarLabel}</div>
     <Space size="small">
-      {!editable && (
+      {!editable && showAutoRefresh && (
         <>
-          <Switch size="small" checked={autoRefresh} onChange={setAutoRefresh} checkedChildren="自动" unCheckedChildren="手动" />
+          <Switch
+            size="small"
+            checked={autoRefresh}
+            onChange={setAutoRefresh}
+            checkedChildren="自动"
+            unCheckedChildren="手动"
+          />
           {autoRefresh && (
             <Select
               value={refreshInterval}
@@ -259,7 +283,12 @@ const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
           )}
         </>
       )}
-      <Button size="small" icon={<SyncOutlined spin={loading} />} onClick={() => void loadContent()} loading={loading}>
+      <Button
+        size="small"
+        icon={<SyncOutlined spin={loading} />}
+        onClick={() => void loadContent()}
+        loading={loading}
+      >
         刷新
       </Button>
       {showSave && onSaveClick ? (
@@ -271,7 +300,7 @@ const ResourceLinkYamlDrawerToolbar: React.FC<ToolbarProps> = ({
   </div>
 );
 
-const ResourceLinkYamlDrawerEditor: React.FC<
+export const ResourceLinkYamlDrawerEditor: React.FC<
   ResourceLinkYamlDrawerModel & {
     bodyHeightPx: number;
     editable?: boolean;
@@ -290,7 +319,11 @@ const ResourceLinkYamlDrawerEditor: React.FC<
 }) => {
   const display = editable ? draftYaml : content;
   if (loading && !content && !error) {
-    return <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">加载中…</div>;
+    return (
+      <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">
+        加载中…
+      </div>
+    );
   }
   if (error && !content) {
     return (
@@ -306,7 +339,9 @@ const ResourceLinkYamlDrawerEditor: React.FC<
   return (
     <div className="resource-link-yaml-drawer__editor-stage">
       {editorPx < 48 ? (
-        <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">准备编辑器…</div>
+        <div className="resource-link-yaml-drawer__state resource-link-yaml-drawer__state--fill">
+          准备编辑器…
+        </div>
       ) : (
         <CodeEditor
           readOnly={!editable}
@@ -336,6 +371,10 @@ export type ResourceLinkYamlDrawerProps = {
   cloudId?: string;
   /** Steve `links.view` 等后端代理路径 */
   viewLink?: string;
+  /** 只读静态 YAML（无 viewLink 时使用，不发起拉取） */
+  staticYaml?: string;
+  /** staticYaml 模式下工具栏说明文案 */
+  staticSourceLabel?: string;
   /** 抽屉标题：建议固定短语（如「编辑 YAML」「节点 YAML」），勿拼接实例名/资源名 */
   title?: React.ReactNode;
   /**
@@ -353,12 +392,15 @@ export const ResourceLinkYamlDrawer: React.FC<ResourceLinkYamlDrawerProps> = ({
   onClose,
   cloudId,
   viewLink,
+  staticYaml,
+  staticSourceLabel,
   title = '资源 YAML',
   editable = false,
   onSave,
 }) => {
   const { message } = App.useApp();
-  const m = useResourceLinkYamlDrawer(cloudId, viewLink, open);
+  const useStatic = staticYaml !== undefined;
+  const m = useResourceLinkYamlDrawer(cloudId, viewLink, open, staticYaml);
   const { loadContent, setAutoRefresh } = m;
   const bodyRef = useRef<HTMLDivElement>(null);
   const [editorBodyPx, setEditorBodyPx] = useState(0);
@@ -418,8 +460,14 @@ export const ResourceLinkYamlDrawer: React.FC<ResourceLinkYamlDrawerProps> = ({
     }
   }, []);
 
+  const toolbarLabel = useStatic
+    ? staticSourceLabel || '本地 YAML 内容'
+    : viewLink
+      ? `Request URL: ${viewLink}`
+      : '';
+
   useLayoutEffect(() => {
-    if (!open || !viewLink) {
+    if (!open || (!viewLink && !useStatic)) {
       setEditorBodyPx(0);
       return undefined;
     }
@@ -439,7 +487,7 @@ export const ResourceLinkYamlDrawer: React.FC<ResourceLinkYamlDrawerProps> = ({
       window.clearTimeout(t0);
       window.clearTimeout(t1);
     };
-  }, [open, viewLink, syncBodyHeightPx]);
+  }, [open, viewLink, useStatic, syncBodyHeightPx]);
 
   useEffect(() => {
     const id = 'compute-tower-resource-link-yaml-drawer-css-v3';
@@ -482,16 +530,17 @@ export const ResourceLinkYamlDrawer: React.FC<ResourceLinkYamlDrawerProps> = ({
       }}
     >
       <div className="resource-link-yaml-drawer-shell">
-        {!viewLink ? (
+        {!viewLink && !useStatic ? (
           <ConfigProvider theme={{ algorithm: theme.darkAlgorithm }}>
             <div className="resource-link-yaml-drawer__empty">无 View Link 数据</div>
           </ConfigProvider>
         ) : (
           <div className="resource-link-yaml-drawer">
             <ResourceLinkYamlDrawerToolbar
-              viewLink={viewLink}
+              toolbarLabel={toolbarLabel}
               {...m}
               editable={editable}
+              showAutoRefresh={!useStatic}
               showSave={showSave}
               saveLoading={saveLoading}
               onSaveClick={() => void handleSave()}

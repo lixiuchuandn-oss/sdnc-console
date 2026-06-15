@@ -1,0 +1,22 @@
+{
+  "id": "fixture-in-progress-99",
+  "description": "CDI finalize window: 99% progress, Imported=False, not terminal",
+  "record": {
+    "metadata": {
+      "name": "img-fix-99",
+      "namespace": "default",
+      "annotations": { "compute-tower.io/upload-channel": "tower-chunked" }
+    },
+    "spec": { "sourceType": "upload", "displayName": "test-99" },
+    "status": {
+      "progress": 99,
+      "conditions": [{ "type": "Imported", "status": "False", "message": "importing" }]
+    }
+  },
+  "expect": {
+    "listStateKey": "syncing",
+    "importComplete": false,
+    "terminalFailure": false,
+    "activeImportInProgress": true
+  }
+}

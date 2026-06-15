@@ -26,6 +26,12 @@ function canManageHarborRegistry(perms: string[], action: 'create' | 'update' | 
   );
 }
 import { HarborProxyService } from '../../services/harbor/HarborProxyService';
+import { refreshManagedHarborPullSecrets } from '../../services/harbor/HarborSecretSyncService';
+import {
+  findRegistryServerConflict,
+  formatRegistryServerConflictMessage,
+} from '../../services/registryServerConflict';
+import { findHarborRegistryForCloud } from '../../services/harbor/harborRegistryAccess';
 import { logger } from '../../utils/logger';
 
 const harborLog = logger.child('HarborRoutes');
@@ -48,20 +54,31 @@ const router = Router();
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     const repo = AppDataSource.getRepository(HarborRegistry);
-    const { isBuiltIn, tenantId } = req.query || {};
+    const { isBuiltIn, tenantId, cloudId } = req.query || {};
 
-    const where: any = {};
-    if (isBuiltIn !== undefined) {
-      where.isBuiltIn = isBuiltIn === 'true';
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
+
+    const where: any = [];
+    const conditions: string[] = [];
+
+    // 平台内置 Harbor 全部可见
+    conditions.push('registry.isBuiltIn = 1');
+
+    // 用户自建 Harbor 按资源池隔离
+    if (isBuiltIn === undefined || isBuiltIn === 'false') {
+      conditions.push(`(registry.isBuiltIn = 0 AND registry.cloudId = :cloudId)`);
     }
     if (tenantId) {
-      where.tenantId = tenantId;
+      conditions.push(`registry.tenantId = :tenantId`);
     }
 
-    const registries = await repo.find({
-      where,
-      order: { createdAt: 'DESC' },
-    });
+    const registries = await repo
+      .createQueryBuilder('registry')
+      .where(conditions.join(' OR '), { cloudId: String(cloudId), tenantId })
+      .orderBy('registry.createdAt', 'DESC')
+      .getMany();
 
     // 隐藏密码字段
     const result = registries.map((r) => ({
@@ -89,18 +106,21 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { name, url, username, password, insecure, isBuiltIn, tenantId, metadata } = req.body;
+    const { name, url, username, password, insecure, isBuiltIn, tenantId, metadata, cloudId } = req.body;
 
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
     if (!name?.trim() || !url?.trim() || !username?.trim() || !password?.trim()) {
       return res.status(400).json({ message: '缺少必填字段：name, url, username, password' });
     }
 
     const repo = AppDataSource.getRepository(HarborRegistry);
 
-    // 检查名称是否已存在
-    const existing = await repo.findOne({ where: { name } });
+    // 检查名称是否已在当前资源池存在
+    const existing = await repo.findOne({ where: { name, cloudId: String(cloudId) } });
     if (existing) {
-      return res.status(400).json({ message: 'Harbor 实例名称已存在' });
+      return res.status(400).json({ message: '当前资源池内 Harbor 实例名称已存在' });
     }
 
     // 处理 URL：确保有协议前缀
@@ -108,6 +128,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
       // 根据 insecure 参数决定协议
       finalUrl = insecure ? `http://${finalUrl}` : `https://${finalUrl}`;
+    }
+
+    const serverConflict = await findRegistryServerConflict(finalUrl, { cloudId: String(cloudId) });
+    if (serverConflict) {
+      return res.status(400).json({ message: formatRegistryServerConflictMessage(serverConflict) });
     }
 
     // 加密密码（可逆加密，用于 Harbor API 调用）
@@ -122,6 +147,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       isBuiltIn: isBuiltIn ?? false,
       tenantId,
       metadata,
+      cloudId: String(cloudId),
       status: HarborStatus.UNKNOWN,
       createdBy: (req.user as any)?.id,
     });
@@ -152,8 +178,11 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.post('/:id/test', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const registry = await repo.findOne({ where: { id } });
+    const cloudId = req.body?.cloudId || req.query?.cloudId;
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
+    const registry = await findHarborRegistryForCloud(id, String(cloudId));
 
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
@@ -187,6 +216,7 @@ router.post('/:id/test', async (req: AuthRequest, res: Response) => {
     if (result.version) {
       registry.version = result.version;
     }
+    const repo = AppDataSource.getRepository(HarborRegistry);
     await repo.save(registry);
 
     // 如果是临时密码测试，清除缓存
@@ -211,8 +241,11 @@ router.post('/:id/test', async (req: AuthRequest, res: Response) => {
 router.get('/:id/systeminfo', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
-    const registry = await repo.findOne({ where: { id } });
+    const cloudId = req.query?.cloudId;
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
+    const registry = await findHarborRegistryForCloud(id, String(cloudId));
 
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
@@ -235,6 +268,14 @@ router.get('/:id/systeminfo', async (req: AuthRequest, res: Response) => {
 router.post('/:id/sync-projects', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    const cloudId = req.body?.cloudId || req.query?.cloudId;
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
+    const registry = await findHarborRegistryForCloud(id, String(cloudId));
+    if (!registry) {
+      return res.status(404).json({ message: 'Harbor 实例不存在' });
+    }
 
     const { harborProjectSyncService } =
       await import('../../services/harbor/HarborProjectSyncService');
@@ -257,9 +298,16 @@ router.post('/:id/sync-projects', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const repo = AppDataSource.getRepository(HarborRegistry);
+    const cloudId = req.query?.cloudId;
 
-    const registry = await repo.findOne({ where: { id } });
+    let registry: HarborRegistry | null = null;
+    if (cloudId) {
+      registry = await findHarborRegistryForCloud(id, String(cloudId));
+    } else {
+      const repo = AppDataSource.getRepository(HarborRegistry);
+      registry = await repo.findOne({ where: { id } });
+    }
+
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
@@ -296,20 +344,25 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const { id } = req.params;
-    const { name, url, username, password, insecure, metadata } = req.body;
+    const { name, url, username, password, insecure, metadata, cloudId } = req.body;
 
     const repo = AppDataSource.getRepository(HarborRegistry);
-    const registry = await repo.findOne({ where: { id } });
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
+    const registry = await findHarborRegistryForCloud(id, String(cloudId));
 
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    // 名称唯一性检查
+    // 名称唯一性检查（同资源池内）
     if (name && name !== registry.name) {
-      const existing = await repo.findOne({ where: { name } });
-      if (existing) {
-        return res.status(400).json({ message: 'Harbor 实例名称已存在' });
+      const existing = await repo.findOne({
+        where: { name, cloudId: registry.cloudId },
+      });
+      if (existing && existing.id !== id) {
+        return res.status(400).json({ message: '当前资源池内 Harbor 实例名称已存在' });
       }
       registry.name = name;
     }
@@ -321,8 +374,17 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
         const useInsecure = insecure !== undefined ? insecure : registry.insecure;
         finalUrl = useInsecure ? `http://${finalUrl}` : `https://${finalUrl}`;
       }
+      const serverConflict = await findRegistryServerConflict(finalUrl, {
+        harborId: id,
+        cloudId: registry.cloudId,
+      });
+      if (serverConflict) {
+        return res.status(400).json({ message: formatRegistryServerConflictMessage(serverConflict) });
+      }
       registry.url = finalUrl;
     }
+    const credentialChanged = Boolean(username || password?.trim() || url);
+
     if (username) registry.username = username;
     if (password?.trim()) {
       registry.password = encryptPassword(password);
@@ -337,11 +399,33 @@ router.put('/:id', async (req: AuthRequest, res: Response) => {
 
     harborLog.info(`更新 Harbor 实例: ${saved.name} (${id})`);
 
+    let secretSync: Awaited<ReturnType<typeof refreshManagedHarborPullSecrets>> | undefined;
+    if (credentialChanged && cloudId) {
+      try {
+        secretSync = await refreshManagedHarborPullSecrets(saved, { cloudId: String(cloudId) });
+        if (secretSync.updated > 0) {
+          harborLog.info(
+            `Harbor 凭证变更后自动更新 ${secretSync.updated} 个 K8s 拉取 Secret（cloud=${cloudId}）`,
+          );
+        } else if (secretSync.failed === 0) {
+          harborLog.info(
+            `Harbor 凭证已变更，但资源池 ${cloudId} 内未找到可自动更新的 K8s 拉取 Secret（harbor=${id}）`,
+          );
+        }
+      } catch (syncError: any) {
+        harborLog.warn(`Harbor 凭证自动同步到 K8s Secret 失败: ${syncError.message}`);
+        secretSync = { updated: 0, failed: 0, details: [] };
+      }
+    } else if (credentialChanged && !cloudId) {
+      harborLog.info(`Harbor 凭证已变更，未提供 cloudId，跳过 K8s Secret 同步（harbor=${id}）`);
+    }
+
     res.json({
       message: '更新成功',
       data: {
         ...saved,
         password: undefined,
+        secretSync,
       },
     });
   } catch (error: any) {
@@ -364,8 +448,12 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     }
 
     const { id } = req.params;
+    const cloudId = req.body?.cloudId || req.query?.cloudId;
+    if (!cloudId) {
+      return res.status(400).json({ message: '缺少必要参数: cloudId' });
+    }
     const repo = AppDataSource.getRepository(HarborRegistry);
-    const registry = await repo.findOne({ where: { id } });
+    const registry = await findHarborRegistryForCloud(id, String(cloudId));
 
     if (!registry) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });

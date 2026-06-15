@@ -10,7 +10,7 @@
  * - 镜像：镜像列表和 Tag
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Drawer, Tabs, Card, Descriptions, Tag, Space, Statistic, Alert, Button, Typography, message } from 'antd';
 import { 
   LockOutlined, 
@@ -18,9 +18,18 @@ import {
   DockerOutlined,
   ApiOutlined,
   ReloadOutlined,
+  UploadOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import RegistryBrowser from './RegistryBrowser';
-import { getRegistryCatalog } from '../../../../../../services/harvesterApi';
+import ImageUploadModal from './ImageUploadModal';
+import LocalRegistryUploadTasksDrawer from './LocalRegistryUploadTasksDrawer';
+import { testRegistryConnection } from '../../../../../../services/harvesterApi';
+import {
+  configureLocalRegistryPull,
+  refreshLocalRegistryStatus,
+  testLocalRegistryConnection,
+} from '../../../../../../services/localRegistryApi';
 
 const { Text, Paragraph } = Typography;
 
@@ -32,7 +41,12 @@ interface RegistryConfig {
   password?: string;
   insecure: boolean;
   createdAt: string;
-  type?: 'generic' | 'harbor';
+  type?: 'generic' | 'harbor' | 'local';
+  localRegistryId?: string;
+  namespace?: string;
+  nodePort?: number;
+  authEnabled?: boolean;
+  status?: 'healthy' | 'unhealthy' | 'unknown' | 'deploying' | 'deleting';
 }
 
 interface Props {
@@ -53,32 +67,94 @@ const GenericRegistryDrawer: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState('overview');
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'healthy' | 'unhealthy'>('unknown');
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [uploadTasksDrawerVisible, setUploadTasksDrawerVisible] = useState(false);
+  const [registryBrowserKey, setRegistryBrowserKey] = useState(0);
+  const syncClusterPullConfig = useCallback(async () => {
+    if (!registry?.localRegistryId) return false;
+    try {
+      await configureLocalRegistryPull(cloudId, registry.localRegistryId);
+      return true;
+    } catch (e: any) {
+      message.warning(e?.message || '同步集群拉取配置失败');
+      return false;
+    }
+  }, [registry?.localRegistryId, cloudId, message]);
+
+  // 从 registry.status 初始化 connectionStatus
+  useEffect(() => {
+    if (registry?.status) {
+      // 将外部表格的状态映射到详情抽屉的连接状态
+      const statusMap: Record<string, 'unknown' | 'healthy' | 'unhealthy'> = {
+        healthy: 'healthy',
+        unhealthy: 'unhealthy',
+        unknown: 'unknown',
+        deploying: 'unknown',
+        deleting: 'unknown',
+      };
+      setConnectionStatus(statusMap[registry.status] || 'unknown');
+    } else {
+      setConnectionStatus('unknown');
+    }
+  }, [registry]);
 
   const protocol = registry?.insecure ? 'HTTP' : 'HTTPS';
-  const hasAuth = !!registry?.username;
+  const hasAuth = !!(registry?.authEnabled || registry?.username);
 
   const handleTestConnection = useCallback(async () => {
     if (!registry) return;
     setTesting(true);
     setConnectionStatus('unknown');
     try {
-      await getRegistryCatalog(
-        cloudId,
-        registry.server,
-        registry.username,
-        registry.password,
-        registry.insecure,
-        1,
-      );
+      if (registry.localRegistryId) {
+        await testLocalRegistryConnection(cloudId, registry.localRegistryId);
+      } else {
+        await testRegistryConnection(
+          cloudId,
+          registry.server,
+          registry.username,
+          registry.password,
+          registry.insecure,
+        );
+      }
       setConnectionStatus('healthy');
       message.success('连接测试成功');
+
+      if (registry.localRegistryId) {
+        await syncClusterPullConfig();
+        try {
+          await refreshLocalRegistryStatus(cloudId, registry.localRegistryId);
+        } catch (e) {
+          console.warn('持久化本地仓库状态失败:', e);
+        }
+        message.info('已尝试同步集群 HTTP 拉取配置，请等待 1～2 分钟后重启 Pod');
+      }
+      
+      // 通知外层表格刷新
+      if (onRefresh) {
+        onRefresh();
+      }
     } catch (e: any) {
       setConnectionStatus('unhealthy');
       message.error(e?.message || '连接测试失败');
+      
+      // 如果是本地仓库，调用后端 API 持久化状态
+      if (registry.localRegistryId) {
+        try {
+          await refreshLocalRegistryStatus(cloudId, registry.localRegistryId);
+        } catch (err) {
+          console.warn('持久化本地仓库状态失败:', err);
+        }
+      }
+      
+      // 通知外层表格刷新
+      if (onRefresh) {
+        onRefresh();
+      }
     } finally {
       setTesting(false);
     }
-  }, [registry, cloudId]);
+  }, [registry, cloudId, onRefresh, syncClusterPullConfig, message]);
 
   const registryCredential = useMemo(() => {
     if (!registry) return null;
@@ -125,7 +201,7 @@ const GenericRegistryDrawer: React.FC<Props> = ({
               />
               <Statistic 
                 title="认证" 
-                value={hasAuth ? '已配置' : '无需认证'}
+                value={hasAuth ? '已启用' : '无需认证'}
                 prefix={hasAuth ? <LockOutlined /> : <UnlockOutlined />}
                 valueStyle={{ 
                   fontSize: 16,
@@ -170,7 +246,7 @@ const GenericRegistryDrawer: React.FC<Props> = ({
             <Descriptions.Item label="认证信息">
               {hasAuth ? (
                 <Space>
-                  <Tag color="blue" icon={<LockOutlined />}>已配置</Tag>
+                  <Tag color="blue" icon={<LockOutlined />}>已启用</Tag>
                   <Text type="secondary">用户名: {registry.username}</Text>
                 </Space>
               ) : (
@@ -181,6 +257,22 @@ const GenericRegistryDrawer: React.FC<Props> = ({
               {formatTime(registry.createdAt)}
             </Descriptions.Item>
           </Descriptions>
+
+          {registry.localRegistryId && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 16 }}
+              message="集群拉取说明"
+              description={
+                <>
+                  本地仓库使用 HTTP，节点拉取镜像前需将 <Text code>{registry.server}</Text> 加入
+                  Harvester containerd-registry。部署/上传成功后会自动配置；若 Pod 仍报
+                  「HTTP response to HTTPS client」，请点击右上角「测试连接」重新同步配置。
+                </>
+              }
+            />
+          )}
 
           <Alert
             type="info"
@@ -222,6 +314,7 @@ const GenericRegistryDrawer: React.FC<Props> = ({
             style={{ marginBottom: 16 }}
           />
           <RegistryBrowser
+            key={registryBrowserKey}
             cloudId={cloudId}
             credential={registryCredential}
           />
@@ -248,6 +341,19 @@ const GenericRegistryDrawer: React.FC<Props> = ({
       extra={
         <Space>
           <Button 
+            type="primary"
+            icon={<UploadOutlined />} 
+            onClick={() => setUploadModalVisible(true)}
+          >
+            上传镜像
+          </Button>
+          <Button
+            icon={<UnorderedListOutlined />}
+            onClick={() => setUploadTasksDrawerVisible(true)}
+          >
+            推送任务
+          </Button>
+          <Button 
             icon={<ApiOutlined />} 
             loading={testing}
             onClick={handleTestConnection}
@@ -267,6 +373,41 @@ const GenericRegistryDrawer: React.FC<Props> = ({
         onChange={setActiveTab}
         items={tabItems}
       />
+      
+      {/* 上传镜像弹窗 */}
+      {registry && (
+        <ImageUploadModal
+          visible={uploadModalVisible}
+          cloudId={cloudId}
+          registryId={registry.localRegistryId}
+          registryServer={registry.server}
+          insecure={registry.insecure}
+          username={registry.username}
+          password={registry.password}
+          onCancel={() => setUploadModalVisible(false)}
+          onSuccess={() => {
+            setUploadModalVisible(false);
+            onRefresh?.();
+          }}
+          onTaskCreated={() => {
+            setUploadTasksDrawerVisible(true);
+          }}
+        />
+      )}
+
+      {registry && (
+        <LocalRegistryUploadTasksDrawer
+          visible={uploadTasksDrawerVisible}
+          cloudId={cloudId}
+          registryId={registry.localRegistryId}
+          registryServer={registry.localRegistryId ? undefined : registry.server}
+          onClose={() => setUploadTasksDrawerVisible(false)}
+          onTasksChanged={() => {
+            setRegistryBrowserKey((k) => k + 1);
+            onRefresh?.();
+          }}
+        />
+      )}
     </Drawer>
   );
 };

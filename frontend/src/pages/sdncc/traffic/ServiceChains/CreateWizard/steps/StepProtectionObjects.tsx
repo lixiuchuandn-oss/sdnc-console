@@ -136,7 +136,7 @@ export default function StepProtectionObjects(props: any) {
       <Form form={form} layout="vertical">
          <Form.Item name="steeringMode"  initialValue="vr" style={{ marginBottom: 16 }}>
            <Radio.Group onChange={handleModeChange} value={steeringMode}>
-             <Radio.Button value="vr">VR引流 (安全域)</Radio.Button>
+             <Radio.Button value="vr">VR引流 (网际路由域)</Radio.Button>
              <Radio.Button value="direct">直连引流 (资源池资产)</Radio.Button>
            </Radio.Group>
          </Form.Item>
@@ -259,7 +259,7 @@ export default function StepProtectionObjects(props: any) {
                 />
               </Form.Item>
              <Modal
-               title="批量添加到资产（VR安全域）"
+               title="批量添加到资产（网际路由域）"
                open={vrBatchOpen}
                onCancel={() => setVrBatchOpen(false)}
                onOk={async () => {
@@ -268,7 +268,7 @@ export default function StepProtectionObjects(props: any) {
                   const keys: string[] = form.getFieldValue('vrDomains') || [];
                   const currentCloudId = String(selectedClusterId || form.getFieldValue('cluster') || '').trim();
                   if (!currentCloudId) throw new Error('请先在基础信息中选择安全资源池');
-                  if (!Array.isArray(keys) || keys.length === 0) throw new Error('请先选择至少一个安全域');
+                  if (!Array.isArray(keys) || keys.length === 0) throw new Error('请先选择至少一个网际路由域');
                   
                   let currentPoolId = poolId;
                   if (!currentPoolId) {
@@ -336,7 +336,7 @@ export default function StepProtectionObjects(props: any) {
                </Form>
              </Modal>
              <Modal
-               title="添加到资产（单个安全域）"
+               title="添加到资产（单个网际路由域）"
                open={vrRowOpen}
                onCancel={() => setVrRowOpen(false)}
                onOk={async () => {
@@ -346,7 +346,7 @@ export default function StepProtectionObjects(props: any) {
                    if (!currentCloudId) throw new Error('请先在基础信息中选择安全资源池');
                    const record = form.getFieldValue('vrRowRecord');
                    const cidr = String(record?.cidr || '').trim();
-                   if (!cidr) throw new Error('安全域未提供CIDR');
+                   if (!cidr) throw new Error('网际路由域未提供 CIDR');
                    const payload: any = { type: 'subnet', ip_type: values.ip_type || 'ipv4', value: cidr };
                    if (values.port && String(values.port).trim()) payload.port = String(values.port).trim();
                    await createCsmAsset(currentCloudId, payload, poolId ? { pool_id: poolId } : undefined);

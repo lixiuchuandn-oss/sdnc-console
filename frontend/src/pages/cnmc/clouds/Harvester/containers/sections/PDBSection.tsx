@@ -3,14 +3,14 @@
  * 模块名称: PodDisruptionBudget 管理视图 (PDBSection)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/containers/sections/PDBSection.tsx
  * ==============================================================================
- * 
+ *
  * [功能描述]
  * 该组件负责展示和管理 Kubernetes PodDisruptionBudget 资源，包括：
  * 1. PDB 列表展示
  * 2. PDB 创建
  * 3. PDB 删除
  * 4. 命名空间筛选
- * 
+ *
  * [核心逻辑]
  * PodDisruptionBudget 用于限制自愿中断（如节点维护、集群升级）时的 Pod 数量，
  * 确保服务的高可用性。
@@ -34,8 +34,13 @@ import {
   Form,
   Switch,
 } from 'antd';
-import { SafetyOutlined, SearchOutlined, EllipsisOutlined, ReloadOutlined, EditTwoTone } from '@ant-design/icons';
-import yaml from 'js-yaml';
+import {
+  SafetyOutlined,
+  SearchOutlined,
+  EllipsisOutlined,
+  ReloadOutlined,
+  EditTwoTone,
+} from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import WriteGuard from '../../../../../../components/WriteGuard';
@@ -44,14 +49,26 @@ import TableColumnSettingsButton from '../../../../../../components/TableColumnS
 import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasContainerSubWritePermission } from '../../../../../../utils/permissionUtils';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
-import YamlEditor from '../../../../../../components/YamlEditor';
 import {
   fetchHarvesterPDBDetail,
   deleteHarvesterPDB,
   patchHarvesterContainerResource,
 } from '../../../../../../services/harvesterApi';
-import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
+import {
+  isSystemResource,
+  getSystemResourceProtectionHint,
+} from '../../../../../../utils/harvesterUtils';
 import { PDBForm } from '../components';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+  type ContainerSectionOnRefresh,
+} from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 
 type Props = {
   pdbs: any[];
@@ -60,7 +77,7 @@ type Props = {
   cloudId: string;
   nsValue?: string;
   onNsChange: (v?: string) => void;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: ContainerSectionOnRefresh;
   createDefaultNamespace?: string;
   showAllSwitch?: boolean;
   queryAll?: boolean;
@@ -89,11 +106,11 @@ const calculateAge = (timestamp?: string) => {
     const created = new Date(timestamp).getTime();
     const now = Date.now();
     const diff = now - created;
-    
+
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (days > 0) return `${days}d${hours}h`;
     if (hours > 0) return `${hours}h${minutes}m`;
     return `${minutes}m`;
@@ -115,17 +132,17 @@ const formatIntOrString = (value: any): string => {
  * PDB 条件类型中英文映射（中文和英文分开存储）
  */
 const PDB_CONDITION_TYPE_MAP: Record<string, { zh: string; en: string }> = {
-  'DisruptionAllowed': { zh: '允许中断', en: 'DisruptionAllowed' },
-  'InsufficientPods': { zh: 'Pod不足', en: 'InsufficientPods' },
+  DisruptionAllowed: { zh: '允许中断', en: 'DisruptionAllowed' },
+  InsufficientPods: { zh: 'Pod不足', en: 'InsufficientPods' },
 };
 
 /**
  * PDB 条件原因中英文映射（中文和英文分开存储）
  */
 const PDB_CONDITION_REASON_MAP: Record<string, { zh: string; en: string }> = {
-  'SyncFailed': { zh: '同步失败', en: 'SyncFailed' },
-  'SufficientPods': { zh: 'Pod数量充足', en: 'SufficientPods' },
-  'InsufficientPods': { zh: 'Pod数量不足', en: 'InsufficientPods' },
+  SyncFailed: { zh: '同步失败', en: 'SyncFailed' },
+  SufficientPods: { zh: 'Pod数量充足', en: 'SufficientPods' },
+  InsufficientPods: { zh: 'Pod数量不足', en: 'InsufficientPods' },
 };
 
 /**
@@ -166,12 +183,12 @@ const formatConditionReason = (reason: string): React.ReactNode => {
 const renderPDBStatus = (pdb: any) => {
   const status = pdb?.status || {};
   const conditions = status?.conditions || [];
-  
+
   // 检查是否有 DisruptionAllowed 条件
   const disruptionCondition = conditions.find(
-    (c: any) => c.type === 'DisruptionAllowed' || c.type === 'DisruptionAllowed'
+    (c: any) => c.type === 'DisruptionAllowed' || c.type === 'DisruptionAllowed',
   );
-  
+
   if (disruptionCondition) {
     if (disruptionCondition.status === 'True') {
       return <Tag color="green">允许中断</Tag>;
@@ -183,11 +200,11 @@ const renderPDBStatus = (pdb: any) => {
       );
     }
   }
-  
+
   // 默认状态
   const healthy = status?.currentHealthy || 0;
   const desired = status?.desiredHealthy || 0;
-  
+
   if (healthy >= desired && desired > 0) {
     return <Tag color="green">健康</Tag>;
   } else if (healthy > 0) {
@@ -253,49 +270,55 @@ const PDBDetailDrawer: React.FC<{
         showIcon
         style={{ marginBottom: 16 }}
       />
-      
+
       <Descriptions column={2} bordered size="small">
         <Descriptions.Item label="名称">{metadata.name}</Descriptions.Item>
         <Descriptions.Item label="项目">{metadata.namespace}</Descriptions.Item>
         <Descriptions.Item label="状态">{renderPDBStatus(data)}</Descriptions.Item>
-        <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
-        
+        <Descriptions.Item label="运行时长">
+          {calculateAge(metadata.creationTimestamp)}
+        </Descriptions.Item>
+
         <Descriptions.Item label="最小可用数">
           <Tag color="blue">{formatIntOrString(spec.minAvailable)}</Tag>
         </Descriptions.Item>
         <Descriptions.Item label="最大不可用数">
           <Tag color="orange">{formatIntOrString(spec.maxUnavailable)}</Tag>
         </Descriptions.Item>
-        
+
         <Descriptions.Item label="选择器" span={2}>
           <Space size={4} wrap>
             {Object.entries(spec?.selector?.matchLabels || {}).map(([k, v]) => (
-              <Tag key={k}>{k}={String(v)}</Tag>
+              <Tag key={k}>
+                {k}={String(v)}
+              </Tag>
             ))}
             {!spec?.selector?.matchLabels && '-'}
           </Space>
         </Descriptions.Item>
-        
+
         <Descriptions.Item label="当前健康数">{status.currentHealthy || 0}</Descriptions.Item>
         <Descriptions.Item label="期望健康数">{status.desiredHealthy || 0}</Descriptions.Item>
         <Descriptions.Item label="预期副本数">{status.expectedPods || 0}</Descriptions.Item>
         <Descriptions.Item label="允许中断数">{status.disruptionsAllowed ?? '-'}</Descriptions.Item>
-        
+
         <Descriptions.Item label="创建时间" span={2}>
           {formatTime(metadata.creationTimestamp)}
         </Descriptions.Item>
-        
+
         {Object.keys(metadata.labels || {}).length > 0 && (
           <Descriptions.Item label="标签" span={2}>
             <Space size={4} wrap>
               {Object.entries(metadata.labels || {}).map(([k, v]) => (
-                <Tag key={k}>{k}={String(v)}</Tag>
+                <Tag key={k}>
+                  {k}={String(v)}
+                </Tag>
               ))}
             </Space>
           </Descriptions.Item>
         )}
       </Descriptions>
-      
+
       {status.conditions && status.conditions.length > 0 && (
         <>
           <div style={{ marginTop: 16, marginBottom: 8, fontWeight: 500 }}>条件</div>
@@ -303,31 +326,29 @@ const PDBDetailDrawer: React.FC<{
             dataSource={status.conditions.map((c: any, i: number) => ({ ...c, key: i }))}
             pagination={false}
             columns={[
-              { 
-                title: '类型', 
-                dataIndex: 'type', 
+              {
+                title: '类型',
+                dataIndex: 'type',
                 render: (v: string) => formatConditionType(v),
               },
-              { 
-                title: '状态', 
-                dataIndex: 'status', 
-                render: (v: string) => (
-                  <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>
-                )
+              {
+                title: '状态',
+                dataIndex: 'status',
+                render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>,
               },
-              { 
-                title: '原因', 
-                dataIndex: 'reason', 
+              {
+                title: '原因',
+                dataIndex: 'reason',
                 render: (v: string) => formatConditionReason(v),
               },
-              { 
-                title: '消息', 
+              {
+                title: '消息',
                 dataIndex: 'message',
                 ellipsis: true,
               },
-              { 
-                title: '最后更新', 
-                dataIndex: 'lastTransitionTime', 
+              {
+                title: '最后更新',
+                dataIndex: 'lastTransitionTime',
                 render: formatTime,
               },
             ]}
@@ -360,137 +381,141 @@ const PDBSection: React.FC<Props> = ({
     [user?.permissions],
   );
   const formDefaultNs = createDefaultNamespace ?? nsValue ?? 'default';
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentPDB, setCurrentPDB] = useState<any>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
-  
+
   // 双轨制：别名编辑相关状态
   const [aliasModalVisible, setAliasModalVisible] = useState(false);
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  
+
   // YAML 查看相关状态
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
-  
   // apiPath 用于 PATCH 请求
   const apiPath = '/apis/policy/v1/poddisruptionbudgets';
-  
+
   // 别名编辑 Modal 打开
-  const handleOpenAliasModal = useCallback((record: any) => {
-    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
-  
+  const handleOpenAliasModal = useCallback(
+    (record: any) => {
+      const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+      setAliasRecord(record);
+      setAliasModalVisible(true);
+      aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+    },
+    [aliasForm],
+  );
+
   // 别名提交
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord) return false;
-    const ns = aliasRecord?.metadata?.namespace;
-    const name = aliasRecord?.metadata?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
+  const handleSubmitAlias = useCallback(
+    async (nextAliasRaw?: string) => {
+      if (!aliasRecord) return false;
+      const ns = aliasRecord?.metadata?.namespace;
+      const name = aliasRecord?.metadata?.name;
+      if (!ns || !name) {
+        message.error('未能解析资源命名空间或名称');
+        return false;
       }
-    }
 
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
+      const next = String(nextAliasRaw || '').trim();
+      const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+      if (next === prev) {
+        setAliasModalVisible(false);
+        return true;
+      }
 
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      aliasForm.resetFields();
-      onRefresh(true);
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
-  
+      const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+      const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+      const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+      const patchBody: any[] = [];
+      if (!next) {
+        if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+      } else {
+        if (!hasAnnotations) {
+          patchBody.push({
+            op: 'add',
+            path: '/metadata/annotations',
+            value: { 'tower.io/alias': next },
+          });
+        } else {
+          patchBody.push({ op: 'add', path: aliasPath, value: next });
+        }
+      }
+
+      if (patchBody.length === 0) {
+        setAliasModalVisible(false);
+        return true;
+      }
+
+      setAliasSubmitting(true);
+      try {
+        await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+        message.success(next ? '名称修改成功' : '已清空别名');
+        setAliasModalVisible(false);
+        setAliasRecord(null);
+        aliasForm.resetFields();
+        runContainerSectionRefresh(onRefresh, { force: true });
+        return true;
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || '名称修改失败');
+        return false;
+      } finally {
+        setAliasSubmitting(false);
+      }
+    },
+    [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm],
+  );
+
   // 查看 YAML
-  const handleViewYaml = useCallback((record: any) => {
-    try {
-      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-      setYamlContent(yamlStr);
-      setYamlModalVisible(true);
-    } catch (e: any) {
-      message.error('生成 YAML 失败: ' + e.message);
-    }
-  }, [message]);
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
+
+  const handleViewYaml = useCallback(
+    (record: any) => {
+      openYamlDrawer(record, {
+        title: 'PodDisruptionBudget YAML',
+        resolveLink: (r: unknown) => {
+          const rec = r as { metadata?: { namespace?: string; name?: string } };
+          const ns = rec?.metadata?.namespace;
+          const name = rec?.metadata?.name;
+          if (!ns || !name) return undefined;
+          return `/apis/policy/v1/namespaces/${encodeURIComponent(ns)}/poddisruptionbudgets/${encodeURIComponent(name)}`;
+        },
+      });
+    },
+    [openYamlDrawer],
+  );
 
   // 删除处理
-  const handleDelete = useCallback((record: any) => {
-    const name = record?.metadata?.name;
-    const namespace = record?.metadata?.namespace;
-    const alias = record?.metadata?.annotations?.['tower.io/alias'];
-    const displayName = alias ? `${alias} (${name})` : name;
-    
-    modal.confirm({
-      title: '确认删除',
-      content: (
-        <div>
-          <p>确定要删除 Pod 中断保护规则 "{displayName}" 吗？</p>
-          <p>
-            <strong>项目:</strong> {namespace}
-          </p>
-          <Alert
-            message="删除 PDB 可能影响服务在节点维护期间的可用性"
-            type="warning"
-            showIcon
-            style={{ marginTop: 8 }}
-          />
-        </div>
-      ),
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await deleteHarvesterPDB(cloudId, namespace, name);
-          message.success('删除成功');
-          onRefresh(true);
-        } catch (e: any) {
-          message.error(e?.message || '删除失败');
-        }
-      },
-    });
-  }, [cloudId, modal, message, onRefresh]);
+  const handleDelete = useCallback(
+    (record: any) => {
+      const name = record?.metadata?.name;
+      const namespace = record?.metadata?.namespace;
+      const alias = record?.metadata?.annotations?.['tower.io/alias'];
+      const displayName = alias ? `${alias} (${name})` : name;
+
+      void confirmHighRiskDelete({
+        resourceLabel: 'Pod 中断保护规则',
+        name: displayName,
+        description: `确定要删除 Pod 中断保护规则「${displayName}」吗？项目：${namespace}。删除 PDB 可能影响服务在节点维护期间的可用性。`,
+        riskItems: CONTAINER_DELETE_RISK_ITEMS,
+        onConfirm: async () => {
+          try {
+            await deleteHarvesterPDB(cloudId, namespace, name);
+            message.success('删除成功');
+            runContainerSectionRefresh(onRefresh, { force: true });
+          } catch (e: any) {
+            message.error(e?.message || '删除失败');
+          }
+        },
+      }).catch(() => {});
+    },
+    [cloudId, message, onRefresh],
+  );
 
   // 批量删除
   const handleBatchDelete = useCallback(() => {
@@ -499,23 +524,13 @@ const PDBSection: React.FC<Props> = ({
       return;
     }
 
-    modal.confirm({
-      title: '批量删除确认',
-      content: (
-        <div>
-          <p>确定要删除选中的 {selectedKeys.length} 个 Pod 中断保护规则吗？</p>
-          <Alert
-            message="删除 PDB 可能影响服务在节点维护期间的可用性"
-            type="warning"
-            showIcon
-            style={{ marginTop: 8 }}
-          />
-        </div>
-      ),
-      okText: '删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: 'Pod 中断保护规则',
+      name: `${selectedKeys.length} 个 Pod 中断保护规则`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${selectedKeys.length} 个 Pod 中断保护规则吗？删除 PDB 可能影响服务在节点维护期间的可用性。`,
+      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+      onConfirm: async () => {
         const promises = selectedKeys.map((key) => {
           const [ns, name] = String(key).split('/');
           return deleteHarvesterPDB(cloudId, ns, name);
@@ -525,115 +540,91 @@ const PDBSection: React.FC<Props> = ({
           await Promise.all(promises);
           message.success('批量删除成功');
           setSelectedKeys([]);
-          onRefresh(true);
+          runContainerSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(e?.message || '批量删除失败');
         }
       },
-    });
-  }, [selectedKeys, cloudId, modal, message, onRefresh]);
+    }).catch(() => {});
+  }, [selectedKeys, cloudId, message, onRefresh]);
 
   // 表格列定义
-  const allColumns = useMemo(() => [
-    {
-      title: '名称',
-      key: 'name',
-      fixed: 'left' as const,
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const alias = record?.metadata?.annotations?.['tower.io/alias'];
-        const id = record?.metadata?.name || '';
-        const hasAlias = !!alias;
-        
-        return (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => {
-                setCurrentPDB(record);
-                setDetailVisible(true);
-              }}
-            >
-              {hasAlias ? alias : id}
-            </Button>
-            <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
-              <Button
-                type="text"
-                size="small"
-                icon={<EditTwoTone />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenAliasModal(record);
-                }}
-              />
-            </Tooltip>
-          </span>
-        );
-      },
-    },
-    {
-      title: 'ID',
-      dataIndex: ['metadata', 'name'],
-      key: 'id',
-      ellipsis: true,
-      render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
-    },
-    {
-      title: '项目',
-      dataIndex: ['metadata', 'namespace'],
-      key: 'namespace',
-    },
-    {
-      title: '选择器',
-      key: 'selector',
-      render: (_: any, record: any) => {
-        const matchLabels = record?.spec?.selector?.matchLabels || {};
-        const entries = Object.entries(matchLabels);
-        
-        if (entries.length === 0) return <span style={{ color: '#999' }}>-</span>;
-        
-        // 渲染带样式的标签内容（用于 Tooltip）
-        const renderStyledLabel = (k: string, v: string) => (
-          <span>
-            <span style={{ fontWeight: 600, color: '#1890ff' }}>{k}</span>
-            <span style={{ color: '#bfbfbf', margin: '0 2px' }}>=</span>
-            <span style={{ color: '#52c41a' }}>{v}</span>
-          </span>
-        );
-        
-        // 单个标签：直接显示，过长时截断
-        if (entries.length === 1) {
-          const [k, v] = entries[0];
-          const text = `${k}=${v}`;
+  const allColumns = useMemo(
+    () => [
+      {
+        title: '名称',
+        key: 'name',
+        fixed: 'left' as const,
+        ellipsis: true,
+        render: (_: any, record: any) => {
+          const alias = record?.metadata?.annotations?.['tower.io/alias'];
+          const id = record?.metadata?.name || '';
+          const hasAlias = !!alias;
+
           return (
-            <Tooltip title={renderStyledLabel(k, String(v))}>
-              <Tag
-                style={{
-                  maxWidth: 160,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Button
+                type="link"
+                size="small"
+                onClick={() => {
+                  setCurrentPDB(record);
+                  setDetailVisible(true);
                 }}
               >
-                {text}
-              </Tag>
-            </Tooltip>
+                {hasAlias ? alias : id}
+              </Button>
+              <Tooltip title={hasAlias ? '修改别名' : '设置别名'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<EditTwoTone />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenAliasModal(record);
+                  }}
+                />
+              </Tooltip>
+            </span>
           );
-        }
-        
-        // 多个标签：分行显示，最多显示2个，超出显示 +N
-        const displayCount = 2;
-        const displayEntries = entries.slice(0, displayCount);
-        const remaining = entries.length - displayCount;
-        
-        const content = (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {displayEntries.map(([k, v]) => {
-              const text = `${k}=${v}`;
-              return (
+        },
+      },
+      {
+        title: 'ID',
+        dataIndex: ['metadata', 'name'],
+        key: 'id',
+        ellipsis: true,
+        render: (id: string) => <span style={{ color: '#888', fontSize: 12 }}>{id}</span>,
+      },
+      {
+        title: '项目',
+        dataIndex: ['metadata', 'namespace'],
+        key: 'namespace',
+      },
+      {
+        title: '选择器',
+        key: 'selector',
+        render: (_: any, record: any) => {
+          const matchLabels = record?.spec?.selector?.matchLabels || {};
+          const entries = Object.entries(matchLabels);
+
+          if (entries.length === 0) return <span style={{ color: '#999' }}>-</span>;
+
+          // 渲染带样式的标签内容（用于 Tooltip）
+          const renderStyledLabel = (k: string, v: string) => (
+            <span>
+              <span style={{ fontWeight: 600, color: '#1890ff' }}>{k}</span>
+              <span style={{ color: '#bfbfbf', margin: '0 2px' }}>=</span>
+              <span style={{ color: '#52c41a' }}>{v}</span>
+            </span>
+          );
+
+          // 单个标签：直接显示，过长时截断
+          if (entries.length === 1) {
+            const [k, v] = entries[0];
+            const text = `${k}=${v}`;
+            return (
+              <Tooltip title={renderStyledLabel(k, String(v))}>
                 <Tag
-                  key={k}
                   style={{
                     maxWidth: 160,
                     overflow: 'hidden',
@@ -643,109 +634,135 @@ const PDBSection: React.FC<Props> = ({
                 >
                   {text}
                 </Tag>
-              );
-            })}
-            {remaining > 0 && (
-              <Tag style={{ color: '#666' }}>+{remaining}</Tag>
+              </Tooltip>
+            );
+          }
+
+          // 多个标签：分行显示，最多显示2个，超出显示 +N
+          const displayCount = 2;
+          const displayEntries = entries.slice(0, displayCount);
+          const remaining = entries.length - displayCount;
+
+          const content = (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {displayEntries.map(([k, v]) => {
+                const text = `${k}=${v}`;
+                return (
+                  <Tag
+                    key={k}
+                    style={{
+                      maxWidth: 160,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {text}
+                  </Tag>
+                );
+              })}
+              {remaining > 0 && <Tag style={{ color: '#666' }}>+{remaining}</Tag>}
+            </div>
+          );
+
+          // Tooltip 显示完整列表，带样式区分 key 和 value
+          const fullContent = (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {entries.map(([k, v]) => (
+                <div key={k}>{renderStyledLabel(k, String(v))}</div>
+              ))}
+            </div>
+          );
+
+          return <Tooltip title={fullContent}>{content}</Tooltip>;
+        },
+      },
+      {
+        title: '最小可用',
+        key: 'minAvailable',
+        render: (_: any, record: any) => (
+          <Tag color="blue">{formatIntOrString(record?.spec?.minAvailable)}</Tag>
+        ),
+      },
+      {
+        title: '最大不可用',
+        key: 'maxUnavailable',
+        render: (_: any, record: any) => (
+          <Tag color="orange">{formatIntOrString(record?.spec?.maxUnavailable)}</Tag>
+        ),
+      },
+      {
+        title: '状态',
+        key: 'status',
+        render: (_: any, record: any) => renderPDBStatus(record),
+      },
+      {
+        title: '健康状态',
+        key: 'healthy',
+        render: (_: any, record: any) => {
+          const status = record?.status || {};
+          const healthy = status.currentHealthy || 0;
+          const desired = status.desiredHealthy || 0;
+          return (
+            <span>
+              <Tag color={healthy >= desired ? 'green' : 'orange'}>{healthy}</Tag>/ {desired}
+            </span>
+          );
+        },
+      },
+      {
+        title: '创建时间',
+        dataIndex: ['metadata', 'creationTimestamp'],
+        key: 'created',
+        width: 180,
+        render: formatTime,
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        fixed: 'right' as const,
+        render: (_: any, record: any) => (
+          <ResourceActionsDropdown
+            items={filterMenuItemsForReadOnly(
+              [
+                {
+                  key: 'detail',
+                  label: '查看详情',
+                  onClick: () => {
+                    setCurrentPDB(record);
+                    setDetailVisible(true);
+                  },
+                },
+                {
+                  key: 'yaml',
+                  label: '查看 YAML',
+                  onClick: () => handleViewYaml(record),
+                },
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  disabled: isSystemResource(record),
+                  tooltip: getSystemResourceProtectionHint(record),
+                  onClick: () => handleDelete(record),
+                },
+              ],
+              hasContainersWrite,
             )}
-          </div>
-        );
-        
-        // Tooltip 显示完整列表，带样式区分 key 和 value
-        const fullContent = (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {entries.map(([k, v]) => (
-              <div key={k}>{renderStyledLabel(k, String(v))}</div>
-            ))}
-          </div>
-        );
-        
-        return (
-          <Tooltip title={fullContent}>
-            {content}
-          </Tooltip>
-        );
+            buttonProps={{ className: 'row-actions-trigger' }}
+          />
+        ),
       },
-    },
-    {
-      title: '最小可用',
-      key: 'minAvailable',
-      render: (_: any, record: any) => (
-        <Tag color="blue">{formatIntOrString(record?.spec?.minAvailable)}</Tag>
-      ),
-    },
-    {
-      title: '最大不可用',
-      key: 'maxUnavailable',
-      render: (_: any, record: any) => (
-        <Tag color="orange">{formatIntOrString(record?.spec?.maxUnavailable)}</Tag>
-      ),
-    },
-    {
-      title: '状态',
-      key: 'status',
-      render: (_: any, record: any) => renderPDBStatus(record),
-    },
-    {
-      title: '健康状态',
-      key: 'healthy',
-      render: (_: any, record: any) => {
-        const status = record?.status || {};
-        const healthy = status.currentHealthy || 0;
-        const desired = status.desiredHealthy || 0;
-        return (
-          <span>
-            <Tag color={healthy >= desired ? 'green' : 'orange'}>{healthy}</Tag>
-            / {desired}
-          </span>
-        );
-      },
-    },
-    {
-      title: '创建时间',
-      dataIndex: ['metadata', 'creationTimestamp'],
-      key: 'created',
-      width: 180,
-      render: formatTime,
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <ResourceActionsDropdown
-          items={filterMenuItemsForReadOnly([
-            {
-              key: 'detail',
-              label: '查看详情',
-              onClick: () => {
-                setCurrentPDB(record);
-                setDetailVisible(true);
-              },
-            },
-            {
-              key: 'yaml',
-              label: '查看 YAML',
-              onClick: () => handleViewYaml(record),
-            },
-            {
-              key: 'delete',
-              label: '删除',
-              danger: true,
-              disabled: isSystemResource(record),
-              tooltip: getSystemResourceProtectionHint(record),
-              onClick: () => handleDelete(record),
-            },
-          ], hasContainersWrite)}
-          buttonProps={{ className: 'row-actions-trigger' }}
-        />
-      ),
-    },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [handleDelete, handleViewYaml, handleOpenAliasModal]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    ],
+    [handleDelete, handleViewYaml, handleOpenAliasModal, hasContainersWrite],
+  );
 
   // 使用 hook 管理列设置
-  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_pdb_table');
+  const { displayColumns: tableColumns } = useTableColumnSettings(
+    allColumns,
+    'harvester_pdb_table',
+  );
 
   // 过滤数据
   const filteredData = useMemo(() => {
@@ -825,37 +842,32 @@ const PDBSection: React.FC<Props> = ({
             </WriteGuard>
             {hasContainersWrite ? (
               <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: 'batchDelete',
-                    label:
-                      selectedKeys.length > 0
-                        ? `批量删除 (${selectedKeys.length})`
-                        : '批量删除',
-                    danger: true,
-                    disabled: selectedKeys.length === 0,
+                menu={{
+                  items: [
+                    {
+                      key: 'batchDelete',
+                      label:
+                        selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
+                      danger: true,
+                      disabled: selectedKeys.length === 0,
+                    },
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === 'batchDelete') handleBatchDelete();
                   },
-                ],
-                onClick: ({ key }) => {
-                  if (key === 'batchDelete') handleBatchDelete();
-                },
-              }}
-              trigger={['click']}
-              disabled={selectedKeys.length === 0}
-            >
-              <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
+                }}
+                trigger={['click']}
+                disabled={selectedKeys.length === 0}
+              >
+                <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
               </Dropdown>
             ) : null}
-            <TableColumnSettingsButton
-              allColumns={allColumns}
-              settingsKey="harvester_pdb_table"
-            />
+            <TableColumnSettingsButton allColumns={allColumns} settingsKey="harvester_pdb_table" />
             <Tooltip title="刷新">
               <Button
                 type="default"
                 icon={<ReloadOutlined />}
-                onClick={() => onRefresh(true)}
+                onClick={createContainerToolbarRefresh(onRefresh)}
                 loading={loading}
               />
             </Tooltip>
@@ -913,7 +925,7 @@ const PDBSection: React.FC<Props> = ({
           namespacesOptions={namespacesOptions}
           onSuccess={() => {
             setCreateModalVisible(false);
-            onRefresh(true);
+            runContainerSectionRefresh(onRefresh, { force: true });
           }}
           onCancel={() => setCreateModalVisible(false)}
           defaultNamespace={formDefaultNs}
@@ -966,21 +978,7 @@ const PDBSection: React.FC<Props> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看 Modal */}
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor
-          value={yamlContent}
-          onChange={() => {}}
-          maxHeight={500}
-          readOnly
-        />
-      </Modal>
+      {yamlDrawer}
     </>
   );
 };

@@ -3,8 +3,8 @@
  * 列表列与筛选逻辑见 `ecs/lib/templatesSectionUtils.ts`、`templatesTableColumns.tsx`。
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Table, Input, Button, Select, message, App, Modal, Switch, Dropdown, Tooltip } from 'antd';
-import { ReloadOutlined, ExclamationCircleOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Input, Button, Select, message, Modal, Switch, Dropdown, Tooltip } from 'antd';
+import { ReloadOutlined, EllipsisOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import WriteGuard from '../../../../../../components/WriteGuard';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
@@ -26,6 +26,7 @@ import {
   buildTemplateNamespaceOptions,
   buildTemplateYamlRecord,
   filterHiddenBaseTemplates,
+  filterTemplatesBaseRows,
   filterTemplateListRows,
   getTemplateNamespace,
   getTemplateName,
@@ -42,6 +43,11 @@ import {
   buildTemplatesTableColumns,
   HARVESTER_TEMPLATES_TABLE_SETTINGS_KEY,
 } from '../lib/templatesTableColumns';
+import {
+  confirmHighRiskDelete,
+  confirmHighRiskOperation,
+} from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 interface Props {
   cloudId: string;
@@ -59,7 +65,6 @@ const TemplatesSection: React.FC<Props> = ({
   onRefresh,
   isTenant = false,
 }) => {
-  const { modal } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
@@ -84,7 +89,13 @@ const TemplatesSection: React.FC<Props> = ({
   const [quickCreateAutoStart, setQuickCreateAutoStart] = useState(true);
   const [quickCreating, setQuickCreating] = useState(false);
 
-  const baseData = useMemo(() => filterHiddenBaseTemplates(templates), [templates]);
+  const baseData = useMemo(() => {
+    const hiddenFiltered = filterHiddenBaseTemplates(templates);
+    return filterTemplatesBaseRows(hiddenFiltered, {
+      isTenant: !!isTenant,
+      isPublicNamespace,
+    });
+  }, [templates, isTenant, isPublicNamespace]);
 
   const namespaceOptions = useMemo(
     () => buildTemplateNamespaceOptions(baseData),
@@ -109,24 +120,24 @@ const TemplatesSection: React.FC<Props> = ({
         return;
       }
       const { path, label } = buildTemplateDeleteRequest(tpl);
-      modal.confirm({
-        title: '确认删除模板？',
-        icon: <ExclamationCircleOutlined />,
-        content: `确定要删除模板 ${label} 吗？此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '模板',
+        name: label,
+        description: `确定要删除模板「${label}」吗？此操作不可恢复。`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterResourceByLink(cloudId, path);
             message.success('删除成功');
             void runHarvesterSectionRefresh(onRefresh, { force: true });
           } catch (e: any) {
             message.error(`删除失败: ${e.message}`);
+            throw e;
           }
         },
-      });
+      }).catch(() => undefined);
     },
-    [hasTemplatesWrite, modal, cloudId, onRefresh],
+    [hasTemplatesWrite, cloudId, onRefresh],
   );
 
   const handleBatchDelete = useCallback(() => {
@@ -136,13 +147,14 @@ const TemplatesSection: React.FC<Props> = ({
     }
     if (selectedRowKeys.length === 0) return;
 
-    modal.confirm({
+    void confirmHighRiskOperation({
       title: '确认批量删除模板？',
-      icon: <ExclamationCircleOutlined />,
-      content: `确定要删除选中的 ${selectedRowKeys.length} 个模板吗？此操作不可恢复。`,
-      okText: '批量删除',
-      okType: 'danger',
-      onOk: async () => {
+      description: `确定要删除选中的 ${selectedRowKeys.length} 个模板吗？此操作不可恢复。`,
+      riskItems: DELETE_RISK_ITEMS,
+      requireTypeConfirm: false,
+      confirmText: '批量删除',
+      operationSummary: `确认批量删除 ${selectedRowKeys.length} 个模板`,
+      onConfirm: async () => {
         const targets = selectTemplatesByRowKeys(
           filteredData,
           selectedRowKeys as Array<string | number>,
@@ -159,8 +171,8 @@ const TemplatesSection: React.FC<Props> = ({
           void runHarvesterSectionRefresh(onRefresh, { force: true });
         }
       },
-    });
-  }, [hasTemplatesWrite, selectedRowKeys, modal, filteredData, cloudId, onRefresh]);
+    }).catch(() => undefined);
+  }, [hasTemplatesWrite, selectedRowKeys, filteredData, cloudId, onRefresh]);
 
   const openQuickCreate = useCallback(
     (tpl: any) => {
@@ -274,17 +286,19 @@ const TemplatesSection: React.FC<Props> = ({
               className="toolbar-filter-sm"
             />
           )}
-          <Select
-            allowClear
-            placeholder="作用域"
-            value={selectedScope || undefined}
-            onChange={(val) => setSelectedScope((val as any) || '')}
-            options={[
-              { value: 'public', label: '公共模板' },
-              { value: 'private', label: '私有模板' },
-            ]}
-            className="toolbar-filter-sm"
-          />
+          {!isTenant && (
+            <Select
+              allowClear
+              placeholder="作用域"
+              value={selectedScope || undefined}
+              onChange={(val) => setSelectedScope((val as any) || '')}
+              options={[
+                { value: 'public', label: '公共模板' },
+                { value: 'private', label: '私有模板' },
+              ]}
+              className="toolbar-filter-sm"
+            />
+          )}
           <button
             type="button"
             className="toolbar-reset-btn"

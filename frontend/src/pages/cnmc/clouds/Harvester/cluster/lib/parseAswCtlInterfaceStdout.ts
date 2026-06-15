@@ -7,6 +7,7 @@
  */
 
 import type { AswCtlProbeLine } from 'services/harvester/types/aswProbe';
+import { sanitizeAswCliStdout } from './sanitizeAswCliStdout';
 
 export type ParsedSwitchPort = {
   name: string;
@@ -30,6 +31,7 @@ export function classifyPortStatus(status: string): PortStatusKind {
     .trim();
   if (!s) return 'unknown';
   if (/\badmin\w*\s*down\b|\badmindown\b/i.test(s)) return 'admin';
+  if (/^adm$/i.test(s) || /^adm\b/.test(s)) return 'admin';
   if (/\bup\b/.test(s) && !/\bdown\b/.test(s)) return 'up';
   if (/\bdown\b/.test(s)) return 'down';
   if (s === 'up') return 'up';
@@ -42,6 +44,23 @@ function splitTableRow(line: string): string[] {
     .split(/\s{2,}|\t+/)
     .map((p) => p.trim())
     .filter(Boolean);
+}
+
+/** H3C Comware `display interface brief`：NULL、Vlan、环回、REG 等为逻辑口，前面板不展示 */
+export function isH3cStyleLogicalInterfaceName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n) return true;
+  if (/^NULL\d*$/i.test(n)) return true;
+  if (/^Vlan/i.test(n)) return true;
+  if (/^Loop(?:Back)?\d*$/i.test(n)) return true;
+  if (/^InLoop\d*$/i.test(n)) return true;
+  if (/^REG\d*$/i.test(n)) return true;
+  if (/^M-GE/i.test(n)) return true;
+  if (/^MGE\d/i.test(n)) return true;
+  if (/^Tunnel\d*$/i.test(n)) return true;
+  if (/^Vsi-/i.test(n)) return true;
+  if (/^(?:RAGG|BAGG|Bridge-Aggregation)\d/i.test(n)) return true;
+  return false;
 }
 
 /** 华为 VRP `display interface brief` 等：NULL、Vlanif、环回等为逻辑口，前面板不展示 */
@@ -112,6 +131,323 @@ function tryParseHuaweiDisplayInterfaceBriefTable(stdout: string): ParsedSwitchP
     });
   }
   return ports;
+}
+
+function isH3cRouteModeBriefHeaderLine(trimmed: string): boolean {
+  return /^\s*Interface\s+Link\b/i.test(trimmed) && /\bProtocol\b/i.test(trimmed);
+}
+
+function isH3cBridgeModeBriefHeaderLine(trimmed: string): boolean {
+  return (
+    /^\s*Interface\s+Link\b/i.test(trimmed) &&
+    /\bSpeed\b/i.test(trimmed) &&
+    /\bPVID\b/i.test(trimmed)
+  );
+}
+
+function isLikelyH3cPhysicalInterfaceName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n || isH3cStyleLogicalInterfaceName(n)) return false;
+  if (/^(?:GE|XGE|FGE|HGE|WGE|TGE|TE|FE|Ethernet|GigabitEthernet|Ten-GigabitEthernet|FortyGigE|HundredGigE)/i.test(n)) {
+    return true;
+  }
+  return /\d+\/\d+(?:\/\d+)?(?:\.\d+)?$/.test(n);
+}
+
+function parseH3cRouteModeDataRow(
+  trimmed: string,
+): { name: string; link: string; protocol: string; rest: string } | null {
+  const m = trimmed.match(
+    /^(\S+)\s+(UP|DOWN|ADM(?:\([^)]*\))?|Stby(?:\([^)]*\))?)\s+(UP(?:\(s\))?|DOWN(?:\([^)]*\))?|UP|DOWN|--)\s*(.*)$/i,
+  );
+  if (!m) return null;
+  return {
+    name: m[1]!,
+    link: m[2]!,
+    protocol: m[3]!,
+    rest: (m[4] || '').trim(),
+  };
+}
+
+/** CLI 回显是否像 H3C Comware（与华为/Broadcom 分流，避免误走 H3C 逻辑） */
+export function isProbablyH3cComwareInterfaceStdout(stdout: string): boolean {
+  if (!stdout || typeof stdout !== 'string') return false;
+  const normalized = stdout.replace(/\r\n/g, '\n');
+  if (/Brief information on interfaces/i.test(normalized)) return true;
+  if (/brief information of interfaces/i.test(normalized)) return true;
+  if (/H3C Comware/i.test(normalized) || /New H3C Technologies/i.test(normalized)) return true;
+  if (/^<H3C[\w-]*>/im.test(normalized)) return true;
+  if (
+    /^\s*(?:GE|XGE|FGE|HGE|WGE|TGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(normalized) &&
+    !normalized.split('\n').some((l) => isHuaweiDisplayInterfaceBriefHeaderLine(l.trim()))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function shouldSkipH3cBriefNoiseLine(trimmed: string): boolean {
+  if (!trimmed) return true;
+  if (/^[-=─]+$/.test(trimmed)) return true;
+  if (/^<[\w-]+>$/i.test(trimmed)) return true;
+  if (/^Brief information on interfaces/i.test(trimmed)) return true;
+  if (/^Link:\s*ADM/i.test(trimmed)) return true;
+  if (/^Protocol:\s*\(s\)/i.test(trimmed)) return true;
+  if (/^Speed:\s*\(a\)/i.test(trimmed)) return true;
+  if (/^Duplex:\s*\(a\)/i.test(trimmed)) return true;
+  if (/^Type:\s*A\s+-/i.test(trimmed)) return true;
+  if (/^The brief information of interfaces in bridge mode/i.test(trimmed)) return true;
+  return false;
+}
+
+function dedupeSwitchPortsByName(ports: ParsedSwitchPort[]): ParsedSwitchPort[] {
+  const seen = new Map<string, ParsedSwitchPort>();
+  for (const p of ports) {
+    if (!p.name) continue;
+    if (!seen.has(p.name)) seen.set(p.name, p);
+  }
+  return [...seen.values()];
+}
+
+function parseH3cBridgeModeTableRow(trimmed: string): ParsedSwitchPort | null {
+  const parts = splitTableRow(trimmed);
+  if (parts.length < 2) {
+    const filtered = parseH3cBridgeModeBriefDataRow(trimmed);
+    if (!filtered || !isLikelyH3cPhysicalInterfaceName(filtered.name)) return null;
+    const speedSummary = [filtered.speed, filtered.duplex].filter(Boolean).join(' ').trim();
+    return {
+      name: filtered.name,
+      status: filtered.link.replace(/\s+/g, ' ').trim(),
+      speed: speedSummary || undefined,
+      rawLine: trimmed,
+    };
+  }
+  const name = parts[0]!;
+  if (/^interface$/i.test(name)) return null;
+  if (!isLikelyH3cPhysicalInterfaceName(name)) return null;
+  const link = parts[1] || '';
+  const speed = parts[2] || '';
+  const duplex = parts[3] || '';
+  const speedSummary = [speed, duplex].filter(Boolean).join(' ').trim();
+  return {
+    name,
+    status: link.replace(/\s+/g, ' ').trim(),
+    speed: speedSummary || undefined,
+    rawLine: trimmed,
+  };
+}
+
+/** H3C：解析全部「桥模式 Interface/Link/Speed/PVID」表段（L3 设备物理口通常在此段）。 */
+function parseH3cBridgeModeSections(stdout: string): ParsedSwitchPort[] {
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const ports: ParsedSwitchPort[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]!.trim();
+    if (!isH3cBridgeModeBriefHeaderLine(t)) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j]!.trim();
+      if (/^Brief information on interfaces/i.test(trimmed)) break;
+      if (shouldSkipH3cBriefNoiseLine(trimmed)) continue;
+      const row = parseH3cBridgeModeTableRow(trimmed);
+      if (row) ports.push(row);
+    }
+  }
+  return ports;
+}
+
+/** H3C：解析「路由模式 Interface/Link/Protocol」表段（仅无桥模式物理口时回退）。 */
+function parseH3cRouteModeSections(stdout: string): ParsedSwitchPort[] {
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const ports: ParsedSwitchPort[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i]!.trim();
+    if (!isH3cRouteModeBriefHeaderLine(t) || isH3cBridgeModeBriefHeaderLine(t)) continue;
+    for (let j = i + 1; j < lines.length; j++) {
+      const trimmed = lines[j]!.trim();
+      if (/^Brief information on interfaces/i.test(trimmed)) break;
+      if (shouldSkipH3cBriefNoiseLine(trimmed)) continue;
+      const routeRow = parseH3cRouteModeDataRow(trimmed);
+      if (!routeRow) continue;
+      const { name, link, protocol, rest } = routeRow;
+      if (!isLikelyH3cPhysicalInterfaceName(name)) continue;
+      const status = `${link} / ${protocol}`.replace(/\s+/g, ' ').trim();
+      ports.push({
+        name,
+        status,
+        speed: rest || undefined,
+        rawLine: trimmed,
+      });
+    }
+  }
+  return ports;
+}
+
+/**
+ * H3C Comware 专用入口：桥模式表 → 过滤 brief 行 → 路由模式表。
+ * @returns `null` 表示非 H3C 回显；`[]` 表示已识别 H3C 但无物理口。
+ */
+export function parseH3cInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] | null {
+  if (!stdout || typeof stdout !== 'string') return null;
+  if (!isProbablyH3cComwareInterfaceStdout(stdout)) return null;
+
+  const bridgePorts = dedupeSwitchPortsByName(parseH3cBridgeModeSections(stdout));
+  if (bridgePorts.length > 0) return bridgePorts;
+
+  const filtered = tryParseH3cFilteredBriefLines(stdout);
+  if (filtered !== null && filtered.length > 0) return dedupeSwitchPortsByName(filtered);
+
+  const routePorts = dedupeSwitchPortsByName(parseH3cRouteModeSections(stdout));
+  if (routePorts.length > 0) return routePorts;
+
+  return [];
+}
+
+/**
+ * H3C 桥模式数据行（无表头），常见于 `display interface brief | include XGE`。
+ * 列：Interface Link Speed Duplex Type PVID Description
+ */
+function parseH3cBridgeModeBriefDataRow(trimmed: string): {
+  name: string;
+  link: string;
+  speed: string;
+  duplex: string;
+  description: string;
+} | null {
+  const m = trimmed.match(
+    /^((?:GE|XGE|FGE|HGE|WGE|TGE|TE|FE|Ethernet|GigabitEthernet|Ten-GigabitEthernet|FortyGigE|HundredGigE)\S*)\s+(UP|DOWN|ADM)\s+(\S+)\s+(\S+)\s+([AT])\s+(\d+)\s*(.*)$/i,
+  );
+  if (!m) return null;
+  const type = m[5]!;
+  const pvid = m[6]!;
+  const tail = String(m[7] || '').trim();
+  const description = [type, pvid, tail].filter(Boolean).join(' ').trim();
+  return {
+    name: m[1]!,
+    link: m[2]!,
+    speed: m[3]!,
+    duplex: m[4]!,
+    description,
+  };
+}
+
+/**
+ * 解析无表头的 H3C 过滤 brief 行（`| include GE/XGE` 等）。
+ * @returns `null` 表示未识别到任何物理口行；非空为解析结果。
+ */
+function tryParseH3cFilteredBriefLines(stdout: string): ParsedSwitchPort[] | null {
+  if (!stdout || typeof stdout !== 'string') return null;
+  const lines = stdout.replace(/\r\n/g, '\n').split('\n');
+  const ports: ParsedSwitchPort[] = [];
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) continue;
+    if (/^<[\w-]+>$/i.test(trimmed)) continue;
+    if (/^display interface/i.test(trimmed)) continue;
+    if (/^screen-length/i.test(trimmed)) continue;
+    if (/^Copyright/i.test(trimmed) || /^\*/.test(trimmed)) continue;
+    if (/^[-=─]+$/.test(trimmed)) continue;
+
+    const row = parseH3cBridgeModeBriefDataRow(trimmed);
+    if (!row) continue;
+    if (!isLikelyH3cPhysicalInterfaceName(row.name)) continue;
+
+    const speedSummary = [row.speed, row.duplex].filter(Boolean).join(' ').trim();
+    ports.push({
+      name: row.name,
+      status: row.link.replace(/\s+/g, ' ').trim(),
+      speed: speedSummary || undefined,
+      rawLine: trimmed,
+    });
+  }
+
+  return ports.length > 0 ? ports : null;
+}
+
+/** CLI 输出是否可能被分页截断（H3C 等设备不支持 `screen-length 0 temporary` 时常见） */
+export function isSwitchInterfaceStdoutLikelyTruncated(stdout: string): boolean {
+  const hint = getSwitchInterfaceStdoutParseHint(stdout);
+  return (
+    hint === 'h3c-screen-length' ||
+    hint === 'pipe-include-failed' ||
+    hint === 'pipe-cmd-split' ||
+    hint === 'paged-more' ||
+    hint === 'truncated-table' ||
+    hint === 'empty-after-cmd'
+  );
+}
+
+/** 机房拓扑端口解析失败时的可读原因（供 Alert description） */
+export function getSwitchInterfaceStdoutParseHint(stdout: string): string {
+  if (!stdout || typeof stdout !== 'string' || !stdout.trim()) {
+    return 'empty';
+  }
+
+  const normalized = stdout.replace(/\r\n/g, '\n');
+
+  if (/screen-length/i.test(normalized) && /Unrecognized command found/i.test(normalized)) {
+    return 'h3c-screen-length';
+  }
+  if (
+    /\| include\b/i.test(normalized) &&
+    /Unrecognized command found/i.test(normalized) &&
+    !/^\s*(?:GE|XGE|FGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(normalized)
+  ) {
+    return 'pipe-include-failed';
+  }
+  if (
+    /display interface brief/i.test(normalized) &&
+    /^\s*<[\w-]+>\s*include\b/im.test(normalized) &&
+    !/^\s*(?:GE|XGE|FGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(normalized)
+  ) {
+    return 'pipe-cmd-split';
+  }
+  if (/----\s*More\s*----/i.test(normalized)) {
+    return 'paged-more';
+  }
+
+  const parsed = parseInterfaceStatusStdout(stdout);
+  if (parsed.length > 0) return 'ok';
+
+  const hasInterfaceBriefCmd = /display interface brief/i.test(normalized);
+  const hasH3cBrief = /Brief information on interfaces/i.test(normalized);
+  const hasTableHeader =
+    hasH3cBrief ||
+    /^\s*Interface\s+Link\b/im.test(normalized) ||
+    normalized.split('\n').some((l) => isHuaweiDisplayInterfaceBriefHeaderLine(l.trim()));
+
+  if (hasTableHeader) {
+    return 'truncated-table';
+  }
+
+  if (hasInterfaceBriefCmd) {
+    const tail = normalized.split(/display interface brief/i).pop() || '';
+    if (tail.replace(/\s+/g, '').length < 40) {
+      return 'empty-after-cmd';
+    }
+  }
+
+  return 'unknown-format';
+}
+
+export function formatSwitchInterfaceStdoutParseHint(hint: ReturnType<typeof getSwitchInterfaceStdoutParseHint>): string {
+  switch (hint) {
+    case 'h3c-screen-length':
+      return 'H3C 设备不支持当前关分页命令（常见为 screen-length 0 temporary），分页未关闭，display interface brief 未返回完整端口表。请在 Tower「集群 → 物理交换机」编辑该交换机，于「高级（可选）」填写关分页命令（如 screen-length disable），留空则使用设备模板默认；保存后重新同步。';
+    case 'pipe-cmd-split':
+      return '接口命令被拆成多条执行（常见：interfaceCommands 里 `| include` 单独一行，或集群 HSM 按 `|` 截断）。请把整条命令写在同一行，例如 display interface brief | include XGE，保存后重新探测同步。';
+    case 'pipe-include-failed':
+      return '设备不识别带 | include 的接口命令，或关分页未关闭导致过滤失败。H3C 建议优先使用 display interface brief（全表，须 screen-length disable、命令超时 ≥60 秒）；若仅用 | include，请同时覆盖 XGE 与 FGE（如两条命令或更宽过滤），否则 QSFP 口可能缺失。';
+    case 'paged-more':
+    case 'truncated-table':
+      return '接口探测输出被分页截断（输出中含 ---- More ---- 或仅有表头无数据行）。请在 HSM/ASW-CTL 中关闭 CLI 分页后重新同步。';
+    case 'empty-after-cmd':
+      return 'display interface brief 已执行但未返回端口表（可能 SSH 超时或分页未关闭）。请检查 HSM/ASW-CTL 设备模板与 SSH 超时设置后重新同步。';
+    case 'empty':
+      return '无接口探测 stdout，请先在物理交换机页执行同步。';
+    default:
+      return '当前输出格式可能非已知表格样式。若设备为 H3C，请确认 HSM 已关闭分页且 display interface brief 能返回完整 Interface/Link/Protocol 表。';
+  }
 }
 
 /**
@@ -221,12 +557,16 @@ function parseBroadcomStylePortTable(stdout: string): ParsedSwitchPort[] {
 /** 解析含 Interface / Status 表头的表格块 */
 export function parseInterfaceStatusStdout(stdout: string): ParsedSwitchPort[] {
   if (!stdout || typeof stdout !== 'string') return [];
+  stdout = sanitizeAswCliStdout(stdout);
 
   const broadcom = parseBroadcomStylePortTable(stdout);
   if (broadcom.length > 0) return broadcom;
 
   const huaweiBrief = tryParseHuaweiDisplayInterfaceBriefTable(stdout);
   if (huaweiBrief !== null) return huaweiBrief;
+
+  const h3c = parseH3cInterfaceStatusStdout(stdout);
+  if (h3c !== null) return h3c;
 
   const lines = stdout.replace(/\r\n/g, '\n').split('\n');
   let headerIdx = -1;
@@ -302,6 +642,9 @@ export function extractInterfacesStdoutFromRecord(record: {
     let score = 0;
     if (/DETECTED-VALUES/i.test(out) && /CONFIGURED-VALUES/i.test(out)) score += 4;
     if (/^\s*Interface\s+\S+\s+Protocol\b/im.test(out) && /\bPHY\b/.test(out)) score += 5;
+    if (/Brief information on interfaces/i.test(out) && /^\s*Interface\s+Link\b/im.test(out)) score += 5;
+    if (/^\s*(?:GE|XGE|FGE|HGE|WGE|TGE)\d+\/\d+\/\d+\s+(?:UP|DOWN|ADM)\s+/im.test(out)) score += 5;
+    if (/^\s*(?:GE|XGE|FGE|HGE|WGE|TGE)\d+\/\d+\/\d+\s+/im.test(out)) score += 4;
     if (/^\s*\d+\/\d+\/\d+\s+/m.test(out)) score += 3;
     if (/[\-+]{12,}/.test(out) && /\+/.test(out)) score += 2;
     if (/Chas\//i.test(out) && /Port/i.test(out)) score += 2;

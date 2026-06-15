@@ -67,6 +67,10 @@ import { useLoggingContext } from './context/LoggingContext';
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../shared/lib/highRiskConfirm';
 
 type LogType = typeof LOG_TYPE_LOGGING | typeof LOG_TYPE_AUDIT | typeof LOG_TYPE_EVENT;
 
@@ -880,22 +884,15 @@ const LogOutputs: React.FC<LogOutputsProps> = ({ cloudId }) => {
                 danger: true,
                 disabled: !canWriteLogReceivers,
                 onClick: () => {
-                  Modal.confirm({
+                  void confirmHighRiskDelete({
                     title: '确定删除该日志接收端？',
-                    content: (
-                      <Typography.Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
-                        该操作会删除接收端{' '}
-                        <Typography.Text strong>
-                          {row.metadata?.name ?? '-'}
-                        </Typography.Text>
-                        ，可能影响依赖此接收端的日志采集配置的转发，请确认后再执行。
-                      </Typography.Paragraph>
-                    ),
-                    onOk: () => handleDelete(row),
-                    okText: '删除',
-                    cancelText: '取消',
-                    okButtonProps: { danger: true },
-                  });
+                    resourceLabel: '日志接收端',
+                    name: row.metadata?.name ?? '-',
+                    description:
+                      '可能影响依赖此接收端的日志采集配置的转发，请确认后再执行。',
+                    riskItems: DELETE_RISK_ITEMS,
+                    onConfirm: () => handleDelete(row),
+                  }).catch(() => {});
                 },
               },
             ], canWriteLogReceivers)}

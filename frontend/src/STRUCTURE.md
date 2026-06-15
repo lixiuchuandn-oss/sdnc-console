@@ -107,13 +107,23 @@
 | **CNSOC** | AI SOC、态势、SecOps 等（不含已归 SDNCC 的安全管理面与流量编排） | `pages/cnsoc/` |
 | **SETTINGS** | 通用设置、审计、授权、访问控制 | `pages/settings/` |
 
-**`pages/sdncc/` 与导航分组（`RouteSpec.group`）的对应**（产品层级，目录当前多为平铺，按 **跨域互联 / 安全管理面 / 流量编排** 维护）：
+**`pages/sdncc/` 与导航分组（`RouteSpec.group`）** — **目标（已定稿）** 见 **`docs/internetwork-routing-domain.md` §11、§11.4、§14**；须**解散**现网 `安全管理面` / `流量编排` / `安全资源池` 三组菜单语义。
 
-| 导航 / 能力 | 典型 `RouteSpec.group` 或 `requiredFeature` | 典型源码目录（`pages/sdncc/` 下） |
-|-------------|----------------------------------------------|----------------------------------|
-| **跨域互联** | `group: 跨域互联`；`sdn.interconnect` | `interconnect/acl/`、`interconnect/nat/`、`interconnect/srv6/`、`interconnect/ipsec-vpn/`、`interconnect/vr/`（与 RouteSpec 分组一致，kebab-case） |
-| **安全管理面** | `group: 安全管理面` 等；`sdn.cascade` | `sec-mgr-plane/`（级联通道、应用等；**安全域/安全服务** 的 `group` 为 **流量编排**，与 RouteSpec 一致，源码仍在本目录） |
-| **流量编排** | `group: 流量编排`；`sdn.cascade`（安全域/安全服务）与 `sdn.traffic`（资源池/服务链/策略 等） | `sec-mgr-plane/SecurityDomain`、`sec-mgr-plane/SecurityServices` 与 `traffic/`（`CsmPools/` 安全资源池列表/详情及 `sections/` 内各块含 **防护对象** `CsmPoolAssetsSection` 等、ServiceChains、Policies 等） |
+| 目标 `group` | 菜单 | 目标源码目录（`pages/sdncc/`） |
+|--------------|------|--------------------------------|
+| **跨域互联** | 网际路由域、邻居管理、应用管理 | `cross-domain/internetwork-routing/`、`cross-domain/neighbors/`、`cross-domain/applications/` |
+| **IBR 管理** | 网际路由器、SRv6、IPsec、ACL、NAT | `ibr/routers/`、`ibr/srv6/`、`ibr/ipsec-vpn/`、`ibr/acl/`、`ibr/nat/` |
+| **CSM 管理** | 资源池管理、安全服务管理 | `csm/pools/`、`csm/security-services/` |
+
+- **服务链**：**无**顶层导航；`ServiceChains/` 仅作组件，入口在网际路由域详情 → CSM 安全域 → 服务链。
+- **迁移期**：现网 `sec-mgr-plane/`、`traffic/`、`interconnect/` 可保留并经 barrel 再导出；**新代码只落目标目录**。
+
+**现网（迁移前）对照**：
+
+| 现 `group` | 典型目录 |
+|------------|----------|
+| 跨域互联 | `interconnect/*`（含 vr/srv6/ipsec/acl/nat） |
+| 安全管理面 / 流量编排 | `sec-mgr-plane/`（网际路由域、级联、应用、SecurityServices）、`traffic/CsmPools/`、`traffic/ServiceChains/` |
 
 **不放入 `pages/` 的壳层与横切**（保持在 `src/` 根下）：
 
@@ -205,15 +215,18 @@ frontend/src/pages/
 │   ├── clouds/
 │   │   ├── Harvester/     # 云详情：域 + sections/modals/shared（细则见 Harvester 修改纪要）
 │   │   ├── maas/          # MAAS 裸金属资源池（`?tab=` + `layouts/admin/maas/`）；见 `maas/README.md`
-│   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/traffic/CsmPools/：CloudDetailCsm、sections/、modals/）
+│   │   ├── Aliyun/、Hw/、Cloudmap/ 等（与仓库目录名一致；CSM 详情在 sdncc/csm/pools/：CloudDetailCsm、sections/、modals/）
 │   ├── console/           # 租户 Cloudmap 控制台（`/console`）：`CloudConsole.tsx` + `hooks/`、`lib/`、`sections/`
 │
 ├── tenants/                 # ========== TENANTS ========== 租户管理（与 CNMC 平级；`sections/`、`hooks/`、`modals/`、`lib/`）
 │
-├── sdncc/                   # ========== SDNCC ==========
-│   ├── interconnect/        # 跨域互联：acl、nat、srv6、ipsec-vpn、vr（见上表；与 `/admin/interconnect/…` 产品域一致）
-│   ├── sec-mgr-plane/       # 安全管理面：级联通道、应用等；安全域/安全服务导航归「流量编排」但源码仍在 sec-mgr-plane
-│   └── traffic/             # 流量编排：CsmPools/（安全资源池列表/详情、modals/、sections/ 含 CsmPoolAssetsSection 防护对象 等）、ServiceChains/、Policies/ 等
+├── sdncc/                   # ========== SDNCC ==========（目标三组见 docs/internetwork-routing-domain.md §11.4）
+│   ├── cross-domain/        # Group1 跨域互联：internetwork-routing、neighbors、applications
+│   ├── ibr/                 # Group2 IBR 管理：routers、srv6、ipsec-vpn、acl、nat
+│   ├── csm/                 # Group3 CSM 管理：pools、security-services
+│   ├── interconnect/        # 【迁移前存量】逐步迁入 ibr/
+│   ├── sec-mgr-plane/       # 【迁移前存量】网际路由域/邻居/应用/SecurityServices → cross-domain/、csm/
+│   └── traffic/             # 【迁移前存量】CsmPools → csm/pools/；ServiceChains 仅组件、无顶层菜单
 │
 ├── cnsoc/                   # ========== CNSOC ==========
 │   └── （如 `AiSocFrame.tsx`、`AiSocPlaceholder.tsx` 等；与 SDN 编排能力解耦）

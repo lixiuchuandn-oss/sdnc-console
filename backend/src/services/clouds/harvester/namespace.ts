@@ -1,3 +1,4 @@
+import { isLegacyPublicNamespaceName } from '../../../constants/publicNamespaceNames';
 import { HarvesterTestParams } from './types';
 import { requestJson, getJsonOnce } from './utils';
 
@@ -7,6 +8,16 @@ import { requestJson, getJsonOnce } from './utils';
  * 删除前须先 PATCH 移除此终结器。
  */
 export const TOWER_NAMESPACE_MANAGED_FINALIZER = 'tower.io/managed';
+
+/** 与前端 `harvesterUtils` · `SYSTEM_NAMESPACE_EXACT_NAMES` 对齐 */
+export const SYSTEM_NAMESPACE_EXACT_NAMES = [
+  'hci-manager-system',
+  'rook-ceph',
+  'harbor-system',
+  'log-audit-system',
+] as const;
+
+const SYSTEM_NAMESPACE_EXACT_NAME_SET = new Set<string>(SYSTEM_NAMESPACE_EXACT_NAMES);
 
 export const isProtectedNamespace = (name: string): boolean => {
   if (!name) return false;
@@ -31,6 +42,7 @@ export const isProtectedNamespace = (name: string): boolean => {
     'fleet-local',
     'cloud-public',
     'harvester-public',
+    ...SYSTEM_NAMESPACE_EXACT_NAMES,
   ];
   if (exactBlacklist.includes(lower)) return true;
 
@@ -52,12 +64,7 @@ export const isProtectedNamespace = (name: string): boolean => {
 /**
  * 与前端 `harvesterUtils.isPublicNamespace` 一致：列表 excludeSystem 时仍返回这些名字
  */
-export const isPublicNamespaceName = (name: string): boolean => {
-  const n = String(name || '')
-    .trim()
-    .toLowerCase();
-  return ['cloud-public', 'default', 'harvester-public'].includes(n);
-};
+export const isPublicNamespaceName = isLegacyPublicNamespaceName;
 
 /**
  * 与前端 `harvesterUtils.isSystemNamespace` 一致（前缀判定）
@@ -67,6 +74,7 @@ export const isSystemNamespaceName = (name: string): boolean => {
     .trim()
     .toLowerCase();
   if (!n) return false;
+  if (SYSTEM_NAMESPACE_EXACT_NAME_SET.has(n)) return true;
   const prefixes = [
     'cattle',
     'fleet',
@@ -272,7 +280,7 @@ export const createHarvesterNamespace = async (
 
   // 如果没有提供场景信息，尝试从注解中推断
   if (!options?.scenario && annotations) {
-    if (name === 'cloud-public' || annotations['tower.io/public']) {
+    if (isLegacyPublicNamespaceName(name) || annotations['tower.io/public']) {
       labels['tower.io/scenario'] = 'public';
     } else if (annotations['tower.io/tenant'] || annotations['tower.io/organization']) {
       labels['tower.io/scenario'] = 'tenant';

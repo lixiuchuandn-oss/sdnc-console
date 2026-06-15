@@ -4,8 +4,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Select, Button, Input, Switch, Tooltip, App, Modal, Form } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import yaml from 'js-yaml';
-import YamlEditor from '../../../../../../../components/YamlEditor';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import { useTableColumnSettings } from '../../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../../components/TableColumnSettingsButton';
 import {
@@ -19,12 +18,17 @@ import CronJobForm from '../CronJobForm';
 import { useContainerOperationsReadOnly } from '../../ContainerOperationsContext';
 import { buildCronJobTableColumns } from '../../lib/jobs/cronJobTableColumns';
 import CronJobDetailDrawer from './CronJobDetailDrawer';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+  type ContainerSectionOnRefresh,
+} from '../../lib/containerSectionRefresh';
 
 export type CronJobTableProps = {
   data: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: ContainerSectionOnRefresh;
   namespacesOptions: string[];
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -56,7 +60,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
   onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -65,11 +69,10 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const apiPath = '/apis/batch/v1/cronjobs';
-  
+
   // 过滤并排序数据
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -81,7 +84,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
       }
       return true;
     });
-    
+
     // 按创建时间倒序排列（最新的在最上面）
     return filtered.sort((a: any, b: any) => {
       const timeA = new Date(a?.metadata?.creationTimestamp || 0).getTime();
@@ -89,142 +92,161 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
       return timeB - timeA;
     });
   }, [data, keyword]);
-  
+
   // 查看详情
   const handleViewDetail = useCallback((cronjob: any) => {
     setCurrentCronJob(cronjob);
     setDetailVisible(true);
   }, []);
-  
+
   // 删除操作
-  const handleDelete = useCallback(async (cronjob: any) => {
-    const namespace = cronjob?.metadata?.namespace;
-    const name = cronjob?.metadata?.name;
-    
-    try {
-      await deleteHarvesterCronJob(cloudId, namespace, name);
-      message.success('删除成功');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '删除失败');
-    }
-  }, [cloudId, message, onRefresh]);
-  
+  const handleDelete = useCallback(
+    async (cronjob: any) => {
+      const namespace = cronjob?.metadata?.namespace;
+      const name = cronjob?.metadata?.name;
+
+      try {
+        await deleteHarvesterCronJob(cloudId, namespace, name);
+        message.success('删除成功');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '删除失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
+
   // 暂停 CronJob
-  const handleSuspend = useCallback(async (cronjob: any) => {
-    const namespace = cronjob?.metadata?.namespace;
-    const name = cronjob?.metadata?.name;
-    
-    try {
-      await suspendHarvesterCronJob(cloudId, namespace, name);
-      message.success('已暂停');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '暂停失败');
-    }
-  }, [cloudId, message, onRefresh]);
-  
+  const handleSuspend = useCallback(
+    async (cronjob: any) => {
+      const namespace = cronjob?.metadata?.namespace;
+      const name = cronjob?.metadata?.name;
+
+      try {
+        await suspendHarvesterCronJob(cloudId, namespace, name);
+        message.success('已暂停');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '暂停失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
+
   // 恢复 CronJob
-  const handleResume = useCallback(async (cronjob: any) => {
-    const namespace = cronjob?.metadata?.namespace;
-    const name = cronjob?.metadata?.name;
-    
-    try {
-      await resumeHarvesterCronJob(cloudId, namespace, name);
-      message.success('已恢复');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '恢复失败');
-    }
-  }, [cloudId, message, onRefresh]);
-  
+  const handleResume = useCallback(
+    async (cronjob: any) => {
+      const namespace = cronjob?.metadata?.namespace;
+      const name = cronjob?.metadata?.name;
+
+      try {
+        await resumeHarvesterCronJob(cloudId, namespace, name);
+        message.success('已恢复');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '恢复失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
+
   // 手动触发 CronJob
-  const handleTrigger = useCallback(async (cronjob: any) => {
-    const namespace = cronjob?.metadata?.namespace;
-    const name = cronjob?.metadata?.name;
-    
-    try {
-      await triggerHarvesterCronJob(cloudId, namespace, name);
-      message.success('已触发执行');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '触发失败');
-    }
-  }, [cloudId, message, onRefresh]);
+  const handleTrigger = useCallback(
+    async (cronjob: any) => {
+      const namespace = cronjob?.metadata?.namespace;
+      const name = cronjob?.metadata?.name;
+
+      try {
+        await triggerHarvesterCronJob(cloudId, namespace, name);
+        message.success('已触发执行');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '触发失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
 
   // 别名编辑
-  const handleOpenAliasModal = useCallback((record: any) => {
-    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
+  const handleOpenAliasModal = useCallback(
+    (record: any) => {
+      const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+      setAliasRecord(record);
+      setAliasModalVisible(true);
+      aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+    },
+    [aliasForm],
+  );
 
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord) return false;
-    const ns = aliasRecord?.metadata?.namespace;
-    const name = aliasRecord?.metadata?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
+  const handleSubmitAlias = useCallback(
+    async (nextAliasRaw?: string) => {
+      if (!aliasRecord) return false;
+      const ns = aliasRecord?.metadata?.namespace;
+      const name = aliasRecord?.metadata?.name;
+      if (!ns || !name) {
+        message.error('未能解析资源命名空间或名称');
+        return false;
       }
-    }
 
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
+      const next = String(nextAliasRaw || '').trim();
+      const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+      if (next === prev) {
+        setAliasModalVisible(false);
+        return true;
+      }
 
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      aliasForm.resetFields();
-      onRefresh(true);
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+      const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+      const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+      const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+      const patchBody: any[] = [];
+      if (!next) {
+        if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+      } else {
+        if (!hasAnnotations) {
+          patchBody.push({
+            op: 'add',
+            path: '/metadata/annotations',
+            value: { 'tower.io/alias': next },
+          });
+        } else {
+          patchBody.push({ op: 'add', path: aliasPath, value: next });
+        }
+      }
+
+      if (patchBody.length === 0) {
+        setAliasModalVisible(false);
+        return true;
+      }
+
+      setAliasSubmitting(true);
+      try {
+        await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+        message.success(next ? '名称修改成功' : '已清空别名');
+        setAliasModalVisible(false);
+        setAliasRecord(null);
+        aliasForm.resetFields();
+        runContainerSectionRefresh(onRefresh, { force: true });
+        return true;
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || '名称修改失败');
+        return false;
+      } finally {
+        setAliasSubmitting(false);
+      }
+    },
+    [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm],
+  );
 
   // 查看 YAML
-  const handleViewYaml = useCallback((record: any) => {
-    try {
-      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-      setYamlContent(yamlStr);
-      setYamlModalVisible(true);
-    } catch (e: any) {
-      message.error('生成 YAML 失败: ' + e.message);
-    }
-  }, [message]);
-  
+  const handleViewYaml = useCallback(
+    (record: any) => {
+      openYamlDrawer({ ...record, kind: record?.kind ?? 'CronJob' }, { title: 'CronJob YAML' });
+    },
+    [openYamlDrawer],
+  );
+
   const columns = useMemo(
     () =>
       buildCronJobTableColumns({
@@ -235,7 +257,6 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
         handleSuspend,
         handleResume,
         handleTrigger,
-        modal,
         operationsReadOnly,
       }),
     [
@@ -246,17 +267,16 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
       handleSuspend,
       handleResume,
       handleTrigger,
-      modal,
       operationsReadOnly,
     ],
   );
-  
+
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
     columns,
     'harvester-containers-cronjobs',
   );
-  
+
   return (
     <div>
       <div className="page-toolbar">
@@ -310,11 +330,15 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
             settingsKey="harvester-containers-cronjobs"
           />
           <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} />
+            <Button
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={createContainerToolbarRefresh(onRefresh)}
+            />
           </Tooltip>
         </div>
       </div>
-      
+
       <Table
         className="std-table"
         scroll={{ x: true }}
@@ -335,7 +359,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
               }
         }
       />
-      
+
       {/* CronJob 详情抽屉 */}
       <CronJobDetailDrawer
         cronjob={currentCronJob}
@@ -346,7 +370,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
         }}
         cloudId={cloudId}
       />
-      
+
       {/* 别名编辑 Modal */}
       <Modal
         title="名称修改"
@@ -393,22 +417,8 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看 Modal */}
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor
-          value={yamlContent}
-          onChange={() => {}}
-          maxHeight={500}
-          readOnly
-        />
-      </Modal>
-      
+      {yamlDrawer}
+
       {/* 创建 CronJob Modal */}
       <Modal
         title="创建 CronJob"
@@ -425,7 +435,7 @@ const CronJobTable: React.FC<CronJobTableProps> = ({
           secretsWithCredentials={secretsWithCredentials}
           onSuccess={() => {
             onCreateModalChange(false);
-            onRefresh(true);
+            runContainerSectionRefresh(onRefresh, { force: true });
           }}
           onCancel={() => onCreateModalChange(false)}
           defaultNamespace={defaultNamespace}

@@ -99,6 +99,8 @@ export type CloudmapPoolPanelProps = {
   harvesterCloudInits: any[];
   harvesterMigrations: any[];
   rawMigrations: any;
+  harvesterOvnMirrors: any[];
+  rawOvnMirrors: any;
   rawImages: any;
   rawTemplates: any;
   rawSshKeys: any;

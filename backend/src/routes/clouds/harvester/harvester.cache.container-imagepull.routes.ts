@@ -15,6 +15,11 @@ import {
   getNamespacedResources,
   setCache,
 } from './harvester.cache.container-shared';
+import {
+  isRegistryManagedPullSecret,
+  isRegistryManagedPullSecretName,
+  REGISTRY_MANAGED_SECRET_MESSAGE,
+} from '../../../services/registryManagedSecret';
 
 const buildDockerConfigJson = (
   server: string,
@@ -182,7 +187,7 @@ export const registerHarvesterContainerImagePullRoutes = (
         // 构建 annotations
         const annotations: Record<string, string> = {
           'compute-tower.io/managed': 'true',
-          'compute-tower.io/type': 'imagepullsecret',
+          'compute-tower.io/type': 'workload-pull-secret',
         };
         if (alias) {
           annotations['tower.io/alias'] = alias;
@@ -197,7 +202,7 @@ export const registerHarvesterContainerImagePullRoutes = (
             namespace: namespace,
             labels: {
               'compute-tower.io/managed': 'true',
-              'compute-tower.io/type': 'imagepullsecret',
+              'compute-tower.io/type': 'workload-pull-secret',
             },
             annotations,
           },
@@ -318,6 +323,19 @@ export const registerHarvesterContainerImagePullRoutes = (
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
+
+        if (isRegistryManagedPullSecretName(name)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+        }
+
+        const getUrl = buildK8sUrl(base, '/api/v1/secrets', namespace, name);
+        const existingSecret = await getJsonOnce(getUrl, token, insecure, true);
+        if (!existingSecret) {
+          return res.status(404).json({ message: '镜像凭证不存在' });
+        }
+        if (isRegistryManagedPullSecret(existingSecret)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+        }
 
         // 删除 Secret
         const url = buildK8sUrl(base, '/api/v1/secrets', namespace, name);

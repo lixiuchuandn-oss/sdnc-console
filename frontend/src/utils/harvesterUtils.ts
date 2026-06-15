@@ -16,6 +16,14 @@
 // 1. 命名空间与存储类
 // =============================================================================
 
+/** 系统命名空间精确名（与后端 `namespace.ts` · `SYSTEM_NAMESPACE_EXACT_NAMES` 对齐） */
+const SYSTEM_NAMESPACE_EXACT_NAMES = new Set([
+  'hci-manager-system',
+  'rook-ceph',
+  'harbor-system',
+  'log-audit-system',
+]);
+
 /**
  * 判断命名空间是否为 Harvester 系统命名空间
  *
@@ -25,6 +33,7 @@
  */
 export const isSystemNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
+  if (SYSTEM_NAMESPACE_EXACT_NAMES.has(n)) return true;
   const prefixes = [
     'cattle',
     'fleet',
@@ -61,9 +70,17 @@ export const isSystemNamespace = (name: string): boolean => {
  * 判断是否为公共命名空间 (Public Namespace)
  * 公共命名空间对租户可见（只读），对管理员可见（读写）
  */
+/** 与后端 `constants/publicNamespaceNames` · LEGACY_PUBLIC_NAMESPACE_NAMES 对齐 */
+const LEGACY_PUBLIC_NAMESPACE_NAMES = [
+  'cloud-public',
+  'default',
+  'harvester-public',
+  'compute-tower-system',
+] as const;
+
 export const isPublicNamespace = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  return ['cloud-public', 'default', 'harvester-public'].includes(n);
+  return (LEGACY_PUBLIC_NAMESPACE_NAMES as readonly string[]).includes(n);
 };
 
 /** 镜像列表项是否属于公共空间（仅信列表接口下发的 namespacePublicByScenario，与库存 label 一致） */
@@ -159,6 +176,16 @@ export const isSystemStorageClass = (name: string): boolean => {
   return false;
 };
 
+/**
+ * Harvester 镜像底卷 PVC 名称（VirtualMachineImage generateName: image-）。
+ * 云盘列表按云盘 ID（PVC name）隐藏此类卷，应在「镜像」页管理。
+ */
+export function isHarvesterImageBackingPvcName(name: string): boolean {
+  const n = String(name || '').trim();
+  if (!n) return false;
+  return /^image-[a-z0-9]+$/i.test(n);
+}
+
 export type HarvesterVolumeStorageKind = 'longhorn' | 'ceph' | 'unknown';
 
 export const HARVESTER_LONGHORN_VOLUME_SNAPSHOT_CLASS = 'longhorn-snapshot';
@@ -227,13 +254,19 @@ export const isClusterDefaultStorageClass = (sc: any): boolean => {
 };
 
 /**
- * 解析集群「默认」存储类名称：优先 is-default-class，否则取列表第一项（与创建向导 useHarvesterData 一致）
+ * 解析集群「默认」存储类名称：优先 is-default-class，否则取用户可选列表首项。
+ * 与 backend pickDefaultStorageClassNameFromRecords 一致（排除镜像/系统专用 StorageClass）。
  */
 export const pickDefaultStorageClassName = (storageClasses?: any[]): string | undefined => {
   const list: any[] = Array.isArray(storageClasses) ? storageClasses : [];
-  const pickName = (sc: any) => sc?.metadata?.name || sc?.name;
-  const hit = list.find(isClusterDefaultStorageClass);
-  return pickName(hit) || pickName(list[0]) || undefined;
+  const pickName = (sc: any): string => {
+    const n = String(sc?.metadata?.name || sc?.name || '').trim();
+    return n && !isSystemStorageClass(n) ? n : '';
+  };
+  const usable = list.filter((sc) => pickName(sc));
+  const pool = usable.length > 0 ? usable : list;
+  const hit = pool.find(isClusterDefaultStorageClass);
+  return pickName(hit) || pickName(pool[0]) || undefined;
 };
 
 // =============================================================================
@@ -324,6 +357,12 @@ export const HARVESTER_CR_METADATA_ENTITY = {
   networkpolicy: 'np',
   /** 容器资源 - ImagePullSecret（镜像仓库凭证） */
   imagepullsecret: 'imgsc',
+  /** 容器资源 - Gateway */
+  gateway: 'gw',
+  /** 容器资源 - HTTPRoute */
+  httproute: 'hr',
+  /** 容器资源 - GRPCRoute */
+  grpcroute: 'gr',
 } as const;
 
 export type HarvesterCrMetadataNameKind = keyof typeof HARVESTER_CR_METADATA_ENTITY;
@@ -460,20 +499,46 @@ function getVmImageConditionsList(r: any): any[] {
   return [];
 }
 
-export function resolveVmImageListStateKey(r: any): string {
-  if (typeof r?.state === 'string' && r.state.trim() !== '') {
-    const mapped = mapVmImageListStateRaw(r.state);
-    if (mapped !== 'unknown') return mapped;
+function isVmImageImportCompleteForPicker(r: any): boolean {
+  const conditions = getVmImageConditionsList(r);
+  const imported = conditions.find((c: any) => c?.type === 'Imported');
+  if (vmImageConditionStatusIsTrue(imported?.status)) return true;
+  if (vmImageConditionStatusIsFalse(imported?.status)) return false;
+  const statusP = Number(r?.status?.progress);
+  const progress = Number.isFinite(statusP) ? statusP : Number(r?.progress);
+  if (Number.isFinite(progress) && progress < 100) return false;
+  if (Number.isFinite(progress) && progress >= 100) {
+    const size = Number(r?.status?.size ?? r?.size);
+    return size > 0;
   }
+  return false;
+}
+
+export function resolveVmImageListStateKey(r: any): string {
   const conditions = getVmImageConditionsList(r);
   const imported = conditions.find((c: any) => c?.type === 'Imported');
   if (vmImageConditionStatusIsTrue(imported?.status)) return 'ready';
   if (vmImageConditionStatusIsFalse(imported?.status)) return 'failed';
 
-  const progress = Number(r?.status?.progress ?? r?.progress);
-  if (Number.isFinite(progress)) {
-    if (progress >= 100) return 'ready';
-    if (progress > 0 && progress < 100) return 'downloading';
+  const statusP = Number(r?.status?.progress);
+  const progress = Number.isFinite(statusP) ? statusP : Number(r?.progress);
+  if (Number.isFinite(progress) && progress < 100) {
+    const sourceType = String(r?.sourceType || r?.spec?.sourceType || '').toLowerCase();
+    if (sourceType === 'upload') return 'uploading';
+    if (sourceType === 'download') return 'importing';
+    return 'downloading';
+  }
+
+  if (typeof r?.state === 'string' && r.state.trim() !== '') {
+    const mapped = mapVmImageListStateRaw(r.state);
+    if (mapped === 'ready' && !isVmImageImportCompleteForPicker(r)) {
+      return 'unknown';
+    }
+    if (mapped !== 'unknown') return mapped;
+  }
+
+  if (Number.isFinite(progress) && progress >= 100 && isVmImageImportCompleteForPicker(r)) {
+    return 'ready';
   }
 
   if (typeof r?.status === 'string' && r.status.trim() !== '') return mapVmImageListStateRaw(r.status);
@@ -586,14 +651,89 @@ export function getSystemResourceProtectionHint(resource: any, resourceType?: st
   return '系统内置资源，禁止删除';
 }
 
+/** 解析 harvesterhci.io/imageId 或 ns/name 形式镜像引用 */
+export function parseHarvesterImageRef(
+  imageRef: string,
+  defaultNamespace = '',
+): { namespace: string; name: string } | null {
+  const raw = String(imageRef || '').trim();
+  if (!raw) return null;
+  if (raw.includes('/')) {
+    const idx = raw.indexOf('/');
+    const namespace = raw.slice(0, idx).trim();
+    const name = raw.slice(idx + 1).trim();
+    if (namespace && name) return { namespace, name };
+  }
+  const name = raw.trim();
+  const ns = String(defaultNamespace || '').trim();
+  if (name && ns) return { namespace: ns, name };
+  return null;
+}
+
+function harvesterImageRefMatchesTarget(
+  ref: { namespace: string; name: string } | null,
+  imageNamespace: string,
+  imageMetadataName: string,
+): boolean {
+  if (!ref) return false;
+  return ref.name === imageMetadataName && (!ref.namespace || ref.namespace === imageNamespace);
+}
+
+function collectHarvesterImageRefsFromVm(vm: any): string[] {
+  const refs: string[] = [];
+  const push = (v: unknown) => {
+    const s = String(v || '').trim();
+    if (s) refs.push(s);
+  };
+
+  push(vm?.metadata?.annotations?.['harvesterhci.io/imageId']);
+  push(vm?.metadata?.annotations?.['harvesterhci.io/imageID']);
+  push(vm?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageId']);
+  push(vm?.spec?.template?.metadata?.annotations?.['harvesterhci.io/imageID']);
+
+  const vctRaw = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+  if (vctRaw) {
+    try {
+      const vct = JSON.parse(String(vctRaw));
+      if (Array.isArray(vct)) {
+        for (const item of vct) {
+          push(item?.metadata?.annotations?.['harvesterhci.io/imageId']);
+          push(item?.metadata?.annotations?.['harvesterhci.io/imageID']);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const dvTemplates = [
+    ...(Array.isArray(vm?.spec?.dataVolumeTemplates) ? vm.spec.dataVolumeTemplates : []),
+    ...(Array.isArray(vm?.spec?.template?.spec?.dataVolumeTemplates)
+      ? vm.spec.template.spec.dataVolumeTemplates
+      : []),
+  ];
+  for (const t of dvTemplates) {
+    push(t?.metadata?.annotations?.['harvesterhci.io/imageId']);
+    push(t?.metadata?.annotations?.['harvesterhci.io/imageID']);
+    const srcImg = t?.spec?.source?.image;
+    if (srcImg && typeof srcImg === 'object') {
+      const iname = String(srcImg.name || '').trim();
+      const ins = String(srcImg.namespace || '').trim();
+      if (iname) refs.push(ins ? `${ins}/${iname}` : iname);
+    }
+  }
+
+  return refs;
+}
+
 /**
  * 查找仍引用指定 Harvester VirtualMachineImage（命名空间 + metadata.name）的虚拟机，供删除镜像前提示。
- * 以 dataVolumeTemplates[].spec.source.image 为主；不同 Harvester 版本如有遗漏可再扩展。
+ * 覆盖 dataVolumeTemplates、volumeClaimTemplates 与 harvesterhci.io/imageId（Ceph 镜像常见）。
  */
 export function findVmsReferencingHarvesterImage(
   imageNamespace: string,
   imageMetadataName: string,
-  vms: any[],
+  vms: readonly any[],
 ): Array<{ ns: string; name: string; label: string }> {
   const imgNs = String(imageNamespace || '').trim();
   const imgName = String(imageMetadataName || '').trim();
@@ -608,12 +748,23 @@ export function findVmsReferencingHarvesterImage(
     const k = `${vmNs}/${vmName}`;
     if (seen.has(k)) return;
     seen.add(k);
-    const alias = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    const label = alias ? `${alias}（${vmNs}/${vmName}）` : `${vmNs}/${vmName}`;
-    out.push({ ns: vmNs, name: vmName, label });
+    const displayName = harvesterVmUserFacingName(vm) || vmName;
+    out.push({ ns: vmNs, name: vmName, label: displayName });
   };
 
   for (const vm of vms) {
+    const vmNs = String(vm?.metadata?.namespace || vm?.namespace || '').trim();
+    let matched = false;
+    for (const ref of collectHarvesterImageRefsFromVm(vm)) {
+      const parsed = parseHarvesterImageRef(ref, vmNs);
+      if (harvesterImageRefMatchesTarget(parsed, imgNs, imgName)) {
+        pushVm(vm);
+        matched = true;
+        break;
+      }
+    }
+    if (matched) continue;
+
     const templates = vm?.spec?.dataVolumeTemplates;
     if (Array.isArray(templates)) {
       for (const t of templates) {
@@ -630,6 +781,181 @@ export function findVmsReferencingHarvesterImage(
     }
   }
   return out;
+}
+
+/** Harvester 数据卷名常见格式：{vmName}-disk-{suffix} / {vmName}-disk-0-{suffix} */
+export function guessVmNameFromHarvesterVolumeName(volumeName: string): string | null {
+  const v = String(volumeName || '').trim();
+  if (!v) return null;
+  const disk = v.match(/^(.+?)-disk-(?:\d+-)?[a-z0-9-]+$/i);
+  if (disk?.[1]) return disk[1];
+  const vol = v.match(/^(.+?)-volume-[a-z0-9-]+$/i);
+  if (vol?.[1]) return vol[1];
+  return null;
+}
+
+export function harvesterVmUserFacingName(vm: any): string {
+  const alias = String(vm?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+  if (alias) return alias;
+  return String(vm?.metadata?.name || vm?.name || '').trim();
+}
+
+function harvesterVmDisplayLabel(vm: any): { ns: string; name: string; label: string; displayName: string } {
+  const vmNs = String(vm?.metadata?.namespace || vm?.namespace || '').trim();
+  const vmName = String(vm?.metadata?.name || vm?.name || '').trim();
+  const displayName = harvesterVmUserFacingName(vm);
+  const label = displayName !== vmName ? displayName : `${vmNs}/${vmName}`;
+  return { ns: vmNs, name: vmName, label, displayName: displayName || vmName };
+}
+
+/** 根据 PVC/卷名反查关联虚拟机（用于镜像删除失败提示） */
+export function findVmByVolumeClaimName(
+  volumeNamespace: string,
+  volumeName: string,
+  vms?: any[],
+): { ns: string; name: string; label: string; displayName: string } | null {
+  const volName = String(volumeName || '').trim();
+  if (!volName) return null;
+  const list = Array.isArray(vms) ? vms : [];
+  const volNs = String(volumeNamespace || '').trim();
+
+  for (const vm of list) {
+    const { ns: vmNs, name: vmName } = harvesterVmDisplayLabel(vm);
+    if (!vmName) continue;
+    if (volNs && vmNs && volNs !== vmNs) continue;
+
+    const vols = vm?.spec?.template?.spec?.volumes || vm?.spec?.volumes || [];
+    for (const vol of vols) {
+      const claim = vol?.persistentVolumeClaim?.claimName;
+      if (claim && String(claim) === volName) {
+        return harvesterVmDisplayLabel(vm);
+      }
+    }
+
+    const vctRaw = vm?.metadata?.annotations?.['harvesterhci.io/volumeClaimTemplates'];
+    if (vctRaw) {
+      try {
+        const vct = JSON.parse(String(vctRaw));
+        if (Array.isArray(vct)) {
+          for (const t of vct) {
+            const tName = String(t?.metadata?.name || '').trim();
+            if (tName && (volName === tName || volName.startsWith(`${tName}-`))) {
+              return harvesterVmDisplayLabel(vm);
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  const guessed = guessVmNameFromHarvesterVolumeName(volName);
+  if (!guessed) return null;
+
+  for (const vm of list) {
+    const row = harvesterVmDisplayLabel(vm);
+    if (row.name === guessed && (!volNs || row.ns === volNs)) return row;
+  }
+
+  return {
+    ns: volNs,
+    name: guessed,
+    label: guessed,
+    displayName: guessed,
+  };
+}
+
+const HARVESTER_IMAGE_DELETE_IN_USE_RE =
+  /cannot delete image\s+(\S+)\s*:\s*being used by volume\s+(\S+)/gi;
+
+/** 剥离 Harvester 删除镜像 webhook / 网关前缀，便于解析核心英文原因 */
+export function stripHarvesterImageDeleteErrorPrefixes(raw: string): string {
+  let s = String(raw || '').trim();
+  for (let i = 0; i < 4; i += 1) {
+    const next = s
+      .replace(/^删除镜像失败:\s*/i, '')
+      .replace(/^删除失败[：:]\s*/i, '')
+      .replace(/^请求无法处理[：:]\s*/i, '')
+      .replace(/^admission webhook\s+"[^"]+"\s+denied the request:\s*/i, '')
+      .trim();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
+function formatImageInUseByVmLabels(labels: string[]): string {
+  const uniq = [...new Set(labels.map((x) => String(x || '').trim()).filter(Boolean))];
+  if (uniq.length === 0) return '镜像仍被虚拟机使用，无法删除';
+  if (uniq.length === 1) return `镜像仍被虚拟机「${uniq[0]}」使用，无法删除`;
+  return `镜像仍被以下虚拟机使用，无法删除：${uniq.join('、')}`;
+}
+
+/**
+ * 将 Harvester「镜像仍被卷/虚拟机占用」类 webhook 报错转为可读中文（仅说明占用虚拟机）。
+ * @returns 能识别则返回中文；否则返回 null
+ */
+export function formatHarvesterImageDeleteInUseMessage(
+  raw: string,
+  opts?: { vms?: any[] },
+): string | null {
+  const normalized = stripHarvesterImageDeleteErrorPrefixes(raw);
+  const source = normalized || String(raw || '').trim();
+  if (!source) return null;
+
+  const vms = opts?.vms ?? [];
+  const vmLabels: string[] = [];
+  const seen = new Set<string>();
+
+  const pushLabel = (label: string) => {
+    const s = String(label || '').trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    vmLabels.push(s);
+  };
+
+  let matched = false;
+  HARVESTER_IMAGE_DELETE_IN_USE_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = HARVESTER_IMAGE_DELETE_IN_USE_RE.exec(source)) !== null) {
+    matched = true;
+    const imageRef = m[1].trim();
+    const volRef = m[2].trim().replace(/[.,;]+$/, '');
+    const slash = volRef.indexOf('/');
+    const volNs = slash >= 0 ? volRef.slice(0, slash) : '';
+    const volName = slash >= 0 ? volRef.slice(slash + 1) : volRef;
+
+    const vm = findVmByVolumeClaimName(volNs, volName, vms);
+    if (vm?.label) {
+      pushLabel(vm.label);
+      continue;
+    }
+
+    const guessed = guessVmNameFromHarvesterVolumeName(volName);
+    if (guessed) pushLabel(guessed);
+
+    const imgSlash = imageRef.indexOf('/');
+    const imgNs = imgSlash >= 0 ? imageRef.slice(0, imgSlash) : '';
+    const imgName = imgSlash >= 0 ? imageRef.slice(imgSlash + 1) : imageRef;
+    if (imgNs && imgName && vms.length > 0) {
+      for (const row of findVmsReferencingHarvesterImage(imgNs, imgName, vms)) {
+        pushLabel(row.label);
+      }
+    }
+  }
+
+  if (matched) return formatImageInUseByVmLabels(vmLabels);
+
+  const lower = source.toLowerCase();
+  if (
+    lower.includes('cannot delete image') &&
+    (lower.includes('being used by volume') || lower.includes('in use'))
+  ) {
+    return '镜像仍被虚拟机使用，无法删除';
+  }
+
+  return null;
 }
 
 /**

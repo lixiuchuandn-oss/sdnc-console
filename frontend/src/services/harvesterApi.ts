@@ -1,4 +1,6 @@
-import { apiRequest, apiPost, apiDelete, apiPatch, apiPut } from './api';
+import { apiRequest, apiPost, apiDelete, apiPatch, apiPut, API_BASE_URL, getAuthHeaders } from './api';
+import { requestManager } from '../utils/requestManager';
+import { getToken } from '../utils/tokenStorage';
 import { appendMergePublicScenarioParam } from './harvester/internal/queryParams';
 
 /**
@@ -527,10 +529,23 @@ export const fetchHarvesterAvailableVolumes = async (cloudId: string, namespace?
 };
 
 /**
+ * 从列表 API 响应中取出 items 数组（兼容 data.items 与顶层 items）
+ */
+export function getHarvesterImagesListItems(
+  res: { data?: { items?: Record<string, unknown>[] }; items?: Record<string, unknown>[] } | null | undefined,
+): Record<string, unknown>[] {
+  const fromData = res?.data?.items;
+  if (Array.isArray(fromData)) return fromData;
+  const legacy = res?.items;
+  if (Array.isArray(legacy)) return legacy;
+  return [];
+}
+
+/**
  * 获取 Harvester 镜像列表
  * @param cloudId 云环境 ID
- * @param force 是否强制刷新，默认 false
- * @param skipSync 兼容旧调用，不再发往服务端
+ * @param force 是否强制刷新（绕过前端 GET 缓存）
+ * @param skipSync true 时请求带 skipSync=true，后端只读 Tower 库存、不触发 syncHarvesterImages 全量同步
  * @returns Promise<any>
  */
 export const fetchHarvesterImages = async (
@@ -541,12 +556,12 @@ export const fetchHarvesterImages = async (
 ) => {
   const params = new URLSearchParams();
   if (force) params.append('force', 'true');
-  void skipSync;
+  if (skipSync) params.append('skipSync', 'true');
   appendMergePublicScenarioParam(params, mergePublicScenarioNamespaces);
   const queryString = params.toString();
-  return await apiRequest(
+  return apiRequest(
     `/api/clouds/${cloudId}/resources/harvester/images${queryString ? `?${queryString}` : ''}`,
-    { skipCache: force }
+    { skipCache: force },
   );
 };
 
@@ -558,8 +573,21 @@ export type HarvesterImageUploadTask = {
   imageType?: string;
   filename?: string;
   fileSize?: number;
-  status: 'pending' | 'ingesting' | 'proxying' | 'success' | 'failed' | 'cancelled';
-  phase: 'pending' | 'ingesting' | 'proxying' | 'finished';
+  virtualSizeBytes?: number;
+  chunkSize?: number;
+  totalChunks?: number;
+  receivedChunks?: number[];
+  createdImageName?: string;
+  createdImageNamespace?: string;
+  status:
+    | 'pending'
+    | 'ingesting'
+    | 'uploaded'
+    | 'proxying'
+    | 'success'
+    | 'failed'
+    | 'cancelled';
+  phase: 'pending' | 'ingesting' | 'uploaded' | 'proxying' | 'finished';
   progress: number;
   ingestProgress: number;
   proxyProgress: number;
@@ -574,9 +602,104 @@ export type HarvesterImageUploadTask = {
 
 export const createHarvesterImageUploadTask = async (
   cloudId: string,
-  payload: { namespace: string; displayName?: string; imageType?: string },
+  payload: {
+    namespace: string;
+    displayName?: string;
+    imageType?: string;
+    filename?: string;
+    fileSize?: number;
+    chunkSize?: number;
+  },
 ) => {
   return await apiPost(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks`, payload);
+};
+
+export type HarvesterImageUploadDiskCheck = {
+  path: string;
+  freeBytes: number;
+  requiredBytes: number;
+  sufficient: boolean;
+  message: string;
+};
+
+/** 提交上传前检查 Tower 镜像暂存目录剩余空间 */
+export const checkHarvesterImageUploadDiskSpace = async (
+  cloudId: string,
+  fileSize: number,
+  chunkSize?: number,
+) => {
+  const size = Math.max(1, Math.floor(Number(fileSize) || 0));
+  const params = new URLSearchParams({ fileSize: String(size) });
+  const cs = Math.floor(Number(chunkSize) || 0);
+  if (cs > 0) params.set('chunkSize', String(cs));
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/disk-check?${params.toString()}`,
+    { skipCache: true },
+  );
+};
+
+export type HarvesterImageDownloadTask = {
+  id: string;
+  cloudId: string;
+  namespace: string;
+  imageName: string;
+  displayName?: string;
+  filename?: string;
+  fileSize?: number;
+  bytesDownloaded?: number;
+  taskStatus: 'pending' | 'fetching' | 'ready' | 'failed' | 'cancelled';
+  progress?: number;
+  errorMessage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
+export const createHarvesterImageDownloadTask = async (
+  cloudId: string,
+  payload: {
+    namespace: string;
+    imageName: string;
+    displayName?: string;
+    downloadLink?: string;
+    imageType?: string;
+    diskFormat?: string;
+  },
+) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks`,
+    payload,
+    { enableRetry: false },
+  );
+};
+
+export const fetchHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}`,
+    { skipCache: true },
+  );
+};
+
+export const fetchHarvesterImageDownloadTasks = async (cloudId: string, limit = 20) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks?limit=${Math.max(1, Math.min(100, limit))}`,
+    { skipCache: true },
+  );
+};
+
+export const cancelHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+    { enableRetry: false },
+  );
+};
+
+export const deleteHarvesterImageDownloadTask = async (cloudId: string, taskId: string) => {
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/images/download-tasks/${encodeURIComponent(taskId)}`,
+  );
 };
 
 export const fetchHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
@@ -591,13 +714,115 @@ export const fetchHarvesterImageUploadTasks = async (cloudId: string, limit = 20
   });
 };
 
-export const deleteHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}`);
+export const deleteHarvesterImageUploadTask = async (
+  cloudId: string,
+  taskId: string,
+  opts?: { force?: boolean },
+) => {
+  const force = opts?.force ? '?force=true' : '';
+  return await apiDelete(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}${force}`,
+  );
 };
 
 export const cancelHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
   return await apiPost(
     `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/cancel`,
+    {},
+  );
+};
+
+export const fetchHarvesterImageUploadTaskChunks = async (cloudId: string, taskId: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/chunks`,
+    { skipCache: true },
+  );
+};
+
+export const uploadHarvesterImageChunk = async (
+  cloudId: string,
+  taskId: string,
+  index: number,
+  body: Blob | ArrayBuffer,
+  options?: {
+    signal?: AbortSignal;
+    onUploadProgress?: (loaded: number, total: number) => void;
+  },
+): Promise<unknown> => {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/octet-stream',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const url = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/chunks/${index}`;
+
+  return await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+    xhr.responseType = 'text';
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+      options.signal.addEventListener(
+        'abort',
+        () => {
+          xhr.abort();
+          reject(new DOMException('Aborted', 'AbortError'));
+        },
+        { once: true },
+      );
+    }
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) options?.onUploadProgress?.(ev.loaded, ev.total);
+    };
+
+    xhr.onload = () => {
+      const text = xhr.responseText || '';
+      let json: unknown = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch {
+        json = { message: text };
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(json);
+        return;
+      }
+      reject(
+        new Error(
+          (json as { message?: string })?.message || text || `分片上传失败 HTTP ${xhr.status}`,
+        ),
+      );
+    };
+
+    xhr.onerror = () => {
+      reject(
+        new Error(
+          '分片上传网络失败。请确认后端 5001 端口可用，且网关 client_max_body_size ≥ 64MB。',
+        ),
+      );
+    };
+
+    xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
+    xhr.send(body);
+  });
+};
+
+export const completeHarvesterImageUploadChunks = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/complete-chunks`,
+    {},
+  );
+};
+
+export const syncHarvesterImageUploadTask = async (cloudId: string, taskId: string) => {
+  return await apiPost(
+    `/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(taskId)}/sync`,
     {},
   );
 };
@@ -777,7 +1002,19 @@ export const deleteHarvesterVolume = async (cloudId: string, namespace: string, 
  * @returns Promise<any>
  */
 export const deleteHarvesterImage = async (cloudId: string, namespace: string, name: string) => {
-  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/images/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+  return await requestManager(
+    {
+      method: 'DELETE',
+      endpoint: `/api/clouds/${cloudId}/resources/harvester/images/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`,
+      headers: getAuthHeaders(),
+      options: {
+        enableDeduplication: false,
+        enableCache: false,
+        enableRetry: false,
+      },
+    },
+    API_BASE_URL,
+  );
 };
 
 /**
@@ -1636,13 +1873,12 @@ export const testRegistryConnection = async (
   password?: string,
   insecure?: boolean,
 ) => {
-  const params = new URLSearchParams();
-  params.append('server', server);
-  if (username) params.append('username', username);
-  if (password) params.append('password', password);
-  if (insecure) params.append('insecure', 'true');
-  
-  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/test?${params.toString()}`);
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/registry/test`, {
+    server,
+    username,
+    password,
+    insecure: insecure !== false,
+  });
 };
 
 /**
@@ -1745,6 +1981,36 @@ export const getRegistryManifest = async (
   if (insecure) params.append('insecure', 'true');
   
   return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/registry/manifest?${params.toString()}`);
+};
+
+/**
+ * 删除镜像标签
+ * @param cloudId 云环境 ID
+ * @param server 仓库地址
+ * @param repository 镜像仓库名称
+ * @param digest 镜像 digest (sha256:xxx)
+ * @param username 用户名 (可选)
+ * @param password 密码 (可选)
+ * @param insecure 是否跳过 TLS 验证 (可选)
+ * @returns Promise<any>
+ */
+export const deleteRegistryTag = async (
+  cloudId: string,
+  server: string,
+  repository: string,
+  tag: string,
+  username?: string,
+  password?: string,
+  insecure?: boolean,
+) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/registry/tag`, {
+    server,
+    repository,
+    tag,
+    username,
+    password,
+    insecure,
+  });
 };
 
 /**
@@ -1899,6 +2165,27 @@ export const fetchGatewayClasses = async (cloudId: string) => {
 };
 
 /**
+ * 创建 GatewayClass
+ * GatewayClass 是集群级别资源，定义 Gateway 的控制器实现
+ * @param cloudId 云环境 ID
+ * @param data GatewayClass 数据
+ * @returns Promise<any>
+ */
+export const createGatewayClass = async (cloudId: string, data: { metadata: { name: string }; spec: { controllerName: string; description?: string } }) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/gatewayclasses`, data);
+};
+
+/**
+ * 删除 GatewayClass
+ * @param cloudId 云环境 ID
+ * @param name GatewayClass 名称
+ * @returns Promise<any>
+ */
+export const deleteGatewayClass = async (cloudId: string, name: string) => {
+  return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/gatewayclasses/${encodeURIComponent(name)}`);
+};
+
+/**
  * 获取 Gateway 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选)
@@ -1940,6 +2227,29 @@ export const createGateway = async (cloudId: string, namespace: string, body: an
  */
 export const deleteGateway = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 更新 Gateway (YAML 编辑)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @param body 完整的 Gateway JSON 对象
+ * @returns Promise<any>
+ */
+export const updateGateway = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 获取 Gateway 相关的 Kubernetes Events
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name Gateway 名称
+ * @returns Promise<any> Events 列表
+ */
+export const fetchGatewayEvents = async (cloudId: string, namespace: string, name: string) => {
+  return await apiRequest(`/api/clouds/${cloudId}/resources/harvester/containers/gateways/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/events`);
 };
 
 /**
@@ -1987,6 +2297,18 @@ export const deleteHttpRoute = async (cloudId: string, namespace: string, name: 
 };
 
 /**
+ * 更新 HTTPRoute (YAML 编辑)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name HTTPRoute 名称
+ * @param body 完整的 HTTPRoute JSON 对象
+ * @returns Promise<any>
+ */
+export const updateHttpRoute = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/httproutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
  * 获取 GRPCRoute 列表
  * @param cloudId 云环境 ID
  * @param namespace 命名空间 (可选)
@@ -2028,6 +2350,27 @@ export const createGrpcRoute = async (cloudId: string, namespace: string, body: 
  */
 export const deleteGrpcRoute = async (cloudId: string, namespace: string, name: string) => {
   return await apiDelete(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`);
+};
+
+/**
+ * 更新 GRPCRoute (YAML 编辑)
+ * @param cloudId 云环境 ID
+ * @param namespace 命名空间
+ * @param name GRPCRoute 名称
+ * @param body 完整的 GRPCRoute JSON 对象
+ * @returns Promise<any>
+ */
+export const updateGrpcRoute = async (cloudId: string, namespace: string, name: string, body: any) => {
+  return await apiPut(`/api/clouds/${cloudId}/resources/harvester/containers/grpcroutes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`, body);
+};
+
+/**
+ * 安装 NGINX Gateway Fabric
+ * @param cloudId 云环境 ID
+ * @returns Promise<any> 安装结果
+ */
+export const installNginxGatewayFabric = async (cloudId: string) => {
+  return await apiPost(`/api/clouds/${cloudId}/resources/harvester/containers/gateway/install-nginx-controller`);
 };
 
 // ============================================================
@@ -2232,8 +2575,8 @@ export const deleteNetworkPolicy = async (cloudId: string, namespace: string, na
  * 获取 Harbor 仓库列表
  * @returns Promise<any>
  */
-export const getHarborRegistries = async () => {
-  return await apiRequest('/api/harbor/registries');
+export const getHarborRegistries = async (cloudId: string) => {
+  return await apiRequest(`/api/harbor/registries?cloudId=${encodeURIComponent(cloudId)}`);
 };
 
 /**
@@ -2241,8 +2584,9 @@ export const getHarborRegistries = async () => {
  * @param harborId Harbor 仓库 ID
  * @returns Promise<any>
  */
-export const testHarborConnection = async (harborId: string) => {
-  return await apiPost(`/api/harbor/registries/${harborId}/test`, {});
+export const testHarborConnection = async (harborId: string, cloudId?: string) => {
+  const query = cloudId ? `?cloudId=${encodeURIComponent(cloudId)}` : '';
+  return await apiPost(`/api/harbor/registries/${harborId}/test${query}`, {});
 };
 
 /**
@@ -2261,7 +2605,8 @@ export const createHarborRegistry = async (payload: any) => {
  * @returns Promise<any>
  */
 export const updateHarborRegistry = async (harborId: string, payload: any) => {
-  return await apiPut(`/api/harbor/registries/${harborId}`, payload);
+  const result = await apiPut(`/api/harbor/registries/${harborId}`, payload);
+  return result?.data ?? result;
 };
 
 /**
@@ -2269,42 +2614,93 @@ export const updateHarborRegistry = async (harborId: string, payload: any) => {
  * @param harborId Harbor 仓库 ID
  * @returns Promise<any>
  */
-export const deleteHarborRegistry = async (harborId: string) => {
-  return await apiDelete(`/api/harbor/registries/${harborId}`);
+export const deleteHarborRegistry = async (harborId: string, cloudId: string) => {
+  return await apiDelete(
+    `/api/harbor/registries/${harborId}?cloudId=${encodeURIComponent(cloudId)}`,
+  );
 };
 
 // ========================================
 // Harbor 镜像选择器 API
 // ========================================
 
+/** 纯数字项目名需携带 projectId，避免 Harbor 将路径解析为 project_id */
+export type HarborSelectorProjectRef = string | { name: string; projectId?: number };
+
+function withHarborSelectorProjectIdQuery(
+  url: string,
+  project: HarborSelectorProjectRef,
+): string {
+  const name = typeof project === 'string' ? project : project.name;
+  const projectId = typeof project === 'string' ? undefined : project.projectId;
+  if (projectId == null || !/^\d+$/.test(name)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}projectId=${encodeURIComponent(String(projectId))}`;
+}
+
+function appendHarborCloudId(url: string, cloudId?: string): string {
+  if (!cloudId) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}cloudId=${encodeURIComponent(cloudId)}`;
+}
+
+function buildHarborSelectorProjectPath(
+  harborId: string,
+  project: HarborSelectorProjectRef,
+  suffix: string,
+  cloudId?: string,
+): string {
+  const name = typeof project === 'string' ? project : project.name;
+  const base = `/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(name)}${suffix}`;
+  return appendHarborCloudId(withHarborSelectorProjectIdQuery(base, project), cloudId);
+}
+
 /**
  * 获取 Harbor 项目列表（用于镜像选择器）
  * @param harborId Harbor 仓库 ID
  * @returns Promise<any>
  */
-export const getHarborSelectorProjects = async (harborId: string) => {
-  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects`);
+export const getHarborSelectorProjects = async (harborId: string, cloudId?: string) => {
+  return await apiRequest(
+    appendHarborCloudId(`/api/harbor/registries/${harborId}/selector/projects`, cloudId),
+  );
 };
 
 /**
  * 获取 Harbor 项目下的仓库列表（用于镜像选择器）
  * @param harborId Harbor 仓库 ID
- * @param project 项目名称
+ * @param project 项目名称或项目引用
  * @returns Promise<any>
  */
-export const getHarborSelectorRepositories = async (harborId: string, project: string) => {
-  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories`);
+export const getHarborSelectorRepositories = async (
+  harborId: string,
+  project: HarborSelectorProjectRef,
+  cloudId?: string,
+) => {
+  return await apiRequest(buildHarborSelectorProjectPath(harborId, project, '/repositories', cloudId));
 };
 
 /**
  * 获取 Harbor 仓库的标签列表（用于镜像选择器）
  * @param harborId Harbor 仓库 ID
- * @param project 项目名称
+ * @param project 项目名称或项目引用
  * @param repo 仓库名称
  * @returns Promise<any>
  */
-export const getHarborSelectorTags = async (harborId: string, project: string, repo: string) => {
-  return await apiRequest(`/api/harbor/registries/${harborId}/selector/projects/${encodeURIComponent(project)}/repositories/${encodeURIComponent(repo)}/tags`);
+export const getHarborSelectorTags = async (
+  harborId: string,
+  project: HarborSelectorProjectRef,
+  repo: string,
+  cloudId?: string,
+) => {
+  return await apiRequest(
+    buildHarborSelectorProjectPath(
+      harborId,
+      project,
+      `/repositories/${encodeURIComponent(repo)}/tags`,
+      cloudId,
+    ),
+  );
 };
 
 /**

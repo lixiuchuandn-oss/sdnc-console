@@ -70,8 +70,11 @@ export {
 export {
   listHarvesterVolumesStandard,
   buildUsedPvcSetFromKubevirtVms,
+  getVolumeExportBlockedByRunningVmMessage,
+  getVolumeExportBlockedByRunningVmMessageLive,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
+  isHarvesterImageBackingPvcName,
   listHarvesterAvailableVolumesStandard,
   listHarvesterImagesStandard,
   listHarvesterImagesRaw,
@@ -181,6 +184,9 @@ export {
   deleteHarvesterUsbDeviceClaim,
   deleteHarvesterPciDeviceClaim,
   buildHarvesterPciDeviceClaimIndex,
+  enrichHarvesterGpuInventoryRow,
+  enrichHarvesterPciDeviceRawWithViewLink,
   findHarvesterPciClaimForPciRow,
   harvesterPciDeviceClaimPassthroughEnabled,
+  probeHarvesterPciDevicesListUrl,
 } from './peripherals';

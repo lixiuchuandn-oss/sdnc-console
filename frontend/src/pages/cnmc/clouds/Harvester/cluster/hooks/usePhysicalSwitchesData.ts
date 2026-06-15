@@ -35,6 +35,7 @@ export function usePhysicalSwitchesData(
   const [probingSwitchName, setProbingSwitchName] = useState<string | null>(null);
   const [hsmMonitorModalOpen, setHsmMonitorModalOpen] = useState(false);
   const [hsmMonitorSwitchName, setHsmMonitorSwitchName] = useState<string | null>(null);
+  const [hmsServiceUnavailable, setHmsServiceUnavailable] = useState<string | null>(null);
 
   const loadSwitchConfigs = useCallback(async () => {
     if (!canRead) return;
@@ -42,9 +43,10 @@ export function usePhysicalSwitchesData(
       const res = await fetchHmsSwitchCrs(cloudId);
       const list = Array.isArray(res?.data?.items) ? res.data.items : [];
       setHmsSwitchConfigs(list);
+      setHmsServiceUnavailable(null);
     } catch (e) {
       setHmsSwitchConfigs([]);
-      throw e;
+      setHmsServiceUnavailable(apiErrorMessage(e, '加载交换机配置失败'));
     }
   }, [canRead, cloudId]);
 
@@ -54,10 +56,9 @@ export function usePhysicalSwitchesData(
       const res = await fetchAswCtlSwitchesSummary(cloudId);
       setProbeItems(Array.isArray(res?.items) ? res.items : []);
       setProbeMeta(probeMetaFromSummaryResponse(res ?? {}));
-    } catch (e) {
+    } catch {
       setProbeItems([]);
       setProbeMeta({});
-      throw e;
     }
   }, [canRead, cloudId]);
 
@@ -103,11 +104,11 @@ export function usePhysicalSwitchesData(
         const row =
           (matchedCr ? matchAswProbeRecordByCr(probeItemsList, matchedCr) : null) ||
           aggregate;
-        setServiceMonitorRows(buildHmsServiceProbeRows(probeRes, row));
-        message.success('HSM 探测完成');
+        setServiceMonitorRows(buildHmsServiceProbeRows(probeRes, row, matchedCr?.spec?.vendor));
+        message.success('探测同步完成');
       } catch (e) {
         setServiceMonitorRows([]);
-        message.error(apiErrorMessage(e, 'HSM 探测失败'));
+        message.error(apiErrorMessage(e, '探测同步失败'));
       } finally {
         setProbeLoading(false);
         setServiceMonitorLoading(false);
@@ -137,6 +138,7 @@ export function usePhysicalSwitchesData(
 
   return {
     hmsSwitchConfigs,
+    hmsServiceUnavailable,
     probeItems,
     probeMeta,
     serviceMonitorRows,

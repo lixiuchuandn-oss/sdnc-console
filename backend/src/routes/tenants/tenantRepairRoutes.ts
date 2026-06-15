@@ -1,10 +1,43 @@
 import { Router } from 'express';
 import { AuthRequest } from '../../middleware/auth';
 import { repairTenantDataFromCloud } from '../../services/iam/iamCrdRepair';
+import { repairTenantDataFromCsm } from '../../services/tenants/csmTenantRepair';
 import { tenantLog } from './tenantRouteLogger';
 
-/** 租户 IAM CRD 数据修复（须在 /:id 之前注册） */
+/** 租户数据修复（须在 /:id 之前注册） */
 export function registerTenantRepairRoutes(router: Router): void {
+  router.post('/repair-from-csm', async (req: AuthRequest, res) => {
+    try {
+      const cloudId = String(req.body?.cloudId || '').trim();
+      if (!cloudId) {
+        return res.status(400).json({ message: '请选择要恢复数据来源的 CSM 资源池（cloudId）' });
+      }
+
+      tenantLog.info(`CSM 租户数据修复开始，来源资源池: ${cloudId}`);
+      const result = await repairTenantDataFromCsm(cloudId);
+
+      const parts = [
+        `租户 ${result.tenants.created + result.tenants.updated}`,
+        `组织 ${result.organizations.created + result.organizations.updated}`,
+        `CSM 安全域 ${result.securityDomains.created + result.securityDomains.updated}`,
+        `专线 IP ${result.leasedLines.created + result.leasedLines.updated}`,
+      ];
+
+      res.json({
+        message: `已从 CSM「${result.cloudName}」恢复：${parts.join('、')}`,
+        result,
+      });
+    } catch (error) {
+      const status = (error as { status?: number })?.status ?? 500;
+      const detail = error instanceof Error ? error.message : String(error);
+      tenantLog.error('CSM 租户数据修复失败:', detail);
+      res.status(status).json({
+        message: status === 502 || status === 404 ? detail : 'CSM 租户数据修复失败',
+        error: detail,
+      });
+    }
+  });
+
   router.post('/repair-from-crd', async (req: AuthRequest, res) => {
     try {
       const cloudId = String(req.body?.cloudId || '').trim();

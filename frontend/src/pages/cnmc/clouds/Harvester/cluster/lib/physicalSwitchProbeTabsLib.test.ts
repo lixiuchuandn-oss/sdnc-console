@@ -16,10 +16,27 @@ describe('physicalSwitchProbeTabsLib', () => {
     expect(probeStateText(healthy, { errorKey: 'infoError', dataKey: 'info' })).toBe('正常');
   });
 
-  it('probeStateText returns 失败 on error flag', () => {
+  it('probeStateText returns 失败 when error and no parseable stdout', () => {
     expect(
       probeStateText({ ...healthy, infoError: 'timeout' }, { errorKey: 'infoError', dataKey: 'info' }),
     ).toBe('失败');
+  });
+
+  it('probeStateText returns 正常 when error but H3C stdout parses', () => {
+    expect(
+      probeStateText(
+        {
+          ...healthy,
+          infoError: 'ssh command timeout after 15s',
+          info: {
+            ok: false,
+            host: '10.21.0.1',
+            lines: [{ stdout: 'H3C Comware\nBOARD TYPE: LS-6520X\n', command: 'display version' }],
+          },
+        },
+        { errorKey: 'infoError', dataKey: 'info', vendor: 'H3C' },
+      ),
+    ).toBe('正常');
   });
 
   it('buildSwitchProbeDrawerModel reads host and KPI values', () => {

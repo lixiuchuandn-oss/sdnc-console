@@ -27,7 +27,53 @@ import {
   harvesterHmsSwitchCrGetHandler,
   harvesterHmsSwitchCrListHandler,
   harvesterHmsSwitchCrUpdateHandler,
+  harvesterHmsSwitchSshConnectHandler,
 } from './handlers/hms-switch-cr.handlers';
+import { harvesterDrsOverviewHandler } from './handlers/drs.handlers';
+import {
+  harvesterFailureDomainCreateHandler,
+  harvesterFailureDomainDeleteHandler,
+  harvesterFailureDomainsOverviewHandler,
+  harvesterFailureDomainSetNodesHandler,
+  harvesterFailureDomainUpdateHandler,
+} from './handlers/failure-domain.handlers';
+import {
+  harvesterDeploymentSetCreateHandler,
+  harvesterDeploymentSetDeleteHandler,
+  harvesterDeploymentSetsOverviewHandler,
+  harvesterDeploymentSetUpdateHandler,
+} from './handlers/deployment-set.handlers';
+import {
+  harvesterSdrsDisksHandler,
+  harvesterSdrsOverviewHandler,
+  harvesterSdrsPolicyGetHandler,
+  harvesterSdrsPolicyPutHandler,
+  harvesterSdrsPoolsHandler,
+  harvesterSdrsTaskCreateHandler,
+  harvesterSdrsTaskGetHandler,
+  harvesterSdrsTasksListHandler,
+} from './handlers/sdrs.handlers';
+import {
+  harvesterNodeMaintenanceDisableHandler,
+  harvesterNodeMaintenanceEnableHandler,
+  harvesterNodeMaintenancePrecheckHandler,
+  harvesterNodeMaintenanceUnhealthyVmsHandler,
+} from './handlers/node-maintenance.handlers';
+import { harvesterAllNodesHmsShutdownHandler } from './handlers/node-hms-shutdown.handlers';
+import {
+  harvesterDrsMetricRuleCrCreateHandler,
+  harvesterDrsMetricRuleCrDeleteHandler,
+  harvesterDrsMetricRuleCrGetHandler,
+  harvesterDrsMetricRulesListHandler,
+  harvesterDrsMetricRuleCrUpdateHandler,
+} from './handlers/drs-metric-rule-cr.handlers';
+import {
+  harvesterOvnMirrorCrCreateHandler,
+  harvesterOvnMirrorCrDeleteHandler,
+  harvesterOvnMirrorCrGetHandler,
+  harvesterOvnMirrorsListHandler,
+  harvesterOvnMirrorCrUpdateHandler,
+} from './handlers/ovn-mirror-cr.handlers';
 
 /**
  * 注册 Harvester 缓存路由
@@ -59,15 +105,25 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
           const cleanPath = path.startsWith('/') ? path : `/${path}`;
           let base = cloud.endpoint.replace(/\/+$/, '');
 
-          // 处理 K8s 原生 API 路径：自动去除 endpoint 版本后缀
-          if (
-            (cleanPath.startsWith('/api/') || cleanPath.startsWith('/apis/')) &&
-            !base.includes('/k8s/clusters/')
-          ) {
-            base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
-          }
+          // Rancher / Steve：/k8s/clusters/... 与 /v1/harvester/... 须挂在 origin 上，不能拼在 /v3 后
+          if (cleanPath.startsWith('/k8s/clusters/') || cleanPath.startsWith('/v1/')) {
+            try {
+              const u = new URL(base);
+              target = `${u.protocol}//${u.host}${cleanPath}`;
+            } catch {
+              target = `${base}${cleanPath}`;
+            }
+          } else {
+            // 处理 K8s 原生 API 路径：自动去除 endpoint 版本后缀
+            if (
+              (cleanPath.startsWith('/api/') || cleanPath.startsWith('/apis/')) &&
+              !base.includes('/k8s/clusters/')
+            ) {
+              base = base.replace(/\/v[0-9]+(\/harvester)?$/, '');
+            }
 
-          target = `${base}${cleanPath}`;
+            target = `${base}${cleanPath}`;
+          }
         }
 
         const data = await requestJson(
@@ -150,6 +206,11 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     checkAdminPermission,
     harvesterHmsSwitchCrGetHandler,
   );
+  router.get(
+    '/:id/resources/harvester/hms/switches/:name/ssh-connect',
+    checkAdminPermission,
+    harvesterHmsSwitchSshConnectHandler,
+  );
   router.put(
     '/:id/resources/harvester/hms/switches/:name',
     checkAdminPermission,
@@ -161,6 +222,185 @@ export const registerHarvesterRoutes = (router: Router, checkAdminPermission: an
     harvesterHmsSwitchCrDeleteHandler,
   );
 
+  // 集群 DRS：MetricRule CR + DRS 迁移记录概览
+  router.get(
+    '/:id/resources/harvester/drs/overview',
+    checkAdminPermission,
+    harvesterDrsOverviewHandler,
+  );
+
+  router.get(
+    '/:id/resources/harvester/drs/metric-rules',
+    checkAdminPermission,
+    harvesterDrsMetricRulesListHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/drs/metric-rules',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrCreateHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/drs/metric-rules/:name',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/drs/metric-rules/:name',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/drs/metric-rules/:name',
+    checkAdminPermission,
+    harvesterDrsMetricRuleCrDeleteHandler,
+  );
+
+  // 集群故障域
+  router.get(
+    '/:id/resources/harvester/failure-domains/overview',
+    checkAdminPermission,
+    harvesterFailureDomainsOverviewHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/failure-domains',
+    checkAdminPermission,
+    harvesterFailureDomainCreateHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/failure-domains/:domainId',
+    checkAdminPermission,
+    harvesterFailureDomainUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/failure-domains/:domainId',
+    checkAdminPermission,
+    harvesterFailureDomainDeleteHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/failure-domains/:domainId/nodes',
+    checkAdminPermission,
+    harvesterFailureDomainSetNodesHandler,
+  );
+
+  // 虚拟机部署集
+  router.get(
+    '/:id/resources/harvester/deployment-sets/overview',
+    checkAdminPermission,
+    harvesterDeploymentSetsOverviewHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/deployment-sets',
+    checkAdminPermission,
+    harvesterDeploymentSetCreateHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/deployment-sets/:setId',
+    checkAdminPermission,
+    harvesterDeploymentSetUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/deployment-sets/:setId',
+    checkAdminPermission,
+    harvesterDeploymentSetDeleteHandler,
+  );
+
+  // 流量镜像（OvnMirror CR）
+  router.get(
+    '/:id/resources/harvester/ovn-mirrors',
+    checkAdminPermission,
+    harvesterOvnMirrorsListHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/ovn-mirrors',
+    checkAdminPermission,
+    harvesterOvnMirrorCrCreateHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/ovn-mirrors/:name',
+    checkAdminPermission,
+    harvesterOvnMirrorCrGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/ovn-mirrors/:name',
+    checkAdminPermission,
+    harvesterOvnMirrorCrUpdateHandler,
+  );
+  router.delete(
+    '/:id/resources/harvester/ovn-mirrors/:name',
+    checkAdminPermission,
+    harvesterOvnMirrorCrDeleteHandler,
+  );
+
+  // 存储 DRS（SDRS）
+  router.get(
+    '/:id/resources/harvester/sdrs/overview',
+    checkAdminPermission,
+    harvesterSdrsOverviewHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/policy',
+    checkAdminPermission,
+    harvesterSdrsPolicyGetHandler,
+  );
+  router.put(
+    '/:id/resources/harvester/sdrs/policy',
+    checkAdminPermission,
+    harvesterSdrsPolicyPutHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/pools',
+    checkAdminPermission,
+    harvesterSdrsPoolsHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/disks',
+    checkAdminPermission,
+    harvesterSdrsDisksHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/tasks',
+    checkAdminPermission,
+    harvesterSdrsTasksListHandler,
+  );
+  router.get(
+    '/:id/resources/harvester/sdrs/tasks/:taskId',
+    checkAdminPermission,
+    harvesterSdrsTaskGetHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/sdrs/tasks',
+    checkAdminPermission,
+    harvesterSdrsTaskCreateHandler,
+  );
+
+  // 一键关机全部计算节点（HMS POST /v1/hms/node/shutdown 代理；须在 nodes/:name 之前注册）
+  router.post(
+    '/:id/resources/harvester/nodes/shutdown',
+    checkAdminPermission,
+    harvesterAllNodesHmsShutdownHandler,
+  );
+
+  // 物理节点维护模式（Harvester Steve action 代理）
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/precheck',
+    checkAdminPermission,
+    harvesterNodeMaintenancePrecheckHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/unhealthy-vms',
+    checkAdminPermission,
+    harvesterNodeMaintenanceUnhealthyVmsHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/enable',
+    checkAdminPermission,
+    harvesterNodeMaintenanceEnableHandler,
+  );
+  router.post(
+    '/:id/resources/harvester/nodes/:name/maintenance/disable',
+    checkAdminPermission,
+    harvesterNodeMaintenanceDisableHandler,
+  );
   // 注册所有缓存资源路由（VMs、Volumes、Subnets、Namespaces 等）
   registerHarvesterCacheRoutesProvider(router, checkAdminPermission);
 

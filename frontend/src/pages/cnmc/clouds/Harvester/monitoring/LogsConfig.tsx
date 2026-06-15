@@ -72,6 +72,10 @@ import {
 import { useAuth } from '../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../shared/lib/highRiskConfirm';
 
 
 
@@ -759,22 +763,15 @@ const LogsConfig: React.FC<LogsConfigProps> = ({ cloudId }) => {
                 danger: true,
                 disabled: !canWriteLogConfigs,
                 onClick: () => {
-                  Modal.confirm({
+                  void confirmHighRiskDelete({
                     title: '确定删除该日志采集配置？',
-                    content: (
-                      <Typography.Paragraph style={{ marginTop: 8, marginBottom: 0 }}>
-                        将删除采集配置{' '}
-                        <Typography.Text strong>
-                          {row.metadata?.name ?? '-'}
-                        </Typography.Text>
-                        ，依赖此配置的日志采集将停止或无法转发到对应接收端，请确认当前无业务依赖后再删除。
-                      </Typography.Paragraph>
-                    ),
-                    onOk: () => handleDelete(row),
-                    okText: '删除',
-                    cancelText: '取消',
-                    okButtonProps: { danger: true },
-                  });
+                    resourceLabel: '日志采集配置',
+                    name: row.metadata?.name ?? '-',
+                    description:
+                      '依赖此配置的日志采集将停止或无法转发到对应接收端，请确认当前无业务依赖后再删除。',
+                    riskItems: DELETE_RISK_ITEMS,
+                    onConfirm: () => handleDelete(row),
+                  }).catch(() => {});
                 },
               },
             ], canWriteLogConfigs)}

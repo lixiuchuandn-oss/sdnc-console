@@ -39,9 +39,9 @@ export const fetchHarvesterMigrationsDirect = async (cloudId: string, force = fa
 };
 
 export const migrateHarvesterVm = async (cloudId: string, instanceId: string, targetNode?: string) => {
-  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/migrate`, {
-    targetNode,
-  });
+  const nodeName = String(targetNode || '').trim();
+  const body = nodeName ? { nodeName } : {};
+  return await apiPost(`/api/clouds/${cloudId}/resources/ecs/${encodeURIComponent(instanceId)}/migrate`, body);
 };
 
 export const abortHarvesterMigration = async (cloudId: string, instanceId: string) => {

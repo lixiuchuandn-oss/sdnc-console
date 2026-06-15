@@ -20,6 +20,10 @@
  */
 import React, { useMemo } from 'react';
 import { Divider } from 'antd';
+import { formatHugepagesSummary, formatNumaSummary } from '../../lib/numaHugepagesSpec';
+import { findDeploymentSetById } from '../../lib/vmDeploymentSet';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
+import { formatDeploymentSetSchedulingSummary } from 'services/harvester/deploymentSetScheduling';
 
 /**
  * 组件 Props 定义
@@ -43,6 +47,8 @@ interface WizardSummaryProps {
   kubeSubnets: any[];
   /** 默认内存 Gi（当表单未填写时兜底显示） */
   memGi: number;
+  /** 部署集列表（用于预览名称） */
+  deploymentSets?: DeploymentSetRow[];
   /** 预览区域下方可扩展的自定义节点（如按钮/额外说明） */
   children?: React.ReactNode;
 }
@@ -57,6 +63,7 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
   netModeState,
   kubeSubnets,
   memGi,
+  deploymentSets,
   children
 }) => {
   // [数据处理] 聚合计算预览数据
@@ -106,6 +113,8 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
     const cpuMode = String(v.cpuModel || 'host-passthrough');
     const cpuBind = v.dedicatedCPUPlacement ? '启用' : '未启用';
     const cpuIso = v.isolateEmulatorThread ? '启用' : '未启用';
+    const hugepagesSummary = formatHugepagesSummary(v.hugepagesEnabled, v.hugepagesPageSize);
+    const numaSummary = formatNumaSummary(v.numaMode, v.numaManualNodeCount);
     const cpuQos = (function () {
       const req = v.cpuRequest;
       const lim = v.cpuLimit;
@@ -178,15 +187,21 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
         host: (function () {
           if (hostModeState === 'node' && selectedNodeName) return `指定主机：${selectedNodeName}`;
           if (hostModeState === 'label') {
-            const arr: any[] = Array.isArray((v as any).nodeSelectorPairs) ? (v as any).nodeSelectorPairs : [];
-            const text = arr.map((p: any) => (p?.key && p?.value) ? `${p.key}=${p.value}` : '').filter(Boolean).join(', ');
-            return `按标签调度：${text || '-'}`;
+            const fd = String((v as any).failureDomainName || '').trim();
+            return fd ? `故障域：${fd}` : '-';
+          }
+          if (hostModeState === 'auto') {
+            const set = findDeploymentSetById(deploymentSets, v.deploymentSetId);
+            if (set) return `自动调度（部署集：${set.name}）`;
+            if (v.metricAutoScheduled) {
+              return '自动调度至合适的主机（参与指标自动调度）';
+            }
           }
           return '自动调度至合适的主机';
         })()
       },
-      // 基础信息：名称/描述/分组（未填显示 '-'）
-      info: { name: v.name || '-', desc: v.description || '-', group: v.group || '-' },
+      // 基础信息：名称/描述（未填显示 '-'）
+      info: { name: v.name || '-', desc: v.description || '-' },
 
       // 计算：CPU/内存及可选项（热扩容、拓扑、模式、绑定、隔离、QoS）
       compute: {
@@ -197,6 +212,8 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
         cpuMode: (function () { const m = cpuMode; return (m && m !== 'host-passthrough') ? m : undefined; })(),
         cpuBind: v.dedicatedCPUPlacement ? cpuBind : undefined,
         cpuIso: v.isolateEmulatorThread ? cpuIso : undefined,
+        hugepages: v.hugepagesEnabled ? hugepagesSummary : undefined,
+        numa: v.numaMode && v.numaMode !== 'off' ? numaSummary : undefined,
         qos: cpuQos !== '-' ? cpuQos : undefined
       },
 
@@ -247,8 +264,16 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
 
       // 运行策略
       runStrategy,
+
+      deploymentSet: (function () {
+        if (hostModeState === 'node' || v.metricAutoScheduled) return undefined;
+        const set = findDeploymentSetById(deploymentSets, v.deploymentSetId);
+        if (!set) return undefined;
+        const scheduling = formatDeploymentSetSchedulingSummary(set);
+        return scheduling ? `${set.name}（${scheduling}）` : set.name;
+      })(),
     };
-  }, [formSnapshot, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi]);
+  }, [formSnapshot, hostModeState, selectedNodeName, kubeSubnets, netModeState, clouds, currentCloudId, cloudId, memGi, deploymentSets]);
 
   return (
     <div className="wizard-preview">
@@ -274,15 +299,17 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <span className="wizard-summary-value" title={summary.location.project}>{summary.location.project}</span>
           </div>
 
-          {/* 基础信息：名称、分组 */}
+          {/* 基础信息：名称 */}
           <div className="wizard-summary-item">
             <span className="wizard-summary-label" title="名称">名称</span>
             <span className="wizard-summary-value" title={summary.info.name}>{summary.info.name}</span>
           </div>
-          <div className="wizard-summary-item">
-            <span className="wizard-summary-label" title="分组">分组</span>
-            <span className="wizard-summary-value" title={summary.info.group}>{summary.info.group}</span>
-          </div>
+          {summary.deploymentSet ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="部署集">部署集</span>
+              <span className="wizard-summary-value" title={summary.deploymentSet}>{summary.deploymentSet}</span>
+            </div>
+          ) : null}
 
           {/* 计算资源：vCPU、内存及可选 CPU 相关高级配置 */}
           <div className="wizard-summary-item">
@@ -321,6 +348,18 @@ const WizardSummary: React.FC<WizardSummaryProps> = ({
             <div className="wizard-summary-item">
               <span className="wizard-summary-label" title="CPU 隔离">CPU 隔离</span>
               <span className="wizard-summary-value" title={summary.compute.cpuIso}>{summary.compute.cpuIso}</span>
+            </div>
+          ) : null}
+          {summary.compute.hugepages ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="大页内存">大页内存</span>
+              <span className="wizard-summary-value" title={summary.compute.hugepages}>{summary.compute.hugepages}</span>
+            </div>
+          ) : null}
+          {summary.compute.numa ? (
+            <div className="wizard-summary-item">
+              <span className="wizard-summary-label" title="NUMA 亲和">NUMA 亲和</span>
+              <span className="wizard-summary-value" title={summary.compute.numa}>{summary.compute.numa}</span>
             </div>
           ) : null}
           {summary.compute.qos ? (

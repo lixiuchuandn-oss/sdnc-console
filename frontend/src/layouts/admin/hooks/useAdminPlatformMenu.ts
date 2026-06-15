@@ -7,6 +7,7 @@ import { buildPageSearchEntries } from '../lib/buildPageSearchEntries';
 /** Admin 顶栏平台菜单 + 全局搜索条目（与侧栏同源） */
 export function useAdminPlatformMenu(
   hasFeature: (feature: string) => boolean,
+  isEnterpriseLicense: () => boolean,
   canAccessPath: (path: string) => boolean,
 ): {
   visibleCenters: AdminSidebarCenter[];
@@ -15,8 +16,8 @@ export function useAdminPlatformMenu(
   const centers = useMemo(() => buildAdminPlatformCenters(), []);
 
   const visibleCenters = useMemo(
-    () => filterVisibleAdminCenters(centers, { hasFeature, canAccessPath }),
-    [centers, hasFeature, canAccessPath],
+    () => filterVisibleAdminCenters(centers, { hasFeature, isEnterpriseLicense, canAccessPath }),
+    [centers, hasFeature, isEnterpriseLicense, canAccessPath],
   );
 
   const pageSearchEntries = useMemo(

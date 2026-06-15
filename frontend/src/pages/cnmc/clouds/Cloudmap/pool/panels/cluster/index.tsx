@@ -1,20 +1,19 @@
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { createClusterTabOnRefresh } from '../../loaders/clusterRefresh';
-import NodesSection from '../../../../Harvester/cluster/sections/NodesSection';
-import NetworksSection from '../../../../Harvester/cluster/sections/NetworksSection';
-import NadsSection from '../../../../Harvester/nad/sections/NadsSection';
-import LoadBalancersSection from '../../../../Harvester/nad/sections/LoadBalancersSection';
-import IPPoolsSection from '../../../../Harvester/nad/sections/IPPoolsSection';
-import ProviderNetworksSection from '../../../../Harvester/kube-ovn/sections/ProviderNetworksSection';
-import UnderlaySubnetsSection from '../../../../Harvester/kube-ovn/sections/UnderlaySubnetsSection';
-import VlansSection from '../../../../Harvester/kube-ovn/sections/VlansSection';
-import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
 import StorageClassesSection from '../../../../Harvester/cluster/sections/StorageClassesSection';
-import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
 import UsbDevicesSection from '../../../../Harvester/cluster/sections/UsbDevicesSection';
 import PciDevicesSection from '../../../../Harvester/cluster/sections/PciDevicesSection';
-import PhysicalSwitchesSection from '../../../../Harvester/cluster/sections/PhysicalSwitchesSection';
+import NamespacesSection from '../../../../Harvester/cluster/sections/NamespacesSection';
+import GpusSection from '../../../../Harvester/cluster/sections/GpusSection';
+import ComputeClusterSection from '../../../../Harvester/cluster/sections/ComputeClusterSection';
+import PhysicalNetworkSection from '../../../../Harvester/cluster/sections/PhysicalNetworkSection';
+import PlatformNetworkSection from '../../../../Harvester/cluster/sections/PlatformNetworkSection';
+import type { ComputeClusterOperateTabKey } from '../../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
+import type { PhysicalNetworkOperateTabKey } from '../../../../Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import { legacyPhysicalNetworkOperateTab } from '../../../../Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import type { PlatformNetworkOperateTabKey } from '../../../../Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
+import { legacyPlatformNetworkOperateTab } from '../../../../Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
 import {
   isClusterCephPoolInnerSeg,
   isValidCloudmapPoolInnerSeg,
@@ -63,11 +62,7 @@ export type CloudmapClusterRoutePanelProps = {
   canReadLoadBalancers: boolean;
   /** 当前子路径 `/cluster/<seg>`，与云主机等域一致，一屏一块资源 */
   innerActiveKey: string;
-  loadTabResource: (
-    key: string,
-    force?: boolean,
-    skipSync?: boolean,
-  ) => Promise<void>;
+  loadTabResource: (key: string, force?: boolean, skipSync?: boolean) => Promise<void>;
   loadResource: (
     key: string,
     fn: () => Promise<any>,
@@ -101,7 +96,20 @@ export type CloudmapClusterRoutePanelProps = {
   cloudConfig: any | null;
   onReloadCloudMeta: () => Promise<void>;
   resourceLoading: Record<string, boolean>;
+  /** 历史 compute_nodes / compute_drs_rules 等书签 → operateTab */
+  initialComputeClusterTab?: ComputeClusterOperateTabKey;
+  initialPhysicalNetworkTab?: PhysicalNetworkOperateTabKey;
+  initialPlatformNetworkTab?: PlatformNetworkOperateTabKey;
 };
+
+function countPublicSubnetsFromRaw(rawSubnets: unknown): number {
+  const items: any[] = Array.isArray((rawSubnets as any)?.data?.items)
+    ? (rawSubnets as any).data.items
+    : Array.isArray((rawSubnets as any)?.items)
+      ? (rawSubnets as any).items
+      : [];
+  return items.length;
+}
 
 const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (props) => {
   const {
@@ -115,18 +123,18 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     innerActiveKey,
     loadTabResource,
     harvesterNodes,
-    rawNodes,
+    rawNodes: _rawNodes,
     harvesterClusterNetworks,
-    rawClusterNetworks,
+    rawClusterNetworks: _rawClusterNetworks,
     harvesterNads,
-    rawNads,
+    rawNads: _rawNads,
     harvesterLoadBalancers,
-    rawLoadBalancers,
+    rawLoadBalancers: _rawLoadBalancers,
     harvesterIPPools,
-    rawIPPools,
+    rawIPPools: _rawIPPools,
     harvesterKubeOvnProviderNetworks,
     harvesterVlans,
-    rawVlans,
+    rawVlans: _rawVlans,
     rawSubnets,
     harvesterNamespacesForManagement,
     harvesterStorageClasses,
@@ -137,6 +145,9 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
     harvesterPciDevices,
     rawPciDevices,
     resourceLoading,
+    initialComputeClusterTab,
+    initialPhysicalNetworkTab,
+    initialPlatformNetworkTab,
   } = props;
 
   const visCtx = {
@@ -159,9 +170,12 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
   const clusterTabOnRefresh = useMemo(() => {
     const deps = { loadTabResource };
     return {
-      cluster_nodes: createClusterTabOnRefresh('cluster_nodes', deps),
-      namespaces: createClusterTabOnRefresh('namespaces', deps),
-      gpu: createClusterTabOnRefresh('gpu', deps),
+      compute_cluster: createClusterTabOnRefresh('compute_nodes', deps),
+      compute_nodes: createClusterTabOnRefresh('compute_nodes', deps),
+      compute_projects: createClusterTabOnRefresh('compute_projects', deps),
+      compute_drs_rules: createClusterTabOnRefresh('compute_drs_rules', deps),
+      compute_migrations: createClusterTabOnRefresh('compute_migrations', deps),
+      compute_gpu: createClusterTabOnRefresh('compute_gpu', deps),
       cluster_usb: createClusterTabOnRefresh('cluster_usb', deps),
       clusterNetworks: createClusterTabOnRefresh('clusterNetworks', deps),
       storage_classes: createClusterTabOnRefresh('storage_classes', deps),
@@ -171,97 +185,131 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
       cluster_pci: createClusterTabOnRefresh('cluster_pci', deps),
       cluster_sriov: createClusterTabOnRefresh('cluster_sriov', deps),
       cluster_vlans: createClusterTabOnRefresh('cluster_vlans', deps),
-      kubeovn_public_networks: createClusterTabOnRefresh(
-        'kubeovn_public_networks',
-        deps,
-      ),
-      kubeovn_public_subnets: createClusterTabOnRefresh(
-        'kubeovn_public_subnets',
-        deps,
-      ),
+      kubeovn_public_networks: createClusterTabOnRefresh('kubeovn_public_networks', deps),
+      kubeovn_public_subnets: createClusterTabOnRefresh('kubeovn_public_subnets', deps),
     };
   }, [loadTabResource]);
 
   const sectionBody = (seg: string): React.ReactNode => {
     switch (seg) {
-      case 'cluster_nodes':
+      case 'compute_cluster':
         return (
-          <>
-            <NodesSection
-              nodes={harvesterNodes}
-              loading={resourceLoading.nodes}
-              onRefresh={clusterTabOnRefresh.cluster_nodes}
-              cloudId={cloudId}
-              isTenant={isTenant}
-            />
-            <DebugJSON data={rawNodes} show={showLog} />
-          </>
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_cluster}
+            isTenant={isTenant}
+            initialOperateTab={initialComputeClusterTab}
+          />
         );
-      case 'cluster_physical_switches':
+      case 'compute_nodes':
         return (
-          <>
-            <PhysicalSwitchesSection cloudId={cloudId} checkPerm={checkPerm} />
-          </>
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="nodes"
+          />
         );
-      case 'kubeovn_public_networks':
+      case 'compute_failure_domains':
         return (
-          <>
-            <ProviderNetworksSection
-              cloudId={cloudId}
-              parentNetworks={harvesterKubeOvnProviderNetworks}
-              parentVlans={harvesterVlans}
-              parentLoading={!!resourceLoading.providerNetworksTab}
-              onParentRefresh={clusterTabOnRefresh.kubeovn_public_networks}
-            />
-            <DebugJSON data={rawSubnets} show={showLog} />
-          </>
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="failure_domains"
+          />
         );
-      case 'namespaces':
+      case 'compute_deployment_sets':
+        return (
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="deployment_sets"
+          />
+        );
+      case 'compute_projects':
         return (
           <NamespacesSection
             cloudId={cloudId}
-            namespaces={harvesterNamespacesForManagement}
+            namespaces={harvesterNamespacesForManagement as any[]}
             loading={resourceLoading.namespaces}
-            onRefresh={clusterTabOnRefresh.namespaces}
+            onRefresh={clusterTabOnRefresh.compute_projects}
             isTenant={isTenant}
           />
         );
-      case 'kubeovn_public_subnets':
+      case 'compute_drs_rules':
         return (
-          <>
-            <UnderlaySubnetsSection
-              cloudId={cloudId}
-              mode="public"
-              onSubnetsChanged={() =>
-                void clusterTabOnRefresh.kubeovn_public_subnets(true, true)
-              }
-            />
-            <DebugJSON data={rawSubnets} show={showLog} />
-          </>
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="drs_rules"
+          />
         );
-      case 'cluster_vlans':
+      case 'compute_migrations':
         return (
-          <>
-            <VlansSection
-              cloudId={cloudId}
-              vlans={harvesterVlans}
-              providerNetworks={harvesterKubeOvnProviderNetworks}
-              loading={resourceLoading.vlans}
-              onRefresh={clusterTabOnRefresh.cluster_vlans}
-            />
-            <DebugJSON data={rawVlans} show={showLog} />
-          </>
+          <ComputeClusterSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            nodes={harvesterNodes as any[]}
+            nodesLoading={resourceLoading.nodes}
+            nodesOnRefresh={clusterTabOnRefresh.compute_nodes}
+            isTenant={isTenant}
+            initialOperateTab="migrations"
+          />
         );
-      case 'gpu':
+      case 'compute_gpu':
         return (
           <GpusSection
             cloudId={cloudId}
             resources={harvesterGpuResources}
             loading={resourceLoading.gpu}
-            onRefresh={clusterTabOnRefresh.gpu}
+            onRefresh={clusterTabOnRefresh.compute_gpu}
             raw={rawGpu}
             showLog={showLog}
             isTenant={isTenant}
+          />
+        );
+      case 'cluster_physical_network':
+      case 'cluster_physical_switches':
+      case 'kubeovn_public_networks':
+      case 'kubeovn_public_subnets':
+      case 'cluster_vlans':
+        return (
+          <PhysicalNetworkSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            canReadPublicSubnets={canReadPublicSubnets}
+            loadTabResource={loadTabResource}
+            providerNetworks={harvesterKubeOvnProviderNetworks}
+            vlans={harvesterVlans}
+            publicSubnetCount={countPublicSubnetsFromRaw(rawSubnets)}
+            providerNetworksLoading={!!resourceLoading.providerNetworksTab}
+            vlansLoading={!!resourceLoading.vlans}
+            onRefreshProviderNetworks={clusterTabOnRefresh.kubeovn_public_networks}
+            onRefreshPublicSubnets={clusterTabOnRefresh.kubeovn_public_subnets}
+            onRefreshVlans={clusterTabOnRefresh.cluster_vlans}
+            initialOperateTab={
+              seg === 'cluster_physical_network'
+                ? initialPhysicalNetworkTab
+                : legacyPhysicalNetworkOperateTab(seg) ?? initialPhysicalNetworkTab
+            }
           />
         );
       case 'cluster_usb':
@@ -276,18 +324,37 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
             isTenant={isTenant}
           />
         );
+      case 'cluster_platform_network':
       case 'clusterNetworks':
+      case 'nads':
+      case 'load_balancers':
+      case 'ippools':
         return (
-          <>
-            <NetworksSection
-              cloudId={cloudId}
-              clusterNetworks={harvesterClusterNetworks}
-              loading={resourceLoading.clusterNetworks}
-              onRefresh={clusterTabOnRefresh.clusterNetworks}
-              isTenant={isTenant}
-            />
-            <DebugJSON data={rawClusterNetworks} show={showLog} />
-          </>
+          <PlatformNetworkSection
+            cloudId={cloudId}
+            checkPerm={checkPerm}
+            canReadNetworkScope={canReadNetworkScope}
+            canReadLoadBalancers={canReadLoadBalancers}
+            isTenant={isTenant}
+            loadTabResource={loadTabResource}
+            clusterNetworks={harvesterClusterNetworks}
+            clusterNetworksLoading={!!resourceLoading.clusterNetworks}
+            nads={harvesterNads}
+            nadsLoading={!!resourceLoading.nads}
+            loadBalancers={harvesterLoadBalancers}
+            loadBalancersLoading={!!resourceLoading.loadBalancers}
+            ippools={harvesterIPPools}
+            ippoolsLoading={!!resourceLoading.ippools}
+            onRefreshClusterNetworks={clusterTabOnRefresh.clusterNetworks}
+            onRefreshNads={clusterTabOnRefresh.nads}
+            onRefreshLoadBalancers={clusterTabOnRefresh.load_balancers}
+            onRefreshIppools={clusterTabOnRefresh.ippools}
+            initialOperateTab={
+              seg === 'cluster_platform_network'
+                ? initialPlatformNetworkTab
+                : legacyPlatformNetworkOperateTab(seg) ?? initialPlatformNetworkTab
+            }
+          />
         );
       case 'storage_classes':
         return (
@@ -299,42 +366,6 @@ const CloudmapClusterRoutePanel: React.FC<CloudmapClusterRoutePanelProps> = (pro
               onRefresh={clusterTabOnRefresh.storage_classes}
             />
             <DebugJSON data={harvesterStorageClasses} show={showLog} />
-          </>
-        );
-      case 'nads':
-        return (
-          <>
-            <NadsSection
-              nads={harvesterNads}
-              loading={resourceLoading.nads}
-              onRefresh={clusterTabOnRefresh.nads}
-              cloudId={cloudId}
-            />
-            <DebugJSON data={rawNads} show={showLog} />
-          </>
-        );
-      case 'load_balancers':
-        return (
-          <>
-            <LoadBalancersSection
-              cloudId={cloudId}
-              loadBalancers={harvesterLoadBalancers}
-              loading={resourceLoading.loadBalancers}
-              onRefresh={clusterTabOnRefresh.load_balancers}
-            />
-            <DebugJSON data={rawLoadBalancers} show={showLog} />
-          </>
-        );
-      case 'ippools':
-        return (
-          <>
-            <IPPoolsSection
-              cloudId={cloudId}
-              ippools={harvesterIPPools}
-              loading={resourceLoading.ippools}
-              onRefresh={clusterTabOnRefresh.ippools}
-            />
-            <DebugJSON data={rawIPPools} show={showLog} />
           </>
         );
       case 'cluster_pci':

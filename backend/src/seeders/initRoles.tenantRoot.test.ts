@@ -1,4 +1,7 @@
-import { buildTenantRootBuiltinPermissions } from '../seeders/initRoles';
+import {
+  buildTenantRootBuiltinPermissions,
+  buildTenantRootRoleCatalogBoundary,
+} from '../seeders/initRoles';
 import { ALL_PERMISSIONS } from '../constants/permissions';
 
 describe('buildTenantRootBuiltinPermissions', () => {
@@ -10,5 +13,19 @@ describe('buildTenantRootBuiltinPermissions', () => {
     expect(perms).toContain('clouds.ecs:write');
     expect(perms).toContain('clouds.restore-tasks:read');
     expect(perms).toContain('clouds.restore-tasks:write');
+  });
+
+  it('includes clouds.images read/write for builtin tenant root seed', () => {
+    const perms = buildTenantRootBuiltinPermissions(ALL_PERMISSIONS);
+    expect(perms).toContain('clouds.images:read');
+    expect(perms).toContain('clouds.images:write');
+  });
+});
+
+describe('buildTenantRootRoleCatalogBoundary', () => {
+  it('includes clouds.images:write for tenant role drawer catalog', () => {
+    const boundary = buildTenantRootRoleCatalogBoundary(ALL_PERMISSIONS);
+    expect(boundary).toContain('clouds.images:read');
+    expect(boundary).toContain('clouds.images:write');
   });
 });

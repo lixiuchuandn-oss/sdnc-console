@@ -1,0 +1,222 @@
+/**
+ * 镜像上传弹窗组件
+ */
+import React, { useCallback, useEffect, useState } from 'react';
+import { Modal, Form, Input, Upload, message, Alert, Progress } from 'antd';
+import { InboxOutlined } from '@ant-design/icons';
+import {
+  uploadImageToRegistry,
+  type UploadImageProgressHandler,
+} from '../../../../../../services/localRegistryApi';
+
+const { Dragger } = Upload;
+
+type ProgressState = {
+  visible: boolean;
+  percent: number;
+  message: string;
+  status: 'active' | 'success' | 'exception';
+};
+
+interface Props {
+  visible: boolean;
+  cloudId: string;
+  registryId?: string;
+  registryServer: string;
+  insecure?: boolean;
+  username?: string;
+  password?: string;
+  onCancel: () => void;
+  onSuccess: () => void;
+  /** 本地仓库异步任务创建后回调（用于打开任务抽屉） */
+  onTaskCreated?: (taskId: string) => void;
+}
+
+const ImageUploadModal: React.FC<Props> = ({
+  visible,
+  cloudId,
+  registryId,
+  registryServer,
+  insecure = true,
+  username,
+  password,
+  onCancel,
+  onSuccess,
+  onTaskCreated,
+}) => {
+  const [form] = Form.useForm();
+  const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [progress, setProgress] = useState<ProgressState>({
+    visible: false,
+    percent: 0,
+    message: '',
+    status: 'active',
+  });
+
+  useEffect(() => {
+    if (!visible) {
+      setProgress({ visible: false, percent: 0, message: '', status: 'active' });
+      setSubmitting(false);
+    }
+  }, [visible]);
+
+  const handleProgress: UploadImageProgressHandler = useCallback((info) => {
+    if (info.phase === 'uploading_file') {
+      setProgress({
+        visible: true,
+        percent: info.percent,
+        message: info.message,
+        status: 'active',
+      });
+      return;
+    }
+    if (info.phase === 'processing') {
+      setProgress({
+        visible: true,
+        percent: 100,
+        message: info.message,
+        status: 'active',
+      });
+    }
+  }, []);
+
+  const handleUpload = async () => {
+    if (!file) {
+      message.warning('请选择镜像文件');
+      return;
+    }
+
+    const values = await form.validateFields();
+    setSubmitting(true);
+    setProgress({ visible: true, percent: 0, message: '准备上传...', status: 'active' });
+
+    try {
+      const res: any = await uploadImageToRegistry(
+        cloudId,
+        registryId,
+        file,
+        values.targetRepo || 'library',
+        values.targetTag || 'latest',
+        registryId ? undefined : registryServer,
+        registryId ? undefined : insecure,
+        registryId ? undefined : username,
+        registryId ? undefined : password,
+        handleProgress,
+      );
+
+      const createdTaskId = res?.data?.taskId as string | undefined;
+
+      if (createdTaskId) {
+        onTaskCreated?.(createdTaskId);
+        message.success('文件上传完成，请在「推送任务」中查看推送进度');
+      } else {
+        message.success('镜像上传完成');
+      }
+
+      onSuccess();
+      handleReset();
+    } catch (e: any) {
+      setProgress((prev) => ({
+        ...prev,
+        status: 'exception',
+        message: e?.message || '上传失败',
+      }));
+      message.error(e?.message || '上传失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReset = () => {
+    form.resetFields();
+    setFile(null);
+    setProgress({ visible: false, percent: 0, message: '', status: 'active' });
+  };
+
+  const handleCancel = () => {
+    if (submitting) {
+      message.warning('上传进行中，请等待完成');
+      return;
+    }
+    handleReset();
+    onCancel();
+  };
+
+  return (
+    <Modal
+      title="上传镜像"
+      open={visible}
+      onOk={handleUpload}
+      onCancel={handleCancel}
+      okText="上传"
+      cancelText="取消"
+      okButtonProps={{ loading: submitting, disabled: !file }}
+      cancelButtonProps={{ disabled: submitting }}
+      closable={!submitting}
+      maskClosable={!submitting}
+      width={600}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical">
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`目标仓库: ${registryServer}`}
+          description="文件上传完成后将关闭本窗口，解析与推送进度请在「推送任务」中查看"
+        />
+
+        {progress.visible && (
+          <div style={{ marginBottom: 16 }}>
+            <Progress
+              percent={progress.percent}
+              status={progress.status}
+              strokeColor={progress.status === 'exception' ? undefined : { from: '#108ee9', to: '#87d068' }}
+            />
+            <div style={{ marginTop: 8, color: '#666', fontSize: 13 }}>{progress.message}</div>
+          </div>
+        )}
+
+        <Form.Item label="镜像文件 (.tar)">
+          <Dragger
+            accept=".tar"
+            beforeUpload={(f) => {
+              setFile(f);
+              return false;
+            }}
+            onRemove={() => setFile(null)}
+            fileList={file ? [file as any] : []}
+            disabled={submitting}
+          >
+            <p className="ant-upload-drag-icon">
+              <InboxOutlined />
+            </p>
+            <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+            <p className="ant-upload-hint">
+              支持 docker save 导出的 .tar 文件
+            </p>
+          </Dragger>
+        </Form.Item>
+
+        <Form.Item
+          name="targetRepo"
+          label="目标仓库"
+          extra="如: library、myapp，默认为 library"
+        >
+          <Input placeholder="library" disabled={submitting} />
+        </Form.Item>
+
+        <Form.Item
+          name="targetTag"
+          label="目标标签"
+          extra="如: latest、v1.0.0，默认为 latest"
+        >
+          <Input placeholder="latest" disabled={submitting} />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+};
+
+export default ImageUploadModal;

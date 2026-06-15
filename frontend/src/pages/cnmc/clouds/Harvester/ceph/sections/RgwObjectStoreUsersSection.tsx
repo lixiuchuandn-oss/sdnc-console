@@ -3,7 +3,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Typography } from 'antd';
+import { App, Button, Form, Input, Modal, Select, Space, Table, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -23,6 +23,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/cephSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CEPH_STORAGE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 export type RgwObjectStoreUsersSectionProps = {
   cloudId: string;
@@ -319,18 +323,23 @@ const RgwObjectStoreUsersSection: React.FC<RgwObjectStoreUsersSectionProps> = ({
               <Button type="link" size="small" onClick={() => void openEdit(u)}>
                 编辑
               </Button>
-              <Popconfirm
-                title="删除 RGW 用户"
-                description="将删除该 RGW 用户 CR，关联 Secret 可能被清理；不可恢复。"
-                okText="删除"
-                cancelText="取消"
-                okButtonProps={{ danger: true }}
-                onConfirm={() => void doDelete(u)}
+              <Button
+                type="link"
+                size="small"
+                danger
+                onClick={() =>
+                  void confirmHighRiskDelete({
+                    resourceLabel: 'RGW 用户',
+                    name: `${u.namespace}/${u.name}`,
+                    description:
+                      '将删除该 RGW 用户 CR，关联 Secret 可能被清理；不可恢复。',
+                    riskItems: CEPH_STORAGE_RISK_ITEMS,
+                    onConfirm: () => void doDelete(u),
+                  }).catch(() => {})
+                }
               >
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
+                删除
+              </Button>
             </>
           ) : null}
         </Space>

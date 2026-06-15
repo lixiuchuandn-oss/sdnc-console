@@ -3,7 +3,7 @@
  * frontend/src/pages/cnmc/clouds/Harvester/ecs/modals/ImageCreateModal.tsx
  *
  * === 功能 ===
- * - 浏览器上传：创建 Tower 上传任务并以 raw body POST 至后端代传 Harvester。
+ * - 浏览器上传：分片上传至 Tower，合并后校验文件大小，状态为「待同步」。
  * - URL 导入：调用 createHarvesterImage（集群侧拉取）。
  * - Windows 工具：仅提供 ImageUploader.exe 下载入口。
  *
@@ -14,20 +14,29 @@
  * === 浏览器上传字段 ===
  * - 选文件后根据文件名自动填充显示名（去扩展名）与类型（扩展名 → iso | disk，与后端 imageType 一致）。
  */
-import React, { useCallback, useEffect, useState, type MutableRefObject } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Col, Form, Input, message, Modal, Row, Select, Tabs, Typography, Upload } from 'antd';
 import { DownloadOutlined, PaperClipOutlined } from '@ant-design/icons';
 import { API_BASE_URL, getApiErrorMessage } from '../../../../../../services/api';
 import {
   createHarvesterImage,
+  checkHarvesterImageUploadDiskSpace,
   createHarvesterImageUploadTask,
-  fetchHarvesterImageUploadTask,
   fetchHarvesterImages,
   fetchHarvesterStorageClasses,
   type HarvesterImageUploadTask,
 } from '../../../../../../services/harvesterApi';
+import { pickImageUploadChunkSize } from '../lib/chunkedImageUpload';
 import { pickDefaultStorageClassName } from '../../../../../../utils/harvesterUtils';
-import { getToken } from '../../../../../../utils/tokenStorage';
+
+export type StartBrowserChunkedUploadParams = {
+  file: File;
+  namespace: string;
+  displayName?: string;
+  imageType?: string;
+  /** 弹窗侧已创建的任务，抽屉内直接续传分片，避免重复创建 */
+  existingTask?: HarvesterImageUploadTask;
+};
 
 // ---------------------------------------------------------------------------
 // 类型与纯函数（无 React 依赖，便于单测或复用）
@@ -44,10 +53,16 @@ export type ImageCreateModalProps = {
   onUrlImportSuccess?: () => void;
   /** 浏览器上传任务创建成功后调用，用于刷新镜像列表 */
   onBrowserUploadSuccess?: () => void;
-  /** 合并/更新侧边栏「上传任务」列表中的单条记录 */
-  onUploadTaskUpsert: (task: HarvesterImageUploadTask) => void;
-  /** 与 ImagesSection 共用，取消任务时可 abort 浏览器直传 fetch */
-  uploadControllersRef: MutableRefObject<Map<string, AbortController>>;
+  /** 开始上传时打开上传任务抽屉 */
+  onUploadStarted?: () => void;
+  /** 由 ImagesSection 托管分片上传（避免关弹窗后上传中断） */
+  onStartBrowserUpload: (params: StartBrowserChunkedUploadParams) => void;
+  /** 租户场景：镜像写入租户命名空间，不含 default 公共镜像仓 */
+  isTenant?: boolean;
+  /** 租户当前工作区命名空间（侧栏筛选或首个授权 ns） */
+  tenantDefaultNamespace?: string;
+  /** 租户可选命名空间（来自控制台/资源池已加载的授权列表，勿走监控接口） */
+  tenantNamespaceOptions?: { label: string; value: string }[];
 };
 
 /** 与 handleStartTaskUpload 中 disk 类型映射一致（后端 disk → qcow2） */
@@ -95,11 +110,6 @@ function getOptionalClientMaxBodyBytes(): number | null {
   return Math.floor(mb * 1024 * 1024);
 }
 
-/** 网关/反向代理返回 413 等非成功时的通用说明 */
-function formatGatewayBodyTooLargeHint(): string {
-  return '上传请求被拒绝（常为反向代理或对请求体大小有限制）。请管理员调大 Nginx client_max_body_size 等网关限制；或改用 URL 导入 / 桌面上传工具。';
-}
-
 function inferUrlImportFromUrl(urlStr: string): BrowserUploadInference {
   const s = String(urlStr || '').trim();
   if (!s) return { displayName: '', imageType: undefined };
@@ -133,9 +143,12 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   variant,
   ensureWrite,
   onUrlImportSuccess,
-  onBrowserUploadSuccess,
-  onUploadTaskUpsert,
-  uploadControllersRef,
+  onBrowserUploadSuccess: _onBrowserUploadSuccess,
+  onUploadStarted,
+  onStartBrowserUpload,
+  isTenant = false,
+  tenantDefaultNamespace,
+  tenantNamespaceOptions = [],
 }) => {
   const [form] = Form.useForm();
   const [createTab, setCreateTab] = useState<'browser' | 'desktop' | 'url'>('browser');
@@ -143,11 +156,30 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   const [toolFile, setToolFile] = useState<File | null>(null);
   const [defaultStorageClassName, setDefaultStorageClassName] = useState<string | undefined>();
 
+  const adminNamespaceOptions = useMemo(
+    () => [{ label: '公共镜像仓（默认）', value: 'default' }],
+    [],
+  );
+  const namespaceSelectOptions = isTenant ? tenantNamespaceOptions : adminNamespaceOptions;
+
+  const resolveTenantNamespace = useCallback(
+    (namespaces: string[]): string => {
+      const preferred = String(tenantDefaultNamespace || '').trim();
+      if (preferred && namespaces.includes(preferred)) return preferred;
+      return namespaces[0] || preferred || '';
+    },
+    [tenantDefaultNamespace],
+  );
+
   // 每次打开弹窗：清空表单与本地文件，避免上次选择的文件残留
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    form.setFieldsValue({ toolNamespace: 'default', namespace: 'default' });
+    const tenantNsList = tenantNamespaceOptions.map((o) => o.value);
+    const initialNs = isTenant
+      ? resolveTenantNamespace(tenantNsList) || String(tenantDefaultNamespace || '').trim()
+      : 'default';
+    form.setFieldsValue({ toolNamespace: initialNs, namespace: initialNs });
     setCreateTab('browser');
     setToolFile(null);
     void (async () => {
@@ -159,7 +191,15 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
         setDefaultStorageClassName(undefined);
       }
     })();
-  }, [open, form, cloudId]);
+  }, [
+    open,
+    form,
+    cloudId,
+    isTenant,
+    tenantDefaultNamespace,
+    tenantNamespaceOptions,
+    resolveTenantNamespace,
+  ]);
 
   /** URL 导入 Tab：校验 namespace / displayName / url 后创建集群拉取镜像 */
   /** URL 输入失焦：合法 http(s) 时自动补全空的「显示名 / 镜像类型」 */
@@ -184,8 +224,15 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       let diskFormat: string | undefined;
       if (v.imageType === 'iso') diskFormat = 'iso';
       else if (v.imageType === 'disk') diskFormat = 'qcow2';
+      const ns = String(
+        v.namespace || (isTenant ? tenantNamespaceOptions[0]?.value : 'default') || 'default',
+      ).trim();
+      if (isTenant && !ns) {
+        message.warning('未获取到租户命名空间，请稍后重试');
+        return;
+      }
       await createHarvesterImage(cloudId, {
-        namespace: v.namespace || 'default',
+        namespace: ns,
         displayName: v.displayName || undefined,
         sourceType: 'download',
         url: v.url || undefined,
@@ -215,7 +262,13 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       return;
     }
 
-    const namespace = String(form.getFieldValue('toolNamespace') || 'default');
+    const namespace = String(
+      form.getFieldValue('toolNamespace') || (isTenant ? tenantNamespaceOptions[0]?.value : 'default') || 'default',
+    ).trim();
+    if (isTenant && !namespace) {
+      message.warning('未获取到租户命名空间，请稍后重试');
+      return;
+    }
     const inferred = inferBrowserUploadFromFilename(toolFile.name);
     const displayName =
       String(form.getFieldValue('toolDisplayName') || '').trim() || inferred.displayName;
@@ -245,68 +298,44 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
       return;
     }
 
+    try {
+      await checkHarvesterImageUploadDiskSpace(
+        cloudId,
+        file.size,
+        pickImageUploadChunkSize(file.size),
+      );
+    } catch (e: unknown) {
+      message.error(getApiErrorMessage(e, 'Tower 镜像暂存目录空间不足'));
+      return;
+    }
+
     setUploadingTask(true);
     try {
-      const created: any = await createHarvesterImageUploadTask(cloudId, {
+      const chunkSize = pickImageUploadChunkSize(file.size);
+      const created: unknown = await createHarvesterImageUploadTask(cloudId, {
         namespace,
         displayName,
         imageType,
+        filename: file.name,
+        fileSize: file.size,
+        chunkSize,
       });
-      const task = (created?.data || created) as HarvesterImageUploadTask;
+      const task = ((created as { data?: HarvesterImageUploadTask })?.data ||
+        created) as HarvesterImageUploadTask;
       if (!task?.id) throw new Error('创建任务失败：未返回 taskId');
 
-      onUploadTaskUpsert(task);
+      onUploadStarted?.();
       onClose();
       setToolFile(null);
       form.setFieldsValue({ toolDisplayName: '', toolImageType: undefined });
-      message.success('任务已创建，开始上传，可在「上传任务」查看/取消');
-      // 触发镜像列表刷新
-      onBrowserUploadSuccess?.();
-
-      const controller = new AbortController();
-      uploadControllersRef.current.set(task.id, controller);
-
-      const taskFileUrl = `${API_BASE_URL}/api/clouds/${cloudId}/resources/harvester/images/upload-tasks/${encodeURIComponent(task.id)}/file`;
-
-      // 弹窗已关，上传在后台继续；失败仅 message，不阻塞 UI
-      void (async () => {
-        try {
-          const token = getToken();
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/octet-stream',
-            'X-File-Name': encodeURIComponent(file.name),
-            'X-File-Size': String(file.size),
-          };
-          if (token) headers.Authorization = `Bearer ${token}`;
-
-          const uploadResp = await fetch(taskFileUrl, {
-            method: 'POST',
-            headers,
-            body: file,
-            signal: controller.signal,
-          });
-          if (!uploadResp.ok) {
-            const text = await uploadResp.text();
-            const lower = `${text}`.toLowerCase();
-            if (
-              uploadResp.status === 413 ||
-              lower.includes('413') ||
-              lower.includes('request entity too large') ||
-              lower.includes('entity too large')
-            ) {
-              throw new Error(formatGatewayBodyTooLargeHint());
-            }
-            throw new Error(text || `文件上传失败（HTTP ${uploadResp.status}）`);
-          }
-          const latest: any = await fetchHarvesterImageUploadTask(cloudId, task.id);
-          onUploadTaskUpsert((latest?.data || latest) as HarvesterImageUploadTask);
-        } catch (e: any) {
-          if (controller.signal.aborted) return;
-          message.error(e?.message || '文件上传失败');
-        } finally {
-          uploadControllersRef.current.delete(task.id);
-        }
-      })();
+      message.success('开始分片上传，可在「上传任务」查看进度');
+      onStartBrowserUpload({
+        file,
+        namespace,
+        displayName,
+        imageType,
+        existingTask: task,
+      });
     } catch (e: unknown) {
       message.error(getApiErrorMessage(e, '提交上传任务失败'));
     } finally {
@@ -323,8 +352,13 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="镜像仓" name="namespace" initialValue="default" rules={[{ required: true }]}>
-            <Select options={[{ label: '公共镜像仓（默认）', value: 'default' }]} style={{ width: '100%' }} />
+          <Form.Item label="命名空间" name="namespace" rules={[{ required: true, message: '请选择命名空间' }]}>
+            <Select
+              options={namespaceSelectOptions}
+              style={{ width: '100%' }}
+              disabled={isTenant && tenantNamespaceOptions.length <= 1}
+              placeholder={isTenant ? '请选择命名空间' : undefined}
+            />
           </Form.Item>
         </Col>
         <Col span={12}>
@@ -366,8 +400,13 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
     <div>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="镜像仓" name="toolNamespace" initialValue="default">
-            <Select options={[{ label: '公共镜像仓（默认）', value: 'default' }]} style={{ width: '100%' }} />
+          <Form.Item label="命名空间" name="toolNamespace" rules={isTenant ? [{ required: true, message: '请选择命名空间' }] : undefined}>
+            <Select
+              options={namespaceSelectOptions}
+              style={{ width: '100%' }}
+              disabled={isTenant && tenantNamespaceOptions.length <= 1}
+              placeholder={isTenant ? '请选择命名空间' : undefined}
+            />
           </Form.Item>
         </Col>
         <Col span={12}>
@@ -451,7 +490,7 @@ const ImageCreateModal: React.FC<ImageCreateModalProps> = ({
   const renderDesktopToolPanel = () => (
     <div style={{ padding: '0 8px' }}>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        适用于大文件或浏览器上传不稳定的环境。下载 Windows 桌面工具后本地运行，按向导登录 Tower、选择 Cloudmap 资源池与命名空间，将镜像直传至集群。
+        适用于大文件或浏览器上传不稳定的环境。下载 Windows 桌面工具后本地运行，按向导登录 Tower、选择 Cloudmap 资源池与项目，将镜像直传至集群。
       </Typography.Paragraph>
       <Button type="primary" icon={<DownloadOutlined />} onClick={openImageUploaderDownload}>
         下载 ImageUploader.exe

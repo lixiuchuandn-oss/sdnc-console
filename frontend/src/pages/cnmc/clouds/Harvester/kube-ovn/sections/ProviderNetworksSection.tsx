@@ -28,6 +28,14 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import {
+  filterNodeInterfacesForProviderNetworkCreate,
+  isNodeInterfaceOccupiedByProviderNetwork,
+} from '../lib/providerNetworkOccupiedInterfaces';
 
 const { Option } = Select;
 
@@ -127,6 +135,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
     [isParentManaged, parentVlans, vlans],
   );
 
+  const existingProviderNetworks = useMemo(
+    () => (isParentManaged ? (parentNetworks || []) : data),
+    [isParentManaged, parentNetworks, data],
+  );
+
   const vlanAliasMap = useMemo(() => {
     const map = new Map<string, { display: string; alias: string }>();
     (vlanListForAlias || []).forEach((v: any) => {
@@ -175,13 +188,22 @@ const ProviderNetworksSection: React.FC<Props> = ({
   const fetchNodesAndInterfaces = useCallback(async () => {
     setNodesLoading(true);
     try {
-      const [nodesRes, clusterNetworksRes] = await Promise.all([
+      const [nodesRes, clusterNetworksRes, pnRes] = await Promise.all([
         fetchHarvesterNodes(cloudId, true),
         fetchHarvesterClusterNetworks(cloudId, true).catch(() => ({ data: { items: [] } })),
+        isParentManaged
+          ? Promise.resolve(null)
+          : fetchKubeOvnProviderNetworks(cloudId, true, true).catch(() => null),
       ]);
 
       const items = nodesRes?.data?.items || [];
       setNodes(items);
+
+      const providerNetworksForOccupancy = isParentManaged
+        ? existingProviderNetworks
+        : Array.isArray(pnRes?.data?.items)
+          ? pnRes.data.items
+          : existingProviderNetworks;
 
       const clusterNetworkNics = new Set<string>();
       const clusterNetworks = clusterNetworksRes?.data?.items || [];
@@ -205,6 +227,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
          * - usedByHarvester=false：未被集群网络占用
          * - state=up：链路可用（瞬时）
          * - 额外兜底：如果该网卡同时出现在 clusterNetwork uplinks.nics 中，也排除
+         * - 已被其它物理网络（ProviderNetwork）占用的节点—网卡对也排除
          */
         const nodeNics: any[] = Array.isArray(node?.nics) ? node.nics : [];
         const filtered = nodeNics
@@ -219,7 +242,11 @@ const ProviderNetworksSection: React.FC<Props> = ({
           .filter((x) => !clusterNetworkNics.has(x.device))
           .map((x) => x.device);
 
-        const uniq = Array.from(new Set(filtered)).sort();
+        const uniq = filterNodeInterfacesForProviderNetworkCreate(
+          nodeName,
+          Array.from(new Set(filtered)),
+          providerNetworksForOccupancy,
+        ).sort();
         nodeIfMap[nodeName] = uniq;
         uniq.forEach((iface) => allInterfaces.add(iface));
       });
@@ -233,7 +260,7 @@ const ProviderNetworksSection: React.FC<Props> = ({
     } finally {
       setNodesLoading(false);
     }
-  }, [cloudId]);
+  }, [cloudId, existingProviderNetworks, isParentManaged]);
 
   const onDefaultInterfaceChange = (value: string) => {
     const newMap = { ...interfaceMap };
@@ -324,6 +351,15 @@ const ProviderNetworksSection: React.FC<Props> = ({
         return;
       }
 
+      for (const [iface, nodeSet] of Object.entries(ifaceBuckets)) {
+        for (const nodeName of nodeSet) {
+          if (isNodeInterfaceOccupiedByProviderNetwork(nodeName, iface, existingProviderNetworks)) {
+            message.warning(`节点「${nodeName}」上的网卡「${iface}」已被其他物理网络占用`);
+            return;
+          }
+        }
+      }
+
       const customInterfaces = Object.keys(ifaceBuckets)
         .sort()
         .map((iface) => ({
@@ -380,14 +416,12 @@ const ProviderNetworksSection: React.FC<Props> = ({
       message.error('删除失败：无效的物理网络名称');
       return;
     }
-    Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除物理网络「${label}」吗？此操作不可恢复。`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        // 校验 VLAN 占用
+    void confirmHighRiskDelete({
+      resourceLabel: '物理网络',
+      name: label,
+      description: `确定要删除物理网络「${label}」吗？此操作不可恢复。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      precheck: async () => {
         try {
           const res = await fetchKubeOvnVlans(cloudId, true);
           const items = Array.isArray(res?.data?.items) ? res.data.items : [];
@@ -395,31 +429,34 @@ const ProviderNetworksSection: React.FC<Props> = ({
             .filter((v: any) => (v?.spec?.provider || v?.provider) === name)
             .map((v: any) => {
               const vAnn = v?.metadata?.annotations || {};
-              const alias = String(vAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
-              return alias || v?.metadata?.name || v?.name;
+              const vlanAlias = String(vAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+              return vlanAlias || v?.metadata?.name || v?.name;
             })
             .filter(Boolean);
           if (boundVlans.length > 0) {
-            message.error(`物理网络正在被以下 VLAN 使用，无法删除：${boundVlans.join('、')}`);
-            return;
+            return {
+              ok: false,
+              error: `物理网络正在被以下 VLAN 使用，无法删除：${boundVlans.join('、')}`,
+            };
           }
         } catch (e) {
           console.warn('[DeleteProvider] VLAN usage check failed:', e);
         }
-
+      },
+      onConfirm: async () => {
         try {
           await deleteKubeOvnProviderNetwork(cloudId, name);
           message.success('删除成功');
           if (isParentManaged && onParentRefresh) {
-        void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true });
-      } else {
-        void fetchData(true, true);
-      }
+            void runHarvesterSectionRefresh(onParentRefresh, { force: true, silent: true });
+          } else {
+            void fetchData(true, true);
+          }
         } catch (e: any) {
           message.error(e?.message || '删除失败');
         }
       },
-    });
+    }).catch(() => {});
   }, [canWriteProviderNetwork, cloudId, isParentManaged, onParentRefresh, fetchData]);
 
   /** 创建弹窗内「节点网卡映射」列表：物理接口列 */

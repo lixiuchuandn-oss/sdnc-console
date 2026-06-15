@@ -12,6 +12,16 @@ import { logger } from '../../utils/logger';
 
 const harborLog = logger.child('HarborProxy');
 
+/** 数字项目名场景下需要携带真实项目名称与 ID */
+export interface HarborProjectContext {
+  projectName?: string;
+  projectId?: number;
+}
+
+export function isNumericHarborProjectName(name: string): boolean {
+  return /^\d+$/.test(name);
+}
+
 export interface HarborTestResult {
   success: boolean;
   version?: string;
@@ -165,13 +175,38 @@ export class HarborProxyService {
   }
 
   /**
+   * 按名称查找项目（用于纯数字项目名被 Harbor 误判为 project_id 时的回退）
+   */
+  private async findProjectByName(name: string): Promise<any | null> {
+    const projects = await this.getProjects({ pageSize: 100, name });
+    return projects.find((p: any) => p.name === name) ?? null;
+  }
+
+  /**
    * 获取项目详情
    */
-  public async getProject(projectNameOrId: string | number): Promise<any> {
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}`,
-    );
-    return response.data;
+  public async getProject(
+    projectNameOrId: string | number,
+    expectedName?: string,
+  ): Promise<any> {
+    const ref = String(projectNameOrId);
+    try {
+      const response = await this.axiosInstance.get(
+        `/api/v2.0/projects/${encodeURIComponent(ref)}`,
+      );
+      const project = response.data;
+      if (expectedName && project.name !== expectedName) {
+        const byName = await this.findProjectByName(expectedName);
+        if (byName) return byName;
+      }
+      return project;
+    } catch (error: any) {
+      if (expectedName) {
+        const byName = await this.findProjectByName(expectedName);
+        if (byName) return byName;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -200,30 +235,6 @@ export class HarborProxyService {
   }
 
   /**
-   * 获取项目下的仓库列表
-   */
-  public async getRepositories(
-    projectName: string,
-    params?: {
-      page?: number;
-      pageSize?: number;
-      q?: string;
-    },
-  ): Promise<any[]> {
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories`,
-      {
-        params: {
-          page: params?.page || 1,
-          page_size: params?.pageSize || 100,
-          ...(params?.q && { q: params.q }),
-        },
-      },
-    );
-    return response.data;
-  }
-
-  /**
    * 提取实际仓库名（去掉项目前缀）
    * 例如：library/alpine -> alpine
    */
@@ -236,42 +247,48 @@ export class HarborProxyService {
   }
 
   /**
-   * 获取单个仓库详情
+   * 仓库/制品 API 的路径段必须使用项目名（如 66），不能用解析后的 project_id（如 15）。
+   * Harbor 对纯数字项目名：项目级 API 认 ID，仓库子资源认名称。
    */
-  public async getRepository(projectName: string, repositoryName: string): Promise<any> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}`,
-    );
-    return response.data;
+  private resolveRepositoryProjectRef(
+    harborProjectRef: string,
+    context?: HarborProjectContext,
+  ): string {
+    return context?.projectName ?? harborProjectRef;
+  }
+
+  private buildRepositoryApiPath(
+    harborProjectRef: string,
+    repositoryName: string,
+    suffix: string,
+    context?: HarborProjectContext,
+  ): string {
+    const projectPathRef = this.resolveRepositoryProjectRef(harborProjectRef, context);
+    const repoSegment = this.extractRepoName(repositoryName);
+    return `/api/v2.0/projects/${encodeURIComponent(projectPathRef)}/repositories/${encodeURIComponent(repoSegment)}${suffix}`;
   }
 
   /**
-   * 获取制品列表
+   * 获取项目下的仓库列表
    */
-  public async getArtifacts(
-    projectName: string,
-    repositoryName: string,
+  public async getRepositories(
+    harborProjectRef: string,
     params?: {
       page?: number;
       pageSize?: number;
       q?: string;
-      withTag?: boolean;
-      withLabel?: boolean;
-      withScanOverview?: boolean;
+      projectName?: string;
+      projectId?: number;
     },
   ): Promise<any[]> {
-    const actualRepoName = this.extractRepoName(repositoryName);
+    const projectPathRef = params?.projectName ?? harborProjectRef;
 
     const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts`,
+      `/api/v2.0/projects/${encodeURIComponent(projectPathRef)}/repositories`,
       {
         params: {
           page: params?.page || 1,
           page_size: params?.pageSize || 100,
-          with_tag: params?.withTag ?? true,
-          with_label: params?.withLabel ?? false,
-          with_scan_overview: params?.withScanOverview ?? true,
           ...(params?.q && { q: params.q }),
         },
       },
@@ -280,17 +297,82 @@ export class HarborProxyService {
   }
 
   /**
+   * 删除仓库
+   */
+  public async deleteRepository(
+    harborProjectRef: string,
+    repositoryName: string,
+    context?: HarborProjectContext,
+  ): Promise<void> {
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context);
+    await this.axiosInstance.delete(url);
+  }
+
+  /**
+   * 获取单个仓库详情
+   */
+  public async getRepository(
+    harborProjectRef: string,
+    repositoryName: string,
+    context?: HarborProjectContext,
+  ): Promise<any> {
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '', context);
+    const response = await this.axiosInstance.get(url);
+    return response.data;
+  }
+
+  /**
+   * 获取制品列表
+   */
+  public async getArtifacts(
+    harborProjectRef: string,
+    repositoryName: string,
+    params?: {
+      page?: number;
+      pageSize?: number;
+      q?: string;
+      withTag?: boolean;
+      withLabel?: boolean;
+      withScanOverview?: boolean;
+      projectName?: string;
+      projectId?: number;
+    },
+  ): Promise<any[]> {
+    const context: HarborProjectContext = {
+      projectName: params?.projectName,
+      projectId: params?.projectId,
+    };
+    const url = this.buildRepositoryApiPath(harborProjectRef, repositoryName, '/artifacts', context);
+
+    const response = await this.axiosInstance.get(url, {
+      params: {
+        page: params?.page || 1,
+        page_size: params?.pageSize || 100,
+        with_tag: params?.withTag ?? true,
+        with_label: params?.withLabel ?? false,
+        with_scan_overview: params?.withScanOverview ?? true,
+        ...(params?.q && { q: params.q }),
+      },
+    });
+    return response.data;
+  }
+
+  /**
    * 获取制品详情
    */
   public async getArtifact(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<any> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`,
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}`,
+      context,
     );
+    const response = await this.axiosInstance.get(url);
     return response.data;
   }
 
@@ -298,28 +380,36 @@ export class HarborProxyService {
    * 删除制品
    */
   public async deleteArtifact(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}`,
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}`,
+      context,
     );
+    await this.axiosInstance.delete(url);
   }
 
   /**
    * 获取标签列表
    */
   public async getTags(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<any[]> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`,
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/tags`,
+      context,
     );
+    const response = await this.axiosInstance.get(url);
     return response.data;
   }
 
@@ -327,59 +417,74 @@ export class HarborProxyService {
    * 创建标签
    */
   public async createTag(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
     tag: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.post(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags`,
-      { name: tag },
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/tags`,
+      context,
     );
+    await this.axiosInstance.post(url, { name: tag });
   }
 
   /**
    * 删除标签
    */
   public async deleteTag(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
     tagName: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.delete(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/tags/${tagName}`,
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/tags/${tagName}`,
+      context,
     );
+    await this.axiosInstance.delete(url);
   }
 
   /**
    * 触发漏洞扫描
    */
   public async triggerScan(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<void> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    await this.axiosInstance.post(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/scan`,
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/scan`,
+      context,
     );
+    await this.axiosInstance.post(url);
   }
 
   /**
    * 获取漏洞扫描结果
    */
   public async getVulnerabilities(
-    projectName: string,
+    harborProjectRef: string,
     repositoryName: string,
     reference: string,
+    context?: HarborProjectContext,
   ): Promise<any> {
-    const actualRepoName = this.extractRepoName(repositoryName);
-    const response = await this.axiosInstance.get(
-      `/api/v2.0/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(actualRepoName)}/artifacts/${reference}/additions/vulnerabilities`,
+    const url = this.buildRepositoryApiPath(
+      harborProjectRef,
+      repositoryName,
+      `/artifacts/${reference}/additions/vulnerabilities`,
+      context,
     );
+    const response = await this.axiosInstance.get(url);
     return response.data;
   }
 
@@ -434,10 +539,28 @@ export class HarborProxyService {
       role_id: number;
     },
   ): Promise<any> {
+    // Harbor v2.0 API 要求使用 member_user 对象格式
+    const payload: any = {
+      role_id: member.role_id,
+    };
+
+    if (member.member_group) {
+      // 添加用户组（暂不支持）
+      payload.member_group = {
+        group_name: member.member_name,
+      };
+    } else {
+      // 添加用户
+      payload.member_user = {
+        username: member.member_name,
+      };
+    }
+
     const response = await this.axiosInstance.post(
       `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members`,
-      member,
+      payload,
     );
+
     return response.data;
   }
 
@@ -555,5 +678,94 @@ export class HarborProxyService {
   public async request<T = any>(config: AxiosRequestConfig): Promise<T> {
     const response = await this.axiosInstance.request<T>(config);
     return response.data;
+  }
+
+  // ==================== 用户管理 API ====================
+
+  /**
+   * 创建 Harbor 用户
+   */
+  public async createUser(userData: {
+    username: string;
+    password: string;
+    email: string;
+    realname?: string;
+  }): Promise<{ user_id: number }> {
+    harborLog.info(`[用户API] 创建用户: username=${userData.username}, email=${userData.email}`);
+    const response = await this.axiosInstance.post('/api/v2.0/users', {
+      username: userData.username,
+      password: userData.password,
+      email: userData.email,
+      realname: userData.realname || userData.username,
+    });
+    harborLog.info(`[用户API] 创建成功: user_id=${response.data.user_id}`);
+    return response.data;
+  }
+
+  /**
+   * 获取用户列表
+   */
+  public async listUsers(params?: { page?: number; page_size?: number; name?: string }): Promise<any[]> {
+    const response = await this.axiosInstance.get('/api/v2.0/users', {
+      params: {
+        page: params?.page || 1,
+        page_size: params?.page_size || 100,
+        ...(params?.name && { name: params.name }),
+      },
+    });
+    return response.data;
+  }
+
+  /**
+   * 搜索用户
+   */
+  public async searchUsers(username: string): Promise<any[]> {
+    const response = await this.axiosInstance.get('/api/v2.0/users/search', {
+      params: { username },
+    });
+    return response.data;
+  }
+
+  /**
+   * 获取用户详情
+   */
+  public async getUser(userId: number): Promise<any> {
+    const response = await this.axiosInstance.get(`/api/v2.0/users/${userId}`);
+    return response.data;
+  }
+
+  /**
+   * 更新用户
+   */
+  public async updateUser(
+    userId: number,
+    userData: {
+      email?: string;
+      realname?: string;
+      comment?: string;
+    },
+  ): Promise<void> {
+    await this.axiosInstance.put(`/api/v2.0/users/${userId}`, userData);
+  }
+
+  /**
+   * 删除用户
+   */
+  public async deleteUser(userId: number): Promise<void> {
+    await this.axiosInstance.delete(`/api/v2.0/users/${userId}`);
+  }
+
+  /**
+   * 更新项目成员角色
+   */
+  public async updateProjectMemberRole(
+    projectNameOrId: string | number,
+    memberId: number,
+    roleId: number,
+  ): Promise<void> {
+    await this.axiosInstance.put(
+      `/api/v2.0/projects/${encodeURIComponent(String(projectNameOrId))}/members/${memberId}`,
+      { role_id: roleId },
+    );
   }
 }

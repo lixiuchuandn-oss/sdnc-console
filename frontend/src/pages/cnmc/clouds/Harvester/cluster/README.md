@@ -20,13 +20,12 @@
 
 | 侧栏子分组（`poolNavSubgroup`） | 典型子页 | 源码域 | 池 `loadTabResource` key |
 |--------------------------------|----------|--------|--------------------------|
-| （顶层） | 物理节点、项目 | **`cluster/`** | `cluster_nodes`、`namespaces` |
-| `cluster_physical_network` | 物理交换机、物理网络、公共子网、VLAN | **`cluster/`** + **`kube-ovn/`** | `cluster_physical_switches`（例外自拉）、`kubeovn_public_networks`、`kubeovn_public_subnets`（自拉）、`cluster_vlans` |
-| `cluster_platform_network` | 集群网络、NAD、负载均衡、IP 池 | **`cluster/`** + **`nad/`** | `clusterNetworks`、`nads`、`load_balancers`、`ippools` |
-| `cluster_storage` | 存储容量、存储配置、存储池、存储类 | **`ceph/`** + **`cluster/`** | `overview`、`harvester_addon`、`storage_pools`（ceph 自管）、`storage_classes` |
-| `cluster_storage_block` | 远程备份（RBD Mirror） | **`ceph/`** | `rbd_mirror` |
-| `cluster_storage_object` | S3 桶、RGW 用户、对象网关、COSI | **`ceph/`** | `rgw_s3_buckets`、`rgw_users`、`object_gateways`、`cosi` |
-| `cluster_device_passthrough` | GPU、USB、PCI、SR-IOV | **`cluster/`** | `gpu`、`cluster_usb`、`cluster_pci`、`cluster_sriov` |
+| `cluster_compute` | 计算节点、故障域、项目管理、DRS 规则、迁移记录、GPU 管理 | **`cluster/`** | `compute_*`（见 `cluster/lib/computeResourcesNav.ts`） |
+| `cluster_physical_network` | 交换机、物理网络、公共子网、VLAN | **`cluster/`** + **`kube-ovn/`** | `cluster_physical_switches`（例外自拉）、`kubeovn_public_networks`、`kubeovn_public_subnets`（自拉）、`cluster_vlans` |
+| `cluster_platform_network` | 集群网络、NAD 网络、负载均衡、IP 地址池 | **`cluster/`** + **`nad/`** | `clusterNetworks`、`nads`、`load_balancers`、`ippools` |
+| `cluster_storage` | 存储概览、统一存储配置、统一存储池、存储智能调度、存储策略、跨域复制 | **`ceph/`** + **`cluster/`** | `overview`、`harvester_addon`、`storage_pools`（ceph 自管）、`storage_drs`、`storage_classes`、`rbd_mirror` |
+| `cluster_storage_object` | 对象桶、对象用户、对象接入、标准对象接口 | **`ceph/`** | `rgw_s3_buckets`、`rgw_users`、`object_gateways`、`cosi` |
+| `cluster_device_passthrough` | USB 直通、设备直通、网卡直通 | **`cluster/`** | `cluster_usb`、`cluster_pci`、`cluster_sriov` |
 
 ## 本目录角色
 
@@ -42,12 +41,16 @@
 
 | `innerActiveKey` | Section | 文件 |
 |------------------|---------|------|
-| `cluster_nodes` | `NodesSection` | `NodesSection.tsx` |
+| `compute_nodes` | `NodesSection` | `NodesSection.tsx` |
+| `compute_failure_domains` | `FailureDomainSection` | `FailureDomainSection.tsx` |
+| `compute_projects` | `NamespacesSection` | `NamespacesSection.tsx` |
+| `compute_drs_rules` | `DrsRulesSection` | `DrsRulesSection.tsx` |
+| `compute_migrations` | `DrsMigrationsSection` | `DrsMigrationsSection.tsx` |
+| `compute_gpu` | `GpusSection` | `GpusSection.tsx` |
+| `storage_drs` | `StorageDrsSection` | `StorageDrsSection.tsx` |
 | `cluster_physical_switches` | `PhysicalSwitchesSection` | `PhysicalSwitchesSection.tsx` |
-| `namespaces` | `NamespacesSection` | `NamespacesSection.tsx` |
 | `clusterNetworks` | `NetworksSection` | `NetworksSection.tsx` |
 | `storage_classes` | `StorageClassesSection` | `StorageClassesSection.tsx` |
-| `gpu` | `GpusSection` | `GpusSection.tsx` |
 | `cluster_usb` | `UsbDevicesSection` | `UsbDevicesSection.tsx` |
 | `cluster_pci` | `PciDevicesSection`（`variant="all"`） | `PciDevicesSection.tsx` |
 | `cluster_sriov` | `PciDevicesSection`（`variant="sriov_vf"`） | 同上 |

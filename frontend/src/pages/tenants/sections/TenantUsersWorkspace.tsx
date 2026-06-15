@@ -1,7 +1,7 @@
 /**
  * 租户用户列表主视图；逻辑见 `hooks/useTenantUsersPage.tsx`。
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Button, Dropdown, Form, Input, Modal, Select, Table, Transfer } from 'antd';
 import {
   ReloadOutlined,
@@ -14,9 +14,20 @@ import { useTenantUsersPage } from '../hooks/useTenantUsersPage';
 
 const { Option } = Select;
 
-const TenantUsersWorkspace: React.FC = () => {
+type TenantUsersWorkspaceProps = {
+  /** 嵌入系统设置「用户管理」Tab 时不套 PageContainer */
+  embedded?: boolean;
+  /** 列表总数变化时回调（供 Tab 统计） */
+  onTotalChange?: (total: number) => void;
+};
+
+const TenantUsersWorkspace: React.FC<TenantUsersWorkspaceProps> = ({
+  embedded = false,
+  onTotalChange,
+}) => {
   const {
     loading,
+    users,
     canWriteTenantUsers,
     canWriteRoleAssignments,
     filteredUsers,
@@ -53,75 +64,76 @@ const TenantUsersWorkspace: React.FC = () => {
     closeCreateModal,
   } = useTenantUsersPage();
 
-  return (
-    <PageContainer
-      titleLevel={3}
-      subtitle="管理租户用户，并支持按租户、角色与状态筛选"
-      asCard={false}
-      toolbarLeft={
-        <Form
-          className="toolbar-container"
-          form={filterForm}
-          layout="vertical"
-          onValuesChange={handleFilterChange}
-        >
-          <Form.Item name="keyword">
-            <Input
-              className="toolbar-search"
-              allowClear
-              placeholder="关键字"
-              suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
-            />
-          </Form.Item>
-          <Form.Item name="tenant">
-            <Select className="toolbar-filter" allowClear placeholder="租户">
-              {tenantOptionsFromUsers.map((tenant) => (
-                <Option key={tenant.id} value={tenant.id}>
-                  {tenant.name}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item name="role">
-            <Select className="toolbar-filter-sm" allowClear placeholder="角色">
-              {availableRoles.map((r) => (
-                <Option key={r.id} value={r.id}>
-                  {r.name}
-                </Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item name="status">
-            <Select className="toolbar-filter-sm" allowClear placeholder="状态">
-              <Option value="active">活跃</Option>
-              <Option value="inactive">非活跃</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item>
-            <Button type="link" className="toolbar-reset-btn" onClick={resetFilters}>
-              重置
-            </Button>
-          </Form.Item>
-        </Form>
-      }
-      toolbarRight={
-        <div className="toolbar-actions">
-          {canWriteTenantUsers ? (
-            <Button type="primary" onClick={() => setCreateModalOpen(true)}>
-              创建组织用户
-            </Button>
-          ) : null}
-          {canWriteTenantUsers ? (
-            <Dropdown menu={bulkActionsMenu}>
-              <Button icon={<EllipsisOutlined />} />
-            </Dropdown>
-          ) : null}
-          <TableColumnSettingsButton allColumns={baseColumns} settingsKey="tenant-users-columns" />
-          <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading} />
-        </div>
-      }
-      actionsSize="middle"
+  useEffect(() => {
+    onTotalChange?.(users.length);
+  }, [users.length, onTotalChange]);
+
+  const filterToolbar = (
+    <Form
+      className="toolbar-container"
+      form={filterForm}
+      layout="vertical"
+      onValuesChange={handleFilterChange}
     >
+      <Form.Item name="keyword">
+        <Input
+          className="toolbar-search"
+          allowClear
+          placeholder="关键字"
+          suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+        />
+      </Form.Item>
+      <Form.Item name="tenant">
+        <Select className="toolbar-filter" allowClear placeholder="租户">
+          {tenantOptionsFromUsers.map((tenant) => (
+            <Option key={tenant.id} value={tenant.id}>
+              {tenant.name}
+            </Option>
+          ))}
+        </Select>
+      </Form.Item>
+      <Form.Item name="role">
+        <Select className="toolbar-filter-sm" allowClear placeholder="角色">
+          {availableRoles.map((r) => (
+            <Option key={r.id} value={r.id}>
+              {r.name}
+            </Option>
+          ))}
+        </Select>
+      </Form.Item>
+      <Form.Item name="status">
+        <Select className="toolbar-filter-sm" allowClear placeholder="状态">
+          <Option value="active">活跃</Option>
+          <Option value="inactive">非活跃</Option>
+        </Select>
+      </Form.Item>
+      <Form.Item>
+        <Button type="link" className="toolbar-reset-btn" onClick={resetFilters}>
+          重置
+        </Button>
+      </Form.Item>
+    </Form>
+  );
+
+  const actionsToolbar = (
+    <div className="toolbar-actions">
+      {canWriteTenantUsers ? (
+        <Button type="primary" onClick={() => setCreateModalOpen(true)}>
+              创建租户组织用户
+        </Button>
+      ) : null}
+      {canWriteTenantUsers ? (
+        <Dropdown menu={bulkActionsMenu}>
+          <Button icon={<EllipsisOutlined />} />
+        </Dropdown>
+      ) : null}
+      <TableColumnSettingsButton allColumns={baseColumns} settingsKey="tenant-users-columns" />
+      <Button icon={<ReloadOutlined />} onClick={fetchTenantUsers} loading={loading} />
+    </div>
+  );
+
+  const tableAndModals = (
+    <>
       {contextHolder}
       {messageContextHolder}
 
@@ -152,7 +164,7 @@ const TenantUsersWorkspace: React.FC = () => {
 
       <Modal
         open={createModalOpen}
-        title="创建组织用户"
+        title="创建租户组织用户"
         onCancel={closeCreateModal}
         onOk={() => createForm.submit()}
         okText="保存"
@@ -210,7 +222,7 @@ const TenantUsersWorkspace: React.FC = () => {
       </Modal>
 
       <Modal
-        title="编辑组织用户"
+        title="编辑租户组织用户"
         open={editModalOpen}
         width={520}
         okText="保存"
@@ -268,6 +280,31 @@ const TenantUsersWorkspace: React.FC = () => {
           showSearch
         />
       </Modal>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <>
+        <div className="page-toolbar">
+          {filterToolbar}
+          {actionsToolbar}
+        </div>
+        {tableAndModals}
+      </>
+    );
+  }
+
+  return (
+    <PageContainer
+      titleLevel={3}
+      subtitle="管理租户组织用户，并支持按租户、角色与状态筛选"
+      asCard={false}
+      toolbarLeft={filterToolbar}
+      toolbarRight={actionsToolbar}
+      actionsSize="middle"
+    >
+      {tableAndModals}
     </PageContainer>
   );
 };

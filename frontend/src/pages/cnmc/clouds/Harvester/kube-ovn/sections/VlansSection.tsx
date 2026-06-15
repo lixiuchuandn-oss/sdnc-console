@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Input, Modal, Select, Table, Tag, Tooltip, message } from 'antd';
+import { Button, Input, Select, Table, Tag, Tooltip, message } from 'antd';
 import { ReloadOutlined, TagTwoTone, SearchOutlined } from '@ant-design/icons';
 import { deleteKubeOvnVlan,
   fetchKubeOvnProviderNetworks,
@@ -20,6 +20,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const { Option } = Select;
 
@@ -183,14 +187,12 @@ const VlansSection: React.FC<Props> = ({
       const displayAlias = String(ann[TOWER_IO_ALIES_ANNOTATION] || '').trim();
       const label = displayAlias || name;
 
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除 VLAN「${label}」吗？若仍有子网引用，集群可能拒绝删除。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          // 校验子网占用
+      void confirmHighRiskDelete({
+        resourceLabel: 'VLAN',
+        name: label,
+        description: `确定要删除 VLAN「${label}」吗？若仍有子网引用，集群可能拒绝删除。`,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        precheck: async () => {
           try {
             const res = await fetchKubeOvnSubnets(cloudId, true);
             const items = Array.isArray(res?.data?.items) ? res.data.items : [];
@@ -198,18 +200,21 @@ const VlansSection: React.FC<Props> = ({
               .filter((s: any) => String(s?.spec?.vlan || '').trim() === name)
               .map((s: any) => {
                 const snAnn = s?.metadata?.annotations || {};
-                const alias = String(snAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
-                return alias || s?.metadata?.name || s?.name;
+                const subnetAlias = String(snAnn[TOWER_IO_ALIES_ANNOTATION] || '').trim();
+                return subnetAlias || s?.metadata?.name || s?.name;
               })
               .filter(Boolean);
             if (boundSubnets.length > 0) {
-              message.error(`VLAN 正在被以下子网绑定，无法删除：${boundSubnets.join('、')}`);
-              return;
+              return {
+                ok: false,
+                error: `VLAN 正在被以下子网绑定，无法删除：${boundSubnets.join('、')}`,
+              };
             }
           } catch (e) {
             console.warn('[DeleteVlan] Subnet usage check failed:', e);
           }
-
+        },
+        onConfirm: async () => {
           try {
             await deleteKubeOvnVlan(cloudId, name);
             message.success('删除成功');
@@ -218,7 +223,7 @@ const VlansSection: React.FC<Props> = ({
             message.error(e?.message || '删除失败');
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, refreshAfterWrite],
   );

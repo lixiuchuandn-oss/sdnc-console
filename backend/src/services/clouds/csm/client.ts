@@ -13,6 +13,12 @@ export interface CsmConfig {
   ignoreTls?: boolean;
 }
 
+/** CSM Web 控制台 admin 默认密码的 RSA 密文（与 SSO / SASE 内置一致；可被 cloud.config 覆盖） */
+export const CSM_DEFAULT_ADMIN_PASSWORD_ENCRYPTED = '+yNpVuicvsiBzpDpeaIq3g==';
+
+/** preAuth 在 endpoint 未带端口时的常见 Web 端口回退 */
+export const CSM_FALLBACK_WEB_PORTS = ['8020', '8011'] as const;
+
 // Helper for CSM signature
 function _md5Lower(s: string) {
   return crypto
@@ -527,6 +533,87 @@ export const csmAdminLogin = async (
   return '';
 };
 
+function csmWebBaseUrl(config: CsmConfig, webPort?: string): string {
+  const endpointRaw = String(config.endpoint || '').trim();
+  try {
+    const u = endpointRaw.startsWith('http')
+      ? new URL(endpointRaw)
+      : new URL(`https://${endpointRaw}`);
+    if (webPort) u.port = String(webPort);
+    return `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
+  } catch {
+    const s = endpointRaw.replace(/\/.*$/, '');
+    const withProto = /^https?:\/\//.test(s) ? s : `https://${s}`;
+    if (webPort) {
+      try {
+        const u = new URL(withProto);
+        u.port = String(webPort);
+        return `${u.protocol}//${u.hostname}${u.port ? ':' + u.port : ''}`;
+      } catch {
+        return withProto;
+      }
+    }
+    return withProto;
+  }
+}
+
+function setCookieHeaderToCookie(setCookie: string[] | undefined): string {
+  if (!Array.isArray(setCookie) || !setCookie.length) return '';
+  return setCookie.map((s) => String(s).split(';')[0]).filter(Boolean).join('; ');
+}
+
+export type CsmWebSessionLoginResult = {
+  success: boolean;
+  cookie?: string;
+  message?: string;
+  data?: unknown;
+};
+
+/** 运营控制台登录：POST customUserlogin + RSA 密文 → session Cookie（租户 v2 等 Web API） */
+export const csmWebSessionLogin = async (
+  config: CsmConfig,
+  username: string,
+  encryptedPassword: string,
+  webPort?: string,
+): Promise<CsmWebSessionLoginResult> => {
+  const base = csmWebBaseUrl(config, webPort);
+  const path = '/csm/api/v1.0/customUserlogin';
+  const agent = new https.Agent({ rejectUnauthorized: !config.ignoreTls });
+  try {
+    const resp = await axios({
+      method: 'POST',
+      url: `${base}${path}`,
+      headers: {
+        'Content-Type': 'application/json;charset=utf-8',
+        Accept: 'application/json,*/*',
+      },
+      data: { username, password: encryptedPassword },
+      httpsAgent: agent,
+      timeout: 10000,
+      validateStatus: () => true,
+    });
+    const body = resp.data as {
+      success?: boolean;
+      message?: string;
+      data?: unknown;
+    };
+    const cookie = setCookieHeaderToCookie(resp.headers?.['set-cookie']);
+    if (body?.success && cookie) {
+      return { success: true, cookie, data: body.data, message: body.message };
+    }
+    return {
+      success: false,
+      message: String(body?.message || '').trim() || '控制台登录失败',
+      data: body,
+    };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    csmLog.warn(`csmWebSessionLogin failed: ${msg}`);
+    return { success: false, message: msg };
+  }
+};
+
+/** SSO 等旧路径：authentication/auth（与租户登录 RSA 密文不兼容，保留兼容） */
 export const csmPreAuthLogin = async (
   config: CsmConfig,
   username: string,

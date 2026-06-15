@@ -14,6 +14,7 @@ import {
   fetchKubeOvnSubnets,
 } from '../../api';
 import { CLOUD_PROVIDER_NETWORKS_READ } from '../../../../../../../constants/cloudPermissions';
+import { canReadComputeCluster } from '../../../../../../../constants/computeClusterPermissions';
 import { isSystemNamespace } from '../../../../../../../utils/harvesterUtils';
 import { clearCache } from '../../../../../../../utils/requestManager';
 import type { PoolPathResourceDeps } from '../poolDataDeps';
@@ -76,6 +77,7 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'compute_projects':
     case 'namespaces':
       if (
         checkPerm('clouds.namespaces:read') ||
@@ -101,6 +103,7 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'compute_gpu':
     case 'gpu':
       if (checkPerm('clouds.gpus:read') || checkPerm('clouds.ecs:read')) {
         await loadResource(
@@ -279,11 +282,10 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'compute_cluster':
+    case 'compute_nodes':
     case 'cluster_nodes':
-      if (
-        checkPerm('clouds.cluster-nodes:read') ||
-        checkPerm('clouds.ecs:read')
-      ) {
+      if (canReadComputeCluster(checkPerm) || checkPerm('clouds.ecs:read')) {
         await loadResource(
           'nodes',
           () => fetchHarvesterNodes(cloudId, force),
@@ -296,7 +298,17 @@ export async function tryLoadClusterTab(
         );
       }
       return true;
+    case 'cluster_physical_network':
+    case 'cluster_platform_network':
     case 'cluster_physical_switches':
+    case 'compute_drs_rules':
+    case 'compute_migrations':
+    case 'compute_failure_domains':
+    case 'ha_failure_domains':
+    case 'ha_storage_drs':
+    case 'drs':
+    case 'failure_domains':
+    case 'storage_drs':
       return true;
     case 'storage_classes':
       if (

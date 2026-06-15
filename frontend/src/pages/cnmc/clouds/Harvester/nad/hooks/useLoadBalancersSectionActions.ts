@@ -1,11 +1,15 @@
 import { useCallback, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
 import { deleteHarvesterLoadBalancer } from '../../../../../../services/harvesterApi';
 import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/nadSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import {
   pickLoadBalancersByKeys,
   splitLoadBalancersForBatchDelete,
@@ -37,13 +41,11 @@ export function useLoadBalancersSectionActions({
         return;
       }
 
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除负载均衡 ${record.name} 吗？此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '负载均衡',
+        name: record.name,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterLoadBalancer(cloudId, record.namespace, record.name);
             message.success('删除成功');
@@ -53,7 +55,7 @@ export function useLoadBalancersSectionActions({
             message.error(err.message || '删除失败');
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, isPublicNamespace, isTenant, onRefresh],
   );
@@ -74,13 +76,14 @@ export function useLoadBalancersSectionActions({
       return;
     }
 
-    Modal.confirm({
-      title: '确认批量删除',
-      content: `确定要删除选中的 ${deletableTargets.length} 个负载均衡吗？此操作不可恢复。`,
-      okText: '批量删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: '负载均衡',
+      name: `${deletableTargets.length} 个负载均衡`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${deletableTargets.length} 个负载均衡吗？此操作不可恢复。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      confirmText: '批量删除',
+      onConfirm: async () => {
         try {
           await Promise.all(
             deletableTargets.map((item) =>
@@ -96,7 +99,7 @@ export function useLoadBalancersSectionActions({
           void runHarvesterSectionRefresh(onRefresh, { force: true });
         }
       },
-    });
+    }).catch(() => {});
   }, [cloudId, dataSource, isPublicNamespace, isTenant, onRefresh, selectedRowKeys]);
 
   const handleCreateSuccess = useCallback(() => {

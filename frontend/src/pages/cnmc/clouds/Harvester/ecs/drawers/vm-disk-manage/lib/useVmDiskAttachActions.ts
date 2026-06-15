@@ -27,6 +27,12 @@ import { getMissingNadsFromNetworks } from '../../../lib/harvesterVmNetwork';
 import { applyBootOrderCdromFirst } from '../../../lib/vmDiskBootOrder';
 import { isRestartRequiredFromVm, isVmStopped } from '../../../lib/vmInstanceStatus';
 import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from '../../../lib/vmMutation/vmReconfigureSubmitTypes';
+import { confirmHighRiskOperation } from '../../../../shared/lib/highRiskConfirm';
+import { VM_RESTART_RISK_ITEMS } from '../../../../shared/lib/highRiskOperationPresets';
+import {
+  isLocalRegistryManagedPvcName,
+  REGISTRY_MANAGED_PVC_HINT,
+} from '../../../../shared/lib/registryManagedLocalRegistryVolume';
 import {
   diskDetachSkipsVmRestartPrompt,
   effectiveDomainDiskBusRaw,
@@ -95,20 +101,23 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
       return;
     }
 
-    Modal.confirm({
+    void confirmHighRiskOperation({
       title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
-      okText: '立即重启',
+      riskItems: VM_RESTART_RISK_ITEMS,
+      requireTypeConfirm: false,
+      operationSummary: `重启虚拟机「${vmName}」以应用磁盘配置`,
+      confirmText: '立即重启',
       cancelText: '手动重启',
-      onOk: async () => {
+      onConfirm: async () => {
         try {
           await rebootCloudProviderEcs(cloudId, `${namespace}/${vmName}`, force);
           message.success('重启指令已下发');
         } catch (e: any) {
           message.error(translateKnownApiErrorMessage(String(e?.message || e || '重启失败')));
+          throw e;
         }
       },
-      onCancel: () => {},
-    });
+    }).catch(() => {});
   };
 
   /** 拉取聚合 VM 数据并更新 `latestVm`，返回更新后的 VM 对象。 */
@@ -356,6 +365,11 @@ export function useVmDiskAttachActions(p: UseVmDiskAttachActionsParams) {
         String(form.getFieldValue('newDiskPvcClaimName') ?? '').trim() ||
         String(values.newDiskName ?? '').trim();
       const mode = values.newDiskMode || 'spec';
+
+      if (isLocalRegistryManagedPvcName(volName)) {
+        message.warning(REGISTRY_MANAGED_PVC_HINT);
+        return;
+      }
 
       if (diskSrc === 'iso') {
         if (mode === 'hotplug') {

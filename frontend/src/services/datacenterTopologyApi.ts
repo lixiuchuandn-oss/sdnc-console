@@ -6,7 +6,7 @@ export type DatacenterRackDevice = {
   sourceKind: 'node' | 'switch' | 'custom' | string;
   refKey: string | null;
   customLabel: string | null;
-  slotOrder: number;
+  slotOrder: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -63,7 +63,7 @@ export async function deleteDatacenterRack(cloudId: string, rackId: string): Pro
 export async function createRackDevice(
   cloudId: string,
   rackId: string,
-  body: { sourceKind: string; refKey?: string | null; customLabel?: string | null; slotOrder?: number },
+  body: { sourceKind: string; refKey?: string | null; customLabel?: string | null; slotOrder?: string },
 ): Promise<DatacenterRackDevice | undefined> {
   const json: any = await apiPost(
     `/api/clouds/${encodeURIComponent(cloudId)}/datacenter-topology/racks/${encodeURIComponent(rackId)}/devices`,
@@ -76,7 +76,7 @@ export async function patchRackDevice(
   cloudId: string,
   rackId: string,
   deviceId: string,
-  body: { slotOrder?: number; customLabel?: string | null; refKey?: string | null },
+  body: { slotOrder?: string; customLabel?: string | null; refKey?: string | null },
 ): Promise<DatacenterRackDevice | undefined> {
   const json: any = await apiPatch(
     `/api/clouds/${encodeURIComponent(cloudId)}/datacenter-topology/racks/${encodeURIComponent(

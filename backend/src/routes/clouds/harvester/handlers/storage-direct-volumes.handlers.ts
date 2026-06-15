@@ -12,7 +12,12 @@ import {
   buildUsedPvcSetFromKubevirtVms,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
+  isHarvesterImageBackingPvcName,
 } from '../../../../services/clouds/harvester/client';
+import {
+  fetchClusterPvcWorkloadConsumerMap,
+  resolveVolumeAttachedInfo,
+} from '../../../../services/clouds/harvester/volumeConsumers';
 import { getJsonOnce, requestJson } from '../../../../services/clouds/harvester/utils';
 import { listKubevirtVMsRaw } from '../../../../services/clouds/harvester/vm';
 import {
@@ -43,13 +48,22 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
       insecure,
     } as any);
 
-    let filteredItems = items;
+    const pvcWorkloadMap = await fetchClusterPvcWorkloadConsumerMap(
+      cloud.endpoint || '',
+      cloud.secretKey || '',
+      insecure,
+    );
+
+    let filteredItems = items.filter((v: any) => {
+      const name = String(v?.metadata?.name || v?.name || '').trim();
+      return !isHarvesterImageBackingPvcName(name);
+    });
     if (isTenant) {
       filteredItems = tenantNamespace
-        ? items.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace))
+        ? filteredItems.filter((v: any) => isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace))
         : [];
     } else if (tenantNamespace) {
-      filteredItems = items.filter((v: any) =>
+      filteredItems = filteredItems.filter((v: any) =>
         isNamespaceAllowed(tenantNamespace, v?.metadata?.namespace),
       );
     }
@@ -57,28 +71,17 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
     const basic = filteredItems.map((v: any) => {
       const name = v?.metadata?.name || v?.name || '';
       const size = v?.spec?.size || v?.size || 0;
-      const state = v?.status?.state || v?.state || 'Unknown';
+      const state = v?.status?.phase || v?.status?.state || v?.state || 'Unknown';
       const k8s = v?.status?.kubernetesStatus || {};
       const namespace = k8s?.namespace || v?.metadata?.namespace || '';
-      const pvcName = k8s?.pvcName || '';
-      const workloads =
-        k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
-      const rawNames: string[] = Array.isArray(workloads)
-        ? workloads.map((w: any) => String(w?.workloadName || w?.podName || '')).filter(Boolean)
-        : [];
-      const attachedTo: string[] = Array.from(
-        new Set(
-          rawNames
-            .map((n: string) => {
-              let s = n.trim();
-              if (/^virt-launcher-/.test(s)) {
-                s = s.replace(/^virt-launcher-/, '');
-              }
-              return s;
-            })
-            .filter(Boolean),
-        ),
-      );
+      const pvcName = k8s?.pvcName || name;
+      const { attachedTo, workloadConsumers } = resolveVolumeAttachedInfo({
+        namespace,
+        pvcName: name,
+        k8sStatus: k8s,
+        pvcStatus: v?.status,
+        pvcWorkloadMap,
+      });
 
       return {
         id: v?.id || v?.metadata?.uid || name,
@@ -89,6 +92,7 @@ export async function harvesterVolumeDirectListHandler(req: Request, res: Respon
         namespace,
         pvcName,
         attachedTo,
+        workloadConsumers,
         attached: attachedTo.length > 0,
         lastAttachedBy: k8s?.lastPVCRefAt || '',
         created: v?.metadata?.creationTimestamp || '',

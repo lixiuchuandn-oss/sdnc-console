@@ -3,7 +3,7 @@
  * 模块名称: Harvester 容器 Pod 视图 (PodsSection)
  * 文件路径: frontend/src/pages/cnmc/clouds/Harvester/containers/sections/PodsSection.tsx
  * ==============================================================================
- * 
+ *
  * [功能描述]
  * 该组件负责展示和管理 Harvester/Kubernetes Pod，包括：
  * 1. Pod 列表展示
@@ -12,24 +12,59 @@
  * 4. Pod 删除
  */
 
-import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { Table, Select, Button, Tag, Space, Input, App, Drawer, Descriptions, Tabs, Dropdown, Tooltip, Switch, Popover } from 'antd';
-import { FileTextOutlined, InfoCircleOutlined, ArrowLeftOutlined, EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import {
+  Table,
+  Select,
+  Button,
+  Tag,
+  Space,
+  Input,
+  App,
+  Drawer,
+  Descriptions,
+  Tabs,
+  Dropdown,
+  Tooltip,
+  Switch,
+  Popover,
+} from 'antd';
+import {
+  FileTextOutlined,
+  InfoCircleOutlined,
+  EllipsisOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
 import { useTableColumnSettings } from '../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../components/TableColumnSettingsButton';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import {
-  fetchHarvesterPodLog,
   fetchHarvesterPodEvents,
   deleteHarvesterContainerResource,
   evictHarvesterPod,
   batchEvictHarvesterPods,
 } from '../../../../../../services/harvesterApi';
-import { isSystemResource, getSystemResourceProtectionHint } from '../../../../../../utils/harvesterUtils';
+import {
+  isSystemResource,
+  getSystemResourceProtectionHint,
+} from '../../../../../../utils/harvesterUtils';
 import PodTerminal from '../components/PodTerminal';
+import PodLogViewerDrawer from '../components/PodLogViewerDrawer';
 import { useContainerOperationsReadOnly } from '../ContainerOperationsContext';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+  type ContainerSectionOnRefresh,
+} from '../lib/containerSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  confirmHighRiskOperation,
+  CONTAINER_DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import { POD_EVICT_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 type Props = {
   pods: any[];
@@ -41,7 +76,7 @@ type Props = {
   nodeValue?: string;
   onNsChange: (v?: string) => void;
   onNodeChange: (v?: string) => void;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: ContainerSectionOnRefresh;
   deployments?: any[];
   statefulSets?: any[];
   daemonSets?: any[];
@@ -95,7 +130,7 @@ const isPodRunning = (pod: any): boolean => {
   const phase = pod?.status?.phase;
   if (pod?.metadata?.deletionTimestamp) return false;
   if (phase !== 'Running') return false;
-  
+
   const containerStatuses = pod?.status?.containerStatuses || [];
   for (const container of containerStatuses) {
     const waitingState = container?.state?.waiting;
@@ -103,11 +138,15 @@ const isPodRunning = (pod: any): boolean => {
       return false;
     }
     const terminatedState = container?.state?.terminated;
-    if (terminatedState && (terminatedState.reason === 'Error' || (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))) {
+    if (
+      terminatedState &&
+      (terminatedState.reason === 'Error' ||
+        (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))
+    ) {
       return false;
     }
   }
-  
+
   return true;
 };
 
@@ -115,12 +154,12 @@ const getTerminalDisabledReason = (pod: any): string => {
   if (pod?.metadata?.deletionTimestamp) {
     return 'Pod 正在终止中，无法打开终端';
   }
-  
+
   const phase = pod?.status?.phase;
   if (phase !== 'Running') {
     return '仅 Running 状态的 Pod 可打开终端';
   }
-  
+
   const containerStatuses = pod?.status?.containerStatuses || [];
   for (const container of containerStatuses) {
     const waitingState = container?.state?.waiting;
@@ -128,15 +167,21 @@ const getTerminalDisabledReason = (pod: any): string => {
       return '容器处于崩溃重启状态，无法打开终端';
     }
     const terminatedState = container?.state?.terminated;
-    if (terminatedState && (terminatedState.reason === 'Error' || (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))) {
+    if (
+      terminatedState &&
+      (terminatedState.reason === 'Error' ||
+        (terminatedState.exitCode !== undefined && terminatedState.exitCode !== 0))
+    ) {
       return `容器 "${container.name}" 处于错误状态，无法打开终端`;
     }
   }
-  
+
   return '无法打开终端';
 };
 
-const getPodContainerSummary = (pod: any): { running: number; total: number; hasRunning: boolean } => {
+const getPodContainerSummary = (
+  pod: any,
+): { running: number; total: number; hasRunning: boolean } => {
   const containerStatuses = pod?.status?.containerStatuses || [];
   const running = containerStatuses.filter((c: any) => c?.state?.running).length;
   return { running, total: containerStatuses.length, hasRunning: running > 0 };
@@ -145,15 +190,15 @@ const getPodContainerSummary = (pod: any): { running: number; total: number; has
 const renderPodStatus = (pod: any) => {
   const phase = pod?.status?.phase || 'Unknown';
   const conditions = pod?.status?.conditions || [];
-  
+
   const metadata = pod?.metadata || {};
   if (metadata.deletionTimestamp) {
     return <Tag color="orange">终止中</Tag>;
   }
-  
+
   const containerStatuses = pod?.status?.containerStatuses || [];
   const summary = getPodContainerSummary(pod);
-  
+
   // 构建 Tooltip 详情
   const buildTooltip = () => {
     const lines: string[] = [];
@@ -175,25 +220,29 @@ const renderPodStatus = (pod: any) => {
     });
     return lines.join('\n');
   };
-  
+
   // 全部容器运行中
   if (summary.running === summary.total && summary.total > 0) {
     return (
       <Tooltip title={buildTooltip()}>
-        <Tag color="green">运行中 ({summary.running}/{summary.total})</Tag>
+        <Tag color="green">
+          运行中 ({summary.running}/{summary.total})
+        </Tag>
       </Tooltip>
     );
   }
-  
+
   // 部分容器运行中
   if (summary.running > 0 && summary.running < summary.total) {
     return (
       <Tooltip title={buildTooltip()}>
-        <Tag color="orange">运行中 ({summary.running}/{summary.total})</Tag>
+        <Tag color="orange">
+          运行中 ({summary.running}/{summary.total})
+        </Tag>
       </Tooltip>
     );
   }
-  
+
   // 无容器运行中，检查具体状态
   if (summary.total === 0) {
     const statusMap: Record<string, { color: string; text: string }> = {
@@ -205,7 +254,7 @@ const renderPodStatus = (pod: any) => {
     const status = statusMap[phase] || statusMap.Unknown;
     return <Tag color={status.color}>{status.text}</Tag>;
   }
-  
+
   // 有容器但都非运行中
   const terminated = containerStatuses.find((c: any) => c?.state?.terminated);
   if (terminated) {
@@ -213,35 +262,43 @@ const renderPodStatus = (pod: any) => {
     const mapped = CONTAINER_REASON_MAP[reason];
     return (
       <Tooltip title={buildTooltip()}>
-        <Tag color={mapped?.color || 'red'}>{mapped?.text || reason || '已终止'} ({summary.running}/{summary.total})</Tag>
+        <Tag color={mapped?.color || 'red'}>
+          {mapped?.text || reason || '已终止'} ({summary.running}/{summary.total})
+        </Tag>
       </Tooltip>
     );
   }
-  
+
   const waiting = containerStatuses.find((c: any) => c?.state?.waiting);
   if (waiting) {
     const reason = waiting.state.waiting.reason;
     const mapped = CONTAINER_REASON_MAP[reason];
     return (
       <Tooltip title={buildTooltip()}>
-        <Tag color={mapped?.color || 'orange'}>{mapped?.text || reason || '等待中'} ({summary.running}/{summary.total})</Tag>
+        <Tag color={mapped?.color || 'orange'}>
+          {mapped?.text || reason || '等待中'} ({summary.running}/{summary.total})
+        </Tag>
       </Tooltip>
     );
   }
-  
+
   // 启动中
   const ready = conditions.find((c: any) => c?.type === 'Ready');
   if (phase === 'Running' && ready?.status !== 'True') {
     return (
       <Tooltip title={buildTooltip()}>
-        <Tag color="orange">启动中 ({summary.running}/{summary.total})</Tag>
+        <Tag color="orange">
+          启动中 ({summary.running}/{summary.total})
+        </Tag>
       </Tooltip>
     );
   }
-  
+
   return (
     <Tooltip title={buildTooltip()}>
-      <Tag>{phase} ({summary.running}/{summary.total})</Tag>
+      <Tag>
+        {phase} ({summary.running}/{summary.total})
+      </Tag>
     </Tooltip>
   );
 };
@@ -318,162 +375,17 @@ const calculateAge = (timestamp?: string) => {
     const created = new Date(timestamp).getTime();
     const now = Date.now();
     const diff = now - created;
-    
+
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-    
+
     if (days > 0) return `${days}d${hours}h`;
     if (hours > 0) return `${hours}h${minutes}m`;
     return `${minutes}m`;
   } catch {
     return '-';
   }
-};
-
-/**
- * Pod 日志查看器组件
- */
-const PodLogViewer: React.FC<{
-  cloudId: string;
-  namespace: string;
-  podName: string;
-  containers: string[];
-  visible: boolean;
-  onClose: () => void;
-  onBack?: () => void;
-}> = ({ cloudId, namespace, podName, containers, visible, onClose, onBack }) => {
-  const [logs, setLogs] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [selectedContainer, setSelectedContainer] = useState<string>('');
-  const [tailLines, setTailLines] = useState<number>(500);
-  const logRef = useRef<HTMLPreElement>(null);
-  
-  // 上一次的容器列表，用于检测变化
-  const prevContainersRef = useRef<string[]>([]); // 初始化为空数组
-  
-  // 加载日志
-  const loadLogs = useCallback(async () => {
-    if (!visible) return;
-    setLoading(true);
-    try {
-      // 单容器 Pod 可以不传容器参数，多容器 Pod 必须指定
-      const containerParam = containers.length === 1 ? undefined : selectedContainer;
-      const result = await fetchHarvesterPodLog(
-        cloudId,
-        namespace,
-        podName,
-        containerParam,
-        tailLines,
-      );
-      setLogs(result || '暂无日志');
-    } catch (e: any) {
-      setLogs(`加载日志失败: ${e?.message || e}`);
-    } finally {
-      setLoading(false);
-    }
-  }, [cloudId, namespace, podName, selectedContainer, tailLines, visible, containers.length]);
-  
-  // 当容器列表变化时，设置选中项
-  useEffect(() => {
-    if (containers.length > 0 && !selectedContainer) {
-      setSelectedContainer(containers[0]);
-      prevContainersRef.current = containers;
-    }
-  }, [containers, selectedContainer]);
-  
-  // 重置状态
-  useEffect(() => {
-    if (!visible) {
-      setLogs('');
-      setSelectedContainer(''); // 关闭时重置选中状态
-    }
-  }, [visible]);
-  
-  // 加载日志 - 当容器列表准备好后自动加载
-  useEffect(() => {
-    if (visible && containers.length > 0) {
-      loadLogs();
-    }
-  }, [visible, containers.length, loadLogs]);
-  
-  // 自动滚动到底部
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [logs]);
-  
-  // 构建容器选项
-  const containerOptions = containers.map((c) => ({ label: c, value: c }));
-  
-  return (
-    <Drawer
-      title={
-        <Space>
-          {onBack && (
-            <Button type="text" icon={<ArrowLeftOutlined />} onClick={onBack}>
-              返回
-            </Button>
-          )}
-          <span>日志: {podName}</span>
-        </Space>
-      }
-      placement="right"
-      width={800}
-      open={visible}
-      onClose={onClose}
-      extra={
-        <Space>
-          {containers.length > 1 && (
-            <Select
-              value={selectedContainer}
-              onChange={(v) => {
-                setSelectedContainer(v);
-              }}
-              style={{ width: 180 }}
-              options={containerOptions}
-            />
-          )}
-          {containers.length === 1 && (
-            <span style={{ color: '#666' }}>容器: {containers[0]}</span>
-          )}
-          <Select
-            value={tailLines}
-            onChange={setTailLines}
-            style={{ width: 100 }}
-            options={[
-              { label: '100行', value: 100 },
-              { label: '500行', value: 500 },
-              { label: '1000行', value: 1000 },
-              { label: '2000行', value: 2000 },
-            ]}
-          />
-          <Button onClick={loadLogs} loading={loading}>
-            刷新
-          </Button>
-        </Space>
-      }
-    >
-      <pre
-        ref={logRef}
-        style={{
-          background: '#1e1e1e',
-          color: '#d4d4d4',
-          padding: 16,
-          borderRadius: 8,
-          height: 'calc(100vh - 200px)',
-          overflow: 'auto',
-          fontSize: 12,
-          fontFamily: 'Consolas, Monaco, monospace',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-all',
-        }}
-      >
-        {loading ? '加载中...' : logs}
-      </pre>
-    </Drawer>
-  );
 };
 
 /**
@@ -488,7 +400,7 @@ const PodDetailDrawer: React.FC<{
 }> = ({ pod, visible, cloudId, onClose, onViewLog }) => {
   const [events, setEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
-  
+
   // 加载 Pod 相关的 Events
   useEffect(() => {
     if (visible && pod && cloudId) {
@@ -498,7 +410,7 @@ const PodDetailDrawer: React.FC<{
           const result = await fetchHarvesterPodEvents(
             cloudId,
             pod.metadata.namespace,
-            pod.metadata.name
+            pod.metadata.name,
           );
           setEvents(result?.data?.items || []);
         } catch (e: any) {
@@ -511,15 +423,15 @@ const PodDetailDrawer: React.FC<{
       loadEvents();
     }
   }, [visible, pod, cloudId]);
-  
+
   if (!pod) return null;
-  
+
   const metadata = pod?.metadata || {};
   const spec = pod?.spec || {};
   const status = pod?.status || {};
   const containers = spec?.containers || [];
   const containerStatuses = status?.containerStatuses || [];
-  
+
   return (
     <Drawer
       title={`Pod 详情: ${metadata.name}`}
@@ -547,12 +459,18 @@ const PodDetailDrawer: React.FC<{
                 <Descriptions.Item label="状态">{renderPodStatus(pod)}</Descriptions.Item>
                 <Descriptions.Item label="节点">{spec.nodeName || '-'}</Descriptions.Item>
                 <Descriptions.Item label="IP">{status.podIP || '-'}</Descriptions.Item>
-                <Descriptions.Item label="运行时长">{calculateAge(metadata.creationTimestamp)}</Descriptions.Item>
-                <Descriptions.Item label="创建时间" span={2}>{formatTime(metadata.creationTimestamp)}</Descriptions.Item>
+                <Descriptions.Item label="运行时长">
+                  {calculateAge(metadata.creationTimestamp)}
+                </Descriptions.Item>
+                <Descriptions.Item label="创建时间" span={2}>
+                  {formatTime(metadata.creationTimestamp)}
+                </Descriptions.Item>
                 <Descriptions.Item label="标签" span={2}>
                   <Space size={4} wrap>
                     {Object.entries(metadata.labels || {}).map(([k, v]) => (
-                      <Tag key={k}>{k}={String(v)}</Tag>
+                      <Tag key={k}>
+                        {k}={String(v)}
+                      </Tag>
                     ))}
                   </Space>
                 </Descriptions.Item>
@@ -602,33 +520,35 @@ const PodDetailDrawer: React.FC<{
                     key: idx,
                   }))}
                   columns={[
-                    { 
-                      title: '类型', 
-                      dataIndex: 'type', 
+                    {
+                      title: '类型',
+                      dataIndex: 'type',
                       render: (v: string) => (
                         <Tag color={v === 'Normal' ? 'blue' : 'red'}>{v || '-'}</Tag>
                       ),
                     },
-                    { 
-                      title: '原因', 
-                      dataIndex: 'reason', 
+                    {
+                      title: '原因',
+                      dataIndex: 'reason',
                     },
-                    { 
-                      title: '消息', 
-                      dataIndex: 'message', 
+                    {
+                      title: '消息',
+                      dataIndex: 'message',
                       ellipsis: true,
                       render: (v: string) => (
-                        <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{v || '-'}</span>
+                        <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {v || '-'}
+                        </span>
                       ),
                     },
-                    { 
-                      title: '次数', 
-                      dataIndex: 'count', 
+                    {
+                      title: '次数',
+                      dataIndex: 'count',
                       render: (v: number) => v || 1,
                     },
-                    { 
-                      title: '时间', 
-                      dataIndex: 'lastTimestamp',  
+                    {
+                      title: '时间',
+                      dataIndex: 'lastTimestamp',
                       render: formatTime,
                     },
                   ]}
@@ -656,9 +576,7 @@ const PodDetailDrawer: React.FC<{
                   {
                     title: '状态',
                     dataIndex: 'status',
-                    render: (v: string) => (
-                      <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>
-                    ),
+                    render: (v: string) => <Tag color={v === 'True' ? 'green' : 'red'}>{v}</Tag>,
                   },
                   { title: '原因', dataIndex: 'reason' },
                   { title: '消息', dataIndex: 'message', ellipsis: true },
@@ -712,54 +630,57 @@ const PodsSection: React.FC<Props> = ({
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  
+
   // 详情和日志状态
   const [detailVisible, setDetailVisible] = useState(false);
   const [currentPod, setCurrentPod] = useState<any>(null);
   const [logVisible, setLogVisible] = useState(false);
   const [logContainers, setLogContainers] = useState<string[]>([]);
-  
+
   // 终端状态
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [terminalPod, setTerminalPod] = useState<any>(null);
   const [terminalContainers, setTerminalContainers] = useState<string[]>([]);
-  
+
   // 解析 Pod 所属工作负载并获取显示名称
-  const getOwnerWorkload = useCallback((pod: any): { name: string; alias: string; type: string } | null => {
-    const ownerRefs = pod?.metadata?.ownerReferences || [];
-    const podNs = pod?.metadata?.namespace;
-    
-    for (const ref of ownerRefs) {
-      if (ref.kind === 'ReplicaSet') {
-        const rsName = ref.name;
-        const allWorkloads = [...deployments, ...statefulSets, ...daemonSets];
-        for (const wl of allWorkloads) {
-          const wlName = wl?.metadata?.name || '';
-          const wlNs = wl?.metadata?.namespace || '';
-          if (wlNs === podNs && rsName.startsWith(wlName)) {
+  const getOwnerWorkload = useCallback(
+    (pod: any): { name: string; alias: string; type: string } | null => {
+      const ownerRefs = pod?.metadata?.ownerReferences || [];
+      const podNs = pod?.metadata?.namespace;
+
+      for (const ref of ownerRefs) {
+        if (ref.kind === 'ReplicaSet') {
+          const rsName = ref.name;
+          const allWorkloads = [...deployments, ...statefulSets, ...daemonSets];
+          for (const wl of allWorkloads) {
+            const wlName = wl?.metadata?.name || '';
+            const wlNs = wl?.metadata?.namespace || '';
+            if (wlNs === podNs && rsName.startsWith(wlName)) {
+              const alias = wl?.metadata?.annotations?.['tower.io/alias'] || wlName;
+              const type = wl?.kind?.toLowerCase() || 'deployment';
+              return { name: wlName, alias, type };
+            }
+          }
+        }
+        if (ref.kind === 'StatefulSet' || ref.kind === 'DaemonSet') {
+          const wlName = ref.name;
+          const workloads = ref.kind === 'StatefulSet' ? statefulSets : daemonSets;
+          const wl = workloads.find(
+            (w: any) =>
+              (w?.metadata?.name || '') === wlName && (w?.metadata?.namespace || '') === podNs,
+          );
+          if (wl) {
             const alias = wl?.metadata?.annotations?.['tower.io/alias'] || wlName;
-            const type = wl?.kind?.toLowerCase() || 'deployment';
+            const type = ref.kind.toLowerCase();
             return { name: wlName, alias, type };
           }
         }
       }
-      if (ref.kind === 'StatefulSet' || ref.kind === 'DaemonSet') {
-        const wlName = ref.name;
-        const workloads = ref.kind === 'StatefulSet' ? statefulSets : daemonSets;
-        const wl = workloads.find((w: any) => 
-          (w?.metadata?.name || '') === wlName && 
-          (w?.metadata?.namespace || '') === podNs
-        );
-        if (wl) {
-          const alias = wl?.metadata?.annotations?.['tower.io/alias'] || wlName;
-          const type = ref.kind.toLowerCase();
-          return { name: wlName, alias, type };
-        }
-      }
-    }
-    return null;
-  }, [deployments, statefulSets, daemonSets]);
-  
+      return null;
+    },
+    [deployments, statefulSets, daemonSets],
+  );
+
   // 过滤数据
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -768,7 +689,7 @@ const PodsSection: React.FC<Props> = ({
       const ns = pod?.metadata?.namespace || '';
       const phase = pod?.status?.phase || '';
       const node = pod?.spec?.nodeName || '';
-      
+
       if (kw) {
         const owner = getOwnerWorkload(pod);
         const ownerAlias = owner?.alias?.toLowerCase() || '';
@@ -794,175 +715,203 @@ const PodsSection: React.FC<Props> = ({
       return true;
     });
   }, [pods, keyword, nsValue, nodeValue, statusFilter, getOwnerWorkload]);
-  
+
   // 查看详情
   const handleViewDetail = useCallback((pod: any) => {
     setCurrentPod(pod);
     setDetailVisible(true);
   }, []);
-  
+
   // 查看日志
   const handleViewLog = useCallback((pod: any) => {
     // 优先从 status.containerStatuses 获取实际运行的容器
     // 如果没有，则从 spec.containers 获取
     const containerStatuses = pod?.status?.containerStatuses || [];
     const specContainers = pod?.spec?.containers || [];
-    
+
     let containers: string[];
     if (containerStatuses.length > 0) {
       containers = containerStatuses.map((c: any) => c.name);
     } else {
       containers = specContainers.map((c: any) => c.name);
     }
-    
+
     setCurrentPod(pod);
     setLogContainers(containers);
     setLogVisible(true);
   }, []);
-  
+
   // 删除 Pod
-  const handleDelete = useCallback(async (pod: any) => {
-    const namespace = pod?.metadata?.namespace;
-    const name = pod?.metadata?.name;
-    
-    try {
-      await deleteHarvesterContainerResource(cloudId, '/api/v1/pods', namespace, name);
-      message.success('删除成功');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '删除失败');
-    }
-  }, [cloudId, message, onRefresh]);
-  
+  const handleDelete = useCallback(
+    async (pod: any) => {
+      const namespace = pod?.metadata?.namespace;
+      const name = pod?.metadata?.name;
+
+      try {
+        await deleteHarvesterContainerResource(cloudId, '/api/v1/pods', namespace, name);
+        message.success('删除成功');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '删除失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
+
   // 安全驱逐 Pod (Eviction - 触发 PDB 保护)
-  const _handleEvict = useCallback(async (pod: any) => {
-    const namespace = pod?.metadata?.namespace;
-    const name = pod?.metadata?.name;
-    
-    modal.confirm({
-      title: '安全驱逐 Pod',
-      content: (
-        <div>
-          <p>确定要安全驱逐 Pod <strong>{name}</strong> 吗？</p>
-          <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-            驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。
-            如果 PDB 规则不允许此次驱逐，操作将被阻止。
-          </p>
-        </div>
-      ),
-      okText: '确定驱逐',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await evictHarvesterPod(cloudId, namespace, name);
-          message.success('驱逐成功');
-          onRefresh(true);
-        } catch (e: any) {
-          // 检查是否是 PDB 阻止
-          if (e?.status === 429 || e?.message?.includes('PDB') || e?.message?.includes('disruption')) {
-            modal.error({
-              title: '驱逐被 PDB 阻止',
-              content: (
-                <div>
-                  <p>Pod <strong>{name}</strong> 的驱逐操作被 PodDisruptionBudget 阻止。</p>
-                  <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-                    这表明 PDB 规则正在保护此 Pod，以确保服务可用性。
-                    请检查相关的 PDB 配置或等待其他 Pod 恢复后再试。
-                  </p>
-                </div>
-              ),
-            });
-          } else {
+  const _handleEvict = useCallback(
+    async (pod: any) => {
+      const namespace = pod?.metadata?.namespace;
+      const name = pod?.metadata?.name;
+
+      void confirmHighRiskOperation({
+        title: '安全驱逐 Pod',
+        description: (
+          <div>
+            <p>
+              确定要安全驱逐 Pod <strong>{name}</strong> 吗？
+            </p>
+            <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
+              驱逐操作会触发 PodDisruptionBudget (PDB) 保护机制。如果 PDB
+              规则不允许此次驱逐，操作将被阻止。
+            </p>
+          </div>
+        ),
+        riskItems: POD_EVICT_RISK_ITEMS,
+        targetName: name,
+        operationSummary: `安全驱逐 Pod「${name}」`,
+        confirmText: '确定驱逐',
+        onConfirm: async () => {
+          try {
+            await evictHarvesterPod(cloudId, namespace, name);
+            message.success('驱逐成功');
+            runContainerSectionRefresh(onRefresh, { force: true });
+          } catch (e: any) {
+            if (
+              e?.status === 429 ||
+              e?.message?.includes('PDB') ||
+              e?.message?.includes('disruption')
+            ) {
+              modal.error({
+                title: '驱逐被 PDB 阻止',
+                content: (
+                  <div>
+                    <p>
+                      Pod <strong>{name}</strong> 的驱逐操作被 PodDisruptionBudget 阻止。
+                    </p>
+                    <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
+                      这表明 PDB 规则正在保护此 Pod，以确保服务可用性。请检查相关的 PDB
+                      配置或等待其他 Pod 恢复后再试。
+                    </p>
+                  </div>
+                ),
+              });
+              throw e;
+            }
             message.error(e?.message || '驱逐失败');
+            throw e;
           }
-        }
-      },
-    });
-  }, [cloudId, message, modal, onRefresh]);
-  
+        },
+      }).catch(() => {});
+    },
+    [cloudId, message, modal, onRefresh],
+  );
+
   // 批量删除 Pod
   const handleBatchDelete = useCallback(() => {
-    const selectedPods = pods.filter((pod: any) => 
-      selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`)
+    const selectedPods = pods.filter((pod: any) =>
+      selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`),
     );
-    
-    modal.confirm({
-      title: '批量删除确认',
-      content: `确定要删除选中的 ${selectedPods.length} 个 Pod 吗？删除后 Deployment 可能会自动重建这些 Pod。`,
-      okText: '确定',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
+
+    void confirmHighRiskDelete({
+      resourceLabel: 'Pod',
+      name: `${selectedPods.length} 个 Pod`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${selectedPods.length} 个 Pod 吗？删除后 Deployment 可能会自动重建这些 Pod。`,
+      riskItems: CONTAINER_DELETE_RISK_ITEMS,
+      onConfirm: async () => {
         let successCount = 0;
         let failCount = 0;
-        
+
         for (const pod of selectedPods) {
           try {
             await deleteHarvesterContainerResource(
-              cloudId, 
-              '/api/v1/pods', 
-              pod?.metadata?.namespace, 
-              pod?.metadata?.name
+              cloudId,
+              '/api/v1/pods',
+              pod?.metadata?.namespace,
+              pod?.metadata?.name,
             );
             successCount++;
           } catch {
             failCount++;
           }
         }
-        
+
         setSelectedKeys([]);
-        
+
         if (failCount === 0) {
           message.success(`成功删除 ${successCount} 个 Pod`);
         } else {
           message.warning(`成功删除 ${successCount} 个，失败 ${failCount} 个`);
         }
-        onRefresh(true);
+        runContainerSectionRefresh(onRefresh, { force: true });
       },
-    });
-  }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
-  
+    }).catch(() => {});
+  }, [cloudId, message, onRefresh, pods, selectedKeys]);
+
   // 批量安全驱逐 Pod (用于测试 PDB 规则)
   const _handleBatchEvict = useCallback(() => {
-    const selectedPods = pods.filter((pod: any) => 
-      selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`)
+    const selectedPods = pods.filter((pod: any) =>
+      selectedKeys.includes(`${pod?.metadata?.namespace}/${pod?.metadata?.name}`),
     );
-    
-    modal.confirm({
+
+    void confirmHighRiskOperation({
       title: '批量安全驱逐',
-      content: (
+      description: (
         <div>
-          <p>确定要安全驱逐选中的 <strong>{selectedPods.length}</strong> 个 Pod 吗？</p>
+          <p>
+            确定要安全驱逐选中的 <strong>{selectedPods.length}</strong> 个 Pod 吗？
+          </p>
           <p style={{ color: '#666', fontSize: 12, marginTop: 8 }}>
-            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB (PodDisruptionBudget) 保护机制。
-            如果 PDB 规则不允许同时驱逐这么多 Pod，部分驱逐将被阻止。
+            此操作会同时向 Kubernetes 发送驱逐请求，触发 PDB
+            保护机制。若规则不允许，部分驱逐将被阻止。
           </p>
         </div>
       ),
-      okText: '确定驱逐',
-      cancelText: '取消',
-      onOk: async () => {
+      riskItems: POD_EVICT_RISK_ITEMS,
+      requireTypeConfirm: false,
+      operationSummary: `批量安全驱逐 ${selectedPods.length} 个 Pod`,
+      confirmText: '确定驱逐',
+      onConfirm: async () => {
         try {
           const podList = selectedPods.map((pod: any) => ({
             namespace: pod?.metadata?.namespace,
             name: pod?.metadata?.name,
           }));
-          
+
           const result = await batchEvictHarvesterPods(cloudId, podList);
-          
+
           setSelectedKeys([]);
-          
+
           // 显示详细结果
           const { successCount = 0, blockedCount = 0, failedCount = 0 } = result?.data || {};
-          
+
           if (blockedCount > 0) {
             modal.info({
               title: '批量驱逐结果',
               content: (
                 <div>
-                  <p>成功驱逐：<strong style={{ color: '#52c41a' }}>{successCount}</strong> 个</p>
-                  <p>被 PDB 阻止：<strong style={{ color: '#faad14' }}>{blockedCount}</strong> 个</p>
-                  {failedCount > 0 && <p>失败：<strong style={{ color: '#ff4d4f' }}>{failedCount}</strong> 个</p>}
+                  <p>
+                    成功驱逐：<strong style={{ color: '#52c41a' }}>{successCount}</strong> 个
+                  </p>
+                  <p>
+                    被 PDB 阻止：<strong style={{ color: '#faad14' }}>{blockedCount}</strong> 个
+                  </p>
+                  {failedCount > 0 && (
+                    <p>
+                      失败：<strong style={{ color: '#ff4d4f' }}>{failedCount}</strong> 个
+                    </p>
+                  )}
                   {blockedCount > 0 && (
                     <p style={{ color: '#666', fontSize: 12, marginTop: 12 }}>
                       PDB 保护机制已生效，阻止了部分驱逐操作以确保服务可用性。
@@ -976,275 +925,306 @@ const PodsSection: React.FC<Props> = ({
           } else {
             message.success(`成功驱逐 ${successCount} 个 Pod`);
           }
-          
-          onRefresh(true);
+
+          runContainerSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(e?.message || '批量驱逐失败');
+          throw e;
         }
       },
-    });
+    }).catch(() => {});
   }, [cloudId, message, modal, onRefresh, pods, selectedKeys]);
-  
+
   // 打开终端
   const handleOpenTerminal = useCallback((pod: any) => {
     const containerStatuses = pod?.status?.containerStatuses || [];
     const specContainers = pod?.spec?.containers || [];
-    
+
     let containers: string[];
     if (containerStatuses.length > 0) {
       containers = containerStatuses.map((c: any) => c.name);
     } else {
       containers = specContainers.map((c: any) => c.name);
     }
-    
+
     setTerminalPod(pod);
     setTerminalContainers(containers);
     setTerminalVisible(true);
   }, []);
-  
+
   // 表格列定义
-  const columns = useMemo(() => [
-    {
-      title: '名称',
-      dataIndex: ['metadata', 'name'],
-      key: 'name',
-      ellipsis: true,
-      render: (name: string, record: any) => (
-        <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>{name}</a>
-      ),
-    },
-    {
-      title: '所属工作负载',
-      key: 'ownerWorkload',
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const owner = getOwnerWorkload(record);
-        if (!owner) return <span style={{ color: '#999' }}>-</span>;
-        const typeLabel = owner.type === 'deployment' ? 'Deployment' 
-          : owner.type === 'statefulset' ? 'StatefulSet' 
-          : 'DaemonSet';
-        return (
-          <Tooltip title={`${typeLabel}: ${owner.name}`}>
-            <span>{owner.alias}</span>
-          </Tooltip>
-        );
+  const columns = useMemo(
+    () => [
+      {
+        title: '名称',
+        dataIndex: ['metadata', 'name'],
+        key: 'name',
+        ellipsis: true,
+        render: (name: string, record: any) => (
+          <a onClick={() => handleViewDetail(record)} style={{ color: '#1890ff' }}>
+            {name}
+          </a>
+        ),
       },
-    },
-    {
-      title: '项目',
-      dataIndex: ['metadata', 'namespace'],
-      key: 'namespace',
-      ellipsis: true,
-      render: (ns: string) => <Tag>{ns}</Tag>,
-    },
-    {
-      title: '容器状态',
-      key: 'status',
-      render: (_: any, record: any) => renderPodStatus(record),
-    },
-    {
-      title: '节点',
-      dataIndex: ['spec', 'nodeName'],
-      key: 'nodeName',
-      ellipsis: true,
-    },
-    {
-      title: 'IP',
-      key: 'podIP',
-      render: (_: any, record: any) => {
-        const podIP = record?.status?.podIP;
-        const annotations = record?.metadata?.annotations || {};
-        const networkStatusStr = annotations['k8s.v1.cni.cncf.io/network-status'];
-        
-        // 解析网络状态
-        interface NetworkInfo {
-          name: string;
-          interface: string;
-          ip: string;
-          isDefault: boolean;
-        }
-        const networks: NetworkInfo[] = [];
-        
-        // 添加默认网络
-        if (podIP) {
-          networks.push({
-            name: 'Pod网络',
-            interface: 'eth0',
-            ip: podIP,
-            isDefault: true,
-          });
-        }
-        
-        // 解析附加网络
-        if (networkStatusStr) {
-          try {
-            const networkStatus = JSON.parse(networkStatusStr);
-            if (Array.isArray(networkStatus)) {
-              networkStatus.forEach((net: any) => {
-                if (net.ips && net.ips.length > 0) {
-                  const netName = net.name || '';
-                  const displayName = netName.includes('/') 
-                    ? netName.split('/')[1] 
-                    : (netName || '附加网络');
-                  networks.push({
-                    name: displayName,
-                    interface: net.interface || `net${networks.length}`,
-                    ip: net.ips[0],
-                    isDefault: !!net.default,
-                  });
-                }
-              });
-            }
-          } catch {
-            // 解析失败
-          }
-        }
-        
-        if (networks.length === 0) {
-          return '-';
-        }
-        
-        // 只有一个网络时直接显示
-        if (networks.length === 1) {
+      {
+        title: '所属工作负载',
+        key: 'ownerWorkload',
+        ellipsis: true,
+        render: (_: any, record: any) => {
+          const owner = getOwnerWorkload(record);
+          if (!owner) return <span style={{ color: '#999' }}>-</span>;
+          const typeLabel =
+            owner.type === 'deployment'
+              ? 'Deployment'
+              : owner.type === 'statefulset'
+                ? 'StatefulSet'
+                : 'DaemonSet';
           return (
-            <Tooltip title={`${networks[0].name} (${networks[0].interface})`}>
-              <span>{networks[0].ip}</span>
+            <Tooltip title={`${typeLabel}: ${owner.name}`}>
+              <span>{owner.alias}</span>
             </Tooltip>
           );
-        }
-        
-        // 多个网络时，显示主IP + 展开按钮
-        const defaultNet = networks.find(n => n.isDefault) || networks[0];
-        const additionalNets = networks.filter(n => !n.isDefault);
-        
-        return (
-          <Space size={4}>
-            <Tooltip title={`${defaultNet.name} (${defaultNet.interface})`}>
-              <span>{defaultNet.ip}</span>
-            </Tooltip>
-            {additionalNets.length > 0 && (
-              <Popover
-                trigger="click"
-                placement="right"
-                content={
-                  <div style={{ minWidth: 200 }}>
-                    <div style={{ marginBottom: 8, fontWeight: 500, color: '#666' }}>
-                      所有网络接口
-                    </div>
-                    {networks.map((net, idx) => (
-                      <div key={idx} style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between',
-                        padding: '4px 0',
-                        borderBottom: idx < networks.length - 1 ? '1px solid #f0f0f0' : 'none'
-                      }}>
-                        <Space size={4}>
-                          <Tag color={net.isDefault ? 'green' : 'blue'} style={{ margin: 0 }}>
-                            {net.interface}
-                          </Tag>
-                          <span style={{ color: '#666', fontSize: 12 }}>{net.name}</span>
-                        </Space>
-                        <span style={{ fontFamily: 'monospace' }}>{net.ip}</span>
-                      </div>
-                    ))}
-                  </div>
-                }
-              >
-                <Tag color="orange" style={{ cursor: 'pointer', margin: 0 }}>
-                  +{additionalNets.length}
-                </Tag>
-              </Popover>
-            )}
-          </Space>
-        );
+        },
       },
-    },
-    {
-      title: '运行时长',
-      key: 'age',
-      render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
-    },
-    {
-      title: '创建时间',
-      key: 'creationTimestamp',
-      render: (_: any, record: any) => formatTime(record?.metadata?.creationTimestamp),
-      sorter: (a: any, b: any) => {
-        const ta = a?.metadata?.creationTimestamp ? new Date(a.metadata.creationTimestamp).getTime() : 0;
-        const tb = b?.metadata?.creationTimestamp ? new Date(b.metadata.creationTimestamp).getTime() : 0;
-        return ta - tb;
+      {
+        title: '项目',
+        dataIndex: ['metadata', 'namespace'],
+        key: 'namespace',
+        ellipsis: true,
+        render: (ns: string) => <Tag>{ns}</Tag>,
       },
-      defaultSortOrder: 'descend' as const,
-    },
-    {
-      title: '镜像',
-      key: 'image',
-      ellipsis: true,
-      render: (_: any, record: any) => {
-        const containers = record?.spec?.containers || [];
-        return containers.length > 0 ? containers[0]?.image : '-';
+      {
+        title: '容器状态',
+        key: 'status',
+        render: (_: any, record: any) => renderPodStatus(record),
       },
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      fixed: 'right' as const,
-      render: (_: any, record: any) => {
-        const itemsAll = [
-          {
-            key: 'detail',
-            label: '详情',
-            onClick: () => handleViewDetail(record),
-          },
-          {
-            key: 'log',
-            label: '日志',
-            onClick: () => handleViewLog(record),
-          },
-          {
-            key: 'terminal',
-            label: '终端',
-            disabled: !isPodRunning(record),
-            tooltip: isPodRunning(record) ? undefined : getTerminalDisabledReason(record),
-            onClick: () => handleOpenTerminal(record),
-          },
-          // 安全驱逐功能 - PDB 规则验证完成后隐藏入口
-          // {
-          //   key: 'evict',
-          //   label: '安全驱逐',
-          //   icon: <ExportOutlined />,
-          //   onClick: () => handleEvict(record),
-          // },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
-            disabled: isSystemResource(record),
-            tooltip: getSystemResourceProtectionHint(record),
-            onClick: () => {
-               modal.confirm({
-                 title: '确认删除',
-                 content: `确定要删除 Pod "${(() => { const alias = record?.metadata?.annotations?.['tower.io/alias']; const id = record?.metadata?.name || ''; return alias ? `${alias}(${id})` : id; })()}" 吗？`,
-                 okType: 'danger',
-                 onOk: () => handleDelete(record),
-               });
-             },
-          },
-        ];
-        const items = operationsReadOnly
-          ? itemsAll.filter((i) => i.key === 'detail' || i.key === 'log')
-          : itemsAll;
+      {
+        title: '节点',
+        dataIndex: ['spec', 'nodeName'],
+        key: 'nodeName',
+        ellipsis: true,
+      },
+      {
+        title: 'IP',
+        key: 'podIP',
+        render: (_: any, record: any) => {
+          const podIP = record?.status?.podIP;
+          const annotations = record?.metadata?.annotations || {};
+          const networkStatusStr = annotations['k8s.v1.cni.cncf.io/network-status'];
 
-        return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
+          // 解析网络状态
+          interface NetworkInfo {
+            name: string;
+            interface: string;
+            ip: string;
+            isDefault: boolean;
+          }
+          const networks: NetworkInfo[] = [];
+
+          // 添加默认网络
+          if (podIP) {
+            networks.push({
+              name: 'Pod网络',
+              interface: 'eth0',
+              ip: podIP,
+              isDefault: true,
+            });
+          }
+
+          // 解析附加网络
+          if (networkStatusStr) {
+            try {
+              const networkStatus = JSON.parse(networkStatusStr);
+              if (Array.isArray(networkStatus)) {
+                networkStatus.forEach((net: any) => {
+                  if (net.ips && net.ips.length > 0) {
+                    const netName = net.name || '';
+                    const displayName = netName.includes('/')
+                      ? netName.split('/')[1]
+                      : netName || '附加网络';
+                    networks.push({
+                      name: displayName,
+                      interface: net.interface || `net${networks.length}`,
+                      ip: net.ips[0],
+                      isDefault: !!net.default,
+                    });
+                  }
+                });
+              }
+            } catch {
+              // 解析失败
+            }
+          }
+
+          if (networks.length === 0) {
+            return '-';
+          }
+
+          // 只有一个网络时直接显示
+          if (networks.length === 1) {
+            return (
+              <Tooltip title={`${networks[0].name} (${networks[0].interface})`}>
+                <span>{networks[0].ip}</span>
+              </Tooltip>
+            );
+          }
+
+          // 多个网络时，显示主IP + 展开按钮
+          const defaultNet = networks.find((n) => n.isDefault) || networks[0];
+          const additionalNets = networks.filter((n) => !n.isDefault);
+
+          return (
+            <Space size={4}>
+              <Tooltip title={`${defaultNet.name} (${defaultNet.interface})`}>
+                <span>{defaultNet.ip}</span>
+              </Tooltip>
+              {additionalNets.length > 0 && (
+                <Popover
+                  trigger="click"
+                  placement="right"
+                  content={
+                    <div style={{ minWidth: 200 }}>
+                      <div style={{ marginBottom: 8, fontWeight: 500, color: '#666' }}>
+                        所有网络接口
+                      </div>
+                      {networks.map((net, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            padding: '4px 0',
+                            borderBottom: idx < networks.length - 1 ? '1px solid #f0f0f0' : 'none',
+                          }}
+                        >
+                          <Space size={4}>
+                            <Tag color={net.isDefault ? 'green' : 'blue'} style={{ margin: 0 }}>
+                              {net.interface}
+                            </Tag>
+                            <span style={{ color: '#666', fontSize: 12 }}>{net.name}</span>
+                          </Space>
+                          <span style={{ fontFamily: 'monospace' }}>{net.ip}</span>
+                        </div>
+                      ))}
+                    </div>
+                  }
+                >
+                  <Tag color="orange" style={{ cursor: 'pointer', margin: 0 }}>
+                    +{additionalNets.length}
+                  </Tag>
+                </Popover>
+              )}
+            </Space>
+          );
+        },
       },
-    },
-  ], [handleViewDetail, handleViewLog, handleOpenTerminal, handleDelete, modal, getOwnerWorkload, operationsReadOnly]);
-  
+      {
+        title: '运行时长',
+        key: 'age',
+        render: (_: any, record: any) => calculateAge(record?.metadata?.creationTimestamp),
+      },
+      {
+        title: '创建时间',
+        key: 'creationTimestamp',
+        render: (_: any, record: any) => formatTime(record?.metadata?.creationTimestamp),
+        sorter: (a: any, b: any) => {
+          const ta = a?.metadata?.creationTimestamp
+            ? new Date(a.metadata.creationTimestamp).getTime()
+            : 0;
+          const tb = b?.metadata?.creationTimestamp
+            ? new Date(b.metadata.creationTimestamp).getTime()
+            : 0;
+          return ta - tb;
+        },
+        defaultSortOrder: 'descend' as const,
+      },
+      {
+        title: '镜像',
+        key: 'image',
+        ellipsis: true,
+        render: (_: any, record: any) => {
+          const containers = record?.spec?.containers || [];
+          return containers.length > 0 ? containers[0]?.image : '-';
+        },
+      },
+      {
+        title: '操作',
+        key: 'actions',
+        fixed: 'right' as const,
+        render: (_: any, record: any) => {
+          const itemsAll = [
+            {
+              key: 'detail',
+              label: '详情',
+              onClick: () => handleViewDetail(record),
+            },
+            {
+              key: 'log',
+              label: '日志',
+              onClick: () => handleViewLog(record),
+            },
+            {
+              key: 'terminal',
+              label: '终端',
+              disabled: !isPodRunning(record),
+              tooltip: isPodRunning(record) ? undefined : getTerminalDisabledReason(record),
+              onClick: () => handleOpenTerminal(record),
+            },
+            // 安全驱逐功能 - PDB 规则验证完成后隐藏入口
+            // {
+            //   key: 'evict',
+            //   label: '安全驱逐',
+            //   icon: <ExportOutlined />,
+            //   onClick: () => handleEvict(record),
+            // },
+            {
+              key: 'delete',
+              label: '删除',
+              danger: true,
+              disabled: isSystemResource(record),
+              tooltip: getSystemResourceProtectionHint(record),
+              onClick: () => {
+                const alias = record?.metadata?.annotations?.['tower.io/alias'];
+                const id = record?.metadata?.name || '';
+                const displayName = alias ? `${alias}(${id})` : id;
+                void confirmHighRiskDelete({
+                  resourceLabel: 'Pod',
+                  name: displayName,
+                  riskItems: CONTAINER_DELETE_RISK_ITEMS,
+                  onConfirm: () => handleDelete(record),
+                }).catch(() => {});
+              },
+            },
+          ];
+          const items = operationsReadOnly
+            ? itemsAll.filter((i) => i.key === 'detail' || i.key === 'log')
+            : itemsAll;
+
+          return (
+            <ResourceActionsDropdown
+              items={items}
+              buttonProps={{ className: 'row-actions-trigger' }}
+            />
+          );
+        },
+      },
+    ],
+    [
+      handleViewDetail,
+      handleViewLog,
+      handleOpenTerminal,
+      handleDelete,
+      getOwnerWorkload,
+      operationsReadOnly,
+    ],
+  );
+
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
     columns,
     'harvester-containers-pods',
   );
-  
+
   return (
     <PageDetailSection asCard={false}>
       <div className="page-toolbar">
@@ -1319,7 +1299,8 @@ const PodsSection: React.FC<Props> = ({
                 items: [
                   {
                     key: 'batchDelete',
-                    label: selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
+                    label:
+                      selectedKeys.length > 0 ? `批量删除 (${selectedKeys.length})` : '批量删除',
                     danger: true,
                     disabled: selectedKeys.length === 0,
                   },
@@ -1334,20 +1315,17 @@ const PodsSection: React.FC<Props> = ({
               <Button icon={<EllipsisOutlined />} disabled={selectedKeys.length === 0} />
             </Dropdown>
           ) : null}
-          <TableColumnSettingsButton
-            allColumns={columns}
-            settingsKey="harvester-containers-pods"
-          />
+          <TableColumnSettingsButton allColumns={columns} settingsKey="harvester-containers-pods" />
           <Tooltip title="刷新">
             <Button
               type="default"
               icon={<ReloadOutlined />}
-              onClick={() => onRefresh(true)}
+              onClick={createContainerToolbarRefresh(onRefresh)}
             />
           </Tooltip>
         </div>
       </div>
-      
+
       <Table
         className="std-table"
         scroll={{ x: true }}
@@ -1368,7 +1346,7 @@ const PodsSection: React.FC<Props> = ({
               }
         }
       />
-      
+
       {/* Pod 详情抽屉 */}
       <PodDetailDrawer
         pod={currentPod}
@@ -1385,20 +1363,23 @@ const PodsSection: React.FC<Props> = ({
           }
         }}
       />
-      
+
       {/* Pod 日志查看器 */}
       {currentPod && (
-        <PodLogViewer
+        <PodLogViewerDrawer
           cloudId={cloudId}
           namespace={currentPod?.metadata?.namespace}
           podName={currentPod?.metadata?.name}
           containers={logContainers}
-          visible={logVisible}
+          open={logVisible}
           onClose={() => setLogVisible(false)}
-          onBack={() => { setLogVisible(false); setDetailVisible(true); }}
+          onBack={() => {
+            setLogVisible(false);
+            setDetailVisible(true);
+          }}
         />
       )}
-      
+
       {/* Pod 终端 */}
       {terminalPod && (
         <PodTerminal

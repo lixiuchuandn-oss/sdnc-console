@@ -1,9 +1,9 @@
 import { Cloud } from '../../entities/Cloud';
 
+/** Cloudmap/Harvester 计算池（K8s + iam.tower.io CRD）。CSM（cloudmap.csm）走 CSM OpenAPI，不在此集合。 */
 const IAM_CRD_CLOUD_PROVIDERS = new Set([
   'cloudmap.private',
   'cloudmap.edge',
-  'cloudmap.csm',
   'cloudmap',
   'harvester',
 ]);

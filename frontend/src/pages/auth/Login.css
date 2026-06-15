@@ -1,59 +1,9 @@
-.login-container {
-  min-height: 100vh;
-  /* background 颜色通过内联样式动态设置 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  position: relative;
-  overflow: hidden;
-}
+/* ==========================================================================
+   登录页共用：/login 与 /admin/login
+   全屏背景图 + 右侧白卡；默认图：public/images/login-hero.png（见 loginPageHeroStyle.ts）
+   ========================================================================== */
 
-.particle-canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: 1;
-  pointer-events: none;
-}
-
-.login-content {
-  position: relative;
-  z-index: 2;
-  width: 100%;
-  max-width: 400px;
-  text-align: center;
-}
-
-.login-header {
-  margin-bottom: 40px;
-}
-
-.login-title {
-  font-size: 36px;
-  font-weight: 700;
-  color: #ffffff;
-  margin: 0 0 8px 0;
-  letter-spacing: -0.5px;
-}
-
-.login-subtitle {
-  font-size: 20px;
-  color: rgba(255, 255, 255, 0.8);
-  margin: 0;
-  font-weight: 400;
-}
-
-.login-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(10px);
-  border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-  padding: 40px;
-}
-
+/* 表单卡与输入区（与 login-page__card 叠加） */
 .login-card .ant-card-body {
   padding: 0;
 }
@@ -62,15 +12,30 @@
   margin-bottom: 24px;
 }
 
-/* 仅调整输入框高度，保持 Ant Design 其他样式不变 */
 .login-card .ant-input,
 .login-card .ant-input-affix-wrapper {
-  height: 56px !important;
+  height: 52px !important;
+  border-radius: 10px;
+  border-color: #e3e8f0;
+  background: #f7f9fc;
 }
 
 .login-card .ant-input-affix-wrapper {
   display: flex;
   align-items: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.login-card .ant-input-affix-wrapper:hover {
+  border-color: #b9c6e0;
+  background: #fff;
+}
+
+.login-card .ant-input-affix-wrapper-focused,
+.login-card .ant-input-affix-wrapper:focus-within {
+  border-color: #2f7bff;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(47, 123, 255, 0.12);
 }
 
 .login-card .ant-input-affix-wrapper input.ant-input {
@@ -89,48 +54,18 @@
 }
 
 .login-card .ant-btn {
-  height: 48px;
-  border-radius: 8px;
+  height: 50px;
+  border-radius: 10px;
   font-size: 16px;
-  font-weight: 500;
-  /* background 和 box-shadow 通过内联样式动态设置 */
+  font-weight: 600;
+  letter-spacing: 1px;
   border: none;
 }
 
 .login-card .ant-btn:hover {
-  /* background 和 box-shadow 通过内联样式动态设置 */
   transform: translateY(-1px);
 }
 
-.login-footer {
-  margin-top: 40px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 14px;
-}
-
-.login-footer p {
-  margin: 0;
-}
-
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .login-content {
-    max-width: 100%;
-  }
-  
-  .login-card {
-    padding: 30px 20px;
-  }
-  
-  .login-title {
-    font-size: 28px;
-  }
-}
-
-/* ==========================================================================
-   登录页共用：/login 与 /admin/login
-   全屏背景图 + 右侧白卡；默认图：public/images/login-hero.png（见 loginPageHeroStyle.ts）
-   ========================================================================== */
 .login-page {
   min-height: 100vh;
   width: 100%;
@@ -140,7 +75,6 @@
   justify-content: flex-end;
   box-sizing: border-box;
   overflow-x: hidden;
-  /* 右侧留白：整块登录区略向左（离右边缘更远一些） */
   padding-right: clamp(48px, 7vw, 112px);
 }
 
@@ -161,38 +95,51 @@
 }
 
 .login-page .login-page__header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
   text-align: left;
 }
 
 .login-page .login-page__card .login-header {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+}
+
+.login-page .login-page__brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 18px;
+  border-radius: 16px;
+  background: #f1f5fd;
+  box-shadow: inset 0 0 0 1px rgba(47, 123, 255, 0.12);
 }
 
 .login-page .login-page__title {
-  color: #141414;
-  font-size: 28px;
+  color: #0f172a;
+  font-size: 30px;
   font-weight: 700;
   margin: 0 0 8px 0;
   letter-spacing: -0.5px;
+  line-height: 1.2;
 }
 
 .login-page .login-page__subtitle {
-  color: #595959;
+  color: #64748b;
   font-size: 15px;
   margin: 0;
   font-weight: 400;
 }
 
 .login-page .login-page__card {
-  background: #ffffff !important;
-  backdrop-filter: none;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.08);
-  /* 白卡加高、内边距略增 */
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px -16px rgba(15, 40, 100, 0.18), 0 2px 8px rgba(15, 40, 100, 0.06);
   min-height: min(540px, 82vh);
-  padding: 48px 40px 44px;
+  padding: 48px 44px 40px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -205,6 +152,19 @@
   justify-content: center;
   min-height: 0;
   padding: 0 !important;
+}
+
+.login-page .login-card .ant-form-item.login-page__submit-item {
+  margin-bottom: 0;
+}
+
+.login-page__copyright {
+  margin: 20px 0 0;
+  padding: 0;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .login-page .login-page__footer {

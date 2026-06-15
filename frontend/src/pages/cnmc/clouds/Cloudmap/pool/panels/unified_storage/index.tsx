@@ -1,13 +1,15 @@
 /**
- * Cloudmap 池 — 集群 · 存储服务（`cluster/overview` 等）；聚合存储容量、存储池、RBD Mirror 与对象/RGW 能力。
+ * Cloudmap 池 — 集群 · 存储服务（`cluster/harvester_addon` 等）；对象/RGW 仍独立侧栏。
  */
 import React, { useEffect, useMemo } from 'react';
 import { Empty } from 'antd';
 import { canViewClusterStorageInner } from '../../lib/clusterPageAccess';
-import CloudmapStorageDashboardByBackend from '../resource_hub/CloudmapStorageDashboardByBackend';
-import CephPoolSection from '../../../../Harvester/ceph/sections/CephPoolSection';
-import CephHarvesterAddonSection from '../../../../Harvester/ceph/sections/CephHarvesterAddonSection';
-import CloudmapStorageCephRbdMirror from '../storage/CloudmapStorageCephRbdMirror';
+import UnifiedStorageConfigHubSection from '../../../../Harvester/ceph/sections/UnifiedStorageConfigHubSection';
+import {
+  legacyStorageConfigOperateTab,
+  parseStorageConfigFlatTabKey,
+} from '../../../../Harvester/ceph/sections/unifiedStorageConfig/unifiedStorageConfigUiConstants';
+import { isStorageConfigInnerSeg } from '../../../../Harvester/ceph/lib/storageResourcesNav';
 import CephObjectStorageSection from '../../../../Harvester/ceph/sections/CephObjectStorageSection';
 import RgwObjectStoreUsersSection from '../../../../Harvester/ceph/sections/RgwObjectStoreUsersSection';
 import RgwS3BucketsSection from '../../../../Harvester/ceph/sections/RgwS3BucketsSection';
@@ -34,10 +36,21 @@ const CloudmapUnifiedStorageRoutePanel: React.FC<CloudmapUnifiedStorageRoutePane
   innerActiveKey,
   loadTabResource,
 }) => {
+  const section = innerActiveKey;
+
   useEffect(() => {
-    if (!canViewUnifiedStorageInner(innerActiveKey, checkPerm)) return;
-    void loadTabResource(innerActiveKey, false);
-  }, [checkPerm, cloudId, innerActiveKey, loadTabResource]);
+    if (!canViewUnifiedStorageInner(section, checkPerm)) return;
+    if (
+      isStorageConfigInnerSeg(section) ||
+      section === 'overview' ||
+      section === 'rbd_mirror' ||
+      section === 'storage_pools'
+    ) {
+      void loadTabResource('harvester_addon', false);
+      return;
+    }
+    void loadTabResource(section, false);
+  }, [checkPerm, cloudId, loadTabResource, section]);
 
   const cephTabOnRefresh = useMemo(() => {
     const deps = { loadTabResource };
@@ -53,36 +66,32 @@ const CloudmapUnifiedStorageRoutePanel: React.FC<CloudmapUnifiedStorageRoutePane
     };
   }, [loadTabResource]);
 
-  if (!canViewUnifiedStorageInner(innerActiveKey, checkPerm)) {
+  if (!canViewUnifiedStorageInner(section, checkPerm)) {
     return <Empty description="无权限访问" style={{ marginTop: 48 }} />;
   }
 
-  switch (innerActiveKey) {
-    case 'overview':
-      return <CloudmapStorageDashboardByBackend cloudId={cloudId} />;
+  switch (section) {
     case 'harvester_addon':
-      return (
-        <CephHarvesterAddonSection
-          cloudId={cloudId}
-          onRefresh={cephTabOnRefresh.harvester_addon}
-          onDeployed={() => void loadTabResource('storage_pools', true, true)}
-        />
-      );
-    case 'storage_pools':
-      return (
-        <CephPoolSection
-          cloudId={cloudId}
-          applicationsScope="cloud"
-          onRefresh={cephTabOnRefresh.storage_pools}
-        />
-      );
+    case 'overview':
     case 'rbd_mirror':
+    case 'storage_pools': {
+      const legacyTab = legacyStorageConfigOperateTab(section);
+      const initialOperateTab =
+        legacyTab ??
+        (parseStorageConfigFlatTabKey(section) ? section : undefined);
       return (
-        <CloudmapStorageCephRbdMirror
+        <UnifiedStorageConfigHubSection
           cloudId={cloudId}
-          onRefresh={cephTabOnRefresh.rbd_mirror}
+          checkPerm={checkPerm}
+          loadTabResource={loadTabResource}
+          onRefreshAddon={cephTabOnRefresh.harvester_addon}
+          onRefreshPools={cephTabOnRefresh.storage_pools}
+          onRefreshRbdMirror={cephTabOnRefresh.rbd_mirror}
+          onDeployed={() => void loadTabResource('storage_pools', true, true)}
+          initialOperateTab={initialOperateTab}
         />
       );
+    }
     case 'rgw_s3_buckets':
       return (
         <RgwS3BucketsSection

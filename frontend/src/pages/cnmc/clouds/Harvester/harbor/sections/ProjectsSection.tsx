@@ -1,11 +1,12 @@
 /**
  * Harbor 项目管理 Section
  *
- * 展示 Harbor 项目列表，支持创建、编辑、删除项目
+ * 展示 Harbor 项目列表，支持创建、删除项目
+ * 支持租户关联和项目隔离功能
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Card, Button, Space, Tag, Input, Modal, Form, Select, App, Empty } from 'antd';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Table, Card, Button, Space, Tag, Input, Modal, Form, Select, App, Empty, Alert } from 'antd';
 import {
   PlusOutlined,
   ReloadOutlined,
@@ -13,23 +14,41 @@ import {
   LockOutlined,
   UnlockOutlined,
 } from '@ant-design/icons';
-import type { HarborRegistry, HarborProject, HarborProjectForm } from '../types';
+import type { HarborRegistry, HarborProjectForm } from '../types';
+import type { HarborProjectWithTenant } from '../types';
 import { getHarborProjects, createHarborProject, deleteHarborProject } from '../shared/harborApi';
+import { isHarborProjectPublic } from '../shared/projectVisibility';
+import { getApiErrorMessage } from '../../../../../../services/api';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 
 interface Props {
   harbor: HarborRegistry;
-  onViewProject?: (project: HarborProject) => void;
+  onViewProject?: (project: HarborProjectWithTenant) => void;
 }
 
 const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [projects, setProjects] = useState<HarborProject[]>([]);
+  const [projects, setProjects] = useState<HarborProjectWithTenant[]>([]);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState('');
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [form] = Form.useForm();
+
+  // 判断当前用户是否为系统管理员
+  const isSystemAdmin = useMemo(() => {
+    const role = (user as any)?.role;
+    return role === 'super_admin' || role === 'admin';
+  }, [user]);
+
+  // 判断是否为平台内置 Harbor
+  const isBuiltInHarbor = harbor.isBuiltIn;
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -69,24 +88,53 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
     [harbor.id, message, form, loadProjects],
   );
 
+  // 判断是否可删除项目
+  const canDeleteProject = useCallback(
+    (project: HarborProjectWithTenant) => {
+      // 系统管理员可以删除任何项目
+      if (user?.role === 'super_admin' || user?.role === 'admin') return true;
+      // 用户自建 Harbor，允许删除
+      if (!isBuiltInHarbor) return true;
+      // 平台内置 Harbor：
+      // 1. 项目管理员（role_id=1）可删除
+      // 2. 项目创建者（isOwner=true）可删除
+      const canDelete = project.currentUserRole === 1 || project.isOwner === true;
+      return canDelete;
+    },
+    [isBuiltInHarbor, user?.role],
+  );
+
   const handleDelete = useCallback(
-    (project: HarborProject) => {
-      modal.confirm({
-        title: '确认删除',
-        content: `确定要删除项目 "${project.name}" 吗？删除后不可恢复。`,
-        okType: 'danger',
-        onOk: async () => {
+    (project: HarborProjectWithTenant) => {
+      // 权限校验
+      if (!canDeleteProject(project)) {
+        message.error('只有项目管理员才能删除项目');
+        return;
+      }
+
+      void confirmHighRiskDelete({
+        resourceLabel: '项目',
+        name: project.name,
+        description: `确定要删除项目 "${project.name}" 吗？删除后不可恢复。`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
+          if ((project.repoCount ?? 0) > 0) {
+            message.error(
+              `无法删除项目「${project.name}」：项目下仍有 ${project.repoCount} 个镜像仓库。请先进入该项目，删除全部仓库与镜像后再试。`,
+            );
+            return;
+          }
           try {
-            await deleteHarborProject(harbor.id, project.name);
+            await deleteHarborProject(harbor.id, project);
             message.success('项目已删除');
             loadProjects();
-          } catch (e: any) {
-            message.error(e?.message || '删除项目失败');
+          } catch (e: unknown) {
+            message.error(getApiErrorMessage(e, '删除项目失败'));
           }
         },
-      });
+      }).catch(() => {});
     },
-    [harbor.id, message, modal, loadProjects],
+    [harbor.id, message, loadProjects, canDeleteProject],
   );
 
   const columns = [
@@ -94,21 +142,52 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
       title: '项目名称',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, record: HarborProject) => (
+      render: (name: string, record: HarborProjectWithTenant) => (
         <a onClick={() => onViewProject?.(record)}>{name}</a>
       ),
+    },
+    {
+      title: '所属租户',
+      dataIndex: 'tenantId',
+      key: 'tenantId',
+      width: 150,
+      render: (tenantId: string | undefined, record: HarborProjectWithTenant) => {
+        if (record.public) {
+          return <Tag color="green">公共项目</Tag>;
+        }
+        if (tenantId) {
+          return <span>{record.tenantName || tenantId}</span>;
+        }
+        return <Tag color="default">未关联</Tag>;
+      },
     },
     {
       title: '访问级别',
       key: 'public',
       width: 120,
-      render: (_: any, record: HarborProject) => {
-        const isPublic = record.metadata?.public === 'public';
+      render: (_: any, record: HarborProjectWithTenant) => {
+        const isPublic = isHarborProjectPublic(record);
         return (
           <Tag color={isPublic ? 'green' : 'blue'} icon={isPublic ? <UnlockOutlined /> : <LockOutlined />}>
             {isPublic ? '公开' : '私有'}
           </Tag>
         );
+      },
+    },
+    {
+      title: '我的角色',
+      dataIndex: 'currentUserRole',
+      key: 'currentUserRole',
+      width: 120,
+      render: (roleId: number | undefined) => {
+        const roleMap: Record<number, { name: string; color: string }> = {
+          1: { name: '只读', color: 'default' },
+          2: { name: '开发者', color: 'blue' },
+          3: { name: '管理员', color: 'orange' },
+          4: { name: '项目管理员', color: 'red' },
+        };
+        const role = roleId ? roleMap[roleId] : undefined;
+        return role ? <Tag color={role.color}>{role.name}</Tag> : '-';
       },
     },
     {
@@ -136,25 +215,23 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
       title: '操作',
       key: 'actions',
       width: 80,
-      render: (_: any, record: HarborProject) => {
-        const items = [
+      render: (_: any, record: HarborProjectWithTenant) => {
+        const items: any[] = [
           {
             key: 'repositories',
             label: '查看详情',
             onClick: () => onViewProject?.(record),
           },
-          {
-            key: 'edit',
-            label: '编辑',
-            onClick: () => message.info('编辑功能开发中'),
-          },
-          {
+        ];
+        // 只有有权限的用户才显示删除按钮
+        if (canDeleteProject(record)) {
+          items.push({
             key: 'delete',
             label: '删除',
             danger: true,
             onClick: () => handleDelete(record),
-          },
-        ];
+          });
+        }
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
     },
@@ -210,6 +287,14 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
           form.resetFields();
         }}
       >
+        {!isSystemAdmin && isBuiltInHarbor && (
+          <Alert
+            message="租户用户只能创建私有项目"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ public: 0 }}>
           <Form.Item
             name="projectName"
@@ -224,9 +309,10 @@ const ProjectsSection: React.FC<Props> = ({ harbor, onViewProject }) => {
           <Form.Item name="public" label="访问级别">
             <Select
               options={[
+                ...(isSystemAdmin ? [{ label: '公开（所有租户可访问）', value: 1 }] : []),
                 { label: '私有（仅项目成员可访问）', value: 0 },
-                { label: '公开（所有人可访问）', value: 1 },
               ]}
+              disabled={!isSystemAdmin && isBuiltInHarbor}
             />
           </Form.Item>
           <Form.Item name="storageLimit" label="存储配额（GB）">

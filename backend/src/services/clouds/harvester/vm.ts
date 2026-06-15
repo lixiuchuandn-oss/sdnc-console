@@ -371,7 +371,7 @@ export const listHarvesterVMsStandard = async ({
     }
 
     // Node
-    const nodeName = vm?.status?.nodeName || vmi?.status?.nodeName || '';
+    const nodeName = vmi?.status?.nodeName || vm?.status?.nodeName || '';
 
     // Networks (Parse Multus annotations)
     const networksArr: any[] = Array.isArray(vm?.spec?.template?.spec?.networks)
@@ -1034,7 +1034,7 @@ export const syncVmVolumeSize = async (
  * @param instanceId 实例标识（支持多种格式）
  * @returns 解析后的命名空间和名称，解析失败返回 null
  */
-const resolveVmPath = async (
+export const resolveVmPath = async (
   { endpoint, token, insecure = false }: HarvesterTestParams,
   instanceId: string,
 ): Promise<{ namespace: string; name: string } | null> => {

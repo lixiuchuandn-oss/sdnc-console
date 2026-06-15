@@ -25,11 +25,24 @@ export interface SecurityDomainPayload {
   tenantId?: string;
   organizationId?: string;
   status?: string;
-  securityServiceIds?: string;
+  roleKind?: 'internetwork_routing' | 'csm_mirror';
+  csmCloudId?: string;
+  csmOrgId?: string;
+  linkedCsmSecurityDomainId?: string;
+  discoveryMode?: 'cloud_api' | 'vr_scan' | 'hybrid';
 }
 
-export const listSecurityDomains = async (): Promise<any[]> => {
-  const res = await apiRequest('/api/security-domains');
+export type ListSecurityDomainsQuery = {
+  roleKind?: 'internetwork_routing' | 'csm_mirror';
+  orchestratable?: boolean;
+};
+
+export const listSecurityDomains = async (query?: ListSecurityDomainsQuery): Promise<any[]> => {
+  const params = new URLSearchParams();
+  if (query?.roleKind) params.set('roleKind', query.roleKind);
+  if (query?.orchestratable) params.set('orchestratable', '1');
+  const qs = params.toString();
+  const res = await apiRequest(`/api/security-domains${qs ? `?${qs}` : ''}`);
   return Array.isArray(res) ? res : (res?.data || []);
 };
 
@@ -47,4 +60,58 @@ export const updateSecurityDomain = async (id: string, payload: Partial<Security
 
 export const deleteSecurityDomain = async (id: string): Promise<any> => {
   return await apiDelete(`/api/security-domains/${id}`);
+};
+
+export type VrSuggestReason = {
+  code: string;
+  message: string;
+};
+
+export type VrSuggestItem = {
+  vrUuid: string;
+  name: string;
+  score: number;
+  reasons: VrSuggestReason[];
+  instanceId?: string;
+  privateIp?: string;
+  vmId?: string;
+};
+
+export type SuggestVrTerminalSummary = {
+  instanceId: string;
+  instanceName?: string;
+  privateIp?: string;
+};
+
+export type SuggestVrResponse = {
+  terminals: {
+    count: number;
+    vpcCidr?: string;
+    source?: 'inventory' | 'inventory_fuzzy' | 'live_cloud_api';
+    items?: SuggestVrTerminalSummary[];
+  };
+  suggestions: VrSuggestItem[];
+  hints?: string[];
+  autoSuggestVrUuid?: string;
+};
+
+export const suggestVrForSecurityDomain = async (query: {
+  cloudId: string;
+  vpcId: string;
+  tenantId?: string;
+  organizationId?: string;
+  excludeDomainId?: string;
+  vpcCidr?: string;
+}): Promise<SuggestVrResponse> => {
+  const params = new URLSearchParams();
+  params.set('cloudId', query.cloudId);
+  params.set('vpcId', query.vpcId);
+  if (query.tenantId) params.set('tenantId', query.tenantId);
+  if (query.organizationId) params.set('organizationId', query.organizationId);
+  if (query.excludeDomainId) params.set('excludeDomainId', query.excludeDomainId);
+  if (query.vpcCidr) params.set('vpcCidr', query.vpcCidr);
+  const res = await apiRequest(`/api/security-domains/suggest-vr?${params.toString()}`, {
+    skipCache: true,
+  });
+  return (res?.data ?? res) as SuggestVrResponse;
 };

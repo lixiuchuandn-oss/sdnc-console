@@ -19,6 +19,8 @@ export interface RouteSpec {
   parentId?: string;
   subtitle?: string;
   requiredFeature?: string;
+  /** 仅指定授权版本可访问（如租户组织/用户页仅 enterprise） */
+  requiredLicenseType?: 'enterprise';
   /** @deprecated 标记为废弃的路由 */
   deprecated?: boolean;
   /**
@@ -313,6 +315,7 @@ export const routeSpecs: RouteSpec[] = [
     },
     order: 1,
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
     homePagePriority: 4
   },
   {
@@ -323,7 +326,7 @@ export const routeSpecs: RouteSpec[] = [
     platform: 'TENANTS',
     group: '租户管理',
     title: '组织管理',
-    subtitle: '管理租户下的组织架构树，支持创建多级组织、分配组织用户、配置计算资源配额，实现基于组织架构的权限隔离与资源分配。',
+    subtitle: '管理租户下的组织架构树，支持创建多级组织、分配租户组织用户、配置计算资源配额，实现基于组织架构的权限隔离与资源分配。',
     breadcrumbLabel: '组织管理',
     hidden: true,
     parentId: 'tenants-list',
@@ -333,6 +336,7 @@ export const routeSpecs: RouteSpec[] = [
       write: 'organizations:write'
     },
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
   },
   {
     id: 'tenant-users',
@@ -341,8 +345,8 @@ export const routeSpecs: RouteSpec[] = [
     layout: 'admin',
     platform: 'TENANTS',
     group: '租户管理',
-    title: '组织用户管理',
-    subtitle: '管理租户下的组织用户账号，支持创建、编辑、删除用户，分配角色权限，按租户、组织、角色、状态等维度进行筛选和批量操作。',
+    title: '租户组织用户管理',
+    subtitle: '管理租户下的租户组织用户账号，支持创建、编辑、删除用户，分配租户组织角色，按租户、组织、角色、状态等维度进行筛选和批量操作。',
     icon: 'UserSwitchOutlined',
     requiredActions: {
       page: 'tenant-users:read',
@@ -351,6 +355,7 @@ export const routeSpecs: RouteSpec[] = [
     },
     order: 3,
     requiredFeature: 'sys.tenant-mgmt',
+    requiredLicenseType: 'enterprise',
     homePagePriority: 5
   },
 
@@ -423,19 +428,55 @@ export const routeSpecs: RouteSpec[] = [
   // SDNCC 平台 (SDN 控制中心)
   // ============================================================================
   
-  // Group: 安全管理面（级联、应用等；安全域/安全服务已归「流量编排」）
+  // Group: 跨域互联（网际路由域枢纽 · 邻居 · 应用；规格见 docs/internetwork-routing-domain.md §11）
 
+  {
+    id: 'security-domain',
+    path: '/admin/sec-mgr-plane/security-domain',
+    element: 'SecurityDomainPage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '跨域互联',
+    title: '网际路由域',
+    subtitle: 'SDN 编排枢纽：防护目标网络、资产与应用归属，关联 CSM 安全域与 IBR 引流。',
+    icon: 'ClusterOutlined',
+    order: 1,
+    requiredActions: {
+      page: 'networks.security-domain:read',
+      read: 'networks.security-domain:read',
+      write: 'networks.security-domain:write',
+    },
+    requiredFeature: 'sdn.cascade',
+  },
+  {
+    id: 'security-domain-detail',
+    path: '/admin/sec-mgr-plane/security-domain/:id',
+    element: 'SecurityDomainDetail',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: '跨域互联',
+    title: '网际路由域详情',
+    breadcrumbLabel: '详情',
+    hidden: true,
+    parentId: 'security-domain',
+    requiredActions: {
+      page: 'networks.security-domain:read',
+      read: 'networks.security-domain:read',
+      write: 'networks.security-domain:write',
+    },
+    requiredFeature: 'sdn.cascade',
+  },
   {
     id: 'cascade-channels',
     path: '/admin/sec-mgr-plane/cascade-channels',
     element: 'CENPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '安全管理面',
-    title: '级联通道管理',
-    subtitle: '跨地域与跨云的 CEN 互联通道，支持 Mesh 与 Hub-Spoke，监控通道状态、丢包、时延与 SLA。',
+    group: '跨域互联',
+    title: '邻居管理',
+    subtitle: '网际路由域之间的邻接关系（原级联通道），支持 Mesh 与 Hub-Spoke，监控互联状态与 SLA。',
     icon: 'ShareAltOutlined',
-    order: 1,
+    order: 2,
     requiredActions: {
       page: 'networks.cen:read',
       read: 'networks.cen:read',
@@ -449,8 +490,8 @@ export const routeSpecs: RouteSpec[] = [
     element: 'CENDetailPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '安全管理面',
-    title: '级联通道详情',
+    group: '跨域互联',
+    title: '邻居详情',
     breadcrumbLabel: '详情',
     hidden: true,
     parentId: 'cascade-channels',
@@ -467,11 +508,11 @@ export const routeSpecs: RouteSpec[] = [
     element: 'SecurityApps',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '安全管理面',
+    group: '跨域互联',
     title: '应用管理',
     subtitle: '微隔离场景下的应用纳管、服务发现与访问策略配置，落实零信任模型下的隔离与访问控制。',
     icon: 'AppstoreAddOutlined',
-    order: 2,
+    order: 3,
     requiredActions: {
       page: 'security.apps:read',
       read: 'security.apps:read',
@@ -481,16 +522,17 @@ export const routeSpecs: RouteSpec[] = [
   },
 
 
-  // Group: 跨域互联
+  // Group: IBR 管理（Internet Border Router · 网际路由器及 SRv6/IPsec/ACL/NAT 能力）
+
   {
     id: 'interconnect-vr',
     path: '/admin/interconnect/vr',
     element: 'VRPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
-    title: 'VR实例管理',
-    subtitle: '虚拟路由连接多云与异构网络，提供跨域转发、BGP/静态路由、策略下发与运行监控。',
+    group: 'IBR管理',
+    title: '网际路由器',
+    subtitle: 'IBR 实例：跨域转发、BGP/静态路由、角色模式与配置下发，作为网际路由域引流锚点。',
     icon: 'GatewayOutlined',
     order: 1,
     requiredActions: {
@@ -506,8 +548,8 @@ export const routeSpecs: RouteSpec[] = [
     element: 'AddVRInstance',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
-    title: '新增 VR 实例',
+    group: 'IBR管理',
+    title: '新增网际路由器',
     breadcrumbLabel: '新增 VR 实例',
     parentId: 'interconnect-vr',
     hidden: true,
@@ -524,7 +566,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'EditVRConfig',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '专家模式',
     breadcrumbLabel: '专家模式',
     subtitle: '分步查询、编辑与下发 VR 配置，支持预览、分段编辑、配置点启停及保存到平台或直发设备。',
@@ -544,7 +586,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'PEWizard',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '设置角色（PE模式）',
     breadcrumbLabel: '设置角色（PE模式）',
     parentId: 'interconnect-vr',
@@ -564,7 +606,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'CEWizard',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '设置角色（CE模式）',
     breadcrumbLabel: '设置角色（CE模式）',
     parentId: 'interconnect-vr',
@@ -584,7 +626,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'StandardWizard',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '设置角色（标准模式）',
     breadcrumbLabel: '设置角色（标准模式）',
     parentId: 'interconnect-vr',
@@ -604,7 +646,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'SASEWizard',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '设置角色（SASE模式）',
     subtitle: 'SASE 模式：安全访问服务边缘参数，支撑零信任接入与统一安全策略编排。',
     breadcrumbLabel: '设置角色（SASE模式）',
@@ -624,7 +666,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'SRv6Page',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: 'SRv6隧道',
     subtitle: '基于 IPv6 的 SRv6 段路由，用于灵活选路、流量工程与业务路径编排。',
     icon: 'NodeIndexOutlined',
@@ -642,7 +684,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'IPsecVPNPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: 'IPsecVPN',
     subtitle: 'IKEv1/v2 加密站点隧道，支持拓扑可视、配置审计与连接状态监控。',
     icon: 'LockOutlined',
@@ -660,7 +702,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'IPsecVPNWizard',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '新建IPsecVPN连接',
     breadcrumbLabel: '新建连接',
     parentId: 'interconnect-ipsec',
@@ -678,7 +720,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'IPsecVPNWizard',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: '编辑IPsecVPN连接',
     breadcrumbLabel: '编辑连接',
     parentId: 'interconnect-ipsec',
@@ -696,7 +738,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'ACLPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: 'ACL 访问控制',
     subtitle: '按优先级的 ACL，匹配源/目的地址与端口，支持 TCP、UDP、ICMP 等协议过滤。',
     icon: 'FileTextOutlined',
@@ -714,7 +756,7 @@ export const routeSpecs: RouteSpec[] = [
     element: 'NATPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '跨域互联',
+    group: 'IBR管理',
     title: 'NAT 网关',
     subtitle: 'SNAT、DNAT 与静态映射，完成私网与公网地址转换，支持接口与地址段绑定。',
     icon: 'SwapOutlined',
@@ -727,54 +769,18 @@ export const routeSpecs: RouteSpec[] = [
     requiredFeature: 'sdn.interconnect',
   },
 
-  // Group: 流量编排
-  {
-    id: 'security-domain',
-    path: '/admin/sec-mgr-plane/security-domain',
-    element: 'SecurityDomainPage',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全域规划',
-    subtitle: '统一管理多云安全域边界，逻辑隔离 VPC、办公与扁平网络，支撑策略编排与全生命周期运维。',
-    icon: 'ClusterOutlined',
-    order: 0,
-    requiredActions: {
-      page: 'networks.security-domain:read',
-      read: 'networks.security-domain:read',
-      write: 'networks.security-domain:write'
-    },
-    requiredFeature: 'sdn.cascade',
-  },
-  {
-    id: 'security-domain-detail',
-    path: '/admin/sec-mgr-plane/security-domain/:id',
-    element: 'SecurityDomainDetail',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全域详情',
-    breadcrumbLabel: '详情',
-    hidden: true,
-    parentId: 'security-domain',
-    requiredActions: {
-      page: 'networks.security-domain:read',
-      read: 'networks.security-domain:read',
-      write: 'networks.security-domain:write'
-    },
-    requiredFeature: 'sdn.cascade',
-  },
+  // Group: CSM 管理（资源池 · 跨池安全服务；服务链无顶层菜单，见网际路由域详情 → CSM 安全域）
   {
     id: 'traffic-csm-pools',
     path: '/admin/security/traffic/csm-pools',
     element: 'CsmPoolsPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全资源池',
-    subtitle: '接入与管理 CSM 安全控制面资源池，与多云资源池解耦，在流量编排域统一维护。',
-    icon: 'SafetyCertificateOutlined',
-    order: 2,
+    group: 'CSM管理',
+    title: '资源池管理',
+    subtitle: '接入与管理 CSM 安全控制面资源池，支持连接测试、编辑与批量删除。',
+    icon: 'CloudUploadOutlined',
+    order: 1,
     requiredActions: {
       page: 'security.services:read',
       read: 'security.services:read',
@@ -783,30 +789,12 @@ export const routeSpecs: RouteSpec[] = [
     requiredFeature: 'sdn.traffic',
   },
   {
-    id: 'security-services',
-    path: '/admin/sec-mgr-plane/security-services',
-    element: 'SecurityServices',
-    layout: 'admin',
-    platform: 'SDNCC',
-    group: '流量编排',
-    title: '安全服务',
-    subtitle: '纳管 CSM 安全网元（防火墙、IPS、WAF 等），覆盖分配、状态监控、配置与资源生命周期。',
-    icon: 'SafetyCertificateOutlined',
-    order: 1,
-    requiredActions: {
-      page: 'security.services:read',
-      read: 'security.services:read',
-      write: 'security.services:write'
-    },
-    requiredFeature: 'sdn.cascade',
-  },
-  {
     id: 'traffic-csm-pool-detail',
     path: '/admin/security/traffic/csm-pools/:cloudId',
     element: 'CsmPoolDetailPage',
     layout: 'admin',
     platform: 'SDNCC',
-    group: '流量编排',
+    group: 'CSM管理',
     title: 'CSM 资源池详情',
     breadcrumbLabel: '详情',
     hidden: true,
@@ -817,6 +805,25 @@ export const routeSpecs: RouteSpec[] = [
       write: 'security.services:write',
     },
     requiredFeature: 'sdn.traffic',
+  },
+
+  {
+    id: 'security-services',
+    path: '/admin/sec-mgr-plane/security-services',
+    element: 'SecurityServices',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: 'CSM管理',
+    title: '安全服务管理',
+    subtitle: '跨 CSM 资源池的安全网元组目录，覆盖分配、状态监控与 KPI（防火墙、IPS、WAF 等）。',
+    icon: 'SafetyCertificateOutlined',
+    order: 2,
+    requiredActions: {
+      page: 'security.services:read',
+      read: 'security.services:read',
+      write: 'security.services:write'
+    },
+    requiredFeature: 'sdn.cascade',
   },
   // ============================================================================
   // CNSOC 平台 (AI SOC 安全运营中心)

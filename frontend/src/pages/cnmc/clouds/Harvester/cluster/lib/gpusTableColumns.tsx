@@ -164,12 +164,6 @@ export function buildGpusTableColumns(actions: GpusTableActions): ColumnsType<Gp
       render: (_: unknown, r) => {
         const items = [
           ...(!isTenant ? [{ key: 'view_yaml', label: '查看YAML', onClick: () => onOpenYaml(r) }] : []),
-          ...(r?.claimRaw
-            ? [{ key: 'binding', label: '查看绑定', onClick: () => onOpenYaml(r.claimRaw as GpuRow) }]
-            : []),
-          ...(r?.links?.view
-            ? [{ key: 'view', label: '查看 SourceData', onClick: () => window.open(r.links!.view!, '_blank') }]
-            : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },

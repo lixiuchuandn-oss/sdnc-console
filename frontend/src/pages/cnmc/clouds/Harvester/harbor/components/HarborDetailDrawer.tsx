@@ -11,8 +11,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Drawer, Tabs, Spin, message } from 'antd';
-import { getHarborRegistry, testHarborConnection } from '../shared/harborApi';
-import type { HarborRegistry, HarborProject } from '../types';
+import { getHarborRegistry, testHarborConnection, setHarborApiCloudId } from '../shared/harborApi';
+import type { HarborRegistry, HarborProjectWithTenant } from '../types';
 
 const HarborIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
   <svg
@@ -41,7 +41,7 @@ interface Props {
   harborId: string;
   cloudId: string;
   onClose: () => void;
-  onOpenProject?: (project: HarborProject) => void;
+  onOpenProject?: (project: HarborProjectWithTenant) => void;
 }
 
 /**
@@ -65,7 +65,7 @@ const HarborDetailDrawer: React.FC<Props> = ({
     if (!harborId || !visible) return;
     setLoading(true);
     try {
-      const res = await getHarborRegistry(harborId);
+      const res = await getHarborRegistry(harborId, cloudId);
       setHarbor(res);
     } catch (e: any) {
       console.error('加载 Harbor 信息失败:', e);
@@ -73,7 +73,7 @@ const HarborDetailDrawer: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [harborId, visible]);
+  }, [harborId, cloudId, visible]);
 
   /**
    * 测试连接
@@ -82,7 +82,7 @@ const HarborDetailDrawer: React.FC<Props> = ({
     if (!harborId) return;
     const hide = message.loading('正在测试连接...', 0);
     try {
-      const res = await testHarborConnection(harborId);
+      const res = await testHarborConnection(harborId, cloudId);
       hide();
       if (res?.success) {
         message.success('连接测试成功');
@@ -97,7 +97,18 @@ const HarborDetailDrawer: React.FC<Props> = ({
       message.error(e?.message || '连接测试失败');
       setHarbor(prev => prev ? { ...prev, status: 'unhealthy' } : null);
     }
-  }, [harborId]);
+  }, [harborId, cloudId]);
+
+  useEffect(() => {
+    if (visible && cloudId) {
+      setHarborApiCloudId(cloudId);
+    }
+    return () => {
+      if (visible) {
+        setHarborApiCloudId(undefined);
+      }
+    };
+  }, [visible, cloudId]);
 
   /**
    * 导航到上传镜像 Tab
@@ -194,7 +205,7 @@ const HarborDetailDrawer: React.FC<Props> = ({
               label: '设置',
               children: (
                 <React.Suspense fallback={<Spin />}>
-                  <SettingsSection harbor={harbor} onRefresh={loadHarbor} />
+                  <SettingsSection harbor={harbor} cloudId={cloudId} onRefresh={loadHarbor} />
                 </React.Suspense>
               ),
             },

@@ -1,15 +1,17 @@
 /**
- * CSM 安全资源池详情侧栏：与 `sdncc/traffic/CsmPools/CloudDetailCsm` Tabs 一致，URL 使用 `?tab=`。
+ * CSM 安全资源池详情侧栏：与 `sdncc/csm/pools/CloudDetailCsm` Tabs 一致，URL 使用 `?tab=`。
  * 路径：`/admin/security/traffic/csm-pools/:cloudId` 时由 AdminLayout 注入。
  */
 import { createElement, type ReactNode } from 'react';
 import {
+  ClusterOutlined,
   DeploymentUnitOutlined,
   DesktopOutlined,
   FileTextOutlined,
   LeftOutlined,
   NodeIndexOutlined,
   SafetyCertificateOutlined,
+  TeamOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import type { AdminSidebarCenter } from '../AdminSidebar';
@@ -32,6 +34,8 @@ export const CSM_POOL_TAB_KEYS = [
   'groups',
   'serviceChains',
   'policies',
+  'securityDomains',
+  'tenants',
 ] as const;
 
 export type CsmPoolTabKey = (typeof CSM_POOL_TAB_KEYS)[number];
@@ -44,6 +48,8 @@ const TAB_LABEL: Record<CsmPoolTabKey, string> = {
   groups: '安全网元组',
   serviceChains: '服务链',
   policies: '阻断策略',
+  securityDomains: 'CSM 安全域',
+  tenants: '租户',
 };
 
 const TAB_ICON: Record<CsmPoolTabKey, ReactNode> = {
@@ -54,6 +60,8 @@ const TAB_ICON: Record<CsmPoolTabKey, ReactNode> = {
   groups: createElement(SafetyCertificateOutlined),
   serviceChains: createElement(UnorderedListOutlined),
   policies: createElement(FileTextOutlined),
+  securityDomains: createElement(ClusterOutlined),
+  tenants: createElement(TeamOutlined),
 };
 
 export function parseCsmPoolDetailId(pathname: string): string | null {

@@ -7,6 +7,10 @@ import {
   resolvePoolTypeLabel,
   getCloudProviderRegionField,
 } from '../../../../pools/lib/poolProviders';
+import {
+  CSM_WEB_PASSWORD_HELP,
+  mergeCsmWebAuthIntoConfig,
+} from '../../../../pools/lib/csmWebAuthConfig';
 import { provinces, cityOptionsByProvince } from '../../../../../../constants/chinaRegions';
 
 interface CloudEditModalProps {
@@ -120,15 +124,18 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         regionInit = parseStoredRegionForCascader(cloud.region);
       }
 
+      const cfg = (cloud as any)?.config || {};
       form.setFieldsValue({
         name: cloud.name,
         description: cloud.description,
         region: regionInit,
         endpoint: cloud.endpoint,
         accessKey: isCloudmapPrivate ? '' : cloud.accessKey || '',
-        secretKey: cloud.secretKey || (cloud as any)?.config?.apiToken || '',
-        ignoreTls: cloud?.config?.ignoreTls !== undefined ? !!cloud?.config?.ignoreTls : true,
-        harvesterVersion: cloud?.config?.harvesterVersion || 'auto',
+        secretKey: cloud.secretKey || cfg.apiToken || '',
+        ignoreTls: cfg.ignoreTls !== undefined ? !!cfg.ignoreTls : true,
+        harvesterVersion: cfg.harvesterVersion || 'auto',
+        csmRepairUsername: cfg.csmRepairUsername || 'admin',
+        csmRepairPassword: '',
       });
     }
   }, [visible, cloud, form]);
@@ -160,12 +167,19 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
         submitData.secretKey = values.secretKey;
       }
 
-      submitData.config = {
+      let mergedConfig: Record<string, unknown> = {
         ...prevCfg,
         ignoreTls: !!values.ignoreTls,
         harvesterVersion: isCloudmapPrivate ? '1.6' : values.harvesterVersion || prevCfg.harvesterVersion || 'auto',
         provider: prevCfg.provider,
       };
+      if (pv === 'cloudmap.csm') {
+        mergedConfig = mergeCsmWebAuthIntoConfig(mergedConfig, {
+          csmRepairUsername: values.csmRepairUsername,
+          csmRepairPassword: values.csmRepairPassword,
+        });
+      }
+      submitData.config = mergedConfig;
 
       await apiPut(`/api/clouds/${cloud.id}`, submitData);
 
@@ -332,6 +346,26 @@ const CloudEditModal: React.FC<CloudEditModalProps> = ({ visible, onCancel, onSu
               </>
             );
           })()}
+
+          {providerId === 'cloudmap.csm' && (
+            <>
+              <div className="modal-group-title">运营控制台（租户查询等）</div>
+              <Form.Item name="csmRepairUsername" label="控制台用户名">
+                <Input placeholder="admin" autoComplete="off" />
+              </Form.Item>
+              <Form.Item
+                name="csmRepairPassword"
+                label="控制台密码"
+                extra={
+                  <span style={{ fontSize: 12 }}>
+                    {CSM_WEB_PASSWORD_HELP}留空表示不修改已保存密码。
+                  </span>
+                }
+              >
+                <Input.Password autoComplete="new-password" placeholder="留空不修改" />
+              </Form.Item>
+            </>
+          )}
 
           <div className="modal-group-title">高级选项</div>
           <Form.Item name="ignoreTls" label="忽略TLS证书校验" valuePropName="checked">

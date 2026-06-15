@@ -24,6 +24,7 @@ export type VolumeCloneModalProps = {
   onCloneSuccess?: () => void;
   onBranchToCreateVolume: (seed: VolumeCreateSeed) => void;
   isTenant?: boolean;
+  tenantDefaultNamespace?: string;
 };
 
 type CloneFormValues = { newName: string; cloneData: boolean };
@@ -39,6 +40,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
   onCloneSuccess,
   onBranchToCreateVolume,
   isTenant = false,
+  tenantDefaultNamespace,
 }) => {
   const { message } = App.useApp();
   const [form] = Form.useForm<CloneFormValues>();
@@ -71,11 +73,14 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
           onCloneSuccess?.();
         } else {
           const defaultSc = pickExportTargetStorageClass(storageClasses);
+          const preferredTenantNs = String(tenantDefaultNamespace || '').trim();
           const defaultNs = !isTenant
             ? nsOptions.length > 0
               ? nsOptions[0].value
               : source.namespace
-            : 'default';
+            : preferredTenantNs && nsOptions.some((o) => o.value === preferredTenantNs)
+              ? preferredTenantNs
+              : nsOptions[0]?.value || source.namespace;
           onCancel();
           onBranchToCreateVolume({
             alias: values.newName,
@@ -97,6 +102,7 @@ const VolumeCloneModal: React.FC<VolumeCloneModalProps> = ({
       cloudId,
       message,
       isTenant,
+      tenantDefaultNamespace,
       nsOptions,
       onBranchToCreateVolume,
       onCancel,

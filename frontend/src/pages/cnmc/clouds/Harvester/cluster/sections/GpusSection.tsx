@@ -47,15 +47,19 @@ const GpuSection: React.FC<Props> = ({
   const [drawerTab, setDrawerTab] = useState('detail');
 
   const handleOpenYaml = useCallback((record: GpuRow) => {
-    setDrawerRecord({ ...record, kind: record?.kind || 'GPUDevice' });
+    const type = String(record?.type || '').toLowerCase();
+    const kind =
+      type === 'passthrough' || type === 'sriov'
+        ? 'PCIDevice'
+        : type === 'vgpu'
+          ? 'KubeVirt'
+          : record?.kind || 'GPUDevice';
+    setDrawerRecord({ ...record, kind });
     setDrawerTab('detail');
     setDrawerOpen(true);
   }, []);
 
-  const handleToolbarRefresh = useMemo(
-    () => createClusterToolbarRefresh(onRefresh),
-    [onRefresh],
-  );
+  const handleToolbarRefresh = useMemo(() => createClusterToolbarRefresh(onRefresh), [onRefresh]);
 
   const filtered = useMemo(
     () =>
@@ -76,7 +80,10 @@ const GpuSection: React.FC<Props> = ({
     [handleOpenYaml, isTenant],
   );
 
-  const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_gpus_table');
+  const { displayColumns: tableColumns } = useTableColumnSettings(
+    allColumns,
+    'harvester_gpus_table',
+  );
 
   return (
     <>

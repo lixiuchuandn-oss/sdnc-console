@@ -1,0 +1,20 @@
+{
+  "id": "fixture-terminal-failed-60",
+  "description": "ImportFailed at 60% is terminal failure",
+  "record": {
+    "metadata": { "name": "img-fix-fail", "namespace": "default" },
+    "spec": { "sourceType": "download" },
+    "status": {
+      "progress": 60,
+      "conditions": [
+        { "type": "Imported", "status": "False", "reason": "ImportFailed", "message": "cdi error" }
+      ]
+    }
+  },
+  "expect": {
+    "listStateKey": "failed",
+    "importComplete": false,
+    "terminalFailure": true,
+    "activeImportInProgress": false
+  }
+}

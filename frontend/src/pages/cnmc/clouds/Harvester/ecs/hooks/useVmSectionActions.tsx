@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App } from 'antd';
 import {
-  ExclamationCircleOutlined,
   InfoCircleOutlined,
   SafetyCertificateFilled,
   WarningOutlined,
@@ -21,6 +20,9 @@ import { useCloudDesktopPermission } from '../../../../../../hooks/useCloudDeskt
 import type { VmListSafeRead } from '../lib/vmSafeRead';
 import { getVmInstanceId } from '../lib/vmSectionUtils';
 import { runHarvesterSectionRefresh } from '../../shared/lib/harvesterSectionRefresh';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
+import { VM_RECYCLE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
+import { buildHarvesterVncPageUrl } from '../lib/harvesterVncPageUrl';
 import {
   assessVmMigrateEligibility,
   buildVmAliasPatch,
@@ -187,7 +189,7 @@ export function useVmSectionActions({
       try {
         const { ns, name } = resolveVmNsName(iid, r, SafeRead);
         if (ns && name) {
-          const url = `/clouds/${cloudId}/harvester/vnc?cloudId=${encodeURIComponent(cloudId)}&namespace=${encodeURIComponent(ns)}&name=${encodeURIComponent(name)}`;
+          const url = buildHarvesterVncPageUrl(cloudId, ns, name);
           window.open(url, '_blank');
           return;
         }
@@ -274,20 +276,22 @@ export function useVmSectionActions({
       }
 
       const iid = getIid(r);
+      const vmName = SafeRead.name(r);
       const status = String(SafeRead.status(r)).toLowerCase();
       const isRunning = status === 'running' || status === 'starting';
       const volumeNames = listVmPvcClaimNames(r);
       const deleteVolumes = false;
 
-      modal.confirm({
+      void confirmHighRiskOperation({
         title: '移入回收站',
-        icon: <ExclamationCircleOutlined />,
-        width: 500,
-        content: (
-          <div style={{ marginTop: 16 }}>
-            <p>
-              确定要将虚拟机 <b>{SafeRead.name(r)}</b> 移入回收站吗？
-            </p>
+        targetName: vmName,
+        requireTypeConfirm: true,
+        description: `确定要将虚拟机「${vmName}」移入回收站吗？`,
+        riskItems: VM_RECYCLE_RISK_ITEMS,
+        confirmText: '移入回收站',
+        operationSummary: `确认将虚拟机「${vmName}」移入回收站`,
+        extra: (
+          <div>
             {isRunning && (
               <div
                 style={{
@@ -316,7 +320,7 @@ export function useVmSectionActions({
               <InfoCircleOutlined style={{ marginRight: 8 }} />
               虚拟机将被移入回收站，您可以在回收站中恢复或彻底删除。
             </div>
-            {volumeNames && (
+            {volumeNames ? (
               <div
                 style={{
                   marginBottom: 16,
@@ -333,13 +337,11 @@ export function useVmSectionActions({
                   (PVC)。如需删除数据卷，请在回收站中执行彻底删除操作。
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         ),
-        okText: '移入回收站',
-        okType: 'default',
-        onOk: () => onDelete(iid, deleteVolumes, false),
-      });
+        onConfirm: () => onDelete(iid, deleteVolumes, false),
+      }).catch(() => undefined);
     },
     [onDelete, SafeRead, modal, getIid],
   );
@@ -475,32 +477,30 @@ export function useVmSectionActions({
   const batchDelete = useCallback(() => {
     if (selectedKeys.length === 0) return;
 
-    modal.confirm({
+    void confirmHighRiskOperation({
       title: '批量移入回收站',
-      width: 500,
-      content: (
-        <div>
-          <p>确定要将选中的 {selectedKeys.length} 台虚拟机移入回收站吗？</p>
-          <div
-            style={{
-              marginBottom: 16,
-              color: '#1890ff',
-              background: '#e6f7ff',
-              padding: '8px 12px',
-              border: '1px solid #91d5ff',
-              borderRadius: 4,
-            }}
-          >
-            <InfoCircleOutlined style={{ marginRight: 8 }} />
-            虚拟机将被移入回收站，您可以在回收站中恢复或彻底删除。移入回收站时不会删除关联的数据卷
-            (PVC)。
-          </div>
+      description: `确定要将选中的 ${selectedKeys.length} 台虚拟机移入回收站吗？`,
+      riskItems: VM_RECYCLE_RISK_ITEMS,
+      requireTypeConfirm: false,
+      confirmText: '移入回收站',
+      operationSummary: `确认批量移入回收站（${selectedKeys.length} 台）`,
+      extra: (
+        <div
+          style={{
+            marginBottom: 16,
+            color: '#1890ff',
+            background: '#e6f7ff',
+            padding: '8px 12px',
+            border: '1px solid #91d5ff',
+            borderRadius: 4,
+          }}
+        >
+          <InfoCircleOutlined style={{ marginRight: 8 }} />
+          虚拟机将被移入回收站，您可以在回收站中恢复或彻底删除。移入回收站时不会删除关联的数据卷
+          (PVC)。
         </div>
       ),
-      okText: '移入回收站',
-      okType: 'default',
-      cancelText: '取消',
-      onOk: async () => {
+      onConfirm: async () => {
         try {
           const targets = (vms || []).filter((r: any) => selectedKeys.includes(getIid(r)));
           const { protectedTargets, deletableTargets } =
@@ -533,10 +533,11 @@ export function useVmSectionActions({
           void runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(e?.message || '批量移入回收站失败');
+          throw e;
         }
       },
-    });
-  }, [selectedKeys, vms, SafeRead, modal, message, onDelete, onRefresh, getIid]);
+    }).catch(() => undefined);
+  }, [selectedKeys, vms, SafeRead, message, onDelete, onRefresh, getIid]);
 
   return {
     selectedKeys,

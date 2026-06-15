@@ -12,6 +12,7 @@ export const WRITE_MENU_ITEM_KEYS = new Set([
   'attach',
   'detach',
   'export',
+  'download',
   'snapshot',
   'clone',
   'force_delete',
@@ -21,7 +22,7 @@ export const WRITE_MENU_ITEM_KEYS = new Set([
   'bulkDelete',
   'setFavorite',
   'unsetFavorite',
-  'add',
+  'assign',
   'create',
   'test',
   /** USB 直通：claim / unclaim */

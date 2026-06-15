@@ -832,23 +832,6 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     <Input />
                   </Form.Item>
                 </Col>
-                {/* 仅用于显示选中子网的 CIDR 信息，不可编辑 */}
-                <Col span={8}>
-                  <Form.Item
-                    label="子网网段"
-                    shouldUpdate={(prev, curr) =>
-                      prev.primaryNic?.subnet !== curr.primaryNic?.subnet
-                    }
-                  >
-                    {({ getFieldValue }) => {
-                      const subnetName = getFieldValue(['primaryNic', 'subnet']);
-                      const vpc = getFieldValue(['primaryNic', 'vpc']);
-                      // [匹配逻辑] 需同时匹配名称和 VPC ID，避免跨 VPC 同名子网冲突
-                      const subnet = (kubeSubnets || []).find((x: any) => x?.name === subnetName && x?.vpc === vpc);
-                      return <Input value={subnet?.cidr || ''} disabled />;
-                    }}
-                  </Form.Item>
-                </Col>
               </>
             );
             }
@@ -860,6 +843,33 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
 
       <Row gutter={12}>
         {/* 3. 通用物理属性配置 (类型、模型、MAC、静态IP) */}
+        <Form.Item
+          noStyle
+          shouldUpdate={(prev, curr) =>
+            prev.netMode !== curr.netMode ||
+            prev.primaryNic?.subnet !== curr.primaryNic?.subnet ||
+            prev.primaryNic?.vpc !== curr.primaryNic?.vpc
+          }
+        >
+          {({ getFieldValue }) => {
+            const mode = getFieldValue('netMode') || 'flat_subnet';
+            if (mode !== 'vpc') return null;
+            return (
+              <Col span={8}>
+                <Form.Item label="子网网段">
+                  {(() => {
+                    const subnetName = getFieldValue(['primaryNic', 'subnet']);
+                    const vpc = getFieldValue(['primaryNic', 'vpc']);
+                    const subnet = (kubeSubnets || []).find(
+                      (x: any) => x?.name === subnetName && x?.vpc === vpc,
+                    );
+                    return <Input value={subnet?.cidr || ''} disabled />;
+                  })()}
+                </Form.Item>
+              </Col>
+            );
+          }}
+        </Form.Item>
         <Form.Item
           noStyle
           shouldUpdate={(prev, curr) =>
@@ -986,7 +996,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                     },
                   ]}
                 >
-                  <Input placeholder="192.168.1.10/24" />
+                  <Input placeholder="192.168.1.10" />
                 </Form.Item>
               </Col>
             );
@@ -1479,29 +1489,40 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                             </Space.Compact>
                           </Form.Item>
                         </Col>
-                        <Col span={8}>
-                          <Form.Item
-                            label="子网网段"
-                            shouldUpdate={(prev, curr) =>
-                              prev.netIfaces?.[name]?.subnet !== curr.netIfaces?.[name]?.subnet
-                            }
-                          >
-                            {({ getFieldValue }) => {
-                              const subnetName = getFieldValue(['netIfaces', name, 'subnet']);
-                              const vpc = getFieldValue(['netIfaces', name, 'vpc']);
-                              const subnet = (kubeSubnets || []).find((x: any) => x?.name === subnetName && x?.vpc === vpc);
-                              return <Input value={subnet?.cidr || ''} disabled />;
-                            }}
-                          </Form.Item>
-                        </Col>
                       </>
                     );
                       }
 
                       return null;
                     })()}
-
+                  </Row>
+                  <Row gutter={12}>
                     {/* --- 通用物理属性 (类型/模型/MAC/静态IP)；直通模式不展示类型与模型 --- */}
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) =>
+                        prev.netIfaces?.[name]?.mode !== curr.netIfaces?.[name]?.mode ||
+                        prev.netIfaces?.[name]?.subnet !== curr.netIfaces?.[name]?.subnet ||
+                        prev.netIfaces?.[name]?.vpc !== curr.netIfaces?.[name]?.vpc
+                      }
+                    >
+                      {({ getFieldValue }) => {
+                        const mode2 = getFieldValue(['netIfaces', name, 'mode']) || 'flat';
+                        if (mode2 !== 'vpc') return null;
+                        const subnetName = getFieldValue(['netIfaces', name, 'subnet']);
+                        const vpc = getFieldValue(['netIfaces', name, 'vpc']);
+                        const subnet = (kubeSubnets || []).find(
+                          (x: any) => x?.name === subnetName && x?.vpc === vpc,
+                        );
+                        return (
+                          <Col span={8}>
+                            <Form.Item label="子网网段">
+                              <Input value={subnet?.cidr || ''} disabled />
+                            </Form.Item>
+                          </Col>
+                        );
+                      }}
+                    </Form.Item>
                     <Form.Item
                       noStyle
                       shouldUpdate={(prev, curr) =>
@@ -1637,7 +1658,7 @@ const StepNetworks: React.FC<StepNetworksProps> = ({
                                 },
                               ]}
                             >
-                              <Input placeholder="192.168.1.10/24" />
+                              <Input placeholder="192.168.1.10" />
                             </Form.Item>
                           </Col>
                         );

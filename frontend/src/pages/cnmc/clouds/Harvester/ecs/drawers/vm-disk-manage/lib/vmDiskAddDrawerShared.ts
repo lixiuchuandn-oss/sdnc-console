@@ -10,8 +10,10 @@ import {
   fetchHarvesterNads,
   fetchHarvesterStorageClasses,
   fetchHarvesterVolume,
+  getHarvesterImagesListItems,
 } from "../../../../../../../../services/harvesterApi";
-import { isSystemStorageClass } from "../../../../../../../../utils/harvesterUtils";
+import { pickDefaultStorageClassName } from "../../../../../../../../utils/harvesterUtils";
+import { buildStorageClassSelectOptions } from "../../../../ebs/lib/volumesStorageClassUtils";
 
 export interface VmDiskAddDrawerBaseProps {
   open: boolean;
@@ -98,12 +100,7 @@ export function useVmAddDataDiskDrawerData(opts: {
   const reloadImages = useCallback(async () => {
     try {
       const res = await fetchHarvesterImages(cloudId);
-      const items = Array.isArray(res?.data?.items)
-        ? res.data.items
-        : Array.isArray(res?.items)
-          ? res.items
-          : [];
-      setImages(items);
+      setImages(getHarvesterImagesListItems(res));
     } catch {
       /* ignore */
     }
@@ -200,16 +197,13 @@ export function useVmAddDataDiskDrawerData(opts: {
     loadAvailablePvcs,
   ]);
 
+  const defaultStorageClassName = useMemo(
+    () => pickDefaultStorageClassName(scs),
+    [scs],
+  );
+
   const scOptions = useMemo(
-    () =>
-      (scs || [])
-        .filter(
-          (x: any) => !isSystemStorageClass(x?.metadata?.name || x?.name),
-        )
-        .map((x: any) => ({
-          value: x?.metadata?.name || x?.name,
-          label: x?.metadata?.name || x?.name,
-        })),
+    () => buildStorageClassSelectOptions(scs || []),
     [scs],
   );
 
@@ -223,6 +217,7 @@ export function useVmAddDataDiskDrawerData(opts: {
     reloadImages,
     ensureNadsLoaded,
     scOptions,
+    defaultStorageClassName,
     isHotPlugInProgress,
   };
 }

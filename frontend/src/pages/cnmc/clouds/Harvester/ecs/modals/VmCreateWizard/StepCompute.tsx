@@ -33,8 +33,15 @@
  * - 依赖外部传入的 gpuResources 列表进行渲染。
  */
 import React from 'react';
-import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, App } from 'antd';
-import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
+import { Form, Input, Select, Radio, Space, Table, Checkbox, InputNumber, Collapse, Typography, Button, App, Alert, Tooltip } from 'antd';
+import { ReloadOutlined, LoadingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import {
+  HUGEpages_PAGE_SIZE_OPTIONS,
+  HUGEpages_HINT,
+  validateVmPerformanceAdvancedForm,
+  isNumaModeEnabled,
+} from '../../lib/numaHugepagesSpec';
+import NumaModeFormFields from '../../components/NumaModeFormFields';
 
 /**
  * 组件 Props 定义
@@ -96,12 +103,37 @@ const StepCompute: React.FC<StepComputeProps> = ({
 
   // 监听表单字段变化
   const dedicatedCPUPlacement = Form.useWatch('dedicatedCPUPlacement', form);
+  const hotExpandEnabled = Form.useWatch('hotExpandEnabled', form);
+  const hugepagesEnabled = Form.useWatch('hugepagesEnabled', form);
+  const numaMode = Form.useWatch('numaMode', form);
+  const numaEnabled = isNumaModeEnabled(numaMode);
 
   // 未启用 CPU 绑定时不能保留 CPU 隔离
   React.useEffect(() => {
     if (!dedicatedCPUPlacement && form.getFieldValue('isolateEmulatorThread')) {
       try {
         form.setFieldsValue({ isolateEmulatorThread: false });
+      } catch {}
+    }
+  }, [dedicatedCPUPlacement, form]);
+
+  React.useEffect(() => {
+    if (hotExpandEnabled && form.getFieldValue('hugepagesEnabled')) {
+      try {
+        form.setFieldsValue({ hugepagesEnabled: false });
+      } catch {}
+    }
+    if (hotExpandEnabled && isNumaModeEnabled(form.getFieldValue('numaMode'))) {
+      try {
+        form.setFieldsValue({ numaMode: 'off' });
+      } catch {}
+    }
+  }, [hotExpandEnabled, form]);
+
+  React.useEffect(() => {
+    if (!dedicatedCPUPlacement && isNumaModeEnabled(form.getFieldValue('numaMode'))) {
+      try {
+        form.setFieldsValue({ numaMode: 'off' });
       } catch {}
     }
   }, [dedicatedCPUPlacement, form]);
@@ -320,6 +352,12 @@ const StepCompute: React.FC<StepComputeProps> = ({
                 <Form.Item name="dedicatedCPUPlacement" valuePropName="checked" noStyle>
                   <Checkbox onChange={(e) => {
                     const checked = !!e.target.checked;
+                    if (!checked) {
+                      try {
+                        form.setFieldsValue({ numaMode: 'off' });
+                      } catch {}
+                      return;
+                    }
                     if (!checked) return;
                     message.warning('启用 CPU 绑定后，CPU QoS 将被清空且不再生效');
                     try {
@@ -337,10 +375,14 @@ const StepCompute: React.FC<StepComputeProps> = ({
             <Form.Item label="CPU 隔离">
               <Space>
                 <Form.Item name="isolateEmulatorThread" valuePropName="checked" noStyle>
-                  <Checkbox disabled={!dedicatedCPUPlacement}>启用</Checkbox>
+                  <Checkbox disabled={!dedicatedCPUPlacement && !numaEnabled}>启用</Checkbox>
                 </Form.Item>
                 <Typography.Text type="secondary">启用后 QEMU 模拟器线程与来宾 vCPU 隔离，降低干扰（需先启用 CPU 绑定）</Typography.Text>
               </Space>
+            </Form.Item>
+
+            <Form.Item label="NUMA 亲和">
+              <NumaModeFormFields form={form} hotExpandEnabled={!!hotExpandEnabled} onWarn={message.warning} />
             </Form.Item>
             
             <Form.Item label="CPU QoS">
@@ -410,6 +452,52 @@ const StepCompute: React.FC<StepComputeProps> = ({
                   <Checkbox>启用</Checkbox>
                 </Form.Item>
                 <Typography.Text type="secondary">业务峰值时自动取消最多使用内存限制</Typography.Text>
+              </Space>
+            </Form.Item>
+            <Form.Item label="大页内存">
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Space>
+                  <Form.Item name="hugepagesEnabled" valuePropName="checked" noStyle>
+                    <Checkbox
+                      disabled={!!hotExpandEnabled}
+                      onChange={(e) => {
+                        const checked = !!e.target.checked;
+                        if (checked && hotExpandEnabled) {
+                          message.warning('大页内存暂不支持与 CPU/内存热扩容同时启用');
+                          form.setFieldsValue({ hugepagesEnabled: false });
+                          return;
+                        }
+                        if (checked) {
+                          const err = validateVmPerformanceAdvancedForm({
+                            ...form.getFieldsValue(true),
+                            hugepagesEnabled: true,
+                          });
+                          if (err) {
+                            message.warning(err);
+                            form.setFieldsValue({ hugepagesEnabled: false });
+                          }
+                        }
+                      }}
+                    >
+                      启用
+                    </Checkbox>
+                  </Form.Item>
+                  <Form.Item name="hugepagesPageSize" noStyle>
+                    <Select
+                      options={HUGEpages_PAGE_SIZE_OPTIONS}
+                      style={{ width: 120 }}
+                      disabled={!hugepagesEnabled || !!hotExpandEnabled}
+                    />
+                  </Form.Item>
+                  <Tooltip title={HUGEpages_HINT}>
+                    <QuestionCircleOutlined
+                      style={{ color: 'rgba(0,0,0,.45)', fontSize: 12, cursor: 'help' }}
+                    />
+                  </Tooltip>
+                </Space>
+                {hotExpandEnabled ? (
+                  <Alert type="info" showIcon message="已启用热扩容时不可配置大页内存" />
+                ) : null}
               </Space>
             </Form.Item>
           </>

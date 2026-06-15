@@ -536,12 +536,14 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
                   key: 'view_link',
                   label: '实时数据 (View Link)',
                   children: (
-                    <div className="harvester-ops-drawer-viewlink-pane">
+                    <div
+                      className="harvester-ops-drawer-viewlink-pane"
+                      style={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}
+                    >
                       <ViewLinkTab
                         cloudId={cloudId}
                         viewLink={viewLink}
                         active={activeTab === 'view_link'}
-                        style={{ flex: 1, minHeight: 0, height: '100%' }}
                       />
                     </div>
                   ),
@@ -554,6 +556,12 @@ const HarvesterResourceDrawer: React.FC<HarvesterResourceDrawerProps> = (props) 
             label: '关联 Pod',
             children: (
               <ServiceRelatedPodsTab
+                cloudId={cloudId}
+                serviceNamespace={
+                  record?.rawData?.metadata?.namespace
+                  || record?.metadata?.namespace
+                  || record?.namespace
+                }
                 serviceSelector={record?.rawData?.spec?.selector || record?.spec?.selector}
                 pods={pods || []}
                 loading={false}

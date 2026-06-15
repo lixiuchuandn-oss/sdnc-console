@@ -3,6 +3,7 @@ import axios from 'axios';
 import { API_BASE_URL } from '../services/api';
 import { getToken } from '../utils/tokenStorage';
 import { useAuth } from './AuthContext';
+import { isEnterpriseLicenseStatus } from '../utils/licenseAccess';
 
 export interface LicensePayload {
   iss: string;
@@ -32,6 +33,7 @@ interface LicenseContextType {
   refresh: () => Promise<void>;
   activate: (key: string) => Promise<void>;
   hasFeature: (feature: string) => boolean;
+  isEnterpriseLicense: () => boolean;
 }
 
 const LicenseContext = createContext<LicenseContextType | undefined>(undefined);
@@ -104,6 +106,8 @@ export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children })
     return license.payload.features.includes(feature);
   };
 
+  const isEnterpriseLicense = useCallback((): boolean => isEnterpriseLicenseStatus(license), [license]);
+
   // 初始化时刷新授权
   useEffect(() => {
     refresh();
@@ -119,7 +123,7 @@ export const LicenseProvider: React.FC<{ children: ReactNode }> = ({ children })
   }, [user?.id, refresh]);
 
   return (
-    <LicenseContext.Provider value={{ license, loading, refresh, activate, hasFeature }}>
+    <LicenseContext.Provider value={{ license, loading, refresh, activate, hasFeature, isEnterpriseLicense }}>
       {children}
     </LicenseContext.Provider>
   );

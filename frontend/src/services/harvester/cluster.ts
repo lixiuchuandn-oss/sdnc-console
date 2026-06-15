@@ -91,3 +91,11 @@ export const deleteHmsSwitchCr = async (cloudId: string, name: string) => {
     `/api/clouds/${cloudId}/resources/harvester/hms/switches/${encodeURIComponent(name)}`,
   );
 };
+
+/** WebSSH：从 Switch CR 读取 SSH 凭据（仅管理员；响应含密码，勿记录日志） */
+export const fetchHmsSwitchSshConnect = async (cloudId: string, name: string) => {
+  return await apiRequest(
+    `/api/clouds/${cloudId}/resources/harvester/hms/switches/${encodeURIComponent(name)}/ssh-connect`,
+    { skipCache: true },
+  );
+};

@@ -27,10 +27,27 @@ import {
   harvesterAddVolumeToVMDirect,
   syncVmVolumeSize,
   buildUsedPvcSetFromKubevirtVms,
+  getVolumeExportBlockedByRunningVmMessageLive,
   mapHarvesterPvcToAvailableVolumeItem,
   filterHarvesterAvailableVolumeItems,
+  isHarvesterImageBackingPvcName,
 } from '../../../../services/clouds/harvester/client';
 import { getJsonOnce } from '../../../../services/clouds/harvester/utils';
+import {
+  isRegistryManagedPvcRef,
+  getVmVolumePvcRef,
+  REGISTRY_MANAGED_PVC_MESSAGE,
+} from '../../../../services/registryManagedLocalRegistryVolumeGuard';
+import {
+  getNamespacedResources,
+} from '../harvester.cache.container-shared';
+import {
+  buildPvcWorkloadConsumerMap,
+  fetchClusterPvcWorkloadConsumerMap,
+  formatPvcWorkloadConsumerLabels,
+  getPvcWorkloadConsumers,
+  resolveVolumeAttachedInfo,
+} from '../../../../services/clouds/harvester/volumeConsumers';
 
 export async function harvesterVolumeListHandler(req: Request, res: Response) {
   try {
@@ -118,15 +135,23 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
       }
     }
 
-    const items = await repo.find({ where: whereCondition });
+    const items = (await repo.find({ where: whereCondition })).filter((item: any) => {
+      const v = item.rawData || {};
+      const name = String(v?.metadata?.name || v?.name || item.name || '').trim();
+      return !isHarvesterImageBackingPvcName(name);
+    });
 
-    const base = (cloud.endpoint || '').replace(/\/+$/, '');
-    let origin = base;
+    const base = cloud.endpoint || '';
+    const token = cloud.secretKey || '';
+    const pvcWorkloadMap = await fetchClusterPvcWorkloadConsumerMap(base, token, insecure);
+
+    const baseTrimmed = (cloud.endpoint || '').replace(/\/+$/, '');
+    let origin = baseTrimmed;
     try {
-      const u = new URL(base);
+      const u = new URL(baseTrimmed);
       origin = `${u.protocol}//${u.host}`;
     } catch {
-      origin = base.replace(/\/v[0-9].*$/, '');
+      origin = baseTrimmed.replace(/\/v[0-9].*$/, '');
     }
 
     const basic = items.map((item: any) => {
@@ -152,24 +177,13 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
           ? String(item.accessModes).split(',')
           : [];
       const viewUrl = `${origin}/api/v1/namespaces/${namespace}/persistentvolumeclaims/${name}`;
-      const workloads =
-        k8s?.workloadsStatus || v?.status?.workloadsStatus || v?.status?.workloadStatus || [];
-      const rawNames: string[] = Array.isArray(workloads)
-        ? workloads.map((w: any) => String(w?.workloadName || w?.podName || '')).filter(Boolean)
-        : [];
-      const attachedTo: string[] = Array.from(
-        new Set(
-          rawNames
-            .map((n: string) => {
-              let s = n.trim();
-              if (/^virt-launcher-/.test(s)) {
-                s = s.replace(/^virt-launcher-/, '');
-              }
-              return s;
-            })
-            .filter(Boolean),
-        ),
-      );
+      const { attachedTo, workloadConsumers } = resolveVolumeAttachedInfo({
+        namespace,
+        pvcName: name,
+        k8sStatus: k8s,
+        pvcStatus: v?.status,
+        pvcWorkloadMap,
+      });
 
       return {
         ...v,
@@ -180,6 +194,7 @@ export async function harvesterVolumeListHandler(req: Request, res: Response) {
         namespace,
         pvcName,
         attachedTo,
+        workloadConsumers,
         storageClassName,
         volumeMode,
         accessModes,
@@ -396,6 +411,47 @@ export async function harvesterVolumeDeleteHandler(req: Request, res: Response) 
     const cloud = (req as any).cloud;
     const { id: _id, namespace, name } = req.params;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const params = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+
+    if (await isRegistryManagedPvcRef(params, String(namespace), String(name))) {
+      return res.status(403).json({ message: REGISTRY_MANAGED_PVC_MESSAGE });
+    }
+
+    try {
+      const [deployments, statefulsets, daemonsets] = await Promise.all([
+        getNamespacedResources(
+          cloud.endpoint,
+          '/apis/apps/v1/deployments',
+          String(namespace),
+          cloud.secretKey || '',
+          insecure,
+        ),
+        getNamespacedResources(
+          cloud.endpoint,
+          '/apis/apps/v1/statefulsets',
+          String(namespace),
+          cloud.secretKey || '',
+          insecure,
+        ),
+        getNamespacedResources(
+          cloud.endpoint,
+          '/apis/apps/v1/daemonsets',
+          String(namespace),
+          cloud.secretKey || '',
+          insecure,
+        ),
+      ]);
+      const pvcWorkloadMap = buildPvcWorkloadConsumerMap({ deployments, statefulsets, daemonsets });
+      const consumers = getPvcWorkloadConsumers(pvcWorkloadMap, String(namespace), String(name));
+      if (consumers.length > 0) {
+        const labels = formatPvcWorkloadConsumerLabels(consumers).join(', ');
+        return res.status(403).json({
+          message: `该云盘正被工作负载使用（${labels}），请先在相关工作负载中解除挂载后再删除`,
+        });
+      }
+    } catch (e: any) {
+      console.warn('[VolumeDelete] workload consumer check failed', e?.message || e);
+    }
 
     const data = await deleteHarvesterPVC(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -619,11 +675,25 @@ export async function harvesterVolumeExportImageHandler(req: Request, res: Respo
     const { displayName, targetStorageClassName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
 
+    const vmRepo = AppDataSource.getRepository(HarvesterVmInventory);
+    const inventoryVms = await vmRepo.find({ where: { cloudId: cloud.id } });
+    const exportBlocked = await getVolumeExportBlockedByRunningVmMessageLive(
+      cloud,
+      inventoryVms.map((vm) => vm.rawData || { metadata: { namespace: vm.namespace } }),
+      namespace,
+      pvcName,
+      insecure,
+    );
+    if (exportBlocked) {
+      return res.status(400).json({ message: exportBlocked });
+    }
+
     const data = await exportImageFromPVC(
-      { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
+      cloud,
       namespace,
       pvcName,
       { displayName, targetStorageClassName },
+      insecure,
     );
 
     // [数据同步] 导出成功后，直接使用返回的数据入库
@@ -790,6 +860,13 @@ export async function harvesterVmAddVolumeHandler(req: Request, res: Response) {
     const { id: _id, instanceId } = req.params;
     const { name, bus, pvcNamespace, pvcName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const params = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+
+    if (pvcName && pvcNamespace) {
+      if (await isRegistryManagedPvcRef(params, String(pvcNamespace), String(pvcName))) {
+        return res.status(403).json({ message: REGISTRY_MANAGED_PVC_MESSAGE });
+      }
+    }
 
     const data = await harvesterAddVolumeToVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -814,6 +891,13 @@ export async function harvesterVmAddVolumeDirectHandler(req: Request, res: Respo
     const { id: _id, namespace, name } = req.params;
     const { diskName, bus, pvcNamespace, pvcName, name: bodyName } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const params = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+
+    if (pvcName && pvcNamespace) {
+      if (await isRegistryManagedPvcRef(params, String(pvcNamespace), String(pvcName))) {
+        return res.status(403).json({ message: REGISTRY_MANAGED_PVC_MESSAGE });
+      }
+    }
 
     const data = await harvesterAddVolumeToVMDirect(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,
@@ -837,6 +921,17 @@ export async function harvesterVmRemoveVolumeHandler(req: Request, res: Response
     const { id: _id, instanceId } = req.params;
     const { name } = (req.body || {}) as any;
     const insecure = !!(cloud.config as any)?.ignoreTls;
+    const params = { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any;
+
+    if (name) {
+      const pvcRef = await getVmVolumePvcRef(params, String(instanceId), String(name));
+      if (
+        pvcRef &&
+        (await isRegistryManagedPvcRef(params, pvcRef.namespace, pvcRef.name))
+      ) {
+        return res.status(403).json({ message: REGISTRY_MANAGED_PVC_MESSAGE });
+      }
+    }
 
     const data = await harvesterRemoveVolumeFromVM(
       { endpoint: cloud.endpoint, token: cloud.secretKey || '', insecure } as any,

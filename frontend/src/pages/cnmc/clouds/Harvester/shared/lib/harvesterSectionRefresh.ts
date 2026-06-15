@@ -82,6 +82,55 @@ export function reloadHarvesterNamespacesList(
   runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
 }
 
+export function harvesterEcsListCachePath(cloudId: string): string {
+  return `/api/clouds/${cloudId}/resources/ecs`;
+}
+
+/** 热迁移提交后延迟拉列表：迁移完成前即时刷新拿不到新节点 */
+export const HARVESTER_ECS_AFTER_MIGRATE_SYNC_DELAYS_MS = [
+  3000, 8000, 20000, 45000, 90000,
+] as const;
+
+type PendingEcsAfterMigrateNotify = {
+  timerIds: ReturnType<typeof setTimeout>[];
+};
+
+const pendingEcsAfterMigrateNotifyByCloud = new Map<
+  string,
+  PendingEcsAfterMigrateNotify
+>();
+
+export function cancelHarvesterEcsAfterMigrateNotify(cloudId: string): void {
+  const pending = pendingEcsAfterMigrateNotifyByCloud.get(cloudId);
+  if (!pending) return;
+  for (const id of pending.timerIds) clearTimeout(id);
+  pendingEcsAfterMigrateNotifyByCloud.delete(cloudId);
+}
+
+/** 热迁移后按间隔 force 刷新云主机列表（清 GET 缓存 + sync） */
+export function notifyHarvesterEcsAfterMigrate(
+  cloudId: string,
+  onRefresh?: HarvesterSectionOnRefresh,
+  options?: { delaysMs?: readonly number[] },
+): void {
+  if (!cloudId || !onRefresh) return;
+  cancelHarvesterEcsAfterMigrateNotify(cloudId);
+
+  const delays = options?.delaysMs ?? HARVESTER_ECS_AFTER_MIGRATE_SYNC_DELAYS_MS;
+  const pending: PendingEcsAfterMigrateNotify = { timerIds: [] };
+  for (const ms of delays) {
+    pending.timerIds.push(
+      setTimeout(() => {
+        clearGetCacheForPath(harvesterEcsListCachePath(cloudId));
+        runHarvesterSectionRefresh(onRefresh, { force: true, silent: true });
+      }, ms),
+    );
+  }
+  if (pending.timerIds.length > 0) {
+    pendingEcsAfterMigrateNotifyByCloud.set(cloudId, pending);
+  }
+}
+
 export function harvesterBackupsListCachePath(cloudId: string): string {
   return `/api/clouds/${cloudId}/resources/harvester/backups`;
 }
@@ -117,6 +166,105 @@ function runHarvesterBackupsInventoryReload(
  * 虚拟机备份/快照写操作后：先 skipSync 拉库存（新行），再延迟 force 同步刷新状态。
  * 过早全量 sync 会在集群尚未列出对象时清空本地行（见 inventory upsertItems）。
  */
+export function harvesterImagesListCachePath(cloudId: string): string {
+  return `/api/clouds/${cloudId}/resources/harvester/images`;
+}
+
+/** 镜像 Tab 库存刷新（第二参 skipSync，与 `fetchHarvesterImages` / `loadTabResource('images')` 一致） */
+export type HarvesterImagesInventoryReload = (
+  force?: boolean,
+  skipSync?: boolean,
+) => void | Promise<void>;
+
+export type NotifyHarvesterImagesInventoryOptions = {
+  /** 仅读 Tower 库存（skipSync），用于尽快展示新行 */
+  inventoryDelaysMs?: number[];
+  /** 对端全量同步（skipSync=false），刷新 URL 导入/集群侧 progress / 就绪状态 */
+  statusSyncDelaysMs?: number[];
+};
+
+/**
+ * 本地上传同步 success 后：先读库存，再延迟对端 sync（后端 success 与 syncHarvesterImages 有时差）。
+ */
+export const HARVESTER_IMAGES_AFTER_UPLOAD_SYNC_OPTIONS: NotifyHarvesterImagesInventoryOptions =
+  {
+    inventoryDelaysMs: [0, 1500],
+    statusSyncDelaysMs: [4000, 12000],
+  };
+
+type PendingImagesInventoryNotify = {
+  timerIds: ReturnType<typeof setTimeout>[];
+};
+
+const pendingImagesInventoryNotifyByCloud = new Map<string, PendingImagesInventoryNotify>();
+
+/** 取消尚未触发的镜像库存延迟刷新链（同 cloud 重复 notify 时合并） */
+export function cancelHarvesterImagesInventoryNotify(cloudId: string): void {
+  const pending = pendingImagesInventoryNotifyByCloud.get(cloudId);
+  if (!pending) return;
+  for (const id of pending.timerIds) clearTimeout(id);
+  pendingImagesInventoryNotifyByCloud.delete(cloudId);
+}
+
+function runHarvesterImagesInventoryReload(
+  cloudId: string,
+  reload: HarvesterImagesInventoryReload,
+  skipSync: boolean,
+  showError: boolean,
+): void {
+  clearGetCacheForPath(harvesterImagesListCachePath(cloudId));
+  Promise.resolve(reload(true, skipSync)).catch((e: unknown) => {
+    if (!showError) return;
+    const err = e as { message?: string };
+    message.error(`刷新镜像列表失败: ${err?.message || '未知错误'}`);
+  });
+}
+
+/**
+ * 镜像写操作后：先 skipSync 拉库存（新行），再按需延迟全量 sync 刷新进度/就绪状态。
+ */
+export const HARVESTER_IMAGES_SYNC_START_OPTIONS: NotifyHarvesterImagesInventoryOptions = {
+  inventoryDelaysMs: [0, 4000],
+  statusSyncDelaysMs: [8000, 20000],
+};
+
+export function notifyHarvesterImagesInventoryChanged(
+  cloudId: string,
+  reload?: HarvesterImagesInventoryReload,
+  options?: NotifyHarvesterImagesInventoryOptions,
+): void {
+  if (!cloudId || !reload) return;
+  cancelHarvesterImagesInventoryNotify(cloudId);
+
+  const inventoryDelays = options?.inventoryDelaysMs ?? [0, 2000, 5000];
+  const statusSyncDelays = options?.statusSyncDelaysMs ?? [];
+  const pending: PendingImagesInventoryNotify = { timerIds: [] };
+
+  for (const ms of inventoryDelays) {
+    if (ms <= 0) {
+      runHarvesterImagesInventoryReload(cloudId, reload, true, true);
+    } else {
+      pending.timerIds.push(
+        setTimeout(
+          () => runHarvesterImagesInventoryReload(cloudId, reload, true, false),
+          ms,
+        ),
+      );
+    }
+  }
+  for (const ms of statusSyncDelays) {
+    pending.timerIds.push(
+      setTimeout(
+        () => runHarvesterImagesInventoryReload(cloudId, reload, false, false),
+        ms,
+      ),
+    );
+  }
+  if (pending.timerIds.length > 0) {
+    pendingImagesInventoryNotifyByCloud.set(cloudId, pending);
+  }
+}
+
 export function notifyHarvesterBackupsInventoryChanged(
   cloudId: string,
   reload?: HarvesterBackupsInventoryReload,

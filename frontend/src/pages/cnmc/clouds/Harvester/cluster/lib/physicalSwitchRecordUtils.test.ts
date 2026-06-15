@@ -1,6 +1,8 @@
 import type { HmsSwitchCr } from 'services/harvester/cluster';
 import {
+  buildPerformanceMetrics,
   hmsSwitchCrManagementHost,
+  isH3cSwitchRecord,
   matchAswProbeRecordByCr,
   parseSwitchDisplayNameFromInfoLines,
   parseSwitchProductModelFromInfoLines,
@@ -97,6 +99,30 @@ describe('physicalSwitchRecordUtils', () => {
           { vendor: '华为' },
         ),
       ).toBe('S5720');
+    });
+  });
+
+  describe('buildPerformanceMetrics · H3C', () => {
+    it('parses display cpu-usage and display memory for H3C Comware', () => {
+      const record = {
+        info: { lines: [{ stdout: 'H3C Comware Software\nBOARD TYPE: S6800-54QF\n' }] },
+        performance: {
+          lines: [
+            {
+              command: 'display cpu-usage',
+              stdout: 'Slot 1 CPU 0 CPU usage:\n      18% in last 5 seconds\n',
+            },
+            {
+              command: 'display memory',
+              stdout: 'Mem:       2024320   1324704    699616         0      2480    299008       35.2%\n',
+            },
+          ],
+        },
+      };
+      expect(isH3cSwitchRecord(record)).toBe(true);
+      const metrics = buildPerformanceMetrics(record);
+      expect(metrics.cpu).toBe('18%');
+      expect(metrics.memory).toBe('65.4%');
     });
   });
 });

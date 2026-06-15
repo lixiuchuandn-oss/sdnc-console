@@ -30,8 +30,16 @@ import {
 import {
   canEnterClusterGroup,
   canEnterUnifiedStorageGroup,
+  canViewComputeClusterInner,
+  canViewComputeResourceInner,
   firstAccessibleClusterPoolInnerSeg,
+  firstAccessibleComputeResourceInnerSeg,
 } from '../lib/clusterPageAccess';
+import {
+  isComputeClusterInnerSeg,
+  isComputeResourceInnerSeg,
+  remapLegacyClusterInnerSeg,
+} from '../../../Harvester/cluster/lib/computeResourcesNav';
 
 export type CloudmapPoolPermissions = {
   checkPerm: (act: string) => boolean;
@@ -162,7 +170,16 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
   const resolveClusterPoolInnerAccess = useCallback(
     (requested: string) => {
       if (!canViewClusterGroup) return null;
-      if (canAccessPoolPage(checkPerm, `cluster/${requested}`)) return requested;
+      const normalized = remapLegacyClusterInnerSeg(requested);
+      if (isComputeClusterInnerSeg(normalized)) {
+        if (canViewComputeClusterInner(checkPerm)) return normalized;
+        return firstAccessibleClusterPoolInnerSeg(checkPerm, clusterVisCtx);
+      }
+      if (isComputeResourceInnerSeg(normalized)) {
+        if (canViewComputeResourceInner(normalized, checkPerm)) return normalized;
+        return firstAccessibleComputeResourceInnerSeg(checkPerm);
+      }
+      if (canAccessPoolPage(checkPerm, `cluster/${normalized}`)) return normalized;
       return firstAccessibleClusterPoolInnerSeg(checkPerm, clusterVisCtx);
     },
     [checkPerm, canViewClusterGroup, clusterVisCtx],
@@ -176,6 +193,8 @@ export function useCloudmapPoolPermissions(): CloudmapPoolPermissions {
     checkPerm('clouds.cloudinits:read') ||
     checkPerm('clouds.recycle-bin:read') ||
     checkPerm('clouds.migrations:read') ||
+    checkPerm('clouds.traffic-mirroring.vpc:read') ||
+    checkPerm('clouds.traffic-mirroring.flat:read') ||
     checkPerm('clouds:read');
 
   const canViewCloudDatabaseTab =

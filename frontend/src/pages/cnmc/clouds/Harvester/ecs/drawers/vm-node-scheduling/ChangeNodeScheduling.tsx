@@ -6,22 +6,35 @@
  */
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  App,
+  Checkbox,
   Form,
   Segmented,
   Table,
   Input,
   Select,
   Button,
-  Row,
-  Col,
-  Card,
   Space,
   Typography,
   Flex,
 } from "antd";
-import { ReloadOutlined, PlusOutlined, MinusCircleOutlined } from "@ant-design/icons";
+import { ReloadOutlined } from "@ant-design/icons";
 import { buildHarvesterNodePickerTableColumns } from "../shared/lib/harvesterNodePickerTableColumns";
 import { useHarvesterNodeResourceMaps } from "../shared/lib/useHarvesterNodeResourceMaps";
+import {
+  fetchFailureDomainOverview,
+  type FailureDomainRow,
+} from "services/harvester/failureDomains";
+import {
+  buildVmFailureDomainSelectOptions,
+  parseFailureDomainFromNodeSelector,
+  VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT,
+} from "../../lib/vmFailureDomainNodeSelector";
+import { readVmDeploymentSetId } from "../../lib/vmDeploymentSet";
+import {
+  readVmMetricAutoScheduled,
+  trySetVmRecordMetricAutoScheduledExclusive,
+} from "../../lib/vmSchedulingExclusion";
 
 const SCHEDULING_MODE_DESCRIPTION: Record<
   "auto" | "fixed" | "label",
@@ -34,7 +47,7 @@ const SCHEDULING_MODE_DESCRIPTION: Record<
     "将虚拟机固定在同一台物理主机上运行，适用于依赖本机硬件、与他机同机部署或需固定物理落点等场景。所选主机异常将直接影响可用性；无此类约束时建议使用自动调度。",
 
   label:
-    "通过主机标签限定可运行范围，适用于按机房、线路或用途等维度为主机分组的场景。全部标签条件须同时满足且与集群侧一致；优先、避让等调度偏好请使用「节点亲和性」。",
+    "选择集群已定义的故障域，限定 VM 落在对应物理节点。优先、避让等调度偏好请使用「节点亲和性」。",
 };
 
 type Props = {
@@ -44,6 +57,7 @@ type Props = {
   nodes?: any[];
   reloadNodes?: () => Promise<any>;
   nodesLoading?: boolean;
+  pciDevices?: any[];
 };
 
 const ChangeNodeScheduling: React.FC<Props> = ({
@@ -53,13 +67,51 @@ const ChangeNodeScheduling: React.FC<Props> = ({
   nodes = [],
   reloadNodes,
   nodesLoading = false,
+  pciDevices = [],
 }) => {
+  const { message } = App.useApp();
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } =
     useHarvesterNodeResourceMaps(cloudId);
   const [nodeKeyword, setNodeKeyword] = useState("");
   const [nodeReadyFilter, setNodeReadyFilter] = useState<
     "all" | "running" | "notready"
   >("all");
+  const [failureDomains, setFailureDomains] = useState<FailureDomainRow[]>([]);
+  const [failureDomainsLoading, setFailureDomainsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!cloudId) {
+      setFailureDomains([]);
+      return;
+    }
+    let cancelled = false;
+    setFailureDomainsLoading(true);
+    void fetchFailureDomainOverview(cloudId)
+      .then((json: unknown) => {
+        if (cancelled) return;
+        const data = (json as { data?: { domains?: FailureDomainRow[] } })?.data;
+        setFailureDomains(Array.isArray(data?.domains) ? data?.domains ?? [] : []);
+      })
+      .catch(() => {
+        if (!cancelled) setFailureDomains([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFailureDomainsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudId]);
+
+  const failureDomainName = Form.useWatch("failureDomainName", form);
+
+  const failureDomainOptions = useMemo(
+    () =>
+      buildVmFailureDomainSelectOptions(failureDomains, {
+        extraIncludeNames: failureDomainName ? [String(failureDomainName)] : [],
+      }),
+    [failureDomains, failureDomainName],
+  );
 
   useEffect(() => {
     if (!record) return;
@@ -79,22 +131,25 @@ const ChangeNodeScheduling: React.FC<Props> = ({
     }
 
     const labelPairs: Array<{ key: string; value: string }> = [];
+    let failureDomainName: string | undefined;
     if (
       nodeSelector &&
       nodeSelector !== null &&
       typeof nodeSelector === "object" &&
       Object.keys(nodeSelector).length > 0
     ) {
-      Object.entries(nodeSelector).forEach(([key, value]) => {
-        if (key !== "kubernetes.io/hostname" && value) {
-          labelPairs.push({ key, value: String(value) });
-        }
-      });
+      const parsed = parseFailureDomainFromNodeSelector(
+        nodeSelector as Record<string, unknown>,
+      );
+      failureDomainName = parsed.failureDomainName;
+      labelPairs.push(...parsed.otherPairs);
     }
 
     let mode: "auto" | "fixed" | "label" = "auto";
     if (currentNode) {
       mode = "fixed";
+    } else if (failureDomainName) {
+      mode = "label";
     } else if (labelPairs.length > 0) {
       mode = "label";
     }
@@ -102,25 +157,30 @@ const ChangeNodeScheduling: React.FC<Props> = ({
     form.setFieldsValue({
       nodeSchedulingMode: mode,
       fixedNode: currentNode || undefined,
-      nodeSelectorPairs: labelPairs.length > 0 ? labelPairs : undefined,
+      failureDomainName,
+      metricAutoScheduled: mode === "auto" ? readVmMetricAutoScheduled(record) : false,
     });
   }, [record, form]);
 
   const nodeSchedulingMode = Form.useWatch("nodeSchedulingMode", form);
+  const deploymentSetId = readVmDeploymentSetId(record);
   useEffect(() => {
     if (nodeSchedulingMode === "auto") {
       form.setFieldsValue({
         fixedNode: undefined,
-        nodeSelectorPairs: undefined,
+        failureDomainName: undefined,
       });
     } else if (nodeSchedulingMode === "fixed") {
       form.setFieldsValue({
-        nodeSelectorPairs: undefined,
+        failureDomainName: undefined,
       });
     } else if (nodeSchedulingMode === "label") {
       form.setFieldsValue({
         fixedNode: undefined,
       });
+    }
+    if (nodeSchedulingMode !== "auto") {
+      form.setFieldsValue({ metricAutoScheduled: false });
     }
   }, [nodeSchedulingMode, form]);
 
@@ -188,7 +248,7 @@ const ChangeNodeScheduling: React.FC<Props> = ({
           options={[
             { value: "auto", label: "自动调度" },
             { value: "fixed", label: "指定主机" },
-            { value: "label", label: "标签选择" },
+            { value: "label", label: "故障域" },
           ]}
         />
       </Form.Item>
@@ -200,6 +260,30 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       >
         {SCHEDULING_MODE_DESCRIPTION[schedulingModeForHelp]}
       </Typography.Paragraph>
+
+      {nodeSchedulingMode === "auto" ? (
+        <Form.Item
+          name="metricAutoScheduled"
+          valuePropName="checked"
+          style={{ marginBottom: 16 }}
+        >
+          <Checkbox
+            disabled={!!deploymentSetId}
+            onChange={(e) => {
+              const err = trySetVmRecordMetricAutoScheduledExclusive(
+                form,
+                e.target.checked,
+                record,
+                nodeSchedulingMode,
+                { pciDevices },
+              );
+              if (err) message.error(err);
+            }}
+          >
+            参与指标自动调度
+          </Checkbox>
+        </Form.Item>
+      ) : null}
 
       {nodeSchedulingMode === "fixed" && (
         <Space direction="vertical" size="middle" style={{ width: "100%" }}>
@@ -264,60 +348,19 @@ const ChangeNodeScheduling: React.FC<Props> = ({
       )}
 
       {nodeSchedulingMode === "label" && (
-        <Space direction="vertical" size="middle" style={{ width: "100%" }}>
-          <Form.List name="nodeSelectorPairs">
-            {(fields, { add, remove }) => (
-              <Space direction="vertical" size="middle" style={{ width: "100%", minWidth: 0 }}>
-                {fields.map(({ key, name }, idx) => (
-                  <Card
-                    key={key}
-                    size="small"
-                    style={{ width: "100%" }}
-                    title={`标签选择器 #${idx + 1}`}
-                    extra={
-                      <Button
-                        type="text"
-                        icon={<MinusCircleOutlined />}
-                        onClick={() => remove(name)}
-                        danger
-                        size="small"
-                      />
-                    }
-                  >
-                    <Row gutter={[12, 12]}>
-                      <Col xs={24} sm={12}>
-                        <Form.Item
-                          name={[name, "key"]}
-                          noStyle
-                          rules={[{ required: true, message: "请输入键" }]}
-                        >
-                          <Input placeholder="Key（如 kubernetes.io/hostname）" />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} sm={12}>
-                        <Form.Item
-                          name={[name, "value"]}
-                          noStyle
-                          rules={[{ required: true, message: "请输入值" }]}
-                        >
-                          <Input placeholder="Value" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Card>
-                ))}
-                <Button
-                  type="dashed"
-                  onClick={() => add({ key: "", value: "" })}
-                  icon={<PlusOutlined />}
-                  block
-                >
-                  新增选择器
-                </Button>
-              </Space>
-            )}
-          </Form.List>
-        </Space>
+        <Form.Item name="failureDomainName" label="故障域">
+          <Select
+            allowClear
+            showSearch
+            loading={failureDomainsLoading}
+            placeholder="选择故障域"
+            options={failureDomainOptions}
+            optionFilterProp="label"
+            notFoundContent={
+              failureDomainsLoading ? undefined : VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT
+            }
+          />
+        </Form.Item>
       )}
 
       <Form.Item name="fixedNode" hidden>

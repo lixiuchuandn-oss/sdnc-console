@@ -9,22 +9,36 @@ import { Table, Button, Input, Space, Tag, message, Modal } from 'antd';
 import { SearchOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons';
 import { getHarborArtifacts, deleteHarborArtifact, addHarborTag } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import type { HarborArtifact } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
 import ArtifactDetailDrawer from '../components/ArtifactDetailDrawer';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 
 interface Props {
   /** Harbor 实例 ID */
   harborId: string;
-  /** 项目名称 */
-  projectName: string;
+  /** 项目引用（纯数字项目名需携带 projectId） */
+  project: HarborProjectRef;
   /** 仓库名称 */
   repositoryName: string;
+  /** 当前用户在该项目中的角色 */
+  currentUserRole?: number;
 }
 
 /**
  * 制品列表组件
  */
-const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryName }) => {
+const ArtifactsSection: React.FC<Props> = ({
+  harborId,
+  project,
+  repositoryName,
+  currentUserRole,
+}) => {
+  const { user } = useAuth();
   const [artifacts, setArtifacts] = useState<HarborArtifact[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -34,13 +48,17 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
   const [addTagModalVisible, setAddTagModalVisible] = useState(false);
   const [newTagName, setNewTagName] = useState('');
 
+  // 权限判断：系统管理员、项目管理员、开发者、维护人员可以写操作
+  const isSystemAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const canWrite = isSystemAdmin || (currentUserRole !== undefined && [1, 2, 4].includes(currentUserRole));
+
   /**
    * 加载制品列表
    */
   const loadArtifacts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getHarborArtifacts(harborId, projectName, repositoryName, {
+      const res = await getHarborArtifacts(harborId, project, repositoryName, {
         withTag: true,
         withScanOverview: true,
       });
@@ -53,7 +71,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectName, repositoryName]);
+  }, [harborId, project, repositoryName]);
 
   /**
    * 查看制品详情
@@ -68,7 +86,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
    */
   const handleDelete = async (artifact: HarborArtifact) => {
     try {
-      await deleteHarborArtifact(harborId, projectName, repositoryName, artifact.digest);
+      await deleteHarborArtifact(harborId, project, repositoryName, artifact.digest);
       message.success('制品已删除');
       loadArtifacts();
     } catch (e: any) {
@@ -92,7 +110,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
       const tagName = newTagName.trim();
       await Promise.all(
         selectedRowKeys.map((digest) =>
-          addHarborTag(harborId, projectName, repositoryName, digest as string, tagName)
+          addHarborTag(harborId, project, repositoryName, digest as string, tagName)
         )
       );
       message.success(`已为 ${selectedRowKeys.length} 个制品添加标签 "${tagName}"`);
@@ -245,21 +263,26 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
             label: '详情',
             onClick: () => handleViewDetail(record),
           },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
-            onClick: () => {
-              Modal.confirm({
-                title: '确认删除',
-                content: '删除制品将同时删除关联的标签，此操作不可恢复',
-                okText: '确认',
-                cancelText: '取消',
-                okButtonProps: { danger: true },
-                onOk: () => handleDelete(record),
-              });
-            },
-          },
+          // 只有写权限才显示删除按钮
+          ...(canWrite
+            ? [
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  onClick: () => {
+                    void confirmHighRiskDelete({
+                      resourceLabel: '制品',
+                      name: record.digest || record.tags?.[0]?.name || '-',
+                      description: '删除制品将同时删除关联的标签，此操作不可恢复。',
+                      riskItems: DELETE_RISK_ITEMS,
+                      confirmText: '确认',
+                      onConfirm: () => handleDelete(record),
+                    }).catch(() => {});
+                  },
+                },
+              ]
+            : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
@@ -280,7 +303,7 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
         <Button icon={<ReloadOutlined />} onClick={loadArtifacts}>
           刷新
         </Button>
-        {selectedRowKeys.length > 0 && (
+        {canWrite && selectedRowKeys.length > 0 && (
           <Button 
             type="primary" 
             icon={<PlusOutlined />}
@@ -311,9 +334,10 @@ const ArtifactsSection: React.FC<Props> = ({ harborId, projectName, repositoryNa
         visible={drawerVisible}
         artifact={selectedArtifact}
         harborId={harborId}
-        projectName={projectName}
+        project={project}
         repositoryName={repositoryName}
         onClose={() => setDrawerVisible(false)}
+        currentUserRole={currentUserRole}
       />
 
       {/* 批量添加标签弹窗 */}

@@ -47,6 +47,10 @@ import {
 } from './lib/receivers';
 import { hasPermissionForAction } from '../../../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../shared/lib/highRiskConfirm';
 
 type ReceiverSpecItem = NotificationTargetReceiver;
 type ReceiverItem = {
@@ -708,13 +712,14 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
         message.warning('无法删除：缺少项目或通知对象信息');
         return;
       }
-      Modal.confirm({
+      void confirmHighRiskDelete({
         title: '确定删除该通知对象？',
-        content: `将移出通知对象「${record.specReceiverName}」，告警通知策略中若引用了该对象需同步修改。`,
-        okText: '确定',
-        cancelText: '取消',
-        okButtonProps: { danger: true },
-        onOk: async () => {
+        resourceLabel: '通知对象',
+        name: record.specReceiverName,
+        description: `将移出通知对象「${record.specReceiverName}」，告警通知策略中若引用了该对象需同步修改。`,
+        riskItems: DELETE_RISK_ITEMS,
+        confirmText: '确定',
+        precheck: async () => {
           const { data: policyReceivers, ok: checkOk } = await fetchAlertPolicyReceivers(cloudId!, {
             namespace: record.namespace,
             specReceiverName: record.specReceiverName,
@@ -722,12 +727,13 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
           const list = (policyReceivers as any)?.data?.data ?? (policyReceivers as any)?.data ?? [];
           if (checkOk && Array.isArray(list) && list.length > 0) {
             const policyNames = [...new Set(list.map((p: any) => p.policyName))].join('、');
-            message.warning(`该通知对象已被以下告警通知策略引用，请先解除关联后再删除：${policyNames}`);
-            return;
+            return {
+              ok: false,
+              error: `该通知对象已被以下告警通知策略引用，请先解除关联后再删除：${policyNames}`,
+            };
           }
-          // 新模型：receiverName === specReceiverName ⇒ 整 CR 删除；
-          // 历史共享 CR：receiverName ∈ {email-receiver, dingtalk-receiver, website-receiver} 且 ≠ specReceiverName
-          //   ⇒ 仅移除 spec.receivers 中的同名 entry。
+        },
+        onConfirm: async () => {
           const isLegacySharedEntry =
             record.receiverName !== record.specReceiverName &&
             (record.receiverName === EMAIL_RECEIVER ||
@@ -739,7 +745,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
                   cloudId!,
                   record.namespace!,
                   record.receiverName,
-                  record.specReceiverName
+                  record.specReceiverName,
                 )
             : () => deleteAlertmanagerconfig(cloudId!, record.namespace!, record.receiverName);
           const { ok, error } = await deleteFn();
@@ -750,7 +756,7 @@ const MonitoringAlertNotificationTargets: React.FC<Props> = ({ cloudId }) => {
             message.error(error || '删除失败');
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, loadReceivers, canWriteReceivers]
   );

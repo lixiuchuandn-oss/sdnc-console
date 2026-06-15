@@ -54,7 +54,7 @@ const TENANT_ROOT_CNMC_EXCLUDED_PREFIXES = [
   'clouds.log-configs',
   'clouds.desktop',
   // poolNavGroup「集群」
-  'clouds.cluster-nodes',
+  'clouds.compute-cluster',
   'clouds.namespaces',
   'clouds.cluster-networks',
   'clouds.provider-networks',
@@ -65,7 +65,6 @@ const TENANT_ROOT_CNMC_EXCLUDED_PREFIXES = [
   'clouds.ip-pools',
   'clouds.storage-dashboard',
   'clouds.storage-addon',
-  'clouds.unified-storage-pools',
   'clouds.storage-classes',
   'clouds.storage-rbd-mirror',
   'clouds.storage-s3-buckets',
@@ -93,21 +92,36 @@ function matchesExcludedPrefix(base: string, prefixes: readonly string[]): boole
   return prefixes.some((pfx) => base === pfx || base.startsWith(`${pfx}.`));
 }
 
-/** 是否纳入「云租户根用户」内置 clouds.* 权限 */
-function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+/** 租户 scope 角色抽屉可配置的 clouds.* 权限（含 clouds.images:write，供自定义角色勾选） */
+function isTenantRootConfigurableCloudPermission(permission: string): boolean {
   const base = permissionBase(permission);
   if (permission === 'clouds:read' || permission === 'clouds:write') return false;
   if (!base.startsWith('clouds.')) return false;
   if (matchesExcludedPrefix(base, TENANT_ROOT_CNMC_EXCLUDED_PREFIXES)) return false;
   // 子网汇总权会在角色抽屉拆成 vpc/flat/public，勿授予 write（否则扁平子网「读写」被误勾）
   if (base === 'clouds.subnets') return false;
-  if (permission === 'clouds.images:write') return false;
   if (permission === 'clouds.subnets.flat:write') return false;
   if (isTenantConsoleUmbrellaPermission(permission)) return false;
   return true;
 }
 
-/** 云租户根用户内置权限列表（供种子与手动同步脚本共用） */
+/** 内置「云租户根用户」种子用 clouds.* 权限（含 clouds.images:read/write） */
+function isTenantRootBuiltinCloudPermission(permission: string): boolean {
+  return isTenantRootConfigurableCloudPermission(permission);
+}
+
+/** 租户角色配置权限抽屉固定目录（/rbac/actions.tenantRootBoundary） */
+export function buildTenantRootRoleCatalogBoundary(
+  allPermissions: readonly string[] = ALL_PERMISSIONS,
+): string[] {
+  return allPermissions.filter((p) => {
+    const base = permissionBase(p);
+    if (matchesExcludedPrefix(base, TENANT_ROOT_NON_CNMC_PREFIXES)) return false;
+    return isTenantRootConfigurableCloudPermission(p);
+  });
+}
+
+/** 云租户根用户内置权限列表（供种子与手动同步脚本共用；含镜像读写） */
 export function buildTenantRootBuiltinPermissions(
   allPermissions: readonly string[] = ALL_PERMISSIONS,
 ): string[] {
@@ -203,14 +217,14 @@ export async function initializeRoles() {
     // - CNMC：不含多云管理、资源总览、云监控、集群、日志管理分组
     // - 租户控制台入口由账号类型（tenant）判定，不再授予 clouds.console:*
     // - 云主机/存储等写操作按 clouds.ecs:write 等 poolPageAction 校验
-    // - 镜像：仅 clouds.images:read，不含 clouds.images:write
+    // - 镜像：clouds.images:read/write
     // - 扁平网络：仅 clouds.subnets.flat:read；不含流量镜像/安全组/EIP/SNAT/DNAT
     // - 虚拟网元：不含 clouds.vne（虚拟路由器）
     // - 其余 clouds.*（云主机、云存储、VPC 网络等）：保留显式 read/write
     await ensureRole({
       name: '云租户根用户',
       description:
-        '租户管理员：不含租户/SDN/安全/系统设置等平台入口；CNMC 不含多云管理、资源总览、云监控、集群、日志管理；扁平网络仅扁平子网只读；不含虚拟路由器；资源控制台可访问与操作；镜像仅查看。',
+        '租户管理员：不含租户/SDN/安全/系统设置等平台入口；CNMC 不含多云管理、资源总览、云监控、集群、日志管理；扁平网络仅扁平子网只读；不含虚拟路由器；资源控制台可访问与操作；含云主机镜像读写。',
       scope: 'tenant',
       permissions: buildTenantRootBuiltinPermissions(CURATED_PERMISSIONS),
       status: 'active',
@@ -305,6 +319,8 @@ export async function initializeRoles() {
       'clouds.sshkeys',
       'clouds.recycle-bin',
       'clouds.migrations',
+      'clouds.compute-cluster',
+      'clouds.storage-addon',
       // 云存储
       'clouds.disks',
       'clouds.snapshots',

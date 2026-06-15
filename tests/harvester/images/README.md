@@ -1,0 +1,67 @@
+﻿# Harvester 镜像测试
+
+仅位于 `tests/harvester/images/`，**不修改业务源代码**。
+
+## 覆盖矩阵
+
+| 用例 | 覆盖逻辑 |
+|------|----------|
+| `contract-list-state.cjs` | golden fixture、`listStateKey` 契约（驱动 backend Jest） |
+| `api-list.api.test.cjs` | 列表 `listStateKey`、namespaces、详情 404、`skipSync`/`force` |
+| `api-upload-task.api.test.cjs` | 任务创建校验、disk-check、CRUD |
+| `api-upload-chunks.api.test.cjs` | 分片 PUT 校验、收齐、complete → uploaded、删除策略 |
+| `api-upload-policy.api.test.cjs` | pending 不可删、cancel、取消后不可续传 |
+| `api-upload-token.api.test.cjs` | upload-token expiration 钳制、credentialSource |
+| `api-upload-concurrency.api.test.cjs` | `IMAGE_UPLOAD_GLOBAL_BUSY` 全局互斥 |
+| `browser-upload-and-sync.browser.test.cjs` | 浏览器本地上传 + 同步全流程 |
+| `browser-list-filter.browser.test.cjs` | 列表关键词/状态/范围筛选 |
+| `browser-url-import.browser.test.cjs` | URL 导入创建 + 可选轮询已就绪 |
+
+## 运行
+
+```bash
+cd tests
+npm run test:images:contract   # golden 契约
+npm run test:images:api        # API 集成（分片用例需 TOWER_IMAGE_FILE_PATH）
+npm run test:images:browser         # Playwright E2E（默认有头，上传需 TOWER_IMAGE_FILE_PATH）
+npm run test:images:browser:headed  # 显式有头（等同 HEADED=1）
+npm run allure:open            # 在浏览器中打开 HTML 报告
+```
+
+浏览器用例通过 **Playwright Test + Allure** 运行：每个步骤自动附加全页截图，结束后生成 `tests/allure-report/index.html`（需本机 **Java 8+**）。原始结果在 `tests/allure-results/`。
+
+环境变量见 `tests/.env`（`TOWER_API_BASE`、`TOWER_WEB_BASE`、`TOWER_CLOUD_ID` 等）。
+
+### 本地上传（必填 `TOWER_IMAGE_FILE_PATH`）
+
+在 `tests/.env` 中配置本地镜像路径，**不再**自动生成 demo ISO：
+
+```env
+TOWER_IMAGE_FILE_PATH=D:\网元镜像\ubuntu_4_0_20.04_x86_1000G.qcow2
+TOWER_IMAGE_NAME_PREFIX=tower-e2e
+TOWER_IMAGE_UPLOAD_TIMEOUT_MS=1800000
+TOWER_IMAGE_SYNC_TIMEOUT_MS=3600000
+```
+
+qcow2/iso 会按扩展名识别类型；大于 50MB 时自动延长上传等待时间。
+
+**展示名**：每次运行自动生成唯一名称，格式 `{前缀}-{文件名缩写}-{时间戳}{随机}`，默认前缀 `tower-e2e`。
+
+### URL 导入（集群拉取 HTTP 镜像）
+
+```env
+TOWER_IMAGE_IMPORT_URL=http://10.21.0.31:48090/generic/3rd//centos_4_0_7.6_x86_100Gmini_cloudinit.qcow2
+TOWER_IMAGE_NAME_PREFIX=tower-e2e
+TOWER_IMAGE_SYNC_TIMEOUT_MS=3600000
+```
+
+```bash
+npm run test:images:url-import
+```
+
+走管理员弹窗 **URL 导入** Tab，点「创建」后由 Harvester 从 URL 下载。用例会校验：
+
+- **UI**：状态经历「下载中/导入中/…」→「已就绪」，并记录 `uiHistory`
+- **API**：列表项 `listStateKey === ready`，且 `sourceType=download`
+
+**浏览器模式**：默认有头；`.env` 设 `HEADLESS=1` 切无头；`HEADED=1` 强制有头。单用例有头：`node shared/run-headed.cjs harvester/images/browser-upload-and-sync.browser.test.cjs`

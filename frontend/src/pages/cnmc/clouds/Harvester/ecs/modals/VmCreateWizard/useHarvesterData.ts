@@ -24,9 +24,9 @@
  * - GET /api/clouds/{cloudId}/resources/harvester/nodes          获取节点列表 [映射: nodes]
  * - GET /api/clouds/{cloudId}/resources/harvester/gpus           获取 GPU 资源
  * - GET /api/clouds/{cloudId}/resources/harvester/pci-devices    获取 PCI 设备（直通网卡选项）
- * - GET /api/clouds/{cloudId}/resources/harvester/usb-devices    获取 USB 设备
+ * - GET /api/clouds/{cloudId}/resources/harvester/usb-devices    获取 USB 设备（高级设置内按需加载）
  * - GET /api/clouds/{cloudId}/resources/harvester/storage-classes 获取存储类 [映射: defaultStorageClassName]
- * - GET /api/clouds/{cloudId}/resources/harvester/sshkeys        获取 SSH 密钥 [映射: sshKeyOptions]
+ * - GET /api/clouds/{cloudId}/resources/harvester/sshkeys        获取 SSH 密钥（登录步骤内按需加载）
  * - GET /api/clouds/{cloudId}/resources/subnets                  获取 Kube-OVN 子网 [映射: kubeSubnetOptions]
  * - GET /api/clouds/{cloudId}/resources/vpcs                     获取 Kube-OVN VPC [映射: kubeVpcOptions]
  */
@@ -95,11 +95,15 @@ export const useHarvesterData = (
   const [gpuResources, setGpuResources] = useState<any[]>([]);
   const [pciDevices, setPciDevices] = useState<any[]>([]);
   const [usbResources, setUsbResources] = useState<any[]>([]);
+  const [usbResourcesLoaded, setUsbResourcesLoaded] = useState(false);
+  const [usbResourcesLoading, setUsbResourcesLoading] = useState(false);
   
   const [storageClasses, setStorageClasses] = useState<any[]>([]);
   const [storageClassLoading, setStorageClassLoading] = useState<boolean>(false);
   
   const [sshKeys, setSshKeys] = useState<any[]>([]);
+  const [sshKeysLoaded, setSshKeysLoaded] = useState(false);
+  const [sshKeysLoading, setSshKeysLoading] = useState(false);
 
   // [辅助逻辑] 获取有效的 Cloud ID
   // 优先使用 currentCloudId，如果 cloudId 为 'all' 则不返回有效 ID (除非有 currentCloudId)
@@ -254,16 +258,20 @@ export const useHarvesterData = (
     }
   }, [getCid]);
 
-  // [数据获取] 刷新 SSH 密钥
+  // [数据获取] 刷新 SSH 密钥（由「登录与凭据」内按需触发，不在进入步骤时预加载）
   const reloadSshKeys = useCallback(async () => {
     const cid = getCid();
     if (!cid) return;
     try {
+      setSshKeysLoading(true);
       const json: any = await fetchHarvesterSshKeys(cid);
       const items: any[] = json?.data?.items || json?.items || [];
       setSshKeys(items);
+      setSshKeysLoaded(true);
     } catch (e: any) {
       message.warning(e?.message || 'SSH Key 列表刷新失败');
+    } finally {
+      setSshKeysLoading(false);
     }
   }, [getCid]);
 
@@ -498,8 +506,8 @@ export const useHarvesterData = (
     kubeVpcs, reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
     pciDevices, reloadPciDevices, pciNicPassthroughOptions,
-    usbResources, reloadUsbResources,
+    usbResources, usbResourcesLoaded, usbResourcesLoading, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
-    sshKeys, reloadSshKeys, sshKeyOptions
+    sshKeys, sshKeysLoaded, sshKeysLoading, reloadSshKeys, sshKeyOptions
   };
 };

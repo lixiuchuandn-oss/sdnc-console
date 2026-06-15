@@ -17,8 +17,9 @@ import {
   message,
 } from 'antd';
 import type { DrawerProps } from 'antd';
-import { apiDelete, apiPost, apiRequest } from '../../../../services/api';
-import type { Assignment, RBACRole, SysUser } from '../types';
+import { apiDelete, apiPost } from '../../../../services/api';
+import { loadRoleAssignUsersData } from '../lib/roleAssignUsersLoad';
+import type { Assignment, RBACRole, RbacAssignmentUserType, SysUser } from '../types';
 
 const { Text } = Typography;
 
@@ -55,6 +56,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
   const [existing, setExisting] = useState<Assignment[]>([]);
   const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
   const [roles, setRoles] = useState<RBACRole[]>([]);
+  const [userType, setUserType] = useState<RbacAssignmentUserType>('system');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -64,46 +66,13 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
     try {
       setLoading(true);
       setLoadError('');
-      const usersJson = await apiRequest('/api/users', { skipCache: true });
-      const usersList: SysUser[] = Array.isArray(usersJson)
-        ? usersJson
-        : Array.isArray(usersJson?.users)
-          ? usersJson.users
-          : [];
-
-      const activeUserIds = usersList
-        .filter((u) => u.username !== 'admin' && u.status === 'active')
-        .map((u) => String(u.id));
-
-      const [rolesJson, allAssignmentsJson, assignmentsJson] = await Promise.all([
-        apiRequest('/api/system/rbac/roles', { skipCache: true }).catch(() => []),
-        apiRequest(
-          `/api/system/rbac/assignments/by-users?userType=system&userIds=${encodeURIComponent(activeUserIds.join(','))}`,
-          { skipCache: true },
-        ).catch(() => ({ assignments: [] })),
-        apiRequest(
-          `/api/system/rbac/assignments/by-role?roleId=${encodeURIComponent(role.id)}&userType=system`,
-          { skipCache: true },
-        ).catch(() => ({ assignments: [] })),
-      ]);
-
-      const rolesList: RBACRole[] = Array.isArray(rolesJson)
-        ? rolesJson
-        : Array.isArray((rolesJson as any)?.roles)
-          ? (rolesJson as any).roles
-          : [];
-      const allAssignmentsList: Assignment[] = Array.isArray(allAssignmentsJson?.assignments)
-        ? allAssignmentsJson.assignments
-        : [];
-      const roleAssignments: Assignment[] = Array.isArray(assignmentsJson?.assignments)
-        ? assignmentsJson.assignments
-        : [];
-
-      setUsers(usersList);
-      setRoles(rolesList);
-      setAllAssignments(allAssignmentsList);
-      setExisting(roleAssignments);
-      setSelected(roleAssignments.map((x) => String(x.userId)));
+      const data = await loadRoleAssignUsersData(role);
+      setUserType(data.userType);
+      setUsers(data.users);
+      setRoles(data.roles);
+      setAllAssignments(data.allAssignments);
+      setExisting(data.roleAssignments);
+      setSelected(data.roleAssignments.map((x) => String(x.userId)));
     } catch {
       setLoadError('加载用户分配信息失败，请重试');
     } finally {
@@ -185,10 +154,13 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
     );
   };
 
-  const activeUsers = useMemo(
-    () => users.filter((u) => u.username !== 'admin' && u.status === 'active'),
-    [users],
-  );
+  const activeUsers = useMemo(() => {
+    return users.filter((u) => {
+      if (u.status !== 'active') return false;
+      if (userType === 'system' && u.username === 'admin') return false;
+      return true;
+    });
+  }, [users, userType]);
 
   const membersInRole = useMemo(() => {
     const q = memberKw;
@@ -321,6 +293,19 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         align: 'left' as const,
         render: (v: string, row: SysUser) => <Text>{v || row.username}</Text>,
       },
+      ...(userType === 'tenant'
+        ? [
+            {
+              title: '租户',
+              key: 'tenant',
+              align: 'left' as const,
+              ellipsis: true,
+              render: (_: unknown, row: SysUser) => (
+                <Text type="secondary">{row.tenant?.name || '—'}</Text>
+              ),
+            },
+          ]
+        : []),
       {
         title: '类型',
         key: 'kind',
@@ -350,7 +335,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         ),
     });
     return cols;
-  }, [canWrite, renderOtherRolesCell, handleAdd]);
+  }, [canWrite, renderOtherRolesCell, handleAdd, userType]);
 
   const safeClose = React.useCallback(() => {
     if (!dirty) {
@@ -382,7 +367,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         ...delta.needAdd.map((userId) =>
           apiPost('/api/system/rbac/assignments', {
             roleId: target.id,
-            userType: 'system',
+            userType,
             userId,
           }),
         ),
@@ -398,7 +383,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
     } finally {
       setSaving(false);
     }
-  }, [canWrite, target, delta, onClose, onSaved]);
+  }, [canWrite, target, userType, delta, onClose, onSaved]);
 
   const memberInRoleCount = activeUsers.filter((u) => selected.includes(String(u.id))).length;
 

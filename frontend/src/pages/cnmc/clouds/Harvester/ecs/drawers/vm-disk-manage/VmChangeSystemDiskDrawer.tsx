@@ -24,6 +24,7 @@ import { LoadingOutlined } from "@ant-design/icons";
 import {
   fetchHarvesterImages,
   fetchHarvesterStorageClasses,
+  getHarvesterImagesListItems,
 } from "../../../../../../../services/harvesterApi";
 import { rebootCloudProviderEcs } from "../../../../../../../services/api";
 import { translateKnownApiErrorMessage } from "../../../../../../../utils/k8sErrorMessages";
@@ -43,6 +44,8 @@ import {
 } from "../../lib/vmChangeSystemDiskEligibility";
 import { showChangeOsRiskModal } from "../../lib/showChangeOsRiskModal";
 import { isVmStopped } from "../../lib/vmInstanceStatus";
+import { confirmHighRiskOperation } from "../../../shared/lib/highRiskConfirm";
+import { VM_RESTART_RISK_ITEMS } from "../../../shared/lib/highRiskOperationPresets";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
 import "../shared/styles/vmManageDrawer.css";
 
@@ -159,11 +162,7 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
   const reloadImages = useCallback(async () => {
     try {
       const res = await fetchHarvesterImages(cloudId);
-      const items = Array.isArray(res?.data?.items)
-        ? res.data.items
-        : Array.isArray(res?.items)
-          ? res.items
-          : [];
+      const items = getHarvesterImagesListItems(res);
       setImages(items);
       return items;
     } catch {
@@ -193,11 +192,14 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
         return;
       }
 
-      Modal.confirm({
+      void confirmHighRiskOperation({
         title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
-        okText: "立即重启",
+        riskItems: VM_RESTART_RISK_ITEMS,
+        requireTypeConfirm: false,
+        operationSummary: `重启虚拟机「${vmName}」以应用新配置`,
+        confirmText: "立即重启",
         cancelText: "手动重启",
-        onOk: async () => {
+        onConfirm: async () => {
           try {
             await rebootCloudProviderEcs(
               cloudId,
@@ -211,10 +213,10 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
                 String(e?.message || e || "重启失败"),
               ),
             );
+            throw e;
           }
         },
-        onCancel: () => {},
-      });
+      }).catch(() => {});
     },
     [cloudId, latestVm, record],
   );
@@ -243,11 +245,7 @@ const VmChangeSystemDiskDrawer: React.FC<VmChangeSystemDiskDrawerProps> = ({
           return items;
         }),
         fetchHarvesterImages(cloudId).then((res) => {
-          const items = Array.isArray(res?.data?.items)
-            ? res.data.items
-            : Array.isArray(res?.items)
-              ? res.items
-              : [];
+          const items = getHarvesterImagesListItems(res);
           setImages(items);
           return items;
         }),

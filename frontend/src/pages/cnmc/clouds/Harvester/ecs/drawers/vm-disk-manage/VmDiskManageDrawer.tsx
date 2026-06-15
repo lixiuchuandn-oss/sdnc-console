@@ -15,7 +15,6 @@ import {
   Col,
   Popconfirm,
   message,
-  Modal,
   InputNumber,
   Tag,
   Space,
@@ -46,6 +45,8 @@ import { getVmChangeSystemDiskEligibility } from "../../lib/vmChangeSystemDiskEl
 import { isCloudInitVolume } from "../../lib/vmCloudInitSpec";
 import { isVmStopped } from "../../lib/vmInstanceStatus";
 import { VM_RECONFIGURE_RESTART_CONFIRM_TITLE } from "../../lib/vmMutation/vmReconfigureSubmitTypes";
+import { confirmHighRiskOperation } from "../../../shared/lib/highRiskConfirm";
+import { VM_RESTART_RISK_ITEMS } from "../../../shared/lib/highRiskOperationPresets";
 import { useVmManageDrawerCssVars } from "../shared/lib/useVmManageDrawerCssVars";
 import VmDeviceManageDrawerEmpty from "../shared/components/VmDeviceManageDrawerEmpty";
 import "../shared/styles/vmManageDrawer.css";
@@ -66,6 +67,7 @@ import {
   claimNameForPvcResize,
   deepClone,
   diskDetachSkipsVmRestartPrompt,
+  diskDetachUsesHotplugRemoveVolume,
   diskImageMetaText,
   effectiveDiskBusForHotDetachPolicy,
   extractBlockDisksAndVolumes,
@@ -168,9 +170,11 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
   const [attachCdromOpen, setAttachCdromOpen] = useState(false);
   const [changeSystemDiskOpen, setChangeSystemDiskOpen] = useState(false);
   const mergeTemplateRef = useRef<DiskMergeTemplateSlot[]>([]);
-  /** 本次打开内从规格解绑的块设备总线（保存成功后按总线决定是否弹重启确认） */
-  const removedDiskBusesRef = useRef<string[]>([]);
-  /** 本次打开内解绑且宜走 Harvester removeVolume 热卸载的卷名（与 diskDetachSkipsVmRestartPrompt 对齐，如 SCSI 总线） */
+  /** 本次打开内解绑的块设备（总线 + 存储类，保存后决定是否热卸载与弹重启确认） */
+  const removedDiskDetachRecordsRef = useRef<
+    { bus: string; storageClassName: string }[]
+  >([]);
+  /** 本次打开内解绑且宜走 Harvester removeVolume 热卸载的卷名（Longhorn SCSI 等） */
   const removedHotplugVolumeNamesRef = useRef<string[]>([]);
 
   // --- 自 VM 解析 ---
@@ -208,13 +212,15 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
         message.success("设置已保存，下次启动时将自动应用新配置");
         return;
       }
-      Modal.confirm({
-        zIndex: 3000,
+      void confirmHighRiskOperation({
         title: VM_RECONFIGURE_RESTART_CONFIRM_TITLE,
-        content: opts?.content,
-        okText: "立即重启",
+        description: opts?.content,
+        riskItems: VM_RESTART_RISK_ITEMS,
+        requireTypeConfirm: false,
+        operationSummary: `重启虚拟机「${name}」以应用磁盘配置`,
+        confirmText: "立即重启",
         cancelText: "手动重启",
-        onOk: async () => {
+        onConfirm: async () => {
           try {
             await rebootCloudProviderEcs(
               cloudId,
@@ -228,10 +234,10 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
                 String(e?.message || e || "重启失败"),
               ),
             );
+            throw e;
           }
         },
-        onCancel: () => {},
-      });
+      }).catch(() => {});
     },
     [cloudId, vmData],
   );
@@ -331,11 +337,11 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
   const diskManageSyncedVmKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (open && !diskManagePrevOpenRef.current) {
-      removedDiskBusesRef.current = [];
+      removedDiskDetachRecordsRef.current = [];
       removedHotplugVolumeNamesRef.current = [];
     }
     if (!open) {
-      removedDiskBusesRef.current = [];
+      removedDiskDetachRecordsRef.current = [];
       removedHotplugVolumeNamesRef.current = [];
       diskManageSyncedVmKeyRef.current = null;
       diskManagePrevOpenRef.current = false;
@@ -454,9 +460,17 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       disks[idx],
       sliceUnbind,
     );
-    removedDiskBusesRef.current.push(busDetach);
     const volName = String(disks[idx]?.name || "").trim();
-    if (volName && diskDetachSkipsVmRestartPrompt(busDetach)) {
+    const row = diskDisplayRows?.find((x: any) => x?.name === volName);
+    const storageClassName = String(row?.storageClassName || "").trim();
+    removedDiskDetachRecordsRef.current.push({
+      bus: busDetach,
+      storageClassName,
+    });
+    if (
+      volName &&
+      diskDetachUsesHotplugRemoveVolume(busDetach, storageClassName)
+    ) {
       removedHotplugVolumeNamesRef.current.push(volName);
     }
     const volAt = volumes[idx];
@@ -667,8 +681,10 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       } else {
         message.success("磁盘配置已保存");
       }
-      const busesRemovedThisSave = [...removedDiskBusesRef.current];
-      removedDiskBusesRef.current = [];
+      const detachRecordsRemovedThisSave = [
+        ...removedDiskDetachRecordsRef.current,
+      ];
+      removedDiskDetachRecordsRef.current = [];
       await onApplied();
       const { blockDisks, blockVols } = extractBlockDisksAndVolumes(
         tpl,
@@ -693,9 +709,10 @@ const VmDiskManageDrawer: React.FC<VmDiskManageDrawerProps> = ({
       );
       onClose();
       const needsRestartAfterDetach =
-        busesRemovedThisSave.length > 0 &&
-        busesRemovedThisSave.some(
-          (b) => !diskDetachSkipsVmRestartPrompt(b),
+        detachRecordsRemovedThisSave.length > 0 &&
+        detachRecordsRemovedThisSave.some(
+          (r) =>
+            !diskDetachSkipsVmRestartPrompt(r.bus, r.storageClassName),
         );
       const needsRestartForBootOrder = running && diskBootOrderChanged;
       const needsRestartForBus = running && diskBusTypeChanged;

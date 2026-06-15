@@ -3,20 +3,15 @@
  * 列表列与筛选见 `ecs/lib/imagesSectionUtils.ts`、`imagesTableColumns.tsx`；
  * 删除/上传任务见 `imagesSectionActions.ts`、`hooks/useImagesSectionActions.tsx`。
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Table,
   Input,
   Select,
-  Tag,
   Button,
   message,
   Dropdown,
-  Modal,
   Tooltip,
-  Typography,
-  Drawer,
-  Progress,
 } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
@@ -29,32 +24,59 @@ import { useAuth } from '../../../../../../contexts/AuthContext';
 import { hasPermissionForAction } from '../../../../../../utils/accessMapping';
 import ImageLabelEditModal from '../modals/ImageLabelEditModal';
 import ImageCreateModal from '../modals/ImageCreateModal';
+import type { HarvesterImageUploadTask } from '../../../../../../services/harvesterApi';
 import {
   IMAGE_OS_FILTER_OPTIONS,
   IMAGE_STATUS_FILTER_OPTIONS,
-  imageUploadTaskStatusLabel,
 } from '../lib/imagesSectionConstants';
 import {
+  buildTenantImageNamespaceSet,
+  canTenantOperateImage,
   filterAndSortImages,
   getImageRowId,
   imageStatusLabelZh,
   type ImageListRecord,
 } from '../lib/imagesSectionUtils';
 import { buildImagesTableColumns } from '../lib/imagesTableColumns';
+import {
+  getTowerUploadTaskIdFromRow,
+  isTowerUploadVirtualRow,
+  mergeUploadTasksIntoImageList,
+} from '../lib/imagesSectionActions';
 import { useImagesSectionActions } from '../hooks/useImagesSectionActions';
+import type { ImageUploadTasksDrawerHandle } from '../components/ImageUploadTasksDrawer';
 import {
   createHarvesterToolbarRefresh,
+  notifyHarvesterImagesInventoryChanged,
   runHarvesterSectionRefresh,
+  type HarvesterImagesInventoryReload,
   type HarvesterSectionOnRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
+import { useHarvesterPublicNamespaces } from '../../shared/context/HarvesterPublicNamespacesContext';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { getApiErrorMessage } from '../../../../../../services/api';
+import { startImageDownloadTaskFromRecord } from '../lib/images/imageDownload';
+import { IMAGE_DOWNLOAD_CONCURRENCY_LIMIT_MESSAGE } from '../lib/images/imageDownloadTaskCore';
 
 type Props = {
   cloudId: string;
   images: ImageListRecord[];
   loading: boolean;
   onRefresh?: HarvesterSectionOnRefresh;
+  onImagesInventoryReload?: HarvesterImagesInventoryReload;
   vms?: ImageListRecord[];
   isTenant?: boolean;
+  /** 租户上传镜像默认命名空间（侧栏 ns 或首个授权 ns） */
+  tenantDefaultNamespace?: string;
+  /** 租户授权命名空间列表（控制台/资源池已加载，勿走监控 allowed-namespaces） */
+  namespacesOptions?: string[];
+  /** 计算 Tab 级常驻上传抽屉 ref（切换子 Tab 不丢失） */
+  uploadDrawerRef?: React.RefObject<ImageUploadTasksDrawerHandle | null>;
+  /** 向常驻抽屉注册列表侧回调 */
+  onRegisterUploadCallbacks?: (callbacks: {
+    onListTaskChange?: (task: HarvesterImageUploadTask) => void;
+    onListTaskRemove?: (taskId: string, opts?: { refreshInventory?: boolean }) => void;
+  }) => void;
 };
 
 const ImagesSection: React.FC<Props> = ({
@@ -62,10 +84,16 @@ const ImagesSection: React.FC<Props> = ({
   images,
   loading,
   onRefresh,
+  onImagesInventoryReload,
   vms = [],
   isTenant = false,
+  tenantDefaultNamespace,
+  namespacesOptions,
+  uploadDrawerRef: uploadDrawerRefProp,
+  onRegisterUploadCallbacks,
 }) => {
   const { user } = useAuth();
+  const { isPublicNamespace } = useHarvesterPublicNamespaces();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasImagesWrite = useMemo(
     () =>
@@ -79,6 +107,23 @@ const ImagesSection: React.FC<Props> = ({
     return false;
   }, [hasImagesWrite]);
 
+  const tenantNamespaceSelectOptions = useMemo(() => {
+    if (!isTenant) return [];
+    return (namespacesOptions || [])
+      .map((ns) => String(ns || '').trim())
+      .filter((ns) => ns && !isSystemNamespace(ns) && !isPublicNamespace(ns))
+      .sort()
+      .map((ns) => ({ label: ns, value: ns }));
+  }, [isTenant, namespacesOptions, isPublicNamespace]);
+
+  const tenantNamespaceSet = useMemo(
+    () =>
+      isTenant
+        ? buildTenantImageNamespaceSet(namespacesOptions, { isPublicNamespace })
+        : undefined,
+    [isTenant, namespacesOptions, isPublicNamespace],
+  );
+
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
@@ -88,21 +133,16 @@ const ImagesSection: React.FC<Props> = ({
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [labelEditModalOpen, setLabelEditModalOpen] = useState(false);
   const [labelEditRecord, setLabelEditRecord] = useState<ImageListRecord | null>(null);
+  const [downloadImageLoadingKey, setDownloadImageLoadingKey] = useState<string | null>(null);
   const { yamlDrawerOpen, yamlViewLink, yamlDrawerTitle, openYamlDrawer, closeYamlDrawer } =
     useHarvesterResourceLinkYamlDrawer(cloudId);
 
   const {
     localImages,
-    toolTaskList,
-    taskDrawerOpen,
-    setTaskDrawerOpen,
-    taskDrawerLoading,
-    loadUploadTasks,
-    getSmoothProgress,
-    upsertTask,
-    uploadControllersRef,
-    handleDeleteUploadTask,
-    handleCancelUploadTask,
+    listTaskList,
+    onListTaskChange,
+    onListTaskRemove,
+    handleSyncUploadTask,
     handleDeleteRow,
     batchDelete,
   } = useImagesSectionActions({
@@ -110,9 +150,22 @@ const ImagesSection: React.FC<Props> = ({
     images,
     vms,
     onRefresh,
+    onImagesInventoryReload,
     hasImagesWrite,
     ensureImagesWrite,
+    tenantNamespaceSet: isTenant ? tenantNamespaceSet : undefined,
   });
+
+  const fallbackUploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
+  const uploadDrawerRef = uploadDrawerRefProp ?? fallbackUploadDrawerRef;
+
+  useEffect(() => {
+    onRegisterUploadCallbacks?.({
+      onListTaskChange,
+      onListTaskRemove,
+    });
+    return () => onRegisterUploadCallbacks?.({});
+  }, [onListTaskChange, onListTaskRemove, onRegisterUploadCallbacks]);
 
   const handleOpenYaml = useCallback(
     (record: ImageListRecord) => {
@@ -124,30 +177,83 @@ const ImagesSection: React.FC<Props> = ({
     [openYamlDrawer],
   );
 
+  const handleDownloadImage = useCallback(
+    (record: ImageListRecord) => {
+      const rowKey = getImageRowId(record);
+      if (!rowKey || downloadImageLoadingKey) return;
+      setDownloadImageLoadingKey(rowKey);
+      void startImageDownloadTaskFromRecord(cloudId, record)
+        .then((task) => {
+          uploadDrawerRef.current?.upsertDownloadTask(task);
+          uploadDrawerRef.current?.openDrawer(true);
+          message.success('已创建下载任务，拉取完成后可在「镜像任务」中下载到本地');
+        })
+        .catch((e: unknown) => {
+          const errMsg = getApiErrorMessage(e, '创建下载任务失败');
+          if (errMsg === IMAGE_DOWNLOAD_CONCURRENCY_LIMIT_MESSAGE) {
+            message.warning(errMsg);
+          } else {
+            message.error(errMsg);
+          }
+        })
+        .finally(() => {
+          setDownloadImageLoadingKey(null);
+        });
+    },
+    [cloudId, downloadImageLoadingKey, uploadDrawerRef],
+  );
+
+  const mergedImages = useMemo(
+    () => mergeUploadTasksIntoImageList(localImages, listTaskList, { isPublicNamespace }),
+    [localImages, listTaskList, isPublicNamespace],
+  );
+
   const filtered = useMemo(
     () =>
       filterAndSortImages(
-        localImages,
+        mergedImages,
         { keyword, statusFilter, typeFilter, osFilter, scopeFilter },
         { isTenant },
       ),
-    [localImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant],
+    [mergedImages, keyword, statusFilter, typeFilter, osFilter, scopeFilter, isTenant],
   );
 
   const allColumns = useMemo(
     () =>
       buildImagesTableColumns({
         isTenant,
+        tenantNamespaceSet,
         hasImagesWrite,
         ensureImagesWrite,
+        vms,
+        uploadTasks: listTaskList,
         onOpenYaml: (r) => handleOpenYaml(r),
         onEditLabels: (r) => {
           setLabelEditRecord(r);
           setLabelEditModalOpen(true);
         },
         onDeleteRow: (r) => void handleDeleteRow(r),
+        onSyncUploadTask: async (r) => {
+          const next = await handleSyncUploadTask(r);
+          if (next?.id) uploadDrawerRef.current?.upsertTask(next);
+        },
+        onDownloadImage: (r) => handleDownloadImage(r),
+        downloadImageLoadingKey,
       }),
-    [isTenant, hasImagesWrite, ensureImagesWrite, handleOpenYaml, handleDeleteRow],
+    [
+      isTenant,
+      tenantNamespaceSet,
+      hasImagesWrite,
+      ensureImagesWrite,
+      vms,
+      listTaskList,
+      handleOpenYaml,
+      handleDeleteRow,
+      handleSyncUploadTask,
+      handleDownloadImage,
+      downloadImageLoadingKey,
+      uploadDrawerRef,
+    ],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, 'harvester_images_table');
@@ -249,11 +355,10 @@ const ImagesSection: React.FC<Props> = ({
           </WriteGuard>
           <Button
             onClick={() => {
-              setTaskDrawerOpen(true);
-              void loadUploadTasks(false);
+              uploadDrawerRef.current?.openDrawer();
             }}
           >
-            上传任务
+            镜像任务
           </Button>
           <WriteGuard canWrite={hasImagesWrite}>
             <Tooltip title={selectedKeys.length === 0 ? '请先选择镜像' : undefined}>
@@ -274,7 +379,7 @@ const ImagesSection: React.FC<Props> = ({
                         return;
                       }
                       if (key === 'batchDelete') {
-                        batchDelete(selectedKeys, images, () => setSelectedKeys([]));
+                        batchDelete(selectedKeys, filtered, () => setSelectedKeys([]));
                       }
                     },
                   }}
@@ -296,22 +401,37 @@ const ImagesSection: React.FC<Props> = ({
         open={creating}
         onClose={() => setCreating(false)}
         cloudId={cloudId}
-        variant="full"
+        variant={isTenant ? 'standard' : 'full'}
+        isTenant={isTenant}
+        tenantDefaultNamespace={tenantDefaultNamespace}
+        tenantNamespaceOptions={tenantNamespaceSelectOptions}
         ensureWrite={ensureImagesWrite}
         onUrlImportSuccess={() =>
-          void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true })
+          notifyHarvesterImagesInventoryChanged(cloudId, onImagesInventoryReload, {
+            inventoryDelaysMs: [0, 2000],
+            statusSyncDelaysMs: [3000, 6000, 9000, 12000, 15000, 20000],
+          })
         }
         onBrowserUploadSuccess={() =>
           void runHarvesterSectionRefresh(onRefresh, { force: true, silent: true })
         }
-        onUploadTaskUpsert={upsertTask}
-        uploadControllersRef={uploadControllersRef}
+        onUploadStarted={() => uploadDrawerRef.current?.openDrawer(true)}
+        onStartBrowserUpload={(params) => uploadDrawerRef.current?.startUpload(params)}
       />
       <Table
         className="std-table"
         bordered={false}
-        rowKey={(r) => getImageRowId(r)}
-        rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
+        rowKey={(r) =>
+          isTowerUploadVirtualRow(r) ? getTowerUploadTaskIdFromRow(r) : getImageRowId(r)
+        }
+        rowSelection={{
+          selectedRowKeys: selectedKeys,
+          onChange: setSelectedKeys,
+          getCheckboxProps: (r: ImageListRecord) =>
+            isTenant && tenantNamespaceSet && !canTenantOperateImage(r, tenantNamespaceSet)
+              ? { disabled: true }
+              : {},
+        }}
         columns={tableColumns}
         dataSource={filtered}
         loading={loading}
@@ -327,121 +447,6 @@ const ImagesSection: React.FC<Props> = ({
         viewLink={yamlViewLink}
         title={yamlDrawerTitle || '镜像 YAML'}
       />
-      <Drawer
-        title="镜像上传任务"
-        placement="right"
-        width={460}
-        open={taskDrawerOpen}
-        onClose={() => setTaskDrawerOpen(false)}
-        extra={
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={taskDrawerLoading}
-            onClick={() => {
-              void loadUploadTasks(false);
-            }}
-          />
-        }
-      >
-        {toolTaskList.length === 0 ? (
-          <Typography.Text type="secondary">暂无上传任务</Typography.Text>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {toolTaskList.map((t) => (
-              <div key={t.id} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                  <Typography.Text ellipsis style={{ maxWidth: 260 }}>
-                    {t.displayName || t.filename || t.id}
-                  </Typography.Text>
-                  <Tag
-                    color={
-                      t.status === 'success'
-                        ? 'green'
-                        : t.status === 'failed'
-                          ? 'red'
-                          : t.status === 'cancelled'
-                            ? 'default'
-                            : 'blue'
-                    }
-                  >
-                    {imageUploadTaskStatusLabel(t.status)}
-                  </Tag>
-                </div>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  命名空间：{t.namespace || '-'}
-                </Typography.Text>
-                <Progress
-                  percent={getSmoothProgress(t)}
-                  size="small"
-                  status={
-                    t.status === 'failed'
-                      ? 'exception'
-                      : t.status === 'success'
-                        ? 'success'
-                        : t.status === 'cancelled'
-                          ? 'normal'
-                          : 'active'
-                  }
-                  style={{ marginTop: 6, marginBottom: 4 }}
-                />
-                {t.errorMessage ? (
-                  <Typography.Text type="danger" style={{ fontSize: 12 }}>
-                    {t.errorMessage}
-                  </Typography.Text>
-                ) : null}
-                <div
-                  style={{
-                    marginTop: 8,
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    flexWrap: 'wrap',
-                    gap: 8,
-                  }}
-                >
-                  <Button
-                    size="small"
-                    disabled={
-                      !['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) ||
-                      !hasImagesWrite
-                    }
-                    onClick={() =>
-                      Modal.confirm({
-                        title: '确认取消该上传任务？',
-                        content: `取消后将停止上传：${t.displayName || t.filename || t.id}`,
-                        onOk: async () => {
-                          await handleCancelUploadTask(t);
-                        },
-                      })
-                    }
-                  >
-                    取消
-                  </Button>
-                  <Button
-                    size="small"
-                    danger
-                    disabled={
-                      ['pending', 'ingesting', 'proxying'].includes(String(t.status || '')) ||
-                      !hasImagesWrite
-                    }
-                    onClick={() =>
-                      Modal.confirm({
-                        title: '确认删除该上传任务记录？',
-                        content: `删除后将无法恢复：${t.displayName || t.filename || t.id}`,
-                        onOk: async () => {
-                          await handleDeleteUploadTask(t);
-                        },
-                      })
-                    }
-                  >
-                    删除
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Drawer>
 
       <ImageLabelEditModal
         open={labelEditModalOpen}

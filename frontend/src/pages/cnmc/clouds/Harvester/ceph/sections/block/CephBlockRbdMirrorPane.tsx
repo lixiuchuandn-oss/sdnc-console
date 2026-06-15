@@ -10,7 +10,8 @@ import {
   mergeCephSectionOnRefresh,
   type HarvesterSectionOnRefresh,
 } from '../../lib/cephSectionRefresh';
-import type { CephBlockYamlTarget } from './useCephBlockYamlDrawer';
+
+export type CephBlockYamlTarget = { kind: 'mirror'; namespace: string; name: string };
 
 export type CephBlockRbdMirrorPaneProps = {
   loading: boolean;

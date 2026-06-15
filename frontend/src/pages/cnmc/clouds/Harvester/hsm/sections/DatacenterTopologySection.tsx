@@ -241,7 +241,6 @@ const DatacenterTopologySection: React.FC<Props> = ({
           setSwitchDrawerOpen(false);
           setSwitchDrawerRecord(null);
         }}
-        initialTab="overview"
         onRefreshFromCluster={() => void refreshList()}
         refreshLoading={loading}
       />

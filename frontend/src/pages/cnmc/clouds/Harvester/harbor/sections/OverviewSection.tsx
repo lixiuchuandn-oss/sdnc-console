@@ -19,7 +19,7 @@ import {
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import type { HarborRegistry } from '../types';
-import { getHarborSystemInfo, getHarborProjects, syncHarborSecret, syncHarborProjects, createHarborProject } from '../shared/harborApi';
+import { getHarborSystemInfo, getHarborProjects, syncHarborProjects, createHarborProject } from '../shared/harborApi';
 
 interface Props {
   harbor: HarborRegistry;
@@ -57,8 +57,8 @@ const StatusText: React.FC<{ status: string }> = ({ status }) => {
   }
 };
 
-const OverviewSection: React.FC<Props> = ({ harbor, cloudId, onRefresh, onTestConnection, onNavigateToUpload }) => {
-  const { message, modal } = App.useApp();
+const OverviewSection: React.FC<Props> = ({ harbor, onRefresh, onTestConnection, onNavigateToUpload }) => {
+  const { message } = App.useApp();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -93,37 +93,6 @@ const OverviewSection: React.FC<Props> = ({ harbor, cloudId, onRefresh, onTestCo
   useEffect(() => {
     loadSystemInfo();
   }, [loadSystemInfo]);
-
-  /**
-   * 同步凭证到 K8s
-   */
-  const handleSyncSecret = useCallback(() => {
-    if (!cloudId) {
-      message.warning('缺少云环境 ID，无法同步凭证');
-      return;
-    }
-    
-    modal.confirm({
-      title: '同步凭证到 Kubernetes',
-      content: (
-        <div>
-          <p>将 Harbor 凭证同步到 Kubernetes 集群，使工作负载可以拉取私有镜像。</p>
-          <p>目标命名空间：<Tag color="blue">default</Tag></p>
-        </div>
-      ),
-      onOk: async () => {
-        try {
-          const result = await syncHarborSecret(harbor.id, {
-            cloudId,
-            namespace: 'default',
-          });
-          message.success(`凭证已同步到 Secret: ${result.secretName}`);
-        } catch (e: any) {
-          message.error(e?.message || '同步凭证失败');
-        }
-      },
-    });
-  }, [harbor.id, cloudId, message, modal]);
 
   /**
    * 同步项目列表
@@ -279,13 +248,6 @@ const OverviewSection: React.FC<Props> = ({ harbor, cloudId, onRefresh, onTestCo
             onClick={handleSyncProjects}
           >
             同步项目
-          </Button>
-          <Button 
-            icon={<SyncOutlined />} 
-            onClick={handleSyncSecret}
-            disabled={!cloudId}
-          >
-            同步凭证到 K8s
           </Button>
           <Button icon={<ApiOutlined />} onClick={onTestConnection}>
             测试连接

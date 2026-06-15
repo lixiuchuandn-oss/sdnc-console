@@ -117,6 +117,7 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
     setRealtimeLogsDrawerOpen: ctrl.setRealtimeLogsDrawerOpen,
     setNodeSchedulingOpen: ctrl.setNodeSchedulingOpen,
     setNodeAffinityOpen: ctrl.setNodeAffinityOpen,
+    setPodAffinityOpen: ctrl.setPodAffinityOpen,
     setVmPolicyManageOpen: ctrl.setVmPolicyManageOpen,
     setCloudInitManageOpen: ctrl.setCloudInitManageOpen,
     setPerformanceSettingsOpen: ctrl.setPerformanceSettingsOpen,
@@ -183,6 +184,8 @@ const VmDetailDrawer: React.FC<VmDetailDrawerProps> = (props) => {
       setNodeSchedulingOpen={ctrl.setNodeSchedulingOpen}
       nodeAffinityOpen={ctrl.nodeAffinityOpen}
       setNodeAffinityOpen={ctrl.setNodeAffinityOpen}
+      podAffinityOpen={ctrl.podAffinityOpen}
+      setPodAffinityOpen={ctrl.setPodAffinityOpen}
       nodeSchedDrawerLatestVm={ctrl.nodeSchedDrawerLatestVm}
       setNodeSchedDrawerLatestVm={ctrl.setNodeSchedDrawerLatestVm}
       showTemplateModal={ctrl.showTemplateModal}

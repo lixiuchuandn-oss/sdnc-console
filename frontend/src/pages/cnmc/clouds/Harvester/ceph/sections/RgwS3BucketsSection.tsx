@@ -8,7 +8,6 @@ import {
   Button,
   Drawer,
   Input,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -35,6 +34,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/cephSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CEPH_STORAGE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 export type RgwS3BucketsSectionProps = {
   cloudId: string;
@@ -289,28 +292,37 @@ const RgwS3BucketsSection: React.FC<RgwS3BucketsSectionProps> = ({
               对象列表
             </Button>
             {canWrite ? (
-              <Popconfirm
-                title="删除存储桶"
-                description="仅允许删除空桶；删除后不可恢复。"
-                okText="删除"
-                cancelText="取消"
-                okButtonProps={{ danger: true }}
-                onConfirm={async () => {
-                  const args = buildS3ProxyArgs();
-                  if (!args) return;
-                  const del = await rgwS3DeleteBucket(cloudId, args.gateway, args.userRef, r.name);
-                  if (!del.ok) {
-                    message.error(del.error || '删除失败');
-                    return;
-                  }
-                  message.success('已删除');
-                  await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
-                }}
+              <Button
+                type="link"
+                size="small"
+                danger
+                onClick={() =>
+                  void confirmHighRiskDelete({
+                    resourceLabel: 'S3 存储桶',
+                    name: r.name,
+                    description: '仅允许删除空桶；删除后不可恢复。',
+                    riskItems: CEPH_STORAGE_RISK_ITEMS,
+                    onConfirm: async () => {
+                      const args = buildS3ProxyArgs();
+                      if (!args) return;
+                      const del = await rgwS3DeleteBucket(
+                        cloudId,
+                        args.gateway,
+                        args.userRef,
+                        r.name,
+                      );
+                      if (!del.ok) {
+                        message.error(del.error || '删除失败');
+                        return;
+                      }
+                      message.success('已删除');
+                      await runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+                    },
+                  }).catch(() => {})
+                }
               >
-                <Button type="link" size="small" danger>
-                  删除
-                </Button>
-              </Popconfirm>
+                删除
+              </Button>
             ) : null}
           </Space>
         ),

@@ -7,9 +7,7 @@ import { AppDataSource } from '../../../config/database';
 import { Cloud } from '../../../entities/Cloud';
 import { HarvesterVmInventory } from '../../../entities/harvester/HarvesterVmInventory';
 import { HarvesterVmiInventory } from '../../../entities/harvester/HarvesterVmiInventory';
-import { KubeOvnSecurityGroup } from '../../../entities/kubeovn/KubeOvnSecurityGroup';
-import { KubeOvnSecurityGroupMember } from '../../../entities/kubeovn/KubeOvnSecurityGroupMember';
-import { KubeOvnSecurityGroupRule } from '../../../entities/kubeovn/KubeOvnSecurityGroupRule';
+import { listSecurityGroupCrsForSubnetPush } from './kubeOvnSecurityGroupCrService';
 import { resolveHarvesterK8sApiBase } from '../../../routes/clouds/harvester/harvester.direct.helpers';
 import { logger } from '../../../utils/logger';
 import { parseKubeOvnAclRulesInput } from './kubeOvnAclRules';
@@ -22,9 +20,6 @@ const sgAclLog = logger.child('KubeOvn-SG-ACL');
 export const TOWER_SG_ACL_PRIORITY_MIN = 31000;
 export const TOWER_SG_ACL_PRIORITY_MAX = 39999;
 
-const sgRepo = () => AppDataSource.getRepository(KubeOvnSecurityGroup);
-const ruleRepo = () => AppDataSource.getRepository(KubeOvnSecurityGroupRule);
-const memberRepo = () => AppDataSource.getRepository(KubeOvnSecurityGroupMember);
 const vmInvRepo = () => AppDataSource.getRepository(HarvesterVmInventory);
 const vmiInvRepo = () => AppDataSource.getRepository(HarvesterVmiInventory);
 
@@ -105,7 +100,10 @@ export function findVmIpv4OnFlatSubnet(
   return null;
 }
 
-function expandRuleForMemberIp(rule: KubeOvnSecurityGroupRule, ip: string): KubeOvnAclRuleRow {
+function expandRuleForMemberIp(
+  rule: { direction: string; action: string; match: string },
+  ip: string,
+): KubeOvnAclRuleRow {
   const base = String(rule.match || '').trim();
   if (rule.direction === 'from-lport') {
     const match = base ? `${base} && ip4.dst == ${ip}` : `ip4.dst == ${ip}`;
@@ -184,7 +182,7 @@ export async function pushFlatSubnetAclsFromTowerSecurityGroups(
       subnet,
       apiBase,
       endpointHost,
-      note: '扁平子网编辑 ACL = 直接 PUT Subnet.spec.acls；安全组 = Tower DB 规则+成员 → 展开为每成员 IP 的 ACL 再 PUT',
+      note: '扁平子网编辑 ACL = 直接 PUT Subnet.spec.acls；安全组 = SecurityGroup CR 规则+成员 → 展开为每成员 IP 的 ACL 再 PUT',
     },
   );
 
@@ -209,12 +207,14 @@ export async function pushFlatSubnetAclsFromTowerSecurityGroups(
     return Number.isFinite(p) && p >= TOWER_SG_ACL_PRIORITY_MIN && p <= TOWER_SG_ACL_PRIORITY_MAX;
   }).length;
 
-  const groups = await sgRepo().find({
-    where: { cloudId, subnetName: subnet },
-    order: { name: 'ASC' },
-  });
+  const listed = await listSecurityGroupCrsForSubnetPush(cloud, cloudId, subnet);
+  if (!listed.ok) {
+    sgAclLog.warn('读取 SecurityGroup CR 失败', { cloudId, subnet, message: listed.message });
+    return { ok: false, message: listed.message };
+  }
+  const groups = listed.groups;
 
-  sgAclLog.info('子网与 Tower 安全组快照', {
+  sgAclLog.info('子网与安全组 CR 快照', {
     cloudId,
     subnet,
     resourceVersion: current?.metadata?.resourceVersion,
@@ -236,11 +236,8 @@ export async function pushFlatSubnetAclsFromTowerSecurityGroups(
   let statLiveFetchFail = 0;
 
   for (const g of groups) {
-    const rules = await ruleRepo().find({
-      where: { securityGroupId: g.id },
-      order: { priority: 'ASC' },
-    });
-    const members = await memberRepo().find({ where: { securityGroupId: g.id } });
+    const rules = g.rules;
+    const members = g.members;
     if (rules.length === 0 || members.length === 0) {
       statSkipEmptyGroup += 1;
       sgAclLog.debug('安全组跳过展开（缺规则或缺成员）', {

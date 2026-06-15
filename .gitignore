@@ -18,6 +18,11 @@ coverage/
 .env
 .env*
 
+# --- 本地便携工具链（如编译 ImageUploader 时解压的 Go SDK，勿入库）---
+/.tools/
+/tools/uploader/ImageUploader.exe
+/tools/uploader/*.exe~
+
 # --- 仓库根：运行期数据与本地专用目录（勿入库）---
 # 运行期数据请使用 backend/data（在 backend 目录启动）；勿在仓库根再落 data/
 /data/
@@ -47,8 +52,10 @@ coverage/
 /backend/uploads/
 /backend/tests/
 /backend/scripts/
+/backend/keys/license-signing-private.pem
 /backend/verify_acl.js
 /backend/public/
+/backend/tools/
 
 # --- frontend/ ---
 /frontend/node_modules/
@@ -61,6 +68,11 @@ coverage/
 # --- e2e 自动化（不进业务仓库，与 backend/tests 同理；测试代码在 e2e/ 内单独 git 维护）---
 /e2e/
 
+# --- tests/ 业务域测试（与 backend/frontend 同级）---
+/tests/.env
+!tests/.env.example
+/tests/node_modules/
+
 # --- 本地任务 / 草稿 / 外部快照 ---
 do/
 plan/
@@ -68,6 +80,8 @@ design/
 harvester-master/
 1.md
 2.md
+.playwright-cli/
+temp_*.py
 docs/harbor-api-2.13.0-swagger.yaml
 docs/harbor-api-2.13.0-reference.md
 docs/harvester-api-reference.md

@@ -18,21 +18,24 @@ import {
 
 export type PoolPageRowMeta = {
   pathSuffix: string;
-  readAction: string;
+  readAction: string | null;
+  readAnyOf: readonly string[] | null;
   writeAction: string | null;
   displayOnly: boolean;
 };
 
 const PAGE_META_BY_SUFFIX = new Map<string, PoolPageRowMeta>(
-  CLOUDMAP_POOL_NAV_ROWS.filter((r) => r.poolPageAction).map((r) => {
-    const readAction = r.poolPageAction!;
+  CLOUDMAP_POOL_NAV_ROWS.filter((r) => r.poolPageAction || r.poolPageReadAnyOf?.length).map((r) => {
+    const readAction = r.poolPageAction ?? null;
     const displayOnly = !!r.poolPageDisplayOnly;
     return [
       r.pathSuffix,
       {
         pathSuffix: r.pathSuffix,
         readAction,
-        writeAction: displayOnly ? null : poolPageWriteAction(readAction),
+        readAnyOf: r.poolPageReadAnyOf?.length ? r.poolPageReadAnyOf : null,
+        writeAction:
+          readAction && !displayOnly ? poolPageWriteAction(readAction) : null,
         displayOnly,
       },
     ];
@@ -59,7 +62,8 @@ export function getPoolPageMeta(pathSuffix: string): PoolPageRowMeta | undefined
 }
 
 export function getPoolPageReadAction(pathSuffix: string): string | undefined {
-  return PAGE_META_BY_SUFFIX.get(pathSuffix)?.readAction;
+  const meta = PAGE_META_BY_SUFFIX.get(pathSuffix);
+  return meta?.readAction ?? meta?.readAnyOf?.[0];
 }
 
 export function isPoolPageDisplayOnly(pathSuffix: string): boolean {
@@ -108,9 +112,13 @@ export function canAccessPoolPage(
   checkPerm: (action: string) => boolean,
   pathSuffix: string,
 ): boolean {
-  const act = getPoolPageReadAction(pathSuffix);
-  if (!act) return true;
-  return checkPerm(act);
+  const meta = getPoolPageMeta(pathSuffix);
+  if (!meta) return true;
+  if (meta.readAnyOf?.length) {
+    return meta.readAnyOf.some((act) => checkPerm(act));
+  }
+  if (!meta.readAction) return true;
+  return checkPerm(meta.readAction);
 }
 
 /** 池内页写操作（如机房拓扑机柜/插板）；纯展示页恒 false */

@@ -495,7 +495,7 @@ export function registerHarvesterDirectRoutesProvider(
     createProviderRouter(subnetCheckIpHandlers),
   );
 
-  // Kube-OVN 安全组（Tower 数据库）
+  // Kube-OVN 安全组（SecurityGroup CR：securitygroups.hms.rivercloud.com）
   router.get(
     '/:id/resources/kube-ovn-security-groups',
     checkAdminPermission,

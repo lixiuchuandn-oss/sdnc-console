@@ -1,5 +1,10 @@
 import React, { useCallback, useState } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
+import {
+  confirmHighRiskDelete,
+  confirmHighRiskOperation,
+} from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import { deleteHarvesterSnapshot } from 'services/harvesterApi';
 import {
   snapshotDetailRawRecord,
@@ -61,12 +66,12 @@ export function useSnapshotsSectionActions({
         message.error('无权限执行该操作');
         return;
       }
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除快照 ${snapshotDisplayLabel(record)} (${record.name}) 吗？`,
-        okText: '删除',
-        okButtonProps: { danger: true },
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '快照',
+        name: record.name,
+        description: `确定要删除快照「${snapshotDisplayLabel(record)}」（${record.name}）吗？`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterSnapshot(cloudId, record.namespace, record.name);
             message.success('删除成功');
@@ -74,9 +79,10 @@ export function useSnapshotsSectionActions({
           } catch (e: unknown) {
             const err = e as { message?: string };
             message.error(err.message || '删除失败');
+            throw e;
           }
         },
-      });
+      }).catch(() => undefined);
     },
     [cloudId, hasSnapshotsWrite, onRefresh],
   );
@@ -89,13 +95,14 @@ export function useSnapshotsSectionActions({
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter((s) => selectedRowKeys.includes(s.key));
 
-    Modal.confirm({
+    void confirmHighRiskOperation({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个快照：${targets.map(snapshotDisplayLabel).join(', ')}`,
-      okText: '删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
+      description: `即将删除 ${targets.length} 个快照：${targets.map(snapshotDisplayLabel).join(', ')}`,
+      riskItems: DELETE_RISK_ITEMS,
+      requireTypeConfirm: false,
+      confirmText: '删除',
+      operationSummary: `确认批量删除 ${targets.length} 个快照`,
+      onConfirm: async () => {
         try {
           const results = await Promise.allSettled(
             targets.map((t) => deleteHarvesterSnapshot(cloudId, t.namespace, t.name)),
@@ -109,9 +116,10 @@ export function useSnapshotsSectionActions({
         } catch (e: unknown) {
           const err = e as { message?: string };
           message.error(err.message || '批量删除失败');
+          throw e;
         }
       },
-    });
+    }).catch(() => undefined);
   }, [cloudId, dataSource, hasSnapshotsWrite, onRefresh, selectedRowKeys, setSelectedRowKeys]);
 
   const buildRowActionItems = useCallback(

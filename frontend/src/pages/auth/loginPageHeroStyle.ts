@@ -4,11 +4,12 @@ import type { CSSProperties } from 'react';
 /**
  * 登录页背景图（/login 与 /admin/login 共用）。
  *
- * - 默认使用 `public/images/login-hero.png`（随仓库提供）。
+ * - 默认使用 `public/images/login-hero-light.png`（浅色极简风：左侧 3D 算力塔 + 多云连接，右侧大面积留白衬白卡）。
+ * - 旧的深色太空插画仍保留为 `public/images/login-hero.png`，可经环境变量切回。
  * - 覆盖：构建/运行环境设置 `REACT_APP_LOGIN_HERO_IMAGE=/images/other.png` 或完整 URL。
  * - 关闭背景图（仅渐变色/背景色）：`REACT_APP_LOGIN_HERO_IMAGE=none`
  */
-const DEFAULT_RELATIVE = 'images/login-hero.png';
+const DEFAULT_RELATIVE = 'images/login-hero-light.png';
 
 const rawFromEnv = String(process.env.REACT_APP_LOGIN_HERO_IMAGE || '').trim();
 const useNoHero = /^none$/i.test(rawFromEnv);
@@ -22,8 +23,11 @@ function resolvePublicUrl(relOrAbs: string): string {
 
 export const LOGIN_PAGE_HERO_IMAGE = heroRaw ? resolvePublicUrl(heroRaw) : '';
 
-/** 宽屏插画：主体偏左、右侧留白多，取右侧区域落在视口后更易衬在居中表单后 */
-const HERO_BG_POSITION = 'right center';
+/** 宽屏插画：主体（算力塔）偏左、右侧留白多；靠左定位保证窄屏裁切优先保留左侧主体，右侧留白衬白卡 */
+const HERO_BG_POSITION = 'left center';
+
+/** 浅色主题兜底背景（图片加载前或缺图时） */
+const DEFAULT_FALLBACK_BG = '#eef2f8';
 
 export function useLoginPageHeroStyle(params: {
   backgroundColor?: string;
@@ -52,11 +56,11 @@ export function useLoginPageHeroStyle(params: {
     }
     if (!url) {
       return {
-        backgroundColor: backgroundColor || '#e6edf5',
+        backgroundColor: backgroundColor || DEFAULT_FALLBACK_BG,
       };
     }
     return {
-      backgroundColor: backgroundColor || '#e6edf5',
+      backgroundColor: backgroundColor || DEFAULT_FALLBACK_BG,
       backgroundImage: `url(${url})`,
       backgroundSize: 'cover',
       backgroundPosition: HERO_BG_POSITION,

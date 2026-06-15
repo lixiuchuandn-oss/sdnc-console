@@ -17,6 +17,11 @@ import {
   getNamespacedResources,
   setCache,
 } from './harvester.cache.container-shared';
+import {
+  isLocalRegistryManagedService,
+  isLocalRegistryManagedServiceName,
+  REGISTRY_MANAGED_SERVICE_MESSAGE,
+} from '../../../services/registryManagedLocalRegistry';
 
 export const registerHarvesterContainerServiceRoutes = (
   router: Router,
@@ -236,7 +241,17 @@ export const registerHarvesterContainerServiceRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
-        const url = buildK8sUrl(base, '/api/v1/services', namespace, name);
+        if (isLocalRegistryManagedServiceName(name)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SERVICE_MESSAGE });
+        }
+
+        const getUrl = buildK8sUrl(base, '/api/v1/services', namespace, name);
+        const existingService = await getJsonOnce(getUrl, token, insecure, true);
+        if (existingService && isLocalRegistryManagedService(existingService)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SERVICE_MESSAGE });
+        }
+
+        const url = getUrl;
 
         const maxRetries = 3;
         let lastError: any;
@@ -286,7 +301,17 @@ export const registerHarvesterContainerServiceRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
-        const url = buildK8sUrl(base, '/api/v1/services', namespace, name);
+        if (isLocalRegistryManagedServiceName(name)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SERVICE_MESSAGE });
+        }
+
+        const getUrl = buildK8sUrl(base, '/api/v1/services', namespace, name);
+        const existingService = await getJsonOnce(getUrl, token, insecure, true);
+        if (existingService && isLocalRegistryManagedService(existingService)) {
+          return res.status(403).json({ message: REGISTRY_MANAGED_SERVICE_MESSAGE });
+        }
+
+        const url = getUrl;
         const result = await requestJson('DELETE', url, token, insecure);
 
         res.json({ message: '删除 Service 成功', data: result });

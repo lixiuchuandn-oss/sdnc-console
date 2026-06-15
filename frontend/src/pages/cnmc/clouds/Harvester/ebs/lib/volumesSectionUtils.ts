@@ -1,4 +1,4 @@
-import { isSystemNamespace } from 'utils/harvesterUtils';
+import { isHarvesterImageBackingPvcName, isSystemNamespace } from 'utils/harvesterUtils';
 import { parseQuantity } from './volumeQuantityUtils';
 import type { VolumeView } from './volumesSectionTypes';
 
@@ -92,6 +92,9 @@ export function normalizeVolumeList(volumes: unknown[] | undefined): VolumeView[
         r?.capacity ||
         '';
       const attachedTo = Array.isArray(r?.attachedTo) ? r.attachedTo : [];
+      const workloadConsumers = Array.isArray((r as { workloadConsumers?: unknown[] })?.workloadConsumers)
+        ? ((r as { workloadConsumers: Array<{ kind: string; name: string }> }).workloadConsumers)
+        : [];
 
       return {
         key: source?.metadata?.uid || (r?.id as string) || `${namespace}/${name}`,
@@ -107,11 +110,12 @@ export function normalizeVolumeList(volumes: unknown[] | undefined): VolumeView[
         volumeMode,
         creationTimestamp: source?.metadata?.creationTimestamp || (r?.created as string) || '',
         attachedTo,
+        workloadConsumers,
         links: r?.links,
         raw: item,
       };
     })
-    .filter((v) => !!v.name);
+    .filter((v) => !!v.name && !isHarvesterImageBackingPvcName(v.name));
 
   const uniqueMap = new Map<string, VolumeView>();
   mapped.forEach((v) => {

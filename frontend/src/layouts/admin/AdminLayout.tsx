@@ -51,7 +51,7 @@ const AdminLayout: React.FC = () => {
     () => (user?.permissions && Array.isArray(user.permissions) ? user.permissions : []),
     [user?.permissions],
   );
-  const { hasFeature } = useLicense();
+  const { hasFeature, isEnterpriseLicense } = useLicense();
   const { settings, loading: settingsLoading } = useSettings();
   const { message } = App.useApp();
 
@@ -114,7 +114,11 @@ const AdminLayout: React.FC = () => {
     navigate('/admin/login');
   };
 
-  const { visibleCenters, pageSearchEntries } = useAdminPlatformMenu(hasFeature, canAccessPath);
+  const { visibleCenters, pageSearchEntries } = useAdminPlatformMenu(
+    hasFeature,
+    isEnterpriseLicense,
+    canAccessPath,
+  );
 
   const adminOutletSdnccClassName = useMemo(
     () => (isSdnccPagePath(location.pathname) ? 'admin-outlet-sdncc' : undefined),

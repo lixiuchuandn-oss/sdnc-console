@@ -10,6 +10,48 @@ import {
   clearCacheByPrefix,
   extractOrigin,
 } from './harvester.cache.container-shared';
+import {
+  isRegistryManagedPullSecret,
+  isRegistryManagedPullSecretName,
+  REGISTRY_MANAGED_SECRET_MESSAGE,
+  extractImagePullSecretNames,
+} from '../../../services/registryManagedSecret';
+import {
+  cleanupOrphanedPullSecretsAfterWorkloadDelete,
+  isWorkloadApiPath,
+} from '../../../services/workloadPullSecretCleanup';
+import {
+  isLocalRegistryManagedDeployment,
+  isLocalRegistryManagedDeploymentName,
+  REGISTRY_MANAGED_DEPLOYMENT_MESSAGE,
+} from '../../../services/registryManagedLocalRegistry';
+
+async function rejectLocalRegistryManagedDeployment(
+  res: Response,
+  base: string,
+  token: string,
+  insecure: boolean,
+  namespace: string,
+  name: string,
+): Promise<boolean> {
+  if (isLocalRegistryManagedDeploymentName(name)) {
+    res.status(403).json({ message: REGISTRY_MANAGED_DEPLOYMENT_MESSAGE });
+    return true;
+  }
+
+  const getUrl = buildK8sUrl(base, '/apis/apps/v1/deployments', namespace, name);
+  try {
+    const existing = await getJsonOnce(getUrl, token, insecure, true);
+    if (existing && isLocalRegistryManagedDeployment(existing)) {
+      res.status(403).json({ message: REGISTRY_MANAGED_DEPLOYMENT_MESSAGE });
+      return true;
+    }
+  } catch {
+    // 资源不存在时继续由后续 API 处理
+  }
+
+  return false;
+}
 
 export const registerHarvesterContainerCrudRoutes = (
   router: Router,
@@ -103,6 +145,12 @@ export const registerHarvesterContainerCrudRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
+        if (apiPath.includes('/deployments')) {
+          if (await rejectLocalRegistryManagedDeployment(res, base, token, insecure, namespace, name)) {
+            return;
+          }
+        }
+
         const url = buildK8sUrl(base, apiPath, namespace, name);
 
         const maxRetries = 3;
@@ -184,6 +232,12 @@ export const registerHarvesterContainerCrudRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
+        if (apiPath.includes('/deployments')) {
+          if (await rejectLocalRegistryManagedDeployment(res, base, token, insecure, namespace, name)) {
+            return;
+          }
+        }
+
         const url = buildK8sUrl(base, apiPath, namespace, name);
         const result = await requestJson('PATCH', url, token, insecure, patchBody, {
           'Content-Type': 'application/json-patch+json',
@@ -221,8 +275,52 @@ export const registerHarvesterContainerCrudRoutes = (
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
 
+        if (apiPath.includes('/secrets')) {
+          if (isRegistryManagedPullSecretName(name)) {
+            return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+          }
+
+          const getUrl = buildK8sUrl(base, '/api/v1/secrets', namespace, name);
+          const existingSecret = await getJsonOnce(getUrl, token, insecure, true);
+          if (existingSecret && isRegistryManagedPullSecret(existingSecret)) {
+            return res.status(403).json({ message: REGISTRY_MANAGED_SECRET_MESSAGE });
+          }
+        }
+
+        if (apiPath.includes('/deployments')) {
+          if (await rejectLocalRegistryManagedDeployment(res, base, token, insecure, namespace, name)) {
+            return;
+          }
+        }
+
+        let pullSecretNames: string[] = [];
+        if (isWorkloadApiPath(apiPath)) {
+          try {
+            const getUrl = buildK8sUrl(base, apiPath, namespace, name);
+            const workload = await getJsonOnce(getUrl, token, insecure, true);
+            pullSecretNames = extractImagePullSecretNames(workload, apiPath);
+          } catch (error: any) {
+            console.warn('[Workload 删除] 读取 imagePullSecrets 失败:', error?.message || error);
+          }
+        }
+
         const url = buildK8sUrl(base, apiPath, namespace, name);
         const result = await requestJson('DELETE', url, token, insecure);
+
+        if (pullSecretNames.length > 0) {
+          try {
+            await cleanupOrphanedPullSecretsAfterWorkloadDelete({
+              cloudId: id,
+              base,
+              token,
+              insecure,
+              namespace,
+              secretNames: pullSecretNames,
+            });
+          } catch (error: any) {
+            console.warn('[Workload 删除] 清理拉取凭证失败:', error?.message || error);
+          }
+        }
 
         // 根据资源类型清除相应的缓存
         if (apiPath.includes('/secrets')) {
@@ -428,6 +526,10 @@ export const registerHarvesterContainerCrudRoutes = (
         const insecure = !!(cloud.config as any)?.ignoreTls;
         const token = cloud.secretKey || '';
         const base = cloud.endpoint || '';
+
+        if (await rejectLocalRegistryManagedDeployment(res, base, token, insecure, namespace, name)) {
+          return;
+        }
 
         // 使用 Strategic Merge Patch 更新副本数
         const url = buildK8sUrl(base, '/apis/apps/v1/deployments', namespace, name);

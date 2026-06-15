@@ -33,6 +33,16 @@ export interface DiagnosisResult {
     totalNodes?: number;
     message: string;
   };
+  podSchedulingAffinity?: {
+    configured: boolean;
+    valid: boolean;
+    affinityRequiredCount: number;
+    affinityPreferredCount: number;
+    antiAffinityRequiredCount: number;
+    antiAffinityPreferredCount: number;
+    message: string;
+    summary: string;
+  };
   resources?: {
     cpuRequest: string;
     memoryRequest: string;

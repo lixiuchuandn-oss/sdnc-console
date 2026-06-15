@@ -83,6 +83,8 @@ export type PoolPathResourceDeps = {
   setRawImages: Dispatch<SetStateAction<any | null>>;
   setHarvesterMigrations: Dispatch<SetStateAction<any[]>>;
   setRawMigrations: Dispatch<SetStateAction<any | null>>;
+  setHarvesterOvnMirrors: Dispatch<SetStateAction<any[]>>;
+  setRawOvnMirrors: Dispatch<SetStateAction<any | null>>;
   setHarvesterGpuResources: Dispatch<SetStateAction<any[]>>;
   setRawGpu: Dispatch<SetStateAction<any | null>>;
   setHarvesterUsbDevices: Dispatch<SetStateAction<any[]>>;

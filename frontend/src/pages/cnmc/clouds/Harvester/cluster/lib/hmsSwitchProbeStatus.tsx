@@ -3,28 +3,26 @@ import React from 'react';
 import { Tag } from 'antd';
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import {
+  evaluateHmsProbeDimState,
+  type HmsProbeDimEvalState,
+} from './hmsSwitchProbeEval';
+import {
   parseSwitchProductModelFromInfoLines,
   switchRecordManagementHost,
 } from './physicalSwitchRecordUtils';
 
-export type HmsProbeDimState = 'ok' | 'err' | 'warn' | 'none';
+export type HmsProbeDimState = HmsProbeDimEvalState;
 
 export function resolveHmsProbeDimState(
   record: AswCtlSwitchProbeRecord | null | undefined,
   opts: {
-    errorKey: string;
-    dataKey: string;
-    naKey?: string;
+    errorKey: keyof AswCtlSwitchProbeRecord;
+    dataKey: 'info' | 'interfaces' | 'performance' | 'vlans';
+    naKey?: keyof AswCtlSwitchProbeRecord;
+    vendor?: string | null;
   },
 ): HmsProbeDimState {
-  if (!record) return 'none';
-  const row = record as Record<string, unknown>;
-  if (row[opts.errorKey]) return 'err';
-  const data = row[opts.dataKey] as { ok?: boolean } | undefined;
-  if (data && data.ok === false) return 'err';
-  if (opts.naKey && row[opts.naKey]) return 'warn';
-  if (data) return 'ok';
-  return 'none';
+  return evaluateHmsProbeDimState(record, opts);
 }
 
 const DIM_LABEL: Record<HmsProbeDimState, string> = {

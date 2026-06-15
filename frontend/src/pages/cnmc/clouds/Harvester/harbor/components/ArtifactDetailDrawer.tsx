@@ -5,10 +5,21 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Drawer, Descriptions, Tabs, Table, Tag, Button, Space, message, Spin, Input, Popconfirm, Modal } from 'antd';
+import { Drawer, Descriptions, Tabs, Table, Tag, Button, Space, message, Spin, Input } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
-import { getHarborVulnerabilities, getHarborTags, addHarborTag, deleteHarborTag } from '../shared/harborApi';
+import {
+  getHarborVulnerabilities,
+  getHarborTags,
+  addHarborTag,
+  deleteHarborTag,
+  type HarborProjectRef,
+} from '../shared/harborApi';
 import type { HarborArtifact, HarborVulnerabilityItem, HarborTag } from '../types';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 
 interface Props {
   /** 是否显示 */
@@ -17,12 +28,14 @@ interface Props {
   artifact: HarborArtifact | null;
   /** Harbor 实例 ID */
   harborId: string;
-  /** 项目名称 */
-  projectName: string;
+  /** 项目引用（纯数字项目名需携带 projectId） */
+  project: HarborProjectRef;
   /** 仓库名称 */
   repositoryName: string;
   /** 关闭回调 */
   onClose: () => void;
+  /** 当前用户在该项目中的角色 */
+  currentUserRole?: number;
 }
 
 /**
@@ -32,9 +45,10 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   visible,
   artifact,
   harborId,
-  projectName,
+  project,
   repositoryName,
   onClose,
+  currentUserRole,
 }) => {
   const [vulnerabilities, setVulnerabilities] = useState<HarborVulnerabilityItem[]>([]);
   const [vulnerabilityOverview, setVulnerabilityOverview] = useState<{
@@ -49,6 +63,13 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   const [newTagName, setNewTagName] = useState('');
   const [selectedTagKeys, setSelectedTagKeys] = useState<React.Key[]>([]);
 
+  // 系统管理员判断
+  const { user } = useAuth();
+  const isSystemAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+
+  // 权限判断：系统管理员、项目管理员、开发者、维护人员可以写操作
+  const canWrite = isSystemAdmin || (currentUserRole !== undefined && [1, 2, 4].includes(currentUserRole));
+
   /**
    * 加载详情数据
    */
@@ -57,8 +78,8 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
     setLoading(true);
     try {
       const [vulnRes, tagsRes] = await Promise.all([
-        getHarborVulnerabilities(harborId, projectName, repositoryName, artifact.digest),
-        getHarborTags(harborId, projectName, repositoryName, artifact.digest),
+        getHarborVulnerabilities(harborId, project, repositoryName, artifact.digest),
+        getHarborTags(harborId, project, repositoryName, artifact.digest),
       ]);
       
       // 处理漏洞数据
@@ -78,7 +99,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
     } finally {
       setLoading(false);
     }
-  }, [artifact, harborId, projectName, repositoryName]);
+  }, [artifact, harborId, project, repositoryName]);
 
   useEffect(() => {
     if (visible && artifact) {
@@ -144,7 +165,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
       return;
     }
     try {
-      await addHarborTag(harborId, projectName, repositoryName, artifact.digest, newTagName.trim());
+      await addHarborTag(harborId, project, repositoryName, artifact.digest, newTagName.trim());
       message.success('标签添加成功');
       setAddTagVisible(false);
       setNewTagName('');
@@ -160,7 +181,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
   const handleDeleteTag = async (tagName: string) => {
     if (!artifact) return;
     try {
-      await deleteHarborTag(harborId, projectName, repositoryName, artifact.digest, tagName);
+      await deleteHarborTag(harborId, project, repositoryName, artifact.digest, tagName);
       message.success('标签已删除');
       loadDetails();
     } catch (e: any) {
@@ -176,7 +197,7 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
     try {
       await Promise.all(
         selectedTagKeys.map((tagName) =>
-          deleteHarborTag(harborId, projectName, repositoryName, artifact.digest, tagName as string)
+          deleteHarborTag(harborId, project, repositoryName, artifact.digest, tagName as string)
         )
       );
       message.success(`已删除 ${selectedTagKeys.length} 个标签`);
@@ -334,31 +355,34 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
                     <Space>
-                      {selectedTagKeys.length > 0 && (
+                      {canWrite && selectedTagKeys.length > 0 && (
                         <Button 
                           danger 
                           icon={<DeleteOutlined />}
                           onClick={() => {
-                            Modal.confirm({
-                              title: '确认批量删除',
-                              content: `确定要删除选中的 ${selectedTagKeys.length} 个标签吗？`,
-                              okText: '确认',
-                              cancelText: '取消',
-                              okButtonProps: { danger: true },
-                              onOk: handleBatchDeleteTags,
-                            });
+                            void confirmHighRiskDelete({
+                              resourceLabel: '标签',
+                              name: `${selectedTagKeys.length} 个标签`,
+                              requireTypeConfirm: false,
+                              description: `确定要删除选中的 ${selectedTagKeys.length} 个标签吗？`,
+                              riskItems: DELETE_RISK_ITEMS,
+                              confirmText: '确认',
+                              onConfirm: handleBatchDeleteTags,
+                            }).catch(() => {});
                           }}
                         >
                           批量删除 ({selectedTagKeys.length})
                         </Button>
                       )}
-                      <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => setAddTagVisible(true)}
-                      >
-                        添加标签
-                      </Button>
+                      {canWrite && (
+                        <Button 
+                          type="primary" 
+                          icon={<PlusOutlined />}
+                          onClick={() => setAddTagVisible(true)}
+                        >
+                          添加标签
+                        </Button>
+                      )}
                     </Space>
                   </div>
 
@@ -413,27 +437,30 @@ const ArtifactDetailDrawer: React.FC<Props> = ({
                         key: 'pullTime',
                         render: (t: string) => t ? formatTime(t) : '-',
                       },
-{
+                      {
                         title: '操作',
                         key: 'actions',
                         width: 80,
                         render: (_: any, record: HarborTag) => (
-                          <Popconfirm
-                            title="确认删除"
-                            description={`确定要删除标签 "${record.name}" 吗？`}
-                            onConfirm={() => handleDeleteTag(record.name)}
-                            okText="确认"
-                            cancelText="取消"
-                            okButtonProps={{ danger: true }}
-                          >
-                            <Button 
-                              type="link" 
-                              danger 
+                          canWrite ? (
+                            <Button
+                              type="link"
+                              danger
                               icon={<DeleteOutlined />}
+                              onClick={() =>
+                                void confirmHighRiskDelete({
+                                  resourceLabel: '标签',
+                                  name: record.name,
+                                  description: `确定要删除标签 "${record.name}" 吗？`,
+                                  riskItems: DELETE_RISK_ITEMS,
+                                  confirmText: '确认',
+                                  onConfirm: () => handleDeleteTag(record.name),
+                                }).catch(() => {})
+                              }
                             >
                               删除
                             </Button>
-                          </Popconfirm>
+                          ) : null
                         ),
                       },
                     ]}

@@ -35,7 +35,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { createGateway } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -66,7 +66,7 @@ export interface GatewayFormProps {
   cloudId: string;
   namespacesOptions: string[];
   gatewayClasses: any[]; // 可用的 GatewayClass 列表
-  onSuccess: () => void;
+  onSuccess: (gatewayInfo?: { name: string; namespace: string }) => void;
   onCancel: () => void;
   defaultNamespace?: string;
 }
@@ -128,8 +128,11 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
       apiVersion: 'gateway.networking.k8s.io/v1',
       kind: 'Gateway',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('gateway'),
         namespace: values.namespace,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       spec: {
         gatewayClassName: values.gatewayClassName,
@@ -175,7 +178,12 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
 
       await createGateway(cloudId, values.namespace, submitData);
       message.success('Gateway 创建成功');
-      onSuccess();
+      
+      // 传递新创建的 Gateway 信息给父组件
+      onSuccess({ 
+        name: submitData.metadata.name, 
+        namespace: values.namespace 
+      });
     } catch (error: any) {
       console.error('[GatewayForm] 创建失败:', error);
       const errorMsg = error?.response?.data?.message || error?.message || '创建失败';
@@ -190,6 +198,7 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('gateway'),
         listeners: [{ protocol: 'HTTP', port: 80, allowedRoutes: { namespaces: { from: 'Same' } } }],
         addresses: [],
       }}
@@ -200,10 +209,9 @@ const GatewayForm: React.FC<GatewayFormProps> = ({
           <Col span={12}>
             <Form.Item
               name="name"
-              label="名称"
+              label="别名"
               rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                { required: true, message: '请输入别名' },
               ]}
             >
               <Input placeholder="如: my-gateway" />

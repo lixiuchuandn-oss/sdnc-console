@@ -1,5 +1,5 @@
 /**
- * 虚拟机卡片 - 总数 + 运行中/已暂停/已关机/其他
+ * 云主机卡片 - 总数 + 运行中/已暂停/已关机/其他
  */
 import React, { useMemo } from 'react';
 import { Card, Typography, Spin } from 'antd';
@@ -45,7 +45,7 @@ export const VMCard: React.FC = () => {
       title={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <DesktopOutlined style={{ color: '#1677ff', fontSize: 20 }} />
-          <span style={{ fontSize: 16 }}>虚拟机</span>
+          <span style={{ fontSize: 16 }}>云主机</span>
         </span>
       }
       styles={{

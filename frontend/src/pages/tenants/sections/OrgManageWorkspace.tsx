@@ -27,10 +27,7 @@ import {
 import {
   ClusterOutlined,
   EllipsisOutlined,
-  GatewayOutlined,
-  NodeIndexOutlined,
   ReloadOutlined,
-  SafetyCertificateOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
 
@@ -78,11 +75,13 @@ export default function OrgManageWorkspace() {
     assignmentKeyword,
     setAssignmentKeyword,
     resourcePools,
-    securityLoading,
-    protectionObjects,
-    securityChains,
-    sdnVrLoading,
-    sdnVrs,
+    irdLoading,
+    internetworkRoutingDomains,
+    filteredInternetworkRoutingDomains,
+    internetworkRoutingDomainColumns,
+    irdKeyword,
+    setIrdKeyword,
+    fetchInternetworkRoutingDomains,
     userForm,
     editUserForm,
     resourcePoolForm,
@@ -105,9 +104,6 @@ export default function OrgManageWorkspace() {
     occupiedNamespaceNames,
     setOccupiedNamespaceNames,
     filteredAssignNsNames,
-    sdnActiveKey,
-    setSdnActiveKey,
-    sdnContentOpacity,
     tenantRoles,
     roleAssignOpen,
     setRoleAssignOpen,
@@ -123,7 +119,6 @@ export default function OrgManageWorkspace() {
     fetchUsers,
     fetchAssignments,
     fetchResourcePools,
-    fetchSdnVrs,
     handleUserSubmit,
     handleEditUserSave,
     handleResourcePoolAssign,
@@ -150,8 +145,9 @@ export default function OrgManageWorkspace() {
           <Descriptions.Item label="安全资源池">
             {assignments.filter((a) => assignmentMatchesAssignTab(a, 'security')).length}
           </Descriptions.Item>
-          <Descriptions.Item label="防护对象数量">{protectionObjects.length}</Descriptions.Item>
-          <Descriptions.Item label="服务链数量">{securityChains.length}</Descriptions.Item>
+          <Descriptions.Item label="网际路由域">
+            {internetworkRoutingDomains.length}
+          </Descriptions.Item>
         </Descriptions>
       }
       defaultOverviewCollapsed={false}
@@ -490,166 +486,54 @@ export default function OrgManageWorkspace() {
                   <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>
                 )}
               </Tabs.TabPane>
-              <Tabs.TabPane tab="SDN资源" key="sdn-resources">
+              <Tabs.TabPane tab="网际路由域" key="internetwork-routing-domains">
                 {selectedOrg ? (
-                  <div style={{ display: 'flex', minHeight: 260 }}>
+                  <div>
                     <div
                       style={{
-                        width: 200,
-                        borderRight: '1px solid #f0f0f0',
-                        padding: '8px 0',
                         display: 'flex',
-                        flexDirection: 'column',
-                        gap: 4
-                      }}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        const order: Array<'vr'|'objects'|'chains'> = ['vr', 'objects', 'chains'];
-                        const idx = order.indexOf(sdnActiveKey);
-                        if (e.key === 'ArrowDown') {
-                          const next = order[(idx + 1) % order.length];
-                          setSdnActiveKey(next);
-                          e.preventDefault();
-                        } else if (e.key === 'ArrowUp') {
-                          const next = order[(idx - 1 + order.length) % order.length];
-                          setSdnActiveKey(next);
-                          e.preventDefault();
-                        }
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        marginBottom: 12,
+                        flexWrap: 'wrap',
                       }}
                     >
-                      {[
-                        { key: 'vr' as const, label: 'VR / 网关', icon: <GatewayOutlined /> },
-                        { key: 'objects' as const, label: '防护对象', icon: <SafetyCertificateOutlined /> },
-                        { key: 'chains' as const, label: '服务链', icon: <NodeIndexOutlined /> },
-                      ].map(item => {
-                        const active = sdnActiveKey === item.key;
-                        return (
-                          <div
-                            key={item.key}
-                            role="tab"
-                            aria-selected={active}
-                            tabIndex={active ? 0 : -1}
-                            onClick={() => setSdnActiveKey(item.key)}
-                            style={{
-                              height: 40,
-                              display: 'flex',
-                              alignItems: 'center',
-                              padding: '0 16px',
-                              cursor: 'pointer',
-                              gap: 8,
-                              color: active ? '#1677ff' : 'rgba(0,0,0,0.65)',
-                              background: active ? '#e6f4ff' : 'transparent',
-                              borderLeft: active ? '3px solid #1677ff' : '3px solid transparent'
-                            }}
-                          >
-                            {item.icon}
-                            <span>{item.label}</span>
-                          </div>
-                        );
-                      })}
+                      <Input
+                        allowClear
+                        className="toolbar-search"
+                        placeholder="名称 / VPC / VR / CSM 安全域"
+                        suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
+                        value={irdKeyword}
+                        onChange={(e) => setIrdKeyword(e.target.value)}
+                      />
+                      <Space size={8}>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          新建与编排请前往 SDN → 跨域互联 → 网际路由域
+                        </Typography.Text>
+                        <Button
+                          type="text"
+                          icon={<ReloadOutlined />}
+                          onClick={() => void fetchInternetworkRoutingDomains()}
+                        />
+                      </Space>
                     </div>
-                    <div
-                      style={{
-                        flex: 1,
-                        padding: '8px 16px',
-                        transition: 'opacity 0.2s ease',
-                        opacity: sdnContentOpacity
+                    <Table
+                      className="std-table"
+                      bordered={false}
+                      loading={irdLoading}
+                      rowKey="id"
+                      dataSource={filteredInternetworkRoutingDomains}
+                      columns={internetworkRoutingDomainColumns}
+                      scroll={{ x: true }}
+                      pagination={{
+                        size: 'small',
+                        showTotal: (total) => `共 ${total} 条`,
                       }}
-                    >
-                      {sdnActiveKey === 'vr' && (
-                        <Table
-                          className="std-table"
-                          size="small"
-                          bordered={false}
-                          loading={sdnVrLoading}
-                          rowKey={(r: any) => r.vr_unique_id || r.uuid || r.id}
-                          dataSource={sdnVrs}
-                          pagination={{
-                            size: 'small',
-                            showTotal: (total) => `共 ${total} 条`,
-                          }}
-                          columns={[
-                            { title: '名称', dataIndex: 'name', key: 'name' },
-                            { title: 'VR唯一ID', dataIndex: 'vr_unique_id', key: 'vr_unique_id', ellipsis: true },
-                            { title: '租户ID', dataIndex: 'tenant_id', key: 'tenant_id', ellipsis: true },
-                            { title: '组织ID', dataIndex: 'org_id', key: 'org_id', ellipsis: true },
-                            { title: '绑定状态', dataIndex: 'bind_status', key: 'bind_status', render: (v: string, r: any) => {
-                              if (r.is_deleted) return <span className="std-badge std-badge-error">CSM已删除</span>;
-                              if (!v) return <span className="std-badge std-badge-default">未知</span>;
-                              if (v === 'BOUND') return <span className="std-badge std-badge-success">已绑定</span>;
-                              if (v === 'UNBOUND') return <span className="std-badge std-badge-default">未绑定</span>;
-                              return <span className="std-badge std-badge-warning">{v}</span>;
-                            } },
-                            {
-                              title: '操作',
-                              key: 'action',
-                              width: 100,
-                              render: (_: any, r: any) =>
-                                canWriteOrganizations ? (
-                                  <Button type="link" danger size="small" onClick={() => {
-                                    modal.confirm({
-                                      title: '确认删除',
-                                      content: '确定要删除该VR绑定记录吗？',
-                                      onOk: async () => {
-                                        try {
-                                          await apiDelete(`/api/vr-config/${r.uuid}`);
-                                          messageApi.success('删除成功');
-                                          fetchSdnVrs();
-                                        } catch (e) {
-                                          messageApi.error('删除失败');
-                                        }
-                                      }
-                                    });
-                                  }}>删除</Button>
-                                ) : (
-                                  <Typography.Text type="secondary">—</Typography.Text>
-                                )
-                            }
-                          ]}
-                        />
-                      )}
-                      {sdnActiveKey === 'objects' && (
-                        <Table
-                          className="std-table"
-                          size="small"
-                          bordered={false}
-                          loading={securityLoading}
-                          rowKey={(r: any) => r.id || r._id}
-                          dataSource={protectionObjects}
-                          pagination={{
-                            size: 'small',
-                            showTotal: (total) => `共 ${total} 条`,
-                          }}
-                          columns={[
-                            { title: '名称', dataIndex: 'name', key: 'name' },
-                            { title: '类型', dataIndex: 'type', key: 'type' },
-                            { title: '值', dataIndex: 'value', key: 'value' },
-                            { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true }
-                          ]}
-                        />
-                      )}
-                      {sdnActiveKey === 'chains' && (
-                        <Table
-                          className="std-table"
-                          size="small"
-                          bordered={false}
-                          loading={securityLoading}
-                          rowKey={(r: any) => r.id || r._id}
-                          dataSource={securityChains}
-                          pagination={{
-                            size: 'small',
-                            showTotal: (total) => `共 ${total} 条`,
-                          }}
-                          columns={[
-                            { title: '名称', dataIndex: 'name', key: 'name' },
-                            { title: '服务链ID', dataIndex: 'id', key: 'id' },
-                            { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => (
-                              <span className={status === 'active' ? 'std-badge std-badge-success' : 'std-badge std-badge-default'}>{status}</span>
-                            ) }
-                          ]}
-                        />
-                      )}
-                    </div>
+                      locale={{
+                        emptyText: '当前组织下暂无网际路由域（一个组织可对应多条，如多张 VPC）',
+                      }}
+                    />
                   </div>
                 ) : (
                   <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>请先在左侧选择一个组织</div>

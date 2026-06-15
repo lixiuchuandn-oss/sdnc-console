@@ -24,7 +24,7 @@ import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdo
 import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
 import { checkTenantAccess } from './clouds/harvester/harvester.direct.helpers';
 import { ALL_PERMISSIONS } from '../constants/permissions';
-import { buildTenantRootBuiltinPermissions } from '../seeders/initRoles';
+import { buildTenantRootRoleCatalogBoundary } from '../seeders/initRoles';
 import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
 import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
 import {
@@ -40,11 +40,23 @@ import {
 } from '../permissions';
 import { randomUUID } from 'crypto';
 import { OfflineUpgradeService } from '../services/OfflineUpgradeService';
+import { licenseService } from '../services/LicenseService';
+import { ensureTowerGeneralUploadTempRoot } from '../utils/towerTempPaths';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 
 const systemLog = logger.child('System');
 const systemAssignLog = logger.child('System-Assign');
+
+const ENTERPRISE_TENANT_ROLE_MSG =
+  '当前为试用版授权，租户组织角色功能需企业版授权';
+
+function rejectTenantRoleWithoutEnterprise(scope: unknown, res: any): boolean {
+  if (String(scope || '').trim() !== 'tenant') return false;
+  if (licenseService.isEnterprise()) return false;
+  res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+  return true;
+}
 
 // 全局系统路由实例，后续所有 /system 相关子路径都挂在该 Router 上
 const router = Router();
@@ -333,8 +345,8 @@ router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
   // 预定义的权限原子列表，来自 constants/permissions.ts
   // 这些是系统中所有可用的权限原子
   const actions: string[] = [...ALL_PERMISSIONS].sort();
-  // 租户角色抽屉固定展示目录（与种子「云租户根用户」公式一致，不随该角色已保存权限收缩）
-  const tenantRootBoundary = buildTenantRootBuiltinPermissions(ALL_PERMISSIONS).sort();
+  // 租户角色抽屉固定展示目录（与内置根用户种子公式一致，见 buildTenantRootBuiltinPermissions）
+  const tenantRootBoundary = buildTenantRootRoleCatalogBoundary(ALL_PERMISSIONS).sort();
 
   // 注意：分组、平台等元数据由后端权限体系提供（/rbac/permissions）
   res.json({
@@ -385,7 +397,9 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
       grantedCountByRoleId.set(k, (grantedCountByRoleId.get(k) || 0) + 1);
     }
     // Transform to frontend Policy format
-    const list = roles.map((r) => {
+    const enterprise = licenseService.isEnterprise();
+    const visibleRoles = enterprise ? roles : roles.filter((r) => r.scope !== 'tenant');
+    const list = visibleRoles.map((r) => {
       let actions: string[] = [];
       let conditions: any = undefined;
       try {
@@ -437,6 +451,7 @@ router.post('/rbac/roles', checkRbacPermission, async (req: any, res) => {
       checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
+    if (rejectTenantRoleWithoutEnterprise(scope, res)) return;
     if (!name?.trim()) return res.status(400).json({ message: '角色名称不能为空' });
     const repo = AppDataSource.getRepository(RBACRole);
     const existed = await repo.findOne({ where: { name } });
@@ -472,6 +487,10 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (rejectTenantRoleWithoutEnterprise(scope ?? row.scope, res)) return;
+    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
+      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    }
     if (isBuiltInRbacRoleName(row.name) && permissions !== undefined) {
       return res.status(400).json({ message: '系统预置角色不允许修改权限' });
     }
@@ -523,6 +542,9 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
+      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    }
     if (isBuiltInRbacRoleName(row.name)) {
       return res.status(400).json({ message: '系统预置角色不允许修改权限' });
     }
@@ -558,6 +580,9 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
+    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
+      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    }
 
     if (isBuiltInRbacRoleName(row.name)) {
       return res.status(400).json({ message: '系统预置角色不允许删除' });
@@ -589,7 +614,7 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     }
     const tenantUserCount = await tenantUserRepo.count({ where: { role: id } });
     if (tenantUserCount > 0) {
-      return res.status(400).json({ message: '该角色已关联租户用户，无法删除' });
+      return res.status(400).json({ message: '该角色已关联租户组织用户，无法删除' });
     }
 
     await repo.remove(row);
@@ -751,11 +776,10 @@ router.delete('/rbac/assignments/:id', checkRbacPermission, async (req: any, res
 });
 
 // 批量上传告警日志（csv/xls/xlsx）
-// - 使用 Multer 将前端上传的文件先保存到临时目录 temp_uploads
+// - 使用 Multer 将前端上传的文件先保存到 Tower 暂存目录（见 TOWER_TEMP_ROOT / utils/towerTempPaths.ts）
 // - 再根据 getSecurityLogsDir()（环境变量或遗留配置）移动到目标目录
 // - 原始文件名会做简单的字符过滤，避免特殊字符导致的路径问题
-const tempUploadsDir = path.join(process.cwd(), 'temp_uploads');
-if (!fs.existsSync(tempUploadsDir)) fs.mkdirSync(tempUploadsDir, { recursive: true });
+const tempUploadsDir = ensureTowerGeneralUploadTempRoot();
 const upload = multer({ dest: tempUploadsDir });
 
 const offlineUpgradeStorage = multer.diskStorage({

@@ -7,6 +7,10 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../lib/nadSectionRefresh';
 import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import {
   isIpPoolDeleteBlockedError,
   pickIpPoolsByKeys,
   splitIpPoolsForBatchDelete,
@@ -53,13 +57,11 @@ export function useIPPoolsSectionActions({
         return;
       }
 
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除地址池 ${record.name} 吗？此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '地址池',
+        name: record.name,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterIpPool(cloudId, record.name);
             message.success('删除成功');
@@ -73,7 +75,7 @@ export function useIPPoolsSectionActions({
             }
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, isPublicNamespace, isTenant, onRefresh],
   );
@@ -94,13 +96,14 @@ export function useIPPoolsSectionActions({
       return;
     }
 
-    Modal.confirm({
-      title: '确认批量删除',
-      content: `确定要删除选中的 ${deletableTargets.length} 个地址池吗？此操作不可恢复。`,
-      okText: '批量删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: '地址池',
+      name: `${deletableTargets.length} 个地址池`,
+      requireTypeConfirm: false,
+      description: `确定要删除选中的 ${deletableTargets.length} 个地址池吗？此操作不可恢复。`,
+      riskItems: DELETE_NETWORK_RISK_ITEMS,
+      confirmText: '批量删除',
+      onConfirm: async () => {
         try {
           await Promise.all(
             deletableTargets.map((item) => deleteHarvesterIpPool(cloudId, item.name)),
@@ -118,7 +121,7 @@ export function useIPPoolsSectionActions({
           void runHarvesterSectionRefresh(onRefresh, { force: true });
         }
       },
-    });
+    }).catch(() => {});
   }, [cloudId, dataSource, isPublicNamespace, isTenant, onRefresh, selectedRowKeys]);
 
   const handleCreateSuccess = useCallback(() => {

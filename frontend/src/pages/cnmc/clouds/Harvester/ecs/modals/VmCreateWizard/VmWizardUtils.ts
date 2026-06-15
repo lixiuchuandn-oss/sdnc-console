@@ -3,7 +3,15 @@ import { generateHarvesterCrMetadataName, generateHarvesterEntityId } from '../.
 import { KUBE_OVN_FLAT_VPC } from '../../../kube-ovn/lib/kubeOvnSubnetConstants';
 import { passthroughKubevirtIfaceTypeFromNad } from './harvesterVmIfaceTypeOptions';
 import { isWizardPciPassthroughNetMode } from '../../lib/passthroughNicSelectOptions';
+import { buildPodAffinityForK8s } from '../../lib/podAffinityK8s';
+import { buildDeploymentSetPodAffinityConfig } from 'services/harvester/deploymentSetScheduling';
 import { findGpuResource, getGpuNodeName, getGpuResourceName } from '../../lib/gpuResourceResolve';
+import { buildNodeSelectorFromLabelForm } from '../../lib/vmFailureDomainNodeSelector';
+import { buildManualNumaNodes } from '../../lib/numaHugepagesSpec';
+import { buildVmAutoScheduledAnnotations } from '../../lib/vmAutoScheduledAnnotation';
+import { buildVmPodTemplateLabels } from '../../lib/vmDeploymentSet';
+import { resolveExclusiveVmScheduling } from '../../lib/vmSchedulingExclusion';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
 
 /**
  * ==============================================================================
@@ -252,11 +260,18 @@ export const initialWizardValues = (memGi: number, initialVmName: string, cloudI
   rootDeviceType: 'disk',
   extraDisks: [],
   nodeSelectorPairs: [],
+  failureDomainName: undefined,
   hostMode: 'auto',
+  metricAutoScheduled: false,
+  deploymentSetId: undefined,
   netMode: 'flat_subnet',
   gpuMode: 'none',
   gpuCount: 0,
   hotExpandEnabled: false,
+  hugepagesEnabled: false,
+  hugepagesPageSize: '2Mi',
+  numaMode: 'off',
+  numaManualNodeCount: 2,
   bootUseEfi: false,
   efiPersistent: false,
   efiSecureBoot: false,
@@ -368,8 +383,8 @@ export const applyTemplateToWizardForm = (params: {
       try {
           const parsed = JSON.parse(template.metadata.annotations['harvesterhci.io/volumeClaimTemplates']);
           if (Array.isArray(parsed)) volumeTemplates = parsed;
-      } catch (e) {
-          console.warn('Failed to parse volumeClaimTemplates from annotation', e);
+      } catch {
+          // 注解中的 volumeClaimTemplates 解析失败时回退为空模板
       }
   }
 
@@ -597,6 +612,8 @@ export const buildHarvesterVmPayload = (params: {
   nadOptions?: any[];
   /** USB 资源列表（用于节点固定，与 StepOthers 下拉同源） */
   usbResources?: any[];
+  /** 选中的部署集（由 deploymentSetId 解析） */
+  deploymentSet?: DeploymentSetRow | null;
 }) => {
   const {
     v,
@@ -610,8 +627,15 @@ export const buildHarvesterVmPayload = (params: {
     vmId,
     nadOptions,
     usbResources,
+    deploymentSet,
   } = params;
-  
+
+  const { writeMetricAnnotation, effectiveDeploymentSet } = resolveExclusiveVmScheduling(
+    hostModeState,
+    v.metricAutoScheduled,
+    deploymentSet,
+  );
+
   // --- 1. GPU 资源处理 ---
   const gpuMode = String(v.gpuMode || 'none').toLowerCase();
   const primaryPciHost =
@@ -730,16 +754,12 @@ export const buildHarvesterVmPayload = (params: {
         }
       } catch {}
       
-      // 标签选择模式
+      // 故障域 / 其它节点标签（nodeSelector）
       if (hostModeState === 'label') {
-          const arr = Array.isArray(v.nodeSelectorPairs) ? v.nodeSelectorPairs : []; 
-          const obj: any = {}; 
-          arr.forEach((p: any) => { 
-              const k = String(p?.key || '').trim(); 
-              const val = String(p?.value || '').trim(); 
-              if (k && val) { obj[k] = val; } 
-          }); 
-          return Object.keys(obj).length > 0 ? obj : undefined; 
+          return buildNodeSelectorFromLabelForm({
+            failureDomainName: v.failureDomainName,
+            nodeSelectorPairs: v.nodeSelectorPairs,
+          });
       }
       
       // 指定主机模式
@@ -986,21 +1006,54 @@ export const buildHarvesterVmPayload = (params: {
         runStrategy: v.runStrategy || "RerunOnFailure",
         template: {
             metadata: {
-                labels: { "harvesterhci.io/vmName": vmId || v.name },
-                annotations: {}
+                labels: buildVmPodTemplateLabels(
+                  String(vmId || v.name),
+                  effectiveDeploymentSet,
+                ),
+                annotations: {
+                  ...(writeMetricAnnotation ? buildVmAutoScheduledAnnotations() : {}),
+                },
             },
             spec: {
                 evictionStrategy: (v.evictionStrategy && v.evictionStrategy !== 'None') ? v.evictionStrategy : undefined,
                 hostname: vmId || v.name,
                 nodeSelector: nodeSelector,
+                affinity: (function () {
+                  if (hostModeState === 'node') return undefined;
+                  if (!effectiveDeploymentSet || effectiveDeploymentSet.schedulingPolicy === 'none')
+                    return undefined;
+                  const cfg = buildDeploymentSetPodAffinityConfig(effectiveDeploymentSet);
+                  const a: Record<string, unknown> = {};
+                  const pa = buildPodAffinityForK8s(cfg?.podAffinity);
+                  const paa = buildPodAffinityForK8s(cfg?.podAntiAffinity);
+                  if (pa) a.podAffinity = pa;
+                  if (paa) a.podAntiAffinity = paa;
+                  return Object.keys(a).length > 0 ? a : undefined;
+                })(),
                 domain: {
                     cpu: {
                         cores: cores,
                         sockets: sockets,
                         threads: threads,
                         maxSockets: hotExpandEnabled ? sockets * 4 : undefined,
-                        dedicatedCpuPlacement: !!v.dedicatedCPUPlacement,
+                        dedicatedCpuPlacement: !!(v.dedicatedCPUPlacement || v.numaMode === 'auto' || v.numaMode === 'manual'),
                         isolateEmulatorThread: !!v.isolateEmulatorThread,
+                        ...(function () {
+                          const mode = String(v.numaMode || 'off');
+                          if (mode === 'auto') {
+                            return { numa: { guestMappingPassthrough: {} } };
+                          }
+                          if (mode === 'manual') {
+                            const total = sockets * cores * threads;
+                            const nodes = buildManualNumaNodes(
+                              total,
+                              Number(v.numaManualNodeCount || 2),
+                              actualMemGi,
+                            );
+                            return nodes.length ? { numa: { nodes } } : {};
+                          }
+                          return {};
+                        })(),
                         model: (function () {
                           const m = String(v.cpuModel || '').trim();
                           if (m === 'custom') return String(v.cpuModelCustom || '').trim() || undefined;
@@ -1009,7 +1062,10 @@ export const buildHarvesterVmPayload = (params: {
                     },
                     memory: {
                         guest: memory,
-                        maxGuest: hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined
+                        maxGuest: hotExpandEnabled ? `${actualMemGi * 4}Gi` : undefined,
+                        ...(v.hugepagesEnabled && v.hugepagesPageSize
+                          ? { hugepages: { pageSize: String(v.hugepagesPageSize) } }
+                          : {})
                     },
                     resources: {
                         limits: (function () {

@@ -187,6 +187,24 @@ export function isWinicssecSwitchRecord(r: AswCtlSwitchProbeRecord | null | unde
   return /winicssec|winics|wos/i.test(switchRecordDeviceProfile(r));
 }
 
+/**
+ * H3C Comware 交换机：`device_profile` 或 info/performance 回显特征。
+ * 与 Winicssec / 华为互斥判定（调用方按需组合）。
+ */
+export function isH3cSwitchRecord(r: AswCtlSwitchProbeRecord | null | undefined): boolean {
+  if (!r) return false;
+  if (isWinicssecSwitchRecord(r)) return false;
+  const p = switchRecordDeviceProfile(r);
+  if (p && /h3c/i.test(p)) return true;
+  const blob = switchRecordStdoutsBlob(r);
+  if (!blob.trim()) return false;
+  if (/H3C Comware/i.test(blob)) return true;
+  if (/New H3C Technologies/i.test(blob)) return true;
+  if (/(?:^|\n)\s*BOARD\s+TYPE\s*[:：]/im.test(blob)) return true;
+  if (/^<H3C[\w-]*>/im.test(blob)) return true;
+  return false;
+}
+
 /** 从 record 各探测块 stdout 拼成一段文本，供厂商指纹判断（不持久化）。 */
 function switchRecordStdoutsBlob(r: AswCtlSwitchProbeRecord): string {
   if (!r || typeof r !== 'object') return '';
@@ -285,6 +303,30 @@ function mergeCpuMemoryFromStdout(text: string, out: PerformanceMetricsParsed) {
   }
 }
 
+/** H3C Comware：`display cpu-usage` / `display memory`（仅 H3C 分支调用，避免影响华为等） */
+function mergeH3cPerformanceFromStdout(text: string, out: PerformanceMetricsParsed) {
+  const t = text;
+  if (!t.trim()) return;
+
+  if (!out.cpu) {
+    const h3cCpu5s = t.match(/(?:^|\n)\s*(\d+(?:\.\d+)?)%\s+in\s+last\s+5\s+seconds/i);
+    if (h3cCpu5s?.[1]) {
+      out.cpu = `${h3cCpu5s[1].trim()}%`;
+    }
+  }
+
+  if (!out.memory) {
+    const h3cMem = t.match(/(?:^|\n)\s*Mem:\s+(\d+)\s+(\d+)\s+(\d+)/i);
+    if (h3cMem?.[1] && h3cMem?.[2]) {
+      const total = parseInt(h3cMem[1], 10);
+      const used = parseInt(h3cMem[2], 10);
+      if (total > 0 && Number.isFinite(used)) {
+        out.memory = `${((used / total) * 100).toFixed(1)}%`;
+      }
+    }
+  }
+}
+
 function mergeTemperatureFromStdout(text: string, out: PerformanceMetricsParsed) {
   if (out.temperature) return;
   const t = text;
@@ -336,7 +378,10 @@ function mergePsuFromStdout(text: string, out: PerformanceMetricsParsed) {
   if (line) out.psu = line.trim().slice(0, 96);
 }
 
-function parsePerformanceMetrics(lines: AswCtlProbeLine[] | undefined): PerformanceMetricsParsed {
+function parsePerformanceMetrics(
+  lines: AswCtlProbeLine[] | undefined,
+  options?: { h3c?: boolean },
+): PerformanceMetricsParsed {
   const out: PerformanceMetricsParsed = {};
   if (!Array.isArray(lines)) return out;
   for (const ln of lines) {
@@ -344,7 +389,8 @@ function parsePerformanceMetrics(lines: AswCtlProbeLine[] | undefined): Performa
     const stdout = typeof ln?.stdout === 'string' ? ln.stdout : '';
     if (!stdout.trim()) continue;
 
-    mergeCpuMemoryFromStdout(stdout, out);
+    if (options?.h3c) mergeH3cPerformanceFromStdout(stdout, out);
+    else mergeCpuMemoryFromStdout(stdout, out);
     /* 不限定 command 名：health dump 等输出里也可能含 Current/Range 温度表 */
     mergeTemperatureFromStdout(stdout, out);
 
@@ -360,12 +406,24 @@ function parsePerformanceMetrics(lines: AswCtlProbeLine[] | undefined): Performa
 
 /** 合并 performance；若仍缺 CPU/内存，再从 info 各命令 stdout 里扫一遍 */
 export function buildPerformanceMetrics(record: AswCtlSwitchProbeRecord | null | undefined): PerformanceMetricsParsed {
-  const out = parsePerformanceMetrics(record?.performance?.lines);
+  const h3c = isH3cSwitchRecord(record);
+  const out = parsePerformanceMetrics(record?.performance?.lines, { h3c });
+
+  if (h3c && record?.performance?.lines && (!out.cpu || !out.memory)) {
+    for (const ln of record.performance.lines) {
+      const stdout = typeof ln?.stdout === 'string' ? ln.stdout : '';
+      if (!stdout.trim()) continue;
+      mergeH3cPerformanceFromStdout(stdout, out);
+      if (out.cpu && out.memory) break;
+    }
+  }
+
   if (record?.info?.lines && (!out.cpu || !out.memory)) {
     for (const ln of record.info.lines) {
       const stdout = typeof ln?.stdout === 'string' ? ln.stdout : '';
       if (!stdout.trim()) continue;
-      mergeCpuMemoryFromStdout(stdout, out);
+      if (h3c) mergeH3cPerformanceFromStdout(stdout, out);
+      else mergeCpuMemoryFromStdout(stdout, out);
       if (out.cpu && out.memory) break;
     }
   }

@@ -2,12 +2,53 @@
  * Harvester 容器路由 — Docker Registry V2 API 代理。
  */
 import { Router, Response } from 'express';
+import multer from 'multer';
 import { fetchCloudOr404, ensureProvider } from './harvester.cache.helpers';
+import { parseDockerImageFromBuffer } from '../../../services/ImageTarParser';
+import { pushImageToRegistry } from '../../../services/DockerRegistryPusher';
+import { probeRegistryConnection, registryApiRequest } from '../../../services/registryClient';
+import { AppDataSource } from '../../../config/database';
+import { ImageUploadTask, RegistryType, UploadTaskStatus } from '../../../entities/ImageUploadTask';
+
+async function pushImageToRegistryWithHttpFallback(
+  parsedImage: Awaited<ReturnType<typeof parseDockerImageFromBuffer>>,
+  options: {
+    server: string;
+    repository: string;
+    tag: string;
+    insecure: boolean;
+    username?: string;
+    password?: string;
+  },
+  onProgress?: Parameters<typeof pushImageToRegistry>[2],
+) {
+  try {
+    await pushImageToRegistry(parsedImage, options, onProgress);
+  } catch (pushError: any) {
+    if (
+      !options.insecure &&
+      (pushError.code === 'EPROTO' ||
+        pushError.code === 'ECONNRESET' ||
+        String(pushError.message).includes('SSL'))
+    ) {
+      console.log('[上传镜像] HTTPS 失败, 回退 HTTP 重试...');
+      await pushImageToRegistry(
+        parsedImage,
+        { ...options, insecure: true },
+        onProgress,
+      );
+    } else {
+      throw pushError;
+    }
+  }
+}
 
 export const registerHarvesterContainerDockerRegistryRoutes = (
   router: Router,
   checkAdminPermission: any,
 ): void => {
+  const uploadTaskRepo = AppDataSource.getRepository(ImageUploadTask);
+
   // ============================================================
   // [Docker Registry V2 API 代理]
   // ============================================================
@@ -36,26 +77,25 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
         // 使用云配置中的 TLS 设置作为默认值
         const ignoreTls = insecure ?? !!(cloud.config as any)?.ignoreTls;
 
-        const authResult = await getRegistryAuth(server, username, password, ignoreTls);
+        await probeRegistryConnection(server, {
+          username: username ? String(username) : undefined,
+          password: password ? String(password) : undefined,
+          insecure: ignoreTls,
+        });
 
-        if (authResult.success) {
-          res.json({
-            message: '连接成功',
-            data: { success: true, message: '仓库连接测试通过' },
-          });
-        } else {
-          res.json({
-            message: '连接失败',
-            data: {
-              success: false,
-              message: authResult.error || '认证失败',
-              wwwAuthenticate: authResult.wwwAuthenticate,
-            },
-          });
-        }
+        res.json({
+          message: '连接成功',
+          data: { success: true, message: '仓库连接测试通过' },
+        });
       } catch (error: any) {
         console.error('[Registry Test] Error:', error);
-        res.status(500).json({ message: '测试仓库连接失败', error: error.message });
+        res.json({
+          message: '连接失败',
+          data: {
+            success: false,
+            message: error?.message || '认证失败',
+          },
+        });
       }
     },
   );
@@ -106,7 +146,9 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
             data: result.data,
           });
         } else {
-          res.status(result.status || 500).json({
+          const status =
+            result.status && result.status >= 400 && result.status < 600 ? result.status : 502;
+          res.status(status).json({
             message: '获取仓库目录失败',
             error: result.error,
           });
@@ -204,7 +246,7 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
         // 构建请求路径: /v2/{name}/manifests/{reference}
         const path = `/v2/${encodeURIComponent(String(repository))}/manifests/${encodeURIComponent(String(tag))}`;
 
-        const result = await registryRequest(
+        let result = await registryRequest(
           String(server),
           path,
           username ? String(username) : undefined,
@@ -212,10 +254,30 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
           ignoreTls,
         );
 
+        // HTTPS 失败时，自动回退 HTTP 重试
+        if (!result.success && !ignoreTls) {
+          const errorMsg = result.error || '';
+          if (
+            errorMsg.includes('EPROTO') ||
+            errorMsg.includes('SSL') ||
+            errorMsg.includes('packet length')
+          ) {
+            console.log('[Registry Manifest] HTTPS failed, retrying with HTTP...');
+            result = await registryRequest(
+              String(server),
+              path,
+              username ? String(username) : undefined,
+              password ? String(password) : undefined,
+              true,
+            );
+          }
+        }
+
         if (result.success) {
           res.json({
             message: '查询成功',
             data: result.data,
+            digest: result.digest, // 返回 Docker-Content-Digest
           });
         } else {
           res.status(result.status || 500).json({
@@ -287,8 +349,8 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
   /**
    * [API] 删除镜像标签
    * DELETE /:id/resources/harvester/containers/registry/tag
-   * Body: { server, repository, digest, username?, password? }
-   * Docker Registry V2 API: DELETE /v2/{name}/manifests/{digest}
+   * Body: { server, repository, tag, username?, password?, insecure? }
+   * 策略: GET manifest 获取 Docker-Content-Digest → DELETE by digest
    */
   router.delete(
     '/:id/resources/harvester/containers/registry/tag',
@@ -296,32 +358,98 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
     async (req: any, res: Response) => {
       try {
         const { id } = req.params;
-        const { server, repository, digest, username, password, insecure } = req.body;
+        const { server, repository, tag, username, password, insecure } = req.body;
 
-        if (!server || !repository || !digest) {
-          return res.status(400).json({ message: '缺少必要参数: server, repository, digest' });
+        if (!server || !repository || !tag) {
+          return res.status(400).json({ message: '缺少必要参数: server, repository, tag' });
         }
 
         const cloud = await fetchCloudOr404(id, res);
         if (!cloud) return;
         if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester 资源查询')) return;
 
-        const ignoreTls = insecure ?? !!(cloud.config as any)?.ignoreTls;
-
-        // 构建请求路径: /v2/{name}/manifests/{digest}
-        const path = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(digest)}`;
-
-        const result = await registryRequest(server, path, username, password, ignoreTls, 'DELETE');
-
-        if (result.success) {
-          res.json({
-            message: '删除成功',
-            data: result.data,
-          });
+        // 处理 insecure 参数
+        let ignoreTls: boolean;
+        if (insecure === true || insecure === 'true') {
+          ignoreTls = true;
+        } else if (insecure === false || insecure === 'false') {
+          ignoreTls = false;
         } else {
-          res.status(result.status || 500).json({
+          ignoreTls = !!(cloud.config as any)?.ignoreTls;
+        }
+
+        const isSslError = (error: string): boolean => {
+          return (
+            error.includes('EPROTO') || error.includes('SSL') || error.includes('packet length')
+          );
+        };
+
+        // 1. 获取 manifest，拿到 Docker-Content-Digest
+        const manifestPath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(tag)}`;
+        let manifestResult = await registryRequest(
+          server,
+          manifestPath,
+          username,
+          password,
+          ignoreTls,
+          'GET',
+        );
+
+        if (!manifestResult.success && !ignoreTls && isSslError(manifestResult.error || '')) {
+          console.log('[Registry Delete] GET HTTPS failed, retrying with HTTP...');
+          manifestResult = await registryRequest(
+            server,
+            manifestPath,
+            username,
+            password,
+            true,
+            'GET',
+          );
+        }
+
+        if (!manifestResult.success) {
+          return res.status(manifestResult.status || 500).json({
+            message: '获取镜像 Manifest 失败',
+            error: manifestResult.error,
+          });
+        }
+
+        // 2. 用 manifest digest 执行删除
+        const manifestDigest =
+          manifestResult.digest || (manifestResult.data as { config?: { digest?: string } })?.config?.digest;
+        if (!manifestDigest) {
+          return res.status(400).json({ message: '无法获取镜像 digest' });
+        }
+
+        console.log(`[Registry Delete] Deleting by digest: ${manifestDigest}`);
+        const deletePath = `/v2/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(manifestDigest)}`;
+        let deleteResult = await registryRequest(
+          server,
+          deletePath,
+          username,
+          password,
+          ignoreTls,
+          'DELETE',
+        );
+
+        if (!deleteResult.success && !ignoreTls && isSslError(deleteResult.error || '')) {
+          console.log('[Registry Delete] DELETE HTTPS failed, retrying with HTTP...');
+          deleteResult = await registryRequest(
+            server,
+            deletePath,
+            username,
+            password,
+            true,
+            'DELETE',
+          );
+        }
+
+        if (deleteResult.success) {
+          res.json({ message: '删除成功', data: deleteResult.data });
+        } else {
+          res.status(deleteResult.status || 500).json({
             message: '删除镜像失败',
-            error: result.error,
+            error: deleteResult.error,
           });
         }
       } catch (error: any) {
@@ -330,376 +458,196 @@ export const registerHarvesterContainerDockerRegistryRoutes = (
       }
     },
   );
-};
 
-// ============================================================
-// [Docker Registry V2 API 代理] — 辅助函数
-// ============================================================
-
-/**
- * [辅助函数] Docker Registry V2 API 认证处理器
- *
- * Docker Registry V2 支持两种认证方式：
- * 1. Basic Auth: 直接使用 username:password
- * 2. Bearer Token: 通过 WWW-Authenticate 响应头获取 token 端点
- *
- * @param server 仓库服务器地址
- * @param username 用户名（可选）
- * @param password 密码（可选）
- * @param insecure 是否忽略 TLS
- * @returns 认证信息或 token
- */
-interface RegistryAuthResult {
-  success: boolean;
-  authHeader?: string; // Authorization header value
-  token?: string; // Bearer token (如果使用 token 认证)
-  error?: string;
-  wwwAuthenticate?: string; // WWW-Authenticate header value
-}
-
-/**
- * [辅助函数] 解析 WWW-Authenticate 响应头
- * 格式: Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:library/alpine:pull"
- */
-const parseWwwAuthenticate = (header: string): Record<string, string> => {
-  const result: Record<string, string> = {};
-
-  // 提取认证类型
-  const match = header.match(/^(\w+)\s+(.*)$/);
-  if (!match) return result;
-
-  result['type'] = match[1].toLowerCase();
-
-  // 解析参数
-  const params = match[2];
-  const regex = /(\w+)="([^"]*)"/g;
-  let paramMatch;
-  while ((paramMatch = regex.exec(params)) !== null) {
-    result[paramMatch[1]] = paramMatch[2];
-  }
-
-  return result;
-};
-
-/**
- * [辅助函数] 获取 Docker Registry 认证信息
- */
-const getRegistryAuth = async (
-  server: string,
-  username?: string,
-  password?: string,
-  insecure: boolean = false,
-): Promise<RegistryAuthResult> => {
-  const https = await import('https');
-  const http = await import('http');
-
-  // 规范化服务器地址
-  let normalizedServer = server.replace(/\/+$/, '');
-  if (!normalizedServer.startsWith('http://') && !normalizedServer.startsWith('https://')) {
-    // insecure=true 时使用 HTTP，否则使用 HTTPS
-    normalizedServer = insecure ? `http://${normalizedServer}` : `https://${normalizedServer}`;
-  }
-
-  const urlModule = await import('url');
-  const parsedUrl = new urlModule.URL(normalizedServer);
-  const lib = parsedUrl.protocol === 'https:' ? https : http;
-
-  return new Promise((resolve) => {
-    // 构建基础认证头
-    let authHeader = '';
-    if (username && password) {
-      authHeader = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-    }
-
-    const options: any = {
-      hostname: parsedUrl.hostname,
-      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
-      path: '/v2/',
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
-    };
-
-    if (insecure && parsedUrl.protocol === 'https:') {
-      options.rejectUnauthorized = false;
-    }
-
-    const req = lib.request(options, (res: any) => {
-      // 2xx 表示认证成功（公开仓库可能不需要认证）
-      if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-        resolve({
-          success: true,
-          authHeader: authHeader || undefined,
-        });
-        return;
-      }
-
-      // 401 表示需要认证，检查 WWW-Authenticate 头
-      if (res.statusCode === 401) {
-        const wwwAuth = res.headers['www-authenticate'];
-
-        if (wwwAuth) {
-          const authParams = parseWwwAuthenticate(wwwAuth);
-
-          if (authParams['type'] === 'bearer' && authParams['realm']) {
-            // 需要获取 Bearer Token
-            resolve({
-              success: false,
-              wwwAuthenticate: wwwAuth,
-              error: '需要 Bearer Token 认证',
-            });
-            return;
-          }
-
-          if (authParams['type'] === 'basic') {
-            // 需要 Basic Auth
-            if (username && password) {
-              resolve({
-                success: true,
-                authHeader: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`,
-              });
-            } else {
-              resolve({
-                success: false,
-                wwwAuthenticate: wwwAuth,
-                error: '需要用户名和密码',
-              });
-            }
-            return;
-          }
+  /**
+   * [API] 获取通用仓库镜像推送任务列表
+   * GET /:id/resources/harvester/containers/registry/upload-tasks?server=host:port
+   */
+  router.get(
+    '/:id/resources/harvester/containers/registry/upload-tasks',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id: cloudId } = req.params;
+        const server = String(req.query.server || '').trim();
+        if (!server) {
+          return res.status(400).json({ message: '缺少参数: server' });
         }
-
-        resolve({
-          success: false,
-          error: '认证失败：无效的认证信息',
+        const tasks = await uploadTaskRepo.find({
+          where: { cloudId, targetServer: server, registryType: RegistryType.GENERIC },
+          order: { createdAt: 'DESC' },
         });
-        return;
+        res.json({ message: '查询成功', data: tasks });
+      } catch (error: any) {
+        console.error('[查询通用仓库推送任务] 错误:', error);
+        res.status(500).json({ message: '查询失败', error: error.message });
       }
-
-      resolve({
-        success: false,
-        error: `连接失败: HTTP ${res.statusCode}`,
-      });
-    });
-
-    req.setTimeout(15000, () => {
-      req.destroy(new Error('timeout'));
-      resolve({ success: false, error: '连接超时' });
-    });
-
-    req.on('error', (err: any) => {
-      resolve({
-        success: false,
-        error: err.message || '连接失败',
-      });
-    });
-
-    req.end();
-  });
-};
-
-/**
- * [辅助函数] 获取 Bearer Token
- */
-const getBearerToken = async (
-  realm: string,
-  service: string,
-  scope: string,
-  username?: string,
-  password?: string,
-  insecure: boolean = false,
-): Promise<{ success: boolean; token?: string; error?: string }> => {
-  const https = await import('https');
-  const http = await import('http');
-  const urlModule = await import('url');
-
-  // 构建 token 请求 URL
-  const tokenUrl = new urlModule.URL(realm);
-  tokenUrl.searchParams.set('service', service);
-  tokenUrl.searchParams.set('scope', scope);
-
-  const lib = tokenUrl.protocol === 'https:' ? https : http;
-
-  const options: any = {
-    hostname: tokenUrl.hostname,
-    port: tokenUrl.port || (tokenUrl.protocol === 'https:' ? 443 : 80),
-    path: tokenUrl.pathname + tokenUrl.search,
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
     },
-  };
+  );
 
-  // 添加 Basic Auth（如果提供）
-  if (username && password) {
-    options.headers['Authorization'] =
-      `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
-  }
-
-  if (insecure && tokenUrl.protocol === 'https:') {
-    options.rejectUnauthorized = false;
-  }
-
-  return new Promise((resolve) => {
-    const req = lib.request(options, (res: any) => {
-      let data = '';
-      res.on('data', (chunk: string) => (data += chunk));
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-          try {
-            const json = JSON.parse(data);
-            resolve({ success: true, token: json.access_token || json.token });
-          } catch {
-            resolve({ success: false, error: 'Token 响应解析失败' });
-          }
-        } else {
-          resolve({ success: false, error: `获取 Token 失败: HTTP ${res.statusCode}` });
+  /**
+   * [API] 删除通用仓库镜像推送任务记录（仅 completed / failed）
+   * DELETE /:id/resources/harvester/containers/registry/upload-tasks/:taskId
+   */
+  router.delete(
+    '/:id/resources/harvester/containers/registry/upload-tasks/:taskId',
+    checkAdminPermission,
+    async (req: any, res: Response) => {
+      try {
+        const { id: cloudId, taskId } = req.params;
+        const server = String(req.query.server || '').trim();
+        const task = await uploadTaskRepo.findOne({
+          where: {
+            id: taskId,
+            cloudId,
+            ...(server ? { targetServer: server } : {}),
+            registryType: RegistryType.GENERIC,
+          },
+        });
+        if (!task) {
+          return res.status(404).json({ message: '任务不存在' });
         }
-      });
-    });
+        if (task.status !== UploadTaskStatus.COMPLETED && task.status !== UploadTaskStatus.FAILED) {
+          return res.status(409).json({ message: '仅已完成或失败的任务可删除' });
+        }
+        await uploadTaskRepo.remove(task);
+        res.json({ message: '删除成功' });
+      } catch (error: any) {
+        console.error('[删除通用仓库推送任务] 错误:', error);
+        res.status(500).json({ message: '删除失败', error: error.message });
+      }
+    },
+  );
 
-    req.setTimeout(15000, () => {
-      req.destroy(new Error('timeout'));
-      resolve({ success: false, error: '获取 Token 超时' });
-    });
-
-    req.on('error', (err: any) => {
-      resolve({ success: false, error: err.message || '获取 Token 失败' });
-    });
-
-    req.end();
+  // 配置 multer 用于通用仓库上传
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 * 1024 },
   });
+
+  /**
+   * [API] 上传镜像到通用仓库
+   * POST /:id/resources/harvester/containers/registry/upload
+   * Form: file (tar), server, insecure, username?, password?, targetRepo?, targetTag?
+   */
+  router.post(
+    '/:id/resources/harvester/containers/registry/upload',
+    checkAdminPermission,
+    upload.single('file'),
+    async (req: any, res: Response) => {
+      try {
+        const { id: cloudId } = req.params;
+        const { server, insecure, username, password, targetRepo, targetTag } = req.body;
+
+        if (!req.file) {
+          return res.status(400).json({ message: '请上传镜像 tar 文件' });
+        }
+        if (!server) {
+          return res.status(400).json({ message: '缺少仓库地址' });
+        }
+
+        const cloud = await fetchCloudOr404(cloudId, res);
+        if (!cloud) return;
+        if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester')) return;
+
+        const registryServer = String(server).trim();
+        const isInsecure = insecure === 'true' || insecure === true;
+        const authUser = username ? String(username) : undefined;
+        const authPass = password ? String(password) : undefined;
+
+        if (authUser && !authPass) {
+          return res.status(400).json({
+            message: '仓库已配置用户名但缺少密码，请在仓库设置中补全密码后重试',
+          });
+        }
+
+        const task = uploadTaskRepo.create({
+          cloudId,
+          targetServer: registryServer,
+          registryType: RegistryType.GENERIC,
+          fileName: req.file.originalname || 'image.tar',
+          targetRepo: targetRepo || 'library',
+          targetTag: targetTag || 'latest',
+          status: UploadTaskStatus.PARSING,
+          totalLayers: 0,
+          uploadedLayers: 0,
+        });
+        await uploadTaskRepo.save(task);
+
+        const fileBuffer = req.file.buffer;
+        const repo = targetRepo || 'library';
+        const tagHint = targetTag || 'latest';
+
+        (async () => {
+          try {
+            task.status = UploadTaskStatus.PARSING;
+            await uploadTaskRepo.save(task);
+
+            const parsedImage = await parseDockerImageFromBuffer(fileBuffer);
+            const tag = tagHint || parsedImage.repoTags[0]?.split(':')[1] || 'latest';
+            task.targetTag = tag;
+            task.totalLayers = parsedImage.layers.length + 2;
+            task.status = UploadTaskStatus.UPLOADING;
+            await uploadTaskRepo.save(task);
+
+            await pushImageToRegistryWithHttpFallback(
+              parsedImage,
+              {
+                server: registryServer,
+                repository: repo,
+                tag,
+                insecure: isInsecure,
+                username: authUser,
+                password: authPass,
+              },
+              async (progress) => {
+                if (progress.phase === 'uploading') {
+                  task.uploadedLayers = progress.current;
+                  task.currentLayer = progress.currentBlob;
+                  await uploadTaskRepo.save(task);
+                } else if (progress.phase === 'pushing_manifest') {
+                  task.uploadedLayers = Math.max(task.totalLayers - 1, 0);
+                  task.currentLayer = 'manifest';
+                  await uploadTaskRepo.save(task);
+                }
+              },
+            );
+
+            task.uploadedLayers = task.totalLayers;
+            task.currentLayer = undefined;
+            task.status = UploadTaskStatus.COMPLETED;
+            await uploadTaskRepo.save(task);
+          } catch (err: any) {
+            console.error('[通用仓库镜像推送] 错误:', err);
+            task.status = UploadTaskStatus.FAILED;
+            task.error = err?.message || String(err);
+            await uploadTaskRepo.save(task);
+          }
+        })();
+
+        res.json({
+          message: '推送任务已创建',
+          data: { taskId: task.id, repo, tag: tagHint },
+        });
+      } catch (error: any) {
+        console.error('[上传镜像] 错误:', error);
+        res.status(500).json({ message: '上传失败', error: error.message });
+      }
+    },
+  );
 };
 
-/**
- * [辅助函数] 带认证的 Docker Registry API 请求
- */
-const registryRequest = async (
+const registryRequest = (
   server: string,
   path: string,
   username?: string,
   password?: string,
   insecure: boolean = false,
   method: string = 'GET',
-): Promise<{ success: boolean; data?: any; status?: number; error?: string }> => {
-  const https = await import('https');
-  const http = await import('http');
-  const urlModule = await import('url');
-
-  // 规范化服务器地址
-  let normalizedServer = server.replace(/\/+$/, '');
-  if (!normalizedServer.startsWith('http://') && !normalizedServer.startsWith('https://')) {
-    // insecure=true 时使用 HTTP，否则使用 HTTPS
-    normalizedServer = insecure ? `http://${normalizedServer}` : `https://${normalizedServer}`;
-  }
-
-  // 首先尝试获取认证信息
-  const authResult = await getRegistryAuth(normalizedServer, username, password, insecure);
-
-  let authHeader = authResult.authHeader || '';
-
-  // 如果需要 Bearer Token，先获取 token
-  if (!authResult.success && authResult.wwwAuthenticate) {
-    const authParams = parseWwwAuthenticate(authResult.wwwAuthenticate);
-
-    if (authParams['type'] === 'bearer' && authParams['realm']) {
-      // 从 path 提取 scope
-      let scope = 'repository:library:pull';
-
-      // 解析 path 获取仓库信息用于构建 scope
-      const pathParts = path.replace('/v2/', '').split('/');
-      if (pathParts.length > 1) {
-        // 例如: /v2/library/alpine/tags/list -> scope: repository:library/alpine:pull
-        const manifestOrTags = pathParts.findIndex((p) => p === 'tags' || p === 'manifests');
-        if (manifestOrTags > 0) {
-          const repoPath = pathParts.slice(0, manifestOrTags).join('/');
-          scope = `repository:${repoPath}:pull`;
-        }
-      }
-
-      const tokenResult = await getBearerToken(
-        authParams['realm'],
-        authParams['service'] || '',
-        scope,
-        username,
-        password,
-        insecure,
-      );
-
-      if (!tokenResult.success) {
-        return { success: false, error: tokenResult.error };
-      }
-
-      authHeader = `Bearer ${tokenResult.token}`;
-    } else if (!authResult.success) {
-      return { success: false, error: authResult.error };
-    }
-  }
-
-  // 执行实际请求
-  const fullUrl = new urlModule.URL(normalizedServer);
-  const lib = fullUrl.protocol === 'https:' ? https : http;
-
-  const options: any = {
-    hostname: fullUrl.hostname,
-    port: fullUrl.port || (fullUrl.protocol === 'https:' ? 443 : 80),
-    path: path,
-    method: method,
-    headers: {
-      Accept: 'application/json',
-      ...(authHeader ? { Authorization: authHeader } : {}),
-    },
-  };
-
-  // 对于 manifest 请求，添加额外的 Accept 头
-  if (path.includes('/manifests/')) {
-    options.headers['Accept'] =
-      'application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/json';
-  }
-
-  if (insecure && fullUrl.protocol === 'https:') {
-    options.rejectUnauthorized = false;
-  }
-
-  return new Promise((resolve) => {
-    const req = lib.request(options, (res: any) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk: Buffer) => chunks.push(chunk));
-      res.on('end', () => {
-        const buffer = Buffer.concat(chunks);
-        const text = buffer.toString('utf-8');
-        const status = res.statusCode || 0;
-
-        if (status >= 200 && status < 300) {
-          try {
-            resolve({ success: true, data: JSON.parse(text), status });
-          } catch {
-            // 如果不是 JSON，返回原始文本
-            resolve({ success: true, data: text, status });
-          }
-        } else {
-          // 尝试解析错误信息
-          let errorMsg = `HTTP ${status}`;
-          try {
-            const errorJson = JSON.parse(text);
-            errorMsg = errorJson.errors?.[0]?.message || errorMsg;
-          } catch {}
-          resolve({ success: false, error: errorMsg, status });
-        }
-      });
-    });
-
-    req.setTimeout(60000, () => {
-      req.destroy(new Error('timeout'));
-      resolve({ success: false, error: '请求超时' });
-    });
-
-    req.on('error', (err: any) => {
-      resolve({ success: false, error: err.message || '请求失败' });
-    });
-
-    req.end();
+) =>
+  registryApiRequest(server, path, {
+    username,
+    password,
+    insecure,
+    method,
   });
-};

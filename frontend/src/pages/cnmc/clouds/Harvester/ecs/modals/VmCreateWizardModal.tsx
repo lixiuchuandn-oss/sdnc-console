@@ -39,6 +39,19 @@ import WizardSummary from './VmCreateWizard/WizardSummary';
 import { useHarvesterData } from './VmCreateWizard/useHarvesterData';
 import { generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 import { validateAndGetGpu, initialWizardValues, filterNodes, validateImageSize, constructVmPayload, handleRootPvcChange, generateUniqueVmId, applyTemplateToWizardForm, parseSizeToGi } from './VmCreateWizard/VmWizardUtils';
+import { findDeploymentSetById, applyDeploymentSetToWizardForm } from '../lib/vmDeploymentSet';
+import {
+  applyDeploymentSetExclusive,
+  collectVmWizardMetricAutoScheduledConflicts,
+  getVmWizardMetricAutoScheduledConflictMessage,
+} from '../lib/vmSchedulingExclusion';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
+import { validateVmPerformanceAdvancedForm } from '../lib/numaHugepagesSpec';
+import { hasLabelModeNodeSelector } from '../lib/vmFailureDomainNodeSelector';
+import {
+  clearVmAdvancedSchedulingFormFields,
+  vmFailureDomainRequiredMessage,
+} from '../lib/vmAdvancedSchedulingLabels';
 import { fetchHarvesterCapabilities, createHarvesterVm } from 'services/harvester/vm';
 import { fetchCloudProviderEcs } from '../../../../../../services/api';
 import { useAuth } from '../../../../../../contexts/AuthContext';
@@ -89,6 +102,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const lastValidationErrorTypeRef = useRef<string | null>(null);
   /** 防止连点/双击在 setSubmitting 生效前并发提交，导致重复创建 VM */
   const submitInFlightRef = useRef(false);
+  const [deploymentSets, setDeploymentSets] = useState<DeploymentSetRow[]>([]);
 
   const {
     images, imageLoading, reloadImages,
@@ -101,9 +115,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     reloadKubeVpcs, kubeVpcOptions,
     gpuResources, reloadGpuResources,
     pciDevices, reloadPciDevices,
-    usbResources, reloadUsbResources,
+    usbResources, usbResourcesLoaded, usbResourcesLoading, reloadUsbResources,
     storageClasses, storageClassLoading, reloadStorageClasses, defaultStorageClassName,
-    sshKeyOptions, reloadSshKeys
+    sshKeyOptions, sshKeysLoaded, sshKeysLoading, reloadSshKeys
   } = useHarvesterData(cloudId, currentCloudId, form, isTenant, watchNamespace);
 
   const fromTemplateState = (location.state as any)?.fromTemplate;
@@ -231,17 +245,6 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
     load();
   }, [cloudId, currentCloudId, reloadImages, reloadNamespaces, reloadNads, reloadNodes, form]);
 
-  // 进入“登录设置/其它选项”步骤时，懒加载 SSH 密钥 / USB 资源
-  useEffect(() => {
-    if (step === 4) {
-      try { reloadSshKeys(); } catch {}
-    }
-    if (step === 5) {
-      try { reloadUsbResources(); } catch {}
-      try { reloadSshKeys(); } catch {}
-    }
-  }, [step, reloadUsbResources, reloadSshKeys]);
-
   useEffect(() => {
     if (step === 3) {
       try {
@@ -327,7 +330,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
   const getStepFields = (stepIdx: number): any[] => {
     switch (stepIdx) {
       case 0: // Basic
-        return ['cloudId', 'namespace', 'name', 'hostMode', 'clusterArch', 'machineType', 'nodeSelectorPairs', 'description', 'group'];
+        return ['cloudId', 'namespace', 'name', 'hostMode', 'clusterArch', 'machineType', 'failureDomainName', 'description'];
       case 1: // Compute
         return ['cpu', 'memory', 'hotExpandEnabled', 'cpuSockets', 'cpuCores', 'cpuThreads', 'cpuModel', 'cpuModelCustom', 'gpuMode', 'gpuList'];
       case 2: // Disks
@@ -441,6 +444,13 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       if (targetStep === 0 && hostModeState === 'node' && !selectedNodeName) {
         throw new Error('Node not selected');
       }
+      if (targetStep === 0 && hostModeState === 'label') {
+        const v0 = form.getFieldsValue(true);
+        if (!hasLabelModeNodeSelector({ failureDomainName: v0.failureDomainName })) {
+          message.error(vmFailureDomainRequiredMessage());
+          throw new Error('Failure domain not selected');
+        }
+      }
 
       if (targetStep === 1) {
         const needBinding = !!form.getFieldValue('dedicatedCPUPlacement');
@@ -479,6 +489,14 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         if (nested.length > 0) {
           await form.validateFields(nested);
         }
+      }
+
+      const metricConflictMsg = getVmWizardMetricAutoScheduledConflictMessage(
+        form.getFieldsValue(true) as Record<string, unknown>,
+      );
+      if (metricConflictMsg) {
+        message.error(metricConflictMsg);
+        throw new Error('metric-auto-scheduled-conflict');
       }
 
       setStepValid((prev) => { const a = [...prev]; a[targetStep] = true; return a; });
@@ -541,8 +559,40 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       }
       v.namespace = resolvedNamespace;
 
+      const metricConflictMsg = getVmWizardMetricAutoScheduledConflictMessage(v);
+      if (metricConflictMsg) {
+        message.error(metricConflictMsg);
+        const conflicts = collectVmWizardMetricAutoScheduledConflicts(v);
+        if (conflicts.includes('GPU')) setStep(1);
+        else if (conflicts.some((c) => c === '直通网卡' || c === '直通SR-IOV')) setStep(3);
+        else if (conflicts.includes('USB设备')) setStep(5);
+        else setStep(0);
+        return;
+      }
+
       const sizeError = validateImageSize(v, images || []);
       if (sizeError) { message.error(sizeError); return; }
+
+      const perfErr = validateVmPerformanceAdvancedForm({
+        hugepagesEnabled: v.hugepagesEnabled,
+        hugepagesPageSize: v.hugepagesPageSize,
+        hotExpandEnabled: v.hotExpandEnabled,
+        memory: v.memory,
+        memoryLimitGi: v.memoryLimitGi,
+        numaMode: v.numaMode,
+        numaManualNodeCount: v.numaManualNodeCount,
+        dedicatedCPUPlacement:
+          v.dedicatedCPUPlacement || v.numaMode === 'auto' || v.numaMode === 'manual',
+        cpuSockets: v.cpuSockets,
+        cpuCores: v.cpuCores,
+        cpuThreads: v.cpuThreads,
+        cpu: v.cpu,
+      });
+      if (perfErr) {
+        message.error(perfErr);
+        setStep(1);
+        return;
+      }
 
       const cid = currentCloudId || (cloudId !== 'all' ? cloudId : undefined);
       if (!cid) { throw new Error('请选择资源池'); }
@@ -577,6 +627,13 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
       }
 
       if (hostModeState === 'node' && !selectedNodeName) { throw new Error('请选择主机'); }
+      if (
+        hostModeState === 'label' &&
+        !hasLabelModeNodeSelector({ failureDomainName: v.failureDomainName })
+      ) {
+        message.error(vmFailureDomainRequiredMessage());
+        return;
+      }
       // Primary NIC name is optional now (defaults to Pod Network)
 
       if (v.dedicatedCPUPlacement) {
@@ -705,6 +762,10 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
         v, memGi, hostModeState, selectedNodeName, gpuResources: gpuResources || [], selectedGpu, capabilities, vmId, // 传入 vmId
         nadOptions: nadOptions || [],
         usbResources: usbResources || [],
+        deploymentSet:
+          hostModeState === 'node'
+            ? null
+            : findDeploymentSetById(deploymentSets, v.deploymentSetId) ?? null,
         isArm64: (function() {
             if (nodes && nodes.length > 0) {
                  const n = nodes[0];
@@ -787,7 +848,39 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
           <Col span={12} style={{ height: '100%' }}>
             <div className="wizard-section">
               <Form form={form} layout="vertical" initialValues={initialWizardValues(memGi, initialVmName, cloudId)} onValuesChange={(changed:any)=> { 
-                if (Object.prototype.hasOwnProperty.call(changed, 'hostMode')) { setHostModeState(changed.hostMode); }
+                if (Object.prototype.hasOwnProperty.call(changed, 'hostMode')) {
+                  setHostModeState(changed.hostMode);
+                  if (changed.hostMode === 'node') {
+                    try {
+                      clearVmAdvancedSchedulingFormFields(form);
+                      applyDeploymentSetToWizardForm(form, null);
+                    } catch {}
+                  }
+                  if (changed.hostMode !== 'auto') {
+                    try { form.setFieldsValue({ metricAutoScheduled: false }); } catch {}
+                  }
+                }
+                if (Object.prototype.hasOwnProperty.call(changed, 'metricAutoScheduled') && changed.metricAutoScheduled === true) {
+                  const metricConflictMsg = getVmWizardMetricAutoScheduledConflictMessage(
+                    form.getFieldsValue(true) as Record<string, unknown>,
+                  );
+                  if (metricConflictMsg) {
+                    message.error(metricConflictMsg);
+                    try { form.setFieldsValue({ metricAutoScheduled: false }); } catch {}
+                  } else {
+                    try { applyDeploymentSetToWizardForm(form, null); } catch {}
+                  }
+                }
+                if (Object.prototype.hasOwnProperty.call(changed, 'deploymentSetId') && changed.deploymentSetId) {
+                  try {
+                    const set = findDeploymentSetById(deploymentSets, changed.deploymentSetId);
+                    if (set) {
+                      applyDeploymentSetExclusive(form, set);
+                    } else {
+                      form.setFieldsValue({ metricAutoScheduled: false });
+                    }
+                  } catch {}
+                }
                 if (Object.prototype.hasOwnProperty.call(changed, 'netMode')) { setNetModeState(changed.netMode); }
                 if (Object.prototype.hasOwnProperty.call(changed, 'rootSourceType')) {
                   // 切换来源时清理互斥字段
@@ -827,6 +920,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                   filteredNodes={filteredNodes}
                   isTenant={isTenant}
                   namespaceRecords={namespaces}
+                  onDeploymentSetsLoaded={setDeploymentSets}
                 />
               </div>
               <div
@@ -900,6 +994,8 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                 <StepLoginSettings
                   form={form}
                   sshKeyOptions={sshKeyOptions}
+                  sshKeysLoaded={sshKeysLoaded}
+                  sshKeysLoading={sshKeysLoading}
                   reloadSshKeys={reloadSshKeys}
                 />
               </div>
@@ -910,9 +1006,9 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
                 <StepOthers
                   form={form}
                   usbResources={usbResources}
+                  usbResourcesLoaded={usbResourcesLoaded}
+                  usbResourcesLoading={usbResourcesLoading}
                   reloadUsbResources={reloadUsbResources}
-                  sshKeyOptions={sshKeyOptions}
-                  reloadSshKeys={reloadSshKeys}
                 />
               </div>
             </div>
@@ -930,6 +1026,7 @@ const VmCreateWizardModal: React.FC<Props> = ({ isTenant: propIsTenant = false }
             netModeState={netModeState}
             kubeSubnets={kubeSubnets}
             memGi={memGi}
+            deploymentSets={deploymentSets}
           >
             <div className="wizard-preview-actions">
               <Space>

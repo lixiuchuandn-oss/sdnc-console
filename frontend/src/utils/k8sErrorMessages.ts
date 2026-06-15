@@ -1,3 +1,5 @@
+import { formatHarvesterImageDeleteInUseMessage } from './harvesterUtils';
+
 /**
  * 统一入口：后端 / K8s / 集群常见英文错误 → 中文提示。
  * 请在此新增规则；errorHandler、requestManager 仅调用 translateKnownApiErrorMessage，避免分散重复。
@@ -12,6 +14,15 @@ export function translateKnownApiErrorMessage(raw: string): string {
   if (!msg) return String(raw ?? '');
 
   const lower = msg.toLowerCase();
+
+  // --- Harvester：删除镜像时仍被虚拟机占用（保留英文原文，由镜像页结合 VM 库存解析具体虚拟机）---
+  if (
+    lower.includes('cannot delete image') &&
+    (lower.includes('being used by volume') || lower.includes('in use'))
+  ) {
+    const friendly = formatHarvesterImageDeleteInUseMessage(msg);
+    if (friendly && friendly !== '镜像仍被虚拟机使用，无法删除') return friendly;
+  }
 
   // --- Harvester：未配置备份目标（需在集群设置中配置 Backup Target）---
   if (lower.includes('backup target is not set')) {
@@ -178,6 +189,69 @@ export function translateKnownApiErrorMessage(raw: string): string {
   }
 
   if (msg.startsWith('无法迁移')) return msg;
+
+  // --- K8s Status JSON（如 401 Unauthorized），不展示原始 JSON 行 ---
+  if (msg.includes('"kind":"Status"') || msg.includes('"kind": "Status"')) {
+    const tryParseStatus = (json: string) => {
+      try {
+        const st = JSON.parse(json) as {
+          kind?: string;
+          message?: string;
+          reason?: string;
+          code?: number;
+        };
+        if (st?.kind !== 'Status') return null;
+        if (st?.code === 401 || String(st?.reason || '').toLowerCase() === 'unauthorized') {
+          return '未授权，请检查集群访问凭证或资源池登录配置';
+        }
+        const hint = String(st?.message || st?.reason || '').trim();
+        return hint || '请求失败';
+      } catch {
+        return null;
+      }
+    };
+    const trimmed = msg.trim();
+    const whole = tryParseStatus(trimmed);
+    if (whole) return whole;
+    const marker = '{"kind"';
+    const start = msg.indexOf(marker);
+    if (start >= 0) {
+      let depth = 0;
+      for (let j = start; j < msg.length; j++) {
+        const ch = msg[j];
+        if (ch === '{') depth += 1;
+        else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            const parsed = tryParseStatus(msg.slice(start, j + 1));
+            if (parsed) return parsed;
+            break;
+          }
+        }
+      }
+    }
+    return '请求失败';
+  }
+
+  // --- HSM / HMS Switch CR 未部署（集群无 hms.rivercloud.com Switch API）---
+  if (
+    msg.includes('底层未部署服务') ||
+    msg.includes('未找到 HMS Switch CR API') ||
+    lower.includes('hms switch cr api') ||
+    (lower.includes('hsm crd') && lower.includes('hms.rivercloud.com')) ||
+    lower.includes('hms switch cr api 不可用')
+  ) {
+    return '底层未部署服务';
+  }
+
+  // --- K8s / CR 资源已存在（如 HMS Switch 配置名重复）---
+  if (lower.includes('already exists')) {
+    const quoted = msg.match(/"([^"]+)"\s+already exists/i);
+    if (quoted?.[1]) {
+      return `配置名称「${quoted[1]}」已存在，请更换名称后重试`;
+    }
+    return '资源已存在，请更换名称后重试';
+  }
 
   return msg;
 }

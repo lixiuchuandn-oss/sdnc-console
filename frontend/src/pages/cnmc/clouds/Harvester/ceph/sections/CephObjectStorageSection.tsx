@@ -37,6 +37,7 @@ import {
   type RgwS3GatewayPayload,
 } from '../../../../../../services/cephApi';
 import { normalizeCephBundle } from '../lib/cephStorage';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import { cosiDriverCrToRow, objectStoreCrToRow, type CephCosiDriverRow, type CephObjectStoreRow } from '../lib/cephBlockStorage';
 import { suggestedRgwHttpsEndpoints } from '../lib/rgwRookHints';
 import {
@@ -45,6 +46,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/cephSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  CEPH_STORAGE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 export type CephObjectStorageSectionProps = {
   cloudId: string;
@@ -74,9 +79,7 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
   const [cosiRows, setCosiRows] = useState<CephCosiDriverRow[]>([]);
   const [storeQ, setStoreQ] = useState('');
   const [cosiQ, setCosiQ] = useState('');
-  const [yamlOpen, setYamlOpen] = useState(false);
-  const [yamlTitle, setYamlTitle] = useState('');
-  const [yamlText, setYamlText] = useState('');
+  const { openStaticYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const [clientGwMap, setClientGwMap] = useState<Record<string, RgwS3GatewayPayload>>({});
   const [towerForm] = Form.useForm();
@@ -252,11 +255,15 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
     }
   }, [cloudId, createForm, sectionOnRefresh]);
 
-  const openYamlDrawer = useCallback(async (t: YamlTarget) => {
-    setYamlOpen(true);
-    setYamlTitle('COSI 驱动 · YAML');
-    setYamlText(t.yaml);
-  }, []);
+  const openYamlDrawer = useCallback(
+    (t: YamlTarget) => {
+      openStaticYamlDrawer(t.yaml, {
+        title: 'COSI 驱动 · YAML',
+        sourceLabel: 'COSI 驱动 · YAML',
+      });
+    },
+    [openStaticYamlDrawer],
+  );
 
   const openStoreDetail = useCallback((r: CephObjectStoreRow) => {
     setDetailRow(r);
@@ -468,21 +475,29 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
             >
               详情
             </Typography.Link>
-            <Popconfirm
-              title={`确定删除 ${r.namespace}/${r.name}？`}
-              description="删除对象网关将影响 RGW 等服务，请确认集群侧无依赖。"
-              onConfirm={async () => {
-                const del = await deleteCephObjectStoreRook(cloudId, r.namespace, r.name);
-                if (!del.ok) {
-                  message.error(del.error || '删除失败');
-                  return;
-                }
-                message.success('已删除');
-                void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
-              }}
+            <Typography.Link
+              onClick={() =>
+                void confirmHighRiskDelete({
+                  resourceLabel: 'CephObjectStore',
+                  name: `${r.namespace}/${r.name}`,
+                  description:
+                    '删除对象网关将影响 RGW 等服务，请确认集群侧无依赖。',
+                  riskItems: CEPH_STORAGE_RISK_ITEMS,
+                  onConfirm: async () => {
+                    const del = await deleteCephObjectStoreRook(cloudId, r.namespace, r.name);
+                    if (!del.ok) {
+                      message.error(del.error || '删除失败');
+                      return;
+                    }
+                    message.success('已删除');
+                    void runHarvesterSectionRefresh(sectionOnRefresh, { force: true });
+                  },
+                }).catch(() => {})
+              }
+              type="danger"
             >
-              <Typography.Link type="danger">删除</Typography.Link>
-            </Popconfirm>
+              删除
+            </Typography.Link>
           </Space>
         ),
       },
@@ -751,12 +766,6 @@ const CephObjectStorageSection: React.FC<CephObjectStorageSectionProps> = ({
           ]}
         />
       ) : null}
-    </Drawer>
-  );
-
-  const yamlDrawer = (
-    <Drawer title={yamlTitle} width={640} open={yamlOpen} onClose={() => setYamlOpen(false)} destroyOnClose>
-      <CodeEditor language="yaml" value={yamlText} readOnly height={480} />
     </Drawer>
   );
 

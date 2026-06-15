@@ -15,7 +15,7 @@ import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe'
 import type { DatacenterRack } from '../../../../../../services/datacenterTopologyApi';
 import type { NodeLiveMetrics } from '../../../Harvester/hsm/lib/physicalNodeRackUtils';
 import { fetchCloudById } from '../api';
-import { fetchAllowedNamespaces } from '../../../../../../services/monitoringApi';
+import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
 import { useCloudmapPoolEcs } from './useCloudmapPoolEcs';
 import { useCloudmapPoolPermissions } from './useCloudmapPoolPermissions';
 import { useCloudmapPoolPathSync } from './useCloudmapPoolPathSync';
@@ -132,6 +132,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
   const [harvesterTemplates, setHarvesterTemplates] = useState<any[]>([]);
   const [harvesterMigrations, setHarvesterMigrations] = useState<any[]>([]);
   const [rawMigrations, setRawMigrations] = useState<any | null>(null);
+  const [harvesterOvnMirrors, setHarvesterOvnMirrors] = useState<any[]>([]);
+  const [rawOvnMirrors, setRawOvnMirrors] = useState<any | null>(null);
   const [harvesterScheduleVmBackups, setHarvesterScheduleVmBackups] = useState<
     any[]
   >([]);
@@ -348,6 +350,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
         setRawImages,
         setHarvesterMigrations,
         setRawMigrations,
+        setHarvesterOvnMirrors,
+        setRawOvnMirrors,
         setHarvesterGpuResources,
         setRawGpu,
         setHarvesterUsbDevices,
@@ -440,14 +444,13 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
       setTenantNamespaces([]);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      const { data, ok } = await fetchAllowedNamespaces(cloudId);
-      if (!cancelled && ok && data?.namespaces) setTenantNamespaces(data.namespaces);
-      else if (!cancelled) setTenantNamespaces([]);
-    })();
-    return () => { cancelled = true; };
-  }, [cloudId, isTenant]);
+    const list = (harvesterNamespaces || [])
+      .map((n: { metadata?: { name?: string }; name?: string }) =>
+        String(n?.metadata?.name || n?.name || '').trim(),
+      )
+      .filter((ns) => ns && !isSystemNamespace(ns));
+    setTenantNamespaces(list);
+  }, [cloudId, isTenant, harvesterNamespaces]);
 
   const handleTabChange = (key: string) => {
     if (key === '') return;
@@ -636,6 +639,8 @@ export function useCloudmapPoolDetailEngine(cloudId: string): {
     harvesterCloudInits,
     harvesterMigrations,
     rawMigrations,
+    harvesterOvnMirrors,
+    rawOvnMirrors,
     rawImages,
     rawTemplates,
     rawSshKeys,

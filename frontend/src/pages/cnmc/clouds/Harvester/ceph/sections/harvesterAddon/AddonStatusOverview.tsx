@@ -1,16 +1,18 @@
 /**
- * 统一存储 Addon 状态概览（运行状态、统计与部署进度）。
+ * 统一存储 Addon 状态 Hero（运行状态、统计与部署进度）。
  */
 import React, { useMemo } from 'react';
-import { Badge, Card, Col, Progress, Row, Skeleton, Space, Statistic, Tag, Typography } from 'antd';
+import { Col, Progress, Row, Skeleton, Tag, Typography } from 'antd';
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseCircleOutlined,
   CloudServerOutlined,
+  ClusterOutlined,
   DatabaseOutlined,
   ExclamationCircleOutlined,
   HddOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons';
 import type { CephHarvesterAddonStatusResponse } from '../../../../../../../services/cephApi';
 import {
@@ -26,6 +28,15 @@ type AddonStatusOverviewProps = {
   isRunningCluster: boolean;
 };
 
+type PhaseVisual = {
+  tagColor: string;
+  tagLabel: string;
+  icon: React.ReactNode;
+  heroGradient: string;
+  accent: string;
+  watermarkColor: string;
+};
+
 function countConfigStats(config: CephHarvesterAddonValuesConfig | null | undefined): {
   nodeCount: number;
   diskCount: number;
@@ -37,57 +48,64 @@ function countConfigStats(config: CephHarvesterAddonValuesConfig | null | undefi
   };
 }
 
-function phaseMeta(
+function phaseVisual(
   phase: CephHarvesterAddonStatusResponse['phase'] | undefined,
   isRunningCluster: boolean,
-): {
-  badge: 'success' | 'processing' | 'error' | 'warning' | 'default';
-  tagColor: string;
-  tagLabel: string;
-  icon: React.ReactNode;
-} {
+): PhaseVisual {
   switch (phase) {
     case 'success':
       return {
-        badge: 'success',
         tagColor: 'success',
         tagLabel: isRunningCluster ? '运行中' : '已就绪',
         icon: <CheckCircleOutlined />,
+        heroGradient: 'linear-gradient(135deg, #0b3d5c 0%, #1677ff 52%, #69b1ff 100%)',
+        accent: '#bae0ff',
+        watermarkColor: 'rgba(255,255,255,0.12)',
       };
     case 'progress':
       return {
-        badge: 'processing',
         tagColor: 'processing',
         tagLabel: '部署中',
         icon: <ClockCircleOutlined />,
+        heroGradient: 'linear-gradient(135deg, #102a43 0%, #1677ff 48%, #4096ff 100%)',
+        accent: '#91caff',
+        watermarkColor: 'rgba(255,255,255,0.1)',
       };
     case 'failed':
       return {
-        badge: 'error',
         tagColor: 'error',
         tagLabel: '部署失败',
         icon: <CloseCircleOutlined />,
+        heroGradient: 'linear-gradient(135deg, #3b1414 0%, #cf1322 55%, #ff7875 100%)',
+        accent: '#ffccc7',
+        watermarkColor: 'rgba(255,255,255,0.1)',
       };
     case 'not_installed':
       return {
-        badge: 'warning',
         tagColor: 'warning',
         tagLabel: '未开启',
         icon: <ExclamationCircleOutlined />,
+        heroGradient: 'linear-gradient(135deg, #2b2111 0%, #d48806 52%, #ffd666 100%)',
+        accent: '#ffe58f',
+        watermarkColor: 'rgba(255,255,255,0.12)',
       };
     case 'disabled':
       return {
-        badge: 'warning',
         tagColor: 'warning',
         tagLabel: '已停用',
         icon: <ExclamationCircleOutlined />,
+        heroGradient: 'linear-gradient(135deg, #1f1f1f 0%, #595959 55%, #8c8c8c 100%)',
+        accent: '#d9d9d9',
+        watermarkColor: 'rgba(255,255,255,0.08)',
       };
     default:
       return {
-        badge: 'default',
         tagColor: 'default',
         tagLabel: '未知',
         icon: <ExclamationCircleOutlined />,
+        heroGradient: 'linear-gradient(135deg, #141414 0%, #434343 55%, #737373 100%)',
+        accent: '#bfbfbf',
+        watermarkColor: 'rgba(255,255,255,0.08)',
       };
   }
 }
@@ -122,93 +140,183 @@ function resolveStatusMessage(
   return status.message || '统一存储状态未知';
 }
 
+const statTileStyle: React.CSSProperties = {
+  minWidth: 108,
+  padding: '10px 14px',
+  borderRadius: 10,
+  background: 'rgba(255,255,255,0.14)',
+  border: '1px solid rgba(255,255,255,0.22)',
+  backdropFilter: 'blur(6px)',
+};
+
+type HeroStatTileProps = {
+  label: string;
+  value: React.ReactNode;
+  icon: React.ReactNode;
+  valueFontSize?: number;
+};
+
+const HeroStatTile: React.FC<HeroStatTileProps> = ({
+  label,
+  value,
+  icon,
+  valueFontSize = 24,
+}) => (
+  <div style={statTileStyle}>
+    <Typography.Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>{label}</Typography.Text>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+      {icon}
+      <span style={{ color: '#fff', fontSize: valueFontSize, fontWeight: 600, lineHeight: 1 }}>{value}</span>
+    </div>
+  </div>
+);
+
 const AddonStatusOverview: React.FC<AddonStatusOverviewProps> = ({
   status,
   loading,
   isRunningCluster,
 }) => {
-  /** 仅「运行中」展示 Addon values 内历史配置；停用/未安装等不计入（避免误导为当前集群规模） */
   const showLiveStats = isRunningCluster;
   const stats = useMemo(() => countConfigStats(status?.config), [status?.config]);
-  const meta = phaseMeta(status?.phase, isRunningCluster);
+  const visual = phaseVisual(status?.phase, isRunningCluster);
   const message = resolveStatusMessage(status, loading, isRunningCluster);
   const lockedNodes = baselineNodeNameSet(status?.config ?? null).size;
   const lockedDisks = baselineNodeDeviceKeySet(status?.config ?? null).size;
   const nodeCount = showLiveStats ? stats.nodeCount || lockedNodes || 0 : 0;
   const diskCount = showLiveStats ? stats.diskCount || lockedDisks || 0 : 0;
   const replicaSize = showLiveStats ? status?.config?.replicaSize ?? 0 : 0;
+  const monCount = showLiveStats ? status?.config?.cephCluster?.monCount ?? 0 : 0;
+  const mgrCount = showLiveStats ? status?.config?.cephCluster?.mgrCount ?? 0 : 0;
 
   if (loading && !status) {
     return (
-      <Card size="small" style={{ marginBottom: 20 }}>
+      <div
+        className="ceph-addon-status-hero ceph-addon-status-hero--loading"
+        style={{ marginBottom: 20 }}
+      >
         <Skeleton active paragraph={{ rows: 2 }} />
-      </Card>
+      </div>
     );
   }
 
   return (
-    <Card size="small" style={{ marginBottom: 20 }} styles={{ body: { padding: '16px 20px' } }}>
-      <Row gutter={[24, 16]} align="middle">
-        <Col xs={24} lg={14}>
-          <Space align="start" size={12}>
-            <Badge status={meta.badge} />
-            <div>
-              <Space wrap size={8} style={{ marginBottom: 4 }}>
-                <Typography.Title level={5} style={{ margin: 0 }}>
+    <div
+      className="ceph-addon-status-hero"
+      style={{
+        marginBottom: 20,
+        borderRadius: 12,
+        overflow: 'hidden',
+        background: visual.heroGradient,
+        boxShadow: '0 8px 24px rgba(22, 119, 255, 0.18)',
+        position: 'relative',
+      }}
+    >
+      <DatabaseOutlined
+        aria-hidden
+        style={{
+          position: 'absolute',
+          right: 24,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          fontSize: 120,
+          color: visual.watermarkColor,
+          pointerEvents: 'none',
+        }}
+      />
+      <div style={{ padding: '22px 24px 20px', position: 'relative', zIndex: 1 }}>
+        <Row gutter={[24, 20]} align="middle">
+          <Col xs={24} xl={showLiveStats ? 14 : 24}>
+            <div style={{ maxWidth: 640 }}>
+              <Typography.Text
+                style={{
+                  display: 'block',
+                  color: visual.accent,
+                  fontSize: 12,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                  fontWeight: 600,
+                }}
+              >
+                Unified Storage
+              </Typography.Text>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <Typography.Title level={3} style={{ margin: 0, color: '#fff', fontWeight: 600 }}>
                   统一存储
                 </Typography.Title>
-                <Tag icon={meta.icon} color={meta.tagColor} style={{ margin: 0 }}>
-                  {meta.tagLabel}
+                <Tag icon={visual.icon} color={visual.tagColor} style={{ margin: 0, border: 'none' }}>
+                  {visual.tagLabel}
                 </Tag>
                 {status?.deployStatus ? (
-                  <Tag style={{ margin: 0 }}>{status.deployStatus}</Tag>
+                  <Tag style={{ margin: 0, background: 'rgba(255,255,255,0.18)', color: '#fff', border: 'none' }}>
+                    {status.deployStatus}
+                  </Tag>
                 ) : null}
-              </Space>
-              <Typography.Text type="secondary" style={{ display: 'block', lineHeight: 1.6 }}>
+              </div>
+              <Typography.Paragraph
+                style={{
+                  margin: 0,
+                  color: 'rgba(255,255,255,0.88)',
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                  maxWidth: 560,
+                }}
+              >
                 {message}
-              </Typography.Text>
+              </Typography.Paragraph>
             </div>
-          </Space>
-        </Col>
-        <Col xs={24} lg={10}>
-          <Row gutter={16} justify={{ xs: 'start', lg: 'end' }}>
-            <Col>
-              <Statistic
-                title="存储节点"
-                value={nodeCount}
-                prefix={<CloudServerOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
-                valueStyle={{ fontSize: 20 }}
-              />
+          </Col>
+          {showLiveStats ? (
+            <Col xs={24} xl={10}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  justifyContent: 'flex-start',
+                }}
+              >
+                <HeroStatTile
+                  label="存储节点"
+                  value={nodeCount}
+                  icon={<CloudServerOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="数据盘"
+                  value={diskCount}
+                  icon={<HddOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="数据副本"
+                  value={replicaSize}
+                  icon={<DatabaseOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="MON 节点"
+                  value={monCount}
+                  icon={<ClusterOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+                <HeroStatTile
+                  label="MGR 服务"
+                  value={mgrCount}
+                  icon={<NodeIndexOutlined style={{ color: '#fff', fontSize: 16, opacity: 0.85 }} />}
+                />
+              </div>
             </Col>
-            <Col>
-              <Statistic
-                title="数据盘"
-                value={diskCount}
-                prefix={<HddOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
-                valueStyle={{ fontSize: 20 }}
-              />
-            </Col>
-            <Col>
-              <Statistic
-                title="数据副本"
-                value={replicaSize}
-                prefix={<DatabaseOutlined style={{ fontSize: 14, opacity: 0.45 }} />}
-                valueStyle={{ fontSize: 20 }}
-              />
-            </Col>
-          </Row>
-        </Col>
-      </Row>
-      {status?.phase === 'progress' ? (
-        <Progress
-          percent={99}
-          status="active"
-          showInfo={false}
-          strokeColor={{ from: '#1677ff', to: '#69b1ff' }}
-          style={{ marginTop: 16, marginBottom: 0 }}
-        />
-      ) : null}
-    </Card>
+          ) : null}
+        </Row>
+        {status?.phase === 'progress' ? (
+          <Progress
+            percent={99}
+            status="active"
+            showInfo={false}
+            strokeColor={{ from: '#ffffff', to: 'rgba(255,255,255,0.65)' }}
+            trailColor="rgba(255,255,255,0.18)"
+            style={{ marginTop: 18, marginBottom: 0 }}
+          />
+        ) : null}
+      </div>
+    </div>
   );
 };
 

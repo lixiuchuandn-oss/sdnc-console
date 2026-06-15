@@ -13,6 +13,7 @@ const TenantsWorkspace: React.FC = () => {
   const [repairModalOpen, setRepairModalOpen] = useState(false);
   const {
     loading,
+    enterpriseLicensed,
     canWriteTenants,
     filteredTenants,
     tenantColumns,
@@ -49,17 +50,19 @@ const TenantsWorkspace: React.FC = () => {
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             />
           </Form.Item>
-          <Form.Item name="hasUsers">
-            <Select
-              className="toolbar-filter-sm"
-              allowClear
-              placeholder="是否有用户"
-              options={[
-                { value: 'yes', label: '有用户' },
-                { value: 'no', label: '无用户' },
-              ]}
-            />
-          </Form.Item>
+          {enterpriseLicensed ? (
+            <Form.Item name="hasUsers">
+              <Select
+                className="toolbar-filter-sm"
+                allowClear
+                placeholder="是否有租户组织用户"
+                options={[
+                  { value: 'yes', label: '有' },
+                  { value: 'no', label: '无' },
+                ]}
+              />
+            </Form.Item>
+          ) : null}
           <button
             type="button"
             className="toolbar-reset-btn"

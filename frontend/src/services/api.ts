@@ -377,6 +377,11 @@ export const repairTenantsFromCrd = async (cloudId: string) => {
   return await apiPost('/api/tenants/repair-from-crd', { cloudId });
 };
 
+/** 从 CSM 资源池 API 恢复租户、安全域、专线 IP 等到 Tower 数据库 */
+export const repairTenantsFromCsm = async (cloudId: string) => {
+  return await apiPost('/api/tenants/repair-from-csm', { cloudId });
+};
+
 // User Spaces
 export const fetchUserSpaces = async () => {
   return await apiRequest('/api/user-spaces');
@@ -930,6 +935,34 @@ export const fetchCsmElementGroups = async (cloudId: string) => {
 };
 
 export const fetchCloudmapElementGroups = fetchCsmElementGroups;
+
+/** CSM v2：租户分页（Tower BFF 聚合为 items） */
+export const fetchCsmTenants = async (cloudId: string) => {
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/tenants`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
+
+/** CSM v2：安全域搜索（Tower BFF 聚合为 items） */
+export const fetchCsmSecurityDomains = async (cloudId: string) => {
+  const token = getToken();
+  const res = await fetch(`${API_BASE_URL}/api/clouds/${cloudId}/csm/security/domains`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', Authorization: token ? `Bearer ${token}` : '' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return await res.json();
+};
 
 export const fetchCsmServiceChains = async (cloudId: string, params?: { pool_id?: string }) => {
   const token = getToken();

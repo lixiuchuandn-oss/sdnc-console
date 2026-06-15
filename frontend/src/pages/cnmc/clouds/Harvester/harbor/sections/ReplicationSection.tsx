@@ -27,7 +27,6 @@ import {
   Alert, 
   Tabs, 
   Tooltip, 
-  Popconfirm, 
   Progress, 
 } from 'antd';
 import { 
@@ -55,6 +54,10 @@ import {
   getHarborReplicationExecutions,
   triggerHarborReplication,
 } from '../shared/harborApi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const { TextArea } = Input;
 
@@ -76,7 +79,7 @@ const REPLICATION_TYPE_OPTIONS = [
 ];
 
 const ReplicationSection: React.FC<Props> = ({ harbor }) => {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
   const [policies, setPolicies] = useState<HarborReplicationPolicy[]>([]);
   const [executions, setExecutions] = useState<HarborReplicationExecution[]>([]);
@@ -204,20 +207,12 @@ const ReplicationSection: React.FC<Props> = ({ harbor }) => {
    * 删除规则
    */
   const handleDelete = useCallback((policy: HarborReplicationPolicy) => {
-    modal.confirm({
-      title: '确认删除',
-      content: (
-        <div>
-          <p>确定要删除复制规则 <strong>"{policy.name}"</strong> 吗？</p>
-          <Alert
-            type="warning"
-            showIcon
-            message="删除后将无法恢复，正在执行的复制任务不受影响"
-          />
-        </div>
-      ),
-      okType: 'danger',
-      onOk: async () => {
+    void confirmHighRiskDelete({
+      resourceLabel: '复制规则',
+      name: policy.name,
+      description: '删除后将无法恢复，正在执行的复制任务不受影响。',
+      riskItems: DELETE_RISK_ITEMS,
+      onConfirm: async () => {
         try {
           await deleteHarborReplicationPolicy(harbor.id, policy.id);
           message.success('复制规则已删除');
@@ -226,8 +221,8 @@ const ReplicationSection: React.FC<Props> = ({ harbor }) => {
           message.error(e?.message || '删除复制规则失败');
         }
       },
-    });
-  }, [harbor.id, message, modal, loadPolicies]);
+    }).catch(() => {});
+  }, [harbor.id, message, loadPolicies]);
 
   /**
    * 手动触发复制
@@ -395,19 +390,15 @@ const ReplicationSection: React.FC<Props> = ({ harbor }) => {
               onClick={() => handleOpenEdit(record)}
             />
           </Tooltip>
-          <Popconfirm
-            title="确定删除此规则？"
-            onConfirm={() => handleDelete(record)}
-          >
-            <Tooltip title="删除规则">
-              <Button 
-                type="link" 
-                size="small" 
-                danger 
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
-          </Popconfirm>
+          <Tooltip title="删除规则">
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(record)}
+            />
+          </Tooltip>
         </Space>
       ),
     },

@@ -50,6 +50,19 @@ describe('volumesSectionUtils', () => {
     expect(rows[0].capacityBytes).toBe(parseQuantity('20Gi'));
   });
 
+  it('excludes Harvester image backing PVCs (image-*) from volume list', () => {
+    const rows = normalizeVolumeList([
+      pvc,
+      {
+        metadata: { name: 'image-lg9r6', namespace: 'cloud-public' },
+        spec: { storageClassName: 'ceph', resources: { requests: { storage: '4Gi' } } },
+        status: { phase: 'Bound', capacity: { storage: '4Gi' } },
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe('vol-a');
+  });
+
   it('filters by keyword on name and alias', () => {
     const rows = normalizeVolumeList([
       { ...pvc, metadata: { ...pvc.metadata, annotations: { 'tower.io/alias': '数据盘' } } },

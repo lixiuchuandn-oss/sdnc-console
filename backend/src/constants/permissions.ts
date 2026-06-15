@@ -185,9 +185,13 @@ export const ALL_PERMISSIONS = [
   'clouds.containers.networkpolicies:read',
   'clouds.containers.networkpolicies:write',
 
-  // 集群物理节点
-  'clouds.cluster-nodes:read', // 物理节点列表 - 查看
+  // 集群物理节点 / 计算配置
+  'clouds.compute-cluster:read',
+  'clouds.compute-cluster:write',
+  'clouds.cluster-nodes:read', // 物理节点列表 - 查看（已并入 compute-cluster，存量兼容）
   'clouds.cluster-nodes:write', // 物理节点管理 - 操作维护
+  'clouds.failure-domains:read', // 故障域 - 查看（已并入 compute-cluster，存量兼容）
+  'clouds.failure-domains:write', // 故障域 - 管理
 
   // 集群网络
   'clouds.cluster-networks:read', // 集群网络列表 - 查看
@@ -280,8 +284,6 @@ export const ALL_PERMISSIONS = [
   'clouds.storage-dashboard:write',
   'clouds.storage-addon:read',
   'clouds.storage-addon:write',
-  'clouds.unified-storage-pools:read',
-  'clouds.unified-storage-pools:write',
   'clouds.storage-rbd-mirror:read',
   'clouds.storage-rbd-mirror:write',
   'clouds.storage-s3-buckets:read',
@@ -348,6 +350,7 @@ export const ALL_PERMISSIONS = [
   'harbor:registry:delete', // Harbor 实例 - 删除
 
   // Harbor 项目管理
+  'harbor:project:read', // Harbor 项目 - 查看
   'harbor:project:create', // Harbor 项目 - 创建
   'harbor:project:update', // Harbor 项目 - 编辑
   'harbor:project:delete', // Harbor 项目 - 删除
@@ -558,7 +561,7 @@ export const PERMISSION_GROUPS = {
       'clouds.route-tables',
       'clouds.route-entries',
       'clouds.network-acls',
-      'clouds.cluster-nodes',
+      'clouds.compute-cluster',
       'clouds.cluster-networks',
       'clouds.namespaces',
       'clouds.storage-classes',
@@ -571,7 +574,6 @@ export const PERMISSION_GROUPS = {
       'clouds.unified-storage',
       'clouds.storage-dashboard',
       'clouds.storage-addon',
-      'clouds.unified-storage-pools',
       'clouds.storage-rbd-mirror',
       'clouds.storage-s3-buckets',
       'clouds.storage-rgw-users',

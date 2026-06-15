@@ -58,7 +58,7 @@ const VolumeResizeModal: React.FC<VolumeResizeModalProps> = ({
           }
         }}
       >
-        <Form.Item label="容量(GB)" name="sizeGi" rules={[{ required: true }]}>
+        <Form.Item label="容量(Gi)" name="sizeGi" rules={[{ required: true }]}>
           <InputNumber min={1} style={{ width: '100%' }} />
         </Form.Item>
       </Form>

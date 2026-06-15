@@ -1,5 +1,8 @@
 import { useMemo } from "react";
-import type { VmDetailDrawerSafeRead } from "../../../lib/vmSafeRead";
+import {
+  type VmDetailDrawerSafeRead,
+  vmTemplateHasCdromBoot,
+} from "../../../lib/vmSafeRead";
 import { deriveVmGpuDisplayEntries } from "../../vm-gpu-manage/lib/deriveVmGpuEditorState";
 import { rowDisplayForUsbResourceName } from "../../vm-usb-manage/lib/normalizeUsbResources";
 
@@ -148,8 +151,7 @@ export function useVmDetailDrawerDerived(
     });
   }, [vmDeviceAlloc, usbResources]);
 
-  const rawDisks = vmData?.spec?.template?.spec?.domain?.devices?.disks || [];
-  const isCdromBoot = rawDisks.length > 0 && !!rawDisks[0].cdrom;
+  const isCdromBoot = vmTemplateHasCdromBoot(vmData);
 
   return {
     status,

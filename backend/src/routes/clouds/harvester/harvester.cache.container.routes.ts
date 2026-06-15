@@ -37,6 +37,7 @@ import { registerHarvesterContainerGatewayRoutes } from './harvester.cache.conta
 import { registerHarvesterContainerCrudRoutes } from './harvester.cache.container-crud.routes';
 import { registerHarvesterContainerDockerRegistryRoutes } from './harvester.cache.container-docker-registry.routes';
 import { registerHarvesterContainerContainerdRegistryRoutes } from './harvester.cache.container-containerd-registry.routes';
+import { registerHarvesterLocalRegistryRoutes } from './harvester.local-registry.routes';
 
 export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermission: any) => {
   registerHarvesterContainerWorkloadRoutes(router, checkAdminPermission);
@@ -51,4 +52,5 @@ export const registerHarvesterContainerRoutes = (router: Router, checkAdminPermi
   registerHarvesterContainerCrudRoutes(router, checkAdminPermission);
   registerHarvesterContainerDockerRegistryRoutes(router, checkAdminPermission);
   registerHarvesterContainerContainerdRegistryRoutes(router, checkAdminPermission);
+  registerHarvesterLocalRegistryRoutes(router, checkAdminPermission);
 };

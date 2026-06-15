@@ -26,6 +26,7 @@ import { ReactComponent as MemSvg } from '../../../../../../assets/clouds/mem.sv
 import { ReactComponent as DiskSvg } from '../../../../../../assets/clouds/disk.svg';
 import { ReactComponent as NicSvg } from '../../../../../../assets/clouds/nic.svg';
 import { createHarvesterVm } from 'services/harvester/vm';
+import { fetchHarvesterStorageClasses } from 'services/harvesterApi';
 import {
   initialWizardValues,
   validateImageSize,
@@ -45,10 +46,10 @@ import { translateKnownApiErrorMessage } from '../../../../../../utils/k8sErrorM
 import {
   isHarvesterVmImageReady,
   isSystemNamespace,
-  isSystemStorageClass,
   pickDefaultStorageClassName,
   pickFirstNamespaceRecordByScenario,
 } from '../../../../../../utils/harvesterUtils';
+import { buildStorageClassSelectOptions } from '../../ebs/lib/volumesStorageClassUtils';
 export type SimpleVmCreateModalProps = {
   open: boolean;
   onClose: () => void;
@@ -243,35 +244,63 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
   const showCustomCpuMem = specPresetWatched === 'custom';
   const [submitting, setSubmitting] = useState(false);
   const [diskBootAdvancedOpen, setDiskBootAdvancedOpen] = useState(false);
+  const [loadedStorageClasses, setLoadedStorageClasses] = useState<any[] | null>(null);
+  const [storageClassLoading, setStorageClassLoading] = useState(false);
   const vmIdRef = useRef<string | null>(null);
 
+  const effectiveStorageClasses = useMemo(() => {
+    if (loadedStorageClasses !== null) return loadedStorageClasses;
+    return storageClasses || [];
+  }, [loadedStorageClasses, storageClasses]);
+
+  useEffect(() => {
+    if (!open || !cloudId) {
+      setLoadedStorageClasses(null);
+      return;
+    }
+    let cancelled = false;
+    setStorageClassLoading(true);
+    void (async () => {
+      try {
+        const res: any = await fetchHarvesterStorageClasses(cloudId, true, true);
+        const items = res?.data?.items || res?.items || [];
+        if (!cancelled) {
+          setLoadedStorageClasses(Array.isArray(items) ? items : []);
+        }
+      } catch {
+        if (!cancelled) setLoadedStorageClasses([]);
+      } finally {
+        if (!cancelled) setStorageClassLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, cloudId]);
+
   const defaultStorageClassName = useMemo(
-    () => pickDefaultStorageClassName(storageClasses),
-    [storageClasses],
+    () => pickDefaultStorageClassName(effectiveStorageClasses),
+    [effectiveStorageClasses],
   );
 
-  /** 与创建向导 StepDisks 一致：下拉中排除系统/内部存储类 */
-  const userSelectableStorageClassOptions = useMemo(
-    () =>
-      (storageClasses || [])
-        .filter((x: any) => !isSystemStorageClass(String(x?.metadata?.name || x?.name || '')))
-        .map((x: any) => {
-          const n = String(x?.metadata?.name || x?.name || '').trim();
-          const isDef = !!n && n === defaultStorageClassName;
-          return {
-            label: isDef ? (
-              <Space size={6}>
-                <span>{n}</span>
-                <Tag color="blue">默认</Tag>
-              </Space>
-            ) : (
-              n
-            ),
-            value: n,
-          };
-        }),
-    [storageClasses, defaultStorageClassName],
+  const storageClassSelectOptions = useMemo(
+    () => buildStorageClassSelectOptions(effectiveStorageClasses),
+    [effectiveStorageClasses],
   );
+
+  useEffect(() => {
+    const sc = defaultStorageClassName;
+    if (!sc || !open) return;
+    const disks = (form.getFieldValue('dataDisks') || []) as Array<{ storageClassName?: string }>;
+    let changed = false;
+    const next = disks.map((d) => {
+      const cur = String(d?.storageClassName || '').trim();
+      if (cur) return d;
+      changed = true;
+      return { ...d, storageClassName: sc };
+    });
+    if (changed) form.setFieldsValue({ dataDisks: next });
+  }, [defaultStorageClassName, form, open]);
 
   const nadOptions = useMemo(
     () =>
@@ -799,9 +828,15 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                     <Col xs={24} md={14}>
                       <Form.Item {...field} name={[field.name, 'storageClassName']} style={{ marginBottom: 10 }}>
                         <Select
-                          allowClear
-                          placeholder={`存储类（默认 ${defaultStorageClassName || 'longhorn'}）`}
-                          options={userSelectableStorageClassOptions}
+                          placeholder={
+                            storageClassLoading
+                              ? '加载存储类…'
+                              : defaultStorageClassName
+                                ? `默认 ${defaultStorageClassName}`
+                                : '选择存储类'
+                          }
+                          options={storageClassSelectOptions}
+                          loading={storageClassLoading}
                           prefix="存储类"
                         />
                       </Form.Item>
@@ -833,7 +868,7 @@ const SimpleVmCreateModal: React.FC<SimpleVmCreateModalProps> = ({
                   onClick={() =>
                     add({
                       sizeGi: 20,
-                      storageClassName: defaultStorageClassName || 'longhorn',
+                      storageClassName: defaultStorageClassName,
                     })
                   }
                 >

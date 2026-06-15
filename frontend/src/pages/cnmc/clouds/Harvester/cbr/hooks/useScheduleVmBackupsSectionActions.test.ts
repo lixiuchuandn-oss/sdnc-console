@@ -7,11 +7,18 @@ import { runHarvesterSectionRefresh } from '../lib/cbrSectionRefresh';
 import { useScheduleVmBackupsSectionActions } from './useScheduleVmBackupsSectionActions';
 import type { ScheduleVmBackupListRow } from '../lib/scheduleVmBackupsSectionUtils';
 
-const mockConfirm = jest.fn();
+const mockConfirmHighRiskDelete = jest.fn();
 
 jest.mock('antd', () => ({
-  Modal: { confirm: (opts: unknown) => mockConfirm(opts) },
   message: { success: jest.fn(), error: jest.fn() },
+}));
+
+jest.mock('../../shared/lib/highRiskConfirm', () => ({
+  confirmHighRiskDelete: (opts: { onConfirm: () => void | Promise<void> }) => {
+    mockConfirmHighRiskDelete(opts);
+    return Promise.resolve().then(() => opts.onConfirm());
+  },
+  DELETE_RISK_ITEMS: [],
 }));
 
 jest.mock('services/harvester/cbr', () => ({
@@ -48,7 +55,7 @@ describe('useScheduleVmBackupsSectionActions', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockConfirm.mockReset();
+    mockConfirmHighRiskDelete.mockReset();
   });
 
   it('handleSuspend toggles suspend and refreshes', async () => {
@@ -92,13 +99,9 @@ describe('useScheduleVmBackupsSectionActions', () => {
       }),
     );
 
-    act(() => {
-      result.current.handleDelete(record);
-    });
-
-    const { onOk } = mockConfirm.mock.calls[0][0];
     await act(async () => {
-      await onOk();
+      result.current.handleDelete(record);
+      await Promise.resolve();
     });
 
     expect(deleteHarvesterScheduleVmBackup).toHaveBeenCalledWith('cloud-1', 'proj-1', 'sched-a');

@@ -1,0 +1,12 @@
+# Harvester / 云主机
+
+**域级 E2E 进度**：[E2E_COVERAGE.md](../E2E_COVERAGE.md) · `npm run e2e:status`
+
+| 子目录 | 说明 |
+|--------|------|
+| `failure-domains/` | 故障域 API + 浏览器 |
+| `deployment-sets/` | 部署集 CRUD + lifecycle |
+| `security-groups/` | 安全组 CRUD + lifecycle |
+| `vlans/` | VLAN（引用存量物理网络） |
+| `public-subnets/` | 公共子网 |
+| `images/` | 镜像上传、列表、URL 导入 |

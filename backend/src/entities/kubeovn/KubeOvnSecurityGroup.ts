@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 
 /**
- * Kube-OVN 子网安全组（Tower 侧维护；作用于扁平子网等，非集群对象同步源）
+ * Kube-OVN 子网安全组（遗留 SQLite；权威数据源为集群 SecurityGroup CR：securitygroups.hms.rivercloud.com）
  */
 @Entity('kube_ovn_security_groups')
 @Unique('UQ_kube_ovn_sg_cloud_subnet_name', ['cloudId', 'subnetName', 'name'])

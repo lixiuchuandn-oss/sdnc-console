@@ -4,8 +4,8 @@
  * Cloudmap「集群 → 物理交换机」：管理 Switch CR，并展示 HSM 探测状态。
  */
 import React, { useCallback, useMemo, useState } from 'react';
-import { Button, Flex, Input, Modal, Select, Table, Typography } from 'antd';
-import { PlusOutlined, RadarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Alert, Button, Flex, Input, Modal, Select, Table, Typography } from 'antd';
+import { RadarChartOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
@@ -15,6 +15,7 @@ import { useHarvesterResourceLinkYamlDrawer } from '../../shared/lib/useHarveste
 import HmsServiceMonitorCard from '../components/HmsServiceMonitorCard';
 import HmsSwitchConfigDrawer from '../drawers/HmsSwitchConfigDrawer';
 import HmsSwitchDetailDrawer from '../drawers/HmsSwitchDetailDrawer';
+import HmsSwitchSshDrawer from '../drawers/HmsSwitchSshDrawer';
 import { usePhysicalSwitchCrActions } from '../hooks/usePhysicalSwitchCrActions';
 import { usePhysicalSwitchesData } from '../hooks/usePhysicalSwitchesData';
 import {
@@ -46,9 +47,12 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
   const [configSaving, setConfigSaving] = useState(false);
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailSwitchCr, setDetailSwitchCr] = useState<HmsSwitchCr | null>(null);
+  const [sshDrawerOpen, setSshDrawerOpen] = useState(false);
+  const [sshSwitchCr, setSshSwitchCr] = useState<HmsSwitchCr | null>(null);
 
   const {
     hmsSwitchConfigs,
+    hmsServiceUnavailable,
     probeItems,
     probeMeta,
     serviceMonitorRows,
@@ -125,6 +129,16 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     setDetailDrawerOpen(true);
   }, []);
 
+  const openSshDrawer = useCallback((cr: HmsSwitchCr) => {
+    setSshSwitchCr(cr);
+    setSshDrawerOpen(true);
+  }, []);
+
+  const closeSshDrawer = useCallback(() => {
+    setSshDrawerOpen(false);
+    setSshSwitchCr(null);
+  }, []);
+
   const openSwitchYamlDrawer = useCallback(
     (record: HmsSwitchCr) => {
       openYamlDrawer(
@@ -139,6 +153,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
     cloudId,
     canManageSwitchCr,
     editingSwitchCr,
+    hmsSwitchConfigs,
     loadAll,
     closeConfigDrawer,
     setConfigSaving,
@@ -155,6 +170,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         onEdit: openEditSwitchCr,
         onDelete: handleDeleteSwitchCr,
         onHsmProbe: handleSwitchHsmProbe,
+        onSsh: canManageSwitchCr ? openSshDrawer : undefined,
       }),
     [
       canRead,
@@ -165,6 +181,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       openEditSwitchCr,
       handleDeleteSwitchCr,
       handleSwitchHsmProbe,
+      openSshDrawer,
     ],
   );
 
@@ -251,7 +268,7 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
       toolbarRight={
         <div className="toolbar-actions">
           {canManageSwitchCr ? (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateSwitchCr}>
+            <Button type="primary" onClick={openCreateSwitchCr}>
               添加交换机
             </Button>
           ) : null}
@@ -263,6 +280,15 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         </div>
       }
     >
+      {hmsServiceUnavailable ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={hmsServiceUnavailable}
+          description="请在集群底座部署 HSM 服务后刷新本页。"
+        />
+      ) : null}
       <Table
         className="std-table"
         scroll={{ x: true }}
@@ -290,6 +316,14 @@ const PhysicalSwitchesSection: React.FC<PhysicalSwitchesSectionProps> = ({
         cloudId={cloudId}
         canSync={canManageSwitchCr}
         onClose={closeDetailDrawer}
+        onOpenSsh={canManageSwitchCr ? openSshDrawer : undefined}
+      />
+
+      <HmsSwitchSshDrawer
+        open={sshDrawerOpen}
+        cloudId={cloudId}
+        cr={sshSwitchCr}
+        onClose={closeSshDrawer}
       />
 
       <ResourceLinkYamlDrawer

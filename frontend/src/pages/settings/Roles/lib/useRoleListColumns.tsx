@@ -16,11 +16,21 @@ export type RoleListColumnsOptions = {
   modal: ReturnType<typeof App.useApp>['modal'];
   onAuthorize: (role: RBACRole) => void;
   onAssignUser: (role: RBACRole) => void;
+  onCopyRole: (role: RBACRole) => void;
   onDelete: (role: RBACRole) => void;
 };
 
 export function useRoleListColumns(options: RoleListColumnsOptions) {
-  const { canWrite, canAssignUsers, canConfigurePermissions, modal, onAuthorize, onAssignUser, onDelete } = options;
+  const {
+    canWrite,
+    canAssignUsers,
+    canConfigurePermissions,
+    modal,
+    onAuthorize,
+    onAssignUser,
+    onCopyRole,
+    onDelete,
+  } = options;
 
   return useMemo(
     () => [
@@ -52,7 +62,7 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         dataIndex: 'scope',
         align: 'left' as const,
         render: (_: unknown, row: RBACRole) =>
-          row.scope === 'system' ? '系统角色' : row.scope === 'tenant' ? '租户角色' : '-',
+          row.scope === 'system' ? '系统角色' : row.scope === 'tenant' ? '租户组织角色' : '-',
       },
       {
         title: '权限数量',
@@ -136,6 +146,15 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
                   },
                 ]
               : []),
+            ...(canWrite
+              ? [
+                  {
+                    key: 'copy',
+                    label: '复制角色',
+                    onClick: () => onCopyRole(row),
+                  },
+                ]
+              : []),
           ];
           if (canWrite && row.type !== '系统策略') {
             items.push({ type: 'divider' });
@@ -146,7 +165,7 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
               onClick: () => {
                 modal.confirm({
                   title: '确认删除该自定义角色？',
-                  content: '若角色已分配给用户或租户用户，将无法删除，请先解除关联。',
+                  content: '若角色已分配给用户或租户组织用户，将无法删除，请先解除关联。',
                   okText: '删除',
                   okType: 'danger',
                   onOk: () => onDelete(row),
@@ -163,6 +182,6 @@ export function useRoleListColumns(options: RoleListColumnsOptions) {
         },
       },
     ],
-    [canAssignUsers, canConfigurePermissions, canWrite, modal, onAuthorize, onAssignUser, onDelete],
+    [canAssignUsers, canConfigurePermissions, canWrite, modal, onAuthorize, onAssignUser, onCopyRole, onDelete],
   );
 }

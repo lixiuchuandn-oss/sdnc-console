@@ -6,6 +6,7 @@ import type { Tenant, CreateTenantRequest } from '../../../types/tenant';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { apiRequest, apiPost, apiPatch, apiDelete } from '../../../services/api';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useLicense } from '../../../contexts/LicenseContext';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../utils/rbacUi';
 import { parseTenantDeleteError } from '../lib/tenantDeleteErrors';
@@ -19,13 +20,16 @@ import {
 
 export function useTenantsPage() {
   const { user } = useAuth();
+  const { isEnterpriseLicense } = useLicense();
+  const enterpriseLicensed = isEnterpriseLicense();
   const userPerms = user?.permissions && Array.isArray(user.permissions) ? user.permissions : [];
   const role = String(user?.role || '').toLowerCase();
   const canWriteTenants = role === 'super_admin' || hasPermissionForAction(userPerms, 'tenants:write');
   const canReadOrganizations =
-    role === 'super_admin' ||
-    hasPermissionForAction(userPerms, 'organizations:read') ||
-    hasPermissionForAction(userPerms, 'organizations:write');
+    enterpriseLicensed &&
+    (role === 'super_admin' ||
+      hasPermissionForAction(userPerms, 'organizations:read') ||
+      hasPermissionForAction(userPerms, 'organizations:write'));
 
   const [loading, setLoading] = useState(false);
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -114,15 +118,17 @@ export function useTenantsPage() {
         const data = await apiRequest(url, force ? { skipCache: true } : undefined);
         const tenantsList = Array.isArray(data) ? data : (data?.tenants || []);
         setTenants(tenantsList);
-        refreshOrgCounts(tenantsList);
-        refreshUserCounts(tenantsList);
+        if (enterpriseLicensed) {
+          refreshOrgCounts(tenantsList);
+          refreshUserCounts(tenantsList);
+        }
       } catch {
         message.error('获取租户列表失败');
       } finally {
         setLoading(false);
       }
     },
-    [refreshOrgCounts, refreshUserCounts],
+    [enterpriseLicensed, refreshOrgCounts, refreshUserCounts],
   );
 
   const handleTenantSubmit = useCallback(
@@ -204,7 +210,7 @@ export function useTenantsPage() {
       return;
     }
     if (counts.some((x) => x.n < 0)) {
-      message.error('无法校验部分租户的组织用户数量，请稍后重试');
+      message.error('无法校验部分租户的租户组织用户数量，请稍后重试');
       return;
     }
 
@@ -269,16 +275,20 @@ export function useTenantsPage() {
         key: 'id',
         render: (text: string) => <Typography.Text copyable>{text}</Typography.Text>,
       },
-      {
-        title: '组织数量',
-        key: 'orgCount',
-        render: (_: unknown, record: Tenant) => tenantOrgCountMap[record.id] ?? '-',
-      },
-      {
-        title: '用户数量',
-        key: 'userCount',
-        render: (_: unknown, record: Tenant) => tenantUserCountMap[record.id] ?? '-',
-      },
+      ...(enterpriseLicensed
+        ? [
+            {
+              title: '组织数量',
+              key: 'orgCount',
+              render: (_: unknown, record: Tenant) => tenantOrgCountMap[record.id] ?? '-',
+            },
+            {
+              title: '租户组织用户',
+              key: 'userCount',
+              render: (_: unknown, record: Tenant) => tenantUserCountMap[record.id] ?? '-',
+            },
+          ]
+        : []),
       {
         title: '创建时间',
         dataIndex: 'createdAt',
@@ -320,7 +330,7 @@ export function useTenantsPage() {
                 void (async () => {
                   const n = await refreshTenantUserCount(record.id);
                   if (n < 0) {
-                    message.error('无法校验组织用户数量，请稍后重试');
+                    message.error('无法校验租户组织用户数量，请稍后重试');
                     return;
                   }
                   if (n > 0) {
@@ -377,6 +387,7 @@ export function useTenantsPage() {
       handleDeleteTenant,
       canReadOrganizations,
       canWriteTenants,
+      enterpriseLicensed,
     ],
   );
 
@@ -436,6 +447,7 @@ export function useTenantsPage() {
 
   return {
     loading,
+    enterpriseLicensed,
     canWriteTenants,
     filteredTenants,
     tenantColumns,

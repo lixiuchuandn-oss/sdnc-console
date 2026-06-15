@@ -6,7 +6,7 @@ import { Drawer, Descriptions, Tabs, Tag, Space, Button, Table } from 'antd';
 import { FileTextOutlined, CodeOutlined } from '@ant-design/icons';
 import YamlEditor from '../../../../../../components/YamlEditor';
 import { fetchHarvesterPodEvents } from '../../../../../../services/harvesterApi';
-import { PodLogViewer, PodTerminal } from '../components';
+import { PodLogViewerDrawer, PodTerminal } from '../components';
 import ServiceRelatedPodsTab from '../../shared/components/ServiceRelatedPodsTab';
 
 const formatTime = (timestamp?: string) => {
@@ -63,6 +63,7 @@ export type ServicePodDetailDrawerProps = {
 export type ServiceRelatedPodsDrawerProps = {
   open: boolean;
   onClose: () => void;
+  cloudId: string;
   serviceNamespace?: string;
   serviceName?: string;
   serviceSelector?: Record<string, string>;
@@ -76,6 +77,8 @@ export type ServiceRelatedPodsDrawerProps = {
 export const ServiceRelatedPodsDrawer: React.FC<ServiceRelatedPodsDrawerProps> = ({
   open,
   onClose,
+  cloudId,
+  serviceNamespace,
   serviceSelector,
   pods = [],
   podsLoading,
@@ -91,14 +94,18 @@ export const ServiceRelatedPodsDrawer: React.FC<ServiceRelatedPodsDrawerProps> =
     onClose={onClose}
     destroyOnHidden
   >
-    <ServiceRelatedPodsTab
-      serviceSelector={serviceSelector}
-      pods={pods}
-      loading={podsLoading}
-      onViewDetail={onViewPodDetail}
-      onViewLog={onViewPodLog}
-      onOpenTerminal={onOpenPodTerminal}
-    />
+    {open ? (
+      <ServiceRelatedPodsTab
+        cloudId={cloudId}
+        serviceNamespace={serviceNamespace}
+        serviceSelector={serviceSelector}
+        pods={pods}
+        loading={podsLoading}
+        onViewDetail={onViewPodDetail}
+        onViewLog={onViewPodLog}
+        onOpenTerminal={onOpenPodTerminal}
+      />
+    ) : null}
   </Drawer>
 );
 
@@ -292,25 +299,18 @@ export const ServicePodLogDrawer: React.FC<ServicePodLogDrawerProps> = ({
   pod,
   cloudId,
   containers,
-}) => (
-  <Drawer
-    title="Pod 日志"
-    placement="right"
-    width={900}
-    open={open}
-    onClose={onClose}
-  >
-    {pod && (
-      <PodLogViewer
-        cloudId={cloudId}
-        namespace={pod.metadata?.namespace}
-        podName={pod.metadata?.name}
-        containers={containers}
-        height="calc(100vh - 150px)"
-      />
-    )}
-  </Drawer>
-);
+}) =>
+  pod ? (
+    <PodLogViewerDrawer
+      cloudId={cloudId}
+      namespace={pod.metadata?.namespace}
+      podName={pod.metadata?.name}
+      containers={containers}
+      open={open}
+      onClose={onClose}
+      width={900}
+    />
+  ) : null;
 
 export type ServicePodTerminalBridgeProps = {
   visible: boolean;

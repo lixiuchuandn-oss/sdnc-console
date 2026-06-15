@@ -27,6 +27,7 @@ import {
   App,
   Card,
   Tooltip,
+  Collapse,
 } from 'antd';
 import {
   PlusOutlined,
@@ -34,7 +35,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { createHttpRoute } from '../../../../../../services/harvesterApi';
-import { isSystemNamespace } from '../../../../../../utils/harvesterUtils';
+import { isSystemNamespace, generateHarvesterCrMetadataName, generateVmWizardStyleDisplayName } from '../../../../../../utils/harvesterUtils';
 
 // ============================================================
 // 类型定义
@@ -56,6 +57,16 @@ export interface HTTPRouteFormValues {
         value: string;
       };
       method?: string;
+      headers?: Array<{
+        type?: 'Exact' | 'RegularExpression';
+        name: string;
+        value: string;
+      }>;
+      queryParams?: Array<{
+        type?: 'Exact' | 'RegularExpression';
+        name: string;
+        value: string;
+      }>;
     }>;
     backendRefs: Array<{
       name: string;
@@ -73,6 +84,7 @@ export interface HTTPRouteFormProps {
   onSuccess: () => void;
   onCancel: () => void;
   defaultNamespace?: string;
+  defaultGateway?: { name: string; namespace: string }; // 默认引用的Gateway
 }
 
 // ============================================================
@@ -107,6 +119,7 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
   onSuccess,
   onCancel,
   defaultNamespace,
+  defaultGateway,
 }) => {
   const [form] = Form.useForm<HTTPRouteFormValues>();
   const { message } = App.useApp();
@@ -114,35 +127,86 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
 
   // 当前选择的命名空间
   const currentNamespace = Form.useWatch('namespace', form);
+  
+  // 当前选择的 Gateway 列表（用于获取监听器）
+  const _parentRefs = Form.useWatch('parentRefs', form);
+  const _currentRules = Form.useWatch('rules', form);
 
-  // 初始化默认命名空间
+  // 初始化默认命名空间和Gateway引用
   useEffect(() => {
     if (defaultNamespace) {
       form.setFieldValue('namespace', defaultNamespace);
     }
-  }, [defaultNamespace, form]);
+    if (defaultGateway && defaultNamespace === defaultGateway.namespace) {
+      form.setFieldValue('parentRefs', [{
+        name: defaultGateway.name,
+        namespace: defaultGateway.namespace,
+      }]);
+    }
+  }, [defaultNamespace, defaultGateway, form]);
 
   // 构建当前命名空间下的 Gateway 选项
   const gatewayOptions = useMemo(() => {
     if (!gateways || !currentNamespace) return [];
     return gateways
       .filter((g: any) => (g.metadata?.namespace || g.namespace) === currentNamespace)
-      .map((g: any) => ({
-        label: g.metadata?.name || g.name,
-        value: g.metadata?.name || g.name,
-      }));
+      .map((g: any) => {
+        const name = g.metadata?.name || g.name;
+        const alias = g.metadata?.annotations?.['tower.io/alias'] || name;
+        return {
+          label: `${alias} (${name})`,
+          value: name,
+          gateway: g,
+        };
+      });
   }, [gateways, currentNamespace]);
+
+  // 当前选择的 Gateway 列表（用于获取监听器）
+  const _selectedGateways = Form.useWatch('parentRefs', form);
+
+  // 构建监听器选项（基于选中的 Gateway）
+  const getListenerOptions = (gatewayName: string) => {
+    if (!gatewayName) return [];
+    const gateway = gateways?.find((g: any) => 
+      (g.metadata?.namespace || g.namespace) === currentNamespace && 
+      (g.metadata?.name || g.name) === gatewayName
+    );
+    if (!gateway?.spec?.listeners) return [];
+    return gateway.spec.listeners.map((listener: any) => ({
+      label: `${listener.name} (端口: ${listener.port}, 协议: ${listener.protocol})`,
+      value: listener.name,
+    }));
+  };
 
   // 构建当前命名空间下的 Service 选项
   const serviceOptions = useMemo(() => {
     if (!services || !currentNamespace) return [];
     return services
       .filter((s: any) => (s.metadata?.namespace || s.namespace) === currentNamespace)
-      .map((s: any) => ({
-        label: s.metadata?.name || s.name,
-        value: s.metadata?.name || s.name,
-      }));
+      .map((s: any) => {
+        const name = s.metadata?.name || s.name;
+        const alias = s.metadata?.annotations?.['tower.io/alias'] || name;
+        return {
+          label: `${alias} (${name})`,
+          value: name,
+          service: s,
+        };
+      });
   }, [services, currentNamespace]);
+
+  // 获取Service的端口选项
+  const getServicePortOptions = (serviceName: string) => {
+    if (!serviceName) return [];
+    const service = services?.find((s: any) => 
+      (s.metadata?.namespace || s.namespace) === currentNamespace && 
+      (s.metadata?.name || s.name) === serviceName
+    );
+    if (!service?.spec?.ports) return [];
+    return service.spec.ports.map((port: any) => ({
+      label: `${port.port}${port.name ? ` (${port.name})` : ''}${port.protocol ? ` [${port.protocol}]` : ''}`,
+      value: port.port,
+    }));
+  };
 
   // 构建提交数据
   const buildSubmitData = (values: HTTPRouteFormValues): any => {
@@ -150,8 +214,11 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
       apiVersion: 'gateway.networking.k8s.io/v1',
       kind: 'HTTPRoute',
       metadata: {
-        name: values.name,
+        name: generateHarvesterCrMetadataName('httproute'),
         namespace: values.namespace,
+        annotations: {
+          'tower.io/alias': values.name,
+        },
       },
       spec: {},
     };
@@ -184,13 +251,32 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
     // 路由规则
     if (values.rules && values.rules.length > 0) {
       httpRoute.spec.rules = values.rules.map((rule) => ({
-        matches: rule.matches?.map((m) => ({
-          path: {
-            type: m.path?.type || 'PathPrefix',
-            value: m.path?.value || '/',
-          },
-          ...(m.method && { method: m.method }),
-        })),
+        matches: rule.matches?.map((m) => {
+          const match: any = {
+            path: {
+              type: m.path?.type || 'PathPrefix',
+              value: m.path?.value || '/',
+            },
+          };
+          if (m.method) {
+            match.method = m.method;
+          }
+          if (m.headers && m.headers.length > 0) {
+            match.headers = m.headers.map((h) => ({
+              type: h.type || 'Exact',
+              name: h.name,
+              value: h.value,
+            }));
+          }
+          if (m.queryParams && m.queryParams.length > 0) {
+            match.queryParams = m.queryParams.map((q) => ({
+              type: q.type || 'Exact',
+              name: q.name,
+              value: q.value,
+            }));
+          }
+          return match;
+        }),
         backendRefs: rule.backendRefs?.map((b) => ({
           name: b.name,
           port: b.port,
@@ -229,8 +315,9 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
       form={form}
       layout="vertical"
       initialValues={{
+        name: generateVmWizardStyleDisplayName('httproute'),
         parentRefs: [{}],
-        rules: [{ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{}] }],
+        rules: [{ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{ weight: 100 }] }],
       }}
     >
       {/* 基本信息 */}
@@ -239,10 +326,9 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
           <Col span={12}>
             <Form.Item
               name="name"
-              label="名称"
+              label="别名"
               rules={[
-                { required: true, message: '请输入名称' },
-                { pattern: /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/, message: '只允许小写字母、数字和连字符' },
+                { required: true, message: '请输入别名' },
               ]}
             >
               <Input placeholder="如: my-httproute" />
@@ -269,46 +355,57 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
         <Form.List name="parentRefs">
           {(fields, { add, remove }) => (
             <>
-              {fields.map(({ key, name: index, ...restField }) => (
-                <Row key={key} gutter={16} style={{ marginBottom: 8 }}>
-                  <Col span={10}>
-                    <Form.Item
-                      {...restField}
-                      name={[index, 'name']}
-                      label="Gateway 名称"
-                      rules={[{ required: true, message: '请选择 Gateway' }]}
-                    >
-                      <Select
-                        placeholder="选择 Gateway"
-                        showSearch
-                        options={gatewayOptions}
-                        notFoundContent="当前项目下没有 Gateway"
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={8}>
-                    <Form.Item
-                      {...restField}
-                      name={[index, 'sectionName']}
-                      label={
-                        <span>
-                          监听器
-                          <Tooltip title="可选，指定 Gateway 的监听器名称">
-                            <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
-                          </Tooltip>
-                        </span>
-                      }
-                    >
-                      <Input placeholder="监听器名称" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={4} style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 24 }}>
-                    {fields.length > 1 && (
-                      <MinusCircleOutlined onClick={() => remove(index)} style={{ color: '#999' }} />
-                    )}
-                  </Col>
-                </Row>
-              ))}
+              {fields.map(({ key, name: index, ...restField }) => {
+                const currentGatewayName = form.getFieldValue(['parentRefs', index, 'name']);
+                const listenerOptions = getListenerOptions(currentGatewayName);
+                
+                return (
+                  <Row key={key} gutter={16} style={{ marginBottom: 8 }}>
+                    <Col span={10}>
+                      <Form.Item
+                        {...restField}
+                        name={[index, 'name']}
+                        label="Gateway 名称"
+                        rules={[{ required: true, message: '请选择 Gateway' }]}
+                      >
+                        <Select
+                          placeholder="选择 Gateway"
+                          showSearch
+                          options={gatewayOptions}
+                          notFoundContent="当前项目下没有 Gateway"
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item
+                        {...restField}
+                        name={[index, 'sectionName']}
+                        label={
+                          <span>
+                            监听器
+                            <Tooltip title="可选，指定 Gateway 的监听器名称">
+                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999' }} />
+                            </Tooltip>
+                          </span>
+                        }
+                      >
+                        <Select
+                          placeholder={currentGatewayName ? "选择监听器" : "请先选择 Gateway"}
+                          options={listenerOptions}
+                          allowClear
+                          showSearch
+                          notFoundContent={currentGatewayName ? "该 Gateway 没有配置监听器" : "请先选择 Gateway"}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={4} style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 24 }}>
+                      {fields.length > 1 && (
+                        <MinusCircleOutlined onClick={() => remove(index)} style={{ color: '#999' }} />
+                      )}
+                    </Col>
+                  </Row>
+                );
+              })}
               <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />}>
                 添加 Gateway 引用
               </Button>
@@ -354,41 +451,179 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
                       {(matchFields, { add: addMatch, remove: removeMatch }) => (
                         <>
                           {matchFields.map(({ key: matchKey, name: matchIndex, ...matchRest }) => (
-                            <Row key={matchKey} gutter={8} style={{ marginBottom: 8 }}>
-                              <Col span={8}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'path', 'type']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select options={PATH_TYPE_OPTIONS} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={10}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'path', 'value']}
-                                  rules={[{ required: true, message: '路径' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Input placeholder="路径 (如: /api)" />
-                                </Form.Item>
-                              </Col>
-                              <Col span={4}>
-                                <Form.Item
-                                  {...matchRest}
-                                  name={[matchIndex, 'method']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select options={HTTP_METHOD_OPTIONS} placeholder="方法" allowClear />
-                                </Form.Item>
-                              </Col>
-                              <Col span={2}>
-                                {matchFields.length > 1 && (
-                                  <MinusCircleOutlined onClick={() => removeMatch(matchIndex)} style={{ color: '#999' }} />
-                                )}
-                              </Col>
-                            </Row>
+                            <div key={matchKey} style={{ marginBottom: 12, padding: 8, background: '#fff', border: '1px solid #e8e8e8', borderRadius: 4 }}>
+                              <Row gutter={8} style={{ marginBottom: 8 }}>
+                                <Col span={8}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'path', 'type']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select options={PATH_TYPE_OPTIONS} />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={10}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'path', 'value']}
+                                    rules={[{ required: true, message: '路径' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Input placeholder="路径 (如: /api)" />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={4}>
+                                  <Form.Item
+                                    {...matchRest}
+                                    name={[matchIndex, 'method']}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select options={HTTP_METHOD_OPTIONS} placeholder="方法" allowClear />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={2}>
+                                  {matchFields.length > 1 && (
+                                    <MinusCircleOutlined onClick={() => removeMatch(matchIndex)} style={{ color: '#999' }} />
+                                  )}
+                                </Col>
+                              </Row>
+                              
+                              {/* 高级匹配配置 */}
+                              <Collapse
+                                ghost
+                                items={[
+                                  {
+                                    key: 'advanced',
+                                    label: '高级匹配（请求头、查询参数）',
+                                    children: (
+                                      <div>
+                                        {/* 请求头匹配 */}
+                                        <div style={{ marginBottom: 12 }}>
+                                          <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>
+                                            请求头匹配
+                                            <Tooltip title="匹配 HTTP 请求头，支持精确匹配和正则匹配">
+                                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                                            </Tooltip>
+                                          </div>
+                                          <Form.List name={[matchIndex, 'headers']}>
+                                            {(headerFields, { add: addHeader, remove: removeHeader }) => (
+                                              <>
+                                                {headerFields.map(({ key: headerKey, name: headerIndex, ...headerRest }) => (
+                                                  <Row key={headerKey} gutter={8} style={{ marginBottom: 8 }}>
+                                                    <Col span={6}>
+                                                      <Form.Item
+                                                        {...headerRest}
+                                                        name={[headerIndex, 'type']}
+                                                        initialValue="Exact"
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Select
+                                                          options={[
+                                                            { value: 'Exact', label: '精确' },
+                                                            { value: 'RegularExpression', label: '正则' },
+                                                          ]}
+                                                        />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...headerRest}
+                                                        name={[headerIndex, 'name']}
+                                                        rules={[{ required: true, message: '头名称' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="头名称 (如: Content-Type)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...headerRest}
+                                                        name={[headerIndex, 'value']}
+                                                        rules={[{ required: true, message: '头值' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="头值 (如: application/json)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={2}>
+                                                      <MinusCircleOutlined onClick={() => removeHeader(headerIndex)} style={{ color: '#999' }} />
+                                                    </Col>
+                                                  </Row>
+                                                ))}
+                                                <Button type="dashed" size="small" onClick={() => addHeader()} icon={<PlusOutlined />}>
+                                                  添加请求头
+                                                </Button>
+                                              </>
+                                            )}
+                                          </Form.List>
+                                        </div>
+                                        
+                                        {/* 查询参数匹配 */}
+                                        <div>
+                                          <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>
+                                            查询参数匹配
+                                            <Tooltip title="匹配 URL 查询参数，支持精确匹配和正则匹配">
+                                              <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                                            </Tooltip>
+                                          </div>
+                                          <Form.List name={[matchIndex, 'queryParams']}>
+                                            {(paramFields, { add: addParam, remove: removeParam }) => (
+                                              <>
+                                                {paramFields.map(({ key: paramKey, name: paramIndex, ...paramRest }) => (
+                                                  <Row key={paramKey} gutter={8} style={{ marginBottom: 8 }}>
+                                                    <Col span={6}>
+                                                      <Form.Item
+                                                        {...paramRest}
+                                                        name={[paramIndex, 'type']}
+                                                        initialValue="Exact"
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Select
+                                                          options={[
+                                                            { value: 'Exact', label: '精确' },
+                                                            { value: 'RegularExpression', label: '正则' },
+                                                          ]}
+                                                        />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...paramRest}
+                                                        name={[paramIndex, 'name']}
+                                                        rules={[{ required: true, message: '参数名' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="参数名 (如: version)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={8}>
+                                                      <Form.Item
+                                                        {...paramRest}
+                                                        name={[paramIndex, 'value']}
+                                                        rules={[{ required: true, message: '参数值' }]}
+                                                        style={{ marginBottom: 0 }}
+                                                      >
+                                                        <Input placeholder="参数值 (如: v1)" />
+                                                      </Form.Item>
+                                                    </Col>
+                                                    <Col span={2}>
+                                                      <MinusCircleOutlined onClick={() => removeParam(paramIndex)} style={{ color: '#999' }} />
+                                                    </Col>
+                                                  </Row>
+                                                ))}
+                                                <Button type="dashed" size="small" onClick={() => addParam()} icon={<PlusOutlined />}>
+                                                  添加查询参数
+                                                </Button>
+                                              </>
+                                            )}
+                                          </Form.List>
+                                        </div>
+                                      </div>
+                                    ),
+                                  },
+                                ]}
+                              />
+                            </div>
                           ))}
                           <Button type="dashed" size="small" onClick={() => addMatch({ path: { type: 'PathPrefix', value: '/' } })} icon={<PlusOutlined />}>
                             添加匹配条件
@@ -398,64 +633,88 @@ const HTTPRouteForm: React.FC<HTTPRouteFormProps> = ({
                     </Form.List>
                   </div>
 
-                  {/* 后端服务 */}
-                  <div>
-                    <div style={{ fontWeight: 500, marginBottom: 8 }}>后端服务</div>
-                    <Form.List name={[ruleIndex, 'backendRefs']}>
-                      {(backendFields, { add: addBackend, remove: removeBackend }) => (
-                        <>
-                          {backendFields.map(({ key: backendKey, name: backendIndex, ...backendRest }) => (
-                            <Row key={backendKey} gutter={8} style={{ marginBottom: 8 }}>
-                              <Col span={10}>
-                                <Form.Item
-                                  {...backendRest}
-                                  name={[backendIndex, 'name']}
-                                  rules={[{ required: true, message: 'Service 名称' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <Select
-                                    placeholder="Service"
-                                    showSearch
-                                    options={serviceOptions}
-                                  />
-                                </Form.Item>
-                              </Col>
-                              <Col span={6}>
-                                <Form.Item
-                                  {...backendRest}
-                                  name={[backendIndex, 'port']}
-                                  rules={[{ required: true, message: '端口' }]}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <InputNumber min={1} max={65535} placeholder="端口" style={{ width: '100%' }} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={5}>
-                                <Form.Item
-                                  {...backendRest}
-                                  name={[backendIndex, 'weight']}
-                                  style={{ marginBottom: 0 }}
-                                >
-                                  <InputNumber min={1} max={100} placeholder="权重" style={{ width: '100%' }} />
-                                </Form.Item>
-                              </Col>
-                              <Col span={3}>
-                                {backendFields.length > 1 && (
-                                  <MinusCircleOutlined onClick={() => removeBackend(backendIndex)} style={{ color: '#999' }} />
-                                )}
-                              </Col>
-                            </Row>
-                          ))}
-                          <Button type="dashed" size="small" onClick={() => addBackend()} icon={<PlusOutlined />}>
-                            添加后端服务
-                          </Button>
-                        </>
-                      )}
-                    </Form.List>
-                  </div>
+                   {/* 后端服务 */}
+                   <div>
+                     <div style={{ fontWeight: 500, marginBottom: 8 }}>
+                       后端服务
+                       <Tooltip title="配置路由的后端服务，支持多个服务实现负载均衡">
+                         <InfoCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12 }} />
+                       </Tooltip>
+                     </div>
+                     <Form.List name={[ruleIndex, 'backendRefs']}>
+                       {(backendFields, { add: addBackend, remove: removeBackend }) => (
+                         <>
+                           {backendFields.map(({ key: backendKey, name: backendIndex, ...backendRest }) => {
+                             const currentServiceName = form.getFieldValue(['rules', ruleIndex, 'backendRefs', backendIndex, 'name']);
+                             const portOptions = getServicePortOptions(currentServiceName);
+                             
+                             return (
+                               <Row key={backendKey} gutter={8} style={{ marginBottom: 8 }}>
+                                 <Col span={10}>
+                                   <Form.Item
+                                     {...backendRest}
+                                     name={[backendIndex, 'name']}
+                                     rules={[{ required: true, message: 'Service 名称' }]}
+                                     style={{ marginBottom: 0 }}
+                                   >
+                                     <Select
+                                       placeholder="Service"
+                                       showSearch
+                                       options={serviceOptions}
+                                     />
+                                   </Form.Item>
+                                 </Col>
+                                 <Col span={6}>
+                                   <Form.Item
+                                     {...backendRest}
+                                     name={[backendIndex, 'port']}
+                                     rules={[{ required: true, message: '端口' }]}
+                                     style={{ marginBottom: 0 }}
+                                   >
+                                     <Select
+                                       placeholder={currentServiceName ? "选择端口" : "请先选择 Service"}
+                                       options={portOptions}
+                                       showSearch
+                                       allowClear
+                                       notFoundContent={currentServiceName ? "该 Service 没有配置端口" : "请先选择 Service"}
+                                     />
+                                   </Form.Item>
+                                 </Col>
+                                 <Col span={5}>
+                                   <Form.Item
+                                     {...backendRest}
+                                     name={[backendIndex, 'weight']}
+                                     style={{ marginBottom: 0 }}
+                                   >
+                                      <Tooltip title="权重用于负载均衡，按各后端权重的比值分配流量。例如：后端A权重70、后端B权重30，则A分配70%流量、B分配30%流量。范围：1-100">
+                                        <InputNumber 
+                                          min={1} 
+                                          max={100} 
+                                          placeholder="权重"
+                                          defaultValue={100}
+                                          style={{ width: '100%' }} 
+                                        />
+                                      </Tooltip>
+                                   </Form.Item>
+                                 </Col>
+                                 <Col span={3}>
+                                   {backendFields.length > 1 && (
+                                     <MinusCircleOutlined onClick={() => removeBackend(backendIndex)} style={{ color: '#999' }} />
+                                   )}
+                                 </Col>
+                               </Row>
+                             );
+                           })}
+                            <Button type="dashed" size="small" onClick={() => addBackend({ weight: 100 })} icon={<PlusOutlined />}>
+                              添加后端服务
+                            </Button>
+                         </>
+                       )}
+                     </Form.List>
+                   </div>
                 </Card>
               ))}
-              <Button type="dashed" onClick={() => addRule({ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{}] })} block icon={<PlusOutlined />}>
+              <Button type="dashed" onClick={() => addRule({ matches: [{ path: { type: 'PathPrefix', value: '/' } }], backendRefs: [{ weight: 100 }] })} block icon={<PlusOutlined />}>
                 添加规则
               </Button>
             </>

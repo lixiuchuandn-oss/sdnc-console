@@ -3,7 +3,7 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { Button, Input, Modal, Space, Select, Table, message } from 'antd';
+import { Button, Input, Space, Select, Table, message } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageDetailSection from 'components/PageDetailSection';
@@ -29,6 +29,10 @@ import {
 } from '../lib/namespacesSectionUtils';
 import { buildNamespacesTableColumns } from '../lib/namespacesTableColumns';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import {
+  confirmHighRiskDelete,
+  DELETE_NAMESPACE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const TABLE_COLUMNS_SETTINGS_KEY = 'harvester_namespaces_table_v3';
 
@@ -132,13 +136,11 @@ const NamespacesSection: React.FC<Props> = ({
       const name = getNamespaceDisplayName(record);
       if (!name) return;
 
-      Modal.confirm({
-        title: '删除项目',
-        content: `确定删除命名空间「${name}」吗？删除后不可恢复；请确认集群内已无虚拟机及其他重要资源。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '项目',
+        name,
+        riskItems: DELETE_NAMESPACE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterNamespace(cloudId, name);
             message.success('删除成功');
@@ -149,7 +151,7 @@ const NamespacesSection: React.FC<Props> = ({
             throw e;
           }
         },
-      });
+      }).catch(() => {});
     },
     [cloudId, hasNamespacesWrite, onRefresh],
   );

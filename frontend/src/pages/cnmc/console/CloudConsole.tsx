@@ -77,6 +77,21 @@ import {
   resolveTenantConsoleSiderLeaf,
 } from './lib/tenantConsoleSiderNav';
 import { createBackupsTabOnRefresh } from '../clouds/Cloudmap/pool/loaders/backupsRefresh';
+import { HighRiskOperationProvider } from '../clouds/Harvester/shared/context/HighRiskOperationContext';
+import {
+  formatVmStartErrorMessage,
+  isVmAlreadyRunningError,
+  isVmVolumeResizingStartError,
+  VM_ALREADY_RUNNING_HINT,
+} from '../clouds/Harvester/ecs/lib/vmOperationErrors';
+import { getVmInstanceId } from '../clouds/Harvester/ecs/lib/vmSectionUtils';
+import { refreshTenantEcsAfterPowerOp } from './lib/tenantConsoleVmRefresh';
+import {
+  applyVmSseStatusPatch,
+  collectVmSseStatusKeys,
+  findVmSseStatusUpdate,
+  patchVmLocalPrintableStatus,
+} from './lib/tenantConsoleVmSse';
 
 type CloudItem = { id: string; name: string; region?: string; type?: string; config?: any; status?: string };
 
@@ -229,6 +244,8 @@ const CloudConsolePage: React.FC = () => {
   const [harvesterCapabilities, setHarvesterCapabilities] = useState<any>(null);
 
   const vmStatusBuffer = useRef(new Map<string, any>());
+  const loadEcsRef = useRef<(cloudId?: string, forceRefresh?: boolean) => Promise<any[]>>(async () => []);
+  const vmPowerOpInFlightRef = useRef(new Set<string>());
   /** 避免「列表为空 + loading 结束」时 VM 拉取 effect 反复触发导致无限 GET */
   const ecsBootstrapTicketRef = useRef('');
   const ecsRdsBootstrapTicketRef = useRef('');
@@ -414,15 +431,29 @@ const CloudConsolePage: React.FC = () => {
     setTenantConsoleSiderModel,
   ]);
 
+  const patchEcsLocalStatus = useCallback((instanceId: string, status: string) => {
+    setEcs((prev) => patchVmLocalPrintableStatus(prev, instanceId, status));
+  }, []);
+
+  const reloadEcsAfterPowerOp = useCallback(
+    (cloudId: string, instanceId?: string, initialDelayMs?: number) =>
+      refreshTenantEcsAfterPowerOp(
+        (cid, force) => loadEcsRef.current(cid, force),
+        cloudId,
+        instanceId,
+        initialDelayMs != null ? { initialDelayMs } : undefined,
+      ),
+    [],
+  );
+
   // ---------- VM 电源与生命周期 ----------
   const handleStart = async (iid: string) => {
     if (!currentCloudId) return;
+    if (vmPowerOpInFlightRef.current.has(iid)) return;
+    vmPowerOpInFlightRef.current.add(iid);
     try {
       if (isCloudmap) {
-        const vm = ecs.find((v: any) => {
-          const vId = v?.metadata?.name && v?.metadata?.namespace ? `${v.metadata.namespace}/${v.metadata.name}` : (v?.InstanceId || v?.id);
-          return vId === iid;
-        });
+        const vm = ecs.find((v: any) => getVmInstanceId(v) === iid);
         if (vm && pvcs.length > 0) {
           const vmVolumes = vm?.spec?.template?.spec?.volumes || [];
           const pvcNames = vmVolumes.map((vol: any) => vol?.persistentVolumeClaim?.claimName).filter(Boolean);
@@ -442,89 +473,115 @@ const CloudConsolePage: React.FC = () => {
           }
         }
       }
+      patchEcsLocalStatus(iid, 'Starting');
       await startCloudProviderEcs(currentCloudId, iid);
       message.success('已发送启动指令');
-      // Optimistic update or refresh
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, iid, 1500);
     } catch (e: any) {
-      const errMsg = e?.message || String(e);
-      if (isCloudmap && (errMsg.includes('resizing volume') || errMsg.includes('Resizing'))) {
+      if (isCloudmap && isVmVolumeResizingStartError(e)) {
         message.warning('启动被拒绝: 关联磁盘正在进行扩容操作，请等待扩容完成后再试。');
+      } else if (isVmAlreadyRunningError(e)) {
+        message.warning(VM_ALREADY_RUNNING_HINT);
+        void reloadEcsAfterPowerOp(currentCloudId, iid, 500);
       } else {
-        message.error(`启动失败: ${e.message}`);
+        message.error(`启动失败: ${formatVmStartErrorMessage(e)}`);
+        void reloadEcsAfterPowerOp(currentCloudId, iid, 500);
       }
+    } finally {
+      vmPowerOpInFlightRef.current.delete(iid);
     }
   };
 
   const handleStop = async (iid: string) => {
     if (!currentCloudId) return;
+    let force = false;
+    let realId = iid;
+    if (isCloudmap && iid.endsWith('::force')) {
+      force = true;
+      realId = iid.replace(/::force$/, '');
+    }
+    if (vmPowerOpInFlightRef.current.has(realId)) return;
+    vmPowerOpInFlightRef.current.add(realId);
     try {
-      let force = false;
-      let realId = iid;
-      if (isCloudmap && iid.endsWith('::force')) {
-        force = true;
-        realId = iid.replace(/::force$/, '');
-      }
+      patchEcsLocalStatus(realId, 'Stopping');
       await stopCloudProviderEcs(currentCloudId, realId, force);
       message.success(force ? '强制停止指令已下发' : '已发送停止指令');
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, realId, 1000);
     } catch (e: any) {
       message.error(`停止失败: ${e.message}`);
+      void reloadEcsAfterPowerOp(currentCloudId, realId, 500);
+    } finally {
+      vmPowerOpInFlightRef.current.delete(realId);
     }
   };
 
   const handleReboot = async (iid: string) => {
-    if (!currentCloudId) return;
+    if (!currentCloudId || vmPowerOpInFlightRef.current.has(iid)) return;
+    vmPowerOpInFlightRef.current.add(iid);
     try {
       await rebootCloudProviderEcs(currentCloudId, iid);
       message.success('已发送重启指令');
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, iid, 1000);
     } catch (e: any) {
       message.error(`重启失败: ${e.message}`);
+    } finally {
+      vmPowerOpInFlightRef.current.delete(iid);
     }
   };
 
   const handleSoftReboot = async (iid: string) => {
-    if (!currentCloudId) return;
+    if (!currentCloudId || vmPowerOpInFlightRef.current.has(iid)) return;
+    vmPowerOpInFlightRef.current.add(iid);
     try {
       await softRebootCloudProviderEcs(currentCloudId, iid);
       message.success('已发送重启指令');
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, iid, 1000);
     } catch (e: any) {
       message.error(`重启失败: ${e.message}`);
+    } finally {
+      vmPowerOpInFlightRef.current.delete(iid);
     }
   };
 
   const handlePause = async (iid: string) => {
-    if (!currentCloudId) return;
+    if (!currentCloudId || vmPowerOpInFlightRef.current.has(iid)) return;
+    vmPowerOpInFlightRef.current.add(iid);
     try {
       await pauseCloudProviderEcs(currentCloudId, iid);
       message.success('已发送暂停指令');
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, iid, 800);
     } catch (e: any) {
       message.error(`暂停失败: ${e.message}`);
+    } finally {
+      vmPowerOpInFlightRef.current.delete(iid);
     }
   };
 
   const handleUnpause = async (iid: string) => {
-    if (!currentCloudId) return;
+    if (!currentCloudId || vmPowerOpInFlightRef.current.has(iid)) return;
+    vmPowerOpInFlightRef.current.add(iid);
     try {
       await unpauseCloudProviderEcs(currentCloudId, iid);
       message.success('已发送恢复指令');
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, iid, 800);
     } catch (e: any) {
       message.error(`恢复失败: ${e.message}`);
+    } finally {
+      vmPowerOpInFlightRef.current.delete(iid);
     }
   };
 
   const handleDelete = async (iid: string, deleteVolumes?: boolean) => {
-    if (!currentCloudId) return;
+    if (!currentCloudId || vmPowerOpInFlightRef.current.has(iid)) return;
+    vmPowerOpInFlightRef.current.add(iid);
     try {
       await deleteCloudProviderEcs(currentCloudId, iid, deleteVolumes);
       message.success('已发送删除指令');
-      loadEcs(currentCloudId);
+      void reloadEcsAfterPowerOp(currentCloudId, iid, 500);
     } catch (e: any) {
       message.error(`删除失败: ${e.message}`);
+    } finally {
+      vmPowerOpInFlightRef.current.delete(iid);
     }
   };
 
@@ -560,9 +617,12 @@ const CloudConsolePage: React.FC = () => {
           const r = json?.item;
           if (!r) return;
           setEcs(prev => {
-            const iid = String(r?.InstanceId || r?.id || '');
-            if (!iid) return prev;
-            if ((prev || []).some((x:any)=> String(x?.InstanceId||x?.id||'')===iid)) return prev;
+            const keys = new Set([
+              getVmInstanceId(r),
+              String(r?.id || ''),
+              String(r?.metadata?.uid || ''),
+            ].filter(Boolean));
+            if ((prev || []).some((x: any) => keys.has(getVmInstanceId(x)))) return prev;
             return [r, ...(prev || [])];
           });
         } catch {}
@@ -574,11 +634,16 @@ const CloudConsolePage: React.FC = () => {
           const json = JSON.parse(String(ev.data || '{}'));
           const iid = String(json?.iid || '');
           if (!iid) return;
-          setEcs(prev => (prev || []).filter(item => 
-             !((item.id && item.id === iid) || 
-               (item.InstanceId && item.InstanceId === iid) ||
-               (item?.metadata?.uid && item?.metadata?.uid === iid))
-          ));
+          setEcs((prev) =>
+            (prev || []).filter((item) => {
+              const matchKeys = [
+                getVmInstanceId(item),
+                String(item?.id || ''),
+                String(item?.metadata?.uid || ''),
+              ];
+              return !matchKeys.includes(iid);
+            }),
+          );
         } catch {}
       });
 
@@ -586,9 +651,9 @@ const CloudConsolePage: React.FC = () => {
       eventSource.addEventListener('vm_status', (ev: MessageEvent) => {
         try {
           const json = JSON.parse(String(ev.data || '{}'));
-          const iid = String(json?.iid || '');
-          if (!iid) return;
-          vmStatusBuffer.current.set(iid, json);
+          for (const key of collectVmSseStatusKeys(json)) {
+            vmStatusBuffer.current.set(key, json);
+          }
         } catch {}
       });
 
@@ -613,39 +678,29 @@ const CloudConsolePage: React.FC = () => {
       const updates = new Map(vmStatusBuffer.current);
       vmStatusBuffer.current.clear();
       
-      setEcs(prev => {
+      setEcs((prev) => {
         let hasChanges = false;
-        const next = (prev || []).map((x:any)=> {
-           const xiid = String(x?.InstanceId||x?.id||x?.metadata?.uid||'');
-           if (updates.has(xiid)) {
-              const json = updates.get(xiid);
-              const statusStr = String(json?.status || '');
-              const nodeName = String(json?.nodeName || '');
-              const ips = Array.isArray(json?.ips) ? json.ips : [];
-              
-              // Deep merge logic or simple update
-              // Here we update specific fields that change frequently
-              const newStatus = { ...x.status, printableStatus: statusStr };
-              if (x.status?.phase) newStatus.phase = statusStr;
+        const next = (prev || []).map((x: any) => {
+          const json = findVmSseStatusUpdate(x, updates);
+          if (!json) return x;
 
-              // Check for changes to avoid unnecessary re-renders
-              if (
-                 x.status?.printableStatus !== statusStr ||
-                 x.nodeName !== nodeName ||
-                 JSON.stringify(x.ips) !== JSON.stringify(ips)
-              ) {
-                 hasChanges = true;
-                 return {
-                    ...x,
-                    status: newStatus,
-                    nodeName: nodeName,
-                    ips: ips,
-                    // Also update Extra if needed
-                    Extra: { ...(x.Extra || {}), NodeName: nodeName }
-                 };
-              }
-           }
-           return x;
+          const statusStr = String(json?.status || '');
+          const nodeName = String(json?.nodeName || '');
+          const ips = Array.isArray(json?.ips) ? json.ips : [];
+          const prevStatus =
+            typeof x?.status === 'string'
+              ? x.status
+              : String(x?.status?.printableStatus || x?.status?.phase || '');
+
+          if (
+            prevStatus !== statusStr ||
+            x.nodeName !== nodeName ||
+            JSON.stringify(x.ips) !== JSON.stringify(ips)
+          ) {
+            hasChanges = true;
+            return applyVmSseStatusPatch(x, { status: statusStr, nodeName, ips });
+          }
+          return x;
         });
         return hasChanges ? next : prev;
       });
@@ -703,9 +758,9 @@ const CloudConsolePage: React.FC = () => {
   };
 
   // 加载云主机列表（Cloudmap 返回 K8s/VM 风格数据，保留多形态解析以兼容后端）
-  const loadEcs = async (cloudId?: string, forceRefresh: boolean = false) => {
+  const loadEcs = async (cloudId?: string, forceRefresh: boolean = false): Promise<any[]> => {
     const cid = cloudId || currentCloudId;
-    if (!cid || cid === 'all') return;
+    if (!cid || cid === 'all') return [];
 
     setLoading(true);
     setError(null);
@@ -735,14 +790,18 @@ const CloudConsolePage: React.FC = () => {
       }
 
       setEcs(list);
+      return list;
     } catch (e: any) {
       console.error('[CloudConsole] loadEcs error:', e);
       setError(e?.message || '查询失败');
       setEcs([]);
+      return [];
     } finally {
       setLoading(false);
     }
   };
+
+  loadEcsRef.current = loadEcs;
 
   // 加载虚拟卷 (PVC) 列表
   const loadPvcs = async (cloudId?: string, force: boolean = false) => {
@@ -771,30 +830,74 @@ const CloudConsolePage: React.FC = () => {
     cloudId?: string,
     force: boolean = false,
     mergePublicScenarioOverride?: boolean,
+    skipSync: boolean = false,
+    silent: boolean = false,
   ) => {
     const cid = cloudId || currentCloudId;
     if (!cid || cid === 'all') return;
 
-    setLoading(true);
-    setError(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const mergePublic =
         mergePublicScenarioOverride !== undefined
           ? mergePublicScenarioOverride
           : shouldMergePublicScenarioForTenantConsole(harvesterCategory, harvesterResource);
-      const json = await fetchHarvesterImages(cid, force, false, mergeTenantPublicScope(mergePublic));
-      const items: any[] = Array.isArray((json as any)?.data?.items) 
-          ? (json as any).data.items 
-          : (Array.isArray((json as any)?.items) ? (json as any).items : []);
-      
+      const json = await fetchHarvesterImages(
+        cid,
+        force,
+        skipSync,
+        mergeTenantPublicScope(mergePublic),
+      );
+      const items: any[] = Array.isArray((json as any)?.data?.items)
+        ? (json as any).data.items
+        : Array.isArray((json as any)?.items)
+          ? (json as any).items
+          : [];
+
       setImages(Array.isArray(items) ? items : []);
     } catch (e: any) {
       console.error('[CloudConsole] loadImages error:', e);
-      setImages([]);
+      if (!silent) {
+        setImages([]);
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
+
+  /** 镜像库存轮询（上传同步进度）；默认 skipSync，不触发全局 loading */
+  const reloadImagesInventory = useCallback(
+    async (force?: boolean, skipSync?: boolean) => {
+      const cid = currentCloudId;
+      if (!cid || cid === 'all') return;
+      try {
+        const mergePublic = shouldMergePublicScenarioForTenantConsole(
+          harvesterCategory,
+          harvesterResource,
+        );
+        const json = await fetchHarvesterImages(
+          cid,
+          force !== false,
+          skipSync ?? true,
+          mergeTenantPublicScope(mergePublic),
+        );
+        const items: any[] = Array.isArray((json as any)?.data?.items)
+          ? (json as any).data.items
+          : Array.isArray((json as any)?.items)
+            ? (json as any).items
+            : [];
+        setImages(Array.isArray(items) ? items : []);
+      } catch (e: any) {
+        console.error('[CloudConsole] reloadImagesInventory error:', e);
+      }
+    },
+    [currentCloudId, harvesterCategory, harvesterResource, mergeTenantPublicScope],
+  );
 
   // 加载模板列表
   const loadTemplates = async (cloudId?: string, force = false) => {
@@ -1091,14 +1194,18 @@ const CloudConsolePage: React.FC = () => {
   };
 
   const loadCtrServices = async (cloudId: string, force = false) => {
-    mergeCtrLoading({ services: true });
+    mergeCtrLoading({ services: true, pods: true });
     try {
-      const res = await fetchHarvesterServices(cloudId, force);
+      const [res, podsRes] = await Promise.all([
+        fetchHarvesterServices(cloudId, force),
+        fetchHarvesterPods(cloudId, undefined, force),
+      ]);
       setCtrServices((res as any)?.data?.items || []);
+      setCtrPods((podsRes as any)?.data?.items || []);
     } catch (e) {
       console.error('[CloudConsole] loadCtrServices', e);
     } finally {
-      mergeCtrLoading({ services: false });
+      mergeCtrLoading({ services: false, pods: false });
     }
   };
 
@@ -1403,6 +1510,7 @@ const CloudConsolePage: React.FC = () => {
         if (!canAccessMainResource('vm')) break;
         if (pvcs.length === 0) loadPvcs(currentCloudId);
         if (images.length === 0) loadImages(currentCloudId);
+        if (storageClasses.length === 0) loadStorageClasses(currentCloudId, true, true);
         break;
       case 'image':
         if (!canAccessMainResource('image')) break;
@@ -1722,6 +1830,7 @@ const CloudConsolePage: React.FC = () => {
   }, [proHeaderAvailabilityZone, setCenterSlot]);
 
   return (
+    <HighRiskOperationProvider>
     <PageContainer
       asCard={false}
       hideHeader
@@ -1866,6 +1975,7 @@ const CloudConsolePage: React.FC = () => {
                   onRefreshSshKeys={() => loadSshKeys(currentCloudId)}
                   onRefreshVolumes={(force?: boolean) => loadPvcs(currentCloudId, !!force)}
                   onRefreshImages={(force?: boolean) => loadImages(currentCloudId, force ?? true)}
+                  onImagesInventoryReload={reloadImagesInventory}
                   onRefreshSnapshots={() => loadSnapshots(currentCloudId, true)}
                   backupsTabOnRefresh={backupsTabOnRefresh}
                   onRefreshCloudInits={() => loadCloudInits(currentCloudId)}
@@ -1904,6 +2014,7 @@ const CloudConsolePage: React.FC = () => {
           )}
       </div>
     </PageContainer>
+    </HighRiskOperationProvider>
   );
 };
 

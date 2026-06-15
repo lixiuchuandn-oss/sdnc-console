@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
-import { Modal, message } from 'antd';
+import { message } from 'antd';
+import { confirmHighRiskDelete } from '../../shared/lib/highRiskConfirm';
+import { DELETE_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 import {
   deleteHarvesterScheduleVmBackup,
   updateHarvesterScheduleVmBackup,
@@ -60,13 +62,12 @@ export function useScheduleVmBackupsSectionActions({
   const handleDelete = useCallback(
     (record: ScheduleVmBackupListRow) => {
       if (!ensureBackupsWrite()) return;
-      Modal.confirm({
-        title: '确认删除',
-        content: `确定要删除定时备份策略 ${record.name} (${record.id}) 吗？此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
+      void confirmHighRiskDelete({
+        resourceLabel: '定时备份策略',
+        name: record.name,
+        description: `确定要删除定时备份策略「${record.name}」（${record.id}）吗？此操作不可恢复。`,
+        riskItems: DELETE_RISK_ITEMS,
+        onConfirm: async () => {
           try {
             await deleteHarvesterScheduleVmBackup(cloudId, record.namespace, record.id);
             message.success('删除成功');
@@ -75,9 +76,10 @@ export function useScheduleVmBackupsSectionActions({
           } catch (e: unknown) {
             const err = e as { message?: string };
             message.error(`删除失败: ${err.message || '未知错误'}`);
+            throw e;
           }
         },
-      });
+      }).catch(() => undefined);
     },
     [cloudId, ensureBackupsWrite, markRemoved, onRefresh],
   );

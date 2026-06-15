@@ -6,7 +6,7 @@
  * - 制品：仓库下的制品列表
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Drawer, Tabs, Spin, Descriptions, Card, Statistic, Space, Button, Tag, Row, Col } from 'antd';
 import { 
   DatabaseOutlined, 
@@ -16,6 +16,9 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import type { HarborRepository } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
+import { setHarborApiCloudId, getHarborProject } from '../shared/harborApi';
+import type { HarborProjectWithTenant } from '../types';
 
 // 懒加载 Tab 组件
 const ArtifactsSection = React.lazy(() => import('../sections/ArtifactsSection'));
@@ -23,11 +26,12 @@ const ArtifactsSection = React.lazy(() => import('../sections/ArtifactsSection')
 interface Props {
   visible: boolean;
   harborId: string;
-  projectName: string;
+  project: HarborProjectRef;
   repository: HarborRepository | null;
   cloudId: string;
   onClose: () => void;
   onBack: () => void;
+  currentUserRole?: number;
 }
 
 /**
@@ -36,13 +40,40 @@ interface Props {
 const RepositoryDetailDrawer: React.FC<Props> = ({
   visible,
   harborId,
-  projectName,
+  project: projectProp,
   repository,
-  cloudId: _cloudId,
+  cloudId,
   onClose,
   onBack,
+  currentUserRole: currentUserRoleProp,
 }) => {
   const [activeTab, setActiveTab] = useState('artifacts');
+  const [fullProject, setFullProject] = useState<HarborProjectWithTenant | null>(null);
+
+  useEffect(() => {
+    if (visible && projectProp.projectId) {
+      getHarborProject(harborId, { projectId: projectProp.projectId, name: projectProp.name })
+        .then(setFullProject)
+        .catch(() => setFullProject(null));
+    } else {
+      setFullProject(null);
+    }
+  }, [visible, harborId, projectProp.projectId, projectProp.name]);
+
+  const currentUserRole = fullProject?.currentUserRole ?? projectProp.currentUserRole ?? currentUserRoleProp;
+
+  const project = projectProp;
+
+  useEffect(() => {
+    if (visible && cloudId) {
+      setHarborApiCloudId(cloudId);
+    }
+    return () => {
+      if (visible) {
+        setHarborApiCloudId(undefined);
+      }
+    };
+  }, [visible, cloudId]);
 
   /**
    * 格式化时间
@@ -95,7 +126,7 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
             </Space>
           </Descriptions.Item>
           <Descriptions.Item label="项目">
-            <Tag color="blue">{projectName}</Tag>
+            <Tag color="blue">{project.name}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="制品数量">
             {repository.artifactCount || 0}
@@ -149,8 +180,9 @@ const RepositoryDetailDrawer: React.FC<Props> = ({
               <React.Suspense fallback={<Spin />}>
                 <ArtifactsSection 
                   harborId={harborId} 
-                  projectName={projectName}
+                  project={project}
                   repositoryName={repository.name}
+                  currentUserRole={currentUserRole}
                 />
               </React.Suspense>
             ),

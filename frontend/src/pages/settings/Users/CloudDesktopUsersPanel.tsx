@@ -12,7 +12,7 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../components/ResourceActionsDropdown';
 import { useCloudDesktopPermission } from '../../../hooks/useCloudDesktopPermission';
 import {
@@ -24,7 +24,12 @@ import {
   type CloudDesktopUserDto,
 } from '../../../services/guacamoleApi';
 
-const CloudDesktopUsersPanel: React.FC = () => {
+type CloudDesktopUsersPanelProps = {
+  /** 列表总数变化时回调（供 Tab 统计） */
+  onTotalChange?: (total: number) => void;
+};
+
+const CloudDesktopUsersPanel: React.FC<CloudDesktopUsersPanelProps> = ({ onTotalChange }) => {
   const { message } = App.useApp();
   const { canWrite } = useCloudDesktopPermission();
 
@@ -51,6 +56,10 @@ const CloudDesktopUsersPanel: React.FC = () => {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    onTotalChange?.(rows.length);
+  }, [rows.length, onTotalChange]);
 
   const filtered = useMemo(() => {
     const q = kw.trim().toLowerCase();
@@ -198,10 +207,6 @@ const CloudDesktopUsersPanel: React.FC = () => {
 
   return (
     <div>
-      <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-        云桌面用户<strong>不能登录 Tower</strong>，不参与 RBAC；使用下方云桌面网关配置的<strong>统一密码</strong>登录
-        云桌面网关门户，仅可访问已分配的虚拟机连接。
-      </Typography.Paragraph>
       <div className="page-toolbar" style={{ marginBottom: 12 }}>
         <Input
           allowClear
@@ -215,7 +220,6 @@ const CloudDesktopUsersPanel: React.FC = () => {
           {canWrite ? (
             <Button
               type="primary"
-              icon={<PlusOutlined />}
               onClick={() => {
                 setEditing(null);
                 form.resetFields();

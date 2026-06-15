@@ -29,6 +29,10 @@ import {
   runHarvesterSectionRefresh,
   type HarvesterSectionOnRefresh,
 } from '../lib/kubeOvnSectionRefresh';
+import {
+  confirmHighRiskDelete,
+  DELETE_NETWORK_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import { compactActionMenuItems, writeMenuItemIf } from '../../../../../../utils/rbacUi';
 
 /**
@@ -353,42 +357,37 @@ const VpcSubnetsSection: React.FC<Props> = ({
       }
 
       const blockedByVm = usingVms.length > 0;
-      const blockedByNat = !!natBlockMsg;
-      const blocked = blockedByVm || blockedByNat;
 
-      Modal.confirm({
-        title: `删除子网: ${displayName}`,
-        content: (
-          <>
-            <div>{`确定要删除子网 ${displayName} 吗？此操作不可恢复。`}</div>
-            {blockedByVm && (
-              <div style={{ color: '#ff4d4f', marginTop: 8 }}>
-                {`无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等' : ''}`}
-              </div>
-            )}
-            {natBlockMsg && (
-              <div style={{ color: '#ff4d4f', marginTop: blockedByVm ? 8 : 8 }}>
-                {natBlockMsg}
-              </div>
-            )}
-          </>
-        ),
-        okType: 'danger',
-        okButtonProps: { disabled: blocked },
-        onOk: blocked
-          ? undefined
-          : async () => {
-              try {
-                await deleteKubeOvnSubnet(cloudId!, name);
-                message.success('删除成功');
-                runHarvesterSectionRefresh(onRefresh, { force: true });
-                runHarvesterSectionRefresh(onRefreshNads, { force: true, silent: true });
-              } catch (e: any) {
-                const msg = e?.response?.data || e?.message || '未知错误';
-                message.error(`删除失败: ${typeof msg === 'object' ? (msg.message || JSON.stringify(msg)) : msg}`);
-              }
-            },
-      });
+      void confirmHighRiskDelete({
+        resourceLabel: '子网',
+        name: displayName,
+        description: `确定要删除子网 ${displayName} 吗？此操作不可恢复。`,
+        riskItems: DELETE_NETWORK_RISK_ITEMS,
+        precheck: async () => {
+          if (blockedByVm) {
+            return {
+              ok: false,
+              error: `无法删除子网，此子网正在被虚拟机使用 ${usingVms.slice(0, 5).join('、')}${usingVms.length > 5 ? ' 等' : ''}`,
+            };
+          }
+          if (natBlockMsg) {
+            return { ok: false, error: natBlockMsg };
+          }
+        },
+        onConfirm: async () => {
+          try {
+            await deleteKubeOvnSubnet(cloudId!, name);
+            message.success('删除成功');
+            runHarvesterSectionRefresh(onRefresh, { force: true });
+            runHarvesterSectionRefresh(onRefreshNads, { force: true, silent: true });
+          } catch (e: any) {
+            const msg = e?.response?.data || e?.message || '未知错误';
+            message.error(
+              `删除失败: ${typeof msg === 'object' ? msg.message || JSON.stringify(msg) : msg}`,
+            );
+          }
+        },
+      }).catch(() => {});
     },
     [cloudId, canWriteVpcSubnet, onRefresh, onRefreshNads],
   );

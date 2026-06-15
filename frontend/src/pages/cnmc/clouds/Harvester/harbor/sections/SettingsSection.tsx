@@ -1,15 +1,14 @@
 /**
  * Harbor 设置 Section
  * 
- * 管理 Harbor 实例的连接配置和凭证同步，包括：
+ * 管理 Harbor 实例的连接配置，包括：
  * - 基本信息编辑
  * - 连接配置（URL、用户名、密码）
- * - 凭证同步设置
  * - Docker 配置说明
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Form, Input, Switch, Button, Space, Alert, Descriptions, Tag, Modal, Select, App, Divider, Tooltip, Badge, Collapse, Typography } from 'antd';
+import { Card, Form, Input, Switch, Button, Space, Alert, Descriptions, Tag, App, Divider, Tooltip, Badge, Collapse, Typography } from 'antd';
 import { 
   SaveOutlined, 
   SyncOutlined,
@@ -25,22 +24,22 @@ import {
   CloudServerOutlined,
   CodeOutlined,
 } from '@ant-design/icons';
-import type { HarborRegistry, HarborRegistryForm, HarborSyncSecretParams } from '../types';
-import { updateHarborRegistry, syncHarborSecret, testHarborConnection } from '../shared/harborApi';
+import type { HarborRegistry, HarborRegistryForm } from '../types';
+import { updateHarborRegistry, testHarborConnection } from '../shared/harborApi';
 
 const { Panel } = Collapse;
 const { Text, Paragraph } = Typography;
 
 interface Props {
   harbor: HarborRegistry;
+  cloudId?: string;
   onRefresh: () => void;
 }
 
-const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
+const SettingsSection: React.FC<Props> = ({ harbor, cloudId, onRefresh }) => {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [connectionMessage, setConnectionMessage] = useState('');
@@ -52,20 +51,34 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
     setSaving(true);
     try {
       // 如果密码为空，则不传递密码字段
-      const dataToUpdate = { ...values };
+      const dataToUpdate: Partial<HarborRegistryForm> & { cloudId?: string } = { ...values };
       if (!dataToUpdate.password) {
-        delete (dataToUpdate as any).password;
+        delete dataToUpdate.password;
+      }
+      if (cloudId) {
+        dataToUpdate.cloudId = cloudId;
       }
       
-      await updateHarborRegistry(harbor.id, dataToUpdate);
-      message.success('配置已保存');
+      const result = await updateHarborRegistry(harbor.id, dataToUpdate);
+      const secretSync = (result as { secretSync?: { updated?: number; failed?: number } })?.secretSync;
+      const syncCount = secretSync?.updated ?? 0;
+      const syncFailed = secretSync?.failed ?? 0;
+      if (syncCount > 0) {
+        message.success(`配置已保存，已在本资源池自动更新 ${syncCount} 个 K8s 拉取 Secret`);
+      } else if (syncFailed > 0) {
+        message.warning(`配置已保存，但 ${syncFailed} 个 K8s 拉取 Secret 更新失败，请查看后端日志`);
+      } else if (dataToUpdate.password) {
+        message.warning('配置已保存，未找到可更新的 K8s 拉取 Secret（需先在命名空间中创建过 Harbor 拉取凭证）');
+      } else {
+        message.success('配置已保存');
+      }
       onRefresh();
     } catch (e: any) {
       message.error(e?.message || '保存配置失败');
     } finally {
       setSaving(false);
     }
-  }, [harbor.id, message, onRefresh]);
+  }, [harbor.id, cloudId, message, onRefresh]);
 
   /**
    * 测试连接
@@ -94,74 +107,6 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
     } finally {
       setTesting(false);
     }
-  }, [harbor.id, message]);
-
-  /**
-   * 同步凭证到 K8s
-   */
-  const handleSyncSecret = useCallback(() => {
-    let syncParams: HarborSyncSecretParams = {
-      cloudId: '',
-      namespace: 'default',
-    };
-
-    Modal.confirm({
-      title: '同步凭证到 Kubernetes',
-      icon: <SyncOutlined />,
-      width: 500,
-      content: (
-        <div style={{ marginTop: 16 }}>
-          <Form layout="vertical">
-            <Form.Item 
-              label="目标命名空间" 
-              required
-              help="将在此命名空间创建 docker-registry 类型的 Secret"
-            >
-              <Select
-                defaultValue="default"
-                onChange={(val) => { syncParams.namespace = val; }}
-                options={[
-                  { label: 'default', value: 'default' },
-                  { label: 'kube-system', value: 'kube-system' },
-                ]}
-                style={{ width: '100%' }}
-              />
-            </Form.Item>
-            <Form.Item label="Secret 名称（可选）">
-              <Input 
-                placeholder="默认自动生成: harbor-registry"
-                onChange={(e) => { syncParams.secretName = e.target.value; }}
-              />
-            </Form.Item>
-          </Form>
-          <Alert
-            type="info"
-            showIcon
-            message="凭证同步说明"
-            description="将创建或更新 docker-registry 类型的 Secret，使工作负载可以拉取 Harbor 中的私有镜像。"
-          />
-        </div>
-      ),
-      onOk: async () => {
-        // 注意：实际使用时需要传入正确的 cloudId
-        if (!syncParams.cloudId) {
-          message.warning('请从资源池详情页执行凭证同步，或手动指定 cloudId');
-          return;
-        }
-        
-        setSyncing(true);
-        try {
-          const result = await syncHarborSecret(harbor.id, syncParams);
-          message.success(
-            `凭证已同步！Secret: ${result.secretName} (${result.namespace})${result.created ? ' [新建]' : ' [更新]'}`
-          );
-        } catch (e: any) {
-          message.error(e?.message || '同步凭证失败');
-        } finally {
-          setSyncing(false);
-        }
-      },
-    });
   }, [harbor.id, message]);
 
   /**
@@ -365,41 +310,6 @@ const SettingsSection: React.FC<Props> = ({ harbor, onRefresh }) => {
             description="当前使用 HTTPS 安全连接。如果 Harbor 使用自签名证书，请确保系统信任该证书，或勾选「跳过 TLS 验证」。"
           />
         )}
-      </Card>
-
-      {/* 凭证同步 */}
-      <Card 
-        title={
-          <Space>
-            <SyncOutlined />
-            <span>凭证同步</span>
-          </Space>
-        } 
-        size="small" 
-        style={{ marginBottom: 16 }}
-      >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="凭证同步说明"
-          description={
-            <div>
-              <p>将 Harbor 凭证同步到 Kubernetes 集群，创建 docker-registry 类型的 Secret。</p>
-              <p>同步后，工作负载可以通过在 imagePullSecrets 中引用该 Secret 来拉取私有镜像。</p>
-            </div>
-          }
-        />
-        <Space>
-          <Button 
-            type="primary"
-            icon={<SyncOutlined />} 
-            onClick={handleSyncSecret}
-            loading={syncing}
-          >
-            同步凭证到 Kubernetes
-          </Button>
-        </Space>
       </Card>
 
       {/* Docker 配置 */}

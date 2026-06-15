@@ -1,34 +1,9 @@
 import { DataSource } from 'typeorm';
-import fs from 'fs';
 import path from 'path';
 import { logger } from '../utils/logger';
+import { resolveBackendRoot } from '../utils/resolveBackendRoot';
 
 const dbLog = logger.child('Database');
-
-/**
- * 解析 backend 包根目录（与 package.json 中 name=compute-tower-backend 同级），
- * 避免用 process.cwd() 时从仓库根或其它目录启动导致写到「另一个」data.sqlite。
- */
-function resolveBackendRoot(): string {
-  let dir = __dirname;
-  for (let i = 0; i < 12; i++) {
-    const pkgPath = path.join(dir, 'package.json');
-    if (fs.existsSync(pkgPath)) {
-      try {
-        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { name?: string };
-        if (pkg.name === 'compute-tower-backend') {
-          return dir;
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return process.cwd();
-}
 
 const envDb = process.env.DB_PATH?.trim();
 // SQLite：显式 DB_PATH 时沿用（绝对路径直接用；相对路径相对当前工作目录）；否则用 backend 包目录下 data.sqlite
@@ -53,7 +28,8 @@ export const AppDataSource = new DataSource({
   // - 启用 WAL (Write-Ahead Logging) 模式，提升并发读写性能
   // - WAL 模式允许多个读取器和一个写入器同时工作，减少锁定冲突
   extra: {
-    busyTimeout: 5000, // 5 秒超时
+    // 后台 Cloud/Harbor 同步写库时，登录等读请求需等待锁释放；开发环境同步量大，5s 易超时
+    busyTimeout: 30000,
   },
   // 同时支持 ts-node 运行和编译后的 js 文件
   entities: [path.join(__dirname, '..', 'entities', '**', '*.{ts,js}')],
@@ -72,6 +48,7 @@ export async function enableWalMode() {
       return;
     }
     const result = await AppDataSource.query('PRAGMA journal_mode = WAL;');
+    await AppDataSource.query('PRAGMA busy_timeout = 30000;');
     dbLog.info('WAL 模式已启用:', result);
   } catch (error) {
     dbLog.warn('启用 WAL 模式失败:', error instanceof Error ? error.message : String(error));
@@ -336,6 +313,13 @@ export async function ensureImageUploadTaskTableColumns() {
   };
   await addCol('createdImageName', '"createdImageName" text');
   await addCol('createdImageNamespace', '"createdImageNamespace" text');
+  await addCol('fileMd5', '"fileMd5" text');
+  await addCol('storedFileMd5', '"storedFileMd5" text');
+  await addCol('chunkSize', '"chunkSize" integer');
+  await addCol('totalChunks', '"totalChunks" integer');
+  await addCol('receivedChunksJson', '"receivedChunksJson" text');
+  await addCol('localFileRelPath', '"localFileRelPath" text');
+  await addCol('virtualSizeBytes', '"virtualSizeBytes" integer');
 }
 
 export async function ensureImageUploadTaskTable() {
@@ -404,6 +388,63 @@ export async function ensureImageUploadTaskTable() {
   }
 }
 
+export async function ensureImageDownloadTaskTable() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 image_download_tasks 表检查');
+      return;
+    }
+
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='image_download_tasks'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 image_download_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "image_download_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" text NOT NULL,
+          "namespace" text NOT NULL,
+          "imageName" text NOT NULL,
+          "displayName" text,
+          "filename" text,
+          "fileSize" integer,
+          "bytesDownloaded" integer NOT NULL DEFAULT (0),
+          "localFileRelPath" text,
+          "taskStatus" text NOT NULL DEFAULT ('pending'),
+          "progress" integer NOT NULL DEFAULT (0),
+          "errorMessage" text,
+          "createdBy" text NOT NULL,
+          "expiresAt" datetime,
+          "startedAt" datetime,
+          "finishedAt" datetime,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_download_tasks_cloud_user_created"
+        ON "image_download_tasks" ("cloudId", "createdBy", "createdAt")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_download_tasks_status_updated"
+        ON "image_download_tasks" ("taskStatus", "updatedAt")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_image_download_tasks_createdBy"
+        ON "image_download_tasks" ("createdBy")
+      `);
+      dbLog.info('image_download_tasks 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error(
+      'image_download_tasks 表初始化失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}
+
 /**
  * users 表增加 passwordChangedAt（管理员密码策略 / 有效期用）
  */
@@ -439,7 +480,7 @@ export async function ensureDatacenterTopologyTables() {
           "sourceKind" text NOT NULL,
           "refKey" text,
           "customLabel" text,
-          "slotOrder" integer NOT NULL DEFAULT 0,
+          "slotOrder" text NOT NULL DEFAULT '0',
           "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
           "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
         )
@@ -451,6 +492,189 @@ export async function ensureDatacenterTopologyTables() {
     }
   } catch (error) {
     dbLog.error('机房拓扑表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+/** Cloudmap 集群故障域（Tower 本地 + 节点 label 同步） */
+export async function ensureFailureDomainTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过故障域表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_failure_domains'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_failure_domains / cloud_failure_domain_nodes 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_failure_domains" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" text NOT NULL,
+          "domainType" text NOT NULL DEFAULT 'rack',
+          "description" text,
+          "sortOrder" integer NOT NULL DEFAULT 0,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_failure_domains_cloudId_name"
+        ON "cloud_failure_domains" ("cloudId", "name")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_failure_domains_cloudId"
+        ON "cloud_failure_domains" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_failure_domain_nodes" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "failureDomainId" varchar NOT NULL,
+          "nodeName" text NOT NULL,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_failure_domain_nodes_cloudId_nodeName"
+        ON "cloud_failure_domain_nodes" ("cloudId", "nodeName")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_failure_domain_nodes_domainId"
+        ON "cloud_failure_domain_nodes" ("failureDomainId")
+      `);
+      dbLog.info('故障域表创建成功');
+    }
+  } catch (error) {
+    dbLog.error('故障域表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+/** Cloudmap 虚拟机部署集（Tower 本地，供 Pod 亲和/反亲和引用） */
+export async function ensureDeploymentSetTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过部署集表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_deployment_sets'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_deployment_sets 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_deployment_sets" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" text NOT NULL,
+          "namespace" text NOT NULL,
+          "labels" text,
+          "description" text,
+          "sortOrder" integer NOT NULL DEFAULT 0,
+          "schedulingPolicy" text NOT NULL DEFAULT 'none',
+          "schedulingStrength" text NOT NULL DEFAULT 'preferred',
+          "topologyKey" text NOT NULL DEFAULT 'kubernetes.io/hostname',
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE UNIQUE INDEX "UQ_cloud_deployment_sets_cloudId_name"
+        ON "cloud_deployment_sets" ("cloudId", "name")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_deployment_sets_cloudId"
+        ON "cloud_deployment_sets" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_deployment_sets_cloudId_namespace"
+        ON "cloud_deployment_sets" ("cloudId", "namespace")
+      `);
+      dbLog.info('部署集表创建成功');
+    }
+    await ensureDeploymentSetSchedulingColumns();
+  } catch (error) {
+    dbLog.error('部署集表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function ensureDeploymentSetSchedulingColumns() {
+  const cols: Array<{ name?: string }> = await AppDataSource.query(
+    `PRAGMA table_info("cloud_deployment_sets")`,
+  );
+  const names = new Set(cols.map((c) => String(c.name || '')));
+  if (!names.has('schedulingPolicy')) {
+    await AppDataSource.query(
+      `ALTER TABLE "cloud_deployment_sets" ADD COLUMN "schedulingPolicy" text NOT NULL DEFAULT 'none'`,
+    );
+  }
+  if (!names.has('schedulingStrength')) {
+    await AppDataSource.query(
+      `ALTER TABLE "cloud_deployment_sets" ADD COLUMN "schedulingStrength" text NOT NULL DEFAULT 'preferred'`,
+    );
+  }
+  if (!names.has('topologyKey')) {
+    await AppDataSource.query(
+      `ALTER TABLE "cloud_deployment_sets" ADD COLUMN "topologyKey" text NOT NULL DEFAULT 'kubernetes.io/hostname'`,
+    );
+  }
+}
+
+/** Cloudmap 存储 DRS（SDRS）策略与任务 */
+export async function ensureSdrsTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 SDRS 表检查');
+      return;
+    }
+    const exists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='cloud_sdrs_policy'`,
+    );
+    if (exists.length === 0) {
+      dbLog.info('创建 cloud_sdrs_policy / cloud_sdrs_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_sdrs_policy" (
+          "cloudId" varchar PRIMARY KEY NOT NULL,
+          "enabled" integer NOT NULL DEFAULT 0,
+          "mode" text NOT NULL DEFAULT 'manual',
+          "capacityThresholdPct" integer NOT NULL DEFAULT 85,
+          "latencyThresholdMs" integer NOT NULL DEFAULT 20,
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE TABLE "cloud_sdrs_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "vmNamespace" text NOT NULL,
+          "vmName" text NOT NULL,
+          "pvcName" text NOT NULL,
+          "srcPool" text NOT NULL,
+          "srcImage" text NOT NULL,
+          "dstPool" text NOT NULL,
+          "dstImage" text NOT NULL,
+          "reason" text NOT NULL DEFAULT 'manual',
+          "phase" text NOT NULL DEFAULT 'pending',
+          "message" text,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "finishedAt" datetime
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_sdrs_tasks_cloudId" ON "cloud_sdrs_tasks" ("cloudId")
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_cloud_sdrs_tasks_createdAt" ON "cloud_sdrs_tasks" ("createdAt")
+      `);
+      dbLog.info('SDRS 表创建成功');
+    }
+  } catch (error) {
+    dbLog.error('SDRS 表初始化失败:', error instanceof Error ? error.message : String(error));
     throw error;
   }
 }
@@ -605,6 +829,105 @@ export async function ensureHarborTables() {
 }
 
 /** 云桌面网关：Guacamole 实例与 Connection 映射表 */
+export async function ensureLocalRegistryTables() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过本地仓库表检查');
+      return;
+    }
+
+    const registryExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='local_registries'`,
+    );
+    if (!Array.isArray(registryExists) || registryExists.length === 0) {
+      dbLog.info('创建 local_registries 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "local_registries" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "cloudId" varchar NOT NULL,
+          "name" varchar NOT NULL,
+          "server" varchar NOT NULL,
+          "namespace" varchar NOT NULL,
+          "nodePort" integer NOT NULL DEFAULT 30500,
+          "storageSize" varchar,
+          "authEnabled" boolean NOT NULL DEFAULT 0,
+          "username" varchar,
+          "password" varchar,
+          "status" varchar NOT NULL DEFAULT 'deploying',
+          "deploymentName" varchar,
+          "serviceName" varchar,
+          "pvcName" varchar,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_local_registries_cloudId" ON "local_registries" ("cloudId")
+      `);
+      dbLog.info('local_registries 表创建成功');
+    }
+
+    const taskExists = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='registry_image_upload_tasks'`,
+    );
+    if (!Array.isArray(taskExists) || taskExists.length === 0) {
+      dbLog.info('创建 registry_image_upload_tasks 表...');
+      await AppDataSource.query(`
+        CREATE TABLE "registry_image_upload_tasks" (
+          "id" varchar PRIMARY KEY NOT NULL,
+          "registryId" varchar NOT NULL,
+          "fileName" varchar NOT NULL,
+          "targetRepo" varchar,
+          "targetTag" varchar,
+          "status" varchar NOT NULL DEFAULT 'pending',
+          "totalLayers" integer NOT NULL DEFAULT 0,
+          "uploadedLayers" integer NOT NULL DEFAULT 0,
+          "currentLayer" varchar,
+          "error" text,
+          "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+          "updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await AppDataSource.query(`
+        CREATE INDEX "IDX_registry_image_upload_tasks_registryId" ON "registry_image_upload_tasks" ("registryId")
+      `);
+      dbLog.info('registry_image_upload_tasks 表创建成功');
+    }
+
+    await ensureRegistryImageUploadTaskColumns();
+  } catch (error) {
+    dbLog.error('本地仓库表初始化失败:', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+async function ensureRegistryImageUploadTaskColumns() {
+  const columns: Array<{ name: string; ddl: string }> = [
+    { name: 'cloudId', ddl: '"cloudId" varchar' },
+    { name: 'targetServer', ddl: '"targetServer" varchar' },
+    { name: 'registryType', ddl: '"registryType" varchar NOT NULL DEFAULT \'local-registry\'' },
+    { name: 'harborId', ddl: '"harborId" varchar' },
+    { name: 'projectName', ddl: '"projectName" varchar' },
+  ];
+  for (const col of columns) {
+    try {
+      await AppDataSource.query(
+        `ALTER TABLE "registry_image_upload_tasks" ADD COLUMN ${col.ddl}`,
+      );
+    } catch {
+      /* 列已存在 */
+    }
+  }
+  try {
+    await AppDataSource.query(`
+      CREATE INDEX IF NOT EXISTS "IDX_registry_image_upload_tasks_cloudId_targetServer"
+      ON "registry_image_upload_tasks" ("cloudId", "targetServer")
+    `);
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function ensureGuacamoleTables() {
   try {
     if (!AppDataSource.isInitialized) {

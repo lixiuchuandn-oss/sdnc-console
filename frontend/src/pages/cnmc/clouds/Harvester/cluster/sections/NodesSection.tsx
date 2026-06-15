@@ -3,14 +3,21 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 
-import { Button, Input, Select, Space, Table, message } from 'antd';
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { Button, Dropdown, Input, Select, Space, Table, message } from 'antd';
+import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 
 import PageDetailSection from 'components/PageDetailSection';
 import TableColumnSettingsButton from 'components/TableColumnSettingsButton';
+import WriteGuard from 'components/WriteGuard';
 import { useTableColumnSettings } from 'hooks/useTableColumnSettings';
 import PhysicalNodeDetailDrawer from '../drawers/PhysicalNodeDetailDrawer';
+import NodeMaintenanceEnableModal from '../modals/NodeMaintenanceEnableModal';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
+import { disableNodeMaintenance } from 'services/harvester/nodeMaintenance';
+import { shutdownAllHarvesterNodesViaHms } from 'services/harvester/nodeHmsShutdown';
+import { getApiErrorMessage } from 'services/api';
+import { nodeDisplayName } from '../lib/nodeMaintenanceStatus';
 import { useNodesResourceBundle } from '../hooks/useNodesResourceBundle';
 import type { NodesResourceMaps } from '../components/NodesSectionCells';
 import type { NodeRow } from '../lib/nodesSectionUtils';
@@ -25,6 +32,12 @@ import {
   runHarvesterSectionRefresh,
 } from '../lib/clusterSectionRefresh';
 import { buildNodesTableColumns } from '../lib/nodesTableColumns';
+import { canWriteClusterNodes } from '../../../../../../constants/computeClusterPermissions';
+import {
+  confirmHighRiskOperation,
+  NODE_MAINTENANCE_RISK_ITEMS,
+  NODE_SHUTDOWN_ALL_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 
 const COLUMN_SETTINGS_KEY = 'harvester_nodes_table';
 
@@ -34,9 +47,17 @@ export type Props = {
   onRefresh?: (force?: boolean) => void;
   cloudId?: string;
   isTenant?: boolean;
+  checkPerm?: (act: string) => boolean;
 };
 
-const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isTenant = false }) => {
+const NodesSection: React.FC<Props> = ({
+  nodes,
+  loading,
+  onRefresh,
+  cloudId,
+  isTenant = false,
+  checkPerm,
+}) => {
   const [keyword, setKeyword] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [readyFilter, setReadyFilter] = useState('');
@@ -47,11 +68,25 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
   const [yamlDrawerOpen, setYamlDrawerOpen] = useState(false);
   const [yamlViewLink, setYamlViewLink] = useState<string | undefined>();
 
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
+  const [maintenanceNode, setMaintenanceNode] = useState<NodeRow | null>(null);
+  const [shutdownAllLoading, setShutdownAllLoading] = useState(false);
+
+  const canWrite = checkPerm ? canWriteClusterNodes(checkPerm) : false;
+
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading, reload } = useNodesResourceBundle({
     cloudId,
     nodesLoading: loading,
     nodesLength: nodes?.length ?? 0,
   });
+
+  const handleToolbarRefresh = useMemo(
+    () =>
+      createClusterToolbarRefresh(onRefresh, {
+        before: () => reload(true),
+      }),
+    [onRefresh, reload],
+  );
 
   // 指标（CPU/内存等）首批就绪后，后台刷新/轮询保留旧值，避免单元格反复闪 Spin
   const metricsReady = Object.keys(metricsMap).length > 0;
@@ -87,6 +122,79 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     setNodeDetailOpen(true);
   }, []);
 
+  const refreshAfterMaintenance = useCallback(() => {
+    void runHarvesterSectionRefresh(onRefresh, { force: true });
+    message.success('操作成功');
+  }, [onRefresh]);
+
+  const handleEnableMaintenance = useCallback((record: NodeRow) => {
+    if (!cloudId) {
+      message.warning('缺少云实例上下文');
+      return;
+    }
+    setMaintenanceNode(record);
+    setMaintenanceOpen(true);
+  }, [cloudId]);
+
+  const handleShutdownAllNodes = useCallback(() => {
+    if (!cloudId) {
+      message.warning('缺少云实例上下文');
+      return;
+    }
+    const count = nodes?.length ?? 0;
+    void confirmHighRiskOperation({
+      title: '一键关机',
+      description: `确认对全部计算节点（当前列表 ${count} 个）执行一键关机？`,
+      riskItems: NODE_SHUTDOWN_ALL_RISK_ITEMS,
+      dangerRiskItemIndices: [1],
+      operationSummary: '确认一键关机全部计算节点',
+      confirmText: '确认关机',
+      requireAdminPassword: true,
+      impactAckLabel: '我已阅读并理解上述风险',
+      onConfirm: async ({ adminPassword }) => {
+        setShutdownAllLoading(true);
+        try {
+          await shutdownAllHarvesterNodesViaHms(cloudId, adminPassword ?? '');
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
+          reload(true);
+          message.success('全部节点关机指令已下发');
+        } catch (e) {
+          message.error(getApiErrorMessage(e, '一键关机失败'));
+          throw e;
+        } finally {
+          setShutdownAllLoading(false);
+        }
+      },
+    }).catch(() => {});
+  }, [cloudId, nodes, onRefresh, reload]);
+
+  const handleDisableMaintenance = useCallback(
+    (record: NodeRow) => {
+      if (!cloudId) {
+        message.warning('缺少云实例上下文');
+        return;
+      }
+      const name = nodeDisplayName(record);
+      void confirmHighRiskOperation({
+        title: '退出维护模式',
+        description: `确认将节点「${name}」退出维护模式？虚拟机将按策略恢复调度。`,
+        riskItems: NODE_MAINTENANCE_RISK_ITEMS,
+        operationSummary: `确认将节点「${name}」退出维护模式`,
+        confirmText: '退出维护模式',
+        onConfirm: async () => {
+          try {
+            await disableNodeMaintenance(cloudId, name);
+            refreshAfterMaintenance();
+          } catch (e) {
+            message.error(getApiErrorMessage(e, '退出维护模式失败'));
+            throw e;
+          }
+        },
+      }).catch(() => {});
+    },
+    [cloudId, refreshAfterMaintenance],
+  );
+
   const roleOptions = useMemo(() => buildNodeRoleFilterOptions(nodes), [nodes]);
 
   const filtered = useMemo(
@@ -98,11 +206,22 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     () =>
       buildNodesTableColumns({
         isTenant,
+        canWrite,
         resourceMaps,
         onOpenYaml: handleOpenYaml,
         onOpenNodeDetail: handleOpenNodeDetail,
+        onEnableMaintenance: handleEnableMaintenance,
+        onDisableMaintenance: handleDisableMaintenance,
       }),
-    [handleOpenNodeDetail, handleOpenYaml, isTenant, resourceMaps],
+    [
+      canWrite,
+      handleDisableMaintenance,
+      handleEnableMaintenance,
+      handleOpenNodeDetail,
+      handleOpenYaml,
+      isTenant,
+      resourceMaps,
+    ],
   );
 
   const { displayColumns: tableColumns } = useTableColumnSettings(allColumns, COLUMN_SETTINGS_KEY);
@@ -113,21 +232,35 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
     setReadyFilter('');
   }, []);
 
-  const handleToolbarRefresh = useMemo(
-    () => createClusterToolbarRefresh(onRefresh, { before: () => reload(true) }),
-    [onRefresh, reload],
-  );
-
   // 表格遮罩只反映「节点列表」加载；指标(bundle)加载只驱动单元格内 Spin，
   // 避免整表遮罩与单元格 Spin 叠成两层，也避免指标轮询时整表被遮罩盖住「刷不出来」
   const listLoading = loading;
   const tableLoading = loading || resourceLoading;
 
+  const moreMenuItems: MenuProps['items'] = useMemo(
+    () => [
+      {
+        key: 'shutdownAll',
+        label: '一键关机（全部节点）',
+        danger: true,
+        disabled: shutdownAllLoading,
+      },
+    ],
+    [shutdownAllLoading],
+  );
+
+  const onMoreMenuClick = useCallback<NonNullable<MenuProps['onClick']>>(
+    ({ key }) => {
+      if (key === 'shutdownAll') handleShutdownAllNodes();
+    },
+    [handleShutdownAllNodes],
+  );
+
   return (
     <PageDetailSection
-      asCard={false}
-      autoStyleInputs={false}
-      toolbarLeft={(
+        asCard={false}
+        autoStyleInputs={false}
+        toolbarLeft={(
         <Space wrap size={[8, 8]}>
           <Input
             allowClear
@@ -163,6 +296,11 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
       )}
       toolbarRight={(
         <div className="toolbar-actions">
+          <WriteGuard canWrite={canWrite}>
+            <Dropdown trigger={['click']} menu={{ items: moreMenuItems, onClick: onMoreMenuClick }}>
+              <Button icon={<EllipsisOutlined />} loading={shutdownAllLoading} />
+            </Dropdown>
+          </WriteGuard>
           <TableColumnSettingsButton allColumns={allColumns} settingsKey={COLUMN_SETTINGS_KEY} />
           <Button
             icon={<ReloadOutlined />}
@@ -173,8 +311,8 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
         </div>
       )}
       refreshLoading={tableLoading}
-    >
-      <Table<NodeRow>
+      >
+        <Table<NodeRow>
         key={`${keyword}|${roleFilter}|${readyFilter}`}
         className="std-table"
         scroll={{ x: true }}
@@ -208,6 +346,18 @@ const NodesSection: React.FC<Props> = ({ nodes, loading, onRefresh, cloudId, isT
           cloudId={cloudId}
           viewLink={yamlViewLink}
           title="节点 YAML"
+        />
+      ) : null}
+      {cloudId ? (
+        <NodeMaintenanceEnableModal
+          open={maintenanceOpen}
+          node={maintenanceNode}
+          cloudId={cloudId}
+          onClose={() => {
+            setMaintenanceOpen(false);
+            setMaintenanceNode(null);
+          }}
+          onSuccess={refreshAfterMaintenance}
         />
       ) : null}
     </PageDetailSection>

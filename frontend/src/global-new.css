@@ -96,6 +96,162 @@ html, body, #root {
 }
 
 /* ==========================================================================
+   存储配置 · Operate Tab / 部署向导 表单控件宽度
+   列内 Input / Select / InputNumber 等随栅格列收缩，max-width 见 OPERATE_TAB_FIELD_MAX_WIDTH
+   节点卡片标题 Select 等使用 .harvester-addon-operate-field-fluid 铺满容器
+   ========================================================================== */
+
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-affix-wrapper:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-affix-wrapper:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-input-number-group-wrapper:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-select:not(.harvester-addon-operate-field-fluid),
+.harvester-addon-operate-form .ant-form-item-control-input-content > .ant-picker:not(.harvester-addon-operate-field-fluid) {
+  width: 100%;
+  max-width: var(--harvester-addon-operate-field-max-width, 320px);
+}
+
+.harvester-addon-operate-form .ant-form-item-control-input-content > .harvester-addon-operate-field-fluid {
+  width: 100%;
+  max-width: none;
+}
+
+/* ==========================================================================
+   存储配置 · 表单分区 / 向导节奏 / 高级选项折叠
+   ========================================================================== */
+
+.harvester-addon-form-section {
+  margin-bottom: 24px;
+}
+
+.harvester-addon-form-section:last-child {
+  margin-bottom: 0;
+}
+
+.harvester-addon-wizard-stack > .harvester-addon-form-section,
+.harvester-addon-wizard-stack > .harvester-addon-advanced-collapse {
+  margin-bottom: 0;
+}
+
+.harvester-addon-form-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e6eb;
+}
+
+.harvester-addon-form-section-title.ant-typography {
+  margin: 0 !important;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.harvester-addon-form-section-desc.ant-typography {
+  margin: 0 0 16px !important;
+  max-width: 720px;
+}
+
+.harvester-addon-wizard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+
+.harvester-addon-wizard-footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e6eb;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+/* 向导 Card 内：区块间距由 stack / 底栏承担，避免与 FormSection margin 叠加 */
+.harvester-addon-wizard-card .harvester-addon-form-section {
+  margin-bottom: 0;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse {
+  margin: 0;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse > .ant-collapse-item {
+  border-bottom: none;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse > .ant-collapse-item > .ant-collapse-header {
+  padding: 12px 16px !important;
+  background: #f2f3f5 !important;
+  border-bottom: 1px solid transparent;
+  align-items: center !important;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse
+  > .ant-collapse-item.ant-collapse-item-active
+  > .ant-collapse-header {
+  border-bottom-color: #e5e6eb;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse
+  > .ant-collapse-item:not(.ant-collapse-item-active)
+  > .ant-collapse-header {
+  border-radius: 8px;
+}
+
+.harvester-addon-advanced-collapse-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.harvester-addon-advanced-collapse-label .ant-typography-strong {
+  font-size: 14px;
+}
+
+.harvester-addon-advanced-collapse-label .ant-typography-secondary {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.harvester-addon-advanced-collapse-desc.ant-typography {
+  margin: 0 0 16px !important;
+  max-width: 720px;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse
+  > .ant-collapse-item
+  > .ant-collapse-content
+  > .ant-collapse-content-box {
+  padding: 16px 20px 16px !important;
+  background: #fff;
+}
+
+.harvester-addon-advanced-collapse.ant-collapse .ant-collapse-expand-icon {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.harvester-addon-advanced-collapse.ant-collapse .ant-form-item:last-child {
+  margin-bottom: 0;
+}
+
+.harvester-addon-wizard-stack .harvester-addon-advanced-collapse .ant-row:last-child .ant-form-item {
+  margin-bottom: 0;
+}
+
+/* ==========================================================================
    Harvester / Clouds — 自定义详情抽屉标题主图标外框
    ========================================================================== */
 
@@ -120,60 +276,23 @@ html, body, #root {
    Animations (动画定义)
    ========================================================================== */
 
-@keyframes breath {
-  from { box-shadow: 0 0 4px 1px #00b96b44; }
-  to   { box-shadow: 0 0 12px 4px #00b96b99; }
-}
-
-/* 脉冲动画 */
+/* 脉冲动画（CloudWizard 连接测试指示等） */
 @keyframes pulse {
-  0% { 
+  0% {
     transform: scale(1);
     opacity: 1;
   }
-  50% { 
+  50% {
     transform: scale(1.1);
     opacity: 0.8;
   }
-  100% { 
+  100% {
     transform: scale(1);
     opacity: 1;
   }
 }
 
-/* 连接线动画 */
-@keyframes dash {
-  0% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: 10; }
-}
-
-/* 渐变流动动画 */
-@keyframes gradient-flow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-/* 浮动动画 */
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-6px); }
-}
-
-/* 闪烁动画 */
-@keyframes shimmer {
-  0% { opacity: 0.5; }
-  50% { opacity: 1; }
-  100% { opacity: 0.5; }
-}
-
-/* 旋转动画 */
-@keyframes rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-/* 缩放动画 */
+/* 缩放动画（React Flow 节点/边入场） */
 @keyframes scale-in {
   from { transform: scale(0.9); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
@@ -363,20 +482,6 @@ html, body, #root {
   font-size: 12px;
 }
 
-/* 单元格内 Tag 去掉默认右间距，与同行文字对齐（不改 Tag 配色） */
-.std-table .table-tag-tight.ant-tag {
-  margin-inline-end: 0;
-}
-
-/* 单元格内纵向堆叠（如多行摘要）占满单元格宽度 */
-.std-table .table-stack-full.ant-space {
-  width: 100%;
-}
-
-.std-table .table-stack-line {
-  display: block;
-}
-
 /* 表格列：等宽 ID/UUID，便于阅读 */
 .std-table .table-mono-uuid {
   font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -416,35 +521,6 @@ html, body, #root {
 /* 工具栏：端口等极窄输入 */
 .toolbar-input-port-100 {
   width: 100px;
-}
-
-/* 
- * 统计数据列触发器 (Statistics Trigger)
- * 用于显示带有 Hover 详情的统计数字 (如: 权限数 5)
- * 样式：圆角矩形背景 (徽章风格)，提示可交互
- */
-.std-table .stat-trigger {
-  cursor: help; /* 使用 help 光标提示有更多信息 */
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 4px;
-  border-radius: 4px; /* 圆角 */
-
-  background-color: #f2f3f5; /* 背景：浅灰 */
-  color: #1f2329; /* 文字：深灰 */
-  font-weight: 500;
-  line-height: 1;
-  transition: all 0.2s;
-}
-
-.std-table .stat-trigger:hover {
-  background-color: #d6e4ff; /* 悬停：加深背景 */
-  border-color: #1677ff; /* 边框：深蓝 */
-  color: #1677ff;
-  box-shadow: 0 2px 4px rgba(22, 119, 255, 0.15); /* 蓝色系投影 */
 }
 
 /* 
@@ -501,44 +577,6 @@ html, body, #root {
 }
 
 /* 
- * 状态列样式 (Status Column)
- * 用于统一列表中的生命周期状态 (Dot + Text)
- * 对应 Ant Design Badge 样式，但提供纯 CSS 实现
- */
-.std-table .std-status {
-  display: inline-flex;
-  align-items: center;
-  font-size: 14px;
-  color: #1f2329;
-}
-
-.std-table .std-status::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  margin-right: 8px;
-  background-color: #d9d9d9; /* Default gray */
-}
-
-.std-table .std-status.status-success::before {
-  background-color: #52c41a;
-}
-
-.std-table .std-status.status-warning::before {
-  background-color: #fa8c16;
-}
-
-.std-table .std-status.status-error::before {
-  background-color: #f5222d;
-}
-
-.std-table .std-status.status-processing::before {
-  background-color: #1677ff;
-}
-
-/* 
  * 时间列样式 (Time Column)
  * 使用等宽数字字体，确保列表纵向对齐
  * 弱化颜色以减少视觉干扰
@@ -549,6 +587,17 @@ html, body, #root {
   color: rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; /* 确保数字字体一致 */
+}
+
+/*
+ * PageContainer tabList：仅 Tab 栏，内容在 children 中切换；副标题与 Tab 之间无 Divider
+ */
+.page-container-tab-bar-only .ant-tabs-content-holder {
+  display: none;
+}
+
+.page-container-tab-bar-only .ant-tabs-nav {
+  margin-bottom: 16px;
 }
 
 /* 
@@ -656,18 +705,6 @@ html, body, #root {
   height: 100%;
 }
 
-/* 角色权限抽屉：平台大分组（Collapse）去掉卡片式阴影 — 遗留样式保留 */
-.role-perm-drawer-collapse.ant-collapse {
-  box-shadow: none !important;
-}
-.role-perm-drawer-collapse > .ant-collapse-item {
-  box-shadow: none !important;
-}
-.role-perm-drawer-collapse .ant-collapse-content,
-.role-perm-drawer-collapse .ant-collapse-content-box {
-  box-shadow: none !important;
-}
-
 /* 授予用户抽屉：自面板根起 height:100% 链，body 内 Card 铺满剩余高度 */
 .role-assign-users-drawer .ant-drawer-content-wrapper {
   height: 100%;
@@ -721,16 +758,6 @@ html, body, #root {
 .role-assign-users-drawer-card.ant-card,
 .role-assign-users-drawer-card .ant-card-head,
 .role-assign-users-drawer-card .ant-card-body {
-  box-shadow: none !important;
-}
-
-/* 角色权限抽屉：左侧目录栏无阴影 */
-.role-perm-drawer-toc.ant-card,
-.role-perm-drawer-toc.ant-card .ant-card-head,
-.role-perm-drawer-toc.ant-card .ant-card-body {
-  box-shadow: none !important;
-}
-.role-perm-drawer-toc .ant-anchor {
   box-shadow: none !important;
 }
 
@@ -831,17 +858,6 @@ html, body, #root {
 .row-actions-trigger:hover {
   background-color: rgba(0, 0, 0, 0.06);
   color: #1677ff;
-}
-
-/* 
- * 专用组件样式
- * .metadata-viewer: 元数据查看器样式
- * - 使用等宽字体 (monospace) 方便阅读代码/JSON
- * - 浅灰背景 (#f5f5f5) 区分内容区域
- */
-.metadata-viewer {
-  font-family: monospace;
-  background-color: #f5f5f5;
 }
 
 /* UI Norm: In Modal forms, ensure spacing below help/extra text */
@@ -1141,4 +1157,187 @@ html, body, #root {
 .security-settings-form .security-settings-control-wide.ant-input-number .ant-input-number-input {
   width: 100%;
   min-width: 4em;
+}
+
+/* ==========================================================================
+   Web SSH 终端（物理交换机等；抽屉内嵌，无独立路由页）
+   ========================================================================== */
+.web-ssh-terminal {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 320px;
+  background: #0c0c0c;
+  border: 1px solid #3c3c3c;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+.web-ssh-terminal--fill {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.web-ssh-terminal--fullscreen {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+}
+
+.web-ssh-terminal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  background: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.web-ssh-terminal__header-lead {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.web-ssh-terminal__header-icon {
+  color: #4fc1ff;
+  font-size: 14px;
+}
+
+.web-ssh-terminal__header-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.web-ssh-terminal__title {
+  color: #e8e8e8;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.web-ssh-terminal__subtitle {
+  color: #9d9d9d;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
+}
+
+.web-ssh-terminal__header-actions .web-ssh-terminal__icon-btn {
+  color: #cccccc !important;
+}
+
+.web-ssh-terminal__header-actions .web-ssh-terminal__icon-btn:hover {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.web-ssh-terminal__alert {
+  flex-shrink: 0;
+  padding: 8px 12px 0;
+  background: #1a1a1a;
+}
+
+.web-ssh-terminal__alert .ant-alert {
+  margin-bottom: 0;
+}
+
+.web-ssh-terminal__body {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 320px;
+  padding: 8px 10px 8px 14px;
+  background: #0c0c0c;
+  overflow: hidden;
+}
+
+.web-ssh-terminal__xterm-host {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.web-ssh-terminal__xterm-host .xterm {
+  height: 100%;
+}
+
+.web-ssh-terminal__xterm-host .xterm-screen {
+  height: 100%;
+}
+
+.web-ssh-terminal__overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 12, 12, 0.72);
+}
+
+.web-ssh-terminal__overlay--muted {
+  color: #9d9d9d;
+  font-size: 13px;
+}
+
+.web-ssh-terminal__footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 12px;
+  background: #252526;
+  border-top: 1px solid #3c3c3c;
+  font-size: 12px;
+  color: #b0b0b0;
+}
+
+.web-ssh-terminal__endpoint {
+  flex: 0 1 auto;
+  max-width: 36%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.web-ssh-terminal__hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #888;
+  font-size: 11px;
+}
+
+.web-ssh-terminal__size {
+  flex: 0 0 auto;
+  color: #888;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.hms-switch-ssh-drawer .ant-drawer-body {
+  display: flex;
+  flex-direction: column;
+  padding: 12px !important;
+  overflow: hidden;
+  height: calc(100vh - 108px);
+  max-height: calc(100vh - 108px);
+  background: #f2f3f5;
+}
+
+.hms-switch-ssh-drawer .ant-drawer-header {
+  border-bottom: 1px solid #e5e6eb;
 }

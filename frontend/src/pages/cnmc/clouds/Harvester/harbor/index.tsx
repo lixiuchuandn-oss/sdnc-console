@@ -13,7 +13,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Spin, message } from 'antd';
 import PageDetailContainer from '../../../../../components/PageDetailContainer';
-import { getHarborRegistry, testHarborConnection } from './shared/harborApi';
+import { getHarborRegistry, testHarborConnection, setHarborApiCloudId } from './shared/harborApi';
 import type { HarborRegistry } from './types';
 
 // 懒加载 Tab 组件
@@ -40,7 +40,7 @@ const HarborDetailPage: React.FC = () => {
     if (!harborId) return;
     setLoading(true);
     try {
-      const res = await getHarborRegistry(harborId);
+      const res = await getHarborRegistry(harborId, cloudId);
       setHarbor(res);
     } catch (e: any) {
       console.error('加载 Harbor 信息失败:', e);
@@ -57,7 +57,7 @@ const HarborDetailPage: React.FC = () => {
     if (!harborId) return;
     const hide = message.loading('正在测试连接...', 0);
     try {
-      const res = await testHarborConnection(harborId);
+      const res = await testHarborConnection(harborId, cloudId);
       hide();
       if (res?.success) {
         message.success('连接测试成功');
@@ -73,6 +73,13 @@ const HarborDetailPage: React.FC = () => {
       setHarbor(prev => prev ? { ...prev, status: 'unhealthy' } : null);
     }
   }, [harborId]);
+
+  useEffect(() => {
+    if (cloudId) {
+      setHarborApiCloudId(cloudId);
+    }
+    return () => setHarborApiCloudId(undefined);
+  }, [cloudId]);
 
   useEffect(() => {
     loadHarbor();
@@ -149,7 +156,7 @@ const HarborDetailPage: React.FC = () => {
           label: '设置',
           children: (
             <React.Suspense fallback={<Spin />}>
-              <SettingsSection harbor={harbor} onRefresh={loadHarbor} />
+              <SettingsSection harbor={harbor} cloudId={cloudId} onRefresh={loadHarbor} />
             </React.Suspense>
           ),
         },

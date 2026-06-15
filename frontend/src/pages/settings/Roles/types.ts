@@ -21,7 +21,16 @@ export type SysUser = {
   status: 'active' | 'inactive' | 'suspended';
   createdAt?: string;
   builtIn?: boolean;
+  tenant?: { id: string; name: string } | null;
+  organization?: { id: string; name: string } | null;
 };
+
+export type RbacAssignmentUserType = 'system' | 'tenant';
+
+/** 与 RBAC 分配、角色 scope 一致的用户类型 */
+export function rbacUserTypeForRole(role: Pick<RBACRole, 'scope'>): RbacAssignmentUserType {
+  return role.scope === 'tenant' ? 'tenant' : 'system';
+}
 
 export type Assignment = {
   id: string;

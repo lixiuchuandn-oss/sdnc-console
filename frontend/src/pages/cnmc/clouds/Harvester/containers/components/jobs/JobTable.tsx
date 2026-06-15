@@ -4,8 +4,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { Table, Select, Button, Input, Switch, Tooltip, App, Modal, Form } from 'antd';
 import { ReloadOutlined, SearchOutlined } from '@ant-design/icons';
-import yaml from 'js-yaml';
-import YamlEditor from '../../../../../../../components/YamlEditor';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import { useTableColumnSettings } from '../../../../../../../hooks/useTableColumnSettings';
 import TableColumnSettingsButton from '../../../../../../../components/TableColumnSettingsButton';
 import {
@@ -17,12 +16,17 @@ import JobForm from '../JobForm';
 import { useContainerOperationsReadOnly } from '../../ContainerOperationsContext';
 import { buildJobTableColumns } from '../../lib/jobs/jobTableColumns';
 import JobDetailDrawer from './JobDetailDrawer';
+import {
+  createContainerToolbarRefresh,
+  runContainerSectionRefresh,
+  type ContainerSectionOnRefresh,
+} from '../../lib/containerSectionRefresh';
 
 export type JobTableProps = {
   data: any[];
   loading: boolean;
   cloudId: string;
-  onRefresh: (force?: boolean) => void;
+  onRefresh: ContainerSectionOnRefresh;
   namespacesOptions: string[];
   nsValue?: string;
   onNsChange: (v?: string) => void;
@@ -54,7 +58,7 @@ const JobTable: React.FC<JobTableProps> = ({
   onQueryAllChange,
 }) => {
   const operationsReadOnly = useContainerOperationsReadOnly();
-  const { modal, message } = App.useApp();
+  const { message } = App.useApp();
   const [keyword, setKeyword] = useState('');
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [detailVisible, setDetailVisible] = useState(false);
@@ -63,11 +67,10 @@ const JobTable: React.FC<JobTableProps> = ({
   const [aliasRecord, setAliasRecord] = useState<any>(null);
   const [aliasSubmitting, setAliasSubmitting] = useState(false);
   const [aliasForm] = Form.useForm<{ alias?: string }>();
-  const [yamlModalVisible, setYamlModalVisible] = useState(false);
-  const [yamlContent, setYamlContent] = useState('');
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
   const apiPath = '/apis/batch/v1/jobs';
-  
+
   // 过滤并排序数据（按创建时间倒序）
   const filteredData = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -79,7 +82,7 @@ const JobTable: React.FC<JobTableProps> = ({
       }
       return true;
     });
-    
+
     // 按创建时间倒序排列（最新的在最上面）
     return filtered.sort((a: any, b: any) => {
       const timeA = new Date(a?.metadata?.creationTimestamp || 0).getTime();
@@ -87,135 +90,143 @@ const JobTable: React.FC<JobTableProps> = ({
       return timeB - timeA;
     });
   }, [data, keyword]);
-  
+
   // 查看详情
   const handleViewDetail = useCallback((job: any) => {
     setCurrentJob(job);
     setDetailVisible(true);
   }, []);
-  
+
   // 删除操作
-  const handleDelete = useCallback(async (job: any) => {
-    const namespace = job?.metadata?.namespace;
-    const name = job?.metadata?.name;
-    
-    try {
-      await deleteHarvesterJob(cloudId, namespace, name);
-      message.success('删除成功');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '删除失败');
-    }
-  }, [cloudId, message, onRefresh]);
+  const handleDelete = useCallback(
+    async (job: any) => {
+      const namespace = job?.metadata?.namespace;
+      const name = job?.metadata?.name;
+
+      try {
+        await deleteHarvesterJob(cloudId, namespace, name);
+        message.success('删除成功');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '删除失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
 
   // 重试操作：删除后重新创建
-  const handleRetry = useCallback(async (job: any) => {
-    const namespace = job?.metadata?.namespace;
-    const name = job?.metadata?.name;
-    
-    try {
-      // 1. 先删除失败的 Job
-      await deleteHarvesterJob(cloudId, namespace, name);
-      
-      // 2. 准备新的 Job 配置（移除不需要的字段）
-      const newJob = {
-        apiVersion: 'batch/v1',
-        kind: 'Job',
-        metadata: {
-          name: name,
-          namespace: namespace,
-          labels: job?.metadata?.labels,
-        },
-        spec: job?.spec,
-      };
-      
-      // 3. 重新创建
-      await createHarvesterContainerResource(
-        cloudId,
-        '/apis/batch/v1/jobs',
-        namespace,
-        newJob
-      );
-      
-      message.success('Job 已重新创建');
-      onRefresh(true);
-    } catch (e: any) {
-      message.error(e?.message || '重试失败');
-    }
-  }, [cloudId, message, onRefresh]);
+  const handleRetry = useCallback(
+    async (job: any) => {
+      const namespace = job?.metadata?.namespace;
+      const name = job?.metadata?.name;
+
+      try {
+        // 1. 先删除失败的 Job
+        await deleteHarvesterJob(cloudId, namespace, name);
+
+        // 2. 准备新的 Job 配置（移除不需要的字段）
+        const newJob = {
+          apiVersion: 'batch/v1',
+          kind: 'Job',
+          metadata: {
+            name: name,
+            namespace: namespace,
+            labels: job?.metadata?.labels,
+          },
+          spec: job?.spec,
+        };
+
+        // 3. 重新创建
+        await createHarvesterContainerResource(cloudId, '/apis/batch/v1/jobs', namespace, newJob);
+
+        message.success('Job 已重新创建');
+        runContainerSectionRefresh(onRefresh, { force: true });
+      } catch (e: any) {
+        message.error(e?.message || '重试失败');
+      }
+    },
+    [cloudId, message, onRefresh],
+  );
 
   // 别名编辑
-  const handleOpenAliasModal = useCallback((record: any) => {
-    const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
-    setAliasRecord(record);
-    setAliasModalVisible(true);
-    aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
-  }, [aliasForm]);
+  const handleOpenAliasModal = useCallback(
+    (record: any) => {
+      const currentAlias = record?.metadata?.annotations?.['tower.io/alias'] || '';
+      setAliasRecord(record);
+      setAliasModalVisible(true);
+      aliasForm.setFieldsValue({ alias: String(currentAlias || '') });
+    },
+    [aliasForm],
+  );
 
-  const handleSubmitAlias = useCallback(async (nextAliasRaw?: string) => {
-    if (!aliasRecord) return false;
-    const ns = aliasRecord?.metadata?.namespace;
-    const name = aliasRecord?.metadata?.name;
-    if (!ns || !name) {
-      message.error('未能解析资源命名空间或名称');
-      return false;
-    }
-
-    const next = String(nextAliasRaw || '').trim();
-    const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
-    if (next === prev) {
-      setAliasModalVisible(false);
-      return true;
-    }
-
-    const hasAnnotations = !!aliasRecord?.metadata?.annotations;
-    const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
-    const aliasPath = '/metadata/annotations/tower.io~1alias';
-
-    const patchBody: any[] = [];
-    if (!next) {
-      if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
-    } else {
-      if (!hasAnnotations) {
-        patchBody.push({ op: 'add', path: '/metadata/annotations', value: { 'tower.io/alias': next } });
-      } else {
-        patchBody.push({ op: 'add', path: aliasPath, value: next });
+  const handleSubmitAlias = useCallback(
+    async (nextAliasRaw?: string) => {
+      if (!aliasRecord) return false;
+      const ns = aliasRecord?.metadata?.namespace;
+      const name = aliasRecord?.metadata?.name;
+      if (!ns || !name) {
+        message.error('未能解析资源命名空间或名称');
+        return false;
       }
-    }
 
-    if (patchBody.length === 0) {
-      setAliasModalVisible(false);
-      return true;
-    }
+      const next = String(nextAliasRaw || '').trim();
+      const prev = String(aliasRecord?.metadata?.annotations?.['tower.io/alias'] || '').trim();
+      if (next === prev) {
+        setAliasModalVisible(false);
+        return true;
+      }
 
-    setAliasSubmitting(true);
-    try {
-      await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
-      message.success(next ? '名称修改成功' : '已清空别名');
-      setAliasModalVisible(false);
-      setAliasRecord(null);
-      aliasForm.resetFields();
-      onRefresh(true);
-      return true;
-    } catch (e: any) {
-      console.error(e);
-      message.error(e?.message || '名称修改失败');
-      return false;
-    } finally {
-      setAliasSubmitting(false);
-    }
-  }, [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm]);
+      const hasAnnotations = !!aliasRecord?.metadata?.annotations;
+      const hasPrev = !!aliasRecord?.metadata?.annotations?.['tower.io/alias'];
+      const aliasPath = '/metadata/annotations/tower.io~1alias';
+
+      const patchBody: any[] = [];
+      if (!next) {
+        if (hasPrev) patchBody.push({ op: 'remove', path: aliasPath });
+      } else {
+        if (!hasAnnotations) {
+          patchBody.push({
+            op: 'add',
+            path: '/metadata/annotations',
+            value: { 'tower.io/alias': next },
+          });
+        } else {
+          patchBody.push({ op: 'add', path: aliasPath, value: next });
+        }
+      }
+
+      if (patchBody.length === 0) {
+        setAliasModalVisible(false);
+        return true;
+      }
+
+      setAliasSubmitting(true);
+      try {
+        await patchHarvesterContainerResource(cloudId, apiPath, ns, name, patchBody);
+        message.success(next ? '名称修改成功' : '已清空别名');
+        setAliasModalVisible(false);
+        setAliasRecord(null);
+        aliasForm.resetFields();
+        runContainerSectionRefresh(onRefresh, { force: true });
+        return true;
+      } catch (e: any) {
+        console.error(e);
+        message.error(e?.message || '名称修改失败');
+        return false;
+      } finally {
+        setAliasSubmitting(false);
+      }
+    },
+    [aliasRecord, apiPath, cloudId, message, onRefresh, aliasForm],
+  );
 
   // 查看 YAML
-  const handleViewYaml = useCallback((record: any) => {
-    try {
-      const yamlStr = yaml.dump(record, { indent: 2, lineWidth: -1, noRefs: true });
-      setYamlContent(yamlStr);
-      setYamlModalVisible(true);
-    } catch (e: any) {
-      message.error('生成 YAML 失败: ' + e.message);
-    }
-  }, [message]);
+  const handleViewYaml = useCallback(
+    (record: any) => {
+      openYamlDrawer({ ...record, kind: record?.kind ?? 'Job' }, { title: 'Job YAML' });
+    },
+    [openYamlDrawer],
+  );
 
   const columns = useMemo(
     () =>
@@ -225,7 +236,6 @@ const JobTable: React.FC<JobTableProps> = ({
         handleOpenAliasModal,
         handleDelete,
         handleRetry,
-        modal,
         operationsReadOnly,
       }),
     [
@@ -234,17 +244,16 @@ const JobTable: React.FC<JobTableProps> = ({
       handleOpenAliasModal,
       handleDelete,
       handleRetry,
-      modal,
       operationsReadOnly,
     ],
   );
-  
+
   // 使用列设置 Hook
   const { displayColumns: tableColumns } = useTableColumnSettings(
     columns,
     'harvester-containers-jobs',
   );
-  
+
   return (
     <div>
       <div className="page-toolbar">
@@ -293,16 +302,17 @@ const JobTable: React.FC<JobTableProps> = ({
               创建 Job
             </Button>
           ) : null}
-          <TableColumnSettingsButton
-            allColumns={columns}
-            settingsKey="harvester-containers-jobs"
-          />
+          <TableColumnSettingsButton allColumns={columns} settingsKey="harvester-containers-jobs" />
           <Tooltip title="刷新">
-            <Button type="default" icon={<ReloadOutlined />} onClick={() => onRefresh(true)} />
+            <Button
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={createContainerToolbarRefresh(onRefresh)}
+            />
           </Tooltip>
         </div>
       </div>
-      
+
       <Table
         className="std-table"
         scroll={{ x: true }}
@@ -323,7 +333,7 @@ const JobTable: React.FC<JobTableProps> = ({
               }
         }
       />
-      
+
       {/* Job 详情抽屉 */}
       <JobDetailDrawer
         job={currentJob}
@@ -334,7 +344,7 @@ const JobTable: React.FC<JobTableProps> = ({
           setCurrentJob(null);
         }}
       />
-      
+
       {/* 别名编辑 Modal */}
       <Modal
         title="名称修改"
@@ -381,22 +391,8 @@ const JobTable: React.FC<JobTableProps> = ({
         </Form>
       </Modal>
 
-      {/* YAML 查看 Modal */}
-      <Modal
-        title="YAML 查看"
-        open={yamlModalVisible}
-        onCancel={() => setYamlModalVisible(false)}
-        footer={null}
-        width={800}
-      >
-        <YamlEditor
-          value={yamlContent}
-          onChange={() => {}}
-          maxHeight={500}
-          readOnly
-        />
-      </Modal>
-      
+      {yamlDrawer}
+
       {/* 创建 Job Modal */}
       <Modal
         title="创建 Job"
@@ -413,7 +409,7 @@ const JobTable: React.FC<JobTableProps> = ({
           secretsWithCredentials={secretsWithCredentials}
           onSuccess={() => {
             onCreateModalChange(false);
-            onRefresh(true);
+            runContainerSectionRefresh(onRefresh, { force: true });
           }}
           onCancel={() => onCreateModalChange(false)}
           defaultNamespace={defaultNamespace}

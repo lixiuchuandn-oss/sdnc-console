@@ -16,6 +16,7 @@ import {
   ApartmentOutlined,
   ShareAltOutlined,
   ClusterOutlined,
+  TeamOutlined,
   CloudUploadOutlined,
   ThunderboltOutlined,
   ColumnWidthOutlined,
@@ -23,6 +24,7 @@ import {
   FundViewOutlined,
   DashboardOutlined,
 } from "@ant-design/icons";
+import { isVmFixedHostScheduling } from "../../lib/vmDeploymentSet";
 import type { VmDetailDrawerProps } from "./shell/types";
 
 type ActionMenuCtx = Pick<
@@ -44,6 +46,7 @@ type ActionMenuCtx = Pick<
   setRealtimeLogsDrawerOpen: (v: boolean) => void;
   setNodeSchedulingOpen: (v: boolean) => void;
   setNodeAffinityOpen: (v: boolean) => void;
+  setPodAffinityOpen: (v: boolean) => void;
   setVmPolicyManageOpen: (v: boolean) => void;
   setCloudInitManageOpen: (v: boolean) => void;
   setPerformanceSettingsOpen: (v: boolean) => void;
@@ -72,11 +75,14 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     setDiagnosisDrawerOpen,
     setNodeSchedulingOpen,
     setNodeAffinityOpen,
+    setPodAffinityOpen,
     setVmPolicyManageOpen,
     setCloudInitManageOpen,
     setPerformanceSettingsOpen,
     setHotplugSettingsOpen,
   } = ctx;
+
+  const fixedHostScheduling = isVmFixedHostScheduling(vmData);
 
   return useMemo(
     () => {
@@ -221,6 +227,23 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
               },
             },
             {
+              key: "pod_affinity",
+              label: "部署集",
+              icon: <TeamOutlined />,
+              disabled: !hasEcsWrite || fixedHostScheduling,
+              onClick: () => {
+                if (!hasEcsWrite) {
+                  message.error(ecsWriteMsg);
+                  return;
+                }
+                if (fixedHostScheduling) {
+                  message.warning("指定主机模式下不支持部署集");
+                  return;
+                }
+                setPodAffinityOpen(true);
+              },
+            },
+            {
               key: "vm_policy",
               label: "高可用设置",
               icon: <ClusterOutlined />,
@@ -335,6 +358,7 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
     },
     [
       vmData,
+      fixedHostScheduling,
       hasEcsWrite,
       isRunning,
       isStopped,
@@ -351,6 +375,7 @@ export function useVmDetailMoreMenu(ctx: ActionMenuCtx): MenuProps["items"] {
       setDiagnosisDrawerOpen,
       setNodeSchedulingOpen,
       setNodeAffinityOpen,
+      setPodAffinityOpen,
       setVmPolicyManageOpen,
       setCloudInitManageOpen,
       setPerformanceSettingsOpen,

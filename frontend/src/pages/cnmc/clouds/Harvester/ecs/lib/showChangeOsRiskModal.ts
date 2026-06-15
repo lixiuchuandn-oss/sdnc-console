@@ -1,43 +1,23 @@
-import React from "react";
-import { Modal } from "antd";
-import type { FormInstance } from "antd/es/form";
+import type { FormInstance } from 'antd/es/form';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
+import { CHANGE_OS_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 /** 与资源变配「更换系统镜像」一致：弹窗说明风险并在确认后勾选表单 `changeOsConfirmed`。 */
 export function showChangeOsRiskModal(form: FormInstance<any>): void {
-  Modal.info({
-    title: "更换系统盘风险说明",
+  void confirmHighRiskOperation({
+    title: '更换系统盘风险说明',
     width: 520,
-    content: React.createElement(
-      "div",
-      { style: { marginTop: 8, fontSize: 13, lineHeight: 1.6 } },
-      React.createElement(
-        "p",
-        { style: { marginBottom: 4 } },
-        "• 更换操作系统将删除当前的系统盘并重建实例，系统盘数据将会丢失。",
-      ),
-      React.createElement(
-        "p",
-        { style: { marginBottom: 4 } },
-        "• 挂载的数据盘将被保留，但在新系统启动后可能需要手动重新挂载。",
-      ),
-      React.createElement(
-        "p",
-        { style: { marginBottom: 4 } },
-        "• 虚拟机须重启后新系统盘才会生效；重启完成后平台会自动删除原系统云盘（云盘列表中的旧盘）。",
-      ),
-      React.createElement(
-        "p",
-        { style: { marginBottom: 0 } },
-        "• 请在业务低峰期执行，并务必在提示后完成重启。",
-      ),
-    ),
-    okText: "我已知晓",
-    onOk: () => {
+    description: '更换操作系统前，请仔细阅读以下影响：',
+    riskItems: CHANGE_OS_RISK_ITEMS,
+    requireTypeConfirm: false,
+    confirmText: '我已知晓',
+    operationSummary: '确认已了解更换系统盘风险',
+    onConfirm: () => {
       try {
         form.setFieldsValue({ changeOsConfirmed: true });
       } catch {
         /* ignore */
       }
     },
-  });
+  }).catch(() => undefined);
 }

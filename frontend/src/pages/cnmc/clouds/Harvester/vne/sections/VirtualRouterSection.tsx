@@ -23,7 +23,7 @@ import {
   createHarvesterToolbarRefresh,
   runHarvesterSectionRefresh,
 } from '../../shared/lib/harvesterSectionRefresh';
-import HarvesterCrdMetadataDrawer from '../../shared/components/HarvesterCrdMetadataDrawer';
+import { useHarvesterResourceLinkYamlDrawerSlot } from '../../shared/components/HarvesterResourceLinkYamlDrawerSlot';
 import VmDetailDrawer from '../../ecs/drawers/vm-detail';
 
 type Props = {
@@ -53,7 +53,8 @@ const VNE_PAAS_TYPE_LABELS: Record<string, string> = {
 };
 
 const SafeRead = {
-  name: (r: any) => r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
+  name: (r: any) =>
+    r?.metadata?.annotations?.['tower.io/alias'] || r?.name || r?.metadata?.name || '',
   status: (r: any) => {
     const vmi = r?.vmi || r?.vmiRaw;
     const migrationState = vmi?.status?.migrationState;
@@ -79,7 +80,13 @@ const SafeRead = {
       return Number(cpu.sockets) * Number(cpu.cores) * (cpu?.threads || 1);
     }
     if (r?.cpu !== undefined && r?.cpu !== null) return Number(r.cpu);
-    return cpu?.cores || cpu?.sockets || r?.vmi?.spec?.domain?.cpu?.cores || r?.spec?.template?.spec?.domain?.resources?.requests?.cpu || '';
+    return (
+      cpu?.cores ||
+      cpu?.sockets ||
+      r?.vmi?.spec?.domain?.cpu?.cores ||
+      r?.spec?.template?.spec?.domain?.resources?.requests?.cpu ||
+      ''
+    );
   },
   memory: (r: any) =>
     r?.spec?.template?.spec?.domain?.memory?.guest ||
@@ -91,8 +98,12 @@ const SafeRead = {
   creationTimestamp: (r: any) => r?.metadata?.creationTimestamp || '',
   /** 新 `paas-type` 或旧 `vne-type`；无则与列表约定一致按 router 兼容 */
   paasTypeKey: (r: any) => {
-    const t = String(r?.metadata?.labels?.['tower.io/paas-type'] || '').trim().toLowerCase();
-    const legacy = String(r?.metadata?.labels?.['tower.io/vne-type'] || '').trim().toLowerCase();
+    const t = String(r?.metadata?.labels?.['tower.io/paas-type'] || '')
+      .trim()
+      .toLowerCase();
+    const legacy = String(r?.metadata?.labels?.['tower.io/vne-type'] || '')
+      .trim()
+      .toLowerCase();
     return t || legacy || 'router';
   },
   paasTypeLabel: (r: any) => {
@@ -181,13 +192,9 @@ const VirtualRouterSection: React.FC<Props> = ({
   const [vmDetailDrawerOpen, setVmDetailDrawerOpen] = useState(false);
   const [vmDetailRecordSnapshot, setVmDetailRecordSnapshot] = useState<any>(null);
   const [vmDetailActiveTab, setVmDetailActiveTab] = useState('detail');
-  const [yamlDrawerVisible, setYamlDrawerVisible] = useState(false);
-  const [yamlDrawerRecordSnapshot, setYamlDrawerRecordSnapshot] = useState<any>(null);
+  const { openYamlDrawer, yamlDrawer } = useHarvesterResourceLinkYamlDrawerSlot(cloudId);
 
-  const routerInstances = useMemo(
-    () => (vms || []).filter((vm) => isTowerPaasVneVm(vm)),
-    [vms],
-  );
+  const routerInstances = useMemo(() => (vms || []).filter((vm) => isTowerPaasVneVm(vm)), [vms]);
 
   const nodesOptions = useMemo(() => {
     const s = new Set<string>();
@@ -210,17 +217,6 @@ const VirtualRouterSection: React.FC<Props> = ({
     });
   }, [routerInstances, keyword, statusFilter, nodeFilter]);
 
-  /** 抽屉内与列表刷新后对齐同一条 VM（与 RecycleBinSection 一致） */
-  const yamlDrawerRecord = useMemo(() => {
-    if (!yamlDrawerRecordSnapshot) return null;
-    const uid = yamlDrawerRecordSnapshot?.metadata?.uid;
-    if (uid) {
-      const found = filteredInstances.find((v: any) => v?.metadata?.uid === uid);
-      return found || yamlDrawerRecordSnapshot;
-    }
-    return yamlDrawerRecordSnapshot;
-  }, [filteredInstances, yamlDrawerRecordSnapshot]);
-
   const vmDetailRecord = useMemo(() => {
     if (!vmDetailRecordSnapshot) return null;
     const uid = vmDetailRecordSnapshot?.metadata?.uid;
@@ -237,10 +233,15 @@ const VirtualRouterSection: React.FC<Props> = ({
     setVmDetailDrawerOpen(true);
   }, []);
 
-  const openYamlDrawer = useCallback((record: any) => {
-    setYamlDrawerRecordSnapshot(record);
-    setYamlDrawerVisible(true);
-  }, []);
+  const handleOpenYamlDrawer = useCallback(
+    (record: any) => {
+      openYamlDrawer(
+        { ...record, kind: record?.kind ?? 'VirtualMachine' },
+        { title: '云主机 YAML' },
+      );
+    },
+    [openYamlDrawer],
+  );
 
   const columns = useMemo(
     () => [
@@ -332,7 +333,12 @@ const VirtualRouterSection: React.FC<Props> = ({
           const url = buildVrouterConsoleUrl(r);
           return url ? (
             <Tooltip title={url}>
-              <Typography.Link href={url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              <Typography.Link
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <span
                   style={{
                     maxWidth: 260,
@@ -386,37 +392,44 @@ const VirtualRouterSection: React.FC<Props> = ({
         key: 'actions',
         fixed: 'right' as const,
         render: (_: any, r: any) => {
-          const items = filterMenuItemsForReadOnly([
-            ...(canManageVne
-              ? [{
-                  key: 'vrConsole',
-                  label: '管理台',
-                  disabled: !buildVrouterConsoleUrl(r),
-                  onClick: () => setVrConsoleVm(r),
-                }]
-              : []),
-            {
-              key: 'openInstance',
-              label: '云主机详情',
-              onClick: () => openVmDetailDrawer(r),
-            },
-            ...(canManageVne
-              ? [{
-                  key: 'editLabels',
-                  label: '编辑标签',
-                  onClick: () => {
-                    setLabelEditRecord(r);
-                    setLabelEditOpen(true);
-                  },
-                }]
-              : []),
-            { type: 'divider' as const, key: 'div-yaml' },
-            {
-              key: 'yamlManifest',
-              label: '查看YAML',
-              onClick: () => openYamlDrawer(r),
-            },
-          ], canManageVne);
+          const items = filterMenuItemsForReadOnly(
+            [
+              ...(canManageVne
+                ? [
+                    {
+                      key: 'vrConsole',
+                      label: '管理台',
+                      disabled: !buildVrouterConsoleUrl(r),
+                      onClick: () => setVrConsoleVm(r),
+                    },
+                  ]
+                : []),
+              {
+                key: 'openInstance',
+                label: '云主机详情',
+                onClick: () => openVmDetailDrawer(r),
+              },
+              ...(canManageVne
+                ? [
+                    {
+                      key: 'editLabels',
+                      label: '编辑标签',
+                      onClick: () => {
+                        setLabelEditRecord(r);
+                        setLabelEditOpen(true);
+                      },
+                    },
+                  ]
+                : []),
+              { type: 'divider' as const, key: 'div-yaml' },
+              {
+                key: 'yamlManifest',
+                label: '查看YAML',
+                onClick: () => handleOpenYamlDrawer(r),
+              },
+            ],
+            canManageVne,
+          );
           return (
             <ResourceActionsDropdown
               items={items}
@@ -426,7 +439,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         },
       },
     ],
-    [canManageVne, openVmDetailDrawer, openYamlDrawer],
+    [canManageVne, openVmDetailDrawer, handleOpenYamlDrawer],
   );
 
   const handleOpenCreateModal = () => {
@@ -592,18 +605,7 @@ const VirtualRouterSection: React.FC<Props> = ({
         />
       ) : null}
 
-      {yamlDrawerRecord ? (
-        <HarvesterCrdMetadataDrawer
-          open={yamlDrawerVisible}
-          onClose={() => {
-            setYamlDrawerVisible(false);
-            setYamlDrawerRecordSnapshot(null);
-          }}
-          cloudId={cloudId}
-          record={yamlDrawerRecord}
-          onSuccess={reloadListAfterWrite}
-        />
-      ) : null}
+      {yamlDrawer}
     </PageDetailSection>
   );
 };

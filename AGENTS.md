@@ -40,8 +40,9 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范（强制约定摘要）** |
 | **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`**、**`srv6-baseline-recompute.md`**（SRv6 配置管理实现方案）、**`srv6-release-notes.md`**（SRv6 发版说明） |
+| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`edge-gpu-baremetal.md`**（**边缘 GPU 裸机**接入设计稿，待开发）、**`internetwork-routing-domain.md`**（**网际路由域**枢纽、SDN 导航 IA、**CSM 安全域**边界、VR **`uuid`/`vm_id`** 与创建推荐 §16）、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`**、**`srv6-baseline-recompute.md`**（SRv6 配置管理实现方案）、**`srv6-release-notes.md`**（SRv6 发版说明） |
 | **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
+| **`tests/E2E_COVERAGE.md`** | **Cloudmap 功能 E2E 覆盖索引**（已测 / 仅冒烟 / 暂缓 / 缺口）；终端一览 `cd tests && npm run e2e:status`；登记 `tests/e2e-manifest.cjs` |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
 新增或搬迁源码时：**前端**以 `frontend/src/STRUCTURE.md` 为准，**后端**以 `backend/src/STRUCTURE.md` 为准；对外路径以 `backend/src/index.ts` 的挂载为准。
@@ -57,7 +58,7 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 3 | **版本管理（平台发布版本）** | 平台 `version`、离线包与发版约定 |
 | 4 | **API 规范** | HTTP / WebSocket 路径索引 |
 | 5 | **Harvester 云详情 · 前端落位** | 多云 Harvester 详情 Tab ↔ `Harvester/` 下 Section |
-| 6 | **开发规范**（摘要） | 落位、**页面布局**、刷新与缓存、表格版式；**布局** **`docs/frontend-layout.md`**；**代码质量** **`docs/code-quality.md`**；**Cloudmap RBAC** **`docs/cloudmap-pool-rbac.md`**；**Cloudmap 刷新** **`Cloudmap/pool/README.md`**；**云桌面网关** **`docs/remote-access-architecture.md`**；**MAAS 对接** **`docs/maas-integration.md`** |
+| 6 | **开发规范**（摘要） | 落位、**页面布局**、刷新与缓存、表格版式；**布局** **`docs/frontend-layout.md`**；**代码质量** **`docs/code-quality.md`**；**Cloudmap RBAC** **`docs/cloudmap-pool-rbac.md`**；**网际路由域 / SDN 导航 IA / CSM 安全域** **`docs/internetwork-routing-domain.md`**；**Cloudmap 刷新** **`Cloudmap/pool/README.md`**；**云桌面网关** **`docs/remote-access-architecture.md`**；**MAAS 对接** **`docs/maas-integration.md`** |
 | 7 | **认证与权限**、**后台服务**、**注意事项** | 角色与 Token、后台定时任务、运维提示 |
 
 ## 平台模块
@@ -115,6 +116,7 @@ npm run test     # 运行测试
 
 ```
 Compute.Tower/
+├── tests/                      # 业务域测试（tests/README.md；E2E 覆盖索引 tests/E2E_COVERAGE.md）
 ├── backend/                    # 后端服务
 │   ├── src/
 │   │   ├── index.ts           # 服务入口（Express 挂载、静态资源、WebSocket）
@@ -268,7 +270,7 @@ Compute.Tower/
 **认证与用户**：
 - `/api/auth`: 认证相关（登录、登出、令牌校验）
 - `/api/users`: 系统用户管理
-- `/api/tenants`: 租户管理
+- `/api/tenants`: 租户管理；**全量导出**：`GET /api/tenants/{id}/full` 或 `GET /api/tenants/{id}?scope=full`（对外说明 **`docs/tenant-full-export-api.md`**）
 
 **云资源管理**：
 - `/api/clouds`: 云资源管理（统一入口）
@@ -316,7 +318,7 @@ Compute.Tower/
 - `/api/vr-cache`: VR 设备缓存（无需登录）
 
 **安全与 AISOC**：
-- `/api/security-domains`: 安全域管理
+- `/api/security-domains`: **网际路由域**管理（产品名；路径与实体名仍为 `security-domains` / `SecurityDomain`；下游对接见 **`docs/vr-sase-downstream-notice.md`**）
 - `/api/services`: 服务目录
 - `/api/security/traffic`: 流量编排
 - `/api/threats`: 威胁事件
@@ -586,7 +588,7 @@ const addRule = useCallback(() => {
 3. 列表/工具栏/写操作是否满足 **刷新与缓存**、**std-table**（§5.1）、**工具栏**（§5.2）？
 4. 是否引入 ESLint/类型/构建错误？
 5. 是否删除本次改动产生的死代码与重复逻辑？
-6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？
+6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？新增功能 E2E 是否已登记 **`tests/e2e-manifest.cjs`**（见 **`tests/E2E_COVERAGE.md`**）？
 
 ## 认证与权限
 

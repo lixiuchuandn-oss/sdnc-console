@@ -7,6 +7,7 @@
 
 import type { FormInstance } from 'antd/es/form';
 import { storageQuantityToGiB } from '../../../lib/vmMutation/vmReconfigureQuantity';
+import { parseHugepagesFromVm, parseNumaFromVm } from '../../../lib/numaHugepagesSpec';
 
 /** 从 VM `activeRecord` 回填 CpuAdvanced / 性能设置表单。 */
 export function fillCpuAdvancedFormFromVm(form: FormInstance<any>, activeRecord: any): void {
@@ -32,6 +33,8 @@ export function fillCpuAdvancedFormFromVm(form: FormInstance<any>, activeRecord:
   const dedicated = !!cpuSpec?.dedicatedCpuPlacement;
   /** KubeVirt：isolateEmulatorThread 仅允许与 dedicatedCpuPlacement 同时存在 */
   const isolate = dedicated && !!cpuSpec?.isolateEmulatorThread;
+  const hp = parseHugepagesFromVm(domain);
+  const numa = parseNumaFromVm(domain);
   form.setFieldsValue({
     cpuSockets: cpuSpec?.sockets || 1,
     cpuCores: cpuSpec?.cores || 1,
@@ -45,5 +48,10 @@ export function fillCpuAdvancedFormFromVm(form: FormInstance<any>, activeRecord:
     memoryRequestGi: reqGi,
     memoryLimitGi: limGi,
     enableHotPlug: !!isHotPlug,
+    hugepagesEnabled: hp.hugepagesEnabled,
+    hugepagesPageSize: hp.hugepagesPageSize || '2Mi',
+    numaMode: numa.numaMode,
+    numaManualNodeCount: numa.numaManualNodeCount,
+    numaGuestMappingPassthrough: numa.numaMode === 'auto',
   });
 }

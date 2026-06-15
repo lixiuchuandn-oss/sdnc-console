@@ -112,7 +112,7 @@ const CreateServiceChainWizard: React.FC = () => {
         console.error(e);
       }
       try {
-        const vrs = await listSecurityDomains();
+        const vrs = await listSecurityDomains({ orchestratable: true });
         setVrDomains(Array.isArray(vrs) ? vrs : []);
       } catch (e) {
         console.error(e);

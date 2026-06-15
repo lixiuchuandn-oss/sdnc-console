@@ -3,15 +3,22 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
-	"flag"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"flag"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"mime/multipart"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,6 +66,11 @@ type LoginApiResponse struct {
 	Message string `json:"message"`
 }
 
+type LoginPublicKeyResponse struct {
+	KeyID     string `json:"keyId"`
+	PublicKey string `json:"publicKey"`
+}
+
 type CreateImageRequest struct {
 	Namespace   string `json:"namespace"`
 	DisplayName string `json:"displayName"`
@@ -72,13 +84,24 @@ type ImageResource struct {
 	} `json:"metadata"`
 }
 
+// uploaderBuildID 直传版构建标识（控制台与页面可见；后端据此校验可下发二进制）。
+const uploaderBuildID = "direct-harvester-20260608"
+
 var reader = bufio.NewReader(os.Stdin)
-var client = &http.Client{
-	Timeout: 0, // 上传大文件不设超时
-	Transport: &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // 允许自签名证书
-	},
+
+func newHarvesterHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 0,
+		Transport: &http.Transport{
+			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+			ResponseHeaderTimeout: 0,
+			DisableCompression:    true,
+			ExpectContinueTimeout: 2 * time.Second,
+		},
+	}
 }
+
+var client = newHarvesterHTTPClient()
 
 func main() {
 	gui := flag.Bool("gui", false, "启动本地图形界面")
@@ -153,7 +176,7 @@ func main() {
 		var ns string
 		// Only prompt for namespace if we are in interactive mode (inferred from missing URL)
 		if *argUrl == "" {
-			ns = prompt("命名空间 [默认 default]: ")
+			ns = prompt("项目 [默认 default]: ")
 			if ns == "" {
 				ns = "default"
 			}
@@ -252,7 +275,7 @@ func main() {
 
 	// 3. 填写镜像信息
 	fmt.Println("\n--- 镜像信息 ---")
-	namespace := prompt("命名空间 [默认 default]: ")
+	namespace := prompt("项目 [默认 default]: ")
 	if namespace == "" {
 		namespace = "default"
 	}
@@ -340,11 +363,48 @@ func normalizeHost(endpoint string) string {
 	return endpoint
 }
 
+// normalizeTowerURL 规范化 Tower API 根地址；Windows 下 localhost 常解析到 ::1 导致连不上仅监听 127.0.0.1 的后端。
+func normalizeTowerURL(raw string) string {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return raw
+	}
+	if strings.EqualFold(u.Hostname(), "localhost") {
+		if port := u.Port(); port != "" {
+			u.Host = "127.0.0.1:" + port
+		} else {
+			u.Host = "127.0.0.1"
+		}
+	}
+	return strings.TrimRight(u.String(), "/")
+}
+
+func wrapTowerConnError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "connection refused") || strings.Contains(msg, "connectex") {
+		return fmt.Errorf(
+			"%s: 无法连接 Tower 后端（%v）。请确认 backend 已启动（npm run dev，默认 5001 端口），Tower 地址填 http://127.0.0.1:5001（不是 5000 前端）",
+			action,
+			err,
+		)
+	}
+	return fmt.Errorf("%s: %v", action, err)
+}
+
 func fetchHarvesterClouds(cfg Config) ([]Cloud, error) {
 	req, _ := http.NewRequest("GET", cfg.TowerURL+"/api/clouds", nil)
 	req.Header.Set("Authorization", "Bearer "+cfg.TowerToken)
 	resp, err := client.Do(req)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, wrapTowerConnError("拉取云平台列表失败", err)
+	}
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != 200 { return nil, fmt.Errorf("HTTP %d", resp.StatusCode) }
@@ -394,23 +454,112 @@ func fetchHarvesterClouds(cfg Config) ([]Cloud, error) {
 	return list, nil
 }
 
+func fetchLoginPublicKey(towerURL string) (*LoginPublicKeyResponse, error) {
+	towerURL = normalizeTowerURL(towerURL)
+	req, err := http.NewRequest("GET", towerURL+"/api/auth/login-public-key", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, wrapTowerConnError("获取登录公钥失败", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("获取登录公钥失败: HTTP %d %s", resp.StatusCode, string(respBody))
+	}
+	var info LoginPublicKeyResponse
+	if err := json.Unmarshal(respBody, &info); err != nil {
+		return nil, fmt.Errorf("解析登录公钥失败: %v", err)
+	}
+	if strings.TrimSpace(info.PublicKey) == "" {
+		return nil, fmt.Errorf("登录公钥响应无效")
+	}
+	return &info, nil
+}
+
+func loginPasswordNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
+	}
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func encryptLoginPassword(publicKeyPEM, password string) (string, error) {
+	block, _ := pem.Decode([]byte(publicKeyPEM))
+	if block == nil {
+		return "", fmt.Errorf("登录公钥 PEM 无效")
+	}
+	pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("解析登录公钥失败: %w", err)
+	}
+	rsaPub, ok := pubAny.(*rsa.PublicKey)
+	if !ok {
+		return "", fmt.Errorf("登录公钥不是 RSA 密钥")
+	}
+	payload, err := json.Marshal(map[string]any{
+		"password": password,
+		"ts":       time.Now().UnixMilli(),
+		"nonce":    loginPasswordNonce(),
+	})
+	if err != nil {
+		return "", err
+	}
+	cipher, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaPub, payload, nil)
+	if err != nil {
+		return "", fmt.Errorf("RSA 加密失败: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(cipher), nil
+}
+
+func buildLoginRequestBody(towerURL, username, password string) (map[string]string, error) {
+	keyInfo, err := fetchLoginPublicKey(towerURL)
+	if err != nil {
+		return nil, err
+	}
+	if keyInfo != nil {
+		cipher, err := encryptLoginPassword(keyInfo.PublicKey, password)
+		if err != nil {
+			return nil, err
+		}
+		body := map[string]string{
+			"username": username,
+			"cipher":   cipher,
+		}
+		if kid := strings.TrimSpace(keyInfo.KeyID); kid != "" {
+			body["keyId"] = kid
+		}
+		return body, nil
+	}
+	return map[string]string{
+		"username": username,
+		"password": password,
+	}, nil
+}
+
 func loginTower(towerURL, username, password string) (string, error) {
-	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	towerURL = normalizeTowerURL(towerURL)
 	username = strings.TrimSpace(username)
 	password = strings.TrimSpace(password)
 	if towerURL == "" || username == "" || password == "" {
 		return "", fmt.Errorf("缺少登录参数")
 	}
-	bodyMap := map[string]string{
-		"username": username,
-		"password": password,
+	bodyMap, err := buildLoginRequestBody(towerURL, username, password)
+	if err != nil {
+		return "", err
 	}
 	body, _ := json.Marshal(bodyMap)
 	req, _ := http.NewRequest("POST", towerURL+"/api/auth/login", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("登录请求失败: %v", err)
+		return "", wrapTowerConnError("登录请求失败", err)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
@@ -428,22 +577,22 @@ func loginTower(towerURL, username, password string) (string, error) {
 }
 
 func fetchCloudNamespaces(towerURL, towerToken, cloudID string) ([]string, error) {
-	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	towerURL = normalizeTowerURL(towerURL)
 	towerToken = strings.TrimSpace(towerToken)
 	cloudID = strings.TrimSpace(cloudID)
 	if towerURL == "" || towerToken == "" || cloudID == "" {
-		return nil, fmt.Errorf("缺少查询命名空间参数")
+		return nil, fmt.Errorf("缺少查询项目参数")
 	}
 	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/api/clouds/%s/resources/harvester/namespaces?excludeSystem=true", towerURL, cloudID), nil)
 	req.Header.Set("Authorization", "Bearer "+towerToken)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("查询命名空间失败: %v", err)
+		return nil, wrapTowerConnError("查询项目失败", err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("查询命名空间失败: HTTP %d %s", resp.StatusCode, string(b))
+		return nil, fmt.Errorf("查询项目失败: HTTP %d %s", resp.StatusCode, string(b))
 	}
 	var raw struct {
 		Data struct {
@@ -451,7 +600,7 @@ func fetchCloudNamespaces(towerURL, towerToken, cloudID string) ([]string, error
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
-		return nil, fmt.Errorf("解析命名空间响应失败: %v", err)
+		return nil, fmt.Errorf("解析项目响应失败: %v", err)
 	}
 	list := make([]string, 0, len(raw.Data.Items))
 	seen := map[string]bool{}
@@ -474,103 +623,100 @@ func fetchCloudNamespaces(towerURL, towerToken, cloudID string) ([]string, error
 	return list, nil
 }
 
-// uploadViaTowerLikeBrowser 与前端 ImagesSection.handleStartTaskUpload 一致：
-// 1) POST JSON .../images/upload-tasks
-// 2) POST multipart .../upload-tasks/:taskId/file，字段名 file
-// （不再使用单次 upload-proxy，便于与浏览器行为、后端路由完全一致。）
-func uploadViaTowerLikeBrowser(
+// uploadDirectToHarvesterViaTower 经 Tower 创建镜像元数据，文件直传 Harvester 底座（不经 Tower 代传）。
+func uploadDirectToHarvesterViaTower(
 	towerURL, towerToken, cloudID, namespace, displayName, imageType string,
 	file multipart.File,
 	header *multipart.FileHeader,
 ) error {
-	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	towerURL = normalizeTowerURL(towerURL)
 	if towerURL == "" || strings.TrimSpace(towerToken) == "" || strings.TrimSpace(cloudID) == "" {
 		return fmt.Errorf("缺少 Tower 上传参数")
 	}
+	ns := strings.TrimSpace(namespace)
+	if ns == "" {
+		ns = "default"
+	}
+	display := strings.TrimSpace(displayName)
+	if display == "" {
+		display = strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))
+	}
+	if display == "" {
+		display = header.Filename
+	}
 
-	createPayload := map[string]any{"namespace": strings.TrimSpace(namespace)}
-	dn := strings.TrimSpace(displayName)
-	if dn != "" {
-		createPayload["displayName"] = dn
-	}
-	it := strings.TrimSpace(strings.ToLower(imageType))
-	if it != "" {
-		createPayload["imageType"] = it
-	}
-	bodyJSON, _ := json.Marshal(createPayload)
-	reqCreate, _ := http.NewRequest(
-		"POST",
-		fmt.Sprintf("%s/api/clouds/%s/resources/harvester/images/upload-tasks", towerURL, cloudID),
-		bytes.NewBuffer(bodyJSON),
+	host, harvesterToken, err := issueUploadTokenFromTower(
+		towerURL,
+		towerToken,
+		cloudID,
+		ns,
+		"image-uploader",
+		300,
 	)
-	reqCreate.Header.Set("Authorization", "Bearer "+towerToken)
-	reqCreate.Header.Set("Content-Type", "application/json")
-	respCreate, err := client.Do(reqCreate)
 	if err != nil {
-		return fmt.Errorf("创建上传任务失败: %v", err)
-	}
-	defer respCreate.Body.Close()
-	createBody, _ := io.ReadAll(respCreate.Body)
-	if respCreate.StatusCode < 200 || respCreate.StatusCode > 299 {
-		return fmt.Errorf("创建上传任务失败: HTTP %d %s", respCreate.StatusCode, string(createBody))
-	}
-	var parsed struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	taskID := ""
-	if err := json.Unmarshal(createBody, &parsed); err == nil && parsed.Data.ID != "" {
-		taskID = parsed.Data.ID
-	}
-	if taskID == "" {
-		var loose map[string]any
-		if json.Unmarshal(createBody, &loose) == nil {
-			if d, ok := loose["data"].(map[string]any); ok {
-				if id, ok := d["id"].(string); ok {
-					taskID = id
-				}
-			}
-		}
-	}
-	if taskID == "" {
-		return fmt.Errorf("创建上传任务失败: 响应缺少任务 id: %s", string(createBody))
+		return fmt.Errorf("签发上传凭证失败: %w", err)
 	}
 
-	pr, pw := io.Pipe()
-	mpw := multipart.NewWriter(pw)
-	go func() {
-		defer pw.Close()
-		part, err := mpw.CreateFormFile("file", header.Filename)
-		if err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
-		if _, err := io.Copy(part, file); err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
-		if err := mpw.Close(); err != nil {
-			_ = pw.CloseWithError(err)
-			return
-		}
-	}()
-
-	uploadURL := fmt.Sprintf(
-		"%s/api/clouds/%s/resources/harvester/images/upload-tasks/%s/file",
-		towerURL, cloudID, url.PathEscape(taskID),
-	)
-	reqFile, _ := http.NewRequest("POST", uploadURL, pr)
-	reqFile.Header.Set("Authorization", "Bearer "+towerToken)
-	reqFile.Header.Set("Content-Type", mpw.FormDataContentType())
-	respFile, err := client.Do(reqFile)
-	if err != nil {
-		return fmt.Errorf("上传文件失败: %v", err)
+	cfg := Config{
+		TowerURL:       towerURL,
+		TowerToken:     towerToken,
+		HarvesterHost:  normalizeHost(host),
+		HarvesterToken: harvesterToken,
 	}
-	defer respFile.Body.Close()
-	fileBody, _ := io.ReadAll(respFile.Body)
-	if respFile.StatusCode < 200 || respFile.StatusCode > 299 {
-		return fmt.Errorf("上传文件失败: HTTP %d %s", respFile.StatusCode, string(fileBody))
+
+	fmt.Print("[1/3] 在 Tower 创建镜像记录... ")
+	imgMeta, err := createTowerImage(cfg, cloudID, ns, display, imageType)
+	if err != nil {
+		return fmt.Errorf("创建镜像记录失败: %w", err)
+	}
+	imgNs := strings.TrimSpace(imgMeta.Metadata.Namespace)
+	if imgNs == "" {
+		imgNs = ns
+	}
+	imgName := strings.TrimSpace(imgMeta.Metadata.Name)
+	if imgName == "" {
+		return fmt.Errorf("创建镜像记录失败: 未返回镜像名称")
+	}
+	fmt.Printf("成功 (Name: %s)\n", imgName)
+
+	fmt.Println("[2/3] 等待资源初始化...")
+	time.Sleep(3 * time.Second)
+
+	fileSize := header.Size
+	if fileSize <= 0 {
+		if st, statErr := file.Seek(0, io.SeekEnd); statErr == nil {
+			fileSize = st
+			_, _ = file.Seek(0, io.SeekStart)
+		}
+	}
+
+	fmt.Println("[3/3] 正在直传文件到底座（请勿关闭窗口）...")
+	progressReader := &ProgressReader{
+		Reader: file,
+		Total:  fileSize,
+		Start:  time.Now(),
+	}
+	if err := uploadReaderToHarvester(
+		cfg,
+		imgNs,
+		imgName,
+		header.Filename,
+		"",
+		"",
+		fileSize,
+		progressReader,
+	); err != nil {
+		return fmt.Errorf("直传底座失败: %w", err)
+	}
+	fmt.Println()
+
+	ready, checkErr := checkImageStatus(cfg, imgNs, imgName)
+	if checkErr != nil {
+		fmt.Printf("提示: 文件已传到底座，导入状态检查未完成: %v\n", checkErr)
+		return nil
+	}
+	if !ready {
+		fmt.Println("提示: 文件已传到底座，导入仍在进行中，请在 Tower 镜像列表查看「同步中」进度")
 	}
 	return nil
 }
@@ -583,7 +729,7 @@ func issueUploadTokenFromTower(
 	serviceAccountName string,
 	expirationSeconds int,
 ) (string, string, error) {
-	towerURL = strings.TrimRight(strings.TrimSpace(towerURL), "/")
+	towerURL = normalizeTowerURL(towerURL)
 	towerToken = strings.TrimSpace(towerToken)
 	cloudID = strings.TrimSpace(cloudID)
 	namespace = strings.TrimSpace(namespace)
@@ -608,7 +754,7 @@ func issueUploadTokenFromTower(
 	getReq.Header.Set("Authorization", "Bearer "+towerToken)
 	getResp, err := client.Do(getReq)
 	if err != nil {
-		return "", "", fmt.Errorf("查询资源池失败: %v", err)
+		return "", "", wrapTowerConnError("查询资源池失败", err)
 	}
 	defer getResp.Body.Close()
 	if getResp.StatusCode != 200 {
@@ -639,7 +785,7 @@ func issueUploadTokenFromTower(
 	postReq.Header.Set("Content-Type", "application/json")
 	postResp, err := client.Do(postReq)
 	if err != nil {
-		return "", "", fmt.Errorf("签发上传 token 失败: %v", err)
+		return "", "", wrapTowerConnError("签发上传 token 失败", err)
 	}
 	defer postResp.Body.Close()
 	respBody, _ := io.ReadAll(postResp.Body)
@@ -669,9 +815,10 @@ func createTowerImage(cfg Config, cloudId, ns, name, imageType string) (*ImageRe
 	
 	payload := CreateImageRequest{Namespace: ns, DisplayName: name, SourceType: "upload"}
 	bodyMap := map[string]interface{}{
-		"namespace":   payload.Namespace,
-		"displayName": payload.DisplayName,
-		"sourceType":  payload.SourceType,
+		"namespace":     payload.Namespace,
+		"displayName":   payload.DisplayName,
+		"sourceType":    payload.SourceType,
+		"uploadChannel": "desktop-uploader",
 	}
 	if diskFormat != "" {
 		bodyMap["diskFormat"] = diskFormat
@@ -882,6 +1029,39 @@ func checkImageStatus(cfg Config, ns, name string) (bool, error) {
 	return false, fmt.Errorf("image not ready after check")
 }
 
+const harvesterCdiUploadProbeBytes = 1024
+
+func minMultipartFilePrefixBytes(multipartHeaderLength int) int {
+	head := multipartHeaderLength
+	if head < 0 {
+		head = 0
+	}
+	if head >= harvesterCdiUploadProbeBytes {
+		return 512
+	}
+	return harvesterCdiUploadProbeBytes - head
+}
+
+func truncateHarvesterErrorBody(body string, max int) string {
+	body = strings.TrimSpace(body)
+	if max <= 0 || len(body) <= max {
+		return body
+	}
+	return body[:max] + "..."
+}
+
+func formatHarvesterUploadHTTPError(status int, body string) error {
+	trimmed := truncateHarvesterErrorBody(body, 800)
+	if status == 504 || strings.Contains(strings.ToLower(trimmed), "gateway time-out") {
+		return fmt.Errorf(
+			"Cloudmap Error %d: 网关超时（上传耗时超过 Harvester 入口 nginx 的 proxy_read_timeout）。请让管理员将 proxy_read_timeout、proxy_send_timeout、client_body_timeout 调至 ≥3600s，或检查网络与底座负载。响应: %s",
+			status,
+			truncateHarvesterErrorBody(trimmed, 200),
+		)
+	}
+	return fmt.Errorf("Cloudmap Error %d: %s", status, trimmed)
+}
+
 func uploadReaderToHarvester(cfg Config, ns, name, filename, localFilePath, uploadUrl string, fileSize int64, reader io.Reader) error {
 	// ---------------------------------------------------------
 	// 4. Harvester/Longhorn 要求文件大小必须是 512 字节对齐
@@ -967,92 +1147,79 @@ func uploadReaderToHarvester(cfg Config, ns, name, filename, localFilePath, uplo
  	footerBuf := &bytes.Buffer{}
  	fmt.Fprintf(footerBuf, "\r\n--%s--\r\n", boundary)
 
- 	totalReqSize := int64(headerBuf.Len()) + finalFileSize + int64(footerBuf.Len())
- 	fmt.Printf("DEBUG: Size Calc: Header=%d, File+Pad=%d, Footer=%d, Total=%d\n", headerBuf.Len(), finalFileSize, footerBuf.Len(), totalReqSize)
+	headerBytes := headerBuf.Bytes()
+	footerBytes := footerBuf.Bytes()
+	contentLength := int64(len(headerBytes)) + finalFileSize + int64(len(footerBytes))
+	fmt.Printf(
+		"DEBUG: Size Calc: Header=%d, File+Pad=%d, Footer=%d, Total=%d\n",
+		len(headerBytes),
+		finalFileSize,
+		len(footerBytes),
+		contentLength,
+	)
 
- 	// 5.3 构造 Body 流
- 	var fullStream io.Reader
- 	
- 	// 策略: 如果文件较小 (< 50MB)，直接读入内存构建，排除 io.MultiReader 问题
- 	// 如果文件较大，使用 io.MultiReader
- 	if totalReqSize < 50*1024*1024 {
- 		fmt.Println("DEBUG: Small file detected, buffering entire body in memory...")
- 		fullBuf := &bytes.Buffer{}
- 		fullBuf.Write(headerBuf.Bytes())
- 		
- 		// Copy file content
- 		// Reset reader if needed (but reader is io.Reader, assume at start)
- 		if _, err := io.Copy(fullBuf, reader); err != nil {
- 			return fmt.Errorf("buffer copy file failed: %v", err)
- 		}
- 		
- 		// Padding
- 		if padding > 0 {
- 			fullBuf.Write(make([]byte, padding))
- 		}
- 		
- 		fullBuf.Write(footerBuf.Bytes())
- 		
- 		fullStream = bytes.NewReader(fullBuf.Bytes())
- 		// 更新 totalReqSize 确保一致 (虽然理论上一样)
- 		totalReqSize = int64(fullBuf.Len())
- 	} else {
- 		// 大文件流式处理
- 		var fileStream io.Reader = reader
- 		if padding > 0 {
- 			fileStream = io.MultiReader(reader, bytes.NewReader(make([]byte, padding)))
- 		}
- 		fullStream = io.MultiReader(headerBuf, fileStream, footerBuf)
- 	}
+	prefixNeed := minMultipartFilePrefixBytes(len(headerBytes))
+	filePrefix := make([]byte, prefixNeed)
+	prefixN, prefixErr := io.ReadFull(reader, filePrefix)
+	if prefixErr != nil && prefixErr != io.EOF && prefixErr != io.ErrUnexpectedEOF {
+		return fmt.Errorf("读取文件头失败: %w", prefixErr)
+	}
+	filePrefix = filePrefix[:prefixN]
 
- 	// 6. 构造 HTTP Request
- 	// 6.1 处理 URL (添加 size 参数)
- 	host = strings.TrimSuffix(cfg.HarvesterHost, "/v3")
- 	url = uploadUrl
- 	if url == "" {
- 		url = fmt.Sprintf("%s/v1/harvester/harvesterhci.io.virtualmachineimages/%s/%s?action=upload", host, ns, name)
- 	} else {
- 		if strings.HasPrefix(url, "/") {
- 			url = host + url
- 		}
- 	}
- 	
- 	// If URL doesn't have query params, add ?, else &
- 	sep = "?"
- 	if strings.Contains(url, "?") {
- 		sep = "&"
- 	}
- 	
- 	// size 参数必须是文件真实大小 (包含 padding)
- 	if !strings.Contains(url, "size=") {
- 		url = fmt.Sprintf("%s%ssize=%d", url, sep, finalFileSize)
- 	}
- 	
- 	fmt.Printf("DEBUG: Final Upload URL: %s\n", url)
-  
- 	req, _ := http.NewRequest("POST", url, fullStream)
- 	req.Header.Set("Authorization", "Bearer "+cfg.HarvesterToken)
- 	req.Header.Set("Content-Type", fmt.Sprintf("multipart/form-data; boundary=%s", boundary))
- 	// req.Header.Set("Content-Length", strconv.FormatInt(totalReqSize, 10))
-	// req.ContentLength = totalReqSize
- 	
- 	// 禁用 Expect: 100-continue，防止某些反向代理或 Server 处理不当
- 	// req.Header.Set("Expect", "") // Go default behavior might add it for large requests
-   	
-   	// Debug: Dump request headers
-
-	// Debug: Dump request headers
-	dump, _ := httputil.DumpRequestOut(req, false)
-	fmt.Printf("\n[DEBUG] Request Headers:\n%s\n", string(dump))
-	
-	resp, err := client.Do(req)
+	uploadClient := newHarvesterHTTPClient()
+	pipeReader, pipeWriter := io.Pipe()
+	req, err := http.NewRequest("POST", url, pipeReader)
 	if err != nil {
 		return err
 	}
+	req.Header.Set("Authorization", "Bearer "+cfg.HarvesterToken)
+	req.Header.Set("Content-Type", fmt.Sprintf("multipart/form-data; boundary=%s", boundary))
+	req.Header.Set("Expect", "")
+	req.ContentLength = contentLength
+
+	pumpErrCh := make(chan error, 1)
+	go func() {
+		var pumpErr error
+		defer func() {
+			_ = pipeWriter.CloseWithError(pumpErr)
+			pumpErrCh <- pumpErr
+		}()
+		writeAll := func(p []byte) error {
+			if len(p) == 0 {
+				return nil
+			}
+			_, err := pipeWriter.Write(p)
+			return err
+		}
+		if pumpErr = writeAll(headerBytes); pumpErr != nil {
+			return
+		}
+		if pumpErr = writeAll(filePrefix); pumpErr != nil {
+			return
+		}
+		if _, pumpErr = io.Copy(pipeWriter, reader); pumpErr != nil {
+			return
+		}
+		if padding > 0 {
+			if pumpErr = writeAll(make([]byte, padding)); pumpErr != nil {
+				return
+			}
+		}
+		pumpErr = writeAll(footerBytes)
+	}()
+
+	resp, doErr := uploadClient.Do(req)
+	pumpErr := <-pumpErrCh
+	if doErr != nil {
+		return doErr
+	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if pumpErr != nil {
+		return fmt.Errorf("上传流写入失败: %w", pumpErr)
+	}
 	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Cloudmap Error %d: %s", resp.StatusCode, string(b))
+		return formatHarvesterUploadHTTPError(resp.StatusCode, string(body))
 	}
 	return nil
 }
@@ -1325,13 +1492,14 @@ const indexHTML = `<!doctype html>
           <h1>镜像上传工具</h1>
         </div>
       </div>
-      <div id="statusPanel" class="status-panel">请先登录平台账号，然后选择 Cloudmap 云平台与命名空间。</div>
+      <div id="statusPanel" class="status-panel">请先登录平台账号，然后选择 Cloudmap 云平台与项目。本工具将文件直传到底座（不经 Tower upload-tasks 代传）。</div>
+      <div class="hint" style="margin:-8px 0 12px 0">构建标识：BUILD_ID_PLACEHOLDER</div>
       <div class="section">
         <div class="section-title">登录区域</div>
         <div class="row2">
           <div class="field" style="margin-bottom:0">
             <label>Tower 地址</label>
-            <input id="towerUrl" type="text" placeholder="http://Tower:5001" autocomplete="off"/>
+            <input id="towerUrl" type="text" placeholder="http://127.0.0.1:5001" autocomplete="off"/>
           </div>
           <div class="field" style="margin-bottom:0">
             <label>用户名</label>
@@ -1359,7 +1527,7 @@ const indexHTML = `<!doctype html>
             <select id="cloudId"></select>
           </div>
           <div class="field" style="margin-bottom:0">
-            <label>命名空间</label>
+            <label>项目</label>
             <select id="namespace"></select>
           </div>
         </div>
@@ -1426,7 +1594,7 @@ const indexHTML = `<!doctype html>
       });
       const data = await res.json().catch(()=>({}));
       if(!res.ok){
-        throw new Error(data.message || '加载命名空间失败');
+        throw new Error(data.message || '加载项目失败');
       }
       const nss = Array.isArray(data.namespaces) ? data.namespaces : [];
       if(nss.length===0){
@@ -1468,7 +1636,7 @@ const indexHTML = `<!doctype html>
         }
         fillSelect('cloudId', clouds.map(c=>({value:c.id, label:c.name + ' (' + c.id + ')'})));
         await loadNamespaces();
-        setMsg('登录成功，已加载可用 Cloudmap 与命名空间', true);
+        setMsg('登录成功，已加载可用 Cloudmap 与项目', true);
         setLoginHint('可以直接进入下方镜像上传区域。');
       }catch(err){
         setMsg(err && err.message ? err.message : '登录失败', false);
@@ -1479,7 +1647,7 @@ const indexHTML = `<!doctype html>
       fillSelect('cloudId', []);
       fillSelect('namespace', [{value:'default', label:'default'}]);
       document.getElementById('cloudId').addEventListener('change', async ()=>{
-        try { await loadNamespaces(); } catch (e) { setMsg(e.message || '加载命名空间失败', false); }
+        try { await loadNamespaces(); } catch (e) { setMsg(e.message || '加载项目失败', false); }
       });
     });
     async function submit(){
@@ -1513,14 +1681,14 @@ const indexHTML = `<!doctype html>
         const text = xhr.responseText || '完成';
         const ok = xhr.status>=200 && xhr.status<300;
         setMsg(text, ok);
-        setUploadHint(ok ? '上传任务已完成。' : '上传失败，请检查提示信息。');
+        setUploadHint(ok ? '文件已直传到底座，请在 Tower 镜像列表查看导入进度。' : '上传失败，请检查提示信息。');
       };
       xhr.onerror = ()=>{
         setMsg('连接服务器失败 (请查看工具运行窗口的日志)', false);
         setUploadHint('网络连接失败或服务未启动。');
       };
       setMsg('开始上传...');
-      setUploadHint('正在上传，请勿关闭窗口...');
+      setUploadHint('正在上传到本机工具；完成后将直传底座，请勿关闭窗口...');
       bar.style.width = '0%';
       ptxt.textContent = '';
       xhr.send(fd);
@@ -1572,9 +1740,12 @@ func runTestServer() {
 func startGUI() {
 	var towerSessionToken string
 	mux := http.NewServeMux()
+	indexPage := strings.Replace(indexHTML, "BUILD_ID_PLACEHOLDER", uploaderBuildID, 1)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		io.WriteString(w, indexHTML)
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+		w.Header().Set("X-Uploader-Build-Id", uploaderBuildID)
+		io.WriteString(w, indexPage)
 	})
 	mux.HandleFunc("/api/upload-direct", func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -1595,7 +1766,7 @@ func startGUI() {
 			return
 		}
 
-		towerURL := strings.TrimRight(r.FormValue("towerUrl"), "/")
+		towerURL := normalizeTowerURL(r.FormValue("towerUrl"))
 		towerToken := r.FormValue("towerToken")
 		cloudID := strings.TrimSpace(r.FormValue("cloudId"))
 		ns := strings.TrimSpace(r.FormValue("namespace"))
@@ -1622,15 +1793,15 @@ func startGUI() {
 		}
 		defer file.Close()
 
-		fmt.Printf("Tower 上传（与浏览器一致）: cloud=%s, ns=%s, 镜像=%s, 类型=%s, 文件=%s (%d bytes)\n", cloudID, ns, display, imageType, header.Filename, header.Size)
-		if err := uploadViaTowerLikeBrowser(towerURL, towerToken, cloudID, ns, display, imageType, file, header); err != nil {
-			fmt.Printf("Tower 上传失败: %v\n", err)
+		fmt.Printf("直传底座: cloud=%s, 项目=%s, 镜像=%s, 类型=%s, 文件=%s (%d bytes)\n", cloudID, ns, display, imageType, header.Filename, header.Size)
+		if err := uploadDirectToHarvesterViaTower(towerURL, towerToken, cloudID, ns, display, imageType, file, header); err != nil {
+			fmt.Printf("直传失败: %v\n", err)
 			w.WriteHeader(500)
 			io.WriteString(w, "上传失败: "+err.Error())
 			return
 		}
-		fmt.Println("上传完成（经 Tower，与浏览器同一套接口）")
-		io.WriteString(w, "上传成功")
+		fmt.Println("上传完成（文件已直传到底座）")
+		io.WriteString(w, "上传成功。文件已直传到底座，请在 Tower 镜像列表查看导入进度。")
 	})
 	mux.HandleFunc("/api/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -1656,7 +1827,7 @@ func startGUI() {
 			return
 		}
 		cfg := Config{
-			TowerURL:   strings.TrimRight(strings.TrimSpace(reqBody.TowerURL), "/"),
+			TowerURL:   normalizeTowerURL(reqBody.TowerURL),
 			TowerToken: token,
 		}
 		clouds, err := fetchHarvesterClouds(cfg)
@@ -1705,10 +1876,22 @@ func startGUI() {
 		resp, _ := json.Marshal(map[string]any{"namespaces": list})
 		io.WriteString(w, string(resp))
 	})
+	const guiAddr = "127.0.0.1:8787"
+	ln, err := net.Listen("tcp", guiAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\n错误: 无法监听 %s（%v）\n", guiAddr, err)
+		fmt.Fprintln(os.Stderr, "8787 端口通常被旧版 ImageUploader 占用。请在任务管理器中结束所有 ImageUploader 进程后，再运行本程序。")
+		fmt.Fprintln(os.Stderr, "若从微信/下载目录运行过旧 exe，也请一并结束。")
+		os.Exit(1)
+	}
 	go func() {
-		http.ListenAndServe("127.0.0.1:8787", mux)
+		if serveErr := http.Serve(ln, mux); serveErr != nil {
+			fmt.Fprintf(os.Stderr, "图形界面服务异常退出: %v\n", serveErr)
+			os.Exit(1)
+		}
 	}()
-	exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://127.0.0.1:8787/").Start()
-	fmt.Println("图形界面已启动: http://127.0.0.1:8787/")
+	fmt.Printf("镜像上传模式: 直传底座 (%s)\n", uploaderBuildID)
+	fmt.Printf("图形界面已启动: http://%s/\n", guiAddr)
+	exec.Command("rundll32", "url.dll,FileProtocolHandler", "http://"+guiAddr+"/").Start()
 	select {}
 }

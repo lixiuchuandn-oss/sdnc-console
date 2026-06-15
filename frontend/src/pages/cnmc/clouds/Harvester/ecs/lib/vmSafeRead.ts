@@ -77,6 +77,22 @@ export function readVmNamespace(r: any): string {
   return r?.metadata?.namespace || r?.namespace || "";
 }
 
+/** VM 模板 domain.devices.disks 中的 CD-ROM 设备（ISO 启动等） */
+export function readVmTemplateCdromDisk(
+  vmData: unknown,
+): { name?: string; cdrom?: unknown } | undefined {
+  const disks = (vmData as { spec?: { template?: { spec?: { domain?: { devices?: { disks?: unknown[] } } } } } })
+    ?.spec?.template?.spec?.domain?.devices?.disks;
+  if (!Array.isArray(disks)) return undefined;
+  return disks.find((d) => !!(d as { cdrom?: unknown })?.cdrom) as
+    | { name?: string; cdrom?: unknown }
+    | undefined;
+}
+
+export function vmTemplateHasCdromBoot(vmData: unknown): boolean {
+  return !!readVmTemplateCdromDisk(vmData);
+}
+
 /**
  * 状态那一列显示啥字：Running、Stopped、Migrating……
  * 先看是不是还在热迁移（没迁完就一律显示 Migrating，别明明在迁却显示 Running），
@@ -334,6 +350,7 @@ export function readVmDetailVolumeDetails(
       let pvcAlias = "";
       let pvcPhase = "";
       let pvcAccessModes = "";
+      let storageClassName = "";
 
       if (claimName && pvcSource && pvcSource.length > 0) {
         const pvc = pvcSource.find((p: any) => {
@@ -359,6 +376,9 @@ export function readVmDetailVolumeDetails(
           pvcAccessModes = Array.isArray(modes)
             ? modes.map((m: any) => String(m ?? "").trim()).filter(Boolean).join("、")
             : "";
+          storageClassName = String(
+            actualPvc?.spec?.storageClassName || pvc?.storageClassName || "",
+          ).trim();
 
           const pvcImageId =
             actualPvc?.metadata?.annotations?.["harvesterhci.io/imageId"];
@@ -394,6 +414,7 @@ export function readVmDetailVolumeDetails(
         alias: pvcAlias,
         pvcPhase,
         pvcAccessModes,
+        storageClassName,
         capacityBytes,
         bootOrder: diskInfo?.bootOrder,
         bus: diskInfo?.disk?.bus || diskInfo?.cdrom?.bus || "-",
@@ -772,7 +793,11 @@ export function createVmListSafeRead(
       r?.createdAt || r?.metadata?.creationTimestamp,
     status: readVmStatus,
     node: (r: any) =>
-      r?.nodeName || r?.vmi?.status?.nodeName || r?.status?.nodeName || "",
+      r?.vmi?.status?.nodeName ||
+      r?.Extra?.NodeName ||
+      r?.nodeName ||
+      r?.status?.nodeName ||
+      "",
     runStrategy: (r: any) => r?.spec?.runStrategy || "",
     evictionStrategy: (r: any) =>
       r?.spec?.evictionStrategy ||

@@ -5,9 +5,9 @@
 #
 # Mode B - Dashboard user/password (recommended behind k8s service proxy):
 #   powershell -ExecutionPolicy Bypass -File .\tools\ceph-dashboard-api-probe.ps1 `
-#     -Token "KUBE_OR_RANCHER_TOKEN" -DashboardUser "admin" -DashboardPassword "secret"
+#     -Token "KUBE_OR_RANCHER_TOKEN" -DashboardUser "api" -DashboardPassword "Cloudadmin@123"
 # Prefer env for password (avoids shell history):
-#   $env:CEPH_PROBE_TOKEN="..."; $env:CEPH_DASHBOARD_USER="admin"; $env:CEPH_DASHBOARD_PASSWORD="..."
+#   $env:CEPH_PROBE_TOKEN="..."; $env:CEPH_DASHBOARD_USER="api"; $env:CEPH_DASHBOARD_PASSWORD="Cloudadmin@123"
 #   powershell -ExecutionPolicy Bypass -File .\tools\ceph-dashboard-api-probe.ps1
 #
 # Requires curl.exe (Windows 10+).

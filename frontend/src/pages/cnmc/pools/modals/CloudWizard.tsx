@@ -836,13 +836,19 @@ const CloudWizard: React.FC<CloudWizardProps> = ({ visible, onCancel, onSuccess,
                     </div>
                   ) : undefined;
 
+                const fieldHelpExtra = field.help
+                  ? (
+                    <div style={{ color: '#8c8c8c', fontSize: 12, lineHeight: 1.5 }}>{field.help}</div>
+                  )
+                  : undefined;
+
                 return (
                   <Form.Item
                     key={field.key}
                     name={field.key}
                     label={field.label}
                     rules={rules}
-                    extra={cloudmapFieldExtra}
+                    extra={cloudmapFieldExtra || fieldHelpExtra}
                   >
                     {inputElement}
                   </Form.Item>

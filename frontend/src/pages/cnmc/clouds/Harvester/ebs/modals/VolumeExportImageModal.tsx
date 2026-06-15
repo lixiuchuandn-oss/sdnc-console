@@ -3,6 +3,11 @@ import { App, Form, Input, Modal, Select } from 'antd';
 import { exportHarvesterImageFromVolume } from 'services/harvesterApi';
 import type { StorageClassOption } from '../lib/volumesStorageClassUtils';
 import { pickExportTargetStorageClass } from '../lib/volumesStorageClassUtils';
+import type { VmAttachRecord } from '../lib/volumeDetachUtils';
+import {
+  getVolumeExportBlockedMessage,
+  VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG,
+} from '../lib/volumeExportImageUtils';
 import type { VolumeView } from '../lib/volumesSectionTypes';
 import type { HarvesterSectionOnRefresh } from '../../shared/lib/harvesterSectionRefresh';
 
@@ -11,6 +16,7 @@ export type VolumeExportImageModalProps = {
   onCancel: () => void;
   cloudId: string;
   volume: VolumeView | null;
+  attachedVm?: VmAttachRecord | null;
   storageClassOptions: StorageClassOption[];
   defaultStorageClassName?: string;
   storageClasses: unknown[];
@@ -22,6 +28,7 @@ const VolumeExportImageModal: React.FC<VolumeExportImageModalProps> = ({
   onCancel,
   cloudId,
   volume,
+  attachedVm,
   storageClassOptions,
   defaultStorageClassName,
   storageClasses,
@@ -56,6 +63,11 @@ const VolumeExportImageModal: React.FC<VolumeExportImageModalProps> = ({
         layout="vertical"
         onFinish={async (values) => {
           if (!volume) return;
+          const exportBlocked = getVolumeExportBlockedMessage(attachedVm);
+          if (exportBlocked) {
+            message.warning(VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG);
+            return;
+          }
           try {
             await exportHarvesterImageFromVolume(cloudId, volume.namespace, volume.name, {
               displayName: values.displayName,

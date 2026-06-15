@@ -6,7 +6,7 @@
  * @module harborApi
  */
 
-import { apiRequest, apiPost, apiPut, apiDelete } from '../../../../../../services/api';
+import { apiRequest, apiPost, apiPut, apiDelete, API_BASE_URL } from '../../../../../../services/api';
 import type {
   HarborRegistry,
   HarborRegistryForm,
@@ -27,10 +27,71 @@ import type {
   HarborSyncSecretParams,
   HarborSyncSecretResult,
   HarborUploadProgress,
+  HarborTenantUser,
+  HarborUserMapping,
+  HarborProjectBinding,
+  HarborProjectWithTenant,
+  HarborProjectMemberWithUser,
+  AddHarborProjectMemberParams,
+  UpdateHarborProjectMemberRoleParams,
 } from '../types';
 
 /** Harbor API 前缀 */
 const API_PREFIX = '/api/harbor';
+
+/** Harbor 项目引用（携带 projectId，用于 Harbor 路由参数为 project_id） */
+export type HarborProjectRef = Pick<HarborProject, 'name'> & { 
+  projectId?: number;
+  currentUserRole?: number;
+};
+
+/** 当前 Harbor API 请求所属资源池（由详情页/抽屉设置） */
+let harborApiCloudId: string | undefined;
+
+export function setHarborApiCloudId(cloudId: string | undefined): void {
+  harborApiCloudId = cloudId;
+}
+
+function appendCloudId(url: string, cloudId?: string): string {
+  const id = cloudId ?? harborApiCloudId;
+  if (!id) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}cloudId=${encodeURIComponent(id)}`;
+}
+
+function registryUrl(harborId: string, subPath = '', cloudId?: string): string {
+  return appendCloudId(`${API_PREFIX}/registries/${harborId}${subPath}`, cloudId);
+}
+
+/** 纯数字项目名需携带 projectId，避免 Harbor 将路径解析为 project_id */
+
+type HarborProjectRefInput = string | HarborProjectRef;
+
+function normalizeHarborProjectRef(ref: HarborProjectRefInput): HarborProjectRef {
+  return typeof ref === 'string' ? { name: ref } : ref;
+}
+
+function withHarborProjectIdQuery(url: string, project: HarborProjectRef): string {
+  // 仅纯数字项目名需要附带 projectId，避免 Harbor 将路径解析为 project_id
+  if (project.projectId == null || !/^\d+$/.test(project.name)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}projectId=${encodeURIComponent(String(project.projectId))}`;
+}
+
+function buildHarborProjectApiPath(
+  harborId: string,
+  ref: HarborProjectRefInput,
+  suffix = '',
+  searchParams?: URLSearchParams,
+  cloudId?: string,
+): string {
+  const project = normalizeHarborProjectRef(ref);
+  let url = `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(project.name)}${suffix}`;
+  if (searchParams?.toString()) {
+    url += `?${searchParams.toString()}`;
+  }
+  return appendCloudId(withHarborProjectIdQuery(url, project), cloudId);
+}
 
 // ==================== 实例管理 ====================
 
@@ -38,8 +99,10 @@ const API_PREFIX = '/api/harbor';
  * 获取所有可访问的 Harbor 实例
  * @returns Harbor 实例列表
  */
-export const getHarborRegistries = async (): Promise<HarborRegistry[]> => {
-  const result = await apiRequest(`${API_PREFIX}/registries`);
+export const getHarborRegistries = async (cloudId: string): Promise<HarborRegistry[]> => {
+  const result = await apiRequest(
+    `${API_PREFIX}/registries?cloudId=${encodeURIComponent(cloudId)}`,
+  );
   return result?.data || result;
 };
 
@@ -58,8 +121,10 @@ export const createHarborRegistry = async (data: HarborRegistryForm): Promise<Ha
  * @param id Harbor 实例 ID
  * @returns Harbor 实例详情
  */
-export const getHarborRegistry = async (id: string): Promise<HarborRegistry> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${id}`);
+export const getHarborRegistry = async (id: string, cloudId?: string): Promise<HarborRegistry> => {
+  const cid = cloudId ?? harborApiCloudId;
+  const url = registryUrl(id, '', cid);
+  const result = await apiRequest(url);
   return result?.data || result;
 };
 
@@ -81,8 +146,8 @@ export const updateHarborRegistry = async (
  * 删除 Harbor 实例
  * @param id Harbor 实例 ID
  */
-export const deleteHarborRegistry = async (id: string): Promise<void> => {
-  return await apiDelete(`${API_PREFIX}/registries/${id}`);
+export const deleteHarborRegistry = async (id: string, cloudId?: string): Promise<void> => {
+  return await apiDelete(registryUrl(id, '', cloudId));
 };
 
 /**
@@ -92,17 +157,18 @@ export const deleteHarborRegistry = async (id: string): Promise<void> => {
  */
 export const testHarborConnection = async (
   id: string,
+  cloudId?: string,
 ): Promise<{ success: boolean; message: string; version?: string }> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${id}/test`, {});
+  const result = await apiPost(registryUrl(id, '/test', cloudId), {});
   return result?.data || result;
 };
 
-export const syncHarborProjects = async (id: string): Promise<{
+export const syncHarborProjects = async (id: string, cloudId?: string): Promise<{
   added: number;
   updated: number;
   deleted: number;
 }> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${id}/sync-projects`, {});
+  const result = await apiPost(registryUrl(id, '/sync-projects', cloudId), {});
   return result?.data || result;
 };
 
@@ -111,8 +177,8 @@ export const syncHarborProjects = async (id: string): Promise<{
  * @param id Harbor 实例 ID
  * @returns 系统信息
  */
-export const getHarborSystemInfo = async (id: string): Promise<HarborSystemInfo> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${id}/systeminfo`);
+export const getHarborSystemInfo = async (id: string, cloudId?: string): Promise<HarborSystemInfo> => {
+  const result = await apiRequest(registryUrl(id, '/systeminfo', cloudId));
   return result?.data || result;
 };
 
@@ -156,8 +222,9 @@ export const getHarborProjects = async (
   if (params?.sort) searchParams.append('sort', params.sort);
 
   const queryString = searchParams.toString();
+  const base = registryUrl(harborId, '/projects');
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects${queryString ? `?${queryString}` : ''}`,
+    queryString ? `${base}${base.includes('?') ? '&' : '?'}${queryString}` : base,
   );
   return result?.data || result;
 };
@@ -176,7 +243,7 @@ export const createHarborProject = async (
   // Harbor 的存储配额通过 metadata.storage_limit 设置
   const payload: any = {
     project_name: data.projectName,
-    public: data.public,
+    public: data.public === 1,
   };
   
   // 处理 metadata
@@ -190,7 +257,7 @@ export const createHarborProject = async (
     }
   }
   
-  const result = await apiPost(`${API_PREFIX}/registries/${harborId}/projects`, payload);
+  const result = await apiPost(registryUrl(harborId, '/projects'), payload);
   return result?.data || result;
 };
 
@@ -202,11 +269,9 @@ export const createHarborProject = async (
  */
 export const getHarborProject = async (
   harborId: string,
-  projectName: string,
-): Promise<HarborProject> => {
-  const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}`,
-  );
+  projectRef: HarborProjectRefInput,
+): Promise<HarborProjectWithTenant> => {
+  const result = await apiRequest(buildHarborProjectApiPath(harborId, projectRef));
   return result?.data || result;
 };
 
@@ -219,13 +284,10 @@ export const getHarborProject = async (
  */
 export const updateHarborProject = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   data: Partial<HarborProjectForm>,
 ): Promise<HarborProject> => {
-  const result = await apiPut(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}`,
-    data,
-  );
+  const result = await apiPut(buildHarborProjectApiPath(harborId, projectRef), data);
   return result?.data || result;
 };
 
@@ -236,11 +298,9 @@ export const updateHarborProject = async (
  */
 export const deleteHarborProject = async (
   harborId: string,
-  projectName: string,
+  project: HarborProjectRef,
 ): Promise<void> => {
-  return await apiDelete(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}`,
-  );
+  return await apiDelete(buildHarborProjectApiPath(harborId, project));
 };
 
 /**
@@ -251,11 +311,9 @@ export const deleteHarborProject = async (
  */
 export const getHarborProjectSummary = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
 ): Promise<HarborProjectSummary> => {
-  const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/summary`,
-  );
+  const result = await apiRequest(buildHarborProjectApiPath(harborId, projectRef, '/summary'));
   return result?.data || result;
 };
 
@@ -269,11 +327,9 @@ export const getHarborProjectSummary = async (
  */
 export const getHarborProjectMembers = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
 ): Promise<HarborProjectMember[]> => {
-  const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/members`,
-  );
+  const result = await apiRequest(buildHarborProjectApiPath(harborId, projectRef, '/members'));
   return result?.data || result;
 };
 
@@ -286,13 +342,10 @@ export const getHarborProjectMembers = async (
  */
 export const addHarborProjectMember = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   memberInfo: { username: string; roleId: number },
 ): Promise<HarborProjectMember> => {
-  const result = await apiPost(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/members`,
-    memberInfo,
-  );
+  const result = await apiPost(buildHarborProjectApiPath(harborId, projectRef, '/members'), memberInfo);
   return result?.data || result;
 };
 
@@ -304,12 +357,10 @@ export const addHarborProjectMember = async (
  */
 export const deleteHarborProjectMember = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   memberId: number,
 ): Promise<void> => {
-  return await apiDelete(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/members/${memberId}`,
-  );
+  return await apiDelete(buildHarborProjectApiPath(harborId, projectRef, `/members/${memberId}`));
 };
 
 // ==================== 仓库浏览 ====================
@@ -330,8 +381,9 @@ export const getHarborAllRepositories = async (
   if (params?.q) searchParams.append('q', params.q);
 
   const queryString = searchParams.toString();
+  const base = registryUrl(harborId, '/repositories');
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/repositories${queryString ? `?${queryString}` : ''}`,
+    queryString ? `${base}${base.includes('?') ? '&' : '?'}${queryString}` : base,
   );
   return result?.data || result;
 };
@@ -345,7 +397,7 @@ export const getHarborAllRepositories = async (
  */
 export const getHarborRepositories = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   params?: HarborPaginationParams,
 ): Promise<HarborPaginatedResponse<HarborRepository>> => {
   const searchParams = new URLSearchParams();
@@ -353,9 +405,8 @@ export const getHarborRepositories = async (
   if (params?.pageSize) searchParams.append('page_size', String(params.pageSize));
   if (params?.q) searchParams.append('q', params.q);
 
-  const queryString = searchParams.toString();
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories${queryString ? `?${queryString}` : ''}`,
+    buildHarborProjectApiPath(harborId, projectRef, '/repositories', searchParams),
   );
   return result?.data || result;
 };
@@ -369,11 +420,11 @@ export const getHarborRepositories = async (
  */
 export const getHarborRepository = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
 ): Promise<HarborRepository> => {
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}`,
+    buildHarborProjectApiPath(harborId, projectRef, `/repositories/${encodeURIComponent(repoName)}`),
   );
   return result?.data || result;
 };
@@ -386,11 +437,11 @@ export const getHarborRepository = async (
  */
 export const deleteHarborRepository = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
 ): Promise<void> => {
   return await apiDelete(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}`,
+    buildHarborProjectApiPath(harborId, projectRef, `/repositories/${encodeURIComponent(repoName)}`),
   );
 };
 
@@ -406,7 +457,7 @@ export const deleteHarborRepository = async (
  */
 export const getHarborArtifacts = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   params?: HarborPaginationParams & { withTag?: boolean; withScanOverview?: boolean },
 ): Promise<HarborPaginatedResponse<HarborArtifact>> => {
@@ -416,9 +467,13 @@ export const getHarborArtifacts = async (
   if (params?.withTag !== false) searchParams.append('with_tag', 'true');
   if (params?.withScanOverview) searchParams.append('with_scan_overview', 'true');
 
-  const queryString = searchParams.toString();
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts${queryString ? `?${queryString}` : ''}`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts`,
+      searchParams,
+    ),
   );
   return result?.data || result;
 };
@@ -433,12 +488,16 @@ export const getHarborArtifacts = async (
  */
 export const getHarborArtifact = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
 ): Promise<HarborArtifact> => {
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}`,
+    ),
   );
   return result?.data || result;
 };
@@ -452,12 +511,16 @@ export const getHarborArtifact = async (
  */
 export const deleteHarborArtifact = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
 ): Promise<void> => {
   return await apiDelete(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}`,
+    ),
   );
 };
 
@@ -473,12 +536,16 @@ export const deleteHarborArtifact = async (
  */
 export const getHarborTags = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
 ): Promise<HarborTag[]> => {
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/tags`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/tags`,
+    ),
   );
   return result?.data || result;
 };
@@ -494,13 +561,17 @@ export const getHarborTags = async (
  */
 export const addHarborTag = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
   tagName: string,
 ): Promise<HarborTag> => {
   const result = await apiPost(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/tags`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/tags`,
+    ),
     { name: tagName },
   );
   return result?.data || result;
@@ -516,13 +587,17 @@ export const addHarborTag = async (
  */
 export const deleteHarborTag = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
   tagName: string,
 ): Promise<void> => {
   return await apiDelete(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/tags/${encodeURIComponent(tagName)}`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/tags/${encodeURIComponent(tagName)}`,
+    ),
   );
 };
 
@@ -537,12 +612,16 @@ export const deleteHarborTag = async (
  */
 export const triggerHarborScan = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
 ): Promise<void> => {
   return await apiPost(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/scan`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/scan`,
+    ),
     {},
   );
 };
@@ -557,7 +636,7 @@ export const triggerHarborScan = async (
  */
 export const getHarborVulnerabilities = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
   reference: string,
 ): Promise<{
@@ -565,7 +644,11 @@ export const getHarborVulnerabilities = async (
   vulnerabilities: HarborVulnerabilityItem[];
 }> => {
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/vulnerabilities`,
+    buildHarborProjectApiPath(
+      harborId,
+      projectRef,
+      `/repositories/${encodeURIComponent(repoName)}/artifacts/${encodeURIComponent(reference)}/vulnerabilities`,
+    ),
   );
   return result?.data || result;
 };
@@ -581,7 +664,7 @@ export const getHarborScanMetrics = async (harborId: string): Promise<{
   failed: number;
   ongoing: number;
 }> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${harborId}/scans/metrics`);
+  const result = await apiRequest(registryUrl(harborId, '/scans/metrics'));
   return result?.data || result;
 };
 
@@ -662,7 +745,7 @@ export const cancelHarborUpload = async (uploadId: string): Promise<void> => {
 export const getHarborReplicationPolicies = async (
   harborId: string,
 ): Promise<HarborReplicationPolicy[]> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${harborId}/replication/policies`);
+  const result = await apiRequest(registryUrl(harborId, '/replication/policies'));
   return result?.data || result;
 };
 
@@ -676,7 +759,7 @@ export const createHarborReplicationPolicy = async (
   harborId: string,
   data: Partial<HarborReplicationPolicy>,
 ): Promise<HarborReplicationPolicy> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${harborId}/replication/policies`, data);
+  const result = await apiPost(registryUrl(harborId, '/replication/policies'), data);
   return result?.data || result;
 };
 
@@ -692,10 +775,7 @@ export const updateHarborReplicationPolicy = async (
   policyId: number,
   data: Partial<HarborReplicationPolicy>,
 ): Promise<HarborReplicationPolicy> => {
-  const result = await apiPut(
-    `${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}`,
-    data,
-  );
+  const result = await apiPut(registryUrl(harborId, `/replication/policies/${policyId}`), data);
   return result?.data || result;
 };
 
@@ -708,7 +788,7 @@ export const deleteHarborReplicationPolicy = async (
   harborId: string,
   policyId: number,
 ): Promise<void> => {
-  return await apiDelete(`${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}`);
+  return await apiDelete(registryUrl(harborId, `/replication/policies/${policyId}`));
 };
 
 /**
@@ -722,8 +802,8 @@ export const getHarborReplicationExecutions = async (
   policyId?: number,
 ): Promise<HarborReplicationExecution[]> => {
   const url = policyId
-    ? `${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}/executions`
-    : `${API_PREFIX}/registries/${harborId}/replication/executions`;
+    ? registryUrl(harborId, `/replication/policies/${policyId}/executions`)
+    : registryUrl(harborId, '/replication/executions');
   const result = await apiRequest(url);
   return result?.data || result;
 };
@@ -738,10 +818,7 @@ export const triggerHarborReplication = async (
   harborId: string,
   policyId: number,
 ): Promise<{ executionId: number }> => {
-  const result = await apiPost(
-    `${API_PREFIX}/registries/${harborId}/replication/policies/${policyId}/executions`,
-    {},
-  );
+  const result = await apiPost(registryUrl(harborId, `/replication/policies/${policyId}/executions`), {});
   return result?.data || result;
 };
 
@@ -757,7 +834,7 @@ export const syncHarborSecret = async (
   harborId: string,
   params: HarborSyncSecretParams,
 ): Promise<HarborSyncSecretResult> => {
-  const result = await apiPost(`${API_PREFIX}/registries/${harborId}/sync-secret`, params);
+  const result = await apiPost(registryUrl(harborId, '/sync-secret'), params);
   return result?.data || result;
 };
 
@@ -771,7 +848,7 @@ export const syncHarborSecret = async (
 export const getHarborSelectorProjects = async (
   harborId: string,
 ): Promise<string[]> => {
-  const result = await apiRequest(`${API_PREFIX}/registries/${harborId}/selector/projects`);
+  const result = await apiRequest(registryUrl(harborId, '/selector/projects'));
   return result?.data || result;
 };
 
@@ -783,11 +860,16 @@ export const getHarborSelectorProjects = async (
  */
 export const getHarborSelectorRepositories = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
 ): Promise<string[]> => {
-  const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(projectName)}/repositories`,
+  const project = normalizeHarborProjectRef(projectRef);
+  const url = appendCloudId(
+    withHarborProjectIdQuery(
+      `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(project.name)}/repositories`,
+      project,
+    ),
   );
+  const result = await apiRequest(url);
   return result?.data || result;
 };
 
@@ -800,11 +882,155 @@ export const getHarborSelectorRepositories = async (
  */
 export const getHarborSelectorTags = async (
   harborId: string,
-  projectName: string,
+  projectRef: HarborProjectRefInput,
   repoName: string,
 ): Promise<string[]> => {
+  const project = normalizeHarborProjectRef(projectRef);
+  const url = appendCloudId(
+    withHarborProjectIdQuery(
+      `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(project.name)}/repositories/${encodeURIComponent(repoName)}/tags`,
+      project,
+    ),
+  );
+  const result = await apiRequest(url);
+  return result?.data || result;
+};
+
+// ==================== 镜像上传 ====================
+
+export interface HarborUploadTask {
+  id: string;
+  fileName: string;
+  targetRepo?: string;
+  targetTag?: string;
+  status: 'pending' | 'parsing' | 'uploading' | 'completed' | 'failed';
+  totalLayers: number;
+  uploadedLayers: number;
+  currentLayer?: string;
+  error?: string;
+  registryType: 'local-registry' | 'harbor';
+  harborId?: string;
+  projectName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HarborUploadResult {
+  taskId: string;
+  fileName: string;
+  targetRepo?: string;
+  targetTag?: string;
+  status: string;
+}
+
+export const uploadImageToHarbor = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  files: { file: File; repoName: string; tag: string }[],
+): Promise<{ tasks: HarborUploadResult[] }> => {
+  const formData = new FormData();
+
+  files.forEach((item, index) => {
+    formData.append('files', item.file);
+    formData.append(`repoName${index + 1}`, item.repoName);
+    formData.append(`tag${index + 1}`, item.tag);
+  });
+
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+  const response = await fetch(
+    `${API_BASE_URL}${buildHarborProjectApiPath(harborId, projectRef, '/upload')}`,
+    {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    },
+  );
+
+  const result = await response.json();
+  if (!result.success) {
+    throw new Error(result.message || '上传失败');
+  }
+
+  return result.data;
+};
+
+export const getHarborUploadTasks = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  params?: { status?: string; limit?: number },
+): Promise<HarborUploadTask[]> => {
+  const query = new URLSearchParams();
+  if (params?.status) query.append('status', params.status);
+  if (params?.limit) query.append('limit', String(params.limit));
+
   const result = await apiRequest(
-    `${API_PREFIX}/registries/${harborId}/selector/projects/${encodeURIComponent(projectName)}/repositories/${encodeURIComponent(repoName)}/tags`,
+    buildHarborProjectApiPath(harborId, projectRef, '/upload-tasks', query),
   );
   return result?.data || result;
+};
+
+export const getHarborUploadTask = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  taskId: string,
+): Promise<HarborUploadTask> => {
+  const result = await apiRequest(
+    buildHarborProjectApiPath(harborId, projectRef, `/upload-tasks/${taskId}`),
+  );
+  return result?.data || result;
+};
+
+// ==================== 用户管理 ====================
+
+/**
+ * 获取租户用户列表（用于成员选择器）
+ */
+export const getHarborTenantUsers = async (
+  harborId: string,
+): Promise<HarborTenantUser[]> => {
+  const result = await apiRequest(`/api/harbor/registries/${harborId}/tenant-users`);
+  return result?.data || result;
+};
+
+/**
+ * 检查用户是否已有 Harbor 映射
+ */
+export const checkHarborUserMapping = async (
+  harborId: string,
+  tenantUserId: string,
+): Promise<{ exists: boolean; mapping?: HarborUserMapping }> => {
+  const result = await apiRequest(`/api/harbor/registries/${harborId}/user-mappings/${tenantUserId}`);
+  return result?.data || result;
+};
+
+// ==================== 成员管理扩展 ====================
+
+/**
+ * 添加项目成员（Tower 用户）
+ */
+export const addHarborProjectMemberByTenantUser = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  params: AddHarborProjectMemberParams,
+): Promise<HarborProjectMember> => {
+  const result = await apiPost(
+    buildHarborProjectApiPath(harborId, projectRef, '/members'),
+    params,
+  );
+  return result?.data || result;
+};
+
+/**
+ * 更新项目成员角色
+ */
+export const updateHarborProjectMemberRole = async (
+  harborId: string,
+  projectRef: HarborProjectRefInput,
+  memberId: number,
+  params: UpdateHarborProjectMemberRoleParams,
+): Promise<void> => {
+  await apiPut(
+    `${buildHarborProjectApiPath(harborId, projectRef, '/members')}/${memberId}`,
+    params,
+  );
 };

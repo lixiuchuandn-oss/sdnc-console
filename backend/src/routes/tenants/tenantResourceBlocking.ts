@@ -63,7 +63,7 @@ async function gatherOrgAssociatedBlocking(orgIds: string[]): Promise<{
   const securityDomains = await securityDomainRepository.find({
     where: { organizationId: In(orgIds) },
   });
-  if (securityDomains.length > 0) rows.push({ name: '安全域', count: securityDomains.length });
+  if (securityDomains.length > 0) rows.push({ name: '网际路由域', count: securityDomains.length });
 
   const serviceChains = await serviceChainRepository.find({
     where: { organizationId: In(orgIds) },
@@ -113,7 +113,7 @@ async function gatherTenantScopedBlocking(tenantId: string): Promise<{
     where: { tenantId },
   });
   if (tenantSecurityDomains.length > 0)
-    rows.push({ name: '租户安全域', count: tenantSecurityDomains.length });
+    rows.push({ name: '租户网际路由域', count: tenantSecurityDomains.length });
 
   const tenantServiceChains = await serviceChainRepository.find({
     where: { tenantId },

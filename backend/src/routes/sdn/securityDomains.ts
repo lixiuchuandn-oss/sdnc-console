@@ -10,7 +10,6 @@ import { CloudInstanceInventory } from '../../entities/CloudInstanceInventory';
 import { NATRule } from '../../entities/vRouter/NATRule';
 import { ACLRule } from '../../entities/vRouter/ACLRule';
 import { ServiceCatalog } from '../../entities/ServiceCatalog';
-import { ServiceChain } from '../../entities/ServiceChain';
 import { Tenant } from '../../entities/Tenant';
 import { Organization } from '../../entities/Organization';
 import { UserSpace } from '../../entities/UserSpace';
@@ -19,9 +18,16 @@ import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 import { callAliyunVpc, callAliyunEcs } from '../../services/clouds/aliyun/client';
 import { huaweiListVpcs } from '../../services/clouds/huaweicloud/client';
 import { tencentListVpcs } from '../../services/clouds/tencentcloud/client';
-import { listCsmElementGroups } from '../../services/clouds/csm/client';
+import { loadCsmSecurityDomainProjection } from '../../utils/csmSecurityDomainProjection';
 import { vrController } from '../../services/vrouter/vrController';
 import { isContainerCategory } from '../../utils/securityDomainKind';
+import {
+  enrichSecurityDomainDto,
+  inferRoleKindFromDomain,
+  isOrchestratableInternetworkRoutingDomain,
+  normalizeLinkedCsmSecurityDomainId,
+} from '../../utils/internetworkRoutingDomain';
+import { suggestVrForSecurityDomain } from '../../utils/suggestVrForSecurityDomain';
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(SecurityDomain);
@@ -33,7 +39,6 @@ const inventoryRepo = () => AppDataSource.getRepository(CloudInstanceInventory);
 const natRepo = () => AppDataSource.getRepository(NATRule);
 const aclRepo = () => AppDataSource.getRepository(ACLRule);
 const serviceRepo = () => AppDataSource.getRepository(ServiceCatalog);
-const chainRepo = () => AppDataSource.getRepository(ServiceChain);
 const tenantRepo = () => AppDataSource.getRepository(Tenant);
 const orgRepo = () => AppDataSource.getRepository(Organization);
 const userSpaceRepo = () => AppDataSource.getRepository(UserSpace);
@@ -75,6 +80,30 @@ const transformVrFields = (obj: any) => {
   return obj;
 };
 
+async function assertUniqueCsmSecurityDomainLink(
+  linkedCsmSecurityDomainId: string | undefined,
+  excludeId?: string,
+): Promise<string | null> {
+  const linked = normalizeLinkedCsmSecurityDomainId(linkedCsmSecurityDomainId);
+  if (!linked) return null;
+  const other = await repo().findOne({ where: { linkedCsmSecurityDomainId: linked } });
+  if (other && (!excludeId || other.id !== excludeId)) {
+    return `CSM 安全域 ${linked} 已关联网际路由域「${other.name}」`;
+  }
+  return null;
+}
+
+async function backfillRoleKindIfMissing(dom: SecurityDomain): Promise<void> {
+  if (dom.roleKind) return;
+  const inferred = inferRoleKindFromDomain(dom);
+  dom.roleKind = inferred;
+  try {
+    await repo().update(dom.id, { roleKind: inferred });
+  } catch {
+    // 列尚未同步时忽略
+  }
+}
+
 const getTenantContext = (req: any) => {
   const user = req.user;
   if (user && (user as any).tenantId) {
@@ -85,6 +114,29 @@ const getTenantContext = (req: any) => {
   }
   return null;
 };
+
+/** 创建网际路由域时按所选云池 + VPC 推荐 VR（§ internetwork-routing-domain.md §16） */
+router.get('/suggest-vr', async (req, res) => {
+  try {
+    const cloudId = String(req.query.cloudId || '').trim();
+    const vpcId = String(req.query.vpcId || '').trim();
+    if (!cloudId || !vpcId) {
+      return res.status(400).json({ message: 'cloudId 与 vpcId 必填' });
+    }
+    const data = await suggestVrForSecurityDomain({
+      cloudId,
+      vpcId,
+      tenantId: String(req.query.tenantId || '').trim() || undefined,
+      organizationId: String(req.query.organizationId || '').trim() || undefined,
+      excludeDomainId: String(req.query.excludeDomainId || '').trim() || undefined,
+      vpcCidr: String(req.query.vpcCidr || '').trim() || undefined,
+    });
+    return res.json({ code: 200, data });
+  } catch (err: any) {
+    console.warn('[SecurityDomain] suggest-vr failed:', err);
+    return res.status(500).json({ message: err?.message || 'suggest-vr failed' });
+  }
+});
 
 // List
 router.get('/', async (req, res) => {
@@ -112,7 +164,19 @@ router.get('/', async (req, res) => {
       where.tenantId = ctx.tenantId;
       where.organizationId = ctx.organizationId;
     }
-    const list = await repo().find({ where, order: { createdAt: 'DESC' } });
+    let list = await repo().find({ where, order: { createdAt: 'DESC' } });
+    for (const dom of list) {
+      await backfillRoleKindIfMissing(dom);
+    }
+
+    const roleKindQ = String((req.query as any).roleKind || '').trim();
+    if (roleKindQ === 'internetwork_routing' || roleKindQ === 'csm_mirror') {
+      list = list.filter((d) => inferRoleKindFromDomain(d) === roleKindQ);
+    }
+    if (String((req.query as any).orchestratable || '') === '1') {
+      list = list.filter((d) => isOrchestratableInternetworkRoutingDomain(d));
+    }
+
     for (const dom of list) {
       let changed = false;
       const cidrEmpty = !dom.cidr || String(dom.cidr).trim() === '';
@@ -270,7 +334,7 @@ router.get('/', async (req, res) => {
         if (wan) resItem.vrPublicIp = String(wan);
         if (lan) resItem.vrPrivateIp = String(lan);
       }
-      return transformVrFields(resItem);
+      return enrichSecurityDomainDto(transformVrFields(resItem));
     });
     res.json(resultList);
   } catch (err) {
@@ -450,328 +514,24 @@ router.get('/:id', async (req, res) => {
       result.appInstances = [];
     }
 
-    // Fetch associated Service Chains (ServiceChain)
-    // Relation is based on domainId OR protectionTargets matching ID/Name
+    // CSM 安全域投影：防护对象 / 安全服务 / 服务链均来自 linkedCsmSecurityDomainId
     try {
-      const chains = await chainRepo()
-        .createQueryBuilder('chain')
-        .where('chain.domainId = :id', { id })
-        .orWhere('chain.protectionTargets LIKE :searchId', { searchId: `%${id}%` })
-        .orWhere('chain.protectionTargets LIKE :searchName', { searchName: `%${result.name}%` })
-        .getMany();
-      result.serviceChains = chains;
-    } catch (e) {
-      console.warn('Failed to fetch service chains:', e);
-      result.serviceChains = [];
-    }
-
-    try {
-      const directIds: string[] = result.securityServiceIds
-        ? result.securityServiceIds
-            .split(',')
-            .map((s: string) => s.trim())
-            .filter(Boolean)
-        : [];
-      const chainIds = new Set<string>();
-
-      if (result.serviceChains) {
-        (result.serviceChains as any[]).forEach((chain: any) => {
-          if (chain.securityServices) {
-            try {
-              const parsed = JSON.parse(chain.securityServices);
-              if (Array.isArray(parsed)) {
-                parsed.forEach((s: any) => {
-                  if (s && typeof s === 'object') {
-                    const id = String(
-                      s?.id ??
-                        s?.vm_group_id ??
-                        s?.vmGroupId ??
-                        s?.vmGroupID ??
-                        s?.vm_group_uuid ??
-                        s?.vmGroupUuid ??
-                        '',
-                    ).trim();
-                    if (id) chainIds.add(id);
-                    return;
-                  }
-                  const id = String(s ?? '').trim();
-                  if (id) chainIds.add(id);
-                });
-              } else {
-                if (parsed && typeof parsed === 'object') {
-                  const id = String(
-                    parsed?.id ??
-                      parsed?.vm_group_id ??
-                      parsed?.vmGroupId ??
-                      parsed?.vmGroupID ??
-                      parsed?.vm_group_uuid ??
-                      parsed?.vmGroupUuid ??
-                      '',
-                  ).trim();
-                  if (id) chainIds.add(id);
-                } else {
-                  const id = String(parsed ?? '').trim();
-                  if (id) chainIds.add(id);
-                }
-              }
-            } catch (e) {
-              chain.securityServices.split(',').forEach((s: string) => chainIds.add(s.trim()));
-            }
-          }
-        });
+      const csmProj = await loadCsmSecurityDomainProjection(result as SecurityDomain);
+      (result as any).linkedCsmSecurityDomain = csmProj.linkedCsmSecurityDomain ?? null;
+      (result as any).csmProtectionObjects = csmProj.csmProtectionObjects;
+      (result as any).securityServices = csmProj.securityServices;
+      (result as any).serviceChains = csmProj.serviceChains;
+      (result as any).csmProjectionReady = csmProj.csmProjectionReady;
+      (result as any).csmProjectionError = csmProj.csmProjectionError;
+      if (csmProj.csmCloudId && !(result as any).csmCloudId) {
+        (result as any).csmCloudId = csmProj.csmCloudId;
       }
-
-      const allIds = Array.from(new Set<string>([...directIds, ...Array.from(chainIds)]));
-
-      const groupById = new Map<string, any>();
-      const toKey = (s: any) =>
-        String(s ?? '')
-          .trim()
-          .toLowerCase();
-      const uuidToObjectIdHex = (uuidStr: string): string | null => {
-        try {
-          const s = String(uuidStr || '')
-            .trim()
-            .toLowerCase();
-          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s))
-            return null;
-          const hex = s.replace(/-/g, '');
-          const bytes = Buffer.from(hex, 'hex');
-          if (bytes.length !== 16) return null;
-          if (!(bytes[6] === 0x40 && bytes[7] === 0x00 && bytes[8] === 0x80 && bytes[9] === 0x00))
-            return null;
-          const obj = Buffer.alloc(12);
-          bytes.copy(obj, 0, 0, 6);
-          bytes.copy(obj, 6, 10, 16);
-          return obj.toString('hex');
-        } catch {
-          return null;
-        }
-      };
-      const idCandidates = (id: string) => {
-        const out: string[] = [];
-        const a = toKey(id);
-        if (a) out.push(a);
-        const b = uuidToObjectIdHex(id);
-        if (b) out.push(toKey(b));
-        return Array.from(new Set(out));
-      };
-      try {
-        if (allIds.length > 0 || ((result as any)?.serviceChains?.length ?? 0) > 0) {
-          const isCsmCloud = (cloud: any) => {
-            const pvRaw = String((cloud as any)?.config?.provider || (cloud as any)?.provider || '')
-              .trim()
-              .toLowerCase();
-            return pvRaw === 'cloudmap.csm';
-          };
-
-          const hasCreds = (cloud: any) => {
-            const endpoint = String(cloud?.endpoint || '').trim();
-            const accessKey = String(cloud?.accessKey || '').trim();
-            const secretKey = String(cloud?.secretKey || '').trim();
-            return !!(endpoint && accessKey && secretKey);
-          };
-
-          const candidateClouds: any[] = [];
-
-          const chainPoolKeys = Array.from(
-            new Set(
-              (((result as any)?.serviceChains as any[]) || [])
-                .map((c: any) => String(c?.clusterName || '').trim())
-                .filter(Boolean),
-            ),
-          );
-          if (chainPoolKeys.length > 0) {
-            const byId = await cloudRepo()
-              .createQueryBuilder('c')
-              .where('c.id IN (:...ids)', { ids: chainPoolKeys })
-              .getMany();
-            (Array.isArray(byId) ? byId : []).forEach((c: any) => {
-              if (c && isCsmCloud(c)) candidateClouds.push(c);
-            });
-
-            const foundIds = new Set<string>(
-              (Array.isArray(byId) ? byId : []).map((c: any) => String(c?.id || '').trim()),
-            );
-            const missingAsNames = chainPoolKeys.filter((k) => !foundIds.has(k));
-            if (missingAsNames.length > 0) {
-              const byName = await cloudRepo()
-                .createQueryBuilder('c')
-                .where('c.name IN (:...names)', { names: missingAsNames })
-                .getMany();
-              (Array.isArray(byName) ? byName : []).forEach((c: any) => {
-                if (c && isCsmCloud(c)) candidateClouds.push(c);
-              });
-            }
-          }
-
-          if ((result as any)?.resourcePool) {
-            const rpCloud = await cloudRepo().findOne({
-              where: { id: String((result as any).resourcePool) },
-            });
-            if (rpCloud && isCsmCloud(rpCloud)) candidateClouds.push(rpCloud);
-          }
-
-          if (result.cloudId) {
-            const domCloud = await cloudRepo().findOne({ where: { id: String(result.cloudId) } });
-            if (domCloud && isCsmCloud(domCloud)) candidateClouds.push(domCloud);
-          }
-
-          // 禁止「无关联候选池」时回退为全量 CSM 云：会导致跨资源池网元/展示串数据
-          // 若需扩展匹配，只应显式使用链路上的 clusterName、resourcePool、cloudId，而非扫库
-
-          const seen = new Set<string>();
-          const deduped = candidateClouds.filter((c: any) => {
-            const cid = String(c?.id || '').trim();
-            if (!cid) return false;
-            if (seen.has(cid)) return false;
-            seen.add(cid);
-            return true;
-          });
-
-          for (const cloud of deduped) {
-            if (!cloud || !isCsmCloud(cloud) || !hasCreds(cloud)) continue;
-
-            // 每个云单独拉网元组并匹配，避免多池下相同 gid/候选键互相覆盖
-            groupById.clear();
-
-            const endpoint = String(cloud.endpoint || '').trim();
-            const accessKey = String(cloud.accessKey || '').trim();
-            const secretKey = String(cloud.secretKey || '').trim();
-            const ignoreTls = !!(cloud as any)?.config?.ignoreTls;
-
-            const groups = await listCsmElementGroups({
-              endpoint,
-              accessKey,
-              secretKey,
-              ignoreTls,
-            } as any);
-            (Array.isArray(groups) ? groups : []).forEach((g: any) => {
-              const gid = String(
-                g?.id ??
-                  g?.vm_group_id ??
-                  g?.vmGroupId ??
-                  g?.vmGroupID ??
-                  g?.vm_group_uuid ??
-                  g?.vmGroupUuid ??
-                  '',
-              ).trim();
-              if (!gid) return;
-              idCandidates(gid).forEach((k) => groupById.set(k, g));
-            });
-
-            const matched = allIds.some((sid) => idCandidates(sid).some((k) => groupById.has(k)));
-            if (matched) break;
-          }
-        }
-      } catch (e) {
-        console.warn('Failed to load CSM element groups for security services:', e);
-      }
-
-      const pick = (obj: any, keys: string[]) => {
-        for (const k of keys) {
-          const v = obj?.[k];
-          if (v !== undefined && v !== null && String(v).trim() !== '') return v;
-        }
-        return undefined;
-      };
-
-      const normalizeOne = (sid: string, source: string) => {
-        const keyList = idCandidates(sid);
-        const g = keyList.map((k) => groupById.get(k)).find(Boolean) || {};
-        const elements = Array.isArray(g?.elements)
-          ? g.elements
-          : typeof g?.vm_id_list === 'string'
-            ? String(g.vm_id_list)
-                .split(';')
-                .filter((s: string) => s.trim())
-            : [];
-        const neCount = Number(
-          pick(g, [
-            'neCount',
-            'count',
-            'Count',
-            'elementCount',
-            'elementsCount',
-            'elements_count',
-            'vm_count',
-            'vmCount',
-          ]) ?? (Array.isArray(elements) ? elements.length : 0),
-        );
-
-        const vendor = pick(g, [
-          'vendor',
-          'manufacturer',
-          'vendor_name',
-          'vendorName',
-          'factory',
-          'brand',
-          'company',
-          'maker',
-        ]);
-        const defenseRaw = pick(g, [
-          'defenseType',
-          'defense_type',
-          'defend_type',
-          'defendType',
-          'protectType',
-          'protect_type',
-          'protectionType',
-          'protection_type',
-          'securityType',
-          'security_type',
-        ]);
-        const defenseType = ((): string | undefined => {
-          if (defenseRaw === undefined) return undefined;
-          const n = Number(defenseRaw);
-          if (!Number.isNaN(n)) {
-            if (n === 1) return '非流量型';
-            if (n === 2) return '流量型';
-          }
-          const s = String(defenseRaw).trim();
-          return s ? s : undefined;
-        })();
-        const type =
-          pick(g, [
-            'vm_type',
-            'vmType',
-            'type',
-            'groupType',
-            'vm_group_type',
-            'vmGroupType',
-            'productType',
-            'product_type',
-          ]) || 'CSM安全网元组';
-        const name =
-          pick(g, ['name', 'vm_group_name', 'vmGroupName']) ||
-          `安全网元组-${String(sid).substring(0, 8)}`;
-
-        return {
-          id: sid,
-          name,
-          type,
-          vendor: vendor ?? undefined,
-          defenseType: defenseType ?? undefined,
-          neCount,
-          source,
-          status: 'active',
-        };
-      };
-
-      const allServices: any[] = [];
-      directIds.forEach((sid: string) => {
-        allServices.push(normalizeOne(sid, '直接关联'));
-      });
-      Array.from(chainIds).forEach((sid: string) => {
-        if (!directIds.includes(sid)) {
-          allServices.push(normalizeOne(sid, '服务链关联'));
-        }
-      });
-
-      (result as any).securityServices = allServices;
     } catch (e) {
-      console.warn('Failed to fetch security services:', e);
+      console.warn('Failed to load CSM security domain projection:', e);
+      (result as any).csmProtectionObjects = [];
       (result as any).securityServices = [];
+      (result as any).serviceChains = [];
+      (result as any).csmProjectionReady = false;
     }
 
     // Fetch associated NAT Rules (NATRule)
@@ -829,7 +589,8 @@ router.get('/:id', async (req, res) => {
     }
 
     transformVrFields(result);
-    res.json(result);
+    await backfillRoleKindIfMissing(item);
+    res.json(enrichSecurityDomainDto(result));
   } catch (err) {
     res.status(500).json({ message: 'Failed to get security domain', error: String(err) });
   }
@@ -843,7 +604,7 @@ router.post('/', async (req, res) => {
     const ctx = getTenantContext(req as any);
 
     const entity = new SecurityDomain();
-    entity.name = payload.name || '未命名安全域';
+    entity.name = payload.name || '未命名网际路由域';
     entity.cloudId = payload.cloudId;
     entity.vpcMode = payload.vpcMode;
     entity.vpcId = payload.vpcId;
@@ -879,7 +640,18 @@ router.post('/', async (req, res) => {
     entity.status = payload.status || 'active';
     (entity as any).category =
       (payload as any).category != null ? String((payload as any).category).trim() : undefined;
-    entity.securityServiceIds = payload.securityServiceIds;
+    entity.roleKind = 'internetwork_routing';
+    entity.csmCloudId = String((payload as any).csmCloudId || '').trim() || undefined;
+    entity.csmOrgId = String((payload as any).csmOrgId || '').trim() || undefined;
+    entity.linkedCsmSecurityDomainId = normalizeLinkedCsmSecurityDomainId(
+      (payload as any).linkedCsmSecurityDomainId,
+    );
+    entity.discoveryMode = (payload as any).discoveryMode;
+
+    const csmLinkErr = await assertUniqueCsmSecurityDomainLink(entity.linkedCsmSecurityDomainId);
+    if (csmLinkErr) {
+      return res.status(409).json({ message: csmLinkErr });
+    }
 
     if (ctx) {
       (entity as any).tenantId = ctx.tenantId ? String(ctx.tenantId) : undefined;
@@ -912,7 +684,7 @@ router.post('/', async (req, res) => {
     if (ctx && entity.cloudId) {
       const orgId = ctx.organizationId ? String(ctx.organizationId) : undefined;
       if (!orgId) {
-        return res.status(400).json({ message: '当前用户缺少组织信息，无法创建安全域' });
+        return res.status(400).json({ message: '当前用户缺少组织信息，无法创建网际路由域' });
       }
       const userSpace = await userSpaceRepo().findOne({
         where: {
@@ -1083,7 +855,7 @@ router.post('/', async (req, res) => {
       if (u) {
         const other = await repo().findOne({ where: { vrUuid: u } });
         if (other) {
-          return res.status(409).json({ message: `该 VR 已绑定安全域「${other.name}」` });
+          return res.status(409).json({ message: `该 VR 已绑定网际路由域「${other.name}」` });
         }
       }
     }
@@ -1198,7 +970,29 @@ router.patch('/:id', async (req, res) => {
       delete (partial as any).tenantId;
       delete (partial as any).organizationId;
     }
+    if ((partial as any).linkedCsmSecurityDomainId !== undefined) {
+      (partial as any).linkedCsmSecurityDomainId = normalizeLinkedCsmSecurityDomainId(
+        (partial as any).linkedCsmSecurityDomainId,
+      );
+      const csmLinkErr = await assertUniqueCsmSecurityDomainLink(
+        (partial as any).linkedCsmSecurityDomainId,
+        id,
+      );
+      if (csmLinkErr) {
+        return res.status(409).json({ message: csmLinkErr });
+      }
+    }
+    if ((partial as any).roleKind === 'internetwork_routing' && existing.roleKind === 'csm_mirror') {
+      (partial as any).roleKind = 'internetwork_routing';
+    }
+
     Object.assign(existing, partial);
+    if (
+      inferRoleKindFromDomain(existing) === 'internetwork_routing' &&
+      existing.roleKind !== 'internetwork_routing'
+    ) {
+      existing.roleKind = 'internetwork_routing';
+    }
     if (!ctx) {
       if ((partial as any).tenantId !== undefined) {
         (existing as any).tenantId = (partial as any).tenantId
@@ -1248,10 +1042,6 @@ router.patch('/:id', async (req, res) => {
         ? (partial as any).vrPrivateSubnetCidr.join(',')
         : (partial as any).vrPrivateSubnetCidr;
     }
-    if (partial.securityServiceIds !== undefined) {
-      existing.securityServiceIds = partial.securityServiceIds;
-    }
-
     // 依据最新 vpcMode/vpcId/newVpcCidr 自动更新 CIDR（兼容云侧 vpcId 或本地 VPC UUID）
     try {
       if (existing.vpcMode === 'existing' && existing.vpcId) {
@@ -1321,7 +1111,7 @@ router.patch('/:id', async (req, res) => {
       if (u) {
         const other = await repo().findOne({ where: { vrUuid: u } });
         if (other && other.id !== id) {
-          return res.status(409).json({ message: `该 VR 已绑定安全域「${other.name}」` });
+          return res.status(409).json({ message: `该 VR 已绑定网际路由域「${other.name}」` });
         }
       }
     }

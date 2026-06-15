@@ -19,8 +19,9 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { apiDelete, apiPost, apiPut, apiRequest } from '../../../services/api';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
 import { filterMenuItemsForReadOnly } from '../../../utils/rbacUi';
-import { fetchProtectionObjects, fetchServiceChains } from '../../../services/trafficOrchestration';
-import { fetchVrCachePageList } from '../../../services/virtualRouterApi';
+import { listSecurityDomains } from '../../../services/securityDomainApi';
+import { formatCategoryLabel } from '../../../utils/securityDomainKind';
+import { inferRoleKindFromDomain } from '../../../utils/internetworkRoutingDomain';
 import {
   CreateTenantUserRequest,
   Organization,
@@ -37,6 +38,7 @@ import {
   isAssignableExistingNamespaceRecord,
   poolMatchesAssignDrawerTab,
 } from '../lib/orgManagePoolHelpers';
+import { InlineOrgAddChildRow, InlineOrgRenameRow } from '../components/InlineOrgTreeNameInput';
 import { DeleteOrgConflict } from '../modals/DeleteOrgConflict';
 import { RemoveAssignmentConflict } from '../modals/RemoveAssignmentConflict';
 
@@ -97,23 +99,18 @@ export function useOrgManagePage() {
   // - assignmentKeyword：用于“计算资源分配”页签的本地过滤
   // 可分配资源池缓存（抽屉内选择使用）
   const [resourcePools, setResourcePools] = useState<any[]>([]);
-  const [securityLoading, setSecurityLoading] = useState(false);
-  const [protectionObjects, setProtectionObjects] = useState<any[]>([]);
-  const [securityChains, setSecurityChains] = useState<any[]>([]);
-  // SDN/VR 相关展示状态
-  const [sdnVrLoading, setSdnVrLoading] = useState(false);
-  const [sdnVrs, setSdnVrs] = useState<any[]>([]);
+  const [irdLoading, setIrdLoading] = useState(false);
+  const [internetworkRoutingDomains, setInternetworkRoutingDomains] = useState<any[]>([]);
+  const [irdKeyword, setIrdKeyword] = useState('');
   // 说明：
   // - resourcePools：抽屉“分配资源池”的候选集合（由 fetchResourcePools 获取）
-  // - sdnVrLoading/sdnVrs：安全域页签“SDN/VR”的加载状态与数据集合
+  // - internetworkRoutingDomains：当前组织下网际路由域（只读展示；编排入口在 SDN → 网际路由域）
   // 组织树内联编辑/新增相关状态
   const [renameOrgId, setRenameOrgId] = useState<string | null>(null);
-  const [renameName, setRenameName] = useState<string>('');
   const [addingForParentId, setAddingForParentId] = useState<string | null>(null);
-  const [newChildName, setNewChildName] = useState<string>('');
   // 组织树内联编辑说明：
-  // - renameOrgId/renameName：重命名的目标组织与输入值
-  // - addingForParentId/newChildName：在父组织下添加子组织的内联行与名称
+  // - renameOrgId：重命名的目标组织（名称输入在 InlineOrgRenameRow 本地 state）
+  // - addingForParentId：在父组织下添加子组织的内联行（名称输入在 InlineOrgAddChildRow 本地 state）
 
   // --- 页面状态（表单与抽屉）---
   const [userForm] = Form.useForm();
@@ -150,9 +147,6 @@ export function useOrgManagePage() {
   // - assignType：计算/存储/安全三类，用于候选池过滤与文案切换
   // - storageKeyword/securityKeyword：对应页签的本地过滤关键字
   // - nsLoading/nsOptions：按 provider 条件联动加载命名空间（Harvester/CloudMap 私有/边缘）
-  // 安全域标签页切换与内容淡入动画
-  const [sdnActiveKey, setSdnActiveKey] = useState<'vr'|'objects'|'chains'>('vr');
-  const [sdnContentOpacity, setSdnContentOpacity] = useState<number>(1);
   // 角色库：用于为用户分配角色时的源数据
   const [tenantRoles, setTenantRoles] = useState<RBACRole[]>([]);
   const [roleAssignOpen, setRoleAssignOpen] = useState(false);
@@ -294,7 +288,6 @@ export function useOrgManagePage() {
     try {
       await apiPut(`/api/tenants/organizations/${orgId}`, { name });
       setRenameOrgId(null);
-      setRenameName('');
       if (tenantId) fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('重命名成功');
     } catch (e: any) {
@@ -304,18 +297,17 @@ export function useOrgManagePage() {
   };
 
   // 添加子组织保存：校验名称、调用创建接口、刷新组织树
-  const handleAddChildSave = async (parentId: string) => {
+  const handleAddChildSave = async (parentId: string, name: string) => {
     if (!canWriteOrganizations) {
       messageApi.warning('无权限执行该操作');
       return;
     }
     if (!tenantId) return;
-    const name = newChildName.trim();
-    if (!name) return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
     try {
-      await apiPost(`/api/tenants/${tenantId}/organizations`, { name, parentId });
+      await apiPost(`/api/tenants/${tenantId}/organizations`, { name: trimmed, parentId });
       setAddingForParentId(null);
-      setNewChildName('');
       fetchOrganizations(tenantId, true); // 强制刷新，跳过缓存
       messageApi.success('创建组织成功');
     } catch (e: any) {
@@ -642,73 +634,130 @@ export function useOrgManagePage() {
     fetchTenantRoles();
   }, [tenantId]);
 
-  const fetchSdnVrs = useCallback(async () => {
-    if (!selectedOrg?.id || !tenantId) return;
+  const fetchInternetworkRoutingDomains = useCallback(async () => {
+    if (!selectedOrg?.id || !tenantId) {
+      setInternetworkRoutingDomains([]);
+      return;
+    }
     try {
-      setSdnVrLoading(true);
-      const res = await fetchVrCachePageList(1000, 1);
-      const data = res?.data || res;
-      let items: any[] = [];
-      
-      if (data && Array.isArray(data.page)) {
-          items = data.page;
-      } else if (data && Array.isArray(data.list)) {
-          items = data.list;
-      } else if (Array.isArray(data)) {
-          items = data;
-      }
-
-      // Filter by tenantId and organizationId
-      items = items.filter((item: any) => {
-        const tid = String(item.tenant_id || item.tenantId || '');
-        const oid = String(item.org_id || item.organizationId || '');
-        return tid === String(tenantId) && oid === String(selectedOrg.id);
+      setIrdLoading(true);
+      const list = await listSecurityDomains({ roleKind: 'internetwork_routing' });
+      const rows = (Array.isArray(list) ? list : []).filter((d: any) => {
+        const tid = String(d?.tenantId || '').trim();
+        const oid = String(d?.organizationId || '').trim();
+        if (tid !== String(tenantId) || oid !== String(selectedOrg.id)) return false;
+        const kind = d?.roleKind || inferRoleKindFromDomain(d);
+        return kind === 'internetwork_routing';
       });
-
-      setSdnVrs(items);
+      setInternetworkRoutingDomains(rows);
     } catch {
-      setSdnVrs([]);
+      setInternetworkRoutingDomains([]);
     } finally {
-      setSdnVrLoading(false);
+      setIrdLoading(false);
     }
   }, [selectedOrg?.id, tenantId]);
 
-  // SDN/VR 数据归一化与过滤：
-  // - 兼容 { page: [] } / { list: [] } / [] 三类返回结构
-  // - 仅保留与当前租户/组织匹配的 VR 项
+  const filteredInternetworkRoutingDomains = useMemo(() => {
+    const kw = irdKeyword.trim().toLowerCase();
+    if (!kw) return internetworkRoutingDomains;
+    return internetworkRoutingDomains.filter((d: any) => {
+      const text = [
+        d?.name,
+        d?.category,
+        formatCategoryLabel(d?.category),
+        d?.provider,
+        d?.region,
+        d?.vpcId,
+        d?.vrUuid,
+        d?.vrName,
+        d?.linkedCsmSecurityDomainId,
+        d?.linkedCsmSecurityDomain?.name,
+        d?.cidr,
+        Array.isArray(d?.cidr4) ? d.cidr4.join(' ') : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return text.includes(kw);
+    });
+  }, [internetworkRoutingDomains, irdKeyword]);
+
+  const internetworkRoutingDomainColumns: ColumnsType<any> = useMemo(
+    () => [
+      {
+        title: '名称',
+        dataIndex: 'name',
+        key: 'name',
+        fixed: 'left',
+        render: (text: string, record: any) => (
+          <Typography.Link
+            onClick={() => navigate(`/admin/sec-mgr-plane/security-domain/${record.id}`)}
+          >
+            {text || record.id || '—'}
+          </Typography.Link>
+        ),
+      },
+      {
+        title: '类型',
+        key: 'category',
+        render: (_: unknown, r: any) => formatCategoryLabel(r?.category) || r?.category || '—',
+      },
+      {
+        title: '云厂商 / 地域',
+        key: 'providerRegion',
+        render: (_: unknown, r: any) => {
+          const txt = [r?.provider, r?.region].filter(Boolean).join(' / ');
+          return txt || '—';
+        },
+      },
+      {
+        title: 'VPC / 网段',
+        key: 'network',
+        ellipsis: true,
+        render: (_: unknown, r: any) => {
+          if (r?.vpcId) return String(r.vpcId);
+          const cidr4 = Array.isArray(r?.cidr4) && r.cidr4.length ? r.cidr4.join('，') : '';
+          return cidr4 || r?.cidr || '—';
+        },
+      },
+      {
+        title: 'VR',
+        key: 'vr',
+        ellipsis: true,
+        render: (_: unknown, r: any) => r?.vrName || r?.vrUuid || '—',
+      },
+      {
+        title: '关联 CSM 安全域',
+        key: 'csm',
+        ellipsis: true,
+        render: (_: unknown, r: any) =>
+          r?.linkedCsmSecurityDomain?.name || r?.linkedCsmSecurityDomainId || '—',
+      },
+      {
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        render: (v: string) => {
+          const active = String(v || '').toLowerCase() === 'active';
+          return (
+            <span className={active ? 'std-badge std-badge-success' : 'std-badge std-badge-default'}>
+              {active ? '启用' : v || '—'}
+            </span>
+          );
+        },
+      },
+    ],
+    [navigate],
+  );
 
   useEffect(() => {
     if (!selectedOrg?.id) return;
     if (!tenantId) return;
     fetchUsers(tenantId, selectedOrg.id, true);
     fetchAssignments(selectedOrg.id);
-    (async () => {
-      try {
-        setSecurityLoading(true);
-        const [objs, chains] = await Promise.all([
-          fetchProtectionObjects({ organizationId: selectedOrg.id }),
-          fetchServiceChains({ organizationId: selectedOrg.id }),
-        ]);
-        setProtectionObjects(Array.isArray(objs) ? objs : (objs?.data || []));
-        setSecurityChains(Array.isArray(chains) ? chains : (chains?.data || []));
-      } catch {
-        setProtectionObjects([]);
-        setSecurityChains([]);
-      } finally {
-        setSecurityLoading(false);
-      }
-    })();
-    fetchSdnVrs();
-  }, [selectedOrg?.id, tenantId, fetchSdnVrs]);
-  // 组织上下文变化后联动刷新：
-  // - 用户列表、资源池分配、防护对象、服务链、SDN/VR
-  // - 失败时回落为空集合并结束加载态
-
-  useEffect(() => {
-    setSdnContentOpacity(0);
-    const t = setTimeout(() => setSdnContentOpacity(1), 0);
-    return () => clearTimeout(t);
-  }, [sdnActiveKey, selectedOrg?.id]);
+    void fetchInternetworkRoutingDomains();
+  }, [selectedOrg?.id, tenantId, fetchInternetworkRoutingDomains]);
+  // 组织上下文变化后联动刷新：用户列表、资源池分配、网际路由域（只读）
 
   // 构造 Tree 组件数据：
   // - 支持在当前节点下插入“添加子组织”的内联行
@@ -724,39 +773,10 @@ export function useOrgManagePage() {
           children.push({
             key: `__new__-${org.id}`,
             title: (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Input
-                  size="small"
-                  value={newChildName}
-                  onChange={(e) => setNewChildName(e.target.value)}
-                  placeholder="请输入组织名称"
-                  style={{ width: 200 }}
-                />
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<CheckOutlined />}
-                  disabled={!newChildName.trim()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleAddChildSave(org.id);
-                  }}
-                >
-                  保存
-                </Button>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<CloseOutlined />}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setAddingForParentId(null);
-                    setNewChildName('');
-                  }}
-                >
-                  取消
-                </Button>
-              </div>
+              <InlineOrgAddChildRow
+                onSave={(name) => handleAddChildSave(org.id, name)}
+                onCancel={() => setAddingForParentId(null)}
+              />
             ),
           });
         }
@@ -765,41 +785,21 @@ export function useOrgManagePage() {
           title: (
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, width: '100%' }}>
             {renameOrgId === org.id ? (
-              <Input
-                size="small"
-                value={renameName}
-                onChange={(e) => setRenameName(e.target.value)}
-                style={{ width: 180 }}
+              <InlineOrgRenameRow
+                initialName={org.name}
+                onSave={(name) => handleOrgRename(org.id, name)}
+                onCancel={() => setRenameOrgId(null)}
               />
             ) : (
               <Typography.Text style={{ pointerEvents: 'none' }}>{org.name}</Typography.Text>
             )}
             <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto', justifyContent: 'flex-end' }}>
-              {canWriteOrganizations && renameOrgId === org.id ? (
-                <>
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<CheckOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!renameName.trim()) return;
-                      handleOrgRename(org.id, renameName.trim());
-                    }}
-                  >保存</Button>
-                  <Button
-                    type="link"
-                    size="small"
-                    icon={<CloseOutlined />}
-                    onClick={(e) => { e.stopPropagation(); setRenameOrgId(null); setRenameName(''); }}
-                  >取消</Button>
-                </>
-              ) : canWriteOrganizations ? (
+              {canWriteOrganizations && renameOrgId !== org.id ? (
                 <Button
                   type="link"
                   size="small"
                   icon={<EditOutlined />}
-                  onClick={(e) => { e.stopPropagation(); setRenameOrgId(org.id); setRenameName(org.name); }}
+                  onClick={(e) => { e.stopPropagation(); setRenameOrgId(org.id); }}
                 >重命名</Button>
               ) : null}
               {canWriteOrganizations ? (
@@ -812,7 +812,6 @@ export function useOrgManagePage() {
                     e.stopPropagation();
                     setExpandedKeys(prev => (prev.includes(org.id) ? prev : [...prev, org.id]));
                     setAddingForParentId(org.id);
-                    setNewChildName('');
                   }}
                 >添加子组织</Button>
               ) : null}
@@ -1036,11 +1035,13 @@ export function useOrgManagePage() {
     assignmentKeyword,
     setAssignmentKeyword,
     resourcePools,
-    securityLoading,
-    protectionObjects,
-    securityChains,
-    sdnVrLoading,
-    sdnVrs,
+    irdLoading,
+    internetworkRoutingDomains,
+    filteredInternetworkRoutingDomains,
+    internetworkRoutingDomainColumns,
+    irdKeyword,
+    setIrdKeyword,
+    fetchInternetworkRoutingDomains,
     userForm,
     editUserForm,
     resourcePoolForm,
@@ -1065,9 +1066,6 @@ export function useOrgManagePage() {
     occupiedNamespaceNames,
     setOccupiedNamespaceNames,
     filteredAssignNsNames,
-    sdnActiveKey,
-    setSdnActiveKey,
-    sdnContentOpacity,
     tenantRoles,
     roleAssignOpen,
     setRoleAssignOpen,
@@ -1086,7 +1084,6 @@ export function useOrgManagePage() {
     fetchUsers,
     fetchAssignments,
     fetchResourcePools,
-    fetchSdnVrs,
     handleUserSubmit,
     handleEditUserSave,
     handleResourcePoolAssign,

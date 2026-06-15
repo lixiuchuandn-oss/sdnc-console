@@ -21,7 +21,17 @@ import {
   csmAdminLogin,
   csmRequest,
   csmPreAuthLogin,
+  CSM_DEFAULT_ADMIN_PASSWORD_ENCRYPTED,
 } from '../../../services/clouds/csm/client';
+import {
+  listCsmSecurityDomainsPaged,
+  listCsmTenantsPaged,
+} from '../../../services/clouds/csm/csmV2Api';
+import {
+  assertCsmTargetCloud,
+  csmConfigFromCloud,
+  csmRepairAuthFromCloud,
+} from '../../../services/tenants/csmTenantRepair';
 import { ServiceChain } from '../../../entities/ServiceChain';
 
 const csmHttpLog = logger.child('CSM-Http');
@@ -596,7 +606,9 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
       const passwordRaw = body.password ?? query.password;
       const authPwdRaw = body.authPassword ?? query.authPassword;
       const username = String(usernameRaw || 'admin').trim();
-      const encPwd = String(authPwdRaw || passwordRaw || '+yNpVuicvsiBzpDpeaIq3g==').trim();
+      const encPwd = String(
+        authPwdRaw || passwordRaw || CSM_DEFAULT_ADMIN_PASSWORD_ENCRYPTED,
+      ).trim();
       const payloadBase = { id: String(webId), currentLoginWebPort: webPort };
       const preAuthResp = await csmPreAuthLogin(config, username, encPwd, webPort);
       csmHttpLog.debug('SSO preAuth response', JSON.stringify(preAuthResp).slice(0, 500));
@@ -724,6 +736,56 @@ export const registerCsmRoutes = (router: Router, checkAdminPermission: any) => 
 
   router.post('/:id/csm/security/domain/attach/callOnSSO', checkAdminPermission, handleCsmSso);
   router.get('/:id/csm/security/domain/attach/callOnSSO', checkAdminPermission, handleCsmSso);
+
+  router.get('/:id/csm/tenants', checkAdminPermission, async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const cloud = await fetchCloudOr404(id, res);
+      if (!cloud) return;
+      if (!ensureCsm(cloud, res, '仅支持 CSM')) return;
+      assertCsmTargetCloud(cloud);
+
+      const config = csmConfigFromCloud(cloud);
+      const auth = csmRepairAuthFromCloud(cloud);
+      const items = await listCsmTenantsPaged(config, auth);
+      res.json({
+        message: '查询成功',
+        data: { items },
+        capabilities: { isCsm: true },
+      });
+    } catch (error: any) {
+      csmHttpLog.error('tenants route', errBrief(error));
+      const status = Number(error?.status) || 500;
+      res
+        .status(status)
+        .json({ message: error?.message || 'CSM 租户查询失败', error: error.message });
+    }
+  });
+
+  router.get('/:id/csm/security/domains', checkAdminPermission, async (req: any, res: Response) => {
+    try {
+      const { id } = req.params;
+      const cloud = await fetchCloudOr404(id, res);
+      if (!cloud) return;
+      if (!ensureCsm(cloud, res, '仅支持 CSM')) return;
+      assertCsmTargetCloud(cloud);
+
+      const config = csmConfigFromCloud(cloud);
+      const auth = csmRepairAuthFromCloud(cloud);
+      const items = await listCsmSecurityDomainsPaged(config, auth);
+      res.json({
+        message: '查询成功',
+        data: { items },
+        capabilities: { isCsm: true },
+      });
+    } catch (error: any) {
+      csmHttpLog.error('security domains route', errBrief(error));
+      const status = Number(error?.status) || 500;
+      res
+        .status(status)
+        .json({ message: error?.message || 'CSM 安全域查询失败', error: error.message });
+    }
+  });
 
   router.delete(
     '/:id/csm/security/service-chains/:chainId',

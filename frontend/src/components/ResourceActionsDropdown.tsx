@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Button, Dropdown, MenuProps, Tooltip } from 'antd';
 import { EllipsisOutlined } from '@ant-design/icons';
 
@@ -39,16 +39,23 @@ const ResourceActionsDropdown: React.FC<Props> = ({
   size,
   children,
 }) => {
-  const processedItems: MenuProps['items'] = React.useMemo(() => {
+  const actionByKeyRef = useRef(new Map<string, () => void>());
+
+  const processedItems: MenuProps['items'] = useMemo(() => {
+    actionByKeyRef.current.clear();
     if (!items) return [];
     return items.map((item) => {
       if (!item || typeof item !== 'object') return item;
       if (item.type === 'divider') {
         return { type: 'divider' as const, key: item.key };
       }
-      
+
       const { tooltip, show: _show, onClick: itemOnClick, disabled, danger, ...rest } = item;
-      
+      const key = String(rest.key ?? '');
+      if (key && itemOnClick && !disabled) {
+        actionByKeyRef.current.set(key, itemOnClick);
+      }
+
       if (disabled) {
         return {
           key: rest.key,
@@ -63,13 +70,12 @@ const ResourceActionsDropdown: React.FC<Props> = ({
           disabled: true,
         };
       }
-      
+
       return {
         key: rest.key,
         icon: rest.icon,
         label: item.label,
         danger: danger,
-        onClick: itemOnClick,
       };
     });
   }, [items]);
@@ -81,6 +87,8 @@ const ResourceActionsDropdown: React.FC<Props> = ({
   const finalMenu: MenuProps = menuProps || {
     items: processedItems,
     onClick: (info) => {
+      const key = String(info?.key ?? '');
+      actionByKeyRef.current.get(key)?.();
       if (onClick) onClick(info);
     },
   };

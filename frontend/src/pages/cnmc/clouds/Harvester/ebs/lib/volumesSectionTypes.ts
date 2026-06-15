@@ -13,6 +13,7 @@ export interface VolumeView {
   volumeMode: string;
   creationTimestamp: string;
   attachedTo: string[];
+  workloadConsumers?: Array<{ kind: string; name: string }>;
   links?: { view?: string };
   raw: unknown;
 }

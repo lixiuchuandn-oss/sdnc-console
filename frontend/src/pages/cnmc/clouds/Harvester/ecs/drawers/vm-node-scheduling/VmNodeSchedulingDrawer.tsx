@@ -195,6 +195,7 @@ const VmNodeSchedulingDrawer: React.FC<VmNodeSchedulingDrawerProps> = ({
             nodes={nodes}
             reloadNodes={reloadNodes}
             nodesLoading={nodesLoading}
+            pciDevices={pciDevices}
           />
         </Form>
       </div>

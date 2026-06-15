@@ -1,5 +1,5 @@
 /**
- * 运维监控大盘 · 云主机分布概览（环形图 + 明细列表，与集群概览卡片统一布局）
+ * 运维监控大盘 · 云主机分布概览（环形图 + 明细列表）
  */
 import React, { useCallback, useMemo, useRef } from 'react';
 import LazyReactECharts from '../../../../../../components/LazyReactECharts';
@@ -45,6 +45,8 @@ export interface OpsDashboardVmDistributionCardProps {
   includeZeroInList?: boolean;
   /** 右上角附加文案，默认「共 N 台」 */
   extraText?: string;
+  /** 卡片底部追加内容（如节点状态 Tag 列表） */
+  footerContent?: React.ReactNode;
 }
 
 function buildPieData(items: VmDistributionItem[], total: number, topN: number, includeZeroInList: boolean) {
@@ -82,6 +84,7 @@ const OpsDashboardVmDistributionCard: React.FC<OpsDashboardVmDistributionCardPro
   emptyHint = '暂无数据',
   includeZeroInList = false,
   extraText,
+  footerContent,
 }) => {
   const chartRef = useRef<ReactEChartsCore>(null);
   const { onChartReady: onChartLoadingReady } = useEChartsLoading(chartRef, loading);
@@ -130,93 +133,96 @@ const OpsDashboardVmDistributionCard: React.FC<OpsDashboardVmDistributionCardPro
       height={height}
     >
       {displayList.length > 0 || total > 0 ? (
-        <div
-          style={{
-            display: 'flex',
-            gap: OPS_OVERVIEW_BODY_GAP,
-            alignItems: 'stretch',
-            width: '100%',
-            minHeight: OPS_OVERVIEW_BODY_MIN_HEIGHT,
-          }}
-        >
+        <>
           <div
             style={{
-              width: OPS_OVERVIEW_RING_SIZE,
-              flexShrink: 0,
-              position: 'relative',
-              height: OPS_OVERVIEW_RING_SIZE,
+              display: 'flex',
+              gap: OPS_OVERVIEW_BODY_GAP,
+              alignItems: 'stretch',
+              width: '100%',
+              minHeight: OPS_OVERVIEW_BODY_MIN_HEIGHT,
             }}
           >
-            <LazyReactECharts
-              ref={chartRef}
-              option={option}
-              style={{ width: OPS_OVERVIEW_RING_SIZE, height: OPS_OVERVIEW_RING_SIZE }}
-              notMerge
-              lazyUpdate
-              onChartReady={handleChartReady}
-            />
             <div
               style={{
-                position: 'absolute',
-                inset: 0,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                pointerEvents: 'none',
+                width: OPS_OVERVIEW_RING_SIZE,
+                flexShrink: 0,
+                position: 'relative',
+                height: OPS_OVERVIEW_RING_SIZE,
               }}
             >
-              <span style={{ fontSize: OPS_OVERVIEW_CENTER_MAIN_FONT, fontWeight: 600, lineHeight: 1 }}>
-                {centerDisplay}
-              </span>
-              {centerLabel ? (
-                <Typography.Text type="secondary" style={{ fontSize: OPS_OVERVIEW_CENTER_SUB_FONT, marginTop: 4 }}>
-                  {centerLabel}
-                </Typography.Text>
-              ) : null}
+              <LazyReactECharts
+                ref={chartRef}
+                option={option}
+                style={{ width: OPS_OVERVIEW_RING_SIZE, height: OPS_OVERVIEW_RING_SIZE }}
+                notMerge
+                lazyUpdate
+                onChartReady={handleChartReady}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  pointerEvents: 'none',
+                }}
+              >
+                <span style={{ fontSize: OPS_OVERVIEW_CENTER_MAIN_FONT, fontWeight: 600, lineHeight: 1 }}>
+                  {centerDisplay}
+                </span>
+                {centerLabel ? (
+                  <Typography.Text type="secondary" style={{ fontSize: OPS_OVERVIEW_CENTER_SUB_FONT, marginTop: 4 }}>
+                    {centerLabel}
+                  </Typography.Text>
+                ) : null}
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              {displayList.map((item, idx) => {
+                const color = item.color ?? PIE_COLORS[idx % PIE_COLORS.length];
+                const pct = total > 0 ? Math.round((item.value / total) * 1000) / 10 : 0;
+                return (
+                  <div
+                    key={item.name}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      borderBottom: idx < displayList.length - 1 ? '1px solid #f0f0f0' : undefined,
+                      padding: '6px 0',
+                      gap: 8,
+                    }}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                      <span
+                        style={{
+                          width: OPS_OVERVIEW_DOT_SIZE,
+                          height: OPS_OVERVIEW_DOT_SIZE,
+                          borderRadius: '50%',
+                          background: color,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <Typography.Text ellipsis style={{ fontSize: OPS_OVERVIEW_LIST_LABEL_FONT }}>
+                        {item.name}
+                      </Typography.Text>
+                    </span>
+                    <span style={{ fontSize: OPS_OVERVIEW_LIST_VALUE_FONT, fontWeight: 500, flexShrink: 0 }}>
+                      {item.value}
+                      <Typography.Text type="secondary" style={{ fontSize: OPS_OVERVIEW_LIST_SUB_FONT, marginLeft: 4 }}>
+                        ({pct}%)
+                      </Typography.Text>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-            {displayList.map((item, idx) => {
-              const color = item.color ?? PIE_COLORS[idx % PIE_COLORS.length];
-              const pct = total > 0 ? Math.round((item.value / total) * 1000) / 10 : 0;
-              return (
-                <div
-                  key={item.name}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderBottom: idx < displayList.length - 1 ? '1px solid #f0f0f0' : undefined,
-                    padding: '6px 0',
-                    gap: 8,
-                  }}
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
-                    <span
-                      style={{
-                        width: OPS_OVERVIEW_DOT_SIZE,
-                        height: OPS_OVERVIEW_DOT_SIZE,
-                        borderRadius: '50%',
-                        background: color,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Typography.Text ellipsis style={{ fontSize: OPS_OVERVIEW_LIST_LABEL_FONT }}>
-                      {item.name}
-                    </Typography.Text>
-                  </span>
-                  <span style={{ fontSize: OPS_OVERVIEW_LIST_VALUE_FONT, fontWeight: 500, flexShrink: 0 }}>
-                    {item.value}
-                    <Typography.Text type="secondary" style={{ fontSize: OPS_OVERVIEW_LIST_SUB_FONT, marginLeft: 4 }}>
-                      ({pct}%)
-                    </Typography.Text>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+          {footerContent ? <div style={{ marginTop: 8 }}>{footerContent}</div> : null}
+        </>
       ) : (
         <Typography.Text type="secondary" style={{ fontSize: OPS_OVERVIEW_LIST_SUB_FONT }}>
           {emptyHint}

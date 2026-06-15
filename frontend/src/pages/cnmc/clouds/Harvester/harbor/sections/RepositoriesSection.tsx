@@ -5,32 +5,51 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Table, Button, Input, Space, Tag, message, Tooltip, Modal, Typography } from 'antd';
+import { Table, Button, Input, Space, Tag, message, Tooltip, Typography } from 'antd';
 import { 
   SearchOutlined, 
   ReloadOutlined, 
   DownOutlined,
   CopyOutlined,
+  UploadOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { getHarborRepositories, deleteHarborRepository, getHarborRegistry } from '../shared/harborApi';
 import ResourceActionsDropdown from '../../../../../../components/ResourceActionsDropdown';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
+import HarborUploadModal from '../components/HarborUploadModal';
+import HarborUploadTasksDrawer from '../components/HarborUploadTasksDrawer';
 import type { HarborRepository, HarborRegistry } from '../types';
+import type { HarborProjectRef } from '../shared/harborApi';
+import { useAuth } from '../../../../../../contexts/AuthContext';
 
 const { Text } = Typography;
 
 interface Props {
   /** Harbor 实例 ID */
   harborId: string;
-  /** 项目名称 */
-  projectName: string;
+  /** 项目引用（纯数字项目名需携带 projectId） */
+  project: HarborProjectRef;
   /** 查看仓库制品回调 */
   onViewRepository?: (repo: HarborRepository) => void;
+  /** 当前用户在项目中的角色（用于权限控制） */
+  currentUserRole?: number;
 }
 
 /**
  * 仓库列表组件
  */
-const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRepository }) => {
+const RepositoriesSection: React.FC<Props> = ({
+  harborId,
+  project,
+  onViewRepository,
+  currentUserRole,
+}) => {
+  const { user } = useAuth();
+  const projectName = project.name;
   const [repositories, setRepositories] = useState<HarborRepository[]>([]);
   const [harbor, setHarbor] = useState<HarborRegistry | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,9 +57,24 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
   const [repositoryName, setRepositoryName] = useState<string>('');
   const [tag, setTag] = useState<string>('latest');
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [tasksDrawerVisible, setTasksDrawerVisible] = useState(false);
   const tagInputRef = useRef<any>(null);
   const firstInputRef = useRef<any>(null);
   const lastButtonRef = useRef<any>(null);
+
+  /**
+   * 权限控制
+   * - 系统管理员：完全控制权限
+   * - role_id=1（项目管理员）：完全控制权限
+   * - role_id=2（开发者）：可推送和拉取镜像
+   * - role_id=3（访客）：只能查看项目资源
+   * - role_id=4（维护人员）：维护和镜像管理
+   * - role_id=5（受限访客）：最小权限
+   * - undefined（公开项目访客）：只读
+   */
+  const isSystemAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const canWrite = isSystemAdmin || (currentUserRole !== undefined && [1, 2, 4].includes(currentUserRole));
 
   /**
    * 加载仓库列表
@@ -48,7 +82,7 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
   const loadRepositories = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getHarborRepositories(harborId, projectName);
+      const res = await getHarborRepositories(harborId, project);
       const list = Array.isArray(res) ? res : (res?.data || []);
       setRepositories(list);
     } catch (e: any) {
@@ -57,7 +91,7 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
     } finally {
       setLoading(false);
     }
-  }, [harborId, projectName]);
+  }, [harborId, project]);
 
   /**
    * 加载 Harbor 信息
@@ -81,7 +115,7 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
    */
   const handleDelete = async (repo: HarborRepository) => {
     try {
-      await deleteHarborRepository(harborId, projectName, repo.name);
+      await deleteHarborRepository(harborId, project, repo.name);
       message.success('仓库已删除');
       loadRepositories();
     } catch (e: any) {
@@ -212,21 +246,26 @@ const RepositoriesSection: React.FC<Props> = ({ harborId, projectName, onViewRep
             label: '查看制品',
             onClick: () => handleViewArtifacts(record),
           },
-          {
-            key: 'delete',
-            label: '删除',
-            danger: true,
-            onClick: () => {
-              Modal.confirm({
-                title: '确认删除',
-                content: '删除仓库将同时删除所有制品，此操作不可恢复',
-                okText: '确认',
-                cancelText: '取消',
-                okButtonProps: { danger: true },
-                onOk: () => handleDelete(record),
-              });
-            },
-          },
+          // 只有写权限才显示删除按钮
+          ...(canWrite
+            ? [
+                {
+                  key: 'delete',
+                  label: '删除',
+                  danger: true,
+                  onClick: () => {
+                    void confirmHighRiskDelete({
+                      resourceLabel: '仓库',
+                      name: record.name,
+                      description: '删除仓库将同时删除所有制品，此操作不可恢复。',
+                      riskItems: DELETE_RISK_ITEMS,
+                      confirmText: '确认',
+                      onConfirm: () => handleDelete(record),
+                    }).catch(() => {});
+                  },
+                },
+              ]
+            : []),
         ];
         return <ResourceActionsDropdown items={items} buttonProps={{ className: 'row-actions-trigger' }} />;
       },
@@ -246,6 +285,21 @@ return (
         />
         <Button icon={<ReloadOutlined />} onClick={loadRepositories}>
           刷新
+        </Button>
+        {canWrite && (
+          <Button
+            type="primary"
+            icon={<UploadOutlined />}
+            onClick={() => setUploadModalVisible(true)}
+          >
+            上传镜像
+          </Button>
+        )}
+        <Button
+          icon={<UnorderedListOutlined />}
+          onClick={() => setTasksDrawerVisible(true)}
+        >
+          上传任务
         </Button>
         <Button type="link" onClick={() => {
           setDropdownVisible(!dropdownVisible);
@@ -418,6 +472,25 @@ return (
           showTotal: (total) => `共 ${total} 条`,
           defaultPageSize: 10,
         }}
+      />
+
+      <HarborUploadModal
+        visible={uploadModalVisible}
+        harborId={harborId}
+        project={project}
+        existingRepos={repositories.map(r => r.name)}
+        onClose={() => setUploadModalVisible(false)}
+        onSuccess={() => {
+          setUploadModalVisible(false);
+          loadRepositories();
+        }}
+      />
+
+      <HarborUploadTasksDrawer
+        visible={tasksDrawerVisible}
+        harborId={harborId}
+        project={project}
+        onClose={() => setTasksDrawerVisible(false)}
       />
     </div>
   );

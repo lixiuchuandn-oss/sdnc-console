@@ -1,7 +1,7 @@
 /**
  * ==============================================================================
  * Harvester - 虚拟机创建向导 - 基础配置步骤 (StepBasic)
- * frontend/src/pages/cnmc/clouds/Harvester/modals/VmCreateWizard/StepBasic.tsx
+ * frontend/src/pages/cnmc/clouds/Harvester/ecs/modals/VmCreateWizard/StepBasic.tsx
  * ==============================================================================
  *
  * [功能描述]
@@ -14,7 +14,7 @@
  * 3. [调度策略]:
  *    - 自动调度: 让 K8s 调度器决定。
  *    - 指定主机: 强制调度到特定节点 (nodeName)。
- *    - 标签选择: 使用 nodeSelector 匹配节点标签。
+ *    - 故障域: 选择集群已定义的故障域（写入 nodeSelector）。
  * 4. [能力检测]: 根据资源池 ID 获取 Harvester 集群能力（写入 clusterArch / machineType；表单项隐藏，提交与校验仍注册）。
  * ------------------------------------------------------------------------------
  *
@@ -28,21 +28,30 @@
  * - 依赖 Ant Design Form 实例进行数据回填。
  * - 依赖外部传入的 cloudOptions, namespaceOptions, filteredNodes 进行渲染。
  */
-import React, { useMemo, useState, useEffect } from 'react';
-import { Form, Input, Select, Radio, Space, Table, Tag, Typography, Button, Row, Col, Progress, Alert, Tooltip, Spin } from 'antd';
-import { ReloadOutlined, LoadingOutlined, QuestionCircleOutlined } from '@ant-design/icons';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { App, Form, Input, Select, Radio, Space, Table, Typography, Button, Row, Col, Alert, Spin, Checkbox } from 'antd';
+import { ReloadOutlined, LoadingOutlined } from '@ant-design/icons';
 import { fetchHarvesterCapabilities } from 'services/harvester/vm';
 import {
   isSystemNamespace,
   pickFirstNamespaceRecordByScenarioForOptions,
 } from '../../../../../../../utils/harvesterUtils';
 import { useHarvesterPublicNamespaces } from '../../../shared/context/HarvesterPublicNamespacesContext';
-import {
-  bytesToGiB,
-  parseCpuToCores,
-  parseMemoryToBytes,
-} from '../../drawers/shared/lib/harvesterNodeResourceUtils';
 import { useHarvesterNodeResourceMaps } from '../../drawers/shared/lib/useHarvesterNodeResourceMaps';
+import { buildHarvesterNodePickerTableColumns } from '../../drawers/shared/lib/harvesterNodePickerTableColumns';
+import VmDeploymentSetField from '../../lib/VmDeploymentSetField';
+import { applyDeploymentSetToWizardForm } from '../../lib/vmDeploymentSet';
+import { trySetMetricAutoScheduledExclusive } from '../../lib/vmSchedulingExclusion';
+import type { DeploymentSetRow } from 'services/harvester/deploymentSets';
+import {
+  fetchFailureDomainOverview,
+  type FailureDomainRow,
+} from 'services/harvester/failureDomains';
+import { vmFailureDomainRequiredMessage } from '../../lib/vmAdvancedSchedulingLabels';
+import {
+  buildVmFailureDomainSelectOptions,
+  VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT,
+} from '../../lib/vmFailureDomainNodeSelector';
 
 /**
  * 组件 Props 定义
@@ -88,6 +97,7 @@ interface StepBasicProps {
   isTenant?: boolean;
   /** 命名空间原始对象（用于按 tower.io/scenario 默认选中） */
   namespaceRecords?: any[];
+  onDeploymentSetsLoaded?: (sets: DeploymentSetRow[]) => void;
 }
 
 const StepBasic: React.FC<StepBasicProps> = ({
@@ -110,9 +120,50 @@ const StepBasic: React.FC<StepBasicProps> = ({
   filteredNodes,
   isTenant,
   namespaceRecords,
+  onDeploymentSetsLoaded,
 }) => {
+  const { message } = App.useApp();
   const { isPublicNamespace } = useHarvesterPublicNamespaces();
+  const deploymentSetId = Form.useWatch('deploymentSetId', form);
+  const metricAutoScheduled = Form.useWatch('metricAutoScheduled', form);
   const [nodeReadyFilter, setNodeReadyFilter] = useState<string>('running');
+  const [failureDomains, setFailureDomains] = useState<FailureDomainRow[]>([]);
+  const [failureDomainsLoading, setFailureDomainsLoading] = useState(false);
+
+  const failureDomainOptions = useMemo(
+    () => buildVmFailureDomainSelectOptions(failureDomains),
+    [failureDomains],
+  );
+
+  useEffect(() => {
+    if (hostModeState !== 'label' || !cloudId || cloudId === 'all') {
+      setFailureDomains([]);
+      return;
+    }
+    let cancelled = false;
+    setFailureDomainsLoading(true);
+    void fetchFailureDomainOverview(cloudId)
+      .then((json: unknown) => {
+        if (cancelled) return;
+        const data = (json as { data?: { domains?: FailureDomainRow[] } })?.data;
+        setFailureDomains(Array.isArray(data?.domains) ? data?.domains ?? [] : []);
+      })
+      .catch(() => {
+        if (!cancelled) setFailureDomains([]);
+      })
+      .finally(() => {
+        if (!cancelled) setFailureDomainsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cloudId, hostModeState]);
+
+  useEffect(() => {
+    if (hostModeState === 'node') {
+      applyDeploymentSetToWizardForm(form, null);
+    }
+  }, [hostModeState, form]);
 
   const { metricsMap, requestsMap, nodesDetailMap, resourceLoading } =
     useHarvesterNodeResourceMaps(cloudId);
@@ -133,7 +184,7 @@ const StepBasic: React.FC<StepBasicProps> = ({
           clusterArch: data.architecture,
           machineType: data.recommendedMachineType,
         });
-      }).catch((e: any) => console.error(e));
+      }).catch(() => {});
     }
   }, [cloudId, form]);
 
@@ -162,28 +213,47 @@ const StepBasic: React.FC<StepBasicProps> = ({
     }
   }, [visibleNamespaceOptions, form, namespaceRecords, isTenant]);
 
-  // [辅助函数] 判断节点是否就绪
-  // 兼容逻辑：优先检查顶层 ready 字段，若不存在则遍历 status.conditions 查找 Type=Ready 且 Status=True
-  const isNodeReady = (r: any): boolean => {
+  const isNodeReady = useCallback((r: any): boolean => {
     if (typeof r?.ready === 'boolean') return r.ready;
     const conds: any[] = Array.isArray(r?.status?.conditions) ? r.status.conditions : [];
     return conds.some((c: any) => String(c?.type || '') === 'Ready' && String(c?.status || '').toLowerCase() === 'true');
-  };
+  }, []);
 
-  // [过滤逻辑] 根据状态筛选节点列表
   const displayNodes = useMemo(() => {
     let arr: any[] = Array.isArray(filteredNodes) ? filteredNodes : [];
     if (nodeReadyFilter === 'running') arr = arr.filter(isNodeReady);
-    else if (nodeReadyFilter === 'notready') arr = arr.filter((n:any)=> !isNodeReady(n));
+    else if (nodeReadyFilter === 'notready') arr = arr.filter((n: any) => !isNodeReady(n));
     return arr;
-  }, [filteredNodes, nodeReadyFilter]);
+  }, [filteredNodes, nodeReadyFilter, isNodeReady]);
+
+  const nodeRowKey = useCallback(
+    (r: any) => String(r?.name || r?.metadata?.name || ''),
+    [],
+  );
+
+  const nodePickerColumns = useMemo(
+    () =>
+      buildHarvesterNodePickerTableColumns(
+        {
+          metricsMap,
+          requestsMap,
+          nodesDetailMap,
+          resourceLoading,
+        },
+        { compact: true },
+      ),
+    [metricsMap, requestsMap, nodesDetailMap, resourceLoading],
+  );
+
+  const canReloadNodes =
+    currentProvider === 'harvester' || currentProvider === 'cloudmap';
 
   /** 已由入口上下文选定资源池时不可切换，仅隐藏控件并保留表单字段（与 WizardSummary / 校验一致） */
   const cloudPoolLocked = Boolean(cloudId && cloudId !== 'all');
 
   return (
     <>
-      <Typography.Paragraph type="secondary">
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
         设定新建云主机的基本信息，如项目、运行位置与名称等
       </Typography.Paragraph>
       
@@ -228,14 +298,36 @@ const StepBasic: React.FC<StepBasicProps> = ({
         </Col>
         <Col span={12}>
           <Form.Item label="运行位置" name="hostMode" preserve> 
-            <Radio.Group buttonStyle="solid" onChange={(e)=> setHostModeState(e.target.value)}>
+            <Radio.Group buttonStyle="solid" block onChange={(e)=> setHostModeState(e.target.value)}>
               <Radio.Button value="auto">自动调度</Radio.Button>
               <Radio.Button value="node">指定主机</Radio.Button>
-              <Radio.Button value="label">标签选择</Radio.Button>
+              <Radio.Button value="label">故障域</Radio.Button>
             </Radio.Group>
           </Form.Item>
         </Col>
       </Row>
+      {hostModeState === 'auto' ? (
+        <Form.Item
+          name="metricAutoScheduled"
+          valuePropName="checked"
+          preserve
+          style={{ marginBottom: 12 }}
+        >
+          <Checkbox
+            disabled={!!deploymentSetId}
+            onChange={(e) => {
+              const err = trySetMetricAutoScheduledExclusive(
+                form,
+                e.target.checked,
+                hostModeState,
+              );
+              if (err) message.error(err);
+            }}
+          >
+            参与指标自动调度
+          </Checkbox>
+        </Form.Item>
+      ) : null}
       {isTenant && visibleNamespaceOptions.length === 0 ? (
         <Alert
           type="warning"
@@ -252,37 +344,30 @@ const StepBasic: React.FC<StepBasicProps> = ({
 
       {/* === 调度策略配置 === */}
       {hostModeState === 'label' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-          <div className="wizard-section-title">标签选择</div>
-          <Form.List name="nodeSelectorPairs">
-            {(fields, { add, remove }) => (
-              <div style={{ border: '1px dashed #d9d9d9', padding: 8, borderRadius: 4 }}>
-                {fields.map(({ key, name }) => (
-                  <Row key={key} gutter={8} style={{ marginBottom: 8 }}>
-                    <Col span={10}>
-                      <Form.Item name={[name, 'key']} noStyle rules={[{ required: true, message: '请输入键' }]}> 
-                        <Input placeholder="Key (如 kubernetes.io/hostname)" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={10}>
-                      <Form.Item name={[name, 'value']} noStyle rules={[{ required: true, message: '请输入值' }]}> 
-                        <Input placeholder="Value" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={4}>
-                      <Button type="text" danger onClick={() => remove(name)}>删除</Button>
-                    </Col>
-                  </Row>
-                ))}
-                <Button onClick={() => add({ key: '', value: '' })}>新增选择器</Button>
-              </div>
-            )}
-          </Form.List>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+          <div className="wizard-section-title">故障域</div>
+          <Form.Item
+            name="failureDomainName"
+            preserve
+            rules={[{ required: true, message: vmFailureDomainRequiredMessage() }]}
+          >
+            <Select
+              allowClear
+              showSearch
+              loading={failureDomainsLoading}
+              placeholder="选择故障域"
+              options={failureDomainOptions}
+              optionFilterProp="label"
+              notFoundContent={
+                failureDomainsLoading ? <Spin size="small" /> : VM_FAILURE_DOMAIN_SELECT_EMPTY_HINT
+              }
+            />
+          </Form.Item>
         </div>
       )}
 
       {hostModeState === 'node' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div className="wizard-section-title">主机列表</div>
           <Space style={{ width: '100%' }}>
             <Input allowClear size="small" placeholder="搜索主机名称/IP" value={nodeKeyword} onChange={(e) => setNodeKeyword(e.target.value)} style={{ flex: 1 }} />
@@ -304,246 +389,112 @@ const StepBasic: React.FC<StepBasicProps> = ({
                 size="small"
                 icon={<ReloadOutlined style={{ fontSize: 14, color: '#8c8c8c' }} />}
                 type="default"
-                onClick={() => { const p = (currentProvider || ''); if (p === 'harvester' || p === 'cloudmap') reloadNodes(); }}
-                disabled={(function(){ const p = (currentProvider || ''); return !(p === 'harvester' || p === 'cloudmap'); })()}
+                onClick={() => { if (canReloadNodes) reloadNodes(); }}
+                disabled={!canReloadNodes}
               />
             )}
           </Space>
           <Table
             size="small"
             bordered
-            rowKey={(r: any) => r.name}
+            rowKey={nodeRowKey}
             className="wizard-node-table"
-            onRow={(record: any) => ({
-              onClick: () => { const k = record?.name; setSelectedNodeName(k || null); }
-            })}
-            rowClassName={(record: any) => (hostModeState === 'node' && selectedNodeName && record?.name === selectedNodeName) ? 'wizard-table-row-active' : ''}
-            columns={[
-              {
-                title: '', key: 'select', width: 52, align: 'center', className: 'wizard-node-select-col',
-                onCell: () => ({ style: { paddingLeft: 8, paddingRight: 8 } }),
-                render: (_: any, r: any) => (
-                  <Radio style={{ margin: 0 }} checked={selectedNodeName === r?.name} onChange={(e) => { e.stopPropagation(); const k = r?.name; setSelectedNodeName(k || null); }} />
-                )
-              },
-              {
-                title: '主机名称', key: 'name', render: (_: any, r: any) => (
-                  <div>
-                    <div>{r?.name || '-'}</div>
-                    <div style={{ color: '#999' }}>{r?.internalIP || '-'}</div>
-                  </div>
-                )
-              },
-              { title: '状态', dataIndex: 'ready', key: 'ready', render: (b: boolean) => b ? <Tag color="green">Ready</Tag> : <Tag color="red">NotReady</Tag> },
-              {
-                title: (
-                  <span>
-                    CPU
-                    <Tooltip 
-                      title={
-                        <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
-                          <b>物理总量</b>：物理节点的实际CPU核数
-                          <br />
-                          <b>可分配总量</b>：物理总量减去系统预留后的可用资源
-                          <br />
-                          <b>已分配</b>：所有Pod的CPU资源请求(requests)之和
-                          <br />
-                          <b>已使用</b>：节点实时CPU使用量
-                        </div>
-                      }
-                      placement="top"
-                    >
-                      <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12, cursor: 'help' }} />
-                    </Tooltip>
-                  </span>
-                ), 
-                key: 'cpu_usage', render: (_: any, r: any) => {
-                  if (resourceLoading) {
-                    return (
-                      <div style={{ minWidth: 180, padding: '10px 0' }}>
-                        <Spin size="small" />
-                      </div>
-                    );
-                  }
-                  const nodeName = String(r?.name || r?.metadata?.name || '').trim();
-                  const nodeDetail = nodesDetailMap[nodeName];
-                  // 可分配总量 = 物理总量 - 系统预留（从 nodesDetailMap 获取）
-                  const allocatable = parseCpuToCores(nodeDetail?.allocatableCpu ?? r?.cpu);
-                  // 物理总量（从 nodesDetailMap 获取）
-                  const capacity = parseCpuToCores(nodeDetail?.capacityCpu ?? r?.cpu);
-                  const requested = requestsMap[nodeName]?.cpuRequestCores || 0;
-                  const used = metricsMap[nodeName]?.cpuUsedCores || 0;
-                  // 已分配率 = 已分配 / 可分配总量
-                  const requestedPct = allocatable > 0 ? Math.round((requested / allocatable) * 1000) / 10 : undefined;
-                  const usedPct = capacity > 0 ? Math.round((used / capacity) * 1000) / 10 : undefined;
-                  // 已分配剩余 = 可分配总量 - 已分配
-                  const requestedRemaining = allocatable - requested;
-                  const usedRemaining = capacity - used;
-                  return (
-                    <div style={{ minWidth: 180 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 3 }}>
-                        <Progress 
-                          percent={typeof requestedPct === 'number' ? Math.max(0, Math.min(100, requestedPct)) : 0} 
-                          size="small" 
-                          showInfo={false}
-                          strokeColor="#52c41a"
-                        />
-                        <span style={{ fontSize: 11 }}>{typeof requestedPct === 'number' ? `${requestedPct.toFixed(0)}%` : '-'}</span>
-                      </div>
-                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px', marginBottom: 3 }}>
-                        可分配总量: {allocatable.toFixed(1)} / 已分配: {requested.toFixed(1)} / 未分配: {requestedRemaining.toFixed(1)} core
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 2 }}>
-                        <Progress 
-                          percent={typeof usedPct === 'number' ? Math.max(0, Math.min(100, usedPct)) : 0} 
-                          size="small" 
-                          showInfo={false}
-                          strokeColor="#1890ff"
-                        />
-                        <span style={{ fontSize: 11 }}>{typeof usedPct === 'number' ? `${usedPct.toFixed(0)}%` : '-'}</span>
-                      </div>
-                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}>
-                        物理总量: {capacity.toFixed(1)} / 已使用: {used.toFixed(1)} / 未使用: {usedRemaining.toFixed(1)} core
-                      </div>
-                    </div>
-                  );
-                }
-              },
-              {
-                title: (
-                  <span>
-                    内存
-                    <Tooltip 
-                      title={
-                        <div style={{ fontSize: 12, whiteSpace: 'pre-line' }}>
-                          <b>物理总量</b>：物理节点的实际内存总容量
-                          <br />
-                          <b>可分配总量</b>：物理总量减去系统预留后的可用资源
-                          <br />
-                          <b>已分配</b>：所有Pod的内存资源请求(requests)之和
-                          <br />
-                          <b>已使用</b>：节点实时内存使用量
-                        </div>
-                      }
-                      placement="top"
-                    >
-                      <QuestionCircleOutlined style={{ marginLeft: 4, color: '#999', fontSize: 12, cursor: 'help' }} />
-                    </Tooltip>
-                  </span>
-                ), 
-                key: 'mem_usage', render: (_: any, r: any) => {
-                  if (resourceLoading) {
-                    return (
-                      <div style={{ minWidth: 180, padding: '10px 0' }}>
-                        <Spin size="small" />
-                      </div>
-                    );
-                  }
-                  const nodeName = String(r?.name || r?.metadata?.name || '').trim();
-                  const nodeDetail = nodesDetailMap[nodeName];
-                  // 可分配总量 = 物理总量 - 系统预留（从 nodesDetailMap 获取）
-                  const allocatable = bytesToGiB(parseMemoryToBytes(nodeDetail?.allocatableMemory));
-                  // 物理总量（从 nodesDetailMap 获取）
-                  const capacity = bytesToGiB(parseMemoryToBytes(nodeDetail?.capacityMemory));
-                  const requested = bytesToGiB(requestsMap[nodeName]?.memRequestBytes || 0);
-                  const used = bytesToGiB(metricsMap[nodeName]?.memUsedBytes || 0);
-                  // 已分配率 = 已分配 / 可分配总量
-                  const requestedPct = allocatable > 0 ? Math.round((requested / allocatable) * 1000) / 10 : undefined;
-                  const usedPct = capacity > 0 ? Math.round((used / capacity) * 1000) / 10 : undefined;
-                  // 已分配剩余 = 可分配总量 - 已分配
-                  const requestedRemaining = allocatable - requested;
-                  const usedRemaining = capacity - used;
-                  return (
-                    <div style={{ minWidth: 180 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 3 }}>
-                        <Progress 
-                          percent={typeof requestedPct === 'number' ? Math.max(0, Math.min(100, requestedPct)) : 0} 
-                          size="small" 
-                          showInfo={false}
-                          strokeColor="#52c41a"
-                        />
-                        <span style={{ fontSize: 11 }}>{typeof requestedPct === 'number' ? `${requestedPct.toFixed(0)}%` : '-'}</span>
-                      </div>
-                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px', marginBottom: 3 }}>
-                        可分配总量: {allocatable.toFixed(1)} / 已分配: {requested.toFixed(1)} / 未分配: {requestedRemaining.toFixed(1)} GiB
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '16px', marginBottom: 2 }}>
-                        <Progress 
-                          percent={typeof usedPct === 'number' ? Math.max(0, Math.min(100, usedPct)) : 0} 
-                          size="small" 
-                          showInfo={false}
-                          strokeColor="#1890ff"
-                        />
-                        <span style={{ fontSize: 11 }}>{typeof usedPct === 'number' ? `${usedPct.toFixed(0)}%` : '-'}</span>
-                      </div>
-                      <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 10, lineHeight: '12px' }}>
-                        物理总量: {capacity.toFixed(1)} / 已使用: {used.toFixed(1)} / 未使用: {usedRemaining.toFixed(1)} GiB
-                      </div>
-                    </div>
-                  );
-                }
-              },
-            ] as any}
+            style={{ marginBottom: 12 }}
+            columns={nodePickerColumns}
             dataSource={displayNodes}
             loading={nodesLoading || resourceLoading}
             pagination={false}
-            scroll={{ x: true }}
+            rowSelection={{
+              type: 'radio',
+              columnWidth: 52,
+              selectedRowKeys: selectedNodeName ? [selectedNodeName] : [],
+              onChange: (keys) => {
+                const k = keys[0];
+                setSelectedNodeName(k != null && k !== '' ? String(k) : null);
+              },
+            }}
+            onRow={(record) => ({
+              onClick: () => {
+                const name = nodeRowKey(record);
+                setSelectedNodeName(name || null);
+              },
+            })}
+            rowClassName={(record) =>
+              hostModeState === 'node' && selectedNodeName && nodeRowKey(record) === selectedNodeName
+                ? 'wizard-table-row-active'
+                : ''
+            }
           />
         </div>
       ) : null}
-      
-      {/* === 3. 基本信息 === */}
+
+      {/* === 3. 信息（名称、描述） === */}
       <div className="wizard-group-title">信息</div>
-      <Form.Item 
-        label="虚拟机名称" 
-        name="name" 
-        preserve
-        dependencies={['namespace']}
-        validateTrigger="onChange"
-        rules={[
-          { required: true, message: '请输入虚拟机名称' },
-          {
-            validator: async (_: any, value: any) => {
-              const name = String(value || '').trim();
-              if (!name) return;
-              const ns = String(form.getFieldValue('namespace') || '').trim();
-              if (!ns) return;
-              const list = Array.isArray(existingVms) ? existingVms : [];
-              const getVmNamespace = (vm: any) => {
-                const direct = vm?.namespace || vm?.metadata?.namespace;
-                if (direct) return String(direct).trim();
-                const iid = vm?.InstanceId || vm?.id || vm?.metadata?.name;
-                const s = String(iid || '').trim();
-                if (s.includes('/')) return s.split('/')[0].trim();
-                return '';
-              };
-              const getVmAlias = (vm: any) => {
-                return String(
-                  vm?.metadata?.annotations?.['tower.io/alias'] ||
-                  vm?.annotations?.['tower.io/alias'] ||
-                  ''
-                ).trim();
-              };
-              const dup = list.some((vm: any) => {
-                const vmNs = getVmNamespace(vm);
-                if (!vmNs || vmNs !== ns) return false;
-                const alias = getVmAlias(vm);
-                if (!alias) return false;
-                return alias === name;
-              });
-              if (dup) throw new Error('虚拟机名称不可重复，请修改虚拟机名称');
-            }
-          }
-        ]}
-      >
-        <Input placeholder="显示名称（支持中文）" />
-      </Form.Item>
-      <Form.Item label="描述" name="description" preserve>
-        <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
-      </Form.Item>
-      <Form.Item label="虚机组" name="group" preserve>
-        <Select placeholder="未选择虚拟机组" options={[{ label: '未选择', value: '' }]} />
-      </Form.Item>
+      <Row gutter={12}>
+        <Col span={24}>
+          <Form.Item
+            label="虚拟机名称"
+            name="name"
+            preserve
+            dependencies={['namespace']}
+            validateTrigger="onChange"
+            rules={[
+              { required: true, message: '请输入虚拟机名称' },
+              {
+                validator: async (_: any, value: any) => {
+                  const name = String(value || '').trim();
+                  if (!name) return;
+                  const ns = String(form.getFieldValue('namespace') || '').trim();
+                  if (!ns) return;
+                  const list = Array.isArray(existingVms) ? existingVms : [];
+                  const getVmNamespace = (vm: any) => {
+                    const direct = vm?.namespace || vm?.metadata?.namespace;
+                    if (direct) return String(direct).trim();
+                    const iid = vm?.InstanceId || vm?.id || vm?.metadata?.name;
+                    const s = String(iid || '').trim();
+                    if (s.includes('/')) return s.split('/')[0].trim();
+                    return '';
+                  };
+                  const getVmAlias = (vm: any) => {
+                    return String(
+                      vm?.metadata?.annotations?.['tower.io/alias'] ||
+                      vm?.annotations?.['tower.io/alias'] ||
+                      ''
+                    ).trim();
+                  };
+                  const dup = list.some((vm: any) => {
+                    const vmNs = getVmNamespace(vm);
+                    if (!vmNs || vmNs !== ns) return false;
+                    const alias = getVmAlias(vm);
+                    if (!alias) return false;
+                    return alias === name;
+                  });
+                  if (dup) throw new Error('虚拟机名称不可重复，请修改虚拟机名称');
+                },
+              },
+            ]}
+          >
+            <Input placeholder="显示名称（支持中文）" />
+          </Form.Item>
+        </Col>
+        <Col span={24}>
+          <Form.Item label="描述" name="description" preserve>
+            <Input.TextArea placeholder="可选描述信息" autoSize={{ minRows: 2, maxRows: 4 }} />
+          </Form.Item>
+        </Col>
+        <Col span={24}>
+          {hostModeState !== 'node' ? (
+            <VmDeploymentSetField
+              cloudId={cloudId}
+              form={form}
+              disabled={metricAutoScheduled === true}
+              disabledReason="已启用指标自动调度，不能同时使用部署集"
+              allowCreate={isTenant}
+              onSetsLoaded={onDeploymentSetsLoaded}
+            />
+          ) : null}
+        </Col>
+      </Row>
     </>
   );
 };

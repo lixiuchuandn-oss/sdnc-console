@@ -17,6 +17,10 @@ import {
   type CloudmapPoolNavKey,
   type CloudmapResourceSubKey,
 } from '../../../../../../layouts/admin/cloudmap/cloudPoolSidebar';
+import { legacyComputeClusterOperateTab } from '../../../Harvester/cluster/sections/computeCluster/computeClusterUiConstants';
+import { legacyPhysicalNetworkOperateTab } from '../../../Harvester/cluster/sections/physicalNetwork/physicalNetworkUiConstants';
+import { legacyPlatformNetworkOperateTab } from '../../../Harvester/cluster/sections/platformNetwork/platformNetworkUiConstants';
+import { legacyStorageConfigOperateTab } from '../../../Harvester/ceph/sections/unifiedStorageConfig/unifiedStorageConfigUiConstants';
 
 export type UseCloudmapPoolPathSyncParams = {
   cloudId: string;
@@ -171,8 +175,19 @@ export function useCloudmapPoolPathSync({
           return;
         }
         if (resolved !== inner) {
+          const legacyOperateTab =
+            resolved === 'harvester_addon'
+              ? legacyStorageConfigOperateTab(inner)
+              : resolved === 'compute_cluster'
+                ? legacyComputeClusterOperateTab(inner)
+                : resolved === 'cluster_physical_network'
+                  ? legacyPhysicalNetworkOperateTab(inner)
+                  : resolved === 'cluster_platform_network'
+                    ? legacyPlatformNetworkOperateTab(inner)
+                    : null;
+          const basePath = cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved });
           navigate(
-            cloudmapPathForNav(cloudId, 'cluster', { poolInnerSeg: resolved }),
+            legacyOperateTab ? `${basePath}?operateTab=${legacyOperateTab}` : basePath,
             { replace: true },
           );
           return;

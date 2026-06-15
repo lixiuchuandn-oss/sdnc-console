@@ -12,10 +12,23 @@ import { HarborProxyService } from '../../services/harbor/HarborProxyService';
 import { AuthRequest } from '../../middleware/auth';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
+import { resolveHarborProjectRefAsync, buildHarborProjectContext } from './harborProjectRef';
+import {
+  harborRegistryCloudAccessMiddleware,
+  HarborScopedRequest,
+} from '../../services/harbor/harborRegistryCloudMiddleware';
 
 const harborLog = logger.child('HarborScan');
 
 const router = Router();
+
+router.use('/registries/:id', harborRegistryCloudAccessMiddleware);
+
+function getHarborProxy(req: HarborScopedRequest): HarborProxyService | null {
+  const harbor = req.harborRegistry;
+  if (!harbor) return null;
+  return HarborProxyService.getInstance(harbor);
+}
 
 /**
  * 触发镜像漏洞扫描
@@ -32,24 +45,27 @@ router.post(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project, repo, ref } = req.params;
+      const { id, repo, ref } = req.params;
 
-      const harborRepo = AppDataSource.getRepository(HarborRegistry);
-      const harbor = await harborRepo.findOne({ where: { id } });
-
-      if (!harbor) {
+      const proxy = getHarborProxy(req);
+      if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      // 解码仓库名称和 reference（可能包含斜杠和冒号）
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, proxy);
+
       const decodedRepo = decodeURIComponent(repo);
       const decodedRef = decodeURIComponent(ref);
 
-      const proxy = HarborProxyService.getInstance(harbor);
-      await proxy.triggerScan(project, decodedRepo, decodedRef);
+      await proxy.triggerScan(
+        harborProjectRef,
+        decodedRepo,
+        decodedRef,
+        buildHarborProjectContext(projectRef, harborProjectRef),
+      );
 
       harborLog.info(
-        `触发镜像扫描: harbor=${id}, project=${project}, repo=${decodedRepo}, ref=${ref}`,
+        `触发镜像扫描: harbor=${id}, project=${projectRef}, repo=${decodedRepo}, ref=${ref}`,
       );
       res.json({ message: '扫描已触发', data: { success: true } });
     } catch (error: any) {
@@ -67,27 +83,26 @@ router.get(
   '/registries/:id/projects/:project/repositories/:repo/artifacts/:ref/vulnerabilities',
   async (req: AuthRequest, res: Response) => {
     try {
-      const { id, project, repo, ref } = req.params;
+      const { id, repo, ref } = req.params;
 
-      const harborRepo = AppDataSource.getRepository(HarborRegistry);
-      const harbor = await harborRepo.findOne({ where: { id } });
-
-      if (!harbor) {
+      const proxy = getHarborProxy(req);
+      if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      // 解码仓库名称和 reference（可能包含斜杠和冒号）
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, proxy);
+
       const decodedRepo = decodeURIComponent(repo);
       const decodedRef = decodeURIComponent(ref);
 
-      const proxy = HarborProxyService.getInstance(harbor);
-
       try {
-        const result = await proxy.getVulnerabilities(project, decodedRepo, decodedRef);
+        const result = await proxy.getVulnerabilities(
+          harborProjectRef,
+          decodedRepo,
+          decodedRef,
+          buildHarborProjectContext(projectRef, harborProjectRef),
+        );
 
-        // 转换 Harbor 返回的漏洞数据格式
-        // Harbor 返回格式: {"application/vnd.security.vulnerability.report; version=1.1": {...}}
-        // 前端期望格式: {vulnerabilities: [...], overview: {...}}
         let vulnerabilities: any[] = [];
         let overview: any = { summary: { critical: 0, high: 0, medium: 0, low: 0 } };
 
@@ -100,7 +115,6 @@ router.get(
           const report = result[reportKey];
           vulnerabilities = report.vulnerabilities || [];
 
-          // 从漏洞列表统计各级别数量
           const severityCount: Record<string, number> = { Critical: 0, High: 0, Medium: 0, Low: 0 };
           for (const vuln of vulnerabilities) {
             const severity = vuln.severity || 'Unknown';
@@ -123,10 +137,9 @@ router.get(
 
         res.json({ message: '查询成功', data: { vulnerabilities, overview } });
       } catch (scanError: any) {
-        // Harbor 返回 404 表示该制品尚未扫描，返回空结果
         if (scanError.response?.status === 404 || scanError.message?.includes('404')) {
           harborLog.info(
-            `制品尚未扫描: harbor=${id}, project=${project}, repo=${decodedRepo}, ref=${decodedRef}`,
+            `制品尚未扫描: harbor=${id}, project=${projectRef}, repo=${decodedRepo}, ref=${decodedRef}`,
           );
           res.json({
             message: '制品尚未扫描',
@@ -154,14 +167,11 @@ router.get('/registries/:id/scans/metrics', async (req: AuthRequest, res: Respon
   try {
     const { id } = req.params;
 
-    const harborRepo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await harborRepo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxy(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const proxy = HarborProxyService.getInstance(harbor);
     const metrics = await proxy.getScanMetrics();
 
     res.json({ message: '查询成功', data: metrics });
@@ -179,14 +189,11 @@ router.get('/registries/:id/scanners', async (req: AuthRequest, res: Response) =
   try {
     const { id } = req.params;
 
-    const harborRepo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await harborRepo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxy(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const proxy = HarborProxyService.getInstance(harbor);
     const scanners = await proxy.getScanner();
 
     res.json({ message: '查询成功', data: scanners });
@@ -202,24 +209,23 @@ router.get('/registries/:id/scanners', async (req: AuthRequest, res: Response) =
  */
 router.get('/registries/:id/projects/:project/scans', async (req: AuthRequest, res: Response) => {
   try {
-    const { id, project } = req.params;
+    const { id } = req.params;
 
-    const harborRepo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await harborRepo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxy(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const proxy = HarborProxyService.getInstance(harbor);
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, proxy);
+
     const scanConfig = await proxy.request({
       method: 'GET',
-      url: `/api/v2.0/projects/${encodeURIComponent(project)}/scans`,
+      url: `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/scans`,
     });
 
     res.json({ message: '查询成功', data: scanConfig });
   } catch (error: any) {
-    harborLog.error('获取项目扫描策略失败:', error.message);
+    harborLog.error(`获取项目扫描策略失败: project=${req.params.project}`, error.message);
     res.status(500).json({ message: '获取项目扫描策略失败', error: error.message });
   }
 });
@@ -237,23 +243,22 @@ router.post('/registries/:id/projects/:project/scans', async (req: AuthRequest, 
       return res.status(403).json({ message: '权限不足' });
     }
 
-    const { id, project } = req.params;
+    const { id } = req.params;
 
-    const harborRepo = AppDataSource.getRepository(HarborRegistry);
-    const harbor = await harborRepo.findOne({ where: { id } });
-
-    if (!harbor) {
+    const proxy = getHarborProxy(req);
+    if (!proxy) {
       return res.status(404).json({ message: 'Harbor 实例不存在' });
     }
 
-    const proxy = HarborProxyService.getInstance(harbor);
+    const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, proxy);
+
     const result = await proxy.request({
       method: 'POST',
-      url: `/api/v2.0/projects/${encodeURIComponent(project)}/scans`,
+      url: `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/scans`,
       data: req.body,
     });
 
-    harborLog.info(`设置项目扫描策略: harbor=${id}, project=${project}`);
+    harborLog.info(`设置项目扫描策略: harbor=${id}, project=${projectRef}`);
     res.json({ message: '设置成功', data: result });
   } catch (error: any) {
     harborLog.error('设置项目扫描策略失败:', error.message);
@@ -276,22 +281,21 @@ router.post(
         return res.status(403).json({ message: '权限不足' });
       }
 
-      const { id, project } = req.params;
+      const { id } = req.params;
 
-      const harborRepo = AppDataSource.getRepository(HarborRegistry);
-      const harbor = await harborRepo.findOne({ where: { id } });
-
-      if (!harbor) {
+      const proxy = getHarborProxy(req);
+      if (!proxy) {
         return res.status(404).json({ message: 'Harbor 实例不存在' });
       }
 
-      const proxy = HarborProxyService.getInstance(harbor);
+      const { projectRef, harborProjectRef } = await resolveHarborProjectRefAsync(req, proxy);
+
       const result = await proxy.request({
         method: 'POST',
-        url: `/api/v2.0/projects/${encodeURIComponent(project)}/scans/all`,
+        url: `/api/v2.0/projects/${encodeURIComponent(harborProjectRef)}/scans/all`,
       });
 
-      harborLog.info(`触发项目全量扫描: harbor=${id}, project=${project}`);
+      harborLog.info(`触发项目全量扫描: harbor=${id}, project=${projectRef}`);
       res.json({ message: '扫描已触发', data: result });
     } catch (error: any) {
       harborLog.error('触发项目全量扫描失败:', error.message);

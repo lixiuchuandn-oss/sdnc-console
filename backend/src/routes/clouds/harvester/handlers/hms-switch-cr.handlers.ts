@@ -5,6 +5,7 @@
 import { Response } from 'express';
 import { fetchCloudOr404, ensureProvider } from '../harvester.cache.helpers';
 import {
+  buildHmsSwitchSshConnectParams,
   createHmsSwitchCr,
   deleteHmsSwitchCr,
   getHmsSwitchCr,
@@ -29,10 +30,12 @@ function handleCrError(res: Response, e: any, fallback: string) {
         : '';
   const message = bodyMsg || e?.message || fallback;
   if (status === 404) {
+    const hmsApiMissing =
+      /hms switch cr api|hms\.rivercloud\.com\/v1\/switches/i.test(message) ||
+      message.includes('HMS Switch CR API 不可用');
     return res.status(404).json({
-      message:
-        '未找到 HMS Switch CR API 或资源不存在。请确认集群已安装 HSM CRD（hms.rivercloud.com/v1 Switch）。',
-      detail: message,
+      message: hmsApiMissing ? '底层未部署服务' : message || '资源不存在',
+      ...(hmsApiMissing ? {} : { detail: message }),
     });
   }
   if (status === 409) {
@@ -123,6 +126,27 @@ export async function harvesterHmsSwitchCrUpdateHandler(req: any, res: Response)
     return res.json({ message: '更新成功', data });
   } catch (e: any) {
     handleCrError(res, e, '更新 HMS Switch 配置失败');
+  }
+}
+
+/** GET /:id/resources/harvester/hms/switches/:name/ssh-connect — WebSSH 连接参数（含密码，仅管理员） */
+export async function harvesterHmsSwitchSshConnectHandler(req: any, res: Response) {
+  try {
+    const { id, name } = req.params;
+    const cloud = await fetchCloudOr404(id, res);
+    if (!cloud) return;
+    if (!ensureProvider(cloud, 'harvester', res, '仅支持 Harvester / Cloudmap')) return;
+
+    const params = await buildHmsSwitchSshConnectParams(cloud, String(name || '').trim());
+    return res.json({
+      message: '查询成功',
+      data: { ...params, bootstrap: 'none' as const },
+    });
+  } catch (e: any) {
+    if (e?.status === 400) {
+      return res.status(400).json({ message: e.message });
+    }
+    handleCrError(res, e, '获取交换机 SSH 连接参数失败');
   }
 }
 

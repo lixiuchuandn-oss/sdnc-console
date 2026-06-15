@@ -133,7 +133,13 @@ async function parseErrorResponse(response: Response): Promise<never> {
     // 非 JSON 体（如历史接口 res.send 纯文本）时回退为正文，便于用户看到 422 等原因
     try {
       const t = (await response.text()).trim();
-      if (t) errorMsg = t.length > 800 ? `${t.slice(0, 800)}…` : t;
+      if (t) {
+        if (/Cannot (GET|POST|PUT|PATCH|DELETE) /i.test(t) || /<!DOCTYPE html>/i.test(t)) {
+          errorMsg = `接口不存在 (${response.status})，请确认后端已部署最新版本并已重启`;
+        } else {
+          errorMsg = t.length > 800 ? `${t.slice(0, 800)}…` : t;
+        }
+      }
     } catch {
       // ignore
     }

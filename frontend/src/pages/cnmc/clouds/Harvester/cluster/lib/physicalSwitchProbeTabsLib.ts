@@ -2,6 +2,11 @@
 
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import {
+  evaluateHmsProbeDimState,
+  hmsProbeDimStateLabel,
+  isHmsProbeDimDegraded,
+} from './hmsSwitchProbeEval';
+import {
   parseSwitchProductModelFromInfoLines,
   switchRecordDeviceProfile,
   switchRecordManagementHost,
@@ -31,30 +36,53 @@ type ProbeStateOpts = {
   naLabel?: string;
 };
 
-export function probeStateText(record: AswCtlSwitchProbeRecord, opts: ProbeStateOpts): string {
-  if (record[opts.errorKey]) return '失败';
-  const data = record[opts.dataKey];
-  if (data && typeof data === 'object' && 'ok' in data && (data as { ok?: boolean }).ok === false) {
-    return '失败';
-  }
-  if (opts.naKey && record[opts.naKey]) return opts.naLabel || '未配置';
-  if (data) return '正常';
-  return '—';
+export function probeStateText(
+  record: AswCtlSwitchProbeRecord,
+  opts: ProbeStateOpts & { vendor?: string | null },
+): string {
+  return hmsProbeDimStateLabel(
+    evaluateHmsProbeDimState(record, {
+      errorKey: opts.errorKey,
+      dataKey: opts.dataKey,
+      naKey: opts.naKey,
+      vendor: opts.vendor,
+    }),
+    opts.naLabel,
+  );
 }
 
-export function buildSwitchProbeDrawerModel(record: AswCtlSwitchProbeRecord): SwitchProbeDrawerModel {
+export function buildSwitchProbeDrawerModel(
+  record: AswCtlSwitchProbeRecord,
+  vendor?: string | null,
+): SwitchProbeDrawerModel {
   const host = switchRecordManagementHost(record);
   const profile = switchRecordDeviceProfile(record);
-  const productModel = parseSwitchProductModelFromInfoLines(record.info?.lines);
+  const productModel = parseSwitchProductModelFromInfoLines(record.info?.lines, { vendor });
 
-  const kpiInfoTone: KpiTone =
-    record.infoError || (record.info && record.info.ok === false) ? 'err' : record.info ? 'ok' : 'muted';
-  const kpiIfTone: KpiTone =
-    record.interfacesError || (record.interfaces && record.interfaces.ok === false)
-      ? 'err'
-      : record.interfaces
-        ? 'ok'
-        : 'muted';
+  const kpiInfoTone: KpiTone = (() => {
+    const s = evaluateHmsProbeDimState(record, {
+      errorKey: 'infoError',
+      dataKey: 'info',
+      vendor,
+    });
+    if (s === 'ok' && isHmsProbeDimDegraded(record, { errorKey: 'infoError', dataKey: 'info', vendor })) {
+      return 'warn';
+    }
+    return s === 'ok' ? 'ok' : s === 'err' ? 'err' : 'muted';
+  })();
+  const kpiIfTone: KpiTone = (() => {
+    const s = evaluateHmsProbeDimState(record, {
+      errorKey: 'interfacesError',
+      dataKey: 'interfaces',
+    });
+    if (
+      s === 'ok' &&
+      isHmsProbeDimDegraded(record, { errorKey: 'interfacesError', dataKey: 'interfaces' })
+    ) {
+      return 'warn';
+    }
+    return s === 'ok' ? 'ok' : s === 'err' ? 'err' : 'muted';
+  })();
   const kpiPerfTone: KpiTone = record.performanceError
     ? 'err'
     : record.performanceNotApplicable
@@ -83,7 +111,7 @@ export function buildSwitchProbeDrawerModel(record: AswCtlSwitchProbeRecord): Sw
     kpiIfTone,
     kpiPerfTone,
     kpiVlanTone,
-    kpiInfoVal: probeStateText(record, { errorKey: 'infoError', dataKey: 'info' }),
+    kpiInfoVal: probeStateText(record, { errorKey: 'infoError', dataKey: 'info', vendor }),
     kpiIfVal: probeStateText(record, { errorKey: 'interfacesError', dataKey: 'interfaces' }),
     kpiPerfVal: probeStateText(record, {
       errorKey: 'performanceError',

@@ -27,6 +27,27 @@ import {
   type HarvesterSectionOnRefresh,
 } from '../lib/ebsSectionRefresh';
 import { filterMenuItemsForReadOnly } from '../../../../../../utils/rbacUi';
+import {
+  confirmHighRiskDelete,
+  confirmHighRiskOperation,
+} from '../../shared/lib/highRiskConfirm';
+import {
+  DELETE_STORAGE_RISK_ITEMS,
+  VM_RESTART_RISK_ITEMS,
+  VOLUME_DETACH_RISK_ITEMS,
+} from '../../shared/lib/highRiskOperationPresets';
+import {
+  isLocalRegistryManagedVolume,
+  REGISTRY_MANAGED_PVC_HINT,
+} from '../../shared/lib/registryManagedLocalRegistryVolume';
+import {
+  isVolumeUsedByWorkload,
+  volumeWorkloadInUseHint,
+} from '../lib/volumeConsumers';
+import {
+  getVolumeExportBlockedMessage,
+  VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG,
+} from '../lib/volumeExportImageUtils';
 
 export type UseVolumesSectionActionsParams = {
   cloudId: string;
@@ -55,7 +76,7 @@ export function useVolumesSectionActions({
   selectedRowKeys,
   setSelectedRowKeys,
 }: UseVolumesSectionActionsParams) {
-  const { message: msg, modal } = App.useApp();
+  const { message: msg } = App.useApp();
   const safeRead = useMemo(() => createVolumeSafeRead(vms), [vms]);
   const burstRefreshVolumes = useStableBurstVolumeRefresh(onRefresh);
 
@@ -114,14 +135,25 @@ export function useVolumesSectionActions({
     if (!ensureDisksWrite()) return;
     if (selectedRowKeys.length === 0) return;
     const targets = dataSource.filter((v) => selectedRowKeys.includes(v.key));
+    const managedTargets = targets.filter((v) => isLocalRegistryManagedVolume(v));
+    if (managedTargets.length > 0) {
+      msg.warning(REGISTRY_MANAGED_PVC_HINT);
+      return;
+    }
+    const inUseTargets = targets.filter((v) => isVolumeUsedByWorkload(v));
+    if (inUseTargets.length > 0) {
+      msg.warning(volumeWorkloadInUseHint(inUseTargets[0]));
+      return;
+    }
 
-    modal.confirm({
+    void confirmHighRiskOperation({
       title: '批量删除确认',
-      content: `即将删除 ${targets.length} 个云盘：${targets.map(volumeDisplayLabel).join(', ')}`,
-      okText: '删除',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
+      description: `即将删除 ${targets.length} 个云盘：${targets.map(volumeDisplayLabel).join(', ')}`,
+      riskItems: DELETE_STORAGE_RISK_ITEMS,
+      requireTypeConfirm: false,
+      confirmText: '删除',
+      operationSummary: `确认批量删除 ${targets.length} 个云盘`,
+      onConfirm: async () => {
         try {
           const results = await Promise.allSettled(
             targets.map((t) => deleteHarvesterVolume(cloudId, t.namespace, t.name)),
@@ -134,15 +166,15 @@ export function useVolumesSectionActions({
         } catch (e: unknown) {
           const err = e as { message?: string };
           msg.error(err.message || '批量删除失败');
+          throw e;
         }
       },
-    });
+    }).catch(() => undefined);
   }, [
     burstRefreshVolumes,
     cloudId,
     dataSource,
     ensureDisksWrite,
-    modal,
     msg,
     selectedRowKeys,
     setSelectedRowKeys,
@@ -151,6 +183,10 @@ export function useVolumesSectionActions({
   const handleAttach = useCallback(
     (r: VolumeView) => {
       if (!ensureDisksWrite()) return;
+      if (isLocalRegistryManagedVolume(r)) {
+        msg.warning(REGISTRY_MANAGED_PVC_HINT);
+        return;
+      }
       if (!vms || (vms as unknown[]).length === 0) {
         void runHarvesterSectionRefresh(onRefresh, { force: true });
       }
@@ -172,6 +208,10 @@ export function useVolumesSectionActions({
   const handleDetach = useCallback(
     async (r: VolumeView) => {
       if (!ensureDisksWrite()) return;
+      if (isLocalRegistryManagedVolume(r)) {
+        msg.warning(REGISTRY_MANAGED_PVC_HINT);
+        return;
+      }
       if (!vms || (vms as unknown[]).length === 0) {
         void runHarvesterSectionRefresh(onRefresh, { force: true });
         msg.loading('正在同步云主机数据，请稍后重试...', 1);
@@ -191,62 +231,63 @@ export function useVolumesSectionActions({
 
       const diskName = resolveAttachedDiskName(vm, r.name);
       if (!diskName) {
-        modal.confirm({
+        const vmLabel = vm.InstanceName || vm.InstanceId || '';
+        void confirmHighRiskOperation({
           title: '无法确定挂载的磁盘名称',
-          content:
+          description:
             '请先在虚机内卸载该云盘（umount/移除磁盘），以避免数据损坏。是否重启虚拟机以完成卸载？',
-          okText: '重启虚拟机',
-          cancelText: '取消',
-          onOk: async () => {
-            try {
-              const resolvedId = resolveVmRebootTargetId(vm);
-              if (!resolvedId) {
-                msg.error('实例标识缺失，无法重启');
-                return;
-              }
-              await rebootCloudProviderEcs(cloudId, resolvedId);
-              msg.success('已触发重启');
-            } catch (e: unknown) {
-              const err = e as { message?: string };
-              msg.error(err.message || '重启失败');
+          riskItems: VM_RESTART_RISK_ITEMS,
+          requireTypeConfirm: false,
+          operationSummary: `重启云主机「${vmLabel}」以完成云盘卸载`,
+          confirmText: '重启虚拟机',
+          onConfirm: async () => {
+            const resolvedId = resolveVmRebootTargetId(vm);
+            if (!resolvedId) {
+              msg.error('实例标识缺失，无法重启');
+              throw new Error('missing vm id');
             }
+            await rebootCloudProviderEcs(cloudId, resolvedId);
+            msg.success('已触发重启');
           },
-        });
+        }).catch(() => undefined);
         return;
       }
 
       const { resolvedId, iidNameOnly } = resolveVmInstanceIds(vm);
-      modal.confirm({
+      const vmLabel = vm.InstanceName || vm.InstanceId || '';
+      void confirmHighRiskOperation({
         title: '确认卸载',
-        content: `将从云主机 ${vm.InstanceName || vm.InstanceId} 卸载云盘 ${r.name}`,
-        onOk: async () => {
+        description: `将从云主机 ${vmLabel} 卸载云盘 ${r.name}`,
+        riskItems: VOLUME_DETACH_RISK_ITEMS,
+        targetName: r.name,
+        operationSummary: `从云主机「${vmLabel}」卸载云盘「${r.name}」`,
+        confirmText: '卸载',
+        onConfirm: async () => {
           try {
-            try {
-              await detachHarvesterVolumeFromVm(cloudId, resolvedId, { name: String(diskName) });
-            } catch (e: unknown) {
-              const err = e as { message?: string };
-              if (String(err?.message).includes('NotFound')) {
-                await detachHarvesterVolumeFromVm(cloudId, iidNameOnly, { name: String(diskName) });
-              } else {
-                throw e;
-              }
-            }
-            msg.success('卸载成功');
-            void runHarvesterSectionRefresh(onRefresh, { force: true });
+            await detachHarvesterVolumeFromVm(cloudId, resolvedId, { name: String(diskName) });
           } catch (e: unknown) {
             const err = e as { message?: string };
-            msg.error(err.message || '卸载失败');
+            if (String(err?.message).includes('NotFound')) {
+              await detachHarvesterVolumeFromVm(cloudId, iidNameOnly, { name: String(diskName) });
+            } else {
+              throw e;
+            }
           }
+          msg.success('卸载成功');
+          void runHarvesterSectionRefresh(onRefresh, { force: true });
         },
-      });
+      }).catch(() => undefined);
     },
-    [cloudId, ensureDisksWrite, modal, msg, onRefresh, safeRead, vms],
+    [cloudId, ensureDisksWrite, msg, onRefresh, safeRead, vms],
   );
 
   const buildRowActionItems = useCallback(
     (r: VolumeView) => {
       const vm = safeRead.attachedVm(r) as VmAttachRecord | undefined;
       const isSystemDisk = checkIsVolumeSystemDisk(r, vm);
+      const isRegistryManaged = isLocalRegistryManagedVolume(r);
+      const isWorkloadInUse = isVolumeUsedByWorkload(r);
+      const workloadInUseHint = volumeWorkloadInUseHint(r);
       const vmLabel = vm ? vmDisplayLabel(vm) : '';
       const diskLabel = r.alias ? `${r.alias}（${r.name}）` : r.name;
 
@@ -256,6 +297,7 @@ export function useVolumesSectionActions({
             label: React.ReactNode;
             disabled?: boolean;
             danger?: boolean;
+            tooltip?: React.ReactNode;
             onClick?: () => void;
           }
         | { type: 'divider'; key?: string }
@@ -282,7 +324,12 @@ export function useVolumesSectionActions({
         {
           key: 'attach',
           label: '挂载到虚拟机',
-          disabled: !!vm || !hasDisksWrite,
+          disabled: !!vm || !hasDisksWrite || isRegistryManaged || isWorkloadInUse,
+          tooltip: isRegistryManaged
+            ? REGISTRY_MANAGED_PVC_HINT
+            : isWorkloadInUse
+              ? workloadInUseHint
+              : undefined,
           onClick: () => handleAttach(r),
         },
         {
@@ -291,6 +338,11 @@ export function useVolumesSectionActions({
           disabled: !hasDisksWrite,
           onClick: () => {
             if (!ensureDisksWrite()) return;
+            const exportBlocked = getVolumeExportBlockedMessage(vm);
+            if (exportBlocked) {
+              msg.warning(VOLUME_EXPORT_REQUIRES_VM_STOPPED_MSG);
+              return;
+            }
             setCurrentRecord(r);
             setExportOpen(true);
           },
@@ -324,7 +376,8 @@ export function useVolumesSectionActions({
           key: 'detach',
           label: '从云主机卸载',
           danger: true,
-          disabled: isSystemDisk || !hasDisksWrite,
+          disabled: isSystemDisk || !hasDisksWrite || isRegistryManaged,
+          tooltip: isRegistryManaged ? REGISTRY_MANAGED_PVC_HINT : undefined,
           onClick: () => void handleDetach(r),
         });
       }
@@ -333,30 +386,45 @@ export function useVolumesSectionActions({
         key: 'delete',
         label: '删除',
         danger: true,
-        disabled: !hasDisksWrite,
+        disabled: !hasDisksWrite || isRegistryManaged || isWorkloadInUse || !!vm,
+        tooltip: isRegistryManaged
+          ? REGISTRY_MANAGED_PVC_HINT
+          : isWorkloadInUse
+            ? workloadInUseHint
+            : vm
+              ? `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除`
+              : undefined,
         onClick: () => {
           if (!ensureDisksWrite()) return;
-          modal.confirm({
+          if (isRegistryManaged) {
+            msg.warning(REGISTRY_MANAGED_PVC_HINT);
+            return;
+          }
+          if (isWorkloadInUse) {
+            msg.warning(workloadInUseHint);
+            return;
+          }
+          void confirmHighRiskDelete({
             title: '确认删除云盘',
-            content: (
-              <div>
-                <div style={{ marginBottom: 8 }}>云盘：{diskLabel}</div>
-                {vm ? (
-                  <div style={{ color: '#d48806' }}>
-                    该云盘仍挂载在云主机：{vmLabel}，请先卸载后再删除。
-                  </div>
-                ) : null}
-                <div>删除后无法恢复。</div>
+            resourceLabel: '云盘',
+            name: r.name,
+            description: `确定要删除云盘「${diskLabel}」吗？删除后无法恢复。`,
+            riskItems: DELETE_STORAGE_RISK_ITEMS,
+            extra: vm ? (
+              <div style={{ color: '#d48806' }}>
+                该云盘仍挂载在云主机：{vmLabel}，请先卸载后再删除。
               </div>
-            ),
-            okText: '确认',
-            cancelText: '取消',
-            okButtonProps: {
-              danger: true,
-              disabled: !!vm,
-              title: vm ? `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除` : undefined,
+            ) : undefined,
+            precheck: async () => {
+              if (vm) {
+                return {
+                  ok: false,
+                  error: `该云盘已挂载到云主机：${vmLabel}，请先卸载后再删除`,
+                };
+              }
+              return { ok: true };
             },
-            onOk: async () => {
+            onConfirm: async () => {
               try {
                 await deleteHarvesterVolume(cloudId, r.namespace, r.name);
                 msg.success('删除成功');
@@ -368,9 +436,10 @@ export function useVolumesSectionActions({
                     ? `删除失败，当前云盘被云主机实例 ${vmLabel} 使用`
                     : err.message || '删除失败',
                 );
+                throw e;
               }
             },
-          });
+          }).catch(() => undefined);
         },
       });
 
@@ -386,7 +455,6 @@ export function useVolumesSectionActions({
       handleOpenVolumeDetail,
       hasDisksWrite,
       isTenant,
-      modal,
       msg,
       safeRead,
     ],

@@ -1,10 +1,6 @@
 /* Instance Wizard styles */
-.wizard-container { padding: 24px; background: #fff; position: relative; padding-bottom: 80px; min-height: calc(80vh - 80px); font-size: 14px; }
-.wizard-inner { max-width: 100%; margin: 0 auto; }
-.wizard-title { text-align: left; margin: 0 0 12px 0; font-size: 14px; }
 /* 左侧列（Sidebar） */
 .wizard-sidebar { background: transparent; border: 0; border-radius: 0; padding: 0 8px 0 0; min-height: calc(70vh); }
-.wizard-sidebar-title { display: none; }
 .wizard-step { display: flex; align-items: center; padding: 10px 12px; border-radius: 6px; cursor: pointer; margin-bottom: 6px; border-left: 0; background: #fafafa; }
 .wizard-step.active { background: #e6f4ff; }
 .wizard-step.completed { color: #1677ff; }
@@ -23,14 +19,9 @@
 .wizard-step-panel.is-active { display: block; }
 /* 分组标题与表单间距（中间列） */
 .wizard-group-title { font-size: 14px; font-weight: 600; color: #1f1f1f; padding-bottom: 6px; border-bottom: 1px solid #eaeaea; margin: 16px 0 12px; }
+.wizard-section .ant-form-vertical .ant-form-item { margin-bottom: 12px; }
 /* Radio 外观（中间列） */
-.wizard-container .ant-radio-group .ant-radio-button-wrapper { height: 28px; line-height: 26px; padding: 0 10px; font-size: 12px; }
-/* 中间列磁盘卡片状态（系统盘等若复用 Card 时仍可用） */
-.wizard-disk-card {
-  border: 1px solid #d9d9d9;
-}
-.wizard-disk-card.active { border-color: #91caff; }
-.wizard-disk-card.active .ant-card-head { background: #e6f4ff; border-color: #91caff; }
+.wizard-section .ant-radio-group .ant-radio-button-wrapper { height: 28px; line-height: 26px; padding: 0 10px; font-size: 12px; }
 /* 网络步骤：辅助网卡列表纵向排列，项间与按钮区不靠 flex gap / 顶部分隔线（与 wizard-disks-list 一致） */
 .wizard-net-ifaces-list {
   display: flex;
@@ -76,10 +67,7 @@
 }
 .wizard-preview { background: #ffffff; border: 1px solid #eaeaea; border-radius: 8px; padding: 16px; display: flex; flex-direction: column;  height: 100%; min-height: 0; overflow: hidden; margin-right: 0; }
 .wizard-preview-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f0f0f0; flex: 0 0 var(--preview-header-h, 40px); }
-.wizard-preview-json-btn { padding: 0 !important; font-size: 14px !important; }
 .wizard-preview-divider { margin: 12px 0 !important; }
-.wizard-json-preview-pre { font-size: 14px; max-height: 480px; overflow: auto; }
-.wizard-json-modal-mask { backdrop-filter: blur(4px); background-color: rgba(0,0,0,0.45) !important; }
 /* 右侧列滚动区域（Preview） */
 .wizard-summary-scroll { margin-top: 10px; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 0; }
 /* 预览摘要列表 */
@@ -92,41 +80,30 @@
 /* 右侧列底部操作（Preview） */
 .wizard-preview-actions { margin-top: auto; display: flex; justify-content: flex-end; flex: 0 0 var(--preview-actions-h); }
 
-.wizard-bottombar { position: absolute; left: 24px; right: 24px; bottom: 0; background: #f5f7fa; border-top: 1px solid #f0f0f0; padding: 12px 24px; }
-.wizard-bottombar-inner { display: flex; justify-content: center; }
-
- 
-
-/* Ant 组件外观统一 */
-.wizard-container .ant-card { box-shadow: none; border: 1px solid #d9d9d9; border-radius: 6px; }
-.wizard-container .ant-card-head { background: transparent; border-bottom: 1px solid #d9d9d9; }
-.wizard-container .ant-input, 
-.wizard-container .ant-select .ant-select-selector, 
-.wizard-container .ant-input-number, 
-.wizard-container .ant-textarea {
+/* Ant 组件外观统一（中间列表单区） */
+.wizard-section .ant-card { box-shadow: none; border: 1px solid #d9d9d9; border-radius: 6px; }
+.wizard-section .ant-card-head { background: transparent; border-bottom: 1px solid #d9d9d9; }
+.wizard-section .ant-input,
+.wizard-section .ant-select .ant-select-selector,
+.wizard-section .ant-input-number,
+.wizard-section .ant-textarea {
   border-radius: 6px;
   box-shadow: none;
 }
-.wizard-container .ant-btn { border-radius: 6px; box-shadow: none; }
-.wizard-container .ant-form-item-label > label { color: #8c8c8c; }
-.wizard-container .ant-divider-horizontal { margin: 12px 0; }
-.wizard-container .ant-form-vertical .ant-form-item { margin-bottom: 12px; }
-
- 
-
-/* 节点列表与状态 */
-.wizard-node-option { display: flex; flex-direction: column; }
-.wizard-node-line { font-size: 13px; color: #1f1f1f; }
-.wizard-node-name { font-weight: 600; }
-.wizard-node-ip { margin-left: 6px; color: #8c8c8c; }
-.wizard-node-sub { font-size: 12px; color: #8c8c8c; display: flex; gap: 12px; }
-.wizard-node-ready { color: #52c41a; }
-.wizard-node-notready { color: #ff4d4f; }
+.wizard-section .ant-btn { border-radius: 6px; box-shadow: none; }
+.wizard-section .ant-form-item-label > label { color: #8c8c8c; }
+.wizard-section .ant-divider-horizontal { margin: 12px 0; }
 
 /* 节点表格 */
+.wizard-node-table .ant-table-content table {
+  table-layout: fixed;
+  width: 100% !important;
+}
+
 .wizard-node-table .ant-table-thead .ant-table-cell,
 .wizard-node-table .ant-table-tbody .ant-table-cell {
   font-size: 12px;
+  white-space: normal;
 }
 
 .wizard-node-table .wizard-node-select-col {
@@ -144,13 +121,10 @@
 }
 
 /* 折叠面板调整 */
-/* 去除 高级CPU 折叠面板内容左右内边距 */
 .wizard-collapse-nopad .ant-collapse-content > .ant-collapse-content-box { padding-left: 0; padding-right: 0; border-top: 1px solid #eaeaea; }
 
-/* 去除 高级CPU 折叠面板标题左右内边距 */
 .wizard-collapse-nopad .ant-collapse-header { padding-left: 0 !important; padding-right: 0 !important; padding-bottom: 6px !important; }
 
-/* 统一 高级CPU 面板内的垂直表单项间距与标签样式 */
 .wizard-collapse-nopad .ant-form-vertical .ant-form-item { margin-bottom: 16px; }
 .wizard-collapse-nopad .ant-form-item-label > label { color: #8c8c8c; }
 

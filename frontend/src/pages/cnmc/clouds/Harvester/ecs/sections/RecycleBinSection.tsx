@@ -65,8 +65,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Table, message, App, Input, Select, Button, Checkbox, Drawer } from 'antd';
-import { DeleteOutlined, SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
+import { Table, message, Input, Select, Button, Checkbox, Drawer } from 'antd';
+import { SearchOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons';
 import { restoreHarvesterVm, forceDeleteHarvesterVm } from 'services/harvester/vm';
 import PageDetailSection from '../../../../../../components/PageDetailSection';
 import { ResourceLinkYamlDrawer } from '../../shared/components/ResourceLinkYamlDrawer';
@@ -88,6 +88,8 @@ import {
   HARVESTER_RECYCLE_BIN_TABLE_SETTINGS_KEY,
 } from '../lib/recycleBinTableColumns';
 import { buildRecycledVmNamespaceOptions } from '../lib/recycleBinSectionUtils';
+import { confirmHighRiskOperation } from '../../shared/lib/highRiskConfirm';
+import { FORCE_DELETE_VM_RISK_ITEMS } from '../../shared/lib/highRiskOperationPresets';
 
 /**
  * [类型定义] 组件 Props 接口
@@ -126,7 +128,6 @@ const RecycleBinSection: React.FC<Props> = ({
   // [状态管理] 1. 本地 UI 状态 (Local State)
   // ==========================================
   
-  const { modal } = App.useApp(); // Ant Design App 上下文，用于显示确认对话框
   const { user } = useAuth();
   const perms = useMemo(() => (user?.permissions ?? []) as string[], [user?.permissions]);
   const hasAnyPermission = useCallback(
@@ -316,52 +317,72 @@ const RecycleBinSection: React.FC<Props> = ({
     const volDetails = SafeRead.volumeDetails(r);
     const volumeNames = volDetails.filter((v: any) => v.claimName).map((v: any) => v.claimName).join(', ');
     
-    // 默认勾选删除卷，通过闭包变量控制
-    // 注意: 这个变量在 Checkbox 的 onChange 中被修改，在 onOk 中被使用
-    // 使用闭包而不是 state，因为需要在对话框的 onOk 回调中访问
     let shouldDeleteVolumes = !!volumeNames;
-    
-    modal.confirm({
+
+    void confirmHighRiskOperation({
       title: '确认彻底删除',
-      icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
-      width: 500,
-      content: (
-        <div style={{ marginTop: 16 }}>
-          <p>确定要彻底删除虚拟机 <b>{name}</b> 吗？</p>
-          <div style={{ marginBottom: 16, color: '#ff4d4f', background: '#fff1f0', padding: '8px 12px', border: '1px solid #ffccc7', borderRadius: 4 }}>
+      targetName: name,
+      requireTypeConfirm: true,
+      description: `确定要彻底删除虚拟机「${name}」吗？此操作不可恢复。`,
+      riskItems: FORCE_DELETE_VM_RISK_ITEMS,
+      confirmText: '彻底删除',
+      operationSummary: `确认彻底删除虚拟机「${name}」`,
+      extra: (
+        <div>
+          <div
+            style={{
+              marginBottom: 16,
+              color: '#ff4d4f',
+              background: '#fff1f0',
+              padding: '8px 12px',
+              border: '1px solid #ffccc7',
+              borderRadius: 4,
+            }}
+          >
             <WarningOutlined style={{ marginRight: 8 }} />
             警告：此操作不可恢复。虚拟机将被永久删除。
           </div>
-          {volumeNames && (
-              <div style={{ marginBottom: 16, background: '#f5f5f5', padding: '8px 12px',border: '1px solid #d9d9d9', borderRadius: 4 }}>
-                <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
-                <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
-                <div style={{ marginTop: 8, borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
-                   <Checkbox defaultChecked={true} onChange={(e) => { shouldDeleteVolumes = e.target.checked; }}>
-                     同步删除关联卷 (PVC)
-                   </Checkbox>
-                   <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>
-                     注意：勾选后将永久删除关联的数据卷 (PVC)，数据无法找回。
-                   </div>
+          {volumeNames ? (
+            <div
+              style={{
+                marginBottom: 16,
+                background: '#f5f5f5',
+                padding: '8px 12px',
+                border: '1px solid #d9d9d9',
+                borderRadius: 4,
+              }}
+            >
+              <div style={{ fontWeight: 500, marginBottom: 4 }}>关联的数据卷 (PVC):</div>
+              <div style={{ color: 'rgba(0,0,0,0.65)' }}>{volumeNames}</div>
+              <div style={{ marginTop: 8, borderTop: '1px solid #e8e8e8', paddingTop: 8 }}>
+                <Checkbox
+                  defaultChecked={true}
+                  onChange={(e) => {
+                    shouldDeleteVolumes = e.target.checked;
+                  }}
+                >
+                  同步删除关联卷 (PVC)
+                </Checkbox>
+                <div style={{ color: '#999', fontSize: 12, marginLeft: 24, marginTop: 4 }}>
+                  注意：勾选后将永久删除关联的数据卷 (PVC)，数据无法找回。
                 </div>
               </div>
-          )}
+            </div>
+          ) : null}
         </div>
       ),
-      okText: '彻底删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
+      onConfirm: async () => {
         try {
           await forceDeleteHarvesterVm(cloudId, instanceId, shouldDeleteVolumes);
           message.success('虚拟机已彻底删除');
           await runHarvesterSectionRefresh(onRefresh, { force: true });
         } catch (e: any) {
           message.error(`彻底删除失败: ${e.message}`);
+          throw e;
         }
       },
-    });
-  }, [cloudId, hasRecycleBinWrite, onRefresh, modal, SafeRead]);
+    }).catch(() => undefined);
+  }, [cloudId, hasRecycleBinWrite, onRefresh, SafeRead]);
 
   // ==========================================
   // [表格定义] 7. 表格列配置 (Table Columns)

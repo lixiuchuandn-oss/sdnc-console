@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import { Button, Divider, Popconfirm, Segmented, Space, message } from 'antd';
+import { Button, Divider, Segmented, Space, message } from 'antd';
 import { DeleteOutlined, EditOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { AswCtlSwitchProbeRecord } from 'services/harvester/types/aswProbe';
 import {
@@ -8,6 +8,10 @@ import {
   type DatacenterRack,
   type DatacenterRackDevice,
 } from '../../../../../../services/datacenterTopologyApi';
+import {
+  confirmHighRiskDelete,
+  DELETE_RISK_ITEMS,
+} from '../../shared/lib/highRiskConfirm';
 import { EmbeddedPhysicalNodeBladeBody } from './embeddedPhysicalNodePanel';
 import { EmbeddedSwitchPortPanelBody } from './embeddedSwitchPortPanel';
 import type { NodeLiveMetrics } from './physicalNodeRackUtils';
@@ -19,6 +23,7 @@ import {
   switchStableRef,
   type HarvesterNodeRecord,
 } from './datacenterTopologySectionUtils';
+import { compareRackDeviceSlotOrder, formatRackDeviceULabel } from './rackDeviceUPosition';
 
 type Props = {
   cloudId: string;
@@ -108,7 +113,7 @@ const DatacenterRackGrid: React.FC<Props> = ({
             className={['cloudmap-dc-blade-u', canWrite ? 'cloudmap-dc-blade-u--clickable' : '']
               .filter(Boolean)
               .join(' ')}
-            title={canWrite ? '柜内排序 / U 位 · 点击编辑' : '柜内排序 / U 位'}
+            title={canWrite ? 'U 位 · 点击编辑' : 'U 位'}
             role={canWrite ? 'button' : undefined}
             tabIndex={canWrite ? 0 : undefined}
             onClick={
@@ -130,7 +135,7 @@ const DatacenterRackGrid: React.FC<Props> = ({
                 : undefined
             }
           >
-            U{d.slotOrder ?? 0}
+            {formatRackDeviceULabel(d.slotOrder)}
           </div>
           {d.sourceKind === 'node' ? (
             <EmbeddedPhysicalNodeBladeBody
@@ -159,21 +164,35 @@ const DatacenterRackGrid: React.FC<Props> = ({
           )}
           <div className="cloudmap-dc-blade-actions">
             {canWrite ? (
-              <Popconfirm
-                title="移除此设备？"
-                onConfirm={async () => {
-                  try {
-                    await deleteRackDevice(cloudId, rackRow.id, d.id);
-                    message.success('已移除');
-                    await onRefresh();
-                  } catch (e: unknown) {
-                    const err = e as { response?: { data?: { message?: string } }; message?: string };
-                    message.error(err?.response?.data?.message || err?.message || '删除失败');
-                  }
-                }}
-              >
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-              </Popconfirm>
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() =>
+                  void confirmHighRiskDelete({
+                    resourceLabel: '设备占位',
+                    name: resolveDeviceLabel(d),
+                    description: '移除此设备？',
+                    riskItems: DELETE_RISK_ITEMS,
+                    onConfirm: async () => {
+                      try {
+                        await deleteRackDevice(cloudId, rackRow.id, d.id);
+                        message.success('已移除');
+                        await onRefresh();
+                      } catch (e: unknown) {
+                        const err = e as {
+                          response?: { data?: { message?: string } };
+                          message?: string;
+                        };
+                        message.error(
+                          err?.response?.data?.message || err?.message || '删除失败',
+                        );
+                      }
+                    },
+                  }).catch(() => {})
+                }
+              />
             ) : null}
           </div>
         </div>
@@ -236,22 +255,35 @@ const DatacenterRackGrid: React.FC<Props> = ({
             {canWrite ? (
               <Space size={4} wrap role="group" aria-label="本机柜">
                 <Button type="text" size="small" icon={<EditOutlined />} onClick={() => onRenameRack(rack)} />
-                <Popconfirm
-                  title="删除本机柜？"
-                  description="该机柜及其中的设备占位将从库房中移除。"
-                  onConfirm={async () => {
-                    try {
-                      await deleteDatacenterRack(cloudId, rack.id);
-                      message.success('已删除');
-                      await onRefresh();
-                    } catch (e: unknown) {
-                      const err = e as { response?: { data?: { message?: string } }; message?: string };
-                      message.error(err?.response?.data?.message || err?.message || '删除失败');
-                    }
-                  }}
-                >
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  onClick={() =>
+                    void confirmHighRiskDelete({
+                      resourceLabel: '机柜',
+                      name: rack.name || rack.id,
+                      description: '该机柜及其中的设备占位将从库房中移除。',
+                      riskItems: DELETE_RISK_ITEMS,
+                      onConfirm: async () => {
+                        try {
+                          await deleteDatacenterRack(cloudId, rack.id);
+                          message.success('已删除');
+                          await onRefresh();
+                        } catch (e: unknown) {
+                          const err = e as {
+                            response?: { data?: { message?: string } };
+                            message?: string;
+                          };
+                          message.error(
+                            err?.response?.data?.message || err?.message || '删除失败',
+                          );
+                        }
+                      },
+                    }).catch(() => {})
+                  }
+                />
                 <Button type="text" size="small" onClick={() => onAddToRack(rack)}>
                   加设备
                 </Button>
@@ -279,7 +311,7 @@ const DatacenterRackGrid: React.FC<Props> = ({
         <div className="cloudmap-dc-rack-body">
           <div className="cloudmap-dc-bay">
             {[...rack.devices]
-              .sort((a, b) => (a.slotOrder ?? 0) - (b.slotOrder ?? 0))
+              .sort((a, b) => compareRackDeviceSlotOrder(a.slotOrder, b.slotOrder))
               .map((d) => renderDeviceBlade(d, rack, viewDockActive))}
             {rack.devices.length === 0 ? (
               <div className="cloudmap-dc-empty">

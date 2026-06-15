@@ -3,29 +3,38 @@
  *
  * 数据由上层 `CloudConsole.tsx` 拉取后注入；本组件只负责导航与渲染子模块。
  */
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Empty } from 'antd';
 import { useAuth } from '../../../../contexts/AuthContext';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { isSystemNamespace } from '../../../../utils/harvesterUtils';
-import VmSection from '../../clouds/Harvester/ecs/sections/VmSection';
-import RecycleBinSection from '../../clouds/Harvester/ecs/sections/RecycleBinSection';
-import TemplatesSection from '../../clouds/Harvester/ecs/sections/TemplatesSection';
-import SshKeysSection from '../../clouds/Harvester/ecs/sections/SshKeysSection';
-import VolumesSection from '../../clouds/Harvester/ebs/sections/VolumesSection';
-import ImagesSection from '../../clouds/Harvester/ecs/sections/ImagesSection';
-import BackupsSection from '../../clouds/Harvester/cbr/sections/BackupsSection';
-import ScheduleVmBackupsSection from '../../clouds/Harvester/cbr/sections/ScheduleVmBackupsSection';
-import VmRestoreTasksSection from '../../clouds/Harvester/cbr/sections/VmRestoreTasksSection';
-import SnapshotsSection from '../../clouds/Harvester/ebs/sections/SnapshotsSection';
-import CloudInitsSection from '../../clouds/Harvester/ecs/sections/CloudInitsSection';
-import GpuSection from '../../clouds/Harvester/cluster/sections/GpusSection';
-import EipSection from '../../clouds/Harvester/kube-ovn/sections/EipSection';
-import SnatSection from '../../clouds/Harvester/kube-ovn/sections/SnatSection';
-import DnatSection from '../../clouds/Harvester/kube-ovn/sections/DnatSection';
-import VpcsSection from '../../clouds/Harvester/kube-ovn/sections/VpcsSection';
-import UnderlaySubnetsSection from '../../clouds/Harvester/kube-ovn/sections/UnderlaySubnetsSection';
+import {
+  LazyVmSection,
+  LazyRecycleBinSection,
+  LazyTemplatesSection,
+  LazySshKeysSection,
+  LazyCloudInitsSection,
+  LazyImagesSection,
+} from '../../clouds/Harvester/ecs/lazySections';
+import { HarvesterPersistentImageUploadDrawer } from '../../clouds/Harvester/ecs/components/HarvesterPersistentImageUploadDrawer';
+import type { ImageUploadTasksDrawerHandle } from '../../clouds/Harvester/ecs/components/ImageUploadTasksDrawer';
+import type { HarvesterImageUploadTask } from '../../../../services/harvesterApi';
+import {
+  ConsoleMainPanelSectionSuspense,
+  LazyVolumesSection,
+  LazySnapshotsSection,
+  LazyBackupsSection,
+  LazyScheduleVmBackupsSection,
+  LazyVmRestoreTasksSection,
+  LazyGpuSection,
+  LazyEipSection,
+  LazySnatSection,
+  LazyDnatSection,
+  LazyVpcsSection,
+  LazyUnderlaySubnetsSection,
+} from '../lib/lazyMainPanelSections';
 import type { BackupsSectionOnRefresh } from '../../clouds/Cloudmap/pool/loaders/backupsRefresh';
+import type { HarvesterImagesInventoryReload } from '../../clouds/Harvester/shared/lib/harvesterSectionRefresh';
 import {
   buildMainNavCategories,
   type NavCategory,
@@ -92,6 +101,8 @@ interface Props {
   onRefreshVolumes?: () => void;
   onRefreshStorageClasses?: (force?: boolean, skipSync?: boolean) => void;
   onRefreshImages?: (force?: boolean) => void;
+  /** 镜像库存轮询（上传同步到底座时的列表进度） */
+  onImagesInventoryReload?: HarvesterImagesInventoryReload;
   onRefreshSnapshots?: () => void;
   backupsTabOnRefresh?: {
     backups: BackupsSectionOnRefresh;
@@ -157,6 +168,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
   onRefreshVolumes,
   onRefreshStorageClasses,
   onRefreshImages,
+  onImagesInventoryReload,
   onRefreshSnapshots,
   backupsTabOnRefresh,
   onRefreshCloudInits,
@@ -185,6 +197,15 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
       return name && !isSystemNamespace(name);
     });
   }, [namespaces]);
+
+  const imageUploadDrawerRef = useRef<ImageUploadTasksDrawerHandle>(null);
+  const uploadCallbacksRef = useRef<{
+    onListTaskChange?: (task: HarvesterImageUploadTask) => void;
+    onListTaskRemove?: (taskId: string, opts?: { refreshInventory?: boolean }) => void;
+  }>({});
+
+  const showPersistentImageUploadDrawer =
+    !!cloudId && (!canAccessMainResource || canAccessMainResource('image'));
 
   const fullTabConfig = useMemo((): NavCategory[] => buildMainNavCategories(ovnVpcEnabled), [ovnVpcEnabled]);
 
@@ -277,7 +298,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     switch (activeResource) {
       case 'vm':
         return (
-          <VmSection
+          <LazyVmSection
             vms={vms}
             images={images}
             volumes={volumes}
@@ -310,7 +331,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'recycle-bin':
         return (
-          <RecycleBinSection
+          <LazyRecycleBinSection
             vms={vms}
             loading={loading}
             cloudId={cloudId}
@@ -323,7 +344,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'template':
         return (
-          <TemplatesSection
+          <LazyTemplatesSection
             cloudId={cloudId}
             templates={templates}
             loading={loading}
@@ -334,7 +355,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'ssh':
         return (
-          <SshKeysSection
+          <LazySshKeysSection
             cloudId={cloudId}
             sshKeys={sshKeys}
             loading={loading}
@@ -344,7 +365,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'cloudinit':
         return (
-          <CloudInitsSection
+          <LazyCloudInitsSection
             cloudId={cloudId}
             cloudInits={cloudInits}
             loading={loading}
@@ -354,7 +375,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'gpu':
         return (
-          <GpuSection
+          <LazyGpuSection
             cloudId={cloudId}
             resources={gpus}
             loading={loading}
@@ -365,21 +386,23 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'volume':
         return (
-          <VolumesSection
+          <LazyVolumesSection
             volumes={volumes}
             loading={loading}
             onRefresh={onRefreshVolumes}
             onRefreshStorageClasses={onRefreshStorageClasses}
+            onRefreshImages={onRefreshImages}
             cloudId={cloudId}
             vms={vms}
             storageClasses={storageClasses}
             namespacesOptions={namespacesOptions}
             isTenant={isTenantUser}
+            tenantDefaultNamespace={isTenantUser ? (nsValue || namespacesOptions[0]) : undefined}
           />
         );
       case 'volume-snapshot':
         return (
-          <SnapshotsSection
+          <LazySnapshotsSection
             snapshots={snapshots}
             loading={loading}
             onRefresh={onRefreshSnapshots}
@@ -390,19 +413,26 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'image':
         return (
-          <ImagesSection
+          <LazyImagesSection
             images={images}
             loading={loading}
             onRefresh={onRefreshImages}
+            onImagesInventoryReload={onImagesInventoryReload}
             cloudId={cloudId}
             vms={vms}
             isTenant={isTenantUser}
+            tenantDefaultNamespace={isTenantUser ? (nsValue || namespacesOptions[0]) : undefined}
+            namespacesOptions={namespacesOptions}
+            uploadDrawerRef={imageUploadDrawerRef}
+            onRegisterUploadCallbacks={(callbacks) => {
+              uploadCallbacksRef.current = callbacks;
+            }}
           />
         );
 
       case 'snapshot':
         return (
-          <BackupsSection
+          <LazyBackupsSection
             backups={backups}
             loading={loading}
             onRefresh={backupsTabOnRefresh?.vm_snapshots}
@@ -415,7 +445,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'backup':
         return (
-          <BackupsSection
+          <LazyBackupsSection
             backups={backups}
             loading={loading}
             onRefresh={backupsTabOnRefresh?.backups}
@@ -427,7 +457,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'schedule':
         return (
-          <ScheduleVmBackupsSection
+          <LazyScheduleVmBackupsSection
             data={schedules}
             loading={loading}
             onRefresh={backupsTabOnRefresh?.schedule_vm_backups}
@@ -438,7 +468,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'restore-task':
         return (
-          <VmRestoreTasksSection
+          <LazyVmRestoreTasksSection
             cloudId={cloudId}
             isTenant={isTenantUser}
             vms={vms}
@@ -448,11 +478,11 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'flat-subnet':
         return (
-          <UnderlaySubnetsSection cloudId={cloudId} mode="flat" displayMode="standard" showYaml={showYaml} />
+          <LazyUnderlaySubnetsSection cloudId={cloudId} mode="flat" displayMode="standard" showYaml={showYaml} />
         );
       case 'vpc-subnet':
         return (
-          <VpcsSection
+          <LazyVpcsSection
             cloudId={cloudId}
             vpcs={vpcs}
             subnets={subnets}
@@ -465,7 +495,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
 
       case 'eip':
         return (
-          <EipSection
+          <LazyEipSection
             cloudId={cloudId}
             networkScope="vpc"
             eips={eips}
@@ -477,7 +507,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'snat':
         return (
-          <SnatSection
+          <LazySnatSection
             cloudId={cloudId}
             networkScope="vpc"
             snatRules={snatRules}
@@ -490,7 +520,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
         );
       case 'dnat':
         return (
-          <DnatSection
+          <LazyDnatSection
             cloudId={cloudId}
             networkScope="vpc"
             dnatRules={dnatRules}
@@ -549,6 +579,7 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     onRefreshVolumes,
     onRefreshStorageClasses,
     onRefreshImages,
+    onImagesInventoryReload,
     onRefreshSnapshots,
     backupsTabOnRefresh,
     onRefreshCloudInits,
@@ -575,7 +606,21 @@ const CloudConsoleMainPanel: React.FC<Props> = ({
     );
   }
 
-  return <div className="cloud-console-panel-root">{renderContent()}</div>;
+  return (
+    <div className="cloud-console-panel-root">
+      <ConsoleMainPanelSectionSuspense>{renderContent()}</ConsoleMainPanelSectionSuspense>
+      {showPersistentImageUploadDrawer ? (
+        <HarvesterPersistentImageUploadDrawer
+          ref={imageUploadDrawerRef}
+          cloudId={cloudId}
+          onListTaskChange={(task) => uploadCallbacksRef.current.onListTaskChange?.(task)}
+          onListTaskRemove={(taskId, opts) =>
+            uploadCallbacksRef.current.onListTaskRemove?.(taskId, opts)
+          }
+        />
+      ) : null}
+    </div>
+  );
 };
 
 export default CloudConsoleMainPanel;

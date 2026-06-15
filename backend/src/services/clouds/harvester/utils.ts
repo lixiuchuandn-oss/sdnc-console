@@ -184,22 +184,30 @@ const translateErrorMessage = (error: any): string => {
       return '连接被重置：与 Harvester 的连接意外中断';
     case 'ETIMEDOUT':
     case 'timeout':
-      return '请求超时：Harvester 响应过慢，请稍后重试';
+      return '响应过慢，请稍等';
     case 'ECONNREFUSED':
       return '连接被拒绝：无法访问 Harvester API 地址';
     case 'ENOTFOUND':
       return '域名解析失败：无法找到 Harvester 地址';
     case 'EPIPE':
       return '管道损坏：数据传输中断';
+    case 'EPROTO':
+      return 'HTTPS/TLS 协议错误：与 Harvester 的加密连接失败，请检查证书或开启忽略 TLS 校验';
     default:
       return error?.message || '未知网络错误';
   }
 };
 
+/** Harvester / Rancher Kube API Bearer（形如 token-xxxxx:yyyy） */
+export function looksLikeHarvesterKubeToken(value: unknown): boolean {
+  const s = typeof value === 'string' ? value.trim() : '';
+  return /^token-[a-z0-9]+:/i.test(s);
+}
+
 /**
  * 资源池（Cloud）维度的 Harvester / Rancher Kube Bearer。
- * 与 `clouds.ts` 中 Cloudmap 连接测试一致：Cloudmap 常将 API 令牌放在 config.apiToken / config.token，
- * secretKey 可能与其它用途共存或为空；优先使用配置中的令牌，再回退 secretKey。
+ * Cloudmap 常将 API 令牌放在 config.apiToken / config.token；secretKey 也可能持有 kube token。
+ * Edge 等场景 config.apiToken 可能是 UI 登录口令（非 kube token），此时应回退 secretKey。
  */
 export function resolveHarvesterCloudKubeToken(cloud: {
   secretKey?: string | null;
@@ -207,10 +215,21 @@ export function resolveHarvesterCloudKubeToken(cloud: {
 }): string {
   const cfg = (cloud?.config || {}) as { apiToken?: unknown; token?: unknown };
   const fromApi = typeof cfg.apiToken === 'string' ? cfg.apiToken.trim() : '';
-  if (fromApi) return fromApi;
   const fromTok = typeof cfg.token === 'string' ? cfg.token.trim() : '';
+  const fromSecret = String(cloud?.secretKey || '').trim();
+
+  if (
+    fromSecret &&
+    looksLikeHarvesterKubeToken(fromSecret) &&
+    ((fromApi && !looksLikeHarvesterKubeToken(fromApi)) ||
+      (fromTok && !looksLikeHarvesterKubeToken(fromTok)))
+  ) {
+    return fromSecret;
+  }
+
+  if (fromApi) return fromApi;
   if (fromTok) return fromTok;
-  return String(cloud?.secretKey || '').trim();
+  return fromSecret;
 }
 
 /**
@@ -449,7 +468,7 @@ export const watchJsonStream = (
  * 1. 自动将 body 序列化为 JSON 并设置 Content-Type。
  * 2. 正常 2xx 响应尝试 JSON.parse，失败则返回原始文本。
  * 3. 非 2xx 响应统一 reject，携带 { status, body, message }。
- * 4. 设置 15s 硬超时。
+ * 4. 设置 30s 硬超时。
  *
  * @param method HTTP 方法 (GET, POST, PUT, DELETE, PATCH)
  * @param target 请求 URL
@@ -535,7 +554,7 @@ export const requestJson = (
         });
       },
     );
-    req.setTimeout(15000, () => {
+    req.setTimeout(30000, () => {
       req.destroy(new Error('timeout'));
       reject({ message: translateErrorMessage({ code: 'ETIMEDOUT' }) });
     });

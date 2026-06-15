@@ -158,7 +158,7 @@ export function resolveCephApiPermissionBase(parts: string[]): string {
       rookSeg === 'blockpool-rados-namespaces' ||
       rookSeg === 'clusters'
     ) {
-      return 'clouds.unified-storage-pools';
+      return 'clouds.storage-addon';
     }
     return 'clouds.unified-storage';
   }
@@ -454,8 +454,11 @@ export class PermissionRegistry {
                 permissionBase = 'clouds.load-balancers';
               } else if (actualResourceType === 'storage-classes') {
                 permissionBase = 'clouds.storage-classes';
-              } else if (actualResourceType === 'nodes') {
-                permissionBase = 'clouds.cluster-nodes';
+              } else if (
+                actualResourceType === 'nodes' ||
+                actualResourceType === 'node-resource-usage'
+              ) {
+                permissionBase = 'clouds.compute-cluster';
               } else if (
                 actualResourceType === 'gpus' ||
                 actualResourceType === 'gpu' ||
@@ -492,6 +495,15 @@ export class PermissionRegistry {
                 actualResourceType === 'migrations-direct'
               ) {
                 permissionBase = 'clouds.migrations';
+              } else if (actualResourceType === 'drs') {
+                permissionBase = 'clouds.compute-cluster';
+              } else if (
+                actualResourceType === 'failure-domains' ||
+                actualResourceType === 'failure_domains'
+              ) {
+                permissionBase = 'clouds.compute-cluster';
+              } else if (actualResourceType === 'sdrs') {
+                permissionBase = 'clouds.storage-addon';
               } else if (actualResourceType === 'services') {
                 // 旧缓存路由 /harvester/services；与 containers/services 同权
                 permissionBase = 'clouds.containers.services';
@@ -502,6 +514,11 @@ export class PermissionRegistry {
               ) {
                 // 集群状态/代理等能力继续复用 ecs 权限
                 permissionBase = 'clouds.ecs';
+              } else if (actualResourceType === 'deployment-sets') {
+                // VM 创建向导 / 变配引用部署集（租户无 compute-cluster 权限）
+                permissionBase = 'clouds.ecs';
+              } else if (actualResourceType === 'ovn-mirrors') {
+                permissionBase = 'clouds.traffic-mirroring.vpc';
               }
             }
           }
