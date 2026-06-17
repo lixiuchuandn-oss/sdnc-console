@@ -6,10 +6,13 @@ import type {
   Srv6CeFingerprint,
   Srv6EndpointFingerprint,
   Srv6EndpointSlot,
+  Srv6HubSlotBinding,
+  Srv6HubVrfMode,
   Srv6InjectedDelta,
   Srv6PeFingerprint,
   Srv6RdRtMeta,
   Srv6TunnelArchiveFields,
+  Srv6TunnelTopology,
 } from './srv6.archive.types';
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
@@ -168,12 +171,6 @@ const extractInterfaceVrf = (
   return undefined;
 };
 
-const isPublicBgpBlock = (b: unknown): boolean => {
-  if (!b || typeof b !== 'object') return false;
-  const vrf = (b as Record<string, unknown>).vrf;
-  return vrf === undefined || vrf === null || vrf === 0 || vrf === '0';
-};
-
 const extractBgpAsnAt = (cfg: Record<string, unknown>, idx: number): number | undefined => {
   const bgpArr = Array.isArray(cfg.bgp) ? cfg.bgp : [];
   const pick = (i: number) => {
@@ -203,17 +200,58 @@ const extractCeWanIpv4 = (cfg: Record<string, unknown>): string | undefined => {
   return extractPortIpv4(cfg, 0);
 };
 
+const extractInterfaceIpv6 = (cfg: Record<string, unknown>, ifName?: string): string | undefined => {
+  if (!ifName) return undefined;
+  for (const k of Object.keys(cfg)) {
+    if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+    const arr = cfg[k];
+    if (!Array.isArray(arr)) continue;
+    for (const it of arr) {
+      if (!it || typeof it !== 'object') continue;
+      if (String((it as Record<string, unknown>).name || '') !== ifName) continue;
+      return ipv6HostFromRaw(
+        (it as Record<string, unknown>).ipv6_static ?? (it as Record<string, unknown>).ipv6,
+      );
+    }
+  }
+  return undefined;
+};
+
+const parseHubSlotBinding = (raw: unknown): Srv6HubSlotBinding | null | { error: string } => {
+  if (raw === null || raw === undefined) return null;
+  if (!raw || typeof raw !== 'object') return { error: 'Hub 绑定格式无效' };
+  const b = raw as Record<string, unknown>;
+  const hubPeUuid = normalizeText(b.hubPeUuid);
+  const spokePeUuid = normalizeText(b.spokePeUuid);
+  const hubPeSlot = normalizeText(b.hubPeSlot) as 'peA' | 'peB';
+  const wanIf = normalizeText(b.wanIf);
+  const peerPublicNeighbor = normalizeText(b.peerPublicNeighbor);
+  const lanIf = normalizeText(b.lanIf) || undefined;
+  if (!hubPeUuid || !spokePeUuid || !wanIf || !peerPublicNeighbor) {
+    return { error: 'Hub 绑定缺少 hubPeUuid、spokePeUuid、wanIf 或 peerPublicNeighbor' };
+  }
+  if (hubPeSlot !== 'peA' && hubPeSlot !== 'peB') {
+    return { error: 'Hub 绑定 hubPeSlot 须为 peA 或 peB' };
+  }
+  return { hubPeUuid, spokePeUuid, hubPeSlot, wanIf, lanIf, peerPublicNeighbor };
+};
+
 export const computePeFingerprint = (
   cfg: Record<string, unknown>,
   innerIf?: string,
+  hubMeta?: { wanIf?: string; peerPublicNeighbor?: string },
 ): Srv6PeFingerprint => ({
-  publicIpv6: extractPortIpv6(cfg, 0),
+  publicIpv6: hubMeta?.wanIf
+    ? extractInterfaceIpv6(cfg, hubMeta.wanIf) ?? extractPortIpv6(cfg, 0)
+    : extractPortIpv6(cfg, 0),
   publicBgpAsn: extractBgpAsnAt(cfg, 0),
   sidPrefix: extractSrv6PrefixFromConfig(cfg),
   innerIf: innerIf || undefined,
   innerIp: innerIf ? extractInterfaceIp(cfg, innerIf) : extractPortIpv4(cfg, 1),
   innerVrf: innerIf ? extractInterfaceVrf(cfg, innerIf) : undefined,
   innerBgpAsn: extractBgpAsnAt(cfg, 1),
+  wanIf: hubMeta?.wanIf,
+  peerPublicNeighbor: hubMeta?.peerPublicNeighbor,
 });
 
 export const computeCeFingerprint = (cfg: Record<string, unknown>): Srv6CeFingerprint => ({
@@ -276,6 +314,42 @@ export const parseSrv6ArchiveFromBody = (
     archive.endpointFingerprint = (raw.endpointFingerprint as Srv6EndpointFingerprint) ?? null;
   }
 
+  if (raw.tunnelTopology !== undefined) {
+    const topo = normalizeText(raw.tunnelTopology).toUpperCase();
+    if (topo && topo !== 'S' && topo !== 'H') {
+      return { ok: false, message: 'tunnelTopology 须为 S 或 H' };
+    }
+    archive.tunnelTopology = (topo as Srv6TunnelTopology) || null;
+  }
+
+  if (raw.hubPeSlot !== undefined) {
+    const slot = normalizeText(raw.hubPeSlot);
+    if (slot && slot !== 'peA' && slot !== 'peB') {
+      return { ok: false, message: 'hubPeSlot 须为 peA 或 peB' };
+    }
+    archive.hubPeSlot = (slot as 'peA' | 'peB') || null;
+  }
+
+  if (raw.hubVrfMode !== undefined) {
+    const mode = normalizeText(raw.hubVrfMode).toUpperCase();
+    if (mode && mode !== 'REUSE_VRF' && mode !== 'DEDICATED_VRF') {
+      return { ok: false, message: 'hubVrfMode 须为 REUSE_VRF 或 DEDICATED_VRF' };
+    }
+    archive.hubVrfMode = (mode as Srv6HubVrfMode) || null;
+  }
+
+  if (raw.hubBindings !== undefined) {
+    if (raw.hubBindings === null) {
+      archive.hubBindings = null;
+    } else {
+      const parsedBinding = parseHubSlotBinding(raw.hubBindings);
+      if (parsedBinding && 'error' in parsedBinding) {
+        return { ok: false, message: parsedBinding.error };
+      }
+      archive.hubBindings = parsedBinding;
+    }
+  }
+
   return { ok: true, archive };
 };
 
@@ -283,6 +357,10 @@ export const buildEndpointFingerprintFromRows = (
   payload: { peA: string; peB: string; ceA: string; ceB: string },
   rows: VrConfigRow[],
   inner: { peAInnerIf?: string; peBInnerIf?: string },
+  hub?: {
+    hubPeSlot?: 'peA' | 'peB' | null;
+    hubBindings?: Srv6HubSlotBinding | null;
+  },
 ): Srv6EndpointFingerprint => {
   const byUuid = new Map(rows.map((r) => [normalizeText(r.uuid), r]));
   const fp: Srv6EndpointFingerprint = {};
@@ -294,8 +372,12 @@ export const buildEndpointFingerprintFromRows = (
   const peBCfg = parseJsonObject(peB?.config_json);
   const ceACfg = parseJsonObject(ceA?.config_json);
   const ceBCfg = parseJsonObject(ceB?.config_json);
-  if (peACfg) fp.peA = computePeFingerprint(peACfg, inner.peAInnerIf);
-  if (peBCfg) fp.peB = computePeFingerprint(peBCfg, inner.peBInnerIf);
+  const hubMetaForSlot = (slot: 'peA' | 'peB') =>
+    hub?.hubPeSlot === slot && hub?.hubBindings
+      ? { wanIf: hub.hubBindings.wanIf, peerPublicNeighbor: hub.hubBindings.peerPublicNeighbor }
+      : undefined;
+  if (peACfg) fp.peA = computePeFingerprint(peACfg, inner.peAInnerIf, hubMetaForSlot('peA'));
+  if (peBCfg) fp.peB = computePeFingerprint(peBCfg, inner.peBInnerIf, hubMetaForSlot('peB'));
   if (ceACfg) fp.ceA = computeCeFingerprint(ceACfg);
   if (ceBCfg) fp.ceB = computeCeFingerprint(ceBCfg);
   return fp;
@@ -304,10 +386,22 @@ export const buildEndpointFingerprintFromRows = (
 export const computeLiveFingerprintForSlot = (
   slot: Srv6EndpointSlot,
   cfg: Record<string, unknown>,
-  tunnel: { peAInnerIf?: string | null; peBInnerIf?: string | null },
+  tunnel: {
+    peAInnerIf?: string | null;
+    peBInnerIf?: string | null;
+    hubPeSlot?: 'peA' | 'peB' | null;
+    hubBindings?: Srv6HubSlotBinding | null;
+  },
 ): Srv6PeFingerprint | Srv6CeFingerprint | undefined => {
-  if (slot === 'peA') return computePeFingerprint(cfg, tunnel.peAInnerIf || undefined);
-  if (slot === 'peB') return computePeFingerprint(cfg, tunnel.peBInnerIf || undefined);
+  const hubMeta =
+    tunnel.hubPeSlot === slot && tunnel.hubBindings
+      ? {
+          wanIf: tunnel.hubBindings.wanIf,
+          peerPublicNeighbor: tunnel.hubBindings.peerPublicNeighbor,
+        }
+      : undefined;
+  if (slot === 'peA') return computePeFingerprint(cfg, tunnel.peAInnerIf || undefined, hubMeta);
+  if (slot === 'peB') return computePeFingerprint(cfg, tunnel.peBInnerIf || undefined, hubMeta);
   if (slot === 'ceA' || slot === 'ceB') return computeCeFingerprint(cfg);
   return undefined;
 };
@@ -324,6 +418,12 @@ export const validateTunnelArchiveRequired = (tunnel: {
   rdRtMeta?: Srv6RdRtMeta | null;
   injectedDelta?: Srv6InjectedDelta | null;
   endpointFingerprint?: Srv6EndpointFingerprint | null;
+  tunnelTopology?: Srv6TunnelTopology | null;
+  hubPeSlot?: 'peA' | 'peB' | null;
+  hubBindings?: Srv6HubSlotBinding | null;
+  hubVrfMode?: Srv6HubVrfMode | null;
+  peA?: string;
+  peB?: string;
 }): { ok: true } | { ok: false; message: string } => {
   if (!normalizeText(tunnel.peAInnerIf) || !normalizeText(tunnel.peBInnerIf)) {
     return { ok: false, message: '缺少关系档案：须指定 PE-A / PE-B 内网接口' };
@@ -351,6 +451,33 @@ export const validateTunnelArchiveRequired = (tunnel: {
   if (!fp?.peA || !fp?.peB || !fp?.ceA || !fp?.ceB) {
     return { ok: false, message: '缺少关系档案：须包含四端配置指纹' };
   }
+
+  const topo = tunnel.tunnelTopology ?? 'S';
+  if (topo === 'H') {
+    if (!tunnel.hubPeSlot) {
+      return { ok: false, message: '缺少关系档案：Hub 隧道须指定 hubPeSlot' };
+    }
+    if (!tunnel.hubVrfMode) {
+      return { ok: false, message: '缺少关系档案：Hub 隧道须指定 hubVrfMode' };
+    }
+    if (!tunnel.hubBindings?.wanIf || !tunnel.hubBindings?.peerPublicNeighbor) {
+      return { ok: false, message: '缺少关系档案：Hub 隧道须包含 hubBindings（wanIf、peerPublicNeighbor）' };
+    }
+    const hubUuid = tunnel.hubPeSlot === 'peA' ? tunnel.peA : tunnel.peB;
+    const spokeUuid = tunnel.hubPeSlot === 'peA' ? tunnel.peB : tunnel.peA;
+    if (hubUuid && tunnel.hubBindings.hubPeUuid !== hubUuid) {
+      return { ok: false, message: 'Hub 绑定 hubPeUuid 与 hubPeSlot 不一致' };
+    }
+    if (spokeUuid && tunnel.hubBindings.spokePeUuid !== spokeUuid) {
+      return { ok: false, message: 'Hub 绑定 spokePeUuid 与槽位不一致' };
+    }
+    if (tunnel.hubBindings.hubPeSlot !== tunnel.hubPeSlot) {
+      return { ok: false, message: 'hubBindings.hubPeSlot 与 hubPeSlot 不一致' };
+    }
+  } else if (tunnel.hubBindings || tunnel.hubPeSlot || tunnel.hubVrfMode) {
+    return { ok: false, message: 'Spoke 点对点隧道不应包含 hubBindings / hubPeSlot / hubVrfMode' };
+  }
+
   return { ok: true };
 };
 
@@ -361,6 +488,10 @@ export const mergeArchiveIntoTunnel = (
     rdRtMeta?: Srv6RdRtMeta | null;
     injectedDelta?: Srv6InjectedDelta | null;
     endpointFingerprint?: Srv6EndpointFingerprint | null;
+    tunnelTopology?: Srv6TunnelTopology | null;
+    hubPeSlot?: 'peA' | 'peB' | null;
+    hubBindings?: Srv6HubSlotBinding | null;
+    hubVrfMode?: Srv6HubVrfMode | null;
   },
   archive: Srv6TunnelArchiveFields,
 ) => {
@@ -369,4 +500,8 @@ export const mergeArchiveIntoTunnel = (
   if (archive.rdRtMeta !== undefined) target.rdRtMeta = archive.rdRtMeta;
   if (archive.injectedDelta !== undefined) target.injectedDelta = archive.injectedDelta;
   if (archive.endpointFingerprint !== undefined) target.endpointFingerprint = archive.endpointFingerprint;
+  if (archive.tunnelTopology !== undefined) target.tunnelTopology = archive.tunnelTopology;
+  if (archive.hubPeSlot !== undefined) target.hubPeSlot = archive.hubPeSlot;
+  if (archive.hubBindings !== undefined) target.hubBindings = archive.hubBindings;
+  if (archive.hubVrfMode !== undefined) target.hubVrfMode = archive.hubVrfMode;
 };

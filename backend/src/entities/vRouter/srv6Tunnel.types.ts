@@ -56,6 +56,10 @@ export type Srv6PeFingerprint = {
   innerIp?: string;
   innerVrf?: string | number;
   innerBgpAsn?: number;
+  /** Hub PE：本隧道绑定的 WAN 口名 */
+  wanIf?: string;
+  /** Hub PE：PE–PE 公网 neighbor 判重键 */
+  peerPublicNeighbor?: string;
 };
 
 export type Srv6CeFingerprint = {
@@ -73,10 +77,27 @@ export type Srv6EndpointFingerprint = {
 
 export type Srv6EndpointSlot = 'peA' | 'peB' | 'ceA' | 'ceB';
 
+export type Srv6TunnelTopology = 'S' | 'H';
+
+export type Srv6HubVrfMode = 'REUSE_VRF' | 'DEDICATED_VRF';
+
+export type Srv6HubSlotBinding = {
+  hubPeUuid: string;
+  spokePeUuid: string;
+  hubPeSlot: 'peA' | 'peB';
+  wanIf: string;
+  lanIf?: string;
+  peerPublicNeighbor: string;
+};
+
 export type Srv6TunnelArchiveFields = {
   peAInnerIf?: string | null;
   peBInnerIf?: string | null;
   rdRtMeta?: Srv6RdRtMeta | null;
   injectedDelta?: Srv6InjectedDelta | null;
   endpointFingerprint?: Srv6EndpointFingerprint | null;
+  tunnelTopology?: Srv6TunnelTopology | null;
+  hubPeSlot?: 'peA' | 'peB' | null;
+  hubBindings?: Srv6HubSlotBinding | null;
+  hubVrfMode?: Srv6HubVrfMode | null;
 };

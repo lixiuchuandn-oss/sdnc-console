@@ -6,7 +6,12 @@ import PageContainer from '../../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
 import { apiRequest, apiPost, fetchSrv6HubStatus, type Srv6HubVrStatus } from '../../../../services/api';
 import { filterLinkLocalIpv6 } from '../routers/vrIpv6Utils';
-import { buildSrv6PeerRouteDestination } from './srv6Ipv6';
+import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
+import {
+  inferTunnelTopologyFromRoles,
+  resolveHubPeSlotFromRoles,
+  type Srv6HubVrfMode,
+} from './srv6Archive';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
 const safeJsonParse = (text: string): any => {
@@ -82,9 +87,9 @@ const SRv6CreatePage: React.FC = () => {
       const adjusted = {
         ...filtered,
         tunnelCount: filtered.tunnels.length,
-        isHub: filtered.tunnels.length > 1,
+        isHub: filtered.isHub || (filtered.portRegistry?.length ?? 0) > 0,
       };
-      setPeHubStatus((prev) => ({ ...prev, [target]: adjusted.tunnelCount > 0 ? adjusted : undefined }));
+      setPeHubStatus((prev) => ({ ...prev, [target]: adjusted.tunnelCount > 0 || adjusted.portRegistry?.length ? adjusted : undefined }));
     } catch {
       setPeHubStatus((prev) => ({ ...prev, [target]: undefined }));
     }
@@ -141,6 +146,10 @@ const SRv6CreatePage: React.FC = () => {
             ceB: item.ceB,
             peAInnerIf: item.peAInnerIf || undefined,
             peBInnerIf: item.peBInnerIf || undefined,
+            hubWanIf: item.hubBindings?.wanIf,
+            hubLanIf: item.hubBindings?.lanIf,
+            hubCustomerSide:
+              item.hubVrfMode === 'DEDICATED_VRF' ? 'dedicated' : item.hubVrfMode ? 'reuse' : undefined,
           });
           setFormValues({
             tunnelName: item.name,
@@ -406,6 +415,53 @@ const SRv6CreatePage: React.FC = () => {
     } catch (_) {
       return selfCfg;
     }
+  };
+
+  const injectNeighborsForPEPeerIp = (selfCfg: any, peerPublicIp: string, peerPublicAsn?: number): any => {
+    if (!peerPublicIp) return selfCfg;
+    return injectNeighborsForPEPeer(selfCfg, {
+      bgp: [{ asn: peerPublicAsn ?? 0 }],
+      interfaces_eth0: [{ ipv6_static: `${peerPublicIp}/64` }],
+    });
+  };
+
+  const extractInterfaceIpv6ByName = (cfg: any, ifName?: string): string | undefined => {
+    if (!cfg || !ifName) return undefined;
+    for (const k of Object.keys(cfg)) {
+      if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+      const arr = (cfg as any)[k];
+      if (!Array.isArray(arr)) continue;
+      for (const it of arr) {
+        if (String(it?.name || '') === ifName) {
+          return ipv6HostFromRaw(it?.ipv6_static || it?.ipv6);
+        }
+      }
+    }
+    return undefined;
+  };
+
+  const listWanInterfaceOptions = (cfg: any): { value: string; label: string }[] => {
+    if (!cfg || typeof cfg !== 'object') return [];
+    const items: { name: string; ipv6?: string }[] = [];
+    for (const k of Object.keys(cfg)) {
+      if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+      const arr = (cfg as any)[k];
+      if (!Array.isArray(arr)) continue;
+      for (const it of arr) {
+        const name = String(it?.name || '');
+        if (!name || name.toLowerCase().startsWith('lo')) continue;
+        const ip6 = ipv6HostFromRaw(it?.ipv6_static || it?.ipv6);
+        if (ip6) items.push({ name, ipv6: ip6 });
+      }
+    }
+    const seen = new Set<string>();
+    return items
+      .filter((x) => {
+        if (seen.has(x.name)) return false;
+        seen.add(x.name);
+        return true;
+      })
+      .map((x) => ({ value: x.name, label: `${x.name} · ${x.ipv6}` }));
   };
 
   // PE+CE 模式：在 PE 的第二个 ASN 结构体（内网自治域）中追加本端 CE 的公网IP与其“内”ASN
@@ -809,11 +865,13 @@ const SRv6CreatePage: React.FC = () => {
       const role = roleFromMap || (roleFromItem || undefined);
       return { uuid, label, role };
     });
-    const filtered = items.filter((x) => !!x.uuid && x.role === 'PE');
-    return filtered.map((x) => ({ value: x.uuid, label: x.label }));
+    const filtered = items.filter((x) => !!x.uuid && (x.role === 'SPOKE_PE' || x.role === 'HUB_PE'));
+    return filtered.map((x) => ({
+      value: x.uuid,
+      label: `${x.label}${x.role === 'HUB_PE' ? ' · Hub' : x.role === 'SPOKE_PE' ? ' · Spoke' : ''}`,
+    }));
   }, [vrs, rolesMap]);
 
-  // 简易视图：将 VR 列表映射为表格行，显示名称/角色/UUID/状态
   const _vrsView = useMemo(() => {
     return (vrs || []).map((r: any, idx: number) => {
       const uuid = r?.uuid;
@@ -838,6 +896,55 @@ const SRv6CreatePage: React.FC = () => {
     const filtered = items.filter((x) => !!x.uuid && x.role === 'CE');
     return filtered.map((x) => ({ value: x.uuid, label: x.label }));
   }, [vrs, rolesMap]);
+
+  const getPeRole = (uuid?: string) =>
+    String(uuid ? rolesMapRef.current[uuid] || rolesMap[uuid] || '' : '').toUpperCase();
+
+  const inferredTopology = useMemo(() => {
+    const peA = formValues?.peA ?? form.getFieldValue('peA');
+    const peB = formValues?.peB ?? form.getFieldValue('peB');
+    return inferTunnelTopologyFromRoles(getPeRole(peA), getPeRole(peB));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formValues?.peA, formValues?.peB, rolesMap]);
+
+  const inferredHubPeSlot = useMemo(
+    () => resolveHubPeSlotFromRoles(getPeRole(formValues?.peA), getPeRole(formValues?.peB)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [formValues?.peA, formValues?.peB, rolesMap],
+  );
+
+  const hubPeConfig = useMemo(() => {
+    if (!inferredHubPeSlot) return undefined;
+    return peConfigs[inferredHubPeSlot];
+  }, [inferredHubPeSlot, peConfigs]);
+
+  const hubPortRegistry = useMemo(() => {
+    if (!inferredHubPeSlot) return [];
+    const status = peHubStatus[inferredHubPeSlot];
+    return status?.portRegistry ?? [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inferredHubPeSlot, peHubStatus, formValues]);
+
+  const renderHubPortRegistry = () => {
+    if (!hubPortRegistry.length) return null;
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="Hub WAN 口占用"
+        description={
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {hubPortRegistry.map((e) => (
+              <li key={e.tunnelId}>
+                {e.tunnelName}：{e.wanIf} → 邻居 {e.peerPublicNeighbor}
+              </li>
+            ))}
+          </ul>
+        }
+      />
+    );
+  };
 
   const wizardMetaEmpty = (v: any) =>
     v == null || typeof v !== 'object' || Array.isArray(v) || Object.keys(v).length === 0;
@@ -936,9 +1043,32 @@ const SRv6CreatePage: React.FC = () => {
 
     const innerIf: string | undefined = form.getFieldValue(innerIfField);
     const vrf = selfCfg && innerIf ? extractInterfaceVrf(selfCfg, innerIf) : undefined;
+    const hubWanIf: string | undefined = form.getFieldValue('hubWanIf');
+    const topo = inferredTopology;
+    const hubSlot = inferredHubPeSlot ?? undefined;
 
     let c = selfCfg;
-    if (c && peerCfg) c = injectNeighborsForPEPeer(c, peerCfg);
+    const peerKeyForPublic = selfKey === 'peA' ? 'peB' : 'peA';
+    const peerCfgForPublic = peConfigs[peerKeyForPublic];
+    let peerPublicIp: string | undefined;
+    let peerAsn: number | undefined;
+    if (topo === 'H' && hubSlot) {
+      if (selfKey === hubSlot) {
+        peerPublicIp = extractPortIpv6(peerCfgForPublic, 0);
+        peerAsn = extractBgpAsnAt(peerCfgForPublic, 0);
+      } else {
+        const hubCfg = peConfigs[hubSlot];
+        peerPublicIp =
+          (hubWanIf && hubCfg ? extractInterfaceIpv6ByName(hubCfg, hubWanIf) : undefined) ??
+          extractPortIpv6(hubCfg, 0);
+        peerAsn = extractBgpAsnAt(hubCfg, 0);
+      }
+    } else if (peerCfgForPublic) {
+      peerPublicIp = extractPortIpv6(peerCfgForPublic, 0);
+      peerAsn = extractBgpAsnAt(peerCfgForPublic, 0);
+    }
+    if (c && peerPublicIp) c = injectNeighborsForPEPeerIp(c, peerPublicIp, peerAsn);
+    else if (c && peerCfg) c = injectNeighborsForPEPeer(c, peerCfg);
     if (c && ceCfg) c = injectNeighborsForPEToCE(c, ceCfg, vrf);
     if (c && rdRtMeta?.rtCommon && rdRtMeta?.rdMap?.[rdKey] && vrf !== undefined) {
       const idx = findBgpIndexByVrf(c, vrf);
@@ -947,7 +1077,7 @@ const SRv6CreatePage: React.FC = () => {
     // IPv6 路由：注入两条——①对端 SID/64 路由(不带 vrf，via=对端PE公网IPv6) ②VRF默认路由 ::/0(带 vrf，via=nexthop-vrf 0)
     const peerPrefix = peerCfg ? extractSrv6Prefix(peerCfg) : undefined;
     const srv6PeerDest = buildSrv6PeerRouteDestination(peerPrefix);
-    const via = peerCfg ? extractPortIpv6(peerCfg, 0) : undefined;
+    const via = peerCfg ? resolveSid64Via(selfCfg, peerCfg) : undefined;
     if (c && srv6PeerDest && via && vrf !== undefined) c = injectIpv6RouteTop(c, srv6PeerDest, via, vrf);
 
     return {
@@ -958,12 +1088,12 @@ const SRv6CreatePage: React.FC = () => {
 
   // 计算注入邻居后的预览配置（复用 buildInjectedPeConfig：SID/64 + VRF ::/0 双路由）
   // eslint-disable-next-line react-hooks/exhaustive-deps -- buildInjectedPeConfig 为同渲染周期内辅助函数，依赖 peConfigs/ceConfigs/rdRtMeta/formValues
-  const peAInjected = useMemo(() => buildInjectedPeConfig('peA'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
+  const peAInjected = useMemo(() => buildInjectedPeConfig('peA'), [peConfigs, ceConfigs, rdRtMeta, formValues, inferredTopology, inferredHubPeSlot]);
   const peAPreviewCfg = peAInjected.preview;
   const peAPreviewStorageCfg = peAInjected.storage;
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues]);
+  const peBInjected = useMemo(() => buildInjectedPeConfig('peB'), [peConfigs, ceConfigs, rdRtMeta, formValues, inferredTopology, inferredHubPeSlot]);
   const peBPreviewCfg = peBInjected.preview;
   const peBPreviewStorageCfg = peBInjected.storage;
 
@@ -1020,14 +1150,17 @@ const SRv6CreatePage: React.FC = () => {
   const openRoleWizard = (target: 'peA' | 'peB' | 'ceA' | 'ceB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
-      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);
+      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : target === 'peB' ? 'PE-B' : target === 'ceA' ? 'CE-A' : 'CE-B'} 的 VR 实例`);
       return;
     }
-    const role = target.startsWith('pe') ? 'PE' : 'CE';
-    const url = role === 'PE'
+    const url = target.startsWith('pe')
       ? `/admin/interconnect/vr/${uuid}/role-pe`
       : `/admin/interconnect/vr/${uuid}/role-ce`;
-    window.open(url, '_blank');
+    const peRoleQs =
+      target.startsWith('pe')
+        ? `?peRole=${encodeURIComponent(getPeRole(uuid) === 'HUB_PE' ? 'HUB_PE' : 'SPOKE_PE')}`
+        : '';
+    window.open(`${url}${peRoleQs}`, '_blank');
   };
 
   const handleSavePeConfig = async () => {
@@ -1163,6 +1296,28 @@ const SRv6CreatePage: React.FC = () => {
       return false;
     }
 
+    const rA = getPeRole(peA);
+    const rB = getPeRole(peB);
+    if (rA === 'HUB_PE' && rB === 'HUB_PE') {
+      message.error('Hub–Spoke 隧道不能两端均为 HUB_PE');
+      return false;
+    }
+    if (inferredTopology === 'H') {
+      const hubWanIf = values?.hubWanIf;
+      const hubCustomerSide = values?.hubCustomerSide;
+      if (!hubWanIf) {
+        message.error('Hub–Spoke 隧道须选择 Hub PE 的 WAN 口');
+        return false;
+      }
+      if (!hubCustomerSide) {
+        message.error('请选择客户侧网络配置方式');
+        return false;
+      }
+    } else if (rA === 'HUB_PE' || rB === 'HUB_PE') {
+      message.error('一端为 HUB_PE 时，另一端须为 SPOKE_PE');
+      return false;
+    }
+
     return true;
   };
 
@@ -1180,7 +1335,11 @@ const SRv6CreatePage: React.FC = () => {
     try {
       const { createSrv6Tunnel, updateSrv6Tunnel } = await import('../../../../services/api');
       const { buildTunnelArchive } = await import('./srv6Archive');
+      const hubVrfMode: Srv6HubVrfMode =
+        values?.hubCustomerSide === 'dedicated' ? 'DEDICATED_VRF' : 'REUSE_VRF';
       const archive = buildTunnelArchive({
+        peA: String(peA),
+        peB: String(peB),
         peAInnerIf: values?.peAInnerIf,
         peBInnerIf: values?.peBInnerIf,
         peConfigs,
@@ -1191,6 +1350,11 @@ const SRv6CreatePage: React.FC = () => {
         },
         cePreviewCfgs: { ceA: ceAPreviewCfg, ceB: ceBPreviewCfg },
         rdRtMeta,
+        tunnelTopology: inferredTopology || 'S',
+        hubPeSlot: inferredHubPeSlot ?? undefined,
+        hubVrfMode: inferredTopology === 'H' ? hubVrfMode : undefined,
+        hubWanIf: values?.hubWanIf,
+        hubLanIf: values?.hubLanIf,
       });
       const payload = {
         name: tunnelName,
@@ -1407,6 +1571,74 @@ const SRv6CreatePage: React.FC = () => {
               </div>
             </Col>
           </Row>
+          {inferredTopology === 'H' && inferredHubPeSlot ? (
+            <>
+              <div style={{ fontSize: 13, color: '#1677ff', margin: '16px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                Hub 互联（{inferredHubPeSlot === 'peA' ? 'PE-A · 中心 Hub' : 'PE-B · 中心 Hub'}）
+              </div>
+              {renderHubPortRegistry()}
+              <Form.Item
+                name="hubWanIf"
+                label="Hub WAN 口"
+                rules={[{ required: true, message: '请选择或填写 Hub WAN 口' }]}
+                extra="本 Spoke 与 Hub 的 PE–PE 公网会话走该口；若列表为空可在角色向导配置 WAN 口后刷新，或手工输入口名"
+              >
+                <Select
+                  options={listWanInterfaceOptions(hubPeConfig)}
+                  showSearch
+                  allowClear
+                  optionFilterProp="label"
+                  placeholder="选择 Hub WAN 口"
+                  dropdownRender={(menu) => (
+                    <>
+                      {menu}
+                      <Divider style={{ margin: '8px 0' }} />
+                      <div style={{ padding: '0 8px 8px' }}>
+                        <Input
+                          placeholder="手工输入口名（过渡）"
+                          onKeyDown={(e) => e.stopPropagation()}
+                          onBlur={(e) => {
+                            const v = e.target.value.trim();
+                            if (v) form.setFieldsValue({ hubWanIf: v });
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                />
+              </Form.Item>
+              <Form.Item name="hubLanIf" label="Hub LAN 口（可选）" extra="默认使用 Hub 侧内网口；与其它 Spoke 共用 CE 时可留空">
+                <Select
+                  options={listInterfaceOptions(hubPeConfig)}
+                  showSearch
+                  allowClear
+                  optionFilterProp="label"
+                  placeholder="可选，默认与 Hub 内网口一致"
+                />
+              </Form.Item>
+              <Form.Item
+                name="hubCustomerSide"
+                label="客户侧网络"
+                rules={[{ required: true, message: '请选择客户侧网络配置方式' }]}
+                initialValue="reuse"
+              >
+                <Radio.Group>
+                  <Space direction="vertical">
+                    <Radio value="reuse">与已有隧道共用客户侧网络</Radio>
+                    <Radio value="dedicated">为本 Spoke 配置独立客户侧网络</Radio>
+                  </Space>
+                </Radio.Group>
+              </Form.Item>
+              <Alert
+                type="info"
+                showIcon
+                message="拓扑：Hub–Spoke"
+                description={`Hub 槽位 ${inferredHubPeSlot === 'peA' ? 'PE-A' : 'PE-B'}；公网邻居判重键为对端 Spoke 公网 IPv6，同一 Hub 上不可重复。`}
+              />
+            </>
+          ) : inferredTopology === 'S' ? (
+            <Alert type="info" showIcon style={{ marginTop: 12 }} message="拓扑：Spoke 点对点" />
+          ) : null}
         </Form>
       );
     }
@@ -1420,6 +1652,22 @@ const SRv6CreatePage: React.FC = () => {
             <Descriptions.Item label="PE-B">{form.getFieldValue('peB') || '-'}</Descriptions.Item>
             <Descriptions.Item label="CE-A">{form.getFieldValue('ceA') || '-'}</Descriptions.Item>
             <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
+            <Descriptions.Item label="拓扑">
+              {inferredTopology === 'H' ? 'Hub–Spoke' : inferredTopology === 'S' ? 'Spoke 点对点' : '-'}
+            </Descriptions.Item>
+            {inferredTopology === 'H' ? (
+              <>
+                <Descriptions.Item label="Hub 槽位">
+                  {inferredHubPeSlot === 'peA' ? 'PE-A' : inferredHubPeSlot === 'peB' ? 'PE-B' : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Hub WAN">{form.getFieldValue('hubWanIf') || '-'}</Descriptions.Item>
+                <Descriptions.Item label="客户侧">
+                  {form.getFieldValue('hubCustomerSide') === 'dedicated'
+                    ? '独立客户侧网络'
+                    : '共用客户侧网络'}
+                </Descriptions.Item>
+              </>
+            ) : null}
           </Descriptions>
           <div style={{ marginTop: 16, fontSize: 12, color: '#64748b' }}>
             请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到设备（与 IPsec VPN 向导一致）。

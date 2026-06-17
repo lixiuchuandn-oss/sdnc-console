@@ -4,6 +4,7 @@ import {
   hasSrv6NameConflict,
   normalizeSrv6TunnelPayload,
   validateSrv6VrEndpointsForCreate,
+  validateSrv6TunnelTopology,
   type VrConfigRow,
 } from './srv6.validation';
 
@@ -63,8 +64,8 @@ describe('srv6.validation', () => {
       ceB: 'ce-b',
     };
     const rows: VrConfigRow[] = [
-      { uuid: 'pe-a', role: 'PE', config_json: peConfigJson() },
-      { uuid: 'pe-b', role: 'PE', config_json: peConfigJson() },
+      { uuid: 'pe-a', role: 'SPOKE_PE', config_json: peConfigJson() },
+      { uuid: 'pe-b', role: 'SPOKE_PE', config_json: peConfigJson() },
       { uuid: 'ce-a', role: 'CE', config_json: ceConfigJson() },
       { uuid: 'ce-b', role: 'CE', config_json: ceConfigJson() },
     ];
@@ -82,7 +83,7 @@ describe('srv6.validation', () => {
     });
     const r = validateSrv6VrEndpointsForCreate(
       { name: 't', peA: 'pe-a', peB: 'pe-b', ceA: 'ce-a', ceB: 'ce-b' },
-      [{ uuid: 'pe-a', role: 'PE', config_json: badPe }],
+      [{ uuid: 'pe-a', role: 'SPOKE_PE', config_json: badPe }],
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toContain('SRv6 SID 前缀不允许包含');
@@ -105,13 +106,45 @@ describe('srv6.validation', () => {
     const r = validateSrv6VrEndpointsForCreate(
       { name: 't', peA: 'pe-a', peB: 'pe-b', ceA: 'ce-a', ceB: 'ce-b' },
       [
-        { uuid: 'pe-a', role: 'PE', config_json: peConfigJson() },
-        { uuid: 'pe-b', role: 'PE', config_json: peConfigJson() },
+        { uuid: 'pe-a', role: 'SPOKE_PE', config_json: peConfigJson() },
+        { uuid: 'pe-b', role: 'SPOKE_PE', config_json: peConfigJson() },
         { uuid: 'ce-a', role: 'CE', config_json: ceOnlyV6 },
         { uuid: 'ce-b', role: 'CE', config_json: ceConfigJson() },
       ],
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.message).toContain('公网口 IPv4');
+  });
+
+  it('validateSrv6TunnelTopology requires one HUB_PE and one SPOKE_PE for H', () => {
+    const payload = { name: 't', peA: 'hub', peB: 'spoke', ceA: 'ce-a', ceB: 'ce-b' };
+    const rows: VrConfigRow[] = [
+      { uuid: 'hub', role: 'HUB_PE', config_json: peConfigJson() },
+      { uuid: 'spoke', role: 'SPOKE_PE', config_json: peConfigJson() },
+    ];
+    expect(validateSrv6TunnelTopology(payload, rows, 'H').ok).toBe(true);
+    expect(validateSrv6TunnelTopology(payload, rows, 'S').ok).toBe(false);
+  });
+
+  it('validateSrv6TunnelTopology rejects dual HUB_PE on H topology', () => {
+    const payload = { name: 't', peA: 'hub-a', peB: 'hub-b', ceA: 'ce-a', ceB: 'ce-b' };
+    const rows: VrConfigRow[] = [
+      { uuid: 'hub-a', role: 'HUB_PE', config_json: peConfigJson() },
+      { uuid: 'hub-b', role: 'HUB_PE', config_json: peConfigJson() },
+    ];
+    const r = validateSrv6TunnelTopology(payload, rows, 'H');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain('HUB_PE');
+  });
+
+  it('validateSrv6VrEndpointsForCreate includes topology check on create', () => {
+    const payload = { name: 't', peA: 'hub', peB: 'spoke', ceA: 'ce-a', ceB: 'ce-b', tunnelTopology: 'H' };
+    const rows: VrConfigRow[] = [
+      { uuid: 'hub', role: 'HUB_PE', config_json: peConfigJson() },
+      { uuid: 'spoke', role: 'SPOKE_PE', config_json: peConfigJson() },
+      { uuid: 'ce-a', role: 'CE', config_json: ceConfigJson() },
+      { uuid: 'ce-b', role: 'CE', config_json: ceConfigJson() },
+    ];
+    expect(validateSrv6VrEndpointsForCreate(payload, rows).ok).toBe(true);
   });
 });

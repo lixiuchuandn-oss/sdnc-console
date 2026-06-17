@@ -82,11 +82,15 @@ const applyArchiveToTunnelEntity = (
     fingerprint = buildEndpointFingerprintFromRows(endpoints, vrRows, {
       peAInnerIf: parsed.archive.peAInnerIf || undefined,
       peBInnerIf: parsed.archive.peBInnerIf || undefined,
+    }, {
+      hubPeSlot: parsed.archive.hubPeSlot,
+      hubBindings: parsed.archive.hubBindings,
     });
   }
   mergeArchiveIntoTunnel(entity, {
     ...parsed.archive,
     endpointFingerprint: fingerprint ?? parsed.archive.endpointFingerprint,
+    tunnelTopology: parsed.archive.tunnelTopology ?? 'S',
   });
   return { ok: true as const };
 };
@@ -298,11 +302,7 @@ srv6Routes.put('/:id', async (req, res, next) => {
     }
 
     const saved = await repo().save(current);
-    try {
-      await syncSrv6TunnelPlatformConfigs(saved);
-    } catch (syncErr: unknown) {
-      throw syncErr;
-    }
+    await syncSrv6TunnelPlatformConfigs(saved);
     await auditSrv6Tunnel(
       req,
       'SRv6 Update Tunnel',

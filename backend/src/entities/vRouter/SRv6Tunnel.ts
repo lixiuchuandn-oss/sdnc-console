@@ -9,6 +9,9 @@ import type {
   Srv6EndpointFingerprint,
   Srv6InjectedDelta,
   Srv6RdRtMeta,
+  Srv6HubSlotBinding,
+  Srv6HubVrfMode,
+  Srv6TunnelTopology,
 } from './srv6Tunnel.types';
 
 export enum SRv6Status {
@@ -63,6 +66,20 @@ export class SRv6Tunnel {
   /** 创建/更新时端点关键字段指纹，漂移检测依据 */
   @Column({ type: 'simple-json', nullable: true })
   endpointFingerprint?: Srv6EndpointFingerprint | null;
+
+  /** S=Spoke 点对点；H=Hub–Spoke */
+  @Column({ type: 'text', nullable: true })
+  tunnelTopology?: Srv6TunnelTopology | null;
+
+  /** Hub 槽位（peA | peB） */
+  @Column({ type: 'text', nullable: true })
+  hubPeSlot?: 'peA' | 'peB' | null;
+
+  @Column({ type: 'simple-json', nullable: true })
+  hubBindings?: Srv6HubSlotBinding | null;
+
+  @Column({ type: 'text', nullable: true })
+  hubVrfMode?: Srv6HubVrfMode | null;
 
   @CreateDateColumn()
   createdAt!: Date;

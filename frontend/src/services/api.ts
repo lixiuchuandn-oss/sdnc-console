@@ -1450,6 +1450,17 @@ export type Srv6TunnelWritePayload = {
   rdRtMeta?: { rtCommon: string; rdMap: Record<string, string> } | null;
   injectedDelta?: Record<string, unknown>;
   endpointFingerprint?: Record<string, unknown>;
+  tunnelTopology?: 'S' | 'H';
+  hubPeSlot?: 'peA' | 'peB';
+  hubBindings?: {
+    hubPeUuid: string;
+    spokePeUuid: string;
+    hubPeSlot: 'peA' | 'peB';
+    wanIf: string;
+    lanIf?: string;
+    peerPublicNeighbor: string;
+  };
+  hubVrfMode?: 'REUSE_VRF' | 'DEDICATED_VRF';
 };
 
 export const createSrv6Tunnel = async (payload: Srv6TunnelWritePayload) => {
@@ -1469,10 +1480,22 @@ export const fetchSrv6Tunnel = async (id: string) => {
   return await apiRequest(`/api/networks/srv6/${id}`);
 };
 
+export type Srv6HubPortRegistryEntry = {
+  tunnelId: string;
+  tunnelName: string;
+  hubPeSlot: 'peA' | 'peB';
+  wanIf: string;
+  lanIf?: string;
+  peerPublicNeighbor: string;
+  spokePeUuid: string;
+  hubVrfMode?: 'REUSE_VRF' | 'DEDICATED_VRF' | null;
+};
+
 export type Srv6HubVrStatus = {
   vrUuid: string;
   tunnelCount: number;
   isHub: boolean;
+  role?: string | null;
   tunnels: Array<{
     tunnelId: string;
     tunnelName: string;
@@ -1480,7 +1503,19 @@ export type Srv6HubVrStatus = {
     peAInnerIf?: string | null;
     peBInnerIf?: string | null;
     innerIfMeta?: { innerIf?: string; innerVrf?: string | number | null };
+    tunnelTopology?: 'S' | 'H';
+    hubPeSlot?: 'peA' | 'peB' | null;
+    hubVrfMode?: 'REUSE_VRF' | 'DEDICATED_VRF' | null;
+    hubBindings?: {
+      hubPeUuid: string;
+      spokePeUuid: string;
+      hubPeSlot: 'peA' | 'peB';
+      wanIf: string;
+      lanIf?: string;
+      peerPublicNeighbor: string;
+    } | null;
   }>;
+  portRegistry: Srv6HubPortRegistryEntry[];
 };
 
 /** P3：查询某 VR 的 Hub 多隧道引用状态 */

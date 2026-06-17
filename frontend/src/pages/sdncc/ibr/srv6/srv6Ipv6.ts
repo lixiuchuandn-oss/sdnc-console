@@ -1,6 +1,60 @@
 /**
  * SRv6 对端 SID 静态路由 destination：按 /64 网段截断（非完整 SID 主机位 + /64）。
+ * §14.14.1：SID/64 via 择优（本端 WAN IPv6 网关 → 对端 PE 公网 IPv6）。
  */
+
+const trimIpv6Host = (raw?: string): string | undefined => {
+  const s = String(raw ?? '').trim();
+  if (!s) return undefined;
+  const host = s.split('/')[0]?.trim();
+  if (!host || host.toLowerCase().startsWith('fe80:')) return undefined;
+  return host;
+};
+
+/** 从 PE 配置取公网口（第一个接口）IPv6 主机地址 */
+export function extractPePublicIpv6(cfg: unknown): string | undefined {
+  if (!cfg || typeof cfg !== 'object') return undefined;
+  const c = cfg as Record<string, unknown>;
+  for (const k of Object.keys(c)) {
+    if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+    const arr = c[k];
+    if (!Array.isArray(arr) || !arr[0]) continue;
+    const ip = trimIpv6Host(
+      (arr[0] as Record<string, unknown>)?.ipv6_static as string | undefined ||
+        ((arr[0] as Record<string, unknown>)?.ipv6 as string | undefined),
+    );
+    if (ip) return ip;
+  }
+  return trimIpv6Host(c.ipv6_static as string | undefined || (c.ipv6 as string | undefined));
+}
+
+/**
+ * 本端基线中公网 IPv6 静态路由的 via（IPv6 网关）。
+ * 仅认无 vrf 且 via 为有效 IPv6（非 nexthop-vrf）。
+ */
+export function extractWanIpv6Gateway(cfg: unknown): string | undefined {
+  if (!cfg || typeof cfg !== 'object') return undefined;
+  const routes = (cfg as Record<string, unknown>).ipv6_route;
+  if (!Array.isArray(routes)) return undefined;
+  for (const item of routes) {
+    if (!item || typeof item !== 'object') continue;
+    const row = item as Record<string, unknown>;
+    const vrf = row.vrf;
+    if (vrf !== undefined && vrf !== null && vrf !== '' && Number(vrf) !== 0) continue;
+    const viaRaw = String(row.via ?? '').trim();
+    if (!viaRaw || /^nexthop-vrf/i.test(viaRaw)) continue;
+    const host = trimIpv6Host(viaRaw);
+    if (host && host.includes(':')) return host;
+  }
+  return undefined;
+}
+
+/** SID/64 路由 via：本端已配 IPv6 网关则用网关，否则对端 PE 公网 IPv6（直连） */
+export function resolveSid64Via(selfCfg: unknown, peerCfg: unknown): string | undefined {
+  const gateway = extractWanIpv6Gateway(selfCfg);
+  if (gateway) return gateway;
+  return extractPePublicIpv6(peerCfg);
+}
 
 /** 将 IPv6 主机地址按 prefixLen 掩码为网段地址（不含 /prefix 后缀） */
 export function maskToIpv6Network(addr: string, prefixLen: number): string {

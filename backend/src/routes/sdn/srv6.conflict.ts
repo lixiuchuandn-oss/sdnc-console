@@ -1,4 +1,7 @@
-import type { Srv6EndpointInjectedDelta, Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import type {
+  Srv6EndpointInjectedDelta,
+  Srv6HubVrfMode,
+} from '../../entities/vRouter/srv6Tunnel.types';
 import type { Srv6AliveContribution } from './srv6.recompute';
 import { routeKey } from './srv6.merge';
 
@@ -38,11 +41,14 @@ const checkNeighborOverlap = (
   newItems: Srv6EndpointInjectedDelta['neighbors'],
   oldItems: Srv6EndpointInjectedDelta['neighbors'],
   ref: Srv6AliveContribution,
+  options?: { publicOnly?: boolean },
 ): Srv6ContributionConflict[] => {
   const conflicts: Srv6ContributionConflict[] = [];
   if (!newItems?.length || !oldItems?.length) return conflicts;
   for (const n of newItems) {
+    if (options?.publicOnly && n.bgpIndex !== 0) continue;
     for (const o of oldItems) {
+      if (options?.publicOnly && o.bgpIndex !== 0) continue;
       if (n.bgpIndex === o.bgpIndex && normIp(n.remote_ip) === normIp(o.remote_ip)) {
         conflicts.push({
           code: 'C-N1',
@@ -123,12 +129,14 @@ const checkRdRtOverlap = (
   newItems: Srv6EndpointInjectedDelta['rdRt'],
   oldItems: Srv6EndpointInjectedDelta['rdRt'],
   ref: Srv6AliveContribution,
+  options?: { skipSameBgpIndex?: boolean },
 ): Srv6ContributionConflict[] => {
   const conflicts: Srv6ContributionConflict[] = [];
   if (!newItems?.length || !oldItems?.length) return conflicts;
   for (const n of newItems) {
     for (const o of oldItems) {
       if (n.bgpIndex === o.bgpIndex) {
+        if (options?.skipSameBgpIndex) continue;
         conflicts.push({
           code: 'C-R1',
           message: `内网 VPN 的路由标识（RD/RT）已被隧道「${ref.tunnelName}」占用`,
@@ -208,22 +216,33 @@ export const detectContributionConflicts = (
   options?: {
     innerIfMeta?: Srv6InnerIfMeta;
     existingInnerIfMetas?: Array<Srv6InnerIfMeta & { tunnelId: string; tunnelName: string }>;
+    /** Hub PE 槽位：公网 neighbor 才作 C-N1；REUSE_VRF 允许复用内网段 */
+    hubPeSlot?: boolean;
+    hubVrfMode?: Srv6HubVrfMode;
   },
 ): Srv6ContributionConflict[] => {
   const conflicts: Srv6ContributionConflict[] = [];
+  const reuseVrf = options?.hubPeSlot && options?.hubVrfMode === 'REUSE_VRF';
+  const publicOnlyNeighbor = !!options?.hubPeSlot;
 
   for (const ref of existingRefs) {
     const old = ref.contribution;
-    conflicts.push(...checkNeighborOverlap(newContrib.neighbors, old.neighbors, ref));
+    conflicts.push(
+      ...checkNeighborOverlap(newContrib.neighbors, old.neighbors, ref, {
+        publicOnly: publicOnlyNeighbor,
+      }),
+    );
     conflicts.push(...checkActivateOverlap(newContrib.activateAddressFamily, old.activateAddressFamily, ref));
     conflicts.push(...checkNdcOverlap(newContrib.neighborDisableConnectedCheck, old.neighborDisableConnectedCheck, ref));
-    conflicts.push(...checkRdRtOverlap(newContrib.rdRt, old.rdRt, ref));
+    conflicts.push(
+      ...checkRdRtOverlap(newContrib.rdRt, old.rdRt, ref, { skipSameBgpIndex: reuseVrf }),
+    );
     conflicts.push(...checkIpv6Overlap(newContrib.ipv6Routes, old.ipv6Routes, ref));
   }
 
   conflicts.push(...checkBaselineNeighborCollision(newContrib.neighbors, baseline));
 
-  if (options?.innerIfMeta && options.existingInnerIfMetas?.length) {
+  if (options?.innerIfMeta && options.existingInnerIfMetas?.length && !reuseVrf) {
     for (const ex of options.existingInnerIfMetas) {
       conflicts.push(
         ...checkInnerIfVrfOverlap(options.innerIfMeta, ex, {
@@ -247,4 +266,15 @@ export const formatSrv6ContributionConflicts = (conflicts: Srv6ContributionConfl
   if (!conflicts.length) return '';
   const detail = conflicts.map((c) => c.message).join('；');
   return `无法保存隧道：与已有隧道的网络配置冲突。${detail}`;
+};
+
+/** H6：Hub 场景优先返回 Blocking（C-H1）冲突 */
+export const pickPrimaryConflicts = (
+  conflicts: Srv6ContributionConflict[],
+  hubTunnel?: boolean,
+): Srv6ContributionConflict[] => {
+  const blocking = conflicts.filter((c) => c.code === 'C-H1');
+  if (blocking.length) return blocking;
+  if (hubTunnel) return conflicts;
+  return conflicts;
 };

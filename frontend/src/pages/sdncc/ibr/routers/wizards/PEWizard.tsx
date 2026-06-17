@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Descriptions, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
 import { proxyApiRequest } from '../../../../../services/api';
@@ -98,6 +98,12 @@ function normalizeLanRowFromPeMeta(l: any) {
 
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const peRoleTarget =
+    new URLSearchParams(location.search).get('peRole') === 'HUB_PE' ||
+    (location.state as { peRole?: string } | null)?.peRole === 'HUB_PE'
+      ? 'HUB_PE'
+      : 'SPOKE_PE';
   const { uuid } = useParams();
   const [form] = Form.useForm();
   const [mirrorForm] = Form.useForm();
@@ -741,7 +747,7 @@ const PEWizard: React.FC = () => {
     }
     
     // Metadata for PE Wizard
-    cfg.role = 'PE';
+    cfg.role = peRoleTarget;
     cfg.pe = {
       publicConfig: {
         publicBgpIndex: 0,
@@ -827,7 +833,7 @@ const PEWizard: React.FC = () => {
       // 1. 先保存到平台（saveVRConfig + setVRRole），失败则中止设备下发
       try {
         await saveVRConfig(uuid, cfg);
-        await setVRRole(uuid, 'PE');
+        await setVRRole(uuid, peRoleTarget);
       } catch (e: any) {
         console.warn('PEWizard handleDispatch: saveVRConfig/setVRRole failed:', e);
         throw new Error(e?.message || '保存到平台失败，已中止设备下发');
@@ -924,7 +930,7 @@ const PEWizard: React.FC = () => {
             <Input placeholder="例如 200.1.1.2" />
           </Form.Item>
           <div style={{ height: 12 }} />
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>默认路由（WAN）</div>
+          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
           <Form.Item name="wanRouteDest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
             <Input placeholder="例如 0.0.0.0/0" />
           </Form.Item>
@@ -941,7 +947,7 @@ const PEWizard: React.FC = () => {
           >
             <Input placeholder="例如 2408:3333:1002::/64" />
           </Form.Item>
-          <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 next-hop</span>}>
+          <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}>
             <Input placeholder="例如 500::1" />
           </Form.Item>
         </div>
@@ -1018,7 +1024,7 @@ const PEWizard: React.FC = () => {
             <Descriptions.Item label="BGP ASN（WAN）">{previewNum(values.bgpAsn)}</Descriptions.Item>
             <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(values.bgpRouterId)}</Descriptions.Item>
             <Descriptions.Item label="IPv6 目的网段">{previewStr(values.ipv6Dest)}</Descriptions.Item>
-            <Descriptions.Item label="IPv6 next-hop">{previewStr(values.ipv6Via)}</Descriptions.Item>
+            <Descriptions.Item label="IPv6 网关">{previewStr(values.ipv6Via)}</Descriptions.Item>
           </Descriptions>
           {(values.lanConfigs || []).map((lan: any, idx: number) => (
             <div key={idx} style={{ marginTop: 12 }}>
@@ -1097,7 +1103,7 @@ const PEWizard: React.FC = () => {
                       <Input placeholder="未配置" />
                     </Form.Item>
                     <div style={{ height: 12 }} />
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>默认路由（WAN）</div>
+                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
                     <Form.Item name="wanRouteDest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
                       <Input placeholder="未配置" />
                     </Form.Item>
@@ -1107,7 +1113,7 @@ const PEWizard: React.FC = () => {
                     <Form.Item name="ipv6Dest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}> 
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 next-hop</span>}> 
+                    <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}> 
                       <Input placeholder="未配置" />
                     </Form.Item>
                   </>
@@ -1178,7 +1184,7 @@ const PEWizard: React.FC = () => {
                       <Descriptions.Item label="BGP ASN（WAN）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
                       <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
                       <Descriptions.Item label="IPv6 目的网段">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
-                      <Descriptions.Item label="IPv6 next-hop">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
+                      <Descriptions.Item label="IPv6 网关">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
                     </Descriptions>
                     {(mirrorForm.getFieldValue('lanConfigs') || []).map((lan: any, idx: number) => (
                       <div key={idx} style={{ marginTop: 12 }}>

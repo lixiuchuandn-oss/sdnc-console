@@ -1,6 +1,23 @@
-import type { Srv6EndpointInjectedDelta } from '../../entities/vRouter/srv6Tunnel.types';
+import type { Srv6EndpointInjectedDelta, Srv6HubVrfMode } from '../../entities/vRouter/srv6Tunnel.types';
 
 export type ConfigJson = Record<string, unknown>;
+
+/** 单条隧道贡献 + Hub merge 上下文（P5.3） */
+export type Srv6MergeContribution = {
+  delta: Srv6EndpointInjectedDelta;
+  /** Hub PE 槽位贡献 */
+  isHubPeSlot?: boolean;
+  hubVrfMode?: Srv6HubVrfMode;
+};
+
+export type Srv6MergeContributionInput = Srv6EndpointInjectedDelta | Srv6MergeContribution;
+
+const normalizeMergeInput = (input: Srv6MergeContributionInput): Srv6MergeContribution => {
+  if (input && typeof input === 'object' && 'delta' in input && (input as Srv6MergeContribution).delta) {
+    return input as Srv6MergeContribution;
+  }
+  return { delta: input as Srv6EndpointInjectedDelta };
+};
 
 const normIp = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
 const normVrf = (v: unknown) => String(v ?? '');
@@ -123,7 +140,11 @@ const mergeNdc = (
   }
 };
 
-const mergeRdRt = (cfg: ConfigJson, items: Srv6EndpointInjectedDelta['rdRt']): void => {
+const mergeRdRt = (
+  cfg: ConfigJson,
+  items: Srv6EndpointInjectedDelta['rdRt'],
+  options?: { hubReuseSkipExisting?: boolean },
+): void => {
   if (!items?.length) return;
   for (const item of items) {
     const bgp = ensureBgpBlock(cfg, item.bgpIndex);
@@ -131,6 +152,14 @@ const mergeRdRt = (cfg: ConfigJson, items: Srv6EndpointInjectedDelta['rdRt']): v
       ? [...(bgp.address_family as Record<string, unknown>[])]
       : [];
     const af = findOrCreateIpv4UnicastAf(afArr);
+    const hasExistingRd =
+      af.route_distinguisher !== undefined &&
+      af.route_distinguisher !== null &&
+      String(af.route_distinguisher) !== '';
+    if (options?.hubReuseSkipExisting && hasExistingRd) {
+      bgp.address_family = afArr;
+      continue;
+    }
     af.route_distinguisher = item.route_distinguisher;
     af.route_target = item.route_target;
     delete (af as Record<string, unknown>).modifier;
@@ -162,25 +191,28 @@ const mergeIpv6Routes = (
   if (routes.length) cfg.ipv6_route = routes;
 };
 
-const mergeOneContribution = (cfg: ConfigJson, contrib: Srv6EndpointInjectedDelta): void => {
+const mergeOneContribution = (cfg: ConfigJson, packed: Srv6MergeContribution): void => {
+  const contrib = packed.delta;
+  const hubReuseVrf = !!(packed.isHubPeSlot && packed.hubVrfMode === 'REUSE_VRF');
   mergeNeighbors(cfg, contrib.neighbors);
   mergeActivateAf(cfg, contrib.activateAddressFamily);
   mergeNdc(cfg, contrib.neighborDisableConnectedCheck);
-  mergeRdRt(cfg, contrib.rdRt);
+  mergeRdRt(cfg, contrib.rdRt, { hubReuseSkipExisting: hubReuseVrf });
   mergeIpv6Routes(cfg, contrib.ipv6Routes);
 };
 
 /**
- * Layer-2 生效配置：基线 + 按创建顺序叠加各隧道贡献（P1 merge 引擎）。
+ * Layer-2 生效配置：基线 + 按创建顺序叠加各隧道贡献（P1 merge 引擎；P5.3 Hub 分支）。
  */
 export const mergeBaselineWithContributions = (
   baseline: ConfigJson,
-  contributions: Srv6EndpointInjectedDelta[],
+  contributions: Srv6MergeContributionInput[],
 ): ConfigJson => {
   const result = deepClone(baseline);
-  for (const contrib of contributions) {
-    if (!contrib || typeof contrib !== 'object') continue;
-    mergeOneContribution(result, contrib);
+  for (const raw of contributions) {
+    const packed = normalizeMergeInput(raw);
+    if (!packed.delta || typeof packed.delta !== 'object') continue;
+    mergeOneContribution(result, packed);
   }
   return result;
 };

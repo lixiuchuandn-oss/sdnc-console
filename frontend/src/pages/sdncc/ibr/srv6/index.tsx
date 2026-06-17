@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge, Table, Alert } from 'antd';
+import { Button, Checkbox, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge, Table, Alert, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -19,6 +19,14 @@ interface Srv6TunnelRow {
   ceB: string;
   status: string;
   createdAt: string;
+  tunnelTopology?: 'S' | 'H' | null;
+  hubPeSlot?: 'peA' | 'peB' | null;
+  hubBindings?: {
+    wanIf?: string;
+    lanIf?: string;
+    peerPublicNeighbor?: string;
+  } | null;
+  rdRtMeta?: { rtCommon?: string } | null;
 }
 
 // 健康巡检步骤类型定义，兼容 antd Steps 的状态枚举
@@ -147,6 +155,10 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
                 ceB: it.ceB,
                 status: it.status,
                 createdAt: it.createdAt,
+                tunnelTopology: it.tunnelTopology,
+                hubPeSlot: it.hubPeSlot,
+                hubBindings: it.hubBindings,
+                rdRtMeta: it.rdRtMeta,
               }));
               setTunnels(rows);
             } catch (e: any) {
@@ -173,7 +185,26 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
   }, [tunnels]);
 
   const tunnelUsesHubVr = (row: Srv6TunnelRow) =>
+    row.tunnelTopology === 'H' ||
     [row.peA, row.peB, row.ceA, row.ceB].some((id) => (vrTunnelRefCount.get(id) || 0) > 1);
+
+  const hubSlotLabel = (row: Srv6TunnelRow) => {
+    if (row.tunnelTopology !== 'H' || !row.hubPeSlot) return '-';
+    const slot = row.hubPeSlot === 'peA' ? 'PE-A' : 'PE-B';
+    const vrId = row.hubPeSlot === 'peA' ? row.peA : row.peB;
+    return `中心 ${slot}（${vrId}）`;
+  };
+
+  const hubTooltip = (row: Srv6TunnelRow) => {
+    const b = row.hubBindings;
+    if (!b) return undefined;
+    const parts = [
+      b.wanIf ? `WAN: ${b.wanIf}` : '',
+      b.peerPublicNeighbor ? `→ Spoke ${b.peerPublicNeighbor}` : '',
+      row.rdRtMeta?.rtCommon ? `RT: ${row.rdRtMeta.rtCommon}` : '',
+    ].filter(Boolean);
+    return parts.length ? parts.join('；') : undefined;
+  };
 
   // 初始列
   const fullColumns: ColumnsType<Srv6TunnelRow> = [
@@ -181,12 +212,38 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
       title: '名称',
       dataIndex: 'name',
       key: 'name',
+      fixed: 'left',
       render: (name: string, row) => (
         <Space size={6}>
           <span>{name}</span>
           {tunnelUsesHubVr(row) ? <Tag color="purple">Hub</Tag> : null}
         </Space>
       ),
+    },
+    {
+      title: '类型',
+      key: 'tunnelTopology',
+      render: (_: unknown, row) =>
+        row.tunnelTopology === 'H' ? (
+          <Tag color="geekblue">Hub–Spoke</Tag>
+        ) : (
+          <Tag>Spoke 点对点</Tag>
+        ),
+    },
+    {
+      title: 'Hub',
+      key: 'hub',
+      render: (_: unknown, row) => {
+        const tip = hubTooltip(row);
+        const label = hubSlotLabel(row);
+        return tip ? (
+          <Tooltip title={tip}>
+            <span>{label}</span>
+          </Tooltip>
+        ) : (
+          label
+        );
+      },
     },
     { title: 'PE-A', dataIndex: 'peA', key: 'peA' },
     { title: 'PE-B', dataIndex: 'peB', key: 'peB' },
@@ -249,6 +306,10 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
         ceB: it.ceB,
         status: it.status,
         createdAt: it.createdAt,
+        tunnelTopology: it.tunnelTopology,
+        hubPeSlot: it.hubPeSlot,
+        hubBindings: it.hubBindings,
+        rdRtMeta: it.rdRtMeta,
       }));
       setTunnels(rows);
     } catch (e: any) {

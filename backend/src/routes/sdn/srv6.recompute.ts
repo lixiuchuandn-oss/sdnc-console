@@ -4,9 +4,11 @@ import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type {
   Srv6EndpointInjectedDelta,
   Srv6EndpointSlot,
+  Srv6HubVrfMode,
+  Srv6TunnelTopology,
 } from '../../entities/vRouter/srv6Tunnel.types';
 import { parseSrv6Baseline } from './srv6.baseline';
-import { mergeBaselineWithContributions } from './srv6.merge';
+import { mergeBaselineWithContributions, type Srv6MergeContribution } from './srv6.merge';
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
 const tunnelRepo = () => AppDataSource.getRepository(SRv6Tunnel);
@@ -17,7 +19,16 @@ export type Srv6AliveContribution = {
   slot: Srv6EndpointSlot;
   contribution: Srv6EndpointInjectedDelta;
   createdAt: Date;
+  tunnelTopology?: Srv6TunnelTopology | null;
+  hubPeSlot?: 'peA' | 'peB' | null;
+  hubVrfMode?: Srv6HubVrfMode | null;
 };
+
+const toMergeContribution = (c: Srv6AliveContribution): Srv6MergeContribution => ({
+  delta: c.contribution,
+  isHubPeSlot: c.tunnelTopology === 'H' && c.hubPeSlot === c.slot,
+  hubVrfMode: c.tunnelTopology === 'H' && c.hubPeSlot === c.slot ? c.hubVrfMode ?? undefined : undefined,
+});
 
 const slotFromTunnel = (
   tunnel: SRv6Tunnel,
@@ -60,6 +71,9 @@ export const listAliveContributionsForVr = async (
       slot: mapped.slot,
       contribution: mapped.contribution,
       createdAt: tunnel.createdAt,
+      tunnelTopology: tunnel.tunnelTopology ?? null,
+      hubPeSlot: tunnel.hubPeSlot ?? null,
+      hubVrfMode: tunnel.hubVrfMode ?? null,
     });
   }
   return out;
@@ -89,6 +103,6 @@ export const recomputeVrEffectiveConfig = async (
   const contribs = await listAliveContributionsForVr(vrUuid, options);
   return mergeBaselineWithContributions(
     baseline,
-    contribs.map((c) => c.contribution),
+    contribs.map((c) => toMergeContribution(c)),
   );
 };

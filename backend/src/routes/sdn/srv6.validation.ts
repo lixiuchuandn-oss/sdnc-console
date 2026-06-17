@@ -1,3 +1,10 @@
+import {
+  isLegacyPeRole,
+  isSrv6PeRole,
+  normalizeVrRole,
+  parseTunnelTopology,
+} from './srv6.roles';
+
 export type Srv6TunnelLike = {
   id?: string;
   name?: string;
@@ -77,7 +84,21 @@ export type VrConfigRow = {
 type EndpointSlot = {
   label: string;
   uuid: string;
-  expectedRole: 'PE' | 'CE';
+  kind: 'pe' | 'ce';
+};
+
+const peRoleIssue = (label: string, roleRaw: unknown, topology: ReturnType<typeof parseTunnelTopology>): string | null => {
+  const role = normalizeVrRole(roleRaw);
+  if (isLegacyPeRole(role)) {
+    return `${label}：角色 PE 已废弃，请在 VR 配置中将角色改为 SPOKE_PE 或 HUB_PE`;
+  }
+  if (!isSrv6PeRole(role)) {
+    return `${label}：角色应为 SPOKE_PE 或 HUB_PE，当前为 ${roleRaw ?? '未设置'}`;
+  }
+  if (topology === 'S' && role !== 'SPOKE_PE') {
+    return `${label}：Spoke 点对点隧道要求角色为 SPOKE_PE，当前为 ${role}`;
+  }
+  return null;
 };
 
 const trimPrefix = (raw: unknown): string | undefined => {
@@ -297,8 +318,6 @@ const parseConfigJson = (raw: string | null | undefined): Record<string, unknown
   }
 };
 
-const normalizeRole = (role: unknown) => normalizeText(role).toUpperCase();
-
 const collectPeIssues = (cfg: Record<string, unknown>): string[] => {
   const issues: string[] = [];
   if (!extractSrv6LocatorFromConfig(cfg)) {
@@ -337,16 +356,44 @@ const collectCeIssues = (cfg: Record<string, unknown>): string[] => {
  * 仅在 POST 创建隧道时校验四端 VR 平台库配置是否满足 SRv6 向导注入前提。
  * PUT 编辑不做此项校验（由调用方保证）。
  */
+/** Hub–Spoke / Spoke 点对点拓扑与 PE 角色配对校验 */
+export const validateSrv6TunnelTopology = (
+  payload: Srv6TunnelPayload,
+  rows: VrConfigRow[],
+  explicitTopology?: unknown,
+): { ok: true } | { ok: false; message: string } => {
+  const topology = parseTunnelTopology(explicitTopology);
+  const byUuid = new Map(rows.map((r) => [normalizeText(r.uuid), r]));
+  const peARole = normalizeVrRole(byUuid.get(payload.peA)?.role);
+  const peBRole = normalizeVrRole(byUuid.get(payload.peB)?.role);
+  const hubCount = [peARole, peBRole].filter((r) => r === 'HUB_PE').length;
+
+  if (topology === 'H') {
+    if (hubCount !== 1) {
+      return {
+        ok: false,
+        message: 'Hub–Spoke 隧道须恰好一端为 HUB_PE、另一端为 SPOKE_PE',
+      };
+    }
+  } else if (hubCount > 0) {
+    return { ok: false, message: 'Spoke 点对点隧道不能使用 HUB_PE 设备' };
+  }
+  return { ok: true };
+};
+
 export const validateSrv6VrEndpointsForCreate = (
   payload: Srv6TunnelPayload,
   rows: VrConfigRow[],
 ): { ok: true } | { ok: false; message: string } => {
   const byUuid = new Map(rows.map((r) => [normalizeText(r.uuid), r]));
+  const topology = parseTunnelTopology(
+    payload && typeof payload === 'object' ? (payload as Record<string, unknown>).tunnelTopology : undefined,
+  );
   const slots: EndpointSlot[] = [
-    { label: 'PE-A', uuid: payload.peA, expectedRole: 'PE' },
-    { label: 'PE-B', uuid: payload.peB, expectedRole: 'PE' },
-    { label: 'CE-A', uuid: payload.ceA, expectedRole: 'CE' },
-    { label: 'CE-B', uuid: payload.ceB, expectedRole: 'CE' },
+    { label: 'PE-A', uuid: payload.peA, kind: 'pe' },
+    { label: 'PE-B', uuid: payload.peB, kind: 'pe' },
+    { label: 'CE-A', uuid: payload.ceA, kind: 'ce' },
+    { label: 'CE-B', uuid: payload.ceB, kind: 'ce' },
   ];
 
   const messages: string[] = [];
@@ -357,21 +404,30 @@ export const validateSrv6VrEndpointsForCreate = (
       messages.push(`${slot.label}（${slot.uuid}）：平台库中未找到 VR 配置`);
       continue;
     }
-    const role = normalizeRole(row.role);
-    if (role && role !== slot.expectedRole) {
-      messages.push(`${slot.label}：角色应为 ${slot.expectedRole}，当前为 ${row.role}`);
+    const role = normalizeVrRole(row.role);
+    if (slot.kind === 'pe') {
+      const roleIssue = peRoleIssue(slot.label, row.role, topology);
+      if (roleIssue) messages.push(roleIssue);
+    } else if (role && role !== 'CE') {
+      messages.push(`${slot.label}：角色应为 CE，当前为 ${row.role}`);
     }
     const cfg = parseConfigJson(row.config_json);
     if (!cfg) {
       messages.push(`${slot.label}：平台库中的设备配置为空或格式异常`);
       continue;
     }
-    const issues =
-      slot.expectedRole === 'PE' ? collectPeIssues(cfg) : collectCeIssues(cfg);
+    const issues = slot.kind === 'pe' ? collectPeIssues(cfg) : collectCeIssues(cfg);
     for (const issue of issues) {
       messages.push(`${slot.label}：${issue}`);
     }
   }
+
+  const topoCheck = validateSrv6TunnelTopology(
+    payload,
+    rows,
+    payload && typeof payload === 'object' ? (payload as Record<string, unknown>).tunnelTopology : undefined,
+  );
+  if (!topoCheck.ok) messages.push(topoCheck.message);
 
   if (messages.length === 0) return { ok: true };
   return { ok: false, message: messages.join('；') };

@@ -204,4 +204,68 @@ describe('srv6.scenarios (P1–P4 matrix)', () => {
       expect((out.bgp as Record<string, unknown>[])[0].neighbor).toHaveLength(1);
     });
   });
+
+  describe('P5 Hub merge (PE3 · H4–H7)', () => {
+    const pe3Baseline = {
+      bgp: [
+        { vrf: 0, asn: 430, address_family: [] },
+        { vrf: 7777, asn: 106, address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }] },
+      ],
+    };
+
+    const tPe22: Srv6EndpointInjectedDelta = {
+      neighbors: [
+        { bgpIndex: 0, remote_ip: '203::22', remote_as: 430 },
+        { bgpIndex: 1, remote_ip: '102.1.1.22', remote_as: 122 },
+      ],
+      activateAddressFamily: [{ bgpIndex: 0, peerIp: '203::22' }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::22' }],
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '200:12851', route_target: '200:40988' }],
+    };
+
+    const tPe2: Srv6EndpointInjectedDelta = {
+      neighbors: [
+        { bgpIndex: 0, remote_ip: '203::44', remote_as: 440 },
+      ],
+      activateAddressFamily: [{ bgpIndex: 0, peerIp: '203::44' }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::44' }],
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '200:bad', route_target: '200:40944' }],
+    };
+
+    const hubPack = (delta: Srv6EndpointInjectedDelta) => ({
+      delta,
+      isHubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF' as const,
+    });
+
+    it('H1/H4/H5: dual Spoke on Hub REUSE share one RD/RT', () => {
+      const effective = mergeBaselineWithContributions(pe3Baseline, [
+        hubPack(tPe22),
+        hubPack(tPe2),
+      ]);
+      const pub = (effective.bgp as Record<string, unknown>[])[0];
+      expect((pub.neighbor as unknown[]).map((n: any) => n.remote_ip).sort()).toEqual([
+        '203::22',
+        '203::44',
+      ]);
+      const inner = (effective.bgp as Record<string, unknown>[])[1];
+      const af = (inner.address_family as Record<string, unknown>[])[0];
+      expect(af.route_distinguisher).toBe('200:12851');
+      expect(af.route_target).toBe('200:40988');
+    });
+
+    it('H7: remove one Spoke keeps shared RD/RT until last deleted', () => {
+      const onlyPe2 = mergeBaselineWithContributions(pe3Baseline, [hubPack(tPe2)]);
+      const inner2 = (onlyPe2.bgp as Record<string, unknown>[])[1];
+      const af2 = (inner2.address_family as Record<string, unknown>[])[0];
+      expect(af2.route_target).toBe('200:40944');
+
+      const onlyPe22 = mergeBaselineWithContributions(pe3Baseline, [hubPack(tPe22)]);
+      const af22 = ((onlyPe22.bgp as Record<string, unknown>[])[1].address_family as Record<
+        string,
+        unknown
+      >[])[0];
+      expect(af22.route_target).toBe('200:40988');
+    });
+  });
 });

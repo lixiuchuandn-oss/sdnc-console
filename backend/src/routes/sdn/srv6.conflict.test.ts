@@ -1,6 +1,7 @@
 import {
   checkInnerIfVrfOverlap,
   detectContributionConflicts,
+  pickPrimaryConflicts,
 } from './srv6.conflict';
 import type { Srv6EndpointInjectedDelta } from '../../entities/vRouter/srv6Tunnel.types';
 import type { Srv6AliveContribution } from './srv6.recompute';
@@ -100,5 +101,68 @@ describe('srv6.conflict', () => {
     const pub = (merged.bgp as Record<string, unknown>[])[0];
     expect(pub.neighbor).toHaveLength(2);
     expect(merged.ipv6_route).toHaveLength(2);
+  });
+
+  it('Hub REUSE_VRF: private bgpIndex neighbor overlap is allowed', () => {
+    const existing = ref('T1', {
+      neighbors: [{ bgpIndex: 1, remote_ip: '10.1.1.1', remote_as: 101 }],
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '429:9999', route_target: '429:9999' }],
+    });
+    const newContrib: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 1, remote_ip: '10.1.1.1', remote_as: 102 }],
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '429:9999', route_target: '429:9999' }],
+    };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      hubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF',
+    });
+    expect(conflicts.some((c) => c.code === 'C-N1')).toBe(false);
+    expect(conflicts.some((c) => c.code === 'C-R1')).toBe(false);
+  });
+
+  it('Hub PE slot: public bgpIndex 0 neighbor overlap still triggers C-N1', () => {
+    const existing = ref('T1', {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::33', remote_as: 430 }],
+    });
+    const newContrib: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::33', remote_as: 431 }],
+    };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      hubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF',
+    });
+    expect(conflicts.some((c) => c.code === 'C-N1')).toBe(true);
+  });
+
+  it('Hub REUSE_VRF: skips C-I1 innerIf/vrf overlap', () => {
+    const conflicts = detectContributionConflicts(
+      { neighbors: [{ bgpIndex: 0, remote_ip: '203::55', remote_as: 430 }] },
+      [],
+      baseline,
+      {
+        hubPeSlot: true,
+        hubVrfMode: 'REUSE_VRF',
+        innerIfMeta: { innerIf: 'GigabitEthernet 0/0/1', innerVrf: 9999 },
+        existingInnerIfMetas: [
+          {
+            tunnelId: 't1',
+            tunnelName: 'T1',
+            innerIf: 'GigabitEthernet 0/0/1',
+            innerVrf: 9999,
+          },
+        ],
+      },
+    );
+    expect(conflicts.some((c) => c.code === 'C-I1')).toBe(false);
+  });
+
+  it('pickPrimaryConflicts prioritizes C-H1 blocking', () => {
+    const conflicts = [
+      { code: 'C-N1' as const, message: 'neighbor dup' },
+      { code: 'C-H1' as const, message: 'blocking dup', tunnelId: 't1', tunnelName: 'T1' },
+    ];
+    const primary = pickPrimaryConflicts(conflicts, true);
+    expect(primary).toHaveLength(1);
+    expect(primary[0].code).toBe('C-H1');
   });
 });

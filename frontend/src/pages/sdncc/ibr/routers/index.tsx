@@ -279,8 +279,10 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
       setRoleVrUuid(vrUuid);
       
       // Default selection logic
-      if (row.role && ['PE','CE','SASE','标准'].includes(row.role)) {
+      if (row.role && ['SPOKE_PE','HUB_PE','CE','SASE','标准'].includes(row.role)) {
          setSelectedRoleType(row.role);
+      } else if (row.role === 'PE') {
+         setSelectedRoleType('SPOKE_PE');
       } else {
          setSelectedRoleType('标准');
       }
@@ -912,7 +914,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
   const peOptions = useMemo(() => (
     (vrs || []).filter((r: any) => {
       const id = (r.uuid || r.id || r.vm_id) as string;
-      return rolesMap[id] === 'PE';
+      return rolesMap[id] === 'SPOKE_PE' || rolesMap[id] === 'HUB_PE';
     }).map((r: any) => {
       const id = (r.uuid || r.id || r.vm_id) as string;
       return { value: id, label: r.name || id };
@@ -1323,12 +1325,17 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
            if (!roleVrUuid) return;
            let path = '';
            if (selectedRoleType === '标准') path = 'role-standard';
-           else if (selectedRoleType === 'PE') path = 'role-pe';
+           else if (selectedRoleType === 'SPOKE_PE' || selectedRoleType === 'HUB_PE') path = 'role-pe';
            else if (selectedRoleType === 'CE') path = 'role-ce';
            else if (selectedRoleType === 'SASE') path = 'role-sase';
            
            if (path) {
-              navigate(`/admin/interconnect/vr/${roleVrUuid}/${path}`);
+              navigate(`/admin/interconnect/vr/${roleVrUuid}/${path}`, {
+                state:
+                  selectedRoleType === 'SPOKE_PE' || selectedRoleType === 'HUB_PE'
+                    ? { peRole: selectedRoleType }
+                    : undefined,
+              });
               setRoleModalOpen(false);
            } else {
               message.info('该角色类型的向导暂未开放');
@@ -1349,10 +1356,16 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
                 <span style={{ color: '#999', fontSize: 12 }}>基础虚拟路由功能，支持静态路由与接口配置</span>
               </Space>
             </Radio>
-            <Radio value="PE">
+            <Radio value="SPOKE_PE">
               <Space direction="vertical" size={0}>
-                <span>PE 模式 (Provider Edge)</span>
-                <span style={{ color: '#999', fontSize: 12 }}>作为骨干网边缘设备，支持 MP-BGP 与公网互联</span>
+                <span>Spoke PE（边缘）</span>
+                <span style={{ color: '#999', fontSize: 12 }}>Spoke 点对点或 Hub 组网的 Spoke 侧；支持 MP-BGP 与 SRv6</span>
+              </Space>
+            </Radio>
+            <Radio value="HUB_PE">
+              <Space direction="vertical" size={0}>
+                <span>Hub PE（中心）</span>
+                <span style={{ color: '#999', fontSize: 12 }}>Hub–Spoke 组网中心节点；可承载多条 Spoke 隧道</span>
               </Space>
             </Radio>
             <Radio value="CE">

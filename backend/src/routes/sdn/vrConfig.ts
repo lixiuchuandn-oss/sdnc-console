@@ -358,9 +358,16 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
       return res.status(400).json({ code: 400, msg: '缺少必要参数: uuid' });
     }
     const normalized = String(role || '').toUpperCase();
-    // 允许 PE, CE, SASE, 标准
-    if (!['PE', 'CE', 'SASE', '标准'].includes(normalized)) {
-      return res.status(400).json({ code: 400, msg: '角色仅支持 PE, CE, SASE 或 标准' });
+    if (normalized === 'PE') {
+      return res.status(409).json({
+        code: 409,
+        msg: '角色 PE 已废弃，请使用 SPOKE_PE（Spoke 边缘）或 HUB_PE（Hub 中心）',
+        message: '角色 PE 已废弃，请使用 SPOKE_PE（Spoke 边缘）或 HUB_PE（Hub 中心）',
+      });
+    }
+    // 允许 SPOKE_PE, HUB_PE, CE, SASE, 标准
+    if (!['SPOKE_PE', 'HUB_PE', 'CE', 'SASE', '标准'].includes(normalized)) {
+      return res.status(400).json({ code: 400, msg: '角色仅支持 SPOKE_PE, HUB_PE, CE, SASE 或 标准' });
     }
 
     const repo = AppDataSource.getRepository(VRConfig);

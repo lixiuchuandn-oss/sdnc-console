@@ -1,7 +1,7 @@
 # SRv6 隧道配置管理 · baseline + 贡献 + recompute 实现方案
 
-> **状态**：已落地（P1–P4）；**真·Hub PE 组网**见 §14（遗留，未实现）  
-> **当前组网范围**：**CE-A ↔ PE-A ↔ PE-B ↔ CE-B** 四端单会话（每角色默认 1 WAN + 1 LAN），**不支持**同一 Hub PE/CE 承载多条 Spoke 隧道。  
+> **状态**：P1–P4 已落地；**P5 代码 WS-0～WS-4 本地合入**（2026-06-17）：Hub 档案/UI/merge/单测 + 发版文档；**测试机 10.21.49.59 手工 H1–H7 待运维**；Post-P5 多 RT 见 §14.4.7 / §16。  
+> **当前生产范围**：**CE-A ↔ PE-A ↔ PE-B ↔ CE-B** 四端单会话（Spoke 点对点）；Hub 多 Spoke 待 P5 交付。  
 > **关联发版说明**：[`docs/srv6-release-notes.md`](./srv6-release-notes.md)  
 > **冒烟用例**：[`frontend/src/pages/sdncc/interconnect/srv6/testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)  
 > **对外 API 索引**：[`AGENTS.md`](../AGENTS.md) · API 规范 · SDN 网络
@@ -216,7 +216,7 @@ sequenceDiagram
 | 冲突 | 同 VR 上 `injectedDelta` **字段级**互斥（含 C-I1 同内网口+VRF、C-R1 同 bgpIndex 等） | 以 **PE–PE 公网 neighbor** 为主键、**CE/VRF 复用**、Hub **单 RD + 多 RT** |
 | 单测 Hub | `scenarios.test` 中 t2Ok 要求 **不同 bgpIndex/VRF 段** | 同 VRF7777 + 同 CE3 + 不同 Spoke 邻居 |
 
-**产品决策（2026-06）**：现网验收与发版以 **标准四端单隧道** 为准；P3 的 Hub API/提示/冲突为 **有限预研能力**，**不得**将「PE3 再接 PE2」类真 Hub 场景作为当前 SLA。完整 Hub 方案见 **§14**，下迭代（P5）启动开发时以 §14 为唯一入口。
+**产品决策（2026-06）**：现网验收以 **标准四端 Spoke 点对点** 为准；真 Hub 按 **§14 P5 定稿** 实施，审核见 **§15**。
 
 ---
 
@@ -328,17 +328,91 @@ npx tsc --noEmit
 - **历史隧道**：不自动迁移档案/基线，需人工或对账后重建。  
 - **设备态**：平台 recompute 不保证与设备实时一致；须走下发向导 push。  
 - **eject 模块**：未删除，避免单测/对照断裂；新功能禁止依赖。  
-- **真·Hub PE**：**当前不支持**；需求、改造清单、验收口径见 **§14**（P5 遗留）。  
+- **真·Hub PE**：P5 规格见 **§14**；审核与开工门禁见 **§15**。  
 - **其它可选增强**：对账定时任务、Hub 可视化拓扑、PostgreSQL 生产库迁移后的批量 reconcile CLI。
 
 ---
 
-## 14. 遗留事项：真·Hub PE 组网（P5 规划，未实现）
+## 14. P5 实施规格：真·Hub PE 组网
 
-> **用途**：下步启动 Hub PE 开发时 **直接参照** 本节；与 §6.3「当前不支持」一致。  
-> **决策日期**：2026-06 — 先交付 **CE-A↔PE-A↔PE-B↔CE-B** 标准组网；Hub 完整实现延后。
+> **状态**：**已定稿**（2026-06），可启动开发。  
+> **架构决策**：在保留四端联动、baseline + 贡献 + recompute 主链前提下，引入 **VR 设备角色** `HUB_PE` / `SPOKE_PE` 分流规则；Hub 多 WAN/LAN 由 **角色向导（能力）+ 隧道向导（绑定）** 两层表达。  
+> **与 §6.3**：P5 完成前生产仍仅保证 Spoke 点对点；本节为实现与验收唯一权威。
 
-### 14.1 背景与目标场景
+### 14.0 架构总览（定稿）
+
+#### 14.0.1 两层模型
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ Layer A · VR 设备角色（角色配置向导，持久 · VRConfig.role）      │
+│   SPOKE_PE（分支 PE）：Locator/SID/默认 1 WAN + 1 LAN 骨架     │
+│   HUB_PE（中心 PE）  ：+ 多 WAN / 多 LAN 口清单（inventory）    │
+│   CE                 ：不拆 Hub CE / Spoke CE 子类型             │
+└──────────────────────────────────────────────────────────────┘
+                            ↓ 被 SRv6 隧道引用
+┌──────────────────────────────────────────────────────────────┐
+│ Layer B · 隧道级 Hub 绑定（SRv6 向导 Step2 / Hub 互联子步）    │
+│   hubPeSlot: peA | peB                                       │
+│   hubBindings: wanIf, lanIf, vrf, peerPeUuid, peerPublicNeighbor, rt │
+│   rdRtMeta v2：Hub 单 RD + 本隧道/对端 RT                      │
+└──────────────────────────────────────────────────────────────┘
+                            ↓
+         injectedDelta → merge → recompute → 四端下发（不变）
+```
+
+**职责分界**：
+
+| 层级 | 职责 | 不负责 |
+|------|------|--------|
+| **Layer A** | Hub 设备 **有哪些口**、基线 BGP/SID 骨架 | 某条隧道占哪几口、PE–PE neighbor 具体值 |
+| **Layer B** | 本隧道 **占哪几口**、对端 Spoke、判重键、RT | 改写 Spoke/CE 默认策略 |
+
+#### 14.0.2 VR 设备角色命名（定稿）
+
+| 存储值 | 中文展示 | 说明 |
+|--------|----------|------|
+| **`SPOKE_PE`** | 分支 PE（Spoke） | 单 Spoke、默认 1 WAN + 1 LAN；点对点隧道端点 |
+| **`HUB_PE`** | 中心 PE（Hub） | 汇聚多 Spoke；走 P5 Hub 规则 |
+| **`CE`** | CE | 不变；Hub 侧 CE 复用由隧道绑定表达，**不**新增 `HUB_CE` |
+
+**角色列表定稿（2026-06 修订）**：
+
+- VR 角色下拉 **仅** 展示：`SPOKE_PE`、`HUB_PE`、`CE`、`SASE`、`标准`（与现网其它产品线一致部分保留）。  
+- **取消 `PE` 枚举**；**不提供** `PE` → `SPOKE_PE` 读写别名或自动迁移。  
+- 库内历史 `role='PE'` 的 VR：**不在 P5 兼容**；创建/更新隧道时若槽位 VR 角色非法 → **409**，提示运维在 VR 管理页 **重新指定** `SPOKE_PE` 或 `HUB_PE`。  
+- SRv6 向导 PE 下拉：`SPOKE_PE` 与 `HUB_PE` **分列表或分 Tab**，避免混选。
+
+**隧道槽位（peA / peB / ceA / ceB）不改名**：槽位表示「本条隧道上的位置」，UI 可加徽标（如「PE-B · 中心 Hub」）。
+
+#### 14.0.3 隧道拓扑类型（定稿）
+
+| 类型 | 条件 | 规则集 | 示例 |
+|------|------|--------|------|
+| **S · Spoke 点对点** | 两端 PE 均为 **`SPOKE_PE`** | P1–P4（现有） | PE22 ↔ PE99 |
+| **H · Hub–Spoke** | **恰好一端** `HUB_PE`、另一端 **`SPOKE_PE`** | P5 Hub 分支 | PE22 ↔ PE3(Hub) |
+| **禁止** | 两端均为 `HUB_PE` | 创建 **409** | — |
+| **禁止** | 任一端 PE 槽位角色为 `PE`（旧值）或未设置 | 创建 **409**，须先设 `SPOKE_PE`/`HUB_PE` | — |
+| **禁止** | Hub 槽位 VR 非 `HUB_PE` | 创建 **409**，引导改设备角色 | Spoke 设备被选为 Hub 槽 |
+
+**Hub 槽位判定**：创建载荷显式 `hubPeSlot: 'peA' | 'peB'`（推荐）；或后端由两端角色推断（仅一端为 `HUB_PE` 时自动赋值）。
+
+#### 14.0.4 Hub 判定与展示（定稿）
+
+| 用途 | 依据 | 说明 |
+|------|------|------|
+| **规则执行**（conflict / merge / delta） | `VRConfig.role === 'HUB_PE'` | **唯一权威** |
+| **UI 展示**（列表 Hub 标签、引用数） | `findAliveTunnelsByVr` 引用数 | 可与 `HUB_PE` 并存；`引用数>1` 仅作提示 |
+| **禁止** | 仅用 `tunnels.length > 1` 推断 Hub 规则 | 避免与 P1–P4 动态 `isHub` 双标准冲突 |
+
+#### 14.0.5 与 P1–P4 的继承关系（定稿）
+
+- **不变**：四端 CRUD、sync、recompute、deploy preview/push、对账、VR 指纹锁主流程。  
+- **Spoke 路径**：槽位 `role === 'SPOKE_PE'` 时 **原样** 调用现有 conflict / merge / archive。  
+- **Hub 路径**：`role === HUB_PE` 的槽位走 **Hub 策略分发**（`resolvePeRole` → 分支），不 fork 主链。  
+- **实现约束**：后端以 **策略分发** 为主，避免复制整段 Spoke 逻辑。
+
+---
 
 **典型组网**（测试机 PE3 类）：
 
@@ -402,7 +476,9 @@ type Srv6HubPortRegistryEntry = {
 
 **Hub 口占用表**：`HubPePortRegistry[vrUuid] → Srv6HubPortRegistryEntry[]`（可落库或 Hub API 聚合）。
 
-**Blocking 判重键（R4）**：`(hubPeUuid, peerPublicNeighbor)` 或 `(hubPeUuid, wanIf, peerPublicNeighbor)`（产品确认 WAN 是否与 neighbor 一一对应后择一）。
+**Blocking 判重键（定稿）**：`(hubPeUuid, peerPublicNeighbor)`。  
+- WAN 口可复用，只要 **对端 Spoke 公网 neighbor 唯一**（H1/H2）。  
+- 不采用 `(hubPeUuid, wanIf, peerPublicNeighbor)` 三元组，除非实测出现「同 neighbor 不同 WAN」合法场景。
 
 #### 14.3.2 RD/RT 档案（Hub 定稿）
 
@@ -423,16 +499,115 @@ type Srv6RdRtMetaV2 = {
 - **RT**：**每条隧道、每个对端 Spoke 新建**，不与其它隧道 RT 碰撞；**不**继承旧隧道 RT。  
 - Spoke PE：RD/RT 与 Hub 侧成对约定（Spoke 规则在 P5 需求中单独列）。
 
-### 14.4 设备语义阻塞项（启动 P5 前必须确认）
+### 14.4 设备 RD/RT 语义（G2 门禁 · 须产品/网络确认）
 
-`mergeRdRt` 当前对同一 `bgpIndex` **后写覆盖** RD/RT，无法在同一 VRF 段并存多个 RT。真 Hub 须 **三选一**（与 CSM/PE 控制器确认）：
+本节说明 **P5.3 merge 改造前你必须拍板的内容**。P5.0～P5.2（角色、hubBindings、Hub conflict、向导 UI）**不依赖**本节，可并行开发。
 
-1. 设备支持 **RT 列表**（import/export 多 RT），扩展 `mergeRdRt` 合并多个 `route_target`，RD 只设一次。  
-2. **每 Spoke 独立 VRF/bgp 段**（接近现有 `scenarios.test` t2Ok），Hub RD 相同、每段一个 RT。  
-3. 其它设备原生形态（以实测 JSON 为准）。
+#### 14.4.1 问题从哪来（与代码对齐）
 
-**未确认前不得开工 merge 改造。**
+Hub PE 上多条隧道（多个 Spoke）时，**期望**：
 
+- **同一个 Hub 内网 VRF**（例如 VRF 7777）上 **只有一个 RD**（H4）  
+- **每条隧道 / 每个 Spoke 各有一个不同的 RT**（H5）  
+- 平台库生效配置 = `merge(基线, 隧道1贡献, 隧道2贡献, …)`
+
+当前 `mergeRdRt`（`srv6.merge.ts`）对**同一 `bgpIndex`** 的内网 IPv4 unicast 段：
+
+```text
+af.route_distinguisher = 后写入隧道的 RD   // 覆盖
+af.route_target      = 后写入隧道的 RT   // 覆盖
+```
+
+因此若 T1、T2 都把 RD/RT 写在 **同一个 bgpIndex**（同一 VRF 段），**后建隧道会抹掉先建隧道的 RT**，无法满足 H5，删除/recompute 也无法按隧道粒度拆 RT。
+
+P1–P4 单测 `scenarios.test` 里「多隧道共存」能过，是因为 **刻意用了不同 bgpIndex**（VRF 9999 vs 8888），**不是**「同 VRF7777 + 多 RT」的真 Hub 形态。
+
+#### 14.4.2 Hub RD/RT 双模式（已定稿 · 2026-06-16，**2026-06-17 阶段策略修订**）
+
+**Q-RT-1**：**路线 A（`REUSE_VRF`）与路线 B（`DEDICATED_VRF`）均须支持**；档案字段 `hubVrfMode` 为 **内部实现标记**（§14.16 UI 映射），用户界面 **不展示**「REUSE_VRF」等枚举名。
+
+| 模式 | 内部枚举 | 用户侧文案（建议） | P5 当前阶段 |
+|------|----------|-------------------|-------------|
+| **路线 A · 共用客户网络** | `REUSE_VRF` | 「**与已有隧道共用客户侧网络（同一 CE / 专网）**」 | **见 §14.4.6 过渡策略**（单 RT，非多 RT 列表） |
+| **路线 B · 独立客户网络** | `DEDICATED_VRF` | 「**为本 Spoke 使用独立客户侧网络（新 CE / 新专网）**」 | **完整支持**（每隧道独立 `bgp[N]`） |
+
+**Q-RT-2**：**每个内网 VRF 一个 RD**。
+
+**Q-RT-4**：Spoke 与 Hub **RT 成对相同**（同一隧道两端相同 RT 值）。
+
+**Q-RT-5**：`bgp[0]` 公网；`bgp[1]`→VRF7777；`bgp[2]`→VRF8888…
+
+**Q-RT-6（2026-06-17 修订）** — 删除单条 Hub 隧道时 recompute：
+
+| 模式 | 公网 `bgp[0]` | 私网 VRF 段 |
+|------|---------------|-------------|
+| `DEDICATED_VRF` | 移除本 Spoke 的 neighbor / activate / ndc | **删除该隧道对应的整个 `bgp[N]` 段** |
+| `REUSE_VRF`（**当前阶段**） | 移除本 Spoke 的 neighbor / activate / ndc | **不修改 `route_target` / RD**（与首条隧道相同）；**仅当该 VRF 上最后一条 Spoke 隧道删除时**，再 **删除整个 `bgp[vrfIndex]` 段** |
+
+> **遗留（完整多 RT）**：设备 + CSM 均支持空格多 RT 后，路线 A 再切换为 §14.4.3③ 的 RT 并集合并与按隧道摘 RT（见 §14.4.7）。
+
+#### 14.4.3 真机 JSON 样例（PE3 · Q-RT-3 已提供）
+
+来源：`实现Hub-Spoke组网的一些相关需求疑点确认_20260616.txt`。
+
+**① 单隧道：PE22 ↔ PE3 ↔ CE22/CE3（节选 `bgp`）**
+
+- 公网 `bgp[0]`：neighbor `203::22`，activate / ndc 同 IP；asn 430。  
+- 私网 `bgp[1]`：`vrf: 7777`，asn 106，router_id `102.1.1.33`，RD `200:12851`，RT `200:40988`，neighbor `102.1.1.22`（CE22）。
+
+**② 双隧道共存：PE22 + PE2，共用 CE3 / VRF7777**
+
+- 公网 `bgp[0]`：**两个** neighbor（`203::22`、`203::44`），activate / ndc 列表同步扩展。  
+- 私网 `bgp[1]`：vrf 7777、asn、router_id、**RD 不变**；示例片段中 `route_target` 仍为单值 `200:40988`（PE2 应对应 `200:40944`，见下条设备能力）。
+
+**③ 路线 A · 完整形态（多 RT · 遗留，待 CSM+设备）**
+
+```json
+"route_target": "200:40988 200:40944"
+```
+
+> **Q-CSM-1（2026-06-17 定稿）**：设备与 CSM **当前均不支持** 多 RT 列表/空格串下发；**完整支持须双方改造**，列为 **遗留事项**（§14.4.7）。**P5 当前阶段不以此作为验收阻塞**。
+
+#### 14.4.6 路线 A 过渡策略（P5 当前实现 · 已定稿）
+
+在 multi-RT 未就绪前，**复用 CE + 复用 VRF** 时：
+
+| 项 | 行为 |
+|----|------|
+| **RT 生成** | 第 2 条及以后 Spoke 隧道 **沿用该 VRF 上首条存活隧道的 RT**（与首条相同），**不**为新 Spoke 生成新 RT |
+| **RD** | 与首条相同，不变 |
+| **公网** | 按 Spoke 正常 **叠加 neighbor / activate / ndc**（判重仍用 `peerPublicNeighbor`） |
+| **私网 neighbor** | 共用 CE 时 **零增量**（与 §14.9 #3 一致） |
+| **删除** | 只摘本 Spoke 公网项；**不动 RT/RD**；**最后一条** Spoke 删除时再 **清空整个私网 `bgp[vrfIndex]`** |
+
+**Q-RT-LIM / Q-RT-ORD（当前阶段）**：`REUSE_VRF` 下 **恒为 1 个 RT**；其它 `A:B` 校验规则不变；**不排序**（仅 1 个 RT 时不涉及；完整多 RT 阶段按配置顺序叠加，不强制字典序）。
+
+#### 14.4.7 遗留：完整多 RT（Post-P5）
+
+| 项 | 说明 |
+|----|------|
+| 触发条件 | CSM + 设备支持 `route_target` 空格多 RT（及校验规则 Q-RT-LIM 全文） |
+| Tower | `mergeRdRt` 并集/减集；`injectedDelta` 每 Spoke 独立 RT；H5 恢复「每 Spoke 新 RT」验收 |
+| 档案 | 可增加 `rtMergePolicy: 'shared' \| 'per_spoke'` 或按平台版本切换 |
+
+#### 14.4.4 Tower merge 改造要点（P5.3 · 当前阶段）
+
+| 合并对象 | `REUSE_VRF`（**当前**） | `REUSE_VRF`（**遗留完整版**） | `DEDICATED_VRF` |
+|----------|-------------------------|------------------------------|-----------------|
+| 公网 neighbor / activate / ndc | 按 IP 去重合并 | 同左 | 同左 |
+| `route_distinguisher` | 首隧道确立，后续 **不变** | 多隧道相同，写一次 | 每段独立 |
+| `route_target` | **始终与首条隧道相同**，后续隧道 **不写/不覆盖** | 空格串 **并集/减集** | 随 `bgp` 段删除 |
+| 私网 neighbor | 共用 CE **不重复** | 同左 | 每段独立 |
+
+#### 14.4.5 与 RD/RT 相关的次级确认（见 §16 待对齐）
+
+| 编号 | 状态 |
+|------|------|
+| Q-RT-1～6、Q-RT-3 样例 | **已闭合**（除 CSM 多 RT 下发能力） |
+| **Q-CSM-1** | CSM/设备多 `route_target` 修复 **责任方与版本** — **待对齐** |
+| **Q-GW-1** | **已闭合**：SID/64 `via` **择优**见 §14.14.1；`::/0` + `nexthop-vrf 0` **不变**；页面关键字见 §14.14.2 |
+
+**G2 门禁（2026-06-17）**：Q-RT-3 已提供；**路线 B 完整实现 + 路线 A 过渡策略** 可进入 P5.3；**完整多 RT** 不阻塞当前 P5 交付。
 ### 14.5 端到端目标行为（P5 验收规格 · 定稿口径）
 
 下表为真 Hub **可验证规格**；P5 完成时须全部满足（自动化 + 手工）。
@@ -441,72 +616,529 @@ type Srv6RdRtMetaV2 = {
 |----|------|----------|
 | **H1** | 同一 Hub PE VR 允许多条隧道，每条绑定一个 Spoke PE | 公网 **PE–PE neighbor 唯一**；第二条不同 Spoke 可创建成功 |
 | **H2** | Hub WAN | 默认 **每隧道独立 WAN 口**；若允许 WAN 复用，则 neighbor 仍须唯一 |
-| **H3** | Hub LAN / VRF / CE | **允许复用**；PE–CE neighbor、RT **随隧道/对端区分** |
-| **H4** | Hub RD | **设备/VRF 级一个**；首隧道确立，后续隧道 **复用同一 RD 值** |
-| **H5** | RT | **每隧道（或每 Spoke 对端）新建**；与已有隧道 **RT 不得碰撞**；**不**继承旧 RT |
+| **H3** | Hub LAN / VRF / CE | **允许复用**；公网 neighbor 随 Spoke 区分；**B** 私网整段独立；**A** 共用 CE 私网零增量 |
+| **H4** | Hub RD | **每 VRF 一个 RD**；复用 VRF 时后续隧道 **复用同一 RD** |
+| **H5** | RT | **B**：每 Spoke **新 RT**。**A（P5 当前）**：共用 VRF 时 **与首条隧道相同 RT**（§14.4.6）。**A（遗留）**：每 Spoke 新 RT + 多 RT 串 |
 | **H6** | 409 提示 | 仅报 **Blocking** 主因（如重复 PE–PE neighbor）；**不**堆砌从属项 |
-| **H7** | 删除单条隧道 | recompute 只移除 **该隧道绑定** 的 Spoke 项；**不**拆共享 LAN/CE/Hub RD |
+| **H7** | 删除单条隧道 | 摘本 Spoke 公网项；**A** 非最后一条 **不动 RT/RD**；最后一条或 **B** 删私网 `bgp` 段 |
 
-**与冒烟用例映射**：P5 完成后将 [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) 中 **R3/R4** 从「遗留/跳过」改为按 H1–H7 验收；并新增 **H 系列**用例编号。
+**与冒烟用例映射**：P5 完成后将 [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) 中 **R3/R4** 从「遗留/跳过」改为按 **H1–H7** 验收。
 
-### 14.6 向导与下发（P5 UX）
+### 14.6 向导与下发（P5 UX · 定稿）
 
-| 项 | 建议 |
+| 项 | 定稿 |
 |----|------|
-| 四端下发 | **保留** PE-A → PE-B → CE-A → CE-B 顺序；push 的仍是 merge 后生效配置 |
-| PE–PE BGP | **不宜**仅放在「角色配置向导」；在 **SRv6 创建向导** Step2 扩展或 **Step2.5「Hub 互联」** 中配置 WAN 绑定与 neighbor 预览 |
-| 角色配置向导 | 继续负责 Locator/SID/BGP **baseline 骨架** |
-| Step2 | Hub PE 选中后：展示 **口占用**、可选 WAN/LAN、Hub 提示；过滤/标注已占用 WAN |
-| Hub API | `GET .../hub` 返回 **口占用表** + 可复用 CE/VRF 说明 |
+| 四端下发 | **保留** PE-A → PE-B → CE-A → CE-B；push merge 后生效配置 |
+| **HUB_PE 角色配置向导** | Locator/SID/BGP 骨架 + **WAN/LAN inventory**（可用口清单，非隧道占用） |
+| **SPOKE_PE 角色配置向导** | **保持现状**（1 WAN + 1 LAN 默认策略） |
+| **CE 角色配置向导** | **保持现状** |
+| SRv6 Step2 | Spoke 槽位：现有互联 UI；**Hub 槽位**：扩展 **「Hub 互联」** — 选 WAN/LAN、口占用表、neighbor/RT 预览 |
+| PE–PE BGP neighbor | **在 SRv6 隧道向导配置**（Layer B），**不**仅在角色向导配置 |
+| Hub API | `GET .../hub` 返回引用列表 + **口占用表** + 可复用 CE/VRF 提示 |
+
+前端落位：`frontend/src/pages/sdncc/ibr/srv6/Create.tsx`（及 `srv6Archive.ts`）。
 
 ### 14.7 改造影响清单（按模块）
 
 | 模块 | 改造内容 | 风险 |
 |------|----------|------|
-| **产品/网络** | 确认 14.4 设备多 RT 写法 | **阻塞** |
-| **数据模型** | `hubBindings`、Hub 注册表；扩展 `endpointFingerprint`（含 `wanIf`） | 档案迁移 |
-| **frontend `Create.tsx` / `srv6Archive.ts`** | 口选择、RD/RT 生成、按绑定口生成 `injectedDelta` | 高 |
-| **`srv6.conflict.ts`** | Hub 专用规则 + 409 聚合 | R3/R4 核心 |
-| **`srv6.merge.ts`** | 多 RT / 多 neighbor 同 VRF 合并 | 高 |
+| **产品/网络** | 多 RT 完整能力（遗留 §14.4.7） | 不阻塞 P5 |
+| **数据模型** | `hubBindings`、`hubVrfMode`、Hub 注册表、`endpointFingerprint` | 档案 |
+| **frontend `Create.tsx` / `srv6Archive.ts`** | 口选择、RD/RT（A 共享 RT）、§14.16 用户文案；**§14.14.1 SID/64 via 择优** | 高 |
+| **`frontend/.../srv6/srv6Ipv6.ts`** | `resolveSid64Via` 共享解析（Create + Archive 同源） | 中 |
+| **`srv6.conflict.ts`** | Hub 专用规则 + 409 Blocking | R3/R4 |
+| **`srv6.merge.ts`** | Hub 双模式；**A 过渡** 共享 RT；**B** 整段 | 高 |
+| **`srv6.reconcile.ts`** | Hub 恒等式；见 **§17** | 中 |
+| **向导 UI 文案（§14.14.2）** | PE 角色向导路由相关 **展示用语** | 低 |
 | **`srv6.hub.ts`** | 口占用 API | 中 |
 | **`srv6.recompute` / delete** | 共享 CE/RD 删除不误删 | 中 |
 | **`srv6.vrLock.ts`** | Hub 多 WAN 指纹锁定策略 | 中 |
-| **单测** | PE3/PE2/PE22 fixture；H1–H7 场景矩阵 | 低 |
+| **`vrConfig.ts` set-role** | 角色枚举 **`SPOKE_PE`/`HUB_PE`**，**移除 `PE`**；被引用时改角色 **409** | 中 |
 | **文档** | 更新 §6、发版说明、testcases | 低 |
 
-**与 P1–P4 关系**：Spoke 单隧道、非 Hub PE 路径 **保持不变**；Hub 逻辑建议 **特性开关**（检测到 Hub VR 才启用 P5 规则）。已有隧道无 `hubBindings` → **不自动兼容** 或 **迁移工具补绑定**（与历史隧道策略一致）。
+**与 P1–P4 关系**：**S 类型**直连场景须 **行为不变**（§17）；**H 类型**走 Hub 分支。**§14.14.1** 为 SID/64 `via` 唯一 inject 语义变更；`::/0` 等其余路由 **不变**。  
+**历史数据**：`role='PE'` **不兼容**；`hubBindings` 缺失的旧 Hub 隧道 **不自动迁移**（§14.9 #6）。
 
-### 14.8 推荐实施路线（P5）
+### 14.12 产品 / 网络确认清单（2026-06-16 / **2026-06-17 第三轮闭合**）
 
-| 阶段 | 内容 | 产出 |
-|------|------|------|
-| **P5.0** | 14.4 设备语义确认 + §14.9 决策清单签字 | 设备 JSON 样例、Blocking 键定义 |
-| **P5.1** | 数据模型 + conflict/409 聚合（可暂用手工指定 WAN 口名） | R4 类误报消除、H6 |
-| **P5.2** | 向导 Hub UI + Hub 口注册表 | H1–H3 可手工验收 |
-| **P5.3** | merge 多 RT + 旧隧道迁移 + H 系列单测 | H4–H7、R3/R4 转正 |
+> 来源：`实现Hub-Spoke组网的一些相关需求疑点确认_20260616.txt` 及第三轮批复。
 
-**不推荐**：在 P5 完成前依赖「换 VRF/bgp 段绕过冲突」作为生产 Hub 方案（仅单测 t2Ok 级别，与 PE3 组网不符）。
+#### A. RD/RT 与 merge
 
-### 14.9 启动 P5 前决策清单
+| 编号 | 批复 |
+|------|------|
+| **Q-RT-1** | A+B 均支持；UI 见 §14.16 |
+| **Q-RT-2～5** | 见 §14.4.2（已固化） |
+| **Q-RT-6** | **A（当前）**：非最后一条 **不动 RT**；最后一条删私网段。**B**：删整段 |
+| **Q-CSM-1** | 多 RT **设备+CSM 均不支持** → **遗留 §14.4.7**；P5 用 **§14.4.6 过渡** |
+| **Q-RT-LIM** | **当前 A 模式恒 1 RT**；其它规则不变 |
+| **Q-RT-ORD** | **不排序**；按配置顺序（当前单 RT 不涉及） |
 
-1. 设备：同 VRF 上能否 **一个 RD + 多个 RT**？配置 JSON 形态？  
-2. Hub WAN：PE3 接 PE22 / PE2 是否 **必须不同物理 WAN**？  
-3. Hub CE3：多条隧道共用 CE3 时，CE 侧 **零增量** 还是 **per-tunnel neighbor**？  
-4. Hub RD：**整个 Hub VR 一个 RD** 是否准确？  
-5. RT：**每隧道一对（PE-A/PE-B）** 还是 **每 Spoke PE 一个**？  
-6. 兼容：已有 `test-20260508` **迁移绑定** 还是 **仅新隧道走 Hub**？
+#### B～D
+
+| 编号 | 批复 |
+|------|------|
+| **Q-ROLE-1 / Q-TOPO-1/2 / Q-BLK-1** | 已固化 |
+| **Q-CE-1/2** | Hub CE、ceA 共用 **零增量** |
+| **Q-MIG-1/2** | 重建；角色手工设定 |
+
+#### E. 运维与 UI
+
+| 编号 | 批复 |
+|------|------|
+| **Q-OPS-1** | **否** |
+| **Q-OPS-2** | **采用** §14.15 |
+| **Q-GW-1** | **§14.14.1** SID/64 `via` 择优；**§14.14.2** 页面文案；`::/0` + `nexthop-vrf 0` **保持** |
+| **Q-HUB-IPV6** | **Hub 保留下发**，与原有 PE 一致 |
+| **Q-HUB-WIZ-1** | **确认** inventory + 隧道叠加（§14.13） |
+
+---
+
+### 14.8 实施路线（P5 · 定稿摘要）
+
+> **完整并行开发计划**见 **§18**（工作流、依赖、合流点、验收）。
+
+| 阶段 | 内容 | 产出 | 门禁 |
+|------|------|------|------|
+| **P5.0** | `HUB_PE`/`SPOKE_PE` 角色；隧道类型 H/S 校验；§14.9 产品项签字 | 角色 API、校验单测 | §15.2 **可并行开工** |
+| **P5-GW** | §14.14.1 `resolveSid64Via`；§14.14.2 文案 | 单测 + R-GW-1 | **可与 P5.0 并行** |
+| **P5.1** | `hubBindings` 档案；Hub conflict 分支；409 Blocking 聚合 | H6、R4 误报消除 | 依赖 P5.0 类型 |
+| **P5.2** | HUB_PE 角色向导 inventory；SRv6 Hub 互联 UI；Hub 口占用 API | H1–H3 手工可验 | 依赖 P5.0；UI 可与 P5.1 并行 |
+| **P5.3** | Hub merge（A 过渡 + B 完整）；对账 §17 | H4–H7、R3/R4 | 依赖 P5.1 |
+| **P5.4** | 测试机删建、全量回归、发版说明 | **G3** | 依赖 P5.2 + P5.3 + P5-GW |
+
+**不推荐**：用「换 VRF/bgp 段绕过冲突」作生产 Hub 方案（仅 `scenarios.test` t2Ok 级别）。
+
+### 14.9 产品决策清单（定稿答复）
+
+| # | 问题 | **定稿答复** |
+|---|------|-------------|
+| 1 | 同 VRF 多 RT？ | **A 过渡：首条 RT 共享**；完整多 RT **遗留 §14.4.7**；**B 完整支持** |
+| 2 | Hub WAN 是否必须不同物理口？ | **默认每隧道独立 WAN**；**允许 WAN 复用**，以 `(hubPeUuid, peerPublicNeighbor)` 唯一为准（H2） |
+| 3 | 多隧道共用 Hub CE（如 CE3） | **Hub 侧 CE 第二条起零增量**；**ceA 共用亦零增量** |
+| 4 | Hub RD 范围 | **每个内网 VRF 一个 RD**；复用 VRF 时后续隧道复用同一 RD（H4） |
+| 5 | RT 粒度 | **每隧道 / 每 Spoke 一个新 RT**；Spoke 与 Hub **成对相同**（H5） |
+| 6 | 历史 `test-20260508` | **删除重建**；VR 角色手工设为 Q-MIG-2 |
 
 ### 14.10 P5 开发入口（文件索引）
 
 | 区域 | 路径 |
 |------|------|
+| VR 角色 | `backend/src/routes/sdn/vrConfig.ts`（`set-role`）、`VRConfig.role` |
 | 冲突 / Hub | `backend/src/routes/sdn/srv6.conflict.ts`、`srv6.hub.ts` |
 | merge / recompute | `backend/src/routes/sdn/srv6.merge.ts`、`srv6.recompute.ts` |
-| 档案 | `backend/src/routes/sdn/srv6.archive.ts`、`frontend/.../srv6Archive.ts` |
-| 向导 | `frontend/.../srv6/Create.tsx` |
+| 档案 | `backend/src/routes/sdn/srv6.archive.ts`、`frontend/.../ibr/srv6/srv6Archive.ts` |
+| 向导 | `frontend/.../ibr/srv6/Create.tsx` |
+| IPv6 via | `frontend/.../ibr/srv6/srv6Ipv6.ts` · `resolveSid64Via` |
+| PE 文案 | `frontend/.../ibr/routers/wizards/PEWizard.tsx` |
+| 校验 | `backend/src/routes/sdn/srv6.validation.ts` |
 | 类型 | `backend/src/entities/vRouter/srv6Tunnel.types.ts` |
-| 单测样板 | `backend/src/routes/sdn/srv6.scenarios.test.ts`（t2Ok ≠ 真 Hub，P5 须新 fixture） |
-| 验收 | 本节 **§14.5 H1–H7** + [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) |
+| 单测 | `srv6.scenarios.test.ts`（P5 新增 PE3/PE2/PE22 Hub fixture） |
+| 验收 | **§14.5 H1–H7** + [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) |
+
+### 14.11 隧道档案扩展（定稿字段）
+
+在 `SRv6Tunnel` 关系档案上扩展（实施时字段名可微调，语义须一致）：
+
+| 字段 | 类型 | 必填（H 类型） | 含义 |
+|------|------|----------------|------|
+| `hubPeSlot` | `'peA' \| 'peB'` | 是 | Hub PE 落在哪个槽位 |
+| `hubBindings` | `Srv6HubSlotBinding` | 是 | 见 §14.3.1 |
+| `hubVrfMode` | `'REUSE_VRF' \| 'DEDICATED_VRF'` | 是（H 类型） | 路线 A / 路线 B，见 §14.4.2 |
+| `rdRtMeta` | `Srv6RdRtMetaV2` | 是 | Hub 场景扩展 v2；S 类型仍可用现有形态 |
+| `tunnelTopology` | `'S' \| 'H'` | 否（可推断） | 缓存拓扑类型，便于列表/审计 |
+
+`endpointFingerprint` Hub 扩展：`wanIf`、`peerPublicNeighbor`（Hub PE 槽位）。
+
+### 14.13 Hub 侧角色配置向导设想（待核对）
+
+> 回应 2026-06-16 补充意见 #1。原则：**角色向导 = 设备能力与基线骨架**；**每 Spoke 叠加 = SRv6 隧道向导（Layer B）**。
+
+#### 14.13.1 分层职责
+
+| 层级 | 配置内容 | 是否按 Spoke「一组组叠加」 |
+|------|----------|---------------------------|
+| **HUB_PE 角色向导** | Locator、公网 ASN（`bgp[0]` 骨架）、**WAN 口清单**、**LAN 口清单**（含默认 vrf/asn/router_id 模板） | **否** — 只声明 inventory |
+| **SRv6 隧道向导 · Hub 互联** | 选 WAN/LAN、是否复用 CE/VRF、本 Spoke 的 neighbor/RT、预览 | **是** — 每条隧道一条绑定 |
+| **merge / recompute** | 把各隧道贡献合成生效 `config_json` | 自动 |
+
+#### 14.13.2 HUB_PE 角色向导建议字段
+
+**公网（一次配置，全 Hub 共用）**
+
+- SRv6 Locator / SID 前缀  
+- 公网 ASN、`bgp[0].router_id`（如 `203.100.100.33`）  
+- **WAN inventory**：`[{ ifName, ipv6, optional ipv4 }]` — 供隧道选「本 Spoke 走哪口」  
+
+**私网 LAN inventory（可多条，不绑定 Spoke）**
+
+```text
+lanInventory[]: {
+  lanIf, vrf, privateAsn, router_id,
+  optional: rdSeed, rtPoolHint
+}
+```
+
+- 首条使用 VRF7777 的隧道可从 inventory 选「CE3 所在 LAN」；  
+- **路线 B** 新建 VRF 时：在隧道向导中 **新增一条 inventory 项** 或 **临时分配 vrf/asn/router_id/rd**（写入新 `bgp[N]`），不必在角色向导预建所有 Spoke 段。
+
+#### 14.13.3 隧道创建时「叠加」规则（Hub 槽位）
+
+| 对象 | `REUSE_VRF`（路线 A） | `DEDICATED_VRF`（路线 B） |
+|------|----------------------|---------------------------|
+| `bgp[0]` 公网 | +neighbor、+activate、+ndc（本 Spoke PE 公网 IP） | 同左 |
+| `bgp[vrfIndex]` 私网 | RD **不变**；RT **与首条相同**（§14.4.6）；私网 neighbor **已有 CE 则不重复** | **新增整段** `bgp[N]`：vrf、asn、router_id、rd、rt、私网 neighbor |
+| `ipv4_route` / 私网静态 | 一般 **不新增**（走 BGP） | 新 CE 网段若需静态路由，按 CE 拓扑 **可选一条** |
+| `ipv6_route` | **§14.14.1**：SID/64 `via` 择优；VRF `::/0`（`nexthop-vrf 0`）**不变** | 同左 |
+
+#### 14.13.4 Hub / Spoke 公网 IPv6 路由（SID/64 + VRF 默认路由）
+
+**Q-HUB-IPV6（2026-06-17 定稿）**：**Hub 与 Spoke 均保留下发 SID/64 及相关路由**；是否与 BGP 冗余 **后续再评估**，P5 **不删减** Hub 侧注入。
+
+| 路由项 | P5 行为 |
+|--------|---------|
+| **SID/64（无 vrf）** | `destination` = 对端 SID `/64`；`via` = **§14.14.1 择优**（本端公网 IPv6 网关 **或** 对端 PE 公网 IPv6） |
+| **VRF `::/0`（带 vrf）** | **不变**：`via: "nexthop-vrf 0"` |
+| **本端 WAN 公网静态路由** | 角色向导已写入基线 `ipv6_route`（目的网段 + **IPv6 网关**）；隧道 **不重复注入** 该条，仅 **读取** 其 `via` 供 SID/64 择优 |
+| **UI** | 展示文案 §14.14.2 |
+
+---
+
+### 14.14 IPv6 路由（2026-06-17 第四轮定稿 · Q-GW-1）
+
+#### 14.14.1 SID/64 的 `via` 择优（inject 语义 · **唯一路由逻辑变更**）
+
+> **背景**：原实现假定 **PE–PE 公网直连**，SID/64 的 `via` 固定取 **对端 PE 公网 IPv6**。现网存在 **经上游 IPv6 网关转发** 的场景：用户已在角色向导配置 **公网 IPv6 静态路由** 且填写了 **IPv6 网关**（下一跳），此时 SID/64 应走该网关，而非对端地址。
+
+**规则（本端 PE 视角，S / H 类型相同）**
+
+| 条件 | SID/64 路由 `via` |
+|------|-------------------|
+| 本端基线（`srv6BaselineJson` / 向导态 `config_json`）存在 **公网 IPv6 静态路由**：`ipv6_route[]` 中 **不带 `vrf`**、且 `via` 为 **有效 IPv6 地址**（非空、非 `nexthop-vrf *`） | 取该条的 **`via`**（即用户配置的 **IPv6 网关**） |
+| 否则（无此类路由 / 无 `via` / 仅直连） | 取 **对端 PE 公网 IPv6**（`extractPortIpv6(peerCfg, 0)`，与 P1–P4 直连场景一致） |
+
+**实现要点**
+
+| 项 | 约定 |
+|----|------|
+| 共享函数 | `frontend/src/pages/sdncc/ibr/srv6/srv6Ipv6.ts` · `resolveSid64Via(selfCfg, peerCfg)` |
+| 调用点 | `Create.tsx` · `buildInjectedPeConfig`；`srv6Archive.ts` · `buildPeInjectedDelta`（**两处须同源**，保证 `injectedDelta.ipv6Routes` 与预览一致） |
+| 不变项 | `::/0` + `nexthop-vrf 0`；merge / recompute / conflict 对 `ipv6Routes` 的合并规则 **不变** |
+| 指纹 / 锁 | **不**因 SID/64 `via` 变更扩展 VR 指纹锁字段（`via` 仍属隧道贡献，随 recompute 修正） |
+
+**回归口径**
+
+| 场景 | 期望 |
+|------|------|
+| 测试机 **直连**（无本端公网 `ipv6_route` 或无有效 `via`） | 与 P1–P4 **完全一致** → R1/R2 **零差异** |
+| 本端已配 WAN 静态路由 + IPv6 网关 | SID/64 `via` = 网关；新增单测 + 手工用例 **R-GW-1** |
+
+#### 14.14.2 路由相关 UI 文案
+
+| 原页面用语（示例） | 建议改为 | 说明 |
+|-------------------|----------|------|
+| IPv6 next-hop / 下一跳 | **IPv6 网关** | 与 §14.14.1「读取本端静态路由 via」语义对齐 |
+| 默认路由（WAN） | **静态路由（WAN）** | 与专家配置静态路由表一致；**不**改变 `::/0` 的 `nexthop-vrf 0` 下发 |
+
+| 项 | 定稿 |
+|----|------|
+| 代码范围 | `PEWizard.tsx`（及同类 PE 角色向导）标签、placeholder、预览表头 |
+| 与 14.14.1 关系 | 文案帮助用户 **正确填写** 网关；inject 以 **`config_json.ipv6_route`** 为准，不单独解析表单态 |
+
+---
+
+### 14.15 列表展示（回应 Q-OPS-2）
+
+| 位置 | 展示内容 | 示例 |
+|------|----------|------|
+| 隧道列表 · 类型列/标签 | `tunnelTopology` | `H` 显示「Hub–Spoke」；`S` 显示「Spoke 点对点」 |
+| 隧道列表 · Hub 列 | `hubPeSlot` + Hub VR 名 | `中心 PE · PE-B（PE3）` |
+| 创建页 / 详情 | `hubVrfMode`（内部） | 用户见 §14.16 **中文文案**，不见枚举名 |
+| Tooltip | `hubBindings` 摘要 | `WAN: Gi0/0/0 → Spoke 203::44；RT: 200:40944` |
+
+**Q-OPS-1（定稿）**：**否**，不增加人工确认。
+
+**Q-OPS-2（定稿）**：**采用** §14.15 列表展示，上线后视效果微调。
+
+---
+
+### 14.16 `hubVrfMode` 与 UI（用户可见 vs 内部）
+
+| 层 | 内容 |
+|----|------|
+| **档案 / API / 单测** | `hubVrfMode`: `REUSE_VRF` \| `DEDICATED_VRF` |
+| **SRv6 创建向导（用户）** | 单选，例如：<br>• **「与已有隧道共用客户侧网络」**（选已有 CE / 专网时自动带出）<br>• **「为本 Spoke 配置独立客户侧网络」**（选新 CE 或新专网段） |
+| **列表 Tooltip** | 展示 CE 名、Hub WAN、对端 Spoke 邻居、RT 值；**不写**「VRF 复用」 |
+
+用户 **不需要理解 VRF**；是否共用由 **是否选择同一 CE / 同一客户专网** 驱动，后端映射为 `hubVrfMode`。
+
+---
+
+## 15. P5 方案审核与开工门禁
+
+> **审核日期**：2026-06-17（第三轮闭合）  
+> **结论**：**P5 方案可全面编码**；完整多 RT 为 **Post-P5 遗留**（§14.4.7）。
+
+### 15.1 审核范围
+
+对照 §14 与现有代码（P1–P4），从 **架构一致性、影响面、可验收性、阻塞风险** 四维把关。
+
+### 15.2 开工门禁（Gate）
+
+| Gate | 条件 | 状态 |
+|------|------|------|
+| **G0 · 方案定稿** | §14.0 角色模型、两层架构、H/S 拓扑、H1–H7 已写入 | **通过** |
+| **G1 · P5.0–P5.2** | 角色 API、hubBindings、Hub conflict/UI **不依赖** merge 多 RT | **准予开工** |
+| **G2 · P5.3 merge** | A 过渡 + B 完整 | **通过** |
+| **G2' · 完整多 RT** | CSM+设备 + §14.4.7 | **遗留，不阻塞 P5** |
+| **G3 · 生产 Hub** | H1–H7 全绿 + R3/R4 转正 + 测试机 PE3 场景复验 | P5 交付标准 |
+
+### 15.3 审核项明细
+
+| ID | 审核项 | 结论 | 说明 |
+|----|--------|------|------|
+| A1 | baseline + 贡献 + recompute 主链是否保留 | **通过** | Hub 仅改 delta/conflict/merge 分支，不改恒等式 |
+| A2 | VR 角色分流是否最小影响 Spoke/CE | **通过** | 仅 `SPOKE_PE`/`HUB_PE`，**取消 `PE` 别名**；CE 不拆子类型 |
+| A3 | 槽位 peA/peB 是否保持稳定 | **通过** | 避免 API/库表四端字段重命名 |
+| A4 | Blocking 键是否可测 | **通过** | `(hubPeUuid, peerPublicNeighbor)` 对应 R4/H6 |
+| A5 | 共享 Hub CE 误报是否可解 | **通过** | idempotent CE 贡献（§14.9 #3） |
+| A6 | `mergeRdRt` Hub 分支 | **通过（修订）** | A 过渡：共享 RT、非最后一条不删 RD/RT |
+| A7 | 历史隧道兼容 | **接受** | 与 P1–P4 一致：不自动迁移；人工 + 对账 |
+| A8 | Hub 槽位误选 Spoke 设备 | **通过** | 创建校验 409 + 引导改 `HUB_PE` |
+| A9 | 双 Hub PE 隧道 | **通过** | 明确禁止 |
+| A10 | Spoke 点对点回归 | **通过（修订）** | **直连场景** R1/R2 零差异；§14.14.1 网关场景为新能力 + R-GW-1 |
+| A11 | VR set-role 扩展 | **待实施** | 现仅 `PE|CE|SASE|标准`；P5.0 首项 |
+| A12 | 指纹锁多 WAN | **待实施** | Hub 仅锁 **已绑定 wanIf** 相关项，非全设备 WAN 列表 |
+
+### 15.4 已知风险与缓解
+
+| 风险 | 等级 | 缓解 |
+|------|------|------|
+| 设备/CSM 多 RT 未就绪 | 中 | **§14.4.6 过渡**；Post-P5 §14.4.7 |
+| Hub 角色向导工作量 | 中 | P5.2 可先用 **手工填 wanIf 口名** 过渡 |
+
+### 15.5 不在 P5 范围（明确排除）
+
+- **Hub–Hub**、**多 Hub 单隧道**  
+- **`HUB_CE` 设备子类型**  
+- **历史 `role=PE` 自动迁移**  
+- **历史隧道自动补 `hubBindings`**  
+- **设备侧自动 push**（仍走进下发向导）
+
+### 15.6 正式开工检查单（复制到 PR / 迭代 kickoff）
+
+- [ ] 已读 §14.0–§14.17、**§18**  
+- [ ] P5.0：`set-role` 仅 `SPOKE_PE`/`HUB_PE`  
+- [ ] P5-GW：`resolveSid64Via` + `srv6Ipv6` 单测 + R-GW-1  
+- [ ] 测试机：`test-20260508` 删除重建 + Q-MIG-2 角色  
+- [ ] P5.3：§17 Hub merge/reconcile 适配项纳入同一迭代  
+- [ ] P5.2：§14.14.2 PE 向导文案 + Hub UI  
+- [ ] Post-P5：§14.4.7 多 RT（CSM+设备）排期  
+
+---
+
+## 17. 对现有四端一体化能力的影响复核（2026-06-17）
+
+> 回应补充意见 #2：**S 类型直连场景**须零回归；Hub 相关 merge/reconcile 须 **显式适配 + 回归**。**§14.14.1** 为 SID/64 `via` 择优，**不影响** merge 算法与 `::/0` 语义。
+
+### 17.1 能力矩阵
+
+| 能力 | S 类型（双 Spoke 点对点） | H 类型（Hub–Spoke） | P5 适配要求 |
+|------|---------------------------|---------------------|-------------|
+| 创建 / 更新 / 删除 | **不变**（无 `hubBindings`） | Hub 档案 + 分支 merge/conflict | H 单测 + PE3 场景 |
+| sync 四端 + recompute | 恒等式不变 | A/B merge 分支 | `srv6.recompute` Hub 路径 |
+| **配置对账** `reconcile` | **须回归** | **须扩展** | 对账仍用 `effectiveConfigMatches(merge(baseline,Σcontrib))`；Hub 贡献须与线上一致 |
+| VR 指纹锁 | 现逻辑 | Hub 多 WAN：锁 **已绑定 wanIf** | `srv6.vrLock` 分支 |
+| deploy preview/push | 读库不变 | 读库不变 | 无 API 变更 |
+| Hub API | 可选调用 | 口占用表 | `srv6.hub.ts` |
+| 角色 `PE` 移除 | **须改库** `SPOKE_PE` | 同左 | 409 引导 |
+| **IPv6 路由 inject** | **直连零差异**；网关场景 SID/64 `via` 择优 | 同左 | **§14.14.1** `resolveSid64Via`；`::/0` 不变 |
+| 列表展示 §14.15 | 显示 `S` | 显示 `H` + Hub 列 | 仅 UI |
+
+### 17.2 配置对账（重点）
+
+| 项 | 说明 |
+|----|------|
+| 原理 | 不变：`config_json` ≟ `merge(srv6BaselineJson, Σ alive injectedDelta)` |
+| Hub 增量 | 对账 **不单独写 Hub 规则**；只要 merge/recompute 正确，对账 **自动成立** |
+| P5 必做 | ① `srv6.scenarios` 增加 PE3 **A 过渡**（双 Spoke 同 RT）与 **B**（双 bgp 段）fixture；② `reconcile` 集成测试各 1 例 |
+| 漂移文案 | 已有中文描述；若 diff 含 `route_target`，提示「与隧道档案合并结果不一致」 |
+| 修复 | `repair: true` → 现有 `persistSrv6VrEffectiveConfig`（recompute） |
+
+### 17.3 不应影响 / 明确边界
+
+- **eject**：已废弃，对账/删除不依赖。  
+- **租户 / RBAC**：无变更。  
+- **IPsec / 其它 SDN**：无交叉。  
+- **完整多 RT**：未实现前，对账 **不** 按 §14.4.3③ 校验。
+
+### 17.4 回归清单（P5 合入前）
+
+- [ ] `npx jest src/routes/sdn/srv6` 全绿（含 Hub A/B scenario）  
+- [ ] R1/R2（S 类型 **直连场景零差异**）  
+- [ ] R-GW-1（本端配 IPv6 网关 → SID/64 `via` 为网关）  
+- [ ] R5 对账：Hub VR 人为漂移 → 扫描检出 → repair  
+
+---
+
+## 18. P5 完整开发计划（并行 · 2026-06-17 定稿）
+
+> **目标**：在 **baseline + 贡献 + recompute** 主链上交付真·Hub–Spoke（H1–H7），并落地 §14.14 IPv6 网关择优。  
+> **原则**：能并行的 **不同文件域** 同时开工；**同一文件的串行依赖** 在子任务内顺序做；合流前各流自带单测。
+
+### 18.1 工作流总览
+
+```mermaid
+flowchart LR
+  subgraph W0["WS-0 基础 P5.0"]
+    TYPES[srv6Tunnel.types]
+    ROLE[vrConfig set-role]
+    VAL[srv6.validation H/S]
+  end
+  subgraph WGW["WS-GW IPv6 P5-GW"]
+    VIA[resolveSid64Via]
+    ARCH[srv6Archive delta]
+    UI14[PEWizard 文案]
+  end
+  subgraph W1["WS-1 Hub 数据 P5.1"]
+    HB[hubBindings 档案]
+    CF[srv6.conflict Hub]
+    HUB[srv6.hub API]
+  end
+  subgraph W2["WS-2 Hub UI P5.2"]
+    WIZ[HUB_PE 向导]
+    CRT[Create Hub 向导]
+    LST[列表 §14.15]
+  end
+  subgraph W3["WS-3 Hub Merge P5.3"]
+    MG[srv6.merge A/B]
+    RC[srv6.recompute 删除]
+    SC[srv6.scenarios PE3]
+  end
+  subgraph W4["WS-4 集成 P5.4"]
+    LAB[测试机删建]
+    REG[R1–R7 + R-GW-1]
+  end
+  W0 --> W1
+  W0 --> W2
+  W1 --> W3
+  W2 --> W4
+  W3 --> W4
+  WGW --> W4
+  W0 -.->|类型契约| WGW
+```
+
+### 18.2 工作流明细
+
+#### WS-0 · P5.0 基础（串行优先，**第 1 周前半**）
+
+| 任务 ID | 内容 | 文件 | 产出 | 依赖 |
+|---------|------|------|------|------|
+| 0-1 | VR 角色枚举：`SPOKE_PE` / `HUB_PE`；`PE` → 409 | `vrConfig.ts`、实体/常量 | API + 单测 | — |
+| 0-2 | `tunnelTopology` `S`/`H` 校验；H 禁止双 Hub 槽位 | `srv6.validation.ts` | 409 中文 | 0-1 |
+| 0-3 | 类型扩展占位：`hubBindings`、`hubVrfMode`、`Srv6HubSlotBinding` | `srv6Tunnel.types.ts` | 类型合入 | 0-1 |
+| 0-4 | 前端角色下拉/校验对齐 | 路由、VR 列表、Create 端点选择 | 仅 `SPOKE_PE`/`HUB_PE` 可选 PE 槽 | 0-1 |
+
+**门禁**：`srv6.validation.test` 绿；手工 `set-role` 拒绝 `PE`。
+
+#### WS-GW · P5-GW IPv6（**与 WS-0 并行**，可第 1 天起）
+
+| 任务 ID | 内容 | 文件 | 产出 | 依赖 |
+|---------|------|------|------|------|
+| GW-1 | `extractWanIpv6Gateway(cfg)` + `resolveSid64Via(self, peer)` | `srv6Ipv6.ts` | **单元测试**（直连/网关/无 vrf 路由） | — |
+| GW-2 | 预览注入改用 `resolveSid64Via` | `Create.tsx` · `buildInjectedPeConfig` | 预览与现网直连 fixture 一致 | GW-1 |
+| GW-3 | 档案 `injectedDelta.ipv6Routes` 同源 | `srv6Archive.ts` · `buildPeInjectedDelta` | 与 GW-2 快照一致 | GW-1 |
+| GW-4 | §14.14.2 文案 | `PEWizard.tsx` | 标签改「IPv6 网关」「静态路由（WAN）」 | 可与 GW-1 并行 |
+
+**注意**：`injectIpv6RouteTop` **保留**；仅改传入的 `via` 参数来源。**不**改 `::/0` 分支。
+
+**门禁**：`srv6Ipv6` 单测绿；现有 `srv6.scenarios` / merge 用例 **直连 fixture 无 diff**。
+
+#### WS-1 · P5.1 Hub 数据层（**WS-0 合入后**，与 WS-2 并行）
+
+| 任务 ID | 内容 | 文件 | 产出 | 依赖 |
+|---------|------|------|------|------|
+| 1-1 | `hubBindings` / `hubVrfMode` 档案读写与校验 | `srv6.archive.ts`、POST/PUT | 400 缺字段 | 0-3 |
+| 1-2 | Blocking：`(hubPeUuid, peerPublicNeighbor)` | `srv6.conflict.ts` | R4 单测 | 1-1 |
+| 1-3 | Hub 口占用查询 API | `srv6.hub.ts`、路由挂载 | GET 占用表 | 0-1 |
+| 1-4 | `endpointFingerprint` Hub 扩展 | `srv6.archive.ts` | wanIf + neighbor | 1-1 |
+| 1-5 | VR 锁：Hub 仅锁已绑定 `wanIf` | `srv6.vrLock.ts` | 单测 | 1-1 |
+
+#### WS-2 · P5.2 Hub UI（**WS-0 合入后**，与 WS-1 并行）
+
+| 任务 ID | 内容 | 文件 | 产出 | 依赖 |
+|---------|------|------|------|------|
+| 2-1 | `HUB_PE` 角色向导：Locator、WAN/LAN inventory | 新/扩 `HUB_PE` wizard | 写基线 skeleton | 0-1 |
+| 2-2 | Create：拓扑 `H`、Hub 槽位、`hubVrfMode` §14.16 文案 | `Create.tsx` | 表单 + 校验 | 0-2、1-1（可 mock API） |
+| 2-3 | Hub 互联步骤：选 WAN/LAN、预览 | `Create.tsx` | 调 `buildTunnelArchive` | GW-3、2-2 |
+| 2-4 | 列表 §14.15：类型 H/S、Hub 列 | 隧道列表页 | UI | 0-2 |
+| 2-5 | Hub 口占用展示 | 接 `srv6.hub` | 防重复选口 | 1-3 |
+
+**过渡**：2-1 可先用 **手工填 `wanIf` 口名** 跳过完整 inventory（§15.4 风险缓解）。
+
+#### WS-3 · P5.3 Hub Merge（**WS-1 合入后**）
+
+| 任务 ID | 内容 | 文件 | 产出 | 依赖 |
+|---------|------|------|------|------|
+| 3-1 | `mergeRdRt` Hub **A 过渡**：共享 RT、非最后一条不删 RD/RT | `srv6.merge.ts` | 单测 | 1-1 |
+| 3-2 | `mergeRdRt` Hub **B**：每 Spoke 独立 `bgp[N]` | `srv6.merge.ts` | 单测 | 3-1 |
+| 3-3 | 删除 / recompute：§14.4.6 语义 | `srv6.recompute.ts`、`srv6.delete.ts` | H7 | 3-1 |
+| 3-4 | PE3 fixture：双 Spoke A + B | `srv6.scenarios.test.ts` | 自动化 H4–H5 | 3-2 |
+| 3-5 | `reconcile` Hub 集成测 | `srv6.reconcile` 测试 | R5 扩展 | 3-3 |
+
+#### WS-4 · P5.4 集成验收（**WS-2 + WS-3 + WS-GW 合流**）
+
+| 任务 ID | 内容 | 产出 |
+|---------|------|------|
+| 4-1 | 删 `test-20260508`；角色 Q-MIG-2 | **测试机手工**（不阻塞发版包） |
+| 4-2 | 建 H 型隧道 ×2（A 模式）+ S 型回归 | **测试机手工** H1–H7、R1/R2 |
+| 4-3 | R-GW-1：Spoke 配 IPv6 网关后建 S 隧道 | **测试机手工**；`srv6Ipv6.test.ts` 已覆盖 |
+| 4-4 | 更新 `testcases.md`、`srv6-release-notes.md` | **已完成** |
+| 4-5 | `jest` + `tsc` 全绿 | **G3**（发版前必跑） |
+
+### 18.3 并行分工建议（2 人示例）
+
+| 开发者 | 主线 | 并行辅线 |
+|--------|------|----------|
+| **A · 后端** | WS-0 → WS-1 → WS-3 | — |
+| **B · 前端** | WS-GW（尽早合入）→ WS-2 | GW-4 与 GW-1 并行 |
+| **合流日** | D+0：WS-0 类型 PR；D+2：WS-GW PR；D+5：WS-1+WS-2；D+10：WS-3；D+12：WS-4 |
+
+单人实施顺序：**0 → GW → 1 → 2 → 3 → 4**（GW 与 0 交错：先 0-3 类型，立刻 GW-1～3，再 1）。
+
+### 18.4 PR 切分建议（便于 Review）
+
+| PR | 范围 | 可合并时机 |
+|----|------|------------|
+| **PR-1** | P5.0 角色 + 校验 + 类型 | 独立合入 |
+| **PR-2** | P5-GW `srv6Ipv6` + Create/Archive + PEWizard 文案 | 独立合入（仅 touch 前端 srv6 子树） |
+| **PR-3** | P5.1 Hub 档案 + conflict + hub API + vrLock | 依赖 PR-1 |
+| **PR-4** | P5.2 Hub UI（可拆 PR-4a 向导 / PR-4b Create） | 依赖 PR-1；预览依赖 PR-2 |
+| **PR-5** | P5.3 merge/recompute/scenarios | 依赖 PR-3 |
+| **PR-6** | 测试机验收 + testcases + release notes | 最后 |
+
+### 18.5 不在此计划内（Post-P5）
+
+- §14.4.7 多 `route_target` 字符串 merge  
+- Hub 省略 SID/64 下发  
+- 历史 `PE` 角色 / 旧隧道自动迁移  
+- 设备侧自动 push（仍走进下发向导）
+
+### 18.6 完成定义（DoD）
+
+1. §14.5 **H1–H7** 自动化或手工清单全绿。  
+2. S 类型 **直连** R1/R2 与 P4 行为一致（git diff 仅 `via` 解析函数路径）。  
+3. R-GW-1 通过。  
+4. `config_json` ≟ merge(baseline, Σcontrib) 对 Hub PE3 场景成立。  
+5. `backend` jest + `frontend` 相关单测 + `tsc` 无新增错误。
+
+| 编号 | 项 | 状态 |
+|------|-----|------|
+| **Q-CSM-1 / §14.4.7** | 设备+CSM 支持空格多 `route_target`；Tower merge 并集/减集；H5 完整版 | **Post-P5** |
+| **Q-RT-LIM** | 多 RT 条数上限、位数规则全文 | 随 CSM 修复一并提供 |
+| **Hub SID 冗余** | Hub 是否可省略 SID/64 | **后续评估**（当前保留下发） |
+
+§14.12 其余项 **均已闭合**。
 
 ---
 
@@ -516,3 +1148,7 @@ type Srv6RdRtMetaV2 = {
 |------|------|
 | 2026-06 | P1–P4 落地；PUT 冲突检测顺序修复；用户可见文案中文化；testcases 归档 |
 | 2026-06 | **§14 真·Hub PE 遗留规划**；§6.3 明确当前仅支持四端单会话组网 |
+| 2026-06 | **§14.4 详述 RD/RT 确认项**；**§14.12 一次性确认清单**；取消 `PE` 角色别名 |
+| 2026-06-17 | **第三轮闭合**：§14.4.6 A 过渡（共享 RT）；§14.16 UI；§17 四端/对账影响复核 |
+| 2026-06-17 | **§14.14 澄清**：仅 UI 文案（IPv6 网关 / 静态路由 WAN）；**保持** SID/64 `via`、`::/0` + `nexthop-vrf 0`；S 类型 **零行为**、**无** 单独 R1/R2 |
+| 2026-06-17 | **第四轮闭合**：§14.14.1 SID/64 `via` 择优（网关 / 对端 IPv6）；§18 并行开发计划；Q-GW-1 最终定稿 |

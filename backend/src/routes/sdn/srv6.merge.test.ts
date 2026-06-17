@@ -123,4 +123,106 @@ describe('srv6.merge', () => {
       { remote_ip: '101.1.1.1', remote_as: 105 },
     ]);
   });
+
+  describe('P5.3 Hub merge', () => {
+    const pe3HubBaseline = {
+      bgp: [
+        { vrf: 0, asn: 430, router_id: '203.100.100.33', address_family: [] },
+        {
+          vrf: 7777,
+          asn: 106,
+          router_id: '102.1.1.33',
+          address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }],
+        },
+      ],
+    };
+
+    const pe22HubContrib: Srv6EndpointInjectedDelta = {
+      neighbors: [
+        { bgpIndex: 0, remote_ip: '203::22', remote_as: 430 },
+        { bgpIndex: 1, remote_ip: '102.1.1.22', remote_as: 122 },
+      ],
+      activateAddressFamily: [{ bgpIndex: 0, peerIp: '203::22' }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::22' }],
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '200:12851', route_target: '200:40988' }],
+    };
+
+    const pe2HubContribReuse: Srv6EndpointInjectedDelta = {
+      neighbors: [
+        { bgpIndex: 0, remote_ip: '203::44', remote_as: 440 },
+        { bgpIndex: 1, remote_ip: '102.1.1.22', remote_as: 122 },
+      ],
+      activateAddressFamily: [{ bgpIndex: 0, peerIp: '203::44' }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::44' }],
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '200:99999', route_target: '200:40944' }],
+    };
+
+    const packHub = (delta: Srv6EndpointInjectedDelta, mode: 'REUSE_VRF' | 'DEDICATED_VRF') => ({
+      delta,
+      isHubPeSlot: true,
+      hubVrfMode: mode,
+    });
+
+    it('H4/H5 REUSE_VRF: second spoke does not overwrite RD/RT on same vrf bgpIndex', () => {
+      const merged = mergeBaselineWithContributions(pe3HubBaseline, [
+        packHub(pe22HubContrib, 'REUSE_VRF'),
+        packHub(pe2HubContribReuse, 'REUSE_VRF'),
+      ]);
+      const pub = (merged.bgp as Record<string, unknown>[])[0];
+      expect((pub.neighbor as unknown[]).length).toBe(2);
+      const inner = (merged.bgp as Record<string, unknown>[])[1];
+      const uniAf = (inner.address_family as Record<string, unknown>[]).find(
+        (af) => af.modifiler === 'unicast',
+      );
+      expect(uniAf?.route_distinguisher).toBe('200:12851');
+      expect(uniAf?.route_target).toBe('200:40988');
+      expect((inner.neighbor as unknown[]).length).toBe(1);
+    });
+
+    it('H7 REUSE_VRF: delete second spoke keeps first RD/RT', () => {
+      const afterDeleteT2 = mergeBaselineWithContributions(pe3HubBaseline, [
+        packHub(pe22HubContrib, 'REUSE_VRF'),
+      ]);
+      const pub = (afterDeleteT2.bgp as Record<string, unknown>[])[0];
+      expect(pub.neighbor).toEqual([{ remote_ip: '203::22', remote_as: 430 }]);
+      const inner = (afterDeleteT2.bgp as Record<string, unknown>[])[1];
+      const uniAf = (inner.address_family as Record<string, unknown>[])[0];
+      expect(uniAf.route_distinguisher).toBe('200:12851');
+      expect(uniAf.route_target).toBe('200:40988');
+    });
+
+    it('DEDICATED_VRF: each spoke owns independent bgp segment RD/RT', () => {
+      const pe2Dedicated: Srv6EndpointInjectedDelta = {
+        neighbors: [{ bgpIndex: 0, remote_ip: '203::44', remote_as: 440 }],
+        rdRt: [{ bgpIndex: 2, route_distinguisher: '200:20002', route_target: '200:40944' }],
+      };
+      const baselineDedicated = {
+        bgp: [
+          { vrf: 0, asn: 430, address_family: [] },
+          {
+            vrf: 7777,
+            asn: 106,
+            address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }],
+          },
+          {
+            vrf: 8888,
+            asn: 107,
+            address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }],
+          },
+        ],
+      };
+      const merged = mergeBaselineWithContributions(baselineDedicated, [
+        packHub(pe22HubContrib, 'DEDICATED_VRF'),
+        packHub(pe2Dedicated, 'DEDICATED_VRF'),
+      ]);
+      const inner1 = (merged.bgp as Record<string, unknown>[])[1];
+      const inner2 = (merged.bgp as Record<string, unknown>[])[2];
+      expect(
+        (inner1.address_family as Record<string, unknown>[])[0].route_target,
+      ).toBe('200:40988');
+      expect(
+        (inner2.address_family as Record<string, unknown>[])[0].route_target,
+      ).toBe('200:40944');
+    });
+  });
 });

@@ -1,15 +1,23 @@
 import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
-import type { Srv6EndpointFingerprint, Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import type {
+  Srv6EndpointFingerprint,
+  Srv6EndpointSlot,
+  Srv6HubSlotBinding,
+  Srv6HubVrfMode,
+  Srv6TunnelTopology,
+} from '../../entities/vRouter/srv6Tunnel.types';
 import { parseSrv6Baseline } from './srv6.baseline';
 import {
   detectContributionConflicts,
   formatSrv6ContributionConflicts,
+  pickPrimaryConflicts,
   type Srv6ContributionConflict,
   type Srv6InnerIfMeta,
 } from './srv6.conflict';
 import { listAliveContributionsForVr } from './srv6.recompute';
+import { normalizeVrRole } from './srv6.roles';
 
 const tunnelRepo = () => AppDataSource.getRepository(SRv6Tunnel);
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
@@ -21,17 +29,36 @@ export type Srv6HubTunnelRef = {
   peAInnerIf?: string | null;
   peBInnerIf?: string | null;
   innerIfMeta?: Srv6InnerIfMeta;
+  tunnelTopology?: Srv6TunnelTopology | null;
+  hubPeSlot?: 'peA' | 'peB' | null;
+  hubVrfMode?: Srv6HubVrfMode | null;
+  hubBindings?: Srv6HubSlotBinding | null;
+};
+
+export type Srv6HubPortRegistryEntry = {
+  tunnelId: string;
+  tunnelName: string;
+  hubPeSlot: 'peA' | 'peB';
+  wanIf: string;
+  lanIf?: string;
+  peerPublicNeighbor: string;
+  spokePeUuid: string;
+  hubVrfMode?: Srv6HubVrfMode | null;
 };
 
 export type Srv6HubVrStatus = {
   vrUuid: string;
   tunnelCount: number;
   isHub: boolean;
+  role?: string | null;
   tunnels: Srv6HubTunnelRef[];
+  portRegistry: Srv6HubPortRegistryEntry[];
 };
 
 const slotLabel = (slot: Srv6EndpointSlot) =>
   ({ peA: 'PE-A', peB: 'PE-B', ceA: 'CE-A', ceB: 'CE-B' } as const)[slot];
+
+const normIp = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
 
 const innerIfForSlot = (tunnel: SRv6Tunnel, slot: Srv6EndpointSlot): string | null | undefined => {
   if (slot === 'peA') return tunnel.peAInnerIf;
@@ -44,11 +71,84 @@ const peInnerVrfFromFingerprint = (
   slot: 'peA' | 'peB',
 ): string | number | null | undefined => fp?.[slot]?.innerVrf;
 
-/** P3：列出引用该 VR 的存活隧道（含槽位与内网口元数据） */
+export const isHubTunnel = (tunnel: Pick<SRv6Tunnel, 'tunnelTopology'>): boolean =>
+  tunnel.tunnelTopology === 'H';
+
+export const getHubPeUuid = (tunnel: Pick<SRv6Tunnel, 'hubPeSlot' | 'peA' | 'peB'>): string | null => {
+  if (tunnel.hubPeSlot === 'peA') return tunnel.peA;
+  if (tunnel.hubPeSlot === 'peB') return tunnel.peB;
+  return null;
+};
+
+/** C-H1 · Blocking：(hubPeUuid, peerPublicNeighbor) 唯一（纯函数，便于单测） */
+export const findHubBlockingConflictAmong = (
+  tunnel: Pick<SRv6Tunnel, 'id' | 'tunnelTopology' | 'hubBindings'>,
+  others: Array<Pick<SRv6Tunnel, 'id' | 'name' | 'tunnelTopology' | 'hubBindings'>>,
+  excludeTunnelId?: string,
+): Srv6ContributionConflict | null => {
+  if (!isHubTunnel(tunnel) || !tunnel.hubBindings?.peerPublicNeighbor) return null;
+  const { hubPeUuid, peerPublicNeighbor } = tunnel.hubBindings;
+  for (const t of others) {
+    if (excludeTunnelId && t.id === excludeTunnelId) continue;
+    if (tunnel.id && t.id === tunnel.id) continue;
+    if (!isHubTunnel(t) || !t.hubBindings) continue;
+    if (normIp(t.hubBindings.hubPeUuid) !== normIp(hubPeUuid)) continue;
+    if (normIp(t.hubBindings.peerPublicNeighbor) === normIp(peerPublicNeighbor)) {
+      return {
+        code: 'C-H1',
+        message: `公网 BGP 邻居 ${peerPublicNeighbor} 已在 Hub 设备上被隧道「${t.name}」使用`,
+        tunnelId: t.id,
+        tunnelName: t.name,
+      };
+    }
+  }
+  return null;
+};
+
+export const findHubBlockingConflict = async (
+  tunnel: Pick<SRv6Tunnel, 'id' | 'tunnelTopology' | 'hubBindings'>,
+  excludeTunnelId?: string,
+): Promise<Srv6ContributionConflict | null> => {
+  const all = await tunnelRepo().find();
+  return findHubBlockingConflictAmong(tunnel, all, excludeTunnelId);
+};
+
+export const buildHubPortRegistryFromTunnels = (
+  vrUuid: string,
+  tunnels: Array<Pick<SRv6Tunnel, 'id' | 'name' | 'tunnelTopology' | 'hubBindings' | 'hubVrfMode'>>,
+): Srv6HubPortRegistryEntry[] => {
+  const id = String(vrUuid || '').trim();
+  if (!id) return [];
+  const entries: Srv6HubPortRegistryEntry[] = [];
+  for (const t of tunnels) {
+    if (!isHubTunnel(t) || !t.hubBindings) continue;
+    if (normIp(t.hubBindings.hubPeUuid) !== normIp(id)) continue;
+    entries.push({
+      tunnelId: t.id,
+      tunnelName: t.name,
+      hubPeSlot: t.hubBindings.hubPeSlot,
+      wanIf: t.hubBindings.wanIf,
+      lanIf: t.hubBindings.lanIf,
+      peerPublicNeighbor: t.hubBindings.peerPublicNeighbor,
+      spokePeUuid: t.hubBindings.spokePeUuid,
+      hubVrfMode: t.hubVrfMode ?? undefined,
+    });
+  }
+  return entries;
+};
+
+/** 聚合 Hub PE 口占用表（按 hubBindings.hubPeUuid） */
+export const buildHubPortRegistryForVr = async (vrUuid: string): Promise<Srv6HubPortRegistryEntry[]> => {
+  const all = await tunnelRepo().find();
+  return buildHubPortRegistryFromTunnels(vrUuid, all);
+};
+
+/** P3/P5：列出引用该 VR 的存活隧道（含槽位与 Hub 档案摘要） */
 export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrStatus> => {
   const id = String(vrUuid || '').trim();
   const contribs = await listAliveContributionsForVr(id);
   const tunnels: Srv6HubTunnelRef[] = [];
+  const vrRow = await vrRepo().findOne({ where: { uuid: id } });
 
   for (const c of contribs) {
     const tunnel = await tunnelRepo().findOne({ where: { id: c.tunnelId } });
@@ -68,14 +168,23 @@ export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrSta
         c.slot === 'peA' || c.slot === 'peB'
           ? { innerIf: innerIf ?? undefined, innerVrf }
           : undefined,
+      tunnelTopology: tunnel.tunnelTopology ?? undefined,
+      hubPeSlot: tunnel.hubPeSlot ?? undefined,
+      hubVrfMode: tunnel.hubVrfMode ?? undefined,
+      hubBindings: tunnel.hubBindings ?? undefined,
     });
   }
+
+  const portRegistry = await buildHubPortRegistryForVr(id);
+  const role = vrRow?.role ?? null;
 
   return {
     vrUuid: id,
     tunnelCount: tunnels.length,
-    isHub: tunnels.length > 1,
+    isHub: normalizeVrRole(role) === 'HUB_PE' || portRegistry.length > 0,
+    role,
     tunnels,
+    portRegistry,
   };
 };
 
@@ -96,11 +205,22 @@ const buildExistingInnerIfMetas = async (
     }));
 };
 
-/** 创建/更新隧道前：四端贡献冲突检测 */
+const isHubPeSlotForTunnel = (tunnel: SRv6Tunnel, slot: Srv6EndpointSlot): boolean =>
+  isHubTunnel(tunnel) && tunnel.hubPeSlot === slot;
+
+/** 创建/更新隧道前：Hub Blocking + 四端贡献冲突检测 */
 export const assertNoSrv6ContributionConflictsForTunnel = async (
   tunnel: SRv6Tunnel,
   options?: { excludeTunnelId?: string },
 ): Promise<void> => {
+  const blocking = await findHubBlockingConflict(tunnel, options?.excludeTunnelId ?? tunnel.id);
+  if (blocking) {
+    const err = new Error(formatSrv6ContributionConflicts([blocking]));
+    (err as Error & { statusCode: number; conflicts: Srv6ContributionConflict[] }).statusCode = 409;
+    (err as Error & { conflicts: Srv6ContributionConflict[] }).conflicts = [blocking];
+    throw err;
+  }
+
   const delta = tunnel.injectedDelta;
   if (!delta || typeof delta !== 'object') return;
 
@@ -149,9 +269,13 @@ export const assertNoSrv6ContributionConflictsForTunnel = async (
       options?.excludeTunnelId ?? tunnel.id,
     );
 
+    const hubPeSlot = isHubPeSlotForTunnel(tunnel, slot);
+
     const conflicts = detectContributionConflicts(newContrib, existing, baseline, {
       innerIfMeta,
       existingInnerIfMetas,
+      hubPeSlot,
+      hubVrfMode: hubPeSlot ? tunnel.hubVrfMode ?? undefined : undefined,
     });
 
     for (const c of conflicts) {
@@ -162,10 +286,11 @@ export const assertNoSrv6ContributionConflictsForTunnel = async (
     }
   }
 
-  if (allConflicts.length) {
-    const err = new Error(formatSrv6ContributionConflicts(allConflicts));
+  const primary = pickPrimaryConflicts(allConflicts, isHubTunnel(tunnel));
+  if (primary.length) {
+    const err = new Error(formatSrv6ContributionConflicts(primary));
     (err as Error & { statusCode: number; conflicts: Srv6ContributionConflict[] }).statusCode = 409;
-    (err as Error & { conflicts: Srv6ContributionConflict[] }).conflicts = allConflicts;
+    (err as Error & { conflicts: Srv6ContributionConflict[] }).conflicts = primary;
     throw err;
   }
 };

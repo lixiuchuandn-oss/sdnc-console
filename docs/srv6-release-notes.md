@@ -1,6 +1,6 @@
-# SRv6 隧道 · 发版说明（baseline + 贡献 + recompute）
+# SRv6 隧道 · 发版说明（baseline + 贡献 + recompute + P5 Hub）
 
-> **功能批次**：SRv6 配置管理架构升级（P1–P4）  
+> **功能批次**：SRv6 配置管理架构升级（**P1–P5**，不含 Post-P5 多 RT 空格串）  
 > **实现方案（详细）**：[`docs/srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)  
 > **冒烟用例**：[`frontend/src/pages/sdncc/interconnect/srv6/testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)  
 > **建议平台版本**：与下一 PATCH 发版对齐（发版时同步 bump `backend/package.json` 与 `frontend/package.json` 的 `version`）
@@ -9,169 +9,137 @@
 
 ## 摘要
 
-本次升级将 SRv6 隧道四端配置管理从「前端写库 + 删除 eject」改为 **「向导基线 + 隧道贡献 + 服务端重算」**。支持 **标准四端 CE-A↔PE-A↔PE-B↔CE-B 单隧道**、创建前 **冲突拒绝**、**配置对账与修复**，并统一 **中文错误提示**。  
-**不兼容**无关系档案/无基线的历史隧道之自动删除回退，需按文档人工处理。  
-**真·Hub PE 组网（同一 Hub PE 承载多条 Spoke 隧道）当前不支持**，完整方案与验收口径见实现方案 **§14**（P5 遗留）。
+SRv6 四端配置管理采用 **「向导基线 + 隧道贡献 + 服务端重算」**。**P5** 交付 **真·Hub PE 组网**（`HUB_PE` / `SPOKE_PE`、Hub 档案、C-H1 Blocking、merge/recompute Hub 分支、创建向导 Hub 互联 UI、§14.14.1 SID/64 `via` 择优）。
+
+**不兼容**：无关系档案/无基线的历史隧道自动回退；库内 `role=PE` 的 VR **不自动迁移**。  
+**Post-P5 遗留**：设备/CSM 支持空格多 `route_target` 后的完整多 RT merge（§14.4.7）。
 
 ---
 
-## 新能力
+## P5 新能力（相对 P1–P4）
 
-### 平台配置三层模型
+### 角色与拓扑
 
-- **向导基线**（`VRConfig.srv6BaselineJson`）：VR 首次参与 SRv6 时的快照。  
-- **隧道贡献**（`SRv6Tunnel.injectedDelta` 等档案）：每条隧道对四端的结构化增量。  
-- **平台生效配置**（`VRConfig.config_json`）：`merge(基线, Σ存活贡献)`，由服务端在创建/更新/删除后自动重算。
+- VR 角色：**`SPOKE_PE`**（分支）、**`HUB_PE`**（中心）；**取消 `PE` 枚举**。
+- 隧道拓扑：**S** Spoke 点对点（双 SPOKE_PE）；**H** Hub–Spoke（恰一 HUB_PE + 一 SPOKE_PE）。
 
-### Hub 多隧道（**有限范围**）
+### Hub 档案与 API
 
-- 代码含 Hub API、冲突检测与创建页 Hub 提示，语义为 **同 VR 多隧道预研**（字段级互斥）。  
-- **当前发版范围**：**CE-A↔PE-A↔PE-B↔CE-B** 标准四端单会话；**不支持**同一 Hub PE/CE 对多个 Spoke 再建隧道（如 PE3 同时接 PE22 与 PE2）。  
-- 真 Hub 目标行为、改造清单与 **H1–H7 验收规格**见 [`srv6-baseline-recompute.md` §14](./srv6-baseline-recompute.md#14-遗留事项真hub-pe-组网p5-规划未实现)。
+- 隧道字段：`tunnelTopology`、`hubPeSlot`、`hubBindings`、`hubVrfMode`。
+- `GET /api/networks/srv6/vr/:vrUuid/hub`：引用隧道 + **`portRegistry`** 口占用表。
+- 冲突 **C-H1**：`(hubPeUuid, peerPublicNeighbor)` Blocking；409 优先单条主因（H6）。
 
-### 配置对账
+### Merge / Recompute（§14.4.6）
 
-- 列表页 **「配置对账」**：扫描平台生效配置是否与「基线 + 存活隧道叠加」一致。  
-- 支持 **扫描并修复**（recompute 写回 / 零隧道基线对齐）。  
-- 操作写入 **审计日志**（`SRv6 Reconcile`、`SRv6 Baseline Reset` 等）。
+| 模式 | 行为 |
+|------|------|
+| **`REUSE_VRF`（路线 A · 当前阶段）** | 同 VRF `bgpIndex`：**首条**确立 RD/RT，后续 Spoke **不覆盖**；删非最后一条 **不动** RD/RT |
+| **`DEDICATED_VRF`（路线 B）** | 每 Spoke 独立 `bgp[N]` + RD/RT |
 
-### VR 配置保护
+### 前端
 
-- 已被存活隧道引用的 VR，**关键指纹字段**（公网 IP/ASN、SID 前缀、内网口/VRF 等）不可通过角色配置向导修改（409）。  
-- 有存活隧道时，VR upsert **强制 recompute**，避免手改破坏恒等式。
-
-### 新增/扩展 HTTP API
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/networks/srv6/vr/:vrUuid/hub` | Hub 状态与引用隧道 |
-| GET | `/api/networks/srv6/reconcile` | 对账扫描（可选 `vrUuid`） |
-| POST | `/api/networks/srv6/reconcile` | 对账；body `{ repair?, vrUuid? }` |
-| POST | `/api/networks/srv6/vr/:vrUuid/baseline/reset` | 零隧道时手动基线重置 |
-
-既有隧道 CRUD、deploy preview/push 行为路径不变；**创建/更新/删除语义**见下文「行为变更」。
+- 创建向导：**Hub 互联**（WAN/LAN、客户侧网络文案 §14.16）、拓扑/Hub 列表列。
+- **`resolveSid64Via`**：本端 WAN 有 IPv6 网关时用网关，否则对端公网 IPv6（R-GW-1）。
+- PE 向导：URL `?peRole=HUB_PE`；文案「IPv6 网关」「静态路由（WAN）」。
 
 ---
 
-## 行为变更（相对旧版）
+## 仍支持的能力（P1–P4）
 
-| 场景 | 旧行为 | 新行为 |
-|------|--------|--------|
-| 创建隧道成功 | 前端可能对四端 `saveVRConfig` 直写 | **仅服务端** capture 基线 + sync 四端；前端只提示进入下发向导 |
-| 删除隧道（默认） | 主路径 eject 逐项删 | **recompute**（exclude 本隧道）写回平台库；可选 push 设备 |
-| 更新隧道 | 可能先落库再失败 | **先冲突检测再 save**；通过后 sync 四端 |
-| Hub PE 第二隧道 | 易冲突或 silent 覆盖 | **标准四端单隧道**可 409；**真 Hub（同 PE 多 Spoke）未支持** — 见 §14 |
-| 保存被引用 VR 配置 | 可能直接覆盖 | 有隧道时 **忽略手改** 并 recompute；改指纹 **409** |
-| 错误文案 | 含 `injectedDelta`、`config_json`、规则码等 | **中文业务描述**；UI 不展示内部 code |
+- 向导基线、隧道贡献、平台生效配置恒等式、配置对账、VR 指纹锁。
+- Spoke 点对点 **直连**场景与 P4 **零行为差异**（R1/R2 回归）。
+- 四端下发向导（preview/push）路径不变。
 
 ---
 
-## 兼容性说明（重要）
+## 行为变更（相对 P1–P4 发版）
 
-### 历史隧道
+| 场景 | P1–P4 | P5 |
+|------|-------|-----|
+| Hub 第二隧道 | 409 误报 / 跳过验收 | H 型 + REUSE/DEDICATED 可创建（H1–H3） |
+| 重复 Hub 公网 neighbor | 多条冲突 | **C-H1** 单条 409 |
+| 同 Hub 同 VRF 第二 RT | 后者覆盖前者 | REUSE：**保留首条 RT** |
+| SID/64 `via` | 始终对端公网 IPv6 | 本端有 WAN 网关时 **择优**（R-GW-1） |
+| VR 角色 | 曾用 `PE` | 须 **SPOKE_PE / HUB_PE** |
 
-以下情况 **不支持** 自动「回退平台库」删除：
+---
 
-- 缺少 `injectedDelta`（创建时配置变更清单）  
-- 四端 VR 缺少 `srv6BaselineJson`（向导基线）
+## 兼容性说明
 
-接口返回 **400/409**，提示：
+### 历史隧道 / 角色
 
-- 取消勾选「回退平台库」**仅删除隧道记录**；或  
-- 使用 **「配置对账」**；或  
-- 管理员在四端 VR **手工还原**。
+- 无 `injectedDelta` / 无 `srv6BaselineJson`：删除回退 **400/409**，引导对账或手工处理。
+- **`role=PE`**：创建/更新隧道 **409**；须在 VR 页改为 SPOKE_PE 或 HUB_PE（Q-MIG-2）。
 
-**不做**旧数据自动补档案/补基线。
+### 测试机 10.21.49.59
 
-### 真·Hub PE（已知限制）
-
-| 项 | 说明 |
-|----|------|
-| **不支持** | 同一 Hub PE（如 PE3）在已有 Spoke 隧道（PE22↔PE3）上再建 **PE2↔PE3** 等真 Hub 场景 |
-| **原因** | 当前为 **1 WAN + 1 LAN** 模型、字段级冲突与单 RT/段 merge；与 Hub 口绑定、RD 复用 + RT 分隧道语义不符 |
-| **误报** | 真 Hub 尝试可能 409 多条冲突（neighbor、RD/RT、内网口+VRF、::/0 等） |
-| **下步** | P5 按 [`srv6-baseline-recompute.md` §14](./srv6-baseline-recompute.md#14-遗留事项真hub-pe-组网p5-规划未实现) 实施；验收 **H1–H7** |
+- **发版包验收不依赖**对该环境的批量删改；H1–H7、R3/R4、R-GW-1 见 `testcases.md` **手工清单**，由运维择机执行。
+- 清理项（如删 `test-20260508`）**非代码仓阻塞项**。
 
 ### 数据库
 
-- 新增列：`VRConfig.srv6BaselineJson`、`srv6BaselineAt`、`srv6BaselineTunnelId`（`DB_SYNC=true` 时 TypeORM 自动同步 SQLite schema）。  
-- 生产若使用 PostgreSQL/MySQL，须确保迁移/同步已执行后再启用本批次。
-
-### 下发设备
-
-- 平台库重算 **不会** 自动 push 设备；运维仍须走 **下发向导**（与 IPsec 一致）。  
-- 删除时若勾选回退设备，行为与旧版类似（读库后 push），但库内内容来自 **recompute** 而非 eject。
+- P5 新增列：`SRv6Tunnel.tunnelTopology`、`hubPeSlot`、`hubBindings`、`hubVrfMode`（`DB_SYNC=true` 时 SQLite 自动同步）。
 
 ---
 
-## 前端变更摘要
+## 本地自动化签收（WS-4 / G3 · 必跑）
 
-| 页面 | 变更 |
-|------|------|
-| SRv6 创建向导 | Hub 提示；保存成功/失败中文 toast；去掉创建后四端直写 VR |
-| SRv6 列表 | Hub 标签；**配置对账**弹窗（仅展示中文问题描述） |
-| 下发向导 | 文案「推送到设备」（不再对用户展示 CSMctl） |
+```bash
+cd backend && npx tsc --noEmit
+cd backend && npx jest src/routes/sdn/srv6
+cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6
+```
 
----
-
-## 后端变更摘要
-
-- 新增模块：`srv6.baseline`、`merge`、`recompute`、`sync`、`conflict`、`hub`、`reconcile`、`audit` 等（见实现方案 §9）。  
-- `srv6.eject.ts` 标记 deprecated，**勿在新流程使用**。  
-- `vrConfig.ts` upsert 集成 SRv6 recompute 与 `srv6.vrLock`。  
-- 单测：`backend/src/routes/sdn/srv6*.test.ts`，共 **48** 条（含 `scenarios.test.ts` 场景矩阵）。
+| 套件 | 规模（当前） |
+|------|----------------|
+| `backend/src/routes/sdn/srv6*.test.ts` | **74** tests / 10 suites |
+| `frontend/src/pages/sdncc/ibr/srv6/*.test.ts` | **10** tests / 2 suites |
 
 ---
 
 ## 升级与发版步骤（运维）
 
-1. **停写或维护窗口**（可选）：避免升级过程中并发创建/删除隧道。  
-2. 部署 **后端**（含 DB schema 同步）+ **前端** 同一发版单元；`version` 建议 PATCH bump 并打 Git tag。  
-3. 升级后打开 SRv6 列表 → **配置对账 → 重新扫描**，处理 `INVARIANT_DRIFT` / `ORPHAN_BASELINE_DRIFT`（必要时「扫描并修复」）。  
-4. 对 **历史隧道** 台账：标记无档案隧道，规划删除或重建。  
-5. 按 [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) 执行 **R1–R2、R5–R7** 冒烟（**R3/R4 当前跳过**，见用例说明）。  
-6. 在 **审计日志** 中确认新 action：`SRv6 Create/Update/Delete Tunnel`、`SRv6 Reconcile`、`SRv6 Baseline Reset`。
-
----
-
-## 回滚建议
-
-| 层级 | 说明 |
-|------|------|
-| **应用回滚** | 回退至上一版本前后端包；平台库中已写入的基线/档案字段 **保留**（一般无害） |
-| **数据** | 不建议删除 `srv6BaselineJson` 列；回滚后新架构字段可能被旧代码忽略 |
-| **设备** | 若已 push 新配置，回滚应用 **不能** 自动还原设备；需按备份或手工下发 |
+1. 部署前后端同一 PATCH；确认 DB schema 含 P5 列。  
+2. SRv6 列表 → **配置对账** 全量扫描。  
+3. 台账：`role=PE` VR、无档案历史隧道。  
+4. 本地/CI 自动化签收通过后，在测试机按 `testcases.md` **手工**执行 R1–R2、R-GW-1、R3/R4（H1–H6）、R5–R7。  
+5. 审计：Create/Update/Delete、Reconcile、Baseline Reset。
 
 ---
 
 ## 验证清单（发版签收）
 
-- [ ] `npx jest src/routes/sdn/srv6` 全绿  
-- [ ] R1 新隧道创建 + 四端生效配置正确  
-- [ ] R2 删除回退至基线（PE22 类）  
-- [ ] R5 对账扫描/修复 + 审计有记录  
-- [ ] R6 改 WAN 指纹 → VR 保存 409  
-- [ ] R7 删最后一条隧道 → 基线对齐  
-- [ ] 历史无档案隧道删除 → 400 中文引导（负向）  
-- [ ] （P5 后）R3/R4 或 H1–H7 真 Hub 验收 — **当前发版不勾选**
+### 代码仓（已完成 WS-0～WS-3 + WS-4 自动化）
+
+- [x] `npx tsc --noEmit`（backend）
+- [x] `npx jest src/routes/sdn/srv6` 全绿（74）
+- [x] 前端 `srv6Ipv6` + `srv6Archive` 单测（10）
+- [x] P5 场景：`scenarios` PE3、`merge` REUSE/DEDICATED、`hub` C-H1
+
+### 测试机（手工 · 不阻塞发版包合入）
+
+- [ ] R1/R2 Spoke 回归  
+- [ ] R-GW-1  
+- [ ] R3/R4（H1–H3、H6）  
+- [ ] H4/H5/H7 Hub REUSE 删建  
+- [ ] R5–R7、R6 Hub wanIf 锁  
 
 ---
 
-## 相关文档索引
+## 相关文档
 
 | 文档 | 路径 |
 |------|------|
-| 实现方案（本文详细版） | `docs/srv6-baseline-recompute.md`（**§14 真 Hub 遗留**） |
-| 发版说明（本文） | `docs/srv6-release-notes.md` |
-| 冒烟用例 | `frontend/src/pages/sdncc/interconnect/srv6/testcases.md` |
-| API 总索引 | `AGENTS.md` |
-| 后端落点 | `backend/src/STRUCTURE.md` |
+| 实现方案 | `docs/srv6-baseline-recompute.md`（§14–§18） |
+| 冒烟用例 | `frontend/.../interconnect/srv6/testcases.md` |
+| API 索引 | `AGENTS.md` |
 
 ---
 
 ## 修订记录
 
-| 日期 | 版本/批次 | 说明 |
-|------|-----------|------|
-| 2026-06 | SRv6 P1–P4 | 初版发版说明与实现方案归档 |
-| 2026-06 | — | 明确 **不支持真 Hub PE**；§14 遗留规划与 H1–H7 验收口径 |
+| 日期 | 批次 | 说明 |
+|------|------|------|
+| 2026-06 | P1–P4 | 初版发版说明 |
+| 2026-06 | P5 方案 | §14–§15 定稿；角色 HUB_PE/SPOKE_PE |
+| 2026-06-17 | **P5 代码合入 + WS-4** | Hub 档案/UI/merge/单测；测试机手工清单；**不动 10.21.49.59 现网** |

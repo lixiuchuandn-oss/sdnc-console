@@ -22,4 +22,36 @@ describe('srv6.reconcile', () => {
     const drifted = { ...expected, extra: true };
     expect(jsonEqual(drifted, expected)).toBe(false);
   });
+
+  it('Hub REUSE merge invariant matches recompute shape', () => {
+    const baseline = {
+      bgp: [
+        { vrf: 0, asn: 430, address_family: [] },
+        { vrf: 7777, asn: 106, address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }] },
+      ],
+    };
+    const c1 = {
+      delta: {
+        neighbors: [{ bgpIndex: 0, remote_ip: '203::22', remote_as: 430 }],
+        rdRt: [{ bgpIndex: 1, route_distinguisher: '200:1', route_target: '200:100' }],
+      },
+      isHubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF' as const,
+    };
+    const c2 = {
+      delta: {
+        neighbors: [{ bgpIndex: 0, remote_ip: '203::44', remote_as: 440 }],
+        rdRt: [{ bgpIndex: 1, route_distinguisher: '200:9', route_target: '200:200' }],
+      },
+      isHubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF' as const,
+    };
+    const expected = mergeBaselineWithContributions(baseline, [c1, c2]);
+    expect(jsonEqual(expected, mergeBaselineWithContributions(baseline, [c1, c2]))).toBe(true);
+    const af = ((expected.bgp as Record<string, unknown>[])[1].address_family as Record<
+      string,
+      unknown
+    >[])[0];
+    expect(af.route_target).toBe('200:100');
+  });
 });

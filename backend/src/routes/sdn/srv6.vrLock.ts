@@ -1,5 +1,7 @@
 import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
+import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { isSrv6PeRole, normalizeVrRole } from './srv6.roles';
 import {
   computeLiveFingerprintForSlot,
   diffFingerprintFields,
@@ -18,9 +20,6 @@ const parseConfig = (json: string | null | undefined): Record<string, unknown> |
   }
 };
 
-const expectedRoleForSlot = (slot: Srv6EndpointSlot) =>
-  slot === 'peA' || slot === 'peB' ? 'PE' : 'CE';
-
 const slotDisplay = (slot: Srv6EndpointSlot) =>
   ({ peA: 'PE-A', peB: 'PE-B', ceA: 'CE-A', ceB: 'CE-B' } as const)[slot];
 
@@ -33,6 +32,17 @@ const fingerprintFieldLabel: Record<string, string> = {
   innerIp: '内网 IP',
   innerVrf: '内网 VRF',
   innerBgpAsn: '内网 BGP 自治号',
+  wanIf: 'Hub WAN 接口',
+  peerPublicNeighbor: 'Hub 对端公网邻居',
+};
+
+const hubPeLockedFingerprintFields = (
+  tunnel: SRv6Tunnel,
+  slot: Srv6EndpointSlot,
+): Set<string> | null => {
+  if (tunnel.tunnelTopology !== 'H' || !tunnel.hubPeSlot || tunnel.hubPeSlot !== slot) return null;
+  if (!tunnel.hubBindings?.wanIf) return null;
+  return new Set(['wanIf', 'peerPublicNeighbor', 'publicIpv6', 'sidPrefix']);
 };
 
 const formatFingerprintDiff = (fields: string[]) =>
@@ -61,10 +71,16 @@ export const assertSrv6VrConfigUpsertAllowed = async (
   for (const ref of refs) {
     const tunnel = await repo.findOne({ where: { id: ref.tunnelId } });
     if (!tunnel) continue;
-    const nextRole = String(nextCfg.role || '').toUpperCase();
-    const expectedRole = expectedRoleForSlot(ref.slot);
-    if (nextRole && nextRole !== expectedRole) {
-      conflicts.push(`隧道「${tunnel.name}」（${slotDisplay(ref.slot)}）：角色应为 ${expectedRole}，当前提交为 ${nextRole}`);
+    const nextRole = normalizeVrRole(nextCfg.role);
+    if (ref.slot === 'peA' || ref.slot === 'peB') {
+      if (nextRole && !isSrv6PeRole(nextRole)) {
+        conflicts.push(
+          `隧道「${tunnel.name}」（${slotDisplay(ref.slot)}）：角色应为 SPOKE_PE 或 HUB_PE，当前提交为 ${nextRole}`,
+        );
+        continue;
+      }
+    } else if (nextRole && nextRole !== 'CE') {
+      conflicts.push(`隧道「${tunnel.name}」（${slotDisplay(ref.slot)}）：角色应为 CE，当前提交为 ${nextRole}`);
       continue;
     }
     const expected = getStoredFingerprintForSlot(tunnel, ref.slot);
@@ -74,10 +90,14 @@ export const assertSrv6VrConfigUpsertAllowed = async (
     }
 
     const live = computeLiveFingerprintForSlot(ref.slot, nextCfg, tunnel);
-    const fields = diffFingerprintFields(
+    let fields = diffFingerprintFields(
       expected as Record<string, unknown>,
       live as Record<string, unknown>,
     );
+    const hubLock = hubPeLockedFingerprintFields(tunnel, ref.slot);
+    if (hubLock) {
+      fields = fields.filter((f) => hubLock.has(f));
+    }
     if (fields.length) {
       conflicts.push(
         `隧道「${tunnel.name}」（${slotDisplay(ref.slot)}）：以下关键项与创建时不一致：${formatFingerprintDiff(fields)}`,
@@ -104,10 +124,11 @@ export const assertSrv6VrSetRoleAllowed = async (
 ): Promise<void> => {
   const refs = await findSrv6TunnelsReferencingVr(vrUuid);
   if (!refs.length) return;
-  const normalizedRole = String(nextRole || '').toUpperCase();
-  if (normalizedRole && refs.every((r) => expectedRoleForSlot(r.slot) === normalizedRole)) {
-    return;
-  }
+  const repo = AppDataSource.getRepository(VRConfig);
+  const record = await repo.findOne({ where: { uuid: vrUuid } });
+  const currentRole = normalizeVrRole(record?.role);
+  const normalizedRole = normalizeVrRole(nextRole);
+  if (normalizedRole && normalizedRole === currentRole) return;
   const names = [...new Set(refs.map((r) => r.tunnelName).filter(Boolean))];
   const namesPart = names.length ? `引用隧道：${names.join('、')}。` : '';
   const rolePart = nextRole ? `目标角色：${nextRole}。` : '';

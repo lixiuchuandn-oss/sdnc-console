@@ -5,6 +5,8 @@ export type {
   Srv6EndpointFingerprint,
   Srv6EndpointInjectedDelta,
   Srv6EndpointSlot,
+  Srv6HubSlotBinding,
+  Srv6HubVrfMode,
   Srv6InjectedDelta,
   Srv6Ipv6RouteDelta,
   Srv6NdcDelta,
@@ -12,4 +14,5 @@ export type {
   Srv6RdRtDelta,
   Srv6RdRtMeta,
   Srv6TunnelArchiveFields,
+  Srv6TunnelTopology,
 } from '../../entities/vRouter/srv6Tunnel.types';
