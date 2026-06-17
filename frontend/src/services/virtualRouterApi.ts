@@ -308,10 +308,13 @@ export const saveVRConfig = async (uuid: string, config: any, meta?: { cloudId?:
 /**
  * 设置虚拟路由器角色
  * @param uuid 虚拟路由器 UUID
- * @param role 角色类型：'PE'（Provider Edge）、'CE'（Customer Edge）、'标准'、'SASE'
+ * @param role 角色类型：PE（遗留）、SPOKE_PE、HUB_PE、CE、标准、SASE
  * @returns Promise<any> 设置结果
  */
-export const setVRRole = async (uuid: string, role: 'PE' | 'CE' | '标准' | 'SASE') => {
+export const setVRRole = async (
+  uuid: string,
+  role: 'PE' | 'SPOKE_PE' | 'HUB_PE' | 'CE' | '标准' | 'SASE',
+) => {
   return await apiPost('/api/vr-config/set-role', { uuid, role });
 };
 

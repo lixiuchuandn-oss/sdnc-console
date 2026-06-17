@@ -1525,6 +1525,25 @@ export const fetchSrv6HubStatus = async (vrUuid: string): Promise<Srv6HubVrStatu
   });
 };
 
+export type Srv6VrReference = {
+  tunnelId: string;
+  tunnelName: string;
+  slot: 'peA' | 'peB' | 'ceA' | 'ceB';
+};
+
+export type Srv6VrReferencesResp = {
+  vrUuid: string;
+  count: number;
+  refs: Srv6VrReference[];
+};
+
+/** 查询某 VR 是否被 SRv6 隧道引用（向导保护用） */
+export const fetchSrv6VrReferences = async (vrUuid: string): Promise<Srv6VrReferencesResp> => {
+  return await apiRequest(`/api/networks/srv6/vr/${encodeURIComponent(vrUuid)}/references`, {
+    skipCache: true,
+  });
+};
+
 export type Srv6ReconcileIssue = {
   code: string;
   message: string;

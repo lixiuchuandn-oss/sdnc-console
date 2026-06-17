@@ -15,6 +15,7 @@ import { forceResetSrv6BaselineFromConfig } from './srv6.baseline';
 import { deleteSrv6TunnelWithRevert } from './srv6.delete';
 import { assertNoSrv6ContributionConflictsForTunnel, findAliveTunnelsByVr } from './srv6.hub';
 import { reconcileAllSrv6Vrs } from './srv6.reconcile';
+import { findSrv6TunnelsReferencingVr } from './srv6.references';
 import { syncSrv6TunnelPlatformConfigs } from './srv6.sync';
 import {
   hasSrv6EndpointConflict,
@@ -514,6 +515,36 @@ srv6Routes.get('/vr/:vrUuid/hub', async (req, res, next) => {
     }
     const status = await findAliveTunnelsByVr(vrUuid);
     res.json(status);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** P5：查询某 VR 是否被 SRv6 隧道引用（向导保护用；不区分 Hub/Spoke） */
+srv6Routes.get('/vr/:vrUuid/references', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
+      }
+    }
+    const vrUuid = String(req.params.vrUuid || '').trim();
+    if (!vrUuid) {
+      res.status(400).json({ message: '缺少 vrUuid' });
+      return;
+    }
+    const refs = await findSrv6TunnelsReferencingVr(vrUuid);
+    res.json({ vrUuid, count: refs.length, refs });
   } catch (e) {
     next(e);
   }

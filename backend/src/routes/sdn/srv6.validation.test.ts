@@ -30,6 +30,19 @@ describe('srv6.validation', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('normalizeSrv6TunnelPayload preserves tunnelTopology for create validation', () => {
+    const r = normalizeSrv6TunnelPayload({
+      name: 't1',
+      peA: 'a',
+      peB: 'b',
+      ceA: 'c',
+      ceB: 'd',
+      tunnelTopology: 'H',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.tunnelTopology).toBe('H');
+  });
+
   it('hasSrv6NameConflict is case-insensitive', () => {
     expect(hasSrv6NameConflict([{ id: '1', name: 'Tunnel-A' }], 'tunnel-a')).toBe(true);
     expect(hasSrv6NameConflict([{ id: '1', name: 'Tunnel-A' }], 'tunnel-a', '1')).toBe(false);

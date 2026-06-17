@@ -4,7 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
-import { proxyApiRequest } from '../../../../../services/api';
+import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { filterLinkLocalIpv6, pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
@@ -675,7 +675,7 @@ const PEWizard: React.FC = () => {
     // WAN 侧 IPv6 默认路由（目的网段 + via）
     {
       const v6dest = String(v?.ipv6Dest || '').trim();
-      const v6via = String(v?.ipv6Via || '500::1').trim();
+      const v6via = String(v?.ipv6Via || '').trim();
       const dest = normalizeIPv6Cidr(v6dest);
       if (dest) {
         const route6: any = { destination: dest };
@@ -819,6 +819,21 @@ const PEWizard: React.FC = () => {
       return;
     }
     try {
+      const refs = await fetchSrv6VrReferences(uuid);
+      if (refs?.count && refs.count > 0) {
+        const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
+        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 VR 已被 SRv6 隧道引用';
+        message.error(
+          `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
+          8,
+        );
+        return;
+      }
+    } catch (e: any) {
+      // refs 接口失败时不阻塞原有流程，但要让用户感知
+      console.warn('PEWizard: fetchSrv6VrReferences failed:', e);
+    }
+    try {
       await form.validateFields();
     } catch {
       message.warning('请先完善表单必填项');
@@ -941,14 +956,37 @@ const PEWizard: React.FC = () => {
             name="ipv6Dest"
             label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}
             rules={[
-              { required: true, message: '请输入 IPv6 目的网段' },
+              {
+                validator: async (_, value) => {
+                  const dest = String(value ?? '').trim();
+                  const via = String(form.getFieldValue('ipv6Via') ?? '').trim();
+                  if ((dest && !via) || (!dest && via)) {
+                    throw new Error('IPv6 目的网段与 IPv6 网关需同时填写或同时留空');
+                  }
+                },
+              },
               { pattern: /^[0-9a-fA-F:]+\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/, message: '格式示例：2408:3333:1002::/64' },
             ]}
           >
             <Input placeholder="例如 2408:3333:1002::/64" />
           </Form.Item>
-          <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}>
-            <Input placeholder="例如 500::1" />
+          <Form.Item
+            name="ipv6Via"
+            label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}
+            rules={[
+              {
+                validator: async (_, value) => {
+                  const via = String(value ?? '').trim();
+                  const dest = String(form.getFieldValue('ipv6Dest') ?? '').trim();
+                  if ((dest && !via) || (!dest && via)) {
+                    throw new Error('IPv6 目的网段与 IPv6 网关需同时填写或同时留空');
+                  }
+                },
+              },
+              { pattern: /^[0-9a-fA-F:]+$/, message: '请输入合法的 IPv6 网关地址（不带 /xx）' },
+            ]}
+          >
+            <Input placeholder="例如 203::44（可留空：表示不配置 IPv6 网关）" />
           </Form.Item>
         </div>
 

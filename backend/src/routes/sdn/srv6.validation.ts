@@ -4,6 +4,7 @@ import {
   normalizeVrRole,
   parseTunnelTopology,
 } from './srv6.roles';
+import type { Srv6TunnelTopology } from '../../entities/vRouter/srv6Tunnel.types';
 
 export type Srv6TunnelLike = {
   id?: string;
@@ -20,6 +21,8 @@ export type Srv6TunnelPayload = {
   peB: string;
   ceA: string;
   ceB: string;
+  /** Hub–Spoke (H) 或 Spoke 点对点 (S)；创建校验须与档案字段一致 */
+  tunnelTopology?: Srv6TunnelTopology;
 };
 
 type NormalizeResult = { ok: true; value: Srv6TunnelPayload } | { ok: false; message: string };
@@ -33,12 +36,14 @@ const sameName = (a: unknown, b: unknown) =>
 
 export const normalizeSrv6TunnelPayload = (payload: unknown): NormalizeResult => {
   const body = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-  const value = {
+  const value: Srv6TunnelPayload = {
     name: normalizeText(body.name),
     peA: normalizeText(body.peA),
     peB: normalizeText(body.peB),
     ceA: normalizeText(body.ceA),
     ceB: normalizeText(body.ceB),
+    tunnelTopology:
+      body.tunnelTopology !== undefined ? parseTunnelTopology(body.tunnelTopology) : undefined,
   };
 
   if (!value.name || !value.peA || !value.peB || !value.ceA || !value.ceB) {

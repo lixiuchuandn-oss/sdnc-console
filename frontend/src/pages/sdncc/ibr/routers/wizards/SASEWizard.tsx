@@ -4,7 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole } from '../../../../../services/virtualRouterApi';
-import { proxyApiRequest } from '../../../../../services/api';
+import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 
 const SASEWizard: React.FC = () => {
@@ -356,6 +356,20 @@ const SASEWizard: React.FC = () => {
     if (!uuid) {
       message.error('缺少 VR 的 UUID，无法下发配置');
       return;
+    }
+    try {
+      const refs = await fetchSrv6VrReferences(uuid);
+      if (refs?.count && refs.count > 0) {
+        const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
+        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 VR 已被 SRv6 隧道引用';
+        message.error(
+          `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
+          8,
+        );
+        return;
+      }
+    } catch (e: any) {
+      console.warn('SASEWizard: fetchSrv6VrReferences failed:', e);
     }
     try {
       setLoading(true);
