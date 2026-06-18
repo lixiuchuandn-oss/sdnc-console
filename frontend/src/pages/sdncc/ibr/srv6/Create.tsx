@@ -4,7 +4,7 @@ import { ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
-import { apiRequest, apiPost, fetchSrv6HubStatus, type Srv6HubVrStatus } from '../../../../services/api';
+import { apiRequest, apiPost, fetchSrv6HubStatus, fetchSrv6Tunnel, type Srv6HubVrStatus } from '../../../../services/api';
 import { filterLinkLocalIpv6 } from '../routers/vrIpv6Utils';
 import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
 import {
@@ -1022,16 +1022,48 @@ const SRv6CreatePage: React.FC = () => {
     } catch {}
   };
 
-  // 计算本次隧道的公共 RT 与各端唯一 RD（基于选择的端点与隧道名稳定生成）
+  // 计算本次隧道的公共 RT 与各端唯一 RD（Hub REUSE 时继承首条隧道 RT/RD）
   const [rdRtMeta, setRdRtMeta] = useState<{ rtCommon: string; rdMap: Record<string, string> } | null>(null);
+
+  const inheritReuseVrfRdRtMeta = async (): Promise<boolean> => {
+    if (editId) return false;
+    if (inferredTopology !== 'H' || form.getFieldValue('hubCustomerSide') !== 'reuse') return false;
+    const hubSlot = inferredHubPeSlot;
+    if (!hubSlot) return false;
+    const status = peHubStatus[hubSlot];
+    const firstRef = status?.tunnels?.[0];
+    if (!firstRef?.tunnelId) return false;
+    try {
+      const refTunnel = await fetchSrv6Tunnel(firstRef.tunnelId);
+      const meta = refTunnel?.rdRtMeta;
+      if (meta?.rtCommon && meta?.rdMap?.peA && meta?.rdMap?.peB) {
+        setRdRtMeta({ rtCommon: meta.rtCommon, rdMap: { peA: meta.rdMap.peA, peB: meta.rdMap.peB } });
+        return true;
+      }
+    } catch {
+      /* 回退随机生成 */
+    }
+    return false;
+  };
+
   useEffect(() => {
-    if (!rdRtMeta) {
+    if (rdRtMeta) return;
+    void (async () => {
+      const inherited = await inheritReuseVrfRdRtMeta();
+      if (inherited) return;
       const randNum = () => 100 + Math.floor(Math.random() * 50000);
-      const rtCommon = `200:${randNum()}`; // PE 两端 VPN 一致，随机生成（CE 不配 RD/RT）
+      const rtCommon = `200:${randNum()}`;
       const rdMap = { peA: `200:${randNum()}`, peB: `200:${randNum()}` };
       setRdRtMeta({ rtCommon, rdMap });
-    }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在尚未生成 rdRtMeta 时初始化
   }, [rdRtMeta]);
+
+  useEffect(() => {
+    if (editId || rdRtMeta) return;
+    if (inferredTopology !== 'H' || form.getFieldValue('hubCustomerSide') !== 'reuse') return;
+    void inheritReuseVrfRdRtMeta();
+  }, [editId, inferredTopology, inferredHubPeSlot, peHubStatus, formValues?.hubCustomerSide, rdRtMeta]);
 
   /** 公共 PE 注入逻辑：PE-PE 邻居 + PE-CE 邻居 + RD/RT + 两条 IPv6 路由（SID/64 + VRF ::/0） */
   const buildInjectedPeConfig = (

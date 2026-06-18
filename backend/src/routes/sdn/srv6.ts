@@ -16,6 +16,7 @@ import { deleteSrv6TunnelWithRevert } from './srv6.delete';
 import { assertNoSrv6ContributionConflictsForTunnel, findAliveTunnelsByVr } from './srv6.hub';
 import { reconcileAllSrv6Vrs } from './srv6.reconcile';
 import { findSrv6TunnelsReferencingVr } from './srv6.references';
+import { alignReuseVrfTunnelArchive } from './srv6.reuseRdRt';
 import { syncSrv6TunnelPlatformConfigs } from './srv6.sync';
 import {
   hasSrv6EndpointConflict,
@@ -177,6 +178,8 @@ srv6Routes.post('/', async (req, res, next) => {
       return;
     }
 
+    await alignReuseVrfTunnelArchive(item);
+
     const saved = await repo().save(item);
 
     try {
@@ -283,6 +286,8 @@ srv6Routes.put('/:id', async (req, res, next) => {
       res.status(400).json({ message: archiveCheck.message });
       return;
     }
+
+    await alignReuseVrfTunnelArchive(current, { excludeTunnelId: current.id });
 
     try {
       await assertNoSrv6ContributionConflictsForTunnel(current, { excludeTunnelId: current.id });

@@ -1,4 +1,5 @@
 import {
+  buildOrderedDeviceEjectPushStages,
   cleanupBgpAfterTunnelEject,
   ejectInjectedDeltaFromConfig,
 } from './srv6.eject';
@@ -182,5 +183,46 @@ describe('srv6.eject', () => {
           af.activate_address_family.includes(peerIp),
       ),
     ).toBe(true);
+  });
+
+  it('buildOrderedDeviceEjectPushStages applies activate → ndc → neighbor', () => {
+    const peerIp = '203::11';
+    const cfg = {
+      bgp: [
+        {
+          vrf: 0,
+          asn: 430,
+          neighbor: [
+            { remote_ip: '203::22', remote_as: 429 },
+            { remote_ip: peerIp, remote_as: 430 },
+          ],
+          neighbor_disable_connected_check: ['203::22', peerIp],
+          address_family: [
+            {
+              address_family: 'ipv4',
+              modifiler: 'vpn',
+              activate_address_family: ['203::22', peerIp],
+            },
+          ],
+        },
+      ],
+    };
+    const delta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: peerIp, remote_as: 430 }],
+      activateAddressFamily: [{ bgpIndex: 0, peerIp }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: peerIp }],
+    };
+    const stages = buildOrderedDeviceEjectPushStages(cfg, delta);
+    expect(stages.length).toBeGreaterThanOrEqual(3);
+    const afterActivate = stages[0];
+    const vpnAf = ((afterActivate.bgp as any[])[0].address_family as any[]).find(
+      (af) => String(af.modifiler).toLowerCase() === 'vpn',
+    );
+    expect(vpnAf.activate_address_family).toEqual(['203::22']);
+    const finalStage = stages[stages.length - 1];
+    const pub = (finalStage.bgp as any[])[0];
+    expect(pub.neighbor).toHaveLength(1);
+    expect(pub.neighbor[0].remote_ip).toBe('203::22');
+    expect(pub.neighbor_disable_connected_check).toEqual(['203::22']);
   });
 });

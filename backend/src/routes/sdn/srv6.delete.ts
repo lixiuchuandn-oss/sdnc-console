@@ -5,7 +5,9 @@ import { vrController } from '../../services/vrouter/vrController';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
 import { parseSrv6Baseline } from './srv6.baseline';
 import { resetSrv6BaselineWhenNoTunnels } from './srv6.baseline';
+import { buildOrderedDeviceEjectPushStages } from './srv6.eject';
 import { recomputeVrEffectiveConfig } from './srv6.recompute';
+import type { Srv6EndpointInjectedDelta } from './srv6.archive.types';
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
 
@@ -56,6 +58,33 @@ const slotEndpoints = (
 
 const slotLabel = (slot: Srv6EndpointSlot) =>
   ({ peA: 'PE-A', peB: 'PE-B', ceA: 'CE-A', ceB: 'CE-B' } as const)[slot];
+
+const pushConfigToDevice = async (vrId: string, config: Record<string, unknown>): Promise<void> => {
+  const clean = sanitizeConfig(
+    stripMeta(JSON.parse(JSON.stringify(config))) as Record<string, unknown>,
+  );
+  const updateResp = await vrController.updateVRConfig(vrId, clean);
+  const respData = updateResp.data || {};
+  if (
+    respData &&
+    typeof respData.code !== 'undefined' &&
+    respData.code != 0 &&
+    respData.code != 200
+  ) {
+    throw new Error(respData.msg || respData.message || JSON.stringify(respData));
+  }
+};
+
+const pushOrderedEjectStagesToDevice = async (
+  vrId: string,
+  originalConfig: Record<string, unknown>,
+  slotDelta: Srv6EndpointInjectedDelta,
+): Promise<void> => {
+  const stages = buildOrderedDeviceEjectPushStages(originalConfig, slotDelta);
+  for (const staged of stages) {
+    await pushConfigToDevice(vrId, staged);
+  }
+};
 
 /** 历史隧道无变更清单时，引导用户仅删记录或手工清理 */
 const LEGACY_TUNNEL_DELETE_HINT =
@@ -129,19 +158,11 @@ export const revertSrv6TunnelInjections = async (
   if (options.revertDevice) {
     for (const item of prepared) {
       try {
-        const clean = sanitizeConfig(
-          stripMeta(JSON.parse(JSON.stringify(item.nextConfig))) as Record<string, unknown>,
-        );
-        const updateResp = await vrController.updateVRConfig(item.vrId, clean);
-        const respData = updateResp.data || {};
-        if (
-          respData &&
-          typeof respData.code !== 'undefined' &&
-          respData.code != 0 &&
-          respData.code != 200
-        ) {
-          throw new Error(respData.msg || respData.message || JSON.stringify(respData));
+        const slotDelta = delta[item.slot];
+        if (slotDelta) {
+          await pushOrderedEjectStagesToDevice(item.vrId, item.originalConfig, slotDelta);
         }
+        await pushConfigToDevice(item.vrId, item.nextConfig);
         pushed.push(item);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -154,10 +175,7 @@ export const revertSrv6TunnelInjections = async (
   if (devicePushErrors.length) {
     for (const item of pushed.reverse()) {
       try {
-        const clean = sanitizeConfig(
-          stripMeta(JSON.parse(JSON.stringify(item.originalConfig))) as Record<string, unknown>,
-        );
-        await vrController.updateVRConfig(item.vrId, clean);
+        await pushConfigToDevice(item.vrId, item.originalConfig);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         warnings.push(`${item.slot}：设备回滚原配置失败（${msg}）`);
@@ -185,10 +203,7 @@ export const revertSrv6TunnelInjections = async (
     if (options.revertDevice) {
       for (const item of prepared.slice().reverse()) {
         try {
-          const clean = sanitizeConfig(
-            stripMeta(JSON.parse(JSON.stringify(item.originalConfig))) as Record<string, unknown>,
-          );
-          await vrController.updateVRConfig(item.vrId, clean);
+          await pushConfigToDevice(item.vrId, item.originalConfig);
         } catch (rollbackErr: unknown) {
           const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
           warnings.push(`${item.slot}：数据库失败后设备回滚原配置失败（${msg}）`);
