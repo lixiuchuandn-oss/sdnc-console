@@ -102,6 +102,11 @@ const SRv6CreatePage: React.FC = () => {
     const hubNote = status.isHub
       ? '该 PE 处于 Hub 多隧道模式。'
       : '该 PE 已被其它隧道引用。';
+    const hubCustomerSide = form.getFieldValue('hubCustomerSide');
+    const reuseHint =
+      hubCustomerSide === 'dedicated'
+        ? '路线 B（独立客户侧）：每条 Spoke 须使用独立内网 VRF/口与 RD/RT；仅对端 Spoke 公网 IPv6 邻居不可与已有隧道重复。'
+        : '路线 A（共用客户侧）：可复用 Hub WAN/LAN/VRF 与 Hub 侧 CE；仅对端 Spoke 公网 IPv6 邻居不可与已有隧道重复。';
     return (
       <Alert
         type="info"
@@ -111,9 +116,7 @@ const SRv6CreatePage: React.FC = () => {
         description={
           <>
             <div>已引用隧道（{status.tunnelCount}）：{names}</div>
-            <div style={{ marginTop: 4, color: 'rgba(0,0,0,.55)' }}>
-              新建隧道须使用不同的公网邻居、内网 VRF 段或内网口；相同的公网邻居、路由标识（RD/RT）或内网口+VRF 组合将被拒绝保存。
-            </div>
+            <div style={{ marginTop: 4, color: 'rgba(0,0,0,.55)' }}>{reuseHint}</div>
           </>
         }
       />

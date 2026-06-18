@@ -208,6 +208,14 @@ const buildExistingInnerIfMetas = async (
 const isHubPeSlotForTunnel = (tunnel: SRv6Tunnel, slot: Srv6EndpointSlot): boolean =>
   isHubTunnel(tunnel) && tunnel.hubPeSlot === slot;
 
+/** 路线 A · REUSE_VRF：Hub 侧 CE（与 Hub PE 同侧）贡献与首条隧道幂等 */
+const isHubSharedCeSlot = (tunnel: SRv6Tunnel, slot: Srv6EndpointSlot): boolean => {
+  if (!isHubTunnel(tunnel) || tunnel.hubVrfMode !== 'REUSE_VRF') return false;
+  if (tunnel.hubPeSlot === 'peA') return slot === 'ceA';
+  if (tunnel.hubPeSlot === 'peB') return slot === 'ceB';
+  return false;
+};
+
 /** 创建/更新隧道前：Hub Blocking + 四端贡献冲突检测 */
 export const assertNoSrv6ContributionConflictsForTunnel = async (
   tunnel: SRv6Tunnel,
@@ -270,12 +278,14 @@ export const assertNoSrv6ContributionConflictsForTunnel = async (
     );
 
     const hubPeSlot = isHubPeSlotForTunnel(tunnel, slot);
+    const sharedCeReuse = isHubSharedCeSlot(tunnel, slot);
 
     const conflicts = detectContributionConflicts(newContrib, existing, baseline, {
       innerIfMeta,
       existingInnerIfMetas,
       hubPeSlot,
       hubVrfMode: hubPeSlot ? tunnel.hubVrfMode ?? undefined : undefined,
+      sharedCeReuse,
     });
 
     for (const c of conflicts) {
@@ -286,7 +296,10 @@ export const assertNoSrv6ContributionConflictsForTunnel = async (
     }
   }
 
-  const primary = pickPrimaryConflicts(allConflicts, isHubTunnel(tunnel));
+  const primary = pickPrimaryConflicts(allConflicts, {
+    hubTunnel: isHubTunnel(tunnel),
+    hubVrfMode: tunnel.hubVrfMode ?? undefined,
+  });
   if (primary.length) {
     const err = new Error(formatSrv6ContributionConflicts(primary));
     (err as Error & { statusCode: number; conflicts: Srv6ContributionConflict[] }).statusCode = 409;

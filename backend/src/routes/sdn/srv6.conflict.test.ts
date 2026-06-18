@@ -1,6 +1,7 @@
 import {
   checkInnerIfVrfOverlap,
   detectContributionConflicts,
+  isIdempotentHubIpv6Route,
   pickPrimaryConflicts,
 } from './srv6.conflict';
 import type { Srv6EndpointInjectedDelta } from '../../entities/vRouter/srv6Tunnel.types';
@@ -156,13 +157,124 @@ describe('srv6.conflict', () => {
     expect(conflicts.some((c) => c.code === 'C-I1')).toBe(false);
   });
 
+  it('Hub REUSE_VRF: allows idempotent ::/0 ipv6 route overlap on hub PE', () => {
+    const route = { destination: '::/0', vrf: 9999, via: 'nexthop-vrf 0' };
+    expect(isIdempotentHubIpv6Route(route)).toBe(true);
+    const existing = ref('T1', { ipv6Routes: [route] });
+    const newContrib: Srv6EndpointInjectedDelta = { ipv6Routes: [route] };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      hubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF',
+    });
+    expect(conflicts.some((c) => c.code === 'C-V1')).toBe(false);
+  });
+
+  it('Hub REUSE_VRF: shared hub CE slot skips pairwise conflicts', () => {
+    const existing = ref('T1', {
+      neighbors: [{ bgpIndex: 0, remote_ip: '10.88.1.1', remote_as: 201 }],
+    });
+    const newContrib: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: '10.88.1.1', remote_as: 201 }],
+    };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      sharedCeReuse: true,
+    });
+    expect(conflicts).toHaveLength(0);
+  });
+
+  it('Hub REUSE_VRF: allows duplicate RD/RT values on same bgpIndex', () => {
+    const existing = ref('T1', {
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '429:9999', route_target: '429:9999' }],
+    });
+    const newContrib: Srv6EndpointInjectedDelta = {
+      rdRt: [{ bgpIndex: 1, route_distinguisher: '429:9999', route_target: '429:9999' }],
+    };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      hubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF',
+    });
+    expect(conflicts.some((c) => c.code === 'C-R1' || c.code === 'C-R2')).toBe(false);
+  });
+
+  it('Hub DEDICATED_VRF: blocks duplicate public neighbor on hub PE', () => {
+    const existing = ref('T1', {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::33', remote_as: 430 }],
+    });
+    const newContrib: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::33', remote_as: 431 }],
+    };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      hubPeSlot: true,
+      hubVrfMode: 'DEDICATED_VRF',
+    });
+    expect(conflicts.some((c) => c.code === 'C-N1')).toBe(true);
+  });
+
+  it('Hub DEDICATED_VRF: blocks same innerIf+vrf as another spoke', () => {
+    const conflicts = detectContributionConflicts(
+      { neighbors: [{ bgpIndex: 0, remote_ip: '203::55', remote_as: 430 }] },
+      [],
+      baseline,
+      {
+        hubPeSlot: true,
+        hubVrfMode: 'DEDICATED_VRF',
+        innerIfMeta: { innerIf: 'GigabitEthernet 0/0/1', innerVrf: 8888 },
+        existingInnerIfMetas: [
+          {
+            tunnelId: 't1',
+            tunnelName: 'T1',
+            innerIf: 'GigabitEthernet 0/0/1',
+            innerVrf: 8888,
+          },
+        ],
+      },
+    );
+    expect(conflicts.some((c) => c.code === 'C-I1')).toBe(true);
+  });
+
+  it('Hub DEDICATED_VRF: different spoke SID routes do not conflict', () => {
+    const existing = ref('T1', {
+      ipv6Routes: [{ destination: '240f:2033::/64', via: '203::33' }],
+    });
+    const newContrib: Srv6EndpointInjectedDelta = {
+      ipv6Routes: [{ destination: '240f:2044::/64', via: '203::44' }],
+    };
+    const conflicts = detectContributionConflicts(newContrib, [existing], baseline, {
+      hubPeSlot: true,
+      hubVrfMode: 'DEDICATED_VRF',
+    });
+    expect(conflicts.some((c) => c.code === 'C-V1')).toBe(false);
+  });
+
   it('pickPrimaryConflicts prioritizes C-H1 blocking', () => {
     const conflicts = [
       { code: 'C-N1' as const, message: 'neighbor dup' },
       { code: 'C-H1' as const, message: 'blocking dup', tunnelId: 't1', tunnelName: 'T1' },
     ];
-    const primary = pickPrimaryConflicts(conflicts, true);
+    const primary = pickPrimaryConflicts(conflicts, { hubTunnel: true, hubVrfMode: 'REUSE_VRF' });
     expect(primary).toHaveLength(1);
     expect(primary[0].code).toBe('C-H1');
+  });
+
+  it('pickPrimaryConflicts REUSE hub ignores secondary contribution conflicts (H6)', () => {
+    const conflicts = [
+      { code: 'C-V1' as const, message: '::/0 dup' },
+      { code: 'C-N1' as const, message: 'ce dup' },
+    ];
+    const primary = pickPrimaryConflicts(conflicts, { hubTunnel: true, hubVrfMode: 'REUSE_VRF' });
+    expect(primary).toHaveLength(0);
+  });
+
+  it('pickPrimaryConflicts DEDICATED hub keeps blocking contribution conflicts', () => {
+    const conflicts = [
+      { code: 'C-A1' as const, message: 'activate dup' },
+      { code: 'C-N1' as const, message: 'neighbor dup' },
+    ];
+    const primary = pickPrimaryConflicts(conflicts, {
+      hubTunnel: true,
+      hubVrfMode: 'DEDICATED_VRF',
+    });
+    expect(primary).toHaveLength(1);
+    expect(primary[0].code).toBe('C-N1');
   });
 });
