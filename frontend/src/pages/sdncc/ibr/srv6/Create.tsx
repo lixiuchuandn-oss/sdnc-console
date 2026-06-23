@@ -111,8 +111,8 @@ const SRv6CreatePage: React.FC = () => {
     const hubCustomerSide = form.getFieldValue('hubCustomerSide');
     const reuseHint =
       hubCustomerSide === 'dedicated'
-        ? '路线 B（独立客户侧）：每条 Spoke 须使用独立内网 VRF/口与 RD/RT；仅对端 Spoke 公网 IPv6 邻居不可与已有隧道重复。'
-        : '路线 A（共用客户侧）：可复用 Hub WAN/LAN/VRF 与 Hub 侧 CE；仅对端 Spoke 公网 IPv6 邻居不可与已有隧道重复。';
+        ? '独立客户侧：为本 Spoke 单独分配内网 VRF 与 CE（仅对端 Spoke 公网 IPv6 不可重复）。'
+        : '共用客户侧：与 Hub 上已有隧道的内网 VRF/CE 共用（仅对端 Spoke 公网 IPv6 不可重复）。';
     return (
       <Alert
         type="info"
@@ -914,7 +914,7 @@ const SRv6CreatePage: React.FC = () => {
 
   const hubWanInventoryOptions = useMemo(() => {
     const rows = hubInventoryUi?.wanOptions ?? [];
-    return rows
+    const fromApi = rows
       .filter((o) => o.selectable !== false)
       .map((o) => ({
         value: o.id,
@@ -922,11 +922,39 @@ const SRv6CreatePage: React.FC = () => {
         ifName: o.ifName,
         disabled: o.selectable === false,
       }));
-  }, [hubInventoryUi]);
+    if (fromApi.length) return fromApi;
+
+    const cfg = inferredHubPeSlot ? peConfigs[inferredHubPeSlot] : undefined;
+    if (!cfg || typeof cfg !== 'object') return [];
+    const fallback: { value: string; label: string; ifName: string; disabled?: boolean }[] = [];
+    for (const k of Object.keys(cfg)) {
+      if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+      const arr = (cfg as Record<string, unknown>)[k];
+      if (!Array.isArray(arr)) continue;
+      for (const raw of arr) {
+        if (!raw || typeof raw !== 'object') continue;
+        const row = raw as Record<string, unknown>;
+        const ifName = String(row.name || '').trim();
+        if (!ifName) continue;
+        const vrf = row.vrf;
+        const hasVrf = vrf !== undefined && vrf !== null && String(vrf).trim() !== '' && Number(vrf) > 0;
+        if (hasVrf) continue;
+        const ipv6 = String(row.ipv6_static ?? row.ipv6 ?? '').trim();
+        if (!ipv6) continue;
+        const id = `baseline-wan:${ifName}`;
+        fallback.push({
+          value: id,
+          ifName,
+          label: `${ifName} · ${ipv6} [Hub 已有公网口]`,
+        });
+      }
+    }
+    return fallback;
+  }, [hubInventoryUi, inferredHubPeSlot, peConfigs]);
 
   const hubLanInventoryOptions = useMemo(() => {
     const rows = hubInventoryUi?.lanOptions ?? [];
-    return rows
+    const fromApi = rows
       .filter((o) => o.selectable !== false)
       .map((o) => ({
         value: o.id,
@@ -935,7 +963,36 @@ const SRv6CreatePage: React.FC = () => {
         vrf: o.vrf,
         disabled: o.selectable === false,
       }));
-  }, [hubInventoryUi]);
+    if (fromApi.length) return fromApi;
+
+    const cfg = inferredHubPeSlot ? peConfigs[inferredHubPeSlot] : undefined;
+    if (!cfg || typeof cfg !== 'object') return [];
+    const bgpArr = Array.isArray((cfg as { bgp?: unknown }).bgp) ? (cfg as { bgp: unknown[] }).bgp : [];
+    const fallback: { value: string; label: string; ifName: string; vrf?: number; disabled?: boolean }[] = [];
+    for (const k of Object.keys(cfg)) {
+      if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
+      const arr = (cfg as Record<string, unknown>)[k];
+      if (!Array.isArray(arr)) continue;
+      for (const raw of arr) {
+        if (!raw || typeof raw !== 'object') continue;
+        const row = raw as Record<string, unknown>;
+        const ifName = String(row.name || '').trim();
+        const vrfNum = Number(row.vrf);
+        if (!ifName || !Number.isFinite(vrfNum) || vrfNum <= 0) continue;
+        const bgpHit = bgpArr.find(
+          (b) => b && typeof b === 'object' && Number((b as Record<string, unknown>).vrf) === vrfNum,
+        ) as Record<string, unknown> | undefined;
+        if (!bgpHit) continue;
+        fallback.push({
+          value: `baseline-lan:${ifName}:${vrfNum}`,
+          ifName,
+          vrf: vrfNum,
+          label: `${ifName} · VRF ${vrfNum} [Hub 已有内网口]`,
+        });
+      }
+    }
+    return fallback;
+  }, [hubInventoryUi, inferredHubPeSlot, peConfigs]);
 
   const renderHubPortRegistry = () => {
     if (!hubPortRegistry.length) return null;
@@ -987,6 +1044,9 @@ const SRv6CreatePage: React.FC = () => {
       const towerNorm = towerRaw ? normalizeVRConfigForPreview(towerRaw) : null;
       cfg = fillWizardMetaGapsFromTower(cfg, towerNorm);
       setPeConfigs((prev) => ({ ...prev, [target]: enrichPeConfigWithPublicBgpMeta(cfg) }));
+      if (getPeRole(uuid) === 'HUB_PE') {
+        await refreshPeHubStatus(target, uuid);
+      }
     } catch (e: any) {
       console.warn('获取PE配置失败(设备实时):', e?.message || e);
       setPeConfigs((prev) => ({ ...prev, [target]: null }));
@@ -1355,7 +1415,7 @@ const SRv6CreatePage: React.FC = () => {
           return false;
         }
       } else if (!values?.hubWanInventoryId && !values?.hubWanIf) {
-        message.error('Hub–Spoke 隧道须从 Hub WAN inventory 选用公网口');
+        message.error('请选择 Hub 公网出口，或选择「新建公网口」');
         return false;
       }
       if (hubCustomerSide === 'dedicated') {
@@ -1371,7 +1431,7 @@ const SRv6CreatePage: React.FC = () => {
             return false;
           }
         } else if (!values?.hubLanInventoryId && !values?.hubLanIf) {
-          message.error('路线 B 须从 Hub LAN inventory 选用专网口');
+          message.error('独立客户侧须选择 Hub 内网口，或选择「新建内网口」');
           return false;
         }
       }
@@ -1461,7 +1521,22 @@ const SRv6CreatePage: React.FC = () => {
           values?.hubWanPickMode === 'inline' ? undefined : values?.hubWanInventoryId,
         hubLanInventoryId:
           values?.hubLanPickMode === 'inline' ? undefined : values?.hubLanInventoryId,
-        hubInventory: hubInventoryUi?.inventory,
+        hubInventory:
+          hubInventoryUi?.inventory && hubInventoryUi.inventory.wan.length
+            ? hubInventoryUi.inventory
+            : {
+                wan: hubWanInventoryOptions.map((o) => {
+                  const ipv6 = String(o.label).split('·')[1]?.trim().split('[')[0]?.trim() || '';
+                  return {
+                    id: String(o.value),
+                    ifName: o.ifName,
+                    ipv6,
+                    source: 'device_baseline' as const,
+                    createdAt: '',
+                  };
+                }),
+                lan: [],
+              },
       });
       const payload = {
         name: tunnelName,
@@ -1685,28 +1760,28 @@ const SRv6CreatePage: React.FC = () => {
                 Hub 互联（{inferredHubPeSlot === 'peA' ? 'PE-A · 中心 Hub' : 'PE-B · 中心 Hub'}）
               </div>
               {renderHubPortRegistry()}
-              {hubInventoryUi?.inventoryEmpty ? (
+              {hubInventoryUi?.inventoryEmpty && !hubWanInventoryOptions.length ? (
                 <Alert
                   type="warning"
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message="Hub 口清单为空"
+                  message="尚未发现可用 Hub 公网口"
                   description={
                     hubInventoryUi.guidance ||
-                    '请先在 HUB_PE 角色配置向导维护 WAN/LAN inventory，保存后刷新本页。'
+                    '请先在 HUB_PE 角色配置向导完成 WAN 配置并保存基线，或在本页选择「新建公网口」。'
                   }
                 />
               ) : null}
               <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginBottom: 8 }}>
-                ① Hub 公网 WAN（与路线 A/B 独立选用）
+                ① Hub 公网出口（与客户侧网络无关，可任选；同一公网口可服务多条 Spoke）
               </div>
               <Form.Item name="hubWanIf" hidden>
                 <Input />
               </Form.Item>
-              <Form.Item name="hubWanPickMode" label="Hub WAN 选用方式" initialValue="select">
+              <Form.Item name="hubWanPickMode" label="公网出口" initialValue="select">
                 <Radio.Group>
-                  <Radio value="select">从 inventory 选用</Radio>
-                  <Radio value="inline">为本隧道内联新建</Radio>
+                  <Radio value="select">选用 Hub 已有公网口</Radio>
+                  <Radio value="inline">新建公网口（写入 Hub 配置）</Radio>
                 </Radio.Group>
               </Form.Item>
               <Form.Item noStyle shouldUpdate={(p, c) => p.hubWanPickMode !== c.hubWanPickMode}>
@@ -1747,18 +1822,22 @@ const SRv6CreatePage: React.FC = () => {
                   ) : (
                     <Form.Item
                       name="hubWanInventoryId"
-                      label="Hub WAN 口"
-                      rules={[{ required: true, message: '请从 Hub WAN inventory 选用公网口' }]}
-                      extra="从 Hub PE 基线 inventory 选用；同一 WAN 口可服务多条 Spoke 隧道"
+                      label="Hub 公网口"
+                      rules={[{ required: true, message: '请选择 Hub 公网出口' }]}
+                      extra="列表含 HUB_PE 基线/向导已配置的公网口；同一口可被多条隧道复用"
                     >
                       <Select
                         options={hubWanInventoryOptions}
                         showSearch
                         allowClear
                         optionFilterProp="label"
-                        placeholder={hubWanInventoryOptions.length ? '选择 Hub WAN 口' : '暂无可用 WAN inventory'}
+                        placeholder={
+                          hubWanInventoryOptions.length ? '选择 Hub 公网口' : '暂无可用公网口，请改用「新建公网口」'
+                        }
                         onChange={(id) => {
-                          const hit = hubInventoryUi?.wanOptions?.find((w) => w.id === id);
+                          const hit =
+                            hubInventoryUi?.wanOptions?.find((w) => w.id === id) ??
+                            hubWanInventoryOptions.find((w) => w.value === id);
                           if (hit) form.setFieldsValue({ hubWanIf: hit.ifName });
                         }}
                       />
@@ -1769,13 +1848,14 @@ const SRv6CreatePage: React.FC = () => {
               <Form.Item
                 name="hubCustomerSide"
                 label="② 客户侧网络"
-                rules={[{ required: true, message: '请选择客户侧网络配置方式' }]}
+                rules={[{ required: true, message: '请选择客户侧网络方式' }]}
                 initialValue="reuse"
+                extra="与上方公网出口无关：决定本 Spoke 是否与已有隧道共用内网 VRF/CE"
               >
                 <Radio.Group>
                   <Space direction="vertical">
-                    <Radio value="reuse">路线 A：与已有隧道共用客户侧网络</Radio>
-                    <Radio value="dedicated">路线 B：为本 Spoke 配置独立客户侧网络</Radio>
+                    <Radio value="reuse">共用客户侧（首条隧道沿用 HUB_PE 向导内网；新增 Spoke 可复用）</Radio>
+                    <Radio value="dedicated">独立客户侧（为本 Spoke 单独分配内网 VRF/CE）</Radio>
                   </Space>
                 </Radio.Group>
               </Form.Item>
@@ -1786,10 +1866,10 @@ const SRv6CreatePage: React.FC = () => {
                       <Form.Item name="hubLanIf" hidden>
                         <Input />
                       </Form.Item>
-                      <Form.Item name="hubLanPickMode" label="Hub LAN 选用方式" initialValue="select">
+                      <Form.Item name="hubLanPickMode" label="内网出口" initialValue="select">
                         <Radio.Group>
-                          <Radio value="select">从 inventory 选用</Radio>
-                          <Radio value="inline">内联新建专网 Bundle</Radio>
+                          <Radio value="select">选用 Hub 已有内网口</Radio>
+                          <Radio value="inline">新建内网口（写入 Hub 配置）</Radio>
                         </Radio.Group>
                       </Form.Item>
                       <Form.Item noStyle shouldUpdate={(p, c) => p.hubLanPickMode !== c.hubLanPickMode}>
@@ -1844,9 +1924,9 @@ const SRv6CreatePage: React.FC = () => {
                           ) : (
                             <Form.Item
                               name="hubLanInventoryId"
-                              label="Hub LAN 口（路线 B）"
-                              rules={[{ required: true, message: '请从 Hub LAN inventory 选用专网口' }]}
-                              extra="专网 VRF 段不可与其它路线 B 隧道复用"
+                              label="Hub 内网口"
+                              rules={[{ required: true, message: '请选择 Hub 内网口' }]}
+                              extra="独立客户侧须使用未被其它「独立客户侧」隧道占用的内网 VRF"
                             >
                               <Select
                                 options={hubLanInventoryOptions}
@@ -1854,10 +1934,14 @@ const SRv6CreatePage: React.FC = () => {
                                 allowClear
                                 optionFilterProp="label"
                                 placeholder={
-                                  hubLanInventoryOptions.length ? '选择 Hub LAN 口' : '暂无可用 LAN inventory'
+                                  hubLanInventoryOptions.length
+                                    ? '选择 Hub 内网口'
+                                    : '暂无可用内网口，请改用「新建内网口」'
                                 }
                                 onChange={(id) => {
-                                  const hit = hubInventoryUi?.lanOptions?.find((l) => l.id === id);
+                                  const hit =
+                                    hubInventoryUi?.lanOptions?.find((l) => l.id === id) ??
+                                    hubLanInventoryOptions.find((l) => l.value === id);
                                   if (hit) form.setFieldsValue({ hubLanIf: hit.ifName });
                                 }}
                               />

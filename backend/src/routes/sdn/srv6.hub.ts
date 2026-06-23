@@ -12,6 +12,7 @@ import { parseSrv6Baseline } from './srv6.baseline';
 import {
   buildHubInventoryUi,
   getHubInventoryFromVrRecord,
+  mergeInventoryWithBaselineCandidates,
   type HubInventory,
   type HubInventoryUi,
 } from './srv6.hubInventory';
@@ -186,8 +187,10 @@ export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrSta
 
   const portRegistry = await buildHubPortRegistryForVr(id);
   const role = vrRow?.role ?? null;
-  const hubInventory = getHubInventoryFromVrRecord(vrRow);
-  const hubInventoryUi = buildHubInventoryUi(hubInventory, portRegistry);
+  const persistedInventory = getHubInventoryFromVrRecord(vrRow);
+  const baseline = vrRow ? parseSrv6Baseline(vrRow) : null;
+  const displayInventory = mergeInventoryWithBaselineCandidates(persistedInventory, baseline);
+  const hubInventoryUi = buildHubInventoryUi(displayInventory, portRegistry);
 
   return {
     vrUuid: id,
@@ -196,7 +199,7 @@ export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrSta
     role,
     tunnels,
     portRegistry,
-    hubInventory,
+    hubInventory: persistedInventory,
     hubInventoryUi,
   };
 };

@@ -5,9 +5,11 @@ import {
   ensureBgpSegmentFromLanInventory,
   ensureInterfaceFromInventory,
   materializeHubInventoryForBinding,
+  mergeInventoryWithBaselineCandidates,
   parseHubInventoryFromBaseline,
   parseHubInventoryInlineAppend,
   patchHubBindingsInventoryIds,
+  persistBaselineBindingSelectionsToInventory,
   resolveHubBindingsWithInventory,
   stripTowerExtensionsFromDeviceBaseline,
   TOWER_HUB_INVENTORY_KEY,
@@ -193,6 +195,46 @@ describe('srv6.hubInventory', () => {
       inventory,
     );
     expect(patched.wanInventoryId).toBe('w-inline');
+  });
+
+  it('mergeInventoryWithBaselineCandidates adds wan from baseline interfaces', () => {
+    const baseline = {
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/0/0', ipv6_static: '2001::1/64' }],
+      bgp: [{ vrf: 0, asn: 65000 }],
+    };
+    const merged = mergeInventoryWithBaselineCandidates(emptyHubInventory(), baseline);
+    expect(merged.wan).toHaveLength(1);
+    expect(merged.wan[0].source).toBe('device_baseline');
+    expect(merged.wan[0].ifName).toBe('GigabitEthernet 0/0/0');
+  });
+
+  it('buildHubInventoryUi lists baseline wan when inventory empty', () => {
+    const baseline = {
+      interfaces_GigabitEthernet: [{ name: 'ge0', ipv6_static: '2001::hub/64' }],
+    };
+    const merged = mergeInventoryWithBaselineCandidates(emptyHubInventory(), baseline);
+    const ui = buildHubInventoryUi(merged, []);
+    expect(ui.inventoryEmpty).toBe(false);
+    expect(ui.wanOptions).toHaveLength(1);
+    expect(ui.wanOptions[0].label).toContain('Hub 已有公网口');
+  });
+
+  it('persistBaselineBindingSelectionsToInventory promotes selected baseline wan', () => {
+    const baseline = {
+      interfaces_GigabitEthernet: [{ name: 'ge0', ipv6_static: '2001::1/64' }],
+    };
+    const merged = mergeInventoryWithBaselineCandidates(emptyHubInventory(), baseline);
+    const next = persistBaselineBindingSelectionsToInventory(emptyHubInventory(), baseline, {
+      hubPeUuid: 'hub',
+      spokePeUuid: 'spoke',
+      hubPeSlot: 'peB',
+      wanIf: 'ge0',
+      wanInventoryId: merged.wan[0].id,
+      peerPublicNeighbor: '203::1',
+    });
+    expect(next.wan).toHaveLength(1);
+    expect(next.wan[0].source).toBe('role_wizard');
+    expect(next.wan[0].ifName).toBe('ge0');
   });
 
   it('resolveHubBindingsWithInventory appends inline WAN on PUT-style body', async () => {
