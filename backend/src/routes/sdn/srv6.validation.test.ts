@@ -151,7 +151,14 @@ describe('srv6.validation', () => {
   });
 
   it('validateSrv6VrEndpointsForCreate includes topology check on create', () => {
-    const payload = { name: 't', peA: 'hub', peB: 'spoke', ceA: 'ce-a', ceB: 'ce-b', tunnelTopology: 'H' };
+    const payload = {
+      name: 't',
+      peA: 'hub',
+      peB: 'spoke',
+      ceA: 'ce-a',
+      ceB: 'ce-b',
+      tunnelTopology: 'H' as const,
+    };
     const rows: VrConfigRow[] = [
       { uuid: 'hub', role: 'HUB_PE', config_json: peConfigJson() },
       { uuid: 'spoke', role: 'SPOKE_PE', config_json: peConfigJson() },

@@ -1,4 +1,10 @@
 import type { Srv6EndpointInjectedDelta, Srv6HubVrfMode } from '../../entities/vRouter/srv6Tunnel.types';
+import {
+  type HubInventoryBindingRef,
+  materializeHubInventoryForBinding,
+  parseHubInventoryFromBaseline,
+  stripTowerExtensionsFromDeviceBaseline,
+} from './srv6.hubInventory';
 
 export type ConfigJson = Record<string, unknown>;
 
@@ -8,6 +14,8 @@ export type Srv6MergeContribution = {
   /** Hub PE 槽位贡献 */
   isHubPeSlot?: boolean;
   hubVrfMode?: Srv6HubVrfMode;
+  /** §14.17.6 Hub 绑定 → inventory 物化 */
+  hubBindings?: HubInventoryBindingRef;
 };
 
 export type Srv6MergeContributionInput = Srv6EndpointInjectedDelta | Srv6MergeContribution;
@@ -208,9 +216,22 @@ export const mergeBaselineWithContributions = (
   baseline: ConfigJson,
   contributions: Srv6MergeContributionInput[],
 ): ConfigJson => {
-  const result = deepClone(baseline);
+  const hubInventory = parseHubInventoryFromBaseline(baseline);
+  const deviceBaseline = stripTowerExtensionsFromDeviceBaseline(baseline);
+  const result = deepClone(deviceBaseline);
   for (const raw of contributions) {
     const packed = normalizeMergeInput(raw);
+    if (
+      packed.isHubPeSlot &&
+      packed.hubBindings &&
+      (hubInventory.wan.length > 0 || hubInventory.lan.length > 0)
+    ) {
+      materializeHubInventoryForBinding(result, {
+        inventory: hubInventory,
+        binding: packed.hubBindings,
+        hubVrfMode: packed.hubVrfMode,
+      });
+    }
     if (!packed.delta || typeof packed.delta !== 'object') continue;
     mergeOneContribution(result, packed);
   }

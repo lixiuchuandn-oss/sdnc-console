@@ -4,6 +4,7 @@ import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type {
   Srv6EndpointInjectedDelta,
   Srv6EndpointSlot,
+  Srv6HubSlotBinding,
   Srv6HubVrfMode,
   Srv6TunnelTopology,
 } from '../../entities/vRouter/srv6Tunnel.types';
@@ -22,12 +23,22 @@ export type Srv6AliveContribution = {
   tunnelTopology?: Srv6TunnelTopology | null;
   hubPeSlot?: 'peA' | 'peB' | null;
   hubVrfMode?: Srv6HubVrfMode | null;
+  hubBindings?: Srv6HubSlotBinding | null;
 };
 
 const toMergeContribution = (c: Srv6AliveContribution): Srv6MergeContribution => ({
   delta: c.contribution,
   isHubPeSlot: c.tunnelTopology === 'H' && c.hubPeSlot === c.slot,
   hubVrfMode: c.tunnelTopology === 'H' && c.hubPeSlot === c.slot ? c.hubVrfMode ?? undefined : undefined,
+  hubBindings:
+    c.tunnelTopology === 'H' && c.hubPeSlot === c.slot && c.hubBindings
+      ? {
+          wanIf: c.hubBindings.wanIf,
+          lanIf: c.hubBindings.lanIf,
+          wanInventoryId: c.hubBindings.wanInventoryId,
+          lanInventoryId: c.hubBindings.lanInventoryId,
+        }
+      : undefined,
 });
 
 const slotFromTunnel = (
@@ -74,6 +85,7 @@ export const listAliveContributionsForVr = async (
       tunnelTopology: tunnel.tunnelTopology ?? null,
       hubPeSlot: tunnel.hubPeSlot ?? null,
       hubVrfMode: tunnel.hubVrfMode ?? null,
+      hubBindings: tunnel.hubBindings ?? null,
     });
   }
   return out;

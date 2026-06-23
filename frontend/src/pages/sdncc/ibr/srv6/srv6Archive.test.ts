@@ -123,4 +123,47 @@ describe('srv6Archive buildTunnelArchive', () => {
     const hubNeighbor = archive.injectedDelta?.peA?.neighbors?.find((n) => n.remote_ip === peerIp);
     expect(hubNeighbor?.bgpIndex).toBe(0);
   });
+
+  it('uses hub inventory wan ipv6 when hub cfg lacks wan interface', () => {
+    const hubPe = {
+      bgp: [{ vrf: 0, asn: 65000 }, { vrf: 10, asn: 65001 }],
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/0/1', ipv4_static: '10.0.0.1/24', vrf: 10 },
+      ],
+      segment_routing_srv6: { prefix: '2001:db8:hub' },
+    };
+    const spokePe = {
+      bgp: [{ vrf: 0, asn: 65003 }],
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/0/0', ipv6_static: `${peerIp}/64` }],
+      segment_routing_srv6: { prefix: '2001:db8:spoke' },
+    };
+    const archive = buildTunnelArchive({
+      peA: 'hub-uuid',
+      peB: 'spoke-uuid',
+      peAInnerIf: 'GigabitEthernet 0/0/1',
+      peBInnerIf: 'GigabitEthernet 0/0/0',
+      peConfigs: { peA: hubPe, peB: spokePe },
+      ceConfigs: { ceA: rawCeA, ceB: rawCeA },
+      rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
+      tunnelTopology: 'H',
+      hubPeSlot: 'peA',
+      hubVrfMode: 'REUSE_VRF',
+      hubWanIf: 'GigabitEthernet 0/0/9',
+      hubWanInventoryId: 'w-inv',
+      hubInventory: {
+        wan: [
+          {
+            id: 'w-inv',
+            ifName: 'GigabitEthernet 0/0/9',
+            ipv6: '2408:hub:wan::1/64',
+          },
+        ],
+        lan: [],
+      },
+    });
+    const spokeNeighbor = archive.injectedDelta?.peB?.neighbors?.find((n) => n.remote_ip === '2408:hub:wan::1');
+    expect(spokeNeighbor).toBeDefined();
+    const hubSidRoute = archive.injectedDelta?.peA?.ipv6Routes?.find((r) => r.destination.includes('/64'));
+    expect(hubSidRoute?.via).toBe('2408:hub:wan::1');
+  });
 });

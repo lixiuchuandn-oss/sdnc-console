@@ -10,6 +10,12 @@ import type {
 } from '../../entities/vRouter/srv6Tunnel.types';
 import { parseSrv6Baseline } from './srv6.baseline';
 import {
+  buildHubInventoryUi,
+  getHubInventoryFromVrRecord,
+  type HubInventory,
+  type HubInventoryUi,
+} from './srv6.hubInventory';
+import {
   detectContributionConflicts,
   formatSrv6ContributionConflicts,
   pickPrimaryConflicts,
@@ -53,6 +59,9 @@ export type Srv6HubVrStatus = {
   role?: string | null;
   tunnels: Srv6HubTunnelRef[];
   portRegistry: Srv6HubPortRegistryEntry[];
+  /** §14.17 · Hub PE 基线 inventory */
+  hubInventory: HubInventory;
+  hubInventoryUi: HubInventoryUi;
 };
 
 const slotLabel = (slot: Srv6EndpointSlot) =>
@@ -177,6 +186,8 @@ export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrSta
 
   const portRegistry = await buildHubPortRegistryForVr(id);
   const role = vrRow?.role ?? null;
+  const hubInventory = getHubInventoryFromVrRecord(vrRow);
+  const hubInventoryUi = buildHubInventoryUi(hubInventory, portRegistry);
 
   return {
     vrUuid: id,
@@ -185,6 +196,8 @@ export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrSta
     role,
     tunnels,
     portRegistry,
+    hubInventory,
+    hubInventoryUi,
   };
 };
 

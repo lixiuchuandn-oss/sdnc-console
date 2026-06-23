@@ -42,6 +42,15 @@ SRv6 四端配置管理采用 **「向导基线 + 隧道贡献 + 服务端重算
 - **`resolveSid64Via`**：本端 WAN 有 IPv6 网关时用网关，否则对端公网 IPv6（R-GW-1）。
 - PE 向导：URL `?peRole=HUB_PE`；文案「IPv6 网关」「静态路由（WAN）」。
 
+### P5.2b · Hub inventory 与双轴 UI（WS-2b）
+
+- Hub PE 基线 **`_towerHubInventory`**（API：`hubInventory` / `hubInventoryUi`）：WAN/LAN 能力池；**删隧道不回收** inventory 口项。
+- **HUB_PE 角色向导**：多 WAN inventory 卡片 + LAN inventory 序列化；设备下发前剥离 Tower 扩展字段。
+- **隧道创建向导**：双轴 UI（① Hub WAN ② 路线 A/B）；inventory **下拉选用**或**内联新建**（`hubInventoryInline`）；**无手工填口名**。
+- **`hubBindings`** 扩展：`wanInventoryId` / `lanInventoryId`；POST 创建后 `patchHubBindingsInventoryIds`。
+- **merge 物化**：首引用将 inventory 写入 `interfaces_*`；路线 B 物化独立 `bgp[N]`。
+- **`srv6Archive`**：Spoke 解析 Hub 公网 IPv6 时优先 inventory WAN 地址。
+
 ---
 
 ## 仍支持的能力（P1–P4）
@@ -82,18 +91,21 @@ SRv6 四端配置管理采用 **「向导基线 + 隧道贡献 + 服务端重算
 
 ---
 
-## 本地自动化签收（WS-4 / G3 · 必跑）
+## 本地自动化签收（WS-2b / G3 · 必跑）
 
 ```bash
 cd backend && npx tsc --noEmit
-cd backend && npx jest src/routes/sdn/srv6
-cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6
+cd backend && npx jest src/routes/sdn --runInBand
+cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6 src/pages/sdncc/ibr/routers/hubPeInventory.test.ts
 ```
 
 | 套件 | 规模（当前） |
 |------|----------------|
-| `backend/src/routes/sdn/srv6*.test.ts` | **74** tests / 10 suites |
-| `frontend/src/pages/sdncc/ibr/srv6/*.test.ts` | **10** tests / 2 suites |
+| `backend/src/routes/sdn/*.test.ts` | **106** tests / **13** suites |
+| `frontend/src/pages/sdncc/ibr/srv6/*.test.ts` | **11** tests / **2** suites |
+| `frontend/src/pages/sdncc/ibr/routers/hubPeInventory.test.ts` | **5** tests / **1** suite |
+
+**P5.2b 新增覆盖**：`srv6.hubInventory.test.ts`、`srv6.merge.test.ts`（materialize + NR-1）、`srv6.scenarios.test.ts`（NR-1～NR-3）、`srv6Archive.test.ts`（inventory WAN IPv6）。**P5.2b.1**：`srv6.vrLock.test.ts`（A11/A12）、`hubPeInventory.test.ts`、`resolveHubBindingsWithInventory`（PUT 内联 append）。
 
 ---
 
@@ -109,12 +121,14 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 
 ## 验证清单（发版签收）
 
-### 代码仓（已完成 WS-0～WS-3 + WS-4 自动化）
+### 代码仓（WS-0～WS-3 + WS-2b 自动化）
 
 - [x] `npx tsc --noEmit`（backend）
-- [x] `npx jest src/routes/sdn/srv6` 全绿（74）
-- [x] 前端 `srv6Ipv6` + `srv6Archive` 单测（10）
+- [x] `npx jest src/routes/sdn` 全绿（**106**）
+- [x] 前端 `srv6Ipv6` + `srv6Archive` 单测（**11**）
+- [x] **P5.2b.1**：`srv6.vrLock`（A11/A12）、`hubPeInventory`（**5**）、PUT 内联 append
 - [x] P5 场景：`scenarios` PE3、`merge` REUSE/DEDICATED、`hub` C-H1
+- [x] **P5.2b**：`hubInventory`、merge 物化、**NR-1～NR-3**
 
 ### 测试机（手工 · 不阻塞发版包合入）
 
@@ -123,6 +137,7 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 - [ ] R3/R4（H1–H3、H6）  
 - [ ] H4/H5/H7 Hub REUSE 删建  
 - [ ] R5–R7、R6 Hub wanIf 锁  
+- [ ] **P5.2b**：HUB_PE inventory 向导、8.1a–8.1e（路线 B + 内联新建 + inventory 永久保留）
 
 ---
 
@@ -142,4 +157,6 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 |------|------|------|
 | 2026-06 | P1–P4 | 初版发版说明 |
 | 2026-06 | P5 方案 | §14–§15 定稿；角色 HUB_PE/SPOKE_PE |
-| 2026-06-17 | **P5 代码合入 + WS-4** | Hub 档案/UI/merge/单测；测试机手工清单；**不动 10.21.49.59 现网** |
+| 2026-06-17 | **P5 代码合入 + WS-4** | Hub 档案/UI/merge/单测；测试机手工清单 |
+| 2026-06-23 | **P5.2b / WS-2b** | Hub inventory、双轴 UI、merge 物化、NR 单测；`testcases.md` 8.1 |
+| 2026-06-23 | **P5.2b.1** | PUT 内联 append、vrLock/hubPeInventory 单测 |

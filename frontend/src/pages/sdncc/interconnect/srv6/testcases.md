@@ -1,6 +1,6 @@
 # SRv6 隧道 · 发版前冒烟测试用例
 
-> 适用范围：**P1–P4** baseline + 贡献 + recompute；**P5 真·Hub PE**（H1–H7、R-GW-1）代码已合入，见 [`docs/srv6-baseline-recompute.md`](../../../../../../docs/srv6-baseline-recompute.md) §14–§18。  
+> 适用范围：**P1–P4** baseline + 贡献 + recompute；**P5 真·Hub PE**（H1–H7、R-GW-1）；**P5.2b / WS-2b Hub inventory + 双轴互联 UI**（§14.17）。  
 > 组网范围见 [`docs/srv6-baseline-recompute.md`](../../../../../../docs/srv6-baseline-recompute.md#140-架构总览定稿)。  
 > 建议环境：具备四端 VR（PE-A、PE-B、CE-A、CE-B）的测试集群，管理员账号。
 
@@ -8,13 +8,15 @@
 
 | 环境 | 用途 | 说明 |
 |------|------|------|
-| **本地代码仓** | 自动化签收（4-5） | `backend`: `npx tsc --noEmit` + `npx jest src/routes/sdn/srv6`；`frontend`: `npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6` |
-| **测试机 10.21.49.59** | 手工 H1–H7、R1–R2、R-GW-1 | **勿在发版准备阶段批量删改现网配置**；按下方清单逐项手工执行，角色迁移（Q-MIG-2）、删 `test-20260508` 等由运维择机处理 |
+| **本地代码仓** | 自动化签收（4-5） | `backend`: `npx tsc --noEmit` + `npx jest src/routes/sdn --runInBand`；`frontend`: `CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6` |
+| **测试机** | 手工 H1–H7、R1–R2、R-GW-1、**8.1 路线 B** | **勿在发版准备阶段批量删改现网配置**；按下方清单逐项手工执行 |
 
 ### 前置条件
 
 - 四端 VR 已在「角色配置向导」中完成基础配置；PE 角色为 **`SPOKE_PE` 或 `HUB_PE`**（**取消 `PE` 旧值**）。
-- Hub 场景：中心 PE 为 **`HUB_PE`**，Spoke 为 **`SPOKE_PE`**；创建向导 Step2 出现 **Hub 互联**（WAN 口、客户侧网络）。
+- **Hub 场景**：中心 PE 为 **`HUB_PE`**，Spoke 为 **`SPOKE_PE`**；创建向导 Step2 出现 **Hub 互联**（双轴：① Hub WAN inventory ② 客户侧路线 A/B）。
+- **Hub inventory**：存于 Hub PE 基线 `srv6BaselineJson._towerHubInventory`（API 字段名 `hubInventory`）；须在 **HUB_PE 角色向导**维护多 WAN/LAN 卡片，或在隧道向导 **内联新建**（永久并入基线，删隧道不回收）。
+- Hub WAN/LAN **仅下拉选用或内联新建**，**禁止**手工填口名。
 - 测试账号具备 `networks.srv6:read` / `networks.srv6:write` 权限。
 
 ---
@@ -52,13 +54,14 @@
 
 ## R3 · Hub PE 多隧道（不同 Spoke / neighbor）
 
-> **状态**：**P5 已实现** — 验收 **H1–H3**。自动化见 `srv6.scenarios.test.ts` · PE3 REUSE 双 Spoke。
+> **状态**：**P5 已实现** — 验收 **H1–H3**。自动化见 `srv6.scenarios.test.ts` · PE3 REUSE 双 Spoke。  
+> **P5.2b**：Hub WAN 从 **inventory 下拉**选用；占用标注见 `hubInventoryUi`（`GET .../hub`）。
 
 | 项 | 内容 |
 |----|------|
-| **步骤** | 1. 创建 **H 型**隧道 T1：Hub PE（如 PE3）+ Spoke PE22，Hub 互联选 WAN、客户侧「共用」<br>2. 同 Hub 上创建 T2：**不同 Spoke**（如 PE2）、**不同 PE–PE 公网 neighbor**；Hub LAN/VRF/CE **可复用**<br>3. 列表查看 **类型 / Hub 列**；`GET /api/networks/srv6/vr/:hubUuid/hub` 查看口占用 |
-| **期望** | T2 创建成功；Hub 口占用表含两条 WAN 绑定；公网 `bgp[0]` 两个 neighbor |
-| **失败信号** | 不同 Spoke 仍 409；Hub 口占用 / 列表未展示 |
+| **步骤** | 1. **HUB_PE 角色向导**维护 Hub WAN/LAN inventory（或多 WAN 卡片）并下发<br>2. 创建 **H 型**隧道 T1：Hub + Spoke，Hub 互联 **① 从 inventory 选用 WAN**、**② 客户侧「共用」**（路线 A）<br>3. 同 Hub 上创建 T2：**不同 Spoke**、**不同 PE–PE 公网 neighbor**；WAN 可同口可异口<br>4. `GET /api/networks/srv6/vr/:hubUuid/hub` 查看 `portRegistry` + `hubInventoryUi` |
+| **期望** | T2 创建成功；WAN 下拉含 `[空闲]` / `[已用于 T1 · 可复用]`；公网 `bgp[0]` 两个 neighbor；`hubBindings.wanInventoryId` 有值 |
+| **失败信号** | 仍出现手工填口名；inventory 空且无引导；选用后缺 `wanInventoryId` |
 
 ---
 
@@ -106,6 +109,22 @@
 
 ---
 
+## P5.2b · Hub inventory 与双轴 UI（WS-2b）
+
+| ID | 要点 | 自动化参考 |
+|----|------|------------|
+| **NR-1** | Spoke–Spoke（S）merge 不受基线 `_towerHubInventory` 影响 | `srv6.merge.test.ts` · NR-1；`srv6.scenarios.test.ts` · P5.2b NR |
+| **NR-2** | Hub 首条路线 A：inventory WAN 物化 + 单私网 bgp 段 | `srv6.scenarios.test.ts` · NR-2 |
+| **NR-3** | Hub 第二条路线 A（REUSE）：不增 dedicated `bgp[N]` | `srv6.scenarios.test.ts` · NR-3 |
+| **INV-1** | inventory 解析/剥离/内联 append / PUT resolve | `srv6.hubInventory.test.ts` |
+| **INV-2** | merge 物化 `interfaces_*` / 路线 B `bgp[N]` | `srv6.merge.test.ts` · P5.2b materialize |
+| **INV-3** | archive 用 inventory WAN IPv6（Hub 配置无 WAN 口时） | `srv6Archive.test.ts` · hub inventory wan |
+| **INV-4** | HUB_PE 向导序列化 `_towerHubInventory` | `hubPeInventory.test.ts` + 手工 PEWizard |
+| **INV-5** | 内联新建 append + `patchHubBindingsInventoryIds` | `srv6.hubInventory.test.ts` · resolveHubBindings |
+| **INV-6** | Hub 多 WAN 指纹锁 / set-role（A11/A12） | `srv6.vrLock.test.ts` |
+
+---
+
 ## P5 · Hub 规格对照（H1–H7）
 
 | ID | 手工要点 | 自动化参考 |
@@ -132,11 +151,18 @@
 
 ## 快速检查清单
 
-### 本地自动化（发版前必跑 · WS-4 / G3）
+### 本地自动化（发版前必跑 · WS-2b / G3）
 
 - [ ] `cd backend && npx tsc --noEmit`
-- [ ] `cd backend && npx jest src/routes/sdn/srv6`（当前 **74** 条）
-- [ ] `cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6`（**10** 条）
+- [ ] `cd backend && npx jest src/routes/sdn --runInBand`（当前 **106** 条 / **13** suites）
+- [ ] `cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6 src/pages/sdncc/ibr/routers/hubPeInventory.test.ts`（**16** 条）
+- [ ] `cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/ibr/srv6`（当前 **11** 条 / **2** suites）
+
+### P5.2b 非回归（合入门禁 · 须先于 8.1）
+
+- [ ] NR-1：S 型 merge 与 inventory 扩展共存（自动化已覆盖）
+- [ ] NR-2：Hub 首条路线 A + inventory 物化（自动化已覆盖）
+- [ ] NR-3：Hub 第二条路线 A REUSE（自动化已覆盖）
 
 ### Spoke 点对点（P1–P4 回归）
 
@@ -147,7 +173,13 @@
 - [ ] R6 VR 指纹锁 409
 - [ ] R7 零隧道 / 最后一条隧道基线一致
 
-### P5 真 Hub（测试机 10.21.49.59 · 手工，择机）
+### P5.2b Hub inventory（测试机 · 手工 8.1）
+
+- [ ] **1.5b** HUB_PE 角色向导：多 WAN + LAN inventory 卡片 → 基线含 `_towerHubInventory`
+- [ ] 8.1a–8.1d（见附录 A 阶段 8）
+- [ ] 内联新建后 `GET .../hub` 可见新 inventory 项；删隧道后 **inventory 仍在**
+
+### P5 真 Hub（测试机 · 手工，择机）
 
 - [ ] H1–H3：R3 双 Spoke 成功 + 列表/Hub API
 - [ ] H6：R4 重复 neighbor 409 单条文案
@@ -160,10 +192,23 @@
 
 | 接口 | 用途 |
 |------|------|
-| `GET /api/networks/srv6/vr/:vrUuid/hub` | Hub 引用列表 + **口占用表** `portRegistry` |
+| `GET /api/networks/srv6/vr/:vrUuid/hub` | Hub 引用 + `portRegistry` + **`hubInventory` / `hubInventoryUi`**（占用标注） |
+| `POST /api/networks/srv6` | 创建隧道；body 可含 **`hubInventoryInline`**（内联新建 WAN/LAN） |
 | `GET/POST /api/networks/srv6/reconcile` | 配置对账 |
 | `POST /api/networks/srv6/vr/:vrUuid/baseline/reset` | 零隧道基线重置 |
-| 实现方案 §14–§18 | Hub 规格、并行计划、DoD |
+| 实现方案 §14.17、§18 WS-2b | Hub inventory、双轴 UI、merge 物化 |
+
+### 实现落点（P5.2b 代码索引）
+
+| 层 | 路径 | 职责 |
+|----|------|------|
+| 后端 | `backend/src/routes/sdn/srv6.hubInventory.ts` | `_towerHubInventory` 读写、占用 UI、内联 append、merge 物化、`patchHubBindingsInventoryIds` |
+| 后端 | `backend/src/routes/sdn/srv6.hub.ts` | `GET .../hub` 返回 inventory |
+| 后端 | `backend/src/routes/sdn/srv6.merge.ts` | merge 前物化 inventory → `interfaces_*` / 路线 B `bgp[N]` |
+| 后端 | `backend/src/routes/sdn/srv6.ts` | POST：内联 append → 补全 binding id → sync |
+| 前端 | `frontend/.../ibr/routers/hubPeInventory.ts` + `PEWizard.tsx` | HUB_PE 向导 inventory 卡片 |
+| 前端 | `frontend/.../ibr/srv6/Create.tsx` | 双轴 UI、inventory 下拉、内联新建 |
+| 前端 | `frontend/.../ibr/srv6/srv6Archive.ts` | 按 inventory 解析 Hub WAN IPv6 |
 
 ---
 
@@ -204,8 +249,9 @@
 | 1.1 | Hub 中心 PE（如 PE3）→ 角色 **`HUB_PE`** | 保存成功 | |
 | 1.2 | Spoke PE（PE22、PE2 等）→ 角色 **`SPOKE_PE`** | 保存成功 | |
 | 1.3 | 仍为 **`PE`** 的 VR → 改为 `SPOKE_PE` 或 `HUB_PE` | 建隧道不报「角色 PE 已废弃」 | |
-| 1.4 | 各参与 VR → **角色配置向导** → 保存基线（Locator、SID 前缀、公网 IPv6、内网 VRF 口等） | 基线已保存 | |
-| 1.5 | Hub PE：向导中 WAN 口可在接口列表看到 | Create 时 Hub WAN 可选或可手工输入 | |
+| 1.4 | 各参与 VR → **角色配置向导** → 保存基线 | 基线已保存 | |
+| 1.5 | **HUB_PE** 向导：维护 **Hub WAN inventory**（可多卡）+ **LAN inventory**；保存后基线含 `_towerHubInventory` | `GET .../hub` 的 `hubInventory` 非空 | |
+| 1.6 | Spoke PE：向导保持 1 WAN + LAN；**不写** inventory | S 型创建不受影响 | |
 
 ---
 
@@ -281,13 +327,22 @@
 
 ---
 
-### 阶段 8 · 可选与清理（非阻塞）
+### 阶段 8 · Hub inventory 与路线 B（P5.2b · §14.17）
 
 | # | 操作 | 通过标准 | ☐ |
 |---|------|----------|---|
-| 8.1 | **路线 B**：`DEDICATED_VRF` + 不同内网 VRF/口 | 独立 `bgp[N]` + RD/RT | |
+| 8.0 | **NR 回归**：本地跑通 `jest src/routes/sdn` + 前端 `ibr/srv6` 单测 | NR-1～NR-3 全绿 | |
+| 8.1a | **路线 B · WAN 复用**：客户侧选「独立」；Hub WAN **从 inventory 选用 T1 同口** | 新 `bgp[N]` + 独立 RT；下拉 `[已用于 T1 · 可复用]` | |
+| 8.1b | **路线 B · WAN/LAN 内联新建**：选用方式选「内联新建」 | POST 带 `hubInventoryInline`；Hub 基线永久新增；`wanInventoryId`/`lanInventoryId` 自动补全 | |
+| 8.1c | **路线 A · WAN 异口**：客户侧「共用」；Hub WAN **与 T1 不同 inventory 口** | 同 VRF/RT；`bgp[0]` 新 neighbor；私网段不增 | |
+| 8.1d | 删 8.1b 隧道（勾选回退） | neighbor/私网段摘净；**inventory 口项仍在** Hub 基线 | |
+| 8.1e | Hub 生效配置：选用/内联的 WAN 在 merge 后出现在 `interfaces_*` | 对账无异常；设备下发预览无 `_towerHubInventory` | |
 | 8.2 | 删历史隧道 **`test-20260508`**（业务确认后） | 按策略回退 | |
 | 8.3 | 全量配置对账扫描 | 漂移已处理或已登记 | |
+
+**UI 约束**：Hub WAN/LAN **仅 inventory 下拉或内联新建**；占用标注与 `GET .../hub` · `hubInventoryUi` 一致。
+
+**非回归（合入前必跑）**：NR-1（S 型）、NR-2（Hub 首条 A）、NR-3（Hub 第二条 A）— 自动化见 `srv6.scenarios.test.ts` · `P5.2b NR`；**通过后**再验 8.1 路线 B。
 
 ---
 
@@ -295,10 +350,13 @@
 
 | 项 | ☐ |
 |----|---|
+| 本地自动化（106 + 16 单测） | |
+| NR-1 / NR-2 / NR-3 | |
 | R1 / R2（S 型） | |
 | R-GW-1（网关 + 直连对照） | |
 | R3（H1–H3）+ R4（H6） | |
 | H4 / H5 / H7（REUSE 删建） | |
+| P5.2b：8.1a–8.1e（路线 B + inventory） | |
 | R5 / R6 | |
 | 验收人 / 日期 / 备注：________________ | |
 

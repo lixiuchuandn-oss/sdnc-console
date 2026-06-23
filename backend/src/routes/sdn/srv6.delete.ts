@@ -18,6 +18,7 @@ const stripMeta = (obj: Record<string, unknown>) => {
     createDate: _createDate,
     _id,
     requestId: _requestId,
+    _towerHubInventory: _towerHubInventory,
     ...rest
   } = obj;
   return rest;

@@ -66,6 +66,8 @@ export type Srv6HubSlotBinding = {
   wanIf: string;
   lanIf?: string;
   peerPublicNeighbor: string;
+  wanInventoryId?: string;
+  lanInventoryId?: string;
 };
 
 export type Srv6CeFingerprint = {
@@ -296,6 +298,34 @@ type HubArchiveContext = {
   topology: Srv6TunnelTopology;
   hubPeSlot: 'peA' | 'peB';
   hubBindings?: Srv6HubSlotBinding;
+  hubInventory?: HubInventoryLite;
+};
+
+export type HubInventoryLite = {
+  wan: Array<{ id: string; ifName: string; ipv6: string; ipv4?: string }>;
+  lan: Array<{
+    id: string;
+    ifName: string;
+    vrf: number;
+    privateAsn: number;
+    routerId: string;
+    ipv4?: string;
+    ipv6?: string;
+  }>;
+};
+
+const resolveWanFromHubInventory = (
+  inventory: HubInventoryLite | undefined,
+  bindings?: Srv6HubSlotBinding,
+): { ifName?: string; ipv6Host?: string } => {
+  if (!bindings) return {};
+  const wan =
+    inventory?.wan.find((w) => w.id === bindings.wanInventoryId) ??
+    inventory?.wan.find((w) => w.ifName === bindings.wanIf);
+  if (wan) {
+    return { ifName: wan.ifName, ipv6Host: ipv6HostFromRaw(wan.ipv6) };
+  }
+  return bindings.wanIf ? { ifName: bindings.wanIf } : {};
 };
 
 const resolvePePePublicEndpoint = (
@@ -314,9 +344,11 @@ const resolvePePePublicEndpoint = (
     return { ip, asn: extractBgpAsnAt(peerCfg, 0) };
   }
   const hubCfg = peConfigs[hubCtx.hubPeSlot];
-  const wanIf = hubCtx.hubBindings?.wanIf;
+  const invWan = resolveWanFromHubInventory(hubCtx.hubInventory, hubCtx.hubBindings);
+  const wanIf = invWan.ifName ?? hubCtx.hubBindings?.wanIf;
   const ip =
     (wanIf && hubCfg ? extractInterfaceIpv6(hubCfg, wanIf) : undefined) ??
+    invWan.ipv6Host ??
     extractPortIpv6(hubCfg, 0);
   return { ip, asn: extractBgpAsnAt(hubCfg, 0) };
 };
@@ -394,7 +426,15 @@ const buildPeInjectedDelta = (
   if (peerCfg && vrf !== undefined) {
     const peerPrefix = extractSrv6Prefix(peerCfg);
     const dest = buildSrv6PeerRouteDestination(peerPrefix);
-    const via = resolveSid64Via(selfCfg, peerCfg);
+    let via = resolveSid64Via(selfCfg, peerCfg);
+    if (hubCtx?.topology === 'H' && selfKey === hubCtx.hubPeSlot && hubCtx.hubBindings) {
+      const invWan = resolveWanFromHubInventory(hubCtx.hubInventory, hubCtx.hubBindings);
+      const wanIf = invWan.ifName ?? hubCtx.hubBindings.wanIf;
+      via =
+        (wanIf ? extractInterfaceIpv6(selfCfg, wanIf) : undefined) ??
+        invWan.ipv6Host ??
+        via;
+    }
     if (dest && via) {
       delta.ipv6Routes = [
         ...(delta.ipv6Routes || []),
@@ -437,6 +477,9 @@ export type BuildTunnelArchiveInput = {
   hubVrfMode?: Srv6HubVrfMode;
   hubWanIf?: string;
   hubLanIf?: string;
+  hubWanInventoryId?: string;
+  hubLanInventoryId?: string;
+  hubInventory?: HubInventoryLite;
 };
 
 export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelArchivePayload => {
@@ -455,12 +498,15 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     hubVrfMode,
     hubWanIf,
     hubLanIf,
+    hubWanInventoryId,
+    hubLanInventoryId,
+    hubInventory,
   } = input;
 
   let hubBindings: Srv6HubSlotBinding | undefined;
   const hubCtx: HubArchiveContext | undefined =
     tunnelTopology === 'H' && hubPeSlot
-      ? { topology: 'H', hubPeSlot, hubBindings: undefined }
+      ? { topology: 'H', hubPeSlot, hubBindings: undefined, hubInventory }
       : undefined;
 
   if (tunnelTopology === 'H' && hubPeSlot && hubWanIf && peA && peB) {
@@ -474,7 +520,9 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
       spokePeUuid: spokeUuid,
       hubPeSlot,
       wanIf: hubWanIf,
+      wanInventoryId: hubWanInventoryId || undefined,
       lanIf: lanIf || undefined,
+      lanInventoryId: hubLanInventoryId || undefined,
       peerPublicNeighbor,
     };
     if (hubCtx) hubCtx.hubBindings = hubBindings;

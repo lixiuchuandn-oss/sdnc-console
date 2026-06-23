@@ -1,5 +1,6 @@
 import { mergeBaselineWithContributions } from './srv6.merge';
 import type { Srv6EndpointInjectedDelta } from '../../entities/vRouter/srv6Tunnel.types';
+import { TOWER_HUB_INVENTORY_KEY } from './srv6.hubInventory';
 
 /** PE22 类：向导基线（删除后期望态） */
 const pe22Baseline = {
@@ -223,6 +224,54 @@ describe('srv6.merge', () => {
       expect(
         (inner2.address_family as Record<string, unknown>[])[0].route_target,
       ).toBe('200:40944');
+    });
+  });
+
+  describe('P5.2b Hub inventory materialize', () => {
+    const hubBaselineWithInventory = {
+      bgp: [{ vrf: 0, asn: 430, address_family: [] }],
+      [TOWER_HUB_INVENTORY_KEY]: {
+        wan: [
+          {
+            id: 'w-new',
+            ifName: 'GigabitEthernet 0/0/9',
+            ipv6: '203::99/64',
+            source: 'tunnel_inline',
+            createdAt: '2026-01-01',
+          },
+        ],
+        lan: [],
+      },
+    };
+
+    const hubNeighborContrib: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::22', remote_as: 430 }],
+    };
+
+    it('materializes wan interface from inventory on hub merge', () => {
+      const merged = mergeBaselineWithContributions(hubBaselineWithInventory, [
+        {
+          delta: hubNeighborContrib,
+          isHubPeSlot: true,
+          hubVrfMode: 'REUSE_VRF',
+          hubBindings: { wanIf: 'GigabitEthernet 0/0/9', wanInventoryId: 'w-new' },
+        },
+      ]);
+      expect(merged[TOWER_HUB_INVENTORY_KEY]).toBeUndefined();
+      const ifaces = merged.interfaces_GigabitEthernet as Record<string, unknown>[];
+      expect(ifaces?.some((i) => i.name === 'GigabitEthernet 0/0/9')).toBe(true);
+      expect((merged.bgp as Record<string, unknown>[])[0].neighbor).toHaveLength(1);
+    });
+
+    it('NR-1: S topology merge ignores hub inventory extension', () => {
+      const sBaseline = {
+        ...pe22Baseline,
+        [TOWER_HUB_INVENTORY_KEY]: { wan: [{ id: 'x', ifName: 'ge9', ipv6: '::1/64', source: 'role_wizard', createdAt: '' }], lan: [] },
+      };
+      const out = mergeBaselineWithContributions(sBaseline, [pe22PeAContrib]);
+      expect(out[TOWER_HUB_INVENTORY_KEY]).toBeUndefined();
+      expect((out.bgp as Record<string, unknown>[])[0].neighbor).toHaveLength(1);
+      expect(out.interfaces_GigabitEthernet).toEqual(pe22Baseline.interfaces_GigabitEthernet);
     });
   });
 });

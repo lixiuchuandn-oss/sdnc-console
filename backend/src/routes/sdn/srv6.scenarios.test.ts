@@ -49,6 +49,8 @@ const aliveRef = (
   createdAt: new Date(),
 });
 
+import { TOWER_HUB_INVENTORY_KEY } from './srv6.hubInventory';
+
 describe('srv6.scenarios (P1–P4 matrix)', () => {
   describe('P1 单隧道生命周期', () => {
     const baseline = hubBaseline;
@@ -266,6 +268,89 @@ describe('srv6.scenarios (P1–P4 matrix)', () => {
         unknown
       >[])[0];
       expect(af22.route_target).toBe('200:40988');
+    });
+  });
+
+  describe('P5.2b NR regression (§14.17.9)', () => {
+    const spokeSContrib = spokeContrib('S-T1', '203::55', '10.5.5.5', 1, '429:5001');
+
+    it('NR-1: Spoke–Spoke merge unchanged when baseline carries _towerHubInventory', () => {
+      const baseline = {
+        ...hubBaseline,
+        [TOWER_HUB_INVENTORY_KEY]: {
+          wan: [{ id: 'w1', ifName: 'ge0', ipv6: '203::1/64', source: 'role_wizard', createdAt: '' }],
+          lan: [],
+        },
+      };
+      const effective = mergeBaselineWithContributions(baseline, [spokeSContrib]);
+      expect(effective[TOWER_HUB_INVENTORY_KEY]).toBeUndefined();
+      expect(effectiveConfigMatches(effective, hubBaseline, [spokeSContrib])).toBe(true);
+      const pub = (effective.bgp as Record<string, unknown>[])[0];
+      expect((pub.neighbor as unknown[]).length).toBe(1);
+    });
+
+    const hubPackReuse = (
+      delta: Srv6EndpointInjectedDelta,
+      bindings: { wanIf: string; wanInventoryId?: string },
+    ) => ({
+      delta,
+      isHubPeSlot: true,
+      hubVrfMode: 'REUSE_VRF' as const,
+      hubBindings: bindings,
+    });
+
+    it('NR-2: Hub first route A uses inventory wan materialization + single inner bgp', () => {
+      const baseline = {
+        bgp: [
+          { vrf: 0, asn: 430, address_family: [] },
+          { vrf: 7777, asn: 106, address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }] },
+        ],
+        [TOWER_HUB_INVENTORY_KEY]: {
+          wan: [
+            {
+              id: 'w-hub',
+              ifName: 'GigabitEthernet 0/0/0',
+              ipv6: '203::hub/64',
+              source: 'role_wizard',
+              createdAt: '',
+            },
+          ],
+          lan: [],
+        },
+      };
+      const t1 = spokeContrib('H-T1', '203::33', '101.1.1.22', 1, '200:39508');
+      const merged = mergeBaselineWithContributions(baseline, [
+        hubPackReuse(t1, { wanIf: 'GigabitEthernet 0/0/0', wanInventoryId: 'w-hub' }),
+      ]);
+      expect(merged.interfaces_GigabitEthernet).toBeDefined();
+      const inner = (merged.bgp as Record<string, unknown>[])[1];
+      expect(inner.neighbor).toBeDefined();
+      expect((merged.bgp as unknown[]).length).toBe(2);
+    });
+
+    it('NR-3: Hub second route A REUSE does not add dedicated bgp segment', () => {
+      const baseline = {
+        bgp: [
+          { vrf: 0, asn: 430, address_family: [] },
+          { vrf: 7777, asn: 106, address_family: [{ address_family: 'ipv4', modifiler: 'unicast' }] },
+        ],
+        [TOWER_HUB_INVENTORY_KEY]: {
+          wan: [
+            { id: 'w1', ifName: 'ge0', ipv6: '203::1/64', source: 'role_wizard', createdAt: '' },
+            { id: 'w2', ifName: 'ge1', ipv6: '203::2/64', source: 'role_wizard', createdAt: '' },
+          ],
+          lan: [],
+        },
+      };
+      const t1 = spokeContrib('H-T1', '203::33', '101.1.1.22', 1, '200:39508');
+      const t2 = spokeContrib('H-T2', '203::44', '101.1.1.44', 1, '200:39508');
+      const merged = mergeBaselineWithContributions(baseline, [
+        hubPackReuse(t1, { wanIf: 'ge0', wanInventoryId: 'w1' }),
+        hubPackReuse(t2, { wanIf: 'ge1', wanInventoryId: 'w2' }),
+      ]);
+      expect((merged.bgp as unknown[]).length).toBe(2);
+      const pub = (merged.bgp as Record<string, unknown>[])[0];
+      expect((pub.neighbor as unknown[]).length).toBe(2);
     });
   });
 });

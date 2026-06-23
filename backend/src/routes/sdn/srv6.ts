@@ -13,7 +13,13 @@ import {
 import { auditSrv6Tunnel, auditSrv6Vr } from './srv6.audit';
 import { forceResetSrv6BaselineFromConfig } from './srv6.baseline';
 import { deleteSrv6TunnelWithRevert } from './srv6.delete';
-import { assertNoSrv6ContributionConflictsForTunnel, findAliveTunnelsByVr } from './srv6.hub';
+import {
+  assertNoSrv6ContributionConflictsForTunnel,
+  findAliveTunnelsByVr,
+  getHubPeUuid,
+  isHubTunnel,
+} from './srv6.hub';
+import { resolveHubBindingsWithInventory } from './srv6.hubInventory';
 import { reconcileAllSrv6Vrs } from './srv6.reconcile';
 import { findSrv6TunnelsReferencingVr } from './srv6.references';
 import { alignReuseVrfTunnelArchive } from './srv6.reuseRdRt';
@@ -40,6 +46,7 @@ const stripMeta = (obj: any) => {
     createDate: _createDate,
     _id,
     requestId: _requestId,
+    _towerHubInventory: _towerHubInventory,
     ...rest
   } = obj;
   return rest;
@@ -182,6 +189,20 @@ srv6Routes.post('/', async (req, res, next) => {
 
     const saved = await repo().save(item);
 
+    if (isHubTunnel(saved)) {
+      const hubUuid = getHubPeUuid(saved);
+      if (hubUuid && saved.hubBindings) {
+        saved.hubBindings = await resolveHubBindingsWithInventory(
+          hubUuid,
+          saved.id,
+          saved.hubBindings,
+          req.body,
+          saved.hubVrfMode,
+        );
+        await repo().save(saved);
+      }
+    }
+
     try {
       await assertNoSrv6ContributionConflictsForTunnel(saved, { excludeTunnelId: saved.id });
       await syncSrv6TunnelPlatformConfigs(saved);
@@ -305,6 +326,19 @@ srv6Routes.put('/:id', async (req, res, next) => {
         return;
       }
       throw conflictErr;
+    }
+
+    if (isHubTunnel(current)) {
+      const hubUuid = getHubPeUuid(current);
+      if (hubUuid && current.hubBindings) {
+        current.hubBindings = await resolveHubBindingsWithInventory(
+          hubUuid,
+          current.id,
+          current.hubBindings,
+          req.body,
+          current.hubVrfMode,
+        );
+      }
     }
 
     const saved = await repo().save(current);

@@ -1491,6 +1491,50 @@ export type Srv6HubPortRegistryEntry = {
   hubVrfMode?: 'REUSE_VRF' | 'DEDICATED_VRF' | null;
 };
 
+export type Srv6HubInventoryOptionTag = 'idle' | 'wan_reusable' | 'lan_dedicated_occupied';
+
+export type Srv6HubWanInventoryItem = {
+  id: string;
+  ifName: string;
+  ipv4?: string;
+  ipv6: string;
+  source: 'role_wizard' | 'tunnel_inline';
+  createdByTunnelId?: string;
+  createdAt: string;
+  tags?: Srv6HubInventoryOptionTag[];
+  label?: string;
+  selectable?: boolean;
+};
+
+export type Srv6HubLanInventoryItem = {
+  id: string;
+  ifName: string;
+  vrf: number;
+  ipv4?: string;
+  ipv6?: string;
+  privateAsn: number;
+  routerId: string;
+  source: 'role_wizard' | 'tunnel_inline';
+  createdByTunnelId?: string;
+  createdAt: string;
+  tags?: Srv6HubInventoryOptionTag[];
+  label?: string;
+  selectable?: boolean;
+};
+
+export type Srv6HubInventory = {
+  wan: Srv6HubWanInventoryItem[];
+  lan: Srv6HubLanInventoryItem[];
+};
+
+export type Srv6HubInventoryUi = {
+  inventory: Srv6HubInventory;
+  inventoryEmpty: boolean;
+  guidance?: string;
+  wanOptions: Srv6HubWanInventoryItem[];
+  lanOptions: Srv6HubLanInventoryItem[];
+};
+
 export type Srv6HubVrStatus = {
   vrUuid: string;
   tunnelCount: number;
@@ -1512,10 +1556,14 @@ export type Srv6HubVrStatus = {
       hubPeSlot: 'peA' | 'peB';
       wanIf: string;
       lanIf?: string;
+      wanInventoryId?: string;
+      lanInventoryId?: string;
       peerPublicNeighbor: string;
     } | null;
   }>;
   portRegistry: Srv6HubPortRegistryEntry[];
+  hubInventory: Srv6HubInventory;
+  hubInventoryUi: Srv6HubInventoryUi;
 };
 
 /** P3：查询某 VR 的 Hub 多隧道引用状态 */

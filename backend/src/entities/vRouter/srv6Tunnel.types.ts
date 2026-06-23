@@ -88,6 +88,10 @@ export type Srv6HubSlotBinding = {
   wanIf: string;
   lanIf?: string;
   peerPublicNeighbor: string;
+  /** §14.17 · Hub WAN inventory 引用 */
+  wanInventoryId?: string;
+  /** §14.17 · Hub LAN inventory 引用（路线 B） */
+  lanInventoryId?: string;
 };
 
 export type Srv6TunnelArchiveFields = {
