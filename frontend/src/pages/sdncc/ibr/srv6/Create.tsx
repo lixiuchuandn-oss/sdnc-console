@@ -7,6 +7,7 @@ import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Conf
 import { apiRequest, apiPost, fetchSrv6HubStatus, fetchSrv6Tunnel, type Srv6HubVrStatus } from '../../../../services/api';
 import { filterLinkLocalIpv6 } from '../routers/vrIpv6Utils';
 import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
+import { buildReuseVrfRdRtMeta } from './srv6RdRt';
 import {
   inferTunnelTopologyFromRoles,
   resolveHubPeSlotFromRoles,
@@ -1091,7 +1092,7 @@ const SRv6CreatePage: React.FC = () => {
     } catch {}
   };
 
-  // 计算本次隧道的公共 RT 与各端唯一 RD（Hub REUSE 时继承首条隧道 RT/RD）
+  // 计算本次隧道的公共 RT 与各端 RD（Hub REUSE：RT + Hub RD 继承首条；Spoke RD 独立生成）
   const [rdRtMeta, setRdRtMeta] = useState<{ rtCommon: string; rdMap: Record<string, string> } | null>(null);
 
   const inheritReuseVrfRdRtMeta = async (): Promise<boolean> => {
@@ -1106,7 +1107,7 @@ const SRv6CreatePage: React.FC = () => {
       const refTunnel = await fetchSrv6Tunnel(firstRef.tunnelId);
       const meta = refTunnel?.rdRtMeta;
       if (meta?.rtCommon && meta?.rdMap?.peA && meta?.rdMap?.peB) {
-        setRdRtMeta({ rtCommon: meta.rtCommon, rdMap: { peA: meta.rdMap.peA, peB: meta.rdMap.peB } });
+        setRdRtMeta(buildReuseVrfRdRtMeta(meta, hubSlot));
         return true;
       }
     } catch {

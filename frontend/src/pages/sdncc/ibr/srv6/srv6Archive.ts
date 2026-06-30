@@ -426,15 +426,9 @@ const buildPeInjectedDelta = (
   if (peerCfg && vrf !== undefined) {
     const peerPrefix = extractSrv6Prefix(peerCfg);
     const dest = buildSrv6PeerRouteDestination(peerPrefix);
-    let via = resolveSid64Via(selfCfg, peerCfg);
-    if (hubCtx?.topology === 'H' && selfKey === hubCtx.hubPeSlot && hubCtx.hubBindings) {
-      const invWan = resolveWanFromHubInventory(hubCtx.hubInventory, hubCtx.hubBindings);
-      const wanIf = invWan.ifName ?? hubCtx.hubBindings.wanIf;
-      via =
-        (wanIf ? extractInterfaceIpv6(selfCfg, wanIf) : undefined) ??
-        invWan.ipv6Host ??
-        via;
-    }
+    // §14.14.1：SID/64 的 via 优先取本端已有公网 IPv6 静态路由网关（resolveSid64Via），
+    // 勿用 inventory/接口 ipv6_static 主机地址替代。多 WAN 非复用口按口区分网关 — 待后续。
+    const via = resolveSid64Via(selfCfg, peerCfg);
     if (dest && via) {
       delta.ipv6Routes = [
         ...(delta.ipv6Routes || []),

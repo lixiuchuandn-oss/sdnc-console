@@ -23,6 +23,44 @@ export const findReuseVrfReferenceTunnel = async (
   return null;
 };
 
+export const randomSrv6RdOrdinal = (): number => 100 + Math.floor(Math.random() * 50000);
+
+export const formatSrv6Rd = (ordinal: number): string => `200:${ordinal}`;
+
+/** REUSE_VRF 第 2+ 条：Hub 槽位 RD + rtCommon 继承首条；Spoke 槽位 RD 每次独立 */
+export const buildReuseVrfRdRtMeta = (
+  ref: Srv6RdRtMeta,
+  hubPeSlot: 'peA' | 'peB',
+  spokeRd?: string,
+): Srv6RdRtMeta => {
+  const spokeSlot: 'peA' | 'peB' = hubPeSlot === 'peA' ? 'peB' : 'peA';
+  const hubRd = ref.rdMap[hubPeSlot];
+  const resolvedSpokeRd =
+    spokeRd && spokeRd !== ref.rdMap[spokeSlot]
+      ? spokeRd
+      : formatSrv6Rd(randomSrv6RdOrdinal());
+  return {
+    rtCommon: ref.rtCommon,
+    rdMap: {
+      peA: hubPeSlot === 'peA' ? hubRd : resolvedSpokeRd,
+      peB: hubPeSlot === 'peB' ? hubRd : resolvedSpokeRd,
+    },
+  };
+};
+
+export const resolveReuseVrfSpokeRd = (
+  ref: Srv6RdRtMeta,
+  hubPeSlot: 'peA' | 'peB',
+  incoming?: Srv6RdRtMeta | null,
+): string => {
+  const spokeSlot: 'peA' | 'peB' = hubPeSlot === 'peA' ? 'peB' : 'peA';
+  const fromIncoming = incoming?.rdMap?.[spokeSlot];
+  if (fromIncoming && fromIncoming !== ref.rdMap[spokeSlot]) {
+    return fromIncoming;
+  }
+  return formatSrv6Rd(randomSrv6RdOrdinal());
+};
+
 const patchPeRdRtInDelta = (
   delta: Srv6InjectedDelta | null | undefined,
   inherited: Srv6RdRtMeta,
@@ -40,7 +78,7 @@ const patchPeRdRtInDelta = (
 };
 
 /**
- * REUSE_VRF 第 2+ 条 Spoke：Spoke/Hub PE 档案与 injectedDelta 中的 RT/RD 须与首条隧道一致（§14.4.6）。
+ * REUSE_VRF 第 2+ 条 Spoke：Hub RD + RT 与首条一致；Spoke RD 独立（§14.4.6 + 方案1）。
  */
 export const alignReuseVrfTunnelArchive = async (
   tunnel: SRv6Tunnel,
@@ -57,10 +95,8 @@ export const alignReuseVrfTunnelArchive = async (
     return false;
   }
 
-  tunnel.rdRtMeta = {
-    rtCommon: ref.rdRtMeta.rtCommon,
-    rdMap: { peA: ref.rdRtMeta.rdMap.peA, peB: ref.rdRtMeta.rdMap.peB },
-  };
+  const spokeRd = resolveReuseVrfSpokeRd(ref.rdRtMeta, tunnel.hubPeSlot, tunnel.rdRtMeta);
+  tunnel.rdRtMeta = buildReuseVrfRdRtMeta(ref.rdRtMeta, tunnel.hubPeSlot, spokeRd);
   patchPeRdRtInDelta(tunnel.injectedDelta ?? undefined, tunnel.rdRtMeta);
   return true;
 };

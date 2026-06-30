@@ -164,6 +164,51 @@ describe('srv6Archive buildTunnelArchive', () => {
     const spokeNeighbor = archive.injectedDelta?.peB?.neighbors?.find((n) => n.remote_ip === '2408:hub:wan::1');
     expect(spokeNeighbor).toBeDefined();
     const hubSidRoute = archive.injectedDelta?.peA?.ipv6Routes?.find((r) => r.destination.includes('/64'));
-    expect(hubSidRoute?.via).toBe('2408:hub:wan::1');
+    // Hub 无 ipv6_route 网关时 SID/64 回退对端 Spoke 公网 IPv6，不用 inventory 口地址作 via
+    expect(hubSidRoute?.via).toBe(peerIp);
+  });
+
+  it('Hub SID/64 via prefers WAN ipv6_route gateway over interface address', () => {
+    const hubPe = {
+      bgp: [{ vrf: 0, asn: 65000 }, { vrf: 10, asn: 65001 }],
+      ipv6_route: [{ destination: '290f:2033:3333::/64', via: '203::33' }],
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 2/2/0', ipv6_static: '203::22/64' },
+        { name: 'GigabitEthernet 2/3/0', ipv4_static: '10.0.0.1/24', vrf: 10 },
+      ],
+      segment_routing_srv6: { prefix: '240f:2033::1235' },
+    };
+    const spokePe = {
+      bgp: [{ vrf: 0, asn: 65003 }],
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/0/0', ipv6_static: `${peerIp}/64` }],
+      segment_routing_srv6: { prefix: '2001:db8:spoke' },
+    };
+    const archive = buildTunnelArchive({
+      peA: 'hub-uuid',
+      peB: 'spoke-uuid',
+      peAInnerIf: 'GigabitEthernet 2/3/0',
+      peBInnerIf: 'GigabitEthernet 0/0/0',
+      peConfigs: { peA: hubPe, peB: spokePe },
+      ceConfigs: { ceA: rawCeA, ceB: rawCeA },
+      rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
+      tunnelTopology: 'H',
+      hubPeSlot: 'peA',
+      hubVrfMode: 'REUSE_VRF',
+      hubWanIf: 'GigabitEthernet 2/2/0',
+      hubWanInventoryId: 'w-inv',
+      hubInventory: {
+        wan: [
+          {
+            id: 'w-inv',
+            ifName: 'GigabitEthernet 2/2/0',
+            ipv6: '203::22/64',
+          },
+        ],
+        lan: [],
+      },
+    });
+    const hubSidRoute = archive.injectedDelta?.peA?.ipv6Routes?.find((r) => r.destination.includes('/64'));
+    expect(hubSidRoute?.via).toBe('203::33');
+    expect(hubSidRoute?.via).not.toBe('203::22');
   });
 });

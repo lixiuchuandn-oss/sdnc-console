@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
-import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
+import { collectIfaceNamesForSelect, looksLikeIfaceName, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 
@@ -239,7 +239,7 @@ const CEWizard: React.FC = () => {
             }
           });
         }
-        setIfaceOptions(Array.from(new Set(names)).filter(Boolean));
+        setIfaceOptions(Array.from(new Set(names)).filter((n) => looksLikeIfaceName(n)));
         const bgpTop = Array.isArray(cfg?.bgp) ? cfg.bgp[0] : undefined;
         const pcfg = getCePublicConfig(cfg?.ce);
         const lanRows = readLanListFromCe(cfg?.ce).map((x) => normalizeCeLanRowForForm(x));
@@ -267,8 +267,7 @@ const CEWizard: React.FC = () => {
         setVr3Info(null);
         return;
       }
-      const unique = collectIfaceNamesForSelect(merged as Record<string, any>);
-      if (unique.length) setIfaceOptions(unique);
+      setIfaceOptions(collectIfaceNamesForSelect(merged as Record<string, any>).filter(looksLikeIfaceName));
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
       if (!silent) message.success('设备回读已刷新');

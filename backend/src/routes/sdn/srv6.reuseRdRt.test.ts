@@ -1,4 +1,4 @@
-import { alignReuseVrfTunnelArchive, findReuseVrfReferenceTunnel } from './srv6.reuseRdRt';
+import { alignReuseVrfTunnelArchive, findReuseVrfReferenceTunnel, buildReuseVrfRdRtMeta } from './srv6.reuseRdRt';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 
 jest.mock('../../config/database', () => ({
@@ -56,7 +56,7 @@ describe('srv6.reuseRdRt', () => {
     expect(ref?.rdRtMeta?.rtCommon).toBe('200:39508');
   });
 
-  it('alignReuseVrfTunnelArchive patches rdRtMeta and spoke pe delta', async () => {
+  it('alignReuseVrfTunnelArchive inherits hub RD/RT and keeps unique spoke RD', async () => {
     mockFind([
       {
         id: 't1',
@@ -68,7 +68,7 @@ describe('srv6.reuseRdRt', () => {
         peA: 'spoke-1',
         peB: 'hub-1',
         hubBindings: { hubPeUuid: 'hub-1', spokePeUuid: 'spoke-1', hubPeSlot: 'peB', wanIf: 'ge0', peerPublicNeighbor: '203::22' },
-        rdRtMeta: { rtCommon: '200:39508', rdMap: { peA: '200:12851', peB: '200:12851' } },
+        rdRtMeta: { rtCommon: '200:39508', rdMap: { peA: '200:12851', peB: '200:22001' } },
         injectedDelta: { peA: {}, peB: {}, ceA: {}, ceB: {} },
       },
     ] as unknown as SRv6Tunnel[]);
@@ -93,7 +93,20 @@ describe('srv6.reuseRdRt', () => {
     const aligned = await alignReuseVrfTunnelArchive(tunnel);
     expect(aligned).toBe(true);
     expect(tunnel.rdRtMeta?.rtCommon).toBe('200:39508');
+    expect(tunnel.rdRtMeta?.rdMap?.peB).toBe('200:22001');
+    expect(tunnel.injectedDelta?.peB?.rdRt?.[0].route_distinguisher).toBe('200:22001');
     expect(tunnel.injectedDelta?.peA?.rdRt?.[0].route_target).toBe('200:39508');
-    expect(tunnel.injectedDelta?.peA?.rdRt?.[0].route_distinguisher).toBe('200:12851');
+    expect(tunnel.injectedDelta?.peA?.rdRt?.[0].route_distinguisher).toBe('200:9');
+    expect(tunnel.rdRtMeta?.rdMap?.peA).toBe('200:9');
+    expect(tunnel.rdRtMeta?.rdMap?.peA).not.toBe('200:12851');
+  });
+
+  it('buildReuseVrfRdRtMeta generates new spoke RD when incoming matches first spoke', () => {
+    const ref = { rtCommon: '200:39508', rdMap: { peA: '200:12851', peB: '200:22001' } };
+    const built = buildReuseVrfRdRtMeta(ref, 'peB', '200:12851');
+    expect(built.rtCommon).toBe('200:39508');
+    expect(built.rdMap.peB).toBe('200:22001');
+    expect(built.rdMap.peA).not.toBe('200:12851');
+    expect(built.rdMap.peA).toMatch(/^200:\d+$/);
   });
 });

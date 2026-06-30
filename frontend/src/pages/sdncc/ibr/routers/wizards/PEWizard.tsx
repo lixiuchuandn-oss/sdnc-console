@@ -5,7 +5,11 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
-import { collectIfaceNamesForSelect, pickDeviceBlobForLookup } from '../vrMergedHelpers';
+import {
+  collectIfaceNamesForSelect,
+  looksLikeIfaceName,
+  pickDeviceBlobForLookup,
+} from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { filterLinkLocalIpv6, pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 import {
@@ -124,6 +128,7 @@ const PEWizard: React.FC = () => {
   /** vr3_info 设备回读：用于在接口选择后反查 IP 等字段 */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
+  const [activeWanTabKey, setActiveWanTabKey] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
   const existingHubInventory = useMemo(
@@ -135,36 +140,39 @@ const PEWizard: React.FC = () => {
 
   const watchWanDev = Form.useWatch('wanDev', form);
   const watchLanConfigs = Form.useWatch('lanConfigs', form);
+  const watchHubWanInventory = Form.useWatch('hubWanInventory', form);
 
-  const peWanIfaceSelectOptions = useMemo(() => {
-    const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
-    return ifaceOptions.map((n) => {
-      const hits: string[] = [];
-      rows.forEach((row: any, i: number) => {
-        const ifn = String(row?.ifName || '').trim();
-        if (ifn && ifn === n) hits.push(`已用于 LAN#${i + 1}`);
-      });
-      return {
-        value: n,
-        label: renderIfaceWizardSelectLabel(n, hits.length ? hits.join('、') : undefined),
-      };
-    });
-  }, [ifaceOptions, watchLanConfigs]);
+  const peIfaceSelectOptions = useCallback(
+    (
+      rowIndex: number,
+      kind: 'hubWan' | 'lan' | 'wan',
+    ): Array<{ value: string; label: React.ReactNode }> => {
+      const hubWanRows = Array.isArray(watchHubWanInventory) ? watchHubWanInventory : [];
+      const lanRows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
+      const legacyWan = String(watchWanDev || '').trim();
 
-  const peLanIfaceSelectLabel = useCallback(
-    (iface: string, rowIndex: number) => {
-      const wan = String(watchWanDev || '').trim();
-      if (wan && iface === wan) return renderIfaceWizardSelectLabel(iface, '已用于 WAN');
-      const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
-      const hits: string[] = [];
-      rows.forEach((row: any, i: number) => {
-        if (i === rowIndex) return;
-        const ifn = String(row?.ifName || '').trim();
-        if (ifn && ifn === iface) hits.push(`已用于 LAN#${i + 1}`);
+      return ifaceOptions.filter(looksLikeIfaceName).map((n) => {
+        const hits: string[] = [];
+        hubWanRows.forEach((row: any, i: number) => {
+          if (kind === 'hubWan' && i === rowIndex) return;
+          const ifn = String(row?.ifName || '').trim();
+          if (ifn && ifn === n) hits.push(`WAN#${i + 1}`);
+        });
+        lanRows.forEach((row: any, i: number) => {
+          if (kind === 'lan' && i === rowIndex) return;
+          const ifn = String(row?.ifName || '').trim();
+          if (ifn && ifn === n) hits.push(`LAN#${i + 1}`);
+        });
+        if (kind !== 'hubWan' && kind !== 'wan' && legacyWan && legacyWan === n) {
+          hits.push('WAN');
+        }
+        return {
+          value: n,
+          label: renderIfaceWizardSelectLabel(n, hits.length ? hits.join('、') : undefined),
+        };
       });
-      return renderIfaceWizardSelectLabel(iface, hits.length ? hits.join('、') : undefined);
     },
-    [watchWanDev, watchLanConfigs],
+    [ifaceOptions, watchHubWanInventory, watchLanConfigs, watchWanDev],
   );
 
   const normalizeIfaceName = (s: string) =>
@@ -222,7 +230,8 @@ const PEWizard: React.FC = () => {
   /** WAN 口变更时：从 VR3 设备回读回填 IPv4/IPv6 */
   const autoFillWanFromIface = (ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
-    const obj = findInterfaceInDevice(vr3Info, ifaceName);
+    const obj =
+      findInterfaceInDevice(vr3Info, ifaceName) || findInterfaceInDevice(csmctlCfg, ifaceName);
     if (!obj) {
       if (force) form.setFieldsValue({ wanIpv4: undefined, wanIpv6: undefined });
       return;
@@ -239,7 +248,8 @@ const PEWizard: React.FC = () => {
 
   const autoFillHubWanRow = (fieldIndex: number, ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
-    const obj = findInterfaceInDevice(vr3Info, ifaceName);
+    const obj =
+      findInterfaceInDevice(vr3Info, ifaceName) || findInterfaceInDevice(csmctlCfg, ifaceName);
     const rows = [...(form.getFieldValue('hubWanInventory') || [])];
     const row = { ...(rows[fieldIndex] || {}), ifName: ifaceName };
     if (obj) {
@@ -265,6 +275,8 @@ const PEWizard: React.FC = () => {
     prevWanDevRef.current = undefined;
     prevVr3InfoForPeWanRef.current = null;
     skipEditFormOnNextDeviceReadRef.current = false;
+    setActiveLanTabKey('0');
+    setActiveWanTabKey('0');
   }, [uuid]);
 
   /** 拉取 VR 缓存合并数据，解析接口列表与 VR3 网卡 IP */
@@ -288,8 +300,16 @@ const PEWizard: React.FC = () => {
       if (!silent) {
         skipEditFormOnNextDeviceReadRef.current = true;
       }
-      const unique = collectIfaceNamesForSelect(merged as Record<string, any>);
-      if (unique.length) setIfaceOptions(unique);
+      const inv = parseHubInventoryFromConfig(savedCfg);
+      const extraNames = [
+        ...(inv?.wan ?? []).map((w) => w.ifName),
+        ...(inv?.lan ?? []).map((l) => l.ifName),
+      ];
+      const unique = collectIfaceNamesForSelect(merged as Record<string, any>, {
+        baseline: savedCfg && typeof savedCfg === 'object' ? savedCfg : null,
+        extraNames,
+      });
+      setIfaceOptions(unique.filter(looksLikeIfaceName));
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
       setExistingCfg(savedCfg);
@@ -960,27 +980,32 @@ const PEWizard: React.FC = () => {
             <Input placeholder="例如 2400:1234::1（不带 /xx）" />
           </Form.Item>
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
-            {isHubPe ? 'Hub WAN inventory（PE to PE）' : 'WAN 侧配置（PE to PE）'}
+            {isHubPe ? 'WAN 侧配置（Hub-PE to Spoke-PE）' : 'WAN 侧配置（PE to PE）'}
           </div>
           {isHubPe ? (
             <Form.List name="hubWanInventory" initialValue={[{}]}>
-              {(fields, { add, remove }) => (
-                <>
-                  {fields.map((field, idx) => (
-                    <Card
-                      key={field.key}
-                      size="small"
-                      title={`WAN 口 #${idx + 1}`}
-                      style={{ marginBottom: 12 }}
-                      extra={
-                        fields.length > 1 ? (
-                          <MinusCircleOutlined
-                            onClick={() => remove(field.name)}
-                            style={{ color: '#ff4d4f' }}
-                          />
-                        ) : null
-                      }
-                    >
+              {(fields, { add, remove }) => {
+                const items = fields.map((field, idx) => ({
+                  key: String(field.name),
+                  label: (
+                    <Space size={6}>
+                      <span>{`WAN 接口 #${idx + 1}`}</span>
+                      {fields.length > 1 ? (
+                        <MinusCircleOutlined
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            remove(field.name);
+                            if (activeWanTabKey === String(field.name)) {
+                              setActiveWanTabKey('0');
+                            }
+                          }}
+                          style={{ color: '#ff4d4f', fontSize: 12 }}
+                        />
+                      ) : null}
+                    </Space>
+                  ),
+                  children: (
+                    <div>
                       <Form.Item {...field} name={[field.name, 'id']} hidden>
                         <Input />
                       </Form.Item>
@@ -994,7 +1019,7 @@ const PEWizard: React.FC = () => {
                           placeholder="请选择接口"
                           showSearch
                           loading={ifaceLoading}
-                          options={peWanIfaceSelectOptions}
+                          options={peIfaceSelectOptions(idx, 'hubWan')}
                           filterOption={(input: string, option?: { value?: string }) =>
                             String(option?.value || '')
                               .toLowerCase()
@@ -1024,13 +1049,34 @@ const PEWizard: React.FC = () => {
                       >
                         <Input placeholder="例如 2408:3333:1002::1/64" />
                       </Form.Item>
-                    </Card>
-                  ))}
-                  <Button type="dashed" onClick={() => add({})} block icon={<PlusOutlined />}>
-                    添加 WAN 口
-                  </Button>
-                </>
-              )}
+                    </div>
+                  ),
+                }));
+                return (
+                  <>
+                    <Tabs
+                      type="card"
+                      items={items}
+                      tabBarGutter={8}
+                      size="small"
+                      activeKey={activeWanTabKey ?? (items.length ? String(0) : undefined)}
+                      onChange={(key) => setActiveWanTabKey(String(key))}
+                    />
+                    <Button
+                      type="dashed"
+                      onClick={() => {
+                        add({});
+                        setActiveWanTabKey(String(fields.length));
+                      }}
+                      block
+                      icon={<PlusOutlined />}
+                      style={{ marginTop: 8 }}
+                    >
+                      添加 WAN 口
+                    </Button>
+                  </>
+                );
+              }}
             </Form.List>
           ) : (
             <>
@@ -1039,7 +1085,7 @@ const PEWizard: React.FC = () => {
               placeholder="请选择接口"
               showSearch
               loading={ifaceLoading}
-              options={peWanIfaceSelectOptions}
+              options={peIfaceSelectOptions(0, 'wan')}
               filterOption={(input: string, option?: { value?: string }) =>
                 String(option?.value || '')
                   .toLowerCase()
@@ -1124,11 +1170,27 @@ const PEWizard: React.FC = () => {
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
             {isHubPe ? 'Hub LAN inventory（PE to CE）' : 'LAN 侧配置（PE to CE）'}
           </div>
-          <Form.List name="lanConfigs" initialValue={[{}]}> 
-            {(fields) => {
+          <Form.List name="lanConfigs" initialValue={[{}]}>
+            {(fields, { add, remove }) => {
               const items = fields.map((field, idx) => ({
                 key: String(field.name),
-                label: `LAN 接口 #${idx + 1}`,
+                label: (
+                  <Space size={6}>
+                    <span>{`LAN 接口 #${idx + 1}`}</span>
+                    {fields.length > 1 ? (
+                      <MinusCircleOutlined
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          remove(field.name);
+                          if (activeLanTabKey === String(field.name)) {
+                            setActiveLanTabKey('0');
+                          }
+                        }}
+                        style={{ color: '#ff4d4f', fontSize: 12 }}
+                      />
+                    ) : null}
+                  </Space>
+                ),
                 children: (
                   <div>
                     <Form.Item {...field} name={[field.name, 'id']} hidden>
@@ -1146,15 +1208,15 @@ const PEWizard: React.FC = () => {
                             ]
                           : [{ type: 'number', min: 4001, message: 'VRF ID 最小为 4001' }]
                       }
-                    > 
+                    >
                       <InputNumber style={{ width: '100%' }} placeholder={"例如 9999（4001+）"} min={4001} />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'ifName']} label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧接口</span>}> 
+                    <Form.Item {...field} name={[field.name, 'ifName']} label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧接口</span>}>
                       <Select
                         placeholder="请选择接口"
                         showSearch
                         loading={ifaceLoading}
-                        options={ifaceOptions.map((n) => ({ value: n, label: peLanIfaceSelectLabel(n, idx) }))}
+                        options={peIfaceSelectOptions(idx, 'lan')}
                         filterOption={(input: string, option?: { value?: string }) =>
                           String(option?.value || '')
                             .toLowerCase()
@@ -1165,31 +1227,45 @@ const PEWizard: React.FC = () => {
                     <Form.Item {...field} name={[field.name, 'ipv4']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>
                       <Input placeholder="例如 130.1.1.1/24" />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'ipv6']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}> 
+                    <Form.Item {...field} name={[field.name, 'ipv6']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}>
                       <Input placeholder="例如 2408:3333:1002::1/64" />
                     </Form.Item>
                     <div style={{ height: 12 }} />
                     <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
-                    <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={isHubPe ? [{ required: true, message: '请输入 BGP ASN' }] : undefined}> 
+                    <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={isHubPe ? [{ required: true, message: '请输入 BGP ASN' }] : undefined}>
                       <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={isHubPe ? [{ required: true, message: '请输入 BGP Router-ID' }] : undefined}> 
+                    <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={isHubPe ? [{ required: true, message: '请输入 BGP Router-ID' }] : undefined}>
                       <Input placeholder="例如 130.1.1.1" />
                     </Form.Item>
                   </div>
                 ),
               }));
               return (
-                <Tabs
-                  type="card"
-                  items={items}
-                  tabBarGutter={8}
-                  size="small"
-                  activeKey={activeLanTabKey ?? (items.length ? String(0) : undefined)}
-                  onChange={(key) => {
-                    setActiveLanTabKey(String(key));
-                  }}
-                />
+                <>
+                  <Tabs
+                    type="card"
+                    items={items}
+                    tabBarGutter={8}
+                    size="small"
+                    activeKey={activeLanTabKey ?? (items.length ? String(0) : undefined)}
+                    onChange={(key) => {
+                      setActiveLanTabKey(String(key));
+                    }}
+                  />
+                  <Button
+                    type="dashed"
+                    onClick={() => {
+                      add({});
+                      setActiveLanTabKey(String(fields.length));
+                    }}
+                    block
+                    icon={<PlusOutlined />}
+                    style={{ marginTop: 8 }}
+                  >
+                    添加 LAN 口
+                  </Button>
+                </>
               );
             }}
           </Form.List>
