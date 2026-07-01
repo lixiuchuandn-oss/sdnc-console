@@ -48,8 +48,9 @@ const listPublicIpv6Routes = (cfg: Record<string, unknown>): Record<string, unkn
 /** Hub 多 WAN：inventory 顺序或 ipv4_route.dev 对齐的 WAN 序号 */
 const hubWanOrdinalIndex = (cfg: Record<string, unknown>, wanIf: string): number => {
   const inv = cfg._towerHubInventory as { wan?: Array<{ ifName?: string }> } | undefined;
-  if (Array.isArray(inv?.wan)) {
-    const idx = inv.wan.findIndex((w) => String(w.ifName ?? '').trim() === wanIf);
+  const invWan = inv?.wan;
+  if (Array.isArray(invWan)) {
+    const idx = invWan.findIndex((w) => String(w.ifName ?? '').trim() === wanIf);
     if (idx >= 0) return idx;
   }
   const v4 = cfg.ipv4_route;
