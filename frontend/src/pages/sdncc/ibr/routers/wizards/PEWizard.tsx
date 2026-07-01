@@ -906,6 +906,7 @@ const PEWizard: React.FC = () => {
   const watchedValues = Form.useWatch([], form);
   const configPreview = useMemo(
     () => buildConfigFromValues(watchedValues || form.getFieldsValue(true) || {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- buildConfigFromValues 闭包依赖 form/isHubPe/inventory
     [watchedValues, isHubPe, existingHubInventory],
   );
 
