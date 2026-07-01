@@ -26,6 +26,7 @@
 | [remote-access-architecture.md](./remote-access-architecture.md)         | **云桌面网关总体架构**：扁平网 + admin 体系、Cloudmap/MAAS、资源池接入；租户暂不涉及           |
 | [integrate-guacamole.md](./integrate-guacamole.md)                       | **云桌面网关引擎**：Guacamole REST、admin 用户同步、Connection 赋权、client_url                |
 | [srv6-baseline-recompute.md](./srv6-baseline-recompute.md)               | **SRv6**：P1–P4 已落地；**§14 P5 Hub 定稿**、**§15 开工门禁**、**§18 并行开发计划**                               |
+| [srv6-hub-pe-spec.md](./srv6-hub-pe-spec.md)                             | **SRv6 Hub PE 产品规格**：多 WAN/LAN 约束、RD/RT、inventory 职责、阻断规则、**遗留 L-1～L-5**（查阅用）           |
 | [srv6-release-notes.md](./srv6-release-notes.md)                         | **SRv6 发版说明**：P5 Hub、R-GW-1、本地自动化签收、测试机手工清单                           |
 | [hsm-device-profile-h3c-comware.md](./hsm-device-profile-h3c-comware.md) | **HSM 设备模板**：H3C Comware 专用 `h3c-comware-like`（JSON + 验收，交 HSM 实现）              |
 | [tower-crd-security-group.md](./tower-crd-security-group.md)             | **HMS 底座 CRD**：`hms.rivercloud.com` 部署集 / 安全组；**集群 CR 为权威**，Tower BFF 适配       |

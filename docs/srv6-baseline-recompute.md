@@ -3,7 +3,8 @@
 > **状态**：P1–P4 已落地；**P5 代码 WS-0～WS-4 本地合入**（2026-06-17）：Hub 档案/UI/merge/单测 + 发版文档；**测试机 10.21.49.59 手工 H1–H7 待运维**；Post-P5 多 RT 见 §14.4.7 / §16。  
 > **当前生产范围**：**CE-A ↔ PE-A ↔ PE-B ↔ CE-B** 四端单会话（Spoke 点对点）；Hub 多 Spoke 待 P5 交付。  
 > **关联发版说明**：[`docs/srv6-release-notes.md`](./srv6-release-notes.md)  
-> **冒烟用例**：[`frontend/src/pages/sdncc/interconnect/srv6/testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)  
+> **Hub PE 产品约束与遗留（查阅用）**：[`docs/srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md)  
+> **冒烟用例**：[`frontend/src/pages/sdncc/interconnect/srv6/testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)
 > **对外 API 索引**：[`AGENTS.md`](../AGENTS.md) · API 规范 · SDN 网络
 
 ---
@@ -334,6 +335,8 @@ npx tsc --noEmit
 ---
 
 ## 14. P5 实施规格：真·Hub PE 组网
+
+> **产品约束摘要**（多 WAN ASN、RD/RT REUSE、inventory 入口、阻断规则、遗留事项）以 **[`srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md)** 为准；本节保留实现与 merge/recompute 详述。
 
 > **状态**：**已定稿**（2026-06），可启动开发。  
 > **架构决策**：在保留四端联动、baseline + 贡献 + recompute 主链前提下，引入 **VR 设备角色** `HUB_PE` / `SPOKE_PE` 分流规则；Hub 多 WAN/LAN 由 **角色向导（能力）+ 隧道向导（绑定）** 两层表达。  
