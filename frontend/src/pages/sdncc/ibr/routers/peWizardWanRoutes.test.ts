@@ -3,6 +3,7 @@ import {
   buildWanStaticRoutesFromRows,
   enrichHubWanRowsFromDeviceRoutes,
   sanitizeIpv6RoutesForDevice,
+  type WanRouteFormRow,
 } from './peWizardWanRoutes';
 
 describe('peWizardWanRoutes P2', () => {
@@ -37,7 +38,7 @@ describe('peWizardWanRoutes P2', () => {
   });
 
   it('enrichHubWanRowsFromDeviceRoutes maps routes by interface dev', () => {
-    const rows = enrichHubWanRowsFromDeviceRoutes(
+    const rows = enrichHubWanRowsFromDeviceRoutes<WanRouteFormRow>(
       [{ ifName: 'ge0' }, { ifName: 'ge1' }],
       {
         ipv4_route: [{ destination: '0.0.0.0/0', dev: 'ge0', priority: 90 }],
