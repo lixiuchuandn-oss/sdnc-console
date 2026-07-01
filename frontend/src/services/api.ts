@@ -1498,7 +1498,7 @@ export type Srv6HubWanInventoryItem = {
   ifName: string;
   ipv4?: string;
   ipv6: string;
-  source: 'role_wizard' | 'tunnel_inline';
+  source: 'role_wizard' | 'device_baseline';
   createdByTunnelId?: string;
   createdAt: string;
   tags?: Srv6HubInventoryOptionTag[];
@@ -1514,7 +1514,7 @@ export type Srv6HubLanInventoryItem = {
   ipv6?: string;
   privateAsn: number;
   routerId: string;
-  source: 'role_wizard' | 'tunnel_inline';
+  source: 'role_wizard' | 'device_baseline';
   createdByTunnelId?: string;
   createdAt: string;
   tags?: Srv6HubInventoryOptionTag[];

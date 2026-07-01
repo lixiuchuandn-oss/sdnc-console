@@ -66,8 +66,8 @@
 
 | 编号 | 约定 |
 |------|------|
-| **S-23** | 角色向导为 **每个 Hub WAN** 配置公网 **IPv6 静态路由 + 网关**（目的网段与 `via` 成对）；隧道 **不重复注入**该条，仅读取用于 SID/64 `via` 择优（§14.14.1）。 |
-| **S-24** | SID/64 的 `via`：**优先**所选 Hub WAN 对应网关 → 否则对端 Spoke 公网 IPv6。 |
+| **S-23** | 角色向导为 **每个 Hub WAN** 配置公网 **IPv6 静态路由 + 网关**（目的网段与 `via` 成对）；**设备下发** `ipv6_route[]` 仅含 `destination` + `via`（**不含 `dev`**）；口 ↔ 网关绑定由 **`_towerHubInventory`**（平台库，下发前剥离）维护。隧道 **不重复注入**该条，仅读取用于 SID/64 `via` 择优（§14.14.1）。 |
+| **S-24** | SID/64 的 `via`：**优先**所选 Hub WAN 对应网关（inventory → 同序 `ipv6_route`）→ **否则**对端 Spoke/PE **公网 IPv6 直连接口地址**（直连回退，与单 WAN 一致）。 |
 
 ### 1.8 非 Hub 四端
 
@@ -133,17 +133,17 @@
 
 **当前**：`REUSE_VRF` 下 **恒为单 RT**，与首条隧道相同（§1.4 S-13）。详见 baseline §14.4.7。
 
-### L-3 · 隧道向导内联新建 WAN/LAN（`tunnel_inline`）
+### L-3 · 隧道向导内联新建 WAN/LAN（`tunnel_inline`，已废弃）
 
 **描述**：曾在隧道创建页支持「新建公网口/内网口」写入 Hub 基线。
 
-**当前 UX 决策**：**取消 UI 入口**；inventory **仅角色向导**。后端 `tunnel_inline` 代码可保留至清库后删除（**非兼容义务**）。
+**当前 UX 决策**：**已取消**；inventory **仅角色向导**（P3 移除隧道向导 inline 表单；P4 移除后端 `hubInventoryInline` / `tunnel_inline` 死代码）。读库时遗留 `tunnel_inline` 规范为 `role_wizard`。
 
 ### L-4 · 多 WAN 按口匹配 `ipv6_route` 网关（已实现方向）
 
 **描述**：`extractWanIpv6Gateway(cfg, wanIf)`，使 SID/64 `via` 与 **所选** `hubBindings.wanIf` 一致。
 
-**状态**：纳入 **P2b** 实现；与 §1.7 S-24 一致。
+**状态**：**已实现**（P2b：`extractWanIpv6Gateway(cfg, wanIf)`；inventory / 同序 `ipv6_route` 择优；**设备不含 `ipv6_route.dev`**）。
 
 ### L-5 · Spoke PE 多 WAN / 多 LAN
 
@@ -153,15 +153,15 @@
 
 ---
 
-## 4. UX 实现分期（已评审 · 待开发）
+## 4. UX 实现分期（已评审）
 
-| 阶段 | 内容 | 产品约束依据 |
-|------|------|----------------|
-| **P1** | WAN/LAN `editable-card` Tab，`+` 在 Tab 栏增页 | §1.2、§1.3 |
-| **P2** | 每 Hub WAN Tab：静态路由 + IPv6 网关；写入 `ipv6_route` / inventory | §1.7 S-23 |
-| **P2b** | `resolveSid64Via(..., wanIf)` | §1.7 S-24 |
-| **P3** | 隧道向导 Hub 分区、首条/后续、去 inline | §1.6、§2 |
-| **P4** | 删除 `tunnel_inline` 死代码（清库后） | §3 L-3 |
+| 阶段 | 内容 | 产品约束依据 | 状态 |
+|------|------|----------------|------|
+| **P1** | WAN/LAN `editable-card` Tab，`+` 在 Tab 栏增页 | §1.2、§1.3 | **已完成**（`peWizardTabEdit` 单测） |
+| **P2** | 每 Hub WAN Tab：静态路由 + IPv6 网关；写入 `ipv6_route` / inventory | §1.7 S-23 | **已完成**（`peWizardWanRoutes` 单测） |
+| **P2b** | `resolveSid64Via(..., wanIf)` | §1.7 S-24 | **已完成**（`srv6Ipv6` 单测） |
+| **P3** | 隧道向导 Hub 分区、首条/后续、去 inline | §1.6、§2 | **已完成**（`srv6TunnelWizardHub` 单测） |
+| **P4** | 删除 `tunnel_inline` 死代码（清库后） | §3 L-3 | **已完成**（`srv6.hubInventory` 单测） |
 
 **原则**：交互简化；**不改** merge、冲突、RD/RT 业务契约（§1.4、§1.8）。
 
@@ -187,3 +187,4 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-06 | 初版：汇总 Hub 多 WAN/LAN UX 评审结论、RD/RT REUSE Spoke 独立 RD、inventory 单一入口、阻断矩阵与遗留 L-1～L-5 |
+| 2026-06 | P1–P4 完成；P4 移除 `tunnel_inline`；全量 Code Review 见 `testcases.md` §HP Review 关注项 |

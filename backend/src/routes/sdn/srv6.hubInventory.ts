@@ -8,13 +8,17 @@ import type { Srv6HubPortRegistryEntry } from './srv6.hub';
 /** Tower 扩展字段：存于 srv6BaselineJson，merge / 设备下发前须剥离 */
 export const TOWER_HUB_INVENTORY_KEY = '_towerHubInventory';
 
-export type HubInventorySource = 'role_wizard' | 'tunnel_inline' | 'device_baseline';
+export type HubInventorySource = 'role_wizard' | 'device_baseline';
 
 export type HubWanInventoryItem = {
   id: string;
   ifName: string;
   ipv4?: string;
   ipv6: string;
+  ipv4RouteDest?: string;
+  ipv4RoutePriority?: number;
+  ipv6Dest?: string;
+  ipv6Via?: string;
   source: HubInventorySource;
   createdByTunnelId?: string;
   createdAt: string;
@@ -60,25 +64,18 @@ export type HubInventoryUi = {
   lanOptions: HubLanInventoryOption[];
 };
 
-export type HubInventoryInlineWanInput = {
-  ifName: string;
-  ipv4?: string;
-  ipv6: string;
-};
+const normalizeInventorySource = (source: unknown): HubInventorySource =>
+  source === 'device_baseline' ? 'device_baseline' : 'role_wizard';
 
-export type HubInventoryInlineLanInput = {
-  ifName: string;
-  vrf: number;
-  ipv4?: string;
-  ipv6?: string;
-  privateAsn: number;
-  routerId: string;
-};
+const normalizeWanItem = (item: HubWanInventoryItem): HubWanInventoryItem => ({
+  ...item,
+  source: normalizeInventorySource(item.source),
+});
 
-export type HubInventoryInlineAppend = {
-  wan?: HubInventoryInlineWanInput;
-  lan?: HubInventoryInlineLanInput;
-};
+const normalizeLanItem = (item: HubLanInventoryItem): HubLanInventoryItem => ({
+  ...item,
+  source: normalizeInventorySource(item.source),
+});
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
 
@@ -100,18 +97,34 @@ export const parseHubInventoryFromBaseline = (
   const raw = baseline[TOWER_HUB_INVENTORY_KEY];
   if (!isHubInventory(raw)) return emptyHubInventory();
   return {
-    wan: [...raw.wan],
-    lan: [...raw.lan],
+    wan: raw.wan.map(normalizeWanItem),
+    lan: raw.lan.map(normalizeLanItem),
   };
 };
 
 /** 供 merge / 设备下发：移除 Tower 扩展，仅保留设备配置 */
+export const sanitizeIpv6RoutesForDeviceBaseline = (
+  baseline: Record<string, unknown>,
+): Record<string, unknown> => {
+  const routes = baseline.ipv6_route;
+  if (!Array.isArray(routes) || !routes.length) return baseline;
+  return {
+    ...baseline,
+    ipv6_route: routes.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const row = { ...(item as Record<string, unknown>) };
+      delete row.dev;
+      return row;
+    }),
+  };
+};
+
 export const stripTowerExtensionsFromDeviceBaseline = (
   baseline: Record<string, unknown>,
 ): Record<string, unknown> => {
   const cloned = JSON.parse(JSON.stringify(baseline)) as Record<string, unknown>;
   delete cloned[TOWER_HUB_INVENTORY_KEY];
-  return cloned;
+  return sanitizeIpv6RoutesForDeviceBaseline(cloned);
 };
 
 export const getHubInventoryFromVrRecord = (record: VRConfig | null | undefined): HubInventory => {
@@ -179,7 +192,7 @@ const formatWanLabel = (item: HubWanInventoryItem, tags: HubInventoryOptionTag[]
         : tags.includes('wan_reusable')
           ? `已用于 ${used.map((u) => u.tunnelName).join('、')} · 可复用`
           : '';
-  return `${item.ifName} · ${item.ipv6}${tagText ? ` [${tagText}]` : ''}`;
+  return `${item.ifName} · ${item.ipv6}${item.ipv6Via ? ` · gw ${item.ipv6Via}` : ''}${tagText ? ` [${tagText}]` : ''}`;
 };
 
 const formatLanLabel = (
@@ -320,7 +333,7 @@ export const persistBaselineBindingSelectionsToInventory = (
     next.wan.push({
       ...wanSel,
       id: randomUUID(),
-      source: wanSel.source === 'tunnel_inline' ? 'tunnel_inline' : 'role_wizard',
+      source: 'role_wizard',
       createdAt: now,
     });
   }
@@ -333,7 +346,7 @@ export const persistBaselineBindingSelectionsToInventory = (
     next.lan.push({
       ...lanSel,
       id: randomUUID(),
-      source: lanSel.source === 'tunnel_inline' ? 'tunnel_inline' : 'role_wizard',
+      source: 'role_wizard',
       createdAt: now,
     });
   }
@@ -348,7 +361,7 @@ export const buildHubInventoryUi = (
   const lanSelectMode = options?.lanSelectMode ?? 'dedicated';
   const inventoryEmpty = inventory.wan.length === 0 && inventory.lan.length === 0;
   const guidance = inventoryEmpty
-    ? 'Hub 尚未登记可用公网/内网口：请先在 HUB_PE 角色配置向导完成 WAN/LAN，或在本页新建。'
+    ? 'Hub 尚未登记可用公网/内网口：请先在 HUB_PE 角色配置向导完成 WAN/LAN 并保存基线。'
     : undefined;
 
   const wanOptions: HubWanInventoryOption[] = inventory.wan.map((item) => {
@@ -421,151 +434,19 @@ export const findLanInventoryItem = (
   return null;
 };
 
-const assertUniqueWanIf = (inventory: HubInventory, ifName: string) => {
-  if (inventory.wan.some((w) => normIf(w.ifName) === normIf(ifName))) {
-    const err = new Error(`Hub WAN inventory 已存在接口 ${ifName}`);
-    (err as Error & { statusCode: number }).statusCode = 409;
-    throw err;
-  }
-};
-
-const assertUniqueLan = (inventory: HubInventory, ifName: string, vrf: number) => {
-  if (
-    inventory.lan.some(
-      (l) => normIf(l.ifName) === normIf(ifName) || normVrf(l.vrf) === normVrf(vrf),
-    )
-  ) {
-    const err = new Error(`Hub LAN inventory 已存在接口 ${ifName} 或 VRF ${vrf}`);
-    (err as Error & { statusCode: number }).statusCode = 409;
-    throw err;
-  }
-};
-
-export const appendInlineHubInventory = (
-  inventory: HubInventory,
-  append: HubInventoryInlineAppend,
-  meta: { tunnelId: string; source?: HubInventorySource },
-): HubInventory => {
-  const next: HubInventory = {
-    wan: [...inventory.wan],
-    lan: [...inventory.lan],
-  };
-  const source = meta.source ?? 'tunnel_inline';
-  const now = new Date().toISOString();
-
-  if (append.wan) {
-    assertUniqueWanIf(next, append.wan.ifName);
-    if (!normIf(append.wan.ipv6)) {
-      const err = new Error('内联新建 Hub WAN 须填写 IPv6 地址/掩码');
-      (err as Error & { statusCode: number }).statusCode = 400;
-      throw err;
-    }
-    next.wan.push({
-      id: randomUUID(),
-      ifName: append.wan.ifName.trim(),
-      ipv4: append.wan.ipv4?.trim() || undefined,
-      ipv6: append.wan.ipv6.trim(),
-      source,
-      createdByTunnelId: meta.tunnelId,
-      createdAt: now,
-    });
-  }
-
-  if (append.lan) {
-    assertUniqueLan(next, append.lan.ifName, append.lan.vrf);
-    next.lan.push({
-      id: randomUUID(),
-      ifName: append.lan.ifName.trim(),
-      vrf: append.lan.vrf,
-      ipv4: append.lan.ipv4?.trim() || undefined,
-      ipv6: append.lan.ipv6?.trim() || undefined,
-      privateAsn: append.lan.privateAsn,
-      routerId: append.lan.routerId.trim(),
-      source,
-      createdByTunnelId: meta.tunnelId,
-      createdAt: now,
-    });
-  }
-
-  return next;
-};
-
-export const parseHubInventoryInlineAppend = (body: unknown): HubInventoryInlineAppend | null => {
-  if (!body || typeof body !== 'object') return null;
-  const raw = (body as Record<string, unknown>).hubInventoryInline;
-  if (!raw || typeof raw !== 'object') return null;
-  const o = raw as Record<string, unknown>;
-  const out: HubInventoryInlineAppend = {};
-  if (o.wan && typeof o.wan === 'object') {
-    const w = o.wan as Record<string, unknown>;
-    out.wan = {
-      ifName: String(w.ifName || '').trim(),
-      ipv4: w.ipv4 ? String(w.ipv4).trim() : undefined,
-      ipv6: String(w.ipv6 || '').trim(),
-    };
-  }
-  if (o.lan && typeof o.lan === 'object') {
-    const l = o.lan as Record<string, unknown>;
-    out.lan = {
-      ifName: String(l.ifName || '').trim(),
-      vrf: Number(l.vrf),
-      ipv4: l.ipv4 ? String(l.ipv4).trim() : undefined,
-      ipv6: l.ipv6 ? String(l.ipv6).trim() : undefined,
-      privateAsn: Number(l.privateAsn),
-      routerId: String(l.routerId || '').trim(),
-    };
-  }
-  if (!out.wan && !out.lan) return null;
-  return out;
-};
-
 /**
- * Hub H 型隧道创建/更新前：内联 append inventory 到 Hub PE 基线（永久保留）。
- * 仅 tunnelTopology=H 时调用；S 型路径不得调用。
- */
-export const applyHubInventoryInlineAppendForHubTunnel = async (
-  hubPeUuid: string,
-  tunnelId: string,
-  append: HubInventoryInlineAppend | null | undefined,
-  hubVrfMode?: Srv6HubVrfMode | null,
-): Promise<HubInventory> => {
-  if (!append || (!append.wan && !append.lan)) {
-    return getHubInventoryFromVrRecord(await vrRepo().findOne({ where: { uuid: hubPeUuid } }));
-  }
-  if (append.lan && hubVrfMode !== 'DEDICATED_VRF') {
-    const err = new Error('仅路线 B（独立客户侧网络）允许内联新建 Hub LAN inventory');
-    (err as Error & { statusCode: number }).statusCode = 400;
-    throw err;
-  }
-  const current = getHubInventoryFromVrRecord(await vrRepo().findOne({ where: { uuid: hubPeUuid } }));
-  const merged = appendInlineHubInventory(current, append, { tunnelId });
-  await persistHubInventoryForVr(hubPeUuid, merged);
-  return merged;
-};
-
-/**
- * POST/PUT 保存 Hub 隧道时：可选内联 append inventory，并补全 hubBindings 的 inventoryId。
+ * POST/PUT 保存 Hub 隧道时：补全 hubBindings 的 inventoryId，并将选用的基线口登记入 inventory。
  */
 export const resolveHubBindingsWithInventory = async (
   hubPeUuid: string,
-  tunnelId: string,
+  _tunnelId: string,
   hubBindings: Srv6HubSlotBinding | null | undefined,
-  body: unknown,
-  hubVrfMode?: Srv6HubVrfMode | null,
+  _hubVrfMode?: Srv6HubVrfMode | null,
 ): Promise<Srv6HubSlotBinding | null | undefined> => {
   if (!hubBindings) return hubBindings;
-  const inlineAppend = parseHubInventoryInlineAppend(body);
   const record = await vrRepo().findOne({ where: { uuid: hubPeUuid } });
   const baseline = record ? parseSrv6Baseline(record) : null;
   let hubInventory = getHubInventoryFromVrRecord(record);
-  if (inlineAppend) {
-    hubInventory = await applyHubInventoryInlineAppendForHubTunnel(
-      hubPeUuid,
-      tunnelId,
-      inlineAppend,
-      hubVrfMode,
-    );
-  }
   const withBaseline = persistBaselineBindingSelectionsToInventory(
     hubInventory,
     baseline,
@@ -712,7 +593,7 @@ export const materializeHubInventoryForBinding = (
   }
 };
 
-/** 按 inventory 补全 hubBindings 的 wan/lan inventoryId（内联新建或仅填 ifName 时） */
+/** 按 inventory 补全 hubBindings 的 wan/lan inventoryId */
 export const patchHubBindingsInventoryIds = (
   bindings: Srv6HubSlotBinding,
   inventory: HubInventory,

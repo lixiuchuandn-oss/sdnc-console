@@ -26,14 +26,13 @@ describe('hubPeInventory', () => {
     expect(inv.lan[0].privateAsn).toBe(65001);
   });
 
-  it('buildHubInventoryFromPeWizardValues preserves tunnel_inline segment', () => {
+  it('buildHubInventoryFromPeWizardValues preserves device_baseline segment', () => {
     const existing = emptyHubInventory();
     existing.wan.push({
-      id: 'w-inline',
+      id: 'w-baseline',
       ifName: 'ge2',
       ipv6: '2001::2/64',
-      source: 'tunnel_inline',
-      createdByTunnelId: 't1',
+      source: 'device_baseline',
       createdAt: '2026-01-01',
     });
     const inv = buildHubInventoryFromPeWizardValues(
@@ -41,8 +40,27 @@ describe('hubPeInventory', () => {
       existing,
     );
     expect(inv.wan).toHaveLength(2);
-    expect(inv.wan.find((w) => w.id === 'w-inline')?.source).toBe('tunnel_inline');
+    expect(inv.wan.find((w) => w.id === 'w-baseline')?.source).toBe('device_baseline');
     expect(inv.wan.find((w) => w.ifName === 'ge0')?.source).toBe('role_wizard');
+  });
+
+  it('parseHubInventoryFromConfig normalizes legacy tunnel_inline to role_wizard', () => {
+    const cfg = attachHubInventoryToConfig(
+      {},
+      {
+        wan: [
+          {
+            id: 'w-legacy',
+            ifName: 'ge2',
+            ipv6: '2001::2/64',
+            source: 'tunnel_inline' as never,
+            createdAt: '2026-01-01',
+          },
+        ],
+        lan: [],
+      },
+    );
+    expect(parseHubInventoryFromConfig(cfg)?.wan[0].source).toBe('role_wizard');
   });
 
   it('reuses inventory id when wizard ifName matches existing', () => {
@@ -73,9 +91,13 @@ describe('hubPeInventory', () => {
     });
     const cfg = attachHubInventoryToConfig({ bgp: [] }, inv);
     expect(parseHubInventoryFromConfig(cfg)?.wan[0].ifName).toBe('ge0');
-    const stripped = stripTowerExtensionsFromDeviceConfig(cfg);
+    const stripped = stripTowerExtensionsFromDeviceConfig({
+      ...cfg,
+      ipv6_route: [{ destination: '::/0', via: '203::33', dev: 'ge0' }],
+    });
     expect(stripped.bgp).toEqual([]);
     expect(stripped[TOWER_HUB_INVENTORY_KEY]).toBeUndefined();
+    expect(stripped.ipv6_route).toEqual([{ destination: '::/0', via: '203::33' }]);
   });
 
   it('hubInventoryToPeWizardForm restores only role_wizard rows', () => {
@@ -89,10 +111,10 @@ describe('hubPeInventory', () => {
         createdAt: '2026-01-01',
       },
       {
-        id: 'w-inline',
+        id: 'w-baseline',
         ifName: 'ge2',
         ipv6: '2001::2/64',
-        source: 'tunnel_inline',
+        source: 'device_baseline',
         createdAt: '2026-01-01',
       },
     );

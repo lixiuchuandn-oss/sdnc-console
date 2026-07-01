@@ -1,5 +1,4 @@
 import {
-  appendInlineHubInventory,
   buildHubInventoryUi,
   emptyHubInventory,
   ensureBgpSegmentFromLanInventory,
@@ -7,7 +6,6 @@ import {
   materializeHubInventoryForBinding,
   mergeInventoryWithBaselineCandidates,
   parseHubInventoryFromBaseline,
-  parseHubInventoryInlineAppend,
   patchHubBindingsInventoryIds,
   persistBaselineBindingSelectionsToInventory,
   resolveHubBindingsWithInventory,
@@ -41,6 +39,37 @@ describe('srv6.hubInventory', () => {
     expect(inv.wan[0].ifName).toBe('ge0');
   });
 
+  it('parseHubInventoryFromBaseline normalizes legacy tunnel_inline to role_wizard', () => {
+    const baseline = {
+      bgp: [],
+      [TOWER_HUB_INVENTORY_KEY]: {
+        wan: [
+          {
+            id: 'w-legacy',
+            ifName: 'ge2',
+            ipv6: '2001::2/64',
+            source: 'tunnel_inline',
+            createdAt: '2026-01-01',
+          },
+        ],
+        lan: [
+          {
+            id: 'l-legacy',
+            ifName: 'ge3',
+            vrf: 20,
+            privateAsn: 65002,
+            routerId: '10.0.0.2',
+            source: 'tunnel_inline',
+            createdAt: '2026-01-01',
+          },
+        ],
+      },
+    };
+    const inv = parseHubInventoryFromBaseline(baseline);
+    expect(inv.wan[0].source).toBe('role_wizard');
+    expect(inv.lan[0].source).toBe('role_wizard');
+  });
+
   it('stripTowerExtensionsFromDeviceBaseline removes inventory key', () => {
     const baseline = {
       bgp: [{ index: 1 }],
@@ -49,6 +78,13 @@ describe('srv6.hubInventory', () => {
     const stripped = stripTowerExtensionsFromDeviceBaseline(baseline);
     expect(stripped.bgp).toEqual([{ index: 1 }]);
     expect(stripped[TOWER_HUB_INVENTORY_KEY]).toBeUndefined();
+  });
+
+  it('stripTowerExtensionsFromDeviceBaseline strips ipv6_route dev', () => {
+    const stripped = stripTowerExtensionsFromDeviceBaseline({
+      ipv6_route: [{ destination: '::/0', via: '203::33', dev: 'ge0' }],
+    });
+    expect(stripped.ipv6_route).toEqual([{ destination: '::/0', via: '203::33' }]);
   });
 
   it('buildHubInventoryUi marks WAN reusable when port registry references ifName', () => {
@@ -105,32 +141,6 @@ describe('srv6.hubInventory', () => {
     expect(ui.lanOptions[0].tags).toContain('lan_dedicated_occupied');
   });
 
-  it('appendInlineHubInventory adds wan and lan with tunnel id', () => {
-    const next = appendInlineHubInventory(emptyHubInventory(), {
-      wan: { ifName: 'ge2', ipv6: '2001::2/64' },
-      lan: {
-        ifName: 'ge3',
-        vrf: 20,
-        privateAsn: 65002,
-        routerId: '10.0.0.2',
-      },
-    }, { tunnelId: 'tunnel-new' });
-    expect(next.wan).toHaveLength(1);
-    expect(next.lan).toHaveLength(1);
-    expect(next.wan[0].createdByTunnelId).toBe('tunnel-new');
-    expect(next.lan[0].source).toBe('tunnel_inline');
-  });
-
-  it('parseHubInventoryInlineAppend reads hubInventoryInline from body', () => {
-    const parsed = parseHubInventoryInlineAppend({
-      hubInventoryInline: {
-        wan: { ifName: 'ge0', ipv6: '2001::1/64' },
-      },
-    });
-    expect(parsed?.wan?.ifName).toBe('ge0');
-    expect(parsed?.lan).toBeUndefined();
-  });
-
   it('materializeHubInventoryForBinding adds wan interface from inventory', () => {
     const inventory = emptyHubInventory();
     inventory.wan.push({
@@ -160,7 +170,7 @@ describe('srv6.hubInventory', () => {
       vrf: 8888,
       privateAsn: 65088,
       routerId: '10.8.8.8',
-      source: 'tunnel_inline',
+      source: 'role_wizard',
       createdAt: '2026-01-01',
     });
     const cfg: Record<string, unknown> = { bgp: [{ vrf: 0, asn: 430 }] };
@@ -178,10 +188,10 @@ describe('srv6.hubInventory', () => {
   it('patchHubBindingsInventoryIds fills wan/lan inventory ids', () => {
     const inventory = emptyHubInventory();
     inventory.wan.push({
-      id: 'w-inline',
+      id: 'w1',
       ifName: 'ge2',
       ipv6: '2001::2/64',
-      source: 'tunnel_inline',
+      source: 'role_wizard',
       createdAt: '2026-01-01',
     });
     const patched = patchHubBindingsInventoryIds(
@@ -194,7 +204,7 @@ describe('srv6.hubInventory', () => {
       },
       inventory,
     );
-    expect(patched.wanInventoryId).toBe('w-inline');
+    expect(patched.wanInventoryId).toBe('w1');
   });
 
   it('mergeInventoryWithBaselineCandidates adds wan from baseline interfaces', () => {
@@ -237,9 +247,12 @@ describe('srv6.hubInventory', () => {
     expect(next.wan[0].ifName).toBe('ge0');
   });
 
-  it('resolveHubBindingsWithInventory appends inline WAN on PUT-style body', async () => {
-    const inventory = emptyHubInventory();
-    const baseline = { bgp: [], [TOWER_HUB_INVENTORY_KEY]: inventory };
+  it('resolveHubBindingsWithInventory promotes baseline wan and patches inventory ids', async () => {
+    const baseline = {
+      bgp: [],
+      interfaces_GigabitEthernet: [{ name: 'ge9', ipv6_static: '2001::9/64' }],
+      [TOWER_HUB_INVENTORY_KEY]: emptyHubInventory(),
+    };
     const vrRow = {
       uuid: 'hub-1',
       srv6BaselineJson: JSON.stringify(baseline),
@@ -265,17 +278,12 @@ describe('srv6.hubInventory', () => {
         wanIf: 'ge9',
         peerPublicNeighbor: '203::9',
       },
-      {
-        hubInventoryInline: {
-          wan: { ifName: 'ge9', ipv6: '2001::9/64' },
-        },
-      },
       'REUSE_VRF',
     );
 
     expect(bindings?.wanInventoryId).toBeTruthy();
     expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan).toHaveLength(1);
     expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan[0].ifName).toBe('ge9');
-    expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan[0].createdByTunnelId).toBe('tunnel-upd');
+    expect(savedBaseline[TOWER_HUB_INVENTORY_KEY].wan[0].source).toBe('role_wizard');
   });
 });

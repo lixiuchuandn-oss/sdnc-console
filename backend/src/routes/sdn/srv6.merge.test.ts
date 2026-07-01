@@ -236,7 +236,7 @@ describe('srv6.merge', () => {
             id: 'w-new',
             ifName: 'GigabitEthernet 0/0/9',
             ipv6: '203::99/64',
-            source: 'tunnel_inline',
+            source: 'role_wizard',
             createdAt: '2026-01-01',
           },
         ],

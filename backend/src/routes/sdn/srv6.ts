@@ -74,6 +74,13 @@ const sanitizeConfig = (config: any) => {
       }
     }
   }
+  if (Array.isArray(config.ipv6_route) && config.ipv6_route.length) {
+    config.ipv6_route = config.ipv6_route.map((r: any) => {
+      if (!r || typeof r !== 'object') return r;
+      const { dev: _dev, ...rest } = r;
+      return rest;
+    });
+  }
   return config;
 };
 
@@ -196,7 +203,6 @@ srv6Routes.post('/', async (req, res, next) => {
           hubUuid,
           saved.id,
           saved.hubBindings,
-          req.body,
           saved.hubVrfMode,
         );
         await repo().save(saved);
@@ -335,7 +341,6 @@ srv6Routes.put('/:id', async (req, res, next) => {
           hubUuid,
           current.id,
           current.hubBindings,
-          req.body,
           current.hubVrfMode,
         );
       }

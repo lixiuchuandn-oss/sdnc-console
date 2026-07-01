@@ -1,6 +1,6 @@
 /**
  * SRv6 对端 SID 静态路由 destination：按 /64 网段截断（非完整 SID 主机位 + /64）。
- * §14.14.1：SID/64 via 择优（本端 WAN IPv6 网关 → 对端 PE 公网 IPv6）。
+ * §14.14.1：SID/64 via 择优（本端 WAN IPv6 网关 → 对端 PE 公网 IPv6 直连）。
  */
 
 const trimIpv6Host = (raw?: string): string | undefined => {
@@ -28,30 +28,99 @@ export function extractPePublicIpv6(cfg: unknown): string | undefined {
   return trimIpv6Host(c.ipv6_static as string | undefined || (c.ipv6 as string | undefined));
 }
 
+const pickPublicIpv6RouteVia = (row: Record<string, unknown>): string | undefined => {
+  const vrf = row.vrf;
+  if (vrf !== undefined && vrf !== null && vrf !== '' && Number(vrf) !== 0) return undefined;
+  const viaRaw = String(row.via ?? '').trim();
+  if (!viaRaw || /^nexthop-vrf/i.test(viaRaw)) return undefined;
+  const host = trimIpv6Host(viaRaw);
+  return host && host.includes(':') ? host : undefined;
+};
+
+const listPublicIpv6Routes = (cfg: Record<string, unknown>): Record<string, unknown>[] => {
+  const routes = cfg.ipv6_route;
+  if (!Array.isArray(routes)) return [];
+  return routes.filter(
+    (item) => item && typeof item === 'object' && !!pickPublicIpv6RouteVia(item as Record<string, unknown>),
+  ) as Record<string, unknown>[];
+};
+
+/** Hub 多 WAN：inventory 顺序或 ipv4_route.dev 对齐的 WAN 序号 */
+const hubWanOrdinalIndex = (cfg: Record<string, unknown>, wanIf: string): number => {
+  const inv = cfg._towerHubInventory as { wan?: Array<{ ifName?: string }> } | undefined;
+  if (Array.isArray(inv?.wan)) {
+    const idx = inv.wan.findIndex((w) => String(w.ifName ?? '').trim() === wanIf);
+    if (idx >= 0) return idx;
+  }
+  const v4 = cfg.ipv4_route;
+  if (Array.isArray(v4)) {
+    const idx = v4.findIndex(
+      (r) => r && typeof r === 'object' && String((r as Record<string, unknown>).dev ?? '').trim() === wanIf,
+    );
+    if (idx >= 0) return idx;
+  }
+  return -1;
+};
+
 /**
  * 本端基线中公网 IPv6 静态路由的 via（IPv6 网关）。
  * 仅认无 vrf 且 via 为有效 IPv6（非 nexthop-vrf）。
+ * Hub 多 WAN：优先 inventory.ipv6Via → 与 WAN 同序的 ipv6_route → 首条公网路由。
  */
-export function extractWanIpv6Gateway(cfg: unknown): string | undefined {
+export function extractWanIpv6Gateway(cfg: unknown, wanIf?: string): string | undefined {
   if (!cfg || typeof cfg !== 'object') return undefined;
-  const routes = (cfg as Record<string, unknown>).ipv6_route;
-  if (!Array.isArray(routes)) return undefined;
-  for (const item of routes) {
-    if (!item || typeof item !== 'object') continue;
-    const row = item as Record<string, unknown>;
-    const vrf = row.vrf;
-    if (vrf !== undefined && vrf !== null && vrf !== '' && Number(vrf) !== 0) continue;
-    const viaRaw = String(row.via ?? '').trim();
-    if (!viaRaw || /^nexthop-vrf/i.test(viaRaw)) continue;
-    const host = trimIpv6Host(viaRaw);
-    if (host && host.includes(':')) return host;
+  const c = cfg as Record<string, unknown>;
+  const wanIfNorm = String(wanIf ?? '').trim();
+
+  if (wanIfNorm) {
+    const inv = c._towerHubInventory as
+      | { wan?: Array<{ ifName?: string; ipv6Via?: string; ipv6Dest?: string }> }
+      | undefined;
+    const invHit = inv?.wan?.find((w) => String(w.ifName ?? '').trim() === wanIfNorm);
+    const invVia = trimIpv6Host(invHit?.ipv6Via);
+    if (invVia) return invVia;
+
+    const routes = c.ipv6_route;
+    const invDest = String(invHit?.ipv6Dest ?? '').trim();
+    if (invDest && Array.isArray(routes)) {
+      for (const item of routes) {
+        if (!item || typeof item !== 'object') continue;
+        const row = item as Record<string, unknown>;
+        if (String(row.destination ?? '').trim() !== invDest) continue;
+        const via = pickPublicIpv6RouteVia(row);
+        if (via) return via;
+      }
+    }
+
+    const ordinal = hubWanOrdinalIndex(c, wanIfNorm);
+    const publicRoutes = listPublicIpv6Routes(c);
+    if (ordinal >= 0 && publicRoutes[ordinal]) {
+      const via = pickPublicIpv6RouteVia(publicRoutes[ordinal]);
+      if (via) return via;
+    }
+
+    // 兼容旧平台库中残留的 ipv6_route.dev（下发前已剥离）
+    if (Array.isArray(routes)) {
+      for (const item of routes) {
+        if (!item || typeof item !== 'object') continue;
+        const row = item as Record<string, unknown>;
+        if (String(row.dev ?? '').trim() !== wanIfNorm) continue;
+        const via = pickPublicIpv6RouteVia(row);
+        if (via) return via;
+      }
+    }
+  }
+
+  for (const row of listPublicIpv6Routes(c)) {
+    const via = pickPublicIpv6RouteVia(row);
+    if (via) return via;
   }
   return undefined;
 }
 
 /** SID/64 路由 via：本端已配 IPv6 网关则用网关，否则对端 PE 公网 IPv6（直连） */
-export function resolveSid64Via(selfCfg: unknown, peerCfg: unknown): string | undefined {
-  const gateway = extractWanIpv6Gateway(selfCfg);
+export function resolveSid64Via(selfCfg: unknown, peerCfg: unknown, wanIf?: string): string | undefined {
+  const gateway = extractWanIpv6Gateway(selfCfg, wanIf);
   if (gateway) return gateway;
   return extractPePublicIpv6(peerCfg);
 }

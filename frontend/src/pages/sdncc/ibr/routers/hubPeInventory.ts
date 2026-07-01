@@ -1,14 +1,20 @@
 /** §14.17 · Hub PE 基线 inventory（与 backend srv6.hubInventory 对齐） */
 
+import { sanitizeIpv6RoutesForDevice } from './peWizardWanRoutes';
+
 export const TOWER_HUB_INVENTORY_KEY = '_towerHubInventory';
 
-export type HubInventorySource = 'role_wizard' | 'tunnel_inline';
+export type HubInventorySource = 'role_wizard' | 'device_baseline';
 
 export type HubWanInventoryItem = {
   id: string;
   ifName: string;
   ipv4?: string;
   ipv6: string;
+  ipv4RouteDest?: string;
+  ipv4RoutePriority?: number;
+  ipv6Dest?: string;
+  ipv6Via?: string;
   source: HubInventorySource;
   createdByTunnelId?: string;
   createdAt: string;
@@ -37,6 +43,10 @@ export type HubWanFormRow = {
   ifName?: string;
   ipv4?: string;
   ipv6?: string;
+  ipv4RouteDest?: string;
+  ipv4RoutePriority?: number;
+  ipv6Dest?: string;
+  ipv6Via?: string;
 };
 
 export type HubLanFormRow = {
@@ -55,6 +65,19 @@ const newId = () =>
     ? crypto.randomUUID()
     : `inv-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const normalizeInventorySource = (source: unknown): HubInventorySource =>
+  source === 'device_baseline' ? 'device_baseline' : 'role_wizard';
+
+const normalizeWanItem = (item: HubWanInventoryItem): HubWanInventoryItem => ({
+  ...item,
+  source: normalizeInventorySource(item.source),
+});
+
+const normalizeLanItem = (item: HubLanInventoryItem): HubLanInventoryItem => ({
+  ...item,
+  source: normalizeInventorySource(item.source),
+});
+
 export const emptyHubInventory = (): HubInventory => ({ wan: [], lan: [] });
 
 export const isHubInventory = (v: unknown): v is HubInventory => {
@@ -67,13 +90,16 @@ export const parseHubInventoryFromConfig = (cfg: unknown): HubInventory | null =
   if (!cfg || typeof cfg !== 'object') return null;
   const raw = (cfg as Record<string, unknown>)[TOWER_HUB_INVENTORY_KEY];
   if (!isHubInventory(raw)) return null;
-  return { wan: [...raw.wan], lan: [...raw.lan] };
+  return {
+    wan: raw.wan.map(normalizeWanItem),
+    lan: raw.lan.map(normalizeLanItem),
+  };
 };
 
 export const stripTowerExtensionsFromDeviceConfig = (
   cfg: Record<string, unknown>,
 ): Record<string, unknown> => {
-  const next = { ...cfg };
+  const next = sanitizeIpv6RoutesForDevice({ ...cfg });
   delete next[TOWER_HUB_INVENTORY_KEY];
   return next;
 };
@@ -101,7 +127,7 @@ const resolveLanId = (
   return newId();
 };
 
-/** HUB_PE 向导表单 → inventory（role_wizard 段；保留 tunnel_inline 段） */
+/** HUB_PE 向导表单 → inventory（role_wizard 段；保留 device_baseline 段） */
 export const buildHubInventoryFromPeWizardValues = (
   values: {
     hubWanInventory?: HubWanFormRow[];
@@ -126,6 +152,13 @@ export const buildHubInventoryFromPeWizardValues = (
       ifName: normIf(r.ifName),
       ipv4: r.ipv4?.trim() || undefined,
       ipv6: normIf(r.ipv6),
+      ipv4RouteDest: r.ipv4RouteDest?.trim() || undefined,
+      ipv4RoutePriority:
+        r.ipv4RoutePriority !== undefined && r.ipv4RoutePriority !== null
+          ? Number(r.ipv4RoutePriority)
+          : undefined,
+      ipv6Dest: r.ipv6Dest?.trim() || undefined,
+      ipv6Via: r.ipv6Via?.trim() || undefined,
       source: 'role_wizard' as const,
       createdAt: existing?.wan.find((w) => w.id === resolveWanId(r, existing))?.createdAt ?? now,
     }));
@@ -145,12 +178,12 @@ export const buildHubInventoryFromPeWizardValues = (
       createdAt: existing?.lan.find((l) => l.id === resolveLanId(r, existing))?.createdAt ?? now,
     }));
 
-  const inlineWan = (existing?.wan ?? []).filter((w) => w.source === 'tunnel_inline');
-  const inlineLan = (existing?.lan ?? []).filter((l) => l.source === 'tunnel_inline');
+  const baselineWan = (existing?.wan ?? []).filter((w) => w.source === 'device_baseline');
+  const baselineLan = (existing?.lan ?? []).filter((l) => l.source === 'device_baseline');
 
   return {
-    wan: [...wizardWan, ...inlineWan],
-    lan: [...wizardLan, ...inlineLan],
+    wan: [...wizardWan, ...baselineWan],
+    lan: [...wizardLan, ...baselineLan],
   };
 };
 
@@ -182,6 +215,10 @@ export const hubInventoryToPeWizardForm = (
           ifName: w.ifName,
           ipv4: w.ipv4,
           ipv6: w.ipv6,
+          ipv4RouteDest: w.ipv4RouteDest,
+          ipv4RoutePriority: w.ipv4RoutePriority,
+          ipv6Dest: w.ipv6Dest,
+          ipv6Via: w.ipv6Via,
         })),
       lanConfigs: inv.lan
         .filter((l) => l.source === 'role_wizard')

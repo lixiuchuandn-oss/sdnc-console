@@ -46,5 +46,47 @@ describe('srv6Ipv6', () => {
       expect(extractWanIpv6Gateway(selfCfg)).toBe('600::1');
       expect(resolveSid64Via(selfCfg, peerCfg)).toBe('600::1');
     });
+
+    it('prefers inventory ipv6Via for selected Hub WAN (P2b)', () => {
+      const selfCfg = {
+        _towerHubInventory: {
+          wan: [
+            { ifName: 'ge0', ipv6Via: '203::33' },
+            { ifName: 'ge1', ipv6Via: '203::44' },
+          ],
+          lan: [],
+        },
+        ipv6_route: [
+          { destination: '::/0', via: '203::33' },
+          { destination: '::/0', via: '203::44' },
+        ],
+      };
+      expect(extractWanIpv6Gateway(selfCfg, 'ge1')).toBe('203::44');
+      expect(resolveSid64Via(selfCfg, peerCfg, 'ge1')).toBe('203::44');
+      expect(extractWanIpv6Gateway(selfCfg, 'ge0')).toBe('203::33');
+    });
+
+    it('matches ipv6_route by WAN ordinal when inventory has no ipv6Via', () => {
+      const selfCfg = {
+        _towerHubInventory: {
+          wan: [{ ifName: 'ge0' }, { ifName: 'ge1' }],
+          lan: [],
+        },
+        ipv4_route: [
+          { destination: '0.0.0.0/0', dev: 'ge0', priority: 100 },
+          { destination: '0.0.0.0/0', dev: 'ge1', priority: 100 },
+        ],
+        ipv6_route: [
+          { destination: '::/0', via: '203::33' },
+          { destination: '::/0', via: '203::44' },
+        ],
+      };
+      expect(extractWanIpv6Gateway(selfCfg, 'ge1')).toBe('203::44');
+    });
+
+    it('falls back to peer public IPv6 when local WAN has no ipv6_route', () => {
+      expect(resolveSid64Via({}, peerCfg, 'ge0')).toBe('203::44');
+      expect(resolveSid64Via({ ipv6_route: [] }, peerCfg, 'ge1')).toBe('203::44');
+    });
   });
 });
