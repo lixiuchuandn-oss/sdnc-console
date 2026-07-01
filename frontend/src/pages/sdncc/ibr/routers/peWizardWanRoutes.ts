@@ -2,6 +2,8 @@
 
 export type WanRouteFormRow = {
   ifName?: string;
+  ipv4?: string;
+  ipv6?: string;
   ipv4RouteDest?: string;
   ipv4RoutePriority?: number;
   ipv6Dest?: string;
