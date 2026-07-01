@@ -81,14 +81,15 @@ export function assertUniqueHubInventoryIfNames(
 export function sanitizeIpv6RoutesForDevice<T extends Record<string, unknown>>(cfg: T): T {
   const routes = cfg.ipv6_route;
   if (!Array.isArray(routes) || !routes.length) return cfg;
-  const next = { ...cfg };
-  next.ipv6_route = routes.map((item) => {
-    if (!item || typeof item !== 'object') return item;
-    const row = { ...(item as Record<string, unknown>) };
-    delete row.dev;
-    return row;
-  });
-  return next;
+  return {
+    ...cfg,
+    ipv6_route: routes.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const row = { ...(item as Record<string, unknown>) };
+      delete row.dev;
+      return row;
+    }),
+  } as T;
 }
 
 /** 从设备 config 回填 Hub WAN 行静态路由（ipv4 按 dev；ipv6 按序与 ipv4/WAN 行对齐） */
