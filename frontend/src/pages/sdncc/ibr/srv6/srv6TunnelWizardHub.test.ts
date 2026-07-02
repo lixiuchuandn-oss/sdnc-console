@@ -1,12 +1,15 @@
 import {
   classifyHubLanOption,
   deriveHubVrfMode,
+  detectHubLanSelectionDesync,
   findFirstReuseVrfTunnelRef,
+  hubCeDiffersFromAnchor,
   hubInventoryBlockMessage,
   hubLanSelectionPatch,
   hubLanSelectionClear,
   isFirstHubTunnel,
   pickHubReuseAnchorFromTunnel,
+  resolveSelectedHubLanState,
   shouldInheritReuseAnchor,
   validateHubTunnelInventory,
 } from './srv6TunnelWizardHub';
@@ -101,6 +104,8 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         hasReuseAnchor: true,
         hubLanInventoryId: 'lan-1',
         anchorLanInventoryId: 'lan-1',
+        anchorLanIf: 'ge1',
+        hubLanIf: 'ge1',
       }),
     ).toBe(true);
 
@@ -113,6 +118,73 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         selectedLanState: 'idle',
       }),
     ).toBe(false);
+
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-1',
+        anchorLanInventoryId: 'lan-1',
+        anchorLanIf: 'ge1',
+        hubLanIf: 'ge2',
+        selectedLanState: 'idle',
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-1',
+        anchorLanInventoryId: 'lan-1',
+        hubCeUuid: 'ce-new',
+        anchorCeUuid: 'ce-anchor',
+        selectedLanState: 'reuse_reusable',
+      }),
+    ).toBe(false);
+  });
+
+  it('resolveSelectedHubLanState prefers ifName when inventory id desynced', () => {
+    const lanOptions = [
+      { value: 'lan-9999', ifName: 'ge9999', lanState: 'reuse_reusable' as const },
+      { value: 'lan-8888', ifName: 'ge8888', lanState: 'idle' as const },
+    ];
+    expect(
+      detectHubLanSelectionDesync({
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'ge8888',
+        lanOptions,
+      }),
+    ).toBe(true);
+    const resolved = resolveSelectedHubLanState({
+      hubLanInventoryId: 'lan-9999',
+      hubLanIf: 'ge8888',
+      lanOptions,
+      portRegistry: [{ lanIf: 'ge9999', hubVrfMode: 'REUSE_VRF', tunnelName: 'T1' }],
+    });
+    expect(resolved.desynced).toBe(true);
+    expect(resolved.state).toBe('idle');
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: resolved.state,
+        inheritReuseAnchor: false,
+        hubLanDesynced: true,
+      }),
+    ).toBe('DEDICATED_VRF');
+  });
+
+  it('deriveHubVrfMode treats CE change as dedicated when not on reuse LAN', () => {
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+        inheritReuseAnchor: false,
+        hubCeDiffersFromAnchor: true,
+      }),
+    ).toBe('DEDICATED_VRF');
   });
 
   it('validateHubTunnelInventory blocks missing WAN inventory', () => {
@@ -180,6 +252,11 @@ describe('srv6TunnelWizardHub P3/P5', () => {
     expect(hubLanSelectionPatch('peB', 'GigabitEthernet 1/0/1')).toEqual({
       hubLanIf: 'GigabitEthernet 1/0/1',
       peBInnerIf: 'GigabitEthernet 1/0/1',
+    });
+    expect(hubLanSelectionPatch('peB', 'GigabitEthernet 1/0/1', 'lan-8888')).toEqual({
+      hubLanIf: 'GigabitEthernet 1/0/1',
+      peBInnerIf: 'GigabitEthernet 1/0/1',
+      hubLanInventoryId: 'lan-8888',
     });
   });
 

@@ -118,16 +118,75 @@ export const findFirstReuseVrfTunnelRef = (
   return null;
 };
 
+export type HubLanOptionRow = {
+  value: string;
+  ifName: string;
+  lanState?: HubLanOptionState;
+};
+
+/** 根因 1：hubLanInventoryId 与 hubLanIf 是否指向不同接口 */
+export const detectHubLanSelectionDesync = (input: {
+  hubLanInventoryId?: string;
+  hubLanIf?: string;
+  lanOptions: HubLanOptionRow[];
+}): boolean => {
+  const id = String(input.hubLanInventoryId ?? '').trim();
+  const ifName = String(input.hubLanIf ?? '').trim();
+  if (!id || !ifName) return false;
+  const hit = input.lanOptions.find((o) => o.value === id);
+  if (!hit?.ifName) return false;
+  return normIf(hit.ifName) !== normIf(ifName);
+};
+
+/**
+ * 解析 Hub LAN 占用态：id/if 失步时以 hubLanIf 为准（根因 1）。
+ */
+export const resolveSelectedHubLanState = (input: {
+  hubLanInventoryId?: string;
+  hubLanIf?: string;
+  lanOptions: HubLanOptionRow[];
+  portRegistry?: HubPortRegistryLanRef[] | null;
+}): { state: HubLanOptionState; desynced: boolean } => {
+  const ifName = String(input.hubLanIf ?? '').trim();
+  const desynced = detectHubLanSelectionDesync({
+    hubLanInventoryId: input.hubLanInventoryId,
+    hubLanIf: ifName,
+    lanOptions: input.lanOptions,
+  });
+  if (desynced && ifName) {
+    return { state: classifyHubLanOption(ifName, input.portRegistry).state, desynced: true };
+  }
+  const id = String(input.hubLanInventoryId ?? '').trim();
+  if (id) {
+    const hit = input.lanOptions.find((o) => o.value === id);
+    if (hit?.lanState) return { state: hit.lanState, desynced: false };
+  }
+  if (ifName) {
+    return { state: classifyHubLanOption(ifName, input.portRegistry).state, desynced: false };
+  }
+  return { state: 'idle', desynced: false };
+};
+
 export type DeriveHubVrfModeInput = {
   isFirstHubTunnel: boolean;
   hasReuseAnchorOnHub: boolean;
   selectedLanState: HubLanOptionState;
   /** 后续隧道默认继承锚点（LAN/CE 只读、未改选其它空闲 LAN） */
   inheritReuseAnchor?: boolean;
+  /** 根因 1：inventoryId 与 ifName 失步 */
+  hubLanDesynced?: boolean;
+  /** 根因 3：Hub CE 已改选为非锚点 CE */
+  hubCeDiffersFromAnchor?: boolean;
 };
 
 /** P5c：由 Hub 内网口选项态隐式推导 hubVrfMode */
 export const deriveHubVrfMode = (input: DeriveHubVrfModeInput): HubVrfMode => {
+  if (input.hubLanDesynced && input.selectedLanState === 'idle') {
+    return input.hasReuseAnchorOnHub ? 'DEDICATED_VRF' : 'REUSE_VRF';
+  }
+  if (input.hubCeDiffersFromAnchor && input.selectedLanState !== 'reuse_reusable') {
+    return 'DEDICATED_VRF';
+  }
   if (input.inheritReuseAnchor || input.selectedLanState === 'reuse_reusable') {
     return 'REUSE_VRF';
   }
@@ -202,15 +261,22 @@ export const validateHubTunnelInventory = (
   return { ok: true };
 };
 
-/** Hub LAN 选中后同步 Hub 槽位 peInnerIf */
+/** Hub LAN 选中后同步 inventoryId / peInnerIf / hubLanIf */
 export const hubLanSelectionPatch = (
   hubPeSlot: HubPeSlot,
   ifName: string,
-): Partial<Record<'hubLanIf' | 'peAInnerIf' | 'peBInnerIf', string>> => {
+  inventoryId?: string,
+): Partial<Record<'hubLanIf' | 'hubLanInventoryId' | 'peAInnerIf' | 'peBInnerIf', string>> => {
   const lan = String(ifName ?? '').trim();
   if (!lan) return {};
   const innerField = hubPeInnerIfField(hubPeSlot);
-  return { hubLanIf: lan, [innerField]: lan };
+  const patch: Partial<Record<'hubLanIf' | 'hubLanInventoryId' | 'peAInnerIf' | 'peBInnerIf', string>> = {
+    hubLanIf: lan,
+    [innerField]: lan,
+  };
+  const invId = String(inventoryId ?? '').trim();
+  if (invId) patch.hubLanInventoryId = invId;
+  return patch;
 };
 
 /** 清空 Hub 内网口选择及同步的 peInnerIf */
@@ -227,7 +293,17 @@ export const hubLanSelectionClear = (
   };
 };
 
-/** 后续 REUSE 默认路径：未显式改选其它空闲 LAN 时继承锚点 */
+/** 根因 3：Hub CE 是否与锚点 CE 不同 */
+export const hubCeDiffersFromAnchor = (
+  selectedCeUuid: unknown,
+  anchorCeUuid: unknown,
+): boolean => {
+  const sel = String(selectedCeUuid ?? '').trim();
+  const anchor = String(anchorCeUuid ?? '').trim();
+  return !!sel && !!anchor && sel !== anchor;
+};
+
+/** 后续 REUSE 默认路径：未显式改选其它空闲 LAN / CE 时继承锚点 */
 export const shouldInheritReuseAnchor = (input: {
   isFirstHubTunnel: boolean;
   hasReuseAnchor: boolean;
@@ -236,14 +312,22 @@ export const shouldInheritReuseAnchor = (input: {
   anchorLanInventoryId?: string;
   anchorLanIf?: string;
   selectedLanState?: HubLanOptionState;
+  hubCeUuid?: string;
+  anchorCeUuid?: string;
+  hubLanDesynced?: boolean;
 }): boolean => {
   if (input.isFirstHubTunnel || !input.hasReuseAnchor) return false;
+  if (input.hubLanDesynced) return false;
+  if (hubCeDiffersFromAnchor(input.hubCeUuid, input.anchorCeUuid)) return false;
   if (input.selectedLanState === 'reuse_reusable') return true;
   const selId = String(input.hubLanInventoryId ?? '').trim();
   const selIf = normIf(input.hubLanIf);
   const anchorId = String(input.anchorLanInventoryId ?? '').trim();
   const anchorIf = normIf(input.anchorLanIf);
-  if (anchorId && selId) return selId === anchorId;
+  if (anchorId && selId && selId === anchorId) {
+    if (anchorIf && selIf) return selIf === anchorIf;
+    return true;
+  }
   if (anchorIf && selIf) return selIf === anchorIf;
   return !selId && !selIf;
 };

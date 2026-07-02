@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Divider, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox, Alert } from 'antd';
+import { Button, Card, Descriptions, Divider, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
@@ -1512,13 +1512,19 @@ const PEWizard: React.FC = () => {
                     <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（PE to PE）</div>
                     {isHubPe ? (
                       <>
-                        <Alert
-                          type="info"
-                          showIcon
-                          style={{ marginBottom: 12 }}
-                          message="Hub 多 WAN 设备回读"
-                          description="按设备公网接口与路由表分 Tab 展示，与左侧 Hub WAN 编辑区对齐。"
-                        />
+                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                          Hub 公网 BGP（进程级 · bgp[0]）
+                        </div>
+                        <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>}>
+                          <InputNumber style={{ width: '100%' }} placeholder="未配置" />
+                        </Form.Item>
+                        <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>}>
+                          <Input placeholder="未配置" />
+                        </Form.Item>
+                        <div style={{ height: 12 }} />
+                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                          WAN 侧配置（Hub-PE to Spoke-PE）
+                        </div>
                         <Tabs
                           type="card"
                           size="small"
@@ -1526,17 +1532,27 @@ const PEWizard: React.FC = () => {
                             const groups: any[] = mirrorForm.getFieldValue('hubWanInventory') || [{}];
                             return groups.map((g, idx) => ({
                               key: String(idx),
-                              label: `Hub WAN #${idx + 1}`,
+                              label: `WAN 接口 #${idx + 1}`,
                               children: (
                                 <div>
                                   <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>}>
                                     <Input disabled value={g?.ifName || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}>
+                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>}>
+                                    <Input disabled value={g?.ipv4 || '未配置'} />
+                                  </Form.Item>
+                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>}>
                                     <Input disabled value={g?.ipv6 || '未配置'} />
                                   </Form.Item>
+                                  <div style={{ height: 8 }} />
+                                  <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                                    静态路由（本 WAN 口）
+                                  </div>
                                   <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
                                     <Input disabled value={g?.ipv4RouteDest || '未配置'} />
+                                  </Form.Item>
+                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>优先级</span>}>
+                                    <Input disabled value={g?.ipv4RoutePriority ?? '未配置'} />
                                   </Form.Item>
                                   <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}>
                                     <Input disabled value={g?.ipv6Dest || '未配置'} />
@@ -1591,18 +1607,6 @@ const PEWizard: React.FC = () => {
                     <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}> 
                       <Input placeholder="未配置" />
                     </Form.Item>
-                      </>
-                    )}
-                    {isHubPe && (
-                      <>
-                        <div style={{ height: 12 }} />
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
-                        <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>}>
-                          <InputNumber style={{ width: '100%' }} placeholder="未配置" />
-                        </Form.Item>
-                        <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>}>
-                          <Input placeholder="未配置" />
-                        </Form.Item>
                       </>
                     )}
                   </>
@@ -1665,15 +1669,31 @@ const PEWizard: React.FC = () => {
                     <Descriptions column={1} bordered size="small">
                       <Descriptions.Item label="SRv6 Locator">{previewStr(mirrorForm.getFieldValue('locatorName'))}</Descriptions.Item>
                       <Descriptions.Item label="SRv6 SID Prefix">{previewStr(mirrorForm.getFieldValue('sidPrefix'))}</Descriptions.Item>
-                      <Descriptions.Item label="WAN 侧接口">{previewStr(mirrorForm.getFieldValue('wanDev'))}</Descriptions.Item>
-                      <Descriptions.Item label="IPv4 目的网段">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>
-                      <Descriptions.Item label="优先级">{previewNum(mirrorForm.getFieldValue('wanRoutePriority'))}</Descriptions.Item>
-                      <Descriptions.Item label="WAN 侧 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
-                      <Descriptions.Item label="WAN 侧 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
-                      <Descriptions.Item label="BGP ASN（WAN）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
-                      <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
-                      <Descriptions.Item label="IPv6 目的网段">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
-                      <Descriptions.Item label="IPv6 网关">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
+                      {isHubPe ? (
+                        <>
+                          {(mirrorForm.getFieldValue('hubWanInventory') || []).map((wan: any, idx: number) => (
+                            <Descriptions.Item key={`hub-wan-${idx}`} label={`WAN 接口 #${idx + 1}`}>
+                              {[wan?.ifName, wan?.ipv4, wan?.ipv6, wan?.ipv4RouteDest, wan?.ipv6Dest, wan?.ipv6Via ? `gw ${wan.ipv6Via}` : '']
+                                .filter(Boolean)
+                                .join(' · ') || '-'}
+                            </Descriptions.Item>
+                          ))}
+                          <Descriptions.Item label="公网 BGP ASN（Hub 级）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
+                          <Descriptions.Item label="公网 BGP Router-ID（Hub 级）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
+                        </>
+                      ) : (
+                        <>
+                          <Descriptions.Item label="WAN 侧接口">{previewStr(mirrorForm.getFieldValue('wanDev'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv4 目的网段">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>
+                          <Descriptions.Item label="优先级">{previewNum(mirrorForm.getFieldValue('wanRoutePriority'))}</Descriptions.Item>
+                          <Descriptions.Item label="WAN 侧 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
+                          <Descriptions.Item label="WAN 侧 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
+                          <Descriptions.Item label="BGP ASN（WAN）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
+                          <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv6 目的网段">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv6 网关">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
+                        </>
+                      )}
                     </Descriptions>
                     {(mirrorForm.getFieldValue('lanConfigs') || []).map((lan: any, idx: number) => (
                       <div key={idx} style={{ marginTop: 12 }}>
