@@ -1086,12 +1086,8 @@ const SRv6CreatePage: React.FC = () => {
     [isFirstHubTunnelOnPe, hubHasReuseAnchorOnPe, selectedHubLanState, inheritReuseAnchor],
   );
 
-  const lockHubCeSelect = (ceSlot: 'ceA' | 'ceB') =>
-    !!inferredHubPeSlot &&
-    hubCeSlotForPeSlot(inferredHubPeSlot) === ceSlot &&
-    resolvedHubVrfMode === 'REUSE_VRF' &&
-    (inheritReuseAnchor || selectedHubLanState === 'reuse_reusable') &&
-    !!hubReuseAnchor?.hubCeUuid;
+  // UX：不锁定 CE（允许用户自行选择）；仅在程序性回填 CE 时主动拉取配置，保证关系档案完整。
+  const lockHubCeSelect = (_ceSlot: 'ceA' | 'ceB') => false;
 
   useEffect(() => {
     if (editId || inferredTopology !== 'H' || !inferredHubPeSlot || isFirstHubTunnelOnPe) {
@@ -1131,6 +1127,8 @@ const SRv6CreatePage: React.FC = () => {
           [innerField]: anchor.hubPeInnerIf,
           [ceField]: anchor.hubCeUuid,
         });
+        // setFieldsValue 不会触发 onValuesChange：这里补拉 Hub 侧 CE 配置，避免 injectedDelta.ceX 缺失
+        await fetchAndSetCeConfig(ceField, anchor.hubCeUuid);
       } catch {
         if (!cancelled) setHubReuseAnchor(null);
       }
@@ -1160,6 +1158,8 @@ const SRv6CreatePage: React.FC = () => {
     if (inferredHubPeSlot && hubReuseAnchor && lanState === 'reuse_reusable') {
       const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
       form.setFieldsValue({ [ceField]: hubReuseAnchor.hubCeUuid });
+      // setFieldsValue 不会触发 onValuesChange：补拉 Hub 侧 CE 配置
+      void fetchAndSetCeConfig(ceField, hubReuseAnchor.hubCeUuid);
     }
   };
 
