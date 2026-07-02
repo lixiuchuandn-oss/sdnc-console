@@ -58,7 +58,7 @@
 | 编号 | 约定 |
 |------|------|
 | **S-19** | **WAN / LAN inventory 仅在 `HUB_PE` 角色配置向导创建与维护**（写入基线 `_towerHubInventory`）。 |
-| **S-20** | **SRv6 隧道向导**只做：选 Spoke、选 Hub **公网**出口、选 **客户侧策略**（首条/独立时选 LAN）；**不在隧道向导内联新建接口**。 |
+| **S-20** | **SRv6 隧道向导**只做：选 Spoke、选 Hub **公网口 → 内网口 → CE**（一次选择，同步 `peInnerIf`）；**不**展示客户侧策略单选；**不在隧道向导内联新建接口**。 |
 | **S-21** | 无可用 inventory 时 **阻断创建**，提示用户先完成角色向导（见 §2.2）。 |
 | **S-22** | 删除隧道 **不回收** inventory 口项（能力池永久留在 Hub 基线，除非用户在角色向导中改配）。 |
 
@@ -83,10 +83,10 @@
 
 | 轴 | 问题 | 字段 |
 |----|------|------|
-| **轴 1 · 客户内网** | 是否与已有隧道共用 CE/VRF？ | `hubCustomerSide` → `hubVrfMode` |
+| **轴 1 · 客户内网** | 是否与已有隧道共用 CE/VRF？ | 由 **Hub 内网口选项态**隐式推导 `hubVrfMode`（见 §5.2） |
 | **轴 2 · Hub 公网 WAN** | 本 Spoke 的 PE–PE 走哪条 Hub WAN？ | `hubBindings.wanIf` / `wanInventoryId` |
 
-两轴 **正交**：路线 A 下仍可为不同 Spoke 选 **不同 WAN 口**。
+两轴 **正交**：`REUSE_VRF` 下仍可为不同 Spoke 选 **不同 WAN 口**。
 
 ### 2.2 Inventory 缺失阻断矩阵
 
@@ -105,12 +105,15 @@
 
 ### 2.3 首条 vs 后续（REUSE）隧道向导
 
-| 步骤 | 首条 Hub–Spoke | 后续 REUSE |
-|------|----------------|------------|
-| Spoke PE + 内网口 + CE | 用户选择 | 用户选择 |
-| Hub WAN | inventory 下拉 | inventory 下拉 |
-| Hub LAN + Hub CE | **用户选择**（inventory 下拉 + CE） | **只读**（继承首条） |
-| 客户侧策略 | 可选「共用」（确立锚点） | 默认「共用」 |
+| 步骤 | 首条 Hub–Spoke | 后续 REUSE（默认） | 后续 DEDICATED |
+|------|----------------|-------------------|----------------|
+| Spoke PE + 内网口 + CE | 用户选择 | 用户选择 | 用户选择 |
+| Hub WAN | inventory 下拉 | inventory 下拉 | inventory 下拉 |
+| Hub 内网口 | 选 **空闲** LAN（确立锚点） | **只读**（继承锚点 LAN） | 选 **另一条空闲** LAN |
+| Hub CE | 用户选择 | **只读**（继承锚点 CE） | 用户选择 |
+| `hubVrfMode` | `REUSE_VRF` | `REUSE_VRF` | `DEDICATED_VRF` |
+
+Hub 列 **不单独展示** `peInnerIf` 下拉；用户仅在「Hub 内网口」选一次，提交时同步 Hub 槽位 `pe{x}InnerIf` 与 `hubBindings.lanIf`。
 
 ---
 
@@ -157,7 +160,7 @@
 
 | 阶段 | 内容 | 产品约束依据 | 状态 |
 |------|------|----------------|------|
-| **P1** | WAN/LAN `editable-card` Tab，`+` 在 Tab 栏增页 | §1.2、§1.3 | **已完成**（`peWizardTabEdit` 单测） |
+| **P1** | Hub PE：WAN/LAN `editable-card` Tab；Spoke PE **仅单 WAN+单 LAN** | §1.2、§1.3 | **已完成**（P5a 收口 Spoke 单 LAN） |
 | **P2** | 每 Hub WAN Tab：静态路由 + IPv6 网关；写入 `ipv6_route` / inventory | §1.7 S-23 | **已完成**（`peWizardWanRoutes` 单测） |
 | **P2b** | `resolveSid64Via(..., wanIf)` | §1.7 S-24 | **已完成**（`srv6Ipv6` 单测） |
 | **P3** | 隧道向导 Hub 分区、首条/后续、去 inline | §1.6、§2 | **已完成**（`srv6TunnelWizardHub` 单测） |
@@ -167,7 +170,53 @@
 
 ---
 
-## 5. 文档与代码索引
+## 5. UX 修订（P5 · 真机验收 · 已评审）
+
+### 5.1 HUB_PE 角色向导（P5b）
+
+Step1 自上而下：
+
+1. SRv6 Locator / SID  
+2. **Hub 公网 BGP（进程级 `bgp[0]`）**：ASN、Router-ID **独立区块**，不在 WAN Tab 内  
+3. **多 WAN Tab**：每 Tab 仅接口地址 + 本口静态路由（§1.7）  
+4. 与 LAN Step 之间 **明显分隔**（Divider / 卡片标题）
+
+### 5.2 SRv6 隧道创建 · Hub 列线性流（P5c）
+
+选中 `HUB_PE` 后，在 **Hub PE 所在列**、PE 下拉正下方顺序展示：
+
+```text
+Hub 公网口 → Hub 内网口 → Hub CE（ceA/ceB 槽位）
+```
+
+- **取消**底部独立「Hub 互联」分区与 `hubCustomerSide` Radio。  
+- **取消** Hub 列「选择 PE-x 内网口」可见下拉；`pe{x}InnerIf` 由「Hub 内网口」选中值 **隐藏同步**。  
+- 「Hub 内网口」`extra` 展示 VRF、IP、槽位映射，不设第三只读控件。
+
+**`hubVrfMode` 隐式推导**（Hub 内网口选项态）：
+
+| Hub 内网口选项 | `hubVrfMode` | Hub CE |
+|----------------|--------------|--------|
+| **空闲**，且 Hub **尚无** REUSE 锚点（首条） | `REUSE_VRF`（建锚点） | 用户自选 |
+| **空闲**，且 Hub **已有** REUSE 锚点 | `DEDICATED_VRF` | 用户自选 |
+| **已被 REUSE 隧道占用**（`已用于 Tn · 可复用`） | `REUSE_VRF` | 锁定锚点 CE |
+| **DEDICATED 专网占用** | — | **不可选** |
+
+**后续 REUSE 默认**：进入创建页时 **预填并锁定** 锚点 LAN + CE；用户仅改 Spoke 与 Hub WAN。若改选 **另一条空闲 LAN** → 切为 `DEDICATED_VRF` 并解锁 CE。
+
+**Hub LAN ↔ CE**：REUSE 占用 LAN 强关联锁定 CE；首条/DEDICATED 空闲 LAN 仅弱校验（VRF 不一致 warning，不阻断）。
+
+### 5.3 P5 实现分期
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| **P5a** | Spoke PE 向导：LAN 禁 `editable-card`，固定单口 | **已完成** |
+| **P5b** | Hub PE 向导：公网 BGP 与 WAN Tab 分层 | **已完成** |
+| **P5c** | 隧道向导 Hub 列线性流 + 隐式 `hubVrfMode` | **已完成** |
+
+---
+
+## 6. 文档与代码索引
 
 | 主题 | 位置 |
 |------|------|
@@ -182,9 +231,10 @@
 
 ---
 
-## 6. 修订记录
+## 7. 修订记录
 
 | 日期 | 说明 |
 |------|------|
 | 2026-06 | 初版：汇总 Hub 多 WAN/LAN UX 评审结论、RD/RT REUSE Spoke 独立 RD、inventory 单一入口、阻断矩阵与遗留 L-1～L-5 |
 | 2026-06 | P1–P4 完成；P4 移除 `tunnel_inline`；全量 Code Review 见 `testcases.md` §HP Review 关注项 |
+| 2026-06 | P5：真机验收 UX 修订（Spoke 单 LAN、Hub BGP 分层、隧道 Hub 列线性流、隐式 `hubVrfMode`） |

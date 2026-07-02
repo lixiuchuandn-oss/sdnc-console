@@ -14,14 +14,19 @@ import {
   type Srv6HubVrfMode,
 } from './srv6Archive';
 import {
+  classifyHubLanOption,
+  deriveHubVrfMode,
   hubCeSlotForPeSlot,
   hubInventoryBlockMessage,
   hubLanSelectionPatch,
+  hubLanSelectionClear,
   hubPeInnerIfField,
   findFirstReuseVrfTunnelRef,
   isFirstHubTunnel,
   pickHubReuseAnchorFromTunnel,
+  shouldInheritReuseAnchor,
   validateHubTunnelInventory,
+  type HubLanOptionState,
   type HubReuseAnchor,
 } from './srv6TunnelWizardHub';
 
@@ -120,11 +125,10 @@ const SRv6CreatePage: React.FC = () => {
     const hubNote = status.isHub
       ? '该 PE 处于 Hub 多隧道模式。'
       : '该 PE 已被其它隧道引用。';
-    const hubCustomerSide = form.getFieldValue('hubCustomerSide');
     const reuseHint =
-      hubCustomerSide === 'dedicated'
-        ? '独立客户侧：为本 Spoke 单独分配内网 VRF 与 CE（仅对端 Spoke 公网 IPv6 不可重复）。'
-        : '共用客户侧：与 Hub 上已有隧道的内网 VRF/CE 共用（仅对端 Spoke 公网 IPv6 不可重复）。';
+      hubHasReuseAnchorOnPe && !isFirstHubTunnelOnPe
+        ? '后续隧道默认继承共用客户侧锚点；改选其它空闲内网口可建独立专网。'
+        : '首条 Hub 隧道将选定内网口与 CE 作为共用客户侧锚点。';
     return (
       <Alert
         type="info"
@@ -171,8 +175,6 @@ const SRv6CreatePage: React.FC = () => {
             hubLanIf: item.hubBindings?.lanIf,
             hubWanInventoryId: item.hubBindings?.wanInventoryId,
             hubLanInventoryId: item.hubBindings?.lanInventoryId,
-            hubCustomerSide:
-              item.hubVrfMode === 'DEDICATED_VRF' ? 'dedicated' : item.hubVrfMode ? 'reuse' : undefined,
           });
           setFormValues({
             tunnelName: item.name,
@@ -967,22 +969,38 @@ const SRv6CreatePage: React.FC = () => {
   }, [hubInventoryUi, inferredHubPeSlot, peConfigs]);
 
   const hubLanInventoryOptions = useMemo(() => {
+    const annotateLan = (row: {
+      id: string;
+      ifName: string;
+      vrf: number;
+      label?: string;
+      selectable?: boolean;
+    }) => {
+      const { state, tunnelNames } = classifyHubLanOption(row.ifName, hubPortRegistry);
+      const tag =
+        state === 'dedicated_occupied'
+          ? `已用于 ${tunnelNames.join('、')} · 专网占用`
+          : state === 'reuse_reusable'
+            ? `已用于 ${tunnelNames.join('、')} · 可复用`
+            : '空闲';
+      return {
+        value: row.id,
+        label: row.label || `${row.ifName} · VRF ${row.vrf} [${tag}]`,
+        ifName: row.ifName,
+        vrf: row.vrf,
+        disabled: state === 'dedicated_occupied' || row.selectable === false,
+        lanState: state as HubLanOptionState,
+      };
+    };
+
     const rows = hubInventoryUi?.lanOptions ?? [];
-    const fromApi = rows
-      .filter((o) => o.selectable !== false)
-      .map((o) => ({
-        value: o.id,
-        label: o.label || `${o.ifName} · VRF ${o.vrf}`,
-        ifName: o.ifName,
-        vrf: o.vrf,
-        disabled: o.selectable === false,
-      }));
+    const fromApi = rows.map((o) => annotateLan(o));
     if (fromApi.length) return fromApi;
 
     const cfg = inferredHubPeSlot ? peConfigs[inferredHubPeSlot] : undefined;
     if (!cfg || typeof cfg !== 'object') return [];
     const bgpArr = Array.isArray((cfg as { bgp?: unknown }).bgp) ? (cfg as { bgp: unknown[] }).bgp : [];
-    const fallback: { value: string; label: string; ifName: string; vrf?: number; disabled?: boolean }[] = [];
+    const fallback: ReturnType<typeof annotateLan>[] = [];
     for (const k of Object.keys(cfg)) {
       if (!k.startsWith('interfaces_') && !k.startsWith('subinterfaces_')) continue;
       const arr = (cfg as Record<string, unknown>)[k];
@@ -997,16 +1015,17 @@ const SRv6CreatePage: React.FC = () => {
           (b) => b && typeof b === 'object' && Number((b as Record<string, unknown>).vrf) === vrfNum,
         ) as Record<string, unknown> | undefined;
         if (!bgpHit) continue;
-        fallback.push({
-          value: `baseline-lan:${ifName}:${vrfNum}`,
-          ifName,
-          vrf: vrfNum,
-          label: `${ifName} · VRF ${vrfNum} [Hub 已有内网口]`,
-        });
+        fallback.push(
+          annotateLan({
+            id: `baseline-lan:${ifName}:${vrfNum}`,
+            ifName,
+            vrf: vrfNum,
+          }),
+        );
       }
     }
     return fallback;
-  }, [hubInventoryUi, inferredHubPeSlot, peConfigs]);
+  }, [hubInventoryUi, inferredHubPeSlot, peConfigs, hubPortRegistry]);
 
   const hubAliveTunnelCount = useMemo(() => {
     if (!inferredHubPeSlot) return 0;
@@ -1017,38 +1036,67 @@ const SRv6CreatePage: React.FC = () => {
 
   const [hubReuseAnchor, setHubReuseAnchor] = useState<HubReuseAnchor | null>(null);
 
-  const hubCustomerSideWatch = Form.useWatch('hubCustomerSide', form) ?? 'reuse';
-  const isDedicatedCustomerSide = hubCustomerSideWatch === 'dedicated';
-  const isSubsequentReuse =
-    inferredTopology === 'H' &&
-    !!inferredHubPeSlot &&
-    !isDedicatedCustomerSide &&
-    !isFirstHubTunnelOnPe;
+  const hubLanInventoryIdWatch = Form.useWatch('hubLanInventoryId', form);
+  const hubLanIfWatch = Form.useWatch('hubLanIf', form);
 
-  const lockHubPeInnerIf = (peSlot: 'peA' | 'peB') =>
-    inferredTopology === 'H' &&
-    inferredHubPeSlot === peSlot &&
-    !isDedicatedCustomerSide;
+  const hubHasReuseAnchorOnPe = useMemo(() => {
+    if (!inferredHubPeSlot) return false;
+    return !!findFirstReuseVrfTunnelRef(peHubStatus[inferredHubPeSlot]?.tunnels);
+  }, [inferredHubPeSlot, peHubStatus]);
+
+  const selectedHubLanState = useMemo((): HubLanOptionState => {
+    const id = String(hubLanInventoryIdWatch ?? '').trim();
+    if (id) {
+      const hit = hubLanInventoryOptions.find((o) => o.value === id);
+      if (hit?.lanState) return hit.lanState;
+    }
+    const ifName = String(hubLanIfWatch ?? '').trim();
+    if (ifName) return classifyHubLanOption(ifName, hubPortRegistry).state;
+    return 'idle';
+  }, [hubLanInventoryIdWatch, hubLanIfWatch, hubLanInventoryOptions, hubPortRegistry]);
+
+  const inheritReuseAnchor = useMemo(
+    () =>
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: isFirstHubTunnelOnPe,
+        hasReuseAnchor: !!hubReuseAnchor,
+        hubLanInventoryId: hubLanInventoryIdWatch,
+        hubLanIf: hubLanIfWatch,
+        anchorLanInventoryId: hubReuseAnchor?.hubLanInventoryId,
+        anchorLanIf: hubReuseAnchor?.hubLanIf,
+        selectedLanState: selectedHubLanState,
+      }),
+    [
+      isFirstHubTunnelOnPe,
+      hubReuseAnchor,
+      hubLanInventoryIdWatch,
+      hubLanIfWatch,
+      selectedHubLanState,
+    ],
+  );
+
+  const resolvedHubVrfMode = useMemo(
+    () =>
+      deriveHubVrfMode({
+        isFirstHubTunnel: isFirstHubTunnelOnPe,
+        hasReuseAnchorOnHub: hubHasReuseAnchorOnPe,
+        selectedLanState: selectedHubLanState,
+        inheritReuseAnchor,
+      }),
+    [isFirstHubTunnelOnPe, hubHasReuseAnchorOnPe, selectedHubLanState, inheritReuseAnchor],
+  );
+
+  const lockHubLanSelect = inheritReuseAnchor && resolvedHubVrfMode === 'REUSE_VRF';
 
   const lockHubCeSelect = (ceSlot: 'ceA' | 'ceB') =>
-    isSubsequentReuse &&
     !!inferredHubPeSlot &&
-    hubCeSlotForPeSlot(inferredHubPeSlot) === ceSlot;
+    hubCeSlotForPeSlot(inferredHubPeSlot) === ceSlot &&
+    resolvedHubVrfMode === 'REUSE_VRF' &&
+    (inheritReuseAnchor || selectedHubLanState === 'reuse_reusable') &&
+    !!hubReuseAnchor?.hubCeUuid;
 
   useEffect(() => {
-    if (isSubsequentReuse) {
-      form.setFieldsValue({ hubCustomerSide: 'reuse' });
-    }
-  }, [isSubsequentReuse, form]);
-
-  useEffect(() => {
-    if (
-      editId ||
-      inferredTopology !== 'H' ||
-      !inferredHubPeSlot ||
-      isDedicatedCustomerSide ||
-      isFirstHubTunnelOnPe
-    ) {
+    if (editId || inferredTopology !== 'H' || !inferredHubPeSlot || isFirstHubTunnelOnPe) {
       setHubReuseAnchor(null);
       return;
     }
@@ -1093,14 +1141,151 @@ const SRv6CreatePage: React.FC = () => {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    editId,
-    inferredTopology,
-    inferredHubPeSlot,
-    isDedicatedCustomerSide,
-    isFirstHubTunnelOnPe,
-    peHubStatus,
-  ]);
+  }, [editId, inferredTopology, inferredHubPeSlot, isFirstHubTunnelOnPe, peHubStatus]);
+
+  const handleHubLanInventoryChange = (id: string) => {
+    if (!String(id ?? '').trim()) {
+      if (inferredHubPeSlot) {
+        form.setFieldsValue(hubLanSelectionClear(inferredHubPeSlot));
+      }
+      return;
+    }
+    const fromOpts = hubLanInventoryOptions.find((l) => l.value === id);
+    const raw = hubInventoryUi?.lanOptions?.find((l) => l.id === id);
+    const ifName = fromOpts?.ifName ?? raw?.ifName;
+    const lanState =
+      fromOpts?.lanState ??
+      (ifName ? classifyHubLanOption(ifName, hubPortRegistry).state : ('idle' as HubLanOptionState));
+    if (ifName && inferredHubPeSlot) {
+      form.setFieldsValue(hubLanSelectionPatch(inferredHubPeSlot, ifName));
+    }
+    if (inferredHubPeSlot && hubReuseAnchor && lanState === 'reuse_reusable') {
+      const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
+      form.setFieldsValue({ [ceField]: hubReuseAnchor.hubCeUuid });
+    }
+  };
+
+  const renderHubPeInline = (peSlot: 'peA' | 'peB') => {
+    if (inferredTopology !== 'H' || inferredHubPeSlot !== peSlot) return null;
+    const lanMeta = hubLanInventoryOptions.find((o) => o.value === hubLanInventoryIdWatch);
+    const lanIf = String(hubLanIfWatch || lanMeta?.ifName || '').trim();
+    const lanVrf = lanMeta?.vrf;
+    const lanIp = lanIf ? extractInterfaceIp(peConfigs[peSlot], lanIf) : undefined;
+    const lanExtra = [
+      lanVrf != null ? `VRF: ${lanVrf}` : null,
+      lanIp ? `IP: ${lanIp}` : null,
+      lanIf ? '本选项即 PE 内网互联槽位' : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+    return (
+      <>
+        <div
+          style={{
+            fontSize: 13,
+            color: '#1677ff',
+            margin: '8px 0 12px 0',
+            borderBottom: '1px solid #e8e8e8',
+            paddingBottom: 6,
+          }}
+        >
+          Hub 互联配置
+        </div>
+        {renderHubPortRegistry()}
+        {!hubWanInventoryOptions.length ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="尚未发现可用 Hub 公网口"
+            description={hubInventoryUi?.guidance || hubInventoryBlockMessage('wan')}
+          />
+        ) : null}
+        <Form.Item name="hubWanIf" hidden>
+          <Input />
+        </Form.Item>
+        <Form.Item name="hubLanIf" hidden>
+          <Input />
+        </Form.Item>
+        <Form.Item name={hubPeInnerIfField(peSlot)} hidden>
+          <Input />
+        </Form.Item>
+        <Form.Item
+          name="hubWanInventoryId"
+          label="Hub 公网口"
+          rules={[{ required: true, message: '请选择 Hub 公网口' }]}
+          extra="从 HUB_PE 角色向导 inventory 选用；同一口可被多条隧道复用"
+        >
+          <Select
+            options={hubWanInventoryOptions}
+            showSearch
+            allowClear
+            optionFilterProp="label"
+            placeholder={hubWanInventoryOptions.length ? '选择 Hub 公网口' : '暂无可用公网口'}
+            onChange={(id) => {
+              const hit =
+                hubInventoryUi?.wanOptions?.find((w) => w.id === id) ??
+                hubWanInventoryOptions.find((w) => w.value === id);
+              if (hit) form.setFieldsValue({ hubWanIf: hit.ifName });
+            }}
+          />
+        </Form.Item>
+        {inheritReuseAnchor && hubReuseAnchor ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="已继承共用客户侧锚点"
+            description={
+              <>
+                <div>来源隧道：{hubReuseAnchor.sourceTunnelName || hubReuseAnchor.sourceTunnelId || '-'}</div>
+                <div>Hub 内网口：{hubReuseAnchor.hubLanIf}</div>
+                <div>
+                  Hub CE（{hubCeSlotForPeSlot(peSlot).toUpperCase()}）：{hubReuseAnchor.hubCeUuid}
+                </div>
+              </>
+            }
+          />
+        ) : null}
+        <Form.Item
+          name="hubLanInventoryId"
+          label="Hub 内网口"
+          rules={[{ required: !lockHubLanSelect, message: '请选择 Hub 内网口' }]}
+          extra={
+            lockHubLanSelect
+              ? '已继承锚点内网口'
+              : resolvedHubVrfMode === 'DEDICATED_VRF'
+                ? '独立专网须选择空闲内网口'
+                : lanExtra || '选定后同步 PE 内网互联槽位'
+          }
+        >
+          <Select
+            options={hubLanInventoryOptions}
+            showSearch
+            allowClear={!lockHubLanSelect}
+            disabled={lockHubLanSelect}
+            optionFilterProp="label"
+            placeholder={
+              hubLanInventoryOptions.length ? '选择 Hub 内网口' : hubInventoryBlockMessage('lan')
+            }
+            onChange={(id) => handleHubLanInventoryChange(String(id ?? ''))}
+          />
+        </Form.Item>
+      </>
+    );
+  };
+
+  const hubCeExtra = (ceSlot: 'ceA' | 'ceB') => {
+    if (lockHubCeSelect(ceSlot)) return 'Hub 侧 CE 已锁定（共用客户侧）';
+    if (inferredHubPeSlot === ceSlot.replace('ce', 'pe') && isFirstHubTunnelOnPe) {
+      return '首条 Hub 隧道须选择 Hub 侧 CE';
+    }
+    if (inferredHubPeSlot === ceSlot.replace('ce', 'pe') && resolvedHubVrfMode === 'DEDICATED_VRF') {
+      return '独立专网须选择 Hub 侧 CE';
+    }
+    return undefined;
+  };
 
   const renderHubPortRegistry = () => {
     if (!hubPortRegistry.length) return null;
@@ -1204,7 +1389,8 @@ const SRv6CreatePage: React.FC = () => {
 
   const inheritReuseVrfRdRtMeta = async (): Promise<boolean> => {
     if (editId) return false;
-    if (inferredTopology !== 'H' || form.getFieldValue('hubCustomerSide') !== 'reuse') return false;
+    if (inferredTopology !== 'H' || resolvedHubVrfMode !== 'REUSE_VRF') return false;
+    if (isFirstHubTunnelOnPe) return false;
     const hubSlot = inferredHubPeSlot;
     if (!hubSlot) return false;
     const status = peHubStatus[hubSlot];
@@ -1224,23 +1410,42 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (rdRtMeta) return;
-    void (async () => {
-      const inherited = await inheritReuseVrfRdRtMeta();
-      if (inherited) return;
-      const randNum = () => 100 + Math.floor(Math.random() * 50000);
-      const rtCommon = `200:${randNum()}`;
-      const rdMap = { peA: `200:${randNum()}`, peB: `200:${randNum()}` };
-      setRdRtMeta({ rtCommon, rdMap });
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在尚未生成 rdRtMeta 时初始化
-  }, [rdRtMeta]);
+    if (editId) return;
+    let cancelled = false;
 
-  useEffect(() => {
-    if (editId || rdRtMeta) return;
-    if (inferredTopology !== 'H' || form.getFieldValue('hubCustomerSide') !== 'reuse') return;
-    void inheritReuseVrfRdRtMeta();
-  }, [editId, inferredTopology, inferredHubPeSlot, peHubStatus, formValues?.hubCustomerSide, rdRtMeta]);
+    void (async () => {
+      const shouldInheritRdRt =
+        inferredTopology === 'H' &&
+        resolvedHubVrfMode === 'REUSE_VRF' &&
+        inheritReuseAnchor &&
+        !isFirstHubTunnelOnPe;
+
+      if (shouldInheritRdRt) {
+        const inherited = await inheritReuseVrfRdRtMeta();
+        if (cancelled) return;
+        if (inherited) return;
+      }
+
+      const randNum = () => 100 + Math.floor(Math.random() * 50000);
+      setRdRtMeta({
+        rtCommon: `200:${randNum()}`,
+        rdMap: { peA: `200:${randNum()}`, peB: `200:${randNum()}` },
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 随 Hub 客户侧模式重算 RD/RT
+  }, [
+    editId,
+    inferredTopology,
+    inferredHubPeSlot,
+    resolvedHubVrfMode,
+    inheritReuseAnchor,
+    isFirstHubTunnelOnPe,
+    peHubStatus,
+  ]);
 
   /** 公共 PE 注入逻辑：PE-PE 邻居 + PE-CE 邻居 + RD/RT + 两条 IPv6 路由（SID/64 + VRF ::/0） */
   const buildInjectedPeConfig = (
@@ -1516,13 +1721,8 @@ const SRv6CreatePage: React.FC = () => {
       return false;
     }
     if (inferredTopology === 'H') {
-      const hubSide = values?.hubCustomerSide;
-      if (!hubSide) {
-        message.error('请选择客户侧网络配置方式');
-        return false;
-      }
       const invCheck = validateHubTunnelInventory({
-        hubCustomerSide: hubSide,
+        hubVrfMode: resolvedHubVrfMode,
         hubWanInventoryId: values?.hubWanInventoryId,
         hubWanIf: values?.hubWanIf,
         hubLanInventoryId: values?.hubLanInventoryId,
@@ -1531,6 +1731,8 @@ const SRv6CreatePage: React.FC = () => {
         hasWanInventoryOptions: hubWanInventoryOptions.length > 0,
         hasLanInventoryOptions: hubLanInventoryOptions.length > 0,
         reuseAnchor: hubReuseAnchor,
+        inheritReuseAnchor,
+        selectedLanState: selectedHubLanState,
       });
       if (!invCheck.ok) {
         message.error(invCheck.message);
@@ -1567,8 +1769,7 @@ const SRv6CreatePage: React.FC = () => {
     try {
       const { createSrv6Tunnel, updateSrv6Tunnel } = await import('../../../../services/api');
       const { buildTunnelArchive } = await import('./srv6Archive');
-      const hubVrfMode: Srv6HubVrfMode =
-        values?.hubCustomerSide === 'dedicated' ? 'DEDICATED_VRF' : 'REUSE_VRF';
+      const hubVrfMode: Srv6HubVrfMode = resolvedHubVrfMode;
       const hubWanIfResolved = values?.hubWanIf;
       const hubLanIfResolved = values?.hubLanIf;
       const archive = buildTunnelArchive({
@@ -1741,24 +1942,25 @@ const SRv6CreatePage: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
                 <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('peA')}>角色配置向导</Button>
               </div>
+              {renderHubPeInline('peA')}
+              {inferredTopology !== 'H' || inferredHubPeSlot !== 'peA' ? (
               <Form.Item 
                 name="peAInnerIf" 
                 label="选择 PE-A 内网口" 
                 rules={[{ required: true, message: '请选择 PE-A 内网口' }]} 
-                extra={( () => { const sel = form.getFieldValue('peAInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peA, sel); const ip = extractInterfaceIp(peConfigs.peA, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IP: {ip ?? '-'}{lockHubPeInnerIf('peA') ? ' · Hub 侧由下方客户侧 LAN 确定' : ''}</span>; })()}
+                extra={( () => { const sel = form.getFieldValue('peAInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peA, sel); const ip = extractInterfaceIp(peConfigs.peA, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IP: {ip ?? '-'}</span>; })()}
               > 
                 <Select
                   options={listInterfaceOptions(peConfigs.peA)}
                   showSearch
-                  allowClear={!lockHubPeInnerIf('peA')}
-                  disabled={lockHubPeInnerIf('peA')}
+                  allowClear
                   optionFilterProp="label"
                   placeholder="请选择用于 PE-A 内网互联的接口（优先展示带 VRF 的接口；若设备未标注 VRF，将以 IPv6 兜底展示）"
                 />
               </Form.Item>
-              {/* CE-A 选择移动到与 PE-A 同一分组 */}
+              ) : null}
               <Form.Item name="ceA" label="CE-A" rules={[{ required: true, message: '请选择 CE-A' }]} style={{ marginBottom: 8 }}
-                extra={lockHubCeSelect('ceA') ? 'Hub 侧 CE 已继承首条共用隧道' : inferredHubPeSlot === 'peA' && !isDedicatedCustomerSide && isFirstHubTunnelOnPe ? '首条共用隧道须选择 Hub 侧 CE' : undefined}
+                extra={hubCeExtra('ceA')}
               > 
                 <Select
                   options={ceOptions}
@@ -1792,27 +1994,28 @@ const SRv6CreatePage: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
                 <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('peB')}>角色配置向导</Button>
               </div>
+              {renderHubPeInline('peB')}
+              {inferredTopology !== 'H' || inferredHubPeSlot !== 'peB' ? (
               <Form.Item 
                 name="peBInnerIf" 
                 label="选择 PE-B 内网口" 
                 rules={[{ required: true, message: '请选择 PE-B 内网口' }]} 
-                extra={( () => { const sel = form.getFieldValue('peBInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peB, sel); const ip = extractInterfaceIp(peConfigs.peB, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IP: {ip ?? '-'}{lockHubPeInnerIf('peB') ? ' · Hub 侧由下方客户侧 LAN 确定' : ''}</span>; })()}
+                extra={( () => { const sel = form.getFieldValue('peBInnerIf'); const vrf = extractInterfaceVrf(peConfigs.peB, sel); const ip = extractInterfaceIp(peConfigs.peB, sel); return <span style={{ color: '#999' }}>VRF: {vrf ?? '-'} · IP: {ip ?? '-'}</span>; })()}
               > 
                 <Select
                   options={listInterfaceOptions(peConfigs.peB)}
                   showSearch
-                  allowClear={!lockHubPeInnerIf('peB')}
-                  disabled={lockHubPeInnerIf('peB')}
+                  allowClear
                   optionFilterProp="label"
                   placeholder="请选择用于 PE-B 内网互联的接口（优先展示带 VRF 的接口；若设备未标注 VRF，将以 IPv6 兜底展示）"
                 />
               </Form.Item>
-              {/* CE-B 选择移动到与 PE-B 同一分组 */}
+              ) : null}
               <Form.Item name="ceB" label="CE-B" dependencies={["ceA"]} rules={[
                 { required: true, message: '请选择 CE-B' },
                 ({ getFieldValue }) => ({ validator(_, v){ if(!v || v!==getFieldValue('ceA')) return Promise.resolve(); return Promise.reject(new Error('CE-A 与 CE-B 不能相同')); } })
               ]} style={{ marginBottom: 8 }}
-                extra={lockHubCeSelect('ceB') ? 'Hub 侧 CE 已继承首条共用隧道' : inferredHubPeSlot === 'peB' && !isDedicatedCustomerSide && isFirstHubTunnelOnPe ? '首条共用隧道须选择 Hub 侧 CE' : undefined}
+                extra={hubCeExtra('ceB')}
               > 
                 <Select
                   options={ceOptions}
@@ -1829,134 +2032,13 @@ const SRv6CreatePage: React.FC = () => {
             </Col>
           </Row>
           {inferredTopology === 'H' && inferredHubPeSlot ? (
-            <>
-              <div style={{ fontSize: 13, color: '#1677ff', margin: '16px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
-                Hub 互联（{inferredHubPeSlot === 'peA' ? 'PE-A · 中心 Hub' : 'PE-B · 中心 Hub'}）
-              </div>
-              {renderHubPortRegistry()}
-              {!hubWanInventoryOptions.length ? (
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 12 }}
-                  message="尚未发现可用 Hub 公网口"
-                  description={hubInventoryUi?.guidance || hubInventoryBlockMessage('wan')}
-                />
-              ) : null}
-              <div style={{ fontSize: 12, color: 'rgba(0,0,0,.55)', marginBottom: 8 }}>
-                ① Hub 公网出口（与客户侧网络无关，可任选；同一公网口可服务多条 Spoke）
-              </div>
-              <Form.Item name="hubWanIf" hidden>
-                <Input />
-              </Form.Item>
-              <Form.Item
-                name="hubWanInventoryId"
-                label="Hub 公网口"
-                rules={[{ required: true, message: '请选择 Hub 公网出口' }]}
-                extra="从 HUB_PE 角色向导 inventory 选用；同一口可被多条隧道复用"
-              >
-                <Select
-                  options={hubWanInventoryOptions}
-                  showSearch
-                  allowClear
-                  optionFilterProp="label"
-                  placeholder={hubWanInventoryOptions.length ? '选择 Hub 公网口' : '暂无可用公网口'}
-                  onChange={(id) => {
-                    const hit =
-                      hubInventoryUi?.wanOptions?.find((w) => w.id === id) ??
-                      hubWanInventoryOptions.find((w) => w.value === id);
-                    if (hit) form.setFieldsValue({ hubWanIf: hit.ifName });
-                  }}
-                />
-              </Form.Item>
-              <Form.Item
-                name="hubCustomerSide"
-                label="② 客户侧网络"
-                rules={[{ required: true, message: '请选择客户侧网络方式' }]}
-                initialValue="reuse"
-                extra="与上方公网出口无关：决定本 Spoke 是否与已有隧道共用内网 VRF/CE"
-              >
-                <Radio.Group disabled={isSubsequentReuse}>
-                  <Space direction="vertical">
-                    <Radio value="reuse">
-                      {isSubsequentReuse
-                        ? '共用客户侧（继承首条隧道锚点，只读）'
-                        : '共用客户侧（首条须选 Hub LAN + Hub CE；后续 Spoke 可复用）'}
-                    </Radio>
-                    <Radio value="dedicated" disabled={isSubsequentReuse}>
-                      独立客户侧（为本 Spoke 单独分配内网 VRF/CE）
-                    </Radio>
-                  </Space>
-                </Radio.Group>
-              </Form.Item>
-              {isSubsequentReuse && hubReuseAnchor ? (
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 12 }}
-                  message="已继承首条共用隧道客户侧锚点"
-                  description={
-                    <>
-                      <div>来源隧道：{hubReuseAnchor.sourceTunnelName || hubReuseAnchor.sourceTunnelId || '-'}</div>
-                      <div>Hub LAN：{hubReuseAnchor.hubLanIf}</div>
-                      <div>
-                        Hub CE（{hubCeSlotForPeSlot(inferredHubPeSlot).toUpperCase()}）：
-                        {hubReuseAnchor.hubCeUuid}
-                      </div>
-                    </>
-                  }
-                />
-              ) : null}
-              <Form.Item name="hubLanIf" hidden>
-                <Input />
-              </Form.Item>
-              <Form.Item noStyle shouldUpdate={(prev, cur) => prev.hubCustomerSide !== cur.hubCustomerSide}>
-                {({ getFieldValue }) => {
-                  const dedicated = getFieldValue('hubCustomerSide') === 'dedicated';
-                  if (isSubsequentReuse) return null;
-                  if (!dedicated && !isFirstHubTunnelOnPe) return null;
-                  const lanLabel = dedicated ? '③ Hub 内网口（独立客户侧）' : '③ Hub 客户侧 LAN（首条共用锚点）';
-                  return (
-                    <Form.Item
-                      name="hubLanInventoryId"
-                      label={lanLabel}
-                      rules={[{ required: true, message: dedicated ? '请选择 Hub 内网口' : '请选择 Hub 客户侧 LAN' }]}
-                      extra={
-                        dedicated
-                          ? '独立客户侧须使用未被其它「独立客户侧」隧道占用的内网 VRF'
-                          : '选定后将同步 Hub 侧 PE 内网口；请在上方选择对应 Hub CE'
-                      }
-                    >
-                      <Select
-                        options={hubLanInventoryOptions}
-                        showSearch
-                        allowClear
-                        optionFilterProp="label"
-                        placeholder={
-                          hubLanInventoryOptions.length
-                            ? '选择 Hub 内网口'
-                            : hubInventoryBlockMessage('lan')
-                        }
-                        onChange={(id) => {
-                          const hit =
-                            hubInventoryUi?.lanOptions?.find((l) => l.id === id) ??
-                            hubLanInventoryOptions.find((l) => l.value === id);
-                          if (hit?.ifName && inferredHubPeSlot) {
-                            form.setFieldsValue(hubLanSelectionPatch(inferredHubPeSlot, hit.ifName));
-                          }
-                        }}
-                      />
-                    </Form.Item>
-                  );
-                }}
-              </Form.Item>
-              <Alert
-                type="info"
-                showIcon
-                message="拓扑：Hub–Spoke"
-                description={`Hub 槽位 ${inferredHubPeSlot === 'peA' ? 'PE-A' : 'PE-B'}；公网邻居判重键为对端 Spoke 公网 IPv6，同一 Hub 上不可重复。`}
-              />
-            </>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="拓扑：Hub–Spoke"
+              description={`Hub 槽位 ${inferredHubPeSlot === 'peA' ? 'PE-A' : 'PE-B'}；客户侧模式 ${resolvedHubVrfMode === 'DEDICATED_VRF' ? '独立专网' : '共用客户侧'}；公网邻居判重键为对端 Spoke 公网 IPv6。`}
+            />
           ) : inferredTopology === 'S' ? (
             <Alert type="info" showIcon style={{ marginTop: 12 }} message="拓扑：Spoke 点对点" />
           ) : null}
@@ -1983,12 +2065,10 @@ const SRv6CreatePage: React.FC = () => {
                 </Descriptions.Item>
                 <Descriptions.Item label="Hub WAN">{form.getFieldValue('hubWanIf') || '-'}</Descriptions.Item>
                 <Descriptions.Item label="Hub LAN">
-                  {form.getFieldValue('hubLanIf') || (isSubsequentReuse ? hubReuseAnchor?.hubLanIf : '-') || '-'}
+                  {form.getFieldValue('hubLanIf') || hubReuseAnchor?.hubLanIf || '-'}
                 </Descriptions.Item>
-                <Descriptions.Item label="客户侧">
-                  {form.getFieldValue('hubCustomerSide') === 'dedicated'
-                    ? '独立客户侧网络'
-                    : '共用客户侧网络'}
+                <Descriptions.Item label="客户侧模式">
+                  {resolvedHubVrfMode === 'DEDICATED_VRF' ? '独立专网（DEDICATED_VRF）' : '共用客户侧（REUSE_VRF）'}
                 </Descriptions.Item>
               </>
             ) : null}

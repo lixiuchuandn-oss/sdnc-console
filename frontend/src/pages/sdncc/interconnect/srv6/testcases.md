@@ -92,7 +92,7 @@
 
 | 项 | 内容 |
 |----|------|
-| **步骤** | 1. **HUB_PE 角色向导**维护 Hub WAN/LAN inventory（或多 WAN 卡片）并下发<br>2. 创建 **H 型**隧道 T1：Hub + Spoke，Hub 互联 **① 从 inventory 选用 WAN**、**② 客户侧「共用」**（路线 A）<br>3. 同 Hub 上创建 T2：**不同 Spoke**、**不同 PE–PE 公网 neighbor**；WAN 可同口可异口<br>4. `GET /api/networks/srv6/vr/:hubUuid/hub` 查看 `portRegistry` + `hubInventoryUi` |
+| **步骤** | 1. **HUB_PE 角色向导**维护 Hub WAN/LAN inventory（Hub 公网 BGP 独立于 WAN Tab）并下发<br>2. 创建 **H 型**隧道 T1：Hub 列顺序 **Hub 公网口 → Hub 内网口 → Hub CE**（首条空闲 LAN 建 `REUSE_VRF` 锚点）<br>3. 同 Hub 上创建 T2：**不同 Spoke**、**不同 PE–PE 公网 neighbor**；Hub WAN 可同口可异口；客户侧默认继承锚点（只读）<br>4. `GET /api/networks/srv6/vr/:hubUuid/hub` 查看 `portRegistry` + `hubInventoryUi` |
 | **期望** | T2 创建成功；WAN 下拉含 `[空闲]` / `[已用于 T1 · 可复用]`；公网 `bgp[0]` 两个 neighbor；`hubBindings.wanInventoryId` 有值 |
 | **失败信号** | 仍出现手工填口名；inventory 空且无引导；选用后缺 `wanInventoryId` |
 

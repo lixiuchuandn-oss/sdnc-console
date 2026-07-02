@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox, Alert } from 'antd';
+import { Button, Card, Descriptions, Divider, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox, Alert } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../../components/PageContainer';
@@ -1041,10 +1041,25 @@ const PEWizard: React.FC = () => {
           >
             <Input placeholder="例如 2400:1234::1（不带 /xx）" />
           </Form.Item>
+          {isHubPe ? (
+            <>
+              <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                Hub 公网 BGP（进程级 · bgp[0]）
+              </div>
+              <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}>
+                <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
+              </Form.Item>
+              <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>} rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
+                <Input placeholder="例如 200.1.1.2" />
+              </Form.Item>
+              <Divider style={{ margin: '16px 0' }} />
+            </>
+          ) : null}
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
             {isHubPe ? 'WAN 侧配置（Hub-PE to Spoke-PE）' : 'WAN 侧配置（PE to PE）'}
           </div>
           {isHubPe ? (
+            <>
             <Form.List name="hubWanInventory" initialValue={[{}]}>
               {(fields, { add, remove }) => {
                 const onWanTabEdit = (
@@ -1193,6 +1208,8 @@ const PEWizard: React.FC = () => {
                 );
               }}
             </Form.List>
+            <Divider style={{ margin: '16px 0' }} />
+            </>
           ) : (
             <>
           <Form.Item name="wanDev" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>} rules={[{ required: true, message: '请选择 WAN 侧接口' }]}> 
@@ -1226,6 +1243,8 @@ const PEWizard: React.FC = () => {
           </Form.Item>
             </>
           )}
+          {!isHubPe ? (
+            <>
           <div style={{ height: 12 }} />
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
           <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}>
@@ -1234,8 +1253,6 @@ const PEWizard: React.FC = () => {
           <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>} rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
             <Input placeholder="例如 200.1.1.2" />
           </Form.Item>
-          {!isHubPe ? (
-            <>
           <div style={{ height: 12 }} />
           <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
           <Form.Item name="wanRouteDest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
@@ -1352,17 +1369,37 @@ const PEWizard: React.FC = () => {
                     <Form.Item {...field} name={[field.name, 'ipv6']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}>
                       <Input placeholder="例如 2408:3333:1002::1/64" />
                     </Form.Item>
-                    <div style={{ height: 12 }} />
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
-                    <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={isHubPe ? [{ required: true, message: '请输入 BGP ASN' }] : undefined}>
-                      <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
-                    </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={isHubPe ? [{ required: true, message: '请输入 BGP Router-ID' }] : undefined}>
-                      <Input placeholder="例如 130.1.1.1" />
-                    </Form.Item>
+                    {isHubPe ? (
+                      <>
+                        <div style={{ height: 12 }} />
+                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
+                        <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}>
+                          <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
+                        </Form.Item>
+                        <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
+                          <Input placeholder="例如 130.1.1.1" />
+                        </Form.Item>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ height: 12 }} />
+                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
+                        <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>}>
+                          <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
+                        </Form.Item>
+                        <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}>
+                          <Input placeholder="例如 130.1.1.1" />
+                        </Form.Item>
+                      </>
+                    )}
                   </div>
                 ),
               }));
+              if (!isHubPe) {
+                const field = fields[0];
+                if (!field) return null;
+                return items[0]?.children ?? null;
+              }
               return (
                 <Tabs
                   type="editable-card"
@@ -1402,8 +1439,17 @@ const PEWizard: React.FC = () => {
             <Descriptions.Item label="WAN 侧 IPv6">{previewStr(values.wanIpv6)}</Descriptions.Item>
               </>
             )}
-            <Descriptions.Item label="BGP ASN（WAN）">{previewNum(values.bgpAsn)}</Descriptions.Item>
-            <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(values.bgpRouterId)}</Descriptions.Item>
+            {isHubPe ? (
+              <>
+                <Descriptions.Item label="公网 BGP ASN（Hub 级）">{previewNum(values.bgpAsn)}</Descriptions.Item>
+                <Descriptions.Item label="公网 BGP Router-ID（Hub 级）">{previewStr(values.bgpRouterId)}</Descriptions.Item>
+              </>
+            ) : (
+              <>
+                <Descriptions.Item label="BGP ASN（WAN）">{previewNum(values.bgpAsn)}</Descriptions.Item>
+                <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(values.bgpRouterId)}</Descriptions.Item>
+              </>
+            )}
             {!isHubPe && (
               <>
                 <Descriptions.Item label="IPv4 目的网段">{previewStr(values.wanRouteDest)}</Descriptions.Item>

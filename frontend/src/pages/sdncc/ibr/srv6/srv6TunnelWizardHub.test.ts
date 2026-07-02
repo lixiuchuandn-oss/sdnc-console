@@ -1,13 +1,17 @@
 import {
+  classifyHubLanOption,
+  deriveHubVrfMode,
   findFirstReuseVrfTunnelRef,
   hubInventoryBlockMessage,
   hubLanSelectionPatch,
+  hubLanSelectionClear,
   isFirstHubTunnel,
   pickHubReuseAnchorFromTunnel,
+  shouldInheritReuseAnchor,
   validateHubTunnelInventory,
 } from './srv6TunnelWizardHub';
 
-describe('srv6TunnelWizardHub P3', () => {
+describe('srv6TunnelWizardHub P3/P5', () => {
   it('isFirstHubTunnel when no alive tunnels on hub', () => {
     expect(isFirstHubTunnel(0)).toBe(true);
     expect(isFirstHubTunnel(1)).toBe(false);
@@ -37,9 +41,84 @@ describe('srv6TunnelWizardHub P3', () => {
     });
   });
 
+  it('classifyHubLanOption distinguishes dedicated vs reuse', () => {
+    const registry = [
+      { lanIf: 'ge1', hubVrfMode: 'DEDICATED_VRF', tunnelName: 'T-ded' },
+      { lanIf: 'ge2', hubVrfMode: 'REUSE_VRF', tunnelName: 'T-reuse' },
+    ];
+    expect(classifyHubLanOption('ge1', registry).state).toBe('dedicated_occupied');
+    expect(classifyHubLanOption('ge2', registry).state).toBe('reuse_reusable');
+    expect(classifyHubLanOption('ge3', registry).state).toBe('idle');
+  });
+
+  it('deriveHubVrfMode from lan option state', () => {
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: true,
+        hasReuseAnchorOnHub: false,
+        selectedLanState: 'idle',
+      }),
+    ).toBe('REUSE_VRF');
+
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: false,
+        selectedLanState: 'idle',
+      }),
+    ).toBe('REUSE_VRF');
+
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+      }),
+    ).toBe('DEDICATED_VRF');
+
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'reuse_reusable',
+      }),
+    ).toBe('REUSE_VRF');
+
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+        inheritReuseAnchor: true,
+      }),
+    ).toBe('REUSE_VRF');
+  });
+
+  it('shouldInheritReuseAnchor when subsequent default', () => {
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-1',
+        anchorLanInventoryId: 'lan-1',
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-2',
+        anchorLanInventoryId: 'lan-1',
+        selectedLanState: 'idle',
+      }),
+    ).toBe(false);
+  });
+
   it('validateHubTunnelInventory blocks missing WAN inventory', () => {
     expect(
       validateHubTunnelInventory({
+        hubVrfMode: 'REUSE_VRF',
         isFirstHubTunnel: true,
         hasWanInventoryOptions: false,
         hasLanInventoryOptions: true,
@@ -47,10 +126,10 @@ describe('srv6TunnelWizardHub P3', () => {
     ).toEqual({ ok: false, message: hubInventoryBlockMessage('wan') });
   });
 
-  it('validateHubTunnelInventory requires LAN on first REUSE', () => {
+  it('validateHubTunnelInventory requires LAN on first hub tunnel', () => {
     expect(
       validateHubTunnelInventory({
-        hubCustomerSide: 'reuse',
+        hubVrfMode: 'REUSE_VRF',
         hubWanInventoryId: 'w1',
         isFirstHubTunnel: true,
         hasWanInventoryOptions: true,
@@ -60,32 +139,55 @@ describe('srv6TunnelWizardHub P3', () => {
 
     expect(
       validateHubTunnelInventory({
-        hubCustomerSide: 'reuse',
+        hubVrfMode: 'REUSE_VRF',
         hubWanInventoryId: 'w1',
         isFirstHubTunnel: true,
         hasWanInventoryOptions: true,
         hasLanInventoryOptions: true,
       }),
-    ).toEqual({ ok: false, message: '首条共用客户侧隧道须选择 Hub 客户侧 LAN' });
+    ).toEqual({ ok: false, message: '首条 Hub 隧道须选择 Hub 内网口' });
   });
 
-  it('validateHubTunnelInventory subsequent REUSE needs anchor', () => {
+  it('validateHubTunnelInventory subsequent REUSE inherit needs anchor', () => {
     expect(
       validateHubTunnelInventory({
-        hubCustomerSide: 'reuse',
+        hubVrfMode: 'REUSE_VRF',
         hubWanInventoryId: 'w1',
         isFirstHubTunnel: false,
         hasWanInventoryOptions: true,
         hasLanInventoryOptions: true,
+        inheritReuseAnchor: true,
         reuseAnchor: null,
       }).ok,
     ).toBe(false);
+  });
+
+  it('validateHubTunnelInventory allows new REUSE anchor on idle LAN without prior anchor', () => {
+    expect(
+      validateHubTunnelInventory({
+        hubVrfMode: 'REUSE_VRF',
+        hubWanInventoryId: 'w1',
+        hubLanInventoryId: 'l-new',
+        isFirstHubTunnel: false,
+        hasWanInventoryOptions: true,
+        hasLanInventoryOptions: true,
+        selectedLanState: 'idle',
+      }).ok,
+    ).toBe(true);
   });
 
   it('hubLanSelectionPatch syncs hub pe inner if', () => {
     expect(hubLanSelectionPatch('peB', 'GigabitEthernet 1/0/1')).toEqual({
       hubLanIf: 'GigabitEthernet 1/0/1',
       peBInnerIf: 'GigabitEthernet 1/0/1',
+    });
+  });
+
+  it('hubLanSelectionClear clears hub lan and pe inner if', () => {
+    expect(hubLanSelectionClear('peA')).toEqual({
+      hubLanIf: undefined,
+      hubLanInventoryId: undefined,
+      peAInnerIf: undefined,
     });
   });
 
@@ -102,7 +204,7 @@ describe('srv6TunnelWizardHub P3', () => {
   it('validateHubTunnelInventory dedicated requires LAN inventory and selection', () => {
     expect(
       validateHubTunnelInventory({
-        hubCustomerSide: 'dedicated',
+        hubVrfMode: 'DEDICATED_VRF',
         hubWanInventoryId: 'w1',
         isFirstHubTunnel: false,
         hasWanInventoryOptions: true,
@@ -112,22 +214,35 @@ describe('srv6TunnelWizardHub P3', () => {
 
     expect(
       validateHubTunnelInventory({
-        hubCustomerSide: 'dedicated',
+        hubVrfMode: 'DEDICATED_VRF',
         hubWanInventoryId: 'w1',
         isFirstHubTunnel: false,
         hasWanInventoryOptions: true,
         hasLanInventoryOptions: true,
       }),
-    ).toEqual({ ok: false, message: '独立客户侧须选择 Hub 内网口' });
+    ).toEqual({ ok: false, message: '请选择 Hub 内网口（独立专网须使用空闲 LAN）' });
 
     expect(
       validateHubTunnelInventory({
-        hubCustomerSide: 'dedicated',
+        hubVrfMode: 'DEDICATED_VRF',
         hubWanInventoryId: 'w1',
         hubLanInventoryId: 'l1',
         isFirstHubTunnel: false,
         hasWanInventoryOptions: true,
         hasLanInventoryOptions: true,
+        selectedLanState: 'dedicated_occupied',
+      }).ok,
+    ).toBe(false);
+
+    expect(
+      validateHubTunnelInventory({
+        hubVrfMode: 'DEDICATED_VRF',
+        hubWanInventoryId: 'w1',
+        hubLanInventoryId: 'l1',
+        isFirstHubTunnel: false,
+        hasWanInventoryOptions: true,
+        hasLanInventoryOptions: true,
+        selectedLanState: 'idle',
       }).ok,
     ).toBe(true);
   });
