@@ -1086,8 +1086,6 @@ const SRv6CreatePage: React.FC = () => {
     [isFirstHubTunnelOnPe, hubHasReuseAnchorOnPe, selectedHubLanState, inheritReuseAnchor],
   );
 
-  const lockHubLanSelect = inheritReuseAnchor && resolvedHubVrfMode === 'REUSE_VRF';
-
   const lockHubCeSelect = (ceSlot: 'ceA' | 'ceB') =>
     !!inferredHubPeSlot &&
     hubCeSlotForPeSlot(inferredHubPeSlot) === ceSlot &&
@@ -1192,7 +1190,6 @@ const SRv6CreatePage: React.FC = () => {
         >
           Hub 互联配置
         </div>
-        {renderHubPortRegistry()}
         {!hubWanInventoryOptions.length ? (
           <Alert
             type="warning"
@@ -1231,40 +1228,20 @@ const SRv6CreatePage: React.FC = () => {
             }}
           />
         </Form.Item>
-        {inheritReuseAnchor && hubReuseAnchor ? (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="已继承共用客户侧锚点"
-            description={
-              <>
-                <div>来源隧道：{hubReuseAnchor.sourceTunnelName || hubReuseAnchor.sourceTunnelId || '-'}</div>
-                <div>Hub 内网口：{hubReuseAnchor.hubLanIf}</div>
-                <div>
-                  Hub CE（{hubCeSlotForPeSlot(peSlot).toUpperCase()}）：{hubReuseAnchor.hubCeUuid}
-                </div>
-              </>
-            }
-          />
-        ) : null}
         <Form.Item
           name="hubLanInventoryId"
           label="Hub 内网口"
-          rules={[{ required: !lockHubLanSelect, message: '请选择 Hub 内网口' }]}
+          rules={[{ required: true, message: '请选择 Hub 内网口' }]}
           extra={
-            lockHubLanSelect
-              ? '已继承锚点内网口'
-              : resolvedHubVrfMode === 'DEDICATED_VRF'
-                ? '独立专网须选择空闲内网口'
-                : lanExtra || '选定后同步 PE 内网互联槽位'
+            resolvedHubVrfMode === 'DEDICATED_VRF'
+              ? '独立专网：请选择一条空闲内网口（专网占用不可选）'
+              : lanExtra || '共用客户侧：可复用已占用内网口；或改选空闲口切换为独立专网'
           }
         >
           <Select
             options={hubLanInventoryOptions}
             showSearch
-            allowClear={!lockHubLanSelect}
-            disabled={lockHubLanSelect}
+            allowClear
             optionFilterProp="label"
             placeholder={
               hubLanInventoryOptions.length ? '选择 Hub 内网口' : hubInventoryBlockMessage('lan')
@@ -1277,35 +1254,14 @@ const SRv6CreatePage: React.FC = () => {
   };
 
   const hubCeExtra = (ceSlot: 'ceA' | 'ceB') => {
-    if (lockHubCeSelect(ceSlot)) return 'Hub 侧 CE 已锁定（共用客户侧）';
+    if (lockHubCeSelect(ceSlot)) return undefined;
     if (inferredHubPeSlot === ceSlot.replace('ce', 'pe') && isFirstHubTunnelOnPe) {
-      return '首条 Hub 隧道须选择 Hub 侧 CE';
+      return undefined;
     }
     if (inferredHubPeSlot === ceSlot.replace('ce', 'pe') && resolvedHubVrfMode === 'DEDICATED_VRF') {
-      return '独立专网须选择 Hub 侧 CE';
+      return undefined;
     }
     return undefined;
-  };
-
-  const renderHubPortRegistry = () => {
-    if (!hubPortRegistry.length) return null;
-    return (
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="Hub WAN 口占用"
-        description={
-          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-            {hubPortRegistry.map((e) => (
-              <li key={e.tunnelId}>
-                {e.tunnelName}：{e.wanIf} → 邻居 {e.peerPublicNeighbor}
-              </li>
-            ))}
-          </ul>
-        }
-      />
-    );
   };
 
   const wizardMetaEmpty = (v: any) =>
