@@ -123,9 +123,24 @@ export const findHubBlockingConflict = async (
   return findHubBlockingConflictAmong(tunnel, all, excludeTunnelId);
 };
 
+export const resolveHubLanIfFromTunnel = (
+  tunnel: Pick<SRv6Tunnel, 'hubBindings' | 'peAInnerIf' | 'peBInnerIf'>,
+): string | undefined => {
+  const bindings = tunnel.hubBindings;
+  if (!bindings) return undefined;
+  const explicit = String(bindings.lanIf ?? '').trim();
+  if (explicit) return explicit;
+  const slot = bindings.hubPeSlot;
+  if (slot === 'peA') return String(tunnel.peAInnerIf ?? '').trim() || undefined;
+  if (slot === 'peB') return String(tunnel.peBInnerIf ?? '').trim() || undefined;
+  return undefined;
+};
+
 export const buildHubPortRegistryFromTunnels = (
   vrUuid: string,
-  tunnels: Array<Pick<SRv6Tunnel, 'id' | 'name' | 'tunnelTopology' | 'hubBindings' | 'hubVrfMode'>>,
+  tunnels: Array<
+    Pick<SRv6Tunnel, 'id' | 'name' | 'tunnelTopology' | 'hubBindings' | 'hubVrfMode' | 'peAInnerIf' | 'peBInnerIf'>
+  >,
 ): Srv6HubPortRegistryEntry[] => {
   const id = String(vrUuid || '').trim();
   if (!id) return [];
@@ -138,7 +153,7 @@ export const buildHubPortRegistryFromTunnels = (
       tunnelName: t.name,
       hubPeSlot: t.hubBindings.hubPeSlot,
       wanIf: t.hubBindings.wanIf,
-      lanIf: t.hubBindings.lanIf,
+      lanIf: resolveHubLanIfFromTunnel(t),
       peerPublicNeighbor: t.hubBindings.peerPublicNeighbor,
       spokePeUuid: t.hubBindings.spokePeUuid,
       hubVrfMode: t.hubVrfMode ?? undefined,

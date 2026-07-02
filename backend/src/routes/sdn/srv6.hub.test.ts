@@ -129,5 +129,21 @@ describe('srv6.hub', () => {
       });
       expect(registry[1].lanIf).toBe('GE0/0/2');
     });
+
+    it('falls back lanIf from hub slot inner interface when hubBindings.lanIf missing', () => {
+      const tunnels = [
+        {
+          id: 't1',
+          name: 'Hub-Spoke-A',
+          tunnelTopology: 'H' as const,
+          hubVrfMode: 'REUSE_VRF' as const,
+          peBInnerIf: 'GigabitEthernet 2/3/0',
+          hubBindings: hubBinding({ hubPeUuid: 'hub-1', hubPeSlot: 'peB' as const }),
+        },
+      ];
+      const registry = buildHubPortRegistryFromTunnels('hub-1', tunnels);
+      expect(registry).toHaveLength(1);
+      expect(registry[0].lanIf).toBe('GigabitEthernet 2/3/0');
+    });
   });
 });

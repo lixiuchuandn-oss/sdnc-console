@@ -118,33 +118,6 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  const renderPeHubAlert = (target: 'peA' | 'peB', label: string) => {
-    const status = peHubStatus[target];
-    if (!status?.tunnelCount) return null;
-    const names = status.tunnels.map((t) => `「${t.tunnelName}」(${t.slot})`).join('、');
-    const hubNote = status.isHub
-      ? '该 PE 处于 Hub 多隧道模式。'
-      : '该 PE 已被其它隧道引用。';
-    const reuseHint =
-      hubHasReuseAnchorOnPe && !isFirstHubTunnelOnPe
-        ? '后续隧道默认继承共用客户侧锚点；改选其它空闲内网口可建独立专网。'
-        : '首条 Hub 隧道将选定内网口与 CE 作为共用客户侧锚点。';
-    return (
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message={`${label} ${hubNote}`}
-        description={
-          <>
-            <div>已引用隧道（{status.tunnelCount}）：{names}</div>
-            <div style={{ marginTop: 4, color: 'rgba(0,0,0,.55)' }}>{reuseHint}</div>
-          </>
-        }
-      />
-    );
-  };
-
   // 编辑模式：根据 query 参数回显隧道数据
   const location = useLocation();
   const editId = useMemo(() => {
@@ -985,7 +958,7 @@ const SRv6CreatePage: React.FC = () => {
             : '空闲';
       return {
         value: row.id,
-        label: row.label || `${row.ifName} · VRF ${row.vrf} [${tag}]`,
+        label: `${row.ifName} · VRF ${row.vrf} [${tag}]`,
         ifName: row.ifName,
         vrf: row.vrf,
         disabled: state === 'dedicated_occupied' || row.selectable === false,
@@ -1894,7 +1867,6 @@ const SRv6CreatePage: React.FC = () => {
                   placeholder="选择 PE-A 的 VR 实例"
                 />
               </Form.Item>
-              {renderPeHubAlert('peA', 'PE-A')}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
                 <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('peA')}>角色配置向导</Button>
               </div>
@@ -1946,7 +1918,6 @@ const SRv6CreatePage: React.FC = () => {
                   placeholder="选择 PE-B 的 VR 实例"
                 />
               </Form.Item>
-              {renderPeHubAlert('peB', 'PE-B')}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
                 <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('peB')}>角色配置向导</Button>
               </div>

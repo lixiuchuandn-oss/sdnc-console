@@ -42,7 +42,7 @@ export type HubInventory = {
   lan: HubLanInventoryItem[];
 };
 
-export type HubInventoryOptionTag = 'idle' | 'wan_reusable' | 'lan_dedicated_occupied';
+export type HubInventoryOptionTag = 'idle' | 'wan_reusable' | 'lan_dedicated_occupied' | 'lan_reuse_reusable';
 
 export type HubWanInventoryOption = HubWanInventoryItem & {
   tags: HubInventoryOptionTag[];
@@ -183,6 +183,16 @@ const lanDedicatedUsedBy = (
     return false;
   });
 
+const lanReuseUsedBy = (
+  item: HubLanInventoryItem,
+  registry: Srv6HubPortRegistryEntry[],
+): Srv6HubPortRegistryEntry[] =>
+  registry.filter((e) => {
+    if (e.hubVrfMode !== 'REUSE_VRF') return false;
+    if (e.lanIf && normIf(e.lanIf) === normIf(item.ifName)) return true;
+    return false;
+  });
+
 const formatWanLabel = (item: HubWanInventoryItem, tags: HubInventoryOptionTag[], used: Srv6HubPortRegistryEntry[]) => {
   const tagText =
     item.source === 'device_baseline'
@@ -207,7 +217,9 @@ const formatLanLabel = (
         ? '空闲'
         : tags.includes('lan_dedicated_occupied')
           ? `已用于 ${used.map((u) => u.tunnelName).join('、')} · 专网占用`
-          : '';
+          : tags.includes('lan_reuse_reusable')
+            ? `已用于 ${used.map((u) => u.tunnelName).join('、')} · 可复用`
+            : '';
   return `${item.ifName} · VRF ${item.vrf}${tagText ? ` [${tagText}]` : ''}`;
 };
 
@@ -377,6 +389,7 @@ export const buildHubInventoryUi = (
 
   const lanOptions: HubLanInventoryOption[] = inventory.lan.map((item) => {
     const dedicatedUsed = lanDedicatedUsedBy(item, portRegistry);
+    const reuseUsed = lanReuseUsedBy(item, portRegistry);
     if (lanSelectMode === 'reuse') {
       return {
         ...item,
@@ -385,13 +398,27 @@ export const buildHubInventoryUi = (
         label: `${item.ifName} · VRF ${item.vrf} [共用客户侧]`,
       };
     }
-    const occupied = dedicatedUsed.length > 0;
-    const tags: HubInventoryOptionTag[] = occupied ? ['lan_dedicated_occupied'] : ['idle'];
+    if (dedicatedUsed.length > 0) {
+      return {
+        ...item,
+        tags: ['lan_dedicated_occupied'],
+        selectable: false,
+        label: formatLanLabel(item, ['lan_dedicated_occupied'], dedicatedUsed),
+      };
+    }
+    if (reuseUsed.length > 0) {
+      return {
+        ...item,
+        tags: ['lan_reuse_reusable'],
+        selectable: true,
+        label: formatLanLabel(item, ['lan_reuse_reusable'], reuseUsed),
+      };
+    }
     return {
       ...item,
-      tags,
-      selectable: !occupied,
-      label: formatLanLabel(item, tags, dedicatedUsed),
+      tags: ['idle'],
+      selectable: true,
+      label: formatLanLabel(item, ['idle'], []),
     };
   });
 

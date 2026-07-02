@@ -113,6 +113,36 @@ describe('srv6.hubInventory', () => {
     expect(ui.wanOptions[0].selectable).toBe(true);
   });
 
+  it('buildHubInventoryUi marks reuse LAN reusable', () => {
+    const inventory = emptyHubInventory();
+    inventory.lan.push({
+      id: 'l1',
+      ifName: 'ge1',
+      vrf: 9999,
+      privateAsn: 65001,
+      routerId: '10.0.0.1',
+      source: 'role_wizard',
+      createdAt: '2026-01-01',
+    });
+    const registry: Srv6HubPortRegistryEntry[] = [
+      {
+        tunnelId: 't1',
+        tunnelName: 'test-20260508',
+        spokePeUuid: 'spoke-1',
+        hubPeSlot: 'peB',
+        wanIf: 'ge0',
+        lanIf: 'ge1',
+        peerPublicNeighbor: '203::1',
+        hubVrfMode: 'REUSE_VRF',
+      },
+    ];
+    const ui = buildHubInventoryUi(inventory, registry);
+    expect(ui.lanOptions[0].selectable).toBe(true);
+    expect(ui.lanOptions[0].tags).toContain('lan_reuse_reusable');
+    expect(ui.lanOptions[0].label).toContain('test-20260508');
+    expect(ui.lanOptions[0].label).toContain('可复用');
+  });
+
   it('buildHubInventoryUi marks dedicated LAN occupied', () => {
     const inventory = emptyHubInventory();
     inventory.lan.push({
