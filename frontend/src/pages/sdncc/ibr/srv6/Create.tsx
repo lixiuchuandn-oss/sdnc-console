@@ -24,6 +24,7 @@ import {
   hubPeInnerIfField,
   findFirstReuseVrfTunnelRef,
   isFirstHubTunnel,
+  matchesHubReuseAnchorLan,
   pickHubReuseAnchorFromTunnel,
   resolveSelectedHubLanState,
   shouldInheritReuseAnchor,
@@ -1176,7 +1177,16 @@ const SRv6CreatePage: React.FC = () => {
     if (ifName && inferredHubPeSlot) {
       form.setFieldsValue(hubLanSelectionPatch(inferredHubPeSlot, ifName, String(id)));
     }
-    if (inferredHubPeSlot && hubReuseAnchor && lanState === 'reuse_reusable') {
+    const onAnchorReuseLan =
+      lanState === 'reuse_reusable' ||
+      (hubReuseAnchor &&
+        matchesHubReuseAnchorLan({
+          hubLanInventoryId: id,
+          hubLanIf: ifName,
+          anchorLanInventoryId: hubReuseAnchor.hubLanInventoryId,
+          anchorLanIf: hubReuseAnchor.hubLanIf,
+        }));
+    if (inferredHubPeSlot && hubReuseAnchor && onAnchorReuseLan) {
       const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
       form.setFieldsValue({ [ceField]: hubReuseAnchor.hubCeUuid });
       // setFieldsValue 不会触发 onValuesChange：补拉 Hub 侧 CE 配置

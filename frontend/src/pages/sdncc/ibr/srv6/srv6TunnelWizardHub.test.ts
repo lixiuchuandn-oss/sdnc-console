@@ -199,6 +199,30 @@ describe('srv6TunnelWizardHub P3/P5', () => {
     ).toBe(false);
   });
 
+  it('shouldInheritReuseAnchor true when idle but explicit anchor LAN and CE', () => {
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-9999',
+        anchorLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 2/3/0',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        hubCeUuid: 'ce-anchor',
+        anchorCeUuid: 'ce-anchor',
+        selectedLanState: 'idle',
+      }),
+    ).toBe(true);
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+        inheritReuseAnchor: true,
+      }),
+    ).toBe('REUSE_VRF');
+  });
+
   it('deriveHubVrfMode treats CE change as dedicated when not on reuse LAN', () => {
     expect(
       deriveHubVrfMode({

@@ -290,7 +290,7 @@ export const hubLanSelectionClear = (
   };
 };
 
-/** 根因 3：Hub CE 是否与锚点 CE 不同 */
+/** Hub CE 是否与锚点 CE 不同 */
 export const hubCeDiffersFromAnchor = (
   selectedCeUuid: unknown,
   anchorCeUuid: unknown,
@@ -298,6 +298,24 @@ export const hubCeDiffersFromAnchor = (
   const sel = String(selectedCeUuid ?? '').trim();
   const anchor = String(anchorCeUuid ?? '').trim();
   return !!sel && !!anchor && sel !== anchor;
+};
+
+/** 当前 Hub LAN 选择是否与 REUSE 锚点 LAN 一致（inventoryId 或 ifName） */
+export const matchesHubReuseAnchorLan = (input: {
+  hubLanInventoryId?: string;
+  hubLanIf?: string;
+  anchorLanInventoryId?: string;
+  anchorLanIf?: string;
+}): boolean => {
+  const selId = String(input.hubLanInventoryId ?? '').trim();
+  const selIf = normIf(input.hubLanIf);
+  const anchorId = String(input.anchorLanInventoryId ?? '').trim();
+  const anchorIf = normIf(input.anchorLanIf);
+  if (anchorId && selId && selId === anchorId) {
+    if (anchorIf && selIf) return selIf === anchorIf;
+    return true;
+  }
+  return !!(anchorIf && selIf && selIf === anchorIf);
 };
 
 /** 后续 REUSE 默认路径：未显式改选其它空闲 LAN / CE 时继承锚点 */
@@ -316,8 +334,31 @@ export const shouldInheritReuseAnchor = (input: {
   if (input.isFirstHubTunnel || !input.hasReuseAnchor) return false;
   if (input.hubLanDesynced) return false;
   if (hubCeDiffersFromAnchor(input.hubCeUuid, input.anchorCeUuid)) return false;
-  if (input.selectedLanState === 'idle') return false;
+  if (input.selectedLanState === 'idle') {
+    // 删独立专网后选回锚点 LAN + 复用 CE：portRegistry 未及时标 reuse 时仍继承 REUSE
+    if (
+      matchesHubReuseAnchorLan({
+        hubLanInventoryId: input.hubLanInventoryId,
+        hubLanIf: input.hubLanIf,
+        anchorLanInventoryId: input.anchorLanInventoryId,
+        anchorLanIf: input.anchorLanIf,
+      })
+    ) {
+      return true;
+    }
+    return false;
+  }
   if (input.selectedLanState === 'reuse_reusable') return true;
+  if (
+    matchesHubReuseAnchorLan({
+      hubLanInventoryId: input.hubLanInventoryId,
+      hubLanIf: input.hubLanIf,
+      anchorLanInventoryId: input.anchorLanInventoryId,
+      anchorLanIf: input.anchorLanIf,
+    })
+  ) {
+    return true;
+  }
   const selId = String(input.hubLanInventoryId ?? '').trim();
   const selIf = normIf(input.hubLanIf);
   const anchorId = String(input.anchorLanInventoryId ?? '').trim();
