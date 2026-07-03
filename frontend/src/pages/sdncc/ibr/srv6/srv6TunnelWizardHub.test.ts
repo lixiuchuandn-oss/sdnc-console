@@ -9,6 +9,7 @@ import {
   hubLanSelectionClear,
   isFirstHubTunnel,
   pickHubReuseAnchorFromTunnel,
+  pickHubReuseAnchorPreviewFromStatus,
   resolveSelectedHubLanState,
   shouldInheritReuseAnchor,
   validateHubTunnelInventory,
@@ -94,6 +95,41 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         hasReuseAnchorOnHub: true,
         selectedLanState: 'idle',
         inheritReuseAnchor: true,
+      }),
+    ).toBe('REUSE_VRF');
+  });
+
+  it('shouldInheritReuseAnchor true when subsequent tunnel has no lan selection yet', () => {
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        selectedLanState: 'idle',
+      }),
+    ).toBe(true);
+  });
+
+  it('pickHubReuseAnchorPreviewFromStatus reads hubBindings without fetch', () => {
+    const preview = pickHubReuseAnchorPreviewFromStatus('peB', [
+      { tunnelId: 't-reuse', hubVrfMode: 'REUSE_VRF', peBInnerIf: 'ge1', hubBindings: { lanIf: 'ge1', lanInventoryId: 'lan-1' } },
+    ]);
+    expect(preview).toEqual({
+      hubLanIf: 'ge1',
+      hubLanInventoryId: 'lan-1',
+      hubPeInnerIf: 'ge1',
+      sourceTunnelId: 't-reuse',
+    });
+  });
+
+  it('deriveHubVrfMode REUSE when idle lan matches anchor on hub with reuse anchor', () => {
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+        inheritReuseAnchor: false,
+        matchesReuseAnchorLan: true,
       }),
     ).toBe('REUSE_VRF');
   });
