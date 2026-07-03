@@ -12,6 +12,7 @@ import {
   resolveSelectedHubLanState,
   shouldInheritReuseAnchor,
   validateHubTunnelInventory,
+  type HubLanOptionRow,
 } from './srv6TunnelWizardHub';
 
 describe('srv6TunnelWizardHub P3/P5', () => {
@@ -145,7 +146,7 @@ describe('srv6TunnelWizardHub P3/P5', () => {
   });
 
   it('resolveSelectedHubLanState prefers ifName when inventory id desynced', () => {
-    const lanOptions = [
+    const lanOptions: HubLanOptionRow[] = [
       { value: 'lan-9999', ifName: 'ge9999', lanState: 'reuse_reusable' },
       { value: 'lan-8888', ifName: 'ge8888', lanState: 'idle' },
     ];
