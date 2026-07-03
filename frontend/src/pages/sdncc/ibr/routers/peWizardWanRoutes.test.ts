@@ -2,6 +2,7 @@ import {
   assertUniqueHubInventoryIfNames,
   buildWanStaticRoutesFromRows,
   enrichHubWanRowsFromDeviceRoutes,
+  mergeHubWanFormRowsForWizard,
   sanitizeIpv6RoutesForDevice,
   type WanRouteFormRow,
 } from './peWizardWanRoutes';
@@ -68,6 +69,20 @@ describe('peWizardWanRoutes P2', () => {
     );
     expect(rows[0].ipv6Via).toBe('203::aa');
     expect(rows[1].ipv6Via).toBe('203::bb');
+  });
+
+  it('mergeHubWanFormRowsForWizard aligns edit tabs with device public WAN ifaces', () => {
+    const merged = mergeHubWanFormRowsForWizard(
+      [{ ifName: 'GigabitEthernet 2/2/0', ipv6: '203::22/64', ipv4RouteDest: '203.100.100.0/24' }],
+      [
+        { ifName: 'GigabitEthernet 2/2/0', ipv4: '203.100.100.22/24', ipv6: '203::22/64' },
+        { ifName: 'GigabitEthernet 2/3/0', ipv4: '203.100.100.33/24', ipv6: '203::33/64' },
+      ],
+    );
+    expect(merged).toHaveLength(2);
+    expect(merged[0].ifName).toBe('GigabitEthernet 2/2/0');
+    expect(merged[0].ipv4RouteDest).toBe('203.100.100.0/24');
+    expect(merged[1].ifName).toBe('GigabitEthernet 2/3/0');
   });
 
   it('assertUniqueHubInventoryIfNames rejects duplicate wan or lan ifName', () => {

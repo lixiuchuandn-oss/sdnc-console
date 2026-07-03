@@ -174,3 +174,70 @@ export function buildHubWanMirrorRowsFromDevice(
   if (!rows.length) return rows;
   return enrichHubWanRowsFromDeviceRoutes(rows, cfg);
 }
+
+const normWanIfKey = (v: unknown) =>
+  String(v ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+/**
+ * 再次进入 HUB_PE 向导：已保存 inventory 行与设备公网口列表对齐，避免编辑区 WAN Tab 少于 Mirror。
+ */
+export function mergeHubWanFormRowsForWizard(
+  savedRows: WanRouteFormRow[] | undefined,
+  deviceRows: WanRouteFormRow[] | undefined,
+): WanRouteFormRow[] {
+  const saved = Array.isArray(savedRows) ? savedRows : [];
+  const device = Array.isArray(deviceRows) ? deviceRows : [];
+  const savedByIf = new Map<string, WanRouteFormRow>();
+  saved.forEach((row) => {
+    const key = normWanIfKey(row.ifName);
+    if (key) savedByIf.set(key, { ...row });
+  });
+
+  if (!device.length) {
+    return saved.length ? saved : [{}];
+  }
+
+  const merged: WanRouteFormRow[] = [];
+  const seen = new Set<string>();
+
+  for (const devRow of device) {
+    const key = normWanIfKey(devRow.ifName);
+    if (!key) continue;
+    const hit = savedByIf.get(key);
+    merged.push({
+      ...(hit ?? {}),
+      ifName: devRow.ifName ?? hit?.ifName,
+      ipv4: hit?.ipv4 ?? devRow.ipv4,
+      ipv6: hit?.ipv6 ?? devRow.ipv6,
+      ipv4RouteDest: hit?.ipv4RouteDest ?? devRow.ipv4RouteDest,
+      ipv4RoutePriority: hit?.ipv4RoutePriority ?? devRow.ipv4RoutePriority,
+      ipv6Dest: hit?.ipv6Dest ?? devRow.ipv6Dest,
+      ipv6Via: hit?.ipv6Via ?? devRow.ipv6Via,
+    });
+    seen.add(key);
+  }
+
+  saved.forEach((row) => {
+    const key = normWanIfKey(row.ifName);
+    if (key && !seen.has(key)) {
+      merged.push(row);
+      seen.add(key);
+    }
+  });
+
+  return merged.length ? merged : [{}];
+}
+
+/** HUB_PE 向导编辑区：inventory + 设备公网口合并（与 Mirror 行数对齐） */
+export function resolveHubWanRowsForPeWizardForm(
+  savedRows: WanRouteFormRow[] | undefined,
+  ifaceItems: DeviceIfaceRow[],
+  cfg: { ipv4_route?: unknown; ipv6_route?: unknown },
+): WanRouteFormRow[] {
+  const enrichedSaved = enrichHubWanRowsFromDeviceRoutes(savedRows ?? [], cfg);
+  const deviceRows = buildHubWanMirrorRowsFromDevice(ifaceItems, cfg);
+  return mergeHubWanFormRowsForWizard(enrichedSaved, deviceRows);
+}

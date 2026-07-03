@@ -25,6 +25,7 @@ import {
   buildHubWanMirrorRowsFromDevice,
   buildWanStaticRoutesFromRows,
   enrichHubWanRowsFromDeviceRoutes,
+  resolveHubWanRowsForPeWizardForm,
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
 
@@ -367,8 +368,9 @@ const PEWizard: React.FC = () => {
                 lanConfigs,
               });
               return {
-                hubWanInventory: enrichHubWanRowsFromDeviceRoutes(
+                hubWanInventory: resolveHubWanRowsForPeWizardForm(
                   hubForm.hubWanInventory,
+                  [],
                   existingCfg,
                 ),
                 lanConfigs: hubForm.lanConfigs,
@@ -536,7 +538,18 @@ const PEWizard: React.FC = () => {
     const lanConfigsForForm = groups.length > 0 ? groups : [{}];
     const lanConfigsForMirror = lanConfigsForForm;
 
-    const fullInferredForForm = { ...inferredTop, lanConfigs: lanConfigsForForm };
+    const fullInferredForForm = {
+      ...inferredTop,
+      lanConfigs: lanConfigsForForm,
+      ...(isHubPe
+        ? {
+            hubWanInventory: buildHubWanMirrorRowsFromDevice(ifaceItems, {
+              ipv4_route: (dev as any)?.ipv4_route,
+              ipv6_route: (dev as any)?.ipv6_route,
+            }),
+          }
+        : {}),
+    };
     const fullInferredForMirror = {
       ...mirrorInferredTop,
       lanConfigs: lanConfigsForMirror,
@@ -605,9 +618,10 @@ const PEWizard: React.FC = () => {
                 lanConfigs: lanConfigsVr3,
               });
               return {
-                hubWanInventory: enrichHubWanRowsFromDeviceRoutes(
+                hubWanInventory: resolveHubWanRowsForPeWizardForm(
                   hubForm.hubWanInventory,
-                  existingCfg,
+                  ifaceItems,
+                  dev,
                 ),
                 lanConfigs: hubForm.lanConfigs,
               };
@@ -1057,6 +1071,9 @@ const PEWizard: React.FC = () => {
           ) : null}
           {isHubPe ? (
             <>
+            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+              WAN侧配置（Hub-PE to Spoke-PE）
+            </div>
             <Form.List name="hubWanInventory" initialValue={[{}]}>
               {(fields, { add, remove }) => {
                 const onWanTabEdit = (
@@ -1525,6 +1542,9 @@ const PEWizard: React.FC = () => {
                           <Input placeholder="未配置" />
                         </Form.Item>
                         <div style={{ height: 12 }} />
+                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                          WAN侧配置（Hub-PE to Spoke-PE）
+                        </div>
                         <Tabs
                           type="card"
                           size="small"
@@ -1614,7 +1634,9 @@ const PEWizard: React.FC = () => {
                 )}
                 {current === 1 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置（PE to CE）</div>
+                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                      {isHubPe ? 'LAN 侧配置（Hub-PE to CE）' : 'LAN 侧配置（PE to CE）'}
+                    </div>
                     <Tabs
                       type="card"
                       items={(() => {
