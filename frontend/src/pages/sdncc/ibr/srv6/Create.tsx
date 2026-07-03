@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useTransition, useDeferredValue } from 'react';
-import { Alert, Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
+import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
 import { ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
@@ -1897,12 +1897,7 @@ const SRv6CreatePage: React.FC = () => {
           <Form.Item name="tunnelName" label="隧道名称" rules={[{ required: true, message: '请输入隧道名称' }]}> 
             <Input placeholder="例如：beijing-to-shanghai" style={{ width: 360 }} />
           </Form.Item>
-          <Form.Item label="选择模式" required>
-            <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
-              <Radio.Button value="标准">标准模式</Radio.Button>
-              <Radio.Button value="高可用">高可用模式（待设计）</Radio.Button>
-            </Radio.Group>
-          </Form.Item>
+          {/* 演示阶段暂不展示高可用模式入口，默认标准模式 */}
         </Form>
       );
     }
@@ -1912,7 +1907,7 @@ const SRv6CreatePage: React.FC = () => {
           <Row gutter={16}>
             <Col span={24}>
               {/* 分组1 标题：参照 VR 角色配置向导 样式 */}
-              <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定对端设备</div>
+              <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>设定本端设备</div>
               <Form.Item name="peA" label="PE-A" rules={[{ required: true, message: '请选择 PE-A' }]} style={{ marginBottom: 8 }}> 
                 <Select
                   options={peOptions}
@@ -2151,7 +2146,7 @@ const SRv6CreatePage: React.FC = () => {
     return null;
   };
 
-  const stepTitle = ['基础信息与模式', '选择 PE 与 CE', '确认并保存', '下发向导'][current];
+  const stepTitle = ['基础信息', '选择 PE 与 CE', '确认并保存', '下发向导'][current];
 
   return (
     <PageContainer
@@ -2176,7 +2171,7 @@ const SRv6CreatePage: React.FC = () => {
                 setCurrent(idx);
               }}
               items={[
-                { title: '基础信息与模式' },
+                { title: '基础信息' },
                 { title: '选择 PE 与 CE' },
                 { title: '确认并保存' },
                 { title: '下发向导', disabled: !platformSaved },
