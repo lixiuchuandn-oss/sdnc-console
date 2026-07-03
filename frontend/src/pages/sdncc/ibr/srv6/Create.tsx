@@ -1135,6 +1135,10 @@ const SRv6CreatePage: React.FC = () => {
           return;
         }
         setHubReuseAnchor(anchor);
+        if (hubCustomerSideTouchedRef.current) return;
+        const currentLan = String(form.getFieldValue('hubLanIf') ?? '').trim().toLowerCase();
+        const anchorLan = String(anchor.hubLanIf ?? '').trim().toLowerCase();
+        if (currentLan && anchorLan && currentLan !== anchorLan) return;
         const innerField = hubPeInnerIfField(inferredHubPeSlot);
         const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
         form.setFieldsValue({
@@ -1238,6 +1242,7 @@ const SRv6CreatePage: React.FC = () => {
             optionFilterProp="label"
             placeholder={hubWanInventoryOptions.length ? '选择 Hub 公网口' : '暂无可用公网口'}
             onChange={(id) => {
+              hubCustomerSideTouchedRef.current = true;
               const hit =
                 hubInventoryUi?.wanOptions?.find((w) => w.id === id) ??
                 hubWanInventoryOptions.find((w) => w.value === id);
@@ -2042,7 +2047,17 @@ const SRv6CreatePage: React.FC = () => {
                 </Descriptions.Item>
                 <Descriptions.Item label="Hub WAN">{form.getFieldValue('hubWanIf') || '-'}</Descriptions.Item>
                 <Descriptions.Item label="Hub LAN">
-                  {form.getFieldValue('hubLanIf') || hubReuseAnchor?.hubLanIf || '-'}
+                  {(() => {
+                    const lanIf = String(form.getFieldValue('hubLanIf') ?? '').trim();
+                    const lanId = String(form.getFieldValue('hubLanInventoryId') ?? '').trim();
+                    const meta =
+                      hubLanInventoryOptions.find((o) => o.value === lanId) ??
+                      hubLanInventoryOptions.find((o) => o.ifName === lanIf);
+                    const parts = [lanIf || undefined, meta?.vrf != null ? `VRF ${meta.vrf}` : undefined].filter(
+                      Boolean,
+                    );
+                    return parts.length ? parts.join(' · ') : '-';
+                  })()}
                 </Descriptions.Item>
                 <Descriptions.Item label="客户侧模式">
                   {resolvedHubVrfMode === 'DEDICATED_VRF' ? '独立专网（DEDICATED_VRF）' : '共用客户侧（REUSE_VRF）'}

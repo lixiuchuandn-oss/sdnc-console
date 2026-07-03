@@ -69,7 +69,7 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         hasReuseAnchorOnHub: false,
         selectedLanState: 'idle',
       }),
-    ).toBe('REUSE_VRF');
+    ).toBe('DEDICATED_VRF');
 
     expect(
       deriveHubVrfMode({
@@ -146,8 +146,8 @@ describe('srv6TunnelWizardHub P3/P5', () => {
 
   it('resolveSelectedHubLanState prefers ifName when inventory id desynced', () => {
     const lanOptions = [
-      { value: 'lan-9999', ifName: 'ge9999', lanState: 'reuse_reusable' as const },
-      { value: 'lan-8888', ifName: 'ge8888', lanState: 'idle' as const },
+      { value: 'lan-9999', ifName: 'ge9999', lanState: 'reuse_reusable' },
+      { value: 'lan-8888', ifName: 'ge8888', lanState: 'idle' },
     ];
     expect(
       detectHubLanSelectionDesync({
@@ -173,6 +173,29 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         hubLanDesynced: true,
       }),
     ).toBe('DEDICATED_VRF');
+  });
+
+  it('deriveHubVrfMode: subsequent idle LAN is DEDICATED even without hubVrfMode on first tunnel', () => {
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: false,
+        selectedLanState: 'idle',
+        inheritReuseAnchor: false,
+      }),
+    ).toBe('DEDICATED_VRF');
+  });
+
+  it('shouldInheritReuseAnchor false for subsequent idle LAN', () => {
+    expect(
+      shouldInheritReuseAnchor({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanIf: 'ge8888',
+        anchorLanIf: 'ge9999',
+        selectedLanState: 'idle',
+      }),
+    ).toBe(false);
   });
 
   it('deriveHubVrfMode treats CE change as dedicated when not on reuse LAN', () => {

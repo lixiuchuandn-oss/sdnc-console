@@ -181,18 +181,15 @@ export type DeriveHubVrfModeInput = {
 
 /** P5c：由 Hub 内网口选项态隐式推导 hubVrfMode */
 export const deriveHubVrfMode = (input: DeriveHubVrfModeInput): HubVrfMode => {
-  if (input.hubLanDesynced && input.selectedLanState === 'idle') {
-    return input.hasReuseAnchorOnHub ? 'DEDICATED_VRF' : 'REUSE_VRF';
-  }
-  if (input.hubCeDiffersFromAnchor && input.selectedLanState !== 'reuse_reusable') {
-    return 'DEDICATED_VRF';
-  }
-  if (input.inheritReuseAnchor || input.selectedLanState === 'reuse_reusable') {
+  if (input.selectedLanState === 'reuse_reusable' || input.inheritReuseAnchor) {
     return 'REUSE_VRF';
   }
+  if (input.hubCeDiffersFromAnchor) {
+    return 'DEDICATED_VRF';
+  }
   if (input.selectedLanState === 'idle') {
-    // Hub 上尚无 REUSE 锚点时，选空闲 LAN 即建锚点（与 isFirstHubTunnel 无关）
-    return !input.hasReuseAnchorOnHub ? 'REUSE_VRF' : 'DEDICATED_VRF';
+    // 首条 Hub 隧道选空闲 LAN 建锚点；Hub 上已有存活隧道时选空闲 LAN = 独立专网
+    return input.isFirstHubTunnel ? 'REUSE_VRF' : 'DEDICATED_VRF';
   }
   return 'DEDICATED_VRF';
 };
@@ -319,6 +316,7 @@ export const shouldInheritReuseAnchor = (input: {
   if (input.isFirstHubTunnel || !input.hasReuseAnchor) return false;
   if (input.hubLanDesynced) return false;
   if (hubCeDiffersFromAnchor(input.hubCeUuid, input.anchorCeUuid)) return false;
+  if (input.selectedLanState === 'idle') return false;
   if (input.selectedLanState === 'reuse_reusable') return true;
   const selId = String(input.hubLanInventoryId ?? '').trim();
   const selIf = normIf(input.hubLanIf);

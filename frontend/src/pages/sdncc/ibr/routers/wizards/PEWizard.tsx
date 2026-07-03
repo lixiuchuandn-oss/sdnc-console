@@ -1055,9 +1055,6 @@ const PEWizard: React.FC = () => {
               <Divider style={{ margin: '16px 0' }} />
             </>
           ) : null}
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
-            {isHubPe ? 'WAN 侧配置（Hub-PE to Spoke-PE）' : 'WAN 侧配置（PE to PE）'}
-          </div>
           {isHubPe ? (
             <>
             <Form.List name="hubWanInventory" initialValue={[{}]}>
@@ -1212,6 +1209,9 @@ const PEWizard: React.FC = () => {
             </>
           ) : (
             <>
+          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+            WAN 侧配置（PE to PE）
+          </div>
           <Form.Item name="wanDev" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>} rules={[{ required: true, message: '请选择 WAN 侧接口' }]}> 
             <Select
               placeholder="请选择接口"
@@ -1477,6 +1477,10 @@ const PEWizard: React.FC = () => {
     );
   };
 
+  const wizardStepTitles = isHubPe
+    ? ['基础配置（Hub-PE）', 'LAN 侧配置（Hub-PE to CE）', '确认下发']
+    : ['基础配置（PE to PE）', 'LAN 侧配置（PE to CE）', '确认下发'];
+
   return (
     <PageContainer
       titleLevel={3}
@@ -1487,12 +1491,12 @@ const PEWizard: React.FC = () => {
       <Row gutter={16}>
         <Col span={4}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={[{ title: '基础配置（PE to PE）' }, { title: 'LAN 侧配置（PE to CE）' }, { title: '确认下发' }]} />
+            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={wizardStepTitles.map((title) => ({ title }))} />
           </Card>
         </Col>
         <Col span={7}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`第 ${current + 1} 步：${['基础配置（PE to PE）','LAN 侧配置（PE to CE）','确认下发'][current]} 设备回读`}
+            {`第 ${current + 1} 步：${wizardStepTitles[current]} 设备回读`}
           </span>} variant="outlined">
             {ifaceLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
@@ -1509,7 +1513,6 @@ const PEWizard: React.FC = () => {
                     <Form.Item name="sidPrefix" label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 SID 前缀</span>}>
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（PE to PE）</div>
                     {isHubPe ? (
                       <>
                         <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
@@ -1522,9 +1525,6 @@ const PEWizard: React.FC = () => {
                           <Input placeholder="未配置" />
                         </Form.Item>
                         <div style={{ height: 12 }} />
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
-                          WAN 侧配置（Hub-PE to Spoke-PE）
-                        </div>
                         <Tabs
                           type="card"
                           size="small"
@@ -1568,6 +1568,7 @@ const PEWizard: React.FC = () => {
                       </>
                     ) : (
                       <>
+                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（PE to PE）</div>
                     <Form.Item name="wanDev" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>}> 
                       <Select
                       placeholder="未配置"
@@ -1720,7 +1721,7 @@ const PEWizard: React.FC = () => {
         </Col>
         <Col span={8}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`第 ${current + 1} 步：${['基础配置（PE to PE）','LAN 侧配置（PE to CE）','确认下发'][current]} 配置编辑`}
+            {`第 ${current + 1} 步：${wizardStepTitles[current]} 配置编辑`}
           </span>} variant="outlined">
             {renderCoreContent()}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
