@@ -154,7 +154,10 @@ export type HubTunnelStatusForAnchorPreview = HubTunnelRefForReuse & {
 export const pickHubReuseAnchorPreviewFromStatus = (
   hubPeSlot: HubPeSlot,
   tunnels: HubTunnelStatusForAnchorPreview[] | undefined | null,
-): Pick<HubReuseAnchor, 'hubLanIf' | 'hubLanInventoryId' | 'hubPeInnerIf' | 'hubCeUuid' | 'sourceTunnelId'> | null => {
+): (Omit<
+  Pick<HubReuseAnchor, 'hubLanIf' | 'hubLanInventoryId' | 'hubPeInnerIf' | 'hubCeUuid' | 'sourceTunnelId'>,
+  'hubCeUuid'
+> & { hubCeUuid?: string }) | null => {
   const ref = findFirstReuseVrfTunnelRef(tunnels);
   if (!ref?.tunnelId || !Array.isArray(tunnels)) return null;
   const t = tunnels.find((x) => x.tunnelId === ref.tunnelId);
@@ -171,7 +174,7 @@ export const pickHubReuseAnchorPreviewFromStatus = (
     hubLanIf,
     hubLanInventoryId: t.hubBindings?.lanInventoryId,
     hubPeInnerIf: hubLanIf,
-    hubCeUuid: hubCeUuid || undefined,
+    ...(hubCeUuid ? { hubCeUuid } : {}),
     sourceTunnelId: ref.tunnelId,
   };
 };
