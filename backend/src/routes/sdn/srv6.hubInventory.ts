@@ -173,25 +173,36 @@ const wanUsedBy = (
 ): Srv6HubPortRegistryEntry[] =>
   registry.filter((e) => normIf(e.wanIf) === normIf(item.ifName));
 
+/** portRegistry 与 LAN inventory 行对齐：有 lanInventoryId 时精确匹配，避免同物理口不同 VRF 误判 */
+const portRegistryLanMatchesInventoryItem = (
+  entry: Srv6HubPortRegistryEntry,
+  item: HubLanInventoryItem,
+): boolean => {
+  const entryLanId = String(entry.lanInventoryId ?? '').trim();
+  const itemId = String(item.id ?? '').trim();
+  if (entryLanId && itemId) return entryLanId === itemId;
+  if (entryLanId) return false;
+  if (itemId) {
+    return !!(entry.lanIf && normIf(entry.lanIf) === normIf(item.ifName));
+  }
+  return !!(entry.lanIf && normIf(entry.lanIf) === normIf(item.ifName));
+};
+
 const lanDedicatedUsedBy = (
   item: HubLanInventoryItem,
   registry: Srv6HubPortRegistryEntry[],
 ): Srv6HubPortRegistryEntry[] =>
-  registry.filter((e) => {
-    if (e.hubVrfMode !== 'DEDICATED_VRF') return false;
-    if (e.lanIf && normIf(e.lanIf) === normIf(item.ifName)) return true;
-    return false;
-  });
+  registry.filter(
+    (e) => e.hubVrfMode === 'DEDICATED_VRF' && portRegistryLanMatchesInventoryItem(e, item),
+  );
 
 const lanReuseUsedBy = (
   item: HubLanInventoryItem,
   registry: Srv6HubPortRegistryEntry[],
 ): Srv6HubPortRegistryEntry[] =>
-  registry.filter((e) => {
-    if (e.hubVrfMode !== 'REUSE_VRF') return false;
-    if (e.lanIf && normIf(e.lanIf) === normIf(item.ifName)) return true;
-    return false;
-  });
+  registry.filter(
+    (e) => e.hubVrfMode === 'REUSE_VRF' && portRegistryLanMatchesInventoryItem(e, item),
+  );
 
 const formatWanLabel = (item: HubWanInventoryItem, tags: HubInventoryOptionTag[], used: Srv6HubPortRegistryEntry[]) => {
   const tagText =

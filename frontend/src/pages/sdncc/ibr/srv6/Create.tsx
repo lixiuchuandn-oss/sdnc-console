@@ -28,6 +28,7 @@ import {
   pickHubReuseAnchorFromTunnel,
   pickHubReuseAnchorPreviewFromStatus,
   resolveSelectedHubLanState,
+  resolveHubCustomerSideIntent,
   shouldInheritReuseAnchor,
   validateHubTunnelInventory,
   type HubLanOptionState,
@@ -953,7 +954,10 @@ const SRv6CreatePage: React.FC = () => {
       label?: string;
       selectable?: boolean;
     }) => {
-      const { state, tunnelNames } = classifyHubLanOption(row.ifName, hubPortRegistry);
+      const { state, tunnelNames } = classifyHubLanOption(
+        { id: row.id, ifName: row.ifName, vrf: row.vrf },
+        hubPortRegistry,
+      );
       const tag =
         state === 'dedicated_occupied'
           ? `已用于 ${tunnelNames.join('、')} · 专网占用`
@@ -1019,6 +1023,12 @@ const SRv6CreatePage: React.FC = () => {
   const [hubReuseAnchor, setHubReuseAnchor] = useState<HubReuseAnchor | null>(null);
   /** 用户已手动改选 Hub 客户侧（LAN/CE）后，禁止锚点 autofill 覆盖 */
   const hubCustomerSideTouchedRef = useRef(false);
+  const [hubCustomerSideTouched, setHubCustomerSideTouched] = useState(false);
+
+  const markHubCustomerSideTouched = () => {
+    hubCustomerSideTouchedRef.current = true;
+    setHubCustomerSideTouched(true);
+  };
 
   const hubLanInventoryIdWatch = Form.useWatch('hubLanInventoryId', form);
   const hubLanIfWatch = Form.useWatch('hubLanIf', form);
@@ -1036,6 +1046,7 @@ const SRv6CreatePage: React.FC = () => {
   const effectiveAnchorLanIf = hubReuseAnchor?.hubLanIf ?? hubReuseAnchorPreview?.hubLanIf;
   const effectiveAnchorLanInventoryId =
     hubReuseAnchor?.hubLanInventoryId ?? hubReuseAnchorPreview?.hubLanInventoryId;
+  const effectiveAnchorCeUuid = hubReuseAnchor?.hubCeUuid ?? hubReuseAnchorPreview?.hubCeUuid;
 
   const matchesReuseAnchorLanOnPe = useMemo(
     () =>
@@ -1078,8 +1089,39 @@ const SRv6CreatePage: React.FC = () => {
   const hubLanSelectionDesynced = resolvedHubLanSelection.desynced;
 
   const hubCeDiffersFromAnchorOnPe = useMemo(
-    () => hubCeDiffersFromAnchor(hubCeUuidWatch, hubReuseAnchor?.hubCeUuid),
-    [hubCeUuidWatch, hubReuseAnchor?.hubCeUuid],
+    () => hubCeDiffersFromAnchor(hubCeUuidWatch, effectiveAnchorCeUuid),
+    [hubCeUuidWatch, effectiveAnchorCeUuid],
+  );
+
+  const hubCustomerSideIntent = useMemo(
+    () =>
+      resolveHubCustomerSideIntent({
+        isFirstHubTunnel: isFirstHubTunnelOnPe,
+        hasReuseAnchor: hubHasReuseAnchorOnPe || !!hubReuseAnchor,
+        hubLanInventoryId: hubLanInventoryIdWatch,
+        hubLanIf: hubLanIfWatch,
+        selectedLanState: selectedHubLanState,
+        anchorLanInventoryId: effectiveAnchorLanInventoryId,
+        anchorLanIf: effectiveAnchorLanIf,
+        hubCeUuid: hubCeUuidWatch,
+        anchorCeUuid: effectiveAnchorCeUuid,
+        customerSideTouched: hubCustomerSideTouched,
+        hubLanDesynced: hubLanSelectionDesynced,
+      }),
+    [
+      isFirstHubTunnelOnPe,
+      hubHasReuseAnchorOnPe,
+      hubReuseAnchor,
+      hubLanInventoryIdWatch,
+      hubLanIfWatch,
+      selectedHubLanState,
+      effectiveAnchorLanInventoryId,
+      effectiveAnchorLanIf,
+      hubCeUuidWatch,
+      effectiveAnchorCeUuid,
+      hubCustomerSideTouched,
+      hubLanSelectionDesynced,
+    ],
   );
 
   const inheritReuseAnchor = useMemo(
@@ -1093,8 +1135,9 @@ const SRv6CreatePage: React.FC = () => {
         anchorLanIf: effectiveAnchorLanIf,
         selectedLanState: selectedHubLanState,
         hubCeUuid: hubCeUuidWatch,
-        anchorCeUuid: hubReuseAnchor?.hubCeUuid,
+        anchorCeUuid: effectiveAnchorCeUuid,
         hubLanDesynced: hubLanSelectionDesynced,
+        customerSideTouched: hubCustomerSideTouched,
       }),
     [
       isFirstHubTunnelOnPe,
@@ -1107,6 +1150,8 @@ const SRv6CreatePage: React.FC = () => {
       selectedHubLanState,
       hubCeUuidWatch,
       hubLanSelectionDesynced,
+      hubCustomerSideTouched,
+      effectiveAnchorCeUuid,
     ],
   );
 
@@ -1120,6 +1165,7 @@ const SRv6CreatePage: React.FC = () => {
         hubLanDesynced: hubLanSelectionDesynced,
         hubCeDiffersFromAnchor: hubCeDiffersFromAnchorOnPe,
         matchesReuseAnchorLan: matchesReuseAnchorLanOnPe,
+        customerSideIntent: hubCustomerSideIntent,
       }),
     [
       isFirstHubTunnelOnPe,
@@ -1129,14 +1175,33 @@ const SRv6CreatePage: React.FC = () => {
       hubLanSelectionDesynced,
       hubCeDiffersFromAnchorOnPe,
       matchesReuseAnchorLanOnPe,
+      hubCustomerSideIntent,
     ],
   );
 
   // UX：不锁定 CE（允许用户自行选择）；仅在程序性回填 CE 时主动拉取配置，保证关系档案完整。
   const lockHubCeSelect = (_ceSlot: 'ceA' | 'ceB') => false;
 
+  // 新建向导 mount：清空 Hub 互联残留，避免删隧道后二次创建继承上一条表单值
+  useEffect(() => {
+    if (editId) return;
+    form.setFieldsValue({
+      hubWanInventoryId: undefined,
+      hubWanIf: undefined,
+      hubLanInventoryId: undefined,
+      hubLanIf: undefined,
+      peAInnerIf: undefined,
+      peBInnerIf: undefined,
+    });
+    setHubReuseAnchor(null);
+    hubCustomerSideTouchedRef.current = false;
+    setHubCustomerSideTouched(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅新建模式 mount 时执行
+  }, [editId]);
+
   useEffect(() => {
     hubCustomerSideTouchedRef.current = false;
+    setHubCustomerSideTouched(false);
   }, [inferredHubPeSlot, isFirstHubTunnelOnPe, formValues?.peA, formValues?.peB]);
 
   useEffect(() => {
@@ -1171,9 +1236,20 @@ const SRv6CreatePage: React.FC = () => {
         }
         setHubReuseAnchor(anchor);
         if (hubCustomerSideTouchedRef.current) return;
-        const currentLan = String(form.getFieldValue('hubLanIf') ?? '').trim().toLowerCase();
-        const anchorLan = String(anchor.hubLanIf ?? '').trim().toLowerCase();
-        if (currentLan && anchorLan && currentLan !== anchorLan) return;
+        const currentLanId = String(form.getFieldValue('hubLanInventoryId') ?? '').trim();
+        const currentLanIf = String(form.getFieldValue('hubLanIf') ?? '').trim();
+        const hasCurrentLan = !!(currentLanId || currentLanIf);
+        if (
+          hasCurrentLan &&
+          !matchesHubReuseAnchorLan({
+            hubLanInventoryId: currentLanId,
+            hubLanIf: currentLanIf,
+            anchorLanInventoryId: anchor.hubLanInventoryId,
+            anchorLanIf: anchor.hubLanIf,
+          })
+        ) {
+          return;
+        }
         const innerField = hubPeInnerIfField(inferredHubPeSlot);
         const ceField = hubCeSlotForPeSlot(inferredHubPeSlot);
         form.setFieldsValue({
@@ -1195,7 +1271,7 @@ const SRv6CreatePage: React.FC = () => {
   }, [editId, inferredTopology, inferredHubPeSlot, isFirstHubTunnelOnPe, peHubStatus]);
 
   const handleHubLanInventoryChange = (id: string) => {
-    hubCustomerSideTouchedRef.current = true;
+    markHubCustomerSideTouched();
     if (!String(id ?? '').trim()) {
       if (inferredHubPeSlot) {
         form.setFieldsValue(hubLanSelectionClear(inferredHubPeSlot));
@@ -1207,7 +1283,9 @@ const SRv6CreatePage: React.FC = () => {
     const ifName = fromOpts?.ifName ?? raw?.ifName;
     const lanState =
       fromOpts?.lanState ??
-      (ifName ? classifyHubLanOption(ifName, hubPortRegistry).state : ('idle' as HubLanOptionState));
+      (ifName
+        ? classifyHubLanOption({ id: String(id), ifName }, hubPortRegistry).state
+        : ('idle' as HubLanOptionState));
     if (ifName && inferredHubPeSlot) {
       form.setFieldsValue(hubLanSelectionPatch(inferredHubPeSlot, ifName, String(id)));
     }
@@ -1286,7 +1364,7 @@ const SRv6CreatePage: React.FC = () => {
             placeholder={hubWanInventoryOptions.length ? '选择 Hub 公网口' : '暂无可用公网口'}
             onChange={(id) => {
               if (isFirstHubTunnelOnPe) {
-                hubCustomerSideTouchedRef.current = true;
+                markHubCustomerSideTouched();
               }
               const hit =
                 hubInventoryUi?.wanOptions?.find((w) => w.id === id) ??
@@ -1388,13 +1466,10 @@ const SRv6CreatePage: React.FC = () => {
     const peSlot = ceSlot === 'ceA' ? 'peA' : 'peB';
     if (inferredHubPeSlot !== peSlot) return;
     if (isFirstHubTunnelOnPe) {
-      hubCustomerSideTouchedRef.current = true;
+      markHubCustomerSideTouched();
       return;
     }
-    const anchorCe = hubReuseAnchor?.hubCeUuid;
-    if (anchorCe && String(ceUuid) !== String(anchorCe)) {
-      hubCustomerSideTouchedRef.current = true;
-    }
+    markHubCustomerSideTouched();
   };
 
   const handleValuesChange = async (changed: any, all: any) => {
@@ -1810,10 +1885,13 @@ const SRv6CreatePage: React.FC = () => {
       const hubVrfMode: Srv6HubVrfMode = resolvedHubVrfMode;
       const hubWanIfResolved = values?.hubWanIf;
       const hubLanIfResolved = values?.hubLanIf;
+      const hubLanInventoryIdResolved = String(values?.hubLanInventoryId ?? '').trim();
       const hubLanIfNorm = String(hubLanIfResolved ?? '').trim().toLowerCase();
-      const lanOptMatch = hubLanInventoryOptions.find(
-        (o) => String(o.ifName ?? '').trim().toLowerCase() === hubLanIfNorm,
-      );
+      const lanOptMatch = hubLanInventoryIdResolved
+        ? hubLanInventoryOptions.find((o) => o.value === hubLanInventoryIdResolved)
+        : hubLanInventoryOptions.find(
+            (o) => String(o.ifName ?? '').trim().toLowerCase() === hubLanIfNorm,
+          );
       const archive = buildTunnelArchive({
         peA: String(peA),
         peB: String(peB),
@@ -1833,7 +1911,7 @@ const SRv6CreatePage: React.FC = () => {
         hubWanIf: hubWanIfResolved,
         hubLanIf: hubLanIfResolved,
         hubWanInventoryId: values?.hubWanInventoryId,
-        hubLanInventoryId: lanOptMatch?.value ?? values?.hubLanInventoryId,
+        hubLanInventoryId: hubLanInventoryIdResolved || lanOptMatch?.value,
         hubInventory:
           hubInventoryUi?.inventory && hubInventoryUi.inventory.wan.length
             ? hubInventoryUi.inventory

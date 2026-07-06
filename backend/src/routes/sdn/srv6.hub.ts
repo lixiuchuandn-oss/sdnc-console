@@ -35,6 +35,8 @@ export type Srv6HubTunnelRef = {
   slot: Srv6EndpointSlot;
   peAInnerIf?: string | null;
   peBInnerIf?: string | null;
+  ceA?: string | null;
+  ceB?: string | null;
   innerIfMeta?: Srv6InnerIfMeta;
   tunnelTopology?: Srv6TunnelTopology | null;
   hubPeSlot?: 'peA' | 'peB' | null;
@@ -48,6 +50,8 @@ export type Srv6HubPortRegistryEntry = {
   hubPeSlot: 'peA' | 'peB';
   wanIf: string;
   lanIf?: string;
+  /** Hub LAN inventory 行 id（与 ifName+VRF 一一对应；优先于仅 ifName 匹配） */
+  lanInventoryId?: string;
   peerPublicNeighbor: string;
   spokePeUuid: string;
   hubVrfMode?: Srv6HubVrfMode | null;
@@ -154,6 +158,7 @@ export const buildHubPortRegistryFromTunnels = (
       hubPeSlot: t.hubBindings.hubPeSlot,
       wanIf: t.hubBindings.wanIf,
       lanIf: resolveHubLanIfFromTunnel(t),
+      lanInventoryId: t.hubBindings.lanInventoryId,
       peerPublicNeighbor: t.hubBindings.peerPublicNeighbor,
       spokePeUuid: t.hubBindings.spokePeUuid,
       hubVrfMode: t.hubVrfMode ?? undefined,
@@ -189,6 +194,8 @@ export const findAliveTunnelsByVr = async (vrUuid: string): Promise<Srv6HubVrSta
       slot: c.slot,
       peAInnerIf: tunnel.peAInnerIf,
       peBInnerIf: tunnel.peBInnerIf,
+      ceA: tunnel.ceA,
+      ceB: tunnel.ceB,
       innerIfMeta:
         c.slot === 'peA' || c.slot === 'peB'
           ? { innerIf: innerIf ?? undefined, innerVrf }

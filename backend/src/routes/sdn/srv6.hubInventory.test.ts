@@ -143,6 +143,46 @@ describe('srv6.hubInventory', () => {
     expect(ui.lanOptions[0].label).toContain('可复用');
   });
 
+  it('buildHubInventoryUi keeps idle VRF on same physical if when reuse uses another inventory id', () => {
+    const inventory = emptyHubInventory();
+    inventory.lan.push(
+      {
+        id: 'lan-9999',
+        ifName: 'GigabitEthernet 2/3/0',
+        vrf: 9999,
+        privateAsn: 65001,
+        routerId: '10.0.0.1',
+        source: 'role_wizard',
+        createdAt: '2026-01-01',
+      },
+      {
+        id: 'lan-8888',
+        ifName: 'GigabitEthernet 2/3/0',
+        vrf: 8888,
+        privateAsn: 65002,
+        routerId: '10.0.0.2',
+        source: 'role_wizard',
+        createdAt: '2026-01-01',
+      },
+    );
+    const registry: Srv6HubPortRegistryEntry[] = [
+      {
+        tunnelId: 't1',
+        tunnelName: 'test-reuse',
+        spokePeUuid: 'spoke-1',
+        hubPeSlot: 'peB',
+        wanIf: 'ge0',
+        lanIf: 'GigabitEthernet 2/3/0',
+        lanInventoryId: 'lan-9999',
+        peerPublicNeighbor: '203::1',
+        hubVrfMode: 'REUSE_VRF',
+      },
+    ];
+    const ui = buildHubInventoryUi(inventory, registry);
+    expect(ui.lanOptions[0].tags).toContain('lan_reuse_reusable');
+    expect(ui.lanOptions[1].tags).toContain('idle');
+  });
+
   it('buildHubInventoryUi marks dedicated LAN occupied', () => {
     const inventory = emptyHubInventory();
     inventory.lan.push({

@@ -145,5 +145,23 @@ describe('srv6.hub', () => {
       expect(registry).toHaveLength(1);
       expect(registry[0].lanIf).toBe('GigabitEthernet 2/3/0');
     });
+
+    it('includes lanInventoryId from hubBindings', () => {
+      const tunnels = [
+        {
+          id: 't1',
+          name: 'Hub-Spoke-A',
+          tunnelTopology: 'H' as const,
+          hubVrfMode: 'REUSE_VRF' as const,
+          hubBindings: hubBinding({
+            hubPeUuid: 'hub-1',
+            lanIf: 'GigabitEthernet 2/3/0',
+            lanInventoryId: 'lan-9999',
+          }),
+        },
+      ];
+      const registry = buildHubPortRegistryFromTunnels('hub-1', tunnels);
+      expect(registry[0].lanInventoryId).toBe('lan-9999');
+    });
   });
 });

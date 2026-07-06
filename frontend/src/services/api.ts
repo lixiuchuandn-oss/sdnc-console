@@ -1486,6 +1486,7 @@ export type Srv6HubPortRegistryEntry = {
   hubPeSlot: 'peA' | 'peB';
   wanIf: string;
   lanIf?: string;
+  lanInventoryId?: string;
   peerPublicNeighbor: string;
   spokePeUuid: string;
   hubVrfMode?: 'REUSE_VRF' | 'DEDICATED_VRF' | null;
@@ -1546,6 +1547,8 @@ export type Srv6HubVrStatus = {
     slot: 'peA' | 'peB' | 'ceA' | 'ceB';
     peAInnerIf?: string | null;
     peBInnerIf?: string | null;
+    ceA?: string | null;
+    ceB?: string | null;
     innerIfMeta?: { innerIf?: string; innerVrf?: string | number | null };
     tunnelTopology?: 'S' | 'H';
     hubPeSlot?: 'peA' | 'peB' | null;

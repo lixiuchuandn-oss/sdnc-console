@@ -8,8 +8,10 @@ import {
   hubLanSelectionPatch,
   hubLanSelectionClear,
   isFirstHubTunnel,
+  matchesHubReuseAnchorLan,
   pickHubReuseAnchorFromTunnel,
   pickHubReuseAnchorPreviewFromStatus,
+  resolveHubCustomerSideIntent,
   resolveSelectedHubLanState,
   shouldInheritReuseAnchor,
   validateHubTunnelInventory,
@@ -46,6 +48,42 @@ describe('srv6TunnelWizardHub P3/P5', () => {
     });
   });
 
+  it('resolveHubCustomerSideIntent explicit_dedicated for idle LAN on different physical port', () => {
+    expect(
+      resolveHubCustomerSideIntent({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-8888',
+        hubLanIf: 'GigabitEthernet 2/4/0',
+        selectedLanState: 'idle',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        hubCeUuid: 'ce-new',
+        anchorCeUuid: 'ce-anchor',
+        customerSideTouched: true,
+      }),
+    ).toBe('explicit_dedicated');
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+        customerSideIntent: 'explicit_dedicated',
+      }),
+    ).toBe('DEDICATED_VRF');
+  });
+
+  it('resolveHubCustomerSideIntent inherit_reuse when customer side not configured yet', () => {
+    expect(
+      resolveHubCustomerSideIntent({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        selectedLanState: 'idle',
+      }),
+    ).toBe('inherit_reuse');
+  });
+
   it('classifyHubLanOption distinguishes dedicated vs reuse', () => {
     const registry = [
       { lanIf: 'ge1', hubVrfMode: 'DEDICATED_VRF', tunnelName: 'T-ded' },
@@ -54,6 +92,53 @@ describe('srv6TunnelWizardHub P3/P5', () => {
     expect(classifyHubLanOption('ge1', registry).state).toBe('dedicated_occupied');
     expect(classifyHubLanOption('ge2', registry).state).toBe('reuse_reusable');
     expect(classifyHubLanOption('ge3', registry).state).toBe('idle');
+  });
+
+  it('classifyHubLanOption same ifName different VRF inventory id', () => {
+    const registry = [
+      {
+        lanIf: 'GigabitEthernet 2/3/0',
+        lanInventoryId: 'lan-9999',
+        hubVrfMode: 'REUSE_VRF',
+        tunnelName: 'T-reuse',
+      },
+    ];
+    expect(
+      classifyHubLanOption(
+        { id: 'lan-9999', ifName: 'GigabitEthernet 2/3/0', vrf: 9999 },
+        registry,
+      ).state,
+    ).toBe('reuse_reusable');
+    expect(
+      classifyHubLanOption(
+        { id: 'lan-8888', ifName: 'GigabitEthernet 2/3/0', vrf: 8888 },
+        registry,
+      ).state,
+    ).toBe('idle');
+  });
+
+  it('matchesHubReuseAnchorLan rejects same ifName different inventory id', () => {
+    expect(
+      matchesHubReuseAnchorLan({
+        hubLanInventoryId: 'lan-8888',
+        hubLanIf: 'GigabitEthernet 2/3/0',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+      }),
+    ).toBe(false);
+  });
+
+  it('deriveHubVrfMode DEDICATED for subsequent idle VRF 8888 on shared physical if', () => {
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'idle',
+        inheritReuseAnchor: false,
+        matchesReuseAnchorLan: false,
+        hubCeDiffersFromAnchor: true,
+      }),
+    ).toBe('DEDICATED_VRF');
   });
 
   it('deriveHubVrfMode from lan option state', () => {
@@ -86,8 +171,18 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         isFirstHubTunnel: false,
         hasReuseAnchorOnHub: true,
         selectedLanState: 'reuse_reusable',
+        matchesReuseAnchorLan: true,
       }),
     ).toBe('REUSE_VRF');
+
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'reuse_reusable',
+        matchesReuseAnchorLan: false,
+      }),
+    ).toBe('DEDICATED_VRF');
 
     expect(
       deriveHubVrfMode({
@@ -110,16 +205,65 @@ describe('srv6TunnelWizardHub P3/P5', () => {
     ).toBe(true);
   });
 
-  it('pickHubReuseAnchorPreviewFromStatus reads hubBindings without fetch', () => {
+  it('pickHubReuseAnchorPreviewFromStatus reads hubBindings and hub CE without fetch', () => {
     const preview = pickHubReuseAnchorPreviewFromStatus('peB', [
-      { tunnelId: 't-reuse', hubVrfMode: 'REUSE_VRF', peBInnerIf: 'ge1', hubBindings: { lanIf: 'ge1', lanInventoryId: 'lan-1' } },
+      {
+        tunnelId: 't-reuse',
+        hubVrfMode: 'REUSE_VRF',
+        peBInnerIf: 'ge1',
+        ceB: 'ce-anchor',
+        hubBindings: { lanIf: 'ge1', lanInventoryId: 'lan-1' },
+      },
     ]);
     expect(preview).toEqual({
       hubLanIf: 'ge1',
       hubLanInventoryId: 'lan-1',
       hubPeInnerIf: 'ge1',
+      hubCeUuid: 'ce-anchor',
       sourceTunnelId: 't-reuse',
     });
+  });
+
+  it('matchesHubReuseAnchorLan rejects id match when ifName differs', () => {
+    expect(
+      matchesHubReuseAnchorLan({
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 2/4/0',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+      }),
+    ).toBe(false);
+  });
+
+  it('resolveHubCustomerSideIntent explicit_dedicated when CE touched before anchor CE loaded', () => {
+    expect(
+      resolveHubCustomerSideIntent({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 2/3/0',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        hubCeUuid: 'ce-new',
+        selectedLanState: 'idle',
+        customerSideTouched: true,
+      }),
+    ).toBe('explicit_dedicated');
+  });
+
+  it('resolveHubCustomerSideIntent explicit_dedicated when hubLan desynced', () => {
+    expect(
+      resolveHubCustomerSideIntent({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 2/4/0',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        selectedLanState: 'idle',
+        hubLanDesynced: true,
+      }),
+    ).toBe('explicit_dedicated');
   });
 
   it('deriveHubVrfMode REUSE when idle lan matches anchor on hub with reuse anchor', () => {
