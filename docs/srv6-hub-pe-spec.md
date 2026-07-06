@@ -4,7 +4,7 @@
 > **不替代**：实现细节与 merge/recompute 流程见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md) §14；发版摘要见 [`srv6-release-notes.md`](./srv6-release-notes.md)。  
 > **UX 改造计划**（P1–P4，已评审）：见本文 §4 与 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md) §14.17；**以本文 §1–§3 为产品约束权威**。
 
-**最后对齐**：2026-06（Hub 多 WAN/LAN 交互、RD/RT REUSE、inventory 单一入口）。
+**最后对齐**：2026-07（P5c Hub 客户侧 intent 层、inventoryId 精确匹配、真机回归修复）。
 
 ---
 
@@ -202,9 +202,13 @@ Hub 公网口 → Hub 内网口 → Hub CE（ceA/ceB 槽位）
 | **已被 REUSE 隧道占用**（`已用于 Tn · 可复用`） | `REUSE_VRF` | 锁定锚点 CE |
 | **DEDICATED 专网占用** | — | **不可选** |
 
-**后续 REUSE 默认**：进入创建页时 **预填并锁定** 锚点 LAN + CE；用户仅改 Spoke 与 Hub WAN。若改选 **另一条空闲 LAN** → 切为 `DEDICATED_VRF` 并解锁 CE。
+**后续 REUSE 默认**：进入创建页时 **预填并锁定** 锚点 LAN + CE；用户仅改 Spoke 与 Hub WAN。若改选 **另一条空闲 LAN**（通常为**另一物理口 / 另一 inventory 行**）→ 切为 `DEDICATED_VRF` 并解锁 CE。
+
+> **注意**：独立专网（路线 B）在 Hub 上通常占用 **另一条 LAN inventory 行**（另一物理口），而非「同一物理口不同 VRF」。判定以 **`lanInventoryId` 优先**，同 id 不同 `ifName` 视为不匹配。
 
 **Hub LAN ↔ CE**：REUSE 占用 LAN 强关联锁定 CE；首条/DEDICATED 空闲 LAN 仅弱校验（VRF 不一致 warning，不阻断）。
+
+**仅改 Hub WAN** 不影响 `hubVrfMode`（轴 1 / 轴 2 正交，§2.1）。
 
 ### 5.3 P5 实现分期
 
@@ -213,6 +217,78 @@ Hub 公网口 → Hub 内网口 → Hub CE（ceA/ceB 槽位）
 | **P5a** | Spoke PE 向导：LAN 禁 `editable-card`，固定单口 | **已完成** |
 | **P5b** | Hub PE 向导：公网 BGP 与 WAN Tab 分层 | **已完成** |
 | **P5c** | 隧道向导 Hub 列线性流 + 隐式 `hubVrfMode` | **已完成** |
+| **P5c-intent** | Hub 客户侧 **intent 层** + inventoryId 精确匹配 + 真机时序修复（§5.4） | **已完成**（2026-07） |
+
+### 5.4 P5c · Hub 客户侧 intent 层（2026-07 · 已实现）
+
+P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，避免表单残留、异步锚点未到位、inventoryId/ifName 失步等时序问题。
+
+#### 5.4.1 代码落点
+
+| 层级 | 文件 | 职责 |
+|------|------|------|
+| **纯逻辑（权威）** | `frontend/.../srv6/srv6TunnelWizardHub.ts` | intent 解析、`hubVrfMode` 推导、LAN 占用态、锚点匹配、校验 |
+| **UI 接线** | `frontend/.../srv6/Create.tsx` | 表单 watch、autofill、mount 清空、`customerSideTouched`、提交 payload |
+| **Hub 状态 API** | `backend/.../sdn/srv6.hub.ts` | `GET .../hub`：`portRegistry[].lanInventoryId`；`tunnels[]` 含 `ceA`/`ceB` |
+| **inventory 标注** | `backend/.../sdn/srv6.hubInventory.ts` | LAN 占用匹配 **`portRegistryLanMatchesInventoryItem`**（id 感知） |
+| **单测** | `srv6TunnelWizardHub.test.ts`（**30**）、`srv6.hub.test.ts` + `srv6.hubInventory.test.ts` | intent / 锚点 / registry 回归 |
+
+#### 5.4.2 判定流水线
+
+```text
+表单 hubLan* / hubCe* + peHubStatus.tunnels
+  → pickHubReuseAnchorPreviewFromStatus（同步 LAN+CE，无需等 fetchSrv6Tunnel）
+  → effectiveAnchor* = async anchor（fetch）∥ preview（status）
+  → resolveHubCustomerSideIntent → inherit_reuse | explicit_dedicated | unset
+  → deriveHubVrfMode（explicit_dedicated 最高优先）
+  → validateHubTunnelInventory
+```
+
+**核心函数**：
+
+| 函数 | 说明 |
+|------|------|
+| `resolveHubCustomerSideIntent` | **唯一意图入口**；显式选非锚点空闲 LAN、CE 偏离、id/if 失步、`customerSideTouched` 且锚点 CE 未到位 → `explicit_dedicated`；锚点 LAN+CE 对齐或未配置客户侧 → `inherit_reuse` |
+| `deriveHubVrfMode` | `customerSideIntent === 'explicit_dedicated'` **最高优先**；`reuse_reusable` 须 `matchesReuseAnchorLan` |
+| `matchesHubReuseAnchorLan` | **`lanInventoryId` 优先**；id 相同但 `ifName` 不同 → **false**（防同口不同 VRF 误判） |
+| `pickHubReuseAnchorPreviewFromStatus` | 从 `peHubStatus` 首条 `REUSE_VRF` 隧道同步锚点；`hubCeUuid` **可选**（CE 尚未写入 status 时不阻塞 LAN 匹配） |
+| `shouldInheritReuseAnchor` | `resolveHubCustomerSideIntent === 'inherit_reuse'` 的语义别名，供 autofill / 只读 UI |
+
+#### 5.4.3 Create.tsx 时序与守卫
+
+| 机制 | 行为 |
+|------|------|
+| **新建 mount 清空** | 无 `editId` 时清空 `hubWan*` / `hubLan*` / `pe*InnerIf`，重置 `hubReuseAnchor` 与 `customerSideTouched`（删隧道后二次创建不继承上一条表单） |
+| **`customerSideTouched`** | state（驱动 intent）+ ref（autofill effect 内读最新值，防竞态） |
+| **autofill 守卫** | 异步 `fetchSrv6Tunnel` 回填锚点前，若当前 LAN 已与锚点 **inventory 不一致**则 **跳过** 覆盖（用户已选独立专网口） |
+| **autofill 匹配** | 使用 `matchesHubReuseAnchorLan`（非仅 `ifName`） |
+| **提交** | 优先 `values.hubLanInventoryId` 写入 `hubBindings` |
+
+#### 5.4.4 产品判定表（真机回归 · 2026-07）
+
+| 用户操作 | 期望 `hubVrfMode` |
+|----------|-------------------|
+| Hub 已有 REUSE 锚点，**未动**客户侧（默认继承） | `REUSE_VRF` |
+| 显式选 **非锚点空闲 LAN**（通常另一物理口 / inventory 行） | `DEDICATED_VRF` |
+| 显式选 **非锚点 CE** | `DEDICATED_VRF` |
+| 选回锚点 `reuse_reusable` LAN + 锚点 CE | `REUSE_VRF` |
+| **仅改 Hub WAN** | 不影响 REUSE/DEDICATED |
+
+冒烟用例映射：**HP.9–HP.12**（`testcases.md` §HP）。
+
+#### 5.4.5 真机缺陷修复记录
+
+| 提交 | 现象 | 根因 | 修复要点 |
+|------|------|------|----------|
+| `06adbc01` | 第二条 REUSE 隧道 Step3 误显示 `DEDICATED_VRF` | 空闲 LAN 默认未走继承；WAN 变更误触 `customerSideTouched` | idle + 有锚点时默认 `inherit_reuse`；WAN 与客户侧 touched 分离 |
+| `2a564aa3` | 删 REUSE 第二条后，新 WAN + **不同物理口** + 新 CE 仍显示 `REUSE_VRF` | 默认继承 + 锚点 autofill + **表单残留** + 异步锚点 CE 未到位 | intent 层、`pickHubReuseAnchorPreviewFromStatus`、id 感知 registry、mount 清空、preview CE |
+| `e4e0c2b3` | 前端 production build TS2322 | preview 返回 `hubCeUuid?: string` 与 `Pick<HubReuseAnchor>` 冲突 | preview 类型允许 optional `hubCeUuid` |
+
+#### 5.4.6 已知遗留（P2 · 未做）
+
+- `deriveHubVrfMode` 仍有多路径冗余，可进一步收敛为 intent 单入口输出。
+- legacy 隧道无 `lanInventoryId` 时仍可能 ifName 级误判（建议数据补全 / 迁移）。
+- 组件未 unmount 的极端导航路径仍可能残留表单（可考虑 route key）。
 
 ---
 
@@ -228,6 +304,8 @@ Hub 公网口 → Hub 内网口 → Hub CE（ceA/ceB 槽位）
 | REUSE RD/RT | `backend/src/routes/sdn/srv6.reuseRdRt.ts`、`frontend/.../srv6/srv6RdRt.ts` |
 | HUB_PE 角色向导 | `frontend/src/pages/sdncc/ibr/routers/wizards/PEWizard.tsx` |
 | 隧道创建 | `frontend/src/pages/sdncc/ibr/srv6/Create.tsx` |
+| Hub 客户侧 intent（纯逻辑） | `frontend/.../srv6/srv6TunnelWizardHub.ts` · `srv6TunnelWizardHub.test.ts` |
+| Hub status / portRegistry | `backend/.../sdn/srv6.hub.ts` |
 
 ---
 
@@ -238,3 +316,4 @@ Hub 公网口 → Hub 内网口 → Hub CE（ceA/ceB 槽位）
 | 2026-06 | 初版：汇总 Hub 多 WAN/LAN UX 评审结论、RD/RT REUSE Spoke 独立 RD、inventory 单一入口、阻断矩阵与遗留 L-1～L-5 |
 | 2026-06 | P1–P4 完成；P4 移除 `tunnel_inline`；全量 Code Review 见 `testcases.md` §HP Review 关注项 |
 | 2026-06 | P5：真机验收 UX 修订（Spoke 单 LAN、Hub BGP 分层、隧道 Hub 列线性流、隐式 `hubVrfMode`） |
+| 2026-07 | **P5c-intent**：`resolveHubCustomerSideIntent` 层、inventoryId 锚点匹配、preview CE、表单 mount 清空；真机修复 `06adbc01` / `2a564aa3` / `e4e0c2b3`；冒烟 **HP.9–HP.12** |

@@ -31,7 +31,7 @@
 | **HP-P1** | P1 | HUB_PE 向导 WAN/LAN **editable-card** Tab；Tab 栏 `+` 增页；删页后表单同步 | `peWizardTabEdit.test.ts` |
 | **HP-P2** | P2 | 每 WAN Tab：**IPv4 目的/优先级**、**IPv6 目的/网关**；保存后基线含 `ipv4_route`/`ipv6_route` + `_towerHubInventory`；Hub 时隐藏全局「静态路由（WAN）」 | `peWizardWanRoutes.test.ts` · `hubPeInventory.test.ts` |
 | **HP-P2b** | P2b | Hub 隧道 SID/64 `via` 与 **所选 WAN** 网关一致；无网关时回退对端 PE 公网 IPv6 | `srv6Ipv6.test.ts` · `srv6Archive.test.ts` |
-| **HP-P3** | P3 | 隧道向导 **Hub 分区**（①公网 WAN ②客户侧 ③LAN）；**无 inline 新建**；首条 REUSE 必选 Hub LAN+CE；后续 REUSE 继承锚点只读 | `srv6TunnelWizardHub.test.ts` |
+| **HP-P3** | P3 | 隧道向导 Hub 列线性流；隐式 `hubVrfMode`；**P5c-intent**（§14.17.10 / hub-pe-spec §5.4）intent 层 + inventoryId 锚点匹配 | `srv6TunnelWizardHub.test.ts`（**30**） |
 | **HP-P4** | P4 | 保存 **不提交** `hubInventoryInline`；后端无 inline append；遗留 `tunnel_inline` 读库规范为 `role_wizard` | `srv6.hubInventory.test.ts` |
 
 ### HP 手工验收（测试机 · 建议顺序）
@@ -46,6 +46,17 @@
 | HP.6 | 路线 B「独立」：选 **空闲 LAN** + Hub WAN | 成功；Hub 侧新增 dedicated `bgp[N]` | |
 | HP.7 | inventory 为空时打开隧道向导 | **阻断**创建；文案含「HUB_PE 角色配置向导」 | |
 | HP.8 | 删 HP.3–HP.6 测试隧道（勾选回退） | neighbor/私网段摘净；**inventory 口项仍在** Hub 基线 | |
+
+**P5c-intent 真机回归（2026-07 · 部署后 Ctrl+F5）**：
+
+| # | 操作 | 通过标准 | ☐ |
+|---|------|----------|---|
+| HP.9 | 在 HP.3 首条 REUSE 存在时，建 **第二条 REUSE**：新 Spoke + **新 Hub WAN**，Hub LAN/CE **不动** | Step3 / 提交档案 `hubVrfMode=REUSE_VRF`；Hub LAN/CE 与 T1 一致 | |
+| HP.10 | 删除 HP.9 第二条；新建：**新 WAN** + **另一物理口（空闲 LAN inventory 行）** + **新 CE** | `hubVrfMode=DEDICATED_VRF`；非锚点 LAN/CE | |
+| HP.11 | 删除 HP.10 独立专网隧道；选回锚点 `reuse_reusable` LAN + 锚点 CE | 恢复 `REUSE_VRF` | |
+| HP.12 | 在 REUSE 继承态下 **仅改 Hub WAN** | `hubVrfMode` **仍为** `REUSE_VRF` | |
+
+**自动化**：`srv6TunnelWizardHub.test.ts`（intent / 锚点 / id 匹配）；合入前必绿。
 
 **Review 关注（发版前必验）**：
 
@@ -196,6 +207,7 @@
 - [ ] **HP.3–HP.5**：首条/后续 REUSE 隧道 + WAN 复用标注
 - [ ] **HP.6**：路线 B DEDICATED + 空闲 LAN
 - [ ] **HP.7–HP.8**：inventory 阻断 + 删隧道不回收 inventory
+- [ ] **HP.9–HP.12**：P5c-intent REUSE/DEDICATED 真机回归
 - [ ] **R-HP-1**（Review 关注）：DEDICATED 首条 + REUSE 第二条锚点是否正确
 
 ### P5.2b 非回归（合入门禁 · 须先于 8.1）
@@ -403,7 +415,7 @@
 | 项 | ☐ |
 |----|---|
 | 本地自动化（backend sdn + frontend P1–P4 单测） | |
-| **§HP** HP.1–HP.8 + R-HP-1 | |
+| **§HP** HP.1–HP.8 + **HP.9–HP.12** + R-HP-1 | |
 | NR-1 / NR-2 / NR-3 | |
 | R1 / R2（S 型） | |
 | R-GW-1（网关 + 直连对照） | |

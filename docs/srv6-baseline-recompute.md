@@ -880,6 +880,8 @@ lanInventory[]: {
 
 **修订（2026-06-22）**：用户界面拆为 **两条正交轴**（§14.17.1）——**轴 1 · 客户内网** 仍映射 `hubVrfMode`（路线 A/B）；**轴 2 · Hub 公网 WAN** 独立选择（可复用口 / 独立口），**不与** 路线 A/B 绑死。路线 A 下 **允许** WAN 与 T1 不同口。
 
+**修订（2026-07）**：轴 1 推导下沉 **intent 层**（§14.17.10）；UI 仍不展示枚举名；`hubVrfMode` 由 `resolveHubCustomerSideIntent` + LAN 选项态共同决定，`explicit_dedicated` 优先于默认继承。
+
 ---
 
 ### 14.17 Hub 互联交互定稿（2026-06-22）
@@ -1066,6 +1068,29 @@ Spoke 槽位 CE 与 Hub 侧 CE **独立选择**；路线 A 默认对齐首条隧
 | **NR-4** | 路线 B（8.1） | **在 NR-1～NR-3 全绿后** 再验；路线 B 失败 **不得** 以改动 S/A 路径为代价修复 |
 
 **评估结论**：P5.2b 与现有流程 **可互不影响**——前提是 merge/archive/Create **按拓扑与 `hubVrfMode` 策略分发**（与 §14.0.5 一致），且单测 **NR-1～NR-3** 作为合入前硬门禁。
+
+#### 14.17.10 Hub 客户侧 intent 层（P5c-intent · 2026-07）
+
+> **产品约束权威**：[`srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md) §5.4。本节记录 **实现与档案/API 侧补充**，不重复 UI 文案。
+
+**问题**：P5c 隐式 `hubVrfMode` 仅依赖 LAN 选项态时，真机出现 (1) 第二条 REUSE 误判 `DEDICATED_VRF`；(2) 删 REUSE 第二条后选 **另一物理 LAN** + 新 CE 仍误判 `REUSE_VRF`（表单残留、异步锚点 CE 未到位、registry 仅 ifName 匹配）。
+
+**实现**：
+
+| 层 | 要点 |
+|----|------|
+| **前端纯逻辑** | `srv6TunnelWizardHub.ts`：`resolveHubCustomerSideIntent` → `deriveHubVrfMode`；`matchesHubReuseAnchorLan`（**`lanInventoryId` 优先**）；`pickHubReuseAnchorPreviewFromStatus` |
+| **Create.tsx** | `effectiveAnchor* = fetch anchor ∥ status preview`；新建 mount 清空 Hub 字段；`customerSideTouched` state+ref；autofill 守卫 |
+| **后端 Hub API** | `srv6.hub.ts`：`portRegistry[].lanInventoryId`；status `tunnels[]` 含 `ceA`/`ceB` |
+| **inventory 标注** | `srv6.hubInventory.ts`：`portRegistryLanMatchesInventoryItem` — 两侧有 id 时 **精确匹配**，有 id 且不同 **不** fallback ifName |
+
+**档案字段不变**：仍写 `hubVrfMode` + `hubBindings.{wanIf,lanIf,wanInventoryId,lanInventoryId}`；intent 仅影响 **创建向导推导**，不改变 merge/recompute 契约（§14.4.6）。
+
+**自动化**：`srv6TunnelWizardHub.test.ts`（**30**）；`srv6.hub.test.ts` · `srv6.hubInventory.test.ts` registry id 用例。
+
+**真机冒烟**：`testcases.md` **HP.9–HP.12**。
+
+**修订记录**：`06adbc01`、`2a564aa3`、`e4e0c2b3`（见 hub-pe-spec §5.4.5）。
 
 ---
 
@@ -1372,5 +1397,6 @@ flowchart LR
 | 2026-06-17 | **§14.14 澄清**：仅 UI 文案（IPv6 网关 / 静态路由 WAN）；**保持** SID/64 `via`、`::/0` + `nexthop-vrf 0`；S 类型 **零行为**、**无** 单独 R1/R2 |
 | 2026-06-17 | **第四轮闭合**：§14.14.1 SID/64 `via` 择优（网关 / 对端 IPv6）；§18 并行开发计划；Q-GW-1 最终定稿 |
 | 2026-06-22 | **§14.17 Hub 互联交互定稿**：双轴 UI；`hubInventory`；内联新建永久入基线；取消手工填口名；**§14.17.9 非回归边界**；**WS-2b** |
+| 2026-07 | **§14.17.10 P5c-intent**：Hub 客户侧 intent 层、inventoryId 锚点匹配、Hub status preview CE；真机 HP.9–HP.12 |
 | 2026-06-23 | **WS-2b 代码合入**：`srv6.hubInventory`、merge 物化、Create/PEWizard 双轴 UI；NR-1～NR-3 单测；`testcases.md` 8.1 扩充 |
 | 2026-06-23 | **P5.2b.1**：PUT `hubInventoryInline`；`srv6.vrLock.test.ts`；`hubPeInventory.test.ts` |
