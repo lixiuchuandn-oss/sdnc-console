@@ -12,6 +12,7 @@ import {
   pickHubReuseAnchorFromTunnel,
   pickHubReuseAnchorPreviewFromStatus,
   resolveHubCustomerSideIntent,
+  resolveHubVrfModeFromWizard,
   resolveSelectedHubLanState,
   shouldInheritReuseAnchor,
   validateHubTunnelInventory,
@@ -235,7 +236,24 @@ describe('srv6TunnelWizardHub P3/P5', () => {
     ).toBe(false);
   });
 
-  it('resolveHubCustomerSideIntent explicit_dedicated when CE touched before anchor CE loaded', () => {
+  it('resolveHubCustomerSideIntent inherit_reuse on anchor LAN even when CE differs', () => {
+    expect(
+      resolveHubCustomerSideIntent({
+        isFirstHubTunnel: false,
+        hasReuseAnchor: true,
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 2/3/0',
+        anchorLanInventoryId: 'lan-9999',
+        anchorLanIf: 'GigabitEthernet 2/3/0',
+        hubCeUuid: 'ce-new',
+        anchorCeUuid: 'ce-anchor',
+        selectedLanState: 'reuse_reusable',
+        customerSideTouched: true,
+      }),
+    ).toBe('inherit_reuse');
+  });
+
+  it('resolveHubCustomerSideIntent inherit_reuse when anchor LAN matches before anchor CE loaded', () => {
     expect(
       resolveHubCustomerSideIntent({
         isFirstHubTunnel: false,
@@ -248,7 +266,7 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         selectedLanState: 'idle',
         customerSideTouched: true,
       }),
-    ).toBe('explicit_dedicated');
+    ).toBe('inherit_reuse');
   });
 
   it('resolveHubCustomerSideIntent explicit_dedicated when hubLan desynced', () => {
@@ -322,7 +340,7 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         anchorCeUuid: 'ce-anchor',
         selectedLanState: 'reuse_reusable',
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('resolveSelectedHubLanState prefers ifName when inventory id desynced', () => {
@@ -399,6 +417,19 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         hasReuseAnchorOnHub: true,
         selectedLanState: 'idle',
         inheritReuseAnchor: true,
+      }),
+    ).toBe('REUSE_VRF');
+  });
+
+  it('deriveHubVrfMode REUSE on anchor LAN even when CE differs from anchor', () => {
+    expect(
+      deriveHubVrfMode({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        selectedLanState: 'reuse_reusable',
+        matchesReuseAnchorLan: true,
+        hubCeDiffersFromAnchor: true,
+        customerSideIntent: 'inherit_reuse',
       }),
     ).toBe('REUSE_VRF');
   });
@@ -550,5 +581,28 @@ describe('srv6TunnelWizardHub P3/P5', () => {
         selectedLanState: 'idle',
       }).ok,
     ).toBe(true);
+  });
+
+  it('resolveHubVrfModeFromWizard REUSE for reuse_reusable anchor LAN with non-anchor CE', () => {
+    expect(
+      resolveHubVrfModeFromWizard({
+        isFirstHubTunnel: false,
+        hasReuseAnchorOnHub: true,
+        hasReuseAnchorLoaded: false,
+        hubLanInventoryId: 'lan-9999',
+        hubLanIf: 'GigabitEthernet 2/3/0',
+        hubCeUuid: 'ce-11',
+        effectiveAnchorLanInventoryId: 'lan-9999',
+        effectiveAnchorLanIf: 'GigabitEthernet 2/3/0',
+        effectiveAnchorCeUuid: 'ce-22',
+        lanOptions: [
+          { value: 'lan-9999', ifName: 'GigabitEthernet 2/3/0', lanState: 'reuse_reusable' },
+        ],
+        portRegistry: [
+          { lanIf: 'GigabitEthernet 2/3/0', lanInventoryId: 'lan-9999', hubVrfMode: 'REUSE_VRF' },
+        ],
+        customerSideTouched: true,
+      }),
+    ).toBe('REUSE_VRF');
   });
 });

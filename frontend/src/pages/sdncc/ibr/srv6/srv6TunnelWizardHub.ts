@@ -276,6 +276,14 @@ export type DeriveHubVrfModeInput = {
 
 /** P5c：由 Hub 内网口选项态隐式推导 hubVrfMode */
 export const deriveHubVrfMode = (input: DeriveHubVrfModeInput): HubVrfMode => {
+  // 后续隧道已对齐锚点 LAN（inventoryId/ifName）：路线 A，CE 单独校验不切换模式
+  if (
+    !input.isFirstHubTunnel &&
+    input.hasReuseAnchorOnHub &&
+    input.matchesReuseAnchorLan
+  ) {
+    return 'REUSE_VRF';
+  }
   if (input.customerSideIntent === 'explicit_dedicated') {
     return 'DEDICATED_VRF';
   }
@@ -306,6 +314,79 @@ export const deriveHubVrfMode = (input: DeriveHubVrfModeInput): HubVrfMode => {
     return 'DEDICATED_VRF';
   }
   return 'DEDICATED_VRF';
+};
+
+export type ResolveHubVrfModeFromWizardInput = {
+  isFirstHubTunnel: boolean;
+  hasReuseAnchorOnHub: boolean;
+  hasReuseAnchorLoaded: boolean;
+  hubLanInventoryId?: string;
+  hubLanIf?: string;
+  hubCeUuid?: string;
+  effectiveAnchorLanInventoryId?: string;
+  effectiveAnchorLanIf?: string;
+  effectiveAnchorCeUuid?: string;
+  lanOptions: HubLanOptionRow[];
+  portRegistry?: HubPortRegistryLanRef[] | null;
+  customerSideTouched?: boolean;
+};
+
+/** 从表单快照统一推导 hubVrfMode（确认步 Form 卸载时仍可读 form store） */
+export const resolveHubVrfModeFromWizard = (
+  input: ResolveHubVrfModeFromWizardInput,
+): HubVrfMode => {
+  const hasReuseAnchor = input.hasReuseAnchorOnHub || input.hasReuseAnchorLoaded;
+  const { state: selectedLanState, desynced: hubLanDesynced } = resolveSelectedHubLanState({
+    hubLanInventoryId: input.hubLanInventoryId,
+    hubLanIf: input.hubLanIf,
+    lanOptions: input.lanOptions,
+    portRegistry: input.portRegistry,
+  });
+  const matchesReuseAnchorLan = matchesHubReuseAnchorLan({
+    hubLanInventoryId: input.hubLanInventoryId,
+    hubLanIf: input.hubLanIf,
+    anchorLanInventoryId: input.effectiveAnchorLanInventoryId,
+    anchorLanIf: input.effectiveAnchorLanIf,
+  });
+  const customerSideIntent = resolveHubCustomerSideIntent({
+    isFirstHubTunnel: input.isFirstHubTunnel,
+    hasReuseAnchor,
+    hubLanInventoryId: input.hubLanInventoryId,
+    hubLanIf: input.hubLanIf,
+    selectedLanState,
+    anchorLanInventoryId: input.effectiveAnchorLanInventoryId,
+    anchorLanIf: input.effectiveAnchorLanIf,
+    hubCeUuid: input.hubCeUuid,
+    anchorCeUuid: input.effectiveAnchorCeUuid,
+    customerSideTouched: input.customerSideTouched,
+    hubLanDesynced,
+  });
+  const inheritReuseAnchor = shouldInheritReuseAnchor({
+    isFirstHubTunnel: input.isFirstHubTunnel,
+    hasReuseAnchor,
+    hubLanInventoryId: input.hubLanInventoryId,
+    hubLanIf: input.hubLanIf,
+    anchorLanInventoryId: input.effectiveAnchorLanInventoryId,
+    anchorLanIf: input.effectiveAnchorLanIf,
+    selectedLanState,
+    hubCeUuid: input.hubCeUuid,
+    anchorCeUuid: input.effectiveAnchorCeUuid,
+    hubLanDesynced,
+    customerSideTouched: input.customerSideTouched,
+  });
+  return deriveHubVrfMode({
+    isFirstHubTunnel: input.isFirstHubTunnel,
+    hasReuseAnchorOnHub: input.hasReuseAnchorOnHub,
+    selectedLanState,
+    inheritReuseAnchor,
+    hubLanDesynced,
+    hubCeDiffersFromAnchor: hubCeDiffersFromAnchor(
+      input.hubCeUuid,
+      input.effectiveAnchorCeUuid,
+    ),
+    matchesReuseAnchorLan,
+    customerSideIntent,
+  });
 };
 
 export type ValidateHubTunnelFormInput = {
@@ -450,7 +531,6 @@ export const resolveHubCustomerSideIntent = (
     anchorLanInventoryId: input.anchorLanInventoryId,
     anchorLanIf: input.anchorLanIf,
   });
-  const ceDiffers = hubCeDiffersFromAnchor(input.hubCeUuid, input.anchorCeUuid);
   const selId = String(input.hubLanInventoryId ?? '').trim();
   const selIf = normIf(input.hubLanIf);
   const hasLanSelection = !!(selId || selIf);
@@ -460,14 +540,18 @@ export const resolveHubCustomerSideIntent = (
     return 'explicit_dedicated';
   }
 
-  if (ceDiffers) return 'explicit_dedicated';
   if (hasLanSelection && input.selectedLanState === 'idle' && !anchorLanMatch) {
     return 'explicit_dedicated';
   }
   if (input.customerSideTouched && hasLanSelection && !anchorLanMatch) {
     return 'explicit_dedicated';
   }
-  // 用户已改 Hub CE，但锚点 CE 尚未从 preview/fetch 到位：保守判独立专网
+
+  // 已选锚点 LAN（含 reuse_reusable）：路线 A，CE 偏离或锚点 CE 尚未加载也不切换为独立专网
+  if (anchorLanMatch) return 'inherit_reuse';
+  if (input.selectedLanState === 'reuse_reusable' && anchorLanMatch) return 'inherit_reuse';
+
+  // 非锚点 LAN：用户已改 Hub CE，但锚点 CE 尚未到位 — 保守判独立专网
   if (
     input.customerSideTouched &&
     String(input.hubCeUuid ?? '').trim() &&
@@ -476,8 +560,6 @@ export const resolveHubCustomerSideIntent = (
     return 'explicit_dedicated';
   }
 
-  if (anchorLanMatch && !ceDiffers) return 'inherit_reuse';
-  if (input.selectedLanState === 'reuse_reusable' && anchorLanMatch) return 'inherit_reuse';
   if (!hasLanSelection && !input.customerSideTouched) return 'inherit_reuse';
 
   return 'unset';
