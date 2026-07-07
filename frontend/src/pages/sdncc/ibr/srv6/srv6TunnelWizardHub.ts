@@ -517,8 +517,9 @@ export const matchesHubReuseAnchorLan = (input: {
 
 /**
  * 解析 Hub 客户侧用户意图（优先于默认继承）：
- * - explicit_dedicated：显式选了非锚点空闲 LAN 和/或 非锚点 CE
- * - inherit_reuse：锚点 LAN+CE 对齐，或尚未配置客户侧时默认继承
+ * - explicit_dedicated：显式选了非锚点空闲 LAN 和/或 id/if 失步
+ * - inherit_reuse：锚点 LAN 对齐，或尚未配置客户侧时默认继承
+ * 注：Hub CE 偏离 **不** 在此切换 intent（模式由 LAN / inventory 行决定，见 deriveHubVrfMode）
  */
 export const resolveHubCustomerSideIntent = (
   input: ResolveHubCustomerSideIntentInput,

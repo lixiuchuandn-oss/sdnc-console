@@ -231,25 +231,27 @@ P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，�
 | **UI 接线** | `frontend/.../srv6/Create.tsx` | 表单 watch、autofill、mount 清空、`customerSideTouched`、提交 payload |
 | **Hub 状态 API** | `backend/.../sdn/srv6.hub.ts` | `GET .../hub`：`portRegistry[].lanInventoryId`；`tunnels[]` 含 `ceA`/`ceB` |
 | **inventory 标注** | `backend/.../sdn/srv6.hubInventory.ts` | LAN 占用匹配 **`portRegistryLanMatchesInventoryItem`**（id 感知） |
-| **单测** | `srv6TunnelWizardHub.test.ts`（**30**）、`srv6.hub.test.ts` + `srv6.hubInventory.test.ts` | intent / 锚点 / registry 回归 |
+| **单测** | `srv6TunnelWizardHub.test.ts`（**33**）、`srv6.hub.test.ts` + `srv6.hubInventory.test.ts` | intent / 锚点 / registry / 表单快照回归 |
 
 #### 5.4.2 判定流水线
 
 ```text
 表单 hubLan* / hubCe* + peHubStatus.tunnels
+  → hubFormSnapshot（useWatch ∥ form store；确认步 Form 卸载仍可读）
   → pickHubReuseAnchorPreviewFromStatus（同步 LAN+CE，无需等 fetchSrv6Tunnel）
   → effectiveAnchor* = async anchor（fetch）∥ preview（status）
-  → resolveHubCustomerSideIntent → inherit_reuse | explicit_dedicated | unset
-  → deriveHubVrfMode（explicit_dedicated 最高优先）
+  → resolveHubVrfModeFromWizard（= intent + deriveHubVrfMode 单入口）
   → validateHubTunnelInventory
+  → 提交时 computeHubVrfModeForValues 再次从 form 快照重算
 ```
 
 **核心函数**：
 
 | 函数 | 说明 |
 |------|------|
-| `resolveHubCustomerSideIntent` | **唯一意图入口**；显式选非锚点空闲 LAN、CE 偏离、id/if 失步、`customerSideTouched` 且锚点 CE 未到位 → `explicit_dedicated`；锚点 LAN+CE 对齐或未配置客户侧 → `inherit_reuse` |
-| `deriveHubVrfMode` | `customerSideIntent === 'explicit_dedicated'` **最高优先**；`reuse_reusable` 须 `matchesReuseAnchorLan` |
+| `resolveHubCustomerSideIntent` | **唯一意图入口**；显式选 **非锚点** 空闲 LAN、id/if 失步 → `explicit_dedicated`；**已对齐锚点 LAN** → `inherit_reuse`（**CE 偏离不切换模式**） |
+| `deriveHubVrfMode` | **锚点 LAN 对齐**（`matchesReuseAnchorLan`）→ 优先 `REUSE_VRF`；其后 `explicit_dedicated`；`reuse_reusable` 须锚点匹配 |
+| `resolveHubVrfModeFromWizard` | Create / 提交共用：封装 LAN 占用态 + intent + `deriveHubVrfMode` |
 | `matchesHubReuseAnchorLan` | **`lanInventoryId` 优先**；id 相同但 `ifName` 不同 → **false**（防同口不同 VRF 误判） |
 | `pickHubReuseAnchorPreviewFromStatus` | 从 `peHubStatus` 首条 `REUSE_VRF` 隧道同步锚点；`hubCeUuid` **可选**（CE 尚未写入 status 时不阻塞 LAN 匹配） |
 | `shouldInheritReuseAnchor` | `resolveHubCustomerSideIntent === 'inherit_reuse'` 的语义别名，供 autofill / 只读 UI |
@@ -258,6 +260,8 @@ P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，�
 
 | 机制 | 行为 |
 |------|------|
+| **hubFormSnapshot** | `useWatch` 为空时回退 `form.getFieldsValue()` / `formValues`；依赖 `current` 在确认步重算 |
+| **提交重算** | `computeHubVrfModeForValues(values)` 与 UI 同源，避免 Step1 Alert 与 Step3 概要不一致 |
 | **新建 mount 清空** | 无 `editId` 时清空 `hubWan*` / `hubLan*` / `pe*InnerIf`，重置 `hubReuseAnchor` 与 `customerSideTouched`（删隧道后二次创建不继承上一条表单） |
 | **`customerSideTouched`** | state（驱动 intent）+ ref（autofill effect 内读最新值，防竞态） |
 | **autofill 守卫** | 异步 `fetchSrv6Tunnel` 回填锚点前，若当前 LAN 已与锚点 **inventory 不一致**则 **跳过** 覆盖（用户已选独立专网口） |
@@ -270,11 +274,12 @@ P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，�
 |----------|-------------------|
 | Hub 已有 REUSE 锚点，**未动**客户侧（默认继承） | `REUSE_VRF` |
 | 显式选 **非锚点空闲 LAN**（通常另一物理口 / inventory 行） | `DEDICATED_VRF` |
-| 显式选 **非锚点 CE** | `DEDICATED_VRF` |
+| 选 **锚点 / reuse_reusable LAN**（VRF 9999 · 可复用），Hub CE **可为非锚点 CE** | **`REUSE_VRF`**（模式由 **LAN** 决定；CE 可单独提示/校验） |
 | 选回锚点 `reuse_reusable` LAN + 锚点 CE | `REUSE_VRF` |
 | **仅改 Hub WAN** | 不影响 REUSE/DEDICATED |
+| Step1 Alert 与 Step3「客户侧模式」概要 | **须一致**（`hubFormSnapshot` + 提交重算） |
 
-冒烟用例映射：**HP.9–HP.12**（`testcases.md` §HP）。
+冒烟用例映射：**HP.9–HP.13**（`testcases.md` §HP）。
 
 #### 5.4.5 真机缺陷修复记录
 
@@ -283,6 +288,7 @@ P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，�
 | `06adbc01` | 第二条 REUSE 隧道 Step3 误显示 `DEDICATED_VRF` | 空闲 LAN 默认未走继承；WAN 变更误触 `customerSideTouched` | idle + 有锚点时默认 `inherit_reuse`；WAN 与客户侧 touched 分离 |
 | `2a564aa3` | 删 REUSE 第二条后，新 WAN + **不同物理口** + 新 CE 仍显示 `REUSE_VRF` | 默认继承 + 锚点 autofill + **表单残留** + 异步锚点 CE 未到位 | intent 层、`pickHubReuseAnchorPreviewFromStatus`、id 感知 registry、mount 清空、preview CE |
 | `e4e0c2b3` | 前端 production build TS2322 | preview 返回 `hubCeUuid?: string` 与 `Pick<HubReuseAnchor>` 冲突 | preview 类型允许 optional `hubCeUuid` |
+| `0931daab` | 锚点 LAN + 非锚点 CE 误判 DEDICATED；Step1「共用」与 Step3「独立专网」不一致 | 确认步 Form 卸载致 `useWatch` 空；CE 偏离误触发 dedicated | `hubFormSnapshot`、`resolveHubVrfModeFromWizard`、**锚点 LAN 对齐即 REUSE**；`computeHubVrfModeForValues` |
 
 #### 5.4.6 已知遗留（P2 · 未做）
 
@@ -316,4 +322,5 @@ P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，�
 | 2026-06 | 初版：汇总 Hub 多 WAN/LAN UX 评审结论、RD/RT REUSE Spoke 独立 RD、inventory 单一入口、阻断矩阵与遗留 L-1～L-5 |
 | 2026-06 | P1–P4 完成；P4 移除 `tunnel_inline`；全量 Code Review 见 `testcases.md` §HP Review 关注项 |
 | 2026-06 | P5：真机验收 UX 修订（Spoke 单 LAN、Hub BGP 分层、隧道 Hub 列线性流、隐式 `hubVrfMode`） |
-| 2026-07 | **P5c-intent**：`resolveHubCustomerSideIntent` 层、inventoryId 锚点匹配、preview CE、表单 mount 清空；真机修复 `06adbc01` / `2a564aa3` / `e4e0c2b3`；冒烟 **HP.9–HP.12** |
+| 2026-07 | **P5c-intent**：`resolveHubCustomerSideIntent` 层、inventoryId 锚点匹配、preview CE、表单 mount 清空；真机修复 `06adbc01` / `2a564aa3` / `e4e0c2b3`；冒烟 **HP.9–HP.13** |
+| 2026-07 | **P5c-intent.1**（`0931daab`）：`hubFormSnapshot` + `resolveHubVrfModeFromWizard`；锚点 LAN 决定 REUSE；Step1/Step3 模式一致 |

@@ -31,7 +31,7 @@
 | **HP-P1** | P1 | HUB_PE 向导 WAN/LAN **editable-card** Tab；Tab 栏 `+` 增页；删页后表单同步 | `peWizardTabEdit.test.ts` |
 | **HP-P2** | P2 | 每 WAN Tab：**IPv4 目的/优先级**、**IPv6 目的/网关**；保存后基线含 `ipv4_route`/`ipv6_route` + `_towerHubInventory`；Hub 时隐藏全局「静态路由（WAN）」 | `peWizardWanRoutes.test.ts` · `hubPeInventory.test.ts` |
 | **HP-P2b** | P2b | Hub 隧道 SID/64 `via` 与 **所选 WAN** 网关一致；无网关时回退对端 PE 公网 IPv6 | `srv6Ipv6.test.ts` · `srv6Archive.test.ts` |
-| **HP-P3** | P3 | 隧道向导 Hub 列线性流；隐式 `hubVrfMode`；**P5c-intent**（§14.17.10 / hub-pe-spec §5.4）intent 层 + inventoryId 锚点匹配 | `srv6TunnelWizardHub.test.ts`（**30**） |
+| **HP-P3** | P3 | 隧道向导 Hub 列线性流；隐式 `hubVrfMode`；**P5c-intent**（§14.17.10 / hub-pe-spec §5.4）intent 层 + inventoryId 锚点匹配 + 表单快照 | `srv6TunnelWizardHub.test.ts`（**33**） |
 | **HP-P4** | P4 | 保存 **不提交** `hubInventoryInline`；后端无 inline append；遗留 `tunnel_inline` 读库规范为 `role_wizard` | `srv6.hubInventory.test.ts` |
 
 ### HP 手工验收（测试机 · 建议顺序）
@@ -55,8 +55,11 @@
 | HP.10 | 删除 HP.9 第二条；新建：**新 WAN** + **另一物理口（空闲 LAN inventory 行）** + **新 CE** | `hubVrfMode=DEDICATED_VRF`；非锚点 LAN/CE | |
 | HP.11 | 删除 HP.10 独立专网隧道；选回锚点 `reuse_reusable` LAN + 锚点 CE | 恢复 `REUSE_VRF` | |
 | HP.12 | 在 REUSE 继承态下 **仅改 Hub WAN** | `hubVrfMode` **仍为** `REUSE_VRF` | |
+| HP.13 | 删 **8888 独立专网** 后重建：选 **VRF 9999（可复用）** + **非锚点 CE11**；再选 **锚点 CE22** | Step1 Alert 与 Step3 概要 **均为 REUSE**；不因 CE 偏离变 DEDICATED | |
 
-**自动化**：`srv6TunnelWizardHub.test.ts`（intent / 锚点 / id 匹配）；合入前必绿。
+**自动化**：`srv6TunnelWizardHub.test.ts`（**33** 用例 · intent / 锚点 / id 匹配 / 表单快照）；合入前必绿。
+
+**测试机签收（2026-07-07）**：`10.20.49.60` · `gitCommit=0931daab` · HP.9–HP.13 已验。
 
 **Review 关注（发版前必验）**：
 
@@ -207,7 +210,7 @@
 - [ ] **HP.3–HP.5**：首条/后续 REUSE 隧道 + WAN 复用标注
 - [ ] **HP.6**：路线 B DEDICATED + 空闲 LAN
 - [ ] **HP.7–HP.8**：inventory 阻断 + 删隧道不回收 inventory
-- [ ] **HP.9–HP.12**：P5c-intent REUSE/DEDICATED 真机回归
+- [x] **HP.9–HP.13**：P5c-intent REUSE/DEDICATED 真机回归（`0931daab` · 10.20.49.60）
 - [ ] **R-HP-1**（Review 关注）：DEDICATED 首条 + REUSE 第二条锚点是否正确
 
 ### P5.2b 非回归（合入门禁 · 须先于 8.1）
@@ -415,7 +418,7 @@
 | 项 | ☐ |
 |----|---|
 | 本地自动化（backend sdn + frontend P1–P4 单测） | |
-| **§HP** HP.1–HP.8 + **HP.9–HP.12** + R-HP-1 | |
+| **§HP** HP.1–HP.8 + **HP.9–HP.13** + R-HP-1 | |
 | NR-1 / NR-2 / NR-3 | |
 | R1 / R2（S 型） | |
 | R-GW-1（网关 + 直连对照） | |

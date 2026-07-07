@@ -1073,24 +1073,26 @@ Spoke 槽位 CE 与 Hub 侧 CE **独立选择**；路线 A 默认对齐首条隧
 
 > **产品约束权威**：[`srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md) §5.4。本节记录 **实现与档案/API 侧补充**，不重复 UI 文案。
 
-**问题**：P5c 隐式 `hubVrfMode` 仅依赖 LAN 选项态时，真机出现 (1) 第二条 REUSE 误判 `DEDICATED_VRF`；(2) 删 REUSE 第二条后选 **另一物理 LAN** + 新 CE 仍误判 `REUSE_VRF`（表单残留、异步锚点 CE 未到位、registry 仅 ifName 匹配）。
+**问题**：P5c 隐式 `hubVrfMode` 仅依赖 LAN 选项态时，真机出现 (1) 第二条 REUSE 误判 `DEDICATED_VRF`；(2) 删 REUSE 第二条后选 **另一物理 LAN** + 新 CE 仍误判 `REUSE_VRF`；(3) 锚点 `reuse_reusable` LAN + 非锚点 CE 误判 DEDICATED；(4) Step1 Alert「共用」与 Step3 概要「独立专网」不一致（确认步 Form 卸载、`useWatch` 为空）。
 
 **实现**：
 
 | 层 | 要点 |
 |----|------|
-| **前端纯逻辑** | `srv6TunnelWizardHub.ts`：`resolveHubCustomerSideIntent` → `deriveHubVrfMode`；`matchesHubReuseAnchorLan`（**`lanInventoryId` 优先**）；`pickHubReuseAnchorPreviewFromStatus` |
-| **Create.tsx** | `effectiveAnchor* = fetch anchor ∥ status preview`；新建 mount 清空 Hub 字段；`customerSideTouched` state+ref；autofill 守卫 |
+| **前端纯逻辑** | `resolveHubVrfModeFromWizard`（单入口）；`deriveHubVrfMode`：**锚点 LAN 对齐优先 REUSE**；`matchesHubReuseAnchorLan`（**`lanInventoryId` 优先**）；`pickHubReuseAnchorPreviewFromStatus` |
+| **Create.tsx** | **`hubFormSnapshot`**（`useWatch` ∥ `form.getFieldsValue`）；`computeHubVrfModeForValues` 提交重算；`effectiveAnchor*`；mount 清空；autofill 守卫 |
 | **后端 Hub API** | `srv6.hub.ts`：`portRegistry[].lanInventoryId`；status `tunnels[]` 含 `ceA`/`ceB` |
-| **inventory 标注** | `srv6.hubInventory.ts`：`portRegistryLanMatchesInventoryItem` — 两侧有 id 时 **精确匹配**，有 id 且不同 **不** fallback ifName |
+| **inventory 标注** | `srv6.hubInventory.ts`：`portRegistryLanMatchesInventoryItem` — 两侧有 id 时 **精确匹配** |
 
-**档案字段不变**：仍写 `hubVrfMode` + `hubBindings.{wanIf,lanIf,wanInventoryId,lanInventoryId}`；intent 仅影响 **创建向导推导**，不改变 merge/recompute 契约（§14.4.6）。
+**模式规则（2026-07 定稿）**：**Hub 内网口 / inventory 行** 决定 `hubVrfMode`；**锚点 LAN 对齐 → REUSE**，非锚点空闲 LAN → DEDICATED；Hub CE 偏离 **不单独** 切换为 DEDICATED（可另做弱校验/提示）。
 
-**自动化**：`srv6TunnelWizardHub.test.ts`（**30**）；`srv6.hub.test.ts` · `srv6.hubInventory.test.ts` registry id 用例。
+**档案字段不变**：仍写 `hubVrfMode` + `hubBindings.*`；intent 仅影响 **创建向导推导**，不改变 merge/recompute 契约（§14.4.6）。
 
-**真机冒烟**：`testcases.md` **HP.9–HP.12**。
+**自动化**：`srv6TunnelWizardHub.test.ts`（**33**）；`srv6.hub.test.ts` · `srv6.hubInventory.test.ts`。
 
-**修订记录**：`06adbc01`、`2a564aa3`、`e4e0c2b3`（见 hub-pe-spec §5.4.5）。
+**真机冒烟**：`testcases.md` **HP.9–HP.13**；测试机 `10.20.49.60` · `0931daab` 已签收。
+
+**修订记录**：`06adbc01`、`2a564aa3`、`e4e0c2b3`、**`0931daab`**（见 hub-pe-spec §5.4.5）。
 
 ---
 
@@ -1397,6 +1399,7 @@ flowchart LR
 | 2026-06-17 | **§14.14 澄清**：仅 UI 文案（IPv6 网关 / 静态路由 WAN）；**保持** SID/64 `via`、`::/0` + `nexthop-vrf 0`；S 类型 **零行为**、**无** 单独 R1/R2 |
 | 2026-06-17 | **第四轮闭合**：§14.14.1 SID/64 `via` 择优（网关 / 对端 IPv6）；§18 并行开发计划；Q-GW-1 最终定稿 |
 | 2026-06-22 | **§14.17 Hub 互联交互定稿**：双轴 UI；`hubInventory`；内联新建永久入基线；取消手工填口名；**§14.17.9 非回归边界**；**WS-2b** |
-| 2026-07 | **§14.17.10 P5c-intent**：Hub 客户侧 intent 层、inventoryId 锚点匹配、Hub status preview CE；真机 HP.9–HP.12 |
+| 2026-07 | **§14.17.10 P5c-intent**：Hub 客户侧 intent 层、inventoryId 锚点匹配、Hub status preview CE；真机 HP.9–HP.13 |
+| 2026-07 | **§14.17.10.1**（`0931daab`）：`hubFormSnapshot`、`resolveHubVrfModeFromWizard`；锚点 LAN→REUSE；Step1/Step3 一致 |
 | 2026-06-23 | **WS-2b 代码合入**：`srv6.hubInventory`、merge 物化、Create/PEWizard 双轴 UI；NR-1～NR-3 单测；`testcases.md` 8.1 扩充 |
 | 2026-06-23 | **P5.2b.1**：PUT `hubInventoryInline`；`srv6.vrLock.test.ts`；`hubPeInventory.test.ts` |

@@ -63,14 +63,17 @@ SRv6 四端配置管理采用 **「向导基线 + 隧道贡献 + 服务端重算
 | **intent 层** | `resolveHubCustomerSideIntent` → `deriveHubVrfMode`；`explicit_dedicated` 最高优先 |
 | **锚点 preview** | `pickHubReuseAnchorPreviewFromStatus` 从 `GET .../hub` 的 `tunnels[]` 同步 LAN + CE（`ceA`/`ceB`），无需等 `fetchSrv6Tunnel` |
 | **inventoryId 匹配** | 前后端 LAN 占用 / 锚点对齐均以 **`lanInventoryId` 优先**（`matchesHubReuseAnchorLan`、`portRegistryLanMatchesInventoryItem`） |
-| **表单时序** | 新建 mount 清空 Hub 字段；`customerSideTouched` state+ref；autofill 守卫防覆盖用户已选独立 LAN |
+| **表单时序** | 新建 mount 清空 Hub 字段；`customerSideTouched` state+ref；autofill 守卫；**`hubFormSnapshot`**（确认步 Form 卸载回退 form store）；**`resolveHubVrfModeFromWizard`** |
+| **模式规则** | **锚点 LAN 对齐** → `REUSE_VRF`（Hub CE 偏离 **不** 单独切换为 DEDICATED）；非锚点空闲 LAN → `DEDICATED_VRF` |
 | **Hub API** | `portRegistry[].lanInventoryId`；hub status `tunnels[]` 含 `ceA`/`ceB` |
 
-**提交**：`06adbc01`（第二条 REUSE 误判）、`2a564aa3`（独立专网误判 + intent 层）、`e4e0c2b3`（preview 类型 build 修复）。
+**提交**：`06adbc01`（第二条 REUSE 误判）、`2a564aa3`（独立专网误判 + intent 层）、`e4e0c2b3`（preview 类型 build 修复）、**`0931daab`**（确认步表单快照 + 锚点 LAN 决定 REUSE）。
 
-**单测**：`srv6TunnelWizardHub.test.ts` **30**；`srv6.hub.test.ts` + `srv6.hubInventory.test.ts` 补充 registry id 覆盖。
+**单测**：`srv6TunnelWizardHub.test.ts` **33**；`srv6.hub.test.ts` + `srv6.hubInventory.test.ts` 补充 registry id 覆盖。
 
-**冒烟**：`testcases.md` **HP.9–HP.12**（真机回归清单）。
+**冒烟**：`testcases.md` **HP.9–HP.13**（真机回归；**HP.13** 删 8888 专网后重建 + Step1/Step3 一致）。
+
+**测试机签收**：`10.20.49.60` · `gitCommit=0931daab`（2026-07-07）。
 
 **规格详述**：[`srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md) §5.4。
 
@@ -125,7 +128,7 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 | 套件 | 规模（当前） |
 |------|----------------|
 | `backend/src/routes/sdn/*.test.ts` | **106** tests / **13** suites |
-| `frontend/src/pages/sdncc/ibr/srv6/*.test.ts` | **30+** tests / **`srv6TunnelWizardHub`** 等 |
+| `frontend/src/pages/sdncc/ibr/srv6/*.test.ts` | **33+** tests / **`srv6TunnelWizardHub`** 等 |
 | `frontend/src/pages/sdncc/ibr/routers/hubPeInventory.test.ts` | **5** tests / **1** suite |
 
 **P5.2b 新增覆盖**：`srv6.hubInventory.test.ts`、`srv6.merge.test.ts`（materialize + NR-1）、`srv6.scenarios.test.ts`（NR-1～NR-3）、`srv6Archive.test.ts`（inventory WAN IPv6）。**P5.2b.1**：`srv6.vrLock.test.ts`（A11/A12）、`hubPeInventory.test.ts`、`resolveHubBindingsWithInventory`（PUT 内联 append）。
@@ -151,7 +154,8 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 - [x] 前端 `srv6Ipv6` + `srv6Archive` 单测（**11**）
 - [x] **P5.2b.1**：`srv6.vrLock`（A11/A12）、`hubPeInventory`（**5**）、PUT 内联 append
 - [x] P5 场景：`scenarios` PE3、`merge` REUSE/DEDICATED、`hub` C-H1
-- [x] **P5c-intent**：`srv6TunnelWizardHub` **30** 用例；Hub status `lanInventoryId` / preview CE
+- [x] **P5c-intent**：`srv6TunnelWizardHub` **33** 用例；Hub status `lanInventoryId` / preview CE / 表单快照
+- [x] **P5c-intent.1**（`0931daab`）：测试机 `10.20.49.60` 签收
 
 ### 测试机（手工 · 不阻塞发版包合入）
 
@@ -160,7 +164,7 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 - [ ] R3/R4（H1–H3、H6）  
 - [ ] H4/H5/H7 Hub REUSE 删建  
 - [ ] R5–R7、R6 Hub wanIf 锁  
-- [ ] **P5c-intent**：HP.9–HP.12（REUSE/DEDICATED 真机回归）
+- [x] **P5c-intent**：HP.9–HP.13（REUSE/DEDICATED 真机回归 · 2026-07-07 已验）
 - [ ] **P5.2b**：HUB_PE inventory 向导、8.1a–8.1e（路线 B + 内联新建 + inventory 永久保留）
 
 ---
@@ -184,4 +188,5 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 | 2026-06-17 | **P5 代码合入 + WS-4** | Hub 档案/UI/merge/单测；测试机手工清单 |
 | 2026-06-23 | **P5.2b / WS-2b** | Hub inventory、双轴 UI、merge 物化、NR 单测；`testcases.md` 8.1 |
 | 2026-06-23 | **P5.2b.1** | PUT 内联 append、vrLock/hubPeInventory 单测 |
-| 2026-07 | **P5c-intent** | Hub 客户侧 intent 层、inventoryId 锚点匹配、真机修复；`srv6-hub-pe-spec.md` §5.4；HP.9–HP.12 |
+| 2026-07 | **P5c-intent** | Hub 客户侧 intent 层、inventoryId 锚点匹配、真机修复；`srv6-hub-pe-spec.md` §5.4；HP.9–HP.13 |
+| 2026-07 | **P5c-intent.1** | `0931daab`：`hubFormSnapshot`、`resolveHubVrfModeFromWizard`；锚点 LAN→REUSE；测试机签收 |
