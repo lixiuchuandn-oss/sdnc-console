@@ -1,14 +1,14 @@
 /**
- * 虚拟路由器网络 API 服务
- * 
- * 本文件整合了所有与 CSM CTL 虚拟路由器相关的 API 调用，包括：
- * - VR 生命周期管理（创建、更新、删除等）
- * - VR 配置管理（保存、获取、角色设置等）
- * - VR 发现和缓存
+ * IBR 网络 API 服务
+ *
+ * 本文件整合了所有与 CSM CTL IBR 相关的 API 调用，包括：
+ * - IBR 生命周期管理（创建、更新、删除等）
+ * - IBR 配置管理（保存、获取、角色设置等）
+ * - IBR 发现和缓存
  * - ACL（访问控制列表）管理
  * - NAT（网络地址转换）管理
  * 
- * 所有功能最终都围绕 CSM CTL 的虚拟路由器配置管理。
+ * 所有功能最终都围绕 CSM CTL 的 IBR 配置管理。
  * 
  * @module virtualRouterApi
  */
@@ -17,7 +17,7 @@ import { apiRequest, apiPost, apiDelete, apiPatch, getProxyAuthInfo, proxyApiReq
 
 // ============================================================================
 // Part 1: Lifecycle Management (Migrated from vrApi.ts)
-// 虚拟路由器生命周期管理 - 直接通过 /api-proxy 访问 CSM CTL，使用 HMAC 签名
+// IBR 生命周期管理 - 直接通过 /api-proxy 访问 CSM CTL，使用 HMAC 签名
 // ============================================================================
 
 /**
@@ -107,10 +107,10 @@ export const vrApiUtils = {
  */
 export const vrApi = {
   /**
-   * 获取虚拟路由器实例列表（分页）
+   * 获取IBR实例列表（分页）
    * @param pageSize 每页数量，默认 3
    * @param pageNum 页码，默认 1
-   * @returns Promise<any> VR 实例列表数据
+   * @returns Promise<any> IBR实例列表数据
    */
   getVRInstances: async (pageSize: number = 3, pageNum: number = 1) => {
     try {
@@ -119,7 +119,7 @@ export const vrApi = {
       const other = `page_size=${pageSize}&page_num=${pageNum}`;
       return await proxyApiRequest(path, method as 'GET' | 'POST', other);
     } catch (error: any) {
-      logError(`获取VR实例列表失败: ${error.message}`);
+      logError(`获取IBR实例列表失败: ${error.message}`);
       if (error?.code || error?.msg) {
         throw new Error(`[错误码: ${error.code}] ${error.msg}`);
       }
@@ -128,9 +128,9 @@ export const vrApi = {
   },
   
   /**
-   * 获取单个虚拟路由器实例详情
-   * @param vmId 虚拟路由器实例 ID
-   * @returns Promise<any> VR 实例详情数据
+   * 获取单个IBR实例详情
+   * @param vmId IBR实例 ID
+   * @returns Promise<any> IBR实例详情数据
    */
   getVRInstance: async (vmId: string) => {
     try {
@@ -145,8 +145,8 @@ export const vrApi = {
   },
   
   /**
-   * 创建虚拟路由器实例
-   * @param data VR 实例配置数据
+   * 创建IBR实例
+   * @param data IBR实例配置数据
    * @returns Promise<any> 创建结果
    */
   createVRInstance: async (data: any) => {
@@ -162,8 +162,8 @@ export const vrApi = {
   },
   
   /**
-   * 更新虚拟路由器实例
-   * @param vmId 虚拟路由器实例 ID
+   * 更新IBR实例
+   * @param vmId IBR实例 ID
    * @param data 更新的配置数据
    * @returns Promise<any> 更新结果
    */
@@ -180,7 +180,7 @@ export const vrApi = {
   },
   
   /**
-   * 注销 VR 虚机（《VR 控制器接口》2026-05-08：DELETE + `?uuid=`；与注册同路径前缀 `/V2/vrcontrol/VR1/`）
+   * 注销 IBR（《VR 控制器接口》2026-05-08：DELETE + `?uuid=`；与注册同路径前缀 `/V2/vrcontrol/VR1/`）
    * 部分已部署 CSM 仅注册 **POST**（对 DELETE 返回 404），故在 404/405 时回退为 **POST** 同路径 + JSON `{ uuid }`（与 `register` 一样走 body 签名）。
    */
   deleteVRInstance: async (uuid: string) => {
@@ -216,8 +216,8 @@ export const vrApi = {
   },
 
   /**
-   * 获取所有虚拟路由器实例（不分页，最多 1000 条）
-   * @returns Promise<any[]> VR 实例数组，失败时返回空数组
+   * 获取所有IBR实例（不分页，最多 1000 条）
+   * @returns Promise<any[]> IBR实例数组，失败时返回空数组
    */
   getAll: async () => {
     try {
@@ -229,7 +229,7 @@ export const vrApi = {
                    Array.isArray(data) ? data : [];
       return list;
     } catch (e: any) {
-      logError(`获取所有VR实例失败: ${e.message}`);
+      logError(`获取所有IBR实例失败: ${e.message}`);
       return [];
     }
   }
@@ -237,12 +237,12 @@ export const vrApi = {
 
 // ============================================================================
 // Part 2: Configuration Management (Migrated from vrConfigApi.ts & vr2Api.ts)
-// 虚拟路由器配置管理 - 使用后端 API（数据来源为 CSM CTL，但存储在数据库）
+// IBR 配置管理 - 使用后端 API（数据来源为 CSM CTL，但存储在数据库）
 // ============================================================================
 
 /**
- * 获取虚拟路由器配置（从数据库缓存）
- * @param uuid 虚拟路由器 UUID
+ * 获取IBR配置（从数据库缓存）
+ * @param uuid IBR UUID
  * @returns Promise<any | null> VR 配置数据，失败时返回 null
  */
 export const getVRConfig = async (uuid: string, options?: { skipCache?: boolean }) => {
@@ -257,8 +257,8 @@ export const getVRConfig = async (uuid: string, options?: { skipCache?: boolean 
 };
 
 /**
- * 获取虚拟路由器配置（缓存版本，getVRConfig 的别名）
- * @param uuid 虚拟路由器 UUID
+ * 获取IBR配置（缓存版本，getVRConfig 的别名）
+ * @param uuid IBR UUID
  * @returns Promise<any | null> VR 配置数据
  */
 export const getVRConfigCached = getVRConfig;
@@ -289,8 +289,8 @@ export const fetchVrTowerLocalConfigCache = async (
 };
 
 /**
- * 保存虚拟路由器配置到数据库
- * @param uuid 虚拟路由器 UUID
+ * 保存IBR配置到数据库
+ * @param uuid IBR UUID
  * @param config 配置数据
  * @param meta 元数据（可选），包含 cloudId、cloudName、vmId
  * @returns Promise<any> 保存结果
@@ -306,8 +306,8 @@ export const saveVRConfig = async (uuid: string, config: any, meta?: { cloudId?:
 };
 
 /**
- * 设置虚拟路由器角色
- * @param uuid 虚拟路由器 UUID
+ * 设置IBR角色
+ * @param uuid IBR UUID
  * @param role 角色类型：PE（遗留）、SPOKE_PE、HUB_PE、CE、标准、SASE
  * @returns Promise<any> 设置结果
  */
@@ -319,8 +319,24 @@ export const setVRRole = async (
 };
 
 /**
- * 批量获取虚拟路由器角色
- * @param uuids 虚拟路由器 UUID 数组
+ * 批量从 VR2 实时配置回读 IBR 角色（与 IBR Console VR2 面板同源）
+ */
+export const getVRRolesFromVr2 = async (
+  uuids: string[],
+  options?: { skipCache?: boolean },
+): Promise<Record<string, string>> => {
+  const ids = uuids.map((u) => String(u || '').trim()).filter(Boolean);
+  if (ids.length === 0) return {};
+  const qs = `?uuids=${encodeURIComponent(ids.join(','))}`;
+  const json = await apiRequest(`/api/vr-config/roles-vr2${qs}`, {
+    skipCache: options?.skipCache ?? true,
+  });
+  return (json?.data?.roles ?? {}) as Record<string, string>;
+};
+
+/**
+ * 批量获取IBR角色
+ * @param uuids IBR UUID 数组
  * @returns Promise<Record<string, string>> UUID 到角色的映射对象
  */
 export const getVRRoles = async (uuids: string[], options?: { skipCache?: boolean }) => {
@@ -330,8 +346,8 @@ export const getVRRoles = async (uuids: string[], options?: { skipCache?: boolea
 };
 
 /**
- * 从 CSM CTL 获取实时虚拟路由器配置（专家模式）
- * @param uuid 虚拟路由器 UUID
+ * 从 CSM CTL 获取实时IBR配置（专家模式）
+ * @param uuid IBR UUID
  * @returns Promise<any> 实时配置数据
  * @throws 如果 UUID 为空或查询失败会抛出错误
  */
@@ -344,14 +360,14 @@ const fetchVR2 = async (uuid: string): Promise<any> => {
     const json = await apiRequest(`/api/vr-config/${uuid}/realtime`, { skipCache: true });
     return json.data;
   } catch (e: any) {
-    const errorMsg = e?.message || `VR配置查询失败`;
+    const errorMsg = e?.message || `IBR配置查询失败`;
     throw new Error(errorMsg);
   }
 };
 
 /**
- * 获取虚拟路由器实时配置（从 CSM CTL 直接获取）
- * @param uuid 虚拟路由器 UUID
+ * 获取IBR实时配置（从 CSM CTL 直接获取）
+ * @param uuid IBR UUID
  * @returns Promise<any> 实时配置数据
  */
 export const getVR2Config = async (uuid: string): Promise<any> => {
@@ -359,19 +375,19 @@ export const getVR2Config = async (uuid: string): Promise<any> => {
 };
 
 /**
- * 获取虚拟路由器实时配置（原始数据，getVR2Config 的别名）
- * @param uuid 虚拟路由器 UUID
+ * 获取IBR实时配置（原始数据，getVR2Config 的别名）
+ * @param uuid IBR UUID
  * @returns Promise<any> 实时配置数据
  */
 export const getVR2ConfigRaw = getVR2Config;
 
 // ============================================================================
 // Part 3: Discovery & Cache (Migrated from vrCacheApi.ts)
-// 虚拟路由器发现和缓存管理
+// IBR发现和缓存管理
 // ============================================================================
 
 /**
- * 获取虚拟路由器缓存分页列表
+ * 获取IBR缓存分页列表
  * @param pageSize 每页数量，默认 50
  * @param pageNum 页码，默认 1
  * @returns Promise<any> 分页列表数据
@@ -430,7 +446,7 @@ export const fetchVrCacheMergedAll = async (options?: { skipCache?: boolean }) =
 };
 
 /**
- * 获取虚拟路由器实时列表（从 CSM CTL）
+ * 获取IBR实时列表（从 CSM CTL）
  * @param pageSize 每页数量，默认 50
  * @param pageNum 页码，默认 1
  * @returns Promise<any> 实时列表数据
@@ -441,7 +457,7 @@ export const fetchVrRealtimeList = async (pageSize: number = 50, pageNum: number
 };
 
 /**
- * 更新或插入虚拟路由器缓存
+ * 更新或插入IBR缓存
  * @param pageNum 页码
  * @param pageSize 每页数量
  * @param data 缓存数据
@@ -452,7 +468,7 @@ export const upsertVrCache = async (pageNum: number, pageSize: number, data: any
 };
 
 /**
- * 标准化虚拟路由器行数据，提取 uuid 和 name
+ * 标准化IBR行数据，提取 uuid 和 name
  * @param rows 原始行数据数组
  * @returns Array<{uuid: string, name: string}> 标准化后的数组，只包含有效的 uuid
  */
@@ -461,7 +477,7 @@ export const normalizeVrRows = (rows: any[]): Array<{ uuid: string; name: string
   return list
     .map((item: any) => ({
       uuid: item.uuid || item.vm_id || item.id || item.vmId || item.vm_uuid || '',
-      name: item.name || item.vm_name || item.vmName || item.uuid || '未命名VR',
+      name: item.name || item.vm_name || item.vmName || item.uuid || '未命名IBR',
     }))
     .filter(v => v.uuid);
 };
@@ -479,7 +495,7 @@ export interface ACLGroupBinding {
   id: string;
   /** ACL 组 ID */
   aclGroupId: string;
-  /** 虚拟路由器 ID */
+  /** IBR ID */
   vrId: string;
 }
 
@@ -495,7 +511,7 @@ export interface ACLGroup {
   aclId?: number;
   /** 描述（可选） */
   description?: string;
-  /** 虚拟路由器 ID（可选） */
+  /** IBR ID（可选） */
   vrId?: string;
   /** 规则列表（可选） */
   rules?: ACLRule[];
@@ -517,7 +533,7 @@ export interface ACLRule {
   name: string;
   /** 描述（可选） */
   description?: string;
-  /** 虚拟路由器 ID */
+  /** IBR ID */
   vrId: string;
   /** 所属组 ID（可选） */
   groupId?: string;
@@ -541,7 +557,7 @@ export interface ACLRule {
 
 /**
  * 获取 ACL 组列表
- * @param vrId 虚拟路由器 ID（可选）
+ * @param vrId IBR ID（可选）
  * @returns Promise<any>
  */
 export const getACLGroups = async (vrId?: string, options?: { skipCache?: boolean }) => {
@@ -578,9 +594,9 @@ export const deleteACLGroup = async (id: string) => {
 };
 
 /**
- * 将 ACL 组绑定到虚拟路由器
+ * 将 ACL 组绑定到IBR
  * @param groupId ACL 组 ID
- * @param vrId 虚拟路由器 ID
+ * @param vrId IBR ID
  * @returns Promise<any>
  */
 export const bindACLGroupToVR = async (groupId: string, vrId: string) => {
@@ -588,9 +604,9 @@ export const bindACLGroupToVR = async (groupId: string, vrId: string) => {
 };
 
 /**
- * 从虚拟路由器解绑 ACL 组
+ * 从IBR解绑 ACL 组
  * @param groupId ACL 组 ID
- * @param vrId 虚拟路由器 ID
+ * @param vrId IBR ID
  * @returns Promise<any>
  */
 export const unbindACLGroupFromVR = async (groupId: string, vrId: string) => {
@@ -618,7 +634,7 @@ export const addACLRuleToGroup = async (groupId: string, data: Partial<ACLRule>)
 
 /**
  * 获取 ACL 规则列表（传统/直接 API）
- * @param vrId 虚拟路由器 ID（可选）
+ * @param vrId IBR ID（可选）
  * @returns Promise<any>
  */
 export const getACLRules = async (vrId?: string, options?: { skipCache?: boolean }) => {
@@ -655,80 +671,69 @@ export const deleteACLRule = async (id: string) => {
 };
 
 /**
- * 推送 ACL 配置到虚拟路由器（推送到 CSM CTL）
- * @param vrId 虚拟路由器 ID
- * @returns Promise<any>
+ * 推送 ACL 配置到IBR（推送到 CSM CTL）
+ * @param vrId IBR ID
+ * @param options.acknowledgeDrift 用户已确认覆盖设备侧历史策略
  */
-export const pushACLConfig = async (vrId: string) => {
-  return await apiPost('/api/networks/acl/deploy/push', { vrId });
+export const pushACLConfig = async (
+  vrId: string,
+  options?: { acknowledgeDrift?: boolean },
+) => {
+  return await apiPost('/api/networks/acl/deploy/push', {
+    vrId,
+    acknowledgeDrift: options?.acknowledgeDrift === true,
+  });
 };
 
 // ============================================================================
 // Part 5: NAT (Network Address Translation) Management
-// 网络地址转换管理 - 最终推送到 CSM CTL VR 配置
+// 平台表 + sync vr_config；下发走 deploy/push
 // ============================================================================
 
-/**
- * NAT 规则接口
- */
-export interface NATRule {
-  /** 规则 ID */
+/** NAT 静态映射列表行（与 GET /api/networks/nat 一致） */
+export interface NATStaticMappingRow {
   id: string;
-  /** 规则名称 */
-  name: string;
-  /** 描述（可选） */
-  description?: string;
-  /** 虚拟路由器 ID */
   vrId: string;
-  /** NAT 类型：SNAT（源地址转换）、DNAT（目标地址转换）、静态 NAT */
-  type: 'snat' | 'dnat' | 'static';
-  /** 网络接口（可选） */
-  interface?: string;
-  /** 原始源 IP（可选） */
-  originalSourceIp?: string;
-  /** 原始目标 IP（可选） */
-  originalDestinationIp?: string;
-  /** 原始源端口（可选） */
-  originalSourcePort?: string;
-  /** 原始目标端口（可选） */
-  originalDestinationPort?: string;
-  /** 转换后的源 IP（可选） */
-  translatedSourceIp?: string;
-  /** 转换后的目标 IP（可选） */
-  translatedDestinationIp?: string;
-  /** 转换后的源端口（可选） */
-  translatedSourcePort?: string;
-  /** 转换后的目标端口（可选） */
-  translatedDestinationPort?: string;
-  /** 创建时间 */
+  groupId: number;
+  range: string[];
+  rangeText: string;
+  type: 'static';
+  proto: string;
+  inside: string;
+  localPort: number;
+  outside: string;
+  externalPort: number;
+  vrf?: string;
+  twiceNat?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
-/**
- * 获取 NAT 规则列表
- * @param vrId 虚拟路由器 ID（可选）
- * @returns Promise<any>
- */
-export const getNATRules = async (vrId?: string) => {
-  const qs = vrId ? `?vrId=${encodeURIComponent(vrId)}` : '';
-  return await apiRequest(`/api/networks/nat${qs}`);
+export type CreateNATStaticMappingPayload = {
+  vrId: string;
+  groupId: number;
+  range?: string | string[];
+  proto: string;
+  inside: string;
+  localPort: number;
+  outside: string;
+  externalPort: number;
+  vrf?: string;
+  twiceNat?: string;
 };
 
-/**
- * 创建 NAT 规则
- * @param data NAT 规则数据
- * @returns Promise<any>
- */
-export const createNATRule = async (data: Partial<NATRule>) => {
+export const getNATStaticMappings = async (vrId?: string, options?: { skipCache?: boolean }) => {
+  const qs = vrId ? `?vrId=${encodeURIComponent(vrId)}` : '';
+  return await apiRequest(`/api/networks/nat${qs}`, {
+    skipCache: options?.skipCache ?? false,
+  });
+};
+
+export const createNATStaticMapping = async (data: CreateNATStaticMappingPayload) => {
   return await apiPost('/api/networks/nat', data);
 };
 
-/**
- * 删除 NAT 规则
- * @param id NAT 规则 ID
- * @returns Promise<any>
- */
-export const deleteNATRule = async (id: string) => {
+export const deleteNATStaticMapping = async (id: string) => {
   return await apiDelete(`/api/networks/nat/${id}`);
 };
 
@@ -748,6 +753,7 @@ const virtualRouterApiDefault = {
   saveVRConfig,
   setVRRole,
   getVRRoles,
+  getVRRolesFromVr2,
   getVR2Config,
   getVR2ConfigRaw,
   
@@ -773,9 +779,9 @@ const virtualRouterApiDefault = {
   pushACLConfig,
   
   // NAT Management
-  getNATRules,
-  createNATRule,
-  deleteNATRule,
+  getNATStaticMappings,
+  createNATStaticMapping,
+  deleteNATStaticMapping,
 };
 
 export default virtualRouterApiDefault;

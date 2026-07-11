@@ -544,7 +544,7 @@ const RolePermissionDrawer: React.FC<Props> = ({
             />
             <Input.Search
               allowClear
-              placeholder="搜索名称或权限 ID（如 clouds.ecs）"
+              placeholder="搜索名称或权限 ID（如 networks.vr-config）"
               value={kw}
               onChange={(e) => onKwChange(e.target.value)}
               style={{ flex: 1, minWidth: 200, maxWidth: 560 }}

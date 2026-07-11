@@ -10,7 +10,6 @@ import {
 } from 'typeorm';
 import { Tenant } from './Tenant';
 import { TenantUser } from './TenantUser';
-import { ResourcePoolAssignment } from './ResourcePoolAssignment';
 
 @Entity('organizations')
 export class Organization {
@@ -61,7 +60,4 @@ export class Organization {
 
   @OneToMany(() => TenantUser, (user) => user.organization)
   users?: TenantUser[];
-
-  @OneToMany(() => ResourcePoolAssignment, (assignment) => assignment.organization)
-  resourcePoolAssignments?: ResourcePoolAssignment[];
 }

@@ -1,0 +1,17 @@
+[Unit]
+Description=VR Control Service
+After=konfd.service
+Requires=konfd.service
+
+[Service]
+Type=forking
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/rhos/bin
+Environment="LD_LIBRARY_PATH=/rhos/lib/"
+#ExecStartPre=/rhos/etc/agent/vrctl.shutdown
+ExecStart=/rhos/etc/agent/vrctl.init
+ExecStopPost=/rhos/etc/agent/vrctl.shutdown
+EnvironmentFile=/rhos/etc/agent/vrctl.env
+
+TimeoutStartSec=6000
+[Install]
+WantedBy=multi-user.target

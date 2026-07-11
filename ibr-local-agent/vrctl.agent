@@ -1,0 +1,1249 @@
+#!/bin/bash
+# shellcheck disable=SC2039
+# shellcheck disable=SC3043
+set -x
+# parse options
+while [ -n "$1" ]; do
+	case "$1" in
+		--version | -v)
+			export VERSION=1
+			break
+			;;
+		--url)
+			export URL="${2%/}" #去除URL最后的斜杠
+			shift #shift 命令用于将参数列表中的参数向左移动，每次移动一个位置，直到没有参数为止。
+			;; # strip trailing slash
+		--interval)
+			export INTERVAL="$2" 
+			shift
+			;;
+		--management_interval)
+			export MANAGEMENT_INTERVAL="$2"
+			shift
+			;;
+		--registration_interval)
+			export REGISTRATION_INTERVAL="$2"
+			shift
+			;;
+		--check_interval)
+			export CHECK_INTERVAL="$2"
+			shift
+			;;
+		--auth_interval)
+			export AUTH_INTERVAL="$2"
+			shift
+			;;
+		--verify-ssl)
+			export VERIFY_SSL="$2"
+			shift
+			;;
+		--auth-id)
+			export AUTH="$2"
+			shift
+			;;
+		--tonce)
+			export TONCE="$2"
+			shift
+			;;
+		--verbose)
+			export VERBOSE_MODE="$2"
+			shift
+			;;
+		--shared-secret)
+			export SHARED_SECRET="$2"
+			shift
+			;;
+		--consistent-key)
+			export CONSISTENT_KEY="$2"
+			shift
+			;;
+		--hardware-id-script)
+			export HARDWARE_ID_SCRIPT="$2"
+			shift
+			;;
+		--hardware-id-key)
+			export HARDWARE_ID_KEY="$2"
+			shift
+			;;
+		--bootup-delay)
+			export BOOTUP_DELAY="$2"
+			shift
+			;;
+		--merge-config)
+			export MERGE_CONFIG="$2"
+			shift
+			;;
+		--unmanaged)
+			export UNMANAGED="$2"
+			shift
+			;;
+		--test-config)
+			export TEST_CONFIG="$2"
+			shift
+			;;
+		--test-retries)
+			export TEST_RETRIES="$2"
+			shift
+			;;
+		--test-script)
+			export TEST_SCRIPT="$2"
+			shift
+			;;
+		--connect-timeout)
+			export CONNECT_TIMEOUT="$2"
+			shift
+			;;
+		--max-time)
+			export MAX_TIME="$2"
+			shift
+			;;
+		--capath)
+			export CAPATH="$2"
+			shift
+			;;
+		--cacert)
+			export CACERT="$2"
+			shift
+			;;
+		--mac-interface)
+			export MAC_INTERFACE="$2"
+			shift
+			;;
+		--management-interface)
+			export MANAGEMENT_INTERFACE="$2"
+			shift
+			;;
+		--default-hostname)
+			export DEFAULT_HOSTNAME="$2"
+			shift
+			;;
+		--pre-reload-hook)
+			export PRE_RELOAD_HOOK="$2"
+			shift
+			;;
+		--post-reload-hook)
+			export POST_RELOAD_HOOK="$2"
+			shift
+			;;
+		--post-reload-delay)
+			export POST_RELOAD_DELAY="$2"
+			shift
+			;;
+		--post-registration-hook)
+			export POST_REGISTRATION_HOOK="$2"
+			shift
+			;;
+		--checksum-max-retries)
+			export CHECKSUM_MAX_RETRIES="$2"
+			shift
+			;;
+		--checksum-retry-delay)
+			export CHECKSUM_RETRY_DELAY="$2"
+			shift
+			;;
+		-*)
+			echo "Invalid option: $1"
+			exit 1
+			;;
+		*) break ;;
+	esac
+	shift #两个shift 命令用于将参数列表中的参数向左移动两次
+done
+
+if [ -n "$VERSION" ] && [ "$VERSION" -eq "1" ]; then
+	VERSION=$(vctl show version)
+	echo "$VERSION"
+	exit 0
+fi
+
+#logger默认路径/var/log/syslog
+
+
+FETCH_COMMAND="curl -s -k -X POST --connect-timeout 30"
+MANAGEMENT_INTERFACE=${MANAGEMENT_INTERFACE:-$(ip route | grep "default" | awk '{print $5}')}
+WORKING_DIR="/rhos/etc/agent"
+AUTH_INFO="$WORKING_DIR/auth_info"
+REGISTRATION_INFO="$WORKING_DIR/registration_info"
+CONF="$WORKING_DIR/vr_conf"
+INTERVAL=${INTERVAL:-120} #INTERVAL 默认值为120 ：- 表示如果INTERVAL没有设置，则使用120作为默认值
+CHECK_INTERVAL=${CHECK_INTERVAL:-$((INTERVAL / 10))}
+AUTH_INTERVAL=${AUTH_INTERVAL:-$((INTERVAL / 10))} #AUTH_INTERVAL 默认值为INTERVAL / 10
+REGISTRATION_INTERVAL=${REGISTRATION_INTERVAL:-$((INTERVAL / 4))} #REGISTRATION_INTERVAL 默认值为INTERVAL / 4
+POST_AUTH_HOOK=${POST_AUTH_HOOK:-/rhos/etc/agent/post-auth-hook}
+POST_REGISTRATION_HOOK=${POST_REGISTRATION_HOOK:-/rhos/etc/agent/post-registration-hook}
+VERBOSE_MODE=${VERBOSE_MODE:-0}
+POOL_ID="" 
+VM_ID=""
+POOL_NAME=""
+MANAGEMENT_IP=""
+
+
+get_version() { 
+	VERSION=$(vctl show version) 
+	echo "$VERSION"
+}
+# 验证MAC地址格式是否有效
+is_valid_mac() {
+    local mac="$1"
+    # MAC地址正则表达式：XX:XX:XX:XX:XX:XX 格式，其中X是十六进制数字
+    if [[ $mac =~ ^([0-9A-Fa-f]{2}:){5}([0-9A-Fa-f]{2})$ ]]; then
+        return 0  # 有效
+    else
+        return 1  # 无效
+    fi
+}
+
+# 生成符合标准的随机MAC地址
+generate_random_mac() {
+    # 生成前三个字节：使用02开头（本地管理地址），确保符合MAC地址标准
+    local mac="02"
+    
+    # 生成剩余五个字节的随机十六进制数字（共10个十六进制字符）
+    # 循环生成，确保获得足够的十六进制字符
+    local random_hex=""
+    while [ ${#random_hex} -lt 10 ]; do
+        # 生成随机字节，转换为十六进制，过滤出有效字符
+        local temp=$(head -c 8 /dev/urandom | xxd -p 2>/dev/null || head -c 16 /dev/urandom | base64 | tr -dc '0-9a-fA-F')
+        random_hex="$random_hex$temp"
+        # 截取前10个字符
+        random_hex=${random_hex:0:10}
+    done
+    
+    # 将随机十六进制字符串格式化为XX:XX:XX:XX:XX格式
+    for ((i=0; i<10; i+=2)); do
+        mac="$mac:${random_hex:i:2}"
+    done
+    
+    echo "$mac"
+}
+
+get_mac() {
+	# local mac interface
+	# interface=$(ip link show | grep -v "lo" | grep -v "docker" | grep -v "veth" | grep -v "br-" | awk -F: '$0 !~ "^ " {print $2}' | head -n 1 | tr -d ' ')
+	# mac=$(ip link show $interface | awk '/ether/ {print $2}')
+	# echo "$mac"
+    local mac
+    
+    # 1. 从VR_CONF配置文件中读取MAC地址
+    mac=$(jq -r .mac < "$VR_CONF" 2>/dev/null)
+    
+    # 2. 检查MAC地址是否有效
+    if is_valid_mac "$mac"; then
+        logger "Using MAC address from VR_CONF: $mac" \
+            -t agent \
+            -p daemon.info
+        echo "$mac"
+        return 0
+    fi
+    
+    # 3. 如果MAC地址无效或不存在，生成随机MAC地址
+    logger "MAC address not found or invalid in VR_CONF, generating random MAC address" \
+        -t agent \
+        -p daemon.info
+    
+    mac=$(generate_random_mac)
+    
+    # 4. 将随机生成的MAC地址写入VR_CONF配置文件
+    if jq --arg mac "$mac" '.mac = $mac' "$VR_CONF" > "$VR_CONF.tmp" && mv "$VR_CONF.tmp" "$VR_CONF"; then
+        logger "Successfully updated MAC address in VR_CONF: $mac" \
+            -t agent \
+            -p daemon.info
+    else
+        logger -s "Failed to update MAC address in VR_CONF" \
+            -t agent \
+            -p daemon.err
+        # 即使写入失败，仍然返回生成的MAC地址
+    fi
+    
+    echo "$mac"
+    return 0
+}
+get_uuid() {
+	# 从VR_CONF文件中读取UUID
+    local uuid=$(jq -r .uuid < "$VR_CONF" 2>/dev/null)
+    
+    # 如果UUID存在且不为空，直接返回
+    if [ -n "$uuid" ] && [ "$uuid" != "null" ]; then
+        echo "$uuid"
+        return
+    fi
+#    # 获取处理器ID
+#     local processor_id=$(dmidecode -t processor | grep ID | head -n 1 | cut -d':' -f2 | tr -d ' ')
+    
+#     # 获取第一个物理网卡的MAC地址（按照接口名称字母顺序排序）
+#     local mac=$(ip -o link show | 
+#         awk -F': ' '$2 !~ "lo|docker|veth|br-" {print $2}' | 
+#         sort | 
+#         while read -r iface; do 
+#             if ip link show "$iface" | grep -q ether; then
+#                 ip link show "$iface" | 
+#                 awk '/ether/ {print $2}' | 
+#                 tr -d ':' 
+#                 break
+#             fi
+#         done)
+    
+#     echo "${processor_id}-${mac}"
+}
+
+# 初始化校验函数
+init_validation() {
+    logger "Starting initialization validation..." \
+        -t agent \
+        -p daemon.info
+    
+    # 检查配置文件是否存在
+    if [ ! -f "$VR_CONF" ]; then
+        logger -s "Initialization failed: $VR_CONF file not found" \
+            -t agent \
+            -p daemon.err
+        return 1
+    fi
+    
+    logger "Reading configuration from $VR_CONF" \
+        -t agent \
+        -p daemon.info
+    
+    # 读取配置文件中的name和uuid字段
+    local name=$(jq -r .name < "$VR_CONF" 2>/dev/null)
+    local uuid=$(jq -r .uuid < "$VR_CONF" 2>/dev/null)
+    
+    logger "Configuration read result: name='$name', uuid='$uuid'" \
+        -t agent \
+        -p daemon.info
+    
+    # 检查name字段
+    if [ -n "$name" ] && [ "$name" != "null" ]; then
+        logger "name field is valid: '$name', skipping name initialization" \
+            -t agent \
+            -p daemon.info
+    else
+        logger "name field is empty or invalid, calling name initialization function" \
+            -t agent \
+            -p daemon.info
+        # 调用name初始化函数
+        init_name_function
+    fi
+    
+    # 检查uuid字段
+    if [ -n "$uuid" ] && [ "$uuid" != "null" ]; then
+        logger "uuid field is valid: '$uuid', skipping uuid initialization" \
+            -t agent \
+            -p daemon.info
+    else
+        logger "uuid field is empty or invalid, calling uuid initialization function" \
+            -t agent \
+            -p daemon.info
+        # 调用uuid初始化函数
+        init_uuid_function
+    fi
+    
+    logger "Initialization validation completed successfully" \
+        -t agent \
+        -p daemon.info
+    return 0
+}
+
+# 雪花算法配置
+SNOWFLAKE_EPOCH=1609459200000  # 2021-01-01 00:00:00 UTC
+DATA_CENTER_ID=0
+MACHINE_ID=0
+LAST_TIMESTAMP=0
+SEQUENCE=0
+
+# 获取机器ID和数据中心ID
+get_machine_info() {
+    # 获取MAC地址的最后两位作为机器ID和数据中心ID
+    local mac=$(ip -o link show | 
+        awk -F': ' '$2 !~ "lo|docker|veth|br-" {print $2}' | 
+        sort | 
+        while read -r iface; do 
+            if ip link show "$iface" | grep -q ether; then
+                ip link show "$iface" | 
+                awk '/ether/ {print $2}' | 
+                tr -d ':' 
+                break
+            fi
+        done)
+    
+    # 使用MAC地址的最后两位计算机器ID和数据中心ID
+    local mac_last2=${mac: -2}
+    DATA_CENTER_ID=$((16#${mac_last2:0:1} % 32))  # 5位数据中心ID (0-31)
+    MACHINE_ID=$((16#${mac_last2:1:1} % 32))  # 5位机器ID (0-31)
+    
+    logger "Snowflake config: data_center_id=$DATA_CENTER_ID, machine_id=$MACHINE_ID" \
+        -t agent \
+        -p daemon.info
+}
+
+# 雪花算法生成器函数
+generate_snowflake_id() {
+    local current_timestamp
+    local diff_timestamp
+    
+    # 获取当前毫秒时间戳
+    current_timestamp=$(date +%s%3N)
+    
+    # 计算与起始时间的差值
+    diff_timestamp=$((current_timestamp - SNOWFLAKE_EPOCH))
+    
+    # 处理时钟回拨
+    if [ $diff_timestamp -lt $LAST_TIMESTAMP ]; then
+        logger -s "Clock moved backwards. Refusing to generate id for ${LAST_TIMESTAMP - diff_timestamp} milliseconds" \
+            -t agent \
+            -p daemon.err
+        return 1
+    fi
+    
+    # 如果是同一毫秒，序列号加1
+    if [ $diff_timestamp -eq $LAST_TIMESTAMP ]; then
+        SEQUENCE=$(((SEQUENCE + 1) % 4096))  # 12位序列号 (0-4095)
+        # 如果序列号用完，等待下一个毫秒
+        if [ $SEQUENCE -eq 0 ]; then
+            while [ $diff_timestamp -le $LAST_TIMESTAMP ]; do
+                current_timestamp=$(date +%s%3N)
+                diff_timestamp=$((current_timestamp - SNOWFLAKE_EPOCH))
+            done
+        fi
+    else
+        SEQUENCE=0  # 新的毫秒，序列号重置
+    fi
+    
+    # 更新最后时间戳
+    LAST_TIMESTAMP=$diff_timestamp
+    
+    # 生成雪花ID：符号位(0) + 时间戳(41) + 数据中心ID(5) + 机器ID(5) + 序列号(12)
+    # 使用0x0作为符号位，确保结果为正数
+    local snowflake_id=$(((diff_timestamp << 22) | (DATA_CENTER_ID << 17) | (MACHINE_ID << 12) | SEQUENCE))
+    
+    echo "$snowflake_id"
+    return 0
+}
+
+# uuid初始化函数：使用雪花算法生成UUID
+init_uuid_function() {
+    logger "Starting uuid initialization..." \
+        -t agent \
+        -p daemon.info
+    
+    # 初始化机器ID和数据中心ID
+    get_machine_info
+    
+    # 生成雪花ID
+    local uuid=$(generate_snowflake_id)
+    if [ $? -ne 0 ]; then
+        logger -s "Failed to generate snowflake ID" \
+            -t agent \
+            -p daemon.err
+        return 1
+    fi
+    
+    logger "Generated snowflake uuid: '$uuid'" \
+        -t agent \
+        -p daemon.info
+    
+    # 将生成的uuid写入配置文件
+    if jq --arg uuid "$uuid" '.uuid = $uuid' "$VR_CONF" > "$VR_CONF.tmp" && mv "$VR_CONF.tmp" "$VR_CONF"; then
+        logger "Successfully updated uuid in $VR_CONF" \
+            -t agent \
+            -p daemon.info
+    else
+        logger -s "Failed to update uuid in $VR_CONF" \
+            -t agent \
+            -p daemon.err
+        return 1
+    fi
+    
+    return 0
+}
+
+# name初始化函数：生成以"vr"为前缀的8位随机字符，包含数字和字母
+init_name_function() {
+    logger "Starting name initialization..." \
+        -t agent \
+        -p daemon.info
+    
+    local prefix="vr-"
+    local length=8
+    local random_str
+    local has_digit
+    local has_letter
+    
+    # 循环生成随机字符串，直到满足条件
+    while true; do
+        # 使用/dev/urandom生成安全随机数，转换为base64，然后过滤出字母和数字
+        random_str=$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c $length)
+        
+        # 检查是否包含至少一个数字
+        echo "$random_str" | grep -q '[0-9]' && has_digit=1 || has_digit=0
+        
+        # 检查是否包含至少一个字母
+        echo "$random_str" | grep -q '[a-zA-Z]' && has_letter=1 || has_letter=0
+        
+        # 如果同时包含数字和字母，则退出循环
+        if [ $has_digit -eq 1 ] && [ $has_letter -eq 1 ]; then
+            break
+        fi
+    done
+    
+    # 生成完整的name字符串,格式为"vr-" + 8位随机字符
+    local name="${prefix}${random_str}"
+    
+    logger "Generated name: '$name'" \
+        -t agent \
+        -p daemon.info
+    
+    # 将生成的name写入配置文件
+    if jq --arg name "$name" '.name = $name' "$VR_CONF" > "$VR_CONF.tmp" && mv "$VR_CONF.tmp" "$VR_CONF"; then
+        logger "Successfully updated name in $VR_CONF" \
+            -t agent \
+            -p daemon.info
+    else
+        logger -s "Failed to update name in $VR_CONF" \
+            -t agent \
+            -p daemon.err
+    fi
+    
+    return 0
+}
+
+
+# ensures we are dealing with the right web server
+#验证服务器响应是否来自合法的控制器
+check_header() {
+	local is_controller
+	is_controller=$(grep -ic "X-Controller: true" "$1") 
+	if [ "$is_controller" -lt 1 ]; then
+		logger -s "Invalid url: missing X-Controller header" \
+			-t agent \
+			-p daemon.err
+		exit 4
+	fi
+}
+
+check_rely() {
+	local status	
+	status=$(cat "$1" | jq .code)
+	echo "$status"
+}
+
+
+#检查HTTP响应状态码的辅助函数
+is_http_status() {
+	head -n 1 "$1" | grep "$2" >/dev/null
+}
+
+
+
+post_auth_hook() {
+	local exit_code
+	if [ -x "$POST_AUTH_HOOK" ]; then
+		$POST_AUTH_HOOK
+		exit_code=$?
+		logger "Called post-auth-hook: $POST_AUTH_HOOK - exit code: $exit_code" \
+			-t agent \
+			-p daemon.info
+		return $exit_code
+	fi
+}		
+
+#检测控制器信息
+check_conf_info() {
+	local  check_interval
+	local status
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "Get controllor info..." \
+		-t agent \
+		-p daemon.info
+
+	check_interval=$(jq -r .agent.check_interval < "$CONF")
+	if [ -n "$check_interval" ] && [ "$check_interval" != "$CHECK_INTERVAL" ]; then
+		CHECK_INTERVAL="$check_interval"
+	fi
+	if [ ! -f "$VR_CONF" ]; then
+		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "$VR_CONF file does not exist" \
+		-t agent \
+		-p daemon.info
+		status=1
+	fi
+
+	if [ ! -f "$VR_CTL" ]; then
+		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "$VR_CTL file does not exist" \
+		-t agent \
+		-p daemon.info
+		status=1
+	fi
+	#第一次完成注册后 检测持续进行，如果发现注册信息丢失，则重新注册
+	if [ -n "$status" ] && [ "$status" -eq "1" ]; then
+		if [ -f "$WORKING_DIR/.registration_finish" ]; then
+			rm -rf $WORKING_DIR/.registration_finish 
+		fi
+		return 1
+	fi
+	return 0
+}
+
+# 将配置文件参数的读入环境和认证设备
+auth_device() {
+	local interval
+	logger "Authenticating device..." \
+		-t agent \
+		-p daemon.info
+	
+	VR_IP=$(jq -r .manageip < "$VR_CTL")
+	if [ -z "$VR_IP" ]; then
+		logger "Unable to obtain controller IP" \
+		-t agent \
+		-p daemon.info
+		return 1
+	fi 
+	URL="https://$VR_IP"
+	AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VR1/register&method=POST&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123"
+
+	interval=$(jq -r .agent.interval < "$CONF")
+	if [ -n "$interval" ] && [ "$interval" != "$INTERVAL" ]; then
+		INTERVAL="$interval"
+	fi
+
+	local exit_code status
+	POOL_ID=$(jq -r .pool_id < "$VR_CONF")
+	POOL_NAME=$(jq -r .pool_name < "$VR_CONF")
+	VM_ID=$(jq -r .vm_id < "$VR_CONF")
+	NAME=$(jq -r .name < "$VR_CONF")
+	MAC=$(get_mac)
+	UUID=$(get_uuid)
+	VERSION=$(jq -r .version < "$VR_CONF")
+	TYPE=$(jq -r .type < "$VR_CONF")
+	if [ -z "$NAME" ] || [ -z "$MAC" ] || [ -z "$UUID" ] || [ -z "$VERSION" ] || [ -z "$TYPE" ]; then
+		logger "$VR_CONF file is error" \
+			-t agent \
+			-p daemon.info
+		return 1
+	fi
+	
+	#发送认证请求
+	$FETCH_COMMAND "$AUTH_URL" \
+		-H "Content-Type: application/json" \
+		-d "{\"pool_id\": \"$POOL_ID\", \"pool_name\": \"$POOL_NAME\", \"vm_id\": \"$VM_ID\", \"name\": \"$NAME\", \"mac\": \"$MAC\", \"uuid\": \"$UUID\", \"version\": \"$VERSION\", \"type\": \"$TYPE\"}" \
+		> "$AUTH_INFO"
+	exit_code=$?
+	# 根据退出码判断是否连接成功
+	if [ -z "$exit_code" ] || [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller during auth: curl exit code $exit_code" \
+			-t agent \
+			-p daemon.err
+		return 1
+	fi
+
+
+	status=$(cat "$AUTH_INFO" | jq .status_code)
+	if [ "$status" -ne "200" ]; then
+		logger -s "Failed to authenticate device: $status" \
+			-t agent \
+			-p daemon.err
+		return 2
+	fi
+	{
+		AUTH=$(cat "$AUTH_INFO" | jq -r .data.Authorization)
+		TONCE=$(cat "$AUTH_INFO" | jq -r .data.tonce)
+	}
+	if [ -z "$AUTH" ] || [ -z "$TONCE" ]; then
+		logger -s "Failed to authenticate device: missing Authorization or tonce" \
+			-t agent \
+			-p daemon.err
+		return 3
+	fi
+	export AUTH TONCE
+
+	logger "Device authenticated successfully" \
+		-t agent \
+		-p daemon.info
+
+	post_registration_hook
+	return 0
+
+}
+
+#注册设备
+register() {
+	logger "Registering device..." \
+		-t agent \
+		-p daemon.info
+
+	local  manage_ip version type health_status exit_code data
+	REGISTRATION_URL="$URL/V2/vrcontrol/VR1/register"
+
+	# 发送注册请求
+	$FETCH_COMMAND "$REGISTRATION_URL" \
+		-H "Content-Type: application/json" \
+		-H "Authorization: $AUTH" \
+		-H "tonce: $TONCE" \
+		-d "{\"pool_id\": \"$POOL_ID\", \"pool_name\": \"$POOL_NAME\", \"vm_id\": \"$VM_ID\", \"name\": \"$NAME\", \"mac\": \"$MAC\", \"uuid\": \"$UUID\", \"version\": \"$VERSION\", \"type\": \"$TYPE\"}" \
+		> "$REGISTRATION_INFO" # 发送注册请求，将响应写入 REGISTRATION_INFO
+
+	exit_code=$?
+	
+	# 根据退出码判断是否连接成功
+	if [ -n "$exit_code" ] && [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller during registration: curl exit code $exit_code" \
+			-t agent \
+			-p daemon.err
+		return 1
+	fi
+
+	#检查响应状态码
+	status=$(check_rely $REGISTRATION_INFO)
+	if [ "$status" -ne "200" ]; then
+		logger -s "Failed to registered device: $status" \
+			-t agent \
+			-p daemon.err
+		return 2
+	fi
+
+	##完成注册
+	logger "$vm_id device registered successfully." \
+		-t agent \
+		-p daemon.info
+	
+
+	touch $WORKING_DIR/.registration_finish
+
+	post_registration_hook
+	return 0
+}
+
+#暂无使用
+get_checksum() {
+	local exit_code status
+
+	for attempt_no in $(seq 1 "$CHECKSUM_MAX_RETRIES"); do
+		$FETCH_COMMAND -i "$CHECKSUM_URL" >"$1"
+		exit_code=$?
+
+		if [ "$exit_code" -ne "0" ]; then
+			logger -s "Failed to connect to controller while getting checksum: curl exit code $exit_code" \
+				-t openwisp \
+				-p daemon.err
+			return 2
+		fi
+
+		if is_http_status "$1" 404; then
+			logger -s "Failed to retrieve checksum: 404 Not Found" \
+				-t openwisp \
+				-p daemon.warning
+
+			if [ "$attempt_no" -eq "$CHECKSUM_MAX_RETRIES" ]; then
+				logger -s "Giving up and shutting down: the device may have been deleted from OpenWISP Controller" \
+					-t openwisp \
+					-p daemon.err
+				exit 0
+			fi
+
+			sleep "$CHECKSUM_RETRY_DELAY"
+			# try again
+			continue
+		else
+			break
+		fi
+	done
+
+	if ! is_http_status "$1" 200; then
+		status=$(head -n 1 "$1")
+		logger -s "Failed to retrieve checksum: $status" \
+			-t openwisp \
+			-p daemon.err
+		return 3
+	fi
+
+	check_header "$1"
+}
+
+#暂无使用
+configuration_changed() {
+	local CURRENT_CHECKSUM exit_code REMOTE_CHECKSUM
+	CURRENT_CHECKSUM=$(tail -n 1 $CONFIGURATION_CHECKSUM 2>/dev/null)
+	get_checksum $CONFIGURATION_CHECKSUM
+	exit_code=$?
+
+	if [ "$exit_code" -ne "0" ]; then
+		# restore last known checksum if get_checksum failed
+		if [ -f "$PERSISTENT_CHECKSUM" ]; then
+			cp "$PERSISTENT_CHECKSUM" "$CONFIGURATION_CHECKSUM"
+		fi
+		return $exit_code
+	fi
+
+	REMOTE_CHECKSUM=$(tail -n 1 $CONFIGURATION_CHECKSUM 2>/dev/null)
+
+	if [ "$CURRENT_CHECKSUM" != "$REMOTE_CHECKSUM" ]; then
+		logger "Local configuration outdated" \
+			-t openwisp \
+			-p daemon.info
+		return 1
+	fi
+
+	return 0
+}
+
+# called in `apply_configuration` before services are reloaded
+pre_reload_hook() {
+	local exit_code
+	if [ -x "$PRE_RELOAD_HOOK" ]; then
+		$PRE_RELOAD_HOOK
+		exit_code=$?
+		logger "Called pre-reload-hook: $PRE_RELOAD_HOOK - exit code: $exit_code" \
+			-t openwisp \
+			-p daemon.info
+		return $exit_code
+	fi
+}
+
+# called in `apply_configuration` after services are reloaded
+post_reload_hook() {
+	if [ -x "$POST_RELOAD_HOOK" ]; then
+		$POST_RELOAD_HOOK
+		local exit_code=$?
+		logger "Called post-reload-hook: $POST_RELOAD_HOOK - exit code: $exit_code" \
+			-t openwisp \
+			-p daemon.info
+		return $exit_code
+	fi
+}
+
+##调用注册完成后的钩子函数
+post_registration_hook() {
+	if [ -x "$POST_REGISTRATION_HOOK" ]; then
+		$POST_REGISTRATION_HOOK
+		local exit_code=$?
+		logger "Called post-registration-hook: $POST_REGISTRATION_HOOK - exit code: $exit_code" \
+			-t openwisp \
+			-p daemon.info
+		return $exit_code
+	fi
+}
+
+#暂无使用	
+apply_configuration() {
+	# store unmanaged config (if enabled)
+	call_store_unmanaged
+	# update local configuration
+	/usr/sbin/openwisp-update-config --conf="$1" --merge="$MERGE_CONFIG"
+	local exit_code=$?
+	# restore unmanaged configurations
+	call_restore_unmanaged
+	# if configuration could not be applied
+	# (because of a syntax error) restore a backup
+	if [ "$exit_code" -ne "0" ]; then
+		logger -s "Could not apply configuration, openwisp-update-config exit code was $exit_code" \
+			-t openwisp \
+			-p daemon.crit
+		restore_backup
+		return 1
+	fi
+	# call pre-reload-hook
+	pre_reload_hook
+	# reload changes and wait $POST_RELOAD_DELAY
+	/usr/sbin/openwisp-reload-config
+	sleep "$POST_RELOAD_DELAY"
+	# call post-reload-hook
+	post_reload_hook
+}
+
+#暂无使用
+update_info() {
+	# get device model, OS identifier and SOC info
+	local model os system exit_code status
+	model=$(get_model)
+	os=$(get_os)
+	system=$(get_system)
+	# retry several times
+	for i in $(seq 1 10); do
+		$FETCH_COMMAND -i \
+			--data "key=$KEY" \
+			--data-urlencode model="$model" \
+			--data-urlencode os="$os" \
+			--data-urlencode system="$system" \
+			"$UPDATE_INFO_URL" >$UPDATE_INFO
+		exit_code=$?
+		if [ "$exit_code" -eq "0" ]; then
+			logger "Device info updated on the controller" \
+				-t openwisp \
+				-p daemon.info
+			break
+		else
+			sleep 2
+		fi
+	done
+
+	if [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller during update-info: curl exit code $exit_code" \
+			-t openwisp \
+			-p daemon.err
+		return 2
+	fi
+
+	if ! is_http_status $UPDATE_INFO 200; then
+		local status
+		status=$(head -n 1 $UPDATE_INFO)
+		logger -s "Failed to update device info: $status" \
+			-t openwisp \
+			-p daemon.err
+		return 3
+	fi
+	check_header $UPDATE_INFO
+	rm $UPDATE_INFO
+}
+
+# report configuration status: "applied" or "error"
+#暂无使用	
+report_status() {
+	local exit_code status
+	# retry several times
+	for i in $(seq 1 30); do
+		$FETCH_COMMAND -i --data "key=$KEY&status=$1" "$REPORT_URL" >$STATUS_REPORT
+		exit_code=$?
+		if [ "$exit_code" -eq "0" ]; then
+			break
+		else
+			sleep 2
+		fi
+	done
+
+	if [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller during report-status: curl exit code $exit_code" \
+			-t openwisp \
+			-p daemon.err
+		return 2
+	fi
+
+	if ! is_http_status $STATUS_REPORT 200; then
+		local status
+		status=$(head -n 1 $STATUS_REPORT)
+		logger -s "Failed to report status: $status" \
+			-t openwisp \
+			-p daemon.err
+		return 3
+	fi
+	check_header $STATUS_REPORT
+	rm $STATUS_REPORT
+}
+
+# performs configuration test and reports result
+#暂无使用	
+test_configuration() {
+	if ! apply_configuration "$1"; then
+		return 1
+	fi
+
+	logger "Testing configuration..." \
+		-t openwisp \
+		-p daemon.info
+
+	if [ -z "$TEST_SCRIPT" ]; then
+		perform_default_test
+		local test_result=$?
+	else
+		$TEST_SCRIPT
+		local test_result=$?
+	fi
+
+	if [ $test_result -gt 0 ]; then
+		logger -s "Configuration test failed! Restoring previous backup" \
+			-t openwisp \
+			-p daemon.err
+		restore_backup
+		local ret=1
+	else
+		logger "Configuration test succeeded" \
+			-t openwisp \
+			-p daemon.info
+		local ret=0
+	fi
+
+	rm $CONFIGURATION_BACKUP
+	return $ret
+}
+
+#暂无使用	
+perform_default_test() {
+	# the default test is performed several times, as indicated by $TEST_RETRIES
+	for i in $(seq 1 "$TEST_RETRIES"); do
+		$FETCH_COMMAND -i "$CHECKSUM_URL" >$TEST_CHECKSUM
+		local result=$?
+		if [ $result -ne 0 ]; then
+			logger "Configuration test failed (attempt $i)" \
+				-t openwisp \
+				-p daemon.warning
+			sleep 5
+		else
+			break
+		fi
+	done
+	rm $TEST_CHECKSUM
+	return $result
+}
+
+# stores unmanaged configuration sections that will be merged
+# with the configuration downloaded from the controller
+call_store_unmanaged() {
+	if [ -z "$UNMANAGED" ]; then
+		return 0
+	fi
+	/usr/sbin/openwisp-store-unmanaged -o="$UNMANAGED"
+}
+
+# restores unmanaged configuration sections that will be merged
+# with the configuration downloaded from the controller
+call_restore_unmanaged() {
+	if [ -z "$UNMANAGED" ]; then
+		return 0
+	fi
+	/usr/sbin/openwisp-restore-unmanaged
+}
+
+#暂无使用
+fix_uci_config() {
+	output=$(/usr/sbin/openwisp-uci-autoname)
+	if [ -n "$output" ]; then
+		logger "The following uci configs have been renamed: $output" \
+			-t openwisp \
+			-p daemon.info
+	fi
+
+	# Re-generate the md5 checksums to avoid reloading services which had
+	# anonymous UCI sections which were removed.
+	rm -rf /var/run/config.check
+	mkdir -p /var/run/config.check
+	for config in /etc/config/*; do
+		file=${config##*/}
+		uci show "${file##*/}" >/var/run/config.check/"$file"
+	done
+	md5sum /var/run/config.check/* >/var/run/config.md5
+	rm -rf /var/run/config.check
+
+	/usr/sbin/openwisp-remove-default-wifi
+}
+
+#下载配置文件
+update_configuration() {
+	logger "Downloading configuration from controller..." \
+		-t agent \
+		-p daemon.info
+
+	# download configuration
+	$FETCH_COMMAND --fail "$CONFIGURATION_URL" -o $CONFIGURATION_ARCHIVE
+	local exit_code=$?
+
+	if [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller while downloading new config: curl exit code $exit_code" \
+			-t openwisp \
+			-p daemon.err
+		# remove the checksum to ensure update is tried again at the next run
+		rm -f $CONFIGURATION_CHECKSUM
+		return 3
+	fi
+
+	local LOCAL_CHECKSUM
+	local REMOTE_CHECKSUM
+	LOCAL_CHECKSUM=$(md5sum $CONFIGURATION_ARCHIVE | cut -d ' ' -f 1)
+	REMOTE_CHECKSUM=$(tail -n 1 $CONFIGURATION_CHECKSUM 2>/dev/null)
+
+	if [ "$LOCAL_CHECKSUM" != "$REMOTE_CHECKSUM" ]; then
+		logger -s "Failed to download configuration: checksum mismatch" \
+			-t agent \
+			-p daemon.err
+		# remove the checksum to ensure update is tried again at the next run
+		rm -f $CONFIGURATION_CHECKSUM
+		return 4
+	fi
+
+	logger "Configuration downloaded, now applying it..." \
+		-t agent \
+		-p daemon.info
+
+	# makes fixes to the default uci config so
+	# it's more suited for remote control
+	fix_uci_config
+
+	# control file to avoid reloading the agent while
+	# configuration is still being applied
+	touch $APPLYING_CONF
+
+	# performs backup of files that are going to be changed
+	backup_configuration
+
+	# testing enabled
+	if [ "$TEST_CONFIG" -eq "1" ]; then
+		test_configuration $CONFIGURATION_ARCHIVE
+		result=$?
+	# testing diabled
+	else
+		apply_configuration $CONFIGURATION_ARCHIVE
+		result=$?
+	fi
+
+	if [ "$result" -eq "0" ]; then
+		logger "Configuration applied successfully" \
+			-t agent \
+			-p daemon.info
+		# store the new checksum as last known checksum
+		cp "$CONFIGURATION_CHECKSUM" "$PERSISTENT_CHECKSUM"
+		report_status "applied"
+	else
+		report_status "error"
+	fi
+
+	rm $APPLYING_CONF
+}
+
+backup_configuration() {
+	# save list of files that are going to be changed by openwisp
+	# so that if the changes sent by openwisp cause problems,
+	# the previous version can be rolled back
+	tar -ztf $CONFIGURATION_ARCHIVE | sed 's/^/\//' >$BACKUP_FILE_LIST
+	# backup only those files
+	tar -zcf $CONFIGURATION_BACKUP -T $BACKUP_FILE_LIST
+	rm $BACKUP_FILE_LIST
+}
+
+restore_backup() {
+	# restores backup created in backup_configuration() function
+	sysupgrade -r $CONFIGURATION_BACKUP
+	pre_reload_hook
+	/usr/sbin/openwisp-reload-config
+	sleep "$POST_RELOAD_DELAY"
+	post_reload_hook
+	logger -s "The most recent configuration backup was restored" \
+			-t agent \
+			-p daemon.info
+}
+
+discover_change() {
+	# return if not using management interface
+	local pool_id pool_name vm_id vr_ip ret interval name version type
+
+	if [ ! -f "$VR_CONF" ] || [ ! -f "$VR_CTL" ] ; then
+		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "$VR_CONF file does not exist" \
+				-t agent \
+				-p daemon.notice
+		return 1
+	fi
+	
+	#获取配置文件的数据并与环境中的比较 且以配置文件中为准
+	pool_id=$(jq -r .pool_id < "$VR_CONF")
+	pool_name=$(jq -r .pool_name < "$VR_CONF")
+	vm_id=$(jq -r .vm_id < "$VR_CONF")
+	name=$(jq -r .name < "$VR_CONF")
+	version=$(jq -r .version < "$VR_CONF")
+	type=$(jq -r .type < "$VR_CONF")
+	if [ -z "$vm_id" ] || [ -z "$name" ] || [ -z "$MAC" ] || [ -z "$UUID" ] || [ -z "$version" ] || [ -z "$type" ]; then
+		logger "$VR_CONF file configuration is error" \
+				-t agent \
+				-p daemon.notice
+		return 1
+	fi
+	if [ "$vm_id" != "$VM_ID" ] || [ "$name" != "$NAME" ] || [ "$version" != "$VERSION" ] || [ "$type" != "$TYPE" ]; then
+		rm -rf $WORKING_DIR/.registration_finish 2>/dev/null
+		return 0
+	fi
+	return 0
+}
+
+reload_config() {
+	local ret interval
+	while true; do
+		logger "config changed ,and restart auth" \
+			-t agent \
+			-p daemon.notice
+		auth_device
+		ret=$?
+		if [ "$ret" -ne 0 ]; then
+			sleep "$AUTH_INTERVAL"
+			continue
+		fi	
+		register
+		ret=$?
+		if [ "$ret" -ne 0 ]; then
+			sleep "$REGISTRATION_INTERVAL"
+			continue
+		fi	
+		logger " register success after config changed" \
+			-t agent \
+			-p daemon.notice
+		pid=$(pgrep -f "monitoring.agent.*--mode collect")
+		[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+		break
+	done
+}
+
+handle_sigusr1() {
+	logger -s "Received SIGUSR1: interrupting interval sleep..." \
+		-t agent \
+		-p daemon.info
+}
+
+URL=""
+VR_IP=""
+VR_CONF="/usr/local/src/vrconf/registervr.conf"
+VR_CTL="/usr/local/src/vrconf/vrcontrol.conf"
+#检查配置文件是否正确
+until check_conf_info; do
+	sleep "$CHECK_INTERVAL"
+done
+
+#执行初始化校验
+init_validation
+
+AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VM19/vr/register&method=POST&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123"
+# 如果AUTH和TONCE为空，则执行post_auth_hook 
+if [ -z "$AUTH" ] || [ -z "$TONCE" ]; then
+	until auth_device; do
+		sleep "$AUTH_INTERVAL"
+	done
+fi	
+
+# 设置注册和报告URL
+BASEURL="$URL"
+REPORT_URL="$BASEURL/V2/vrcontrol/VM19/vr/srv6/list"
+export REPORT_URL
+
+# 如果AUTH和TONCE为空，则执行register
+if [ ! -f "$WORKING_DIR/.registration_finish" ]; then
+	if [ -n "$AUTH" ] && [ -n "$TONCE" ]; then
+		until register; do
+			sleep "$REGISTRATION_INTERVAL"
+		done
+	else
+		logger -s "Unable to get ATUTH or TONCE" \
+			-t agent \
+			-p daemon.err
+		exit -1
+	fi
+fi
+
+while true; do
+	#检查配置文件是否正确
+	check_conf_info
+	if [ "$?" -eq "0" ]; then
+		#检查管理接口配置文件等信息是否改变
+		discover_change
+		ret=$?
+		if [ ! -f "$WORKING_DIR/.registration_finish" ] && [ "$ret" -eq "0" ]; then
+			reload_config
+		elif [ "$ret" -eq "1" ]; then
+			logger "config file is error" \
+				-t agent \
+				-p daemon.notice
+		fi
+	else
+		rm -rf $WORKING_DIR/.registration_finish 2>/dev/null
+		logger "config file does not exist" \
+			-t agent \
+			-p daemon.notice
+	fi
+	# handle SIGUSR1 to interrupt sleep
+	trap handle_sigusr1 USR1
+	sleep "$INTERVAL" &
+	wait $!
+	# ignore SIGUSR1 signals again
+	trap "" USR1
+done

@@ -63,12 +63,5 @@ export function resolvePermissionFromApi(method: string, path: string): string |
   return permissionRegistry.resolveFromApi(method, path);
 }
 
-export {
-  mapHarvesterContainerSubPathToPermissionBase,
-  mapHarvesterContainerApiPathToPermissionBase,
-  resolveHarvesterContainerProxyPermissionFromBody,
-  resolveHarvesterContainerUrlPermission,
-} from './registry';
-
 // 导出中间件
 export * from './middleware';

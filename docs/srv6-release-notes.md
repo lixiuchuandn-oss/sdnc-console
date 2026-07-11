@@ -3,7 +3,7 @@
 > **功能批次**：SRv6 配置管理架构升级（**P1–P5**，不含 Post-P5 多 RT 空格串）  
 > **实现方案（详细）**：[`docs/srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)  
 > **Hub PE 产品规格与遗留**：[`docs/srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md)  
-> **冒烟用例**：[`frontend/src/pages/sdncc/interconnect/srv6/testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)  
+> **冒烟用例**：[`docs/srv6-testcases.md`](./srv6-testcases.md)  
 > **建议平台版本**：与下一 PATCH 发版对齐（发版时同步 bump `backend/package.json` 与 `frontend/package.json` 的 `version`）
 
 ---
@@ -174,7 +174,7 @@ cd frontend && CI=true npx react-scripts test --watchAll=false src/pages/sdncc/i
 | 文档 | 路径 |
 |------|------|
 | 实现方案 | `docs/srv6-baseline-recompute.md`（§14–§18） |
-| 冒烟用例 | `frontend/.../interconnect/srv6/testcases.md` |
+| 冒烟用例 | [srv6-testcases.md](./srv6-testcases.md) |
 | API 索引 | `AGENTS.md` |
 
 ---

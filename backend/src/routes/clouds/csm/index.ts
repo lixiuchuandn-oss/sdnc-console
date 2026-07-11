@@ -1,1 +1,0 @@
-export { registerCsmRoutes } from './routes';

@@ -1,7 +1,7 @@
 name: Smoke
 
 # API 冒烟：GET /health、POST /api/auth/login、受保护 GET /api/auth/admin-default-home（不依赖外部云）。
-# 本地复现见 docs/ci.md · docs/contributing.md
+# 本地复现见 docs/ci.md
 
 on:
   pull_request:

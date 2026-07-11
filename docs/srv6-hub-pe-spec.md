@@ -305,7 +305,7 @@ P5c 将 §5.2 的隐式 `hubVrfMode` 推导下沉为 **可单测纯逻辑**，�
 | 本文（产品约束 + 遗留） | `docs/srv6-hub-pe-spec.md` |
 | merge / recompute / §14 详述 | `docs/srv6-baseline-recompute.md` |
 | 发版说明 | `docs/srv6-release-notes.md` |
-| 冒烟 H1–H7 | `frontend/src/pages/sdncc/interconnect/srv6/testcases.md` |
+| 冒烟 H1–H7 | `docs/srv6-testcases.md` |
 | Hub inventory 类型 | `backend/src/routes/sdn/srv6.hubInventory.ts`、`frontend/.../routers/hubPeInventory.ts` |
 | REUSE RD/RT | `backend/src/routes/sdn/srv6.reuseRdRt.ts`、`frontend/.../srv6/srv6RdRt.ts` |
 | HUB_PE 角色向导 | `frontend/src/pages/sdncc/ibr/routers/wizards/PEWizard.tsx` |

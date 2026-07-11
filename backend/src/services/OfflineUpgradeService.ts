@@ -105,7 +105,7 @@ function shouldAutoRestartAfterUpgrade(): boolean {
 function resolveAutoRestartCmd(): string {
   const custom = process.env.TOWER_AUTO_RESTART_CMD?.trim();
   if (custom) return custom;
-  return 'pm2 restart compute-tower';
+  return 'docker compose restart sdnc-console';
 }
 
 /** 在 HTTP 响应返回后再重启，避免 apply 请求被进程退出打断 */
@@ -304,7 +304,7 @@ export class OfflineUpgradeService {
       } else if (autoRestartEnabled) {
         message = `文件已更新，后台服务正在自动重启，约数秒后请刷新页面（Ctrl+F5）。${stampHint}`;
       } else {
-        message = `文件已更新。请务必执行 pm2 restart compute-tower 后 Ctrl+F5 强刷。${stampHint}`;
+        message = `文件已更新。请重启应用进程（容器部署：docker compose restart sdnc-console）后 Ctrl+F5 强刷。${stampHint}`;
       }
 
       return {

@@ -1,0 +1,10 @@
+{
+  "agent": {
+    "interval": 30,
+    "check_interval": 50
+  },
+ "monitoring":{
+    "interval": 30,
+    "download_interval": 40
+ }
+}

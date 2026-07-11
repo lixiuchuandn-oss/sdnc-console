@@ -20,11 +20,12 @@ import {
   stripTowerExtensionsFromDeviceConfig,
 } from '../hubPeInventory';
 import { planInventoryTabEdit } from '../peWizardTabEdit';
+import { warnFormValidationFailure } from '../vrWizardFormUtils';
+import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
 import {
   assertUniqueHubInventoryIfNames,
   buildHubWanMirrorRowsFromDevice,
   buildWanStaticRoutesFromRows,
-  enrichHubWanRowsFromDeviceRoutes,
   resolveHubWanRowsForPeWizardForm,
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
@@ -114,6 +115,58 @@ function normalizeLanRowFromPeMeta(l: any) {
     ...(Number.isFinite(asnNum) ? { asn: asnNum } : {}),
     ...(routerId ? { routerId } : {}),
   };
+}
+
+type PeWizardFieldName = string | (string | number)[];
+
+/** 按向导步骤收集待校验字段，避免第 1 步误校验隐藏的 LAN 配置 */
+function buildPeWizardStepFieldNames(
+  step: number,
+  hub: boolean,
+  values: Record<string, unknown>,
+): PeWizardFieldName[] {
+  if (step === 0) {
+    if (hub) {
+      const rows = Array.isArray(values.hubWanInventory) ? values.hubWanInventory : [{}];
+      const names: PeWizardFieldName[] = ['locatorName', 'sidPrefix', 'bgpAsn', 'bgpRouterId'];
+      rows.forEach((_: unknown, idx: number) => {
+        names.push(
+          ['hubWanInventory', idx, 'ifName'],
+          ['hubWanInventory', idx, 'ipv6'],
+          ['hubWanInventory', idx, 'ipv6Dest'],
+          ['hubWanInventory', idx, 'ipv6Via'],
+        );
+      });
+      return names;
+    }
+    return [
+      'locatorName',
+      'sidPrefix',
+      'wanDev',
+      'wanIpv6',
+      'bgpAsn',
+      'bgpRouterId',
+      'ipv6Dest',
+      'ipv6Via',
+    ];
+  }
+  if (step === 1) {
+    const rows = Array.isArray(values.lanConfigs) ? values.lanConfigs : [{}];
+    const names: PeWizardFieldName[] = [];
+    rows.forEach((_: unknown, idx: number) => {
+      if (hub) {
+        names.push(
+          ['lanConfigs', idx, 'vrf'],
+          ['lanConfigs', idx, 'asn'],
+          ['lanConfigs', idx, 'routerId'],
+        );
+      } else {
+        names.push(['lanConfigs', idx, 'vrf']);
+      }
+    });
+    return names;
+  }
+  return [];
 }
 
 const PEWizard: React.FC = () => {
@@ -295,7 +348,7 @@ const PEWizard: React.FC = () => {
     try {
       const merged = await fetchVrCacheMerged(uuid);
       if (!merged || typeof merged !== 'object') {
-        if (!silent) message.warning('未获取到设备回读数据，请先确认 VR 设备在线/已接入。');
+        if (!silent) message.warning('未获取到设备回读数据，请先确认 IBR 设备在线/已接入。');
         setCsmctlCfg(null);
         setVr3Info(null);
         return;
@@ -660,43 +713,8 @@ const PEWizard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedWanDev, vr3Info]);
 
-  const sortJsonKeys = (obj: any): any => {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
-    
-    // 递归排序 JSON 键（展示/对比用）
-    const copy = { ...obj };
-    Object.keys(copy).forEach(k => {
-      copy[k] = sortJsonKeys(copy[k]);
-    });
-
-    // 关键字段 uuid、role、pe 等优先排序
-    const keys = Object.keys(copy).sort((a, b) => {
-       const prio = (k: string) => {
-         if (k === 'uuid') return -1;
-         if (k === 'role') return 0;
-         if (k === 'pe') return 1;
-         if (k === 'segment_routing_srv6') return 2;
-         if (k === 'vrf') return 3;
-         if (k.startsWith('interfaces_')) return 10;
-         if (k.startsWith('subinterfaces_')) return 11;
-         if (k.startsWith('ipv4_')) return 15;
-         if (k.startsWith('ipv6_')) return 16;
-         if (k === 'bgp') return 20;
-         return 50;
-       };
-       const pa = prio(a);
-       const pb = prio(b);
-       if (pa !== pb) return pa - pb;
-       return a.localeCompare(b);
-    });
-    
-    const sorted: any = {};
-    keys.forEach(k => sorted[k] = copy[k]);
-    return sorted;
-  };
-
-  const buildConfigFromValues = (v: any) => {
-    const cfg: any = {};
+  const buildConfigFromValues = (v: any): Record<string, unknown> => {
+    const cfg: Record<string, unknown> = {};
     const ipv4CidrPattern = /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/;
     // IPv6 CIDR 校验正则
     // 示例：2408:3333:1002::/64、::1/128、::/0
@@ -914,7 +932,7 @@ const PEWizard: React.FC = () => {
       attachHubInventoryToConfig(cfg, inventory);
     }
 
-    return sortJsonKeys(cfg);
+    return sortVrConfigJsonKeys(cfg, 'pe');
   };
 
   const watchedValues = Form.useWatch([], form);
@@ -935,12 +953,40 @@ const PEWizard: React.FC = () => {
     return true;
   };
 
+  const focusPeWizardValidationError = (err: unknown) => {
+    warnFormValidationFailure(err);
+    const e = err as { errorFields?: { name: (string | number)[]; errors: string[] }[] };
+    const name = e?.errorFields?.[0]?.name;
+    if (!Array.isArray(name)) return;
+    if (name[0] === 'hubWanInventory' && typeof name[1] === 'number') {
+      setActiveWanTabKey(String(name[1]));
+    }
+    if (name[0] === 'lanConfigs' && typeof name[1] === 'number') {
+      setActiveLanTabKey(String(name[1]));
+    }
+  };
+
+  const validatePeWizardStepsThrough = async (fromStep: number, toStep: number): Promise<boolean> => {
+    for (let s = fromStep; s < toStep; s++) {
+      const fields = buildPeWizardStepFieldNames(s, isHubPe, form.getFieldsValue(true));
+      if (fields.length > 0) {
+        await form.validateFields(fields);
+      }
+      if (s === 0 && !ensureUniqueHubIfNames()) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const next = async () => {
     try {
-      await form.validateFields();
-      if (!ensureUniqueHubIfNames()) return;
+      const ok = await validatePeWizardStepsThrough(current, current + 1);
+      if (!ok) return;
       setCurrent((c) => Math.min(2, c + 1));
-    } catch {}
+    } catch (err) {
+      focusPeWizardValidationError(err);
+    }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
@@ -952,24 +998,24 @@ const PEWizard: React.FC = () => {
       return;
     }
     try {
-      await form.validateFields();
-      if (!ensureUniqueHubIfNames()) return;
+      const ok = await validatePeWizardStepsThrough(current, idx);
+      if (!ok) return;
       setCurrent(idx);
-    } catch {
-      /* 校验未通过，留在当前步 */
+    } catch (err) {
+      focusPeWizardValidationError(err);
     }
   };
 
   const handleDispatch = async () => {
     if (!uuid) {
-      message.error('缺少 VR 实例 UUID，无法继续');
+      message.error('缺少 IBR 实例 UUID，无法继续');
       return;
     }
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
-        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 VR 已被 SRv6 隧道引用';
+        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
         message.error(
           `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
           8,

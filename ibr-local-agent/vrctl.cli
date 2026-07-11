@@ -1,0 +1,82 @@
+#!/bin/bash
+
+usage() {
+    echo "Usage: $0 [--agent-interval [interval]] [--monitoring-interval [interval]]"
+    printf "
+    --agent-interval <interval> 设置注册和配置的监测间隔(单位:秒)
+    --monitoring-interval <interval> 设置上报下发的间隔(单位:秒)
+    "
+    exit 1
+}
+
+# {
+#   "agent": {
+#     "interval": 30,
+#     "check_interval": 50
+#   },
+#  "monitoring":{
+#     "interval": 30
+#     "download_interval": 40
+#   }
+# }
+VR_CONF="/rhos/etc/agent/vr_conf"
+show_conf(){
+	if [ -f $VR_CONF ];then
+		cat $VR_CONF
+	else
+		echo "config file not found"
+	fi
+}
+while [ -n "$1" ]; do
+	case "$1" in
+		--agent-interval)
+			export AGENT_INTERVAL="$2"
+			shift
+			;;
+		--monitoring-interval)
+			export MONITORING_INTERVAL="$2"
+			shift
+			;;
+		--monitoring-download-interval)
+			export MONITORING_DOWNLOAD_INTERVAL="$2"
+			shift
+			;;
+		--show-conf)
+			show_conf
+			exit 0
+			;;
+		"-h"|"--help")
+            usage
+            exit 0
+			;;
+		*) 
+			echo "Invalid option,please use -h or --help to get more information"
+			exit 1
+			;;
+	esac
+	shift 
+done
+
+data=""
+if [ -n "$MONITORING_INTERVAL" ];then
+    [ -n "$data" ] && data+=" | "
+    data+=".monitoring.interval = \$monitoring"
+fi
+if [ -n "$AGENT_INTERVAL" ];then
+    [ -n "$data" ] && data+=" | "
+    data+=".agent.interval = \$agent"
+fi
+if [ -n "$MONITORING_DOWNLOAD_INTERVAL" ];then
+    [ -n "$data" ] && data+=" | "
+    data+=".monitoring.download_interval = \$download"
+fi
+
+# 如果 data 为空，直接退出
+[ -z "$data" ] && exit 0
+
+jq --arg monitoring "$MONITORING_INTERVAL" \
+    --arg agent "$AGENT_INTERVAL" \
+    --arg download "$MONITORING_DOWNLOAD_INTERVAL" \
+    "$data" \
+    "$VR_CONF" > "${VR_CONF}.tmp" && mv "${VR_CONF}.tmp" "$VR_CONF"
+

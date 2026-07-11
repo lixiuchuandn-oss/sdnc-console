@@ -1,0 +1,797 @@
+#!/bin/bash
+#set -x
+# NetJSON Monitoring
+
+show_help() {
+	printf "Usage:\n"
+	printf "  netjson-monitoring [OPTIONS...]\n"
+	printf "\n"
+	printf "Use Netjson Monitoring to get current device configuration data.\n"
+	printf "\n"
+	printf "Options:\n"
+	printf "  --collect-srv6\t\t\t\t: Collect Srv6 data.\n"
+	printf "  --collect-interfaces\t\t\t: Collect interfaces data.\n"
+	printf "  --collect-subinterfaces\t\t: Collect subinterfaces data.\n"
+    printf "  --collect-routes\t\t\t\t: Collect routes data.\n"
+	printf "  --collect-resource-indicators\t: Collect resource indicators data.\n"
+	printf "  --collect-ipsec\t\t\t\t: Collect ipsec data.\n"
+	printf "  --collect-gateway\t\t\t\t: Collect gateway data.\n"
+}
+
+show_version() {
+	VERSION=$(vctl show version)
+	echo "$VERSION"
+	exit 0
+}
+
+VR_CONF="/usr/local/src/vrconf/registervr.conf"
+VR_CTL="/usr/local/src/vrconf/vrcontrol.conf"
+BASE_DIR="/rhos/etc/agent"
+CONF_DIR="$BASE_DIR/conf"
+get_uuid() {
+    # 从VR_CONF文件中读取UUID
+    local uuid=$(jq -r .uuid < "$VR_CONF" 2>/dev/null)
+    
+    # 如果UUID存在且不为空，直接返回
+    if [ -n "$uuid" ] && [ "$uuid" != "null" ]; then
+        echo "$uuid"
+        return
+    fi
+# # 获取处理器ID
+#     local processor_id=$(dmidecode -t processor | grep ID | head -n 1 | cut -d':' -f2 | tr -d ' ')
+    
+#     # 获取第一个物理网卡的MAC地址（按照接口名称字母顺序排序）
+#     local mac=$(ip -o link show | 
+#         awk -F': ' '$2 !~ "lo|docker|veth|br-" {print $2}' | 
+#         sort | 
+#         while read -r iface; do 
+#             if ip link show "$iface" | grep -q ether; then
+#                 ip link show "$iface" | 
+#                 awk '/ether/ {print $2}' | 
+#                 tr -d ':' 
+#                 break
+#             fi
+#         done)
+    
+#     echo "${processor_id}-${mac}"
+}
+
+init_template() {
+    local template_file="$1"
+    local name="$2"
+    local vpn="$3"
+    local localsid="$4"
+    local pool_id="$5"
+    local uuid="$(get_uuid)"
+
+    # 去除字符串中的回车符
+    name=$(echo "$name" | tr -d '\r')
+    vpn=$(echo "$vpn" | tr -d '\r')
+    localsid=$(echo "$localsid" | tr -d '\r')
+    pool_id=$(echo "$pool_id" | tr -d '\r')
+
+    if [ ! -f "$template_file" ]; then
+        echo '{
+  "uuid": "'"$uuid"'",
+  "srv6": {
+    "name": "'"$name"'",
+    "vpn": "'"$vpn"'",
+    "localsid": "'"$localsid"'",
+    "pool_id": "'"$pool_id"'",
+    "srv6list": []
+  },
+  "interfaces": [],
+  "resourceIndicators": {},
+  "ipsec": [],
+  "gateway": ""
+}' > "$template_file"
+    fi
+}
+
+add_srv6_config() {
+    local input_file=$1    # 输入文件
+    local name=$2
+    local vpn=$3
+    local localsid=$4
+    local bsid=$5
+    local seglist=$6       # 逗号分隔的seglist
+    local ce_data=$7      # 格式: "router1,router2"
+    local pool_id=$8
+    
+    # 确保模板文件存在
+    init_template "$input_file" "$name" "$vpn" "$localsid" "$pool_id"
+    
+    # 转换route数据为数组
+    local route_array=$(echo "$ce_data" | tr ',' '\n' | jq -R . | jq -s .)
+    # 转换seglist为数组
+    local seg_array=$(echo "$seglist" | tr ',' '\n' | jq -R . | jq -s .)
+    
+    # 添加新配置
+    jq --arg bsid "$bsid" \
+       --argjson seglist "$seg_array" \
+       --argjson route "$route_array" \
+       '.srv6.srv6list += [{
+           "bsid": $bsid,
+           "seglist": $seglist,
+           "route": $route
+       }]' "$input_file"
+}
+
+
+collect_srv6_data() {
+	local name
+    local vpn
+    local localsid
+    local seglist       # seglist
+    local ce_data  ce_array     # 格式: "router1,router2"
+	local BSID
+	local policy
+	local content
+	local pool_id
+	local vm_id
+	local index=0
+	
+
+	local if=$(ip route | grep "default" | awk '{print $5}')
+	name=$(ip addr show $if | grep "inet " |grep -v "inet6" | awk '{print $2}' | awk -F/ '{print $1}')
+	vpn=$(vctl show sr localsids | grep "Table:" | tail -n 1 | awk '{print $2}')
+	localsid=$(vctl show sr localsids | grep "Address:"| tail -n 1| awk '{print $2}'|awk -F/ '{print $1}')
+	pool_id=$(jq -r .pool_id < "$VR_CONF")
+	vm_id=$(jq -r .vm_id < "$VR_CONF")
+
+
+	content=$(vctl show sr policies)
+	content=$(echo "$content" | sed '/^SR policies:/d')
+
+	while [ -n "$content" ]; do
+		policy=$(echo "$content" | head -n 7)
+		if [ -z "$policy" ]; then
+			break
+		fi
+		BSID=$(echo "$policy" | grep "BSID:" | awk '{print $3}')
+		seglist=$(echo "$policy" | grep "weight:"| awk '{print $3}'|sed 's/,$//')
+		ce_array=$(vctl show sr steering-policies | grep "$BSID" | awk '{print $2}')
+		ce_data=""
+		for ce in $ce_array; do
+			if [ -z "$ce_data" ]; then
+    			ce_data="$ce"
+			else
+    			ce_data+=",$ce"
+			fi
+		done
+		
+		name=$(echo "$name" | tr -d '\r')
+		vpn=$(echo "$vpn" | tr -d '\r')
+		localsid=$(echo "$localsid" | tr -d '\r')
+		BSID=$(echo "$BSID" | tr -d '\r')
+		seglist=$(echo "$seglist" | tr -d '\r')
+		ce_data=$(echo "$ce_data" | tr -d '\r')
+		add_srv6_config "$CONF_DIR/conf.json" "$name" "$vpn" "$localsid" "$BSID" "$seglist" "$ce_data" "$pool_id" "$vm_id" > "$CONF_DIR/tmp_srv6.json" && mv "$CONF_DIR/tmp_srv6.json" "$CONF_DIR/conf.json"
+		content=$(echo "$content" | sed '1,7d')
+		((index++))
+	done
+	if [ "$index" -eq "0" ]; then
+		add_srv6_config "$CONF_DIR/conf.json" "$name" "$vpn" "$localsid" "$BSID" "$seglist" "$ce_data" "$pool_id" "$vm_id" > "$CONF_DIR/tmp_srv6.json" && mv "$CONF_DIR/tmp_srv6.json" "$CONF_DIR/conf.json"
+	fi 
+}
+#	{
+#		"interfaces": [
+#			{
+#				"name":"GigabitEthernet0/3/2",
+#				"mac":"00:00:00:00:00:00",
+#				"ipv4":"192.168.30.1/24",
+#				"ipv6":"1000:1013::1/64",
+#				"vrf_id":"5000",
+#				"status":"up"
+#			}
+#		]
+#	}
+
+add_interfaces_config() {
+    local input_file="$CONF_DIR/conf.json"
+    local name=$2
+    local vlan=$3
+    local vrf=$4
+    local ipv4=$5
+    local ipv6=$6
+    local status=$7
+    local rx_packets_rate=$8
+    local rx_bytes_rate=$9
+    local tx_packets_rate=${10}
+    local tx_bytes_rate=${11}
+
+    # 如果文件不存在，创建包含基本结构的文件
+    if [ ! -f "$input_file" ]; then
+        local uuid="$(get_uuid)"
+        echo '{
+            "uuid": "'"$uuid"'",
+            "srv6": {
+                "srv6list": []
+            },
+            "interfaces": [],
+            "resourceIndicators": {},
+            "ipsec": [],
+            "gateway": ""
+        }' > "$input_file"
+    fi
+    name=$(echo "$name" | tr -d '\r')
+    vlan=$(echo "$vlan" | tr -d '\r')
+    vrf=$(echo "$vrf" | tr -d '\r')
+    ipv4=$(echo "$ipv4" | tr -d '\r')
+    ipv6=$(echo "$ipv6" | tr -d '\r')
+    status=$(echo "$status" | tr -d '\r')
+    rx_packets_rate=$(echo "$rx_packets_rate" | tr -d '\r')
+    rx_bytes_rate=$(echo "$rx_bytes_rate" | tr -d '\r')
+    tx_packets_rate=$(echo "$tx_packets_rate" | tr -d '\r')
+    tx_bytes_rate=$(echo "$tx_bytes_rate" | tr -d '\r')
+
+    local data=''
+    if [ -n "$name" ]; then
+        data+='name: $name,'
+    fi
+    if [ -n "$vlan" ]; then
+        data+='vlan: $vlan,'
+    fi
+    if [ -n "$ipv4" ]; then
+        data+='ipv4_static: $ipv4,'
+    fi
+    if [ -n "$ipv6" ]; then
+        data+='ipv6_static: $ipv6,'
+    fi
+    if [ -n "$vrf" -a "$vrf" != "default" ]; then
+        data+='vrf: $vrf,'
+    fi
+    if [ -n "$status" ]; then
+        data+='status: $status,'
+    fi
+    if [ -n "$rx_packets_rate" ] && [ "$rx_packets_rate" != "null" ]; then
+        data+='receivePacketsPerSecond: ($rx_packets_rate | tonumber),'
+    fi
+    if [ -n "$rx_bytes_rate" ] && [ "$rx_bytes_rate" != "null" ]; then
+        data+='receiveRateBps: ($rx_bytes_rate | tonumber),'
+    fi
+    if [ -n "$tx_packets_rate" ] && [ "$tx_packets_rate" != "null" ]; then
+        data+='transmitPacketsPerSecond: ($tx_packets_rate | tonumber),'
+    fi
+    if [ -n "$tx_bytes_rate" ] && [ "$tx_bytes_rate" != "null" ]; then
+        data+='transmitRateBps: ($tx_bytes_rate | tonumber),'
+    fi
+    data='.interfaces += [{
+    '$data'
+    }]'
+    jq --arg name "$name" \
+       --arg vlan "$vlan" \
+       --arg vrf "$vrf" \
+       --arg ipv4 "$ipv4" \
+       --arg ipv6 "$ipv6" \
+       --arg status "$status" \
+       --arg rx_packets_rate "$rx_packets_rate" \
+       --arg rx_bytes_rate "$rx_bytes_rate" \
+       --arg tx_packets_rate "$tx_packets_rate" \
+       --arg tx_bytes_rate "$tx_bytes_rate" \
+       "$data" "$input_file" > "$CONF_DIR/tmp_interfaces.json" \
+        && mv "$CONF_DIR/tmp_interfaces.json" "$input_file"
+}
+# 修改收集数据的函数
+collect_interfaces_data() {
+    local name
+    local vlan
+    local vrf
+    local ipv4
+    local ipv6
+    local status
+    local if_list
+    local rx_packets_rate
+    local rx_bytes_rate
+    local tx_packets_rate
+    local tx_bytes_rate
+    local INTERVAL=${INTERVAL:-300}
+    
+    # 获取接口统计信息
+    local interface_stats_json
+    interface_stats_json=$(vctl show interface | lua /rhos/etc/agent/tools/lua/interface-fmt.lua 2>/dev/null)
+    
+    # 获取所有接口的名字
+    if_list=$(vctl show tap-inject | awk -F "->" '{print $1}' | awk '{$1=$1};1')
+    for if in $if_list; do
+        prefix=$(echo "$if" | sed -E 's/([a-zA-Z]+)[0-9].*/\1/')
+        number=$(echo "$if" | sed -E 's/[a-zA-Z]+([0-9].*)/\1/')
+        if [ "$prefix" == "tap" ]; then
+            prefix="TapEthernet"
+            if="$prefix $number"
+        fi
+        name="$prefix $number"
+        content=$(/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -c "show interface $prefix $number")
+        vlan=$(echo "$content" | grep "outer vlan id" | awk -F ':' '{print $2}')
+        vrf=$(echo "$content" | grep "vrf:" | awk '{print $2}'| sed 's/vrf//')
+        ipv4=$(echo "$content" | grep "inet " | awk '{print $2}')
+        ipv6=$(echo "$content" | grep "inet6 " | awk '{if(NR==2) print $2; if(NR==1 && FNR==1 && NR==1) print $2}')
+        status=$(echo "$content" | head -n 1 | awk -F 'is ' '{print $2}' | awk -F ',' '{print $1}')
+
+        # 从接口统计信息中获取该接口的计数器数据并计算速率
+        rx_packets_rate=""
+        rx_bytes_rate=""
+        tx_packets_rate=""
+        tx_bytes_rate=""
+        
+        if [ -n "$interface_stats_json" ]; then
+            # 将接口名称转换为可能的格式（带空格和不带空格）
+            # name可能是 "GigabitEthernet 0/3/0"，需要匹配 "GigabitEthernet0/3/0"
+            local name_no_space=$(echo "$name" | tr -d ' ')
+            local counters=$(echo "$interface_stats_json" | jq -r --arg ifname1 "$name" --arg ifname2 "$name_no_space" '.[] | select(.name == $ifname1 or .name == $ifname2) | .counters // {}')
+            
+            if [ -n "$counters" ] && [ "$counters" != "{}" ] && [ "$counters" != "null" ]; then
+                local rx_packets=$(echo "$counters" | jq -r '.["rx packets"] // 0')
+                local rx_bytes=$(echo "$counters" | jq -r '.["rx bytes"] // 0')
+                local tx_packets=$(echo "$counters" | jq -r '.["tx packets"] // 0')
+                local tx_bytes=$(echo "$counters" | jq -r '.["tx bytes"] // 0')
+                
+                # 计算速率（除以INTERVAL），使用awk进行浮点数计算
+                # 即使值为0也计算速率，确保数据完整性
+                if [ -n "$rx_packets" ] && [ "$rx_packets" != "null" ]; then
+                    rx_packets_rate=$(awk "BEGIN {printf \"%.2f\", $rx_packets / $INTERVAL}" 2>/dev/null || echo "0")
+                fi
+                if [ -n "$rx_bytes" ] && [ "$rx_bytes" != "null" ]; then
+                    rx_bytes_rate=$(awk "BEGIN {printf \"%.2f\", $rx_bytes / $INTERVAL}" 2>/dev/null || echo "0")
+                fi
+                if [ -n "$tx_packets" ] && [ "$tx_packets" != "null" ]; then
+                    tx_packets_rate=$(awk "BEGIN {printf \"%.2f\", $tx_packets / $INTERVAL}" 2>/dev/null || echo "0")
+                fi
+                if [ -n "$tx_bytes" ] && [ "$tx_bytes" != "null" ]; then
+                    tx_bytes_rate=$(awk "BEGIN {printf \"%.2f\", $tx_bytes / $INTERVAL}" 2>/dev/null || echo "0")
+                fi
+            fi
+        fi
+
+        add_interfaces_config "$CONF_DIR/conf.json" "$name" "$vlan" "$vrf" "$ipv4" "$ipv6" "$status" "$rx_packets_rate" "$rx_bytes_rate" "$tx_packets_rate" "$tx_bytes_rate"
+    done
+}
+#	{
+#		"subinterfaces": [
+#			{
+#				"name":"GigabitEthernet0/3/2.1",
+#				"ipv4":"192.168.30.1/24",
+#				"ipv6":"1000:1013::1/64",
+#				"vrf_id":"5000",
+#				"status":"up"
+#			}
+#		]
+#	}
+add_subinterfaces_config() {
+    local input_file=$1
+    local name=$2
+    local mac=$3
+    local ipv4=$4
+    local ipv6=$5
+    local vrf_id=$6
+    local status=$7
+
+    # 如果文件不存在，先创建一个包含空数组的对象
+    if [ ! -f "$input_file" ]; then
+        echo '{"subinterfaces":[]}' > "$input_file"
+    fi
+
+    jq --arg name "$name" \
+       --arg mac "$mac" \
+       --arg ipv4 "$ipv4" \
+       --arg ipv6 "$ipv6" \
+       --arg vrf_id "$vrf_id" \
+       --arg status "$status" \
+       '.subinterfaces += [{
+           "name": $name,
+           "mac": $mac,
+           "ipv4": $ipv4,
+           "ipv6": $ipv6,
+           "vrf_id": $vrf_id,
+           "status": $status
+       }]' "$input_file" > "$CONF_DIR/tmp_subinterfaces.json" \
+        && mv "$CONF_DIR/tmp_subinterfaces.json" "$input_file"
+
+}
+collect_subinterfaces_data() {
+	local name
+	local ipv4
+	local ipv6
+	local vrf_id
+	local status
+
+	# 确保配置目录存在
+    mkdir -p "$CONF_DIR" 2>/dev/null
+    
+    # 初始化接口文件为包含空数组的对象
+    echo '{"subinterfaces":[]}' > "$CONF_DIR/subinterfaces.json"
+
+	if_list=$(vctl show tap-inject | awk -F "->" '{print $1}' | grep -E "[0-9]+\.[0-9]+" | grep -v "memif*" |awk '{$1=$1};1')
+
+	for if in $if_list; do
+        prefix=$(echo "$if" | sed -E 's/([a-zA-Z]+)[0-9].*/\1/')
+        number=$(echo "$if" | sed -E 's/[a-zA-Z]+([0-9].*)/\1/')
+		if [ "$prefix" == "tap" ]; then
+			prefix="TapEthernet"
+			if="$prefix$number"
+		fi
+        name="$if"
+        content=$(/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -c "show interface $prefix $number")
+        mac=$(echo "$content" | grep "HWaddr:" | awk '{print $2}')
+        ipv4=$(echo "$content" | grep "inet " | awk '{print $2}')
+        ipv6=$(echo "$content" | grep "inet6 " | awk '{print $2}')
+        vrf_id=$(echo "$content" | grep "vrf:" | awk '{print $2}')
+        status=$(echo "$content" | head -n 1 | awk -F 'is ' '{print $2}' | awk -F ',' '{print $1}')
+
+        add_subinterfaces_config "$CONF_DIR/subinterfaces.json" "$name" "$mac" "$ipv4" "$ipv6" "$vrf_id" "$status" 
+    done
+
+}
+
+# {
+#     "routes": [
+#         {
+#             "target_ip":"1.1.1.1/20",
+#             "gateway":"1.1.1.2",
+#             "vrf_id":"4000"
+#         }
+#     ]
+# }
+add_routes_config() {
+    local input_file=$1
+    local target_ip=$2
+    local gateway=$3
+    local vrf_id=$4
+
+    jq --arg target_ip "$target_ip" \
+       --arg gateway "$gateway" \
+       --arg vrf_id "$vrf_id" \
+       '.routes += [{
+           "target_ip": $target_ip,
+           "gateway": $gateway,
+           "vrf_id": $vrf_id
+       }]' "$input_file" > "$CONF_DIR/tmp_routes.json" \
+        && mv "$CONF_DIR/tmp_routes.json" "$input_file"
+}
+collect_routes_data() {
+    local target_ip
+    local gateway
+    local vrf_id
+
+    #vrf9999::S>* 2.2.0.0/16 [1/0] via 1.1.1.2, vsw2, weight 1, 00:30:20
+
+    # 确保配置目录存在
+    mkdir -p "$CONF_DIR" 2>/dev/null
+    
+    # 初始化接口文件为包含空数组的对象
+    echo '{"routes":[]}' > "$CONF_DIR/routes.json"
+
+    while IFS= read -r line; do
+        target_ip=$(echo "$line" | awk '{print $2}')
+        gateway=$(echo "$line" | awk '{print $5}')
+        vrf_id=$(echo "$line" | awk '{print $1}'| awk -F "::" '{print $1}')
+        add_routes_config "$CONF_DIR/routes.json" "$target_ip" "$gateway" "$vrf_id"
+    done < <(vtysh -c "show ip route vrf all" | awk '/^VRF/{vrf=$2} /^S/{print vrf ":" $0}' | sed 's/:C/C/'| grep -v "vrf0000")
+
+    while IFS= read -r line; do
+	    target_ip=$(echo "$line" | awk '{print $2}')
+	    gateway=$(echo "$line" | awk '{print $5}')
+	    vrf_id=$(echo "$line" | awk '{print $1}'| awk -F "::" '{print $1}')
+	    add_routes_config "$CONF_DIR/routes.json" "$target_ip" "$gateway" "$vrf_id"
+    done < <(vtysh -c "show ipv6 route vrf all" | awk '/^VRF/{vrf=$2} /^S/{print vrf ":" $0}' | sed 's/:C/C/'| grep -v "vrf0000")
+}
+
+# 添加资源指标到配置
+add_resource_indicators_config() {
+    local input_file="$CONF_DIR/conf.json"
+    local cpu_total=$2
+    local cpu_used=$3
+    local memory_total=$4
+    local memory_used=$5
+
+    # 如果文件不存在，创建包含基本结构的文件
+    if [ ! -f "$input_file" ]; then
+        local uuid="$(get_uuid)"
+        echo '{
+            "uuid": "'"$uuid"'",
+            "srv6": {
+                "srv6list": []
+            },
+            "interfaces": [],
+            "resourceIndicators": {},
+            "ipsec": [],
+            "gateway": ""
+        }' > "$input_file"
+    fi
+
+    # 去除字符串中的回车符
+    cpu_total=$(echo "$cpu_total" | tr -d '\r')
+    cpu_used=$(echo "$cpu_used" | tr -d '\r')
+    memory_total=$(echo "$memory_total" | tr -d '\r')
+    memory_used=$(echo "$memory_used" | tr -d '\r')
+
+    # 使用jq添加或更新resourceIndicators字段
+    jq --arg cpu_total "$cpu_total" \
+       --arg cpu_used "$cpu_used" \
+       --arg memory_total "$memory_total" \
+       --arg memory_used "$memory_used" \
+       '.resourceIndicators = {
+           "cpuTotal": ($cpu_total | tonumber),
+           "cpuUsed": ($cpu_used | tonumber),
+           "memoryTotal": ($memory_total | tonumber),
+           "memoryUsed": ($memory_used | tonumber)
+       }' "$input_file" > "$CONF_DIR/tmp_resource_indicators.json" \
+        && mv "$CONF_DIR/tmp_resource_indicators.json" "$input_file"
+}
+
+# 收集资源指标数据
+collect_resource_indicators_data() {
+    local cpu_total
+    local cpu_used
+    local memory_total
+    local memory_used
+    local mem_info
+    local mem_total_kb
+    local mem_used_kb
+    local mem_free_kb
+    local mem_available_kb
+
+    # 获取CPU总数（逻辑CPU核心数）
+    cpu_total=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1")
+
+    # 获取CPU使用率
+    # 方法1: 使用top命令（快速）
+    cpu_used=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}' 2>/dev/null)
+    
+    # 如果top命令失败或结果无效，使用/proc/stat计算（需要等待1秒）
+    if [ -z "$cpu_used" ] || [ "$cpu_used" = "" ] || ! echo "$cpu_used" | grep -qE '^[0-9]+\.?[0-9]*$'; then
+        # 读取第一次CPU统计信息
+        local cpu_line1=$(grep '^cpu ' /proc/stat 2>/dev/null | head -n1)
+        if [ -n "$cpu_line1" ]; then
+            # 计算总时间和空闲时间
+            local user1 nice1 system1 idle1 iowait1 irq1 softirq1 steal1 guest1 guest_nice1
+            read -r user1 nice1 system1 idle1 iowait1 irq1 softirq1 steal1 guest1 guest_nice1 <<< $(echo "$cpu_line1" | awk '{print $2, $3, $4, $5, $6, $7, $8, $9, $10, $11}')
+            
+            local idle1_total=$((idle1 + iowait1))
+            local total1=$((user1 + nice1 + system1 + idle1 + iowait1 + irq1 + softirq1 + steal1))
+            
+            # 等待1秒
+            sleep 1
+            
+            # 读取第二次CPU统计信息
+            local cpu_line2=$(grep '^cpu ' /proc/stat 2>/dev/null | head -n1)
+            if [ -n "$cpu_line2" ]; then
+                local user2 nice2 system2 idle2 iowait2 irq2 softirq2 steal2 guest2 guest_nice2
+                read -r user2 nice2 system2 idle2 iowait2 irq2 softirq2 steal2 guest2 guest_nice2 <<< $(echo "$cpu_line2" | awk '{print $2, $3, $4, $5, $6, $7, $8, $9, $10, $11}')
+                
+                local idle2_total=$((idle2 + iowait2))
+                local total2=$((user2 + nice2 + system2 + idle2 + iowait2 + irq2 + softirq2 + steal2))
+                
+                local idle_diff=$((idle2_total - idle1_total))
+                local total_diff=$((total2 - total1))
+                
+                if [ "$total_diff" -gt 0 ]; then
+                    cpu_used=$(awk "BEGIN {printf \"%.2f\", (1 - $idle_diff / $total_diff) * 100}" 2>/dev/null || echo "0")
+                else
+                    cpu_used="0"
+                fi
+            else
+                cpu_used="0"
+            fi
+        else
+            cpu_used="0"
+        fi
+    fi
+
+    # 获取内存信息（总内存和使用内存，单位：GB）
+    mem_info=$(cat /proc/meminfo 2>/dev/null)
+    
+    if [ -n "$mem_info" ]; then
+        # 获取总内存（MemTotal，单位KB）
+        mem_total_kb=$(echo "$mem_info" | grep "^MemTotal:" | awk '{print $2}')
+        
+        # 获取可用内存（MemAvailable，如果不存在则使用MemFree）
+        mem_available_kb=$(echo "$mem_info" | grep "^MemAvailable:" | awk '{print $2}')
+        if [ -z "$mem_available_kb" ] || [ "$mem_available_kb" = "" ]; then
+            mem_free_kb=$(echo "$mem_info" | grep "^MemFree:" | awk '{print $2}')
+            local buffers_kb=$(echo "$mem_info" | grep "^Buffers:" | awk '{print $2}')
+            local cached_kb=$(echo "$mem_info" | grep "^Cached:" | awk '{print $2}')
+            mem_available_kb=$((mem_free_kb + buffers_kb + cached_kb))
+        fi
+        
+        # 计算已使用内存
+        mem_used_kb=$((mem_total_kb - mem_available_kb))
+        
+        # 总内存转换为GB（保留1位小数）
+        if [ -n "$mem_total_kb" ] && [ "$mem_total_kb" -gt 0 ]; then
+            memory_total=$(awk "BEGIN {printf \"%.1f\", $mem_total_kb / 1024 / 1024}" 2>/dev/null || echo "0")
+        else
+            memory_total="0"
+        fi
+        
+        # 计算内存使用率（百分比，保留1位小数）
+        if [ -n "$mem_total_kb" ] && [ "$mem_total_kb" -gt 0 ] && [ -n "$mem_used_kb" ]; then
+            memory_used=$(awk "BEGIN {printf \"%.1f\", ($mem_used_kb / $mem_total_kb) * 100}" 2>/dev/null || echo "0")
+        else
+            memory_used="0"
+        fi
+    else
+        memory_total="0"
+        memory_used="0"
+    fi
+
+    # 确保值不为空
+    cpu_total=${cpu_total:-1}
+    cpu_used=${cpu_used:-0}
+    memory_total=${memory_total:-0}
+    memory_used=${memory_used:-0}
+
+    # 添加资源指标到配置
+    add_resource_indicators_config "$CONF_DIR/conf.json" "$cpu_total" "$cpu_used" "$memory_total" "$memory_used"
+}
+
+# 添加IPSec配置到JSON
+add_ipsec_config() {
+    local input_file="$CONF_DIR/conf.json"
+    local ipsec_json="$2"
+
+    # 如果文件不存在，创建包含基本结构的文件
+    if [ ! -f "$input_file" ]; then
+        local uuid="$(get_uuid)"
+        echo '{
+            "uuid": "'"$uuid"'",
+            "srv6": {
+                "srv6list": []
+            },
+            "interfaces": [],
+            "resourceIndicators": {},
+            "ipsec": [],
+            "gateway": ""
+        }' > "$input_file"
+    fi
+
+    # 使用jq更新ipsec字段
+    if [ -n "$ipsec_json" ] && [ "$ipsec_json" != "[]" ] && [ "$ipsec_json" != "null" ]; then
+        echo "$ipsec_json" | jq '.' > /dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            jq --argjson ipsec_data "$ipsec_json" '.ipsec = $ipsec_data' "$input_file" > "$CONF_DIR/tmp_ipsec.json" \
+                && mv "$CONF_DIR/tmp_ipsec.json" "$input_file"
+        else
+            # 如果JSON无效，设置为空数组
+            jq '.ipsec = []' "$input_file" > "$CONF_DIR/tmp_ipsec.json" \
+                && mv "$CONF_DIR/tmp_ipsec.json" "$input_file"
+        fi
+    else
+        # 如果没有数据，设置为空数组
+        jq '.ipsec = []' "$input_file" > "$CONF_DIR/tmp_ipsec.json" \
+            && mv "$CONF_DIR/tmp_ipsec.json" "$input_file"
+    fi
+}
+
+# 收集IPSec数据
+collect_ipsec_data() {
+    local ipsec_result
+    local ipsec_data
+    local ipsec_json
+
+    # 调用命令获取IPSec SA列表
+    ipsec_result=$(csm_agent_cmd_exector.sh '{"opt":"ipsec_show_sas_list","args":{}}' 2>/dev/null)
+    
+    if [ -n "$ipsec_result" ]; then
+        # 从JSON响应中提取data字段（字符串格式的IPSec SA信息）
+        ipsec_data=$(echo "$ipsec_result" | jq -r '.data[0].data // empty' 2>/dev/null)
+        
+        if [ -n "$ipsec_data" ] && [ "$ipsec_data" != "null" ] && [ "$ipsec_data" != "" ]; then
+            # 使用Lua脚本解析IPSec SA信息并转换为JSON
+            ipsec_json=$(echo "$ipsec_data" | lua /rhos/etc/agent/tools/lua/ipsec-fmt.lua 2>/dev/null)
+            
+            if [ -n "$ipsec_json" ] && [ "$ipsec_json" != "[]" ]; then
+                # 验证JSON格式
+                echo "$ipsec_json" | jq '.' > /dev/null 2>&1
+                if [ $? -eq 0 ]; then
+                    add_ipsec_config "$CONF_DIR/conf.json" "$ipsec_json"
+                else
+                    # JSON格式无效，设置为空数组
+                    add_ipsec_config "$CONF_DIR/conf.json" "[]"
+                fi
+            else
+                # 没有IPSec数据，设置为空数组
+                add_ipsec_config "$CONF_DIR/conf.json" "[]"
+            fi
+        else
+            # 没有数据，设置为空数组
+            add_ipsec_config "$CONF_DIR/conf.json" "[]"
+        fi
+    else
+        # 命令执行失败，设置为空数组
+        add_ipsec_config "$CONF_DIR/conf.json" "[]"
+    fi
+}
+
+# 添加网关信息到JSON
+add_gateway_config() {
+    local input_file="$CONF_DIR/conf.json"
+    local gateway_ip="$2"
+
+    # 如果文件不存在，创建包含基本结构的文件
+    if [ ! -f "$input_file" ]; then
+        local uuid="$(get_uuid)"
+        echo '{
+            "uuid": "'"$uuid"'",
+            "srv6": {
+                "srv6list": []
+            },
+            "interfaces": [],
+            "resourceIndicators": {},
+            "ipsec": [],
+            "gateway": ""
+        }' > "$input_file"
+    fi
+
+    gateway_ip=$(echo "$gateway_ip" | tr -d '\r')
+
+    jq --arg gateway "$gateway_ip" '.gateway = $gateway' "$input_file" > "$CONF_DIR/tmp_gateway.json" \
+        && mv "$CONF_DIR/tmp_gateway.json" "$input_file"
+}
+
+# 收集网关信息：ip route 取 default via 后面的IP
+collect_gateway_data() {
+    local gw
+    gw=$(ip route 2>/dev/null | awk '/^default via /{print $3; exit}')
+    gw=${gw:-""}
+    add_gateway_config "$CONF_DIR/conf.json" "$gw"
+}
+
+
+main() {
+	# parse options
+	while [ -n "$1" ]; do
+		case "$1" in
+			--version | -v)
+				show_version
+				;;
+			--help | -h)
+				show_help
+				;;
+			--dump)
+				shift
+				/usr/libexec/netjson-monitoring "$@"
+				exit 0
+				;;
+			--collect-srv6)
+				collect_srv6_data
+				exit 0
+				;;
+			--collect-interfaces)
+				collect_interfaces_data
+				exit 0
+				;;
+			--collect-subinterfaces)
+				collect_subinterfaces_data
+				exit 0
+				;;
+            --collect-routes)
+				collect_routes_data
+				exit 0
+				;;
+			--collect-resource-indicators)
+				collect_resource_indicators_data
+				exit 0
+				;;
+			--collect-ipsec)
+				collect_ipsec_data
+				exit 0
+				;;
+			--collect-gateway)
+				collect_gateway_data
+				exit 0
+				;;
+			-*)
+				echo "Invalid option: $1"
+				;;
+			*) break ;;
+		esac
+		shift
+	done
+
+	show_help
+	exit 0
+}
+#创建配置目录
+mkdir -p "$CONF_DIR" 2>/dev/null
+main "$@"

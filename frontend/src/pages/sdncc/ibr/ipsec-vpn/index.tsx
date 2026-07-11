@@ -6,8 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import type { ColumnsType } from 'antd/es/table';
-import { fetchIPsecVPNsMerged, deleteIPsecVPN, apiPost } from '../../../../services/api';
-import { getVR2Config, fetchVrCachePageList } from '../../../../services/virtualRouterApi';
+import { fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../../services/api';
+import { getVR2Config } from '../../../../services/virtualRouterApi';
+import { loadIbrVrCatalog, syncAndLoadIbrVrCatalog } from '../lib/ibrVrCatalog';
 import ReactFlow, { Background, Controls } from 'react-flow-renderer';
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
 
@@ -126,8 +127,8 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
 
   const getActionMenu = (_row: IPsecVPNRow): MenuProps['items'] => ([
     { key: 'edit', label: '编辑' },
-    { key: 'viewConfig', label: '查看本端VR配置' },
-    { key: 'viewPeerConfig', label: '查看对端VR配置' },
+    { key: 'viewConfig', label: '查看本端IBR配置' },
+    { key: 'viewPeerConfig', label: '查看对端IBR配置' },
     { type: 'divider' },
     { key: 'delete', label: '删除', danger: true },
   ]);
@@ -166,7 +167,7 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
         if (row.localVrId) {
           navigate(`/admin/interconnect/vr/${encodeURIComponent(row.localVrId)}/config`);
         } else {
-          message.warning('缺少本端 VR 标识');
+          message.warning('缺少本端 IBR 标识');
         }
         break;
       case 'viewPeerConfig':
@@ -175,7 +176,7 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
           if (peerId) {
             navigate(`/admin/interconnect/vr/${encodeURIComponent(peerId)}/config`);
           } else {
-            message.warning('无法定位对端 VR（缺少 peerVrId）');
+            message.warning('无法定位对端 IBR（缺少 peerVrId）');
           }
         }
         break;
@@ -205,7 +206,7 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
     )},
     { title: '检测时间', dataIndex: 'ipsecUpdateDate', key: 'ipsecUpdateDate', width: 180, render: (d?: string) => d ? new Date(d).toLocaleString() : '—' },
     // 本端信息
-    { title: '本端VR名称/UUID', dataIndex: 'localVrId', key: 'localVr', width: 220, render: (id: string) => {
+    { title: '本端IBR名称/UUID', dataIndex: 'localVrId', key: 'localVr', width: 220, render: (id: string) => {
         const name = vrNameMap[id];
         return name ? (<div>{name}<br/><span style={{fontSize: '12px', color: '#999'}}>{id}</span></div>) : (id || '—');
     }},
@@ -216,7 +217,7 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
     { title: '本端LAN口名称', dataIndex: 'localVrLanName', key: 'localVrLanName', width: 140, render: (v: string) => v || '—' },
     { title: '本端LAN口IP', dataIndex: 'localVrLanIP', key: 'localVrLanIP', width: 140, render: (v: string) => v || '—' },
     // 对端信息
-    { title: '对端VR名称/UUID', dataIndex: 'peerVrId', key: 'peerVr', width: 220, render: (id: string) => {
+    { title: '对端IBR名称/UUID', dataIndex: 'peerVrId', key: 'peerVr', width: 220, render: (id: string) => {
         const name = vrNameMap[id];
         return name ? (<div>{name}<br/><span style={{fontSize: '12px', color: '#999'}}>{id}</span></div>) : (id || '—');
     }},
@@ -258,24 +259,11 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
   const fetchData = async (force?: boolean) => {
     setLoading(true);
     try {
-      if (force) {
-        await apiPost('/api/vr-instances/refresh', {});
-      }
       try {
-        const resp = await fetchVrCachePageList(1000, 1, { skipCache: !!force });
-        const data = resp?.data || resp;
-        const list: any[] = Array.isArray(data?.page)
-          ? data.page
-          : Array.isArray(data?.list)
-          ? data.list
-          : [];
-        const map: Record<string, string> = {};
-        list.forEach((vr: any) => {
-          const id = vr.uuid || vr.id || vr.vm_id;
-          const name = vr.name || id;
-          if (id) map[String(id)] = String(name);
-        });
-        setVrNameMap(map);
+        const { nameMap } = force
+          ? await syncAndLoadIbrVrCatalog()
+          : await loadIbrVrCatalog();
+        setVrNameMap(nameMap);
       } catch (e) {
         console.error('Failed to fetch VR list from cache', e);
       }
@@ -451,8 +439,8 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div><strong>状态</strong><div><Tag color={detailRow.status === 'active' ? 'green' : detailRow.status === 'inactive' ? 'default' : detailRow.status === 'creating' ? 'blue' : 'red'}>{detailRow.status}</Tag></div></div>
             <div><strong>ID</strong><div>{detailRow.id}</div></div>
-            <div><strong>本端VR</strong><div>{vrNameMap[detailRow.localVrId] || detailRow.localVrId}</div></div>
-            <div><strong>本端VR ID</strong><div>{detailRow.localVrId}</div></div>
+            <div><strong>本端IBR</strong><div>{vrNameMap[detailRow.localVrId] || detailRow.localVrId}</div></div>
+            <div><strong>本端IBR ID</strong><div>{detailRow.localVrId}</div></div>
             <div><strong>本端WAN口名称</strong><div>{detailRow.localVrWanName || '—'}</div></div>
             <div><strong>本端WAN口IP</strong><div>{detailRow.localVrWanIP || '—'}</div></div>
             <div><strong>本端EIP</strong><div>{detailRow.localVrWanEIP || '未配置'}</div></div>
@@ -460,8 +448,8 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
             <div><strong>本端LAN口IP</strong><div>{detailRow.localVrLanIP || '—'}</div></div>
             <div><strong>本端LAN口网段</strong><div>{detailRow.localVrLanSubnet}</div></div>
 
-            <div><strong>对端VR</strong><div>{detailRow.peerVrId ? (vrNameMap[detailRow.peerVrId] || detailRow.peerVrId) : '—'}</div></div>
-            <div><strong>对端VR ID</strong><div>{detailRow.peerVrId || '—'}</div></div>
+            <div><strong>对端IBR</strong><div>{detailRow.peerVrId ? (vrNameMap[detailRow.peerVrId] || detailRow.peerVrId) : '—'}</div></div>
+            <div><strong>对端IBR ID</strong><div>{detailRow.peerVrId || '—'}</div></div>
             <div><strong>对端WAN口名称</strong><div>{detailRow.peerVrWanName || '—'}</div></div>
             <div><strong>对端WAN口IP</strong><div>{detailRow.peerVrWanIP}</div></div>
             <div><strong>对端EIP</strong><div>{detailRow.peerVrWanEIP || '未配置'}</div></div>

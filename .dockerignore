@@ -1,0 +1,17 @@
+**/node_modules
+**/build
+**/dist
+**/coverage
+**/.git
+**/.cursor
+**/release
+backend/data
+backend/data.sqlite
+backend/data.sqlite-*
+backend/uploads
+backend/dev
+frontend/scripts
+tests
+deployment
+*.md
+!csm-controller/README.md

@@ -15,12 +15,13 @@ import {
   Tabs,
   Typography,
 } from 'antd';
-import { SyncOutlined } from '@ant-design/icons';
+import { SyncOutlined, LinkOutlined } from '@ant-design/icons';
 import { apiPost } from '../../../../../services/api';
 import {
   fetchVrCacheMerged,
   fetchVrTowerLocalConfigCache,
 } from '../../../../../services/virtualRouterApi';
+import { buildIbrLocalWebUrl, openIbrLocalWeb } from '../../lib/ibrLocalWebUrl';
 
 // ---------- 类型：列表行、抽屉 props、元数据、JSON 源 Tab、Tower 本地缓存 ----------
 export interface VrDetailRow {
@@ -52,7 +53,6 @@ interface VrDetailDrawerProps {
   onClose: () => void;
   row: VrDetailRow | null;
   rolesMap?: Record<string, string>;
-  orgNameMap?: Record<string, string>;
 }
 
 type MetadataState = {
@@ -183,7 +183,6 @@ function useOverviewModel(
   mergedFull: any | null | undefined,
   vrUuid: string,
   rolesMap: Record<string, string>,
-  orgNameMap: Record<string, string>,
 ) {
   return useMemo(() => {
     if (!row && !mergedFull) return null;
@@ -199,8 +198,6 @@ function useOverviewModel(
       String(row?.role || '') ||
       '';
     const interfaces = Array.isArray(base.interfaces) ? base.interfaces : [];
-    const tenantId = base.tenant_id ?? base.tenantId ?? row?.tenant_id;
-    const orgId = base.org_id ?? base.organizationId ?? row?.org_id;
 
     return {
       fromMerged: !!m,
@@ -222,14 +219,11 @@ function useOverviewModel(
       role: role || '—',
       resourceIndicators: ri,
       interfaces,
-      tenant_id: tenantId,
-      org_id: orgId,
-      bind_status: base.bind_status ?? row?.bind_status,
+      management_ip: base.management_ip ?? base.managementIp ?? row?.management_ip ?? row?.managementIp,
       region: row?.region,
       cloud: row?.cloud,
-      orgNameMap,
     };
-  }, [row, mergedFull, vrUuid, rolesMap, orgNameMap]);
+  }, [row, mergedFull, vrUuid, rolesMap]);
 }
 
 /** JSON 源 Tab：左侧行号 + 右侧等宽文本，区域内纵向滚动。 */
@@ -277,7 +271,6 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
   onClose,
   row,
   rolesMap = {},
-  orgNameMap = {},
 }) => {
   const [activeTab, setActiveTab] = useState<VrDrawerTab>('detail');
   const [metadataLoading, setMetadataLoading] = useState(false);
@@ -371,7 +364,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
         await apiPost('/api/vr-instances/refresh', {});
       } catch {
         syncPostFailed = true;
-        message.warning('从对端同步 VR 缓存失败，仍将尝试拉取当前合并数据');
+        message.warning('从对端同步 IBR 缓存失败，仍将尝试拉取当前合并数据');
       }
       await loadMetadata({ useRowPlaceholder: false });
       if (activeTab === 'towerConfig') {
@@ -432,7 +425,6 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     currentMetadata?.mergedFull,
     vrUuid,
     rolesMap,
-    orgNameMap,
   );
 
   /** 详情「状态」项：Typography 语义色，不用 Tag */
@@ -457,7 +449,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
         if (towerLocalConfigCacheError)
           return `加载 Tower 本地配置缓存失败：${towerLocalConfigCacheError}`;
         if (!towerLocalConfigCache) {
-          return 'Tower 本地尚未保存该 VR 的配置（数据库无 vr_config 记录）';
+          return 'Tower 本地尚未保存该 IBR 的配置（数据库无 vr_config 记录）';
         }
         return JSON.stringify(
           {
@@ -473,7 +465,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
         if (vrctl && typeof vrctl === 'object') {
           return JSON.stringify(vrctl, null, 2);
         }
-        return '暂无租户侧 vrctl 数据（Tower 未同步 vr_cache_device，或该 VR 无本地 vr_config / 绑定记录）。可尝试刷新列表缓存或完成租户绑定后再查看。';
+        return '暂无租户侧 vrctl 数据（Tower 未同步 vr_cache_device，或该 IBR 无本地 vr_config / 绑定记录）。可尝试刷新列表缓存或完成租户绑定后再查看。';
       }
       if (sub === 'vr2') {
         return m?.vr2
@@ -490,7 +482,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     ],
   );
 
-  const drawerTitle = overview?.name || row?.name || 'VR 实例详情';
+  const drawerTitle = overview?.name || row?.name || 'IBR实例详情';
 
   const tabItems = useMemo(() => {
     if (!row) return [];
@@ -557,7 +549,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
       push(detailRows, 'mac', 'MAC', displayCell(overview.mac));
     }
     if (displayCell(overview.vr_unique_id)) {
-      push(detailRows, 'vruid', 'VR 唯一标识', displayCell(overview.vr_unique_id));
+      push(detailRows, 'vruid', 'IBR 唯一标识', displayCell(overview.vr_unique_id));
     }
 
     if (displayCell(overview.healthRaw)) {
@@ -586,24 +578,21 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     if (displayCell(overview.gateway)) {
       push(detailRows, 'gw', '默认网关', displayCell(overview.gateway));
     }
-    if (displayCell(overview.tenant_id)) {
-      push(detailRows, 'tenant', '租户 ID', displayCell(overview.tenant_id));
-    }
-    if (overview.org_id && overview.orgNameMap[String(overview.org_id)]) {
+    const mgmtIp = displayCell(overview.management_ip);
+    const localWebUrl = buildIbrLocalWebUrl(overview as Record<string, unknown>);
+    if (mgmtIp) {
       push(
         detailRows,
-        'org',
-        '组织',
-        <Space size="small" wrap>
-          <span>{overview.orgNameMap[String(overview.org_id)]}</span>
-          <Text type="secondary">({overview.org_id})</Text>
-        </Space>,
+        'mgmt_ip',
+        '管理 IP',
+        localWebUrl ? (
+          <Typography.Link href={localWebUrl} target="_blank" rel="noopener noreferrer">
+            <LinkOutlined /> {mgmtIp}
+          </Typography.Link>
+        ) : (
+          mgmtIp
+        ),
       );
-    } else if (displayCell(overview.org_id)) {
-      push(detailRows, 'org', '组织', displayCell(overview.org_id));
-    }
-    if (displayCell(overview.bind_status)) {
-      push(detailRows, 'bind', '绑定状态', displayCell(overview.bind_status));
     }
     if (displayCell(overview.region)) {
       push(detailRows, 'region', '区域', displayCell(overview.region));
@@ -698,13 +687,27 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     <Drawer
       title={drawerTitle}
       extra={
-        <Button
-          size="small"
-          icon={<SyncOutlined spin={refreshing || metadataLoading} />}
-          onClick={() => void handleRefresh()}
-        >
-          刷新
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            icon={<LinkOutlined />}
+            disabled={!buildIbrLocalWebUrl(row ?? undefined)}
+            onClick={() => {
+              if (!openIbrLocalWeb(row ?? undefined)) {
+                message.warning('该实例尚未上报管理 IP，无法打开本机 Console');
+              }
+            }}
+          >
+            本机 Console
+          </Button>
+          <Button
+            size="small"
+            icon={<SyncOutlined spin={refreshing || metadataLoading} />}
+            onClick={() => void handleRefresh()}
+          >
+            刷新
+          </Button>
+        </Space>
       }
       open={open}
       onClose={onClose}

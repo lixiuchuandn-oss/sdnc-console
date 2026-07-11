@@ -333,12 +333,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const handleIdleLogout = useCallback(() => {
     const minutes = pageTimeoutMinutes;
-    const role = user?.role;
     message.warning(`超过 ${minutes} 分钟未操作，已自动退出登录`);
     logout();
-    const path = role === 'tenant' ? '/login' : '/admin/login';
-    window.location.assign(path);
-  }, [logout, pageTimeoutMinutes, user?.role]);
+    window.location.assign('/admin/login');
+  }, [logout, pageTimeoutMinutes]);
 
   usePageIdleLogout({
     enabled: Boolean(user && token && !loading),

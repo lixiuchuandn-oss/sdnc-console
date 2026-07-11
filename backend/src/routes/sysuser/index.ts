@@ -8,7 +8,6 @@ import { RBACRole } from '../../entities/RBACRole';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { In } from 'typeorm';
 import { AuthRequest } from '../../middleware/auth';
-import { requireEnterpriseLicense } from '../../middleware/enterpriseLicense';
 import bcrypt from 'bcryptjs';
 import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
@@ -45,7 +44,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 });
 
 // 获取所有租户用户列表（用于用户管理页面；企业版授权）
-router.get('/tenant-users', requireEnterpriseLicense, async (req: AuthRequest, res: Response) => {
+router.get('/tenant-users', async (req: AuthRequest, res: Response) => {
   try {
     const tenantUserRepository = AppDataSource.getRepository(TenantUser);
     const organizationRepository = AppDataSource.getRepository(Organization);
@@ -242,7 +241,6 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
       const userRepository = AppDataSource.getRepository(User);
       const user = await userRepository.findOne({
         where: { id: req.user.id },
-        relations: ['accessibleClouds'],
       });
       if (!user) return res.status(404).json({ message: '用户不存在' });
       // 使用 authMiddleware 已经计算好的 permissions（包含 super_admin 的 ['*']）
@@ -256,7 +254,6 @@ router.get('/me', async (req: AuthRequest, res: Response) => {
         fullName: user.fullName,
         role: user.role,
         status: user.status,
-        accessibleClouds: user.accessibleClouds,
         createdAt: user.createdAt,
         lastLoginAt: user.lastLoginAt,
         permissions, // 返回权限列表

@@ -223,7 +223,7 @@ CSM 安全域是能力池内的**逻辑聚合**：
 | 前端列表 / 表单 / 详情 | `frontend/src/pages/sdncc/cross-domain/internetwork-routing/`（迁移期 `sec-mgr-plane/SecurityDomain/` barrel 兼容） |
 | 云实例库存（终端 IP / instanceId） | `backend/src/entities/CloudInstanceInventory.ts` |
 | VR 本地注册配置落库 | `backend/src/entities/vRouter/VRConfig.ts`（`vmId`、`config_json`） |
-| VR 实例聚合缓存 | `backend/src/routes/sdn/vrInstances.ts`、`VRCacheService` |
+| VR 实例聚合缓存 | `backend/src/routes/sdn/vrInstances.ts`、`VRCacheService`（API 路径保留 `vr`） |
 | VR 绑定租户 / vm_id | `backend/src/routes/sdn/vrConfig.ts`、`vrManagementService` |
 | CSM 安全域 BFF | `backend/src/routes/clouds/csm/routes.ts`（`tenants`、`security/domains`） |
 | CSM 租户 / 域恢复 | `backend/src/services/tenants/csmTenantRepair.ts` |
@@ -251,8 +251,8 @@ CSM 安全域是能力池内的**逻辑聚合**：
 | **跨域互联** | 1 | **网际路由域** | SDN 编排锚点；列表 + 详情以「这片网」为中心（见 §12） |
 | **跨域互联** | 2 | **邻居管理** | 原「级联通道管理」；网际路由域之间的邻接 / CEN 互联 |
 | **跨域互联** | 3 | **应用管理** | 抽象应用纳管；与网际路由域详情「应用」Tab 联动 |
-| **IBR 管理** | 1 | **网际路由器**（及子页） | VR 实例：列表、新增、专家模式、PE/CE/标准/SASE 角色向导等 |
-| **IBR 管理** | 2～5 | **SRv6 隧道** / **IPsec VPN** / **ACL** / **NAT** | **IBR 能力**：属网际路由器产品线，非网际路由域菜单项；全局管理入口在此组 |
+| **IBR 管理** | 1 | **IBR实例**（及子页） | 列表、新增、专家模式、PE/CE/标准/SASE 角色向导等 |
+| **IBR 管理** | 2～5 | **SRv6 隧道** / **IPsec VPN** / **ACL** / **NAT** | **IBR 能力**；全局管理入口在此组 |
 | **CSM 管理** | 1 | **资源池管理** | CSM 资源池接入、连接测试、池详情（池内 Tab 仍可含 CSM 安全域 / 租户运维视图） |
 | **CSM 管理** | 2 | **安全服务管理** | **跨所有资源池** 的安全能力目录；现阶段以安全网元组为主，后续扩展「网元组 ↔ 已上架安全服务接口」关联包，并带 **KPI 卡片** |
 
@@ -263,7 +263,7 @@ CSM 安全域是能力池内的**逻辑聚合**：
 | **网际路由域** | Tower 编排面：这片网有什么、怎么连、流量怎么走 |
 | **邻居** | 网际路由域之间的互联关系（原级联通道）；比「通道」更贴近枢纽模型 |
 | **应用** | 在网际路由域边界内的逻辑应用（微隔离 / 零信任），区别于裸资产 |
-| **IBR（网际路由器）** | 设备与策略面：VR 及 SRv6/IPsec/ACL/NAT 等 **IBR 能力**；引流与扫描锚点；菜单在 **IBR 管理** 组，网际路由域详情通过 **IBR 管理 Tab** 按域筛选复用 |
+| **IBR** | 设备与策略面：IBR实例及 SRv6/IPsec/ACL/NAT 等能力；菜单在 **IBR 管理** 组 |
 | **CSM 安全域** | 能力池内逻辑包；在网际路由域详情中以 **「安全域」分组 Tab** 呈现（见 §12），界面须带 **CSM** 前缀或上下文，避免与网际路由域混称 |
 | **安全服务管理（CSM）** | 全局目录视角，非单池详情 Tab |
 
@@ -291,7 +291,7 @@ pages/sdncc/
 │   ├── neighbors/             # 邻居管理（现 cascade-channels/）
 │   └── applications/          # 应用管理（现 Applications/）
 ├── ibr/                       # Group2 IBR 管理
-│   ├── routers/               # 网际路由器 / VR（现 interconnect/vr/）
+│   ├── routers/               # IBR实例（现 interconnect/vr/）
 │   ├── srv6/                  # SRv6（现 interconnect/srv6/）
 │   ├── ipsec-vpn/             # IPsec（现 interconnect/ipsec-vpn/）
 │   ├── acl/                   # ACL（现 interconnect/acl/）
@@ -328,7 +328,7 @@ pages/sdncc/
 
 | 子 Tab | 复用来源 | 筛选维度（示例） |
 |--------|----------|------------------|
-| **VR 实例** | `ibr/routers/`（现 `interconnect/vr/`） | 绑定 `vrUuid`、域标签、租户 |
+| **IBR实例** | `ibr/routers/`（现 `interconnect/vr/`） | 绑定 `vrUuid`、域标签、租户 |
 | **SRv6 隧道** | `ibr/srv6/` | 域 / VR / attachment 关联 |
 | **IPsec VPN** | `ibr/ipsec-vpn/` | 域 / VR 端点 |
 | **ACL** | `ibr/acl/` | 域 / VR 接口 |
@@ -554,7 +554,7 @@ GET /api/security-domains/suggest-vr
 1. 在目标云资源池创建 VR 虚机，在云控制台记录 **实例 ID**（阿里云 `i-xxx`、华为云等价 ID 等）。
 2. 在 VR 本地界面打开 `registervr.conf`，将 **`vm_id`** 设为该实例 ID（**不要**为对齐云主机而修改 **`uuid`**）。
 3. 配置 CSMCTL 地址（SDWAN 控制器等），确保 Agent 能上报。
-4. Tower：**系统设置** 配置 `CSMCTL_ADDRESS`；**IBR 管理 → 网际路由器** 执行同步，确认列表中该 VR 的 `vm_id` 与云控制台一致。
+4. Tower：**系统设置** 配置 `CSMCTL_ADDRESS`；**IBR 管理 → IBR实例** 执行同步，确认列表中该 IBR 的 `vm_id` 与云控制台一致。
 5. Tower：刷新对应云资源池库存，确认 `cloud_instance_inventory` 含该实例且 `vpcId` 正确。
 6. 创建网际路由域：选同一资源池 + VPC → 应出现 **VR 推荐**（实现 §16.6 后）或人工选择 `vrUuid`。
 
@@ -580,9 +580,8 @@ GET /api/security-domains/suggest-vr
 ## 18. 相关文档
 
 - [frontend-layout.md](./frontend-layout.md) — 网际路由域列表 / 详情页面壳层。
-- [cloudmap-pool-rbac.md](./cloudmap-pool-rbac.md) — 池内 Tab 与权限（CSM 池含 CSM 安全域 Tab）。
-- `docs/multicloud/whitepaper/source/05-统一网络与sdn.md` — 多云 SDN 总述（可与此文交叉引用）。
-- `docs/multicloud/whitepaper/source/09-安全运营与ai-soc.md` — 安全域与服务目录（泛称；落地以本文为准）。
+- [srv6-hub-pe-spec.md](./srv6-hub-pe-spec.md) — Hub PE 与网际路由域联动。
+- [sdnc-tower-integration-api.md](./sdnc-tower-integration-api.md) — Tower 联部署时的 BFF / 北向约定（独立 SDNC 可忽略）。
 
 ---
 

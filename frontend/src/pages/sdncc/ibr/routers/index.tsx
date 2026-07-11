@@ -1,9 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { MenuProps } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
 import {
-  Badge,
   Button,
   Card,
   Col,
@@ -12,27 +10,21 @@ import {
   Input,
   message,
   Modal,
-  Progress,
   Radio,
   Row,
   Select,
   Space,
   Tabs,
-  Tooltip,
-  Typography,
 } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
 import PageContainer from '../../../../components/PageContainer';
-import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import TableColumnSettingsButton from '../../../../components/TableColumnSettingsButton';
+import { useAuth } from '../../../../contexts/AuthContext';
 import { useTableColumnSettings } from '../../../../hooks/useTableColumnSettings';
 import {
   apiPost,
-  fetchOrganizationsByTenant,
-  fetchTenants,
 } from '../../../../services/api';
-import { listSecurityDomains } from '../../../../services/securityDomainApi';
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import {
   fetchVrCacheMergedAll,
@@ -41,93 +33,46 @@ import {
   setVRRole,
   vrApi,
 } from '../../../../services/virtualRouterApi';
-import { getDomainClass, netClassLabel } from '../../../../utils/netClass';
-import { commonBadgeStyles, commonTableStyles } from '../../../../utils/tableStyles';
+import {
+  applyIbrVrRolesToRows,
+  buildIbrVrRolesMapFromVr2,
+  ibrVrRowId,
+  ibrVrRowRole,
+} from '../lib/ibrVrCatalog';
+import {
+  buildVrRolesMapFromRows,
+  getVrHealthStatusKey,
+  matchVrListRoleFilter,
+  vrRowMatchesKeyword,
+} from './vrListDisplay';
+import { useVrListColumns, type VrListRow } from './useVrListColumns';
 
 import { VrDetailDrawer } from './VrDetailDrawer';
-import { pickIfaceIpv6FromDevice } from './vrIpv6Utils';
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
-
-interface VRRow {
-  id?: string;
-  vm_id?: string;
-  name?: string;
-  status?: string;
-  pool_id?: string | number;
-  pool_name?: string;
-  cpu?: number;
-  memory?: number;
-  mac?: string;
-  uuid?: string;
-  version?: string;
-  create_time?: string;
-  vr_unique_id?: string;
-  tenant_id?: string;
-  org_id?: string;
-  bind_status?: string;
-  [key: string]: any;
-}
-
-/** 解析行内 JSON 字符串字段；解析失败返回 null */
-function parseJsonField(val: unknown): unknown {
-  if (typeof val === 'string') {
-    try {
-      return JSON.parse(val);
-    } catch {
-      return null;
-    }
-  }
-  return val;
-}
-
-
-function formatTrafficRateBps(bps: number): string {
-  if (!bps) return '0 bps';
-  if (bps >= 1000 * 1000) return `${(bps / 1000 / 1000).toFixed(2)} Mbps`;
-  if (bps >= 1000) return `${(bps / 1000).toFixed(2)} Kbps`;
-  return `${bps.toFixed(0)} bps`;
-}
-
-type VrHealthStatusKey = 'running' | 'warning' | 'stopped' | 'unknown';
-
-function getVrHealthStatusKey(raw: unknown): VrHealthStatusKey {
-  const v = String(raw || '').toLowerCase();
-  if (['healthy', 'running', 'ok', 'online', 'active'].includes(v)) return 'running';
-  if (['warning', 'degraded'].includes(v)) return 'warning';
-  if (['error', 'failed', 'unhealthy', 'offline', 'stopped'].includes(v)) return 'stopped';
-  return 'unknown';
-}
+import { useIbrEmbedContext } from '../lib/useIbrEmbedContext';
+import { openIbrConsole } from '../lib/ibrLocalWebUrl';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 
 /** 与 useTableColumnSettings / TableColumnSettingsButton 的默认隐藏列一致 */
 const VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN = ['mac', 'type'];
 
-const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid }) => {
-  const navigate = useNavigate();
-  const scopedVr = String(scopedVrUuid || '').trim();
-  const [vrs, setVrs] = useState<VRRow[]>([]);
-  const [columns, setColumns] = useState<ColumnsType<VRRow>>([]);
-  const { displayColumns: vrDisplayColumns } = useTableColumnSettings(
-    columns,
-    'interconnect_vr_instances',
-    VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN,
-  );
+type VRRow = VrListRow;
 
+const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
+  const embed = useIbrEmbedContext(props);
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const perms = Array.isArray(user?.permissions) ? user?.permissions ?? [] : [];
+  const canWrite =
+    user?.role === 'super_admin' || hasPermissionForAction(perms, 'networks.vr-config:write');
+  const scopedVr = String(embed.scopedVrUuid || '').trim();
+  const [vrs, setVrs] = useState<VRRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [rolesLoading, setRolesLoading] = useState(false);
   const [filterForm] = Form.useForm();
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [roleFilter, setRoleFilter] = useState<string | undefined>();
-  const [tenantFilter, setTenantFilter] = useState<string | undefined>();
-  const [rolesMap, setRolesMap] = useState<Record<string, string>>({});
-  const rolesMapRef = useRef<Record<string, string>>({});
-  const [netClassMap, setNetClassMap] = useState<Record<string, any>>({});
-  const netClassMapRef = useRef<Record<string, any>>({});
-  const [tenantOptions, setTenantOptions] = useState<Array<{ value: string; label: string }>>([]);
-  const [tenantLoading, setTenantLoading] = useState<boolean>(false);
-  const [orgNameMap, setOrgNameMap] = useState<Record<string, string>>({});
-  const orgTenantLoadedRef = useRef<Record<string, boolean>>({});
-  const tenantOptionsRef = useRef<any[]>([]);
-  const orgNameMapRef = useRef<Record<string, string>>({});
   /** CE 配置弹窗提交时使用的 VR UUID（打开弹窗时应写入） */
   const ceTargetVrUuidRef = useRef<string | null>(null);
 
@@ -138,8 +83,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
   const [detailRow, setDetailRow] = useState<VRRow | null>(null);
   const [tunnelModalOpen, setTunnelModalOpen] = useState(false);
   const [tunnelForm] = Form.useForm();
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [addForm] = Form.useForm();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
@@ -152,76 +95,24 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
   const [selectedRoleType, setSelectedRoleType] = useState('标准');
   const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
 
-  const loadTenants = async () => {
-    setTenantLoading(true);
-    try {
-      const res = await fetchTenants();
-      const list = (res?.data || res || []) as any[];
-      const opts = Array.isArray(list)
-        ? list.map(t => ({ value: String((t as any).id || (t as any)._id || ''), label: String((t as any).name || (t as any).username || '未命名租户') }))
-        : [];
-      setTenantOptions(opts);
-      tenantOptionsRef.current = opts;
-    } catch (e) {
-      setTenantOptions([]);
-      tenantOptionsRef.current = [];
-    } finally {
-      setTenantLoading(false);
+  const getActionMenu = useCallback((row: VRRow): MenuProps['items'] => {
+    const vrUuid = String(row.uuid || row.vr_unique_id || row.vm_id || '').trim();
+    const items: MenuProps['items'] = [
+      { key: 'detail', label: '查看详情' },
+      { key: 'console', label: '运维控制台', disabled: !vrUuid },
+    ];
+    if (canWrite) {
+      items.push(
+      { key: 'editDevice', label: '修改名称' },
+      { type: 'divider' },
+      { key: 'role', label: '设置角色', danger: true },
+      { key: 'editConfig', label: '专家模式', danger: true },
+      { type: 'divider' },
+      { key: 'delete', label: '删除实例', danger: true },
+      );
     }
-  };
-
-  useEffect(() => {
-    loadTenants();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      if (!tenantOptions.length) return;
-      const newOrgMap: Record<string, string> = {};
-      const tasks = tenantOptions
-        .map(t => String(t.value))
-        .filter(tid => !!tid && !orgTenantLoadedRef.current[tid])
-        .map(async tid => {
-          try {
-            const tree = await fetchOrganizationsByTenant(tid);
-            const list = Array.isArray(tree) ? tree : (Array.isArray((tree as any)?.data) ? (tree as any).data : []);
-            const flat: any[] = [];
-            const recur = (nodes: any[]) => {
-              nodes.forEach((n: any) => {
-                if (!n) return;
-                flat.push(n);
-                if (Array.isArray(n.children) && n.children.length) recur(n.children);
-              });
-            };
-            recur(list);
-            flat.forEach((o: any) => {
-              const id = String(o.id || '');
-              if (!id) return;
-              const name = String(o.name || id);
-              newOrgMap[id] = name;
-            });
-            orgTenantLoadedRef.current[tid] = true;
-          } catch {
-          }
-        });
-      if (tasks.length) {
-        await Promise.all(tasks);
-        if (Object.keys(newOrgMap).length > 0) {
-          setOrgNameMap(prev => ({ ...prev, ...newOrgMap }));
-        }
-      }
-    })();
-  }, [tenantOptions]);
-
-  const getActionMenu = (_row: VRRow): MenuProps['items'] => ([
-    { key: 'metadata', label: '查看详情' },
-    { key: 'editDevice', label: '修改名称' },
-    { type: 'divider' },
-    { key: 'role', label: '设置角色', danger: true },
-    { key: 'editConfig', label: '专家模式', danger: true },
-    { type: 'divider' },
-    { key: 'delete', label: '删除实例', danger: true },
-  ]);
+    return items;
+  }, [canWrite]);
 
   const handleSettingsOpen = async () => {
     setSettingsModalOpen(true);
@@ -261,7 +152,14 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
     domEvent?.stopPropagation?.();
     // CSMCTL/VRConfig 相关接口使用的是 VR 的 uuid（而不是数据库自增 id）
     const vrUuid = String(row.uuid || row.vr_unique_id || row.vm_id || '').trim();
-    if (key === 'metadata') {
+    if (key === 'console') {
+      if (!vrUuid) return message.warning('该行缺少可识别的 UUID');
+      if (!openIbrConsole(vrUuid)) {
+        message.error('无法打开运维控制台');
+      }
+      return;
+    }
+    if (key === 'detail' || key === 'metadata') {
       setDetailRow(row);
       setDetailDrawerOpen(true);
       return;
@@ -272,8 +170,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
       } else {
         message.warning('该行缺少可识别的UUID');
       }
-    } else if (key === 'detail') {
-      message.info('查看设备详情（功能待设计）');
     } else if (key === 'role') {
       if (!vrUuid) return message.warning('该行缺少可识别的UUID');
       setRoleVrUuid(vrUuid);
@@ -320,7 +216,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
       }
       const label = String(row.name || rid || ruuid || rvmid).trim();
       Modal.confirm({
-        title: '删除 VR 实例',
+        title: '删除 IBR实例',
         content: `确定从 CSM 控制面注销「${label}」吗？将调用 DELETE /V2/vrcontrol/VR1/unregister?uuid=… ，此操作不可恢复。`,
         okText: '删除',
         okType: 'danger',
@@ -349,7 +245,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
       const values = await ceForm.validateFields();
       const id = ceTargetVrUuidRef.current;
       if (!id) {
-        message.warning('未选择 VR');
+        message.warning('未选择 IBR');
         return;
       }
       setLoading(true);
@@ -358,11 +254,10 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
       const newCfg = { ...(existing || {}), role: 'CE', ce: { ...values } };
       await saveVRConfig(id, newCfg);
       await setVRRole(id, 'CE');
-      setRolesMap(prev => ({ ...prev, [id]: 'CE' }));
-      rolesMapRef.current = { ...rolesMapRef.current, [id]: 'CE' };
-      message.success('CE角色与必要参数已保存');
       setCeModalOpen(false);
       ceForm.resetFields();
+      await fetchVRInstances(true);
+      message.success('CE角色与必要参数已保存');
     } catch (e: any) {
       if (e?.errorFields) return; // 表单校验错误
       message.error(`保存失败: ${e?.message || e}`);
@@ -373,9 +268,10 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
 
   const handleManualRefresh = async () => {
     setLoading(true);
-    message.loading({ content: '正在同步 VR 数据...', key: 'vr_sync' });
+    message.loading({ content: '正在同步 IBR 数据（VR1/VR3/VR2）…', key: 'vr_sync' });
     try {
       await apiPost('/api/vr-instances/refresh', {});
+      message.loading({ content: '正在加载列表与角色…', key: 'vr_sync' });
       await fetchVRInstances(true);
       message.success({ content: '同步完成', key: 'vr_sync' });
     } catch (e) {
@@ -387,402 +283,37 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
 
   const fetchVRInstances = async (forceList?: boolean) => {
     setLoading(true);
+    let mergedList: VRRow[] = [];
     try {
-      const mergedList = await fetchVrCacheMergedAll({ skipCache: !!forceList });
-      
+      mergedList = await fetchVrCacheMergedAll({ skipCache: !!forceList });
       setVrs(mergedList);
-
-      // 尝试从缓存恢复 rolesMap
-      const newRolesMap = { ...rolesMapRef.current };
-      mergedList.forEach((r: any) => {
-         const id = r.uuid || r.id || r.vm_id;
-         if (id && r.role) newRolesMap[id] = r.role;
-      });
-      setRolesMap(newRolesMap);
-      rolesMapRef.current = newRolesMap;
-
-      const renderStatus = (raw: unknown) => {
-        const key = getVrHealthStatusKey(raw);
-        if (key === 'running') return <Badge status={commonBadgeStyles.statusMap.success.status} text={<span style={commonBadgeStyles.text}>运行中</span>} />;
-        if (key === 'warning') return <Badge status={commonBadgeStyles.statusMap.warning.status} text={<span style={commonBadgeStyles.text}>警告</span>} />;
-        if (key === 'stopped') return <Badge status={commonBadgeStyles.statusMap.error.status} text={<span style={commonBadgeStyles.text}>已停止</span>} />;
-        return <Badge status={commonBadgeStyles.statusMap.default.status} text={<span style={commonBadgeStyles.text}>未知</span>} />;
-      };
-
-      const newCols: ColumnsType<VRRow> = [
-        {
-          title: '名称',
-          dataIndex: 'name',
-          key: 'name',
-          fixed: 'left',
-          ellipsis: true,
-          render: (text: any, row: VRRow) => {
-            const label = text != null && String(text).trim() !== '' ? text : '—';
-            return (
-              <Typography.Link
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDetailRow(row);
-                  setDetailDrawerOpen(true);
-                }}
-              >
-                {label}
-              </Typography.Link>
-            );
-          },
-        },
-        {
-          title: 'UUID',
-          key: 'uuid',
-          ellipsis: { showTitle: false },
-          render: (_: any, row: VRRow) => {
-            const id = String(row.uuid || row.id || row.vm_id || '').trim();
-            if (!id) return '—';
-            return <Typography.Text copyable={{ text: id }}>{id}</Typography.Text>;
-          },
-        },
-        { 
-          title: '状态', 
-          key: 'status', 
-          dataIndex: 'status', 
-          render: (_: any, row: VRRow) => renderStatus(row.health_status ?? row.healthStatus ?? row.status) 
-        },
-        {
-          title: '角色',
-          key: 'role',
-          dataIndex: 'role',
-          render: (_: any, row: VRRow) => {
-            const id = row.uuid || row.id || row.vm_id;
-            const m = rolesMapRef.current;
-            const role = id && m[id] ? m[id] : '未设置';
-            return role;
-          },
-        },
-        {
-            title: '归属信息',
-            key: 'affiliation',
-            render: (_: any, row: VRRow) => {
-               const tid = row.tenant_id;
-               const oid = row.org_id;
-               const tidTrim = String(tid ?? '').trim();
-               const oidTrim = String(oid ?? '').trim();
-               const hasAffiliation = Boolean(tidTrim && oidTrim);
-
-               const tName = tidTrim
-                 ? tenantOptionsRef.current.find((t) => String(t.value) === String(tid))?.label || tidTrim
-                 : '—';
-               const oName = oidTrim ? orgNameMapRef.current[String(oid)] || oidTrim : '—';
-
-               const vrKey = row.uuid || row.id || row.vm_id;
-               const domain = vrKey ? netClassMapRef.current[String(vrKey)] : undefined;
-               const domainLine = domain
-                 ? String(domain?.name || '').trim() || netClassLabel(getDomainClass(domain))
-                 : '无网际路由域';
-
-               const tidStr = tidTrim || '—';
-               const oidStr = oidTrim || '—';
-               const bindStatus =
-                 row.bind_status != null && String(row.bind_status).trim() !== ''
-                   ? String(row.bind_status)
-                   : '—';
-
-               const affiliationTooltip = (
-                 <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                   <div>租户：{tName}</div>
-                   <div>租户ID：{tidStr}</div>
-                   <div>组织：{oName}</div>
-                   <div>组织ID：{oidStr}</div>
-                   <div>网际路由域：{domainLine}</div>
-                   <div>绑定状态：{bindStatus}</div>
-                 </div>
-               );
-
-               return (
-                 <Tooltip title={affiliationTooltip}>
-                   <span style={{ cursor: 'pointer' }}>{hasAffiliation ? '已归属' : '未归属'}</span>
-                 </Tooltip>
-               );
-            }
-          },
-        {
-          title: 'WAN IP',
-          key: 'wan_ip',
-          render: (_: any, row: VRRow) => {
-             // Only try interfaces
-             const interfaces = parseJsonField(row.interfaces);
-             if (Array.isArray(interfaces)) {
-                 // Filter physical interfaces (usually starting with GigabitEthernet)
-                 const physical = interfaces.filter((iface: any) => {
-                     const name = String(iface.name || '').toLowerCase();
-                     return name.startsWith('gigabitethernet') || name.startsWith('ge');
-                 });
-                 
-                 // Sort by name
-                 physical.sort((a: any, b: any) => {
-                     const na = String(a.name || '');
-                     const nb = String(b.name || '');
-                     return na.localeCompare(nb, undefined, { numeric: true, sensitivity: 'base' });
-                 });
-
-                 // First one is WAN
-                 if (physical.length > 0) {
-                     const wan = physical[0];
-                     // Try ipv4_static first, then fallback to other common fields
-                     const v4 = wan.ipv4_static || wan.ip_address || wan.ipAddress || wan.ip || '-';
-                     const v6 = pickIfaceIpv6FromDevice(wan) || '-';
-                     
-                     return (
-                         <div style={commonTableStyles.cellMultiLineStack}>
-                            IPv4: {v4}<br/>
-                            IPv6: {v6}<br/>
-                         </div>
-                     );
-                 }
-             }
-             return '-';
-          }
-        },
-        {
-          title: 'CPU',
-          key: 'cpu',
-          width: 250,
-          render: (_: any, row: any) => {
-            const resourceIndicators = parseJsonField(row.resourceIndicators) as Record<string, unknown> | null;
-            if (!resourceIndicators) return '-';
-            const total = Number(resourceIndicators.cpuTotal ?? 0);
-            const pctRaw = Number(resourceIndicators.cpuUsed ?? 0);
-            const pct = Math.max(0, Math.min(100, isFinite(pctRaw) ? pctRaw : 0));
-            const used = total > 0 ? (total * pct) / 100 : 0;
-            if (!isFinite(total) || total <= 0) {
-              return (
-                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>-</div>
-              );
-            }
-            const highUtil = pct > 80;
-            return (
-              <div style={{ maxWidth: 200, lineHeight: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
-                  <div style={{ flex: 1, minWidth: 0, maxWidth: 132 }}>
-                    <Progress
-                      percent={pct}
-                      size="small"
-                      showInfo={false}
-                      strokeColor={highUtil ? '#ff4d4f' : '#1890ff'}
-                    />
-                  </div>
-                  <span style={{ flexShrink: 0, color: highUtil ? '#ff4d4f' : undefined }}>{pct.toFixed(1)}%</span>
-                </div>
-                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
-                  {used.toFixed(2)} core / {total.toFixed(2)} core
-                </div>
-              </div>
-            );
-          },
-        },
-        {
-          title: '内存',
-          key: 'memory',
-          width: 250,
-          render: (_: any, row: any) => {
-            const resourceIndicators = parseJsonField(row.resourceIndicators) as Record<string, unknown> | null;
-            if (!resourceIndicators) return '-';
-            const total = Number(resourceIndicators.memoryTotal ?? 0);
-            const pctRaw = Number(resourceIndicators.memoryUsed ?? 0);
-            const pct = Math.max(0, Math.min(100, isFinite(pctRaw) ? pctRaw : 0));
-            const used = total > 0 ? (total * pct) / 100 : 0;
-            if (!isFinite(total) || total <= 0) {
-              return (
-                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>-</div>
-              );
-            }
-            const highUtil = pct > 80;
-            return (
-              <div style={{ maxWidth: 200, lineHeight: '20px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, lineHeight: '20px' }}>
-                  <div style={{ flex: 1, minWidth: 0, maxWidth: 132 }}>
-                    <Progress
-                      percent={pct}
-                      size="small"
-                      showInfo={false}
-                      strokeColor={highUtil ? '#ff4d4f' : '#1890ff'}
-                    />
-                  </div>
-                  <span style={{ flexShrink: 0, color: highUtil ? '#ff4d4f' : undefined }}>{pct.toFixed(1)}%</span>
-                </div>
-                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, lineHeight: '18px' }}>
-                  {used.toFixed(2)} GiB / {total.toFixed(2)} GiB
-                </div>
-              </div>
-            );
-          },
-        },
-        {
-          title: '接收（总）',
-          key: 'rx_total',
-          render: (_: any, row: any) => {
-            const interfaces = parseJsonField(row.interfaces);
-            let rx_pps = 0;
-            let rx_bps = 0;
-            const details: string[] = [];
-
-            if (interfaces && Array.isArray(interfaces)) {
-                interfaces.forEach((iface: any) => {
-                    const name = String(iface.name || '').trim();
-                    if (name.toLowerCase().startsWith('gigabitethernet')) {
-                        const pps = Number(iface.receivePacketsPerSecond || 0);
-                        const bps = Number(iface.receiveRateBps || 0);
-                        rx_pps += pps;
-                        rx_bps += bps;
-                        if (bps > 0 || pps > 0) {
-                             details.push(`${name}: ${formatTrafficRateBps(bps)} / ${pps} pps`);
-                        }
-                    }
-                });
-            }
-
-            const tooltipTitle = details.length > 0 
-                ? <div style={{ fontSize: 12 }}>{details.map((d, i) => <div key={i}>{d}</div>)}</div>
-                : '无流量或无GigabitEthernet接口数据';
-
-            return (
-               <Tooltip title={tooltipTitle}>
-                   <div style={commonTableStyles.cellMultiLineStack}>
-                     <div>{rx_pps} pps</div>
-                     <div>{formatTrafficRateBps(rx_bps)}</div>
-                   </div>
-               </Tooltip>
-            );
-          }
-        },
-        {
-          title: '发送（总）',
-          key: 'tx_total',
-          render: (_: any, row: any) => {
-            const interfaces = parseJsonField(row.interfaces);
-            let tx_pps = 0;
-            let tx_bps = 0;
-            const details: string[] = [];
-
-            if (interfaces && Array.isArray(interfaces)) {
-                interfaces.forEach((iface: any) => {
-                    const name = String(iface.name || '').trim();
-                    if (name.toLowerCase().startsWith('gigabitethernet')) {
-                        const pps = Number(iface.transmitPacketsPerSecond || 0);
-                        const bps = Number(iface.transmitRateBps || 0);
-                        tx_pps += pps;
-                        tx_bps += bps;
-                        if (bps > 0 || pps > 0) {
-                             details.push(`${name}: ${formatTrafficRateBps(bps)} / ${pps} pps`);
-                        }
-                    }
-                });
-            }
-
-            const tooltipTitle = details.length > 0 
-                ? <div style={{ fontSize: 12 }}>{details.map((d, i) => <div key={i}>{d}</div>)}</div>
-                : '无流量或无GigabitEthernet接口数据';
-
-            return (
-               <Tooltip title={tooltipTitle}>
-                   <div style={commonTableStyles.cellMultiLineStack}>
-                     <div>{tx_pps} pps</div>
-                     <div>{formatTrafficRateBps(tx_bps)}</div>
-                   </div>
-               </Tooltip>
-            );
-          }
-        },
-        { title: 'MAC', dataIndex: 'mac', key: 'mac'},
-        { title: '版本', dataIndex: 'version', key: 'version'},
-        { title: '类型', dataIndex: 'type', key: 'type'},
-        {
-          title: '操作',
-          key: 'actions',
-          width: 80,
-          fixed: 'right',
-          render: (_: any, row: VRRow) => (
-            <ResourceActionsDropdown
-              items={getActionMenu(row)}
-              onClick={handleRowActionClick(row) as any}
-              buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
-            />
-          ),
-        }
-      ];
-
-      setColumns(newCols);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[VR_DEBUG_ERROR] 远端直连失败:', error);
-      message.error(`远端直连失败: ${error.message || '请稍后重试'}`);
+      const msg = error instanceof Error ? error.message : '请稍后重试';
+      message.error(`加载 IBR 列表失败: ${msg}`);
       setVrs([]);
-      setColumns([]);
     } finally {
       setLoading(false);
     }
-  };
 
-  // 提交新增VR实例
-  const submitAddVR = async () => {
+    if (mergedList.length === 0) return;
+
+    setRolesLoading(true);
     try {
-      const values = await addForm.validateFields();
-      setLoading(true);
-
-      const accesskey = 'Cloudmap#123';
-      const secretkey = 'Cloudmap#123';
-      const path = '/V2/vrcontrol/VR1/register';
-      const method = 'POST';
-      const other = '';
-
-      const authUrl = `/api-proxy/api/sign?` +
-        `url=${encodeURIComponent(path)}&` +
-        `method=${method}&` +
-        `other=${encodeURIComponent(other)}&` +
-        `accessKey=${encodeURIComponent(accesskey)}&` +
-        `secretKey=${encodeURIComponent(secretkey)}`;
-
-      const bodyStr = JSON.stringify({
-        name: values.name,
-        uuid: values.uuid,
-        mac: values.mac,
-        version: values.version,
-        type: values.type,
-      });
-
-      const signResp = await fetch(authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: bodyStr
-      });
-      const signJson = await signResp.json();
-      const info = (signJson && signJson.data) ? signJson.data : signJson;
-      if (!info || !info.Authorization || !info.tonce) {
-        throw new Error('认证响应数据缺少 Authorization 或 tonce');
+      const roleMap = await buildIbrVrRolesMapFromVr2(mergedList, { skipCache: true });
+      const applied = applyIbrVrRolesToRows(mergedList, roleMap);
+      setVrs(applied);
+      const resolved = Object.keys(roleMap).length;
+      if (forceList && resolved < mergedList.length) {
+        console.info(`[VR] 角色回读：${resolved}/${mergedList.length}（VR2 优先，无 VR2 时回退平台库）`);
       }
-
-      const registerUrl = `/api-proxy${path}`;
-      const res = await fetch(registerUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': info.Authorization,
-          'tonce': String(info.tonce)
-        },
-        body: bodyStr
-      });
-      const json = await res.json().catch(async () => ({ raw: await res.text() }));
-      if (!res.ok || (json && typeof json === 'object' && 'code' in json && json.code !== 200)) {
-        throw new Error((json as any)?.msg || `HTTP ${res.status}`);
+    } catch (error: unknown) {
+      console.warn('[VR] 角色回读失败', error);
+      if (forceList) {
+        message.warning('角色回读失败，列表仅显示缓存数据');
       }
-      message.success((json as any)?.msg || 'VR虚机注册成功');
-      setAddModalOpen(false);
-      addForm.resetFields();
-      // 刷新列表
-      await fetchVRInstances();
-    } catch (e: any) {
-      if (e?.errorFields) return; // 表单校验错误
-      message.error(`注册失败: ${e?.message || e}`);
     } finally {
-      setLoading(false);
+      setRolesLoading(false);
     }
   };
 
@@ -840,7 +371,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
       message.success((json as any)?.msg || '设备名称已更新');
       setEditModalOpen(false);
       editForm.resetFields();
-      await fetchVRInstances();
+      await fetchVRInstances(true);
     } catch (e: any) {
       if (e?.errorFields) return; // 表单校验错误
       message.error(`更新失败: ${e?.message || e}`);
@@ -855,81 +386,63 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 加载安全域并构建 VR → 安全域对象 映射
-  useEffect(() => {
-    (async () => {
-      try {
-        const domains: any[] = await listSecurityDomains();
-        const map: Record<string, any> = {};
-        (domains || []).forEach((d: any) => {
-          const uuid = d?.vrUuid || d?.vr_id || d?.vrId || d?.vrUUID;
-          if (uuid) {
-            // 存储完整的安全域对象，以便展示名称等
-            map[uuid] = d;
-          }
-        });
-        setNetClassMap(map);
-        netClassMapRef.current = map;
-      } catch (e) {
-        setNetClassMap({});
-        netClassMapRef.current = {};
-      }
-    })();
-  }, []);
+  const rolesMap = useMemo(() => buildVrRolesMapFromRows(vrs), [vrs]);
+
+  const columns = useVrListColumns({
+    rolesLoading,
+    getActionMenu,
+    onRowAction: handleRowActionClick,
+  });
+  const { displayColumns: vrDisplayColumns } = useTableColumnSettings(
+    columns,
+    'interconnect_vr_instances',
+    VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN,
+  );
 
   const filteredVRs = useMemo(() => {
+    const tenantScope = String(embed.tenantId || '').trim();
     return vrs.filter((v) => {
-      const rowId = String(v.uuid || v.vr_unique_id || v.id || v.vm_id || '').trim();
+      const rowId = ibrVrRowId(v);
       if (scopedVr && rowId !== scopedVr) return false;
+      if (tenantScope && String(v.tenant_id || '') !== tenantScope) return false;
+      if (!vrRowMatchesKeyword(v, keyword)) return false;
 
-      const nameLower = (v.name || '').toLowerCase();
-      if (keyword && !nameLower.includes(keyword.toLowerCase())) return false;
-      
-      // 状态筛选：统一使用 getVrHealthStatusKey 转换后比较
       if (statusFilter) {
         const key = getVrHealthStatusKey(v.health_status ?? v.healthStatus ?? v.status);
         if (key !== statusFilter) return false;
       }
 
-      if (tenantFilter) {
-        const id = (v.uuid || v.vr_unique_id || v.id || v.vm_id) as string;
-        const dom = id ? netClassMap[String(id)] : undefined;
-        const effectiveTenant = v.tenant_id || (dom ? dom.tenantId : undefined);
-        if (String(effectiveTenant || '') !== String(tenantFilter)) return false;
-      }
-      // 角色筛选
-      if (roleFilter) {
-        const id = (v.uuid || v.id || v.vm_id) as string;
-        const r = rolesMap[id];
-        if (roleFilter === '未设置') {
-          if (r) return false;
-        } else {
-          if (r !== roleFilter) return false;
-        }
+      if (roleFilter && !matchVrListRoleFilter(ibrVrRowRole(v), roleFilter)) {
+        return false;
       }
       return true;
     });
-  }, [vrs, keyword, statusFilter, roleFilter, rolesMap, tenantFilter, netClassMap, scopedVr]);
+  }, [vrs, keyword, statusFilter, roleFilter, scopedVr, embed.tenantId]);
 
-  const peOptions = useMemo(() => (
-    (vrs || []).filter((r: any) => {
-      const id = (r.uuid || r.id || r.vm_id) as string;
-      return rolesMap[id] === 'SPOKE_PE' || rolesMap[id] === 'HUB_PE';
-    }).map((r: any) => {
-      const id = (r.uuid || r.id || r.vm_id) as string;
-      return { value: id, label: r.name || id };
-    })
-  ), [vrs, rolesMap]);
+  const peOptions = useMemo(
+    () =>
+      vrs
+        .filter((r) => {
+          const role = ibrVrRowRole(r);
+          return role === 'SPOKE_PE' || role === 'HUB_PE' || role === 'PE';
+        })
+        .map((r) => {
+          const id = ibrVrRowId(r);
+          return { value: id, label: String(r.name || id) };
+        }),
+    [vrs],
+  );
 
-  const ceOptions = useMemo(() => (
-    (vrs || []).filter((r: any) => {
-      const id = (r.uuid || r.id || r.vm_id) as string;
-      return rolesMap[id] === 'CE';
-    }).map((r: any) => {
-      const id = (r.uuid || r.id || r.vm_id) as string;
-      return { value: id, label: r.name || id };
-    })
-  ), [vrs, rolesMap]);
+  const ceOptions = useMemo(
+    () =>
+      vrs
+        .filter((r) => ibrVrRowRole(r) === 'CE')
+        .map((r) => {
+          const id = ibrVrRowId(r);
+          return { value: id, label: String(r.name || id) };
+        }),
+    [vrs],
+  );
 
   const submitTunnel = async () => {
     try {
@@ -956,24 +469,15 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
     }
   };
 
-  /** 列表「归属信息」等列读 ref；若仅用 useEffect 从 state 写 ref，会晚当前渲染一拍，组织名会一直回退为 org_id */
-  tenantOptionsRef.current = tenantOptions;
-  orgNameMapRef.current = orgNameMap;
-
   return (
       <PageContainer
         titleLevel={3}
         asCard={false}
-        hideHeader={embedded}
-        pagePadding={embedded ? 0 : undefined}
+        hideHeader={embed.embedded}
+        pagePadding={embed.embedded ? 0 : undefined}
         externalColumnControl
         toolbarRight={(
           <Space size={8} wrap>
-            {!scopedVr && (
-              <Button type="primary" onClick={() => setAddModalOpen(true)}>
-                新增网际路由器
-              </Button>
-            )}
             <Dropdown
               menu={{
                 items: [
@@ -1005,13 +509,12 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
             setKeyword(all.keyword || '');
             setStatusFilter(all.status || undefined);
             setRoleFilter(all.role);
-            setTenantFilter(all.tenant || undefined);
           }}
         >
           <Form.Item name="keyword" style={{ marginBottom: 0 }}>
             <Input
               allowClear
-              placeholder="名称 / ID"
+              placeholder="名称 / UUID / 角色"
               className="toolbar-search"
               suffix={<SearchOutlined style={{ color: 'rgba(0,0,0,.45)' }} />}
             />
@@ -1031,19 +534,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
               <Select.Option value="未设置">未设置</Select.Option>
             </Select>
           </Form.Item>
-          {!scopedVr && (
-            <Form.Item name="tenant" style={{ marginBottom: 0 }}>
-              <Select
-                allowClear
-                placeholder="租户"
-                className="toolbar-filter"
-                showSearch
-                optionFilterProp="label"
-                loading={tenantLoading}
-                options={tenantOptions}
-              />
-            </Form.Item>
-          )}
           <button
             type="button"
             className="toolbar-reset-btn"
@@ -1052,7 +542,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
               setKeyword('');
               setStatusFilter(undefined);
               setRoleFilter(undefined);
-              setTenantFilter(undefined);
             }}
           >
             重置
@@ -1060,15 +549,15 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
         </Form>
       )}
       tableProps={{
-        className: "std-table",
+        className: 'std-table',
         columns: vrDisplayColumns,
         dataSource: filteredVRs,
-        rowKey: (r: VRRow) => r.uuid || r.id || r.vm_id || Math.random().toString(36).slice(2),
+        loading,
+        rowKey: (r: VRRow) => ibrVrRowId(r) || Math.random().toString(36).slice(2),
         pagination: {
           size: 'small',
           showTotal: (total: number) => `共 ${total} 条`,
         },
-        loading: loading,
         scroll: { 
           x: 'max-content',
         },
@@ -1084,7 +573,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
         }}
         row={detailRow}
         rolesMap={rolesMap}
-        orgNameMap={orgNameMap}
       />
 
       {/* CSMCTL Settings Modal */}
@@ -1169,55 +657,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
               </Form.Item>
             </Col>
           </Row>
-        </Form>
-      </Modal>
-      {/* 添加VR实例弹窗 */}
-      <Modal
-        title="添加网际路由器"
-        open={addModalOpen}
-        onOk={submitAddVR}
-        onCancel={() => { setAddModalOpen(false); addForm.resetFields(); }}
-        confirmLoading={loading}
-        destroyOnHidden
-        width={600}
-      >
-        <Form form={addForm} layout="vertical">
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="例如：VR1" />
-          </Form.Item>
-          <Form.Item label="UUID" required>
-            <Space.Compact style={{ width: '100%' }}>
-              <Form.Item name="uuid" noStyle rules={[{ required: true, message: '请输入UUID' }]}>
-                <Input placeholder="例如：54060500FFFB8B0F-5254004a4161" style={{ width: '100%' }} />
-              </Form.Item>
-              <Button
-                type="default"
-                htmlType="button"
-                onClick={() =>
-                  addForm.setFieldsValue({
-                    uuid: window.crypto?.randomUUID
-                      ? window.crypto.randomUUID()
-                      : Math.random().toString(36).slice(2),
-                  })
-                }
-              >
-                生成
-              </Button>
-            </Space.Compact>
-          </Form.Item>
-          <Form.Item name="mac" label="MAC地址" rules={[
-            { required: true, message: '请输入MAC地址' },
-            { pattern: /^(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5}$/,
-              message: '格式示例：00:50:56:C0:00:08 或 00-50-56-C0-00-08' }
-          ]}>
-            <Input placeholder="例如：00-50-56-C0-00-08" />
-          </Form.Item>
-          <Form.Item name="version" label="设备版本号" rules={[{ required: true, message: '请输入设备版本号' }]}>
-            <Input placeholder="例如：V1.0" />
-          </Form.Item>
-          <Form.Item name="type" label="类型" initialValue="VR">
-            <Select options={[{ value: 'VR', label: 'VR' }]} disabled />
-          </Form.Item>
         </Form>
       </Modal>
 
@@ -1353,7 +792,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid
             <Radio value="标准">
               <Space direction="vertical" size={0}>
                 <span>标准模式 (Standard)</span>
-                <span style={{ color: '#999', fontSize: 12 }}>基础虚拟路由功能，支持静态路由与接口配置</span>
+                <span style={{ color: '#999', fontSize: 12 }}>基础 IBR 功能，支持静态路由与接口配置</span>
               </Space>
             </Radio>
             <Radio value="SPOKE_PE">

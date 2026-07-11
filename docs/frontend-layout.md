@@ -319,5 +319,3 @@
 | **`AGENTS.md`**                            | 强制约定摘要、Harvester 落位索引、API |
 | **`frontend/src/STRUCTURE.md`**            | `pages/` 平台划分、`sections` 角色    |
 | **`docs/code-quality.md`**                 | 合入前自查                            |
-| **`docs/cloudmap-pool-rbac.md`**           | 池内页权限                            |
-| **`frontend/.../Cloudmap/pool/README.md`** | 池刷新与 Tab 装配样板                 |

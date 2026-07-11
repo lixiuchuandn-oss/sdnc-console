@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Form,
   Button,
@@ -293,12 +292,3 @@ export const SecuritySettingsDrawer: React.FC<SecuritySettingsDrawerProps> = ({
     </Drawer>
   );
 };
-
-const SecuritySettings: React.FC = () => {
-  const navigate = useNavigate();
-  return (
-    <SecuritySettingsDrawer open onClose={() => navigate('/admin/access/users', { replace: true })} />
-  );
-};
-
-export default SecuritySettings;

@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { isSdncProduct } from '../constants/productFlavor';
+import { SDNC_DEFAULT_CSMCTL_ADDRESS } from '../constants/csmctlDefaults';
 
 const dataDir = path.join(process.cwd(), 'data');
 const settingsPath = path.join(dataDir, 'system-settings.json');
@@ -8,7 +10,7 @@ const settingsPath = path.join(dataDir, 'system-settings.json');
  * 界面设置等可编辑项的默认值。
  * 若 system-settings.json 中缺少对应键，启动时会合并并写回文件。
  */
-export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
+const DEFAULT_SYSTEM_SETTINGS_BASE: Record<string, string> = {
   'ui.theme': 'light',
   'ui.language': 'zh',
   'ui.headerIcon': '',
@@ -27,8 +29,6 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
   'ui.loginEnableParticleBackground': 'true',
   'ui.loginButtonColor': '#1890ff',
   'ui.loginButtonHoverColor': '#40a9ff',
-  /** 授权页「颁发者」展示文案（仅界面展示；JWT 内 iss 仍以授权文件为准）。空则使用 License payload.iss */
-  'license.issuer_display': '',
   /** 操作审计日志默认保留天数 */
   'audit.logs.retention_days': '180',
   /** 管理员密码策略 JSON（仅平台 User，不含租户） */
@@ -50,6 +50,19 @@ export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
     loginLockDurationMinutes: 3,
     pageTimeoutMinutes: 60,
   }),
+};
+
+/** SDNC 首次启动写入的集成默认值（可被系统设置页覆盖）；容器部署优先读 CSMCTL_ADDRESS 环境变量 */
+const SDNC_INTEGRATION_DEFAULTS: Record<string, string> = isSdncProduct()
+  ? {
+      CSMCTL_ADDRESS:
+        String(process.env.CSMCTL_ADDRESS || '').trim() || SDNC_DEFAULT_CSMCTL_ADDRESS,
+    }
+  : {};
+
+export const DEFAULT_SYSTEM_SETTINGS: Record<string, string> = {
+  ...DEFAULT_SYSTEM_SETTINGS_BASE,
+  ...SDNC_INTEGRATION_DEFAULTS,
 };
 
 let settingsCache: Record<string, string> = {};

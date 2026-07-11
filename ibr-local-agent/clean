@@ -1,0 +1,27 @@
+#!/bin/bash
+type=$1
+
+case $type in
+	all-clean)
+        #会清除所有配置包括网际路由 且网际路由会重启
+	systemctl stop vrctl-agent.service
+        rm /rhos/etc/agent/auth_* 2>/dev/null 
+        rm /rhos/etc/agent/.regis* 2>/dev/null
+        rm /rhos/etc/agent/regi* 2>/dev/null
+        rm /rhos/etc/agent/conf 2>/dev/null -rf
+        rm /rhos/etc/agent/download 2>/dev/null -rf
+        rm /usr/local/src/vrconf/checksum 2>/dev/null -rf
+        rm /rhos/etc/agent/.checksum 2>/dev/null -rf
+        mv /rhos/etc/cli/startup-config /rhos/etc/cli/startup-config.bak 2>/dev/null
+        echo "" > /rhos/etc/cli/startup-config 2>/dev/null
+        /rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view -c "do onekey_restart_ipoe"
+		;;
+	*)
+        rm /rhos/etc/agent/auth_* 2>/dev/null 
+        rm /rhos/etc/agent/.regis* 2>/dev/null
+        rm /rhos/etc/agent/regi* 2>/dev/null
+        rm /rhos/etc/agent/conf 2>/dev/null -rf
+		;;
+esac
+
+

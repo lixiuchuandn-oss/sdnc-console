@@ -1,21 +1,10 @@
 import { Router } from 'express';
 import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
-import { Cloud } from '../../entities/Cloud';
-import { CloudEnterpriseNetwork } from '../../entities/CloudEnterpriseNetwork';
 import { Organization } from '../../entities/Organization';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { Tenant } from '../../entities/Tenant';
-import { TenantLeasedLine } from '../../entities/TenantLeasedLine';
 import { TenantUser } from '../../entities/TenantUser';
-import { ThreatEvent } from '../../entities/ThreatEvent';
-import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
-import { UserSpace } from '../../entities/UserSpace';
-import { UserSpaceAllocation } from '../../entities/UserSpaceAllocation';
-import { HarborProject } from '../../entities/harbor/HarborProject';
-import { ServiceChain } from '../../entities/ServiceChain';
-import { VpcNetwork } from '../../entities/VpcNetwork';
-import { buildTenantFullExport } from '../../services/tenants/tenantFullExport';
 import { collectTenantDeleteBlockingSnapshot } from './tenantResourceBlocking';
 import { tenantLog } from './tenantRouteLogger';
 
@@ -48,26 +37,8 @@ async function updateTenantHandler(req: any, res: any) {
   }
 }
 
-/** 租户 CRUD、可分配资源池列表；须在组织/用户/资源池等更具体路径之后不会吞掉字面量路径（本组内 /available-resource-pools 先于 /:id） */
+/** 租户 CRUD（SDNC：列表/详情/增删改，供 VR 绑定与设置页） */
 export function registerTenantCrudRoutes(router: Router): void {
-  router.get('/available-resource-pools', async (_req, res) => {
-    try {
-      tenantLog.debug('获取可分配资源池列表请求');
-      const cloudRepository = AppDataSource.getRepository(Cloud);
-      const resourcePools = await cloudRepository.find({
-        order: { createdAt: 'DESC' },
-      });
-      tenantLog.debug('找到资源池数量:', resourcePools.length);
-      res.json(resourcePools);
-    } catch (error) {
-      tenantLog.error(
-        '获取可分配资源池失败:',
-        error instanceof Error ? error.message : String(error),
-      );
-      res.status(500).json({ message: '获取可分配资源池失败' });
-    }
-  });
-
   router.get('/', async (_req, res) => {
     try {
       const tenantRepository = AppDataSource.getRepository(Tenant);
@@ -128,37 +99,8 @@ export function registerTenantCrudRoutes(router: Router): void {
     }
   });
 
-  /** 租户全量导出（组织用户、资源池分配、网际路由域及 CSM 安全域投影） */
-  router.get('/:id/full', async (req, res) => {
-    try {
-      const payload = await buildTenantFullExport(req.params.id);
-      if (!payload) {
-        return res.status(404).json({ message: '租户不存在' });
-      }
-      res.json({
-        message: '查询成功',
-        data: payload,
-      });
-    } catch (error) {
-      tenantLog.error('租户全量查询失败:', error instanceof Error ? error.message : String(error));
-      res.status(500).json({ message: '租户全量查询失败' });
-    }
-  });
-
   router.get('/:id', async (req, res) => {
     try {
-      const scope = String(req.query.scope || req.query.include || '').trim().toLowerCase();
-      if (scope === 'full') {
-        const payload = await buildTenantFullExport(req.params.id);
-        if (!payload) {
-          return res.status(404).json({ message: '租户不存在' });
-        }
-        return res.json({
-          message: '查询成功',
-          data: payload,
-        });
-      }
-
       const tenantRepository = AppDataSource.getRepository(Tenant);
       const tenant = await tenantRepository.findOne({
         where: { id: req.params.id },
@@ -183,7 +125,6 @@ export function registerTenantCrudRoutes(router: Router): void {
       const tenantRepository = AppDataSource.getRepository(Tenant);
       const organizationRepository = AppDataSource.getRepository(Organization);
       const userRepository = AppDataSource.getRepository(TenantUser);
-      const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
 
       const tenant = await tenantRepository.findOne({ where: { id: req.params.id } });
       if (!tenant) {
@@ -209,74 +150,18 @@ export function registerTenantCrudRoutes(router: Router): void {
       const snapshot = await collectTenantDeleteBlockingSnapshot(req.params.id, orgIds);
 
       if (snapshot.rows.length > 0) {
-        const cloudRepository = AppDataSource.getRepository(Cloud);
-        const linkedCloudIds = new Set<string>();
-        for (const us of [...snapshot.userSpacesByOrg, ...snapshot.tenantScopedUserSpaces]) {
-          if (us?.cloudId) linkedCloudIds.add(us.cloudId);
-        }
-        for (const asn of snapshot.assignmentsByOrg) {
-          if (asn?.cloudId) linkedCloudIds.add(asn.cloudId);
-        }
-        let poolNamesLine = '';
-        if (linkedCloudIds.size > 0) {
-          const clouds = await cloudRepository.find({
-            where: { id: In(Array.from(linkedCloudIds)) },
-          });
-          poolNamesLine = [
-            ...new Set(clouds.map((c) => String(c.name ?? '').trim()).filter(Boolean)),
-          ]
-            .sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'))
-            .join('、');
-        }
         const resourceList = snapshot.rows.map((r) => `${r.name}(${r.count}个)`).join('、');
-        const message =
-          poolNamesLine.length > 0
-            ? `不能删除租户：租户下存在关联资源（${poolNamesLine}），请先解除资源绑定后再删除。`
-            : `不能删除租户：租户下存在关联资源，请先解除资源绑定后再删除。关联资源：${resourceList}`;
         return res.status(409).json({
-          message,
+          message: `不能删除租户：租户下存在关联资源，请先解除绑定。关联资源：${resourceList}`,
           resources: snapshot.rows,
         });
       }
 
       const tid = req.params.id;
 
-      // 解除根组织指针：undefined 在 TypeORM save 中可能不会落库，必须用 NULL 更新
       await AppDataSource.query('UPDATE tenants SET root_organization_id = NULL WHERE id = ?', [
         tid,
       ]);
-
-      // SQLite 实际外键指向 tenants 的子表（PRAGMA foreign_key_list）：须在本租户删除链路内清干净
-      await AppDataSource.getRepository(ServiceChain).delete({ tenantId: tid });
-      await AppDataSource.getRepository(VpcNetwork).delete({ tenantId: tid });
-
-      // 以下表含 tenantId / tenant_id，部分无外键但仍建议一并清理
-      await AppDataSource.getRepository(HarborProject).delete({ tenantId: tid });
-      await AppDataSource.getRepository(CloudEnterpriseNetwork).delete({ tenantId: tid });
-      await AppDataSource.getRepository(TenantLeasedLine).delete({ tenantId: tid });
-      await AppDataSource.getRepository(ThreatEvent)
-        .createQueryBuilder()
-        .delete()
-        .from(ThreatEvent)
-        .where('tenant_id = :tid', { tid })
-        .execute();
-
-      const userSpaceRepo = AppDataSource.getRepository(UserSpace);
-      const allocationRepo = AppDataSource.getRepository(UserSpaceAllocation);
-      const spaceIds = (
-        await userSpaceRepo.find({
-          where: { tenantId: tid },
-          select: { id: true },
-        })
-      ).map((s) => s.id);
-      if (spaceIds.length > 0) {
-        await allocationRepo.delete({ userSpaceId: In(spaceIds) });
-        await userSpaceRepo.delete({ tenantId: tid });
-      }
-
-      if (orgIds.length > 0) {
-        await assignmentRepository.delete({ organizationId: In(orgIds) });
-      }
 
       const usersForTenant = await userRepository.find({
         where: { tenantId: req.params.id },

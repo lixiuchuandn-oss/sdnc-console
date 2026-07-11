@@ -1,0 +1,16 @@
+{
+"vrrp": [
+        {
+            "group_id": 1,
+            "track_gateway": [
+            
+                "2.2.2.2"
+            ],
+            "vrrp_instance": [
+              
+                2,
+                3
+            ]
+        }
+    ]
+}

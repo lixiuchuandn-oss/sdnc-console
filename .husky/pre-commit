@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
-# 前端：lint-staged（eslint --fix + prettier）
+# 前端：lint-staged（eslint --fix）
 ( cd frontend && npx lint-staged ) || exit 1
 
 # 后端：若有暂存的 .ts 改动，运行类型检查，防止类型错误进入提交（曾因后端未校验导致构建中断）

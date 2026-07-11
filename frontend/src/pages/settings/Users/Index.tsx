@@ -14,13 +14,8 @@ import {
   validateAdminPasswordClient,
 } from '../../../utils/adminPasswordPolicy';
 import { SecuritySettingsDrawer } from './SecuritySettings';
-import CloudDesktopUsersPanel from './CloudDesktopUsersPanel';
-import TenantUsersWorkspace from '../../tenants/sections/TenantUsersWorkspace';
 import { useAuth } from '../../../contexts/AuthContext';
-import { useLicense } from '../../../contexts/LicenseContext';
-import { useCloudDesktopPermission } from '../../../hooks/useCloudDesktopPermission';
 import { hasPermissionForAction } from '../../../utils/accessMapping';
-import { fetchCloudDesktopUsers } from '../../../services/guacamoleApi';
 
 const { Text } = Typography;
 
@@ -46,15 +41,6 @@ const AccessUsersPage: React.FC = () => {
   const canWriteUsers =
     authUser?.role === 'super_admin' ||
     hasPermissionForAction((authUser?.permissions ?? []) as string[], 'users:write');
-  const userPerms = (authUser?.permissions ?? []) as string[];
-  const isSuperAdmin = String(authUser?.role || '').toLowerCase() === 'super_admin';
-  const canReadTenantUsers =
-    isSuperAdmin ||
-    hasPermissionForAction(userPerms, 'tenant-users:read') ||
-    hasPermissionForAction(userPerms, 'tenant-users:write');
-  const { isEnterpriseLicense } = useLicense();
-  const canShowTenantUsersTab = isEnterpriseLicense() && canReadTenantUsers;
-  const { canRead: canReadDesktop } = useCloudDesktopPermission();
   const [users, setUsers] = useState<SysUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState('');
@@ -74,60 +60,6 @@ const AccessUsersPage: React.FC = () => {
   const [adminPwdPolicy, setAdminPwdPolicy] = useState<AdminPasswordPolicy | null>(null);
   const [securityDrawerOpen, setSecurityDrawerOpen] = useState(false);
   const [systemRoles, setSystemRoles] = useState<RBACRole[]>([]);
-  const [userTab, setUserTab] = useState('system');
-  const [tenantUserCount, setTenantUserCount] = useState(0);
-  const [desktopUserCount, setDesktopUserCount] = useState(0);
-
-  useEffect(() => {
-    if (!canReadDesktop && userTab === 'desktop') {
-      setUserTab('system');
-    }
-    if (!canShowTenantUsersTab && userTab === 'tenant') {
-      setUserTab('system');
-    }
-  }, [canReadDesktop, canShowTenantUsersTab, userTab]);
-
-  useEffect(() => {
-    if (!canShowTenantUsersTab) {
-      setTenantUserCount(0);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const data = await apiRequest('/api/users/tenant-users', { skipCache: true });
-        if (!cancelled) {
-          setTenantUserCount(Array.isArray(data) ? data.length : 0);
-        }
-      } catch {
-        if (!cancelled) setTenantUserCount(0);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [canShowTenantUsersTab]);
-
-  useEffect(() => {
-    if (!canReadDesktop) {
-      setDesktopUserCount(0);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await fetchCloudDesktopUsers();
-        if (!cancelled) {
-          setDesktopUserCount(Array.isArray(res?.data) ? res.data.length : 0);
-        }
-      } catch {
-        if (!cancelled) setDesktopUserCount(0);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [canReadDesktop]);
 
   useEffect(() => {
     getPublicAdminPasswordPolicy().then(setAdminPwdPolicy);
@@ -453,28 +385,19 @@ const AccessUsersPage: React.FC = () => {
     createForm.setFieldsValue({ username: rand });
   }, [createOpen, createForm]);
 
-  const accessUserTabList = useMemo(() => {
-    const tabs: Array<{ key: string; tab: string }> = [
-      { key: 'system', tab: formatAccessUsersTabLabel('系统用户', users.length) },
-    ];
-    if (canShowTenantUsersTab) {
-      tabs.push({ key: 'tenant', tab: formatAccessUsersTabLabel('租户组织用户', tenantUserCount) });
-    }
-    if (canReadDesktop) {
-      tabs.push({ key: 'desktop', tab: formatAccessUsersTabLabel('云桌面用户', desktopUserCount) });
-    }
-    return tabs;
-  }, [users.length, tenantUserCount, desktopUserCount, canShowTenantUsersTab, canReadDesktop]);
+  const accessUserTabList = useMemo(
+    () => [{ key: 'system', tab: formatAccessUsersTabLabel('系统用户', users.length) }],
+    [users.length],
+  );
 
   return (
     <PageContainer
       titleLevel={3}
       asCard={false}
       tabList={accessUserTabList}
-      tabActiveKey={userTab}
-      onTabChange={setUserTab}
+      tabActiveKey="system"
     >
-      <div style={{ display: userTab === 'system' ? undefined : 'none' }}>
+      <div>
       <div className="page-toolbar">
         <Form
           form={filterForm}
@@ -517,16 +440,6 @@ const AccessUsersPage: React.FC = () => {
         bordered={false}
       />
       </div>
-
-      {canShowTenantUsersTab && userTab === 'tenant' ? (
-        <TenantUsersWorkspace embedded onTotalChange={setTenantUserCount} />
-      ) : null}
-
-      {canReadDesktop ? (
-        <div style={{ display: userTab === 'desktop' ? undefined : 'none' }}>
-          <CloudDesktopUsersPanel onTotalChange={setDesktopUserCount} />
-        </div>
-      ) : null}
 
       <Modal
         title="新建系统用户"

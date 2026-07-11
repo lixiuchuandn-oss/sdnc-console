@@ -1,243 +1,219 @@
 import { Router } from 'express';
 import { AppDataSource } from '../../config/database';
-import { NATRule } from '../../entities/vRouter/NATRule';
-import { VRConfig } from '../../entities/vRouter/VRConfig';
-import { vrController } from '../../services/vrouter/vrController';
+import { NATAddressGroup } from '../../entities/vRouter/NATAddressGroup';
+import { NATStaticMapping } from '../../entities/vRouter/NATStaticMapping';
+import {
+  getVRConfigFromDB,
+  pushVRConfig,
+  stripMeta,
+  mapDeployErrorToResponse,
+} from '../../services/vrouter/vrConfigDeploy';
+import { parseRangeInput, syncNatToVRConfig } from '../../services/vrouter/natSync';
 
 export const natRoutes = Router();
-const repo = () => AppDataSource.getRepository(NATRule);
-const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
 
-// Helpers
-const getVRConfigFromDB = async (uuid: string) => {
-  const record = await vrConfigRepo().findOne({ where: { uuid } });
-  if (!record) {
-    throw new Error(`VR config not found in database for UUID: ${uuid}`);
-  }
-  try {
-    return JSON.parse(record.config_json);
-  } catch (e) {
-    throw new Error(`Failed to parse VR config JSON for UUID: ${uuid}`);
-  }
+const groupRepo = () => AppDataSource.getRepository(NATAddressGroup);
+const mappingRepo = () => AppDataSource.getRepository(NATStaticMapping);
+
+export { syncNatToVRConfig };
+
+const flattenMappingRow = (group: NATAddressGroup, mapping: NATStaticMapping) => {
+  const rangeArr = Array.isArray(group.range) ? group.range : [];
+  return {
+    id: mapping.id,
+    vrId: group.vrId,
+    groupId: group.deviceGroupId,
+    range: rangeArr,
+    rangeText: rangeArr.join('；'),
+    type: 'static' as const,
+    proto: mapping.proto,
+    inside: mapping.inside,
+    localPort: mapping.localPort,
+    outside: mapping.outside,
+    externalPort: mapping.externalPort,
+    vrf: mapping.vrf || '',
+    twiceNat: mapping.twiceNat || '',
+    createdAt: mapping.createdAt,
+    updatedAt: mapping.updatedAt,
+  };
 };
 
-const saveVRConfigToDB = async (uuid: string, config: any) => {
-  let record = await vrConfigRepo().findOne({ where: { uuid } });
-  const jsonStr = JSON.stringify(config);
-
-  if (record) {
-    record.config_json = jsonStr;
-    await vrConfigRepo().save(record);
-  } else {
-    record = vrConfigRepo().create({ uuid, config_json: jsonStr });
-    await vrConfigRepo().save(record);
-  }
-};
-
-const stripMeta = (obj: any) => {
-  if (!obj || typeof obj !== 'object') return obj;
-  const {
-    msg: _msg,
-    code: _code,
-    report_config_status: _report_config_status,
-    updateDate: _updateDate,
-    createDate: _createDate,
-    _id,
-    requestId: _requestId,
-    ...rest
-  } = obj;
-  return rest;
-};
-
-const getVRConfigFromDevice = async (uuid: string) => {
-  const resp = await vrController.getVRConfig(uuid);
-  const data = resp && resp.data ? resp.data : resp;
-  if (!data || typeof data !== 'object') return {};
-  return stripMeta(data);
-};
-// List NAT Rules
+// List NAT static mappings (platform DB)
 natRoutes.get('/', async (req, res, next) => {
   try {
     const { vrId } = req.query;
     const where = vrId ? { vrId: String(vrId) } : {};
-    const list = await repo().find({ where, order: { createdAt: 'DESC' } });
+    const groups = await groupRepo().find({
+      where,
+      relations: ['mappings'],
+      order: { deviceGroupId: 'ASC' },
+    });
+
+    const list = groups.flatMap((g) =>
+      (g.mappings || [])
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map((m) => flattenMappingRow(g, m)),
+    );
+
     res.json(list);
   } catch (e) {
     next(e);
   }
 });
 
-// Create NAT Rule
+// Create NAT static mapping (platform only — sync vr_config, no device push)
 natRoutes.post('/', async (req, res, next) => {
   try {
     const {
-      name,
-      description,
       vrId,
-      type,
-      interface: iface,
-      originalSourceIp,
-      originalDestinationIp,
-      originalSourcePort,
-      originalDestinationPort,
-      translatedSourceIp,
-      translatedDestinationIp,
-      translatedSourcePort,
-      translatedDestinationPort,
+      groupId,
+      range,
+      proto,
+      inside,
+      localPort,
+      outside,
+      externalPort,
+      vrf,
+      twiceNat,
     } = req.body || {};
 
-    if (!name || !vrId || !type) {
-      res.status(400).json({ message: 'Missing required fields' });
+    const vid = String(vrId || '').trim();
+    const gid = Number(groupId);
+
+    if (!vid || Number.isNaN(gid)) {
+      res.status(400).json({ message: 'vrId and groupId are required' });
+      return;
+    }
+    if (!inside || !outside || localPort == null || externalPort == null) {
+      res.status(400).json({ message: 'inside, outside, localPort and externalPort are required' });
       return;
     }
 
-    // 1. Merge with device-side current config to avoid wiping existing settings
-    const skipPush = String(process.env.SKIP_VR_PUSH || '').trim() === '1';
-    let currentConfig: any;
-    try {
-      currentConfig = await getVRConfigFromDevice(vrId);
-    } catch (err: any) {
-      if (skipPush) {
-        try {
-          currentConfig = await getVRConfigFromDB(vrId);
-        } catch {
-          currentConfig = {};
-        }
-      } else {
-        res
-          .status(500)
-          .json({ message: `无法查询设备现有配置，已终止下发以避免覆盖: ${err.message}` });
-        return;
-      }
-    }
-
-    // 2. Prepare new NAT item for VR
-    // Mapping internal Entity to VR JSON structure
-    const newNatItem: any = {
-      name,
-      type,
-      interface: iface,
-      original_source_ip: originalSourceIp,
-      original_destination_ip: originalDestinationIp,
-      original_source_port: originalSourcePort,
-      original_destination_port: originalDestinationPort,
-      translated_source_ip: translatedSourceIp,
-      translated_destination_ip: translatedDestinationIp,
-      translated_source_port: translatedSourcePort,
-      translated_destination_port: translatedDestinationPort,
-    };
-
-    // 3. Merge into existing config
-    // Assuming 'nat_rules' or 'nat' array in VR config.
-    // Given previous context showed 'nat_address_group', let's assume a 'nat' section exists or we create it.
-    // We'll use a 'nat' array for now as a generic container.
-    if (!currentConfig.nat) {
-      currentConfig.nat = [];
-    } else if (!Array.isArray(currentConfig.nat)) {
-      // If nat is an object (e.g. { snat: [], dnat: [] }), we might need to handle it.
-      // For now, assume array or overwrite if it's empty.
-      // If it's an object, we need to decide where to put it.
-      // Let's assume it's an array of rules for simplicity and consistency with ACL/IPsec.
-      // If it's an object, we'll need to refactor.
-      if (Object.keys(currentConfig.nat).length === 0) {
-        currentConfig.nat = [];
-      } else {
-        // It might be an object. Let's try to append to a specific key based on type?
-        // Or just append to a 'rules' key?
-        // To be safe, let's use a specific key 'nat_rules' if 'nat' is occupied by object structure?
-        // No, let's stick to 'nat' array. If it breaks, we fix it.
-        // Actually, let's look at how we treat IPsec. It's an array.
-        // So 'nat' as an array of rules is the most logical pattern for this Controller.
-        currentConfig.nat = []; // Resetting if it was an object? No, that's dangerous.
-        // Let's assume it IS an array.
-      }
-    }
-
-    // Check for duplicate name
-    const existingIndex = currentConfig.nat.findIndex((r: any) => r.name === name);
-    if (existingIndex >= 0) {
-      currentConfig.nat[existingIndex] = newNatItem;
-    } else {
-      currentConfig.nat.push(newNatItem);
-    }
-
-    // 4. Push to VR and Save to DB
-    if (!skipPush) {
-      try {
-        const cleanConfig = stripMeta(currentConfig);
-        await vrController.updateVRConfig(vrId, cleanConfig);
-        await saveVRConfigToDB(vrId, currentConfig);
-      } catch (err: any) {
-        console.error(`[NAT] Failed to update VR config`, { vrId, name }, err);
-        res
-          .status(500)
-          .json({ message: `Failed to apply configuration to VR(${vrId}): ${err.message}` });
-        return;
-      }
-    } else {
-      await saveVRConfigToDB(vrId, currentConfig);
-    }
-
-    // 5. Save to local DB
-    const item = repo().create({
-      name,
-      description,
-      vrId,
-      type,
-      interface: iface,
-      originalSourceIp,
-      originalDestinationIp,
-      originalSourcePort,
-      originalDestinationPort,
-      translatedSourceIp,
-      translatedDestinationIp,
-      translatedSourcePort,
-      translatedDestinationPort,
+    let group = await groupRepo().findOne({
+      where: { vrId: vid, deviceGroupId: gid },
+      relations: ['mappings'],
     });
 
-    const saved = await repo().save(item);
-    res.status(201).json(saved);
+    const rangeArr = parseRangeInput(range);
+
+    if (!group) {
+      group = groupRepo().create({
+        vrId: vid,
+        deviceGroupId: gid,
+        range: rangeArr,
+        mappings: [],
+      });
+      group = await groupRepo().save(group);
+    } else if (rangeArr.length > 0) {
+      group.range = rangeArr;
+      await groupRepo().save(group);
+    }
+
+    const mapping = mappingRepo().create({
+      addressGroupId: group.id,
+      proto: String(proto || 'tcp').trim() || 'tcp',
+      inside: String(inside).trim(),
+      localPort: Number(localPort),
+      outside: String(outside).trim(),
+      externalPort: Number(externalPort),
+      vrf: vrf != null ? String(vrf).trim() : '',
+      twiceNat: twiceNat != null ? String(twiceNat).trim() : '',
+    });
+    const saved = await mappingRepo().save(mapping);
+
+    await syncNatToVRConfig(vid);
+
+    const fullGroup = await groupRepo().findOne({
+      where: { id: group.id },
+      relations: ['mappings'],
+    });
+    if (!fullGroup) {
+      res.status(201).json(saved);
+      return;
+    }
+
+    res.status(201).json(flattenMappingRow(fullGroup, saved));
   } catch (e) {
     next(e);
   }
 });
 
-// Delete NAT Rule
+// Delete NAT static mapping (platform only)
 natRoutes.delete('/:id', async (req, res, next) => {
   try {
     const id = req.params.id;
-    const item = await repo().findOne({ where: { id } });
-    if (!item) {
-      res.status(404).json({ message: 'NAT Rule not found' });
+    const mapping = await mappingRepo().findOne({
+      where: { id },
+      relations: ['addressGroup'],
+    });
+    if (!mapping) {
+      res.status(404).json({ message: 'NAT mapping not found' });
       return;
     }
 
-    // 1. Get current VR config from device to avoid wiping
-    try {
-      const currentConfig = await getVRConfigFromDevice(item.vrId);
+    const vrId = mapping.addressGroup?.vrId;
+    await mappingRepo().remove(mapping);
 
-      // 2. Remove NAT item
-      if (currentConfig.nat && Array.isArray(currentConfig.nat)) {
-        const initialLength = currentConfig.nat.length;
-        currentConfig.nat = currentConfig.nat.filter((r: any) => r.name !== item.name);
-
-        if (currentConfig.nat.length < initialLength) {
-          const skipPush = String(process.env.SKIP_VR_PUSH || '').trim() === '1';
-          if (!skipPush) {
-            const cleanConfig = stripMeta(currentConfig);
-            await vrController.updateVRConfig(item.vrId, cleanConfig);
-            await saveVRConfigToDB(item.vrId, currentConfig);
-          } else {
-            await saveVRConfigToDB(item.vrId, currentConfig);
-          }
+    if (vrId) {
+      const group = mapping.addressGroup;
+      if (group) {
+        const remaining = await mappingRepo().count({ where: { addressGroupId: group.id } });
+        if (remaining === 0) {
+          await groupRepo().remove(group);
         }
       }
-    } catch (err: any) {
-      console.error(`[NAT] Failed to remove from VR`, err);
+      await syncNatToVRConfig(vrId);
     }
 
-    await repo().remove(item);
     res.json({ message: 'Deleted' });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Deploy/Push NAT configuration (platform vr_config → device, drift-aware)
+natRoutes.post('/deploy/push', async (req, res, next) => {
+  try {
+    const { vrId } = req.body || {};
+    if (!vrId) {
+      res.status(400).json({ message: 'vrId is required' });
+      return;
+    }
+
+    const acknowledgeDrift = req.body?.acknowledgeDrift === true;
+
+    await syncNatToVRConfig(String(vrId));
+
+    let platformConfig: Record<string, unknown>;
+    try {
+      platformConfig = await getVRConfigFromDB(String(vrId));
+    } catch (err: unknown) {
+      const { status, body } = mapDeployErrorToResponse(err);
+      res.status(status).json(body);
+      return;
+    }
+
+    try {
+      const result = await pushVRConfig({
+        vrId: String(vrId),
+        domain: 'nat',
+        platformConfig,
+        acknowledgeDrift,
+      });
+      res.json({
+        status: 'success',
+        data: stripMeta(result.mergedConfig),
+        driftWarnings: result.driftWarnings,
+      });
+    } catch (err: unknown) {
+      const { status, body } = mapDeployErrorToResponse(err);
+      console.error(`[NAT Push] Failed to update VR config for ${vrId}`, err);
+      res.status(status).json({
+        message: body.message,
+        code: body.code,
+        conflicts: body.conflicts,
+      });
+    }
   } catch (e) {
     next(e);
   }

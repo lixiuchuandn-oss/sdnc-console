@@ -1,37 +1,13 @@
 import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
-import { vrController } from '../../services/vrouter/vrController';
+import { pushVRConfig } from '../../services/vrouter/vrConfigDeploy';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
 import { parseSrv6Baseline } from './srv6.baseline';
 import { resetSrv6BaselineWhenNoTunnels } from './srv6.baseline';
 import { recomputeVrEffectiveConfig } from './srv6.recompute';
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
-
-const stripMeta = (obj: Record<string, unknown>) => {
-  const {
-    msg: _msg,
-    code: _code,
-    report_config_status: _report_config_status,
-    updateDate: _updateDate,
-    createDate: _createDate,
-    _id,
-    requestId: _requestId,
-    _towerHubInventory: _towerHubInventory,
-    ...rest
-  } = obj;
-  return rest;
-};
-
-const sanitizeConfig = (config: Record<string, unknown>) => {
-  if (config.ipv4_route) {
-    if (!Array.isArray(config.ipv4_route) || config.ipv4_route.length === 0) {
-      delete config.ipv4_route;
-    }
-  }
-  return config;
-};
 
 type RevertResult = {
   warnings: string[];
@@ -130,19 +106,12 @@ export const revertSrv6TunnelInjections = async (
   if (options.revertDevice) {
     for (const item of prepared) {
       try {
-        const clean = sanitizeConfig(
-          stripMeta(JSON.parse(JSON.stringify(item.nextConfig))) as Record<string, unknown>,
-        );
-        const updateResp = await vrController.updateVRConfig(item.vrId, clean);
-        const respData = updateResp.data || {};
-        if (
-          respData &&
-          typeof respData.code !== 'undefined' &&
-          respData.code != 0 &&
-          respData.code != 200
-        ) {
-          throw new Error(respData.msg || respData.message || JSON.stringify(respData));
-        }
+        await pushVRConfig({
+          vrId: item.vrId,
+          domain: 'srv6',
+          platformConfig: item.nextConfig as Record<string, unknown>,
+          acknowledgeDrift: true,
+        });
         pushed.push(item);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -155,10 +124,12 @@ export const revertSrv6TunnelInjections = async (
   if (devicePushErrors.length) {
     for (const item of pushed.reverse()) {
       try {
-        const clean = sanitizeConfig(
-          stripMeta(JSON.parse(JSON.stringify(item.originalConfig))) as Record<string, unknown>,
-        );
-        await vrController.updateVRConfig(item.vrId, clean);
+        await pushVRConfig({
+          vrId: item.vrId,
+          domain: 'srv6',
+          platformConfig: item.originalConfig as Record<string, unknown>,
+          acknowledgeDrift: true,
+        });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         warnings.push(`${item.slot}：设备回滚原配置失败（${msg}）`);
@@ -186,10 +157,12 @@ export const revertSrv6TunnelInjections = async (
     if (options.revertDevice) {
       for (const item of prepared.slice().reverse()) {
         try {
-          const clean = sanitizeConfig(
-            stripMeta(JSON.parse(JSON.stringify(item.originalConfig))) as Record<string, unknown>,
-          );
-          await vrController.updateVRConfig(item.vrId, clean);
+          await pushVRConfig({
+            vrId: item.vrId,
+            domain: 'srv6',
+            platformConfig: item.originalConfig as Record<string, unknown>,
+            acknowledgeDrift: true,
+          });
         } catch (rollbackErr: unknown) {
           const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
           warnings.push(`${item.slot}：数据库失败后设备回滚原配置失败（${msg}）`);

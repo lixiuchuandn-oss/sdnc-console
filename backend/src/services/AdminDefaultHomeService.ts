@@ -1,18 +1,6 @@
 /**
- * 管理端登录后默认首页路径的**唯一**服务端实现（与 RouteSpec / `cloudmapPoolNavRows` 语义对齐的静态表 `HOME_PAGE_CANDIDATES`）。
- * 供 `POST /api/auth/login` 与 `GET /api/auth/admin-default-home` 在 Network 中返回顺位明细。
- *
- * 若 RouteSpec 中首页候选或池内总览行变更，请同步更新下方 `HOME_PAGE_CANDIDATES`。
+ * 管理端登录后默认首页（SDNC：IBR / 设置页候选；仅 RBAC，无 License 门控）。
  */
-import { AppDataSource } from '../config/database';
-import { Cloud } from '../entities/Cloud';
-import { getSystemSetting } from '../config/systemSettings';
-import { licenseService } from './LicenseService';
-import {
-  cbrBackupScheduleAliasSatisfied,
-  isCbrBackupScheduleResourceBase,
-} from '../constants/cbrSchedulePermissionLegacy';
-
 export type AdminHomeStepOutcome = 'matched' | 'skipped';
 
 export type AdminHomeResolutionStep = {
@@ -24,29 +12,18 @@ export type AdminHomeResolutionStep = {
   reason?: string;
   rbacAction?: string | null;
   rbacOk?: boolean;
-  requiredFeature?: string;
-  featureOk?: boolean;
   onlyWithoutFeature?: string;
   onlyWithoutOk?: boolean;
-  /** 调试附加上下文（如 allowedRoles） */
   meta?: Record<string, unknown>;
 };
 
 export type AdminDefaultHomePayload = {
-  /** 与前端落地页应一致（由本服务统一计算） */
   defaultPath: string;
   favoritePoolId: string;
+  /** API 兼容字段；SDNC 恒为空 */
   licenseFeatures: string[];
   steps: AdminHomeResolutionStep[];
 };
-
-function _isCloudsContainersResourceBase(resourceBase: string): boolean {
-  return resourceBase === 'clouds.containers' || resourceBase.startsWith('clouds.containers.');
-}
-
-function _isCloudsDashboardOrPoolsResourceBase(resourceBase: string): boolean {
-  return resourceBase === 'clouds.dashboard' || resourceBase === 'clouds.resource-pools';
-}
 
 /** 与 `frontend/src/utils/accessMapping.ts` 中 `hasPermissionForAction` 对齐 */
 export function hasPermissionForAction(perms: string[], act: string | null): boolean {
@@ -62,53 +39,6 @@ export function hasPermissionForAction(perms: string[], act: string | null): boo
   if (permsArray.includes(`${base}:*`)) return true;
   if (!!hasDomainPrefix && permsArray.includes(`${hasDomainPrefix}:*`)) return true;
 
-  if (base.startsWith('clouds.') && act.endsWith(':write')) {
-    if (permsArray.includes('clouds:write')) {
-      return true;
-    }
-  }
-
-  if (base.startsWith('clouds.') && act.endsWith(':read')) {
-    if (permsArray.includes('clouds:read') || permsArray.includes('clouds:write')) {
-      return true;
-    }
-  }
-
-  if (
-    base.startsWith('clouds.containers.') &&
-    base !== 'clouds.containers' &&
-    act.endsWith(':read')
-  ) {
-    if (
-      permsArray.includes('clouds.containers:read') ||
-      permsArray.includes('clouds.containers:write')
-    ) {
-      return true;
-    }
-  }
-  if (
-    base.startsWith('clouds.containers.') &&
-    base !== 'clouds.containers' &&
-    act.endsWith(':write')
-  ) {
-    if (permsArray.includes('clouds.containers:write')) {
-      return true;
-    }
-  }
-
-  if (base === 'clouds.vm-backup-snapshots') {
-    if (permsArray.includes('clouds.backups:read') || permsArray.includes('clouds.backups:write')) {
-      return true;
-    }
-  }
-  if (
-    isCbrBackupScheduleResourceBase(base) &&
-    (act.endsWith(':read') || act.endsWith(':write')) &&
-    cbrBackupScheduleAliasSatisfied(permsArray, base, act.endsWith(':write') ? 'write' : 'read')
-  ) {
-    return true;
-  }
-
   return false;
 }
 
@@ -119,60 +49,14 @@ type HomeCandRow = {
   pageAction: string | null;
   homePageSkipPermissionCheck?: boolean;
   homePageAllowedRoles?: string[];
-  homePageOnlyWithoutFeature?: string;
-  requiredFeature?: string;
-  requiredLicenseType?: 'enterprise';
-  homePageReplaceParamFrom?: 'favoriteCloudId';
 };
 
-/** 与 RouteSpec + CLOUDMAP_POOL_NAV_ROWS（cloudmap-pool-rh-overview）中首页相关字段一致 */
 const HOME_PAGE_CANDIDATES: HomeCandRow[] = [
   {
-    id: 'cloudmap-pool-rh-overview',
-    homePagePriority: -1,
-    path: '/admin/clouds/:cloudId/resource_hub/overview',
-    pageAction: 'clouds.monitoring.overview:read',
-    homePageReplaceParamFrom: 'favoriteCloudId',
-    homePageAllowedRoles: ['super_admin', 'admin'],
-  },
-  {
-    id: 'admin-welcome',
+    id: 'interconnect-vr',
     homePagePriority: 0,
-    path: '/admin/welcome',
-    pageAction: 'system.license:read',
-    homePageSkipPermissionCheck: true,
-    homePageOnlyWithoutFeature: 'platform.multi-cloud',
-    homePageAllowedRoles: ['super_admin', 'admin'],
-  },
-  {
-    id: 'dashboard',
-    homePagePriority: 1,
-    path: '/admin/dashboard',
-    pageAction: 'clouds.dashboard:read',
-    requiredFeature: 'sys.dashboard',
-  },
-  {
-    id: 'clouds-list',
-    homePagePriority: 2,
-    path: '/admin/clouds',
-    pageAction: 'clouds.resource-pools:read',
-    requiredFeature: 'platform.multi-cloud',
-  },
-  {
-    id: 'tenants-list',
-    homePagePriority: 4,
-    path: '/admin/tenants',
-    pageAction: 'tenants:read',
-    requiredFeature: 'sys.tenant-mgmt',
-    requiredLicenseType: 'enterprise',
-  },
-  {
-    id: 'tenant-users',
-    homePagePriority: 5,
-    path: '/admin/tenants/users',
-    pageAction: 'tenant-users:read',
-    requiredFeature: 'sys.tenant-mgmt',
-    requiredLicenseType: 'enterprise',
+    path: '/admin/interconnect/vr',
+    pageAction: 'networks.vr-config:read',
   },
   {
     id: 'settings-audit-logs',
@@ -198,28 +82,8 @@ const SORTED_CANDIDATES = [...HOME_PAGE_CANDIDATES].sort(
   (a, b) => (a.homePagePriority ?? 999) - (b.homePagePriority ?? 999),
 );
 
-function hasLicenseFeature(feature: string): boolean {
-  return licenseService.hasFeature(feature);
-}
-
-function licenseSatisfiesEdition(required?: 'enterprise'): boolean {
-  if (!required) return true;
-  return licenseService.isEnterprise();
-}
-
-/** 默认资源池：系统设置 favorite.cloudId；未配置时取最早创建的云资源池 */
-async function resolveEffectiveFavoritePoolId(favoritePoolIdOverride?: string): Promise<string> {
-  const fav = String(favoritePoolIdOverride ?? getSystemSetting('favorite.cloudId') ?? '').trim();
-  if (fav) return fav;
-  try {
-    if (!AppDataSource.isInitialized) return '';
-    const repo = AppDataSource.getRepository(Cloud);
-    const rows = await repo.find({ order: { createdAt: 'ASC' }, take: 1 });
-    const id = rows[0]?.id;
-    return id ? String(id) : '';
-  } catch {
-    return '';
-  }
+async function resolveEffectiveFavoritePoolId(_favoritePoolIdOverride?: string): Promise<string> {
+  return '';
 }
 
 export async function resolveAdminDefaultHome(
@@ -229,28 +93,24 @@ export async function resolveAdminDefaultHome(
 ): Promise<AdminDefaultHomePayload> {
   const r = String(role || '').toLowerCase();
   const fav = await resolveEffectiveFavoritePoolId(favoritePoolIdOverride);
-  const status = licenseService.getStatus();
-  const licenseFeatures = status.payload?.features ? [...status.payload.features] : [];
 
   if (r === 'tenant') {
     return {
-      defaultPath: '/console',
+      defaultPath: '/admin/interconnect/vr',
       favoritePoolId: fav,
-      licenseFeatures,
+      licenseFeatures: [],
       steps: [
         {
-          id: 'tenant-console-direct',
+          id: 'tenant-fallback-vr',
           homePagePriority: -2,
-          templatePath: '/console',
-          resolvedPath: '/console',
+          templatePath: '/admin/interconnect/vr',
+          resolvedPath: '/admin/interconnect/vr',
           outcome: 'matched',
           reason: 'tenant_account_type',
         },
       ],
     };
   }
-
-  const hasFeature = (f: string) => hasLicenseFeature(f);
 
   const steps: AdminHomeResolutionStep[] = [];
 
@@ -274,24 +134,9 @@ export async function resolveAdminDefaultHome(
       }
     }
 
-    if (spec.homePageOnlyWithoutFeature) {
-      const onlyWithoutOk = !hasFeature(spec.homePageOnlyWithoutFeature);
-      if (!onlyWithoutOk) {
-        steps.push({
-          ...baseStep,
-          outcome: 'skipped',
-          reason: 'homePageOnlyWithoutFeature',
-          onlyWithoutFeature: spec.homePageOnlyWithoutFeature,
-          onlyWithoutOk: false,
-        });
-        continue;
-      }
-    }
-
-    let rbacOk = true;
     if (!spec.homePageSkipPermissionCheck) {
       const act = spec.pageAction;
-      rbacOk = hasPermissionForAction(permissions, act);
+      const rbacOk = hasPermissionForAction(permissions, act);
       if (!rbacOk) {
         steps.push({
           ...baseStep,
@@ -304,71 +149,16 @@ export async function resolveAdminDefaultHome(
       }
     }
 
-    if (spec.requiredFeature) {
-      const featureOk = hasFeature(spec.requiredFeature);
-      if (!featureOk) {
-        steps.push({
-          ...baseStep,
-          outcome: 'skipped',
-          reason: 'requiredFeature',
-          requiredFeature: spec.requiredFeature,
-          featureOk: false,
-          rbacOk: spec.homePageSkipPermissionCheck ? undefined : true,
-        });
-        continue;
-      }
-    }
-
-    if (spec.requiredLicenseType && !licenseSatisfiesEdition(spec.requiredLicenseType)) {
-      steps.push({
-        ...baseStep,
-        outcome: 'skipped',
-        reason: 'requiredLicenseType',
-        meta: { requiredLicenseType: spec.requiredLicenseType },
-        rbacOk: spec.homePageSkipPermissionCheck ? undefined : true,
-      });
-      continue;
-    }
-
-    if (spec.homePageReplaceParamFrom === 'favoriteCloudId') {
-      if (!fav) {
-        steps.push({
-          ...baseStep,
-          outcome: 'skipped',
-          reason: 'missing_favorite_pool_id',
-          rbacOk: true,
-        });
-        continue;
-      }
-      const resolvedPath = spec.path.replace(':cloudId', encodeURIComponent(fav));
-      steps.push({
-        ...baseStep,
-        outcome: 'matched',
-        resolvedPath,
-        rbacOk: spec.homePageSkipPermissionCheck ? undefined : true,
-        requiredFeature: spec.requiredFeature,
-        featureOk: spec.requiredFeature ? true : undefined,
-      });
-      return {
-        defaultPath: resolvedPath,
-        favoritePoolId: fav,
-        licenseFeatures,
-        steps,
-      };
-    }
-
     steps.push({
       ...baseStep,
       outcome: 'matched',
       resolvedPath: spec.path,
       rbacOk: spec.homePageSkipPermissionCheck ? undefined : true,
-      requiredFeature: spec.requiredFeature,
-      featureOk: spec.requiredFeature ? true : undefined,
     });
     return {
       defaultPath: spec.path,
       favoritePoolId: fav,
-      licenseFeatures,
+      licenseFeatures: [],
       steps,
     };
   }
@@ -384,7 +174,7 @@ export async function resolveAdminDefaultHome(
   return {
     defaultPath: '/admin/coming-soon',
     favoritePoolId: fav,
-    licenseFeatures,
+    licenseFeatures: [],
     steps,
   };
 }

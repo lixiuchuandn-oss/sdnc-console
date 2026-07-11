@@ -4,7 +4,7 @@
 > **当前生产范围**：**CE-A ↔ PE-A ↔ PE-B ↔ CE-B** 四端单会话（Spoke 点对点）；Hub 多 Spoke 待 P5 交付。  
 > **关联发版说明**：[`docs/srv6-release-notes.md`](./srv6-release-notes.md)  
 > **Hub PE 产品约束与遗留（查阅用）**：[`docs/srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md)  
-> **冒烟用例**：[`frontend/src/pages/sdncc/interconnect/srv6/testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)
+> **冒烟用例**：[`docs/srv6-testcases.md`](./srv6-testcases.md)
 > **对外 API 索引**：[`AGENTS.md`](../AGENTS.md) · API 规范 · SDN 网络
 
 ---
@@ -308,7 +308,7 @@ npx tsc --noEmit
 
 ### 10.2 手工冒烟
 
-见 [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md)：R1 创建、R2 删除回退、R5 对账、R6 VR 锁、R7 零隧道基线；**R3/R4 为 P5 遗留**（见 §14）。
+见 [srv6-testcases.md](./srv6-testcases.md)：R1 创建、R2 删除回退、R5 对账、R6 VR 锁、R7 零隧道基线；**R3/R4 为 P5 遗留**（见 §14）。
 
 ---
 
@@ -383,7 +383,7 @@ npx tsc --noEmit
 
 - VR 角色下拉 **仅** 展示：`SPOKE_PE`、`HUB_PE`、`CE`、`SASE`、`标准`（与现网其它产品线一致部分保留）。  
 - **取消 `PE` 枚举**；**不提供** `PE` → `SPOKE_PE` 读写别名或自动迁移。  
-- 库内历史 `role='PE'` 的 VR：**不在 P5 兼容**；创建/更新隧道时若槽位 VR 角色非法 → **409**，提示运维在 VR 管理页 **重新指定** `SPOKE_PE` 或 `HUB_PE`。  
+- 库内历史 `role='PE'` 的 IBR：**不在 P5 兼容**；创建/更新隧道时若槽位 IBR 角色非法 → **409**，提示运维在 **IBR实例** 页重新指定 `SPOKE_PE` 或 `HUB_PE`。  
 - SRv6 向导 PE 下拉：`SPOKE_PE` 与 `HUB_PE` **分列表或分 Tab**，避免混选。
 
 **隧道槽位（peA / peB / ceA / ceB）不改名**：槽位表示「本条隧道上的位置」，UI 可加徽标（如「PE-B · 中心 Hub」）。
@@ -625,7 +625,7 @@ P1–P4 单测 `scenarios.test` 里「多隧道共存」能过，是因为 **刻
 | **H6** | 409 提示 | 仅报 **Blocking** 主因（如重复 PE–PE neighbor）；**不**堆砌从属项 |
 | **H7** | 删除单条隧道 | 摘本 Spoke 公网项；**A** 非最后一条 **不动 RT/RD**；最后一条或 **B** 删私网 `bgp` 段 |
 
-**与冒烟用例映射**：P5 完成后将 [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) 中 **R3/R4** 从「遗留/跳过」改为按 **H1–H7** 验收。
+**与冒烟用例映射**：P5 完成后将 [srv6-testcases.md](./srv6-testcases.md) 中 **R3/R4** 从「遗留/跳过」改为按 **H1–H7** 验收。
 
 ### 14.6 向导与下发（P5 UX · 定稿）
 
@@ -738,7 +738,7 @@ P1–P4 单测 `scenarios.test` 里「多隧道共存」能过，是因为 **刻
 | 校验 | `backend/src/routes/sdn/srv6.validation.ts` |
 | 类型 | `backend/src/entities/vRouter/srv6Tunnel.types.ts` |
 | 单测 | `srv6.scenarios.test.ts`（P5 新增 PE3/PE2/PE22 Hub fixture） |
-| 验收 | **§14.5 H1–H7** + [`testcases.md`](../frontend/src/pages/sdncc/interconnect/srv6/testcases.md) |
+| 验收 | **§14.5 H1–H7** + [srv6-testcases.md](./srv6-testcases.md) |
 
 ### 14.11 隧道档案扩展（定稿字段）
 

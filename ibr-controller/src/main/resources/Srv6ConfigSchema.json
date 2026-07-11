@@ -1,0 +1,644 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "srv6 config",
+  "description": "srv6 config json schema",
+  "type": "object",
+  "properties": {
+    "uuid": {
+      "type": "string"
+    },
+    "vrf": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 4001,
+        "maximum": 100000
+      }
+    },
+    "acl": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "acl_id": {
+            "type": "integer",
+            "minimum": 1001,
+            "maximum": 4000
+          },
+          "rule": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule_id": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967296
+                },
+                "match": {
+                  "type": "string",
+                  "enum":[
+                    "deny",
+                    "permit"
+                  ]
+                },
+                "proto": {
+                  "type": "string",
+                  "enum":[
+                    "any",
+                    "ICMP",
+                    "IGMP",
+                    "IPinIP",
+                    "TCP",
+                    "UDP",
+                    "RSVP",
+                    "GRE",
+                    "ESP",
+                    "AH",
+                    "OSPF",
+                    "VRRP",
+                    "L2TP",
+                    "SCTP"
+                  ]
+                },
+                "source": {
+                  "type": "string"
+                },
+                "sport": {
+                  "type": "integer"
+                },
+                "destination": {
+                  "type": "string"
+                },
+                "dport": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ipsec": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ID": {
+            "type": "string"
+          },
+          "ike_local_ip": {
+            "type": "string"
+          },
+          "ike_remote_ip": {
+            "type": "string"
+          },
+          "ike_dpd_delay": {
+            "type": "integer"
+          },
+          "ike_dpd_timeout": {
+            "type": "integer"
+          },
+          "ike_mode": {
+            "type": "string",
+            "enum":[
+              "aggressive",
+              "main"
+            ]
+          },
+          "ike_proposal_local": {
+            "type": "string"
+          },
+          "ike_proposal_remote": {
+            "type": "object",
+            "properties": {
+              "remote_id": {
+                "type": "string"
+              },
+              "pre_shared_key": {
+                "type": "string"
+              },
+              "pubkey": {
+                "type": "string"
+              }
+            }
+          },
+          "traffic_selectors_local": {
+            "type": "string"
+          },
+          "traffic_selectors_remote": {
+            "type": "string"
+          },
+          "vrf_id": {
+            "type": "integer"
+          },
+          "sa_dpd_action": {
+            "type": "string",
+            "enum":[
+              "restart",
+              "trap",
+              "clear"
+            ]
+          },
+          "sa_esp_proposals": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "nat_address_group": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4294967296
+          },
+          "range": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "static_mapping": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "proto": {
+                  "type": "string",
+                  "enum":[
+                    "tcp",
+                    "udp",
+                    "icmp"
+                  ]
+                },
+                "inside": {
+                  "type": "string"
+                },
+                "local_port": {
+                  "type": "integer"
+                },
+                "vrf": {
+                  "type": "integer"
+                },
+                "outside": {
+                  "type": "string"
+                },
+                "external_port": {
+                  "type": "integer"
+                },
+                "twice_nat": {
+                  "type": "string",
+                  "enum":[
+                    "disable",
+                    "enable"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "interfaces_BondEthernet": {
+      "$ref": "#/$defs/interface"
+    },
+    "subinterfaces_BondEthernet": {
+      "$ref": "#/$defs/interface"
+    },
+    "interfaces_TapEthernet": {
+      "$ref": "#/$defs/interface"
+    },
+    "subinterfaces_TapEthernet": {
+      "$ref": "#/$defs/interface"
+    },
+    "interfaces_memif": {
+      "$ref": "#/$defs/interface"
+    },
+    "subinterfaces_memif": {
+      "$ref": "#/$defs/interface"
+    },
+    "interfaces_GigabitEthernet": {
+      "$ref": "#/$defs/interface"
+    },
+    "subinterfaces_GigabitEthernet": {
+      "$ref": "#/$defs/interface"
+    },
+    "interfaces_lo": {
+      "$ref": "#/$defs/interface"
+    },
+    "interfaces_Tunnel": {
+      "$ref": "#/$defs/interface"
+    },
+    "subinterfaces_Tunnel": {
+      "$ref": "#/$defs/interface"
+    },
+    "ipv4_route": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vrf": {
+            "type": "integer",
+            "minimum": 4001,
+            "maximum": 100000
+          },
+          "destination": {
+            "type":"string"
+          },
+          "via": {
+            "type":"string"
+          },
+          "priority": {
+            "type":"integer",
+            "minimum": 1,
+            "maximum": 255
+          }
+        }
+      }
+    },
+    "ipv6_route": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "vrf": {
+            "type": "integer",
+            "minimum": 4001,
+            "maximum": 100000
+          },
+          "destination": {
+            "type":"string"
+          },
+          "via": {
+            "type":"string"
+          }
+        }
+      }
+    },
+    "segment_routing_srv6": {
+      "type":"object",
+      "properties": {
+        "locator": {
+          "type": "string"
+        },
+        "prefix": {
+          "type":"string"
+        }
+      }
+    },
+    "route_map": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "match_prefix": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777214
+          }
+        }
+      }
+    },
+    "bgp": {
+      "type":"array",
+      "items": {
+        "type":"object",
+        "properties": {
+          "asn": {
+            "type":"integer",
+            "minimum": 1,
+            "maximum": 4294967296
+          },
+          "vrf": {
+            "type":"integer",
+            "minimum": 4001,
+            "maximum": 100000
+          },
+          "bgp_router_id": {
+            "type":"string"
+          },
+          "bgp_ebgp_requires_policy": {
+            "type":"string",
+            "enum":[
+              "disable",
+              "enable"
+            ]
+          },
+          "neighbor_disable_connected_check": {
+            "type": "array",
+            "items": {
+              "type":"string"
+            }
+          },
+          "timer_bgp_KA": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "timer_bgp_HA": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "bgp_fast_convergence": {
+            "type": "string",
+            "enum": [
+              "enable",
+              "disable"
+            ]
+          },
+          "neighbor": {
+            "type":"array",
+            "items": {
+              "type":"object",
+              "properties": {
+                "remote_ip": {
+                  "type":"string"
+                },
+                "remote_as": {
+                  "type":"integer"
+                }
+              }
+            }
+          },
+          "address_family": {
+            "type":"array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address_family": {
+                  "type":"string",
+                  "enum":[
+                    "ipv4",
+                    "ipv6"
+                  ]
+                },
+                "modifiler": {
+                  "type":"string",
+                  "enum":[
+                    "unicast",
+                    "vpn"
+                  ]
+                },
+                "activate_address_family": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": ""
+                  }
+                },
+                "export_route": {
+                  "type":"string",
+                  "enum":[
+                    "disable",
+                    "enable"
+                  ]
+                },
+                "import_route": {
+                  "type":"string",
+                  "enum":[
+                    "disable",
+                    "enable"
+                  ]
+                },
+                "route_distinguisher": {
+                  "type":"string"
+                },
+                "route_target": {
+                  "type":"string"
+                },
+                "network": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "auto_assign_sid": {
+                  "type":"string",
+                  "enum":[
+                    "disable",
+                    "enable"
+                  ]
+                },
+                "neighbor_route_map": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "neighbor": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": [
+                          "in",
+                          "out"
+                        ]
+                      },
+                      "route_map": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "segment_routing_srv6": {
+        "type": "object",
+        "properties": {
+          "locator": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "vrrp": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "integer"
+          },
+          "track_gateway": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "vrrp_instance": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  },
+  "errorMessage":{
+    "required":"缺少必填字段：''{0}/{1}''",
+    "enum":"''{0}''的值必须是：''{1}''中的一个",
+    "type":"''{0}''的类型必须是: ''{2}''，但你提供的是''{1}''"
+  },
+  "required": ["uuid"],
+  "$defs": {
+    "interface": {
+      "type":"array",
+      "items":{
+        "type":"object",
+        "properties":{
+          "name":{
+            "type":"string"
+          },
+          "vlan": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4094
+          },
+          "acl": {
+            "type":"array",
+            "items":{
+              "type":"object",
+              "properties": {
+                "acl_id": {
+                  "type": "integer",
+                  "minimum": 1001,
+                  "maximum": 4000
+                },
+                "direction": {
+                  "type":"string",
+                  "enum":[
+                    "input",
+                    "output"
+                  ]
+                }
+              }
+            }
+          },
+          "vrf": {
+            "type": "integer",
+            "minimum": 4001,
+            "maximum": 100000
+          },
+          "mtu": {
+            "type": "integer",
+            "minimum": 1280,
+            "maximum": 9220
+          },
+          "ipv4_dhcp": {
+            "type":"string",
+            "enum":[
+              "disable",
+              "enable"
+            ]
+          },
+          "ipv4_static":{
+            "type":"string",
+            "pattern": "^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\\/([1-9]|[1-2]\\d|3[0-2])$"
+          },
+          "ipv6_static":{
+            "type":"string",
+            "pattern": "^((\\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}))|:)))(%.+)?\\s*)(\\/(([1-9])|([1-9][0-9])|(1[0-1][0-9]|12[0-8]))){0,1})*$"
+          },
+          "vrrp":{
+            "type":"array",
+            "items": {
+              "type":"object",
+              "properties": {
+                "vrid": {
+                  "type":"integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "advert_interval": {
+                  "type":"integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "auth_pass": {
+                  "type":"string"
+                },
+                "priority": {
+                  "type":"integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "virtual_ipaddress": {
+                  "type":"array",
+                  "items": {
+                    "type":"string"
+                  }
+                }
+              }
+            }
+          },
+          "pppoe_user_name": {
+            "type":"string"
+          },
+          "pppoe_passwd": {
+            "type":"string"
+          },
+          "pppoe_client": {
+            "type":"string",
+            "enum":[
+              "disable",
+              "enable"
+            ]
+          },
+          "nat": {
+            "type":"object",
+            "properties": {
+              "type": {
+                "type":"string",
+                "enum":[
+                  "outside"
+                ]
+              },
+              "acl_id": {
+                "type":"integer",
+                "minimum": 1001,
+                "maximum": 4000
+              },
+              "address_group": {
+                "type":"integer",
+                "minimum": 1,
+                "maximum": 4294967296
+              },
+              "track-vrrp": {
+                "type":"string",
+                "enum":[
+                  "disable",
+                  "enable"
+                ]
+              }
+            }
+          },
+          "status":{
+            "type":"string",
+            "enum":[
+              "up",
+              "down"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

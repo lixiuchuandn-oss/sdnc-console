@@ -1,56 +1,10 @@
 import {
-  byCloudCreatedAtAsc,
-  pickDefaultPoolId,
-  resolveDefaultPool,
   firstMenuPathInCenter,
   findMenuOpenKeyChainForPath,
-  poolOverviewPath,
   sidebarForPath,
 } from './adminLayoutNav';
-import type { Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
-
-const mkCloud = (over: Record<string, unknown>): Cloud => over as unknown as Cloud;
 
 describe('adminLayoutNav', () => {
-  describe('byCloudCreatedAtAsc', () => {
-    it('按 createdAt 升序', () => {
-      const a = mkCloud({ id: 'a', createdAt: '2026-01-01T00:00:00Z' });
-      const b = mkCloud({ id: 'b', createdAt: '2026-02-01T00:00:00Z' });
-      expect(byCloudCreatedAtAsc(a, b)).toBeLessThan(0);
-      expect(byCloudCreatedAtAsc(b, a)).toBeGreaterThan(0);
-    });
-  });
-
-  describe('pickDefaultPoolId', () => {
-    it('空列表返回 undefined', () => {
-      expect(pickDefaultPoolId([])).toBeUndefined();
-    });
-    it('优先取 config.isDefault 标记的池', () => {
-      const clouds = [
-        mkCloud({ id: 'old', createdAt: '2026-01-01T00:00:00Z' }),
-        mkCloud({ id: 'flagged', createdAt: '2026-03-01T00:00:00Z', config: { isDefault: true } }),
-      ];
-      expect(pickDefaultPoolId(clouds)).toBe('flagged');
-    });
-    it('无标记时取最早创建的池', () => {
-      const clouds = [
-        mkCloud({ id: 'later', createdAt: '2026-05-01T00:00:00Z' }),
-        mkCloud({ id: 'earliest', createdAt: '2026-01-01T00:00:00Z' }),
-      ];
-      expect(pickDefaultPoolId(clouds)).toBe('earliest');
-    });
-  });
-
-  describe('resolveDefaultPool', () => {
-    it('返回默认池对象', () => {
-      const clouds = [
-        mkCloud({ id: 'x', createdAt: '2026-02-01T00:00:00Z' }),
-        mkCloud({ id: 'y', createdAt: '2026-01-01T00:00:00Z' }),
-      ];
-      expect(resolveDefaultPool(clouds)?.id).toBe('y');
-    });
-  });
-
   describe('firstMenuPathInCenter', () => {
     it('取第一项子菜单首个以 / 开头的 key', () => {
       const center = { items: [{ key: '__grp__', children: [{ key: '/admin/a' }, { key: '/admin/b' }] }] };
@@ -87,25 +41,17 @@ describe('adminLayoutNav', () => {
     });
   });
 
-  describe('poolOverviewPath', () => {
-    it('池不在列表时回退到资源总览路径', () => {
-      expect(poolOverviewPath('p1', [])).toBe('/admin/clouds/p1/resource_hub/overview');
-    });
-  });
-
-  describe('sidebarForPath (启发式回退分支)', () => {
-    it('互联/安全面/流量 → SDN', () => {
+  describe('sidebarForPath (SDNC)', () => {
+    it('互联/安全面 → SDN', () => {
       expect(sidebarForPath('/zzz/interconnect/x')).toBe('/admin/cen_sdn');
       expect(sidebarForPath('/zzz/sec-mgr-plane/x')).toBe('/admin/cen_sdn');
     });
-    it('告警/SOC → 安全运营', () => {
-      expect(sidebarForPath('/zzz/aisoc/x')).toBe('/admin/cen_secops');
-    });
     it('设置 → 系统设置', () => {
       expect(sidebarForPath('/zzz/settings/x')).toBe('/admin/cen_settings');
+      expect(sidebarForPath('/zzz/access/roles')).toBe('/admin/cen_settings');
     });
-    it('未知路径回退到多云计算', () => {
-      expect(sidebarForPath('/zzz/unknown/x')).toBe('/admin/cen_compute');
+    it('未知路径回退到 SDN', () => {
+      expect(sidebarForPath('/zzz/unknown/x')).toBe('/admin/cen_sdn');
     });
   });
 });

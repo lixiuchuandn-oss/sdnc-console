@@ -1,17 +1,19 @@
-# Compute Tower - 多云管理平台
+# SDN Console（Compute Tower · SDNC · IBR）
+
+> **本仓库默认产品形态为 SDNC 独立控制台**（`PRODUCT_FLAVOR=sdnc`）：业务面仅 **IBR 管理**（IBR实例、SRv6、IPsec、ACL、NAT）+ **系统设置（SETTINGS）**。网际路由域、邻居（CEN）、应用管理、流量编排、多云 UI、商业 License 门控等**已从源码删除**；后端仅挂载 IBR + 认证/用户/租户/系统 API。**无功能拆分授权**，访问控制仅 RBAC。
 
 ## 项目概述
 
-Compute Tower 是一个企业级多云管理平台，提供统一的云资源管理、SDN网络编排、安全运营和AI SOC能力。
+Compute Tower **SDNC** 是 **IBR** 运维控制台（默认 `PRODUCT_FLAVOR=sdnc`）。
 
-### 核心能力
+### 核心能力（SDNC 默认构建）
 
-- **多云管理 (CNMC)**： 支持阿里云、华为云、腾讯云、Harvester(KubeVirt) 等多云资源的统一管理
-- **租户管理 (TENANTS)**： 租户、组织、租户用户等与 CNMC **平级**的独立产品线（前端导航与 `RouteSpec.platform` 已单独切分）
-- **容器管理**： 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略等容器资源管理
-- **SDN管理 (SDNCC)**： SRv6隧道、IPsec VPN、ACL、NAT、虚拟路由器等网络编排能力
-- **AI SOC中心 (CNSOC)**： 安全运营、威胁分析、报告管理等安全能力
-- **系统设置 (SETTINGS)**： 系统用户、RBAC 角色与权限、审计日志、系统配置与授权等（与租户管理产品线区分）
+- **IBR 管理 (SDNCC)**：IBR实例、SRv6、IPsec VPN、ACL、NAT
+- **系统设置 (SETTINGS)**：用户、RBAC、审计、界面/集成/离线升级（**无 License 页/门控**）
+- **后端依赖（无独立 UI）**：`/api/tenants` 供 VR 租户/组织绑定下拉
+- **CSMCTL（同仓可选）**：`csm-controller/`；见 **`docs/sdnc-stack-integration.md`**
+
+> 本分支源码已物理裁剪为 SDNC；`PRODUCT_FLAVOR=tower` 仅保留少量兼容常量，**不恢复** Tower 全功能前端与 `/api/clouds`。
 
 ## 技术栈
 
@@ -20,29 +22,26 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 - **框架**： Express 4.x
 - **数据库**： SQLite (TypeORM 0.3.x)
 - **认证**： JWT + bcryptjs
-- **WebSocket**： ws 8.x (SSH/VNC/KubeVirt)
-- **云SDK**： 阿里云SDK、华为云SDK、腾讯云SDK
+- **外置依赖（联调）**： CSMCTL（`csm-controller/`，MongoDB）；见 **`docs/sdnc-stack-integration.md`**
+- **（Tower only）**： WebSocket（ws 8.x）、多云 SDK（阿里云/华为云/腾讯云）、Harvester Steve 等 — SDNC 默认不挂载/不启动
 
 ### 前端
 - **框架**： React 18 + TypeScript 4.9
 - **UI组件**： Ant Design 5.x
 - **路由**： React Router 6
-- **图表**： ECharts 5.x
-- **终端**： xterm.js 5.x
-- **远程控制**： noVNC 1.6.0
-- **代码编辑**： CodeMirror 6 (@uiw/react-codemirror)
-- **目录结构**： **`frontend/src/STRUCTURE.md`**（前端目录与放置规则唯一权威）；**`frontend/README.md`** 仅为 `frontend/` 包入口（运行命令）；Harvester 云详情子树见 `deployment/docs/specs/修改纪要_Harvester前端目录结构_域优先与shared.md`
+- **拓扑（IBR 域内）**： react-flow-renderer
+- **目录结构**： **`frontend/src/STRUCTURE.md`**（SDNC 前端目录权威）；**`frontend/README.md`** 仅为包入口（运行命令）
 
 ## 架构文档分工
 
 | 文档 | 职责 |
 |------|------|
-| **`AGENTS.md`**（本文件） | 项目总览、**文档导读**、技术栈、环境与运行、**平台模块**索引、**平台发布版本管理约定**、**对外 HTTP / WebSocket 路径**、Harvester 云详情前端落位、**开发规范（强制约定摘要）** |
-| **`frontend/src/STRUCTURE.md`** | 前端 `frontend/src/` 的目录划分、**平台（CNMC / TENANTS / SDNCC / CNSOC / SETTINGS）与 `pages/` 映射**、`sections` / `drawers` / `modals` / `shared` 等放置规则的唯一权威 |
+| **`AGENTS.md`**（本文件） | 项目总览、运行、API 索引、SDNC 开发规范摘要 |
+| **`frontend/src/STRUCTURE.md`** | 前端 `pages/sdncc/`、`pages/settings/` 目录与放置规则（**SDNC 权威**） |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`code-quality.md`**、**`frontend-layout.md`**、**`cloudmap-pool-rbac.md`**、**`edge-gpu-baremetal.md`**（**边缘 GPU 裸机**接入设计稿，待开发）、**`internetwork-routing-domain.md`**（**网际路由域**枢纽、SDN 导航 IA、**CSM 安全域**边界、VR **`uuid`/`vm_id`** 与创建推荐 §16）、**`remote-access-architecture.md`**（**云桌面网关**总体架构）、**`integrate-guacamole.md`**（网关引擎细则）、**`maas-integration.md`**、**`srv6-baseline-recompute.md`**（SRv6 配置管理实现方案）、**`srv6-hub-pe-spec.md`**（SRv6 Hub PE 产品约束与遗留）、**`srv6-release-notes.md`**（SRv6 发版说明） |
-| **`frontend/.../Cloudmap/pool/README.md`** | Cloudmap 池刷新样板（compute / cluster / storage / paas_databases / hsm） |
-| **`tests/E2E_COVERAGE.md`** | **Cloudmap 功能 E2E 覆盖索引**（已测 / 仅冒烟 / 暂缓 / 缺口）；终端一览 `cd tests && npm run e2e:status`；登记 `tests/e2e-manifest.cjs` |
+| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`sdnc-stack-integration.md`**（全栈整合）、**`ibr-stack-components.md`**（SDNC/CSMCTL/agent/设备 Console）、**`ibr-vr-config-deploy.md`**（VR 分域下发与初始化边界）、**`internetwork-routing-domain.md`**、SRv6 系列、**`sdnc-tower-integration-api.md`**（Tower 联部署可选）、**`code-quality.md`**、**`frontend-layout.md`** |
+| **`csm-controller/README.md`** | CSMCTL 构建、Docker、北向 API 与 Tower 联调 |
+| **`tests/E2E_COVERAGE.md`** | **SDNC E2E 覆盖索引**；终端一览 `cd tests && npm run e2e:status`；登记 `tests/e2e-manifest.cjs` |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |
 
 新增或搬迁源码时：**前端**以 `frontend/src/STRUCTURE.md` 为准，**后端**以 `backend/src/STRUCTURE.md` 为准；对外路径以 `backend/src/index.ts` 的挂载为准。
@@ -56,40 +55,81 @@ Compute Tower 是一个企业级多云管理平台，提供统一的云资源管
 | 1 | **项目概述**、**技术栈**、**架构文档分工**、**平台模块** | 能力边界、文档权威、平台与源码归属 |
 | 2 | **构建与运行**、**项目结构** | 本地启动与环境变量，再对照仓库树 |
 | 3 | **版本管理（平台发布版本）** | 平台 `version`、离线包与发版约定 |
-| 4 | **API 规范** | HTTP / WebSocket 路径索引 |
-| 5 | **Harvester 云详情 · 前端落位** | 多云 Harvester 详情 Tab ↔ `Harvester/` 下 Section |
-| 6 | **开发规范**（摘要） | 落位、**页面布局**、刷新与缓存、表格版式；**布局** **`docs/frontend-layout.md`**；**代码质量** **`docs/code-quality.md`**；**Cloudmap RBAC** **`docs/cloudmap-pool-rbac.md`**；**网际路由域 / SDN 导航 IA / CSM 安全域** **`docs/internetwork-routing-domain.md`**；**Cloudmap 刷新** **`Cloudmap/pool/README.md`**；**云桌面网关** **`docs/remote-access-architecture.md`**；**MAAS 对接** **`docs/maas-integration.md`** |
-| 7 | **认证与权限**、**后台服务**、**注意事项** | 角色与 Token、后台定时任务、运维提示 |
+| 4 | **API 规范** | HTTP 路径索引（IBR / 设置 / 租户） |
+| 5 | **开发规范**（摘要） | 落位、布局、刷新、`.std-table`；详见 **`docs/frontend-layout.md`** |
 
-## 平台模块
+## 平台模块（SDNC 默认）
 
 | 平台 | 代码 | 说明 |
 |------|------|------|
-| 多云管理 | CNMC | 资源池、多云实例、云主机/网络、控制台、**云数据库**（Cloudmap 资源池 VM，源码在 `pages/cnmc/clouds/Harvester/database/`） |
-| 租户管理 | TENANTS | 租户、组织、租户用户等；与 CNMC **平级**的独立平台（`RouteSpec.platform` / 顶栏导航）；页面源码 **`pages/tenants/`** |
-| 容器管理 | CONTAINER | 工作负载、Pod、任务、服务发现、镜像仓库、配置管理、高级调度策略 |
-| SDN 管理 | SDNCC | SRv6、IPsec、ACL、NAT、VR |
-| AI SOC 中心 | CNSOC | 安全运营、威胁分析、报告 |
-| 系统设置 | SETTINGS | 用户、系统配置、授权、审计；页面规范落位 `pages/settings/`（与 `RouteSpec.platform` 一致，见 `frontend/src/STRUCTURE.md`） |
+| IBR 管理 | SDNCC | VR / SRv6 / IPsec / ACL / NAT；`pages/sdncc/ibr/` |
+| 系统设置 | SETTINGS | 用户、RBAC、审计、界面/集成/升级；`pages/settings/` |
+
+后端保留 `/api/tenants`（VR 归属绑定）；**不挂载** `/api/clouds`、CEN、网际路由域、应用、流量编排等 API。
 
 ## 构建与运行
 
 ### 环境要求
-- Node.js 18+
-- npm 或 yarn
+- **生产 / 联调（推荐）**：Docker + Docker Compose
+- **源码开发**：Node.js 18+、npm
 
-### 后端
+### 生产部署（统一：全容器）
+
+仓库根目录一条命令拉起 **MongoDB + CSMCTL + SDNC 控制台**（前后端一体，端口 `5001`）：
+
+```bash
+# 首次或升级后重新构建
+docker compose up -d --build
+
+# 查看状态
+docker compose ps
+curl http://127.0.0.1:5001/health
+```
+
+浏览器访问 **`http://<主机>:5001`**，默认账号 **`admin` / `admin123`**。
+
+| 服务 | 容器名 | 端口 | 说明 |
+|------|--------|------|------|
+| SDNC 控制台 | `sdnc-console` | 5001 | Node 托管 API + 前端静态资源（`Dockerfile` 多阶段构建） |
+| CSMCTL | `sdnc-csmctl` | 8016 | VR 控制面 |
+| MongoDB | `mongodb` | 27017 | CSMCTL 数据 |
+
+**持久化**：`sdnc-app-data` 卷挂载 `/opt/sdnc/data`（SQLite、`system-settings.json`、上传暂存）。
+
+**必改环境变量**（`docker-compose.yml` 或 `.env`）：
+- `JWT_SECRET`：生产环境务必修改（默认 `change-me-in-production`）
+
+**版本升级（容器）**：
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+容器内默认关闭离线升级后的进程自重启（`TOWER_AUTO_RESTART_ON_UPGRADE=false`）；勿依赖 pm2。
+
+**仅本机源码开发**（前后端热重载，依赖仍走容器）：
+
+```bash
+docker compose up -d mongodb sdnc-csmctl
+cd backend && npm run dev
+cd frontend && npm run start   # :5000 → 代理 :5001
+```
+
+### 源码命令（开发 / CI）
+
+**后端**：
 
 ```bash
 cd backend
 npm install
 npm run dev      # 开发模式 (端口 5001)
 npm run build    # 编译
-npm run start    # 生产模式
+npm run start    # 生产模式（裸机部署时用；生产推荐容器）
 npm run test     # 运行测试
 ```
 
-### 前端
+**前端**：
 
 ```bash
 cd frontend
@@ -101,148 +141,95 @@ npm run test     # 运行测试
 
 ### 环境变量
 
-**后端**：
+**SDNC 容器（`docker-compose.yml` → `sdnc` 服务）**：
+- `JWT_SECRET`：JWT 密钥（**生产必改**）
+- `CSMCTL_ADDRESS`：默认 `https://sdnc-csmctl:8016`（Compose 内网）
+- `DB_PATH`：默认 `/opt/sdnc/data/data.sqlite`
+- `PRODUCT_FLAVOR`：`sdnc`
+
+**后端（裸机 / 开发）**：
 - `PORT`: 服务端口 (默认 5001)
 - `JWT_SECRET`: JWT 密钥
 - `DB_PATH`: SQLite 数据库路径
 - `NODE_ENV`: 环境标识 (development/production)
+- `PRODUCT_FLAVOR`: `sdnc`（默认）
+- `CSMCTL_ADDRESS`: 裸机联调默认 `https://127.0.0.1:8016`（与 `docker compose` 映射端口一致）
 
-**前端**：
-- `REACT_APP_API_URL`: 后端 API 地址
-- `HOST`: 监听地址
-- `PORT`: 服务端口
+**前端（仅开发）**：
+- `REACT_APP_API_URL`: 后端 API 地址（生产容器内前后端同源，构建时不设）
+- `REACT_APP_PRODUCT_FLAVOR`: `sdnc`
+- `HOST` / `PORT`: 开发服务器
+
+**CSMCTL**：细则见 **`csm-controller/README.md`**、**`docs/sdnc-stack-integration.md`**
 
 ## 项目结构
 
 ```
 Compute.Tower/
-├── tests/                      # 业务域测试（tests/README.md；E2E 覆盖索引 tests/E2E_COVERAGE.md）
-├── backend/                    # 后端服务
+├── docker-compose.yml          # 全栈：mongodb + sdnc-csmctl + sdnc-console
+├── Dockerfile                  # SDNC 控制台镜像（前端 build + 后端 dist）
+├── csm-controller/             # CSMCTL VR 控制面（Java/Maven）；北向 /V2/ctcontrol
+├── tests/                      # E2E / 业务测试（tests/E2E_COVERAGE.md）
+├── tools/                      # 运维脚本：离线升级包构建、git 单文件恢复
+│   ├── build-offline-upgrade-bundle.ps1
+│   └── restore-file-from-git.mjs
+├── docs/                       # 技术 Hub（docs/README.md）
+├── deployment/docs/            # 本地设计/规格（deployment/ 不入库）
+├── AGENTS.md                   # 本文件
+├── backend/
 │   ├── src/
-│   │   ├── index.ts           # 服务入口（Express 挂载、静态资源、WebSocket）
-│   │   ├── STRUCTURE.md       # 后端目录权威（见上文「架构文档分工」）
-│   │   ├── config/            # 配置（数据库、运行时参数、系统设置）
-│   │   ├── constants/         # 权限常量、内置角色等
-│   │   ├── entities/          # TypeORM 实体定义
-│   │   │   ├── harvester/     # Harvester/KubeVirt 相关实体
-│   │   │   ├── kubeovn/       # KubeOVN 网络实体
-│   │   │   ├── kubevirt/      # KubeVirt 虚拟化实体
-│   │   │   ├── monitoring/    # 监控相关实体
-│   │   │   ├── vRouter/       # 虚拟路由器实体（与 services/vrouter/ 大小写差异见 backend/src/STRUCTURE.md）
-│   │   │   └── *.ts           # 业务实体（云、租户、用户等，根级平台表）
-│   │   ├── middleware/        # 中间件（认证、审计、错误处理）
-│   │   ├── permissions/       # API 级权限注册与校验
-│   │   ├── routes/            # HTTP 路由（薄；复杂逻辑下沉 services）
-│   │   │   ├── clouds.ts      # 多云聚合入口（体量大时可按主题渐进拆分）
-│   │   │   ├── aisoc/         # AI SOC 路由
-│   │   │   ├── auth/          # 认证路由
-│   │   │   ├── clouds/        # 按云厂商 /控制面拆分
-│   │   │   │   ├── aliyun/    # 阿里云
-│   │   │   │   ├── harvester/ # Harvester/KubeVirt（handlers/ + *.provider.ts / *.routes.ts 装配）
-│   │   │   │   │   ├── handlers/              # 按主题拆分（新增接口优先落此）
-│   │   │   │   │   ├── harvester.cache.*.routes.ts    # 缓存路由（集群、容器、网络、存储等）
-│   │   │   │   │   ├── harvester.direct.*.routes.ts   # 直接路由（网络、存储、VM 等）
-│   │   │   │   │   ├── logging.routes.ts              # 日志路由
-│   │   │   │   │   └── monitoring.routes.ts           # 监控路由
-│   │   │   │   ├── huaweicloud/ # 华为云
-│   │   │   │   ├── tencentcloud/ # 腾讯云
-│   │   │   │   ├── csm/       # CSM 控制面
-│   │   │   │   └── middleware/ # 仅 clouds 子树使用的路由中间件
-│   │   │   ├── sdn/           # SDN 网络路由
-│   │   │   ├── sysuser/       # 系统用户路由
-│   │   │   ├── tenants/       # 租户路由
-│   │   │   └── tools/         # 工具路由（如授权）
-│   │   ├── services/          # 业务服务层（与 routes/clouds/<厂商>/ 对称）
-│   │   │   ├── clouds/        # 各云 SDK 与领域逻辑
-│   │   │   ├── vrouter/       # 虚拟路由器服务
-│   │   │   ├── hms/           # 等独立子系统客户端（以仓库为准）
-│   │   │   ├── CloudSyncService.ts    # 云资源同步服务
-│   │   │   ├── LicenseService.ts      # 授权服务
-│   │   │   └── StandardResourceService.ts # 标准资源服务
-│   │   ├── seeders/           # 数据库种子数据
-│   │   ├── utils/             # 工具函数
-│   │   └── ws/                # WebSocket 服务
-│   │       ├── ssh.ts         # WebSSH 终端
-│   │       ├── vnc.ts         # WebVNC 远程控制
-│   │       ├── kvVnc.ts       # KubeVirt VNC
-│   │       ├── kvPodLog.ts    # KubeVirt Pod 日志
-│   │       └── kvPodExec.ts   # KubeVirt Pod 终端
-│   ├── scripts/               # 运维/CLI（db:*、自测脚本；非 HTTP 入口，见 package.json）
-│   ├── public/                # 静态文件托管
-│   ├── data/                  # 运行期数据（授权、系统设置等；须在 backend 目录启动服务，勿使用仓库根 `data/`）
+│   │   ├── index.ts            # Express 入口（IBR + 系统 API）
+│   │   ├── STRUCTURE.md        # 后端目录权威
+│   │   ├── constants/          # productFlavor、effectivePermissions（SDNC RBAC）等
+│   │   ├── config/             # database、systemSettings（含 CSMCTL_ADDRESS 默认）
+│   │   ├── routes/
+│   │   │   ├── sdn/            # IBR：SRv6、VR、ACL、NAT、IPsec
+│   │   │   ├── sdnc/           # 北向 /api/v1
+│   │   │   ├── tenants/        # VR 绑定下拉
+│   │   │   ├── auth/、sysuser/、system.ts、auditLogs.ts
+│   │   │   └── apiProxy.ts     # /api-proxy → CSMCTL
+│   │   ├── services/
+│   │   │   ├── vrouter/        # VRCacheService、vrController → CSMCTL
+│   │   │   └── sdnc/           # 北向查询
+│   │   ├── entities/           # User、Tenant、Organization、VR 缓存等
+│   │   ├── middleware/、permissions/、seeders/、utils/
+│   ├── data/                   # 运行期数据（须在 backend/ 目录启动；gitignore）
+│   │   ├── system-settings.json
+│   │   └── temp_uploads/       # 离线升级等上传暂存
+│   ├── data.sqlite             # SQLite 主库（与 data/ 并列）
 │   └── package.json
-├── frontend/                  # 前端应用
-│   ├── src/
-│   │   ├── App.tsx            # 应用入口
-│   │   ├── index.tsx          # 入口文件
-│   │   ├── global-new.css     # 全局样式
-│   │   ├── setupProxy.js      # 开发环境代理配置
-│   │   ├── setupTests.ts      # 测试 setup（勿因静态分析未引用而删除）
-│   │   ├── STRUCTURE.md       # 前端目录权威（见上文「架构文档分工」）
-│   │   ├── assets/            # 静态资源
-│   │   ├── components/        # 公共组件（跨平台或弱业务复用）
-│   │   │   ├── CodeEditor.tsx       # 代码编辑器（CodeMirror）
-│   │   │   ├── YamlEditor.tsx       # YAML 编辑器
-│   │   │   ├── PageContainer.tsx    # 列表页面容器
-│   │   │   ├── PageDetailContainer.tsx  # 详情页容器
-│   │   │   ├── PageDetailSection.tsx    # Tab 区块容器
-│   │   │   └── ...
-│   │   ├── constants/         # 常量定义（含导航、权限目录等）
-│   │   ├── contexts/          # React Context
-│   │   ├── hooks/             # 自定义 Hooks
-│   │   ├── layouts/           # 布局组件
-│   │   ├── pages/             # 按平台与业务域组织（细则见 frontend/src/STRUCTURE.md）
-│   │   │   ├── auth/          # 登录
-│   │   │   ├── coming-soon/   # 占位页等（可选）
-│   │   │   ├── cnmc/          # CNMC：资源总览、资源池、多云、控制台、PaaS 等（租户管理产品线见 TENANTS）
-│   │   │   │   ├── dashboard/ # 资源总览
-│   │   │   │   ├── pools/     # 资源池列表、选云闸门、实例详情入口等
-│   │   │   │   ├── clouds/    # 各云厂商与 Cloudmap
-│   │   │   │   │   ├── Aliyun/
-│   │   │   │   │   ├── Hw/
-│   │   │   │   │   ├── Csm/
-│   │   │   │   │   ├── Cloudmap/
-│   │   │   │   │   └── Harvester/     # Harvester/KubeVirt（域优先；细则见 deployment/docs 修改纪要）
-│   │   │   │   │       ├── containers/    # K8s 容器：sections + components（表单、拓扑等）
-│   │   │   │   │       ├── cluster/       # 集群、节点、Service、存储类等
-│   │   │   │   │       ├── ecs/           # 计算、镜像、模板、回收站、VM 弹窗向导
-│   │   │   │   │       ├── ebs/           # 卷、快照
-│   │   │   │   │       ├── cbr/           # 备份与计划任务
-│   │   │   │   │       ├── nad/           # NAD、负载均衡、IP 池
-│   │   │   │   │       ├── kube-ovn/      # VPC、子网、EIP/FIP、安全组等
-│   │   │   │   │       ├── hsm/           # Tower HSM：Cloudmap 资源总览（机房拓扑、网络拓扑）；拓扑图与样式见 `hsm/lib/networkTopology/`
-│   │   │   │   │       ├── shared/components/  # 跨域详情抽屉与 Tab
-│   │   │   │   │       ├── monitoring/    # 监控与日志
-│   │   │   │   │       └── database/  # 云数据库（Cloudmap 资源池 VM；与侧栏 paas_databases 对应）
-│   │   │   │   ├── console/
-│   │   │   ├── tenants/       # TENANTS：租户、组织、租户用户（`pages/tenants/`）
-│   │   │   ├── sdncc/         # SDN 管理
-│   │   │   ├── cnsoc/         # 安全运营等
-│   │   │   └── settings/      # SETTINGS：规范目标目录名；存量可能仍为 Settings/（迁移见 STRUCTURE.md）
-│   │   ├── routes/            # RouteSpec、路由装配（platform 与页面归属一致）
-│   │   ├── services/          # API 服务层
-│   │   │   ├── harvesterApi.ts    # Harvester API 服务
-│   │   │   └── ...
-│   │   ├── types/             # TypeScript 类型定义
-│   │   └── utils/             # 工具函数
-│   ├── patches/               # npm 包补丁
-│   └── package.json
-├── AGENTS.md                  # 文档入口与开发规范摘要
-├── docs/                      # Hub 子文档（code-quality.md 等，可提交）
-├── deployment/docs/           # 本地设计/规格（deployment/ 不入库，见 .gitignore）
-├── tools/                     # 外部工具
-│   └── harvester-uploader/    # Harvester 上传工具
+└── frontend/
+    ├── patches/                # patch-package（react-dev-utils 开发代理修复）
+    ├── public/                 # CRA 静态资源（index.html、登录背景图）
+    ├── src/
+    │   ├── STRUCTURE.md        # 前端目录权威（SDNC）
+    │   ├── setupProxy.js       # 开发代理 /api、/api-proxy
+    │   ├── pages/
+    │   │   ├── auth/           # AdminLogin
+    │   │   ├── sdncc/ibr/      # SDNCC：VR / SRv6 / IPsec / ACL / NAT
+    │   │   ├── settings/       # SETTINGS：用户、角色、审计、界面/集成/升级
+    │   │   └── coming-soon/    # 占位
+    │   ├── routes/             # RouteSpec（platform: SDNCC | SETTINGS）
+    │   ├── services/           # api.ts、systemApi.ts、virtualRouterApi.ts
+    │   ├── components/、layouts/、constants/、contexts/、hooks/、utils/
+    │   └── global-new.css
+    └── package.json
 ```
+
+**已删除、勿重建**：
+- 前端：`pages/cnmc/`、`pages/tenants/`、`pages/cnsoc/`、`pages/sdncc/cross-domain/`、`sec-mgr-plane/`、`interconnect/`
+- 后端：`routes/clouds/`、`routes/tools/`（license/ssh-keygen）、`backend/keys/`、`LicenseService`、`ws/`
+- 运行期空壳：`backend/uploads/`、`backend/dev/`、`frontend/scripts/`（已清理）
 
 ## 版本管理（平台发布版本）
 
-本节约定 **Compute Tower 平台自身**（前后端一体交付）的版本号口径，与 **License / 商业功能授权** 无关。
+本节约定 **SDNC 平台自身**（前后端一体交付）的版本号口径。
 
 ### 「当前软件版本」从哪里来
 
 - **系统设置 → 离线升级** 页展示的「当前软件版本」，来自 **`GET /api/system/offline-upgrade/status`** 响应中的 **`runtimeVersion`**。
 - **实现**：`backend/src/services/OfflineUpgradeService.ts` 的 `getStatus()` 从运行进程可访问的目录向上查找 **`backend/package.json`**（`name === "compute-tower-backend"`），读取其 **`version`** 字段；缺失时返回字符串 **`unknown`**。
-- **含义**：表示**当前部署目录中后端 npm 包的 `version`**，与磁盘上的 `backend/package.json` 一致；**不是** License 载荷中的产品标识，**不是**数据库内单独维护的市场版本表；**不**读取 `frontend/package.json`（若仅前端构建与后端 `version` 未对齐，该字段无法反映前端包版本）。
+- **含义**：表示**当前部署目录中后端 npm 包的 `version`**，与磁盘上的 `backend/package.json` 一致；**不是**数据库内单独维护的市场版本表；**不**读取 `frontend/package.json`（若仅前端构建与后端 `version` 未对齐，该字段无法反映前端包版本）。
 
 ### 权威版本号（研发约定）
 
@@ -254,7 +241,7 @@ Compute.Tower/
 ### 发版与 bump 建议
 
 - 采用 **SemVer** `MAJOR.MINOR.PATCH`：破坏性 API/行为 → MAJOR；向下兼容功能 → MINOR；修复与补丁 → PATCH。
-- **正式发布**：更新 `backend/package.json` 与 `frontend/package.json` 的 `version`，提交后打 Git 标签（如 `v1.2.3` 与 version 对齐），再构建前端产物与后端 `dist/` 并组离线 zip。
+- **正式发布**：更新 `backend/package.json` 与 `frontend/package.json` 的 `version`，提交后打 Git 标签（如 `v1.2.3` 与 version 对齐），再构建前端产物与后端 `dist/` 并组离线 zip（可用 `tools/build-offline-upgrade-bundle.ps1`）。
 - **仅替换静态资源**：可只发前端 `public/`；若后端逻辑未变，可不 bump 后端 `version`——为减少认知成本，仍建议前后端 **PATCH** 同步 bump。
 
 ### 实现与文档索引
@@ -265,134 +252,59 @@ Compute.Tower/
 
 ## API 规范
 
-### 路由前缀
+> **挂载以 `backend/src/index.ts` 为准**。下列为 SDNC 当前路由。
+
+### SDNC 默认路由
 
 **认证与用户**：
-- `/api/auth`: 认证相关（登录、登出、令牌校验）
-- `/api/users`: 系统用户管理
-- `/api/tenants`: 租户管理；**全量导出**：`GET /api/tenants/{id}/full` 或 `GET /api/tenants/{id}?scope=full`（对外说明 **`docs/tenant-full-export-api.md`**）
+- `/api/auth`、`/auth`：登录、登出、令牌校验
+- `/api/users`：系统用户管理
 
-**云资源管理**：
-- `/api/clouds`: 云资源管理（统一入口）
-- `/api/clouds/aliyun/*`: 阿里云资源
-- `/api/clouds/huawei/*`: 华为云资源
-- `/api/clouds/harvester/*`: Harvester/KubeVirt 资源
-- **云桌面网关（Guacamole BFF）**：`GET|POST|PUT /api/remote/guacamole/instances`；`POST .../instances/{id}/test`；`GET|PUT .../pools/{cloudId}/...`；`GET|POST|PUT|DELETE .../desktop-users`；`POST .../users/sync`；`GET|POST .../assignments`；**当前范围**：扁平网 + **云桌面用户**（管理员分配 VM，统一密码登录网关门户）；架构 **`docs/remote-access-architecture.md`** · 细则 **`docs/integrate-guacamole.md`**
-- **MAAS 裸金属（`config.provider=maas`；BFF OAuth1 v2）**：`GET /api/clouds/{id}/maas/dashboard`（概览聚合）；`GET .../maas/machines`、`GET .../maas/machines/{systemId}`；`POST .../maas/machines/{systemId}/ops`；`GET .../maas/discoveries`；`GET|POST .../maas/images`（列表/同步/删除）；`GET .../maas/network`（子网+VLAN）；`GET .../maas/region`（兼容，UI 以 dashboard 为准）。前端落位 `pages/cnmc/clouds/maas/` · **`maas/README.md`**；北向/Adapter 细则 **`docs/maas-integration.md`**
-- `/api/clouds/{id}/monitoring/storage-nodes`: Longhorn 节点（Steve `longhorn.io.nodes`，Cloudmap「分布式存储」）
-- `/api/clouds/{id}/monitoring/ceph-clusters`: Rook `CephCluster` 列表（Steve 优先 `cephclusters.ceph.rook.io`，回退 `ceph.rook.io.cephclusters`；Cloudmap「Ceph 存储」）
-- `/api/clouds/{id}/monitoring/ceph-resources`: Rook Ceph Steve 多资源聚合（`cephclusters`、`cephblockpools`、`cephblockpoolradosnamespaces`、`cephfilesystems`、`cephfilesystemsubvolumegroups`、`cephfilesystemmirrors`、`cephnfses`、`cephobjectstores`、`cephobjectstoreusers`、`cephobjectrealms`、`cephobjectzones`、`cephobjectzonegroups`、`cephbuckettopics`、`cephbucketnotifications`、`cephclients`、`cephcosidrivers`、`cephrbdmirrors` 等；字段名为 camelCase，与 `GET .../ceph/rook/bundle` 一致）
-- `/api/clouds/{id}/ceph/rook/bundle`: 与上条**同源**；独立 Ceph 路径，响应另含 `_tower.api=ceph`
-- **RGW / S3（Tower 代发；管理员权限；不落库）**：`POST /api/clouds/{id}/ceph/rgw/s3/list-buckets`、`POST .../buckets`、`POST .../delete-bucket`、`POST .../list-objects` — 请求体须含 `connection`（至少 `endpoint`，及 `region`、`forcePathStyle`）；可同时提交 **`objectStoreUser`: `{ namespace, name }`**（`CephObjectStoreUser` CR），服务端据此读 CR 关联 Secret 并补全 AK/SK 后代发 S3。亦可不传 `objectStoreUser`，并在 `connection` 中直接提供 `accessKeyId`、`secretAccessKey`（兼容旧用法）。`GET .../rook-secret/{namespace}/{name}` 仍可单独读取 Secret（**响应敏感**）。**Tower/S3 客户端 Endpoint（按 `namespace/objectStoreName`）**：`GET|PUT /api/clouds/{id}/ceph/rgw/s3/gateway-client-config` / `PUT .../gateway-client-config/{namespace}/{name}`（写入云实例 `clouds.config.towerRgwS3ClientByStore`）。兼容 Path-Style 的 Ceph RGW endpoint。
-- **Ceph 存储网（Harvester Setting，名称固定 `ceph-storage-network`）**：`GET|PUT /api/clouds/{id}/ceph/storage-network`；未配置或 value 为空时部署统一存储走管理网 `mgmt`；配置 JSON 形如 `{"vlan":100,"clusterNetwork":"cuncu","range":"176.11.0.0/24"}`。UI：`Harvester/ceph/sections/harvesterAddon/CephStorageNetworkCard.tsx`
-- **Rook CR Steve 写读**（`{id}` 为云实例 ID；均须经 Harvester/Cloudmap 且管理员权限；请求/响应体为 Steve/K8s CR JSON；PATCH 使用 `Content-Type: application/merge-patch+json`）：
-  - **CephCluster**：`GET|PUT|PATCH /api/clouds/{id}/ceph/rook/clusters/{namespace}/{name}`（无集群级 POST/DELETE，避免误操作）
-  - **CephBlockPool**：`POST /api/clouds/{id}/ceph/rook/block-pools`，`GET|PUT|PATCH|DELETE /api/clouds/{id}/ceph/rook/block-pools/{namespace}/{name}`
-  - **CephFilesystem**：`POST /api/clouds/{id}/ceph/rook/filesystems`，`GET|PUT|PATCH|DELETE .../filesystems/{namespace}/{name}`
-  - **CephObjectStore**：`POST /api/clouds/{id}/ceph/rook/object-stores`，`GET|PUT|PATCH|DELETE .../object-stores/{namespace}/{name}`
-  - **CephObjectStoreUser**（RGW 用户；密钥由 Operator 写入 Secret）：`POST /api/clouds/{id}/ceph/rook/object-store-users`，`GET|PUT|PATCH|DELETE .../object-store-users/{namespace}/{name}`
-  - **CephBlockPoolRadosNamespace**：`POST /api/clouds/{id}/ceph/rook/blockpool-rados-namespaces`，`GET|PUT|PATCH|DELETE .../blockpool-rados-namespaces/{namespace}/{name}`
+**租户（IBR 绑定，无运营前端）**：
+- `/api/tenants`：租户与组织下拉（VR 归属绑定）
 
-**Harvester 容器管理**：
-- `/api/clouds/{id}/resources/harvester/containers/workloads`: 工作负载
-- `/api/clouds/{id}/resources/harvester/containers/pods`: Pod 管理
-- `/api/clouds/{id}/resources/harvester/containers/jobs`: Job 管理
-- `/api/clouds/{id}/resources/harvester/containers/cronjobs`: CronJob 管理
-- `/api/clouds/{id}/resources/harvester/containers/services`: Service 管理
-- `/api/clouds/{id}/resources/harvester/containers/ingresses`: Ingress 管理
-- `/api/clouds/{id}/resources/harvester/containers/gateways`: Gateway 管理
-- `/api/clouds/{id}/resources/harvester/containers/httproutes`: HTTPRoute 管理
-- `/api/clouds/{id}/resources/harvester/containers/grpcroutes`: GRPCRoute 管理
-- `/api/clouds/{id}/resources/harvester/containers/registries`: 镜像仓库
-- `/api/clouds/{id}/resources/harvester/containers/configmaps`: ConfigMap 管理
-- `/api/clouds/{id}/resources/harvester/containers/secrets`: Secret 管理
-- `/api/clouds/{id}/resources/harvester/containers/pdbs`: PodDisruptionBudget 管理
+**IBR**：
+- `/api/vr-instances`：IBR 实例聚合列表（API 路径保留 `vr` 前缀）
+- `/api/vr-config`：VR 配置（写经 CSMCTL，见 **`docs/sdnc-stack-integration.md`**）
+- `/api/networks/srv6`：SRv6（含 reconcile、hub、baseline、deploy）
+- `/api/networks/ipsec`、`/api/networks/acl`、`/api/networks/acl-groups`、`/api/networks/nat`
 
-**SDN 网络**：
-- `/api/networks/srv6`：SRv6 隧道 CRUD；`GET|POST /api/networks/srv6/reconcile`（配置对账）；`GET /api/networks/srv6/vr/:vrUuid/hub`（Hub 状态）；`POST /api/networks/srv6/vr/:vrUuid/baseline/reset`（零隧道基线重置）；`GET|POST .../deploy/preview|push`（下发）。**baseline + 贡献 + recompute** 架构见 **`docs/srv6-baseline-recompute.md`** · 发版 **`docs/srv6-release-notes.md`** · 冒烟 **`frontend/.../interconnect/srv6/testcases.md`**
-- `/api/networks/ipsec`: IPsec VPN
-- `/api/networks/acl`: ACL 规则
-- `/api/networks/acl-groups`: ACL 分组
-- `/api/networks/nat`: NAT 规则
-- `/api/vr-config`: 虚拟路由器配置
-- `/api/vr-cache`: VR 设备缓存（无需登录）
+**北向与代理**：
+- `/api/v1`：SDNC 北向 API（如 `GET /api/v1/vr-instances`）
+- `/api-proxy`：CSMCTL 北向代理（如 `POST /api-proxy/api/sign`）
 
-**安全与 AISOC**：
-- `/api/security-domains`: **网际路由域**管理（产品名；路径与实体名仍为 `security-domains` / `SecurityDomain`；下游对接见 **`docs/vr-sase-downstream-notice.md`**）
-- `/api/services`: 服务目录
-- `/api/security/traffic`: 流量编排
-- `/api/threats`: 威胁事件
+**IBR 配置下发（分域）**：日常策略（ACL / NAT / IPsec / SRv6）经 `pushVRConfig` 全量 POST，详见 **`docs/ibr-vr-config-deploy.md`**。专家模式与 VR 角色向导为初始化通道，不经过该网关。
 
 **系统**：
-- `/api/system`: 系统配置
-- `/api/system/license`: 授权管理
-- `/api/system/offline-upgrade/status`、`/api/system/offline-upgrade/apply`：离线升级（zip）；**包结构与构建约定**见 `deployment/docs/specs/offline-upgrade-bundle.md`
-- `/api/audit-logs`: 审计日志
-- `/api/dashboard`: 仪表盘数据
+- `/api/system`：系统配置、RBAC、离线升级（`offline-upgrade/status|apply`）
+- `/api/audit-logs`：操作审计
 
-### WebSocket 路径
-- `/ws/ssh`: WebSSH 终端
-- `/ws/vnc`: WebVNC 远程控制
-- `/ws/kv-vnc`: KubeVirt VNC
-- `/ws/kv-pod-log`: KubeVirt Pod 日志
-- `/ws/kv-pod-exec`: KubeVirt Pod 终端
+**健康检查**：
+- `GET /health`：进程存活；SDNC 下附带 `dependencies.csmctl` 探活
 
-## Harvester 云详情 · 前端落位
+### 已移除（源码已删、运行时未挂载）
 
-Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pages/cnmc/clouds/Harvester/`，目录与放置规则以 **`frontend/src/STRUCTURE.md`** 为准。下表统一按 **「详情 Tab 列表入口（Section）→ 相对路径 → 职责摘要」** 索引，不另维护「功能矩阵 + 组件清单」两套写法。
+以下能力已从路由与前端页面**物理删除**，表中仅作迁移对照：
 
-### 容器管理（Kubernetes）
-
-| Section 组件 | 路径（相对 Harvester 根） | 功能 |
-|-------------|---------------------------|------|
-| `WorkloadsSection.tsx` | `containers/sections/` | 工作负载列表；Deployment/StatefulSet/DaemonSet 创建与编辑；高级调度（节点/Pod 亲和与反亲和、污点容忍等）在 `containers/components/WorkloadForm.tsx` |
-| `PodsSection.tsx` | `containers/sections/` | Pod 列表；详情、日志、终端（`containers/components/PodLogViewer.tsx`、`PodTerminal.tsx`） |
-| `JobsSection.tsx` | `containers/sections/` | Job / CronJob 列表与表单 |
-| `ServicesSection.tsx` | `containers/sections/` | Service 列表；创建/编辑、YAML、关联 Pod |
-| `ServiceTopologySection.tsx` | `containers/sections/` | Service 拓扑 |
-| `IngressesSection.tsx` | `containers/sections/` | Ingress 列表与表单 |
-| `GatewayApiSection.tsx` | `containers/sections/` | Gateway API（Gateway、HTTPRoute、GRPCRoute 等）列表与表单入口 |
-| `ConfigsSection.tsx` | `containers/sections/` | ConfigMap / Secret 列表与表单 |
-| `RegistriesSection.tsx` | `containers/sections/` | 镜像仓库列表；浏览与凭证 |
-| `PDBSection.tsx` | `containers/sections/` | PodDisruptionBudget 列表与表单 |
-| `NetworkPoliciesSection.tsx` | `containers/sections/` | NetworkPolicy 列表与表单 |
-
-各 Tab 下的表单、弹窗、拓扑子件在 **`containers/components/`**（含 `YamlEditModal.tsx` 等）。全站复用的编辑基座在 **`frontend/src/components/`**（如 `CodeEditor.tsx`、`YamlEditor.tsx`）。
-
-### 虚拟机与关联资源
-
-| Section 组件 | 路径（相对 Harvester 根） | 功能 |
-|-------------|---------------------------|------|
-| `VmSection.tsx` | `ecs/sections/` | 虚拟机列表与管理 |
-| `VolumesSection.tsx` | `ebs/sections/` | 卷管理 |
-| `ImagesSection.tsx` | `ecs/sections/` | 镜像管理 |
-| `BackupsSection.tsx` | `cbr/sections/` | 备份管理 |
-| `SnapshotsSection.tsx` | `ebs/sections/` | 快照管理 |
-| `NodesSection.tsx` | `cluster/sections/` | 节点管理 |
-| `StorageClassesSection.tsx` | `cluster/sections/` | 存储类管理 |
-| `IPPoolsSection.tsx` | `nad/sections/` | IP 池管理 |
-| `NadsSection.tsx` | `nad/sections/` | 网络附件定义 |
-| `SshKeysSection.tsx` | `ecs/sections/` | SSH 密钥管理 |
-| `TemplatesSection.tsx` | `ecs/sections/` | 模板管理 |
-| `RecycleBinSection.tsx` | `ecs/sections/` | 回收站 |
-| `NetworkTopologySection.tsx` | `hsm/sections/` | Cloudmap 资源总览 · 网络拓扑（物理网络 React Flow；实现位于 `hsm/lib/networkTopology/`） |
-| `DatacenterTopologySection.tsx` | `hsm/sections/` | Cloudmap 资源总览 · 机房拓扑 |
+| 路径 | 说明 |
+|------|------|
+| `/api/system/license`、`backend/keys/` | 商业 License 签发/验签（SDNC 已删） |
+| `/api/clouds`、Harvester/多云子树 | 云池 inventory |
+| `/api/cens`、`/api/security-domains`、`/api/services`、`/api/security/traffic`、`/api/sase/*` | 跨域互联 |
+| `/api/dashboard`、`/api/harbor` | Tower 仪表盘 / 镜像仓库 |
+| `/ws/*` | WebSSH / VNC / KubeVirt 终端 |
 
 ## 开发规范
 
-**目录落位**：前端见 **`frontend/src/STRUCTURE.md`**（平台、`pages/`、`sections`/`drawers`/`modals`/`shared`）；后端见 **`backend/src/STRUCTURE.md`**（`routes` → `services` → `entities`、多云目录对称、Harvester `handlers/`）。
-
-**Cloudmap 池内 RBAC**：权限原子**以页面为实体**。CNMC **平台**页（**多云总览**、资源池列表）归属分组「**多云管理**」；池内 Tab 归属「**Cloudmap资源池**」（抽屉按侧栏 poolNavGroup）。页面类型 A–F 见 **`docs/cloudmap-pool-rbac.md` §2**。
+**目录落位**：前端见 **`frontend/src/STRUCTURE.md`**；后端见 **`backend/src/STRUCTURE.md`**。
 
 **RBAC 按钮显隐（强制）**：
 - 页面功能可见（有 read）但无对应按钮 write 权限时，**操作按钮/菜单项必须隐藏**，**禁止置灰（disabled）**。
 - 适用范围：工具栏主按钮、行操作下拉、批量操作、详情页动作按钮。
-- 实现约定：优先使用 `WriteGuard` 与 `filterMenuItemsForReadOnly`，避免在仅权限不足场景使用 `disabled` 代替隐藏。
-- 权限不足提示仅用于“用户可触达但需拦截”的提交路径；**仅因无权限导致不可操作时，不应显示按钮入口**。
 
 ### 命名约定
 - **组件文件**： PascalCase (如 `PageContainer.tsx`)
-- **工具文件**： camelCase (如 `harvesterUtils.ts`)
+- **工具文件**： camelCase (如 `roleGrantNormalize.ts`)
 - **类型文件**： camelCase (如 `cloud.ts`)
 - **常量文件**： camelCase (如 `pagination.ts`)
 
@@ -427,37 +339,14 @@ Harvester 多云实例详情按 Tab 拆分；源码根目录为 `frontend/src/pa
 2. **列表对应 GET 若使用 `enableCache: true`（或项目内对读接口开了缓存）**  
    于上述成功后的重载中须**强制新读**：`apiRequest(path, { skipCache: true })`，或对 `frontend/src/utils/requestManager.ts` 中 `clearCache` 所支持的精确 path 先 `clearCache` 再 GET。
 
-3. **Harvester 云详情内各 Section / Tab**  
-   成功回调中重载列表时：经父级 `onRefresh` 触发池层/对端拉取；**禁止**在 Section 内裸调 `onRefresh(true)`，须用 **`runHarvesterSectionRefresh(onRefresh, { force: true [, silent: true] })`**。工具栏用 **`createHarvesterToolbarRefresh(onRefresh)`**。Cloudmap 样板域细则见 **`frontend/src/pages/cnmc/clouds/Cloudmap/pool/README.md`**。
-
-| 场景 | 要求 |
-|------|------|
-| 新增/编辑/删除成功 | 同一次成功路径内执行列表重载，不得仅关弹窗或仅提示成功。 |
-| 读列表可能走前端缓存 | 重载时 `skipCache: true` 或 `clearCache` 后再请求。 |
-| Harvester 子模块（含 `ecs` / `ebs`） | 写成功/删改后 **`runHarvesterSectionRefresh`**；工具栏 **`createHarvesterToolbarRefresh`**；池层 **`loadTabResource`**。 |
-
 **自测**：完成一条增/删/改后，当前页列表应已更新，无需 F5 / Ctrl+F5。
 
-**Harvester Cloudmap 池（样板域）**：**`ecs` / `cluster` / `ebs` / `paas_databases` / `hsm`（resource_hub 拓扑）/ `kube-ovn`（`kube_ovn`+`flat_network`+cluster 挂载）** 须池层 **`create*TabOnRefresh` → `loadTabResource`**，Section 层 **`createHarvesterToolbarRefresh` / `runHarvesterSectionRefresh`**。**禁止**在 `panels/*` 内联拉列表。各 Tab key、检查清单、审计检索见 **`frontend/src/pages/cnmc/clouds/Cloudmap/pool/README.md`**；域内亦见 **`Harvester/{ecs,cluster,ebs,database,hsm,kube-ovn}/README.md`**。
+**公共组件对齐**：`PageContainer` 工具栏刷新应对 `onReload` / 列表 `load*` 传入强制刷新语义；避免 `onClick={reload}` 把 React 点击事件误当作 `force` 参数。
 
-**公共组件对齐**：`PageContainer` 工具栏刷新按钮已对 `onRefresh` **固定传入 `true`**（与 `PageDetailSection` → `SharedToolbar` 行为一致），避免 `onClick={onRefresh}` 把 React 点击事件误当作 `force`。业务页仍须在写成功后自行调用列表重载。
+### 组件开发与加载态
 
-### 组件开发
-- 公共逻辑提取到 `components/` 或 `hooks/`
-- 使用 TypeScript 类型定义，放在 `types/`
-- 所有 API 调用通过 `services/` 层
-
-### 云监控说明气泡（Popover）规范
-
-在 `frontend/src/pages/cnmc/clouds/Harvester/monitoring/` 下新增或修改说明类浮层时：
-
-- 优先复用 `components/MonitoringPopover` 导出的 **`MonitoringPopover`**（气泡卡片）。
-- Popover 默认使用 `placement="topLeft"`、`trigger="hover"`。
-- 说明类图标使用 `QuestionCircleOutlined`，颜色 `rgba(0,0,0,.45)`，字号 `12`，鼠标样式 `help`。
-
-### 加载态与骨架屏（列表 / 数据区块）
-
-列表使用 **`antd` `Table` 的 `loading`**。非表格区域若使用占位，直接在页面写 **`antd` `Skeleton`**，**禁止**在仓库内封装只为包装 Skeleton 的组件。细则见 **`deployment/docs/specs/frontend-loading-skeleton.md`**。
+- 公共逻辑提取到 `components/` 或 `hooks/`；API 调用走 `services/`
+- 列表使用 **`antd` `Table` 的 `loading`**；非表格占位直接用 **`antd` `Skeleton`**
 
 ### React 状态管理注意事项
 
@@ -489,14 +378,10 @@ const addRule = useCallback(() => {
 
 | 层级 | 说明 |
 |------|------|
-| **`AdminLayout`** | 顶栏 + 侧栏 + 内容区；资源池/集群场景用**上下文侧栏**替换平台菜单 |
-| **`PageContainer`** | 列表/管理页（资源池列表、设置列表等） |
-| **`PageDetailContainer`** | 详情外壳（返回、面包屑、可选内置 Tabs / 总览区） |
-| **`PageDetailSection`** | 详情内数据区块（标题、工具栏、`onRefresh`、表格/表单） |
+| **`AdminLayout`** | 顶栏 + 侧栏 + 内容区 |
+| **`PageContainer`** | 列表/管理页（IBR 列表、设置列表等） |
 
-**常见组合**：Cloudmap / 厂商池（MAAS、Xinference 等）→ `PageDetailContainer`（常 `hideHeader` + `asCard={false}`）+ URL `?tab=` + 侧栏 + 各 Tab 一个 `sections/*Section` 根节点 `PageDetailSection`。列表页 → `PageContainer`。
-
-新增资源池产品线或 Tab 时，须对照 Hub 文档 §3 注册侧栏与 `poolDetailNav` 入口路径。
+**常见组合**：IBR / 设置列表 → `PageContainer` + `AdminLayout`；向导/编辑页可用 `PageContainer` 或独立页面壳。
 
 ### API 开发原则
 
@@ -514,10 +399,10 @@ const addRule = useCallback(() => {
 
 ### 列表表格（.std-table，**全站版式 A**）
 
-全站**统一版式 A**：标准数据列表**首列左冻结、行操作列右冻结**，并**配横向滚动**；**不采用**「全表不钉列、无 `scroll`」作为新列表默认。结构与样式细则见 **`docs/frontend-layout.md` §5.1**；**样板页**为 **`frontend/src/pages/cnmc/clouds/Harvester/ecs/sections/VmSection.tsx`**。样式与表级 `min-width`、行分隔线等以 **`frontend/src/global-new.css`** 中 `.std-table` 及注释为唯一落点。
+全站**统一版式 A**：标准数据列表**首列左冻结、行操作列右冻结**，并**配横向滚动**。细则见 **`docs/frontend-layout.md` §5.1**；**样板页**为 **`frontend/src/pages/sdncc/ibr/routers/index.tsx`**（VR 列表）。
 
 1. **Table 与 `scroll`**
-   - 列表 `Table` 使用 `className="std-table"`，并 **`bordered={false}`**（与 VmSection 一致；勿开 antd 全网格边框）。
+   - 列表 `Table` 使用 `className="std-table"`，并 **`bordered={false}`**。
    - **列冻结要求**：**首列**须 **`fixed: 'left'`**（最左一列，一般为多选/名称/主标识等主入口列，含行多选时与现网大表一致，多选列在左则一并纳入左端冻结区）；有**行级操作**时，**操作列**须 **`fixed: 'right'`**。中间业务列不钉。
    - 因已含左/右 `fixed`，**必须**同表写 `scroll={{ x: true }}`（或等价的 `scroll.x: minWidth` 等），否则 Ant Design 下固定列易错位。
    - 新增、整改、复制**按上条**实现；曾无首列/操作列冻结的列表**应**补全并对齐全站，避免两套路长期并存。无行操作列的只读/极窄子表，经评审可例外，不在此默认内。
@@ -536,11 +421,11 @@ const addRule = useCallback(() => {
    - 勿在页面内对 `.std-table .ant-table-cell` 写 `border-bottom: none` 等覆盖（除非经评审的域内例外，且不得影响标准列表）。
 
 5. **其它**
-   - **勿**为和某页「看起来一致」擅自给 **`Table`** 加 `size="small"`，除非产品/设计明确要求；**分页**可用 `pagination.size: 'small'`（VmSection 做法）。
+   - **勿**擅自给 **`Table`** 加 `size="small"`，除非产品明确要求；**分页**可用 `pagination.size: 'small'`。
    - 大表列展示：`useTableColumnSettings` + `TableColumnSettingsButton`（`fixed` 列锁定常显）。
 
 ```tsx
-// 与 VmSection 一致：std-table、无边框网格、冻结列、scroll.x
+// std-table、无边框网格、冻结列、scroll.x
 <Table
   className="std-table"
   bordered={false}
@@ -551,12 +436,11 @@ const addRule = useCallback(() => {
 
 ### 列表工具栏（与 `.std-table` 配套）
 
-详情/列表区块的工具栏以 **`PageDetailSection` 的 `toolbarLeft` / `toolbarRight`**（内部 **`SharedToolbar`**）或 **`PageContainer` 的 `toolbarLeft` + 右侧操作** 实现；**样板**同为 **`Harvester/ecs/sections/VmSection.tsx`**，细则见 **`docs/frontend-layout.md` §5.2**。
+列表/页面工具栏以 **`PageContainer` 的 `toolbarLeft` / `toolbarRight`** 实现；细则见 **`docs/frontend-layout.md` §5.2**。
 
-- **CSS 落点**：`frontend/src/global-new.css`（`.toolbar-search`、`.toolbar-filter` / `-sm`、`.toolbar-actions`、`.toolbar-reset-btn`、`.shared-toolbar` / `.page-container-toolbar`）。
+- **CSS 落点**：`frontend/src/global-new.css`（`.toolbar-search`、`.toolbar-filter`、`.toolbar-actions`、`.toolbar-reset-btn`、`.page-container-toolbar`）。
 - **左侧**：搜索/筛选用上述 class；重置用 **`<button className="toolbar-reset-btn">`**。
-- **右侧**：包 **`div.toolbar-actions`**；顺序建议 主按钮 → 批量 **`EllipsisOutlined`** 图标钮 → 列展示 → **`ReloadOutlined`** 刷新（Harvester 池刷新用 **`createHarvesterToolbarRefresh`**）。
-- **禁止**在 Section 内另造一条与 `SharedToolbar` 等价的工具栏 flex。
+- **右侧**：包 **`div.toolbar-actions`**；顺序建议 主按钮 → 列展示 → **`ReloadOutlined`** 刷新。
 
 ### 前端代码质量
 
@@ -568,8 +452,7 @@ const addRule = useCallback(() => {
 
 ```json
 {
-  "*.{ts,tsx}": ["eslint --fix", "prettier --write"],
-  "*.{json,md,css,scss}": ["prettier --write"]
+  "*.{ts,tsx}": ["eslint --fix"]
 }
 ```
 
@@ -588,45 +471,41 @@ const addRule = useCallback(() => {
 3. 列表/工具栏/写操作是否满足 **刷新与缓存**、**std-table**（§5.1）、**工具栏**（§5.2）？
 4. 是否引入 ESLint/类型/构建错误？
 5. 是否删除本次改动产生的死代码与重复逻辑？
-6. 是否做过相关路径的手动冒烟（尤其 Harvester 云详情 Tab）？新增功能 E2E 是否已登记 **`tests/e2e-manifest.cjs`**（见 **`tests/E2E_COVERAGE.md`**）？
+6. 是否做过相关路径的手动冒烟？新增功能 E2E 是否已登记 **`tests/e2e-manifest.cjs`**（见 **`tests/E2E_COVERAGE.md`**）？
 
 ## 认证与权限
 
 ### 用户角色
 - `super_admin`: 超级管理员 (全部权限)
 - `admin`: 管理员
-- `tenant`: 租户用户
-- `sase_device`: SASE 设备
+- `tenant`: 租户用户（无 SDNC 管理端 UI；登录后跳转 IBR 嵌入路径）
 
 ### 权限系统
-采用 RBAC (基于角色的访问控制)，权限通过 `permissions` 数组传递，`*` 表示全部权限。
+采用 RBAC；SDNC 有效权限目录见 `backend/src/constants/effectivePermissions.ts`（`SDNCC` · IBR管理 + `SETTINGS`）。**无 License / feature 门控**；菜单与路由仅 RBAC 过滤。权限通过 `permissions` 数组传递，`*` 表示全部权限。
 
 ### Token 存储
 前端 Token 存储使用 `utils/tokenStorage`，支持 localStorage 和 sessionStorage。
 
-## 后台服务
+## 后台服务（SDNC 默认）
 
-### 云资源同步服务
-- `CloudSyncService`: 定时同步各云平台的资源数据
-- 自动在服务启动时初始化
+| 服务 | SDNC | 说明 |
+|------|------|------|
+| `VRCacheService` | 是 | 约 10s 后启动，定时从 CSMCTL 同步 VR 列表 |
+| `AuditLogRetentionService` | 是 | 审计日志保留期清理 |
+| `CloudSyncService` | 否 | 多云定时全量同步（Tower only） |
+| Harbor / 回收站同步 | 否 | Tower only |
 
-### VR 缓存服务
-- `VRCacheService`: 虚拟路由器列表缓存同步
-- 延迟 10s 启动，避免启动冲突
-
-### 回收站清理服务
-- `RecycleBinCleanupService`: 定时清理 Harvester 回收站
-- 延迟 30s 启动
+本地开发可设 `TOWER_SKIP_BACKGROUND_SYNC=1` 跳过全部后台同步。
 
 ## 注意事项
 
-1. **数据库**： 使用 SQLite，生产环境建议迁移到 PostgreSQL/MySQL
-2. **安全**： 修改默认 `JWT_SECRET`，生产环境收紧 CORS 配置
-3. **内存**： 前端设置了 `--max-old-space-size=4096` 以支持大型应用
-4. **代理**： 开发环境前端通过 `setupProxy.js` 代理后端 API 和 WebSocket
-5. **补丁**： 前端使用 `patch-package` 修复第三方库问题（novnc、zrender）
-6. **代码规范**： 使用 Husky + lint-staged 进行提交前代码检查
-7. **Cloudmap 网络拓扑**：物理网络拓扑仅在 Cloudmap「资源总览 → 网络拓扑」提供（`Harvester/hsm/`）；物理网络（ProviderNetwork）**详情抽屉不含拓扑 Tab**。子网详情中的「子网 → 虚拟机」拓扑复用 `hsm/lib/networkTopology/kubeOvnTopoPrimitives.tsx` 与 Kube-OVN 域数据。
+1. **数据库**： SQLite；生产环境建议 PostgreSQL/MySQL
+2. **安全**： 修改默认 `JWT_SECRET`，生产环境收紧 CORS
+3. **内存**： 前端 `--max-old-space-size=4096`
+4. **代理**： 开发环境 `setupProxy.js` 代理 `/api`、`/api-proxy`（SDNC 无 `/ws/*`）
+5. **CSMCTL**： IBR 写操作依赖 CSMCTL；本地推荐 `docker compose up -d --build`
+6. **代码规范**： Husky + lint-staged
+7. **运行目录**： 须在 `backend/` 下启动服务；`data.sqlite` 与 `data/` 均落在 `backend/` 包根下
 
 ## Cursor Cloud specific instructions
 
@@ -637,18 +516,29 @@ const addRule = useCallback(() => {
 ```bash
 # 后端（端口 5001）
 cd backend
-NODE_ENV=development PORT=5001 DB_SYNC=true LOGIN_ALLOW_PLAINT_PASSWORD=1 npx nodemon --exec "npx ts-node --transpile-only" src/index.ts
+NODE_ENV=development PORT=5001 DB_SYNC=true LOGIN_ALLOW_PLAINT_PASSWORD=1 PRODUCT_FLAVOR=sdnc npx nodemon --exec "npx ts-node --transpile-only" src/index.ts
 
-# 前端（端口 5000，代理到后端 5001）
+# 前端（端口 5000，SDNC）
 cd frontend
-HOST=0.0.0.0 PORT=5000 REACT_APP_API_URL=http://127.0.0.1:5001 NODE_OPTIONS=--max-old-space-size=4096 BROWSER=none npx react-scripts start
+HOST=0.0.0.0 PORT=5000 REACT_APP_PRODUCT_FLAVOR=sdnc REACT_APP_API_URL=http://127.0.0.1:5001 NODE_OPTIONS=--max-old-space-size=4096 BROWSER=none npx react-scripts start
 ```
 
 ### 服务启动顺序与依赖
 
-- **后端先启动**：前端 CRA dev server 通过 `setupProxy.js` 将 `/api/*` 和 `/ws/*` 代理到 `http://127.0.0.1:5001`。
-- **数据库**：SQLite，自动在 `backend/data.sqlite` 创建并同步 schema（`DB_SYNC=true`）。首次启动会自动创建 `admin/admin123` 超级管理员账户。
-- **无需外部服务**：开发环境无需 Docker、PostgreSQL 或其他外部依赖即可启动全栈。
+**生产（容器，推荐）**：
+
+```bash
+docker compose up -d --build
+# 访问 http://<主机>:5001
+```
+
+**源码开发**：
+
+1. `docker compose up -d mongodb sdnc-csmctl`
+2. `cd backend && npm run dev`（须在 `backend/` 目录；`DB_SYNC=true` 时自动建表；默认 `admin/admin123`）
+3. `cd frontend && npm run start`（CRA 代理 `/api`、`/api-proxy` → `:5001`）
+
+仅调试 UI、不涉及 IBR 写下发时，可不启 CSMCTL；`GET /health` 会反映 `dependencies.csmctl` 不可达。
 
 ### Lint / Test / Build 命令
 
@@ -660,5 +550,5 @@ HOST=0.0.0.0 PORT=5000 REACT_APP_API_URL=http://127.0.0.1:5001 NODE_OPTIONS=--ma
 ### 注意事项
 
 - 前端编译首次较慢（约 1-2 分钟），后续热重载正常。
-- Husky 在非 git 根目录运行 `npm install` 时会报 `.git can't be found`，这是正常行为（已 fallback）。
-- `patch-package` 在 `frontend/postinstall` 中自动运行，补丁 `@novnc/novnc` 和 `react-dev-utils`。
+- Husky 在非 git 根目录运行 `npm install` 时会报 `.git can't be found`，可忽略。
+- `patch-package` 在 `frontend/postinstall` 中运行（当前仅 `react-dev-utils` 开发代理补丁；`npm install` 后自动应用）。

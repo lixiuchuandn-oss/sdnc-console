@@ -60,6 +60,10 @@ export class VRConfig {
   @Column({ type: 'varchar', length: 255, nullable: true })
   bindStatus?: string;
 
+  /** 设备 Paas Console 上报的 IBR 管理口 IPv4（不含掩码） */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  managementIp?: string;
+
   @CreateDateColumn({ type: 'datetime' })
   created_at!: Date;
 

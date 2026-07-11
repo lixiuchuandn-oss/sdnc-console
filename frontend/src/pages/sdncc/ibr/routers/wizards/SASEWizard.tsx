@@ -6,6 +6,16 @@ import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole } from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
+import {
+  handleWizardStepsChange,
+  validateWizardStepsThrough,
+  warnFormValidationFailure,
+} from '../vrWizardFormUtils';
+import {
+  buildIpsecPresetVrConfigFromValues,
+  stripIpsecPresetWizardPlatformBlocks,
+} from '../ipsecPresetWizardLib';
+import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
 
 const SASEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -182,114 +192,7 @@ const SASEWizard: React.FC = () => {
     }
   }, [uuid, refreshDeviceData]);
 
-  const buildConfigFromValues = (v: any) => {
-    // 兼容旧字段名
-    const wanGateway = String(v?.ipsecPublicIp || '').trim();
-    
-    const wanInterface = String(v?.wanInterface || '').trim();
-    const wanIpv4 = String(v?.wanIpv4 || '').trim();
-    const wanIpv6 = String(v?.wanIpv6 || '').trim();
-    const enableNat = !!v?.enableNat;
-    
-    const lanInterface = String(v?.lanInterface || '').trim();
-    const lanIpv4 = String(v?.lanIpv4 || '').trim();
-    const lanIpv6 = String(v?.lanIpv6 || '').trim();
-    
-    const cfg: any = {};
-    // 保留 Standard Mode 特有的预置参数，用于回读
-    // 从 wanIpv4 提取纯 IP 地址 (去除 CIDR 掩码) 作为 public_ip
-    const wanIpOnly = wanIpv4 ? wanIpv4.split('/')[0] : undefined;
-
-    cfg.ipsec_preset = {
-      version: 2,                         // 标识元数据版本 (v2: public_ip 为设备IP, gateway 为网关)
-      wan_interface: wanInterface || undefined,
-      wan_ipv4: wanIpv4 || undefined,
-      wan_ipv6: wanIpv6 || undefined,
-      gateway: wanGateway || undefined,   // 新增：明确存储网关地址
-      public_ip: wanIpOnly,               // 修改：存储设备公网 IP (不含掩码)，供 IPsec 使用
-      enable_nat: enableNat,              // 保存 NAT 开关状态
-      lan_interface: lanInterface || undefined,
-      lan_ipv4: lanIpv4 || undefined,
-      lan_ipv6: lanIpv6 || undefined,
-      local_subnet: lanIpv4 || undefined, // 同时也作为 local_subnet
-    };
-
-    // 构建符合 VR 接口规范的配置 (interfaces, routes)
-    const ipv4CidrPattern = /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/;
-    const normalizeIPv4Cidr = (s: any) => {
-      const t = String(s || '').trim();
-      return ipv4CidrPattern.test(t) ? t : undefined;
-    };
-
-    const ifaceObjs: any[] = [];
-    
-    // 1. WAN 接口配置
-    if (wanInterface) {
-      const item: any = { name: wanInterface, status: 'up' };
-      const w4 = normalizeIPv4Cidr(wanIpv4);
-      if (w4) item.ipv4_static = w4;
-      if (wanIpv6) item.ipv6_static = wanIpv6;
-      
-      // 如果开启 NAT，配置为 outside
-      if (enableNat) {
-        item.nat = { type: 'outside' };
-      }
-      
-      ifaceObjs.push(item);
-    }
-
-    // 2. LAN 接口配置
-    if (lanInterface) {
-      const item: any = { name: lanInterface, status: 'up' };
-      const l4 = normalizeIPv4Cidr(lanIpv4);
-      if (l4) item.ipv4_static = l4;
-      if (lanIpv6) item.ipv6_static = lanIpv6;
-      
-      // 如果开启 NAT，配置为 inside
-      if (enableNat) {
-        item.nat = { type: 'inside' };
-      }
-
-      ifaceObjs.push(item);
-    }
-
-    // 3. 将接口分类放入 buckets (参考 PEWizard)
-    if (ifaceObjs.length) {
-      const buckets: Record<string, any[]> = {
-        interfaces_GigabitEthernet: [],
-        subinterfaces_GigabitEthernet: [],
-        interfaces_lo: [],
-        interfaces_Tunnel: [],
-        subinterfaces_Tunnel: [],
-      };
-      ifaceObjs.forEach((item) => {
-        const name: string = String(item?.name || '');
-        let bucketKey = 'interfaces_GigabitEthernet';
-        const isSub = name.includes('.');
-        
-        if (name.startsWith('GigabitEthernet') || name.startsWith('GE')) {
-          bucketKey = isSub ? 'subinterfaces_GigabitEthernet' : 'interfaces_GigabitEthernet';
-        } else if (name.startsWith('lo') || name.startsWith('Loopback')) {
-          bucketKey = 'interfaces_lo';
-        } else if (name.startsWith('Tunnel')) {
-          bucketKey = isSub ? 'subinterfaces_Tunnel' : 'interfaces_Tunnel';
-        } else {
-          bucketKey = isSub ? 'subinterfaces_GigabitEthernet' : 'interfaces_GigabitEthernet';
-        }
-        (buckets[bucketKey] || (buckets[bucketKey] = [])).push(item);
-      });
-      Object.keys(buckets).forEach((k) => { if ((buckets as any)[k]?.length) (cfg as any)[k] = (buckets as any)[k]; });
-    }
-
-    // 4. 路由配置
-    // 如果填写了 "公网网关地址"，则生成默认路由
-    if (wanInterface && wanGateway && ipv4CidrPattern.test(wanGateway + '/32') ) { 
-      // 0.0.0.0/0 via wanGateway
-      cfg.ipv4_route = [{ destination: '0.0.0.0/0', via: wanGateway, priority: 100 }];
-    }
-
-    return cfg;
-  };
+  const buildConfigFromValues = (v: any) => buildIpsecPresetVrConfigFromValues(v);
 
   // 使用 useWatch 实时预览
   const watchedValues = Form.useWatch([], form);
@@ -299,69 +202,52 @@ const SASEWizard: React.FC = () => {
     [watchedValues, form],
   );
 
+  const SASE_STEP0_FIELDS = ['wanInterface', 'wanIpv4', 'wanIpv6', 'ipsecPublicIp'];
+  const SASE_STEP1_FIELDS = ['lanInterface', 'lanIpv4', 'lanIpv6'];
+
+  const saseFieldsForStep = (step: number) =>
+    step === 0 ? SASE_STEP0_FIELDS : step === 1 ? SASE_STEP1_FIELDS : [];
+
+  const validateSaseStepsThrough = (from: number, to: number) =>
+    validateWizardStepsThrough(form, from, to, saseFieldsForStep);
+
   const next = async () => {
     try {
-      if (current === 0) {
-        // 校验 WAN 侧
-        await form.validateFields(['wanInterface', 'wanIpv4', 'wanIpv6', 'ipsecPublicIp']);
-      } else if (current === 1) {
-        // 校验 LAN 侧
-        await form.validateFields(['lanInterface', 'lanIpv4', 'lanIpv6']);
-      }
+      const ok = await validateSaseStepsThrough(current, current + 1);
+      if (!ok) return;
       const newCurrent = Math.min(2, current + 1);
       setCurrent(newCurrent);
       if (newCurrent === 2) {
         await refreshDeviceData(true);
       }
-    } catch {}
+    } catch (err) {
+      warnFormValidationFailure(err);
+    }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
-  const sortJsonKeys = (obj: any): any => {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
-    
-    // 递归处理子对象（深层排序）
-    const copy = { ...obj };
-    Object.keys(copy).forEach(k => {
-      copy[k] = sortJsonKeys(copy[k]);
+  const handleStepsChange = (idx: number) => {
+    void handleWizardStepsChange(idx, current, setCurrent, async (from, to) => {
+      const ok = await validateSaseStepsThrough(from, to);
+      if (ok && to === 2) {
+        await refreshDeviceData(true);
+      }
+      return ok;
     });
-
-    // 对最外层进行排序：uuid, role, ipsec_preset 优先
-    const keys = Object.keys(copy).sort((a, b) => {
-       const prio = (k: string) => {
-         if (k === 'uuid') return -1;
-         if (k === 'role') return 0;
-         if (k === 'ipsec_preset') return 1;
-         if (k === 'ce') return 2;
-         if (k === 'pe') return 3;
-         if (k.startsWith('interfaces_')) return 10;
-         if (k.startsWith('subinterfaces_')) return 11;
-         if (k.startsWith('ipv4_')) return 15;
-         if (k.startsWith('ipv6_')) return 16;
-         if (k === 'bgp') return 20;
-         return 50;
-       };
-       const pa = prio(a);
-       const pb = prio(b);
-       if (pa !== pb) return pa - pb;
-       return a.localeCompare(b);
-    });
-    
-    const sorted: any = {};
-    keys.forEach(k => sorted[k] = copy[k]);
-    return sorted;
   };
+
+  const sortJsonKeys = (obj: any) => sortVrConfigJsonKeys(obj, 'ipsec');
 
   const handleSave = async () => {
     if (!uuid) {
-      message.error('缺少 VR 的 UUID，无法下发配置');
+      message.error('缺少 IBR 的 UUID，无法下发配置');
       return;
     }
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
-        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 VR 已被 SRv6 隧道引用';
+        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
         message.error(
           `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
           8,
@@ -391,15 +277,10 @@ const SASEWizard: React.FC = () => {
       }
 
       // 2. 下发配置到设备 (专家模式接口)
-      let deviceCfg = { ...cfg };
-      
-      // 剔除元数据
-      // delete deviceCfg.ipsec_preset; // 保留 ipsec_preset 以便从设备回读
-      delete deviceCfg.ce;
-      delete deviceCfg.pe;
+      let deviceCfg = stripIpsecPresetWizardPlatformBlocks(cfg);
       
       // 对下发配置进行排序
-      deviceCfg = sortJsonKeys(deviceCfg);
+      deviceCfg = sortJsonKeys(deviceCfg) as Record<string, unknown>;
 
       const method = 'POST';
       const other = `uuid=${uuid}`;
@@ -615,7 +496,7 @@ const SASEWizard: React.FC = () => {
       <Row gutter={16}>
         <Col span={4}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: 'WAN 侧配置' }, { title: 'LAN 侧配置' }, { title: '确认下发' }]} />
+            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={[{ title: 'WAN 侧配置' }, { title: 'LAN 侧配置' }, { title: '确认下发' }]} />
           </Card>
         </Col>
         <Col span={7}>

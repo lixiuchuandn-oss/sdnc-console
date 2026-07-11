@@ -1,0 +1,73 @@
+#!/bin/bash
+#set -x
+mkdir -p /usr/local/src/vrconf
+if [ ! -f "/usr/local/src/vrconf/registervr.conf" ]; then
+        cp /rhos/etc/agent/tools/registervr.conf.temp /usr/local/src/vrconf/registervr.conf
+fi
+if [ ! -f "/usr/local/src/vrconf/vrcontrol.conf" ]; then
+        cp /rhos/etc/agent/tools/vrcontrol.conf.temp /usr/local/src/vrconf/vrcontrol.conf
+fi
+
+
+conf=$(cat /rhos/etc/agent/vr_conf)
+#cp /rhos/etc/agent/tools/vrctl.completion /etc/bash_completion.d/
+interval=$(echo "$conf"| jq .agent.interval )
+check_interval=$(echo "$conf"| jq .agent.check_interval )
+cmd="nohup /rhos/etc/agent/vrctl.agent --registration_interval 10 --auth_interval 10 "
+if [ -n "$interval" ];then
+        cmd+="--interval $interval "
+fi
+if [ -n "$check_interval" ]; then
+	cmd+="--check_interval $check_interval "
+fi
+eval "$cmd > /dev/null 2>&1 &"
+
+cmd_collect="nohup /rhos/etc/agent/monitoring.agent --mode collect --registration_interval 30 "
+cmd_send="nohup /rhos/etc/agent/monitoring.agent --mode send --registration_interval 30 "
+cmd_download="nohup /rhos/etc/agent/monitoring.agent --mode download --registration_interval 30 "
+interval=$(echo "$conf"| jq .monitoring.interval )
+if [ -n "$interval" ];then
+        cmd_collect+="--interval $interval "
+	cmd_send+="--interval $interval "
+fi
+download_interval=$(echo "$conf"| jq .monitoring.download_interval )
+if [ -n "$download_interval" ];then
+	cmd_download+="--download_interval $download_interval "
+fi
+
+# 检查并启动 collect 进程
+pid_collect=$(pgrep -f "monitoring.agent.*--mode collect")
+if [ -z "$pid_collect" ]; then
+	logger -s "Starting monitoring.agent --mode collect" -t monitoring -p daemon.info
+	eval "$cmd_collect > /dev/null 2>&1 &"
+	sleep 1
+	pid_collect=$(pgrep -f "monitoring.agent.*--mode collect")
+	[ -n "$pid_collect" ] && logger -s "monitoring.agent --mode collect started (PID: $pid_collect)" -t monitoring -p daemon.info || logger -s "Failed to start monitoring.agent --mode collect" -t monitoring -p daemon.err
+else
+	logger -s "monitoring.agent --mode collect already running (PID: $pid_collect)" -t monitoring -p daemon.info
+fi
+
+# 检查并启动 send 进程
+pid_send=$(pgrep -f "monitoring.agent.*--mode send")
+if [ -z "$pid_send" ]; then
+	logger -s "Starting monitoring.agent --mode send" -t monitoring -p daemon.info
+	eval "$cmd_send > /dev/null 2>&1 &"
+	sleep 1
+	pid_send=$(pgrep -f "monitoring.agent.*--mode send")
+	[ -n "$pid_send" ] && logger -s "monitoring.agent --mode send started (PID: $pid_send)" -t monitoring -p daemon.info || logger -s "Failed to start monitoring.agent --mode send" -t monitoring -p daemon.err
+else
+	logger -s "monitoring.agent --mode send already running (PID: $pid_send)" -t monitoring -p daemon.info
+fi
+
+# 检查并启动 download 进程
+pid_download=$(pgrep -f "monitoring.agent.*--mode download")
+if [ -z "$pid_download" ]; then
+	logger -s "Starting monitoring.agent --mode download" -t monitoring -p daemon.info
+	eval "$cmd_download > /dev/null 2>&1 &"
+	sleep 1
+	pid_download=$(pgrep -f "monitoring.agent.*--mode download")
+	[ -n "$pid_download" ] && logger -s "monitoring.agent --mode download started (PID: $pid_download)" -t monitoring -p daemon.info || logger -s "Failed to start monitoring.agent --mode download" -t monitoring -p daemon.err
+else
+	logger -s "monitoring.agent --mode download already running (PID: $pid_download)" -t monitoring -p daemon.info
+fi
+

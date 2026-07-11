@@ -2,7 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import https from 'https';
 import crypto from 'crypto';
-import { getSystemSetting } from '../config/systemSettings';
+import { getCsmctlBaseUrl } from '../services/vrouter/csmctlEndpoint';
 import { logger } from '../utils/logger';
 
 const apiProxyLog = logger.child('Api-Proxy');
@@ -76,15 +76,13 @@ router.post('/api/sign', (req, res) => {
 });
 
 router.all('*', async (req, res) => {
-  const rawAddress = String(getSystemSetting('CSMCTL_ADDRESS') || '').trim();
-  if (!rawAddress) {
-    return res.status(500).json({
-      message: 'CSMCTL_ADDRESS 未配置，请在系统设置中配置 CSMCTL 地址',
-    });
+  let csmAddress: string;
+  try {
+    csmAddress = getCsmctlBaseUrl();
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : String(e);
+    return res.status(500).json({ message });
   }
-  const csmAddress = (
-    /^https?:\/\//i.test(rawAddress) ? rawAddress : `https://${rawAddress}`
-  ).replace(/\/+$/, '');
   // 去掉末尾多余斜杠，避免与后续路由拼接时出现重复 //
   const targetBase = csmAddress;
 

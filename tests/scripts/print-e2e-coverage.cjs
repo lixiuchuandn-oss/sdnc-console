@@ -45,7 +45,7 @@ const manifestApi = collectManifestPaths('api');
 const manifestBrowser = collectManifestPaths('browser');
 
 function isFunctionalTest(rel) {
-  return rel.startsWith('harvester/') || rel.startsWith('auth/') || rel.startsWith('cnmc/');
+  return rel.startsWith('auth/') || rel.startsWith('sdncc/');
 }
 
 const orphanApi = api.filter((f) => isFunctionalTest(f) && !manifestApi.has(f));

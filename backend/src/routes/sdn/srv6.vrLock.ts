@@ -110,7 +110,7 @@ export const assertSrv6VrConfigUpsertAllowed = async (
     const namesPart = tunnelNames.length ? `引用隧道：${tunnelNames.join('、')}。` : '';
     const detailPart = `变更冲突：${conflicts.join('；')}`;
     const err = new Error(
-      `当前 VR 实例已被 SRv6 隧道引用，关键配置不允许修改。如需调整，请先删除相关隧道后再保存。${namesPart}${detailPart}`,
+      `当前 IBR 实例已被 SRv6 隧道引用，关键配置不允许修改。如需调整，请先删除相关隧道后再保存。${namesPart}${detailPart}`,
     );
     (err as Error & { statusCode: number }).statusCode = 409;
     throw err;
@@ -133,7 +133,7 @@ export const assertSrv6VrSetRoleAllowed = async (
   const namesPart = names.length ? `引用隧道：${names.join('、')}。` : '';
   const rolePart = nextRole ? `目标角色：${nextRole}。` : '';
   const err = new Error(
-    `当前 VR 实例已被 SRv6 隧道引用，角色不允许修改。如需调整，请先删除相关隧道后再保存。${namesPart}${rolePart}`,
+    `当前 IBR 实例已被 SRv6 隧道引用，角色不允许修改。如需调整，请先删除相关隧道后再保存。${namesPart}${rolePart}`,
   );
   (err as Error & { statusCode: number }).statusCode = 409;
   throw err;

@@ -2,7 +2,6 @@ import { apiRequest, apiPatch, apiUpload, API_BASE_URL } from './api';
 import type { AdminPasswordPolicy } from '../utils/adminPasswordPolicy';
 
 const API_BASE = '/api/system';
-const API_THREATS = '/api/threats';
 
 /** 未登录可读：后端 system-settings 中全部 ui.* 扁平 KV */
 /** 未登录可读：管理员密码策略（与后端 auth.admin_password_policy 一致） */
@@ -91,14 +90,4 @@ export async function applyOfflineUpgradeBundle(file: File): Promise<OfflineUpgr
   const res = (await apiUpload(`${API_BASE}/offline-upgrade/apply`, form)) as { data?: OfflineUpgradeApplyResultDto };
   if (res?.data) return res.data;
   return res as unknown as OfflineUpgradeApplyResultDto;
-}
-
-export async function importThreatEvents(file: File): Promise<{ ok: boolean; count: number; message: string }> {
-  const form = new FormData();
-  form.append('file', file);
-  return await apiUpload(`${API_THREATS}/import-csv`, form);
-}
-
-export async function listThreatEvents(page = 1, pageSize = 10): Promise<{ data: any[]; total: number; page: number; pageSize: number }> {
-  return await apiRequest(`${API_THREATS}?page=${page}&pageSize=${pageSize}`);
 }

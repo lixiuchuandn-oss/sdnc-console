@@ -3,81 +3,20 @@ import { In, Not } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { IPsecVPN, IPsecStatus } from '../../entities/vRouter/IPsecVPN';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
-import { vrController } from '../../services/vrouter/vrController';
+import {
+  getVRConfigFromDevice,
+  normalizeIpsecSliceForDevice,
+  pushVRConfig,
+  sanitizeConfig,
+  saveVRConfigToDB,
+  stripMeta,
+  mapDeployErrorToResponse,
+} from '../../services/vrouter/vrConfigDeploy';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 
 export const ipsecRoutes = Router();
 const repo = () => AppDataSource.getRepository(IPsecVPN);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
-
-// Helper to save config to DB
-const saveVRConfigToDB = async (uuid: string, config: any) => {
-  let record = await vrConfigRepo().findOne({ where: { uuid } });
-  const jsonStr = JSON.stringify(config);
-
-  if (record) {
-    record.config_json = jsonStr;
-    await vrConfigRepo().save(record);
-  } else {
-    // Should not happen if get succeeded, but for safety
-    record = vrConfigRepo().create({ uuid, config_json: jsonStr });
-    await vrConfigRepo().save(record);
-  }
-};
-
-const stripMeta = (obj: any) => {
-  if (!obj || typeof obj !== 'object') return obj;
-  const {
-    msg: _msg,
-    code: _code,
-    report_config_status: _report_config_status,
-    updateDate: _updateDate,
-    createDate: _createDate,
-    _id,
-    requestId: _requestId,
-    ...rest
-  } = obj;
-  return rest;
-};
-
-const sanitizeConfig = (config: any) => {
-  if (!config) return config;
-
-  // Clean up ipv4_route
-  if (config.ipv4_route) {
-    // If it's not an array, or it's empty, delete it to avoid device errors
-    if (!Array.isArray(config.ipv4_route) || config.ipv4_route.length === 0) {
-      delete config.ipv4_route;
-    } else {
-      // Filter and fix format
-      const validRoutes = config.ipv4_route.filter(
-        (r: any) => r && typeof r.destination === 'string' && r.destination.trim() !== '',
-      );
-
-      if (validRoutes.length === 0) {
-        delete config.ipv4_route;
-      } else {
-        config.ipv4_route = validRoutes.map((r: any) => {
-          const dest = r.destination.trim();
-          // If it looks like an IP but has no mask, append /32
-          if (dest && !dest.includes('/') && /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(dest)) {
-            console.log(`[IPSEC] Auto-fixing route destination: ${dest} -> ${dest}/32`);
-            return { ...r, destination: `${dest}/32` };
-          }
-          return r;
-        });
-      }
-    }
-  }
-  return config;
-};
-
-const getVRConfigFromDevice = async (uuid: string) => {
-  const resp = await vrController.getVRConfig(uuid);
-  const data = resp && resp.data ? resp.data : resp;
-  if (!data || typeof data !== 'object') return {};
-  return stripMeta(data);
-};
 
 // Helper to extract IPs from VRCacheExtended data
 const getVrWanIp = (data: any): string => {
@@ -777,31 +716,17 @@ ipsecRoutes.delete('/:id', async (req, res) => {
             );
 
             if (config.ipsec.length !== initialLength) {
-              await saveVRConfigToDB(localVrId, config);
               console.log(`[IPSEC] Removed ${name} from Local VR ${localVrId}`);
 
-              // Push to csmctl
               try {
-                // Clone config to avoid modifying DB cache with device-specific format
-                const pushConfig = JSON.parse(JSON.stringify(config));
-
-                // Apply device-specific formatting (booleans to strings, etc.)
-                if (pushConfig.ipsec && Array.isArray(pushConfig.ipsec)) {
-                  pushConfig.ipsec.forEach((item: any) => {
-                    if (typeof item.dpd !== 'undefined') delete item.dpd;
-                    if (typeof item['nat-traversal'] === 'boolean')
-                      item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
-                    if (typeof item['sa-initiate'] === 'boolean')
-                      item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-                  });
-                }
-
-                const cleanConfig = sanitizeConfig(stripMeta(pushConfig));
-                await vrController.updateVRConfig(localVrId, cleanConfig);
+                await pushVRConfig({
+                  vrId: localVrId,
+                  domain: 'ipsec',
+                  platformConfig: config,
+                });
                 console.log(`[IPSEC] Pushed update to Local VR ${localVrId}`);
               } catch (pushErr) {
                 console.error(`[IPSEC] Failed to push to Local VR ${localVrId}`, pushErr);
-                // Non-blocking error - DB is already updated
               }
             }
           }
@@ -826,27 +751,14 @@ ipsecRoutes.delete('/:id', async (req, res) => {
             );
 
             if (config.ipsec.length !== initialLength) {
-              await saveVRConfigToDB(peerVrId, config);
               console.log(`[IPSEC] Removed ${name} from Peer VR ${peerVrId}`);
 
-              // Push to csmctl
               try {
-                // Clone config
-                const pushConfig = JSON.parse(JSON.stringify(config));
-
-                // Apply device-specific formatting
-                if (pushConfig.ipsec && Array.isArray(pushConfig.ipsec)) {
-                  pushConfig.ipsec.forEach((item: any) => {
-                    if (typeof item.dpd !== 'undefined') delete item.dpd;
-                    if (typeof item['nat-traversal'] === 'boolean')
-                      item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
-                    if (typeof item['sa-initiate'] === 'boolean')
-                      item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-                  });
-                }
-
-                const cleanConfig = sanitizeConfig(stripMeta(pushConfig));
-                await vrController.updateVRConfig(peerVrId, cleanConfig);
+                await pushVRConfig({
+                  vrId: peerVrId,
+                  domain: 'ipsec',
+                  platformConfig: config,
+                });
                 console.log(`[IPSEC] Pushed update to Peer VR ${peerVrId}`);
               } catch (pushErr) {
                 console.error(`[IPSEC] Failed to push to Peer VR ${peerVrId}`, pushErr);
@@ -1295,38 +1207,25 @@ ipsecRoutes.post('/deploy/push', async (req: Request, res: Response, _next: Next
     if (!record || !record.config_json) throw new Error('VR config not found in DB');
 
     const config = JSON.parse(record.config_json);
-
     if (config.ipsec && Array.isArray(config.ipsec)) {
-      config.ipsec.forEach((item: any) => {
-        if (typeof item.dpd !== 'undefined') delete item.dpd;
-        if (typeof item['nat-traversal'] === 'boolean')
-          item['nat-traversal'] = item['nat-traversal'] ? 'true' : 'false';
-        if (typeof item['sa-initiate'] === 'boolean')
-          item['sa-initiate'] = item['sa-initiate'] ? 'true' : 'false';
-      });
+      config.ipsec = normalizeIpsecSliceForDevice(config.ipsec) as typeof config.ipsec;
     }
 
-    const cleanConfig = sanitizeConfig(stripMeta(config));
+    const acknowledgeDrift = req.body?.acknowledgeDrift === true;
     console.log(`[IPSEC] Pushing config to VR: ${vrId}`);
 
-    const updateResp = await vrController.updateVRConfig(vrId, cleanConfig);
-    const respData = updateResp.data || {};
+    const result = await pushVRConfig({
+      vrId,
+      domain: 'ipsec',
+      platformConfig: config,
+      acknowledgeDrift,
+    });
 
-    if (
-      respData &&
-      typeof respData.code !== 'undefined' &&
-      respData.code != 0 &&
-      respData.code != 200
-    ) {
-      throw new Error(
-        `Device returned error: ${respData.msg || respData.message || JSON.stringify(respData)}`,
-      );
-    }
-
-    res.json({ status: 200, data: respData });
-  } catch (e: any) {
+    res.json({ status: 200, data: result.deviceResponse, driftWarnings: result.driftWarnings });
+  } catch (e: unknown) {
+    const { status, body } = mapDeployErrorToResponse(e);
     console.error(`[IPSEC] Failed to push config`, e);
-    res.status(500).json({ error: e.message });
+    res.status(status).json({ error: body.message, code: body.code, conflicts: body.conflicts });
   }
 });
 

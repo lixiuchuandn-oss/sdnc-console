@@ -6,62 +6,9 @@ import React from 'react';
 import type { RouteSpec } from '../../../routes/RouteSpec';
 import { routeSpecs } from '../../../routes/RouteSpec';
 import { iconOf } from '../../../utils/iconOf';
-import { type Cloud } from '../../../pages/cnmc/pools/lib/poolProviders';
-import { buildPoolEntryPath, inferPoolRouteKind } from '../../../pages/cnmc/pools/lib/poolDetailNav';
 
 /** 顶栏高度（与 sticky、抽屉 top、侧栏 top 对齐） */
 export const ADMIN_HEADER_HEIGHT_PX = 64;
-
-/** 顶栏资源池条：外框（与业务逻辑无关的静态样式集中） */
-export const HEADER_POOL_STRIP_STYLE: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  minWidth: 0,
-  fontSize: 14,
-  color: 'rgba(255,255,255,0.92)',
-  border: '1px solid rgba(255,255,255,0.38)',
-  borderRadius: 8,
-  padding: 4,
-  background: 'rgba(255,255,255,0.06)',
-  boxSizing: 'border-box',
-};
-
-/** 顶栏切换池 /「访问」：厂商池（Xinference、MAAS、Rancher 等）走 `buildPoolEntryPath`；Cloudmap 仍进资源总览。 */
-export function poolOverviewPath(cloudId: string, clouds: Cloud[]): string {
-  const c = clouds.find((x) => String(x.id) === String(cloudId));
-  if (!c) {
-    return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
-  }
-  const kind = inferPoolRouteKind(c);
-  if (kind.kind === 'vendor' || kind.kind === 'cloudmap-csm') {
-    return buildPoolEntryPath(c);
-  }
-  return `/admin/clouds/${encodeURIComponent(cloudId)}/resource_hub/overview`;
-}
-
-export function byCloudCreatedAtAsc(a: Cloud, b: Cloud): number {
-  const ta = Date.parse(String(a.createdAt || '')) || 0;
-  const tb = Date.parse(String(b.createdAt || '')) || 0;
-  return ta - tb;
-}
-
-/**
- * 默认资源池：显式 config.isDefault；否则按创建时间取「第一个添加的」池。
- */
-export function pickDefaultPoolId(clouds: Cloud[]): string | undefined {
-  if (!clouds.length) return undefined;
-  const cfg = (c: Cloud) => Boolean((c.config as Record<string, unknown> | undefined)?.isDefault);
-  const flagged = clouds.find(cfg);
-  if (flagged) return flagged.id;
-  const sorted = [...clouds].sort(byCloudCreatedAtAsc);
-  return sorted[0]?.id;
-}
-
-export function resolveDefaultPool(clouds: Cloud[]): Cloud | undefined {
-  const id = pickDefaultPoolId(clouds);
-  return id ? clouds.find((c) => c.id === id) : undefined;
-}
 
 export function firstMenuPathInCenter(center: { items?: unknown[] }): string | null {
   const first = (center.items || [])[0] as { key?: string; children?: { key?: string }[] } | undefined;
@@ -70,7 +17,7 @@ export function firstMenuPathInCenter(center: { items?: unknown[] }): string | n
   return typeof key === 'string' && key.startsWith('/') ? key : null;
 }
 
-/** 组内菜单：含 `parentId` 的项挂到父 `RouteSpec` 下为子菜单（如 安全资源池 → 资源池列表 + 防护对象管理） */
+/** 组内菜单：含 `parentId` 的项挂到父 RouteSpec 下为子菜单 */
 export function buildGroupMenuChildren(specs: RouteSpec[]) {
   const sorted = [...specs].sort((a: any, b: any) => Number(a.order ?? 0) - Number(b.order ?? 0));
   return sorted
@@ -84,28 +31,20 @@ export function buildGroupMenuChildren(specs: RouteSpec[]) {
           key: root.path,
           label: root.title || root.breadcrumbLabel || root.id,
           icon: iconOf(root.icon),
-          requiredFeature: root.requiredFeature,
-          requiredLicenseType: root.requiredLicenseType,
         };
       }
       return {
         key: `__sub__${root.id}`,
         label: root.title || root.breadcrumbLabel || root.id,
         icon: iconOf(root.icon),
-        requiredFeature: root.requiredFeature,
-        requiredLicenseType: root.requiredLicenseType,
         children: [
           {
             key: root.path,
-            label: '资源池列表',
-            requiredFeature: root.requiredFeature,
-            requiredLicenseType: root.requiredLicenseType,
+            label: root.title || root.breadcrumbLabel || root.id,
           },
           ...subs.map((s) => ({
             key: s.path,
             label: s.title || s.breadcrumbLabel || s.id,
-            requiredFeature: s.requiredFeature,
-            requiredLicenseType: s.requiredLicenseType,
           })),
         ],
       };
@@ -154,24 +93,18 @@ export function sidebarForPath(p: string): string {
   const found = orderedSpecs.find((r) => matchesPath(p, r.path));
 
   if (found?.platform) {
-    if (found.platform === 'CNMC') return '/admin/cen_compute';
-    if (found.platform === 'TENANTS') return '/admin/cen_tenants';
     if (found.platform === 'SDNCC') return '/admin/cen_sdn';
-    if (found.platform === 'CNSOC') return '/admin/cen_secops';
     if (found.platform === 'SETTINGS') return '/admin/cen_settings';
   }
 
   const s = p.toLowerCase();
-  if (s.includes('/interconnect') || s.includes('/sec-mgr-plane') || s.includes('/security/traffic')) {
+  if (s.includes('/interconnect')) {
     return '/admin/cen_sdn';
   }
-  if (s.includes('/alarms') || s.includes('/soc') || s.includes('/aisoc')) {
-    return '/admin/cen_secops';
-  }
-  if (s.includes('/settings')) {
+  if (s.includes('/settings') || s.includes('/access/')) {
     return '/admin/cen_settings';
   }
-  return '/admin/cen_compute';
+  return '/admin/cen_sdn';
 }
 
 export type PageSearchEntry = {

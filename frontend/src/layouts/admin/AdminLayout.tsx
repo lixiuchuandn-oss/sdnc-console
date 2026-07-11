@@ -1,12 +1,10 @@
 import React, { useCallback, useMemo, Suspense } from 'react';
-import { App, Layout, Spin } from 'antd';
+import { Layout, Spin } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import type { AdminLayoutOutletContext } from './adminLayoutOutletContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { useLicense } from '../../contexts/LicenseContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { getRequiredActionForPath, hasPermissionForAction } from '../../utils/accessMapping';
-import PoolEdgeWizard from '../../pages/cnmc/pools/modals/CloudWizardeasy';
 import AdminSidebar, { type AdminSidebarCenter } from './AdminSidebar';
 import './admin-shell.css';
 import AdminStandardHeader from './AdminStandardHeader';
@@ -14,11 +12,8 @@ import { ADMIN_HEADER_HEIGHT_PX } from './lib/adminLayoutNav';
 import AdminChangePasswordModal from './AdminChangePasswordModal';
 import AdminGlobalSearchModal from './AdminGlobalSearchModal';
 import { useGlobalSearch } from './hooks/useGlobalSearch';
-import { useAdminPoolAccess } from './hooks/useAdminPoolAccess';
 import { useAdminPasswordGate } from './hooks/useAdminPasswordGate';
 import { useAdminPlatformMenu } from './hooks/useAdminPlatformMenu';
-import { useHeaderPoolStrip } from './hooks/useHeaderPoolStrip';
-import { usePoolWizard } from './hooks/usePoolWizard';
 import { useSidebarMenuState } from './hooks/useSidebarMenuState';
 import { isSdnccPagePath } from '../../routes/adminRouteMatch';
 
@@ -47,13 +42,7 @@ const AdminLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const userPermissions = useMemo(
-    () => (user?.permissions && Array.isArray(user.permissions) ? user.permissions : []),
-    [user?.permissions],
-  );
-  const { hasFeature, isEnterpriseLicense } = useLicense();
   const { settings, loading: settingsLoading } = useSettings();
-  const { message } = App.useApp();
 
   const {
     changePasswordForm,
@@ -65,15 +54,6 @@ const AdminLayout: React.FC = () => {
     openChangePassword,
     submitChangePassword,
   } = useAdminPasswordGate();
-
-  const {
-    summaryClouds,
-    summaryLoading,
-    summaryListHydrated,
-    headerSelectedPoolId,
-    setHeaderSelectedPoolId,
-    loadSummaryClouds,
-  } = useHeaderPoolStrip(user);
 
   const canAccessPath = useCallback(
     (p: string): boolean => {
@@ -87,26 +67,11 @@ const AdminLayout: React.FC = () => {
     [user],
   );
 
-  const hasPoolManagementLicense = hasFeature('platform.multi-cloud');
-
-  const { canWritePools, headerPoolOverviewEnabled } = useAdminPoolAccess(
-    user,
-    hasPoolManagementLicense,
-  );
-
   const navigateToAdminContent = useCallback(
     (path: string) => {
-      const pure = String(path || '').split('?')[0];
-      if (pure === '/console') {
-        const w = window.open(`${window.location.origin}${path}`, '_blank');
-        if (w == null) {
-          message.warning('无法打开新窗口，请检查浏览器是否拦截了弹出窗口');
-        }
-        return;
-      }
       navigate(path);
     },
-    [navigate, message],
+    [navigate],
   );
 
   const handleLogout = () => {
@@ -114,11 +79,7 @@ const AdminLayout: React.FC = () => {
     navigate('/admin/login');
   };
 
-  const { visibleCenters, pageSearchEntries } = useAdminPlatformMenu(
-    hasFeature,
-    isEnterpriseLicense,
-    canAccessPath,
-  );
+  const { visibleCenters, pageSearchEntries } = useAdminPlatformMenu(canAccessPath);
 
   const adminOutletSdnccClassName = useMemo(
     () => (isSdnccPagePath(location.pathname) ? 'admin-outlet-sdncc' : undefined),
@@ -137,25 +98,6 @@ const AdminLayout: React.FC = () => {
     platformDropdownSelectedKeys,
   } = useSidebarMenuState({
     visibleCenters: visibleCenters as AdminSidebarCenter[],
-    summaryClouds,
-    userPermissions,
-    hasFeature,
-  });
-
-  const {
-    poolWizardOpen,
-    poolWizardEditing,
-    poolWizardForceRequired,
-    handlePoolWizardCancel,
-    handlePoolWizardSuccess,
-    openDefaultPoolWizardAction,
-  } = usePoolWizard({
-    user,
-    summaryClouds,
-    summaryListHydrated,
-    summaryLoading,
-    canWritePools,
-    loadSummaryClouds,
   });
 
   const {
@@ -185,21 +127,12 @@ const AdminLayout: React.FC = () => {
       <AdminStandardHeader
         settings={settings}
         settingsLoading={settingsLoading}
-        summaryClouds={summaryClouds}
-        summaryLoading={summaryLoading}
         visibleCenters={visibleCenters as AdminSidebarCenter[]}
-        activeSidebarKey={activeSidebarKey}
         platformDropdownSelectedKeys={platformDropdownSelectedKeys}
         navigateToAdminContent={navigateToAdminContent}
-        headerSelectedPoolId={headerSelectedPoolId}
-        setHeaderSelectedPoolId={setHeaderSelectedPoolId}
-        headerPoolOverviewEnabled={headerPoolOverviewEnabled}
-        canWritePools={canWritePools}
-        navigate={navigate}
         user={user}
         openChangePassword={openChangePassword}
         handleLogout={handleLogout}
-        openDefaultPoolWizardAction={openDefaultPoolWizardAction}
         onOpenGlobalSearch={openGlobalSearch}
       />
       <>
@@ -212,13 +145,6 @@ const AdminLayout: React.FC = () => {
           username={user?.username}
           onOk={submitChangePassword}
           onClose={() => setChangePasswordOpen(false)}
-        />
-        <PoolEdgeWizard
-          visible={poolWizardOpen}
-          onCancel={handlePoolWizardCancel}
-          onSuccess={handlePoolWizardSuccess}
-          forceRequired={poolWizardForceRequired}
-          editingCloud={poolWizardEditing}
         />
         <AdminGlobalSearchModal
           open={searchOpen}
@@ -254,7 +180,7 @@ const AdminLayout: React.FC = () => {
           }}
         >
           <Suspense fallback={<AdminOutletSuspenseFallback />}>
-            <Outlet context={{ reloadSummaryClouds: loadSummaryClouds } satisfies AdminLayoutOutletContext} />
+            <Outlet context={{} satisfies AdminLayoutOutletContext} />
           </Suspense>
         </Content>
       </Layout>

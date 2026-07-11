@@ -8,7 +8,7 @@ import {
 } from '../../utils/loginLockMessage';
 import { useLoginPageHeroStyle } from './loginPageHeroStyle';
 
-/** /login 与 /admin/login 共用的表单状态、锁屏与背景样式 */
+/** /admin/login 表单状态、锁屏与背景样式 */
 export function useLoginPageForm() {
   const [loading, setLoading] = useState(false);
   const [lockUntil, setLockUntil] = useState<number | null>(null);

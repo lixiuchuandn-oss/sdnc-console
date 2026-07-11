@@ -3,7 +3,12 @@ import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
-import { vrController } from '../../services/vrouter/vrController';
+import {
+  pushVRConfig,
+  sanitizeConfig,
+  stripMeta,
+  mapDeployErrorToResponse,
+} from '../../services/vrouter/vrConfigDeploy';
 import {
   buildEndpointFingerprintFromRows,
   mergeArchiveIntoTunnel,
@@ -34,55 +39,6 @@ import {
 export const srv6Routes = Router();
 const repo = () => AppDataSource.getRepository(SRv6Tunnel);
 const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
-
-/** 与 IPsec deploy 一致：去掉包装字段后再下发 CSMctl */
-const stripMeta = (obj: any) => {
-  if (!obj || typeof obj !== 'object') return obj;
-  const {
-    msg: _msg,
-    code: _code,
-    report_config_status: _report_config_status,
-    updateDate: _updateDate,
-    createDate: _createDate,
-    _id,
-    requestId: _requestId,
-    _towerHubInventory: _towerHubInventory,
-    ...rest
-  } = obj;
-  return rest;
-};
-
-const sanitizeConfig = (config: any) => {
-  if (!config) return config;
-  if (config.ipv4_route) {
-    if (!Array.isArray(config.ipv4_route) || config.ipv4_route.length === 0) {
-      delete config.ipv4_route;
-    } else {
-      const validRoutes = config.ipv4_route.filter(
-        (r: any) => r && typeof r.destination === 'string' && r.destination.trim() !== '',
-      );
-      if (validRoutes.length === 0) {
-        delete config.ipv4_route;
-      } else {
-        config.ipv4_route = validRoutes.map((r: any) => {
-          const dest = r.destination.trim();
-          if (dest && !dest.includes('/') && /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/.test(dest)) {
-            return { ...r, destination: `${dest}/32` };
-          }
-          return r;
-        });
-      }
-    }
-  }
-  if (Array.isArray(config.ipv6_route) && config.ipv6_route.length) {
-    config.ipv6_route = config.ipv6_route.map((r: any) => {
-      if (!r || typeof r !== 'object') return r;
-      const { dev: _dev, ...rest } = r;
-      return rest;
-    });
-  }
-  return config;
-};
 
 const applyArchiveToTunnelEntity = (
   entity: SRv6Tunnel,
@@ -484,7 +440,7 @@ srv6Routes.get('/deploy/preview', async (req: Request, res: Response) => {
 });
 
 /**
- * 将平台库中的 VR 配置推送到 CSMctl（与 /api/networks/ipsec/deploy/push 同源路径：读 VRConfig → 清洗 → vrController.updateVRConfig）
+ * 将平台库中的 VR 配置推送到 CSMctl（经 vrConfigDeploy：读设备 → 分域 merge → 下发）
  */
 srv6Routes.post('/deploy/push', async (req: Request, res: Response) => {
   try {
@@ -509,28 +465,22 @@ srv6Routes.post('/deploy/push', async (req: Request, res: Response) => {
       return;
     }
 
-    const config = JSON.parse(record.config_json);
-    const cleanConfig = sanitizeConfig(stripMeta(config));
+    const platformConfig = JSON.parse(record.config_json);
+    const acknowledgeDrift = req.body?.acknowledgeDrift === true;
     console.log(`[SRV6] Pushing VR config to CSMctl: ${vrId}`);
 
-    const updateResp = await vrController.updateVRConfig(vrId, cleanConfig);
-    const respData = updateResp.data || {};
+    const result = await pushVRConfig({
+      vrId,
+      domain: 'srv6',
+      platformConfig,
+      acknowledgeDrift,
+    });
 
-    if (
-      respData &&
-      typeof respData.code !== 'undefined' &&
-      respData.code != 0 &&
-      respData.code != 200
-    ) {
-      throw new Error(
-        `设备返回错误：${respData.msg || respData.message || JSON.stringify(respData)}`,
-      );
-    }
-
-    res.json({ status: 200, data: respData });
-  } catch (e: any) {
+    res.json({ status: 200, data: result.deviceResponse, driftWarnings: result.driftWarnings });
+  } catch (e: unknown) {
+    const { status, body } = mapDeployErrorToResponse(e);
     console.error('[SRV6] deploy/push failed', e);
-    res.status(500).json({ error: e.message || String(e) });
+    res.status(status).json({ error: body.message, code: body.code, conflicts: body.conflicts });
   }
 });
 

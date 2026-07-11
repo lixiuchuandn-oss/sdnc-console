@@ -1,0 +1,130 @@
+{
+	"vrf": [
+        6666,
+		7777,
+		7778,
+		8888,
+		9999
+	],
+	"interfaces_GigabitEthernet": [
+        {
+            "name": " GigabitEthernet 0/3/1",
+			"ipv4_static": "10.10.10.10/24",
+			"ipv6_static": "2001:db8:1::1/64",
+            "status": "up"
+        }
+	],
+	"subinterfaces_GigabitEthernet": [
+		{
+			"name": " GigabitEthernet 0/3/1.100",
+			"vlan": 100,
+			"ipv4_static": "8.8.8.8/24",
+			"ipv6_static": "2001:db8:2::1/64",
+			"status": "up"
+		}
+	],
+    "ipv4_routes" : [
+		{
+            "destination" : "3.3.3.3/16",
+            "vrf" : "6666",
+            "via" : "10.20.0.1",
+            "priority" : "20"
+		}
+	],
+	"ipv6_routes" : [
+		{
+            "destination" : "20::1/64",
+            "via" : "20::1",
+            "priority" : "20"		
+		}
+	],
+    "ip_prefix_list": [
+        {
+            "name": "pref1",   
+            "type": "permit",   
+            "range": "110.0.0.0/8"
+        }
+    ],
+    "route_map": [
+        {
+            "name" : "map1",   
+            "type": "permit",
+            "match_prefix": "pref1", 
+            "metric": "100" 
+    }
+],
+	"segment_routing_srv6": 
+	{
+			"locator": "pe3",
+			"prefix": "300::0"
+	},
+	"bgp": [
+		{
+            "asn": 100,
+			"router_id": "12.12.12.12",
+            "bgp_ebgp_requires_policy": "disable", 
+			"neighbor": [
+                {
+                    "remote_ip": "200::1",
+                    "remote_as": 400
+                },
+                {
+                    "remote_ip": "500::1",
+                    "remote_as": 300
+                }
+            ],
+
+            "address_family": [
+                {
+                    "address_family": "ipv4",
+                	"modifiler": "vpn",
+                    "activate_address_family": [
+                        "200::1",
+                        "500::1"
+                    ]
+                },
+				{
+					"address_family": "ipv6",
+                	"modifiler": "unicast",
+                    "route_distinguisher": "200:11",
+                    "route_target": "200:200",
+                    "activate_address_family": [
+                        "200::1",
+                        "500::1"
+                    ],
+                    "network": [
+                        "200::0/64",
+						"500::0/64"
+                    ]
+				}
+            ],
+		  "segment_routing_srv6": {
+              "locator": "pe3"
+            }
+        },
+		{
+            "asn": 300,
+			"vrf": 7777,
+			"router_id": "10.20.0.1",
+            "bgp_ebgp_requires_policy": "disable",
+			"neighbor": [
+                {
+                    "remote_ip": "120.1.1.9",
+                    "remote_as": 400
+                }
+            ],
+            "address_family": [
+                {
+                    "address_family": "ipv4",
+                	"modifiler": "unicast",
+                    "export_route": "enable",
+                    "import_route": "enable",
+                    "route_distinguisher": "200:11",
+                    "route_target": "200:201",
+                    "auto_assign_sid": "enable"
+                }
+            ]
+        }
+	]
+
+}

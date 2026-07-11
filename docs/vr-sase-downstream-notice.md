@@ -120,9 +120,9 @@ Tower SDN 编排对象由 **「安全域」** 更名为 **「网际路由域」�
 
 ---
 
-## 7. 租户全量查询（对外）
+## 7. 租户全量查询（Tower 全量产品）
 
-完整接口说明（可单独发给对接方）：**[tenant-full-export-api.md](./tenant-full-export-api.md)**
+SDNC 独立部署**不挂载** `/api/tenants`；本节仅在与 Tower 主平台联调、由 Tower 提供租户主数据时适用。
 
 | 方法 | 路径 |
 |------|------|

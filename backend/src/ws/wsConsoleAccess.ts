@@ -1,10 +1,10 @@
 import { UserRole } from '../entities/User';
 
 /**
- * 旧版 WebSSH / WebVNC（/ws/ssh、/ws/vnc）鉴权。
- * 租户账号按身份放行；系统账号需 clouds.ecs:write（JWT 若未携带 permissions 则仅 super_admin / tenant 可用）。
+ * WebSSH（/ws/ssh）鉴权。
+ * super_admin / tenant 放行；其它系统账号需 networks.vr-config:write。
  */
-export function assertLegacyConsoleWsAccess(decoded: {
+export function assertConsoleWsAccess(decoded: {
   role?: string;
   permissions?: string[];
 }): void {
@@ -13,9 +13,12 @@ export function assertLegacyConsoleWsAccess(decoded: {
   if (role === UserRole.TENANT || role === 'tenant') return;
 
   const perms = Array.isArray(decoded.permissions) ? decoded.permissions : [];
-  if (perms.includes('clouds.ecs:write') || perms.includes('clouds:write') || perms.includes('*')) {
+  if (perms.includes('networks.vr-config:write') || perms.includes('*')) {
     return;
   }
 
-  throw new Error('缺少 clouds.ecs:write 权限，无法建立远程连接');
+  throw new Error('缺少 networks.vr-config:write 权限，无法建立远程连接');
 }
+
+/** @deprecated 兼容旧引用 */
+export const assertLegacyConsoleWsAccess = assertConsoleWsAccess;

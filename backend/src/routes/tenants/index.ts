@@ -1,23 +1,15 @@
 import { Router } from 'express';
-import { requireEnterpriseLicense } from '../../middleware/enterpriseLicense';
 import { registerTenantCrudRoutes } from './tenantCrudRoutes';
 import { registerTenantOrganizationRoutes } from './tenantOrganizationRoutes';
-import { registerTenantRepairRoutes } from './tenantRepairRoutes';
-import { registerTenantResourcePoolRoutes } from './tenantResourcePoolRoutes';
 import { registerTenantUserRoutes } from './tenantUserRoutes';
 
 /**
- * 租户与组织 / 租户用户 / 资源池分配路由聚合。
- * 各 register 内部已保证字面量路径（如 available-resource-pools）先于参数路由注册。
+ * 租户与组织 / 租户用户（SDNC：供 VR 绑定下拉与系统设置维护）。
  */
 const router = Router();
 
-router.use(requireEnterpriseLicense);
-
 registerTenantCrudRoutes(router);
-registerTenantRepairRoutes(router);
 registerTenantOrganizationRoutes(router);
 registerTenantUserRoutes(router);
-registerTenantResourcePoolRoutes(router);
 
 export { router as tenantRoutes };

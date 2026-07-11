@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 
 /**
- * 登录页背景图（/login 与 /admin/login 共用）。
+ * 登录页背景图（/admin/login；/login 重定向至同页）。
  *
  * - 默认使用 `public/images/login-hero-light.png`（浅色极简风：左侧 3D 算力塔 + 多云连接，右侧大面积留白衬白卡）。
  * - 旧的深色太空插画仍保留为 `public/images/login-hero.png`，可经环境变量切回。

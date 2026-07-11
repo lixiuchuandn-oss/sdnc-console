@@ -1,10 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space, Steps, Switch, Tabs, message, Checkbox } from 'antd';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { apiPost, apiRequest, createIPsecVPN, getApiErrorMessage, updateIPsecVPN } from '../../../../services/api';
+import { apiRequest, createIPsecVPN, getApiErrorMessage, updateIPsecVPN } from '../../../../services/api';
+import IbrDeployWizardPanel from '../lib/IbrDeployWizardPanel';
+import { useIbrDeployWizard } from '../lib/useIbrDeployWizard';
 import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import {
+  handleWizardStepsChange,
+  validateWizardStepsThrough,
+  warnFormValidationFailure,
+} from '../routers/vrWizardFormUtils';
 
 const { Option } = Select;
 
@@ -27,10 +34,10 @@ const IPsecVPNWizard: React.FC = () => {
   const [localPresetAvailable, setLocalPresetAvailable] = useState<boolean>(false);
   const [useLocalPreset, setUseLocalPreset] = useState<boolean>(false);
   const [_progressSteps, _setProgressSteps] = useState([
-    { status: 'wait', description: '开始下发本端VR配置' },
-    { status: 'wait', description: '本端VR配置下发成功' },
-    { status: 'wait', description: '开始下发对端VR配置' },
-    { status: 'wait', description: '对端VR配置下发成功' },
+    { status: 'wait', description: '开始下发本端IBR配置' },
+    { status: 'wait', description: '本端IBR配置下发成功' },
+    { status: 'wait', description: '开始下发对端IBR配置' },
+    { status: 'wait', description: '对端IBR配置下发成功' },
     { status: 'wait', description: '结束' },
   ]);
   const [, setRefreshKey] = useState(0);
@@ -40,173 +47,36 @@ const IPsecVPNWizard: React.FC = () => {
   const [_fullPeerConfig, _setFullPeerConfig] = useState<any>(null);
   const _deployedRef = React.useRef(false);
   const [deployRunSeq, setDeployRunSeq] = useState(0);
-  const deploySessionRef = React.useRef(0);
-  const deployingStepRef = React.useRef<{ sessionId: number; stepIndex: number } | null>(null);
   const prevWizardStepRef = React.useRef(current);
-  const manualStepTimersRef = React.useRef<number[]>([]);
 
-  // Manual Step State
-  const [manualStep, setManualStep] = useState(0);
-  const [manualLogs, setManualLogs] = useState<Record<number, string>>({});
-  const [manualStatus, setManualStatus] = useState<Record<number, 'wait' | 'process' | 'finish' | 'error'>>({});
+  const resolveIpsecDeployEndpoints = useCallback(
+    () => [
+      { label: '本端', vrId: String(form.getFieldValue('localVrId') || '').trim() },
+      { label: '对端', vrId: String(form.getFieldValue('peerVrId') || '').trim() },
+    ],
+    [form],
+  );
 
-  const deployGetOpts = { skipCache: true, enableDeduplication: false } as const;
+  const ipsecDeployWizard = useIbrDeployWizard({
+    feature: 'ipsec',
+    includeVerify: true,
+    resolveEndpoints: resolveIpsecDeployEndpoints,
+    onAllFinished: () => message.success('全部流程结束'),
+  });
 
-  const manualStepsDef = [
-    { title: '读取本端配置', desc: '从本地缓存读取并预览本端待下发配置' },
-    { title: '下发本端配置', desc: '推送配置到本端 CSMCTL' },
-    { title: '回查本端结果', desc: '验证本端设备是否成功加载配置' },
-    { title: '读取对端配置', desc: '从本地缓存读取并预览对端待下发配置' },
-    { title: '下发对端配置', desc: '推送配置到对端 CSMCTL' },
-    { title: '回查对端结果', desc: '验证对端设备是否成功加载配置' }
-  ];
-
-  const clearManualStepTimers = () => {
-    manualStepTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    manualStepTimersRef.current = [];
-  };
-
-  const cancelDeploySession = () => {
-    deploySessionRef.current += 1;
-    deployingStepRef.current = null;
-    clearManualStepTimers();
-  };
-
-  const executeManualStep = async (stepIndex: number) => {
-    const sessionId = deploySessionRef.current;
-    const active = deployingStepRef.current;
-    if (active?.sessionId === sessionId && active.stepIndex === stepIndex) return;
-
-    const localVrId = String(form.getFieldValue('localVrId') || '').trim();
-    const peerVrId = String(form.getFieldValue('peerVrId') || '').trim();
-    deployingStepRef.current = { sessionId, stepIndex };
-
-    setManualStatus((prev) => ({ ...prev, [stepIndex]: 'process' }));
-    setManualLogs((prev) => ({ ...prev, [stepIndex]: '执行中…' }));
-
-    const isStale = () => sessionId !== deploySessionRef.current;
-
-    try {
-      let res: any;
-      let logMsg = '';
-
-      const deployGet = (path: string) => apiRequest(path, deployGetOpts);
-
-      switch (stepIndex) {
-        case 0: // Preview Local
-          if (!localVrId) throw new Error('缺少本端 VR UUID，请返回上一步确认已选择本端网关');
-          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(localVrId)}`);
-          if (isStale()) return;
-          if (res?.error) throw new Error(res.error);
-          logMsg = `[本端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
-          break;
-
-        case 1: // Push Local
-          if (!localVrId) throw new Error('缺少本端 VR UUID');
-          res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: localVrId });
-          if (isStale()) return;
-          if (res.error) throw new Error(res.error);
-          logMsg = `[本端下发响应]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
-          if (res.status !== 200 && res.status !== 201) throw new Error(`Device returned status ${res.status}`);
-          break;
-
-        case 2: // Verify Local
-          if (!localVrId) throw new Error('缺少本端 VR UUID');
-          res = await deployGet(`/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(localVrId)}`);
-          if (isStale()) return;
-          if (res.error) throw new Error(res.error);
-          logMsg = `[本端回查]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
-          if (res.ipsecCount === 0) throw new Error('设备上未找到 IPsec 连接，请确认下发是否成功');
-          break;
-
-        case 3: // Preview Peer
-          if (!peerVrId) {
-            logMsg = '未选择对端 VR，跳过。';
-            break;
-          }
-          res = await deployGet(`/api/networks/ipsec/deploy/preview?vrId=${encodeURIComponent(peerVrId)}`);
-          if (isStale()) return;
-          if (res?.error) throw new Error(res.error);
-          logMsg = `[对端配置预览]\n${JSON.stringify(res.config, null, 2)}`;
-          break;
-
-        case 4: // Push Peer
-          if (!peerVrId) {
-            logMsg = '未选择对端 VR，跳过。';
-            break;
-          }
-          res = await apiPost(`/api/networks/ipsec/deploy/push`, { vrId: peerVrId });
-          if (isStale()) return;
-          if (res.error) throw new Error(res.error);
-          logMsg = `[对端下发响应]\nStatus: ${res.status}\nBody: ${JSON.stringify(res.data, null, 2)}`;
-          if (res.status !== 200 && res.status !== 201) throw new Error(`Device returned status ${res.status}`);
-          break;
-
-        case 5: // Verify Peer
-          if (!peerVrId) {
-            logMsg = '未选择对端 VR，跳过。';
-            break;
-          }
-          res = await deployGet(`/api/networks/ipsec/deploy/verify?vrId=${encodeURIComponent(peerVrId)}`);
-          if (isStale()) return;
-          if (res.error) throw new Error(res.error);
-          logMsg = `[对端回查]\nIPsec Count: ${res.ipsecCount}\nConfig: ${JSON.stringify(res.config, null, 2)}`;
-          if (res.ipsecCount === 0) throw new Error('对端设备上未找到 IPsec 连接，请确认下发是否成功');
-          break;
-      }
-
-      if (isStale()) return;
-
-      setManualLogs((prev) => ({ ...prev, [stepIndex]: logMsg }));
-      setManualStatus((prev) => ({ ...prev, [stepIndex]: 'finish' }));
-      setManualStep(stepIndex + 1);
-
-      if (stepIndex < 5) {
-        const timer = window.setTimeout(() => void executeManualStep(stepIndex + 1), 500);
-        manualStepTimersRef.current.push(timer);
-      } else {
-        message.success('全部流程结束');
-      }
-    } catch (e: unknown) {
-      if (isStale()) return;
-      console.error(e);
-      const errMsg = getApiErrorMessage(e, '下发步骤失败');
-      setManualLogs((prev) => ({ ...prev, [stepIndex]: `[错误] ${errMsg}` }));
-      setManualStatus((prev) => ({ ...prev, [stepIndex]: 'error' }));
-    } finally {
-      const activeStep = deployingStepRef.current;
-      if (activeStep?.sessionId === sessionId && activeStep.stepIndex === stepIndex) {
-        deployingStepRef.current = null;
-      }
-    }
-  };
-
-  // 进入第 4 步或用户重新点击“开始下发”时，显式创建一次新的下发会话。
+  // 进入第 4 步或用户重新点击「开始下发」时，启动统一下发向导。
   useEffect(() => {
     const prevStep = prevWizardStepRef.current;
     prevWizardStepRef.current = current;
 
     if (current !== 3) {
-      if (prevStep === 3) {
-        cancelDeploySession();
-      }
+      if (prevStep === 3) ipsecDeployWizard.cancel();
       return;
     }
     if (deployRunSeq === 0) return;
 
-    deploySessionRef.current += 1;
-    deployingStepRef.current = null;
-    clearManualStepTimers();
-    setManualStep(0);
-    setManualLogs({});
-    setManualStatus({
-      0: 'wait', 1: 'wait', 2: 'wait', 3: 'wait', 4: 'wait', 5: 'wait',
-    });
-    const t = window.setTimeout(() => void executeManualStep(0), 400);
-    return () => {
-      window.clearTimeout(t);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- 下发会话由 current + deployRunSeq 显式驱动
+    ipsecDeployWizard.startAuto();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 下发会话由 current + deployRunSeq 显式驱动
   }, [current, deployRunSeq]);
 
   // 1. 精确监听 Checkbox 状态，确保 React 能够感知变化
@@ -327,7 +197,7 @@ const IPsecVPNWizard: React.FC = () => {
       setVrs(list);
     } catch (e) {
       console.error('Failed to fetch VR list from cache', e);
-      message.error('获取VR列表失败');
+      message.error('获取IBR列表失败');
     } finally {
       setVrLoading(false);
     }
@@ -499,25 +369,45 @@ const IPsecVPNWizard: React.FC = () => {
         }
       }
     } catch (e: any) {
-      message.warning((e?.message || '读取VR配置失败') + ` (${which})`);
+      message.warning((e?.message || '读取IBR配置失败') + ` (${which})`);
     }
   };
 
+  const IPSEC_STEP0_FIELDS = ['name'];
+  const IPSEC_STEP1_FIELDS = [
+    'localVrId',
+    'peerVrId',
+    'localVrLanSubnet',
+    'peerVrWanIP',
+    'peerVrLanSubnet',
+    'psk',
+    'localVrWanIP',
+  ];
+
+  const ipsecFieldsForStep = (step: number) =>
+    step === 0 ? IPSEC_STEP0_FIELDS : step === 1 ? IPSEC_STEP1_FIELDS : [];
+
+  const validateIpsecStepsThrough = (from: number, to: number) =>
+    validateWizardStepsThrough(form, from, to, ipsecFieldsForStep);
+
   const next = async () => {
     try {
-      if (current === 0) {
-        await form.validateFields(['name']);
-      } else if (current === 1) {
-        await form.validateFields(['localVrId', 'peerVrId', 'localVrLanSubnet', 'peerVrWanIP', 'peerVrLanSubnet', 'psk', 'localVrWanIP']);
-      }
-      const n = Math.min(2, current + 1);
-      setCurrent(n);
-    } catch {}
+      const ok = await validateIpsecStepsThrough(current, current + 1);
+      if (!ok) return;
+      setCurrent(Math.min(2, current + 1));
+    } catch (err) {
+      warnFormValidationFailure(err);
+    }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
+  const handleStepsChange = (idx: number) => {
+    if (current === 3) return;
+    void handleWizardStepsChange(idx, current, setCurrent, validateIpsecStepsThrough);
+  };
+
   const startDeploy = () => {
-    cancelDeploySession();
+    ipsecDeployWizard.cancel();
     setDeployRunSeq((seq) => seq + 1);
     setCurrent(3);
   };
@@ -660,8 +550,8 @@ const IPsecVPNWizard: React.FC = () => {
   return (
     <PageContainer
         titleLevel={3}
-        subtitle={<span style={{color: '#666'}}>按步骤选择本端/对端VR、子网与安全参数，完成创建。</span>}
-        extra={<Button icon={<ReloadOutlined />} onClick={fetchVRs}>刷新VR列表</Button>}
+        subtitle={<span style={{color: '#666'}}>按步骤选择本端/对端IBR、子网与安全参数，完成创建。</span>}
+        extra={<Button icon={<ReloadOutlined />} onClick={fetchVRs}>刷新IBR列表</Button>}
         onBack={() => navigate(-1)}
         asCard={false}
         contentPadding={16}
@@ -673,9 +563,7 @@ const IPsecVPNWizard: React.FC = () => {
               direction="vertical"
               size="small"
               current={current}
-              onChange={(idx) => {
-                 if(current !== 3) setCurrent(idx); // Prevent changing step manually during execution
-              }}
+              onChange={handleStepsChange}
               items={[
                 { title: '基础信息与模式' },
                 { title: '选择本端与对端' },
@@ -733,16 +621,16 @@ const IPsecVPNWizard: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                   <span style={{ fontSize: 13, color: '#1677ff' }}>本端网关</span>
                   <Space size={4}>
-                    <span style={{ fontSize: 12, color: '#595959' }}>使用 VR 预设</span>
+                    <span style={{ fontSize: 12, color: '#595959' }}>使用 IBR 预设</span>
                     <Switch size="small" checked={!useLocalPreset} onChange={(v) => setUseLocalPreset(!v)} disabled={!localPresetAvailable} />
                   </Space>
                 </div>
                 <Row gutter={16}>
                   {/* Row 1 */}
                   <Col span={12}>
-                    <Form.Item name="localVrId" label={<span style={{ fontSize: 13, color: '#595959' }}>本端网关 (VR实例)</span>} rules={[{ required: true, message: '请选择VR实例' }]}>
+                    <Form.Item name="localVrId" label={<span style={{ fontSize: 13, color: '#595959' }}>本端网关 (IBR实例)</span>} rules={[{ required: true, message: '请选择IBR实例' }]}>
                       <Select
-                        placeholder="选择VR实例"
+                        placeholder="选择IBR实例"
                         loading={vrLoading}
                         showSearch
                         onChange={(val: string) => prefillFromVrPreset('local', val)}
@@ -812,16 +700,16 @@ const IPsecVPNWizard: React.FC = () => {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                   <span style={{ fontSize: 13, color: '#1677ff' }}>对端网关</span>
                   <Space size={4}>
-                    <span style={{ fontSize: 12, color: '#595959' }}>使用 VR 预设</span>
+                    <span style={{ fontSize: 12, color: '#595959' }}>使用 IBR 预设</span>
                     <Switch size="small" checked={!usePeerPreset} onChange={(v) => setUsePeerPreset(!v)} disabled={!peerPresetAvailable} />
                   </Space>
                 </div>
                 <Row gutter={16}>
                   {/* Row 1 */}
                   <Col span={12}>
-                    <Form.Item name="peerVrId" label={<span style={{ fontSize: 13, color: '#595959' }}>对端网关 (VR实例)</span>} rules={[{ required: true, message: '请选择对端 VR 实例' }]}>
+                    <Form.Item name="peerVrId" label={<span style={{ fontSize: 13, color: '#595959' }}>对端网关 (IBR实例)</span>} rules={[{ required: true, message: '请选择对端 IBR实例' }]}>
                       <Select
-                        placeholder="选择对端 VR（可选）"
+                        placeholder="选择对端 IBR（可选）"
                         loading={vrLoading}
                         showSearch
                         onChange={(val: string) => prefillFromVrPreset('remote', val)}
@@ -955,12 +843,12 @@ const IPsecVPNWizard: React.FC = () => {
               <div style={{ display: current === 2 ? 'block' : 'none' }}>
                 <Descriptions column={1} bordered size="small">
                   <Descriptions.Item label="名称">{form.getFieldValue('name') || '-'}</Descriptions.Item>
-                  <Descriptions.Item label="本端VR">{form.getFieldValue('localVrId') || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="本端IBR">{form.getFieldValue('localVrId') || '-'}</Descriptions.Item>
                   <Descriptions.Item label="本端WAN IP">{form.getFieldValue('localVrWanIP') || '-'}</Descriptions.Item>
                   <Descriptions.Item label="本端EIP">{form.getFieldValue('enableLocalEip') ? form.getFieldValue('localVrWanEIP') : '未启用'}</Descriptions.Item>
                   <Descriptions.Item label="本端允许任意远程IP">{form.getFieldValue('localIkeRemoteIpAny') ? '是' : '否'}</Descriptions.Item>
                   <Descriptions.Item label="本端子网">{form.getFieldValue('localVrLanSubnet') || '-'}</Descriptions.Item>
-                  <Descriptions.Item label="对端VR">{form.getFieldValue('peerVrId') || '-'}</Descriptions.Item>
+                  <Descriptions.Item label="对端IBR">{form.getFieldValue('peerVrId') || '-'}</Descriptions.Item>
                   <Descriptions.Item label="对端WAN IP">{form.getFieldValue('peerVrWanIP') || '-'}</Descriptions.Item>
                   <Descriptions.Item label="对端EIP">{form.getFieldValue('enableRemoteEip') ? form.getFieldValue('peerVrWanEIP') : '未启用'}</Descriptions.Item>
                   <Descriptions.Item label="对端允许任意远程IP">{form.getFieldValue('remoteIkeRemoteIpAny') ? '是' : '否'}</Descriptions.Item>
@@ -977,47 +865,14 @@ const IPsecVPNWizard: React.FC = () => {
                 </Descriptions>
               </div>
               <div style={{ display: current === 3 ? 'block' : 'none' }}>
-                <div style={{ marginBottom: 24, fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>手动下发流程</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {manualStepsDef.map((step, idx) => (
-                    <Card key={idx} size="small" type="inner" title={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 24, height: 24, borderRadius: '50%', background: manualStatus[idx] === 'finish' ? '#52c41a' : (manualStatus[idx] === 'error' ? '#ff4d4f' : (manualStatus[idx] === 'process' ? '#1677ff' : '#d9d9d9')), color: '#fff', textAlign: 'center', lineHeight: '24px', fontSize: 12 }}>
-                          {idx + 1}
-                        </div>
-                        <span>{step.title}</span>
-                        <span style={{ fontSize: 12, color: '#888', fontWeight: 'normal' }}>{step.desc}</span>
-                      </div>
-                    } extra={
-                      <Button 
-                        type="primary" 
-                        size="small" 
-                        disabled={idx !== manualStep} 
-                        loading={manualStatus[idx] === 'process'}
-                        onClick={() => executeManualStep(idx)}
-                      >
-                        执行
-                      </Button>
-                    }>
-                      {manualLogs[idx] && (
-                        <pre style={{ 
-                           fontSize: 12, 
-                           fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-                           background: '#1e1e1e', 
-                           color: '#d4d4d4',
-                           padding: 12, 
-                           borderRadius: 6, 
-                           overflow: 'auto', 
-                           maxHeight: 200,
-                           border: 'none',
-                           marginTop: 0
-                        }}>
-                          {manualLogs[idx]}
-                        </pre>
-                      )}
-                    </Card>
-                  ))}
-                </div>
+                <IbrDeployWizardPanel
+                  title="下发向导"
+                  steps={ipsecDeployWizard.steps}
+                  activeStep={ipsecDeployWizard.activeStep}
+                  logs={ipsecDeployWizard.logs}
+                  status={ipsecDeployWizard.status}
+                  onRunStep={(idx) => void ipsecDeployWizard.runStep(idx)}
+                />
               </div>
             </Form>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
@@ -1084,7 +939,7 @@ const IPsecVPNWizard: React.FC = () => {
                 },
                 {
                   key: 'raw',
-                  label: 'VR源数据',
+                  label: 'IBR源数据',
                   children: (
                     <div style={{ maxHeight: 400, overflow: 'auto' }}>
                       <div style={{ marginBottom: 12 }}>

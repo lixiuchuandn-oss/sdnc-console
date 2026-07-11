@@ -1,10 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState, useTransition, useDeferredValue } from 'react';
-import { Alert, Button, Card, Descriptions, Form, Input, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition, useDeferredValue } from 'react';
+import { Alert, Button, Card, Descriptions, Form, Input, Radio, Select, Space, Steps, message, Row, Col, Modal, Tabs, Divider } from 'antd';
 import { ExportOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import { getVRRoles, saveVRConfig, getVRConfig, fetchVrCachePageList, getVR2Config } from '../../../../services/virtualRouterApi';
-import { apiRequest, apiPost, fetchSrv6HubStatus, fetchSrv6Tunnel, type Srv6HubVrStatus } from '../../../../services/api';
+import { fetchSrv6HubStatus, fetchSrv6Tunnel, type Srv6HubVrStatus } from '../../../../services/api';
+import IbrDeployWizardPanel from '../lib/IbrDeployWizardPanel';
+import { useIbrDeployWizard } from '../lib/useIbrDeployWizard';
 import { filterLinkLocalIpv6 } from '../routers/vrIpv6Utils';
 import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
 import { buildReuseVrfRdRtMeta } from './srv6RdRt';
@@ -32,6 +34,14 @@ import {
   type HubLanOptionState,
   type HubReuseAnchor,
 } from './srv6TunnelWizardHub';
+import { fetchIbrHaGroups, type IbrHaGroup } from '../../../../services/ibrHaGroupApi';
+import {
+  buildSrv6HaGroupSelectOptions,
+  findHaGroupById,
+  resolveSrv6CeHaBinding,
+  resolveSrv6CeHaBindingById,
+  type Srv6TunnelCeMode,
+} from './srv6CeHaGroupLib';
 
 // 安全 JSON 解析：字符串尝试解析为对象，失败则原样返回
 const safeJsonParse = (text: string): any => {
@@ -56,18 +66,6 @@ const safeStringify = (obj: any): string => {
   }
 };
 
-/** SRv6 下发向导步骤（与 IPsec手动下发类似：每台 VR 先预览再推送） */
-const SRV6_DEPLOY_STEP_DEFS: { title: string; desc: string }[] = [
-  { title: '预览 PE-A', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 PE-A', desc: '推送到设备' },
-  { title: '预览 PE-B', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 PE-B', desc: '推送到设备' },
-  { title: '预览 CE-A', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 CE-A', desc: '推送到设备' },
-  { title: '预览 CE-B', desc: '从平台库读取待下发配置（清洗后）' },
-  { title: '下发 CE-B', desc: '推送到设备' },
-];
-
 const SRv6CreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm();
@@ -77,7 +75,9 @@ const SRv6CreatePage: React.FC = () => {
 
   // 向导状态
   const [current, setCurrent] = useState<number>(0);
-  const [mode, setMode] = useState<'标准' | '高可用' | undefined>('标准');
+  const [mode, setMode] = useState<Srv6TunnelCeMode>('标准');
+  const [haGroups, setHaGroups] = useState<IbrHaGroup[]>([]);
+  const [haGroupsLoading, setHaGroupsLoading] = useState(false);
   const [formValues, setFormValues] = useState<any>({});
   const [, startTransition] = useTransition();
   const [peConfigs, setPeConfigs] = useState<{ peA?: any; peB?: any }>({});
@@ -85,13 +85,24 @@ const SRv6CreatePage: React.FC = () => {
   /** 第 3 步：已创建隧道记录并写入平台 VR配置库 */
   const [platformSaved, setPlatformSaved] = useState(false);
   const [platformSaveLoading, setPlatformSaveLoading] = useState(false);
-  /** 第 4 步：分步下发 */
-  const [deployStep, setDeployStep] = useState(0);
-  const [deployLogs, setDeployLogs] = useState<Record<number, string>>({});
-  const [deployStatus, setDeployStatus] = useState<Record<number, 'wait' | 'process' | 'finish' | 'error'>>({});
-  const deployVrSeqRef = React.useRef<{ label: string; id: string }[]>([]);
   const deployAutoStartedRef = React.useRef(false);
   const [peHubStatus, setPeHubStatus] = useState<{ peA?: Srv6HubVrStatus; peB?: Srv6HubVrStatus }>({});
+
+  const resolveSrv6DeployEndpoints = useCallback(
+    () => [
+      { label: 'PE-A', vrId: String(form.getFieldValue('peA') || '') },
+      { label: 'PE-B', vrId: String(form.getFieldValue('peB') || '') },
+      { label: 'CE-A', vrId: String(form.getFieldValue('ceA') || '') },
+      { label: 'CE-B', vrId: String(form.getFieldValue('ceB') || '') },
+    ],
+    [form],
+  );
+
+  const srv6DeployWizard = useIbrDeployWizard({
+    feature: 'srv6',
+    resolveEndpoints: resolveSrv6DeployEndpoints,
+    onAllFinished: () => message.success('四台 IBR 下发流程已执行完毕'),
+  });
 
   const refreshPeHubStatus = async (target: 'peA' | 'peB', vrUuid?: string) => {
     const id = String(vrUuid || '').trim();
@@ -162,6 +173,15 @@ const SRv6CreatePage: React.FC = () => {
             peBInnerIf: item.peBInnerIf,
           });
           if (item.rdRtMeta) setRdRtMeta(item.rdRtMeta);
+          const fpA = item.endpointFingerprint?.ceA;
+          const fpB = item.endpointFingerprint?.ceB;
+          if (fpA?.haGroupId || fpB?.haGroupId) {
+            setMode('高可用');
+            form.setFieldsValue({
+              ceAHaGroupId: fpA?.haGroupId || undefined,
+              ceBHaGroupId: fpB?.haGroupId || undefined,
+            });
+          }
           // 编辑模式：加载各端已有配置，便于拼装下发 JSON
           if (item.peA) await fetchAndSetPeConfig('peA', item.peA);
           if (item.peB) await fetchAndSetPeConfig('peB', item.peB);
@@ -821,7 +841,7 @@ const SRv6CreatePage: React.FC = () => {
       }
     } catch (error: any) {
       console.error('[SRV6_DEBUG_ERROR] 获取VR缓存列表失败:', error);
-      message.error(`获取VR列表失败: ${error.message || '请稍后重试'}`);
+      message.error(`获取IBR列表失败: ${error.message || '请稍后重试'}`);
       setVrs([]);
       setRolesMap({});
       rolesMapRef.current = {};
@@ -832,6 +852,35 @@ const SRv6CreatePage: React.FC = () => {
     fetchVRsAndRoles(100, 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setHaGroupsLoading(true);
+      try {
+        const groups = await fetchIbrHaGroups({ skipCache: true });
+        if (!cancelled) setHaGroups(groups);
+      } catch {
+        if (!cancelled) setHaGroups([]);
+      } finally {
+        if (!cancelled) setHaGroupsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const haGroupOptions = useMemo(() => buildSrv6HaGroupSelectOptions(haGroups), [haGroups]);
+
+  const resolveCeHaBinding = useCallback(
+    (slot: 'ceA' | 'ceB') => {
+      const field = slot === 'ceA' ? 'ceAHaGroupId' : 'ceBHaGroupId';
+      const groupId = String(form.getFieldValue(field) || '').trim();
+      return resolveSrv6CeHaBindingById(haGroups, groupId);
+    },
+    [form, haGroups],
+  );
 
   const peOptions = useMemo(() => {
     const items = (vrs || []).map((r: any) => {
@@ -1044,7 +1093,6 @@ const SRv6CreatePage: React.FC = () => {
       hubCeUuid: hubCeUuidWatch ?? stored[ceField] ?? formValues?.[ceField],
     };
   }, [
-    current,
     formValues,
     hubLanInventoryIdWatch,
     hubLanIfWatch,
@@ -1440,7 +1488,7 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  const markHubCustomerSideTouchedIfCeDiverges = (ceSlot: 'ceA' | 'ceB', ceUuid: string) => {
+  const markHubCustomerSideTouchedIfCeDiverges = (ceSlot: 'ceA' | 'ceB', _ceUuid: string) => {
     const peSlot = ceSlot === 'ceA' ? 'peA' : 'peB';
     if (inferredHubPeSlot !== peSlot) return;
     if (isFirstHubTunnelOnPe) {
@@ -1448,6 +1496,19 @@ const SRv6CreatePage: React.FC = () => {
       return;
     }
     markHubCustomerSideTouched();
+  };
+
+  const applyCeHaGroupSelection = async (slot: 'ceA' | 'ceB', groupId: string) => {
+    const group = findHaGroupById(haGroups, groupId);
+    if (!group) return;
+    const binding = resolveSrv6CeHaBinding(group);
+    if (!binding) {
+      message.warning('所选高可用组缺少主备成员');
+      return;
+    }
+    form.setFieldsValue({ [slot]: binding.primaryVrUuid });
+    markHubCustomerSideTouchedIfCeDiverges(slot, binding.primaryVrUuid);
+    await fetchAndSetCeConfig(slot, binding.primaryVrUuid);
   };
 
   const handleValuesChange = async (changed: any, all: any) => {
@@ -1460,6 +1521,12 @@ const SRv6CreatePage: React.FC = () => {
       await fetchAndSetPeConfig('peB', changed.peB);
       form.setFieldsValue({ peBInnerIf: undefined });
       await refreshPeHubStatus('peB', changed.peB);
+    }
+    if (changed?.ceAHaGroupId) {
+      await applyCeHaGroupSelection('ceA', String(changed.ceAHaGroupId));
+    }
+    if (changed?.ceBHaGroupId) {
+      await applyCeHaGroupSelection('ceB', String(changed.ceBHaGroupId));
     }
     if (changed?.ceA) {
       markHubCustomerSideTouchedIfCeDiverges('ceA', changed.ceA);
@@ -1631,7 +1698,7 @@ const SRv6CreatePage: React.FC = () => {
   const _openPeDialog = (target: 'peA' | 'peB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
-      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);
+      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 IBR实例`);
       return;
     }
     setPeConfigTarget(target);
@@ -1649,7 +1716,7 @@ const SRv6CreatePage: React.FC = () => {
   const _goExpertMode = (target: 'peA' | 'peB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
-      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 VR 实例`);
+      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : 'PE-B'} 的 IBR实例`);
       return;
     }
     navigate(`/admin/interconnect/vr/${uuid}/config`);
@@ -1659,7 +1726,7 @@ const SRv6CreatePage: React.FC = () => {
   const openRoleWizard = (target: 'peA' | 'peB' | 'ceA' | 'ceB') => {
     const uuid = form.getFieldValue(target);
     if (!uuid) {
-      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : target === 'peB' ? 'PE-B' : target === 'ceA' ? 'CE-A' : 'CE-B'} 的 VR 实例`);
+      message.error(`请先选择 ${target === 'peA' ? 'PE-A' : target === 'peB' ? 'PE-B' : target === 'ceA' ? 'CE-A' : 'CE-B'} 的 IBR实例`);
       return;
     }
     const url = target.startsWith('pe')
@@ -1677,7 +1744,7 @@ const SRv6CreatePage: React.FC = () => {
       const vals = await peConfigForm.validateFields();
       const uuid = peConfigTarget ? form.getFieldValue(peConfigTarget) : null;
       if (!uuid) {
-        message.error('缺少 VR UUID');
+        message.error('缺少 IBR UUID');
         return;
       }
       const config = {
@@ -1740,6 +1807,14 @@ const SRv6CreatePage: React.FC = () => {
     const tunnelName = String(v?.tunnelName || '').trim();
     if (tunnelName) cfg.tunnel_name = tunnelName;
     if (mode) cfg.mode = mode;
+    if (mode === '高可用') {
+      if (v?.ceAHaGroupId) cfg.ce_a_ha_group_id = String(v.ceAHaGroupId);
+      if (v?.ceBHaGroupId) cfg.ce_b_ha_group_id = String(v.ceBHaGroupId);
+      const bindA = resolveSrv6CeHaBindingById(haGroups, String(v.ceAHaGroupId || ''));
+      const bindB = resolveSrv6CeHaBindingById(haGroups, String(v.ceBHaGroupId || ''));
+      if (bindA) cfg.ce_a_backup = bindA.backupVrUuid;
+      if (bindB) cfg.ce_b_backup = bindB.backupVrUuid;
+    }
     // 端点选择
     const endpoints: any = {};
     if (v?.peA) endpoints.pe_a = String(v.peA);
@@ -1752,7 +1827,7 @@ const SRv6CreatePage: React.FC = () => {
 
   const deferredValues = useDeferredValue(formValues);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const _configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode]);
+  const _configPreview = useMemo(() => buildTunnelConfigFromValues(deferredValues || {}), [deferredValues, mode, haGroups]);
 
   /** 仅在前两步回退时清空「已保存」标记；从下发向导回到确认页仍保留（避免重复点创建） */
   useEffect(() => {
@@ -1784,6 +1859,8 @@ const SRv6CreatePage: React.FC = () => {
     const peB = values?.peB;
     const ceA = values?.ceA;
     const ceB = values?.ceB;
+    const ceAHaGroupId = String(values?.ceAHaGroupId || '').trim();
+    const ceBHaGroupId = String(values?.ceBHaGroupId || '').trim();
     const tunnelName = String(values?.tunnelName || '').trim();
     const peAInnerIf = values?.peAInnerIf;
     const peBInnerIf = values?.peBInnerIf;
@@ -1792,12 +1869,44 @@ const SRv6CreatePage: React.FC = () => {
       message.error('PE-A 与 PE-B 不能相同');
       return false;
     }
-    if (ceA && ceB && String(ceA) === String(ceB)) {
+
+    if (mode === '高可用') {
+      if (!ceAHaGroupId || !ceBHaGroupId) {
+        message.error('高可用模式须为本端与对端各选择一个 CE 高可用组');
+        return false;
+      }
+      if (ceAHaGroupId === ceBHaGroupId) {
+        message.error('CE-A 与 CE-B 不能选择同一高可用组');
+        return false;
+      }
+      const groupA = findHaGroupById(haGroups, ceAHaGroupId);
+      const groupB = findHaGroupById(haGroups, ceBHaGroupId);
+      const bindA = groupA ? resolveSrv6CeHaBinding(groupA) : null;
+      const bindB = groupB ? resolveSrv6CeHaBinding(groupB) : null;
+      if (!bindA || !bindB) {
+        message.error('所选高可用组主备成员不完整');
+        return false;
+      }
+      if (bindA.primaryVrUuid === bindB.primaryVrUuid) {
+        message.error('两端高可用组的主 CE 不能相同');
+        return false;
+      }
+    } else if (ceA && ceB && String(ceA) === String(ceB)) {
       message.error('CE-A 与 CE-B 不能相同');
       return false;
     }
-    if (!tunnelName || !peA || !peB || !ceA || !ceB) {
-      message.error('请完成隧道名称、PE/CE 选择');
+
+    if (!tunnelName || !peA || !peB) {
+      message.error('请完整填写隧道名称与 PE');
+      return false;
+    }
+    if (mode === '高可用') {
+      if (!ceAHaGroupId || !ceBHaGroupId || !ceA || !ceB) {
+        message.error('请完整选择 CE 高可用组');
+        return false;
+      }
+    } else if (!ceA || !ceB) {
+      message.error('请完整选择 CE');
       return false;
     }
     if (!peAInnerIf || !peBInnerIf) {
@@ -1909,6 +2018,14 @@ const SRv6CreatePage: React.FC = () => {
         hubLanIf: hubLanIfResolved,
         hubWanInventoryId: values?.hubWanInventoryId,
         hubLanInventoryId: hubLanInventoryIdResolved || lanOptMatch?.value,
+        ceAHaBinding:
+          mode === '高可用'
+            ? resolveSrv6CeHaBindingById(haGroups, String(values?.ceAHaGroupId || ''))
+            : null,
+        ceBHaBinding:
+          mode === '高可用'
+            ? resolveSrv6CeHaBindingById(haGroups, String(values?.ceBHaGroupId || ''))
+            : null,
         hubInventory:
           hubInventoryUi?.inventory && hubInventoryUi.inventory.wan.length
             ? hubInventoryUi.inventory
@@ -1956,69 +2073,18 @@ const SRv6CreatePage: React.FC = () => {
     }
   };
 
-  async function executeSrv6DeployStep(stepIndex: number) {
-    setDeployStatus((prev) => ({ ...prev, [stepIndex]: 'process' }));
-    setDeployLogs((prev) => ({ ...prev, [stepIndex]: '执行中…' }));
-    try {
-      const seq = deployVrSeqRef.current;
-      const vrIdx = Math.floor(stepIndex / 2);
-      const entry = seq[vrIdx];
-      if (!entry?.id) throw new Error(`缺少 ${entry?.label || 'VR'} 的 UUID`);
-      let logMsg = '';
-      if (stepIndex % 2 === 0) {
-        const res: any = await apiRequest(
-          `/api/networks/srv6/deploy/preview?vrId=${encodeURIComponent(entry.id)}`,
-          { skipCache: true },
-        );
-        if (res?.error) throw new Error(res.error);
-        logMsg = `[${entry.label}] 平台待下发配置（清洗后）\n${JSON.stringify(res.config, null, 2)}`;
-      } else {
-        const res: any = await apiPost('/api/networks/srv6/deploy/push', { vrId: entry.id });
-        if (res?.error) throw new Error(res.error);
-        logMsg = `[${entry.label}] 下发设备响应\nHTTP 状态: ${res.status}\nBody:\n${JSON.stringify(res.data ?? res, null, 2)}`;
-        if (res.status !== 200 && res.status !== 201) throw new Error(`设备侧返回 HTTP ${res.status}`);
-      }
-      setDeployLogs((prev) => ({ ...prev, [stepIndex]: logMsg }));
-      setDeployStatus((prev) => ({ ...prev, [stepIndex]: 'finish' }));
-      setDeployStep(stepIndex + 1);
-      if (stepIndex < SRV6_DEPLOY_STEP_DEFS.length - 1) {
-        setTimeout(() => void executeSrv6DeployStep(stepIndex + 1), 500);
-      } else {
-        message.success('四台 VR 下发流程已执行完毕');
-      }
-    } catch (e: any) {
-      console.error(e);
-      setDeployLogs((prev) => ({ ...prev, [stepIndex]: `[Error] ${e?.message || String(e)}` }));
-      setDeployStatus((prev) => ({ ...prev, [stepIndex]: 'error' }));
-    }
-  }
-
   useEffect(() => {
     if (current !== 3) {
       deployAutoStartedRef.current = false;
+      srv6DeployWizard.cancel();
       return;
     }
+    if (mode === '高可用') return;
     if (deployAutoStartedRef.current) return;
     deployAutoStartedRef.current = true;
-    const v = form.getFieldsValue(true);
-    deployVrSeqRef.current = [
-      { label: 'PE-A', id: String(v.peA || '') },
-      { label: 'PE-B', id: String(v.peB || '') },
-      { label: 'CE-A', id: String(v.ceA || '') },
-      { label: 'CE-B', id: String(v.ceB || '') },
-    ];
-    setDeployStep(0);
-    setDeployLogs({});
-    const initStatus: Record<number, 'wait' | 'process' | 'finish' | 'error'> = {};
-    for (let i = 0; i < SRV6_DEPLOY_STEP_DEFS.length; i++) initStatus[i] = 'wait';
-    setDeployStatus(initStatus);
-    const t = window.setTimeout(() => void executeSrv6DeployStep(0), 400);
-    return () => {
-      window.clearTimeout(t);
-      deployAutoStartedRef.current = false;
-    };
+    srv6DeployWizard.startAuto();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入第 4 步时触发自动下发链
-  }, [current]);
+  }, [current, mode]);
 
   const next = () => setCurrent((c) => Math.min(c + 1, 3));
   const prev = () => setCurrent((c) => Math.max(c - 1, 0));
@@ -2030,7 +2096,37 @@ const SRv6CreatePage: React.FC = () => {
           <Form.Item name="tunnelName" label="隧道名称" rules={[{ required: true, message: '请输入隧道名称' }]}> 
             <Input placeholder="例如：beijing-to-shanghai" style={{ width: 360 }} />
           </Form.Item>
-          {/* 演示阶段暂不展示高可用模式入口，默认标准模式 */}
+          <Form.Item label="CE 接入模式" required style={{ marginBottom: 8 }}>
+            <Radio.Group
+              value={mode}
+              onChange={(e) => {
+                const nextMode = e.target.value as Srv6TunnelCeMode;
+                setMode(nextMode);
+                if (nextMode === '高可用') {
+                  form.setFieldsValue({
+                    ceA: undefined,
+                    ceB: undefined,
+                    ceAHaGroupId: undefined,
+                    ceBHaGroupId: undefined,
+                  });
+                  setCeConfigs({});
+                } else {
+                  form.setFieldsValue({ ceAHaGroupId: undefined, ceBHaGroupId: undefined });
+                }
+              }}
+            >
+              <Radio value="标准">标准（单台 CE）</Radio>
+              <Radio value="高可用">高可用（CE 高可用组）</Radio>
+            </Radio.Group>
+          </Form.Item>
+          {mode === '高可用' ? (
+            <Alert
+              type="info"
+              showIcon
+              message="高可用模式说明"
+              description="本端与对端各选一个 CE 高可用组。隧道档案以主 CE 为绑定点；VRRP 与策略下发由网工执行，本向导仅保存平台档案，不提供自动下发。"
+            />
+          ) : null}
         </Form>
       );
     }
@@ -2047,7 +2143,7 @@ const SRv6CreatePage: React.FC = () => {
                   showSearch
                   allowClear
                   optionFilterProp="label"
-                  placeholder="选择 PE-A 的 VR 实例"
+                  placeholder="选择 PE-A 的 IBR实例"
                 />
               </Form.Item>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
@@ -2070,8 +2166,8 @@ const SRv6CreatePage: React.FC = () => {
                 />
               </Form.Item>
               ) : null}
-              <Form.Item name="ceA" label="CE-A" rules={[{ required: true, message: '请选择 CE-A' }]} style={{ marginBottom: 8 }}
-                extra={hubCeExtra('ceA')}
+              <Form.Item name="ceA" hidden={mode === '高可用'} label="CE-A" rules={mode === '标准' ? [{ required: true, message: '请选择 CE-A' }] : []} style={{ marginBottom: 8 }}
+                extra={mode === '标准' ? hubCeExtra('ceA') : undefined}
               > 
                 <Select
                   options={ceOptions}
@@ -2079,11 +2175,51 @@ const SRv6CreatePage: React.FC = () => {
                   allowClear={!lockHubCeSelect('ceA')}
                   disabled={lockHubCeSelect('ceA')}
                   optionFilterProp="label"
-                  placeholder="选择 CE-A 的 VR 实例"
+                  placeholder="选择 CE-A 的 IBR实例"
                 />
               </Form.Item>
+              {mode === '高可用' ? (
+                <Form.Item
+                  name="ceAHaGroupId"
+                  label="CE-A（高可用组）"
+                  rules={[{ required: true, message: '请选择 CE-A 高可用组' }]}
+                  style={{ marginBottom: 8 }}
+                  extra={(() => {
+                    const binding = resolveCeHaBinding('ceA');
+                    if (binding) {
+                      return (
+                        <span style={{ color: '#64748b' }}>
+                          主 CE：{binding.primaryName || binding.primaryVrUuid} · 备 CE：{binding.backupName || binding.backupVrUuid}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span style={{ color: '#64748b' }}>
+                        选择已创建的 CE/标准 IBR 高可用组。
+                        <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => navigate('/admin/interconnect/ha-groups/create')}>
+                          去创建
+                        </Button>
+                      </span>
+                    );
+                  })()}
+                >
+                  <Select
+                    options={haGroupOptions.map((o) => ({ value: o.value, label: o.label }))}
+                    loading={haGroupsLoading}
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    placeholder="选择本端 CE 高可用组"
+                  />
+                </Form.Item>
+              ) : null}
+              {mode === '高可用' ? <Form.Item name="ceA" hidden><Input /></Form.Item> : null}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
-                <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('ceA')}>角色配置向导</Button>
+                {mode === '标准' ? (
+                  <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('ceA')}>角色配置向导</Button>
+                ) : (
+                  <Button size="small" type="link" onClick={() => navigate('/admin/interconnect/ha-groups')}>管理高可用组</Button>
+                )}
               </div>
             </Col>
             <Col span={24}>
@@ -2098,7 +2234,7 @@ const SRv6CreatePage: React.FC = () => {
                   showSearch
                   allowClear
                   optionFilterProp="label"
-                  placeholder="选择 PE-B 的 VR 实例"
+                  placeholder="选择 PE-B 的 IBR实例"
                 />
               </Form.Item>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
@@ -2121,11 +2257,11 @@ const SRv6CreatePage: React.FC = () => {
                 />
               </Form.Item>
               ) : null}
-              <Form.Item name="ceB" label="CE-B" dependencies={["ceA"]} rules={[
+              <Form.Item name="ceB" hidden={mode === '高可用'} label="CE-B" dependencies={mode === '标准' ? ['ceA'] : []} rules={mode === '标准' ? [
                 { required: true, message: '请选择 CE-B' },
-                ({ getFieldValue }) => ({ validator(_, v){ if(!v || v!==getFieldValue('ceA')) return Promise.resolve(); return Promise.reject(new Error('CE-A 与 CE-B 不能相同')); } })
-              ]} style={{ marginBottom: 8 }}
-                extra={hubCeExtra('ceB')}
+                ({ getFieldValue }) => ({ validator(_, v){ const a = getFieldValue('ceA'); if(!v) return Promise.resolve(); if(String(v) !== String(a)) return Promise.resolve(); return Promise.reject(new Error('CE-A 与 CE-B 不能相同')); } })
+              ] : []}
+                extra={mode === '标准' ? hubCeExtra('ceB') : undefined}
               > 
                 <Select
                   options={ceOptions}
@@ -2133,11 +2269,54 @@ const SRv6CreatePage: React.FC = () => {
                   allowClear={!lockHubCeSelect('ceB')}
                   disabled={lockHubCeSelect('ceB')}
                   optionFilterProp="label"
-                  placeholder="选择 CE-B 的 VR 实例"
+                  placeholder="选择 CE-B 的 IBR实例"
                 />
               </Form.Item>
+              {mode === '高可用' ? (
+                <Form.Item
+                  name="ceBHaGroupId"
+                  label="CE-B（高可用组）"
+                  dependencies={['ceAHaGroupId']}
+                  rules={[
+                    { required: true, message: '请选择 CE-B 高可用组' },
+                    ({ getFieldValue }) => ({
+                      validator(_, v) {
+                        const a = getFieldValue('ceAHaGroupId');
+                        if (!v || !a || String(v) !== String(a)) return Promise.resolve();
+                        return Promise.reject(new Error('不能与 CE-A 选择同一高可用组'));
+                      },
+                    }),
+                  ]}
+                  style={{ marginBottom: 8 }}
+                  extra={(() => {
+                    const binding = resolveCeHaBinding('ceB');
+                    if (binding) {
+                      return (
+                        <span style={{ color: '#64748b' }}>
+                          主 CE：{binding.primaryName || binding.primaryVrUuid} · 备 CE：{binding.backupName || binding.backupVrUuid}
+                        </span>
+                      );
+                    }
+                    return <span style={{ color: '#64748b' }}>选择对端 CE 高可用组</span>;
+                  })()}
+                >
+                  <Select
+                    options={haGroupOptions.map((o) => ({ value: o.value, label: o.label }))}
+                    loading={haGroupsLoading}
+                    showSearch
+                    allowClear
+                    optionFilterProp="label"
+                    placeholder="选择对端 CE 高可用组"
+                  />
+                </Form.Item>
+              ) : null}
+              {mode === '高可用' ? <Form.Item name="ceB" hidden><Input /></Form.Item> : null}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 0 }}>
-                <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('ceB')}>角色配置向导</Button>
+                {mode === '标准' ? (
+                  <Button size="small" type="link" icon={<ExportOutlined />} onClick={() => openRoleWizard('ceB')}>角色配置向导</Button>
+                ) : (
+                  <Button size="small" type="link" onClick={() => navigate('/admin/interconnect/ha-groups')}>管理高可用组</Button>
+                )}
               </div>
             </Col>
           </Row>
@@ -2163,8 +2342,33 @@ const SRv6CreatePage: React.FC = () => {
             <Descriptions.Item label="模式">{mode || '-'}</Descriptions.Item>
             <Descriptions.Item label="PE-A">{form.getFieldValue('peA') || '-'}</Descriptions.Item>
             <Descriptions.Item label="PE-B">{form.getFieldValue('peB') || '-'}</Descriptions.Item>
-            <Descriptions.Item label="CE-A">{form.getFieldValue('ceA') || '-'}</Descriptions.Item>
-            <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
+            {mode === '高可用' ? (
+              <>
+                <Descriptions.Item label="CE-A 高可用组">
+                  {resolveCeHaBinding('ceA')?.haGroupName || form.getFieldValue('ceAHaGroupId') || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="CE-A 主/备">
+                  {(() => {
+                    const b = resolveCeHaBinding('ceA');
+                    return b ? `${b.primaryName || b.primaryVrUuid} / ${b.backupName || b.backupVrUuid}` : '-';
+                  })()}
+                </Descriptions.Item>
+                <Descriptions.Item label="CE-B 高可用组">
+                  {resolveCeHaBinding('ceB')?.haGroupName || form.getFieldValue('ceBHaGroupId') || '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="CE-B 主/备">
+                  {(() => {
+                    const b = resolveCeHaBinding('ceB');
+                    return b ? `${b.primaryName || b.primaryVrUuid} / ${b.backupName || b.backupVrUuid}` : '-';
+                  })()}
+                </Descriptions.Item>
+              </>
+            ) : (
+              <>
+                <Descriptions.Item label="CE-A">{form.getFieldValue('ceA') || '-'}</Descriptions.Item>
+                <Descriptions.Item label="CE-B">{form.getFieldValue('ceB') || '-'}</Descriptions.Item>
+              </>
+            )}
             <Descriptions.Item label="拓扑">
               {inferredTopology === 'H' ? 'Hub–Spoke' : inferredTopology === 'S' ? 'Spoke 点对点' : '-'}
             </Descriptions.Item>
@@ -2194,86 +2398,32 @@ const SRv6CreatePage: React.FC = () => {
             ) : null}
           </Descriptions>
           <div style={{ marginTop: 16, fontSize: 12, color: '#64748b' }}>
-            请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到设备（与 IPsec VPN 向导一致）。
+            {mode === '高可用'
+              ? '请先点击「创建隧道并保存到平台」，将隧道档案与四端拼装配置写入平台库。高可用模式下策略与 VRRP 下发由网工执行，本向导不提供自动下发步骤。'
+              : '请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到设备（与 IPsec VPN 向导一致）。'}
           </div>
         </>
       );
     }
     if (current === 3) {
+      if (mode === '高可用') {
+        return (
+          <Alert
+            type="success"
+            showIcon
+            message="平台档案已保存"
+            description="高可用模式隧道档案已写入平台库。请由网工在设备侧完成 VRRP 与 SRv6 策略下发；可在 IBR Console 的 VRRP 面板查看设备态。"
+          />
+        );
+      }
       return (
-        <div>
-          <div style={{ marginBottom: 16, fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>下发向导</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>
-            进入本页后将自动依次执行各步；某步失败时可点击该步「执行」重试。以下为每步返回结果。
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {SRV6_DEPLOY_STEP_DEFS.map((step, idx) => (
-              <Card
-                key={idx}
-                size="small"
-                type="inner"
-                title={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <div
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: '50%',
-                        background:
-                          deployStatus[idx] === 'finish'
-                            ? '#52c41a'
-                            : deployStatus[idx] === 'error'
-                              ? '#ff4d4f'
-                              : deployStatus[idx] === 'process'
-                                ? '#1677ff'
-                                : '#d9d9d9',
-                        color: '#fff',
-                        textAlign: 'center',
-                        lineHeight: '24px',
-                        fontSize: 12,
-                      }}
-                    >
-                      {idx + 1}
-                    </div>
-                    <span>{step.title}</span>
-                    <span style={{ fontSize: 12, color: '#888', fontWeight: 'normal' }}>{step.desc}</span>
-                  </div>
-                }
-                extra={
-                  <Button
-                    type="primary"
-                    size="small"
-                    disabled={idx !== deployStep}
-                    loading={deployStatus[idx] === 'process'}
-                    onClick={() => void executeSrv6DeployStep(idx)}
-                  >
-                    执行
-                  </Button>
-                }
-              >
-                {deployLogs[idx] ? (
-                  <pre
-                    style={{
-                      fontSize: 12,
-                      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-                      background: '#1e1e1e',
-                      color: '#d4d4d4',
-                      padding: 12,
-                      borderRadius: 6,
-                      overflow: 'auto',
-                      maxHeight: 220,
-                      border: 'none',
-                      marginTop: 0,
-                      marginBottom: 0,
-                    }}
-                  >
-                    {deployLogs[idx]}
-                  </pre>
-                ) : null}
-              </Card>
-            ))}
-          </div>
-        </div>
+        <IbrDeployWizardPanel
+          steps={srv6DeployWizard.steps}
+          activeStep={srv6DeployWizard.activeStep}
+          logs={srv6DeployWizard.logs}
+          status={srv6DeployWizard.status}
+          onRunStep={(idx) => void srv6DeployWizard.runStep(idx)}
+        />
       );
     }
     return null;
@@ -2307,7 +2457,7 @@ const SRv6CreatePage: React.FC = () => {
                 { title: '基础信息' },
                 { title: '选择 PE 与 CE' },
                 { title: '确认并保存' },
-                { title: '下发向导', disabled: !platformSaved },
+                { title: mode === '高可用' ? '完成' : '下发向导', disabled: !platformSaved },
               ]}
             />
           </Card>
@@ -2322,9 +2472,7 @@ const SRv6CreatePage: React.FC = () => {
                 {current > 0 && (
                   <Button
                     onClick={prev}
-                    disabled={
-                      SRV6_DEPLOY_STEP_DEFS.some((_, i) => deployStatus[i] === 'process')
-                    }
+                    disabled={srv6DeployWizard.steps.some((_, i) => srv6DeployWizard.status[i] === 'process')}
                   >
                     上一步
                   </Button>
@@ -2358,9 +2506,15 @@ const SRv6CreatePage: React.FC = () => {
                     <Button type="primary" loading={platformSaveLoading} disabled={platformSaved} onClick={() => void saveTunnelPlatformOnly()}>
                       {editId ? '更新隧道并保存到平台' : '创建隧道并保存到平台'}
                     </Button>
-                    <Button type="primary" disabled={!platformSaved} onClick={() => { commitPreview(); next(); }}>
-                      下一步：下发向导
-                    </Button>
+                    {mode === '标准' ? (
+                      <Button type="primary" disabled={!platformSaved} onClick={() => { commitPreview(); next(); }}>
+                        下一步：下发向导
+                      </Button>
+                    ) : (
+                      <Button type="primary" disabled={!platformSaved} onClick={() => navigate('/admin/interconnect/srv6')}>
+                        完成
+                      </Button>
+                    )}
                   </>
                 )}
               </Space>

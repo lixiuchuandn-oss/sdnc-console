@@ -16,7 +16,6 @@ import {
 } from '../../services/loginLockoutService';
 import { authMiddleware, AuthRequest } from '../../middleware/auth';
 import { resolveAdminDefaultHome } from '../../services/AdminDefaultHomeService';
-import { stripTenantConsoleUmbrellaPermissions } from '../../constants/tenantConsolePermissionLegacy';
 import {
   getLoginPublicKey,
   resolvePasswordFromLoginBody,
@@ -244,12 +243,8 @@ router.post('/login', async (req: Request, res: Response) => {
           }
         }
 
-        // 租户控制台入口改由账号类型判定；不再默认注入 clouds.console:read
         // Deduplicate
         permissions = Array.from(new Set(permissions));
-        if (role === 'tenant') {
-          permissions = stripTenantConsoleUmbrellaPermissions(permissions);
-        }
       } catch (e) {
         authLog.warn(
           `Failed to fetch permissions for ${role} user`,
@@ -319,11 +314,10 @@ router.post('/login', async (req: Request, res: Response) => {
       userPayload.mustChangePassword = adminMustChangePassword(loginUser as User);
     }
 
-    const adminDefaultHome =
-      role === 'sase_device' ? undefined : await resolveAdminDefaultHome(permissions, role);
+    const adminDefaultHome = await resolveAdminDefaultHome(permissions, role);
 
     if (role === 'tenant') {
-      userPayload.defaultPath = adminDefaultHome?.defaultPath ?? '/console';
+      userPayload.defaultPath = adminDefaultHome?.defaultPath ?? '/admin/interconnect/vr';
     }
 
     res.json({
@@ -347,9 +341,6 @@ router.get('/admin-default-home', authMiddleware, async (req: AuthRequest, res: 
     const u = req.user as any;
     if (!u) {
       return res.status(401).json({ message: '未认证' });
-    }
-    if ((u as any).role === 'sase_device') {
-      return res.status(400).json({ message: '当前身份不适用默认管理端首页' });
     }
     const role = u.isTenantUser ? 'tenant' : String(u.role || '').toLowerCase();
     const permissions = Array.isArray(u.permissions) ? u.permissions : [];

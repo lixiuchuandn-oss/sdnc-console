@@ -1,6 +1,7 @@
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { logger } from '../../utils/logger';
+import { normalizeManagementIp } from './managementIpUtils';
 
 const vrMgmLog = logger.child('VR-Mgmt');
 
@@ -22,6 +23,34 @@ export interface BindResult {
   device_fingerprint: string | null;
   bind_status: string;
   vr_type: string | null;
+}
+
+export interface ReportManagementIpPayload {
+  vr_uuid: string;
+  management_ip: string;
+  /** 租户用户上报时写入/校验归属 */
+  tenant_id?: string | null;
+}
+
+export interface ReportManagementIpResult {
+  vr_unique_id: string;
+  management_ip: string;
+  updated_at: string;
+}
+
+async function syncVrCacheDeviceFromConfig(record: VRConfig): Promise<void> {
+  try {
+    const { VRCacheDevice } = await import('../../entities/vRouter/VRCacheDevice');
+    const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
+    let deviceRecord = await deviceRepo.findOne({ where: { uuid: record.uuid } });
+    if (!deviceRecord) {
+      deviceRecord = deviceRepo.create({ uuid: record.uuid });
+    }
+    deviceRecord.data = JSON.stringify(record);
+    await deviceRepo.save(deviceRecord);
+  } catch (e) {
+    vrMgmLog.error('Failed to sync to VrCacheDevice', e instanceof Error ? e.message : String(e));
+  }
 }
 
 export const vrManagementService = {
@@ -84,19 +113,7 @@ export const vrManagementService = {
     }
 
     await repository.save(record);
-
-    try {
-      const { VRCacheDevice } = await import('../../entities/vRouter/VRCacheDevice');
-      const deviceRepo = AppDataSource.getRepository(VRCacheDevice);
-      let deviceRecord = await deviceRepo.findOne({ where: { uuid: record.uuid } });
-      if (!deviceRecord) {
-        deviceRecord = deviceRepo.create({ uuid: record.uuid });
-      }
-      deviceRecord.data = JSON.stringify(record);
-      await deviceRepo.save(deviceRecord);
-    } catch (e) {
-      vrMgmLog.error('Failed to sync to VrCacheDevice', e instanceof Error ? e.message : String(e));
-    }
+    await syncVrCacheDeviceFromConfig(record);
 
     return {
       vr_unique_id: record.uuid,
@@ -106,6 +123,44 @@ export const vrManagementService = {
       device_fingerprint: record.deviceFingerprint || null,
       bind_status: record.bindStatus || 'UNBOUND',
       vr_type: record.role || null,
+    };
+  },
+
+  reportManagementIp: async (payload: ReportManagementIpPayload): Promise<ReportManagementIpResult> => {
+    const vrUniqueId = String(payload.vr_uuid ?? '').trim();
+    if (!vrUniqueId) {
+      throw new Error('缺少 vr_uuid');
+    }
+
+    const managementIp = normalizeManagementIp(payload.management_ip);
+    const tenantId = payload.tenant_id ? String(payload.tenant_id).trim() : '';
+
+    const repository = AppDataSource.getRepository(VRConfig);
+    let record = await repository.findOne({ where: { uuid: vrUniqueId } });
+    if (!record) {
+      record = repository.create({
+        uuid: vrUniqueId,
+        config_json: '{}',
+      });
+    }
+
+    if (tenantId) {
+      if (record.tenantId && record.tenantId !== tenantId) {
+        const error: any = new Error('该 IBR 已绑定到其他租户，拒绝上报管理口地址');
+        error.statusCode = 403;
+        throw error;
+      }
+      record.tenantId = record.tenantId || tenantId;
+    }
+
+    record.managementIp = managementIp;
+    await repository.save(record);
+    await syncVrCacheDeviceFromConfig(record);
+
+    return {
+      vr_unique_id: record.uuid,
+      management_ip: managementIp,
+      updated_at: record.updated_at.toISOString(),
     };
   },
 };

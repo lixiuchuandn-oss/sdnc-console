@@ -24,18 +24,4 @@ async function towerApi(method, path, body, token) {
   return { status: res.status, data };
 }
 
-async function listCloudPools(token) {
-  const { status, data } = await towerApi('GET', '/api/clouds', null, token);
-  if (status !== 200 || !Array.isArray(data)) throw new Error('list clouds failed');
-  return data;
-}
-
-async function resolveCloudId(token, preferredId) {
-  if (preferredId) return preferredId;
-  const pools = await listCloudPools(token);
-  const hit = pools.find((p) => String(p.status || '').toLowerCase() === 'online');
-  if (!hit?.id) throw new Error('no online pool; set TOWER_CLOUD_ID');
-  return hit.id;
-}
-
-module.exports = { towerLogin, towerApi, listCloudPools, resolveCloudId };
+module.exports = { towerLogin, towerApi };

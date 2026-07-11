@@ -4,6 +4,7 @@ import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
 import { VRCacheDevice } from '../../entities/vRouter/VRCacheDevice';
 import { VRCacheService, type VrCacheSyncDiagnostics } from '../../services/vrouter/VRCacheService';
+import { extractRoleFromVr2Config } from '../../services/vrouter/ibrVrRoleResolve';
 import {
   getVR2QueryResult,
   getVR3ListMeta,
@@ -11,10 +12,13 @@ import {
 } from '../../services/vrouter/vrController';
 import { extractRows } from '../../utils/apiUtils';
 import { logger } from '../../utils/logger';
+import { registerVrDeviceOpsRoutes } from './vrDeviceOps';
 
 const vrInstHttpLog = logger.child('VR-Instances-HTTP');
 
 export const vrInstancesRoutes = Router();
+
+registerVrDeviceOpsRoutes(vrInstancesRoutes);
 
 function safeJsonParse<T = any>(raw: any, fallback: T): T {
   try {
@@ -71,7 +75,15 @@ function mergeOne(params: {
     tenant_id: deviceData?.tenantId || (basicData as any).tenant_id,
     org_id: deviceData?.organizationId || (basicData as any).org_id,
     bind_status: deviceData?.bindStatus || (basicData as any).bind_status,
-    role: deviceData?.role || (basicData as any).role,
+    role:
+      extractRoleFromVr2Config(params.vr2Data) ||
+      deviceData?.role ||
+      (basicData as any).role,
+    management_ip:
+      deviceData?.managementIp ||
+      (basicData as any).management_ip ||
+      (extendedData as any)?.management_ip ||
+      null,
     _raw_csmctl_info: basicData,
     vr3_info: extendedData,
   };
@@ -111,7 +123,7 @@ function mergeOne(params: {
   return merged;
 }
 
-/** 从 CSM 拉回 VR1 注册信息、VR3 扩展、本地 device 镜像；失败侧清空，避免与对端不一致的旧快照 */
+/** 从 CSM 拉回 VR1/VR3、VR2→vr_config 回写、本地 device 镜像；失败侧清空，避免与对端不一致的旧快照 */
 vrInstancesRoutes.post('/refresh', async (req, res) => {
   try {
     await VRCacheService.getInstance().syncAll();

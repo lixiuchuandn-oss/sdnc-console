@@ -1,0 +1,189 @@
+#!/bin/bash
+
+_vrctl_shutdown_completion() {
+    local cur prev opts
+    COMPREPLY=()
+    
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    
+    case "$COMP_CWORD" in
+        1) 
+            opts="shutdown"
+            ;;
+        *) 
+            opts=""
+            ;;
+    esac
+    
+    COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+    return 0
+}
+complete -r vrctl.shutdown 2>/dev/null || true
+complete -F _vrctl_shutdown_completion vrctl.shutdown
+
+_monitoring_agent_completion() {
+    local cur prev opts available_opts 
+    local has_mode has_registration_interval has_interval has_verbose_mode
+
+    COMPREPLY=()
+
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    for ((i=1; i<COMP_CWORD; i++)); do
+        case "${COMP_WORDS[i]}" in
+            --mode) has_mode="true" ;;
+            --registration_interval) has_registration_interval="true" ;;
+            --interval) has_interval="true" ;;
+            --verbose_mode) has_verbose_mode="true" ;;
+        esac
+    done
+
+    available_opts=""
+    [ -z "$has_mode" ] && available_opts+=" --mode"
+    [ -z "$has_registration_interval" ] && available_opts+=" --registration_interval"
+    [ -z "$has_interval" ] && available_opts+=" --interval"
+    [ -z "$has_verbose_mode" ] && available_opts+=" --verbose_mode"
+
+    case "$prev" in
+        --mode)
+            opts="collect send download"
+            COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+            return 0
+            ;;
+        --verbose_mode)
+            if [ -z "$cur" ]; then
+                info="选择1或0(使能/不使能)详细模式 (suggestion:)"
+                COMPREPLY=($(compgen -W "${info}" -- ${cur}))
+            else
+                COMPREPLY=("$cur")
+            fi
+            return 0
+            ;;
+        "--interval"|"--registration_interval")
+            if [ -z "$cur" ]; then
+                info="请输入时间间隔(单位:秒) (suggestion:)"
+                COMPREPLY=($(compgen -W "${info}" -- ${cur}))
+            else
+                COMPREPLY=("$cur")
+            fi
+            ;;
+        *)
+            COMPREPLY=($(compgen -W "${available_opts}" -- ${cur}))
+            return 0
+            ;;
+    esac
+    return 0
+}
+complete -r monitoring.agent 2>/dev/null || true 
+complete -F _monitoring_agent_completion monitoring.agent
+
+_vrctl_agent_completion() {
+    local cur prev opts available_opts 
+    local has_mode has_registration_interval has_interval has_verbose_mode has_check_interval
+
+    COMPREPLY=()
+
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    for ((i=1; i<COMP_CWORD; i++)); do
+        case "${COMP_WORDS[i]}" in
+            --mode) has_mode="true" ;;
+            --registration_interval) has_registration_interval="true" ;;
+            --interval) has_interval="true" ;;
+            --verbose_mode) has_verbose_mode="true" ;;
+            --check_interval) has_check_interval="true" ;;
+        esac
+    done
+
+    available_opts=""
+    [ -z "$has_mode" ] && available_opts+=" --mode"
+    [ -z "$has_registration_interval" ] && available_opts+=" --registration_interval"
+    [ -z "$has_interval" ] && available_opts+=" --interval"
+    [ -z "$has_verbose_mode" ] && available_opts+=" --verbose_mode"
+    [ -z "$has_check_interval" ] && available_opts+=" --check_interval"
+    case "$prev" in
+        --mode)
+            opts="collect send download"
+            COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+            return 0
+            ;;
+        --verbose_mode)
+            if [ -z "$cur" ]; then
+                info="选择1或0(使能/不使能)详细模式 (suggestion:)"
+                COMPREPLY=($(compgen -W "${info}" -- ${cur}))
+            else
+                COMPREPLY=("$cur")
+            fi
+            return 0
+            ;;
+        "--interval"|"--registration_interval"|"--check_interval")
+            if [ -z "$cur" ]; then
+                info="请输入时间间隔(单位:秒) (suggestion:)"
+                COMPREPLY=($(compgen -W "${info}" -- ${cur}))
+            else
+                COMPREPLY=("$cur")
+            fi
+            ;;
+        *)
+            COMPREPLY=($(compgen -W "${available_opts}" -- ${cur}))
+            return 0
+            ;;
+    esac
+    return 0
+}
+complete -r vrctl.agent 2>/dev/null || true
+complete -F _vrctl_agent_completion vrctl.agent
+
+_vrctl_cli_completion() {
+    local cur prev opts
+    local has_show_conf has_agent_interval has_monitoring_interval has_monitoring_download_interval
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    for ((i=1; i<COMP_CWORD; i++)); do
+        case "${COMP_WORDS[i]}" in
+            --show-conf) has_show_conf="true" ;;
+            --agent-interval) has_agent_interval="true" has_show_conf="true";;
+            --monitoring-interval) has_monitoring_interval="true" has_show_conf="true";;
+            --monitoring-download-interval) has_monitoring_download_interval="true" has_show_conf="true";;
+        esac
+    done
+    
+    available_opts=""
+    [ -z "$has_show_conf" ] && available_opts+=" --show-conf"
+    [ -z "$has_agent_interval" ] && available_opts+=" --agent-interval"
+    [ -z "$has_monitoring_interval" ] && available_opts+=" --monitoring-interval"
+    [ -z "$has_monitoring_download_interval" ] && available_opts+=" --monitoring-download-interval"
+
+    case "$prev" in
+        --show-conf)
+            return 0
+            ;;
+        --agent-interval)
+            opts="30 60 90 120 300 (允许自定义单位秒)"
+            COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+            return 0
+            ;;
+        --monitoring-interval)
+            opts="30 60 90 120 300 (允许自定义单位秒)"
+            COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+            return 0
+            ;;
+        --monitoring-download-interval)
+            opts="30 60 90 120 300 (允许自定义单位秒)"
+            COMPREPLY=($(compgen -W "${opts}" -- ${cur}))
+            return 0
+            ;;
+        *)
+            COMPREPLY=($(compgen -W "${available_opts}" -- ${cur}))
+            return 0
+            ;;
+    esac
+    return 0
+}
+complete -r vrctl.cli 2>/dev/null || true
+complete -F _vrctl_cli_completion vrctl.cli

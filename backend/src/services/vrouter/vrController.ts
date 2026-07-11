@@ -12,10 +12,10 @@
  */
 import axios from 'axios';
 import https from 'https';
-import { getSystemSetting } from '../../config/systemSettings';
 import { extractRows } from '../../utils/apiUtils';
 import { logger } from '../../utils/logger';
-import { csmRequest, CsmConfig } from '../clouds/csm/client';
+import { csmRequest, CsmConfig } from './csmClient';
+import { getCsmctlBaseUrl } from './csmctlEndpoint';
 
 const vrCtlLog = logger.child('VR-Ctl');
 
@@ -67,15 +67,6 @@ export type FetchAllVrRowsFromCsmResult = {
 // ---------------------------------------------------------------------------
 // CSM 基址与客户端
 // ---------------------------------------------------------------------------
-
-function getCsmctlBaseUrl(): string {
-  const raw = String(getSystemSetting('CSMCTL_ADDRESS') || '').trim();
-  if (!raw) {
-    throw new Error('CSMCTL_ADDRESS 未配置，请在系统设置中配置 CSMCTL 地址');
-  }
-  const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
-  return withProto.replace(/\/+$/, '');
-}
 
 function getSignedRequestClient() {
   return axios.create({

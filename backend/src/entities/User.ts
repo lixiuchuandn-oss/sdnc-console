@@ -4,10 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToMany,
-  JoinTable,
 } from 'typeorm';
-import { Cloud } from './Cloud';
 
 export enum UserRole {
   SUPER_ADMIN = 'super_admin',
@@ -60,14 +57,6 @@ export class User {
 
   @Column({ type: 'text', nullable: true })
   description?: string;
-
-  @ManyToMany(() => Cloud)
-  @JoinTable({
-    name: 'user_clouds',
-    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
-    inverseJoinColumn: { name: 'cloud_id', referencedColumnName: 'id' },
-  })
-  accessibleClouds!: Cloud[];
 
   @CreateDateColumn()
   createdAt!: Date;

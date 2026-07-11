@@ -20,17 +20,8 @@ import { RoleAssignment } from '../entities/RoleAssignment';
 import { TenantUser } from '../entities/TenantUser';
 import { In } from 'typeorm';
 import { User, UserRole } from '../entities/User';
-import { RecycleBinShutdownRecord } from '../entities/harvester/RecycleBinShutdownRecord';
-import { RecycleBinTaskService } from '../services/clouds/harvester/RecycleBinTaskService';
-import { checkTenantAccess } from './clouds/harvester/harvester.direct.helpers';
-import { ALL_PERMISSIONS } from '../constants/permissions';
-import { buildTenantRootRoleCatalogBoundary } from '../seeders/initRoles';
-import { expandLegacyContainerParentPermissions } from '../constants/containerPermissionLegacy';
-import { expandObsoleteFipsToEips } from '../constants/fipPermissionLegacy';
-import {
-  parseRolePermissionsJson,
-  stripTenantConsoleUmbrellaPermissions,
-} from '../constants/tenantConsolePermissionLegacy';
+import { getEffectivePermissionCatalog } from '../constants/effectivePermissions';
+import { normalizeRolePermissionsInput } from '../constants/rolePermissionsJson';
 import { isBuiltInRbacRoleName } from '../constants/rbacBuiltInRoles';
 // 新权限体系
 import {
@@ -40,7 +31,6 @@ import {
 } from '../permissions';
 import { randomUUID } from 'crypto';
 import { OfflineUpgradeService } from '../services/OfflineUpgradeService';
-import { licenseService } from '../services/LicenseService';
 import { ensureTowerGeneralUploadTempRoot } from '../utils/towerTempPaths';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
@@ -48,13 +38,10 @@ import { AuthRequest } from '../middleware/auth';
 const systemLog = logger.child('System');
 const systemAssignLog = logger.child('System-Assign');
 
-const ENTERPRISE_TENANT_ROLE_MSG =
-  '当前为试用版授权，租户组织角色功能需企业版授权';
-
-function rejectTenantRoleWithoutEnterprise(scope: unknown, res: any): boolean {
-  if (String(scope || '').trim() !== 'tenant') return false;
-  if (licenseService.isEnterprise()) return false;
-  res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+function rejectTenantScopeRole(scope: unknown, res: any): boolean {
+  const s = String(scope || '').trim();
+  if (s !== 'tenant') return false;
+  res.status(400).json({ message: 'SDNC 不支持租户组织角色' });
   return true;
 }
 
@@ -77,22 +64,6 @@ const checkUpgradePermission = createApiPermissionMiddleware({
   allowSuperAdmin: true,
 });
 
-function hasFavoritePoolSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
-  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
-  if (isWrite) {
-    return (
-      checkPermission(perms, 'clouds.resource-pools:write') ||
-      checkPermission(perms, 'clouds:write')
-    );
-  }
-  return (
-    checkPermission(perms, 'clouds.resource-pools:read') ||
-    checkPermission(perms, 'clouds:read') ||
-    checkPermission(perms, 'clouds.resource-pools:write') ||
-    checkPermission(perms, 'clouds:write')
-  );
-}
-
 function hasAuditSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
   const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
   if (isWrite) {
@@ -105,9 +76,6 @@ function hasAuditSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
 
 const INTEGRATION_SETTING_KEYS = new Set([
   'CSMCTL_ADDRESS',
-  'ai_soc_frontend_url',
-  'ai_soc_backend_url',
-  'ai_soc_base_url',
 ]);
 
 function hasIntegrationSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
@@ -121,35 +89,8 @@ function hasIntegrationSettingAccess(req: AuthRequest, isWrite: boolean): boolea
   );
 }
 
-function hasRecycleBinSettingAccess(req: AuthRequest, isWrite: boolean): boolean {
-  const perms: string[] = Array.isArray(req.user?.permissions) ? req.user!.permissions! : [];
-  if (isWrite) {
-    return (
-      checkPermission(perms, 'clouds.recycle-bin:write') ||
-      checkPermission(perms, 'clouds.ecs:write') ||
-      checkPermission(perms, 'clouds:write')
-    );
-  }
-  return (
-    checkPermission(perms, 'clouds.recycle-bin:read') ||
-    checkPermission(perms, 'clouds.recycle-bin:write') ||
-    checkPermission(perms, 'clouds.ecs:read') ||
-    checkPermission(perms, 'clouds.ecs:write') ||
-    checkPermission(perms, 'clouds:read') ||
-    checkPermission(perms, 'clouds:write')
-  );
-}
-
-function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
+function checkSettingsOrIntegrationPermission(isWrite: boolean) {
   return (req: AuthRequest, res: any, next: any) => {
-    if (req.params.key === 'favorite.cloudId') {
-      if (!hasFavoritePoolSettingAccess(req, isWrite)) {
-        return res.status(403).json({
-          message: isWrite ? '权限不足：需要资源池管理-管理' : '权限不足：需要资源池管理权限',
-        });
-      }
-      return next();
-    }
     if (req.params.key === 'audit.logs.retention_days') {
       if (!hasAuditSettingAccess(req, isWrite)) {
         return res.status(403).json({
@@ -166,17 +107,6 @@ function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
       }
       return next();
     }
-    if (
-      req.params.key === 'harvester.recycle_bin.shutdown_interval_hours' ||
-      req.params.key === 'harvester.recycle_bin.retention_days'
-    ) {
-      if (!hasRecycleBinSettingAccess(req, isWrite)) {
-        return res.status(403).json({
-          message: isWrite ? '权限不足：需要回收站-管理' : '权限不足：需要回收站权限',
-        });
-      }
-      return next();
-    }
     return checkSettingsPermission(req as any, res, next);
   };
 }
@@ -186,7 +116,7 @@ function checkSettingsOrFavoritePoolPermission(isWrite: boolean) {
 // - value 如果不存在则返回空字符串，方便前端统一处理
 router.get(
   '/settings/:key',
-  checkSettingsOrFavoritePoolPermission(false),
+  checkSettingsOrIntegrationPermission(false),
   (req: AuthRequest, res) => {
     const key = req.params.key;
     const value = getSystemSetting(key);
@@ -199,24 +129,13 @@ router.get(
 // - 适合存储一些轻量级的全局配置，例如开关、字符串参数等
 router.patch(
   '/settings/:key',
-  checkSettingsOrFavoritePoolPermission(true),
+  checkSettingsOrIntegrationPermission(true),
   (req: AuthRequest, res) => {
     const key = req.params.key;
     const { value } = req.body;
 
     try {
       setSystemSetting(key, String(value || ''));
-
-      // 如果更新的是回收站任务相关配置，重新调度任务
-      if (key === 'harvester.recycle_bin.shutdown_interval_hours') {
-        try {
-          RecycleBinTaskService.getInstance().rescheduleShutdownTask();
-          systemLog.info('回收站关机任务间隔已更新，已重新调度任务');
-        } catch (e: any) {
-          systemLog.error('重新调度回收站任务失败:', e instanceof Error ? e.message : String(e));
-          // 不阻止设置更新，只记录错误
-        }
-      }
 
       res.json({ data: { key, value: String(value || '') } });
     } catch (e: any) {
@@ -225,134 +144,13 @@ router.patch(
   },
 );
 
-// 查询回收站自动关机记录
-// - 支持分页、筛选（云平台、状态、时间范围）
-// - 仅返回「已执行关机」(success) 与「关机失败」(failed)，不返回 skipped（条件不满足未执行关机）
-// - 租户仅能查看当前云下有权限的命名空间内记录（与 UserSpace 一致）
-router.get('/recycle-bin/shutdown-records', async (req: AuthRequest, res) => {
-  try {
-    const { cloudId, status, startTime, endTime, page = '1', pageSize = '20' } = req.query;
-
-    const pageNum = parseInt(String(page), 10) || 1;
-    const size = parseInt(String(pageSize), 10) || 20;
-
-    const u = req.user as any;
-    const isTenant =
-      (!!u?.tenantId && u?.role !== 'sase_device') || u?.role === 'tenant' || u?.isTenantUser;
-
-    /** 租户未带 cloudId 时无法推导命名空间边界，不给任何数据以防跨租户泄露 */
-    if (isTenant && !cloudId) {
-      return res.json({
-        data: {
-          records: [],
-          pagination: {
-            page: pageNum,
-            pageSize: size,
-            total: 0,
-            totalPages: 0,
-          },
-        },
-      });
-    }
-
-    const recordRepo = AppDataSource.getRepository(RecycleBinShutdownRecord);
-    const queryBuilder = recordRepo.createQueryBuilder('record');
-
-    if (cloudId) {
-      queryBuilder.andWhere('record.cloudId = :cloudId', { cloudId: String(cloudId) });
-    }
-
-    if (isTenant && cloudId) {
-      const { allowed, namespace: tenantNamespaces } = await checkTenantAccess(
-        req as any,
-        String(cloudId),
-      );
-      if (!allowed || !tenantNamespaces) {
-        return res.json({
-          data: {
-            records: [],
-            pagination: {
-              page: pageNum,
-              pageSize: size,
-              total: 0,
-              totalPages: 0,
-            },
-          },
-        });
-      }
-      const nsList = tenantNamespaces
-        .split(',')
-        .map((s: string) => s.trim())
-        .filter(Boolean);
-      if (nsList.length === 0) {
-        return res.json({
-          data: {
-            records: [],
-            pagination: {
-              page: pageNum,
-              pageSize: size,
-              total: 0,
-              totalPages: 0,
-            },
-          },
-        });
-      }
-      queryBuilder.andWhere('record.namespace IN (:...nsList)', { nsList });
-    }
-
-    // 列表只展示发生过关机调用或关机失败；跳过（skipped）不落表展示
-    queryBuilder.andWhere("record.status IN ('success', 'failed')");
-
-    if (status) {
-      const st = String(status).toLowerCase();
-      if (st === 'success' || st === 'failed') {
-        queryBuilder.andWhere('record.status = :status', { status: st });
-      }
-    }
-    if (startTime) {
-      queryBuilder.andWhere('record.shutdownAt >= :startTime', { startTime });
-    }
-    if (endTime) {
-      queryBuilder.andWhere('record.shutdownAt <= :endTime', { endTime });
-    }
-
-    queryBuilder.orderBy('record.shutdownAt', 'DESC');
-
-    const skip = (pageNum - 1) * size;
-    queryBuilder.skip(skip).take(size);
-
-    const [records, total] = await queryBuilder.getManyAndCount();
-
-    res.json({
-      data: {
-        records,
-        pagination: {
-          page: pageNum,
-          pageSize: size,
-          total,
-          totalPages: Math.ceil(total / size) || 0,
-        },
-      },
-    });
-  } catch (e: any) {
-    res.status(500).json({ error: e?.message || '查询关机记录失败' });
-  }
-});
-
 // 获取系统中所有"权限原子"（action）列表
 // 输出内容主要用于 RBAC 角色授权等页面列出可选动作
 router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
-  // 预定义的权限原子列表，来自 constants/permissions.ts
-  // 这些是系统中所有可用的权限原子
-  const actions: string[] = [...ALL_PERMISSIONS].sort();
-  // 租户角色抽屉固定展示目录（与内置根用户种子公式一致，见 buildTenantRootBuiltinPermissions）
-  const tenantRootBoundary = buildTenantRootRoleCatalogBoundary(ALL_PERMISSIONS).sort();
+  const catalog = getEffectivePermissionCatalog();
+  const actions: string[] = [...catalog].sort();
 
-  // 注意：分组、平台等元数据由后端权限体系提供（/rbac/permissions）
-  res.json({
-    actions,
-    tenantRootBoundary,
-  });
+  res.json({ actions });
 });
 
 // 获取所有权限定义（包含平台、分组等元数据）
@@ -360,9 +158,9 @@ router.get('/rbac/actions', checkRbacPermission, async (_req, res) => {
 // 后端权限体系（backend/src/permissions/）是权限元数据的单一数据源
 router.get('/rbac/permissions', checkRbacPermission, async (_req, res) => {
   try {
-    // 返回所有权限定义，包含完整的元数据（platform, group, name, description 等）
+    const catalogSet = new Set(getEffectivePermissionCatalog());
     res.json({
-      permissions: PERMISSION_DEFINITIONS.map((def) => ({
+      permissions: PERMISSION_DEFINITIONS.filter((def) => catalogSet.has(def.id)).map((def) => ({
         id: def.id,
         name: def.name,
         description: def.description,
@@ -397,8 +195,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
       grantedCountByRoleId.set(k, (grantedCountByRoleId.get(k) || 0) + 1);
     }
     // Transform to frontend Policy format
-    const enterprise = licenseService.isEnterprise();
-    const visibleRoles = enterprise ? roles : roles.filter((r) => r.scope !== 'tenant');
+    const visibleRoles = roles.filter((r) => r.scope !== 'tenant');
     const list = visibleRoles.map((r) => {
       let actions: string[] = [];
       let conditions: any = undefined;
@@ -423,7 +220,7 @@ router.get('/rbac/roles', checkRbacPermission, async (req, res) => {
         scope: r.scope,
         status: r.status,
         permissions: r.permissions,
-        actions: stripTenantConsoleUmbrellaPermissions(Array.isArray(actions) ? actions : []),
+        actions: Array.isArray(actions) ? actions : [],
         groups: [], // Calculated on frontend
         conditions,
         createdAt: r.createdAt,
@@ -451,14 +248,12 @@ router.post('/rbac/roles', checkRbacPermission, async (req: any, res) => {
       checkPermission(perms, 'system.roles:write') || checkPermission(perms, 'system.rbac:write');
     if (!isSuper && !hasPerm) return res.status(403).json({ message: '权限不足' });
     const { name, description, scope = 'system', permissions = [] } = req.body as any;
-    if (rejectTenantRoleWithoutEnterprise(scope, res)) return;
+    if (rejectTenantScopeRole(scope, res)) return;
     if (!name?.trim()) return res.status(400).json({ message: '角色名称不能为空' });
     const repo = AppDataSource.getRepository(RBACRole);
     const existed = await repo.findOne({ where: { name } });
     if (existed) return res.status(400).json({ message: '角色名称已存在' });
-    const normalizedPermissions = stripTenantConsoleUmbrellaPermissions(
-      Array.isArray(permissions) ? permissions : [],
-    );
+    const normalizedPermissions = normalizeRolePermissionsInput(permissions);
     const row = repo.create({
       name,
       description,
@@ -487,9 +282,9 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
-    if (rejectTenantRoleWithoutEnterprise(scope ?? row.scope, res)) return;
-    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
-      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    if (rejectTenantScopeRole(scope ?? row.scope, res)) return;
+    if (row.scope === 'tenant') {
+      return res.status(400).json({ message: 'SDNC 不支持租户组织角色' });
     }
     if (isBuiltInRbacRoleName(row.name) && permissions !== undefined) {
       return res.status(400).json({ message: '系统预置角色不允许修改权限' });
@@ -503,19 +298,9 @@ router.put('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     row.description = description ?? row.description;
     row.scope = scope ?? row.scope;
     row.status = status ?? row.status;
-    if (!permissions && !isBuiltInRbacRoleName(row.name)) {
-      const current = parseRolePermissionsJson(row.permissions);
-      const stripped = stripTenantConsoleUmbrellaPermissions(current);
-      if (stripped.length !== current.length) {
-        row.permissions = JSON.stringify(stripped);
-      }
-    }
     if (permissions) {
       try {
-        const normalized = stripTenantConsoleUmbrellaPermissions(
-          Array.isArray(permissions) ? permissions : [],
-        );
-        row.permissions = JSON.stringify(normalized);
+        row.permissions = JSON.stringify(normalizeRolePermissionsInput(permissions));
       } catch {}
     }
     const saved = await repo.save(row);
@@ -542,18 +327,14 @@ router.patch('/rbac/roles/:id/permissions', checkRbacPermission, async (req: any
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
-    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
-      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    if (row.scope === 'tenant') {
+      return res.status(400).json({ message: 'SDNC 不支持租户组织角色' });
     }
     if (isBuiltInRbacRoleName(row.name)) {
       return res.status(400).json({ message: '系统预置角色不允许修改权限' });
     }
     try {
-      const expanded = expandLegacyContainerParentPermissions(
-        expandObsoleteFipsToEips(permissions),
-      );
-      const normalized = stripTenantConsoleUmbrellaPermissions(expanded);
-      row.permissions = JSON.stringify(normalized);
+      row.permissions = JSON.stringify(normalizeRolePermissionsInput(permissions));
       const saved = await repo.save(row);
       res.json(saved);
     } catch (e: any) {
@@ -580,8 +361,8 @@ router.delete('/rbac/roles/:id', checkRbacPermission, async (req: any, res) => {
     const repo = AppDataSource.getRepository(RBACRole);
     const row = await repo.findOne({ where: { id } });
     if (!row) return res.status(404).json({ message: '角色不存在' });
-    if (!licenseService.isEnterprise() && row.scope === 'tenant') {
-      return res.status(403).json({ message: ENTERPRISE_TENANT_ROLE_MSG });
+    if (row.scope === 'tenant') {
+      return res.status(400).json({ message: 'SDNC 不支持租户组织角色' });
     }
 
     if (isBuiltInRbacRoleName(row.name)) {

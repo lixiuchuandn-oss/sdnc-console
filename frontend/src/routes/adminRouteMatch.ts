@@ -22,11 +22,7 @@ export function findRouteSpecForPath(pathname: string) {
  */
 export function isSdnccAdminPathname(pathname: string): boolean {
   const p = String(pathname || '').split('?')[0];
-  return (
-    p.startsWith('/admin/interconnect/') ||
-    p.startsWith('/admin/sec-mgr-plane/') ||
-    p.startsWith('/admin/security/traffic/')
-  );
+  return p.startsWith('/admin/interconnect/');
 }
 
 /** 当前路径是否属 SDN 控制台页面（用于表格等全域样式）。 */

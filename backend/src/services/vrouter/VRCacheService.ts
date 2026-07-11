@@ -1,5 +1,6 @@
 import { AppDataSource } from '../../config/database';
 import { fetchAllVR1RowsFromCsm, fetchAllVR3RowsFromCsm, type CsmVrBizError } from './vrController';
+import { syncVr2ConfigsToPlatform } from './vr2PlatformSync';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { VRCacheExtended } from '../../entities/vRouter/VRCacheExtended';
@@ -28,7 +29,7 @@ function summarizeVrCacheError(err: unknown): string {
   return code ? `${msg} (${code})` : msg;
 }
 
-/** 单次 VR1/VR3/设备同步摘要（供 API 透出，避免错误仅落在服务端日志） */
+/** 单次 VR1/VR3/VR2/设备同步摘要（供 API 透出，避免错误仅落在服务端日志） */
 export type VrCacheSyncPart = {
   ok: boolean;
   rowCount?: number;
@@ -36,6 +37,10 @@ export type VrCacheSyncPart = {
   pages_fetched?: number;
   /** 对端 payload 声明的总条数（若有） */
   reported_total?: number;
+  /** VR2：对端无配置条数 */
+  skipped_no_config?: number;
+  /** VR2：传输或未知失败条数 */
+  fetch_errors?: number;
   csm_business_error?: CsmVrBizError;
   error?: string;
   /** CSM/拉取失败时已清空该表，避免与对端不一致的旧数据残留 */
@@ -46,6 +51,7 @@ export type VrCacheSyncDiagnostics = {
   syncedAt: string;
   vr1: VrCacheSyncPart;
   vr3: VrCacheSyncPart;
+  vr2: VrCacheSyncPart;
   device: VrCacheSyncPart;
 };
 
@@ -93,13 +99,11 @@ export class VRCacheService {
       vrCacheLog.info('开始全量同步...');
       const syncedAt = new Date().toISOString();
       try {
-        const [vr1, vr3, device] = await Promise.all([
-          this.syncBasicCache(),
-          this.syncExtendedCache(),
-          this.syncDeviceCache(),
-        ]);
+        const [vr1, vr3] = await Promise.all([this.syncBasicCache(), this.syncExtendedCache()]);
         await this.reconcileVrCachesAfterSync(vr1, vr3);
-        this.lastSyncDiagnostics = { syncedAt, vr1, vr3, device };
+        const vr2 = await this.syncVr2PlatformCache(vr1);
+        const device = await this.syncDeviceCache();
+        this.lastSyncDiagnostics = { syncedAt, vr1, vr3, vr2, device };
         vrCacheLog.info('全量同步完成。');
       } catch (err) {
         vrCacheLog.error('严重错误:', summarizeVrCacheError(err));
@@ -270,6 +274,38 @@ export class VRCacheService {
       }
       part.error = summarizeVrCacheError(err);
       vrCacheLog.error('VR3 同步失败，已清空本地 VR3 缓存:', part.error);
+      return part;
+    }
+  }
+
+  /** VR1 成功后：从 CSM VR2 回写 vr_config，再刷新 device 镜像 */
+  private async syncVr2PlatformCache(vr1: VrCacheSyncPart): Promise<VrCacheSyncPart> {
+    const part: VrCacheSyncPart = { ok: false };
+    if (!vr1.ok) {
+      part.ok = true;
+      part.rowCount = 0;
+      vrCacheLog.info('VR1 未成功，跳过 VR2 配置同步');
+      return part;
+    }
+
+    vrCacheLog.info('开始同步 VR2 配置...');
+    try {
+      const basicRepo = AppDataSource.getRepository(VRCacheBasic);
+      const basics = await basicRepo.find();
+      const uuids = basics.map((b) => String(b.uuid || '').trim()).filter(Boolean);
+      const r = await syncVr2ConfigsToPlatform(uuids);
+      part.rowCount = r.updated;
+      part.skipped_no_config = r.noConfig;
+      part.fetch_errors = r.errors;
+      part.ok = r.ok;
+      if (r.error) part.error = r.error;
+      vrCacheLog.info(
+        `VR2 同步完成: 回写 ${r.updated} 条，对端无配置 ${r.noConfig} 条${r.errors ? `，失败 ${r.errors} 条` : ''}`,
+      );
+      return part;
+    } catch (err) {
+      part.error = summarizeVrCacheError(err);
+      vrCacheLog.error('VR2 同步失败:', part.error);
       return part;
     }
   }

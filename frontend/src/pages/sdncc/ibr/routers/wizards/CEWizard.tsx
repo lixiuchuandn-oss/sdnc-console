@@ -8,6 +8,12 @@ import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/
 import { collectIfaceNamesForSelect, looksLikeIfaceName, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
+import {
+  handleWizardStepsChange,
+  validateWizardStepsThrough,
+  warnFormValidationFailure,
+} from '../vrWizardFormUtils';
+import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
 
 /** 读取平台侧 ce 配置；优先 ce.publicConfig，否则从根级扁平字段组装 */
 function getCePublicConfig(ce: any): Record<string, any> {
@@ -262,7 +268,7 @@ const CEWizard: React.FC = () => {
     try {
       const merged = await fetchVrCacheMerged(uuid);
       if (!merged || typeof merged !== 'object') {
-        if (!silent) message.warning('未获取到设备回读数据，请先确认 VR 设备在线/已接入。');
+        if (!silent) message.warning('未获取到设备回读数据，请先确认 IBR 设备在线/已接入。');
         setCsmctlCfg(null);
         setVr3Info(null);
         return;
@@ -330,8 +336,8 @@ const CEWizard: React.FC = () => {
     return `${o0}.${o1}.${o2}.${o3}/${mask}`;
   };
 
-  const buildConfigFromValues = (v: any) => {
-    const cfg: any = {};
+  const buildConfigFromValues = (v: any): Record<string, unknown> => {
+    const cfg: Record<string, unknown> = {};
     const ifaceMap = new Map<string, any>();
 
     // Helper to merge interface config
@@ -439,40 +445,7 @@ const CEWizard: React.FC = () => {
           : [],
     };
 
-    return sortJsonKeys(cfg);
-  };
-
-  const sortJsonKeys = (obj: any): any => {
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return obj;
-    
-    // 递归排序 JSON 键（展示/对比用）
-    const copy = { ...obj };
-    Object.keys(copy).forEach(k => {
-      copy[k] = sortJsonKeys(copy[k]);
-    });
-
-    // 关键字段 uuid、role、ce 等优先排序
-    const keys = Object.keys(copy).sort((a, b) => {
-       const prio = (k: string) => {
-         if (k === 'uuid') return -1;
-         if (k === 'role') return 0;
-         if (k === 'ce') return 1;
-         if (k.startsWith('interfaces_')) return 10;
-         if (k.startsWith('subinterfaces_')) return 11;
-         if (k.startsWith('ipv4_')) return 15;
-         if (k.startsWith('ipv6_')) return 16;
-         if (k === 'bgp') return 20;
-         return 50;
-       };
-       const pa = prio(a);
-       const pb = prio(b);
-       if (pa !== pb) return pa - pb;
-       return a.localeCompare(b);
-    });
-    
-    const sorted: any = {};
-    keys.forEach(k => sorted[k] = copy[k]);
-    return sorted;
+    return sortVrConfigJsonKeys(cfg, 'ce');
   };
 
   const watchedValues = Form.useWatch([], form);
@@ -486,30 +459,36 @@ const CEWizard: React.FC = () => {
   const CE_STEP0_FIELDS: string[] = ['wanName', 'wanIpv4', 'wanIpv6', 'bgpAsn', 'bgpRouterId'];
   const CE_STEP1_FIELDS: string[] = ['lanName', 'lanIpv4', 'lanIpv6'];
 
+  const ceFieldsForStep = (step: number) => (step === 0 ? CE_STEP0_FIELDS : step === 1 ? CE_STEP1_FIELDS : []);
+
+  const validateCeStepsThrough = (from: number, to: number) =>
+    validateWizardStepsThrough(form, from, to, ceFieldsForStep);
+
   const next = async () => {
     try {
-      if (current === 0) {
-        await form.validateFields(CE_STEP0_FIELDS);
-      } else if (current === 1) {
-        await form.validateFields(CE_STEP1_FIELDS);
-      }
+      const ok = await validateCeStepsThrough(current, current + 1);
+      if (!ok) return;
       setCurrent((c) => Math.min(2, c + 1));
-    } catch {
-      /* 校验未通过，留在当前步 */
+    } catch (err) {
+      warnFormValidationFailure(err);
     }
   };
   const prev = () => setCurrent((c) => Math.max(0, c - 1));
 
+  const handleStepsChange = (idx: number) => {
+    void handleWizardStepsChange(idx, current, setCurrent, validateCeStepsThrough);
+  };
+
   const handleDispatch = async () => {
     if (!uuid) {
-      message.error('缺少 VR 实例 UUID，无法继续');
+      message.error('缺少 IBR 实例 UUID，无法继续');
       return;
     }
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
-        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 VR 已被 SRv6 隧道引用';
+        const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
         message.error(
           `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
           8,
@@ -548,7 +527,7 @@ const CEWizard: React.FC = () => {
         message.warning('配置为空，请先完成第 1/2 步配置后再下发。');
         return;
       }
-      if (uuid) (cfg as any).uuid = uuid;
+      if (uuid) cfg.uuid = uuid;
       setLoading(true);
 
       // 1. 先保存到平台（saveVRConfig + setVRRole），失败则中止设备下发
@@ -557,11 +536,15 @@ const CEWizard: React.FC = () => {
         const existing = await getVRConfig(uuid);
 
         // Remove existing ce/role to ensure they are sorted correctly
-        const cleanExisting = { ...(existing || {}) };
+        const cleanExisting: Record<string, unknown> = {
+          ...(existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? (existing as Record<string, unknown>)
+            : {}),
+        };
         delete cleanExisting.ce;
         delete cleanExisting.role;
 
-        finalCfg = sortJsonKeys({ ...cleanExisting, ...cfg });
+        finalCfg = sortVrConfigJsonKeys({ ...cleanExisting, ...cfg }, 'ce');
         await saveVRConfig(uuid, finalCfg);
         await setVRRole(uuid, 'CE');
       } catch (e: any) {
@@ -692,7 +675,7 @@ const CEWizard: React.FC = () => {
       <Row gutter={16}>
         <Col span={4}>
           <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={(idx) => setCurrent(idx)} items={[{ title: 'WAN 侧配置（CE to PE）' }, { title: 'LAN 侧配置（CE to local）' }, { title: '确认下发' }]} />
+            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={[{ title: 'WAN 侧配置（CE to PE）' }, { title: 'LAN 侧配置（CE to local）' }, { title: '确认下发' }]} />
           </Card>
         </Col>
         <Col span={7}>

@@ -8,7 +8,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { apiRequest } from '../services/api';
 
 export interface PermissionDefinition {
-  id: string;              // 权限ID，如 'clouds.ecs:read'
+  id: string;              // 权限ID，如 'networks.vr-config:read'
   name: string;            // 显示名称，如 '云主机'
   description: string;      // 描述
   platform: string;        // 平台，如 'CNMC'

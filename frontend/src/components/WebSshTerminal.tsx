@@ -6,9 +6,9 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Space, Spin, Tag, Tooltip } from 'antd';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import 'xterm/css/xterm.css';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import '@xterm/xterm/css/xterm.css';
 import { API_BASE_URL } from 'services/api';
 import { getToken } from 'utils/tokenStorage';
 
@@ -56,6 +56,8 @@ export type WebSshTerminalProps = {
   title?: string;
   subtitle?: string;
   footerHint?: string;
+  /** 标题栏：断开并返回凭据表单 */
+  onChangeCredentials?: () => void;
 };
 
 type WsPayload = { type: string; data?: string; message?: string };
@@ -85,6 +87,7 @@ const WebSshTerminal: React.FC<WebSshTerminalProps> = ({
   title = 'SSH 终端',
   subtitle,
   footerHint,
+  onChangeCredentials,
 }) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -310,7 +313,7 @@ const WebSshTerminal: React.FC<WebSshTerminalProps> = ({
     termRef.current = term;
     fitRef.current = fitAddon;
 
-    dataListenerRef.current = term.onData((data) => {
+    dataListenerRef.current = term.onData((data: string) => {
       const ws = socketRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data }));
@@ -398,6 +401,16 @@ const WebSshTerminal: React.FC<WebSshTerminalProps> = ({
           {statusTag}
         </Space>
         <Space size={4} className="web-ssh-terminal__header-actions">
+          {onChangeCredentials ? (
+            <Button
+              type="text"
+              size="small"
+              className="web-ssh-terminal__text-btn"
+              onClick={onChangeCredentials}
+            >
+              断开并更换凭据
+            </Button>
+          ) : null}
           <Tooltip title="重新连接">
             <Button
               type="text"

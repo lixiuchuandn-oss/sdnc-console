@@ -2,6 +2,7 @@
  * SRv6 隧道「关系档案」：与后端 srv6Tunnel.types / POST|PUT 载荷对齐。
  */
 import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
+import type { Srv6CeHaBinding } from './srv6CeHaGroupLib';
 
 export type Srv6RdRtMeta = {
   rtCommon: string;
@@ -74,6 +75,9 @@ export type Srv6CeFingerprint = {
   publicIpv4?: string;
   publicBgpAsn?: number;
   innerBgpAsn?: number;
+  haGroupId?: string;
+  haGroupName?: string;
+  backupVrUuid?: string;
 };
 
 export type Srv6EndpointFingerprint = {
@@ -478,6 +482,8 @@ export type BuildTunnelArchiveInput = {
   hubWanInventoryId?: string;
   hubLanInventoryId?: string;
   hubInventory?: HubInventoryLite;
+  ceAHaBinding?: Srv6CeHaBinding | null;
+  ceBHaBinding?: Srv6CeHaBinding | null;
 };
 
 export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelArchivePayload => {
@@ -499,6 +505,8 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     hubWanInventoryId,
     hubLanInventoryId,
     hubInventory,
+    ceAHaBinding,
+    ceBHaBinding,
   } = input;
 
   let hubBindings: Srv6HubSlotBinding | undefined;
@@ -584,8 +592,30 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
       hubPeSlot === 'peB' ? hubFpMeta : undefined,
     );
   }
-  if (ceAfp) endpointFingerprint.ceA = buildCeFingerprint(ceAfp);
-  if (ceBfp) endpointFingerprint.ceB = buildCeFingerprint(ceBfp);
+  if (ceAfp) {
+    endpointFingerprint.ceA = {
+      ...buildCeFingerprint(ceAfp),
+      ...(ceAHaBinding
+        ? {
+            haGroupId: ceAHaBinding.haGroupId,
+            haGroupName: ceAHaBinding.haGroupName,
+            backupVrUuid: ceAHaBinding.backupVrUuid,
+          }
+        : {}),
+    };
+  }
+  if (ceBfp) {
+    endpointFingerprint.ceB = {
+      ...buildCeFingerprint(ceBfp),
+      ...(ceBHaBinding
+        ? {
+            haGroupId: ceBHaBinding.haGroupId,
+            haGroupName: ceBHaBinding.haGroupName,
+            backupVrUuid: ceBHaBinding.backupVrUuid,
+          }
+        : {}),
+    };
+  }
 
   return {
     peAInnerIf,

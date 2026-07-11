@@ -1,0 +1,59 @@
+# SDNC 全栈（推荐）：MongoDB + CSMCTL + 控制台（前后端一体）
+#
+#   docker compose up -d --build
+#   浏览器访问 http://<主机>:5001  （默认账号 admin / admin123）
+#
+# 仅依赖栈（本机跑 npm run dev 联调时）：
+#   docker compose up -d mongodb sdnc-csmctl
+
+services:
+  mongodb:
+    image: mongo:4.4
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: 'cloudmap#123'
+    volumes:
+      - sdnc-mongo-data:/data/db
+
+  sdnc-csmctl:
+    build:
+      context: ./ibr-controller
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - '8016:8016'
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      - mongodb
+    volumes:
+      - sdnc-csm-logs:/opt/csm-controller/logs
+      - sdnc-csm-download:/opt/csm-controller/download
+
+  sdnc-console:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - '5001:5001'
+    environment:
+      PRODUCT_FLAVOR: sdnc
+      PORT: '5001'
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      CSMCTL_ADDRESS: https://sdnc-csmctl:8016
+      DB_PATH: /opt/sdnc/data/data.sqlite
+      TOWER_AUTO_RESTART_ON_UPGRADE: 'false'
+    volumes:
+      - sdnc-app-data:/opt/sdnc/data
+    depends_on:
+      - sdnc-csmctl
+
+volumes:
+  sdnc-mongo-data:
+  sdnc-csm-logs:
+  sdnc-csm-download:
+  sdnc-app-data:

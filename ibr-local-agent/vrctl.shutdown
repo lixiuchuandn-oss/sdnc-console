@@ -1,0 +1,45 @@
+#!/bin/bash
+#set -x
+option="$1"
+option=${option:-shutdown}
+if [ "$option" = "shutdown" ]; then 
+	pid=$(pgrep -f "vrctl.agent.*")
+	[ -n "$pid" ] && kill  "$pid"
+
+	pid=$(pgrep -f "monitoring.agent.*--mode send")
+	[ -n "$pid" ] && kill  "$pid"
+
+	pid=$(pgrep -f "monitoring.agent.*--mode collect")
+	[ -n "$pid" ] && kill  "$pid"
+
+	pid=$(pgrep -f "monitoring.agent.*--mode download")
+	[ -n "$pid" ] && kill  "$pid"
+	/rhos/etc/agent/clean
+elif [ "$option" = "test" ]; then
+	pid=$(pgrep -f "vrctl.agent.*")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+	
+	pid=$(pgrep -f "monitoring.agent.*--mode send")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+
+	pid=$(pgrep -f "monitoring.agent.*--mode collect")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+
+	pid=$(pgrep -f "monitoring.agent.*--mode download")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+elif [ "$option" = "agent" ]; then
+	pid=$(pgrep -f "vrctl.agent.*")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+elif [ "$option" = "send" ]; then
+	pid=$(pgrep -f "monitoring.agent.*--mode send")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+elif [ "$option" = "collect" ]; then
+	pid=$(pgrep -f "monitoring.agent.*--mode collect")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+elif [ "$option" = "download" ]; then
+	pid=$(pgrep -f "monitoring.agent.*--mode download")
+	[ -n "$pid" ] && kill -SIGUSR1 "$pid"
+fi
+
+	
+

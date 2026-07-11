@@ -66,6 +66,10 @@ export type Srv6CeFingerprint = {
   publicIpv4?: string;
   publicBgpAsn?: number;
   innerBgpAsn?: number;
+  /** 高可用模式：CE 侧绑定的 IBR HA 组（平台档案，不参与设备 merge） */
+  haGroupId?: string;
+  haGroupName?: string;
+  backupVrUuid?: string;
 };
 
 export type Srv6EndpointFingerprint = {

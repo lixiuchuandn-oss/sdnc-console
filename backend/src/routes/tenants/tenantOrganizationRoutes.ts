@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { Organization } from '../../entities/Organization';
-import { ResourcePoolAssignment } from '../../entities/ResourcePoolAssignment';
 import { RoleAssignment } from '../../entities/RoleAssignment';
 import { Tenant } from '../../entities/Tenant';
 import { TenantUser } from '../../entities/TenantUser';
@@ -181,7 +180,6 @@ export function registerTenantOrganizationRoutes(router: Router): void {
       const { orgId } = req.params;
       const organizationRepository = AppDataSource.getRepository(Organization);
       const userRepository = AppDataSource.getRepository(TenantUser);
-      const assignmentRepository = AppDataSource.getRepository(ResourcePoolAssignment);
       const tenantRepository = AppDataSource.getRepository(Tenant);
 
       const target = await organizationRepository.findOne({ where: { id: orgId } });
@@ -222,7 +220,6 @@ export function registerTenantOrganizationRoutes(router: Router): void {
         });
       }
 
-      await assignmentRepository.delete({ organizationId: In(toDeleteIds) });
       const usersInOrgs = await userRepository.find({
         where: { organizationId: In(toDeleteIds) },
         select: { id: true },

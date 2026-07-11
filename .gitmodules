@@ -1,0 +1,3 @@
+[submodule "ibr-local-web"]
+	path = ibr-local-web
+	url = https://github.com/lixiuchuandn-oss/Paas-VRv2.git

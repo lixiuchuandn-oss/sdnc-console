@@ -1,61 +1,15 @@
 import { Router } from 'express';
 import { AppDataSource } from '../../config/database';
 import { ACLRule, ACLAction, ACLProtocol } from '../../entities/vRouter/ACLRule';
-import { VRConfig } from '../../entities/vRouter/VRConfig';
-import { vrController } from '../../services/vrouter/vrController';
+import {
+  pushVRConfig,
+  stripMeta,
+  mapDeployErrorToResponse,
+} from '../../services/vrouter/vrConfigDeploy';
 import { syncACLToVRConfig, syncGroupToVRs } from './aclGroups';
 
 export const aclRoutes = Router();
 const repo = () => AppDataSource.getRepository(ACLRule);
-const vrConfigRepo = () => AppDataSource.getRepository(VRConfig);
-
-// Helpers
-const _getVRConfigFromDB = async (uuid: string) => {
-  const record = await vrConfigRepo().findOne({ where: { uuid } });
-  if (!record) {
-    throw new Error(`VR config not found in database for UUID: ${uuid}`);
-  }
-  try {
-    return JSON.parse(record.config_json);
-  } catch (e) {
-    throw new Error(`Failed to parse VR config JSON for UUID: ${uuid}`);
-  }
-};
-
-const _saveVRConfigToDB = async (uuid: string, config: any) => {
-  let record = await vrConfigRepo().findOne({ where: { uuid } });
-  const jsonStr = JSON.stringify(config);
-
-  if (record) {
-    record.config_json = jsonStr;
-    await vrConfigRepo().save(record);
-  } else {
-    record = vrConfigRepo().create({ uuid, config_json: jsonStr });
-    await vrConfigRepo().save(record);
-  }
-};
-
-const stripMeta = (obj: any) => {
-  if (!obj || typeof obj !== 'object') return obj;
-  const {
-    msg: _msg,
-    code: _code,
-    report_config_status: _report_config_status,
-    updateDate: _updateDate,
-    createDate: _createDate,
-    _id,
-    requestId: _requestId,
-    ...rest
-  } = obj;
-  return rest;
-};
-
-const _getVRConfigFromDevice = async (uuid: string) => {
-  const resp = await vrController.getVRConfig(uuid);
-  const data = resp && resp.data ? resp.data : resp;
-  if (!data || typeof data !== 'object') return {};
-  return stripMeta(data);
-};
 
 // List ACL Rules
 aclRoutes.get('/', async (req, res, next) => {
@@ -159,21 +113,25 @@ aclRoutes.post('/deploy/push', async (req, res, next) => {
       return;
     }
 
-    // 1. Sync latest state to VR Config (Source of Truth)
-    // This ensures groups and loose rules are correctly formatted in config_json
     const fullConfig = await syncACLToVRConfig(vrId);
-
-    // 2. Push to Device
-    const cleanConfig = stripMeta(fullConfig);
+    const acknowledgeDrift = req.body?.acknowledgeDrift === true;
     try {
-      await vrController.updateVRConfig(vrId, cleanConfig);
-    } catch (err: any) {
+      const result = await pushVRConfig({
+        vrId,
+        domain: 'acl',
+        platformConfig: fullConfig,
+        acknowledgeDrift,
+      });
+      res.json({
+        status: 'success',
+        data: stripMeta(result.mergedConfig),
+        driftWarnings: result.driftWarnings,
+      });
+    } catch (err: unknown) {
+      const { status, body } = mapDeployErrorToResponse(err);
       console.error(`[ACL Push] Failed to update VR config for ${vrId}`, err);
-      res.status(500).json({ message: `Failed to apply configuration to VR: ${err.message}` });
-      return;
+      res.status(status).json({ message: body.message, code: body.code, conflicts: body.conflicts });
     }
-
-    res.json({ status: 'success', data: cleanConfig });
   } catch (e) {
     next(e);
   }

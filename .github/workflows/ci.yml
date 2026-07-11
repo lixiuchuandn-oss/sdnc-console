@@ -1,7 +1,6 @@
 name: CI
 
-# 质量门禁：对指向 main 的 PR 自动校验前后端「类型 → lint → 测试 → 构建」（合入后不再重复跑，见 docs/ci.md）。
-# 本地复现与 Branch protection 配置见 docs/ci.md。
+# 质量门禁：对指向 main 的 PR 自动校验前后端「类型 → lint → 测试 → 构建」（见 docs/ci.md）。
 # 前端 npm scripts 已使用 cross-env；CI 仍显式设置 env，便于复现底层工具调用。
 
 on:
@@ -39,24 +38,6 @@ jobs:
       - name: Build (tsc)
         run: npx tsc
 
-  format:
-    name: Format (prettier backend + docs)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-      - name: Install dependencies
-        run: bash ../.github/scripts/npm-ci.sh
-      - name: Prettier check
-        run: npm run format:check
-
   frontend:
     name: Frontend (tsc / eslint / test / build)
     runs-on: ubuntu-latest
@@ -75,8 +56,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: bash ../.github/scripts/npm-ci.sh
-      - name: Prettier check
-        run: npm run format:check
       - name: Type check (tsc --noEmit)
         run: npx tsc --noEmit
       - name: ESLint (zero warnings)
@@ -86,8 +65,8 @@ jobs:
       - name: Production build
         run: npx react-scripts build
 
-  tests-smoke-spec:
-    name: Tests (smoke Playwright spec list)
+  tests-e2e-spec:
+    name: Tests (auth Playwright spec list)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -101,5 +80,5 @@ jobs:
           cache-dependency-path: tests/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: List smoke browser tests (syntax check)
-        run: npx playwright test smoke/ --list
+      - name: List auth browser tests (syntax check)
+        run: npx playwright test auth/ --list

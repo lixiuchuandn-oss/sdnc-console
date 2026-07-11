@@ -8,7 +8,7 @@ function deriveKey(): Buffer {
   return crypto.createHash('sha256').update(secret).digest();
 }
 
-/** 对称加密敏感配置（如云桌面网关服务账号密码） */
+/** 对称加密敏感配置（如外部服务账号密码） */
 export function encryptSecret(plain: string): string {
   const iv = crypto.randomBytes(IV_LEN);
   const cipher = crypto.createCipheriv(ALGO, deriveKey(), iv);

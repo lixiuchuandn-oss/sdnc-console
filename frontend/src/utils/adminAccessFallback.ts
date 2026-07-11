@@ -1,16 +1,9 @@
 /**
  * 管理端：当前路径不可访问时，解析用户可进入的第一个静态路由。
- * 动态路径（含 :cloudId）优先依赖 `GET /api/auth/admin-default-home`。
  */
 import { routeSpecs, type RouteSpec } from '../routes/RouteSpec';
 import { hasPermissionForAction } from './accessMapping';
-import { canAccessTenantConsole, isTenantAccount } from './accountType';
-import { routeLicenseAllowed } from './licenseAccess';
-
-export type AdminLicenseGate = {
-  hasFeature: (f: string) => boolean;
-  isEnterpriseLicense: () => boolean;
-};
+import { isTenantAccount } from './accountType';
 
 export function normalizeAdminPath(p: string): string {
   const pure = String(p || '').split('?')[0].trim();
@@ -42,19 +35,15 @@ function findRouteSpecForPath(pathname: string): RouteSpec | undefined {
 export function canAccessAdminPath(
   pathname: string,
   user: { role?: string; permissions?: string[] },
-  gate: AdminLicenseGate,
 ): boolean {
   const pure = normalizeAdminPath(pathname);
   const role = String(user.role || '').toLowerCase();
-  if (pure === '/console' && canAccessTenantConsole(user)) return true;
   if (isTenantAccount(user)) return false;
   if (pure === '/admin/welcome' && role === 'admin') return true;
   if (pure === '/admin/coming-soon' && (role === 'admin' || role === 'super_admin')) return true;
   if ((pure === '/admin' || pure === '/admin/') && role === 'admin') return true;
 
   const spec = findRouteSpecForPath(pure);
-  if (!routeLicenseAllowed(spec, gate)) return false;
-
   if (role === 'super_admin') return true;
 
   const perms = Array.isArray(user.permissions) ? user.permissions : [];
@@ -64,12 +53,12 @@ export function canAccessAdminPath(
 }
 
 /** 与后端 `HOME_PAGE_CANDIDATES` 顺位大致一致（仅静态 path） */
-export function findFirstAccessibleAdminPath(
-  user: { role?: string; permissions?: string[] },
-  gate: AdminLicenseGate,
-): string {
+export function findFirstAccessibleAdminPath(user: {
+  role?: string;
+  permissions?: string[];
+}): string {
   const role = String(user.role || '').toLowerCase();
-  if (role === 'super_admin') return '/admin/dashboard';
+  if (role === 'super_admin') return '/admin/interconnect/vr';
 
   const specs = [...routeSpecs]
     .filter((s) => s.layout === 'admin' && s.requiredActions?.page && !s.path.includes(':'))
@@ -82,12 +71,6 @@ export function findFirstAccessibleAdminPath(
 
   for (const spec of specs) {
     if (spec.homePageAllowedRoles?.length && !spec.homePageAllowedRoles.includes(role)) {
-      continue;
-    }
-    if (spec.homePageOnlyWithoutFeature && gate.hasFeature(spec.homePageOnlyWithoutFeature)) {
-      continue;
-    }
-    if (!routeLicenseAllowed(spec, gate)) {
       continue;
     }
     if (spec.homePageSkipPermissionCheck && role === 'admin') {

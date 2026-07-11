@@ -1,0 +1,825 @@
+#!/bin/bash
+set -x
+show_help() {
+	printf "Usage:\n"
+	printf "  monitoring [OPTIONS...]\n"
+	printf "\n"
+	printf "Runs Monitoring Agent for collecting and sending data.\n"
+	printf "\n"
+	printf "General options:\n"
+	printf "  -h, --help\t\t\t\t: Show this help text\n"
+	printf "  -v, --version\t\t\t\t: Shows version of the agent.\n"
+	printf "  --mode <send, collect, download>\t\t: Mode for running Monitoring Agent.\n"
+	printf "Config options:\n"
+	printf "  --auth <auth>\t\t\t\t: AUTH of the device.\n"
+	printf "  --tonce <tonce>\t\t\t\t: TONCE of the device.\n"
+	printf "Monitoring Config options:\n"
+	printf "  --interval <time>\t\t\t: Time in seconds after which data should be sent/collected.\n"
+	printf "  --max-retries <max-retries-count>\t: No. of time agent should retry to send data.\n"
+	exit 0
+}
+
+show_version() {
+	VERSION=$(vctl show version)
+	echo "$VERSION"
+	exit 0
+}
+
+echoerr() { echo "$@" 1>&2 && exit 1; }
+
+check_md5() {
+	local file=$1
+	local file_old=$2
+	local md5 md5_old
+	md5=$(md5sum "$file" | awk '{print $1}')
+	md5_old=$(md5sum "$file_old" | awk '{print $1}')
+	if [ "$md5" = "$md5_old" ]; then
+		return 0
+	else
+		return 1
+	fi
+}
+
+
+get_mac() {
+	local mac interface
+	interface=$(ip link show | grep -v "lo" | grep -v "docker" | grep -v "veth" | grep -v "br-" | awk -F: '$0 !~ "^ " {print $2}' | head -n 1 | tr -d ' ')
+	mac=$(ip link show $interface | awk '/ether/ {print $2}')
+	echo "$mac"
+}
+get_uuid() {
+	# 从VR_CONF文件中读取UUID
+    local uuid=$(jq -r .uuid < "$VR_CONF" 2>/dev/null)
+    
+    # 如果UUID存在且不为空，直接返回
+    if [ -n "$uuid" ] && [ "$uuid" != "null" ]; then
+        echo "$uuid"
+        return
+    fi
+#    # 获取处理器ID
+#     local processor_id=$(dmidecode -t processor | grep ID | head -n 1 | cut -d':' -f2 | tr -d ' ')
+    
+#     # 获取第一个物理网卡的MAC地址（按照接口名称字母顺序排序）
+#     local mac=$(ip -o link show | 
+#         awk -F': ' '$2 !~ "lo|docker|veth|br-" {print $2}' | 
+#         sort | 
+#         while read -r iface; do 
+#             if ip link show "$iface" | grep -q ether; then
+#                 ip link show "$iface" | 
+#                 awk '/ether/ {print $2}' | 
+#                 tr -d ':' 
+#                 break
+#             fi
+#         done)
+    
+#     echo "${processor_id}-${mac}"
+
+}
+
+check_available_memory() {
+	while true; do
+		# 获取 TMP_DIR 目录所在分区的可用空间（单位：KB）
+        available=$(df --output=avail "$TMP_DIR" | tail -n 1)
+        # 设置所需最小空间为 100MB (100 * 1024 KB)
+        required=$((100 * 1024))
+
+		if [ "$available" -ge "$required" ]; then
+			return 0
+		else
+			# enough memory not available, deleting old data
+			# shellcheck disable=SC2012
+			file="$TMP_DIR/$(ls -1t "$TMP_DIR" | tail -1)"
+			# ensure that memory was available previously and file was written
+			if [ -f "$file" ]; then
+				rm "$file"
+			else
+				[ "$VERBOSE_MODE" -eq "1" ] && logger -s "Not enough memory available, skipping collect data." \
+						-p daemon.warn
+				return 1
+			fi
+		fi
+	done
+}
+auth_device() {
+	local type=$1
+	local file=$2
+	local data
+	local auth_info
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "Monitoring Agent: Authenticating device..." \
+		-t monitoring \
+		-p daemon.info
+
+	local exit_code status
+	case $type in
+		report)
+			data=$(cat "$file")
+			$UPLOAD_AUTH_COMMAND "$UPLOAD_AUTH_URL"  -H "Content-Type: application/json"\
+				-d "$data" \
+				> "$AUTH_INFO"
+			auth_info="$AUTH_INFO"
+			;;
+		download)
+			$DOWNLOAD_AUTH_COMMAND "$DOWNLOAD_AUTH_URL"  -H "Content-Type: application/json"\
+				> "$DOWNLOAD_AUTH_INFO"
+			auth_info="$DOWNLOAD_AUTH_INFO"
+			;;
+		checksum)
+			$CHECKSUM_AUTH_COMMAND "$CHECKSUM_AUTH_URL"  -H "Content-Type: application/json"\
+				> "$CHECKSUM_AUTH_INFO"
+			auth_info="$CHECKSUM_AUTH_INFO"
+			;;
+		status)
+			$STATUS_AUTH_COMMAND "$STATUS_AUTH_URL"  -H "Content-Type: application/json"\
+				-d "{\"uuid\": \"$UUID\", \"status\": \"$file\"}" \
+				> "$STATUS_AUTH_INFO"
+			auth_info="$STATUS_AUTH_INFO"
+			;;
+	esac
+	exit_code=$?
+	# 根据退出码判断是否连接成功
+	if [ -z "$exit_code" ] || [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller during $type auth: curl exit code $exit_code" \
+			-t monitoring \
+			-p daemon.err
+		return 1
+	fi
+	status=$(cat "$auth_info" | jq .status_code)
+	if [ "$status" -ne "200" ]; then
+		logger -s "Failed to $type authenticate device: $status" \
+			-t monitoring \
+			-p daemon.err
+		return 2
+	fi
+	{
+		AUTH=$(cat "$auth_info" | jq -r .data.Authorization)
+		TONCE=$(cat "$auth_info" | jq -r .data.tonce)
+	}
+	if [ -z "$AUTH" ] || [ -z "$TONCE" ]; then
+		logger -s "Failed to $type authenticate device: missing Authorization or tonce" \
+			-t monitoring \
+			-p daemon.err
+		return 3
+	fi
+	export AUTH TONCE
+	rm $auth_info
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "Monitoring Agent: Device authenticated successfully" \
+		-t monitoring \
+		-p daemon.info
+	return 0
+}
+##
+##
+collect_data() {
+	local n=0
+	#默认不开启详细日志
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Collecting Srv6 NetJSON Monitoring data" \
+		-t monitoring \
+		-p daemon.info
+    until [ "$n" -ge 5 ]; do
+        /rhos/etc/agent/tools/netjson-monitoring --collect-srv6
+		/rhos/etc/agent/tools/netjson-monitoring --collect-interfaces
+		/rhos/etc/agent/tools/netjson-monitoring --collect-resource-indicators
+		/rhos/etc/agent/tools/netjson-monitoring --collect-ipsec
+		/rhos/etc/agent/tools/netjson-monitoring --collect-gateway
+        if [ -f "$TMP_DIR/../conf.json" ]; then
+            break
+        fi
+        # 如果收集数据失败五次，则记录日志
+        if [ "$n" -eq 5 ]; then
+            [ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Collecting Srv6 data failed!" -p daemon.err
+        fi
+        n=$((n + 1))
+        sleep 5
+    done
+}
+
+set_url_and_curl() {
+	local type=$1
+	local vm_id=$(jq -r .vm_id < "$VR_CONF")
+	MANAGEMENT_IP=$(jq -r .manageip < "$VR_CTL")
+	URL="https://$MANAGEMENT_IP" 
+	case $type in
+		report)
+			UPLOAD_AUTH_COMMAND="curl -s -k -X POST --connect-timeout 30"
+			UPLOAD_AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VR3/active/config-and-Status&method=POST&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123"
+			UPLOAD_COMMAND="curl -s -k -X POST --connect-timeout 30"
+			UPLOAD_URL="$URL/V2/vrcontrol/VR3/active/config-and-Status"
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Uploading URL: $UPLOAD_COMMAND $UPLOAD_URL" \
+				-t monitoring \
+				-p daemon.info
+			;;									
+		download)
+			DOWNLOAD_AUTH_COMMAND="curl -s -k -X POST --connect-timeout 30"
+			DOWNLOAD_AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VR2/download-config&method=GET&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123&other=uuid=$UUID"
+			DOWNLOAD_COMMAND="curl -s -o $DOWNLOAD_DIR/$UUID -k -X GET --connect-timeout 30"
+			DOWNLOAD_URL="$URL/V2/vrcontrol/VR2/download-config?uuid=$UUID"
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Downloading URL: $DOWNLOAD_COMMAND $DOWNLOAD_URL" \
+				-t download-monitoring \
+				-p daemon.info
+			;;
+		checksum)
+			CHECKSUM_AUTH_COMMAND="curl -s -k -X POST --connect-timeout 30"
+			CHECKSUM_AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VR2/check-sum&method=GET&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123&other=uuid=$UUID"
+			CHECKSUM_COMMAND="curl -s -k -X GET --connect-timeout 30"
+			CHECKSUM_URL="$URL/V2/vrcontrol/VR2/check-sum?uuid=$UUID"
+			;;
+		status)
+			STATUS_AUTH_COMMAND="curl -s -k -X POST --connect-timeout 30"
+			STATUS_AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VR2/report-config-status&method=POST&accessKey=Cloudmap%23123&secretKey=Cloudmap%23123"
+			STATUS_COMMAND="curl -s -k -X POST --connect-timeout 30"
+			STATUS_URL="$URL/V2/vrcontrol/VR2/report-config-status"
+			;;
+		*)
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "The supplied type is invalid." \
+				-t monitoring \
+				-p daemon.err
+			;;
+	esac
+
+	#设置最大重试次数
+	MAX_RETRIES=${MAX_RETRIES:-5}
+	FAILING=0
+	return 0
+}
+
+#收集数据
+save_data() {
+    #循环收集数据
+	mkdir -p "$TMP_DIR" 2>/dev/null
+    while true; do
+        local  interval
+        if check_available_memory; then
+            if [ -f /rhos/etc/agent/.registration_finish ]; then
+                data="$(collect_data)"
+                filename="$(date -u +'%d-%m-%Y_%H:%M:%S')"
+                # save data with file_name
+                mv "$TMP_DIR/../conf.json" "$TMP_DIR/$filename"
+                [ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && cp "$TMP_DIR/$filename" "$TMP_DIR/../"
+                # compress data
+                [ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Data saved temporarily" \
+                    -p daemon.info
+                pid=$(pgrep -f "monitoring.agent.*--mode send")
+            	[ -n "$pid" ] && kill -SIGUSR1 "$pid" 2>/dev/null
+        	fi
+        fi
+        interval=$(jq -r .monitoring.interval < "$CONF")
+        if [ -n "$interval" ] && [ "$interval" != "$INTERVAL" ]; then
+                INTERVAL="$interval"
+        fi
+        # 捕获SIGUSR1信号
+        trap handle_sigusr1 USR1
+        sleep "$INTERVAL" &
+        wait $!
+        trap "" USR1
+    done
+}
+
+handle_sigusr1() {
+	if [ "$MODE" = "collect" ]; then
+		[ "$VERBOSE_MODE" -eq "1" ] && logger -s "SIGUSR1 received! Collecting data" \
+			-t monitoring \
+			-p daemon.info
+	elif [ "$MODE" = "send" ]; then
+		[ "$VERBOSE_MODE" -eq "1" ] && logger -s "SIGUSR1 received! Sending data" \
+			-t monitoring \
+			-p daemon.info
+	elif [ "$MODE" = "download" ]; then
+		[ "$VERBOSE_MODE" -eq "1" ] && logger -s "SIGUSR1 received! Downloading data" \
+			-t download-monitoring \
+			-p daemon.info
+	fi
+	return 0
+}
+check_rely() {
+	local status	
+	status=$(cat "$1" | jq .code)
+	echo "$status"
+}
+
+send_data() {
+	local ret failures auth_timeout  send_timeout exit_code data pid vm_id data
+	local file=$1
+ 
+	#设置失败次数和超时时间
+	failures=0
+	auth_timeout=1
+	send_timeout=1
+	while true; do
+		if [ "$failures" -eq "$MAX_RETRIES" ]; then
+			if [ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ]; then
+				logger -s "Data not sent successfully. Response code is \"$status\"." \
+					"Error message is $error_message" \
+					-p daemon.err
+			fi
+			logger -s "Data not sent successfully, when max retries reached." \
+				-t monitoring \
+				-p daemon.err
+			rm -f "$file" 2>/dev/null
+			rm -f "$BASE_DIR/.registration_finish" 2>/dev/null
+			#向agent发送SIGUSR1信号
+			pid=$(pgrep -f "vrctl.agent.*")
+			[ -n "$pid" ] && kill -SIGUSR1 "$pid" 2>/dev/null
+			break
+		fi
+		#发送上报认证
+		auth_device "report" "$file"
+		if [ "$?" = "0" ]; then
+			vm_id=$(jq -r .vm_id < "$VR_CONF")
+			data=$(cat "$file")
+			$UPLOAD_COMMAND "$UPLOAD_URL" \
+				-H "Content-Type: application/json" \
+				-H "Authorization: $AUTH" \
+				-H "tonce: $TONCE" \
+				-d "$data" \
+				> "$RESPONSE_FILE"
+			exit_code=$?
+			#检查curl退出码
+
+			if [ "$exit_code" -eq "0" ]; then
+				[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "send data successfully" \
+					-t monitoring \
+					-p daemon.err
+				rm -f "$file"
+				# 上报成功后清除接口统计信息
+				vctl clear interfaces 2>/dev/null
+				break
+			fi
+			if [ "$exit_code" -ne "0" ]; then
+				send_timeout=$((send_timeout * 2))
+				[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Data not sent successfully. Retrying in $send_timeout seconds" \
+					-t monitoring \
+					-p daemon.warn
+				failures=$((failures + 1))
+				sleep "$send_timeout"
+			fi
+			
+		else
+			auth_timeout=$((auth_timeout * 2))
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Data sent authentication failed. Retrying in $auth_timeout seconds" \
+				-t monitoring \
+				-p daemon.warn
+			failures=$((failures + 1))
+			sleep "$auth_timeout"
+		fi
+	done
+}
+
+#上报准备
+send_prepare() {
+	local file basefilename filename file_count
+	local files_processed=0
+	
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Send mode started, monitoring directory: $TMP_DIR" \
+		-t monitoring \
+		-p daemon.info
+	
+	while true; do
+		#判断设备是否注册
+		if [ ! -f /rhos/etc/agent/.registration_finish ]; then
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Device not registered, waiting..." \
+				-t monitoring \
+				-p daemon.info
+			trap handle_sigusr1 USR1
+			sleep "$INTERVAL" &
+			wait $!
+			trap "" USR1
+			continue
+		fi
+		
+		# 统计文件数量
+		file_count=$(ls -1 "$TMP_DIR"/* 2>/dev/null | wc -l)
+		
+		# 检查是否有文件需要发送
+		if [ "$file_count" -eq 0 ]; then
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "No data file found to send." \
+				-t monitoring \
+				-p daemon.info
+			trap handle_sigusr1 USR1
+			sleep "$INTERVAL" &
+			wait $!
+			trap "" USR1
+			continue
+		fi
+		
+		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Found $file_count file(s) to send" \
+			-t monitoring \
+			-p daemon.info
+		
+		# 处理目录中的文件（按时间排序，先处理最旧的）
+		for file in $(ls -1t "$TMP_DIR"/* 2>/dev/null | tail -r 2>/dev/null || ls -1t "$TMP_DIR"/* 2>/dev/null | tac 2>/dev/null || ls -1 "$TMP_DIR"/* 2>/dev/null); do
+			# 检查文件是否存在（避免通配符展开问题）
+			if [ ! -f "$file" ]; then
+				continue
+			fi
+			
+			basefilename=${file##*/}
+			
+			# 删除之前保存的响应信息
+			if [ "$basefilename" = "response_info" ]; then
+				rm "$file" 2>/dev/null
+				continue
+			fi
+			
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Sending file: $basefilename" \
+				-t monitoring \
+				-p daemon.info
+			
+			trap "" USR1
+			set_url_and_curl "report"
+			send_data "$file"
+			files_processed=$((files_processed + 1))
+			
+			# 处理完一个文件后，短暂等待，避免过于频繁
+			sleep 1
+		done
+		
+		#检测间隔时间配置
+		interval=$(jq -r .monitoring.interval < "$CONF" 2>/dev/null)
+		if [ -n "$interval" ] && [ "$interval" != "null" ] && [ "$interval" != "$INTERVAL" ]; then
+			INTERVAL="$interval"
+		fi
+		
+		# 如果处理了文件，短暂等待后继续检查
+		if [ "$files_processed" -gt 0 ]; then
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Processed $files_processed file(s), checking for more..." \
+				-t monitoring \
+				-p daemon.info
+			files_processed=0
+			sleep 2
+		fi
+	done
+}
+
+report_status() {
+	local exit_code
+	local status=$1
+	# retry several times
+	for i in $(seq 1 30); do
+	 set_url_and_curl "status"
+	 auth_device "status" "applied"
+	 if [ "$?" -ne "0" ]; then
+			sleep 3
+			continue
+		fi
+		$STATUS_COMMAND "$STATUS_URL" \
+			-H "Content-Type: application/json" \
+			-H "Authorization: $AUTH" \
+			-H "tonce: $TONCE" \
+			-d "{\"uuid\": \"$UUID\", \"status\": \"$status\"}" \
+			> "$STATUS_INFO"
+		exit_code=$?
+		if [ "$exit_code" -eq "0" ]; then
+			break
+		else
+			sleep 3
+		fi
+	done
+
+	if [ "$exit_code" -ne "0" ]; then
+		logger -s "Failed to connect to controller during report-status: curl exit code $exit_code" \
+			-t monitoring \
+			-p daemon.err
+		return 2
+	fi
+	rm $STATUS_INFO
+}
+
+download_data() {
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Downloading data" \
+		-t download-monitoring \
+		-p daemon.info
+	local ret failures auth_timeout  send_timeout exit_code data pid vm_id
+	local type=$1
+ 
+	#设置失败次数和超时时间
+	failures=0
+	auth_timeout=1
+	download_timeout=1
+	while true; do
+		if [ "$failures" -eq "$MAX_RETRIES" ]; then
+			if [ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ]; then
+				logger -s "Data not downloaded successfully. Response code is \"$status\"." \
+					"Error message is $error_message" \
+					-p daemon.err
+			fi
+			logger -s "Data not downloaded successfully, when max retries reached." \
+				-t download-monitoring \
+				-p daemon.err
+			rm -f "$BASE_DIR/.registration_finish" 2>/dev/null
+			#向agent发送SIGUSR1信号
+			pid=$(pgrep -f "vrctl.agent.*")
+			[ -n "$pid" ] && kill -SIGUSR1 "$pid" 2>/dev/null
+			break
+		fi
+		#发送下载认证
+		auth_device "download" 
+		if [ "$?" = "0" ]; then
+			$DOWNLOAD_COMMAND "$DOWNLOAD_URL" \
+				-H "Content-Type: application/json" \
+				-H "Authorization: $AUTH" \
+				-H "tonce: $TONCE"
+			exit_code=$?
+			#检查curl退出码
+			[ -n "$exit_code" ] && [ "$exit_code" -ne "0" ] && [ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Failed to send data: curl exit code $exit_code" \
+				-t monitoring \
+				-p daemon.err
+			
+			DOWNLOAD_FILE="$DOWNLOAD_DIR/$UUID"
+			if [ "$exit_code" -eq "0" ] && [ -f "$DOWNLOAD_FILE" ]; then
+				if [ "$type" = "first" ]; then
+					lua /rhos/etc/agent/tools/lua/transfer.lua "$DOWNLOAD_DIR/$UUID"
+					mv "$DOWNLOAD_DIR/$UUID" "$DOWNLOAD_DIR/$UUID.bak"
+				fi
+				if [ "$type" = "update" ]; then
+					lua /rhos/etc/agent/tools/lua/transfer.lua  "$DOWNLOAD_DIR/$UUID.bak" "$DOWNLOAD_DIR/$UUID"
+					mv "$DOWNLOAD_DIR/$UUID" "$DOWNLOAD_DIR/$UUID.bak"
+				fi
+				cp "$CONFIGURATION_CHECKSUM" "$PERSISTENT_CHECKSUM"
+				report_status "applied"
+				break
+			fi
+			if [ "$exit_code" -ne "0" ]; then
+				send_timeout=$((send_timeout * 2))
+				[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Data not sent successfully. Retrying in $send_timeout seconds" \
+					-t monitoring \
+					-p daemon.warn
+				failures=$((failures + 1))
+				sleep "$send_timeout"
+			fi
+			
+		else
+			auth_timeout=$((auth_timeout * 2))
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Data sent authentication failed. Retrying in $auth_timeout seconds" \
+				-t monitoring \
+				-p daemon.warn
+			failures=$((failures + 1))
+			sleep "$auth_timeout"
+		fi
+	done
+	
+}
+
+get_checksum() {
+	local exit_code status md5
+	set_url_and_curl "checksum"
+	for attempt_no in $(seq 1 "$CHECKSUM_MAX_RETRIES"); do
+		auth_device "checksum"
+		if [ "$?" -ne "0" ]; then
+			sleep "$CHECKSUM_RETRY_DELAY"
+			continue
+		fi
+		$CHECKSUM_COMMAND "$CHECKSUM_URL" \
+			-H "Content-Type: application/json" \
+			-H "Authorization: $AUTH" \
+			-H "tonce: $TONCE" \
+			> "$CHECKSUM_INFO"
+		exit_code=$?
+		if [ "$exit_code" -ne "0" ]; then
+			logger -s "Failed to connect to controller while getting checksum: curl exit code $exit_code" \
+				-t monitoring \
+				-p daemon.err
+		else
+			if [ -f "$CHECKSUM_INFO" ]; then
+				status=$(cat "$CHECKSUM_INFO" | jq .code)
+				if [ "$status" -ne "200" ]; then
+					logger -s "Failed to retrieve checksum: $status" \
+						-t monitoring \
+						-p daemon.err
+				else
+					md5=$(cat "$CHECKSUM_INFO" | jq -r .data.checkSum)
+					if [ "$md5" != "null" ]; then
+						echo "$md5" > "$1"
+						rm -f "$CHECKSUM_INFO" 2>/dev/null
+						return 0
+					else
+						[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "checksum is null" \
+							-t monitoring \
+							-p daemon.info
+						echo " " > "$1"
+						return 0
+					fi
+				fi
+			fi
+		fi
+		
+		sleep "$CHECKSUM_RETRY_DELAY"
+	done
+	rm -f "$CHECKSUM_INFO" 2>/dev/null
+	return 2
+}
+configuration_changed() {
+	local CURRENT_CHECKSUM exit_code REMOTE_CHECKSUM
+	CURRENT_CHECKSUM=$(tail -n 1 $CONFIGURATION_CHECKSUM 2>/dev/null)
+	get_checksum $CONFIGURATION_CHECKSUM
+	exit_code=$?
+
+	if [ "$exit_code" -ne "0" ]; then
+		# restore last known checksum if get_checksum failed
+		if [ -f "$PERSISTENT_CHECKSUM" ]; then
+			cp "$PERSISTENT_CHECKSUM" "$CONFIGURATION_CHECKSUM"
+		fi
+		return $exit_code
+	fi
+	
+	REMOTE_CHECKSUM=$(tail -n 1 $CONFIGURATION_CHECKSUM 2>/dev/null)
+	if [ -z "$CURRENT_CHECKSUM" ] && [ -n "$REMOTE_CHECKSUM" ]; then
+		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Local configuration first time" \
+			-t monitoring \
+			-p daemon.info
+		return 3
+	fi
+	if [ "$CURRENT_CHECKSUM" != "$REMOTE_CHECKSUM" ]; then
+		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Local configuration outdated" \
+			-t monitoring \
+			-p daemon.info
+		return 1
+	fi
+
+	return 0
+}
+#下载数据准备
+download_data_prepare() {
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "start downloading data" \
+		-t download-monitoring \
+		-p daemon.info
+
+	local file vm_id ret
+	while true; do
+		#判断设备是否注册
+		if [ ! -f "$BASE_DIR/.registration_finish" ]; then
+			[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Device not registered, skipping download data" \
+				-t download-monitoring \
+				-p daemon.info
+			trap handle_sigusr1 USR1
+			sleep "$DOWNLOAD_INTERVAL" &
+			wait $!
+			continue
+		fi
+		trap "" USR1
+		configuration_changed
+		ret=$?
+		if [ "$ret" -eq "1" ]; then
+			#设置下载认证
+			set_url_and_curl "download"
+			download_data  "update"			
+		fi
+		if [ "$ret" -eq "3" ]; then
+			set_url_and_curl "download"
+			download_data "first"
+		fi
+		interval=$(jq -r .monitoring.download_interval < "$CONF")
+		if [ -n "$interval" ] && [ "$interval" != "$DOWNLOAD_INTERVAL" ]; then
+			DOWNLOAD_INTERVAL="$interval"
+		fi
+		
+		trap handle_sigusr1 USR1
+		sleep "$DOWNLOAD_INTERVAL" &
+		wait $!
+		trap "" USR1
+	done
+}
+
+wait_until_registered() {
+
+	if [ ! -f /rhos/etc/agent/.registration_finish ]; then
+		return 1
+	fi
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Waiting for device to register" \
+		-t monitoring \
+		-p daemon.info
+
+	MANAGEMENT_IP=$(jq -r .manageip < "$VR_CTL")
+	if [ -z "$MANAGEMENT_IP" ]; then
+		logger "Unable to obtain controller IP" \
+		-t agent \
+		-p daemon.info
+		return 2
+	fi 
+	
+	[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger -s "Setting auth and tonce" \
+		-t monitoring \
+		-p daemon.info
+
+	return 0
+}
+
+main() {
+	#解析参数
+	while [ -n "$1" ]; do
+		case "$1" in
+			--version | -v)
+				show_version
+				;;
+			--help | -h)
+				show_help
+				;;
+			--url)
+				export BASE_URL="$2"
+				shift
+				;;
+			--auth)
+				export AUTH="$2"
+				shift
+				;;
+			--tonce)
+				export TONCE="$2"
+				shift
+				;;
+			--verify_ssl)
+				export VERIFY_SSL="$2"
+				shift
+				;; 
+			--interval)
+				export INTERVAL="$2"
+				shift
+				;;
+			--download_interval)
+				export DOWNLOAD_INTERVAL="$2"
+				shift
+				;;
+			--registration_interval)
+				export REGISTRATION_INTERVAL="$2"
+				shift
+				;;
+			--monitored_interfaces)
+				export MONITORED_INTERFACES="$2"
+				shift
+				;;
+			--verbose_mode)
+				export VERBOSE_MODE="$2"
+				shift
+				;;
+			--required_memory)
+				export REQUIRED_PERCENT="$2"
+				shift
+				;;
+			--mode)
+				export MODE="$2"
+				shift
+				;;
+			--max_retries)
+				export MAX_RETRY="$2"
+				shift
+				;;
+			-*)
+				echo "Invalid option: $1"
+				exit 1
+				;;
+			*) break ;;
+		esac
+		shift
+	done
+	#间隔时间配置
+	INTERVAL=${INTERVAL:-300}
+	DOWNLOAD_INTERVAL=${DOWNLOAD_INTERVAL:-30}
+	REGISTRATION_INTERVAL=${REGISTRATION_INTERVAL:-$((INTERVAL / 10))}
+	AUTH_INTERVAL=${AUTH_INTERVAL:-$((INTERVAL / 10))}
+	VERBOSE_MODE=${VERBOSE_MODE:-0} #默认不开启日志详细模式
+
+	#多目录配置
+	BASE_DIR="/rhos/etc/agent"
+	STORAGE_DIR="$BASE_DIR/conf"
+	DOWNLOAD_DIR="$BASE_DIR/download"
+	TMP_DIR="$STORAGE_DIR/monitoring"
+	AUTH_INFO="$BASE_DIR/.report_auth_info"
+	DOWNLOAD_AUTH_INFO="$BASE_DIR/.download_auth_info"
+	STATUS_AUTH_INFO="$BASE_DIR/.status_auth_info"
+	STATUS_INFO="$BASE_DIR/.status_info"
+	CHECKSUM_AUTH_INFO="$BASE_DIR/.checksum_auth_info"
+	CHECKSUM_INFO="$BASE_DIR/checksum_info"
+	CONF="$BASE_DIR/vr_conf"
+	CONF_LIST=("interfaces" "subinterfaces" "routes" "srv6")
+	VR_CTL="/usr/local/src/vrconf/vrcontrol.conf"
+	VR_CONF="/usr/local/src/vrconf/registervr.conf"
+	CHECKSUM_MAX_RETRIES=${CHECKSUM_MAX_RETRIES:-5}
+	CHECKSUM_RETRY_DELAY=${CHECKSUM_RETRY_DELAY:-6}
+	#配置文件校验
+	CONFIGURATION_CHECKSUM="$BASE_DIR/.checksum"
+	PERSISTENT_CHECKSUM="/usr/local/src/vrconf/checksum" 
+	#模式配置
+	[ -z "$MODE" ] && echoerr "missing required --mode option"
+	#等待设备注册
+	until wait_until_registered; do
+			sleep "$REGISTRATION_INTERVAL"
+	done
+	
+	UUID=$(get_uuid)
+	MAC=$(get_mac)
+	#模式判断
+	if [ "$MODE" = "collect" ]; then #收集数据模式
+		save_data 
+	elif [ "$MODE" = "send" ]; then #发送数据模式
+		RESPONSE_FILE="$TMP_DIR"/response_info
+		send_prepare
+	elif [ "$MODE" = "download" ]; then #下载数据模式
+		mkdir -p "$DOWNLOAD_DIR" 2>/dev/null
+		if [ -f "$PERSISTENT_CHECKSUM" ]; then
+			cp "$PERSISTENT_CHECKSUM" "$CONFIGURATION_CHECKSUM"
+		fi
+		download_data_prepare
+	else
+		echoerr "The supplied mode is invalid. Only send and collect are allowed"
+	fi
+}
+
+main "$@"

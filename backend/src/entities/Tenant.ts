@@ -8,7 +8,6 @@ import {
 } from 'typeorm';
 import { Organization } from './Organization';
 import { TenantUser } from './TenantUser';
-import { UserSpace } from './UserSpace';
 
 @Entity('tenants')
 export class Tenant {
@@ -42,7 +41,4 @@ export class Tenant {
 
   @OneToMany(() => TenantUser, (user) => user.tenant)
   users?: TenantUser[];
-
-  @OneToMany(() => UserSpace, (userSpace) => userSpace.tenant)
-  userSpaces?: UserSpace[];
 }

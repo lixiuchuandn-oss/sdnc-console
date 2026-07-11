@@ -1,6 +1,6 @@
 import http from 'http';
 import jwt from 'jsonwebtoken';
-import { assertLegacyConsoleWsAccess } from './wsConsoleAccess';
+import { assertConsoleWsAccess } from './wsConsoleAccess';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import { Client as SSHClient, ClientChannel } from 'ssh2';
 
@@ -19,7 +19,163 @@ interface ConnectPayload {
 
 interface WsMessage {
   type: 'connect' | 'input' | 'resize' | 'close' | 'ping';
-  data?: any;
+  data?: unknown;
+}
+
+function formatSshError(err: Error, host: string, username: string): string {
+  const raw = String(err?.message || err || '').trim();
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes('all configured authentication methods failed') ||
+    lower.includes('authentication failed') ||
+    lower.includes('permission denied')
+  ) {
+    return `SSH 认证失败：请核对设备 ${username}@${host} 的用户名与密码（非 SDNC 控制台登录密码）`;
+  }
+  if (lower.includes('timed out') || lower.includes('timeout')) {
+    return `SSH 连接超时：无法访问 ${host}:22，请确认 SDNC 与设备管理口网络可达`;
+  }
+  if (lower.includes('econnrefused') || lower.includes('connect econnrefused')) {
+    return `SSH 连接被拒绝：${host}:22 未开放或端口不正确`;
+  }
+  if (lower.includes('enotfound') || lower.includes('getaddrinfo')) {
+    return `SSH 无法解析主机：${host}`;
+  }
+  return raw ? `SSH 错误：${raw}` : 'SSH 连接失败';
+}
+
+function openShellSession(params: {
+  ssh: SSHClient;
+  ws: WebSocket;
+  cols: number;
+  rows: number;
+  networkCli: boolean;
+  safeSend: (payload: Record<string, unknown>) => void;
+  onStream: (stream: ClientChannel | null) => void;
+}) {
+  const { ssh, ws, cols, rows, networkCli, safeSend, onStream } = params;
+
+  ssh.shell(
+    {
+      cols,
+      rows,
+      term: 'xterm-256color',
+    },
+    (err: Error | undefined, stream: ClientChannel) => {
+      if (err) {
+        safeSend({ type: 'error', message: `打开 Shell 失败: ${err.message}` });
+        ws.close();
+        ssh.end();
+        return;
+      }
+
+      onStream(stream);
+      safeSend({ type: 'ready' });
+
+      if (!networkCli) {
+        try {
+          stream.write('\r');
+        } catch {
+          /* ignore */
+        }
+        setTimeout(() => {
+          try {
+            stream.write('\x03');
+          } catch {
+            /* ignore */
+          }
+        }, 120);
+        setTimeout(() => {
+          try {
+            stream.write('\r');
+          } catch {
+            /* ignore */
+          }
+        }, 250);
+        setTimeout(() => {
+          try {
+            stream.write('export PS1="\\u@\\h:\\w\\$ "\n');
+          } catch {
+            /* ignore */
+          }
+        }, 350);
+        setTimeout(() => {
+          try {
+            stream.write('printf "\\n"\n');
+          } catch {
+            /* ignore */
+          }
+        }, 450);
+      } else {
+        try {
+          stream.write('\r');
+        } catch {
+          /* ignore */
+        }
+      }
+
+      let receivedOnce = false;
+      const fallbackTimer = networkCli
+        ? null
+        : setTimeout(() => {
+            if (receivedOnce) return;
+            ssh.exec(
+              'bash -li',
+              { pty: { rows, cols, term: 'xterm-256color' } },
+              (execErr: Error | undefined, execStream: ClientChannel) => {
+                if (execErr) return;
+                try {
+                  stream.removeAllListeners();
+                } catch {
+                  /* ignore */
+                }
+                onStream(execStream);
+                try {
+                  execStream.write('\r');
+                } catch {
+                  /* ignore */
+                }
+                execStream.on('data', (data: Buffer) => {
+                  safeSend({ type: 'data', data: data.toString('utf8') });
+                });
+                execStream.on('close', () => {
+                  safeSend({ type: 'close' });
+                  try {
+                    ws.close();
+                  } catch {
+                    /* ignore */
+                  }
+                  try {
+                    ssh.end();
+                  } catch {
+                    /* ignore */
+                  }
+                });
+              },
+            );
+          }, 1000);
+
+      stream.on('data', (data: Buffer) => {
+        safeSend({ type: 'data', data: data.toString('utf8') });
+        receivedOnce = true;
+      });
+      stream.on('close', () => {
+        safeSend({ type: 'close' });
+        ws.close();
+        ssh.end();
+        if (fallbackTimer) {
+          try {
+            clearTimeout(fallbackTimer);
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+      stream.stderr?.on('data', (data: Buffer) => {
+        safeSend({ type: 'data', data: data.toString('utf8') });
+      });
+    },
+  );
 }
 
 export function createSshWsServer() {
@@ -28,38 +184,52 @@ export function createSshWsServer() {
   wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     const token = url.searchParams.get('token');
-    console.log('WS SSH connect', {
-      origin: req.headers.origin,
-      ua: req.headers['user-agent'],
-      ext: req.headers['sec-websocket-extensions'],
-    });
 
-    // 简单鉴权：要求有效 JWT 且为管理员角色
     try {
       if (!token) throw new Error('缺少 token');
-      const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+      const decoded: jwt.JwtPayload & { role?: string; permissions?: string[] } = jwt.verify(
+        token,
+        process.env.JWT_SECRET || 'your-secret-key',
+      ) as jwt.JwtPayload & { role?: string; permissions?: string[] };
       if (!decoded || !decoded.role) throw new Error('无效令牌');
-
-      assertLegacyConsoleWsAccess(decoded);
-    } catch (err: any) {
-      ws.send(JSON.stringify({ type: 'error', message: err?.message || '鉴权失败' }));
+      assertConsoleWsAccess(decoded);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '鉴权失败';
+      ws.send(JSON.stringify({ type: 'error', message }));
       ws.close();
       return;
     }
 
-    const ssh = new SSHClient();
-    let shellStream: any = null;
+    let activeSsh: SSHClient | null = null;
+    let shellStream: ClientChannel | null = null;
 
-    const safeSend = (payload: any) => {
+    const safeSend = (payload: Record<string, unknown>) => {
       try {
         ws.send(JSON.stringify(payload), { compress: false });
-      } catch {}
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const teardownSsh = () => {
+      try {
+        shellStream?.end();
+      } catch {
+        /* ignore */
+      }
+      shellStream = null;
+      try {
+        activeSsh?.end();
+      } catch {
+        /* ignore */
+      }
+      activeSsh = null;
     };
 
     ws.on('message', (raw: RawData) => {
       let msg: WsMessage | null = null;
       try {
-        msg = JSON.parse(String(raw));
+        msg = JSON.parse(String(raw)) as WsMessage;
       } catch {
         msg = null;
       }
@@ -67,7 +237,7 @@ export function createSshWsServer() {
 
       switch (msg.type) {
         case 'connect': {
-          const p: ConnectPayload = msg.data || {};
+          const p = (msg.data || {}) as ConnectPayload;
           const {
             host,
             port = 22,
@@ -80,163 +250,59 @@ export function createSshWsServer() {
             bootstrap = 'linux',
           } = p;
           const networkCli = bootstrap === 'none';
-          if (!host || !username || (!password && !privateKey)) {
+          const authPassword = password != null ? String(password) : '';
+
+          if (!host || !username || (!authPassword && !privateKey)) {
             safeSend({ type: 'error', message: '缺少连接参数（host/username/密码或私钥）' });
             return;
           }
 
-          ssh
-            .on('ready', () => {
-              console.log('SSH连接已建立，准备打开shell');
-              ssh.shell(
-                {
-                  cols,
-                  rows,
-                  term: 'xterm-256color',
-                },
-                (err: any, stream: ClientChannel) => {
-                  if (err) {
-                    console.error('打开Shell失败:', err.message);
-                    safeSend({ type: 'error', message: `打开Shell失败: ${err.message}` });
-                    ws.close();
-                    ssh.end();
-                    return;
-                  }
-                  shellStream = stream;
-                  console.log('Shell流已创建，发送ready信号');
-                  safeSend({ type: 'ready' });
-                  if (!networkCli) {
-                    try {
-                      shellStream.write('\r');
-                    } catch {}
-                    setTimeout(() => {
-                      try {
-                        shellStream.write('\x03');
-                      } catch {}
-                    }, 120);
-                    setTimeout(() => {
-                      try {
-                        shellStream.write('\r');
-                      } catch {}
-                    }, 250);
-                    setTimeout(() => {
-                      try {
-                        shellStream.write('export PS1="\\u@\\h:\\w\\$ "\n');
-                      } catch {}
-                    }, 350);
-                    setTimeout(() => {
-                      try {
-                        shellStream.write('printf "\\n"\n');
-                      } catch {}
-                    }, 450);
-                  } else {
-                    try {
-                      shellStream.write('\r');
-                    } catch {}
-                  }
+          teardownSsh();
 
-                  let receivedOnce = false;
-                  const fallbackTimer = networkCli
-                    ? null
-                    : setTimeout(() => {
-                        if (receivedOnce) return;
-                        try {
-                          console.log('Shell无输出，尝试使用 bash -li 作为回退');
-                          ssh.exec(
-                            'bash -li',
-                            { pty: { rows, cols, term: 'xterm-256color' } },
-                            (execErr: any, execStream: ClientChannel) => {
-                              if (execErr) {
-                                console.error('回退到 bash 失败:', execErr?.message || execErr);
-                                return;
-                              }
-                              try {
-                                shellStream?.removeAllListeners();
-                              } catch {}
-                              shellStream = execStream;
-                              try {
-                                shellStream.write('\r');
-                              } catch {}
-                              setTimeout(() => {
-                                try {
-                                  shellStream.write('\x03');
-                                } catch {}
-                              }, 120);
-                              setTimeout(() => {
-                                try {
-                                  shellStream.write('\r');
-                                } catch {}
-                              }, 250);
-                              setTimeout(() => {
-                                try {
-                                  shellStream.write('export PS1="\\u@\\h:\\w\\$ "\n');
-                                } catch {}
-                              }, 350);
-                              setTimeout(() => {
-                                try {
-                                  shellStream.write('printf "\\n"\n');
-                                } catch {}
-                              }, 450);
-                              shellStream.on('data', (data: Buffer) => {
-                                const dataStr = data.toString('utf8');
-                                safeSend({ type: 'data', data: dataStr });
-                              });
-                              shellStream.on('close', () => {
-                                safeSend({ type: 'close' });
-                                try {
-                                  ws.close();
-                                } catch {}
-                                try {
-                                  ssh.end();
-                                } catch {}
-                              });
-                            },
-                          );
-                        } catch {}
-                      }, 1000);
-                  stream.on('data', (data: Buffer) => {
-                    const dataStr = data.toString('utf8');
-                    console.log('Shell输出数据:', JSON.stringify(dataStr));
-                    safeSend({ type: 'data', data: dataStr });
-                    receivedOnce = true;
-                  });
-                  stream.on('close', () => {
-                    console.log('Shell流已关闭');
-                    safeSend({ type: 'close' });
-                    ws.close();
-                    ssh.end();
-                    if (fallbackTimer) {
-                      try {
-                        clearTimeout(fallbackTimer);
-                      } catch {}
-                    }
-                  });
-                  stream.stderr?.on('data', (data: Buffer) => {
-                    const errorStr = data.toString('utf8');
-                    console.log('Shell错误输出:', JSON.stringify(errorStr));
-                    safeSend({ type: 'data', data: errorStr });
-                  });
-                },
-              );
-            })
-            .on('error', (err: Error) => {
-              safeSend({ type: 'error', message: `SSH错误: ${err.message}` });
-              ws.close();
-            })
-            .on('end', () => {
-              safeSend({ type: 'close' });
-            })
-            .connect({
-              host,
-              port,
-              username,
-              // 认证方式：优先私钥
-              ...(privateKey ? { privateKey, passphrase } : { password }),
-              // 超时与保活，避免无响应长期挂起
-              readyTimeout: 15000,
-              keepaliveInterval: 10000,
-              keepaliveCountMax: 3,
+          const ssh = new SSHClient();
+          activeSsh = ssh;
+
+          if (authPassword && !privateKey) {
+            ssh.on('keyboard-interactive', (_name, _instructions, _lang, prompts, finish) => {
+              finish(prompts.map(() => authPassword));
             });
+          }
+
+          ssh.on('ready', () => {
+            openShellSession({
+              ssh,
+              ws,
+              cols,
+              rows,
+              networkCli,
+              safeSend,
+              onStream: (stream) => {
+                shellStream = stream;
+              },
+            });
+          });
+
+          ssh.on('error', (err: Error) => {
+            safeSend({
+              type: 'error',
+              message: formatSshError(err, host, username),
+            });
+          });
+
+          ssh.on('end', () => {
+            safeSend({ type: 'close' });
+          });
+
+          ssh.connect({
+            host,
+            port,
+            username,
+            tryKeyboard: Boolean(authPassword && !privateKey),
+            ...(privateKey ? { privateKey, passphrase } : { password: authPassword }),
+            readyTimeout: 15000,
+            keepaliveInterval: 10000,
+            keepaliveCountMax: 3,
+          });
           break;
         }
         case 'input': {
@@ -246,7 +312,9 @@ export function createSshWsServer() {
           break;
         }
         case 'resize': {
-          const { cols = 120, rows = 30 } = msg.data || {};
+          const size = (msg.data || {}) as { cols?: number; rows?: number };
+          const cols = size.cols ?? 120;
+          const rows = size.rows ?? 30;
           try {
             shellStream?.setWindow(rows, cols, 0, 0);
           } catch {
@@ -255,12 +323,7 @@ export function createSshWsServer() {
           break;
         }
         case 'close': {
-          try {
-            shellStream?.end();
-          } catch {}
-          try {
-            ssh.end();
-          } catch {}
+          teardownSsh();
           ws.close();
           break;
         }
@@ -268,16 +331,13 @@ export function createSshWsServer() {
           safeSend({ type: 'pong' });
           break;
         }
+        default:
+          break;
       }
     });
 
     ws.on('close', () => {
-      try {
-        shellStream?.end();
-      } catch {}
-      try {
-        ssh.end();
-      } catch {}
+      teardownSsh();
     });
   });
 
