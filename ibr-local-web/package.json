@@ -1,0 +1,21 @@
+{
+	"name": "paas-vr-console",
+	"private": true,
+	"workspaces": [
+		"server",
+		"web"
+	],
+	"scripts": {
+		"dev": "concurrently -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+		"dev:remote:web": "node scripts/dev-remote-web.mjs",
+		"build": "npm run build -w web && npm run build -w server",
+		"start": "npm run start -w server",
+		"deploy:remote": "node scripts/deploy-remote.mjs",
+		"install:cursor-cli:remote": "node scripts/install-cursor-cli-remote.mjs"
+	},
+	"devDependencies": {
+		"concurrently": "^9.1.2",
+		"ssh2": "^1.17.0"
+	},
+	"version": "2.0.0"
+}

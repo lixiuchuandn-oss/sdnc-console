@@ -1,0 +1,56 @@
+# Dependencies & build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Environment & secrets（示例文件 .env.example / deploy.config.example 可提交，其余忽略）
+.env
+.env.local
+.env.*.local
+server/.env
+server/.env.local
+server/.env.*.local
+!server/.env.example
+scripts/deploy.config
+scripts/deploy.local.config
+scripts/*.secret
+
+# SSH / TLS keys
+*.pem
+*.key
+*.ppk
+id_rsa
+id_ed25519
+id_ecdsa
+
+# Deploy bundles & staging
+*.tgz
+paas-vr-v2-deploy-*
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime / local mock & device state（勿提交本机 VR 状态）
+server/data/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE（保留 .vscode/extensions.json 等可共享项时，只忽略个人设置）
+.idea/
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*~
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# 平台产品源码（csmctl / vrctl-agent / ipoe），仅本地开发，不上传 GitHub
+products/

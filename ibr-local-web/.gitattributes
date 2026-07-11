@@ -1,0 +1,16 @@
+# 统一换行，避免 Windows/Linux 混用 diff 噪音
+* text=auto eol=lf
+
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# 本地密钥/配置永不 diff
+scripts/deploy.config -diff
+*.pem -diff
+*.key -diff

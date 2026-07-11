@@ -1,0 +1,1096 @@
+:root {
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+
+	--app-bg: #f7f7f8;
+	--app-sider-bg: #f3f3f3;
+	--app-border: #ececec;
+	--app-text-muted: #6b6b6f;
+	--app-font-ui: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+	--app-nav-text: #111111;
+	--app-nav-hover: #f0f0f0;
+	--app-nav-active: #ebebeb;
+	--app-block-gap: 40px;
+	--app-block-inner-gap: 8px;
+	/* 主色 + 功能色（参考 Cursor：浅底、白卡片、黑主色、绿表正常） */
+	--app-tone-900: #111111;
+	--app-tone-700: #374151;
+	--app-tone-500: #6b7280;
+	--app-tone-400: #9ca3af;
+	--app-tone-300: #d1d5db;
+	--app-tone-200: #e5e7eb;
+	--app-tone-100: #f3f4f6;
+	--app-tone-50: #fafafa;
+	--app-accent: #111111;
+	--app-success: #22a06b;
+	--app-success-bg: #ecfdf3;
+	--app-success-border: #abefc6;
+	--app-warn: #d97706;
+	--app-warn-bg: #fffbeb;
+	--app-warn-border: #fcd34d;
+	--app-surface: #ffffff;
+	--app-chart-blue: #1677ff;
+	--app-chart-blue-trail: #e6f4ff;
+	/* 全站仅两档正文字号：14px 正文、12px 紧凑（网卡明细等），勿在页面内另起字号 */
+	--app-font-size: 14px;
+	--app-font-size-sm: 12px;
+	--app-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	--app-color-text: #111111;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--app-bg);
+	color: #111;
+	font-family: var(--app-font-ui);
+}
+
+#root {
+	height: 100%;
+}
+
+.app-loading {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	min-height: 100vh;
+	width: 100%;
+}
+
+.app-auth-fallback {
+	min-height: 100vh;
+	box-sizing: border-box;
+	padding: 64px 24px;
+}
+
+.app-auth-fallback-inner {
+	max-width: 520px;
+	margin: 0 auto;
+	width: 100%;
+}
+
+.app-shell {
+	height: 100vh;
+	height: 100dvh;
+	overflow: hidden;
+}
+
+.app-shell-sider {
+	background: var(--app-sider-bg) !important;
+	border-right: 1px solid var(--app-border);
+	height: 100vh;
+	height: 100dvh;
+	overflow: hidden;
+	flex-shrink: 0;
+}
+
+.app-shell-sider .ant-layout-sider-children {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+.app-shell-sider-inner {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.app-shell-brand {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 20px 10px 16px;
+	min-height: 56px;
+	box-sizing: border-box;
+	flex-shrink: 0;
+}
+
+.app-shell-brand-text {
+	min-width: 0;
+	flex: 1;
+}
+
+.app-shell-brand-title {
+	display: block;
+	font-size: 15px;
+	line-height: 1.3;
+}
+
+.app-shell-brand-sub {
+	display: block;
+	font-size: 12px;
+	margin-top: 2px;
+}
+
+.app-shell-domain-more {
+	flex-shrink: 0;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	margin-top: 2px;
+	color: var(--app-text-muted);
+}
+
+/* 侧栏 ⋯ 菜单：主色为黑时 Ant 默认选中态对比度不足，单独修正 */
+.app-shell-domain-menu.ant-dropdown .ant-dropdown-menu {
+	padding: 4px;
+	border-radius: 8px;
+}
+
+.app-shell-domain-menu .ant-dropdown-menu-item {
+	color: var(--app-nav-text);
+	border-radius: 6px;
+}
+
+.app-shell-domain-menu .ant-dropdown-menu-item:hover,
+.app-shell-domain-menu .ant-dropdown-menu-item-active {
+	background: var(--app-nav-hover) !important;
+	color: #111 !important;
+}
+
+.app-shell-domain-menu .ant-dropdown-menu-item-selected,
+.app-shell-domain-menu .ant-dropdown-menu-item-selected:hover {
+	background: var(--app-nav-active) !important;
+	color: #111 !important;
+	font-weight: 500;
+}
+
+.app-shell-menu-wrap {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 4px 10px 12px 10px;
+}
+
+.app-nav {
+	display: flex;
+	flex-direction: column;
+}
+
+.app-nav-section {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.app-nav-gap {
+	height: 16px;
+	flex-shrink: 0;
+}
+
+.app-nav-item-wrap {
+	display: block;
+	width: 100%;
+}
+
+.app-nav-item {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 6px 10px;
+	border: none;
+	background: transparent;
+	border-radius: 6px;
+	color: var(--app-nav-text);
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.5;
+	cursor: pointer;
+	text-align: left;
+	transition: background 0.15s ease, color 0.15s ease;
+}
+
+.app-nav-item:hover {
+	background: var(--app-nav-hover);
+	color: var(--app-nav-text);
+}
+
+.app-nav-item-active {
+	background: var(--app-nav-active);
+	color: var(--app-nav-text);
+	font-weight: 600;
+}
+
+.app-nav-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	flex-shrink: 0;
+	font-size: 14px;
+	color: inherit;
+}
+
+.app-nav-label {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.app-shell-footer-icon {
+	width: 36px;
+	height: 36px;
+	border-radius: 8px;
+}
+
+.app-shell-footer {
+	margin-top: auto;
+	padding: 10px 10px 14px;
+	flex-shrink: 0;
+}
+
+.app-shell-user {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-width: 0;
+}
+
+.app-shell-user-avatar {
+	flex-shrink: 0;
+	background: #22a06b !important;
+	font-size: 12px !important;
+}
+
+.app-shell-user-text {
+	min-width: 0;
+	flex: 1;
+}
+
+.app-shell-user-name {
+	display: block;
+	font-size: 13px;
+	line-height: 1.35;
+}
+
+.app-shell-user-meta {
+	display: block;
+	font-size: 12px;
+	line-height: 1.35;
+}
+
+.app-shell-user-more {
+	flex-shrink: 0;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	color: var(--app-text-muted);
+}
+
+.app-shell-main {
+	background: var(--app-bg);
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	height: 100vh;
+	height: 100dvh;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.app-shell-content {
+	margin: 0;
+	padding: 40px 64px 96px;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	background: var(--app-bg);
+	box-sizing: border-box;
+}
+
+.app-shell-content-inner {
+	width: 100%;
+	max-width: 1072px;
+	margin: 0 auto;
+}
+
+/* —— Page header —— */
+.app-page-header {
+	margin: 0;
+}
+
+.app-page-title {
+	margin: 0;
+	font-size: 24px;
+	font-weight: 600;
+	line-height: 1.25;
+	color: #111;
+	letter-spacing: -0.02em;
+}
+
+.app-page-desc {
+	margin: 8px 0 0;
+	font-size: var(--app-font-size);
+	line-height: 1.5;
+	color: var(--app-text-muted);
+}
+
+/* —— 全局正文排版（14px 正文 + 12px 紧凑，同类位置复用，勿新增字号类） —— */
+.app-ui-muted {
+	font-size: var(--app-font-size);
+	line-height: 1.5;
+	color: var(--app-text-muted);
+}
+
+.app-ui-strong {
+	font-size: var(--app-font-size);
+	line-height: 1.5;
+	font-weight: 600;
+	color: var(--app-color-text);
+}
+
+.app-ui-mono {
+	font-family: var(--app-font-mono);
+}
+
+.app-ui-sm {
+	font-size: var(--app-font-size-sm);
+	line-height: 1.45;
+	color: var(--app-text-muted);
+}
+
+.app-ui-sm-strong {
+	font-size: var(--app-font-size-sm);
+	line-height: 1.45;
+	font-weight: 600;
+	color: var(--app-color-text);
+}
+
+/* —— Page stack & content block —— */
+.app-page-stack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--app-block-gap);
+}
+
+.app-block {
+	display: flex;
+	flex-direction: column;
+	gap: var(--app-block-inner-gap);
+}
+
+.app-block-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.app-block-heading {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+}
+
+.app-block-description {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.45;
+	color: rgba(0, 0, 0, 0.45);
+}
+
+.app-block-title {
+	margin: 0;
+	font-size: 15px;
+	font-weight: 400;
+	line-height: 1.35;
+	color: #111;
+	letter-spacing: -0.01em;
+}
+
+.app-block-action {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.app-block-action .ant-btn-primary {
+	box-shadow: none;
+}
+
+.app-card {
+	background: #fff;
+	border: 1px solid var(--app-border);
+	border-radius: 12px;
+	overflow: hidden;
+}
+
+.app-card-padded {
+	padding: 16px;
+}
+
+.app-card-has-footer.app-card-padded {
+	padding: 0;
+}
+
+.app-card-has-footer .app-card-body {
+	padding: 16px;
+}
+
+.app-card-footer {
+	padding: 12px 16px;
+	border-top: 1px solid var(--app-border);
+}
+
+.app-card-has-footer.app-card-list .app-card-body {
+	padding: 0;
+}
+
+.app-card-has-footer.app-card-list .app-card-footer {
+	padding: 12px 20px;
+}
+
+.app-card-table {
+	padding: 10px;
+}
+
+.app-card-list {
+	padding: 0;
+}
+
+.app-settings-list .ant-list-item {
+	padding: 14px 20px;
+	align-items: center;
+}
+
+.app-settings-list .ant-list-item-meta-title {
+	font-weight: 500;
+	color: #111;
+	margin-bottom: 2px !important;
+}
+
+.app-settings-list .ant-list-item-meta-description {
+	color: var(--app-text-muted);
+	font-size: 13px;
+}
+
+.app-settings-list .ant-list-item-action {
+	margin-inline-start: 16px;
+}
+
+.app-settings-list-input {
+	width: min(280px, 42vw);
+}
+
+.app-settings-list-item-clickable {
+	cursor: pointer;
+	transition: background 0.15s ease;
+}
+
+.app-settings-list-item-clickable:hover {
+	background: var(--app-tone-50);
+}
+
+.app-settings-list-chevron {
+	color: var(--app-text-muted);
+	font-size: 12px;
+}
+
+.app-settings-list-filename {
+	font-size: 14px;
+	color: #111;
+}
+
+.app-block > .app-table-footer {
+	margin: 0;
+	padding: 0 4px;
+}
+
+/* —— Section card (legacy) —— */
+.app-section {
+	background: #fff;
+	border: 1px solid var(--app-border);
+	border-radius: 12px;
+	padding: 16px 16px 12px;
+	margin-bottom: 20px;
+}
+
+.app-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+	padding: 0 4px;
+}
+
+.app-section-title {
+	margin: 0;
+	font-size: 14px;
+	font-weight: 500;
+	color: #111;
+}
+
+.app-section-action .ant-btn-primary {
+	box-shadow: none;
+}
+
+.app-section-body {
+	min-width: 0;
+}
+
+.app-section-foot {
+	margin-top: 8px;
+	padding: 0 4px;
+}
+
+/* —— Data table —— */
+.app-data-table-wrap {
+	min-width: 0;
+}
+
+.app-data-table .ant-table {
+	background: transparent;
+}
+
+.app-data-table .ant-table-thead > tr > th {
+	background: transparent !important;
+	border-bottom: none !important;
+	color: var(--app-text-muted) !important;
+	font-size: 13px;
+	font-weight: 500;
+	padding: 8px 12px !important;
+}
+
+.app-data-table .ant-table-thead > tr > th::before {
+	display: none !important;
+}
+
+.app-data-table .ant-table-tbody > tr > td {
+	border-bottom: none !important;
+	padding: 10px 12px !important;
+	background: transparent !important;
+	transition: background 0.12s ease;
+}
+
+.app-data-table .ant-table-tbody > tr > td:first-child {
+	border-top-left-radius: 8px;
+	border-bottom-left-radius: 8px;
+}
+
+.app-data-table .ant-table-tbody > tr > td:last-child {
+	border-top-right-radius: 8px;
+	border-bottom-right-radius: 8px;
+}
+
+.app-data-table .ant-table-tbody > tr:hover > td {
+	background: #f3f3f4 !important;
+}
+
+.app-data-table .ant-table-cell-row-hover {
+	background: transparent !important;
+}
+
+.app-data-table .ant-table-placeholder .ant-table-cell {
+	border-bottom: none !important;
+}
+
+.app-data-table.ant-table-empty .ant-table-content {
+	overflow-x: hidden !important;
+}
+
+.app-row-actions {
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 2px;
+	opacity: 0.35;
+	transition: opacity 0.12s ease;
+}
+
+.app-data-table .ant-table-tbody > tr:hover .app-row-actions {
+	opacity: 1;
+}
+
+.app-row-actions .ant-btn {
+	color: var(--app-nav-text);
+}
+
+.app-table-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 4px 4px;
+}
+
+.app-table-range {
+	font-size: 13px;
+	color: var(--app-text-muted);
+}
+
+.app-table-pager {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.app-table-pager-btn {
+	height: 28px;
+	padding: 0 10px;
+	border: 1px solid var(--app-border);
+	border-radius: 8px;
+	background: #fff;
+	color: #111;
+	font-size: 13px;
+	cursor: pointer;
+	transition: background 0.12s ease;
+}
+
+.app-table-pager-btn:hover:not(:disabled) {
+	background: #f3f3f4;
+}
+
+.app-table-pager-btn:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+.app-table-pager-info {
+	font-size: 13px;
+	color: var(--app-text-muted);
+	min-width: 36px;
+	text-align: center;
+}
+
+/* —— Status dot —— */
+.app-status-dot {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 14px;
+	color: #111;
+}
+
+.app-status-dot-mark {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #c4c4c4;
+	flex-shrink: 0;
+}
+
+.app-status-dot-mark-on {
+	background: var(--app-success);
+}
+
+.app-code-block {
+	margin: 0;
+	background: #f8fafc;
+	border: 1px solid var(--app-border);
+	border-radius: 8px;
+	padding: 12px;
+	font-size: 12px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	white-space: pre-wrap;
+	word-break: break-all;
+	color: #333;
+	max-height: 120px;
+	overflow: hidden;
+}
+
+.app-code-block-inset {
+	border: none;
+	background: transparent;
+	padding: 0;
+	border-radius: 0;
+	max-height: none;
+	overflow: auto;
+}
+
+.app-code-block-min {
+	min-height: 80px;
+	max-height: 160px;
+}
+
+.app-code-block-tall-sm {
+	max-height: 280px;
+}
+
+.app-code-block-tall {
+	max-height: 400px;
+}
+
+.app-subsection-title {
+	margin: 0 0 8px;
+	font-size: 13px;
+	font-weight: 500;
+	color: #111;
+}
+
+.app-subsection-title + .app-code-block {
+	margin-bottom: 16px;
+}
+
+.app-cloud-config-files-label {
+	margin: 20px 0 8px !important;
+	font-size: 13px;
+}
+
+.app-dashboard-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+	flex-wrap: wrap;
+}
+
+.app-dashboard-header .app-page-header {
+	flex: 1;
+	min-width: 240px;
+}
+
+.app-dashboard-header-actions {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.app-dashboard-updated {
+	white-space: nowrap;
+}
+
+/* 仪表板卡片内统一 14px；Ant 组件 small 尺寸不再缩小字号 */
+.app-dashboard {
+	font-size: var(--app-font-size);
+	line-height: 1.5;
+	color: var(--app-color-text);
+}
+
+.app-dashboard .app-block-title {
+	font-size: var(--app-font-size);
+}
+
+.app-dashboard .ant-descriptions-item-label,
+.app-dashboard .ant-descriptions-item-content {
+	font-size: var(--app-font-size) !important;
+}
+
+.app-dashboard .ant-typography {
+	font-size: inherit;
+}
+
+/* —— 仪表板布局（不含字号，排版见 .app-ui-*） —— */
+.app-dash-metric-grid,
+.app-dash-nic-grid {
+	display: grid;
+	gap: 0;
+}
+
+.app-dash-metric-item,
+.app-dash-nic-item {
+	min-width: 0;
+	padding: 4px 16px;
+}
+
+.app-dash-metric-item:not(:last-child),
+.app-dash-nic-item:not(:last-child) {
+	border-right: 1px solid var(--app-border);
+}
+
+.app-dash-metric-item:first-child,
+.app-dash-nic-item:first-child {
+	padding-left: 0;
+}
+
+.app-dash-metric-item:last-child,
+.app-dash-nic-item:last-child {
+	padding-right: 0;
+}
+
+.app-dash-gauge-item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 148px;
+}
+
+.app-dash-load-item {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	min-height: 148px;
+}
+
+.app-dash-nic-item {
+	min-height: 132px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.app-dash-nic-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 8px;
+}
+
+.app-dash-nic-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 12px;
+}
+
+.app-dash-gauge-format {
+	line-height: 1.45;
+	text-align: center;
+}
+
+@media (max-width: 767px) {
+	.app-dash-metric-item,
+	.app-dash-nic-item {
+		padding: 12px 0;
+		min-height: 0;
+	}
+
+	.app-dash-metric-item:not(:last-child),
+	.app-dash-nic-item:not(:last-child) {
+		border-right: none;
+		border-bottom: 1px solid var(--app-border);
+		padding-bottom: 16px;
+		margin-bottom: 4px;
+	}
+
+	.app-dash-metric-item:last-child,
+	.app-dash-nic-item:last-child {
+		padding-bottom: 0;
+	}
+
+	.app-dash-gauge-item,
+	.app-dash-load-item {
+		min-height: 0;
+	}
+}
+
+.app-dash-run-icon {
+	width: 44px;
+	height: 44px;
+	border-radius: 999px;
+	border: 1px solid var(--app-tone-200);
+	background: var(--app-surface);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--app-tone-400);
+	flex: 0 0 auto;
+}
+
+.app-dash-run-icon--on {
+	border-color: var(--app-success-border);
+	color: var(--app-success);
+	background: var(--app-success-bg);
+}
+
+.app-dash-run-title--on {
+	color: var(--app-accent);
+}
+
+.app-dash-run-title--off {
+	color: var(--app-tone-500);
+}
+
+.app-dash-divider {
+	height: 1px;
+	background: var(--app-border);
+	margin: 12px 0;
+}
+
+.app-dash-health-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	flex-shrink: 0;
+}
+
+.app-dash-health-dot--ok {
+	background: var(--app-success);
+	box-shadow: 0 0 0 2px var(--app-success-bg);
+}
+
+.app-dash-health-dot--warn {
+	background: var(--app-warn);
+	box-shadow: 0 0 0 2px var(--app-warn-bg);
+}
+
+.app-dash-health-dot--neutral {
+	background: var(--app-tone-300);
+}
+
+.app-dash-init-status {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	min-height: 0;
+}
+
+.app-dash-load-block {
+	width: 100%;
+}
+
+.app-dash-load-list {
+	display: grid;
+	gap: 10px;
+	margin-top: 10px;
+}
+
+.app-dash-load-row-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 4px;
+}
+
+.app-dash-chart .ant-progress-circle-path {
+	stroke-linecap: round;
+}
+
+.app-dash-load-list .ant-progress-bg {
+	background: var(--app-chart-blue) !important;
+}
+
+.app-dash-load-list .ant-progress-inner {
+	background: var(--app-chart-blue-trail) !important;
+	border-radius: 100px;
+}
+
+.app-inline-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.app-form-inline-pair {
+	display: flex;
+	gap: 16px;
+	flex-wrap: wrap;
+}
+
+.app-tabs-wrap .ant-tabs-nav {
+	margin-bottom: 0;
+}
+
+/* —— 配置文件抽屉：内容区铺满剩余高度 —— */
+.app-conf-file-drawer .ant-drawer-content {
+	display: flex;
+	flex-direction: column;
+}
+
+.app-conf-file-drawer .ant-drawer-body {
+	flex: 1;
+	min-height: 0;
+}
+
+.app-conf-drawer {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.app-conf-drawer-head {
+	flex-shrink: 0;
+	padding: 4px 24px 12px;
+}
+
+.app-conf-drawer-path {
+	margin: 0 0 4px !important;
+}
+
+.app-conf-drawer-hint {
+	margin: 0 0 12px !important;
+}
+
+.app-conf-drawer-toolbar {
+	margin-bottom: 0;
+}
+
+.app-conf-drawer-error {
+	margin: 12px 0 0 !important;
+}
+
+.app-conf-drawer-body {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	padding: 0 24px 24px;
+}
+
+.app-conf-drawer-preview {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	overflow: auto;
+	padding: 12px 16px;
+	background: #f8fafc;
+	border: 1px solid var(--app-border);
+	border-radius: 8px;
+	font-size: 12px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	white-space: pre-wrap;
+	word-break: break-all;
+	color: #333;
+}
+
+.app-conf-drawer-textarea.ant-input-textarea-affix-wrapper,
+.app-conf-drawer-textarea {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.app-conf-drawer-textarea textarea {
+	flex: 1;
+	min-height: 0 !important;
+	height: auto !important;
+	resize: none !important;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+	font-size: 12px !important;
+	line-height: 1.5 !important;
+}
+
+.app-conf-drawer-textarea.ant-input-textarea-affix-wrapper {
+	padding: 0 !important;
+	border-radius: 8px !important;
+	overflow: hidden;
+}
+
+.app-conf-drawer-textarea textarea {
+	padding: 12px 16px !important;
+	border-radius: 8px !important;
+}
+
+.app-conf-drawer-textarea.ant-input-disabled,
+.app-conf-drawer-textarea textarea:disabled {
+	background: #f8fafc !important;
+}
+
+.app-code-block-full {
+	max-height: calc(100vh - 180px);
+	overflow: auto;
+}
+

@@ -1,6 +1,6 @@
 # IBR 全栈组件对照（SDNC · CSMCTL · 设备侧）
 
-> **适用范围**：本仓库 `Compute.Tower` 与同级/内嵌目录 `ibr-local-web`、`ibr-controller`、`ibr-local-agent` 的职责划分与联调心智。  
+> **适用范围**：本仓库 `Compute.Tower` 与**内嵌目录** `ibr-local-web/`、`ibr-controller/`、`ibr-local-agent/` 的职责划分与联调心智（**非 Git 子模块**，`git clone` 即含源码）。  
 > **关联**：[sdnc-stack-integration.md](./sdnc-stack-integration.md)（云侧数据边界）、[ibr-vr-config-deploy.md](./ibr-vr-config-deploy.md)（SDNC 分域下发）、`ibr-local-web/docs/reference/architecture.md`（设备侧上下游长文）。
 
 ---
