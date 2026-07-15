@@ -223,6 +223,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         dataIndex: 'username',
         key: 'username',
         align: 'left' as const,
+        fixed: 'left' as const,
         render: (v: string) => <Text>{v}</Text>,
       },
       {
@@ -246,6 +247,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         render: (_: unknown, row: SysUser) => renderOtherRolesCell(row),
       },
     ];
+    if (!canWrite) return cols;
     cols.push({
       title: '操作',
       key: 'op',
@@ -253,7 +255,6 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
       align: 'left' as const,
       fixed: 'right' as const,
       render: (_: unknown, row: SysUser) => {
-        if (!canWrite) return <Text type="secondary">—</Text>;
         const id = String(row.id);
         if (row.builtIn) {
           return (
@@ -274,8 +275,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
       },
     });
     return cols;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderOtherRolesCell, handleRemove]);
+  }, [canWrite, renderOtherRolesCell, handleRemove]);
 
   const candidateColumns = useMemo(() => {
     const cols: any[] = [
@@ -284,6 +284,7 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         dataIndex: 'username',
         key: 'username',
         align: 'left' as const,
+        fixed: 'left' as const,
         render: (v: string) => <Text>{v}</Text>,
       },
       {
@@ -319,20 +320,18 @@ const RoleAssignUsersDrawer: React.FC<Props> = ({ open, target, canWrite = false
         render: (_: unknown, row: SysUser) => renderOtherRolesCell(row),
       },
     ];
+    if (!canWrite) return cols;
     cols.push({
       title: '操作',
       key: 'op',
       width: 80,
       align: 'left' as const,
       fixed: 'right' as const,
-      render: (_: unknown, row: SysUser) =>
-        canWrite ? (
-          <Button type="link" size="small" onClick={() => handleAdd(String(row.id))}>
-            加入
-          </Button>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
+      render: (_: unknown, row: SysUser) => (
+        <Button type="link" size="small" onClick={() => handleAdd(String(row.id))}>
+          加入
+        </Button>
+      ),
     });
     return cols;
   }, [canWrite, renderOtherRolesCell, handleAdd, userType]);

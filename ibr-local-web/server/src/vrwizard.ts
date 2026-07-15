@@ -206,6 +206,13 @@ export function setVrcontrolString(paths: Paths, key: string, value: string) {
 	writeVrcontrolConf(paths, conf);
 }
 
+export function clearVrcontrolKey(paths: Paths, key: string) {
+	const conf = readVrcontrolConf(paths);
+	if (!(key in conf)) return;
+	delete conf[key];
+	writeVrcontrolConf(paths, conf);
+}
+
 /**
  * 解析 `registervr.conf`：与 v1 `core._read_registervr_kv` 一致——
  * 整段为 JSON 对象时按字段读入；否则按 `key=value` 行解析。

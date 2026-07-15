@@ -1,9 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Form, Input, InputNumber, Select, Space, Steps, message, Row, Col, Spin, Modal, Checkbox } from 'antd';
+import { Button, Descriptions, Form, Input, InputNumber, Select, Steps, message, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageContainer from '../../../../../components/PageContainer';
-import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
+import {
+  fetchVrTowerLocalConfigCache,
+  getVRConfig,
+  saveVRConfig,
+  setVRRole,
+  fetchVrCacheMerged,
+} from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { collectIfaceNamesForSelect, looksLikeIfaceName, pickDeviceBlobForLookup } from '../vrMergedHelpers';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
@@ -14,6 +19,9 @@ import {
   warnFormValidationFailure,
 } from '../vrWizardFormUtils';
 import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
+import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
+import IbrWizardPage from '../../lib/IbrWizardPage';
+import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
 
 /** 读取平台侧 ce 配置；优先 ce.publicConfig，否则从根级扁平字段组装 */
 function getCePublicConfig(ce: any): Record<string, any> {
@@ -230,11 +238,20 @@ const CEWizard: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedWanName, watchedLanName, vr3Info]);
 
+  const localCfgLoadGenRef = useRef(0);
+  const deviceLoadGenRef = useRef(0);
+
   useEffect(() => {
     if (!uuid) return;
+    const gen = ++localCfgLoadGenRef.current;
+    const reqUuid = uuid;
     (async () => {
       try {
-        const cfg = await getVRConfig(uuid);
+        const cached = await fetchVrTowerLocalConfigCache(reqUuid, { skipCache: true });
+        if (gen !== localCfgLoadGenRef.current || reqUuid !== uuid) return;
+        const cfg = cached?.config || (await getVRConfig(reqUuid)) || {};
+        if (gen !== localCfgLoadGenRef.current || reqUuid !== uuid) return;
+        const mgmtIp = String(cached?.meta?.managementIp || '').trim();
         setExistingCfg(cfg || {});
         const names: string[] = [];
         const collectNames = (arr?: any[]) => { (arr || []).forEach((it) => { if (it?.name) names.push(String(it.name)); }); };
@@ -255,7 +272,7 @@ const CEWizard: React.FC = () => {
           lanName: firstLan.lanName,
           wanName: pcfg.wanName || pcfg.wanDev || (cfg?.ce as any)?.wanDev,
           bgpAsn: pbg.asn ?? bgpTop?.asn,
-          bgpRouterId: pbg.routerId ?? bgpTop?.router_id,
+          bgpRouterId: pbg.routerId || bgpTop?.router_id || mgmtIp || undefined,
         });
       } catch {}
     })();
@@ -264,9 +281,12 @@ const CEWizard: React.FC = () => {
   /** 拉取 VR 缓存合并数据；网卡 IP 供 autoFillFromIface / mirror 使用 */
   const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
+    const gen = ++deviceLoadGenRef.current;
+    const reqUuid = uuid;
     setIfaceLoading(true);
     try {
-      const merged = await fetchVrCacheMerged(uuid);
+      const merged = await fetchVrCacheMerged(reqUuid);
+      if (gen !== deviceLoadGenRef.current || reqUuid !== uuid) return;
       if (!merged || typeof merged !== 'object') {
         if (!silent) message.warning('未获取到设备回读数据，请先确认 IBR 设备在线/已接入。');
         setCsmctlCfg(null);
@@ -278,10 +298,11 @@ const CEWizard: React.FC = () => {
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
       if (!silent) message.success('设备回读已刷新');
     } catch (err) {
+      if (gen !== deviceLoadGenRef.current) return;
       console.warn('[CEWizard] fetchVrCacheMerged:', (err as any)?.message || err);
       if (!silent) message.error('设备回读失败');
     } finally {
-      setIfaceLoading(false);
+      if (gen === deviceLoadGenRef.current) setIfaceLoading(false);
     }
   }, [uuid]);
 
@@ -303,13 +324,14 @@ const CEWizard: React.FC = () => {
     const lanObjVr3 = lanDevName && vr3Info ? findInterfaceInDevice(vr3Info, String(lanDevName)) : null;
 
     const bgpTop = Array.isArray(csmctlCfg?.bgp) ? csmctlCfg.bgp[0] : undefined;
+    const formRid = String(form.getFieldValue('bgpRouterId') || '').trim();
 
     mirrorForm.setFieldsValue({
       wanName: wanDevName,
       wanIpv4: wanObjVr3?.ipv4_static,
       wanIpv6: wanObjVr3?.ipv6_static,
       bgpAsn: bgpTop?.asn,
-      bgpRouterId: bgpTop?.router_id,
+      bgpRouterId: bgpTop?.router_id || formRid || undefined,
       lanName: lanDevName,
       lanIpv4: lanObjVr3?.ipv4_static,
       lanIpv6: lanObjVr3?.ipv6_static,
@@ -579,8 +601,8 @@ const CEWizard: React.FC = () => {
           style={{ display: current === 2 ? 'none' : undefined }}
         >
           <div style={{ display: current === 0 ? 'block' : 'none' }}>
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（CE to PE）</div>
-            <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>} rules={[{ required: true, message: '请选择 WAN 侧接口' }]} preserve>
+            <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（CE to PE）</div>
+            <Form.Item name="wanName" label="WAN 侧接口" rules={[{ required: true, message: '请选择 WAN 侧接口' }]} preserve>
               <Select
                 placeholder="请选择接口"
                 showSearch
@@ -597,20 +619,20 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('wan', String(val || ''), { force: true })}
               />
             </Form.Item>
-            <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>} preserve>
+            <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码" preserve>
               <Input placeholder="例如 200.1.1.2/24" />
             </Form.Item>
-            <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>} preserve>
+            <Form.Item name="wanIpv6" label="WAN 侧 IPv6 地址/掩码" preserve>
               <Input placeholder="例如 2408:3333:1002::1/64" />
             </Form.Item>
             <div style={{ height: 12 }} />
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（CE to PE）</div>
-            <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]} preserve>
+            <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（CE to PE）</div>
+            <Form.Item name="bgpAsn" label="BGP ASN" rules={[{ required: true, message: '请输入 BGP ASN' }]} preserve>
               <InputNumber style={{ width: '100%' }} placeholder="例如 100" min={1} max={4294967295} />
             </Form.Item>
             <Form.Item
               name="bgpRouterId"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}
+              label="BGP Router-ID"
               rules={[
                 { required: true, message: '请输入 Router-ID' },
                 { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入有效的 IPv4 地址' },
@@ -621,8 +643,8 @@ const CEWizard: React.FC = () => {
             </Form.Item>
           </div>
           <div style={{ display: current === 1 ? 'block' : 'none' }}>
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置（CE to local）</div>
-            <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧接口</span>} rules={[{ required: true, message: '请选择 LAN 侧接口' }]} preserve>
+            <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置（CE to local）</div>
+            <Form.Item name="lanName" label="LAN 侧接口" rules={[{ required: true, message: '请选择 LAN 侧接口' }]} preserve>
               <Select
                 placeholder="请选择接口"
                 showSearch
@@ -639,10 +661,10 @@ const CEWizard: React.FC = () => {
                 onChange={(val) => autoFillFromIface('lan', String(val || ''), { force: true })}
               />
             </Form.Item>
-            <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧 IPv4 地址/掩码</span>} preserve>
+            <Form.Item name="lanIpv4" label="LAN 侧 IPv4 地址/掩码" preserve>
               <Input placeholder="例如 130.1.1.1/24" />
             </Form.Item>
-            <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧 IPv6 地址/掩码</span>} preserve>
+            <Form.Item name="lanIpv6" label="LAN 侧 IPv6 地址/掩码" preserve>
               <Input placeholder="例如 2408:3333:1002::1/64" />
             </Form.Item>
           </div>
@@ -666,22 +688,25 @@ const CEWizard: React.FC = () => {
   };
 
   return (
-    <PageContainer
-      titleLevel={3}
+    <IbrWizardPage
+      meta={uuid || undefined}
       extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>刷新设备回读</Button>}
-      onBack={() => navigate(-1)}
-      asCard={false}
-    >
-      <Row gutter={16}>
-        <Col span={4}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={[{ title: 'WAN 侧配置（CE to PE）' }, { title: 'LAN 侧配置（CE to local）' }, { title: '确认下发' }]} />
-          </Card>
-        </Col>
-        <Col span={7}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`第 ${current + 1} 步：${['WAN 侧配置（CE to PE）','LAN 侧配置（CE to local）','确认下发'][current]} 设备回读`}
-          </span>} variant="outlined">
+      layout="compare"
+      steps={
+          <Steps
+            direction="vertical"
+            size="small"
+            current={current}
+            onChange={handleStepsChange}
+            items={[
+              { title: 'WAN 侧配置（CE to PE）' },
+              { title: 'LAN 侧配置（CE to local）' },
+              { title: '确认下发' },
+            ]}
+          />
+        }
+        mirror={
+          <IbrWizardCard title={ibrWizardStepCardTitle(current, ['WAN 侧配置（CE to PE）','LAN 侧配置（CE to local）','确认下发'][current], '设备回读')}>
             {ifaceLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <Spin />
@@ -690,9 +715,9 @@ const CEWizard: React.FC = () => {
               <>
                 {current === 0 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（CE to PE）</div>
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（CE to PE）</div>
                     <Form layout="vertical" form={mirrorForm} disabled>
-                      <Form.Item name="wanName" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>}>
+                      <Form.Item name="wanName" label="WAN 侧接口">
                         <Select
                           placeholder="未配置"
                           showSearch
@@ -703,18 +728,18 @@ const CEWizard: React.FC = () => {
                           ]}
                         />
                       </Form.Item>
-                      <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>}>
+                      <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码">
                         <Input placeholder="未配置" />
                       </Form.Item>
-                      <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>}>
+                      <Form.Item name="wanIpv6" label="WAN 侧 IPv6 地址/掩码">
                         <Input placeholder="未配置" />
                       </Form.Item>
                       <div style={{ height: 12 }} />
-                      <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（CE to PE）</div>
-                      <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>}>
+                      <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（CE to PE）</div>
+                      <Form.Item name="bgpAsn" label="BGP ASN">
                         <InputNumber style={{ width: '100%' }} placeholder="未配置" />
                       </Form.Item>
-                      <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}>
+                      <Form.Item name="bgpRouterId" label="BGP Router-ID">
                         <Input placeholder="未配置" />
                       </Form.Item>
                     </Form>
@@ -722,9 +747,9 @@ const CEWizard: React.FC = () => {
                 )}
                 {current === 1 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置（CE to local）</div>
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置（CE to local）</div>
                     <Form layout="vertical" form={mirrorForm} disabled>
-                      <Form.Item name="lanName" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧接口</span>}>
+                      <Form.Item name="lanName" label="LAN 侧接口">
                         <Select
                           placeholder="未配置"
                           showSearch
@@ -735,28 +760,26 @@ const CEWizard: React.FC = () => {
                           ]}
                         />
                       </Form.Item>
-                      <Form.Item name="lanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧 IPv4 地址/掩码</span>}>
+                      <Form.Item name="lanIpv4" label="LAN 侧 IPv4 地址/掩码">
                         <Input placeholder="未配置" />
                       </Form.Item>
-                      <Form.Item name="lanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧 IPv6 地址/掩码</span>}>
+                      <Form.Item name="lanIpv6" label="LAN 侧 IPv6 地址/掩码">
                         <Input placeholder="未配置" />
                       </Form.Item>
                     </Form>
                   </>
                 )}
                 {current === 2 && (
-                  <>
-                    <Descriptions column={1} bordered size="small">
-                      <Descriptions.Item label="WAN 侧接口">{mirrorForm.getFieldValue('wanName') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="WAN 侧 IPv4">{mirrorForm.getFieldValue('wanIpv4') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="WAN 侧 IPv6">{mirrorForm.getFieldValue('wanIpv6') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="BGP ASN">{mirrorForm.getFieldValue('bgpAsn') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="BGP Router-ID">{mirrorForm.getFieldValue('bgpRouterId') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="LAN 侧接口">{mirrorForm.getFieldValue('lanName') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="LAN 侧 IPv4">{mirrorForm.getFieldValue('lanIpv4') || '-'}</Descriptions.Item>
-                      <Descriptions.Item label="LAN 侧 IPv6">{mirrorForm.getFieldValue('lanIpv6') || '-'}</Descriptions.Item>
-                    </Descriptions>
-                  </>
+                  <Descriptions column={1} bordered size="small">
+                    <Descriptions.Item label="WAN 侧接口">{mirrorForm.getFieldValue('wanName') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="WAN 侧 IPv4">{mirrorForm.getFieldValue('wanIpv4') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="WAN 侧 IPv6">{mirrorForm.getFieldValue('wanIpv6') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="BGP ASN">{mirrorForm.getFieldValue('bgpAsn') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="BGP Router-ID">{mirrorForm.getFieldValue('bgpRouterId') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="LAN 侧接口">{mirrorForm.getFieldValue('lanName') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="LAN 侧 IPv4">{mirrorForm.getFieldValue('lanIpv4') || '-'}</Descriptions.Item>
+                    <Descriptions.Item label="LAN 侧 IPv6">{mirrorForm.getFieldValue('lanIpv6') || '-'}</Descriptions.Item>
+                  </Descriptions>
                 )}
               </>
             ) : (
@@ -764,46 +787,46 @@ const CEWizard: React.FC = () => {
                 未能读取设备回读数据，请先检查设备连接状态或稍后重试。
               </div>
             )}
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`第 ${current + 1} 步：${['WAN 侧配置（CE to PE）','LAN 侧配置（CE to local）','确认下发'][current]} 配置编辑`}
-          </span>} variant="outlined">
-            {renderCoreContent()}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-              <Space>
+          </IbrWizardCard>
+        }
+        main={
+          <IbrWizardStepPane
+            title={ibrWizardStepCardTitle(current, ['WAN 侧配置（CE to PE）','LAN 侧配置（CE to local）','确认下发'][current], '配置编辑')}
+            footerLeft={
+              <>
                 <Button onClick={() => navigate('/admin/interconnect/vr')}>返回列表</Button>
                 {current > 0 && <Button onClick={prev}>上一步</Button>}
-              </Space>
-              <Space>
+              </>
+            }
+            footerRight={
+              <>
                 {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
                 {current === 2 && (
-                  <>
-                    <Button
-                      type="primary"
-                      loading={loading}
-                      onClick={() => {
-                        setConfirmChecked(false);
-                        setConfirmOpen(true);
-                      }}
-                    >
-                      下发配置
-                    </Button>
-                  </>
+                  <Button
+                    type="primary"
+                    loading={loading}
+                    onClick={() => {
+                      setConfirmChecked(false);
+                      setConfirmOpen(true);
+                    }}
+                  >
+                    下发配置
+                  </Button>
                 )}
-              </Space>
-            </div>
-          </Card>
-        </Col>
-        <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>配置 JSON预览</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
+              </>
+            }
+          >
+            {renderCoreContent()}
+          </IbrWizardStepPane>
+        }
+        preview={
+          <IbrWizardCard sticky title="配置 JSON预览">
             <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {JSON.stringify(uuid ? { uuid, ...configPreview } : configPreview, null, 2)}
             </pre>
-          </Card>
-        </Col>
-      </Row>
+          </IbrWizardCard>
+        }
+    >
       <Modal
         title="重要提示：配置下发为全量覆盖"
         open={confirmOpen}
@@ -818,7 +841,7 @@ const CEWizard: React.FC = () => {
         cancelText="取消"
         width={680}
       >
-        <div style={{ fontSize: 13, color: '#595959' }}>
+        <div style={{ color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
             本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。
           </div>
@@ -839,7 +862,7 @@ const CEWizard: React.FC = () => {
           </Checkbox>
         </div>
       </Modal>
-    </PageContainer>
+    </IbrWizardPage>
   );
 };
 

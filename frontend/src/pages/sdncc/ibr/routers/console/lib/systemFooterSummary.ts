@@ -5,7 +5,7 @@ function fmt(s: unknown): string {
 	return v || '—';
 }
 
-export type SystemFooterItem = {
+type SystemFooterItem = {
 	label: string;
 	value: string;
 };

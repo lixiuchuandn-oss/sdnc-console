@@ -133,7 +133,7 @@ const AccessUsersPage: React.FC = () => {
   };
 
   const defaultColumns: ColumnsType<SysUser> = useMemo(() => [
-    { title:'用户名', key:'username', dataIndex:'username', render: (v:any, row: SysUser) => (
+    { title:'用户名', key:'username', dataIndex:'username', fixed:'left' as const, render: (v:any, row: SysUser) => (
       <Space>
         { row.builtIn ? <Tag color="blue">内置</Tag> : <Tag>用户</Tag> }
         <Text strong>{v}</Text>
@@ -430,6 +430,7 @@ const AccessUsersPage: React.FC = () => {
         rowSelection={
           canWriteUsers
             ? {
+                fixed: true,
                 selectedRowKeys,
                 onChange: setSelectedRowKeys,
                 getCheckboxProps: (record: SysUser) => ({ disabled: !!record.builtIn }),

@@ -64,6 +64,9 @@ export type Srv6PeFingerprint = {
 
 export type Srv6CeFingerprint = {
   publicIpv4?: string;
+  /** CE LAN 侧 IPv4（客户侧口；健康巡检 CE↔CE Ping 目标） */
+  lanIpv4?: string;
+  lanIf?: string;
   publicBgpAsn?: number;
   innerBgpAsn?: number;
   /** 高可用模式：CE 侧绑定的 IBR HA 组（平台档案，不参与设备 merge） */
@@ -82,6 +85,8 @@ export type Srv6EndpointFingerprint = {
 export type Srv6EndpointSlot = 'peA' | 'peB' | 'ceA' | 'ceB';
 
 export type Srv6TunnelTopology = 'S' | 'H';
+
+export type Srv6PeNeighborMode = 'static' | 'rr_domain';
 
 export type Srv6HubVrfMode = 'REUSE_VRF' | 'DEDICATED_VRF';
 
@@ -108,4 +113,8 @@ export type Srv6TunnelArchiveFields = {
   hubPeSlot?: 'peA' | 'peB' | null;
   hubBindings?: Srv6HubSlotBinding | null;
   hubVrfMode?: Srv6HubVrfMode | null;
+  peANeighborMode?: Srv6PeNeighborMode | null;
+  peBNeighborMode?: Srv6PeNeighborMode | null;
+  peARrDomainId?: string | null;
+  peBRrDomainId?: string | null;
 };

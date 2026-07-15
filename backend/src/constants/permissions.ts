@@ -33,6 +33,8 @@ export const ALL_PERMISSIONS = [
   'networks.vr-config:write',
   'networks.srv6:read',
   'networks.srv6:write',
+  'networks.rr-domains:read',
+  'networks.rr-domains:write',
   'networks.ipsec:read',
   'networks.ipsec:write',
   'networks.acl:read',
@@ -59,6 +61,7 @@ export const PERMISSION_GROUPS = {
     IBR管理: [
       'networks.vr-config',
       'networks.srv6',
+      'networks.rr-domains',
       'networks.ipsec',
       'networks.acl',
       'networks.nat',
@@ -99,6 +102,7 @@ export function getGroupByPermission(permission: string): string | null {
   if (
     prefix.startsWith('networks.vr-config') ||
     prefix.startsWith('networks.srv6') ||
+    prefix.startsWith('networks.rr-domains') ||
     prefix.startsWith('networks.acl') ||
     prefix.startsWith('networks.ipsec') ||
     prefix.startsWith('networks.nat')

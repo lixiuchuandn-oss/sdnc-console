@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Form, Input, Tag, message, Modal, Switch, Select } from 'antd';
 import type { MenuProps } from 'antd';
 import { ExclamationCircleOutlined, SearchOutlined } from '@ant-design/icons';
@@ -8,6 +8,8 @@ import ResourceActionsDropdown from '../../../../components/ResourceActionsDropd
 import type { ColumnsType } from 'antd/es/table';
 import { fetchIPsecVPNsMerged, deleteIPsecVPN } from '../../../../services/api';
 import { getVR2Config } from '../../../../services/virtualRouterApi';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { loadIbrVrCatalog, syncAndLoadIbrVrCatalog } from '../lib/ibrVrCatalog';
 import ReactFlow, { Background, Controls } from 'react-flow-renderer';
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
@@ -57,6 +59,10 @@ interface IPsecVPNRow {
 
 const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const perms = Array.isArray(user?.permissions) ? user?.permissions ?? [] : [];
+  const canWrite =
+    user?.role === 'super_admin' || hasPermissionForAction(perms, 'networks.ipsec:write');
   const scopedVr = String(scopedVrUuid || '').trim();
   const [data, setData] = useState<IPsecVPNRow[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -92,7 +98,7 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
         try {
           await deleteIPsecVPN(row.id);
           message.success('删除成功');
-          fetchData();
+          fetchData(true);
         } catch (error) {
           console.error('Delete failed:', error);
           message.error('删除失败');
@@ -115,23 +121,27 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
           }
           message.success('批量删除成功');
           setSelectedRowKeys([]); // Clear selection
-          fetchData();
+          fetchData(true);
         } catch (error) {
           console.error('Batch delete failed:', error);
           message.error('批量删除过程中出现错误');
-          fetchData(); // Refresh anyway
+          fetchData(true); // Refresh anyway
         }
       }
     });
   };
 
-  const getActionMenu = (_row: IPsecVPNRow): MenuProps['items'] => ([
-    { key: 'edit', label: '编辑' },
-    { key: 'viewConfig', label: '查看本端IBR配置' },
-    { key: 'viewPeerConfig', label: '查看对端IBR配置' },
-    { type: 'divider' },
-    { key: 'delete', label: '删除', danger: true },
-  ]);
+  const getActionMenu = (_row: IPsecVPNRow): MenuProps['items'] => {
+    const items: MenuProps['items'] = [
+      ...(canWrite ? [{ key: 'edit', label: '编辑' }] : []),
+      { key: 'viewConfig', label: '查看本端IBR配置' },
+      { key: 'viewPeerConfig', label: '查看对端IBR配置' },
+    ];
+    if (canWrite) {
+      items.push({ type: 'divider' }, { key: 'delete', label: '删除', danger: true });
+    }
+    return items;
+  };
 
   const handleRowActionClick = (row: IPsecVPNRow): MenuProps['onClick'] => ({ key }) => {
     switch (key) {
@@ -256,30 +266,57 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
   ];
   const columns = allColumns;
 
+  const loadGenRef = useRef(0);
+
   const fetchData = async (force?: boolean) => {
+    const gen = ++loadGenRef.current;
     setLoading(true);
+    let shellPainted = false;
     try {
       try {
         const { nameMap } = force
           ? await syncAndLoadIbrVrCatalog()
           : await loadIbrVrCatalog();
+        if (gen !== loadGenRef.current) return;
         setVrNameMap(nameMap);
       } catch (e) {
         console.error('Failed to fetch VR list from cache', e);
       }
-      const res = await fetchIPsecVPNsMerged({ skipCache: !!force });
-      const list: IPsecVPNRow[] = Array.isArray(res) ? res : [];
-      setData(list);
+      // 首屏：档案列表（不含设备 enrich）
+      const res = await fetchIPsecVPNsMerged({
+        skipCache: !!force,
+        includeDevice: false,
+      });
+      if (gen !== loadGenRef.current) return;
+      setData(Array.isArray(res) ? res : []);
+      shellPainted = true;
+      setLoading(false);
+
+      // 二阶段：合并设备侧网卡/流量
+      try {
+        const enriched = await fetchIPsecVPNsMerged({
+          skipCache: true,
+          includeDevice: true,
+        });
+        if (gen !== loadGenRef.current) return;
+        setData(Array.isArray(enriched) ? enriched : []);
+      } catch (he) {
+        if (gen !== loadGenRef.current) return;
+        console.warn('IPsec 设备侧 enrich 失败:', he);
+        message.warning('设备侧状态暂不可用，已展示档案列表');
+      }
     } catch (error) {
+      if (gen !== loadGenRef.current) return;
       console.error('Fetch failed:', error);
       message.error('获取列表失败');
-    } finally {
+      if (!shellPainted) setData([]);
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchData();
+    void fetchData(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -288,21 +325,29 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
       asCard={false}
       hideHeader={embedded}
       pagePadding={embedded ? 0 : undefined}
-      primaryAction={{
-        text: '新建连接',
-        onClick: () => navigate('/admin/interconnect/ipsec/create'),
-        type: 'primary',
-      }}
+      primaryAction={
+        canWrite
+          ? {
+              text: '新建连接',
+              onClick: () => navigate('/admin/interconnect/ipsec/create'),
+              type: 'primary',
+            }
+          : undefined
+      }
       onRefresh={() => { void fetchData(true); }}
-      moreMenuItems={[
-        { 
-          key: 'batchDelete', 
-          label: '批量删除', 
-          danger: true, 
-          disabled: selectedRowKeys.length === 0,
-          onClick: handleBatchDelete
-        }
-      ]}
+      moreMenuItems={
+        canWrite
+          ? [
+              {
+                key: 'batchDelete',
+                label: '批量删除',
+                danger: true,
+                disabled: selectedRowKeys.length === 0,
+                onClick: handleBatchDelete,
+              },
+            ]
+          : undefined
+      }
       defaultHiddenColumns={defaultHiddenColumns}
       toolbarLeft={(
         <Form
@@ -363,10 +408,14 @@ const IPsecVPNPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scoped
         </Form>
       )}
       tableProps={{
-        rowSelection: {
-          selectedRowKeys,
-          onChange: (keys) => setSelectedRowKeys(keys),
-        },
+        ...(canWrite
+          ? {
+              rowSelection: {
+                selectedRowKeys,
+                onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+              },
+            }
+          : {}),
         columns: columns,
         dataSource: data.filter(d => {
           if (scopedVr) {

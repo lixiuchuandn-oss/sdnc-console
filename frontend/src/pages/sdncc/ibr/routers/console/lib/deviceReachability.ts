@@ -14,7 +14,7 @@ export type DeviceReachability = {
 	detail: string;
 };
 
-export type CsmHealthKey = 'online' | 'offline' | 'warn' | 'unknown';
+type CsmHealthKey = 'online' | 'offline' | 'warn' | 'unknown';
 
 export function deriveDeviceReachabilityFromCsm(params: {
 	statusKey: CsmHealthKey;

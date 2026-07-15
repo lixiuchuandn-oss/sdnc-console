@@ -11,7 +11,7 @@ export type Srv6CeHaBinding = {
 	backupName?: string | null;
 };
 
-export function haGroupMemberByRole(
+function haGroupMemberByRole(
 	group: IbrHaGroup | null | undefined,
 	role: IbrHaGroupMember['role'],
 ): IbrHaGroupMember | undefined {

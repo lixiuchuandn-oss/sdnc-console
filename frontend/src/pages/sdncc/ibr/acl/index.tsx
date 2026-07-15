@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Form, Input, Select, Table, Tag, Badge } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import PageContainer from '../../../../components/PageContainer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import type { ColumnsType } from 'antd/es/table';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
 import { AclFormDrawers } from './AclFormDrawers';
 import {
@@ -16,6 +18,10 @@ import {
 const { Option } = Select;
 
 const ACLPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid }) => {
+	const { user } = useAuth();
+	const perms = Array.isArray(user?.permissions) ? user?.permissions ?? [] : [];
+	const canWrite =
+		user?.role === 'super_admin' || hasPermissionForAction(perms, 'networks.acl:write');
 	const acl = useAclManagement(scopedVrUuid);
 	const {
 		scopedVr,
@@ -47,111 +53,129 @@ const ACLPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUui
 		setProtocolFilter,
 	} = acl;
 
-	const groupColumns: ColumnsType<ACLGroup> = [
-		{ title: '组名称', dataIndex: 'name', key: 'name', fixed: 'left', render: (t) => <b>{t}</b> },
-		{
-			title: '所属IBR',
-			dataIndex: 'vrId',
-			key: 'vrId',
-			render: (v, r) => {
-				const primary = v ? (
-					<Tag color="blue" key="primary" style={{ marginRight: 4 }}>
-						{vrNameMap[v] || v} (主)
-					</Tag>
-				) : null;
-				const bounds = r.bindings?.map((b: ACLGroupBinding) => (
-					<Tag
-						color="cyan"
-						key={b.id}
-						closable
-						onClose={() => handleUnbind(r, b.vrId)}
-						style={{ marginRight: 4 }}
-					>
-						{vrNameMap[b.vrId] || b.vrId}
-					</Tag>
-				));
-				return (
-					<div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-						{primary}
-						{bounds}
-						{!primary && !bounds?.length && <span style={{ color: '#ccc' }}>未绑定</span>}
-					</div>
-				);
+	const groupColumns: ColumnsType<ACLGroup> = useMemo(() => {
+		const cols: ColumnsType<ACLGroup> = [
+			{ title: '组名称', dataIndex: 'name', key: 'name', fixed: 'left', render: (t) => <b>{t}</b> },
+			{
+				title: '所属IBR',
+				dataIndex: 'vrId',
+				key: 'vrId',
+				render: (v, r) => {
+					const primary = v ? (
+						<Tag color="blue" key="primary" style={{ marginRight: 4 }}>
+							{vrNameMap[v] || v} (主)
+						</Tag>
+					) : null;
+					const bounds = r.bindings?.map((b: ACLGroupBinding) => (
+						<Tag
+							color="cyan"
+							key={b.id}
+							closable={canWrite}
+							onClose={canWrite ? () => handleUnbind(r, b.vrId) : undefined}
+							style={{ marginRight: 4 }}
+						>
+							{vrNameMap[b.vrId] || b.vrId}
+						</Tag>
+					));
+					return (
+						<div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+							{primary}
+							{bounds}
+							{!primary && !bounds?.length && <span style={{ color: '#ccc' }}>未绑定</span>}
+						</div>
+					);
+				},
 			},
-		},
-		{ title: 'ACL ID', dataIndex: 'aclId', key: 'aclId' },
-		{ title: '描述', dataIndex: 'description', key: 'description' },
-		{
-			title: '规则数',
-			key: 'rules',
-			render: (_v, r) => <Badge count={r.rules?.length || 0} showZero color="blue" />,
-		},
-		{
-			title: '操作',
-			key: 'ops',
-			fixed: 'right',
-			render: (_v, r) => (
-				<ResourceActionsDropdown
-					items={[
-						{ key: 'addRule', label: '添加规则' },
-						{ key: 'deploy', label: '下发配置', disabled: !r.vrId },
-						{ key: 'bind', label: '关联其他 IBR' },
-						{ type: 'divider' },
-						{ key: 'delete', label: '删除组', danger: true },
-					]}
-					onClick={({ key }) => {
-						if (key === 'addRule') handleOpenCreateRule(r);
-						if (key === 'deploy' && r.vrId) handleDeploy(r.vrId);
-						if (key === 'bind') handleOpenBind(r);
-						if (key === 'delete') handleDeleteGroup(r);
-					}}
-					buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
-				/>
-			),
-		},
-	];
+			{ title: 'ACL ID', dataIndex: 'aclId', key: 'aclId' },
+			{ title: '描述', dataIndex: 'description', key: 'description' },
+			{
+				title: '规则数',
+				key: 'rules',
+				render: (_v, r) => <Badge count={r.rules?.length || 0} showZero color="blue" />,
+			},
+		];
+		if (canWrite) {
+			cols.push({
+				title: '操作',
+				key: 'ops',
+				fixed: 'right',
+				render: (_v, r) => (
+					<ResourceActionsDropdown
+						items={[
+							{ key: 'addRule', label: '添加规则' },
+							{ key: 'deploy', label: '下发配置', disabled: !r.vrId },
+							{ key: 'bind', label: '关联其他 IBR' },
+							{ type: 'divider' },
+							{ key: 'delete', label: '删除组', danger: true },
+						]}
+						onClick={({ key }) => {
+							if (key === 'addRule') handleOpenCreateRule(r);
+							if (key === 'deploy' && r.vrId) handleDeploy(r.vrId);
+							if (key === 'bind') handleOpenBind(r);
+							if (key === 'delete') handleDeleteGroup(r);
+						}}
+						buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+					/>
+				),
+			});
+		}
+		return cols;
+	}, [
+		canWrite,
+		vrNameMap,
+		handleUnbind,
+		handleOpenCreateRule,
+		handleDeploy,
+		handleOpenBind,
+		handleDeleteGroup,
+	]);
 
-	const ruleColumns: ColumnsType<ACLRule> = [
-		{ title: '优先级', dataIndex: 'priority', key: 'priority', fixed: 'left', sorter: (a, b) => a.priority - b.priority },
-		{ title: '名称', dataIndex: 'name', key: 'name' },
-		{ title: '所属IBR', dataIndex: 'vrId', key: 'vrId', render: (v) => vrNameMap[v] || v },
-		{
-			title: '所属组',
-			dataIndex: 'group',
-			key: 'group',
-			render: (g) => (g ? <Tag color="blue">{g.name}</Tag> : '-'),
-		},
-		{
-			title: '动作',
-			dataIndex: 'action',
-			key: 'action',
-			render: (act) => <Tag color={act === 'permit' ? 'green' : 'red'}>{act.toUpperCase()}</Tag>,
-		},
-		{
-			title: '协议',
-			dataIndex: 'protocol',
-			key: 'protocol',
-			render: (p) => <Tag>{p.toUpperCase()}</Tag>,
-		},
-		{ title: '源IP', dataIndex: 'sourceIp', key: 'sourceIp' },
-		{ title: '目的IP', dataIndex: 'destinationIp', key: 'destinationIp' },
-		{ title: '源端口', dataIndex: 'sourcePort', key: 'sourcePort' },
-		{ title: '目的端口', dataIndex: 'destinationPort', key: 'destinationPort' },
-		{
-			title: '操作',
-			key: 'ops',
-			fixed: 'right',
-			render: (_v, row) => (
-				<ResourceActionsDropdown
-					items={[{ key: 'delete', label: '删除', danger: true }]}
-					onClick={({ key }) => {
-						if (key === 'delete') handleDeleteRule(row);
-					}}
-					buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
-				/>
-			),
-		},
-	];
+	const ruleColumns: ColumnsType<ACLRule> = useMemo(() => {
+		const cols: ColumnsType<ACLRule> = [
+			{ title: '优先级', dataIndex: 'priority', key: 'priority', fixed: 'left', sorter: (a, b) => a.priority - b.priority },
+			{ title: '名称', dataIndex: 'name', key: 'name' },
+			{ title: '所属IBR', dataIndex: 'vrId', key: 'vrId', render: (v) => vrNameMap[v] || v },
+			{
+				title: '所属组',
+				dataIndex: 'group',
+				key: 'group',
+				render: (g) => (g ? <Tag color="blue">{g.name}</Tag> : '-'),
+			},
+			{
+				title: '动作',
+				dataIndex: 'action',
+				key: 'action',
+				render: (act) => <Tag color={act === 'permit' ? 'green' : 'red'}>{act.toUpperCase()}</Tag>,
+			},
+			{
+				title: '协议',
+				dataIndex: 'protocol',
+				key: 'protocol',
+				render: (p) => <Tag>{p.toUpperCase()}</Tag>,
+			},
+			{ title: '源IP', dataIndex: 'sourceIp', key: 'sourceIp' },
+			{ title: '目的IP', dataIndex: 'destinationIp', key: 'destinationIp' },
+			{ title: '源端口', dataIndex: 'sourcePort', key: 'sourcePort' },
+			{ title: '目的端口', dataIndex: 'destinationPort', key: 'destinationPort' },
+		];
+		if (canWrite) {
+			cols.push({
+				title: '操作',
+				key: 'ops',
+				fixed: 'right',
+				render: (_v, row) => (
+					<ResourceActionsDropdown
+						items={[{ key: 'delete', label: '删除', danger: true }]}
+						onClick={({ key }) => {
+							if (key === 'delete') handleDeleteRule(row);
+						}}
+						buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+					/>
+				),
+			});
+		}
+		return cols;
+	}, [canWrite, vrNameMap, handleDeleteRule]);
 
 	if (embedded) {
 		return null;
@@ -163,9 +187,11 @@ const ACLPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUui
 			asCard={false}
 			onRefresh={forceRefresh}
 			primaryAction={
-				activeTab === 'groups'
-					? { text: '新建 ACL 组', onClick: openCreateGroup, type: 'primary' }
-					: { text: '新建 ACL 规则', onClick: () => handleOpenCreateRule(), type: 'primary' }
+				canWrite
+					? activeTab === 'groups'
+						? { text: '新建 ACL 组', onClick: openCreateGroup, type: 'primary' }
+						: { text: '新建 ACL 规则', onClick: () => handleOpenCreateRule(), type: 'primary' }
+					: undefined
 			}
 			tabList={[
 				{ key: 'groups', tab: 'ACL 组管理' },
@@ -316,7 +342,6 @@ const ACLPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUui
 			)}
 
 			<AclFormDrawers
-				variant="page"
 				vrList={vrList}
 				vrNameMap={vrNameMap}
 				groups={acl.groups}

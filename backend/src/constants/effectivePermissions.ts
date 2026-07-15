@@ -4,8 +4,6 @@ import { isSdncProduct } from './productFlavor';
 /** SDNC 仅 IBR：SDNCC 下只保留 PERMISSION_GROUPS「IBR管理」原子（VR/SRv6/IPsec/ACL/NAT） */
 const SDNC_IBR_GROUP = 'IBR管理';
 
-const SDNC_PLATFORMS = new Set(['SDNCC', 'SETTINGS']);
-
 /** 单条权限是否纳入 SDNC RBAC 目录（Tower 全量时恒 true） */
 export function isPermissionInSdncCatalog(permission: string): boolean {
   const platform = getPlatformByPermission(permission);

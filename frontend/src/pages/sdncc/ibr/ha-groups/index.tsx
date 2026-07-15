@@ -17,6 +17,7 @@ import {
 import { loadIbrVrCatalog } from '../lib/ibrVrCatalog';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { commonBadgeStyles } from '../../../../utils/tableStyles';
+import { placementLabel, readPlacementFromIntent } from './haGroupWizardLib';
 
 const STATUS_LABEL: Record<IbrHaGroupStatus, string> = {
 	draft: '草稿',
@@ -119,7 +120,7 @@ const IbrHaGroupsPage: React.FC = () => {
 		});
 	}, [keyword, rows]);
 
-	const handleDelete = (row: IbrHaGroup) => {
+	const handleDelete = useCallback((row: IbrHaGroup) => {
 		Modal.confirm({
 			title: '解散 HA 组',
 			content: `确定解散「${row.name}」？不会删除 IBR 实例本身。`,
@@ -137,7 +138,7 @@ const IbrHaGroupsPage: React.FC = () => {
 				}
 			},
 		});
-	};
+	}, [load]);
 
 	const columns = useMemo((): ColumnsType<IbrHaGroup> => {
 		return [
@@ -157,6 +158,11 @@ const IbrHaGroupsPage: React.FC = () => {
 				title: '备节点',
 				key: 'backup',
 				render: (_v, row) => formatMemberCell(memberByRole(row.members, 'backup')),
+			},
+			{
+				title: '部署侧',
+				key: 'placement',
+				render: (_v, row) => placementLabel(readPlacementFromIntent(row.vrrpIntent) ?? undefined),
 			},
 			{
 				title: '模式',
@@ -194,7 +200,7 @@ const IbrHaGroupsPage: React.FC = () => {
 					) : null,
 			},
 		];
-	}, [canWrite, navigate]);
+	}, [canWrite, navigate, handleDelete]);
 
 	return (
 		<PageContainer

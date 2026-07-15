@@ -78,10 +78,11 @@ frontend/src/
 |------|------------------------------|------|
 | `ibr/routers/` | IBR 管理 | IBR实例 |
 | `ibr/ha-groups/` | IBR 管理 | IBR 高可用组（仅 CE / 标准模式）列表 + 向导 |
-| `ibr/srv6/` | IBR 管理 | SRv6 隧道 |
+| `ibr/rr-domains/` | IBR 管理 | BGP RR 反射域列表 / 导入 |
+| `ibr/srv6/` | IBR 管理 | SRv6 隧道（含 `Architecture.tsx` 架构拓扑、向导 `Create.tsx`） |
 | `ibr/ipsec-vpn/` | IBR 管理 | IPsec VPN |
 | `ibr/acl/`、`ibr/nat/` | IBR 管理 | ACL / NAT |
-| `ibr/lib/` | — | IBR 共享：`ibrVrCatalog`、`vrConfigDeployFlow`、`useIbrDeployWizard` 等；下发架构见 **`docs/ibr-vr-config-deploy.md`** |
+| `ibr/lib/` | — | IBR 共享：`ibrVrCatalog`、`vrConfigDeployFlow`、`useIbrDeployWizard`、`IbrWizardPage`（向导独立页壳：顶栏 + Shell）、`IbrWizardStepPane`（主栏 Card + 底栏）、`IbrWizardShell` / `ibrWizardLayout`（向导外层：`linear` 4+13+7 / `compare` 4+7+7+6）、`IbrWizardCard`（外栏 Card）、`IbrWizardPageHeader`（向导顶栏）等；下发架构见 **`docs/ibr-vr-config-deploy.md`** |
 
 **已删除**（勿重建）：`pages/sdncc/cross-domain/`、`sec-mgr-plane/`、`interconnect/`。
 

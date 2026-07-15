@@ -1,11 +1,19 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
+STAGED="$(git diff --cached --name-only)"
+
 # 前端：lint-staged（eslint --fix）
 ( cd frontend && npx lint-staged ) || exit 1
 
 # 后端：若有暂存的 .ts 改动，运行类型检查，防止类型错误进入提交（曾因后端未校验导致构建中断）
-if git diff --cached --name-only | grep -qE '^backend/.*\.ts$'; then
-  echo "[pre-commit] 检测到后端 .ts 改动，运行 tsc --noEmit ..."
+if echo "$STAGED" | grep -qE '^backend/.*\.ts$'; then
+  echo "[pre-commit] 检测到 backend .ts 改动，运行 tsc --noEmit ..."
   ( cd backend && npx tsc --noEmit ) || exit 1
+fi
+
+# ibr-local-web：若有暂存的 ts/tsx 改动，运行 ESLint（复用 backend 规则）
+if echo "$STAGED" | grep -qE '^ibr-local-web/.*\.(ts|tsx)$'; then
+  echo "[pre-commit] 检测到 ibr-local-web 改动，运行 ESLint ..."
+  ( cd backend && npm run lint:ibr-local-web ) || exit 1
 fi

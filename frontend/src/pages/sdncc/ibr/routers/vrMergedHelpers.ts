@@ -99,11 +99,6 @@ function collectIfaceNamesFromDeviceBlob(dev: any): string[] {
   return Array.from(new Set(names)).filter((n) => looksLikeIfaceName(n));
 }
 
-/** 仅 VR2 上的接口名（与历史行为一致，供仅需 VR2 的场景） */
-export function collectIfaceNamesFromMerged(merged: Record<string, any>): string[] {
-  return collectIfaceNamesFromDeviceBlob(merged?.vr2_info);
-}
-
 export type CollectIfaceNamesOptions = {
   /** 平台已保存设备配置 / SRv6 基线（interfaces_*） */
   baseline?: Record<string, unknown> | null;

@@ -62,7 +62,7 @@ export const DEVICE_INFO_TABS: VrConsoleDeviceInfoTabDef[] = [
 	},
 ];
 
-export const DEVICE_INFO_DEFAULT_TAB: VrConsoleDeviceInfoTabId = 'vr1';
+const DEVICE_INFO_DEFAULT_TAB: VrConsoleDeviceInfoTabId = 'vr1';
 
 /** 旧侧栏 panel= 迁移到设备信息 Tab */
 export const LEGACY_PANEL_TO_DEVICE_TAB: Partial<

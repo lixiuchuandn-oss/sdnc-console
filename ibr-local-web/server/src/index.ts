@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import { ssoAuthMiddleware } from './middleware/sso.js';
 import { apiRouter } from './routes/api.js';
+import { scheduleManagementIpReporting } from './lib/managementIpReporter.js';
 import { createPublicAccountRouter } from './routes/publicAccountRoutes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,6 +67,7 @@ async function main() {
 		if (!fs.existsSync(webDist)) {
 			console.warn('未找到 WEB_DIST，仅 API 模式。请先构建 web 或设置 WEB_DIST。');
 		}
+		scheduleManagementIpReporting();
 	});
 }
 

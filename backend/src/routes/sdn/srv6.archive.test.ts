@@ -1,4 +1,4 @@
-import { validateTunnelArchiveRequired } from './srv6.archive';
+import { extractCeLanIpv4, validateTunnelArchiveRequired } from './srv6.archive';
 
 const minimalArchive = () => ({
   peAInnerIf: 'GE0/0/1',
@@ -16,6 +16,32 @@ const minimalArchive = () => ({
     ceA: { publicIpv4: '1.1.1.1' },
     ceB: { publicIpv4: '2.2.2.2' },
   },
+});
+
+describe('extractCeLanIpv4', () => {
+  it('prefers ce.lanConfig lanIpv4 over WAN port 0', () => {
+    const ip = extractCeLanIpv4({
+      ce: {
+        lanConfig: [{ lanName: 'GigabitEthernet 0/0/1', lanIpv4: '10.20.30.1/24' }],
+        publicConfig: { wanName: 'GigabitEthernet 0/0/0' },
+      },
+      interfaces_0: [
+        { name: 'GigabitEthernet 0/0/0', ipv4: '1.2.3.4/30' },
+        { name: 'GigabitEthernet 0/0/1', ipv4: '10.20.30.1/24' },
+      ],
+    });
+    expect(ip).toBe('10.20.30.1');
+  });
+
+  it('falls back to port index 1', () => {
+    const ip = extractCeLanIpv4({
+      interfaces_0: [
+        { name: 'wan0', ipv4: '1.1.1.1/30' },
+        { name: 'lan0', ipv4: '192.168.9.1/24' },
+      ],
+    });
+    expect(ip).toBe('192.168.9.1');
+  });
 });
 
 describe('srv6.archive validateTunnelArchiveRequired', () => {

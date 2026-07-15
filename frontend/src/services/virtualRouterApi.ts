@@ -270,7 +270,10 @@ export const getVRConfigCached = getVRConfig;
 export const fetchVrTowerLocalConfigCache = async (
   uuid: string,
   options?: { skipCache?: boolean },
-): Promise<{ config: any; meta: { updatedAt?: string; role?: string } | null } | null> => {
+): Promise<{
+  config: any;
+  meta: { updatedAt?: string; role?: string; managementIp?: string | null } | null;
+} | null> => {
   const u = String(uuid || '').trim();
   if (!u) return null;
   try {

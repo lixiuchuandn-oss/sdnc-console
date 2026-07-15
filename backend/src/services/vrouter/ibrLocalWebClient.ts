@@ -1,6 +1,7 @@
 import axios, { type AxiosResponse } from 'axios';
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
+import { normalizeBgpSummaryPayload } from '../../utils/parseBgpSummary';
 import { logger } from '../../utils/logger';
 
 const ibrLocalLog = logger.child('IBR-LocalWeb');
@@ -595,12 +596,14 @@ export const ibrLocalWebClient = {
   },
 
   async getForwardingBgpSummary(managementIp: string): Promise<IbrForwardingBgpSummaryResult> {
-    return ibrLocalWebNorthRequest<IbrForwardingBgpSummaryResult>({
+    const data = await ibrLocalWebNorthRequest<IbrForwardingBgpSummaryResult>({
       managementIp,
       method: 'GET',
       path: '/forwarding/bgp/summary',
       timeoutMs: 30_000,
     });
+    // 设备侧旧版 local-web 可能仍返回扁平 neighbors；用 raw 重解析补齐 VRF/地址族/前缀列
+    return normalizeBgpSummaryPayload(data) as IbrForwardingBgpSummaryResult;
   },
 
   async getForwardingSrv6Status(managementIp: string): Promise<IbrForwardingSrv6Result> {

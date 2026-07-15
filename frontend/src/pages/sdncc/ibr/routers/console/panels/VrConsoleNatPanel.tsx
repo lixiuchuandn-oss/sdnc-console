@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReloadOutlined } from '@ant-design/icons';
 import {
 	Button,
@@ -200,16 +200,22 @@ export const VrConsoleNatPanel: React.FC<Props> = ({ vrUuid, managementIp }) => 
 	const [modalSubmitting, setModalSubmitting] = useState(false);
 	const [form] = Form.useForm();
 
+	const loadGenRef = useRef(0);
+
 	const loadEntries = useCallback(async () => {
+		const gen = ++loadGenRef.current;
+		const reqUuid = vrUuid;
 		setLoading(true);
 		try {
-			const data = await fetchIbrForwardingNatEntries(vrUuid, { skipCache: true });
+			const data = await fetchIbrForwardingNatEntries(reqUuid, { skipCache: true });
+			if (gen !== loadGenRef.current || reqUuid !== vrUuid) return;
 			if (data.error) throw new Error(data.error);
 			setEntries(Array.isArray(data.entries) ? data.entries : []);
 		} catch (e) {
+			if (gen !== loadGenRef.current) return;
 			message.error(getApiErrorMessage(e, '加载 NAT 条目失败'));
 		} finally {
-			setLoading(false);
+			if (gen === loadGenRef.current) setLoading(false);
 		}
 	}, [vrUuid]);
 

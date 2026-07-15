@@ -14,7 +14,6 @@ type DrawerShellProps = {
 	okText?: string;
 	confirmLoading?: boolean;
 	children: React.ReactNode;
-	variant: 'page' | 'console';
 };
 
 function AclDrawerShell({
@@ -26,32 +25,7 @@ function AclDrawerShell({
 	okText = '提交',
 	confirmLoading,
 	children,
-	variant,
 }: DrawerShellProps) {
-	if (variant === 'console') {
-		return (
-			<Drawer
-				rootClassName="ibr-console-drawer"
-				title={title}
-				width={width}
-				open={open}
-				onClose={onClose}
-				destroyOnClose
-				maskClosable={false}
-				footer={
-					<div className="ibr-console-drawer-footer">
-						<Button onClick={onClose}>取消</Button>
-						<Button type="primary" onClick={onOk} loading={confirmLoading}>
-							{okText}
-						</Button>
-					</div>
-				}
-			>
-				{children}
-			</Drawer>
-		);
-	}
-
 	return (
 		<Drawer
 			title={<span style={{ fontWeight: 400 }}>{title}</span>}
@@ -75,11 +49,7 @@ function AclDrawerShell({
 	);
 }
 
-const inputClass = (variant: 'page' | 'console') =>
-	variant === 'console' ? 'ibr-console-ops-input' : undefined;
-
 type Props = {
-	variant: 'page' | 'console';
 	vrList: any[];
 	vrNameMap: Record<string, string>;
 	groups: ACLGroup[];
@@ -103,7 +73,6 @@ type Props = {
 };
 
 export const AclFormDrawers: React.FC<Props> = ({
-	variant,
 	vrList,
 	vrNameMap,
 	groups,
@@ -125,12 +94,9 @@ export const AclFormDrawers: React.FC<Props> = ({
 	bindingSubmitting,
 	onSubmitBind,
 }) => {
-	const ic = inputClass(variant);
-
 	return (
 		<>
 			<AclDrawerShell
-				variant={variant}
 				title="新建 ACL 组"
 				width={500}
 				open={groupDrawerOpen}
@@ -141,10 +107,10 @@ export const AclFormDrawers: React.FC<Props> = ({
 			>
 				<Form form={groupForm} layout="vertical">
 					<Form.Item name="name" label="组名称" rules={[{ required: true }]}>
-						<Input className={ic} placeholder="输入 ACL 组名称" />
+						<Input placeholder="输入 ACL 组名称" />
 					</Form.Item>
 					<Form.Item name="vrId" label="所属 IBR" rules={[{ required: true }]}>
-						<Select className={ic} placeholder="选择 IBR 实例" disabled={Boolean(scopedVr)}>
+						<Select placeholder="选择 IBR 实例" disabled={Boolean(scopedVr)}>
 							{vrList.map((v) => {
 								const id = v.uuid || v.id || v.vm_id;
 								const name = v.name || id;
@@ -169,16 +135,15 @@ export const AclFormDrawers: React.FC<Props> = ({
 							},
 						]}
 					>
-						<InputNumber className={ic} placeholder="1001-4000" style={{ width: '100%' }} min={1001} max={4000} />
+						<InputNumber placeholder="1001-4000" style={{ width: '100%' }} min={1001} max={4000} />
 					</Form.Item>
 					<Form.Item name="description" label="描述">
-						<Input.TextArea className={ic} rows={3} />
+						<Input.TextArea rows={3} />
 					</Form.Item>
 				</Form>
 			</AclDrawerShell>
 
 			<AclDrawerShell
-				variant={variant}
 				title={targetGroup ? `新建规则 (所属组: ${targetGroup.name})` : '新建 ACL 规则'}
 				width={600}
 				open={ruleDrawerOpen}
@@ -197,7 +162,6 @@ export const AclFormDrawers: React.FC<Props> = ({
 									rules={[{ required: true, message: '请选择所属 ACL 组' }]}
 								>
 									<Select
-										className={ic}
 										placeholder="选择 ACL 组"
 										showSearch
 										optionFilterProp="label"
@@ -218,13 +182,12 @@ export const AclFormDrawers: React.FC<Props> = ({
 					<Row gutter={16}>
 						<Col span={12}>
 							<Form.Item name="name" label="规则名称" rules={[{ required: true }]}>
-								<Input className={ic} placeholder="输入规则名称" />
+								<Input placeholder="输入规则名称" />
 							</Form.Item>
 						</Col>
 						<Col span={12}>
 							<Form.Item name="vrId" label="所属 IBR" rules={[{ required: true }]}>
 								<Select
-									className={ic}
 									placeholder="选择 IBR 实例"
 									disabled={Boolean(targetGroup || scopedVr)}
 								>
@@ -249,12 +212,12 @@ export const AclFormDrawers: React.FC<Props> = ({
 								initialValue={100}
 								rules={[{ required: true }]}
 							>
-								<InputNumber className={ic} min={1} max={10000} style={{ width: '100%' }} />
+								<InputNumber min={1} max={10000} style={{ width: '100%' }} />
 							</Form.Item>
 						</Col>
 						<Col span={12}>
 							<Form.Item name="action" label="动作" initialValue="permit" rules={[{ required: true }]}>
-								<Select className={ic}>
+								<Select>
 									<Option value="permit">Permit (允许)</Option>
 									<Option value="deny">Deny (拒绝)</Option>
 								</Select>
@@ -264,7 +227,7 @@ export const AclFormDrawers: React.FC<Props> = ({
 					<Row gutter={16}>
 						<Col span={12}>
 							<Form.Item name="protocol" label="协议" initialValue="any" rules={[{ required: true }]}>
-								<Select className={ic}>
+								<Select>
 									<Option value="any">Any</Option>
 									<Option value="tcp">TCP</Option>
 									<Option value="udp">UDP</Option>
@@ -276,7 +239,7 @@ export const AclFormDrawers: React.FC<Props> = ({
 					<Row gutter={16}>
 						<Col span={12}>
 							<Form.Item name="sourceIp" label="源 IP/CIDR" initialValue="any" rules={[{ required: true }]}>
-								<Input className={ic} placeholder="e.g. 192.168.1.0/24 or any" />
+								<Input placeholder="e.g. 192.168.1.0/24 or any" />
 							</Form.Item>
 						</Col>
 						<Col span={12}>
@@ -286,14 +249,14 @@ export const AclFormDrawers: React.FC<Props> = ({
 								initialValue="any"
 								rules={[{ required: true }]}
 							>
-								<Input className={ic} placeholder="e.g. 10.0.0.1 or any" />
+								<Input placeholder="e.g. 10.0.0.1 or any" />
 							</Form.Item>
 						</Col>
 					</Row>
 					<Row gutter={16}>
 						<Col span={12}>
 							<Form.Item name="sourcePort" label="源端口" initialValue="any" rules={[{ required: true }]}>
-								<Input className={ic} placeholder="e.g. 80 or 1000-2000 or any" />
+								<Input placeholder="e.g. 80 or 1000-2000 or any" />
 							</Form.Item>
 						</Col>
 						<Col span={12}>
@@ -303,18 +266,17 @@ export const AclFormDrawers: React.FC<Props> = ({
 								initialValue="any"
 								rules={[{ required: true }]}
 							>
-								<Input className={ic} placeholder="e.g. 80 or 443 or any" />
+								<Input placeholder="e.g. 80 or 443 or any" />
 							</Form.Item>
 						</Col>
 					</Row>
 					<Form.Item name="description" label="描述">
-						<Input.TextArea className={ic} rows={3} />
+						<Input.TextArea rows={3} />
 					</Form.Item>
 				</Form>
 			</AclDrawerShell>
 
 			<AclDrawerShell
-				variant={variant}
 				title={`关联 ACL 组: ${currentBindingGroup?.name ?? ''}`}
 				width={500}
 				open={bindDrawerOpen}
@@ -325,7 +287,7 @@ export const AclFormDrawers: React.FC<Props> = ({
 			>
 				<Form form={bindForm} layout="vertical">
 					<Form.Item name="vrId" label="选择 IBR" rules={[{ required: true }]}>
-						<Select className={ic} placeholder="选择 IBR 实例">
+						<Select placeholder="选择 IBR 实例">
 							{vrList
 								.filter((v) => {
 									const vid = v.uuid || v.id || v.vm_id;

@@ -2,7 +2,7 @@
  * VR 详情抽屉：对齐 Cloudmap 物理节点详情（PhysicalNodeDetailDrawer）— Ant Design Drawer
  * + Tabs：详情（含设备标识）/ 网卡信息（仅接口）+ 各 JSON 源。
  */
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   Descriptions,
@@ -72,8 +72,6 @@ type TowerLocalConfigCache = {
   config: any;
   meta: { updatedAt?: string; role?: string } | null;
 };
-
-const { Text } = Typography;
 
 const TAB_PANEL_PADDING: React.CSSProperties = { padding: '8px 0 16px' };
 const TAB_PANEL_DEVICE: React.CSSProperties = {
@@ -288,6 +286,9 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
     [row],
   );
 
+  const metaLoadSeqRef = useRef(0);
+  const towerLoadSeqRef = useRef(0);
+
   /** 拉取聚合缓存 + Tower 本地 vr_config，供 Descriptions 与各 JSON Tab 展示 */
   const loadMetadata = useCallback(
     async (opts?: { useRowPlaceholder?: boolean }) => {
@@ -295,6 +296,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
       setCurrentMetadata(null);
       return;
     }
+    const seq = ++metaLoadSeqRef.current;
     const id = vrUuid;
     const useRowPlaceholder = opts?.useRowPlaceholder !== false;
 
@@ -321,6 +323,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
         );
         return null;
       });
+      if (seq !== metaLoadSeqRef.current || id !== vrUuid) return;
       if (merged && typeof merged === 'object') {
         const m = merged as Record<string, any>;
         setCurrentMetadata({
@@ -331,7 +334,7 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
         });
       }
     } finally {
-      setMetadataLoading(false);
+      if (seq === metaLoadSeqRef.current) setMetadataLoading(false);
     }
   },
     [row, vrUuid],
@@ -340,19 +343,23 @@ const VrDetailDrawer: React.FC<VrDetailDrawerProps> = ({
   /** 「本地配置」Tab：仅读 Tower 库，按需加载；不在整页刷新里默认请求（避免与「对端同步刷新」混淆） */
   const loadTowerLocalConfigOnly = useCallback(async () => {
     if (!vrUuid) return;
+    const seq = ++towerLoadSeqRef.current;
+    const id = vrUuid;
     setTowerLocalLoading(true);
     setTowerLocalConfigCacheError(null);
     try {
-      const towerCached = await fetchVrTowerLocalConfigCache(vrUuid, {
+      const towerCached = await fetchVrTowerLocalConfigCache(id, {
         skipCache: true,
       });
+      if (seq !== towerLoadSeqRef.current || id !== vrUuid) return;
       setTowerLocalConfigCache(towerCached);
     } catch (e: unknown) {
+      if (seq !== towerLoadSeqRef.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setTowerLocalConfigCacheError(msg);
       setTowerLocalConfigCache(null);
     } finally {
-      setTowerLocalLoading(false);
+      if (seq === towerLoadSeqRef.current) setTowerLocalLoading(false);
     }
   }, [vrUuid]);
 

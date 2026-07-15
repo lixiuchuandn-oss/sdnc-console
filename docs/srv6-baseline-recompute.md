@@ -157,7 +157,7 @@ sequenceDiagram
 - 删除成功后对四端尝试 `resetSrv6BaselineWhenNoTunnels`（零隧道基线对齐）。  
 - 无 `injectedDelta` / 无基线：**400**，中文提示 + 操作建议。
 
-> `srv6.eject.ts` 已标记 **@deprecated**，仅保留单测与历史对照，**不得**作为新流程写库依据。
+> 历史 `srv6.eject.ts`（路径级 eject）已删除；删除/更新一律走 **baseline + recompute**（见上文与 `srv6.delete.ts` / `srv6.recompute.ts`）。
 
 ### 5.4 VR 配置保存（`/api/vr-config` upsert）
 
@@ -276,7 +276,6 @@ API：
 | `srv6.vrLock.ts` | 被引用 VR 的 upsert / set-role 锁 |
 | `srv6.references.ts` | VR ↔ 隧道引用查询 |
 | `srv6.audit.ts` | 审计日志封装 |
-| `srv6.eject.ts` | **deprecated** 历史 eject |
 | `srv6.*.test.ts` | 单测；`srv6.scenarios.test.ts` 为 P1–P4 场景矩阵（18 条） |
 
 关联：`vrConfig.ts` upsert/set-role 集成 SRv6 锁与 recompute。
@@ -394,7 +393,7 @@ npx tsc --noEmit
 |------|------|--------|------|
 | **S · Spoke 点对点** | 两端 PE 均为 **`SPOKE_PE`** | P1–P4（现有） | PE22 ↔ PE99 |
 | **H · Hub–Spoke** | **恰好一端** `HUB_PE`、另一端 **`SPOKE_PE`** | P5 Hub 分支 | PE22 ↔ PE3(Hub) |
-| **禁止** | 两端均为 `HUB_PE` | 创建 **409** | — |
+| **允许** | 两端均为 `HUB_PE`（Hub–Hub）且 `tunnelTopology=S` | 点对点归档；`tunnelTopology=H` 时仍禁止双 Hub | — |
 | **禁止** | 任一端 PE 槽位角色为 `PE`（旧值）或未设置 | 创建 **409**，须先设 `SPOKE_PE`/`HUB_PE` | — |
 | **禁止** | Hub 槽位 VR 非 `HUB_PE` | 创建 **409**，引导改设备角色 | Spoke 设备被选为 Hub 槽 |
 

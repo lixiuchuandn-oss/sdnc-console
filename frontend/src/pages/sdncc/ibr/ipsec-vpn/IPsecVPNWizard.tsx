@@ -1,10 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Col, Descriptions, Form, Input, Radio, Row, Select, Space, Steps, Switch, Tabs, message, Checkbox } from 'antd';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import PageContainer from '../../../../components/PageContainer';
+import { Button, Col, Descriptions, Form, Input, Radio, Row, Select, Space, Steps, Switch, message, Checkbox } from 'antd';
+import { useNavigate, useParams } from 'react-router-dom';
 import { fetchVrCachePageList } from '../../../../services/virtualRouterApi';
-import { apiRequest, createIPsecVPN, getApiErrorMessage, updateIPsecVPN } from '../../../../services/api';
+import { apiPost, apiRequest, createIPsecVPN, getApiErrorMessage, updateIPsecVPN } from '../../../../services/api';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import IbrDeployWizardPanel from '../lib/IbrDeployWizardPanel';
+import IbrWizardCard, { ibrWizardStepCardTitle } from '../lib/IbrWizardCard';
+import IbrWizardPage from '../lib/IbrWizardPage';
+import IbrWizardStepPane from '../lib/IbrWizardStepPane';
 import { useIbrDeployWizard } from '../lib/useIbrDeployWizard';
 import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import {
@@ -15,37 +19,35 @@ import {
 
 const { Option } = Select;
 
-// Tabs 用于配置预览，保持与 SRv6 创建页一致
-
 const IPsecVPNWizard: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const perms = Array.isArray(user?.permissions) ? user?.permissions ?? [] : [];
+  const canWrite =
+    user?.role === 'super_admin' || hasPermissionForAction(perms, 'networks.ipsec:write');
   const { id } = useParams();
-  const [, setIsEdit] = useState(false);
+
+  useEffect(() => {
+    if (!canWrite) {
+      message.warning('无 IPsec 写权限，无法创建或编辑连接');
+      navigate('/admin/interconnect/ipsec', { replace: true });
+    }
+  }, [canWrite, navigate]);
+
   const [form] = Form.useForm();
   const [current, setCurrent] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [vrLoading, setVrLoading] = useState(false);
   const [vrs, setVrs] = useState<any[]>([]);
-  const [_ifaceLoading, _setIfaceLoading] = useState<boolean>(false);
   const [peerPresetAvailable, setPeerPresetAvailable] = useState<boolean>(false);
   const [usePeerPreset, setUsePeerPreset] = useState<boolean>(false);
   const [localPreset, setLocalPreset] = useState<any>(null);
   const [peerPreset, setPeerPreset] = useState<any>(null);
   const [localPresetAvailable, setLocalPresetAvailable] = useState<boolean>(false);
   const [useLocalPreset, setUseLocalPreset] = useState<boolean>(false);
-  const [_progressSteps, _setProgressSteps] = useState([
-    { status: 'wait', description: '开始下发本端IBR配置' },
-    { status: 'wait', description: '本端IBR配置下发成功' },
-    { status: 'wait', description: '开始下发对端IBR配置' },
-    { status: 'wait', description: '对端IBR配置下发成功' },
-    { status: 'wait', description: '结束' },
-  ]);
   const [, setRefreshKey] = useState(0);
-  const [_canDeploy, _setCanDeploy] = useState(false);
+  const [previewTabKey, setPreviewTabKey] = useState<string>('local');
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [_fullLocalConfig, _setFullLocalConfig] = useState<any>(null);
-  const [_fullPeerConfig, _setFullPeerConfig] = useState<any>(null);
-  const _deployedRef = React.useRef(false);
   const [deployRunSeq, setDeployRunSeq] = useState(0);
   const prevWizardStepRef = React.useRef(current);
 
@@ -108,7 +110,6 @@ const IPsecVPNWizard: React.FC = () => {
 
   useEffect(() => {
     if (id) {
-      setIsEdit(true);
       fetchVPN(id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,34 +185,33 @@ const IPsecVPNWizard: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  const fetchVRs = async () => {
+  const fetchVRs = async (opts?: { sync?: boolean }) => {
     setVrLoading(true);
     try {
-      const resp = await fetchVrCachePageList(1000, 1);
+      if (opts?.sync) {
+        try {
+          await apiPost('/api/vr-instances/refresh', {});
+        } catch {
+          message.warning('从对端同步 IBR 缓存失败，仍将拉取当前列表');
+        }
+      }
+      const resp = await fetchVrCachePageList(1000, 1, { skipCache: true });
       const data = resp?.data || resp;
       const list = Array.isArray(data?.page)
         ? data.page
         : Array.isArray(data?.list)
         ? data.list
+        : Array.isArray(data?.items)
+        ? data.items
         : [];
       setVrs(list);
+      if (opts?.sync) message.success('IBR 列表已刷新');
     } catch (e) {
       console.error('Failed to fetch VR list from cache', e);
       message.error('获取IBR列表失败');
     } finally {
       setVrLoading(false);
     }
-  };
-
-  const _requestSign = async (path: string, method: 'GET' | 'POST', other: string, bodyRaw: string): Promise<{ Authorization: string; tonce: string }> => {
-    const accessKey = 'Cloudmap#123';
-    const secretKey = 'Cloudmap#123';
-    const authUrl = `/api-proxy/api/sign?url=${encodeURIComponent(path)}&method=${method}&other=${encodeURIComponent(other)}&accessKey=${encodeURIComponent(accessKey)}&secretKey=${encodeURIComponent(secretKey)}`;
-    const resp = await fetch(authUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyRaw });
-    const json = await resp.json();
-    const info = (json && json.data) ? json.data : json;
-    if (!resp.ok || !info?.Authorization || !info?.tonce) throw new Error('签名失败');
-    return { Authorization: info.Authorization, tonce: String(info.tonce) };
   };
 
   // 辅助函数：解析网卡名称中的 PCI 编号并排序
@@ -547,34 +547,91 @@ const IPsecVPNWizard: React.FC = () => {
     message.success('已刷新预览数据');
   };
 
+  const previewContentByTab: Record<string, React.ReactNode> = {
+    local: (
+      <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto', margin: 0 }}>
+        {safeStringify(localPreview)}
+      </pre>
+    ),
+    remote: (
+      <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto', margin: 0 }}>
+        {safeStringify(remotePreview)}
+      </pre>
+    ),
+    raw: (
+      <div style={{ maxHeight: 400, overflow: 'auto' }}>
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>本端 VR (VR3 Info)</div>
+          <pre style={{ fontSize: 11, background: '#f5f5f5', padding: 8, borderRadius: 4, margin: 0 }}>
+            {safeStringify(localPreset)}
+          </pre>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>对端 VR (VR3 Info)</div>
+          <pre style={{ fontSize: 11, background: '#f5f5f5', padding: 8, borderRadius: 4, margin: 0 }}>
+            {safeStringify(peerPreset)}
+          </pre>
+        </div>
+      </div>
+    ),
+  };
+
   return (
-    <PageContainer
-        titleLevel={3}
-        subtitle={<span style={{color: '#666'}}>按步骤选择本端/对端IBR、子网与安全参数，完成创建。</span>}
-        extra={<Button icon={<ReloadOutlined />} onClick={fetchVRs}>刷新IBR列表</Button>}
-        onBack={() => navigate(-1)}
-        asCard={false}
-        contentPadding={16}
-      >
-      <Row gutter={16}>
-        <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, fontWeight: 600 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps
-              direction="vertical"
-              size="small"
-              current={current}
-              onChange={handleStepsChange}
-              items={[
-                { title: '基础信息与模式' },
-                { title: '选择本端与对端' },
-                { title: '确认创建' },
-                { title: '配置下发' },
-              ]}
-            />
-          </Card>
-        </Col>
-        <Col span={12}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${current + 1} 步：${['基础信息与模式','选择本端与对端','确认创建','配置下发'][current]}`}</span>} variant="outlined">
+    <IbrWizardPage
+      subtitle="按步骤选择本端/对端IBR、子网与安全参数，完成创建。"
+      onBack={() => navigate('/admin/interconnect/ipsec')}
+      extra={<Button icon={<ReloadOutlined />} onClick={() => void fetchVRs({ sync: true })}>刷新IBR列表</Button>}
+      layout="linear"
+      steps={
+          <Steps
+            direction="vertical"
+            size="small"
+            current={current}
+            onChange={handleStepsChange}
+            items={[
+              { title: '基础信息与模式' },
+              { title: '选择本端与对端' },
+              { title: '确认创建' },
+              { title: '配置下发' },
+            ]}
+          />
+        }
+        main={
+          <IbrWizardStepPane
+            title={ibrWizardStepCardTitle(current, ['基础信息与模式','选择本端与对端','确认创建','配置下发'][current])}
+            footerLeft={
+              <>
+                {current !== 3 && <Button onClick={() => navigate('/admin/interconnect/ipsec')}>返回列表</Button>}
+                {current > 0 && <Button onClick={prev} disabled={loading && current === 3}>上一步</Button>}
+              </>
+            }
+            footerRight={
+              <>
+                {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
+                {current === 2 && (
+                  <>
+                    {saveSuccess && (
+                       <span style={{ color: '#52c41a', display: 'inline-flex', alignItems: 'center', fontWeight: 500 }}>
+                         <CheckCircleOutlined style={{ marginRight: 4 }} />
+                         配置已保存
+                       </span>
+                    )}
+                    <Button type="primary" onClick={handleCreate} loading={loading} disabled={saveSuccess}>
+                      保存配置
+                    </Button>
+                    <Button type="primary" onClick={startDeploy} disabled={!saveSuccess || loading}>
+                      开始下发
+                    </Button>
+                  </>
+                )}
+                {current === 3 && (
+                  <Button type="primary" onClick={() => navigate('/admin/interconnect/ipsec')} disabled={loading}>
+                    关闭向导
+                  </Button>
+                )}
+              </>
+            }
+          >
             <Form 
               layout="vertical" 
               form={form} 
@@ -587,7 +644,7 @@ const IPsecVPNWizard: React.FC = () => {
               <div style={{ display: current === 0 ? 'block' : 'none' }}>
                 <Form.Item 
                   name="name" 
-                  label={<span style={{ fontSize: 13, color: '#595959' }}>名称</span>} 
+                  label="名称" 
                   rules={[
                     { required: true, message: '请输入VPN名称' },
                     {
@@ -612,14 +669,14 @@ const IPsecVPNWizard: React.FC = () => {
                 >
                   <Input placeholder="请输入VPN名称" />
                 </Form.Item>
-                <Form.Item name="description" label={<span style={{ fontSize: 13, color: '#595959' }}>描述</span>}>
+                <Form.Item name="description" label="描述">
                   <Input.TextArea rows={2} placeholder="请输入描述信息" />
                 </Form.Item>
               </div>
               <div style={{ display: current === 1 ? 'block' : 'none' }}>
                 {/* Local Gateway Section */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: '#1677ff' }}>本端网关</span>
+                  <span style={{ color: '#1677ff' }}>本端网关</span>
                   <Space size={4}>
                     <span style={{ fontSize: 12, color: '#595959' }}>使用 IBR 预设</span>
                     <Switch size="small" checked={!useLocalPreset} onChange={(v) => setUseLocalPreset(!v)} disabled={!localPresetAvailable} />
@@ -628,7 +685,7 @@ const IPsecVPNWizard: React.FC = () => {
                 <Row gutter={16}>
                   {/* Row 1 */}
                   <Col span={12}>
-                    <Form.Item name="localVrId" label={<span style={{ fontSize: 13, color: '#595959' }}>本端网关 (IBR实例)</span>} rules={[{ required: true, message: '请选择IBR实例' }]}>
+                    <Form.Item name="localVrId" label="本端网关 (IBR实例)" rules={[{ required: true, message: '请选择IBR实例' }]}>
                       <Select
                         placeholder="选择IBR实例"
                         loading={vrLoading}
@@ -648,19 +705,19 @@ const IPsecVPNWizard: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item name="localVrWanIP" label={<span style={{ fontSize: 13, color: '#595959' }}>本端 WAN 口 IP</span>} rules={[{ required: true, message: '请输入本端 WAN 口 IP' }]}>
+                    <Form.Item name="localVrWanIP" label="本端 WAN 口 IP" rules={[{ required: true, message: '请输入本端 WAN 口 IP' }]}>
                       <Input placeholder="自动读取" disabled={!useLocalPreset && localPresetAvailable} />
                     </Form.Item>
                   </Col>
                   
                   {/* Row 2 */}
                   <Col span={12}>
-                    <Form.Item name="localVrLanSubnet" label={<span style={{ fontSize: 13, color: '#595959' }}>本端 LAN 口子网 (自动生成)</span>} rules={[{ required: true, message: '请输入本端 LAN 口 IP' }]}>
+                    <Form.Item name="localVrLanSubnet" label="本端 LAN 口子网 (自动生成)" rules={[{ required: true, message: '请输入本端 LAN 口 IP' }]}>
                       <Input placeholder="例如: 192.168.1.0/24" disabled={!useLocalPreset && localPresetAvailable} />
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item name="localVrLanIP" label={<span style={{ fontSize: 13, color: '#595959' }}>本端 LAN 口 IP (保留)</span>}>
+                    <Form.Item name="localVrLanIP" label="本端 LAN 口 IP (保留)">
                       <Input placeholder="自动读取接口IP" disabled />
                     </Form.Item>
                     <Form.Item name="localVrName" hidden><Input /></Form.Item>
@@ -671,10 +728,10 @@ const IPsecVPNWizard: React.FC = () => {
                   {/* Row 3 */}
                   
                     <Col span={12}>
-                      <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>本端WAN口 EIP / NAT_IP</span>}>
+                      <Form.Item label="本端WAN口 EIP / NAT_IP">
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                           <Form.Item name="enableLocalEip" valuePropName="checked" noStyle>
-                             <Checkbox style={{ marginRight: 8, fontSize: 13 }}>启用</Checkbox>
+                             <Checkbox style={{ marginRight: 8 }}>启用</Checkbox>
                           </Form.Item>
                           <Form.Item name="localVrWanEIP" noStyle rules={[{ required: enableLocalEip, message: '请输入EIP' }]}>
                              <Input style={{ flex: 1 }} disabled={!enableLocalEip} placeholder="请输入EIP" />
@@ -685,10 +742,10 @@ const IPsecVPNWizard: React.FC = () => {
                     <Col span={12}>
                       <Form.Item
                         name="localIkeRemoteIpAny"
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>允许任意远程IP地址链接</span>}
+                        label="允许任意远程IP地址链接"
                         valuePropName="checked"
                       >
-                        <Checkbox style={{ fontSize: 13 }}>
+                        <Checkbox>
                           启用
                           <span style={{ fontSize: 12, color: '#8c8c8c', marginLeft: 8 }}>(勾选后将本端配置中的 ike_remote_ip 设为 0.0.0.0)</span>
                         </Checkbox>
@@ -698,7 +755,7 @@ const IPsecVPNWizard: React.FC = () => {
 
                 {/* Remote Gateway Section */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: '#1677ff' }}>对端网关</span>
+                  <span style={{ color: '#1677ff' }}>对端网关</span>
                   <Space size={4}>
                     <span style={{ fontSize: 12, color: '#595959' }}>使用 IBR 预设</span>
                     <Switch size="small" checked={!usePeerPreset} onChange={(v) => setUsePeerPreset(!v)} disabled={!peerPresetAvailable} />
@@ -707,7 +764,7 @@ const IPsecVPNWizard: React.FC = () => {
                 <Row gutter={16}>
                   {/* Row 1 */}
                   <Col span={12}>
-                    <Form.Item name="peerVrId" label={<span style={{ fontSize: 13, color: '#595959' }}>对端网关 (IBR实例)</span>} rules={[{ required: true, message: '请选择对端 IBR实例' }]}>
+                    <Form.Item name="peerVrId" label="对端网关 (IBR实例)" rules={[{ required: true, message: '请选择对端 IBR实例' }]}>
                       <Select
                         placeholder="选择对端 IBR（可选）"
                         loading={vrLoading}
@@ -727,19 +784,19 @@ const IPsecVPNWizard: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item name="peerVrWanIP" label={<span style={{ fontSize: 13, color: '#595959' }}>对端 WAN 口 IP</span>} rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端 WAN 口 IP' }]}>
+                    <Form.Item name="peerVrWanIP" label="对端 WAN 口 IP" rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端 WAN 口 IP' }]}>
                       <Input placeholder="例如: 1.2.3.4" disabled={!usePeerPreset && peerPresetAvailable} />
                     </Form.Item>
                   </Col>
 
                   {/* Row 2 */}
                   <Col span={12}>
-                    <Form.Item name="peerVrLanSubnet" label={<span style={{ fontSize: 13, color: '#595959' }}>对端 LAN 口子网 (自动生成)</span>} rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端 LAN 口 IP' }]}>
+                    <Form.Item name="peerVrLanSubnet" label="对端 LAN 口子网 (自动生成)" rules={[{ required: usePeerPreset || !peerPresetAvailable, message: '请输入对端 LAN 口 IP' }]}>
                       <Input placeholder="例如: 10.0.0.0/24" disabled={!usePeerPreset && peerPresetAvailable} />
                     </Form.Item>
                   </Col>
                   <Col span={12}>
-                    <Form.Item name="peerVrLanIP" label={<span style={{ fontSize: 13, color: '#595959' }}>对端 LAN 口 IP (保留)</span>}>
+                    <Form.Item name="peerVrLanIP" label="对端 LAN 口 IP (保留)">
                       <Input placeholder="自动读取接口IP" disabled />
                     </Form.Item>
                     <Form.Item name="peerVrName" hidden><Input /></Form.Item>
@@ -749,10 +806,10 @@ const IPsecVPNWizard: React.FC = () => {
 
                   {/* Row 3 */}
                     <Col span={12}>
-                      <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>对端WAN口 EIP / NAT_IP</span>}>
+                      <Form.Item label="对端WAN口 EIP / NAT_IP">
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                           <Form.Item name="enableRemoteEip" valuePropName="checked" noStyle>
-                             <Checkbox style={{ marginRight: 8, fontSize: 13 }}>启用</Checkbox>
+                             <Checkbox style={{ marginRight: 8 }}>启用</Checkbox>
                           </Form.Item>
                           <Form.Item name="peerVrWanEIP" noStyle rules={[{ required: enableRemoteEip, message: '请输入EIP' }]}>
                              <Input style={{ flex: 1 }} disabled={!enableRemoteEip} placeholder="请输入EIP" />
@@ -764,9 +821,9 @@ const IPsecVPNWizard: React.FC = () => {
                       <Form.Item
                         name="remoteIkeRemoteIpAny"
                         valuePropName="checked"
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>允许任意远程IP地址链接</span>}
+                        label="允许任意远程IP地址链接"
                       >
-                        <Checkbox style={{ fontSize: 13 }}>
+                        <Checkbox>
                           启用
                           <span style={{ fontSize: 12, color: '#8c8c8c', marginLeft: 8 }}>(勾选后将对端配置中的 ike_remote_ip 设为 0.0.0.0)</span>
                         </Checkbox>
@@ -774,19 +831,19 @@ const IPsecVPNWizard: React.FC = () => {
                     </Col>
                 </Row>
 
-                <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>高级参数配置</div>
-                <Form.Item name="ikeVersion" label={<span style={{ fontSize: 13, color: '#595959' }}>IKE 版本</span>}>
+                <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>高级参数配置</div>
+                <Form.Item name="ikeVersion" label="IKE 版本">
                   <Radio.Group>
                     <Radio value="v1">IKEv1</Radio>
                     <Radio value="v2">IKEv2</Radio>
                   </Radio.Group>
                 </Form.Item>
-                <Form.Item name="psk" label={<span style={{ fontSize: 13, color: '#595959' }}>认证密钥 (PSK)</span>} rules={[{ required: true, message: '请输入预共享密钥' }]}>
+                <Form.Item name="psk" label="认证密钥 (PSK)" rules={[{ required: true, message: '请输入预共享密钥' }]}>
                   <Input.Password placeholder="请输入预共享密钥" />
                 </Form.Item>
                 <Row gutter={12}>
                   <Col span={8}>
-                    <Form.Item name="encryption" label={<span style={{ fontSize: 13, color: '#595959' }}>加密算法</span>}>
+                    <Form.Item name="encryption" label="加密算法">
                       <Select>
                         <Option value="aes-128">AES-128</Option>
                         <Option value="aes-192">AES-192</Option>
@@ -796,7 +853,7 @@ const IPsecVPNWizard: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item name="authentication" label={<span style={{ fontSize: 13, color: '#595959' }}>认证算法</span>}>
+                    <Form.Item name="authentication" label="认证算法">
                       <Select>
                         <Option value="sha1">SHA1</Option>
                         <Option value="sha256">SHA2-256</Option>
@@ -807,7 +864,7 @@ const IPsecVPNWizard: React.FC = () => {
                     </Form.Item>
                   </Col>
                   <Col span={8}>
-                    <Form.Item name="dhGroup" label={<span style={{ fontSize: 13, color: '#595959' }}>DH 组</span>}>
+                    <Form.Item name="dhGroup" label="DH 组">
                       <Select>
                         <Option value="2">Group 2</Option>
                         <Option value="5">Group 5</Option>
@@ -817,13 +874,13 @@ const IPsecVPNWizard: React.FC = () => {
                     </Form.Item>
                   </Col>
                 </Row>
-                <Form.Item name="mode" label={<span style={{ fontSize: 13, color: '#595959' }}>IPsec 模式</span>}>
+                <Form.Item name="mode" label="IPsec 模式">
                   <Radio.Group>
                     <Radio value="tunnel">隧道模式 (Tunnel)</Radio>
                     <Radio value="transport">传输模式 (Transport)</Radio>
                   </Radio.Group>
                 </Form.Item>
-                <Form.Item name="pfs" label={<span style={{ fontSize: 13, color: '#595959' }}>PFS (Perfect Forward Secrecy)</span>}>
+                <Form.Item name="pfs" label="PFS (Perfect Forward Secrecy)">
                   <Select style={{ width: 200 }}>
                     <Option value="disable">不启用</Option>
                     <Option value="group2">Group 2</Option>
@@ -832,10 +889,10 @@ const IPsecVPNWizard: React.FC = () => {
                   </Select>
                 </Form.Item>
                 <Space style={{ display: 'flex' }} align="baseline">
-                  <Form.Item name="natTraversal" label={<span style={{ fontSize: 13, color: '#595959' }}>NAT 穿越 (NAT-T)</span>} valuePropName="checked">
+                  <Form.Item name="natTraversal" label="NAT 穿越 (NAT-T)" valuePropName="checked">
                     <Switch />
                   </Form.Item>
-                  <Form.Item name="dpd" label={<span style={{ fontSize: 13, color: '#595959' }}>DPD (死对端检测)</span>} valuePropName="checked">
+                  <Form.Item name="dpd" label="DPD (死对端检测)" valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 </Space>
@@ -875,94 +932,28 @@ const IPsecVPNWizard: React.FC = () => {
                 />
               </div>
             </Form>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-              <Space>
-                {current !== 3 && <Button onClick={() => navigate('/admin/interconnect/ipsec')}>返回列表</Button>}
-                {current > 0 && <Button onClick={prev} disabled={loading && current === 3}>上一步</Button>}
-              </Space>
-              <Space>
-                {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
-                {current === 2 && (
-                  <>
-                    {saveSuccess && (
-                       <span style={{ color: '#52c41a', display: 'inline-flex', alignItems: 'center', fontWeight: 500 }}>
-                         <CheckCircleOutlined style={{ marginRight: 4 }} />
-                         配置已保存
-                       </span>
-                    )}
-                    <Button type="primary" onClick={handleCreate} loading={loading} disabled={saveSuccess}>
-                      保存配置
-                    </Button>
-                    <Button type="primary" onClick={startDeploy} disabled={!saveSuccess || loading}>
-                      开始下发
-                    </Button>
-                  </>
-                )}
-                {current === 3 && (
-                  <Button type="primary" onClick={() => navigate('/admin/interconnect/ipsec')} disabled={loading}>
-                    关闭向导
-                  </Button>
-                )}
-              </Space>
-            </div>
-          </Card>
-        </Col>
-        <Col span={7}>
-          <Card 
-            size="small" 
-            title={<span style={{ fontSize: 13, fontWeight: 600 }}>配置 JSON预览</span>} 
-            extra={<Button type="text" icon={<ReloadOutlined />} size="small" onClick={refreshPreview} title="刷新预览数据" />}
-            variant="outlined" 
-            style={{ position: 'sticky', top: 16 }}
+          </IbrWizardStepPane>
+        }
+        preview={
+          <IbrWizardCard
+            sticky
+            style={{ width: '100%' }}
+            tabList={[
+              { key: 'local', tab: '本端预览' },
+              { key: 'remote', tab: '对端预览' },
+              { key: 'raw', tab: 'IBR源数据' },
+            ]}
+            activeTabKey={previewTabKey}
+            onTabChange={setPreviewTabKey}
+            tabBarExtraContent={
+              <Button type="text" icon={<ReloadOutlined />} size="small" onClick={refreshPreview} title="刷新预览数据" />
+            }
+            tabProps={{ size: 'middle' }}
           >
-            <Tabs
-              size="small"
-              defaultActiveKey="local"
-              items={[
-                {
-                  key: 'local',
-                  label: '本端预览',
-                  children: (
-                    <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto' }}>
-                      {safeStringify(localPreview)}
-                    </pre>
-                  ),
-                },
-                {
-                  key: 'remote',
-                  label: '对端预览',
-                  children: (
-                    <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto' }}>
-                      {safeStringify(remotePreview)}
-                    </pre>
-                  ),
-                },
-                {
-                  key: 'raw',
-                  label: 'IBR源数据',
-                  children: (
-                    <div style={{ maxHeight: 400, overflow: 'auto' }}>
-                      <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>本端 VR (VR3 Info)</div>
-                        <pre style={{ fontSize: 11, background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
-                          {safeStringify(localPreset)}
-                        </pre>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1677ff' }}>对端 VR (VR3 Info)</div>
-                        <pre style={{ fontSize: 11, background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
-                          {safeStringify(peerPreset)}
-                        </pre>
-                      </div>
-                    </div>
-                  ),
-                },
-              ]}
-            />
-          </Card>
-        </Col>
-      </Row>
-    </PageContainer>
+            {previewContentByTab[previewTabKey]}
+          </IbrWizardCard>
+        }
+    />
   );
 };
 

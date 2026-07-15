@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import {
 	Button,
@@ -8,6 +8,7 @@ import {
 	Modal,
 	Space,
 	Switch,
+	Table,
 	Tag,
 	Typography,
 	message,
@@ -24,6 +25,7 @@ import {
 	fetchIbrForwardingIpsecSas,
 	fetchIbrForwardingIpsecTunnels,
 	saveIbrForwardingIpsecAutoreconnect,
+	type IbrForwardingIpsecChildSa,
 	type IbrForwardingIpsecReconnectLogRow,
 	type IbrForwardingIpsecSasConn,
 	type IbrForwardingIpsecTunnelRow,
@@ -72,6 +74,26 @@ function tunnelSourceTag(source?: string) {
 	return <Tag color={color}>{label}</Tag>;
 }
 
+function formatTrafficCount(n: number | undefined) {
+	if (n == null || !Number.isFinite(n)) return '—';
+	if (n < 1000) return String(n);
+	if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+	if (n < 1_000_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+	return `${(n / 1_000_000_000).toFixed(2)}G`;
+}
+
+function sumChildSaTraffic(children: IbrForwardingIpsecChildSa[] | undefined) {
+	return (children || []).reduce(
+		(acc, c) => ({
+			inBytes: acc.inBytes + (Number(c.in_bytes) || 0),
+			inPackets: acc.inPackets + (Number(c.in_packets) || 0),
+			outBytes: acc.outBytes + (Number(c.out_bytes) || 0),
+			outPackets: acc.outPackets + (Number(c.out_packets) || 0),
+		}),
+		{ inBytes: 0, inPackets: 0, outBytes: 0, outPackets: 0 },
+	);
+}
+
 export const VrConsoleIpsecPanel: React.FC<Props> = ({ vrUuid, managementIp }) => {
 	const canWrite = useIbrConsoleWritePermission('networks.ipsec:write');
 
@@ -94,51 +116,69 @@ export const VrConsoleIpsecPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 	const [guardDrawerOpen, setGuardDrawerOpen] = useState(false);
 	const [guardForm] = Form.useForm();
 
+	const loadGenRef = useRef(0);
+
 	const loadSa = useCallback(async () => {
+		const gen = ++loadGenRef.current;
+		const reqUuid = vrUuid;
 		setSaLoading(true);
 		try {
-			const data = await fetchIbrForwardingIpsecSas(vrUuid, { skipCache: true });
+			const data = await fetchIbrForwardingIpsecSas(reqUuid, { skipCache: true });
+			if (gen !== loadGenRef.current || reqUuid !== vrUuid) return;
 			if (data.error) throw new Error(data.error);
 			setSaRows(Array.isArray(data.sas) ? data.sas : []);
 			setSaRaw(String(data.raw ?? ''));
 		} catch (e) {
+			if (gen !== loadGenRef.current) return;
 			message.error(getApiErrorMessage(e, '加载 IPsec SA 失败'));
 			setSaRows([]);
 			setSaRaw('');
 		} finally {
-			setSaLoading(false);
+			if (gen === loadGenRef.current) setSaLoading(false);
 		}
 	}, [vrUuid]);
 
 	const loadTunnels = useCallback(async () => {
+		const gen = ++loadGenRef.current;
+		const reqUuid = vrUuid;
 		setCfgLoading(true);
 		try {
-			const data = await fetchIbrForwardingIpsecTunnels(vrUuid, { skipCache: true });
+			const data = await fetchIbrForwardingIpsecTunnels(reqUuid, { skipCache: true });
+			if (gen !== loadGenRef.current || reqUuid !== vrUuid) return;
 			if (data.error) throw new Error(data.error);
 			setTunnels(Array.isArray(data.tunnels) ? data.tunnels : []);
 		} catch (e) {
+			if (gen !== loadGenRef.current) return;
 			message.error(getApiErrorMessage(e, '加载隧道配置失败'));
 			setTunnels([]);
 		} finally {
-			setCfgLoading(false);
+			if (gen === loadGenRef.current) setCfgLoading(false);
 		}
 	}, [vrUuid]);
 
 	const loadGuardLogs = useCallback(async () => {
+		const gen = ++loadGenRef.current;
+		const reqUuid = vrUuid;
 		try {
-			const data = await fetchIbrForwardingIpsecReconnectLogs(vrUuid, { skipCache: true });
+			const data = await fetchIbrForwardingIpsecReconnectLogs(reqUuid, { skipCache: true });
+			if (gen !== loadGenRef.current || reqUuid !== vrUuid) return;
 			setGuardLogs(Array.isArray(data.logs) ? data.logs : []);
 		} catch (e) {
+			if (gen !== loadGenRef.current) return;
 			message.error(getApiErrorMessage(e, '加载守卫日志失败'));
 			setGuardLogs([]);
 		}
 	}, [vrUuid]);
 
 	const loadGuardCfg = useCallback(async () => {
+		const gen = ++loadGenRef.current;
+		const reqUuid = vrUuid;
 		try {
-			const data = await fetchIbrForwardingIpsecAutoreconnect(vrUuid, { skipCache: true });
+			const data = await fetchIbrForwardingIpsecAutoreconnect(reqUuid, { skipCache: true });
+			if (gen !== loadGenRef.current || reqUuid !== vrUuid) return;
 			guardForm.setFieldsValue(data);
 		} catch (e) {
+			if (gen !== loadGenRef.current) return;
 			message.error(getApiErrorMessage(e, '加载守卫配置失败'));
 		}
 	}, [guardForm, vrUuid]);
@@ -309,6 +349,24 @@ export const VrConsoleIpsecPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 			{ title: '对端', dataIndex: 'remote', key: 'remote', ellipsis: true, render: (v?: string) => v || '—' },
 			{ title: '运行时间', dataIndex: 'uptime', key: 'uptime', render: (v?: string) => v || '—' },
 			{
+				title: '报文(入/出)',
+				key: 'packets',
+				render: (_: unknown, row) => {
+					const t = sumChildSaTraffic(row.children);
+					if (!row.children?.length) return '—';
+					return `${formatTrafficCount(t.inPackets)}/${formatTrafficCount(t.outPackets)}`;
+				},
+			},
+			{
+				title: '字节(入/出)',
+				key: 'bytes',
+				render: (_: unknown, row) => {
+					const t = sumChildSaTraffic(row.children);
+					if (!row.children?.length) return '—';
+					return `${formatTrafficCount(t.inBytes)}/${formatTrafficCount(t.outBytes)}`;
+				},
+			},
+			{
 				title: '操作',
 				key: 'actions',
 				fixed: 'right',
@@ -450,9 +508,11 @@ export const VrConsoleIpsecPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 								<Button type="default" icon={<ReloadOutlined />} onClick={() => void loadGuardLogs()}>
 									刷新日志
 								</Button>
-								<Button type="primary" onClick={() => setGuardDrawerOpen(true)}>
-									守卫配置
-								</Button>
+								{canWrite ? (
+									<Button type="primary" onClick={() => setGuardDrawerOpen(true)}>
+										守卫配置
+									</Button>
+								) : null}
 							</>
 						) : null}
 					</div>
@@ -471,11 +531,39 @@ export const VrConsoleIpsecPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 									locale={{ emptyText: forwardTableEmpty('暂无 IPsec SA') }}
 									expandable={{
 										expandedRowRender: (row) => (
-											<pre className="app-code-block app-code-block-inset">
-												{(row.raw_lines ?? []).join('\n') || '（无原始行）'}
-											</pre>
+											<div style={{ padding: '4px 0 8px' }}>
+												{row.children?.length ? (
+													<Table<IbrForwardingIpsecChildSa>
+														size="small"
+														pagination={false}
+														rowKey={(_, idx) => `${row.name}-child-${idx}`}
+														dataSource={row.children}
+														columns={[
+															{ title: 'Child SA', dataIndex: 'name', key: 'name', render: (v: string) => v || '—' },
+															{
+																title: '报文(入/出)',
+																key: 'pkts',
+																render: (_: unknown, c) =>
+																	`${formatTrafficCount(c.in_packets)}/${formatTrafficCount(c.out_packets)}`,
+															},
+															{
+																title: '字节(入/出)',
+																key: 'bytes',
+																render: (_: unknown, c) =>
+																	`${formatTrafficCount(c.in_bytes)}/${formatTrafficCount(c.out_bytes)}`,
+															},
+														]}
+													/>
+												) : null}
+												{(row.raw_lines?.length ?? 0) > 0 ? (
+													<pre className="app-code-block app-code-block-inset" style={{ marginTop: 8 }}>
+														{(row.raw_lines ?? []).join('\n')}
+													</pre>
+												) : null}
+											</div>
 										),
-										rowExpandable: (row) => (row.raw_lines?.length ?? 0) > 0,
+										rowExpandable: (row) =>
+											(row.children?.length ?? 0) > 0 || (row.raw_lines?.length ?? 0) > 0,
 									}}
 								/>
 							</div>
@@ -605,22 +693,20 @@ export const VrConsoleIpsecPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 			>
 				<Form form={guardForm} layout="vertical">
 					<Form.Item name="enabled" label="监控总开关" valuePropName="checked">
-						<Switch disabled={!canWrite} />
+						<Switch />
 					</Form.Item>
 					<Form.Item name="reconnect_enabled" label="自动重连" valuePropName="checked">
-						<Switch disabled={!canWrite} />
+						<Switch />
 					</Form.Item>
 					<Form.Item name="interval" label="探测间隔（秒）" rules={[{ required: true }]}>
-						<InputNumber min={5} max={3600} style={{ width: '100%' }} disabled={!canWrite} />
+						<InputNumber min={5} max={3600} style={{ width: '100%' }} />
 					</Form.Item>
 					<Form.Item name="max_retries" label="最大重试次数" rules={[{ required: true }]}>
-						<InputNumber min={1} max={20} style={{ width: '100%' }} disabled={!canWrite} />
+						<InputNumber min={1} max={20} style={{ width: '100%' }} />
 					</Form.Item>
-					{canWrite ? (
-						<Button type="primary" onClick={() => void saveGuard()}>
-							保存
-						</Button>
-					) : null}
+					<Button type="primary" onClick={() => void saveGuard()}>
+						保存
+					</Button>
 				</Form>
 				<Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>
 					监控平台下发且 sa-initiate 的隧道；配置与日志保存在设备 local-web 运行目录。

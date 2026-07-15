@@ -1,13 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Divider, Form, Input, Select, Space, Tag, Modal, Row, Col, message, Steps, Descriptions, Badge, Table, Alert, Tooltip } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Checkbox, Form, Input, Select, Space, Tag, Modal, message, Table, Alert, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
-import { ClusterOutlined, BranchesOutlined, RadarChartOutlined, SafetyCertificateOutlined, SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import type { ColumnsType } from 'antd/es/table';
 import { apiPost } from '../../../../services/api';
+import { useAuth } from '../../../../contexts/AuthContext';
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
+import { loadIbrVrCatalog } from '../lib/ibrVrCatalog';
+import Srv6HealthCheckModal from './Srv6HealthCheckModal';
 // 复用 VR 页的样式（page-toolbar / toolbar-container / toolbar-actions / vr-table）
 
 interface Srv6TunnelRow {
@@ -27,21 +31,51 @@ interface Srv6TunnelRow {
     peerPublicNeighbor?: string;
   } | null;
   rdRtMeta?: { rtCommon?: string } | null;
+  /** 配置面对账摘要（非 live BGP；无隧道级流量） */
+  configHealth?: 'ok' | 'drift' | 'missing_archive' | 'endpoint_missing' | null;
+  configHealthMessage?: string | null;
+  configHealthIssueCount?: number;
+  configHealthCheckedAt?: string | null;
 }
 
-// 健康巡检步骤类型定义，兼容 antd Steps 的状态枚举
-type HealthStatus = 'wait' | 'process' | 'finish' | 'error';
-interface HealthStep {
-  key: string;
-  title: string;
-  status: HealthStatus;
-  description?: string;
+function mapSrv6TunnelRow(it: any): Srv6TunnelRow {
+  return {
+    id: it.id,
+    name: it.name,
+    peA: it.peA,
+    peB: it.peB,
+    ceA: it.ceA,
+    ceB: it.ceB,
+    status: it.status,
+    createdAt: it.createdAt,
+    tunnelTopology: it.tunnelTopology,
+    hubPeSlot: it.hubPeSlot,
+    hubBindings: it.hubBindings,
+    rdRtMeta: it.rdRtMeta,
+    configHealth: it.configHealth ?? null,
+    configHealthMessage: it.configHealthMessage ?? null,
+    configHealthIssueCount: it.configHealthIssueCount ?? 0,
+    configHealthCheckedAt: it.configHealthCheckedAt ?? null,
+  };
+}
+
+function configHealthTag(h?: Srv6TunnelRow['configHealth']) {
+  if (h === 'ok') return <Tag color="green">健康</Tag>;
+  if (h === 'drift') return <Tag color="orange">漂移</Tag>;
+  if (h === 'missing_archive') return <Tag color="gold">缺档案</Tag>;
+  if (h === 'endpoint_missing') return <Tag color="red">缺端点</Tag>;
+  return <Tag>未检查</Tag>;
 }
 
 const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const perms = Array.isArray(user?.permissions) ? user?.permissions ?? [] : [];
+  const canWrite =
+    user?.role === 'super_admin' || hasPermissionForAction(perms, 'networks.srv6:write');
   const scopedVr = String(scopedVrUuid || '').trim();
   const [tunnels, setTunnels] = useState<Srv6TunnelRow[]>([]);
+  const [listLoading, setListLoading] = useState(false);
 
   const [filterForm] = Form.useForm();
   const [keyword, setKeyword] = useState('');
@@ -49,19 +83,19 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
 
   // 列表页不再展示拓扑节点
 
-  // 健康巡检弹窗状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [healthModalOpen, setHealthModalOpen] = useState(false);
   const [healthRow, setHealthRow] = useState<Srv6TunnelRow | null>(null);
-  const initialHealthSteps: HealthStep[] = [
-    { key: 'bgp', title: 'BGP 公网邻居配置检查', status: 'wait', description: '' },
-    { key: 'srv6', title: 'SRv6 私网路由迭代配置检查', status: 'wait', description: '' },
-    { key: 'ceReach', title: 'CE 可达性检查', status: 'wait', description: '' },
-    { key: 'ipsec', title: 'CE IPsec 隧道配置检查', status: 'wait', description: '' },
-  ];
-  const [healthSteps, setHealthSteps] = useState<HealthStep[]>(initialHealthSteps);
+  const [vrNameMap, setVrNameMap] = useState<Record<string, string>>({});
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [reconcileReport, setReconcileReport] = useState<import('../../../../services/api').Srv6ReconcileReport | null>(null);
+
+  const vrLabel = (uuid?: string | null) => {
+    const id = String(uuid || '').trim();
+    if (!id) return '—';
+    return vrNameMap[id] || id;
+  };
 
   const runReconcile = async (repair: boolean) => {
     setReconcileLoading(true);
@@ -83,25 +117,102 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     }
   };
 
-  const getActionMenu = (_row: Srv6TunnelRow): MenuProps['items'] => ([
-    { key: 'topology', label: '查看拓扑' },
-    { key: 'update', label: '更新SRv6配置' },
-    { key: 'health', label: '健康巡检' },
-    { type: 'divider' },
-    { key: 'delete', label: '删除隧道', danger: true },
-  ]);
+  const handleBatchDelete = () => {
+    if (!canWrite || selectedRowKeys.length === 0) return;
+    const selected = tunnels.filter((t) => selectedRowKeys.includes(t.id));
+    const names = selected.map((t) => t.name).filter(Boolean);
+    let revertPlatform = true;
+    let revertDevice = true;
+    Modal.confirm({
+      title: '确认批量删除隧道？',
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>
+            确定删除选中的 {selectedRowKeys.length} 条 SRv6 隧道
+            {names.length ? `：${names.slice(0, 5).join('、')}${names.length > 5 ? '…' : ''}` : ''}
+            ？
+          </p>
+          <Checkbox
+            defaultChecked
+            onChange={(e) => {
+              revertPlatform = e.target.checked;
+            }}
+          >
+            回退平台库中的隧道注入项
+          </Checkbox>
+          <br />
+          <Checkbox
+            defaultChecked
+            onChange={(e) => {
+              revertDevice = e.target.checked;
+            }}
+          >
+            同步回退到底层设备
+          </Checkbox>
+          <p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
+            将逐条删除；历史隧道若创建时未保存配置变更记录，勾选回退可能失败——可取消「回退平台库」后仅删档案。
+          </p>
+        </div>
+      ),
+      okText: '批量删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        const { deleteSrv6Tunnel } = await import('../../../../services/api');
+        let ok = 0;
+        const errors: string[] = [];
+        const warnings: string[] = [];
+        for (const key of selectedRowKeys) {
+          const id = String(key);
+          const label = selected.find((t) => t.id === id)?.name || id;
+          try {
+            const res: any = await deleteSrv6Tunnel(id, { revertPlatform, revertDevice });
+            ok += 1;
+            if (Array.isArray(res?.warnings) && res.warnings.length) {
+              warnings.push(`${label}：${res.warnings.join('；')}`);
+            }
+          } catch (e: any) {
+            errors.push(`${label}：${e?.message || '删除失败'}`);
+          }
+        }
+        setSelectedRowKeys([]);
+        await loadSrv6Tunnels(true);
+        if (warnings.length) message.warning(warnings.slice(0, 3).join('；'));
+        if (errors.length === 0) {
+          message.success(`已删除 ${ok} 条隧道`);
+        } else if (ok > 0) {
+          message.warning(`成功 ${ok} 条，失败 ${errors.length} 条：${errors.slice(0, 3).join('；')}`);
+        } else {
+          message.error(`批量删除失败：${errors.slice(0, 3).join('；')}`);
+        }
+      },
+    });
+  };
+
+  const getActionMenu = (_row: Srv6TunnelRow): MenuProps['items'] => {
+    const items: MenuProps['items'] = [
+      { key: 'topology', label: '架构拓扑' },
+      ...(canWrite ? [{ key: 'update', label: '更新SRv6配置' }] : []),
+      { key: 'health', label: '健康巡检' },
+    ];
+    if (canWrite) {
+      items.push({ type: 'divider' }, { key: 'delete', label: '删除隧道', danger: true });
+    }
+    return items;
+  };
 
   const handleRowActionClick = (row: Srv6TunnelRow): MenuProps['onClick'] => ({ key }) => {
     switch (key) {
       case 'topology':
-        message.info(`查看拓扑占位：${row.name}`);
+        navigate(
+          `/admin/interconnect/srv6/architecture?tunnelId=${encodeURIComponent(row.id)}`,
+        );
         break;
       case 'update':
         navigate(`/admin/interconnect/srv6/create?editId=${encodeURIComponent(row.id)}`);
         break;
       case 'health':
         setHealthRow(row);
-        setHealthSteps(initialHealthSteps);
         setHealthModalOpen(true);
         break;
       case 'delete': {
@@ -127,7 +238,7 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
                   revertDevice = e.target.checked;
                 }}
               >
-                同步回退到底层设备（对四端执行 deploy/push，默认开启）
+                同步回退到底层设备
               </Checkbox>
               <p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
                 历史隧道若创建时未保存配置变更记录，勾选回退将无法删除；请取消「回退平台库」后仅删除隧道记录，再手工清理四端配置。
@@ -139,28 +250,14 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           cancelText: '取消',
           onOk: async () => {
             try {
-              const { deleteSrv6Tunnel, fetchSrv6Tunnels } = await import('../../../../services/api');
+              const { deleteSrv6Tunnel } = await import('../../../../services/api');
               const res: any = await deleteSrv6Tunnel(row.id, { revertPlatform, revertDevice });
               if (Array.isArray(res?.warnings) && res.warnings.length) {
                 message.warning(res.warnings.join('；'));
               }
               message.success('隧道已删除');
-              const list = await fetchSrv6Tunnels();
-              const rows: Srv6TunnelRow[] = (Array.isArray(list) ? list : []).map((it: any) => ({
-                id: it.id,
-                name: it.name,
-                peA: it.peA,
-                peB: it.peB,
-                ceA: it.ceA,
-                ceB: it.ceB,
-                status: it.status,
-                createdAt: it.createdAt,
-                tunnelTopology: it.tunnelTopology,
-                hubPeSlot: it.hubPeSlot,
-                hubBindings: it.hubBindings,
-                rdRtMeta: it.rdRtMeta,
-              }));
-              setTunnels(rows);
+              setSelectedRowKeys((keys) => keys.filter((k) => k !== row.id));
+              await loadSrv6Tunnels(true);
             } catch (e: any) {
               message.error(`删除失败：${e?.message || '请稍后重试'}`);
             }
@@ -225,9 +322,9 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
       key: 'tunnelTopology',
       render: (_: unknown, row) =>
         row.tunnelTopology === 'H' ? (
-          <Tag color="geekblue">Hub–Spoke</Tag>
+          <Tag color="geekblue">Spoke – Hub</Tag>
         ) : (
-          <Tag>Spoke 点对点</Tag>
+          <Tag>点对点</Tag>
         ),
     },
     {
@@ -250,16 +347,49 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     { title: 'CE-A', dataIndex: 'ceA', key: 'ceA' },
     { title: 'CE-B', dataIndex: 'ceB', key: 'ceB' },
     {
-      title: '状态',
+      title: '生命周期',
       dataIndex: 'status',
       key: 'status',
       render: (s: string) => {
-        if (s === 'available') return <Tag color="green">可用</Tag>;
-        if (s === 'degraded') return <Tag color="orange">已降级</Tag>;
-        if (s === 'error') return <Tag color="red">异常</Tag>;
-        if (s === 'deploying') return <Tag color="blue">下发中</Tag>;
-        return <Tag color="blue">创建中</Tag>;
+        const tag =
+          s === 'available' ? (
+            <Tag color="green">可用</Tag>
+          ) : s === 'degraded' ? (
+            <Tag color="orange">已降级</Tag>
+          ) : s === 'error' ? (
+            <Tag color="red">异常</Tag>
+          ) : s === 'deploying' ? (
+            <Tag color="blue">下发中</Tag>
+          ) : (
+            <Tag color="blue">创建中</Tag>
+          );
+        return <Tooltip title="平台档案生命周期，不等于线路已通">{tag}</Tooltip>;
       },
+    },
+    {
+      title: '配置健康',
+      key: 'configHealth',
+      render: (_: unknown, row) => {
+        const tip = [
+          row.configHealthMessage || '刷新列表可重新对账',
+          row.configHealthCheckedAt
+            ? `检查于 ${new Date(row.configHealthCheckedAt).toLocaleString()}`
+            : '',
+          '配置面对账；非 live BGP。SRv6 暂无隧道级流量计数。',
+        ]
+          .filter(Boolean)
+          .join('\n');
+        return <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>{configHealthTag(row.configHealth)}</Tooltip>;
+      },
+    },
+    {
+      title: '流量',
+      key: 'traffic',
+      render: () => (
+        <Tooltip title="设备/CSMCTL 暂无 SRv6 隧道级字节·报文；CE 侧 IPsec 见 IPsecVPN 列表或 IBR Console → SA">
+          <span style={{ color: '#86909c' }}>—</span>
+        </Tooltip>
+      ),
     },
     { title: '创建时间', dataIndex: 'createdAt', key: 'time', render: (d: string) => new Date(d).toLocaleString() },
     {
@@ -293,35 +423,52 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     });
   }, [tunnels, keyword, statusFilter, scopedVr]);
 
-  const loadSrv6Tunnels = async (force?: boolean) => {
+  /** 列表请求代次：快切/连点刷新时丢弃过期响应（行业常用 stale-while-revalidate） */
+  const loadGenRef = useRef(0);
+
+  const loadSrv6Tunnels = useCallback(async (force?: boolean) => {
+    const gen = ++loadGenRef.current;
+    setListLoading(true);
+    let shellPainted = false;
     try {
       const { fetchSrv6Tunnels } = await import('../../../../services/api');
-      const list = await fetchSrv6Tunnels({ skipCache: !!force });
-      const rows: Srv6TunnelRow[] = (Array.isArray(list) ? list : []).map((it: any) => ({
-        id: it.id,
-        name: it.name,
-        peA: it.peA,
-        peB: it.peB,
-        ceA: it.ceA,
-        ceB: it.ceB,
-        status: it.status,
-        createdAt: it.createdAt,
-        tunnelTopology: it.tunnelTopology,
-        hubPeSlot: it.hubPeSlot,
-        hubBindings: it.hubBindings,
-        rdRtMeta: it.rdRtMeta,
-      }));
-      setTunnels(rows);
+      // 首屏：先出档案列表，不阻塞在全量对账
+      const list = await fetchSrv6Tunnels({ skipCache: !!force, includeHealth: false });
+      if (gen !== loadGenRef.current) return;
+      setTunnels((Array.isArray(list) ? list : []).map(mapSrv6TunnelRow));
+      shellPainted = true;
+      setListLoading(false);
+
+      // 二阶段：异步 enrich 配置健康列
+      try {
+        const withHealth = await fetchSrv6Tunnels({ skipCache: true, includeHealth: true });
+        if (gen !== loadGenRef.current) return;
+        setTunnels((Array.isArray(withHealth) ? withHealth : []).map(mapSrv6TunnelRow));
+      } catch (he: any) {
+        if (gen !== loadGenRef.current) return;
+        console.warn('SRv6 配置健康 enrich 失败:', he);
+        message.warning(`配置健康暂不可用：${he?.message || '请稍后刷新'}`);
+      }
     } catch (e: any) {
+      if (gen !== loadGenRef.current) return;
       console.error('加载 SRv6 隧道失败:', e);
       message.error(`加载 SRv6 隧道失败：${e?.message || '请稍后重试'}`);
-      setTunnels([]);
+      if (!shellPainted) setTunnels([]);
+      setListLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadSrv6Tunnels();
-  }, []);
+    void loadSrv6Tunnels(true);
+    void (async () => {
+      try {
+        const catalog = await loadIbrVrCatalog({ force: true });
+        setVrNameMap(catalog.nameMap || {});
+      } catch {
+        /* 名称缺失时拓扑仍显示 UUID */
+      }
+    })();
+  }, [loadSrv6Tunnels]);
 
   const forceRefresh = async () => {
     message.loading({ content: '正在同步 VR 与隧道数据...', key: 'srv6_refresh' });
@@ -334,54 +481,23 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     }
   };
 
-  // 开始健康巡检（占位逻辑：依次推进步骤状态）
-  const startHealthCheck = () => {
-    const stepsCopy: HealthStep[] = initialHealthSteps.map(s => ({ ...s }));
-    setHealthSteps(stepsCopy);
-    const runStep = (idx: number) => {
-      if (idx >= stepsCopy.length) return;
-      stepsCopy[idx].status = 'process';
-      stepsCopy[idx].description = '检查进行中...';
-      setHealthSteps([...stepsCopy]);
-      setTimeout(() => {
-        stepsCopy[idx].status = 'finish';
-        stepsCopy[idx].description = '检查通过（占位）';
-        setHealthSteps([...stepsCopy]);
-        runStep(idx + 1);
-      }, 800);
-    };
-    runStep(0);
-  };
-
-  const stepIconForKey = (key: string) => {
-    switch (key) {
-      case 'bgp':
-        return <ClusterOutlined />;
-      case 'srv6':
-        return <BranchesOutlined />;
-      case 'ceReach':
-        return <RadarChartOutlined />;
-      case 'ipsec':
-        return <SafetyCertificateOutlined />;
-      default:
-        return undefined;
-    }
-  };
-
   return (
     <PageContainer
       titleLevel={3}
       asCard={false}
       hideHeader={embedded}
       pagePadding={embedded ? 0 : undefined}
-      primaryAction={{
-        text: '创建SRv6隧道',
-        onClick: () => navigate('/admin/interconnect/srv6/create'),
-        type: 'primary',
-      }}
+      primaryAction={
+        canWrite
+          ? {
+              text: '创建SRv6隧道',
+              onClick: () => navigate('/admin/interconnect/srv6/create'),
+              type: 'primary',
+            }
+          : undefined
+      }
       secondaryActions={
         <Button
-          type="primary"
           onClick={() => {
             setReconcileReport(null);
             setReconcileOpen(true);
@@ -391,8 +507,25 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           配置对账
         </Button>
       }
-      onRefresh={() => { void forceRefresh(); }}
-      defaultHiddenColumns={[]} // Display all columns by default
+      moreMenuItems={
+        canWrite
+          ? [
+              {
+                key: 'batchDelete',
+                label: selectedRowKeys.length
+                  ? `批量删除（${selectedRowKeys.length}）`
+                  : '批量删除',
+                danger: true,
+                disabled: selectedRowKeys.length === 0,
+                onClick: handleBatchDelete,
+              },
+            ]
+          : undefined
+      }
+      onRefresh={() => {
+        void forceRefresh();
+      }}
+      defaultHiddenColumns={[]}
       toolbarLeft={(
         <Form
           className="toolbar-container"
@@ -432,7 +565,16 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
         </Form>
       )}
       tableProps={{
-        className: "vr-table std-table",
+        className: 'vr-table std-table',
+        ...(canWrite
+          ? {
+              rowSelection: {
+                selectedRowKeys,
+                onChange: (keys: React.Key[]) => setSelectedRowKeys(keys),
+                preserveSelectedRowKeys: true,
+              },
+            }
+          : {}),
         columns: columns,
         dataSource: filteredTunnels,
         rowKey: (r: Srv6TunnelRow) => r.id,
@@ -440,9 +582,9 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           size: 'small',
           showTotal: (total) => `共 ${total} 条`,
         },
-        loading: false,
+        loading: listLoading,
         scroll: { x: 'max-content' },
-        bordered: false
+        bordered: false,
       }}
     >
       <Modal
@@ -460,14 +602,18 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           <Button key="scan" loading={reconcileLoading} onClick={() => void runReconcile(false)}>
             重新扫描
           </Button>,
-          <Button
-            key="repair"
-            type="primary"
-            loading={reconcileLoading}
-            onClick={() => void runReconcile(true)}
-          >
-            扫描并修复
-          </Button>,
+          ...(canWrite
+            ? [
+                <Button
+                  key="repair"
+                  type="primary"
+                  loading={reconcileLoading}
+                  onClick={() => void runReconcile(true)}
+                >
+                  扫描并修复
+                </Button>,
+              ]
+            : []),
         ]}
       >
         <Alert
@@ -518,46 +664,16 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
         />
       </Modal>
 
-      <Modal
-        title={`健康巡检${healthRow ? ` - ${healthRow.name}` : ''}`}
+      <Srv6HealthCheckModal
         open={healthModalOpen}
-        onCancel={() => { setHealthModalOpen(false); setHealthRow(null); setHealthSteps(initialHealthSteps); }}
-        footer={null}
-        destroyOnHidden
-        width={900}
-      >
-        <Row gutter={16}>
-          <Col span={10}>
-            <div style={{ padding: 12, background: '#fafafa', borderRadius: 8, border: '1px solid #f0f0f0' }}>
-              <Descriptions column={1} size="small" title="隧道信息">
-                <Descriptions.Item label="名称">{healthRow?.name || '-'}</Descriptions.Item>
-                <Descriptions.Item label="状态">{healthRow?.status === 'available' ? <Badge status="success" text="可用" /> : <Badge status="processing" text="创建中" />}</Descriptions.Item>
-                <Descriptions.Item label="PE-A">{healthRow?.peA || '-'}</Descriptions.Item>
-                <Descriptions.Item label="PE-B">{healthRow?.peB || '-'}</Descriptions.Item>
-                <Descriptions.Item label="CE-A">{healthRow?.ceA || '-'}</Descriptions.Item>
-                <Descriptions.Item label="CE-B">{healthRow?.ceB || '-'}</Descriptions.Item>
-              </Descriptions>
-              <Divider style={{ margin: '12px 0' }} />
-              <Space>
-                <Button type="primary" onClick={startHealthCheck}>开始巡检</Button>
-                <Button onClick={() => setHealthSteps(initialHealthSteps)}>重置</Button>
-                <Button onClick={() => setHealthModalOpen(false)}>关闭</Button>
-              </Space>
-            </div>
-          </Col>
-          <Col span={14}>
-            <div style={{ padding: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 8 }}>巡检步骤</div>
-              <Steps
-                direction="vertical"
-                items={healthSteps.map(s => ({ key: s.key, title: s.title, description: s.description, status: s.status, icon: stepIconForKey(s.key) }))}
-              />
-            </div>
-          </Col>
-        </Row>
-      </Modal>
+        tunnel={healthRow}
+        vrLabel={vrLabel}
+        onClose={() => {
+          setHealthModalOpen(false);
+          setHealthRow(null);
+        }}
+      />
 
-      {/* 列表页不再展示拓扑节点 */}
     </PageContainer>
   );
 };

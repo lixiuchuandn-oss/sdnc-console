@@ -17,11 +17,13 @@ const AdvancedSettings = lazy(() => import('./pages/settings/AdvancedSettings'))
 const OfflineUpgradeSettings = lazy(() => import('./pages/settings/OfflineUpgradeSettings'));
 const SRv6Page = lazy(() => import('./pages/sdncc/ibr/srv6/index'));
 const SRv6CreatePage = lazy(() => import('./pages/sdncc/ibr/srv6/Create'));
+const SRv6ArchitecturePage = lazy(() => import('./pages/sdncc/ibr/srv6/Architecture'));
 const IPsecVPNPage = lazy(() => import('./pages/sdncc/ibr/ipsec-vpn/index'));
 const IPsecVPNWizard = lazy(() => import('./pages/sdncc/ibr/ipsec-vpn/IPsecVPNWizard'));
 const VRPage = lazy(() => import('./pages/sdncc/ibr/routers/index'));
 const IbrHaGroupsPage = lazy(() => import('./pages/sdncc/ibr/ha-groups/index'));
 const IbrHaGroupWizard = lazy(() => import('./pages/sdncc/ibr/ha-groups/IbrHaGroupWizard'));
+const RrDomainsPage = lazy(() => import('./pages/sdncc/ibr/rr-domains/index'));
 const VrConsolePage = lazy(() => import('./pages/sdncc/ibr/routers/console/VrConsolePage'));
 const EditVRConfig = lazy(() => import('./pages/sdncc/ibr/routers/EditVRConfig'));
 const PEWizard = lazy(() => import('./pages/sdncc/ibr/routers/wizards/PEWizard'));
@@ -73,6 +75,7 @@ const AppRoutes: React.FC = () => (
         <Route index element={<AdminHomeGate />} />
         <Route path="interconnect/srv6" element={<IbrEmbedOutlet><SRv6Page /></IbrEmbedOutlet>} />
         <Route path="interconnect/srv6/create" element={<SRv6CreatePage />} />
+        <Route path="interconnect/srv6/architecture" element={<SRv6ArchitecturePage />} />
         <Route path="interconnect/ipsec" element={<IbrEmbedOutlet><IPsecVPNPage /></IbrEmbedOutlet>} />
         <Route path="interconnect/ipsec/create" element={<IPsecVPNWizard />} />
         <Route path="interconnect/ipsec/:id/edit" element={<IPsecVPNWizard />} />
@@ -80,6 +83,7 @@ const AppRoutes: React.FC = () => (
         <Route path="interconnect/ha-groups" element={<IbrEmbedOutlet><IbrHaGroupsPage /></IbrEmbedOutlet>} />
         <Route path="interconnect/ha-groups/create" element={<IbrHaGroupWizard />} />
         <Route path="interconnect/ha-groups/:id/wizard" element={<IbrHaGroupWizard />} />
+        <Route path="interconnect/rr-domains" element={<IbrEmbedOutlet><RrDomainsPage /></IbrEmbedOutlet>} />
         <Route path="interconnect/vr/:uuid/config" element={<EditVRConfig />} />
         <Route path="interconnect/vr/:uuid/role-pe" element={<PEWizard />} />
         <Route path="interconnect/vr/:uuid/role-ce" element={<CEWizard />} />

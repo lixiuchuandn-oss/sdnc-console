@@ -3,6 +3,13 @@
  */
 import { buildSrv6PeerRouteDestination, resolveSid64Via } from './srv6Ipv6';
 import type { Srv6CeHaBinding } from './srv6CeHaGroupLib';
+import {
+  buildRrNeighborTargetsFromDomain,
+  type RrNeighborTarget,
+} from './srv6RrNeighbor';
+import type { RrDomain } from '../../../../services/rrDomainApi';
+
+export type Srv6PeNeighborMode = 'static' | 'rr_domain';
 
 export type Srv6RdRtMeta = {
   rtCommon: string;
@@ -73,6 +80,9 @@ export type Srv6HubSlotBinding = {
 
 export type Srv6CeFingerprint = {
   publicIpv4?: string;
+  /** CE LAN 侧 IPv4（健康巡检 CE↔CE Ping 目标） */
+  lanIpv4?: string;
+  lanIf?: string;
   publicBgpAsn?: number;
   innerBgpAsn?: number;
   haGroupId?: string;
@@ -97,6 +107,35 @@ export type Srv6TunnelArchivePayload = {
   hubPeSlot?: 'peA' | 'peB';
   hubBindings?: Srv6HubSlotBinding;
   hubVrfMode?: Srv6HubVrfMode;
+  peANeighborMode?: Srv6PeNeighborMode;
+  peBNeighborMode?: Srv6PeNeighborMode;
+  peARrDomainId?: string;
+  peBRrDomainId?: string;
+};
+
+/** 向导第 1 步「隧道类型」：两端 PE 角色配对意图 */
+export type Srv6TunnelLinkType = 'spoke_spoke' | 'spoke_hub' | 'hub_hub';
+
+export const tunnelLinkTypeLabel = (t?: Srv6TunnelLinkType | null): string => {
+  if (t === 'spoke_hub') return 'Spoke – Hub';
+  if (t === 'hub_hub') return 'Hub – Hub';
+  return 'Spoke – Spoke';
+};
+
+/** 隧道类型 → 平台档案拓扑：Spoke–Hub 为 H，其余为点对点 S */
+export const tunnelLinkTypeToTopology = (t?: Srv6TunnelLinkType | null): Srv6TunnelTopology =>
+  t === 'spoke_hub' ? 'H' : 'S';
+
+export const inferTunnelLinkTypeFromRoles = (
+  peARole?: string,
+  peBRole?: string,
+): Srv6TunnelLinkType | null => {
+  const a = String(peARole || '').toUpperCase();
+  const b = String(peBRole || '').toUpperCase();
+  if (a === 'SPOKE_PE' && b === 'SPOKE_PE') return 'spoke_spoke';
+  if (a === 'HUB_PE' && b === 'HUB_PE') return 'hub_hub';
+  if ((a === 'HUB_PE' && b === 'SPOKE_PE') || (b === 'HUB_PE' && a === 'SPOKE_PE')) return 'spoke_hub';
+  return null;
 };
 
 /** 由两端 PE 角色推断拓扑（与后端 validateSrv6TunnelTopology 一致） */
@@ -104,11 +143,9 @@ export const inferTunnelTopologyFromRoles = (
   peARole?: string,
   peBRole?: string,
 ): Srv6TunnelTopology | null => {
-  const a = String(peARole || '').toUpperCase();
-  const b = String(peBRole || '').toUpperCase();
-  if (a === 'SPOKE_PE' && b === 'SPOKE_PE') return 'S';
-  if ((a === 'HUB_PE' && b === 'SPOKE_PE') || (b === 'HUB_PE' && a === 'SPOKE_PE')) return 'H';
-  return null;
+  const link = inferTunnelLinkTypeFromRoles(peARole, peBRole);
+  if (!link) return null;
+  return tunnelLinkTypeToTopology(link);
 };
 
 export const resolveHubPeSlotFromRoles = (
@@ -280,6 +317,42 @@ const extractCeWanIpv4 = (cfg: any): string | undefined => {
   return trimPrefix(cfg?.ipv4_static || cfg?.ipv4);
 };
 
+const extractCeLanIpv4 = (cfg: any): string | undefined => {
+  const ce = cfg?.ce;
+  if (ce && typeof ce === 'object') {
+    const lanConfig = Array.isArray(ce.lanConfig) ? ce.lanConfig : [];
+    for (const row of lanConfig) {
+      const direct = trimPrefix(row?.lanIpv4 ?? row?.ifIpv4);
+      if (direct) return direct;
+      const lanName = String(row?.lanName || row?.ifName || '').trim();
+      if (lanName) {
+        const byName = extractInterfaceIp(cfg, lanName);
+        if (byName) return byName;
+      }
+    }
+    const topDirect = trimPrefix(ce.lanIpv4 ?? ce.ifIpv4);
+    if (topDirect) return topDirect;
+    const topLan = String(ce.lanName || ce.ifName || '').trim();
+    if (topLan) {
+      const byName = extractInterfaceIp(cfg, topLan);
+      if (byName) return byName;
+    }
+  }
+  return extractPortIp(cfg, 1);
+};
+
+const extractCeLanIf = (cfg: any): string | undefined => {
+  const ce = cfg?.ce;
+  if (!ce || typeof ce !== 'object') return undefined;
+  const lanConfig = Array.isArray(ce.lanConfig) ? ce.lanConfig : [];
+  for (const row of lanConfig) {
+    const name = String(row?.lanName || row?.ifName || '').trim();
+    if (name) return name;
+  }
+  const top = String(ce.lanName || ce.ifName || '').trim();
+  return top || undefined;
+};
+
 const buildPeFingerprint = (
   cfg: any,
   innerIf?: string,
@@ -359,9 +432,37 @@ const resolvePePePublicEndpoint = (
 
 const buildCeFingerprint = (cfg: any): Srv6CeFingerprint => ({
   publicIpv4: extractCeWanIpv4(cfg),
+  lanIpv4: extractCeLanIpv4(cfg),
+  lanIf: extractCeLanIf(cfg),
   publicBgpAsn: extractBgpAsnAt(cfg, 0),
   innerBgpAsn: extractBgpAsnAt(cfg, 1),
 });
+
+type PeNeighborArchiveContext = {
+  mode?: Srv6PeNeighborMode;
+  rrDomain?: RrDomain | null;
+};
+
+const appendRrNeighborsToDelta = (
+  delta: Srv6EndpointInjectedDelta,
+  pubIdx: number,
+  targets: RrNeighborTarget[],
+) => {
+  targets.forEach((t) => {
+    delta.neighbors = [
+      ...(delta.neighbors || []),
+      { bgpIndex: pubIdx, remote_ip: t.neighborAddress, remote_as: t.remoteAs },
+    ];
+    delta.activateAddressFamily = [
+      ...(delta.activateAddressFamily || []),
+      { bgpIndex: pubIdx, peerIp: t.neighborAddress },
+    ];
+    delta.neighborDisableConnectedCheck = [
+      ...(delta.neighborDisableConnectedCheck || []),
+      { bgpIndex: pubIdx, remote_ip: t.neighborAddress },
+    ];
+  });
+};
 
 const buildPeInjectedDelta = (
   selfKey: 'peA' | 'peB',
@@ -372,6 +473,7 @@ const buildPeInjectedDelta = (
   /** 注入后写入平台库的配置：bgpIndex 须与此一致，避免删除回退时摘错段 */
   injectedSelfCfg?: any,
   hubCtx?: HubArchiveContext,
+  neighborCtx?: PeNeighborArchiveContext,
 ): Srv6EndpointInjectedDelta | undefined => {
   const selfCfg = peConfigs[selfKey];
   if (!selfCfg) return undefined;
@@ -386,7 +488,13 @@ const buildPeInjectedDelta = (
   const delta: Srv6EndpointInjectedDelta = {};
   const pubIdx = computePublicBgpIndex(idxSource);
 
-  if (peerCfg) {
+  const neighborMode = neighborCtx?.mode ?? 'static';
+  if (neighborMode === 'rr_domain' && neighborCtx?.rrDomain) {
+    const targets = buildRrNeighborTargetsFromDomain(neighborCtx.rrDomain);
+    if (targets.length > 0) {
+      appendRrNeighborsToDelta(delta, pubIdx, targets);
+    }
+  } else if (peerCfg) {
     const { ip: peerPublicIp, asn: peerAsn } = resolvePePePublicEndpoint(selfKey, peConfigs, hubCtx);
     if (peerPublicIp) {
       delta.neighbors = [
@@ -484,6 +592,10 @@ export type BuildTunnelArchiveInput = {
   hubInventory?: HubInventoryLite;
   ceAHaBinding?: Srv6CeHaBinding | null;
   ceBHaBinding?: Srv6CeHaBinding | null;
+  peANeighborMode?: Srv6PeNeighborMode;
+  peBNeighborMode?: Srv6PeNeighborMode;
+  peARrDomain?: RrDomain | null;
+  peBRrDomain?: RrDomain | null;
 };
 
 export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelArchivePayload => {
@@ -507,6 +619,10 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     hubInventory,
     ceAHaBinding,
     ceBHaBinding,
+    peANeighborMode = 'static',
+    peBNeighborMode = 'static',
+    peARrDomain,
+    peBRrDomain,
   } = input;
 
   let hubBindings: Srv6HubSlotBinding | undefined;
@@ -543,6 +659,7 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     rdRtMeta,
     peStorageCfgs?.peA,
     hubCtx,
+    { mode: peANeighborMode, rrDomain: peARrDomain },
   );
   const peBDelta = buildPeInjectedDelta(
     'peB',
@@ -552,6 +669,7 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     rdRtMeta,
     peStorageCfgs?.peB,
     hubCtx,
+    { mode: peBNeighborMode, rrDomain: peBRrDomain },
   );
   if (peADelta) injectedDelta.peA = peADelta;
   if (peBDelta) injectedDelta.peB = peBDelta;
@@ -627,5 +745,9 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
     hubPeSlot: tunnelTopology === 'H' ? hubPeSlot : undefined,
     hubBindings: tunnelTopology === 'H' ? hubBindings : undefined,
     hubVrfMode: tunnelTopology === 'H' ? hubVrfMode : undefined,
+    peANeighborMode,
+    peBNeighborMode,
+    peARrDomainId: peARrDomain?.id,
+    peBRrDomainId: peBRrDomain?.id,
   };
 };

@@ -33,6 +33,8 @@ export function useIbrDeployWizard(options: UseIbrDeployWizardOptions) {
   const sessionRef = useRef(0);
   const runningRef = useRef<{ sessionId: number; stepIndex: number } | null>(null);
   const timersRef = useRef<number[]>([]);
+  /** 与 steps state 同步，避免 startAuto 定时器读到旧闭包空数组 */
+  const stepsRef = useRef<IbrDeployWizardStep[]>([]);
 
   const clearTimers = useCallback(() => {
     timersRef.current.forEach((t) => window.clearTimeout(t));
@@ -44,6 +46,7 @@ export function useIbrDeployWizard(options: UseIbrDeployWizardOptions) {
     runningRef.current = null;
     clearTimers();
     const plan = buildIbrDeployWizardSteps(resolveEndpoints(), feature, { includeVerify });
+    stepsRef.current = plan;
     setSteps(plan);
     setActiveStep(0);
     setLogs({});
@@ -56,12 +59,13 @@ export function useIbrDeployWizard(options: UseIbrDeployWizardOptions) {
   }, [clearTimers, feature, includeVerify, resolveEndpoints]);
 
   const runStep = useCallback(
-    async (stepIndex: number) => {
+    async (stepIndex: number, planOverride?: IbrDeployWizardStep[]) => {
       const sessionId = sessionRef.current;
       const active = runningRef.current;
       if (active?.sessionId === sessionId && active.stepIndex === stepIndex) return;
 
-      const step = steps[stepIndex];
+      const plan = planOverride ?? stepsRef.current;
+      const step = plan[stepIndex];
       if (!step) return;
 
       runningRef.current = { sessionId, stepIndex };
@@ -78,7 +82,7 @@ export function useIbrDeployWizard(options: UseIbrDeployWizardOptions) {
         setStatus((prev) => ({ ...prev, [stepIndex]: 'finish' }));
         setActiveStep(stepIndex + 1);
 
-        if (stepIndex < steps.length - 1) {
+        if (stepIndex < plan.length - 1) {
           const timer = window.setTimeout(() => void runStep(stepIndex + 1), stepDelayMs);
           timersRef.current.push(timer);
         } else {
@@ -103,7 +107,7 @@ export function useIbrDeployWizard(options: UseIbrDeployWizardOptions) {
         }
       }
     },
-    [onAllFinished, stepDelayMs, steps],
+    [onAllFinished, stepDelayMs],
   );
 
   const startAuto = useCallback(() => {
@@ -112,7 +116,8 @@ export function useIbrDeployWizard(options: UseIbrDeployWizardOptions) {
       message.warning('没有可下发的 IBR 端点');
       return;
     }
-    const timer = window.setTimeout(() => void runStep(0), 400);
+    // 显式传入 plan，不依赖 setSteps 尚未 flush 的 state
+    const timer = window.setTimeout(() => void runStep(0, plan), 400);
     timersRef.current.push(timer);
   }, [resetWizard, runStep]);
 

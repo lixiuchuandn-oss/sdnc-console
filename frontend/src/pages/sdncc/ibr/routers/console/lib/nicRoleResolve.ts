@@ -1,9 +1,9 @@
 /** 与 ibr-local-web statusRoute / netApply 一致的 WAN/LAN PCI 下标映射 */
-export function wanLanPciIndices(initMode: 'static' | 'dhcp') {
+function wanLanPciIndices(initMode: 'static' | 'dhcp') {
 	return initMode === 'static' ? { wan: 1, lan: 2 } : { wan: 0, lan: 1 };
 }
 
-export type PciNicBrief = { pci?: string; ifnames?: string[]; macs?: string[] };
+type PciNicBrief = { pci?: string; ifnames?: string[]; macs?: string[] };
 
 export function resolveWanLanPci(
 	initMode: 'static' | 'dhcp',

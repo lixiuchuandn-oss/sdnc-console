@@ -1,7 +1,7 @@
 /** Paas Console（ibr-local-web）默认 HTTP 端口 */
-export const IBR_LOCAL_WEB_DEFAULT_PORT = 3000;
+const IBR_LOCAL_WEB_DEFAULT_PORT = 3000;
 
-export function resolveManagementHostIp(row: Record<string, unknown> | null | undefined): string {
+function resolveManagementHostIp(row: Record<string, unknown> | null | undefined): string {
   if (!row) return '';
   const raw = String(row.management_ip ?? row.managementIp ?? '').trim();
   if (!raw) return '';

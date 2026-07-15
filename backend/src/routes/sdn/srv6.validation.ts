@@ -377,12 +377,16 @@ export const validateSrv6TunnelTopology = (
     if (hubCount !== 1) {
       return {
         ok: false,
-        message: 'Hub–Spoke 隧道须恰好一端为 HUB_PE、另一端为 SPOKE_PE',
+        message: 'Spoke–Hub（Hub–Spoke）隧道须恰好一端为 HUB_PE、另一端为 SPOKE_PE',
       };
     }
-  } else if (hubCount > 0) {
-    return { ok: false, message: 'Spoke 点对点隧道不能使用 HUB_PE 设备' };
+  } else if (hubCount === 1) {
+    return {
+      ok: false,
+      message: '仅一端为 HUB_PE 时须选用 Spoke–Hub 拓扑；Spoke–Spoke 两端须均为 SPOKE_PE，Hub–Hub 两端须均为 HUB_PE',
+    };
   }
+  // S：Spoke–Spoke（0×HUB）或 Hub–Hub（2×HUB）点对点
   return { ok: true };
 };
 

@@ -33,25 +33,13 @@ export function buildPageSearchEntries(visibleCenters: AdminSidebarCenter[]): Pa
     }
 
     (c.items || []).forEach((p) => {
-      if (!p.children) {
-        push(
-          String(p.key || ''),
-          String(p.label || ''),
-          p.icon,
-          String(c.label || ''),
-          `${String(p.label || '')} ${String(c.label || '')}`,
-        );
-        return;
-      }
-      (p.children || []).forEach((it) => {
-        push(
-          String(it.key || ''),
-          String(it.label || ''),
-          it.icon,
-          String(p.label || ''),
-          `${String(it.label || '')} ${String(p.label || '')} ${String(c.label || '')}`,
-        );
-      });
+      push(
+        String(p.key || ''),
+        String(p.label || ''),
+        p.icon,
+        String(c.label || ''),
+        `${String(p.label || '')} ${String(c.label || '')}`,
+      );
     });
   });
 

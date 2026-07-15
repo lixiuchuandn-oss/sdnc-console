@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Form, Input, message, Row, Col, Space, Steps, Spin, Select, Switch, Modal, Checkbox } from 'antd';
+import { Button, Descriptions, Form, Input, message, Steps, Spin, Select, Switch, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageContainer from '../../../../../components/PageContainer';
 import { getVRConfig, saveVRConfig, setVRRole, getVR2Config } from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
@@ -17,6 +16,9 @@ import {
   stripIpsecPresetWizardPlatformBlocks,
 } from '../ipsecPresetWizardLib';
 import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
+import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
+import IbrWizardPage from '../../lib/IbrWizardPage';
+import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
 
 /** VR3 list 响应体中按接口名查找一行（仅用于网卡 IP 回填） */
 const filterLinkLocal = filterLinkLocalIpv6;
@@ -334,7 +336,7 @@ const StandardWizard: React.FC = () => {
     if (current === 0) {
       return (
         <Form form={mirrorForm} layout="vertical" disabled>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置</div>
           <Form.Item label="外网接口 (WAN)" name="wanInterface"><Input /></Form.Item>
           <Form.Item label="外网 IPv4 (CIDR)" name="wanIpv4"><Input /></Form.Item>
           <Form.Item label="外网 IPv6 (CIDR)" name="wanIpv6"><Input /></Form.Item>
@@ -347,7 +349,7 @@ const StandardWizard: React.FC = () => {
     if (current === 1) {
       return (
         <Form form={mirrorForm} layout="vertical" disabled>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置</div>
           <Form.Item label="内网接口 (LAN)" name="lanInterface"><Input /></Form.Item>
           <Form.Item label="内网 IPv4 (CIDR)" name="lanIpv4"><Input /></Form.Item>
           <Form.Item label="内网 IPv6 (CIDR)" name="lanIpv6"><Input /></Form.Item>
@@ -359,7 +361,7 @@ const StandardWizard: React.FC = () => {
       const values = mirrorForm.getFieldsValue(true);
       return (
         <div style={{ display: 'block' }}>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置确认</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置确认</div>
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="外网接口 (WAN)">{values.wanInterface || '-'}</Descriptions.Item>
             <Descriptions.Item label="外网 IPv4">{values.wanIpv4 || '-'}</Descriptions.Item>
@@ -370,7 +372,7 @@ const StandardWizard: React.FC = () => {
 
           <div style={{ height: 16 }} />
 
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置确认</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置确认</div>
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="内网接口 (LAN)">{values.lanInterface || '-'}</Descriptions.Item>
             <Descriptions.Item label="内网 IPv4">{values.lanIpv4 || '-'}</Descriptions.Item>
@@ -391,11 +393,11 @@ const StandardWizard: React.FC = () => {
       <Form form={form} layout="vertical">
         {/* Step 1: WAN 侧配置 */}
         <div style={{ display: current === 0 ? 'block' : 'none' }}>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置</div>
           <div style={{ marginBottom: 16 }}>
             <Form.Item
               name="wanInterface"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>外网接口 (WAN)</span>}
+              label="外网接口 (WAN)"
               tooltip="用于建立隧道的接口（通常连接公网）"
               rules={[{ required: true, message: '请选择外网接口' }]}
             >
@@ -416,20 +418,20 @@ const StandardWizard: React.FC = () => {
             </Form.Item>
             <Form.Item
               name="wanIpv4"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>外网 IPv4 (CIDR)</span>}
+              label="外网 IPv4 (CIDR)"
               rules={[{ pattern: /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/, message: 'IPv4 CIDR 示例：1.2.3.4/24' }]}
             >
               <Input placeholder="例如：1.2.3.4/24" />
             </Form.Item>
             <Form.Item
               name="wanIpv6"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>外网 IPv6 (CIDR)</span>}
+              label="外网 IPv6 (CIDR)"
             >
               <Input placeholder="例如：2001:db8::1/64" />
             </Form.Item>
             <Form.Item
               name="ipsecPublicIp"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>公网网关 (IPv4)</span>}
+              label="公网网关 (IPv4)"
               tooltip="用于生成默认路由 (0.0.0.0/0 via Gateway)"
               rules={[{ pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' }]}
             >
@@ -439,7 +441,7 @@ const StandardWizard: React.FC = () => {
             <Form.Item
               name="enableNat"
               valuePropName="checked"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>开启 NAT (SNAT)</span>}
+              label="开启 NAT (SNAT)"
               tooltip="开启后，LAN 侧访问外网时将自动进行源地址转换 (Masquerade)"
             >
               <Switch checkedChildren="开启" unCheckedChildren="关闭" />
@@ -449,11 +451,11 @@ const StandardWizard: React.FC = () => {
 
         {/* Step 2: LAN 侧配置 */}
         <div style={{ display: current === 1 ? 'block' : 'none' }}>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置</div>
           <div>
             <Form.Item
               name="lanInterface"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>内网接口 (LAN)</span>}
+              label="内网接口 (LAN)"
               tooltip="用于连接内部网络的接口"
               rules={[{ required: true, message: '请选择内网接口' }]}
             >
@@ -474,14 +476,14 @@ const StandardWizard: React.FC = () => {
             </Form.Item>
             <Form.Item
               name="lanIpv4"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>内网 IPv4 (CIDR)</span>}
+              label="内网 IPv4 (CIDR)"
               rules={[{ required: true, message: '请输入内网 IPv4' }, { pattern: /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\/([0-9]|[1-2]\d|3[0-2])$/, message: 'IPv4 CIDR 示例：192.168.1.1/24' }]}
             >
               <Input placeholder="例如：192.168.1.1/24" />
             </Form.Item>
             <Form.Item
               name="lanIpv6"
-              label={<span style={{ fontSize: 13, color: '#595959' }}>内网 IPv6 (CIDR)</span>}
+              label="内网 IPv6 (CIDR)"
             >
               <Input placeholder="例如：fd00::1/64" />
             </Form.Item>
@@ -490,7 +492,7 @@ const StandardWizard: React.FC = () => {
 
         {/* Step 3: 确认下发 */}
         <div style={{ display: current === 2 ? 'block' : 'none' }}>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置确认</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置确认</div>
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="外网接口 (WAN)">{values.wanInterface || '-'}</Descriptions.Item>
             <Descriptions.Item label="外网 IPv4">{values.wanIpv4 || '-'}</Descriptions.Item>
@@ -501,7 +503,7 @@ const StandardWizard: React.FC = () => {
 
           <div style={{ height: 16 }} />
 
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置确认</div>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 侧配置确认</div>
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="内网接口 (LAN)">{values.lanInterface || '-'}</Descriptions.Item>
             <Descriptions.Item label="内网 IPv4">{values.lanIpv4 || '-'}</Descriptions.Item>
@@ -513,63 +515,66 @@ const StandardWizard: React.FC = () => {
   };
 
   return (
-    <PageContainer
-      titleLevel={3}
+    <IbrWizardPage
+      meta={uuid || undefined}
       extra={<Button icon={<ReloadOutlined />} onClick={() => refreshDeviceData()}>刷新设备回读</Button>}
-      onBack={() => navigate(-1)}
-      asCard={false}
-    >
-      <Row gutter={16}>
-        <Col span={4}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={[{ title: 'WAN 侧配置' }, { title: 'LAN 侧配置' }, { title: '确认下发' }]} />
-          </Card>
-        </Col>
-        <Col span={7}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${current + 1} 步：${['WAN 侧配置', 'LAN 侧配置', '确认下发'][current]} 设备回读`}</span>} variant="outlined">
-            {ifaceLoading ? (
-              <div style={{ textAlign: 'center', padding: '32px 0' }}>
-                <Spin />
-              </div>
-            ) : renderDeviceStatus(deviceCfg)}
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>{`第 ${current + 1} 步：${['WAN 侧配置', 'LAN 侧配置', '确认下发'][current]} 配置编辑`}</span>} variant="outlined">
-            {renderCoreContent()}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-              <Space>
-                <Button onClick={() => navigate('/admin/interconnect/vr')}>返回列表</Button>
-                {current > 0 && <Button onClick={prev}>上一步</Button>}
-              </Space>
-              <Space>
-                {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
-                {current === 2 && (
-                  <>
-                    <Button
-                      type="primary"
-                      loading={loading}
-                      onClick={() => {
-                        setConfirmChecked(false);
-                        setConfirmOpen(true);
-                      }}
-                    >
-                      下发配置
-                    </Button>
-                  </>
-                )}
-              </Space>
+      layout="compare"
+      steps={
+        <Steps
+          direction="vertical"
+          size="small"
+          current={current}
+          onChange={handleStepsChange}
+          items={[{ title: 'WAN 侧配置' }, { title: 'LAN 侧配置' }, { title: '确认下发' }]}
+        />
+      }
+      mirror={
+        <IbrWizardCard title={ibrWizardStepCardTitle(current, ['WAN 侧配置', 'LAN 侧配置', '确认下发'][current], '设备回读')}>
+          {ifaceLoading ? (
+            <div style={{ textAlign: 'center', padding: '32px 0' }}>
+              <Spin />
             </div>
-          </Card>
-        </Col>
-        <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>配置 JSON预览</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {JSON.stringify(uuid ? { uuid, ...configPreview } : configPreview, null, 2)}
-            </pre>
-          </Card>
-        </Col>
-      </Row>
+          ) : renderDeviceStatus(deviceCfg)}
+        </IbrWizardCard>
+      }
+      main={
+        <IbrWizardStepPane
+          title={ibrWizardStepCardTitle(current, ['WAN 侧配置', 'LAN 侧配置', '确认下发'][current], '配置编辑')}
+          footerLeft={
+            <>
+              <Button onClick={() => navigate('/admin/interconnect/vr')}>返回列表</Button>
+              {current > 0 && <Button onClick={prev}>上一步</Button>}
+            </>
+          }
+          footerRight={
+            <>
+              {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
+              {current === 2 && (
+                <Button
+                  type="primary"
+                  loading={loading}
+                  onClick={() => {
+                    setConfirmChecked(false);
+                    setConfirmOpen(true);
+                  }}
+                >
+                  下发配置
+                </Button>
+              )}
+            </>
+          }
+        >
+          {renderCoreContent()}
+        </IbrWizardStepPane>
+      }
+      preview={
+        <IbrWizardCard sticky title="配置 JSON预览">
+          <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {JSON.stringify(uuid ? { uuid, ...configPreview } : configPreview, null, 2)}
+          </pre>
+        </IbrWizardCard>
+      }
+    >
       <Modal
         title="重要提示：配置下发为全量覆盖"
         open={confirmOpen}
@@ -584,7 +589,7 @@ const StandardWizard: React.FC = () => {
         cancelText="取消"
         width={680}
       >
-        <div style={{ fontSize: 13, color: '#595959' }}>
+        <div style={{ color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
             本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。
           </div>
@@ -605,7 +610,7 @@ const StandardWizard: React.FC = () => {
           </Checkbox>
         </div>
       </Modal>
-    </PageContainer>
+    </IbrWizardPage>
   );
 };
 

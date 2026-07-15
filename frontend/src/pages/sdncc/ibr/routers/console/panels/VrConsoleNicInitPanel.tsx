@@ -216,10 +216,38 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 				</div>
 				<div className="ibr-console-ops-card">
 					{!canWrite ? (
-						<Typography.Paragraph type="secondary" className="ibr-console-ops-hint">
-							当前账号缺少 IBR 写权限（networks.vr-config:write），仅可查看。
-						</Typography.Paragraph>
-					) : null}
+						<>
+							<Typography.Paragraph type="secondary" className="ibr-console-ops-hint">
+								当前账号缺少 IBR 写权限（networks.vr-config:write），仅可查看。
+							</Typography.Paragraph>
+							<div className="ibr-console-set-ip-rows">
+								<div className="ibr-console-set-ip-row">
+									<div className="ibr-console-set-ip-row-meta">
+										<div className="ibr-console-set-ip-row-title">初始化模式</div>
+									</div>
+									<Typography.Text>
+										{status.init_mode === 'dhcp' ? 'DHCP 模式（2 网口）' : '静态模式（3 网口）'}
+									</Typography.Text>
+								</div>
+								<div className="ibr-console-set-ip-row">
+									<div className="ibr-console-set-ip-row-meta">
+										<div className="ibr-console-set-ip-row-title">已绑定 PCI</div>
+									</div>
+									<Typography.Text>
+										{(status.os_nic_attach_pci ?? []).join(', ') || '—'}
+									</Typography.Text>
+								</div>
+								{mgmtPci ? (
+									<div className="ibr-console-set-ip-row">
+										<div className="ibr-console-set-ip-row-meta">
+											<div className="ibr-console-set-ip-row-title">管理口 PCI</div>
+										</div>
+										<Typography.Text>{mgmtPci}</Typography.Text>
+									</div>
+								) : null}
+							</div>
+						</>
+					) : (
 					<Form form={form} layout="vertical" onFinish={(v) => void onSubmit(v)}>
 						<Form.Item
 							label={
@@ -257,7 +285,7 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 							initialValue="static"
 						>
 							<Radio.Group
-								disabled={!canWrite || saving}
+								disabled={saving}
 								options={[
 									{ label: '静态模式（3 网口）', value: 'static' },
 									{ label: 'DHCP 模式（2 网口）', value: 'dhcp' },
@@ -293,7 +321,7 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 													<Select
 														className="ibr-console-ops-select"
 														placeholder="选择 PCI"
-														disabled={!canWrite || saving}
+														disabled={saving}
 														options={businessOptionsStatic}
 														onChange={() => {
 															const wan = String(form.getFieldValue('wan_pci') ?? '');
@@ -313,7 +341,7 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 													<Select
 														className="ibr-console-ops-select"
 														placeholder="选择 PCI"
-														disabled={!canWrite || saving}
+														disabled={saving}
 														options={businessOptionsStatic.map((o) => {
 															const wan = String(form.getFieldValue('wan_pci') ?? '');
 															return { ...o, disabled: o.value === wan || o.value === mgmtPci };
@@ -326,7 +354,7 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 														className="ibr-console-ops-select"
 														mode="multiple"
 														placeholder="选择需要接管的额外网卡（可选）"
-														disabled={!canWrite || saving}
+														disabled={saving}
 														options={businessOptionsStatic
 															.filter((o) => {
 																const wan = String(form.getFieldValue('wan_pci') ?? '');
@@ -355,12 +383,11 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 							</Typography.Paragraph>
 						) : null}
 
-						{canWrite ? (
-							<Button type="primary" htmlType="submit" loading={saving}>
-								执行初始化
-							</Button>
-						) : null}
+						<Button type="primary" htmlType="submit" loading={saving}>
+							执行初始化
+						</Button>
 					</Form>
+					)}
 				</div>
 			</div>
 

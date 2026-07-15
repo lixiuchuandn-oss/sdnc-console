@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Paths } from '../../vrwizard.js';
-import { getStructuredAgentConfig, normalizeConfigRoot } from './agentConfigParse.js';
+import { getStructuredAgentConfig } from './agentConfigParse.js';
 import { isForwardingMock, runClishSingleCommand, runClishStdin, runClishArgv } from './clishCsm.js';
 
 function agentBaseDir(paths: Paths): string {
@@ -45,33 +45,137 @@ function readNetjsonSnapshot(paths: Paths): Record<string, unknown> | null {
 	}
 }
 
-export async function getBgpSummary(paths: Paths): Promise<{ raw: string; neighbors: Array<Record<string, string>> }> {
+/** 单条 BGP summary 邻居行（含所属 VRF / 地址族段） */
+export type BgpNeighborRow = {
+	id: string;
+	neighbor: string;
+	v: string;
+	as: string;
+	msg_rcvd: string;
+	msg_sent: string;
+	tbl_ver: string;
+	in_q: string;
+	out_q: string;
+	up_down: string;
+	/** 非 Established 时为 Idle/Active 等；已建立时常为 Established */
+	state: string;
+	pfx_rcd: string;
+	pfx_snt: string;
+	desc: string;
+	vrf: string;
+	afi: string;
+	section: string;
+};
+
+const NEIGHBOR_ADDR_RE = /^(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-f:]+)$/i;
+const SECTION_RE =
+	/^(IPv[46]\s+(?:Unicast|VPN|Multicast|Labeled-Unicast)\s+Summary)\s+\(VRF\s+([^)]+)\):\s*$/i;
+
+/**
+ * 解析 FRR/clish `show bgp summary` 多段输出。
+ * 段标题例：`IPv4 Unicast Summary (VRF vrf7777):` / `IPv4 VPN Summary (VRF default):`
+ */
+export function parseBgpSummaryNeighbors(raw: string): BgpNeighborRow[] {
+	const neighbors: BgpNeighborRow[] = [];
+	let vrf = 'default';
+	let afi = 'ipv4-unicast';
+	let section = 'IPv4 Unicast Summary (VRF default)';
+
+	for (const line of raw.split(/\r?\n/)) {
+		const t = line.trim();
+		if (!t) continue;
+
+		const sec = SECTION_RE.exec(t);
+		if (sec) {
+			const title = sec[1]!.replace(/\s+/g, ' ');
+			vrf = (sec[2] || 'default').trim();
+			const lower = title.toLowerCase();
+			if (lower.includes('vpn')) afi = lower.startsWith('ipv6') ? 'ipv6-vpn' : 'ipv4-vpn';
+			else if (lower.includes('multicast')) afi = lower.startsWith('ipv6') ? 'ipv6-multicast' : 'ipv4-multicast';
+			else if (lower.includes('labeled')) afi = lower.startsWith('ipv6') ? 'ipv6-labeled' : 'ipv4-labeled';
+			else afi = lower.startsWith('ipv6') ? 'ipv6-unicast' : 'ipv4-unicast';
+			section = `${title} (VRF ${vrf})`;
+			continue;
+		}
+
+		if (/^Neighbor\b/i.test(t) || /^BGP\b/i.test(t) || /^Total number of neighbors/i.test(t)) continue;
+		if (/^RIB entries\b/i.test(t) || /^Peers\b/i.test(t) || /^BGP table version\b/i.test(t)) continue;
+
+		const parts = t.split(/\s+/);
+		if (parts.length < 10 || !NEIGHBOR_ADDR_RE.test(parts[0]!)) continue;
+
+		const neighbor = parts[0]!;
+		const col9 = parts[9] ?? '';
+		const numericPfx = /^\d+$/.test(col9);
+		const state = numericPfx ? 'Established' : col9;
+		const pfx_rcd = numericPfx ? col9 : '';
+		const pfx_snt = numericPfx ? (parts[10] ?? '') : (parts[10] ?? '');
+		const desc = numericPfx ? (parts[11] ?? '') : (parts.slice(11).join(' ') || parts[11] || '');
+
+		neighbors.push({
+			id: `${vrf}|${afi}|${neighbor}`,
+			neighbor,
+			v: parts[1] ?? '',
+			as: parts[2] ?? '',
+			msg_rcvd: parts[3] ?? '',
+			msg_sent: parts[4] ?? '',
+			tbl_ver: parts[5] ?? '',
+			in_q: parts[6] ?? '',
+			out_q: parts[7] ?? '',
+			up_down: parts[8] ?? '',
+			state,
+			pfx_rcd,
+			pfx_snt,
+			desc,
+			vrf,
+			afi,
+			section,
+		});
+	}
+	return neighbors;
+}
+
+const BGP_SUMMARY_MOCK_RAW = `IPv4 Unicast Summary (VRF vrf7777):
+BGP router identifier 102.1.1.33, local AS number 106 vrf-id 25
+BGP table version 40
+RIB entries 7, using 672 bytes of memory
+Peers 1, using 20 KiB of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+102.1.1.22      4        103      4370      4370       40    0    0 3d00h27m            2        4 N/A
+
+Total number of neighbors 1
+
+IPv4 Unicast Summary (VRF default):
+BGP router identifier 203.100.100.33, local AS number 430 vrf-id 0
+BGP table version 0
+RIB entries 0, using 0 bytes of memory
+Peers 1, using 20 KiB of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+203::22         4        429      3653      3672        0    0    0 04:33:21            0        0 N/A
+
+Total number of neighbors 1
+
+IPv4 VPN Summary (VRF default):
+BGP router identifier 203.100.100.33, local AS number 430 vrf-id 0
+BGP table version 0
+RIB entries 7, using 672 bytes of memory
+Peers 1, using 20 KiB of memory
+
+Neighbor        V         AS   MsgRcvd   MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd   PfxSnt Desc
+203::22         4        429      3653      3672       38    0    0 04:33:21            6        8 N/A
+
+Total number of neighbors 1
+`;
+
+export async function getBgpSummary(paths: Paths): Promise<{ raw: string; neighbors: BgpNeighborRow[] }> {
 	if (isForwardingMock(paths)) {
-		const raw = `BGP router identifier 192.168.1.1, local AS number 65001
-Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
-10.0.0.2        4      65002      10      12        0    0    0 00:05:00        5`;
-		return { raw, neighbors: [{ neighbor: '10.0.0.2', as: '65002', state: 'Established' }] };
+		return { raw: BGP_SUMMARY_MOCK_RAW, neighbors: parseBgpSummaryNeighbors(BGP_SUMMARY_MOCK_RAW) };
 	}
 	const res = await runClishArgv(['-c', 'do show bgp summary'], paths, { timeoutMs: 10000 });
 	if (!res.ok) throw new Error(res.error);
-	const neighbors: Array<Record<string, string>> = [];
-	for (const line of res.output.split('\n')) {
-		const t = line.trim();
-		if (!t || t.startsWith('Neighbor') || t.startsWith('BGP')) continue;
-		const parts = t.split(/\s+/);
-		if (parts.length >= 10 && /^\d+\.\d+\.\d+\.\d+$|^[0-9a-f:]+$/i.test(parts[0]!)) {
-			neighbors.push({
-				neighbor: parts[0]!,
-				v: parts[1] ?? '',
-				as: parts[2] ?? '',
-				msg_rcvd: parts[3] ?? '',
-				msg_sent: parts[4] ?? '',
-				up_down: parts[8] ?? '',
-				state: (parts.slice(9).join(' ') || parts[8]) ?? '',
-			});
-		}
-	}
-	return { raw: res.output, neighbors };
+	return { raw: res.output, neighbors: parseBgpSummaryNeighbors(res.output) };
 }
 
 export function getBgpCloudConfig(paths: Paths): unknown[] {

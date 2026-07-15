@@ -84,6 +84,7 @@ export class PermissionRegistry {
     } else if (first === 'networks') {
       const sub = parts[1] || '';
       if (sub === 'srv6') permissionBase = 'networks.srv6';
+      else if (sub === 'rr-domains') permissionBase = 'networks.rr-domains';
       else if (sub === 'ipsec') permissionBase = 'networks.ipsec';
       else if (sub === 'acl-groups' || sub === 'acl') permissionBase = 'networks.acl';
       else if (sub === 'nat') permissionBase = 'networks.nat';

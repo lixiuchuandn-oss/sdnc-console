@@ -91,11 +91,24 @@ export type IbrDeviceStatusResp = {
 	cli_error?: string | null;
 	trace_id?: string;
 	degraded?: string[];
+	sdnc_console_base?: string | null;
+	sdnc_csmctl_address?: string | null;
+	compute_tower_base?: string | null;
+	ai_soc_base?: string | null;
+	/** @deprecated 与 compute_tower_base 相同 */
+	tower_base?: string | null;
+	/** @deprecated 与 sdnc_csmctl_address 相同 */
+	sdwan_manageip?: string | null;
 	service_reachability?: {
 		pending?: boolean;
-		tower?: boolean | null;
-		sdwan?: boolean | null;
+		sdnc_console?: boolean | null;
+		sdnc_csmctl?: boolean | null;
+		compute_tower?: boolean | null;
 		aisoc?: boolean | null;
+		/** @deprecated 与 compute_tower 相同 */
+		tower?: boolean | null;
+		/** @deprecated 与 sdnc_csmctl 相同 */
+		sdwan?: boolean | null;
 		checked_at?: number;
 	};
 };
@@ -363,6 +376,7 @@ export async function deleteIbrForwardingIpv6Route(
 }
 
 export type IbrBgpNeighborRow = {
+	id?: string;
 	neighbor: string;
 	v?: string;
 	as: string;
@@ -370,6 +384,12 @@ export type IbrBgpNeighborRow = {
 	msg_sent?: string;
 	up_down?: string;
 	state: string;
+	pfx_rcd?: string;
+	pfx_snt?: string;
+	desc?: string;
+	vrf?: string;
+	afi?: string;
+	section?: string;
 };
 
 export type IbrForwardingBgpSummaryResult = {

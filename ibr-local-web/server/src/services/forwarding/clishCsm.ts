@@ -5,7 +5,7 @@ import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getPaths, type Paths } from '../../vrwizard.js';
+import { type Paths } from '../../vrwizard.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -26,6 +26,7 @@ function rhosEnv(): NodeJS.ProcessEnv {
 	return env;
 }
 
+// eslint-disable-next-line no-control-regex -- strip ANSI escape sequences from clish output
 const ansiRe = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 
 export function stripAnsi(s: string): string {
@@ -162,13 +163,16 @@ export function runClishStdin(commands: string, paths: Paths): Promise<ClishResu
 	});
 }
 
-/** 单条 -c 命令（如 do show ip route）。 */
+/** 单条 -c 命令（如 do show ip route / do ping）。 */
 export async function runClishArgv(
 	argv: string[],
 	paths: Paths,
 	opts?: { timeoutMs?: number },
 ): Promise<ClishResult> {
 	if (isForwardingMock(paths)) {
+		const joined = argv.join(' ');
+		const pingHost = /\bdo\s+ping\s+(\S+)/i.exec(joined)?.[1];
+		if (pingHost) return { ok: true, output: mockClishPing(pingHost) };
 		return { ok: true, output: mockShowIpRoute() };
 	}
 	if (!fs.existsSync(CLISH)) {
@@ -176,7 +180,7 @@ export async function runClishArgv(
 	}
 	const args = ['--lock', '--log', '-x', ENABLE_VIEW, '-w', 'configure-view', `--socket=${KONF_SOCKET}`, ...argv];
 	try {
-		const { stdout, stderr } = await execFileAsync(CLISH, args, {
+		const { stdout } = await execFileAsync(CLISH, args, {
 			encoding: 'utf8',
 			timeout: opts?.timeoutMs ?? 8000,
 			maxBuffer: 20_000_000,
@@ -201,6 +205,17 @@ export async function runClishArgv(
 		}
 		return { ok: false, error: errMsg, output: out || undefined };
 	}
+}
+
+function mockClishPing(host: string): string {
+	return [
+		`PING ${host} (${host}) 56(84) bytes of data.`,
+		`64 bytes from ${host}: icmp_seq=1 ttl=64 time=0.4 ms`,
+		`64 bytes from ${host}: icmp_seq=2 ttl=64 time=0.5 ms`,
+		`64 bytes from ${host}: icmp_seq=3 ttl=64 time=0.4 ms`,
+		`--- ${host} ping statistics ---`,
+		`3 packets transmitted, 3 received, 0% packet loss, time 2002ms`,
+	].join('\n');
 }
 
 function mockShowIpRoute(): string {

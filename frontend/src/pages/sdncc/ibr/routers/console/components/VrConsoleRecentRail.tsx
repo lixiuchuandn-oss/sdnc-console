@@ -70,7 +70,7 @@ export const VrConsoleRecentRail: React.FC<Props> = (props) => {
 					<div className="ibr-console-recent-rail__brand">
 						<HistoryOutlined className="ibr-console-recent-rail__brand-icon" aria-hidden />
 						<span className="ibr-console-recent-rail__title">
-							<span className="ibr-console-recent-rail__title-mark">//</span>
+							<span className="ibr-console-recent-rail__title-mark">{'//'}</span>
 							历史访问
 						</span>
 						{count > 0 ? (

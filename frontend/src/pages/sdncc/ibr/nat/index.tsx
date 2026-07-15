@@ -25,6 +25,10 @@ import {
 
 import { runIbrDeployPushInteractive, DeployDriftCancelledError } from '../lib/vrConfigDeployFlow';
 
+import { useAuth } from '../../../../contexts/AuthContext';
+
+import { hasPermissionForAction } from '../../../../utils/accessMapping';
+
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
 
 
@@ -36,6 +40,14 @@ const { Text } = Typography;
 
 
 const NATPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUuid }) => {
+
+  const { user } = useAuth();
+
+  const perms = Array.isArray(user?.permissions) ? user?.permissions ?? [] : [];
+
+  const canWrite =
+
+    user?.role === 'super_admin' || hasPermissionForAction(perms, 'networks.nat:write');
 
   const scopedVr = String(scopedVrUuid || '').trim();
 
@@ -437,42 +449,28 @@ const NATPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUui
 
     },
 
-    {
-
-      title: '操作',
-
-      key: 'actions',
-
-      fixed: 'right',
-
-      render: (_, r) => (
-
-        <ResourceActionsDropdown
-
-          items={[
-
-            { key: 'deploy', label: '下发配置', disabled: !r.vrId },
-
-            { key: 'delete', label: '删除', danger: true },
-
-          ]}
-
-          onClick={({ key }) => {
-
-            if (key === 'deploy' && r.vrId) handleDeploy(r.vrId);
-
-            if (key === 'delete') handleDelete(r);
-
-          }}
-
-          buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
-
-        />
-
-      ),
-
-    },
-
+    ...(canWrite
+      ? [
+          {
+            title: '操作',
+            key: 'actions',
+            fixed: 'right' as const,
+            render: (_: unknown, r: NATStaticMappingRow) => (
+              <ResourceActionsDropdown
+                items={[
+                  { key: 'deploy', label: '下发配置', disabled: !r.vrId },
+                  { key: 'delete', label: '删除', danger: true },
+                ]}
+                onClick={({ key }) => {
+                  if (key === 'deploy' && r.vrId) handleDeploy(r.vrId);
+                  if (key === 'delete') handleDelete(r);
+                }}
+                buttonProps={{ className: 'row-actions-trigger', style: { margin: 0 } }}
+              />
+            ),
+          },
+        ]
+      : []),
   ];
 
 
@@ -537,27 +535,21 @@ const NATPage: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUui
 
       pagePadding={embedded ? 0 : undefined}
 
-      primaryAction={{
-
-        text: '创建 NAT',
-
-        onClick: () => {
-
-          createForm.resetFields();
-
-          if (scopedVr) {
-
-            createForm.setFieldsValue({ vrId: scopedVr });
-
-          }
-
-          setCreateOpen(true);
-
-        },
-
-        type: 'primary',
-
-      }}
+      primaryAction={
+        canWrite
+          ? {
+              text: '创建 NAT',
+              onClick: () => {
+                createForm.resetFields();
+                if (scopedVr) {
+                  createForm.setFieldsValue({ vrId: scopedVr });
+                }
+                setCreateOpen(true);
+              },
+              type: 'primary' as const,
+            }
+          : undefined
+      }
 
       onRefresh={() => { void fetchData(true); }}
 

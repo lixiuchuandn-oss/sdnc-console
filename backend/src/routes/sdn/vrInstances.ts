@@ -10,6 +10,7 @@ import {
   getVR3ListMeta,
   getVRListMeta,
 } from '../../services/vrouter/vrController';
+import { checkPermission } from '../../permissions';
 import { extractRows } from '../../utils/apiUtils';
 import { logger } from '../../utils/logger';
 import { registerVrDeviceOpsRoutes } from './vrDeviceOps';
@@ -17,6 +18,27 @@ import { registerVrDeviceOpsRoutes } from './vrDeviceOps';
 const vrInstHttpLog = logger.child('VR-Instances-HTTP');
 
 export const vrInstancesRoutes = Router();
+
+/** GET/HEAD → vr-config:read；其余写方法 → vr-config:write（含 refresh / device ops） */
+vrInstancesRoutes.use((req, res, next) => {
+  const role = (req as any).user?.role;
+  const perms: string[] = Array.isArray((req as any).user?.permissions)
+    ? (req as any).user.permissions
+    : [];
+  if (role === 'super_admin') return next();
+  const isRead = req.method === 'GET' || req.method === 'HEAD';
+  if (isRead) {
+    if (
+      checkPermission(perms, 'networks.vr-config:read') ||
+      checkPermission(perms, 'networks.vr-config:write')
+    ) {
+      return next();
+    }
+    return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
+  }
+  if (checkPermission(perms, 'networks.vr-config:write')) return next();
+  return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
+});
 
 registerVrDeviceOpsRoutes(vrInstancesRoutes);
 

@@ -50,6 +50,20 @@ export function runVbrasCli(paths: VbrasCliPaths, commands: string, timeoutMs = 
 				].join('\n'),
 			);
 		}
+		if (/\bping\b/.test(payload)) {
+			const m = /ping\s+(\S+)/i.exec(commands);
+			const host = m?.[1] ?? '203.0.113.1';
+			const n = /repeat\s+(\d+)/i.exec(commands);
+			const cnt = n ? Number.parseInt(n[1]!, 10) : 3;
+			parts.push(
+				[
+					`PING ${host}: 56 data bytes`,
+					`64 bytes from ${host}: icmp_seq=1 ttl=64 time=0.4 ms`,
+					`--- ${host} ping statistics ---`,
+					`Statistics: ${cnt} sent, ${cnt} received, 0% packet loss`,
+				].join('\n'),
+			);
+		}
 		if (!parts.length) parts.push(`vsw# ${commands.trim()}`);
 		return Promise.resolve(parts.join('\n\n'));
 	}

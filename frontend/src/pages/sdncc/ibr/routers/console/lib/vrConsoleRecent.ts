@@ -145,9 +145,3 @@ export function managementHostIp(managementIp?: string): string {
 	if (!raw) return '';
 	return raw.split('/')[0]!.trim();
 }
-
-export function sshEndpointLabel(host: string, username = 'root'): string {
-	const h = String(host || '').trim();
-	if (!h) return 'ssh';
-	return `ssh ${username}@${h}`;
-}

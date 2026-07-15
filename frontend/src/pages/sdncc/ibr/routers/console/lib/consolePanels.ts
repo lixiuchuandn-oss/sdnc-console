@@ -24,7 +24,7 @@ export type VrConsolePanelId =
 	| 'fwd-ipsec'
 	| 'ssh';
 
-export type VrConsolePanelGroup = 'ops' | 'forward' | 'terminal';
+type VrConsolePanelGroup = 'ops' | 'forward' | 'terminal';
 
 export type VrConsolePanelDef = {
 	id: VrConsolePanelId;

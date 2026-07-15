@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import type { JsonObject } from '../vrwizard.js';
 import { readVrcontrolString, type Paths } from '../vrwizard.js';
+import { readComputeTowerBase, readSdncConsoleBase } from './sdncServiceConfig.js';
 
 /** 仅 `Authorization: Bearer`（与 `resolveTowerBearer` 不同，不读专回头或 state）。供 `/me` 等与保存的 access_token 精确比对。 */
 export function getAuthorizationBearer(req: Request): string | null {
@@ -10,12 +11,14 @@ export function getAuthorizationBearer(req: Request): string | null {
 	return t || null;
 }
 
+/** Compute Tower 安全服务业务面（非 SDNC 控制台） */
 export function readTowerBase(paths: Paths): string | null {
-	const b =
-		readVrcontrolString(paths, 'compute_tower_base')?.trim() ||
-		readVrcontrolString(paths, 'tower_base')?.trim() ||
-		'';
-	return b || null;
+	return readComputeTowerBase(paths);
+}
+
+/** SDNC 控制台（IBR 管理面） */
+export function readSdncManagementBase(paths: Paths): string | null {
+	return readSdncConsoleBase(paths);
 }
 
 function normalizeTowerApiPath(p: string): string {

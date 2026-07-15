@@ -5,7 +5,7 @@ import { vrController } from './vrController';
 
 const deployLog = logger.child('VR-Config-Deploy');
 
-export type VrConfigDeployDomain = 'acl' | 'nat' | 'ipsec' | 'srv6';
+export type VrConfigDeployDomain = 'acl' | 'nat' | 'ipsec' | 'srv6' | 'vrrp';
 
 const OTHER_FEATURE_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec']);
 
@@ -174,7 +174,7 @@ export const getVRConfigFromDevice = async (uuid: string): Promise<VrConfigJson>
 };
 
 const domainSliceKey = (domain: VrConfigDeployDomain): string | null => {
-  if (domain === 'srv6') return null;
+  if (domain === 'srv6' || domain === 'vrrp') return null;
   return domain;
 };
 
@@ -187,6 +187,13 @@ export const mergeDeviceWithPlatformSlice = (
   domain: VrConfigDeployDomain,
 ): VrConfigJson => {
   const result = deepClone(deviceConfig);
+
+  if (domain === 'vrrp') {
+    throw new VrConfigDeployError(
+      'VRRP 域须提供 preMergedConfig（在设备底稿上定点合并 interface/vrrp）',
+      'VRRP_PREMERGE_REQUIRED',
+    );
+  }
 
   if (domain === 'srv6') {
     for (const [key, value] of Object.entries(platformConfig)) {

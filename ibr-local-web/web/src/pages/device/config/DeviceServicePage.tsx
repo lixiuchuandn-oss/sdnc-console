@@ -11,8 +11,9 @@ import { PageStack } from '../../../components/PageStack';
 import { useConfigFileEditor } from '../../../hooks/useConfigFileEditor';
 
 type ServiceForm = {
-	tower_base?: string;
-	manageip?: string;
+	sdnc_console_base?: string;
+	sdnc_csmctl_address?: string;
+	compute_tower_base?: string;
 	ai_soc_base?: string;
 };
 
@@ -70,29 +71,32 @@ export function DeviceServicePage() {
 	};
 
 	const reloadServiceForm = async () => {
-		const [sdwanRes, towerRes, aisocRes] = await Promise.all([
-			api.get<{ ok?: boolean; manageip?: string | null }>('/sys/sdwan'),
-			api.get<{ ok: boolean; base?: string | null; login_url?: string | null }>('/sys/tower'),
+		const [sdncRes, csmctlRes, towerRes, aisocRes] = await Promise.all([
+			api.get<{ ok: boolean; base?: string | null }>('/sys/sdnc-console'),
+			api.get<{ ok: boolean; address?: string | null }>('/sys/sdnc-csmctl'),
+			api.get<{ ok: boolean; base?: string | null }>('/sys/tower'),
 			api.get<{ ok: boolean; base?: string | null }>('/aisoc/base'),
 		]);
 		form.setFieldsValue({
-			manageip: String(sdwanRes.data?.manageip ?? '').trim() || undefined,
-			tower_base: stripUrlToHost(String(towerRes.data?.base ?? '').trim()) || undefined,
+			sdnc_console_base: stripUrlToHost(String(sdncRes.data?.base ?? '').trim()) || undefined,
+			sdnc_csmctl_address: String(csmctlRes.data?.address ?? '').trim() || undefined,
+			compute_tower_base: stripUrlToHost(String(towerRes.data?.base ?? '').trim()) || undefined,
 			ai_soc_base: stripUrlToHost(String(aisocRes.data?.base ?? '').trim()) || undefined,
 		});
 	};
 
 	const saveAllServices = async () => {
 		try {
-			await form.validateFields(['tower_base', 'manageip', 'ai_soc_base']);
 			const values = form.getFieldsValue();
-			const towerBase = normalizeUrlInput(String(values.tower_base ?? '').trim());
-			const manageip = String(values.manageip ?? '').trim();
+			const sdncConsoleBase = normalizeUrlInput(String(values.sdnc_console_base ?? '').trim());
+			const csmctlAddress = String(values.sdnc_csmctl_address ?? '').trim();
+			const computeTowerBase = normalizeUrlInput(String(values.compute_tower_base ?? '').trim());
 			const aisocBase = normalizeUrlInput(String(values.ai_soc_base ?? '').trim());
 			setSaving(true);
 			await Promise.all([
-				api.post('/sys/tower', { base: towerBase }),
-				api.post('/sdwan', { manageip }),
+				api.post('/sys/sdnc-console', { base: sdncConsoleBase }),
+				api.post('/sys/sdnc-csmctl', { address: csmctlAddress }),
+				api.post('/sys/tower', { base: computeTowerBase }),
 				api.post('/aisoc/base', { base: aisocBase }),
 			]);
 			await reloadServiceForm();
@@ -110,17 +114,7 @@ export function DeviceServicePage() {
 		(async () => {
 			setLoading(true);
 			try {
-				const [sdwanRes, towerRes, aisocRes] = await Promise.all([
-					api.get<{ ok?: boolean; manageip?: string | null }>('/sys/sdwan'),
-					api.get<{ ok: boolean; base?: string | null; login_url?: string | null }>('/sys/tower'),
-					api.get<{ ok: boolean; base?: string | null }>('/aisoc/base'),
-				]);
-				if (cancelled) return;
-				form.setFieldsValue({
-					manageip: String(sdwanRes.data?.manageip ?? '').trim() || undefined,
-					tower_base: stripUrlToHost(String(towerRes.data?.base ?? '').trim()) || undefined,
-					ai_soc_base: stripUrlToHost(String(aisocRes.data?.base ?? '').trim()) || undefined,
-				});
+				await reloadServiceForm();
 			} catch (e) {
 				if (!cancelled) message.error(e instanceof Error ? e.message : '加载失败');
 			} finally {
@@ -136,7 +130,10 @@ export function DeviceServicePage() {
 		<>
 			<Form form={form} layout="vertical" component={false}>
 				<PageStack>
-					<PageHeader title="配置服务" description="配置 Tower、SDWAN、AI SOC 等上游服务地址。" />
+					<PageHeader
+						title="配置服务"
+						description="IBR 管理面配置 SDN Console 与 SDN CSMCTL；Compute Tower 为上层安全服务业务面（可选）。"
+					/>
 
 					<ContentBlock>
 						<BlockHeader
@@ -154,28 +151,40 @@ export function DeviceServicePage() {
 									className="app-settings-list"
 									dataSource={[
 										{
-											key: 'tower',
-											title: 'Compute.Tower',
-											description: 'Compute Tower 管理地址',
-											name: 'tower_base' as const,
-											placeholder: '例如 192.168.2.14:3001',
-											requiredMessage: '请输入 Compute.Tower 地址',
+											key: 'sdnc-console',
+											title: 'SDN Console',
+											description: 'IBR 管理面 · SDN 控制台 API（通常 :5001）',
+											name: 'sdnc_console_base' as const,
+											placeholder: '例如 192.168.2.20:5001',
+											requiredMessage: '',
+											required: false,
 										},
 										{
-											key: 'sdwan',
-											title: 'SDWAN',
-											description: 'SDWAN 控制器地址',
-											name: 'manageip' as const,
-											placeholder: '例如 10.20.255.93:8016',
-											requiredMessage: '请输入 SDWAN 控制器地址',
+											key: 'sdnc-csmctl',
+											title: 'SDN CSMCTL',
+											description: 'IBR 管理面 · VR 控制面（通常 :8016）',
+											name: 'sdnc_csmctl_address' as const,
+											placeholder: '例如 10.21.122.222:8016',
+											requiredMessage: '',
+											required: false,
+										},
+										{
+											key: 'compute-tower',
+											title: 'Compute Tower',
+											description: '上层安全服务业务管理面（可选，租户由 Tower 管理）',
+											name: 'compute_tower_base' as const,
+											placeholder: '例如 10.20.254.10:3001',
+											requiredMessage: '请输入 Compute Tower 地址',
+											required: false,
 										},
 										{
 											key: 'aisoc',
 											title: 'AI SOC',
-											description: 'AI SOC 服务地址',
+											description: 'AI SOC 服务地址（可选）',
 											name: 'ai_soc_base' as const,
 											placeholder: '例如 10.20.254.121:8000',
 											requiredMessage: '请输入 AI SOC 服务地址',
+											required: false,
 										},
 									]}
 									renderItem={(item) => (
@@ -185,7 +194,7 @@ export function DeviceServicePage() {
 												<Form.Item
 													name={item.name}
 													noStyle
-													rules={[{ required: true, message: item.requiredMessage }]}
+													rules={item.required ? [{ required: true, message: item.requiredMessage }] : []}
 												>
 													<Input
 														className="app-settings-list-input"
@@ -261,7 +270,7 @@ export function DeviceServicePage() {
 				onClose={vrcontrolEditor.closeDrawer}
 				fileName="vrcontrol.conf"
 				filePath="/usr/local/src/vrconf/vrcontrol.conf"
-				hint="JSON 格式；上方表单保存的地址也会写入此文件。编辑前请确认 JSON 语法正确。"
+				hint="JSON 格式；上方表单保存的地址也会写入此文件（sdnc_console_base、sdnc_csmctl_address、compute_tower_base 等）。"
 				loading={vrcontrolEditor.loading}
 				editing={vrcontrolEditor.editing}
 				error={vrcontrolEditor.error}

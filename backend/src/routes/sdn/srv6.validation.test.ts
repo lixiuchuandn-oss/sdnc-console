@@ -150,6 +150,15 @@ describe('srv6.validation', () => {
     if (!r.ok) expect(r.message).toContain('HUB_PE');
   });
 
+  it('validateSrv6TunnelTopology allows dual HUB_PE on S (Hub–Hub 点对点)', () => {
+    const payload = { name: 't', peA: 'hub-a', peB: 'hub-b', ceA: 'ce-a', ceB: 'ce-b' };
+    const rows: VrConfigRow[] = [
+      { uuid: 'hub-a', role: 'HUB_PE', config_json: peConfigJson() },
+      { uuid: 'hub-b', role: 'HUB_PE', config_json: peConfigJson() },
+    ];
+    expect(validateSrv6TunnelTopology(payload, rows, 'S').ok).toBe(true);
+  });
+
   it('validateSrv6VrEndpointsForCreate includes topology check on create', () => {
     const payload = {
       name: 't',

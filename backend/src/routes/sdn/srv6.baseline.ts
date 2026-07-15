@@ -1,6 +1,8 @@
+import { IsNull } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { listAliveContributionsForVr } from './srv6.recompute';
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
@@ -23,18 +25,34 @@ export const captureSrv6BaselinesForTunnel = async (
 ): Promise<void> => {
   const now = new Date();
   for (const { slot, vrId } of endpoints) {
-    const record = await vrRepo().findOne({ where: { uuid: vrId } });
-    if (!record?.config_json) {
-      const err = new Error(`${slotLabel(slot)}：对应 VR 配置不存在，无法捕获 SRv6 基线`);
-      (err as Error & { statusCode: number }).statusCode = 409;
-      throw err;
-    }
-    if (record.srv6BaselineJson) continue;
+    await withSqliteWriteLock(`srv6-vr:${vrId}`, async () => {
+      const record = await vrRepo().findOne({ where: { uuid: vrId } });
+      if (!record?.config_json) {
+        const err = new Error(`${slotLabel(slot)}：对应 VR 配置不存在，无法捕获 SRv6 基线`);
+        (err as Error & { statusCode: number }).statusCode = 409;
+        throw err;
+      }
+      if (record.srv6BaselineJson) return;
 
-    record.srv6BaselineJson = record.config_json;
-    record.srv6BaselineAt = now;
-    record.srv6BaselineTunnelId = tunnelId;
-    await vrRepo().save(record);
+      // 条件更新：仅当基线仍为空时写入，降低 TOCTOU 竞态
+      const result = await vrRepo().update(
+        { uuid: vrId, srv6BaselineJson: IsNull() },
+        {
+          srv6BaselineJson: record.config_json,
+          srv6BaselineAt: now,
+          srv6BaselineTunnelId: tunnelId,
+        },
+      );
+      if (!result.affected) {
+        // 并行隧道可能已抢先写入基线，复检后跳过即可
+        const again = await vrRepo().findOne({ where: { uuid: vrId } });
+        if (!again?.srv6BaselineJson) {
+          const err = new Error(`${slotLabel(slot)}：捕获 SRv6 基线失败`);
+          (err as Error & { statusCode: number }).statusCode = 409;
+          throw err;
+        }
+      }
+    });
   }
 };
 
@@ -57,17 +75,19 @@ export const resetSrv6BaselineWhenNoTunnels = async (vrUuid: string): Promise<bo
   const id = String(vrUuid || '').trim();
   if (!id) return false;
 
-  const alive = await listAliveContributionsForVr(id);
-  if (alive.length > 0) return false;
+  return withSqliteWriteLock(`srv6-vr:${id}`, async () => {
+    const alive = await listAliveContributionsForVr(id);
+    if (alive.length > 0) return false;
 
-  const record = await vrRepo().findOne({ where: { uuid: id } });
-  if (!record?.config_json) return false;
+    const record = await vrRepo().findOne({ where: { uuid: id } });
+    if (!record?.config_json) return false;
 
-  record.srv6BaselineJson = record.config_json;
-  record.srv6BaselineAt = new Date();
-  record.srv6BaselineTunnelId = null;
-  await vrRepo().save(record);
-  return true;
+    record.srv6BaselineJson = record.config_json;
+    record.srv6BaselineAt = new Date();
+    record.srv6BaselineTunnelId = null;
+    await vrRepo().save(record);
+    return true;
+  });
 };
 
 /** P4：强制将基线重置为当前 config_json（须无存活隧道引用） */

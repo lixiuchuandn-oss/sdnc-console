@@ -17,7 +17,7 @@ import {
 
 export type IbrDeployFeature = 'acl' | 'ipsec' | 'srv6' | 'nat';
 
-export type IbrDeployStepKind = 'preview' | 'push' | 'verify';
+type IbrDeployStepKind = 'preview' | 'push' | 'verify';
 
 export type IbrDeployWizardStep = {
   title: string;
@@ -38,7 +38,7 @@ type IbrDeployFeatureConfig = {
 
 const REQUEST_OPTS = { skipCache: true, enableDeduplication: false } as const;
 
-export const IBR_DEPLOY_FEATURES: Record<IbrDeployFeature, IbrDeployFeatureConfig> = {
+const IBR_DEPLOY_FEATURES: Record<IbrDeployFeature, IbrDeployFeatureConfig> = {
   acl: {
     domain: 'acl',
     label: 'ACL',

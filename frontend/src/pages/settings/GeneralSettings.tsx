@@ -215,18 +215,23 @@ const GeneralSettings: React.FC = () => {
             <Form.Item label="系统图标 (Header Icon)" name="headerIcon">
               <div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <Input placeholder="https://example.com/logo.png 或上传图片 (png/jpg/svg)" style={{ flex: 1 }} />
-                  <Upload 
-                    beforeUpload={handleIconUpload} 
-                    showUploadList={false} 
-                    accept=".png,.jpg,.jpeg,.svg"
-                    disabled={!canWrite}
-                  >
-                    <Button icon={<UploadOutlined />} disabled={!canWrite}>上传</Button>
-                  </Upload>
-                  {canWrite && previewIcon && (
+                  <Input
+                    placeholder="https://example.com/logo.png 或上传图片 (png/jpg/svg)"
+                    style={{ flex: 1 }}
+                    readOnly={!canWrite}
+                  />
+                  {canWrite ? (
+                    <Upload
+                      beforeUpload={handleIconUpload}
+                      showUploadList={false}
+                      accept=".png,.jpg,.jpeg,.svg"
+                    >
+                      <Button icon={<UploadOutlined />}>上传</Button>
+                    </Upload>
+                  ) : null}
+                  {canWrite && previewIcon ? (
                     <Button danger icon={<DeleteOutlined />} onClick={handleClearIcon} />
-                  )}
+                  ) : null}
                 </div>
                 <Typography.Text type="secondary" style={{ fontSize: 14, display: 'block', marginTop: 4 }}>
                   支持上传图片 (png/jpg/svg) 或直接输入 URL

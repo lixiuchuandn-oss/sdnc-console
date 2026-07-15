@@ -1,0 +1,4 @@
+域标识,域名称,域备注,域级对端ASN,域级本端ASN,RR名称,邻居地址,对端ASN,本端ASN,ClusterID,RouterID,优先级,备注
+customer-a-bj,客户A-北京RR域,对端主备双RR示例,65001,65000,RR-BJ-Primary,203.0.113.10,,,,1.1.1.1,1,主RR
+customer-a-bj,客户A-北京RR域,对端主备双RR示例,65001,65000,RR-BJ-Backup,203.0.113.11,,,,1.1.1.2,2,备RR
+customer-b-sh,客户B-上海RR域,单RR示例,65100,65000,RR-SH-01,2001:db8::1,,,,,1,

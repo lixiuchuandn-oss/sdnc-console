@@ -3,7 +3,6 @@ import {
   deriveHubVrfMode,
   detectHubLanSelectionDesync,
   findFirstReuseVrfTunnelRef,
-  hubCeDiffersFromAnchor,
   hubInventoryBlockMessage,
   hubLanSelectionPatch,
   hubLanSelectionClear,

@@ -2,7 +2,7 @@ import { useAuth } from 'contexts/AuthContext';
 import { hasPermissionForAction } from 'utils/accessMapping';
 
 /** VR 控制台写操作 RBAC（与独立菜单 networks.* 权限对齐） */
-export type IbrConsoleWriteAction =
+type IbrConsoleWriteAction =
 	| 'networks.vr-config:write'
 	| 'networks.acl:write'
 	| 'networks.nat:write'

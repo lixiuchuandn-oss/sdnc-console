@@ -339,6 +339,190 @@ html, body, #root {
   border-right: none;
 }
 
+/* SRv6 架构拓扑：画布工具栏（隧道列表 / 刷新 | 缩放 | 适应 / 锁定） */
+.srv6-arch-flow-card .react-flow__controls {
+  display: none !important;
+}
+.srv6-arch-flow-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+.srv6-arch-flow-toolbar .ant-btn {
+  color: #4e5969;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 6px;
+}
+.srv6-arch-flow-toolbar .ant-btn:hover:not(:disabled) {
+  color: #1677ff;
+  background: #f2f3f5;
+}
+.srv6-arch-flow-toolbar .ant-btn.is-locked {
+  color: #1677ff;
+  background: #e8f3ff;
+}
+.srv6-arch-flow-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: #e5e6eb;
+}
+
+/* SRv6 架构拓扑：自定义节点 / 连线 / 图例 */
+.srv6-arch-flow-card .react-flow__node {
+  animation: none;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  width: auto !important;
+  font-size: inherit;
+}
+.srv6-arch-flow-card .react-flow__edge-path {
+  stroke-linecap: round;
+}
+.srv6-arch-flow-card .react-flow__edge.selected .react-flow__edge-path,
+.srv6-arch-flow-card .react-flow__edge:focus .react-flow__edge-path {
+  stroke: #1677ff;
+}
+.srv6-arch-handle {
+  width: 6px !important;
+  height: 6px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  opacity: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  pointer-events: none !important;
+}
+.srv6-arch-node {
+  width: 176px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e6eb;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+  text-align: left;
+  line-height: 1.35;
+}
+.srv6-arch-node--hub {
+  width: 192px;
+  border-color: #d3adf7;
+  background: linear-gradient(180deg, #f9f0ff 0%, #fff 56%);
+  box-shadow: 0 2px 8px rgba(114, 46, 209, 0.12);
+}
+.srv6-arch-node--spoke.is-focus {
+  border-color: #91caff;
+  background: linear-gradient(180deg, #e6f4ff 0%, #fff 56%);
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.14);
+}
+.srv6-arch-node-role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  color: #86909c;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.srv6-arch-node--hub .srv6-arch-node-role {
+  color: #722ed1;
+}
+.srv6-arch-node--spoke .srv6-arch-node-role {
+  color: #1d39c4;
+}
+.srv6-arch-node-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #1677ff;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+}
+.srv6-arch-node-name {
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srv6-arch-node-meta {
+  margin-top: 2px;
+  color: #4e5969;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srv6-arch-node-sub {
+  margin-top: 2px;
+  color: #86909c;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srv6-arch-flow-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  color: #4e5969;
+  font-size: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+.srv6-arch-flow-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.srv6-arch-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid #e5e6eb;
+  background: #fff;
+}
+.srv6-arch-legend-swatch.is-hub {
+  border-color: #d3adf7;
+  background: #f9f0ff;
+}
+.srv6-arch-legend-swatch.is-spoke {
+  border-color: #adc6ff;
+  background: #f0f5ff;
+}
+.srv6-arch-legend-swatch.is-focus {
+  border-color: #91caff;
+  background: #e6f4ff;
+  box-shadow: inset 0 0 0 1px #1677ff33;
+}
+
 /* ==========================================================================
    Table Styles (std)
    Migration Source: Harvester Node Table Styles
@@ -3497,20 +3681,40 @@ body.ibr-console-standalone-body #root {
 
 .ibr-console-dash-health-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+}
+
+.ibr-console-dash-health-caption {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
 }
 
 .ibr-console-dash-health-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
 .ibr-console-dash-health-left {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ibr-console-dash-health-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ibr-console-dash-health-addr {
+  word-break: break-all;
+  font-size: 12px;
 }
 
 .ibr-console-dash-health-dot {
@@ -3518,6 +3722,7 @@ body.ibr-console-standalone-body #root {
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 6px;
 }
 
 .ibr-console-dash-health-dot.is-ok {
@@ -4849,5 +5054,109 @@ body.ibr-console-standalone-body .ibr-console-drawer .ant-btn-default:not(:disab
   border-radius: 6px;
   color: #58a6ff;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace;
+}
+
+/* —— IBR 向导独立页面 —— */
+.ibr-wizard-page {
+  padding: 20px 28px 28px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.ibr-wizard-page-header {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ibr-wizard-page-header__crumbs {
+  margin-bottom: 10px;
+}
+
+.ibr-wizard-page-header__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 32px;
+  flex-wrap: wrap;
+}
+
+.ibr-wizard-page-header__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.ibr-wizard-page-header__title.ant-typography {
+  display: inline-flex !important;
+  align-items: center;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-size: 20px !important;
+  font-weight: 500 !important;
+  line-height: 32px !important;
+  height: 32px;
+}
+
+.ibr-wizard-page-header__meta {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  font-size: 13px;
+  line-height: 32px;
+  max-width: 280px;
+}
+
+.ibr-wizard-page-header__actions {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ibr-wizard-page-header__actions .ant-btn {
+  height: 32px;
+  padding: 0 15px;
+  font-size: 14px;
+  line-height: 30px;
+}
+
+.ibr-wizard-page-header__subtitle {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.ibr-wizard-page-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.ibr-wizard-step-footer {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* IBR 向导外栏 Card：统一 head 标题；含 tabList 时沿用 Ant Design 结构（title/extra + 下方 tabs） */
+.ibr-wizard-card.ant-card > .ant-card-head {
+  background: #fafafa;
+}
+.ibr-wizard-card.ant-card > .ant-card-head .ant-card-head-title {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: rgba(0, 0, 0, 0.88);
+}
+.ibr-wizard-card.ant-card > .ant-card-head .ant-card-extra {
+  font-size: 14px;
 }
 

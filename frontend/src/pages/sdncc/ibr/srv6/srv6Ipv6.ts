@@ -12,7 +12,7 @@ const trimIpv6Host = (raw?: string): string | undefined => {
 };
 
 /** 从 PE 配置取公网口（第一个接口）IPv6 主机地址 */
-export function extractPePublicIpv6(cfg: unknown): string | undefined {
+function extractPePublicIpv6(cfg: unknown): string | undefined {
   if (!cfg || typeof cfg !== 'object') return undefined;
   const c = cfg as Record<string, unknown>;
   for (const k of Object.keys(c)) {

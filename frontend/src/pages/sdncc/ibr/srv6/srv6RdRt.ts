@@ -1,5 +1,5 @@
 /**
- * SRv6 RD/RT 档案辅助（与 backend srv6.reuseRdRt.ts 语义对齐）。
+ * SRv6 RD/RT 档案辅助（隧道侧从 PE 配置回读；REUSE_VRF 对齐见 backend srv6.reuseRdRt.ts）。
  */
 
 export type Srv6RdRtMeta = {
@@ -7,41 +7,70 @@ export type Srv6RdRtMeta = {
   rdMap: Record<string, string>;
 };
 
-export const randomSrv6RdOrdinal = (): number => 100 + Math.floor(Math.random() * 50000);
+/** Type-0 RD/RT：`数字:数字`（不强制 200: 前缀，便于网工手工指定） */
+const RD_RT_TOKEN_RE = /^\d+:\d+$/;
 
-export const formatSrv6Rd = (ordinal: number): string => `200:${ordinal}`;
+export const isValidRdRtToken = (value: unknown): boolean =>
+  RD_RT_TOKEN_RE.test(String(value ?? '').trim());
 
-/** REUSE_VRF 第 2+ 条：Hub 槽位 RD + rtCommon 继承首条；Spoke 槽位 RD 独立生成 */
-export const buildReuseVrfRdRtMeta = (
-  ref: Srv6RdRtMeta,
-  hubPeSlot: 'peA' | 'peB',
-  spokeRd?: string,
-): Srv6RdRtMeta => {
-  const spokeSlot: 'peA' | 'peB' = hubPeSlot === 'peA' ? 'peB' : 'peA';
-  const hubRd = ref.rdMap[hubPeSlot];
-  const resolvedSpokeRd =
-    spokeRd && spokeRd !== ref.rdMap[spokeSlot]
-      ? spokeRd
-      : formatSrv6Rd(randomSrv6RdOrdinal());
+export const validateSrv6RdRtMeta = (meta: Srv6RdRtMeta | null | undefined): string | null => {
+  const rt = String(meta?.rtCommon ?? '').trim();
+  const peA = String(meta?.rdMap?.peA ?? '').trim();
+  const peB = String(meta?.rdMap?.peB ?? '').trim();
+  if (!rt || !peA || !peB) {
+    return '请填写公共 RT 与 PE-A / PE-B 的 RD';
+  }
+  if (![rt, peA, peB].every(isValidRdRtToken)) {
+    return 'RD/RT 须为「数字:数字」格式（例如 200:100 或 65001:1）';
+  }
+  if (peA === peB) {
+    return 'PE-A 与 PE-B 的 RD 不能相同';
+  }
+  return null;
+};
+
+/** 从 PE 配置指定 VRF 的 BGP ipv4 unicast AF 读取 RD/RT（PE 角色向导落点） */
+export const extractRdRtFromPeConfigForVrf = (
+  cfg: unknown,
+  vrf: unknown,
+): { rd?: string; rt?: string } => {
+  if (vrf == null || vrf === '' || !cfg || typeof cfg !== 'object') return {};
+  const bgpArr = Array.isArray((cfg as { bgp?: unknown }).bgp)
+    ? ((cfg as { bgp: unknown[] }).bgp as Record<string, unknown>[])
+    : [];
+  const hit = bgpArr.find((b) => b && String(b.vrf) === String(vrf));
+  if (!hit) return {};
+  const afs = Array.isArray(hit.address_family) ? (hit.address_family as Record<string, unknown>[]) : [];
+  const af =
+    afs.find(
+      (a) =>
+        String(a?.address_family || '').toLowerCase() === 'ipv4' &&
+        String(a?.modifiler || a?.modifier || '').toLowerCase() === 'unicast',
+    ) || afs[0];
+  const rd = String(af?.route_distinguisher ?? '').trim();
+  const rt = String(af?.route_target ?? '').trim();
   return {
-    rtCommon: ref.rtCommon,
-    rdMap: {
-      peA: hubPeSlot === 'peA' ? hubRd : resolvedSpokeRd,
-      peB: hubPeSlot === 'peB' ? hubRd : resolvedSpokeRd,
-    },
+    ...(rd ? { rd } : {}),
+    ...(rt ? { rt } : {}),
   };
 };
 
-/** 保留客户端已生成的 Spoke RD；若仍与首条 Spoke 相同则新生成 */
-export const resolveReuseVrfSpokeRd = (
-  ref: Srv6RdRtMeta,
-  hubPeSlot: 'peA' | 'peB',
-  incoming?: Srv6RdRtMeta | null,
-): string => {
-  const spokeSlot: 'peA' | 'peB' = hubPeSlot === 'peA' ? 'peB' : 'peA';
-  const fromIncoming = incoming?.rdMap?.[spokeSlot];
-  if (fromIncoming && fromIncoming !== ref.rdMap[spokeSlot]) {
-    return fromIncoming;
-  }
-  return formatSrv6Rd(randomSrv6RdOrdinal());
+/**
+ * 由两端 PE 已选内网 VRF 组装隧道 rdRtMeta。
+ * 两端 RT 须一致；不一致或任一侧缺失时返回 null。
+ */
+export const buildSrv6RdRtMetaFromPeEndpoints = (args: {
+  peACfg?: unknown;
+  peBCfg?: unknown;
+  peAVrf?: unknown;
+  peBVrf?: unknown;
+}): Srv6RdRtMeta | null => {
+  const a = extractRdRtFromPeConfigForVrf(args.peACfg, args.peAVrf);
+  const b = extractRdRtFromPeConfigForVrf(args.peBCfg, args.peBVrf);
+  if (!a.rd || !b.rd || !a.rt || !b.rt) return null;
+  if (a.rt !== b.rt) return null;
+  return {
+    rtCommon: a.rt,
+    rdMap: { peA: a.rd, peB: b.rd },
+  };
 };

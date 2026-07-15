@@ -292,7 +292,7 @@ export async function getNatEntries(paths: Paths): Promise<{ entries?: NatEntry[
 		if (idx >= parts.length || parts[idx]!.toLowerCase() !== 'inside') continue;
 		let i = idx + 1;
 		if (i >= parts.length) continue;
-		let insideIp = parts[i]!;
+		const insideIp = parts[i]!;
 		i += 1;
 		let insidePort: number | null = null;
 		if (i < parts.length && /^\d+$/.test(parts[i]!)) {

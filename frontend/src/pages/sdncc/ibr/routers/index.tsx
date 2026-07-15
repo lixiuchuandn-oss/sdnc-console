@@ -3,18 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import type { MenuProps } from 'antd';
 import {
   Button,
-  Card,
-  Col,
   Dropdown,
   Form,
   Input,
   message,
   Modal,
   Radio,
-  Row,
   Select,
   Space,
-  Tabs,
 } from 'antd';
 import { EllipsisOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 
@@ -28,9 +24,6 @@ import {
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
 import {
   fetchVrCacheMergedAll,
-  getVRConfig,
-  saveVRConfig,
-  setVRRole,
   vrApi,
 } from '../../../../services/virtualRouterApi';
 import {
@@ -73,16 +66,8 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [roleFilter, setRoleFilter] = useState<string | undefined>();
-  /** CE 配置弹窗提交时使用的 VR UUID（打开弹窗时应写入） */
-  const ceTargetVrUuidRef = useRef<string | null>(null);
-
-  // —— 弹窗与抽屉状态（集中声明，便于对照） ——
-  const [ceModalOpen, setCeModalOpen] = useState(false);
-  const [ceForm] = Form.useForm();
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<VRRow | null>(null);
-  const [tunnelModalOpen, setTunnelModalOpen] = useState(false);
-  const [tunnelForm] = Form.useForm();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm] = Form.useForm();
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
@@ -240,32 +225,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
     }
   };
 
-  const submitCEConfig = async () => {
-    try {
-      const values = await ceForm.validateFields();
-      const id = ceTargetVrUuidRef.current;
-      if (!id) {
-        message.warning('未选择 IBR');
-        return;
-      }
-      setLoading(true);
-      // 合并已有配置
-      const existing = await getVRConfig(id);
-      const newCfg = { ...(existing || {}), role: 'CE', ce: { ...values } };
-      await saveVRConfig(id, newCfg);
-      await setVRRole(id, 'CE');
-      setCeModalOpen(false);
-      ceForm.resetFields();
-      await fetchVRInstances(true);
-      message.success('CE角色与必要参数已保存');
-    } catch (e: any) {
-      if (e?.errorFields) return; // 表单校验错误
-      message.error(`保存失败: ${e?.message || e}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleManualRefresh = async () => {
     setLoading(true);
     message.loading({ content: '正在同步 IBR 数据（VR1/VR3/VR2）…', key: 'vr_sync' });
@@ -281,26 +240,32 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
     }
   };
 
+  const listLoadGenRef = useRef(0);
+
   const fetchVRInstances = async (forceList?: boolean) => {
+    const gen = ++listLoadGenRef.current;
     setLoading(true);
     let mergedList: VRRow[] = [];
     try {
       mergedList = await fetchVrCacheMergedAll({ skipCache: !!forceList });
+      if (gen !== listLoadGenRef.current) return;
       setVrs(mergedList);
     } catch (error: unknown) {
+      if (gen !== listLoadGenRef.current) return;
       console.error('[VR_DEBUG_ERROR] 远端直连失败:', error);
       const msg = error instanceof Error ? error.message : '请稍后重试';
       message.error(`加载 IBR 列表失败: ${msg}`);
       setVrs([]);
     } finally {
-      setLoading(false);
+      if (gen === listLoadGenRef.current) setLoading(false);
     }
 
-    if (mergedList.length === 0) return;
+    if (mergedList.length === 0 || gen !== listLoadGenRef.current) return;
 
     setRolesLoading(true);
     try {
       const roleMap = await buildIbrVrRolesMapFromVr2(mergedList, { skipCache: true });
+      if (gen !== listLoadGenRef.current) return;
       const applied = applyIbrVrRolesToRows(mergedList, roleMap);
       setVrs(applied);
       const resolved = Object.keys(roleMap).length;
@@ -308,12 +273,13 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
         console.info(`[VR] 角色回读：${resolved}/${mergedList.length}（VR2 优先，无 VR2 时回退平台库）`);
       }
     } catch (error: unknown) {
+      if (gen !== listLoadGenRef.current) return;
       console.warn('[VR] 角色回读失败', error);
       if (forceList) {
         message.warning('角色回读失败，列表仅显示缓存数据');
       }
     } finally {
-      setRolesLoading(false);
+      if (gen === listLoadGenRef.current) setRolesLoading(false);
     }
   };
 
@@ -419,56 +385,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
     });
   }, [vrs, keyword, statusFilter, roleFilter, scopedVr, embed.tenantId]);
 
-  const peOptions = useMemo(
-    () =>
-      vrs
-        .filter((r) => {
-          const role = ibrVrRowRole(r);
-          return role === 'SPOKE_PE' || role === 'HUB_PE' || role === 'PE';
-        })
-        .map((r) => {
-          const id = ibrVrRowId(r);
-          return { value: id, label: String(r.name || id) };
-        }),
-    [vrs],
-  );
-
-  const ceOptions = useMemo(
-    () =>
-      vrs
-        .filter((r) => ibrVrRowRole(r) === 'CE')
-        .map((r) => {
-          const id = ibrVrRowId(r);
-          return { value: id, label: String(r.name || id) };
-        }),
-    [vrs],
-  );
-
-  const submitTunnel = async () => {
-    try {
-      const values = await tunnelForm.validateFields();
-      if (values.peA === values.peB) {
-        message.error('PE-A 与 PE-B 不能相同');
-        return;
-      }
-      if (values.ceA === values.ceB) {
-        message.error('CE-A 与 CE-B 不能相同');
-        return;
-      }
-      const _reservedTunnelPayload = {
-        name: values.tunnelName,
-        pe: [values.peA, values.peB],
-        ce: [values.ceA, values.ceB],
-      };
-      void _reservedTunnelPayload;
-      message.success('SRv6 隧道已创建（前端校验与占位，后续可接后端）');
-      setTunnelModalOpen(false);
-      tunnelForm.resetFields();
-    } catch (e) {
-      // 表单校验失败不处理
-    }
-  };
-
   return (
       <PageContainer
         titleLevel={3}
@@ -477,27 +393,29 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
         pagePadding={embed.embedded ? 0 : undefined}
         externalColumnControl
         toolbarRight={(
-          <Space size={8} wrap>
-            <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: 'csmctl',
-                    label: '配置 CSMCTL 地址',
-                    onClick: handleSettingsOpen,
-                  },
-                ],
-              }}
-            >
-              <Button icon={<EllipsisOutlined />} />
-            </Dropdown>
-            <TableColumnSettingsButton<VRRow>
-              allColumns={columns}
-              settingsKey="interconnect_vr_instances"
-              defaultHiddenColumns={VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN}
-            />
-            <Button icon={<ReloadOutlined />} onClick={() => { void handleManualRefresh(); }} />
-          </Space>
+          <div className="toolbar-actions">
+            <Space size={8} wrap>
+              <Dropdown
+                menu={{
+                  items: [
+                    {
+                      key: 'csmctl',
+                      label: '配置 CSMCTL 地址',
+                      onClick: handleSettingsOpen,
+                    },
+                  ],
+                }}
+              >
+                <Button icon={<EllipsisOutlined />} />
+              </Dropdown>
+              <TableColumnSettingsButton<VRRow>
+                allColumns={columns}
+                settingsKey="interconnect_vr_instances"
+                defaultHiddenColumns={VR_TABLE_COL_SETTINGS_DEFAULT_HIDDEN}
+              />
+              <Button icon={<ReloadOutlined />} onClick={() => { void handleManualRefresh(); }} />
+            </Space>
+          </div>
         )}
       toolbarLeft={(
         <Form
@@ -596,71 +514,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
       </Modal>
 
       <Modal
-        title="创建 SRv6 隧道"
-        open={tunnelModalOpen}
-        onOk={submitTunnel}
-        onCancel={() => { setTunnelModalOpen(false); tunnelForm.resetFields(); }}
-        destroyOnHidden
-        width={720}
-      >
-        <Form form={tunnelForm} layout="vertical">
-          <Form.Item name="tunnelName" label="隧道名称" rules={[{ required: true, message: '请输入隧道名称' }]}>
-            <Input placeholder="例如：beijing-to-shanghai" />
-          </Form.Item>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="peA" label="PE-A" rules={[{ required: true, message: '请选择 PE-A' }]}>
-                <Select options={peOptions} showSearch optionFilterProp="label" placeholder="选择 PE-A" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="peB"
-                label="PE-B"
-                dependencies={["peA"]}
-                rules={[
-                  { required: true, message: '请选择 PE-B' },
-                  ({ getFieldValue }) => ({
-                    validator(_, value) {
-                      if (!value || value !== getFieldValue('peA')) return Promise.resolve();
-                      return Promise.reject(new Error('PE-A 与 PE-B 不能相同'));
-                    }
-                  })
-                ]}
-              >
-                <Select options={peOptions} showSearch optionFilterProp="label" placeholder="选择 PE-B" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="ceA" label="CE-A" rules={[{ required: true, message: '请选择 CE-A' }]}>
-                <Select options={ceOptions} showSearch optionFilterProp="label" placeholder="选择 CE-A" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="ceB"
-                label="CE-B"
-                dependencies={["ceA"]}
-                rules={[
-                  { required: true, message: '请选择 CE-B' },
-                  ({ getFieldValue }) => ({
-                    validator(_, value) {
-                      if (!value || value !== getFieldValue('ceA')) return Promise.resolve();
-                      return Promise.reject(new Error('CE-A 与 CE-B 不能相同'));
-                    }
-                  })
-                ]}
-              >
-                <Select options={ceOptions} showSearch optionFilterProp="label" placeholder="选择 CE-B" />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
-
-      <Modal
         title="修改名称"
         open={editModalOpen}
         onOk={submitEditVR}
@@ -679,82 +532,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
         </Form>
       </Modal>
 
-      {/* CE配置弹窗 */}
-      <Modal
-        title="配置为 CE"
-        open={ceModalOpen}
-        onOk={submitCEConfig}
-        onCancel={() => { setCeModalOpen(false); ceForm.resetFields(); }}
-        confirmLoading={loading}
-        forceRender
-        width={720}
-      >
-        <Form form={ceForm} layout="vertical" scrollToFirstError>
-          <Tabs
-            defaultActiveKey="base"
-            items={[
-              {
-                key: 'base',
-                label: '基本信息',
-                children: (
-                  <Card size="small" variant="outlined">
-                    <Form.Item
-                      name="locatorName"
-                      label="本地 Locator 名称"
-                      rules={[{ required: true, message: '请输入 Locator 名称' }]}
-                      extra="用于区分此站点的 SRv6 Locator 名称"
-                    >
-                      <Input placeholder="例如：beijing-locator" />
-                    </Form.Item>
-                    <Form.Item
-                      name="sidPrefix"
-                      label="SID 前缀"
-                      rules={[
-                        { required: true, message: '请输入 SID 前缀' },
-                        { pattern: /^[0-9a-fA-F:]+\/\d{1,3}$/, message: '格式示例：2400:1234::/64' }
-                      ]}
-                      extra="建议为 IPv6 前缀，例如 2400:1234::/64"
-                    >
-                      <Input placeholder="例如：2400:1234::/64" />
-                    </Form.Item>
-                  </Card>
-                )
-              },
-              {
-                key: 'private',
-                label: '私网',
-                children: (
-                  <Card size="small" variant="outlined">
-                    <Row gutter={16}>
-                      <Col span={12}>
-                        <Form.Item name="privateInterface" label="私网接口" rules={[{ required: true, message: '请输入私网接口名称' }]} extra="连接到私网的接口">
-                          <Input placeholder="例如：eth1" />
-                        </Form.Item>
-                        <Form.Item name="privateBgpInstance" label="私网 BGP 实例" rules={[{ required: true, message: '请输入私网 BGP 实例名' }]} extra="用于私网邻居的 BGP 进程名">
-                          <Input placeholder="例如：bgp-private-1" />
-                        </Form.Item>
-                      </Col>
-                      <Col span={12}>
-                        <Form.Item
-                          name="privateRouterId"
-                          label="私网 Router-ID"
-                          rules={[
-                            { required: true, message: '请输入私网 Router-ID' },
-                            { pattern: /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/, message: '请输入合法的 IPv4 地址' }
-                          ]}
-                          extra="BGP 的 Router-ID（IPv4）"
-                        >
-                          <Input placeholder="例如：2.2.2.2" />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Card>
-                )
-              }
-            ]}
-          />
-        </Form>
-      </Modal>
       {/* 角色设置向导 - 步骤1：选择类型 */}
       <Modal
         title="设置角色 - 选择类型"

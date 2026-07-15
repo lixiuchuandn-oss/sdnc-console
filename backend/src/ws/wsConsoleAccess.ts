@@ -19,6 +19,3 @@ export function assertConsoleWsAccess(decoded: {
 
   throw new Error('缺少 networks.vr-config:write 权限，无法建立远程连接');
 }
-
-/** @deprecated 兼容旧引用 */
-export const assertLegacyConsoleWsAccess = assertConsoleWsAccess;

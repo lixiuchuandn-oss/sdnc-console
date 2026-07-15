@@ -2,6 +2,7 @@ import React from 'react';
 import { CodeOutlined, SettingOutlined } from '@ant-design/icons';
 import { GROUPS, PLATFORMS, PLATFORM_LABELS } from '../../../constants/navigation';
 import { routeSpecs } from '../../../routes/RouteSpec';
+import type { RouteSpec } from '../../../routes/RouteSpec';
 import { iconOf } from '../../../utils/iconOf';
 import type { AdminMenuItem, AdminSidebarCenter } from '../AdminSidebar';
 import { buildGroupMenuChildren } from './adminLayoutNav';
@@ -11,16 +12,15 @@ function platformCenterKey(pf: string): string {
   return '/admin/cen_settings';
 }
 
-function groupIconOf(pf: string, grp: string): React.ReactNode {
-  const visible = routeSpecs
-    .filter((s) => s.layout === 'admin' && s.platform === pf && s.group === grp && !s.hidden)
-    .sort((a, b) => Number(a.order ?? 9999) - Number(b.order ?? 9999));
-  const all = routeSpecs
-    .filter((s) => s.layout === 'admin' && s.platform === pf && s.group === grp)
-    .sort((a, b) => Number(a.order ?? 9999) - Number(b.order ?? 9999));
-  const list = visible.length > 0 ? visible : all;
-  const firstWithIcon = list.find((s) => !!s.icon) || list[0];
-  return iconOf(firstWithIcon?.icon);
+function sortSpecsByGroupAndOrder(specs: RouteSpec[]): RouteSpec[] {
+  return [...specs].sort((a, b) => {
+    const idxA = GROUPS.indexOf(String(a.group || '') as (typeof GROUPS)[number]);
+    const idxB = GROUPS.indexOf(String(b.group || '') as (typeof GROUPS)[number]);
+    const safeA = idxA === -1 ? 999 : idxA;
+    const safeB = idxB === -1 ? 999 : idxB;
+    if (safeA !== safeB) return safeA - safeB;
+    return Number(a.order ?? 0) - Number(b.order ?? 0);
+  });
 }
 
 function platformHeaderIcon(pf: string): React.ReactNode {
@@ -28,7 +28,7 @@ function platformHeaderIcon(pf: string): React.ReactNode {
   return <CodeOutlined />;
 }
 
-/** 由 RouteSpec 构建各平台侧栏菜单树（未做 RBAC 过滤） */
+/** 由 RouteSpec 构建各平台侧栏菜单树（未做 RBAC 过滤；菜单项扁平，不按 group 再套一层 SubMenu） */
 export function buildAdminPlatformCenters(): AdminSidebarCenter[] {
   const adminSpecs = routeSpecs.filter((s) => s.layout === 'admin' && !s.hidden);
 
@@ -36,33 +36,20 @@ export function buildAdminPlatformCenters(): AdminSidebarCenter[] {
     const platformSpecs = adminSpecs.filter((s) => s.platform === pf);
     const topLevelSpecs = platformSpecs.filter((s) => !s.group);
     const groupedSpecs = platformSpecs.filter((s) => !!s.group);
-    const topLevelItems = topLevelSpecs
+    const topLevelItems: AdminMenuItem[] = topLevelSpecs
       .sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0))
       .map((s) => ({
         key: s.path,
         label: s.title || s.breadcrumbLabel || s.id,
         icon: iconOf(s.icon),
       }));
-    const groupItems = Array.from(new Set(groupedSpecs.map((s) => String(s.group || ''))))
-      .sort((a, b) => {
-        const idxA = GROUPS.indexOf(a as (typeof GROUPS)[number]);
-        const idxB = GROUPS.indexOf(b as (typeof GROUPS)[number]);
-        const safeA = idxA === -1 ? 999 : idxA;
-        const safeB = idxB === -1 ? 999 : idxB;
-        return safeA - safeB;
-      })
-      .map((grp) => ({
-        key: `${pf}_${grp}`,
-        label: grp,
-        icon: groupIconOf(pf, grp),
-        children: buildGroupMenuChildren(groupedSpecs.filter((s) => s.group === grp)),
-      }));
+    const flatGroupedItems = buildGroupMenuChildren(sortSpecsByGroupAndOrder(groupedSpecs));
 
     return {
       key: platformCenterKey(pf),
       label: PLATFORM_LABELS[pf as keyof typeof PLATFORM_LABELS] || pf,
       icon: platformHeaderIcon(pf),
-      items: [...topLevelItems, ...groupItems],
+      items: [...topLevelItems, ...flatGroupedItems],
     };
   });
 }

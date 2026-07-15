@@ -182,7 +182,7 @@ const allRouteSpecs: RouteSpec[] = [
     icon: 'ClusterOutlined',
     hidden: true,
     requiredActions: {
-      page: 'networks.vr-config:read',
+      page: 'networks.vr-config:write',
       read: 'networks.vr-config:read',
       write: 'networks.vr-config:write',
     },
@@ -200,9 +200,26 @@ const allRouteSpecs: RouteSpec[] = [
     icon: 'ClusterOutlined',
     hidden: true,
     requiredActions: {
-      page: 'networks.vr-config:read',
+      page: 'networks.vr-config:write',
       read: 'networks.vr-config:read',
       write: 'networks.vr-config:write',
+    },
+  },
+  {
+    id: 'interconnect-rr-domains',
+    path: '/admin/interconnect/rr-domains',
+    element: 'RrDomainsPage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: 'IBR管理',
+    title: 'RR反射域',
+    subtitle: '对端 Route Reflector 档案；SRv6 隧道 PE 侧可引用。',
+    icon: 'ApartmentOutlined',
+    order: 3,
+    requiredActions: {
+      page: 'networks.rr-domains:read',
+      read: 'networks.rr-domains:read',
+      write: 'networks.rr-domains:write',
     },
   },
   {
@@ -231,6 +248,23 @@ const allRouteSpecs: RouteSpec[] = [
     group: 'IBR管理',
     title: '创建 SRv6 隧道（向导模式）',
     breadcrumbLabel: '创建隧道',
+    parentId: 'interconnect-srv6',
+    hidden: true,
+    requiredActions: {
+      page: 'networks.srv6:write',
+      read: 'networks.srv6:read',
+      write: 'networks.srv6:write',
+    },
+  },
+  {
+    id: 'interconnect-srv6-architecture',
+    path: '/admin/interconnect/srv6/architecture',
+    element: 'SRv6ArchitecturePage',
+    layout: 'admin',
+    platform: 'SDNCC',
+    group: 'IBR管理',
+    title: 'SRv6 架构拓扑',
+    breadcrumbLabel: '架构拓扑',
     parentId: 'interconnect-srv6',
     hidden: true,
     requiredActions: {
@@ -268,7 +302,7 @@ const allRouteSpecs: RouteSpec[] = [
     parentId: 'interconnect-ipsec',
     hidden: true,
     requiredActions: {
-      page: 'networks.ipsec:read',
+      page: 'networks.ipsec:write',
       read: 'networks.ipsec:read',
       write: 'networks.ipsec:write',
     },
@@ -285,7 +319,7 @@ const allRouteSpecs: RouteSpec[] = [
     parentId: 'interconnect-ipsec',
     hidden: true,
     requiredActions: {
-      page: 'networks.ipsec:read',
+      page: 'networks.ipsec:write',
       read: 'networks.ipsec:read',
       write: 'networks.ipsec:write',
     },

@@ -4,6 +4,22 @@ import { IbrHaGroup, type IbrHaGroupStatus } from '../../entities/vRouter/IbrHaG
 import { IbrHaGroupMember, type IbrHaGroupMemberRole } from '../../entities/vRouter/IbrHaGroupMember';
 import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { resolveVrRolesWithFallback } from './ibrVrRoleResolve';
+import {
+  memberPriorityFromIntent,
+  normalizeHaGroupVrrpIntent,
+  validateHaGroupVrrpIntent,
+  type HaGroupVrrpIntent,
+} from './haGroupVrrpIntent';
+import {
+  applyVrrpPatchToDeviceConfig,
+  materializeHaGroupVrrpForMember,
+} from './haGroupVrrpMaterialize';
+import {
+  getVRConfigFromDevice,
+  pushVRConfig,
+  VrConfigDeployError,
+  type PushVRConfigResult,
+} from './vrConfigDeploy';
 
 const HA_GROUP_ELIGIBLE_ROLES = new Set(['CE', '标准']);
 
@@ -82,16 +98,27 @@ function normalizeUuid(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-function parseVrrpIntent(raw: unknown): unknown | null {
+function parseVrrpIntent(
+  raw: unknown,
+  opts?: { primaryUuid?: string; backupUuid?: string },
+): unknown | null {
   if (raw == null) return null;
-  if (typeof raw === 'object') return raw;
   if (typeof raw === 'string') {
     const t = raw.trim();
     if (!t) return null;
     try {
-      return JSON.parse(t);
-    } catch {
-      throw new IbrHaGroupError('vrrpIntent 不是合法 JSON');
+      return validateHaGroupVrrpIntent(JSON.parse(t), opts);
+    } catch (e) {
+      throw new IbrHaGroupError(
+        e instanceof Error ? e.message : 'vrrpIntent 不是合法 JSON',
+      );
+    }
+  }
+  if (typeof raw === 'object') {
+    try {
+      return validateHaGroupVrrpIntent(raw, opts);
+    } catch (e) {
+      throw new IbrHaGroupError(e instanceof Error ? e.message : 'vrrpIntent 格式无效');
     }
   }
   throw new IbrHaGroupError('vrrpIntent 格式无效');
@@ -186,10 +213,17 @@ function validateDualMembers(members: IbrHaGroupMemberInput[]): void {
   }
 }
 
-function buildMemberInputs(primaryUuid: string, backupUuid: string): IbrHaGroupMemberInput[] {
+function buildMemberInputs(
+  primaryUuid: string,
+  backupUuid: string,
+  vrrpIntent?: unknown | null,
+): IbrHaGroupMemberInput[] {
+  const normalized = normalizeHaGroupVrrpIntent(vrrpIntent);
+  const primaryPriority = memberPriorityFromIntent(normalized, 'primary') ?? 200;
+  const backupPriority = memberPriorityFromIntent(normalized, 'backup') ?? 100;
   return [
-    { role: 'primary', vrUuid: primaryUuid, vrrpPriority: 200 },
-    { role: 'backup', vrUuid: backupUuid, vrrpPriority: 100 },
+    { role: 'primary', vrUuid: primaryUuid, vrrpPriority: primaryPriority },
+    { role: 'backup', vrUuid: backupUuid, vrrpPriority: backupPriority },
   ];
 }
 
@@ -266,13 +300,12 @@ export const ibrHaGroupService = {
 
     const primaryUuid = normalizeUuid(input.primaryUuid);
     const backupUuid = normalizeUuid(input.backupUuid);
-    const members = buildMemberInputs(primaryUuid, backupUuid);
+    const vrrpIntent = parseVrrpIntent(input.vrrpIntent, { primaryUuid, backupUuid });
+    const members = buildMemberInputs(primaryUuid, backupUuid, vrrpIntent);
     validateDualMembers(members);
     await assertVrUuidsExist([primaryUuid, backupUuid]);
     await assertVrRolesEligibleForHaGroup([primaryUuid, backupUuid]);
     await assertMembersNotInOtherGroup([primaryUuid, backupUuid]);
-
-    const vrrpIntent = parseVrrpIntent(input.vrrpIntent);
 
     return AppDataSource.transaction(async (manager) => {
       const gRepo = manager.getRepository(IbrHaGroup);
@@ -322,7 +355,21 @@ export const ibrHaGroupService = {
       group.description = desc || null;
     }
     if (input.vrrpIntent !== undefined) {
-      group.vrrpIntentJson = serializeVrrpIntent(parseVrrpIntent(input.vrrpIntent));
+      const primary = group.members?.find((m) => m.role === 'primary');
+      const backup = group.members?.find((m) => m.role === 'backup');
+      const validated = parseVrrpIntent(input.vrrpIntent, {
+        primaryUuid: primary?.vrUuid,
+        backupUuid: backup?.vrUuid,
+      });
+      group.vrrpIntentJson = serializeVrrpIntent(validated);
+      if (validated && primary && backup) {
+        const normalized = normalizeHaGroupVrrpIntent(validated);
+        const pp = memberPriorityFromIntent(normalized, 'primary');
+        const bp = memberPriorityFromIntent(normalized, 'backup');
+        if (pp != null) primary.vrrpPriority = pp;
+        if (bp != null) backup.vrrpPriority = bp;
+        await memberRepo().save([primary, backup]);
+      }
     }
 
     await groupRepo().save(group);
@@ -338,7 +385,8 @@ export const ibrHaGroupService = {
 
     const primaryUuid = normalizeUuid(input.primaryUuid);
     const backupUuid = normalizeUuid(input.backupUuid);
-    const members = buildMemberInputs(primaryUuid, backupUuid);
+    const storedIntent = parseStoredVrrpIntent(group.vrrpIntentJson);
+    const members = buildMemberInputs(primaryUuid, backupUuid, storedIntent);
     validateDualMembers(members);
     await assertVrUuidsExist([primaryUuid, backupUuid]);
     await assertVrRolesEligibleForHaGroup([primaryUuid, backupUuid]);
@@ -368,5 +416,82 @@ export const ibrHaGroupService = {
     const group = await groupRepo().findOne({ where: { id } });
     if (!group) throw new IbrHaGroupError('HA 组不存在', 404);
     await groupRepo().remove(group);
+  },
+
+  /**
+   * 将 vrrpIntent 物化后经 pushVRConfig（preMerged）下发主备两台 IBR。
+   * 主成功、备失败时标记 degraded。
+   */
+  async deploy(id: string): Promise<{
+    group: IbrHaGroupView;
+    primary: PushVRConfigResult;
+    backup: PushVRConfigResult;
+  }> {
+    const group = await groupRepo().findOne({ where: { id }, relations: ['members'] });
+    if (!group) throw new IbrHaGroupError('HA 组不存在', 404);
+
+    const primary = group.members?.find((m) => m.role === 'primary');
+    const backup = group.members?.find((m) => m.role === 'backup');
+    if (!primary || !backup) {
+      throw new IbrHaGroupError('HA 组主备成员不完整，无法下发');
+    }
+
+    let intent: HaGroupVrrpIntent;
+    try {
+      intent = validateHaGroupVrrpIntent(parseStoredVrrpIntent(group.vrrpIntentJson), {
+        primaryUuid: primary.vrUuid,
+        backupUuid: backup.vrUuid,
+      });
+    } catch (e) {
+      throw new IbrHaGroupError(
+        e instanceof Error ? e.message : 'vrrpIntent 无效，请先在向导中保存完整策略',
+      );
+    }
+
+    const pushRole = async (role: 'primary' | 'backup'): Promise<PushVRConfigResult> => {
+      const patch = materializeHaGroupVrrpForMember(intent, role);
+      try {
+        const device = await getVRConfigFromDevice(patch.vrUuid);
+        const merged = applyVrrpPatchToDeviceConfig(device, patch);
+        return await pushVRConfig({
+          vrId: patch.vrUuid,
+          domain: 'vrrp',
+          preMergedConfig: merged,
+          skipDriftCheck: true,
+        });
+      } catch (e) {
+        if (e instanceof VrConfigDeployError) {
+          throw new IbrHaGroupError(
+            `${role === 'primary' ? '主' : '备'}节点下发失败：${e.message}`,
+            e.code === 'DEVICE_READ_FAILED' || e.code === 'DEVICE_EMPTY' ? 502 : 400,
+          );
+        }
+        throw new IbrHaGroupError(
+          `${role === 'primary' ? '主' : '备'}节点下发失败：${
+            e instanceof Error ? e.message : String(e)
+          }`,
+          502,
+        );
+      }
+    };
+
+    let primaryResult: PushVRConfigResult | undefined;
+    try {
+      primaryResult = await pushRole('primary');
+      const backupResult = await pushRole('backup');
+      group.status = 'configured';
+      await groupRepo().save(group);
+      return {
+        group: await toView(group),
+        primary: primaryResult,
+        backup: backupResult,
+      };
+    } catch (e) {
+      if (primaryResult) {
+        group.status = 'degraded';
+        await groupRepo().save(group);
+      }
+      throw e;
+    }
   },
 };

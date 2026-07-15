@@ -60,6 +60,7 @@ const AuditLogs: React.FC = () => {
     limit: number,
     search?: string,
     range?: [Dayjs | null, Dayjs | null] | null,
+    opts?: { skipCache?: boolean },
   ) => {
     setLoading(true);
     try {
@@ -75,7 +76,7 @@ const AuditLogs: React.FC = () => {
         queryParams.append('dateTo', range[1].format('YYYY-MM-DD'));
       }
       const endpoint = `/api/audit-logs?${queryParams.toString()}`;
-      const res = await apiRequest(endpoint);
+      const res = await apiRequest(endpoint, { skipCache: !!opts?.skipCache });
       // apiRequest 直接返回后端 JSON 数据
       setData(res?.items || []);
       setTotal(typeof res?.total === 'number' ? res.total : 0);
@@ -507,6 +508,7 @@ const AuditLogs: React.FC = () => {
       title: '时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      fixed: 'left',
       render: (text) => <span className="std-time">{formatTime(text)}</span>,
     },
     {
@@ -653,40 +655,45 @@ const AuditLogs: React.FC = () => {
         </Form>
       }
       toolbarRight={
-        <Space size={8} align="center">
-          <span className="std-muted">日志存储时长</span>
-          <InputNumber
-            min={1}
-            max={3650}
-            value={retentionDays}
-            onChange={(v) => setRetentionDays(Number(v) || 1)}
-            disabled={!canWriteAudit}
-            suffix="天"
-            style={{ width: 140 }}
-          />
-          {canWriteAudit ? (
-            <Button
-              type="primary"
-              loading={savingRetention}
-              onClick={async () => {
-                try {
-                  setSavingRetention(true);
-                  const value = String(Math.max(1, Math.min(3650, Number(retentionDays) || 1)));
-                  await updateSystemSetting('audit.logs.retention_days', value);
-                  message.success('日志存储时长已保存');
-                } catch {
-                  message.error('保存日志存储时长失败');
-                } finally {
-                  setSavingRetention(false);
-                }
-              }}
-            >
-              保存时长
-            </Button>
-          ) : null}
-        </Space>
+        <div className="toolbar-actions">
+          <Space size={8} align="center">
+            <span className="std-muted">日志存储时长</span>
+            {canWriteAudit ? (
+              <>
+                <InputNumber
+                  min={1}
+                  max={3650}
+                  value={retentionDays}
+                  onChange={(v) => setRetentionDays(Number(v) || 1)}
+                  suffix="天"
+                  style={{ width: 140 }}
+                />
+                <Button
+                  type="primary"
+                  loading={savingRetention}
+                  onClick={async () => {
+                    try {
+                      setSavingRetention(true);
+                      const value = String(Math.max(1, Math.min(3650, Number(retentionDays) || 1)));
+                      await updateSystemSetting('audit.logs.retention_days', value);
+                      message.success('日志存储时长已保存');
+                    } catch {
+                      message.error('保存日志存储时长失败');
+                    } finally {
+                      setSavingRetention(false);
+                    }
+                  }}
+                >
+                  保存时长
+                </Button>
+              </>
+            ) : (
+              <span>{retentionDays} 天</span>
+            )}
+          </Space>
+        </div>
       }
-      onRefresh={() => fetchLogs(currentPage, pageSize, searchText, dateRange)}
+      onRefresh={() => fetchLogs(currentPage, pageSize, searchText, dateRange, { skipCache: true })}
     >
       <Table
         className="std-table"
@@ -695,6 +702,7 @@ const AuditLogs: React.FC = () => {
         dataSource={filteredData}
         rowKey="id"
         loading={loading}
+        scroll={{ x: true }}
         pagination={{
           size: 'small',
           current: currentPage,

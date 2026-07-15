@@ -317,8 +317,15 @@ export const fetchOrganizationsByTenant = async (tenantId: string) => {
 };
 
 // ===== SRv6 隧道 =====
-export const fetchSrv6Tunnels = async (options?: { skipCache?: boolean }) => {
-  return await apiRequest('/api/networks/srv6', { skipCache: options?.skipCache });
+export type Srv6ConfigHealth = 'ok' | 'drift' | 'missing_archive' | 'endpoint_missing';
+
+export const fetchSrv6Tunnels = async (options?: {
+  skipCache?: boolean;
+  /** 附带配置面对账摘要（按 VR 去重；无 SRv6 流量计数） */
+  includeHealth?: boolean;
+}) => {
+  const q = options?.includeHealth ? '?includeHealth=1' : '';
+  return await apiRequest(`/api/networks/srv6${q}`, { skipCache: options?.skipCache });
 };
 
 // Harvester Extended Resources
@@ -358,8 +365,53 @@ export const updateSrv6Tunnel = async (id: string, payload: Srv6TunnelWritePaylo
   return await apiPut(`/api/networks/srv6/${id}`, payload);
 };
 
-export const fetchSrv6Tunnel = async (id: string) => {
-  return await apiRequest(`/api/networks/srv6/${id}`);
+export const fetchSrv6Tunnel = async (
+  id: string,
+  options?: { skipCache?: boolean },
+) => {
+  return await apiRequest(`/api/networks/srv6/${encodeURIComponent(id)}`, {
+    // 详情用于编辑 / 架构 / REUSE 继承，默认跳过缓存
+    skipCache: options?.skipCache ?? true,
+  });
+};
+
+export type Srv6TunnelHealthStep = {
+  key: 'bgp' | 'privateBgp' | 'dataplane' | 'ceReach';
+  status: 'pass' | 'fail' | 'skip';
+  message: string;
+};
+
+export type Srv6TunnelHealthReport = {
+  tunnelId: string;
+  name: string;
+  lifecycleStatus: string;
+  topology: 'S' | 'H' | null;
+  hubPeSlot: 'peA' | 'peB' | null;
+  hubBindings?: {
+    wanIf?: string;
+    lanIf?: string;
+    peerPublicNeighbor?: string;
+  } | null;
+  hasInjectedDelta: boolean;
+  endpoints: Array<{
+    slot: 'peA' | 'peB' | 'ceA' | 'ceB';
+    vrUuid: string;
+    vrName: string | null;
+    reconcile: { issues: Array<{ code: string; message: string }>; tunnelCount: number };
+  }>;
+  steps: Srv6TunnelHealthStep[];
+  checkedAt: string;
+};
+
+/** 隧道健康巡检：BGP 公网/私网邻居、SRv6 数据面、CE A↔B LAN Ping */
+export const fetchSrv6TunnelHealth = async (id: string): Promise<Srv6TunnelHealthReport> => {
+  const res = await apiRequest(`/api/networks/srv6/${encodeURIComponent(id)}/health`, {
+    skipCache: true,
+  });
+  if (res && typeof res === 'object' && 'data' in (res as object)) {
+    return (res as { data: Srv6TunnelHealthReport }).data;
+  }
+  return res as Srv6TunnelHealthReport;
 };
 
 export type Srv6HubPortRegistryEntry = {
@@ -528,10 +580,16 @@ export const deleteSrv6Tunnel = async (
 };
 
 // ===== IPsec VPN =====
-export const fetchIPsecVPNsMerged = async (params?: { vrId?: string; skipCache?: boolean }) => {
-  const qs: string[] = ['includeDevice=1'];
+export const fetchIPsecVPNsMerged = async (params?: {
+  vrId?: string;
+  skipCache?: boolean;
+  /** 默认 true：合并设备侧网卡/流量；列表首屏可传 false */
+  includeDevice?: boolean;
+}) => {
+  const qs: string[] = [];
+  if (params?.includeDevice !== false) qs.push('includeDevice=1');
   if (params?.vrId) qs.push(`vrId=${encodeURIComponent(params.vrId)}`);
-  const url = `/api/networks/ipsec${qs.length ? ('?' + qs.join('&')) : ''}`;
+  const url = `/api/networks/ipsec${qs.length ? `?${qs.join('&')}` : ''}`;
   return await apiRequest(url, { skipCache: params?.skipCache });
 };
 

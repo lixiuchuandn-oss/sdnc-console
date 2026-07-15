@@ -62,6 +62,20 @@ function linkDriverOnly(link: IbrDeviceNetEntry['link']): string {
 	return d;
 }
 
+function formatServiceAddress(raw: string | null | undefined): string {
+	const v = String(raw ?? '').trim();
+	if (!v) return '未配置';
+	if (v.includes('://')) {
+		try {
+			const u = new URL(v);
+			return u.host || v;
+		} catch {
+			return v.split('://')[1]?.split('/')[0]?.trim() || v;
+		}
+	}
+	return v.split('/')[0]?.trim() || v;
+}
+
 function MetricGauge({
 	title,
 	percent,
@@ -218,16 +232,49 @@ export const VrConsoleDashboardPanel: React.FC<Props> = ({
 	const healthItems = useMemo(() => {
 		const r = status?.service_reachability;
 		const pending = Boolean(r?.pending);
-		const line = (v: boolean | null): { ok: boolean; neutral: boolean; value: string } => {
+		const line = (v: boolean | null, configured: boolean): { ok: boolean; neutral: boolean; value: string } => {
+			if (!configured) return { ok: false, neutral: true, value: '未配置' };
 			if (pending) return { ok: false, neutral: true, value: '检测中…' };
-			if (v === null) return { ok: false, neutral: true, value: '未配置' };
+			if (v === null) return { ok: false, neutral: true, value: '—' };
 			return { ok: v, neutral: false, value: v ? '可达' : '不可达' };
 		};
-		return [
-			{ key: 'tower', label: 'SDNC 控制台', ...line(r?.tower ?? null) },
-			{ key: 'sdwan', label: 'CSMCTL 控制面', ...line(r?.sdwan ?? null) },
+		const rows = [
+			{
+				key: 'sdnc-console',
+				label: 'SDN Console',
+				address: status?.sdnc_console_base,
+				reach: r?.sdnc_console ?? null,
+			},
+			{
+				key: 'sdnc-csmctl',
+				label: 'SDN CSMCTL',
+				address: status?.sdnc_csmctl_address ?? status?.sdwan_manageip,
+				reach: r?.sdnc_csmctl ?? r?.sdwan ?? null,
+			},
+			{
+				key: 'compute-tower',
+				label: 'Compute Tower',
+				address: status?.compute_tower_base ?? status?.tower_base,
+				reach: r?.compute_tower ?? r?.tower ?? null,
+			},
+			{
+				key: 'aisoc',
+				label: 'AI SOC',
+				address: status?.ai_soc_base,
+				reach: r?.aisoc ?? null,
+			},
 		];
-	}, [status?.service_reachability]);
+		return rows.map((row) => {
+			const addr = formatServiceAddress(row.address);
+			const configured = addr !== '未配置';
+			return {
+				key: row.key,
+				label: row.label,
+				address: addr,
+				...line(row.reach, configured),
+			};
+		});
+	}, [status]);
 
 	if (!managementIp) {
 		return <VrConsoleNoDevicePanel />;
@@ -349,6 +396,9 @@ export const VrConsoleDashboardPanel: React.FC<Props> = ({
 
 						<div className="ibr-console-dash-divider" />
 
+						<Typography.Text type="secondary" className="ibr-console-dash-health-caption">
+							服务地址
+						</Typography.Text>
 						<div className="ibr-console-dash-health-list">
 							{healthItems.map((it) => (
 								<div key={it.key} className="ibr-console-dash-health-row">
@@ -358,7 +408,12 @@ export const VrConsoleDashboardPanel: React.FC<Props> = ({
 												it.neutral ? ' is-neutral' : it.ok ? ' is-ok' : ' is-warn'
 											}`}
 										/>
-										<span className="ibr-console-dash-muted">{it.label}</span>
+										<div className="ibr-console-dash-health-text">
+											<span className="ibr-console-dash-strong">{it.label}</span>
+											<span className="ibr-console-dash-muted ibr-console-dash-mono ibr-console-dash-health-addr">
+												{it.address}
+											</span>
+										</div>
 									</div>
 									<span className="ibr-console-dash-muted ibr-console-dash-mono">{it.value}</span>
 								</div>

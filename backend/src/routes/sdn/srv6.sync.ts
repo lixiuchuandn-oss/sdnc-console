@@ -2,6 +2,7 @@ import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
+import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { captureSrv6BaselinesForTunnel } from './srv6.baseline';
 import { mergeBaselineWithContributions } from './srv6.merge';
 import { listAliveContributionsForVr, recomputeVrEffectiveConfig } from './srv6.recompute';
@@ -18,20 +19,22 @@ export const tunnelEndpointRefs = (tunnel: SRv6Tunnel) => [
   { slot: 'ceB' as const, vrId: tunnel.ceB },
 ];
 
-/** 将重算结果写入 VRConfig.config_json */
+/** 将重算结果写入 VRConfig.config_json（SQLite 串行写，避免并行隧道交错） */
 export const persistSrv6VrEffectiveConfig = async (
   vrUuid: string,
 ): Promise<Record<string, unknown>> => {
-  const effective = await recomputeVrEffectiveConfig(vrUuid);
-  const record = await vrRepo().findOne({ where: { uuid: vrUuid } });
-  if (!record) {
-    const err = new Error('VR 配置不存在');
-    (err as Error & { statusCode: number }).statusCode = 404;
-    throw err;
-  }
-  record.config_json = JSON.stringify(effective);
-  await vrRepo().save(record);
-  return effective;
+  return withSqliteWriteLock(`srv6-vr:${vrUuid}`, async () => {
+    const effective = await recomputeVrEffectiveConfig(vrUuid);
+    const record = await vrRepo().findOne({ where: { uuid: vrUuid } });
+    if (!record) {
+      const err = new Error('VR 配置不存在');
+      (err as Error & { statusCode: number }).statusCode = 404;
+      throw err;
+    }
+    record.config_json = JSON.stringify(effective);
+    await vrRepo().save(record);
+    return effective;
+  });
 };
 
 /**

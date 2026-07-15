@@ -35,6 +35,7 @@ import { initializeRoles } from './seeders/initRoles';
 import { vrInstancesRoutes } from './routes/sdn/vrInstances';
 import { vrConfigRoutes } from './routes/sdn/vrConfig';
 import { ibrHaGroupRoutes } from './routes/sdn/ibrHaGroups';
+import { rrDomainRoutes } from './routes/sdn/rrDomains';
 import { srv6Routes } from './routes/sdn/srv6';
 import { ipsecRoutes } from './routes/sdn/ipsec';
 import { aclRoutes } from './routes/sdn/acl';
@@ -45,6 +46,7 @@ import apiProxyRoutes from './routes/apiProxy';
 import { sdncNorthboundV1Routes } from './routes/sdnc/northboundV1';
 import { isSdncProduct } from './constants/productFlavor';
 import { probeCsmctlHealth } from './services/vrouter/csmctlEndpoint';
+import { registerPublicVrManagementRoutes } from './routes/publicVrManagement';
 
 import path from 'path';
 import fs from 'fs';
@@ -193,14 +195,17 @@ app.get('/api/public/admin-password-policy', (_req, res) => {
 app.get('/api/public/admin-auth-config', (_req, res) => {
   res.json({ data: { pageTimeoutMinutes: getPublicPageTimeoutMinutes() } });
 });
+/** IBR 设备管理口上报（vr_uuid 自标识，无需用户 JWT） */
+registerPublicVrManagementRoutes(app);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/tenants', authMiddleware, tenantRoutes);
-// IBR 实例聚合接口不需要登录
-app.use('/api/vr-instances', vrInstancesRoutes);
+// IBR 实例聚合（列表/刷新/设备 local-web 代理）须登录；细粒度 RBAC 见 vrInstances 路由
+app.use('/api/vr-instances', authMiddleware, vrInstancesRoutes);
 app.use('/api/vr-config', authMiddleware, vrConfigRoutes);
 app.use('/api/ibr-ha-groups', authMiddleware, ibrHaGroupRoutes);
 // IBR 网络能力（SDNC 核心）与系统配置
 app.use('/api/networks/srv6', authMiddleware, srv6Routes);
+app.use('/api/networks/rr-domains', authMiddleware, rrDomainRoutes);
 app.use('/api/networks/ipsec', authMiddleware, ipsecRoutes);
 app.use('/api/networks/acl', authMiddleware, aclRoutes);
 app.use('/api/networks/acl-groups', authMiddleware, aclGroupRoutes);

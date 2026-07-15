@@ -149,7 +149,29 @@ export const reconcileSrv6Vr = async (
   return item;
 };
 
-/** 批量对账 */
+const RECONCILE_ALL_CONCURRENCY = 4;
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const run = async () => {
+    while (cursor < items.length) {
+      const i = cursor;
+      cursor += 1;
+      results[i] = await worker(items[i]);
+    }
+  };
+  const n = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: n }, () => run()));
+  return results;
+}
+
+/** 批量对账（VR 级并发上限，避免串行过久 / 写库打爆） */
 export const reconcileAllSrv6Vrs = async (options?: {
   repair?: boolean;
   vrUuid?: string;
@@ -157,12 +179,11 @@ export const reconcileAllSrv6Vrs = async (options?: {
   const targets = options?.vrUuid
     ? [String(options.vrUuid).trim()]
     : await listSrv6ReconcileCandidateVrUuids();
+  const uuids = targets.map((u) => String(u || '').trim()).filter(Boolean);
 
-  const items: Srv6ReconcileItem[] = [];
-  for (const vrUuid of targets) {
-    if (!vrUuid) continue;
-    items.push(await reconcileSrv6Vr(vrUuid, { repair: options?.repair }));
-  }
+  const items = await mapPool(uuids, RECONCILE_ALL_CONCURRENCY, (vrUuid) =>
+    reconcileSrv6Vr(vrUuid, { repair: options?.repair }),
+  );
 
   const withIssues = items.filter((i) => i.issues.length > 0).length;
   const repaired = items.filter((i) => i.repaired).length;

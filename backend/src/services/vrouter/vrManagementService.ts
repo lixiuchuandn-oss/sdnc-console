@@ -1,6 +1,7 @@
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { logger } from '../../utils/logger';
+import { bindBgpRouterIdFromManagementIp } from './bgpRouterIdFromMgmt';
 import { normalizeManagementIp } from './managementIpUtils';
 
 const vrMgmLog = logger.child('VR-Mgmt');
@@ -153,7 +154,23 @@ export const vrManagementService = {
       record.tenantId = record.tenantId || tenantId;
     }
 
+    const previousManagementIp = String(record.managementIp ?? '').trim() || null;
     record.managementIp = managementIp;
+
+    const bind = bindBgpRouterIdFromManagementIp(
+      record.config_json,
+      managementIp,
+      previousManagementIp,
+    );
+    if (bind.changed) {
+      record.config_json = bind.configJson;
+      vrMgmLog.info('Bound public BGP router_id from management_ip', {
+        uuid: vrUniqueId,
+        managementIp,
+        reason: bind.reason,
+      });
+    }
+
     await repository.save(record);
     await syncVrCacheDeviceFromConfig(record);
 

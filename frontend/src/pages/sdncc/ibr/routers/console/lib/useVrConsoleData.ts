@@ -12,14 +12,14 @@ import {
 import type { VrConsolePanelId } from './consolePanels';
 import type { VrConsoleDeviceInfoTabId } from './deviceInfoTabs';
 
-export type VrConsoleMetadata = {
+type VrConsoleMetadata = {
 	csmctl: Record<string, unknown>;
 	vr2: unknown;
 	vr3: unknown;
 	mergedFull: Record<string, unknown> | null;
 };
 
-export type TowerLocalConfigCache = {
+type TowerLocalConfigCache = {
 	config: unknown;
 	meta: { updatedAt?: string; role?: string } | null;
 };
@@ -45,6 +45,9 @@ export function useVrConsoleData(
 	const [towerCacheLoading, setTowerCacheLoading] = useState(false);
 	const [deviceStatus, setDeviceStatus] = useState<IbrDeviceStatusResp | null>(null);
 	const [deviceStatusLoading, setDeviceStatusLoading] = useState(false);
+	const loadGenRef = useRef(0);
+	const deviceStatusGenRef = useRef(0);
+	const towerCacheGenRef = useRef(0);
 
 	const managementIp = useMemo(() => {
 		const m = metadata?.mergedFull;
@@ -53,13 +56,16 @@ export function useVrConsoleData(
 	}, [metadata]);
 
 	const loadMerged = useCallback(async () => {
-		if (!vrUuid) {
+		const gen = ++loadGenRef.current;
+		const reqUuid = vrUuid;
+		if (!reqUuid) {
 			setMetadata(null);
 			return;
 		}
 		setLoading(true);
 		try {
-			const merged = await fetchVrCacheMerged(vrUuid);
+			const merged = await fetchVrCacheMerged(reqUuid);
+			if (gen !== loadGenRef.current || reqUuid !== vrUuid) return;
 			if (merged && typeof merged === 'object') {
 				const m = merged as Record<string, unknown>;
 				setMetadata({
@@ -72,30 +78,35 @@ export function useVrConsoleData(
 				setMetadata(null);
 			}
 		} catch (e) {
+			if (gen !== loadGenRef.current) return;
 			console.warn('[VrConsole] fetch merged failed', e);
 			message.error('加载 IBR 详情失败');
 			setMetadata(null);
 		} finally {
-			setLoading(false);
+			if (gen === loadGenRef.current) setLoading(false);
 		}
 	}, [vrUuid]);
 
 	const loadDeviceStatus = useCallback(
 		async (silent = false) => {
-			if (!vrUuid || !managementIp) {
+			const gen = ++deviceStatusGenRef.current;
+			const reqUuid = vrUuid;
+			if (!reqUuid || !managementIp) {
 				setDeviceStatus(null);
 				setDeviceStatusLoading(false);
 				return;
 			}
 			if (!silent) setDeviceStatusLoading(true);
 			try {
-				const res = await fetchIbrDeviceStatus(vrUuid, { skipCache: true });
+				const res = await fetchIbrDeviceStatus(reqUuid, { skipCache: true });
+				if (gen !== deviceStatusGenRef.current || reqUuid !== vrUuid) return;
 				setDeviceStatus(res);
 			} catch (e) {
+				if (gen !== deviceStatusGenRef.current) return;
 				console.warn('[VrConsole] fetch device status failed', e);
 				if (!silent) setDeviceStatus(null);
 			} finally {
-				if (!silent) setDeviceStatusLoading(false);
+				if (!silent && gen === deviceStatusGenRef.current) setDeviceStatusLoading(false);
 			}
 		},
 		[vrUuid, managementIp],
@@ -129,18 +140,22 @@ export function useVrConsoleData(
 	}, [managementIp]);
 
 	const loadTowerCache = useCallback(async () => {
-		if (!vrUuid) return;
+		const gen = ++towerCacheGenRef.current;
+		const reqUuid = vrUuid;
+		if (!reqUuid) return;
 		setTowerCacheLoading(true);
 		setTowerCacheError(null);
 		try {
-			const cached = await fetchVrTowerLocalConfigCache(vrUuid, { skipCache: true });
+			const cached = await fetchVrTowerLocalConfigCache(reqUuid, { skipCache: true });
+			if (gen !== towerCacheGenRef.current || reqUuid !== vrUuid) return;
 			setTowerCache(cached);
 		} catch (e: unknown) {
+			if (gen !== towerCacheGenRef.current) return;
 			const msg = e instanceof Error ? e.message : String(e);
 			setTowerCacheError(msg);
 			setTowerCache(null);
 		} finally {
-			setTowerCacheLoading(false);
+			if (gen === towerCacheGenRef.current) setTowerCacheLoading(false);
 		}
 	}, [vrUuid]);
 

@@ -1,5 +1,5 @@
-import { PlayCircleOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
-import { Alert, Button, Descriptions, Grid, Progress, Space, Spin, Tag, Typography } from 'antd';
+import { CloudUploadOutlined, PlayCircleOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
+import { Alert, App as AntApp, Button, Descriptions, Grid, Progress, Space, Spin, Tag, Typography } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../../api/client';
@@ -54,12 +54,25 @@ type StatusResp = {
 	trace_id?: string;
 	/** 部分子系统失败时列出代号，如 `vbras_cli`、`system_stats` */
 	degraded?: string[];
-	/** 与「参数配置」中 Tower / SDWAN / AI SOC 地址对应的 HTTP 可达性（未配置为 null；pending 表示后台探测中） */
+	sdnc_console_base?: string | null;
+	sdnc_csmctl_address?: string | null;
+	compute_tower_base?: string | null;
+	ai_soc_base?: string | null;
+	/** @deprecated 与 compute_tower_base 相同 */
+	tower_base?: string | null;
+	/** @deprecated 与 sdnc_csmctl_address 相同 */
+	sdwan_manageip?: string | null;
+	/** 与「配置服务」中各上游地址对应的 HTTP 可达性 */
 	service_reachability?: {
 		pending?: boolean;
-		tower?: boolean | null;
-		sdwan?: boolean | null;
+		sdnc_console?: boolean | null;
+		sdnc_csmctl?: boolean | null;
+		compute_tower?: boolean | null;
 		aisoc?: boolean | null;
+		/** @deprecated */
+		tower?: boolean | null;
+		/** @deprecated */
+		sdwan?: boolean | null;
 		checked_at?: number;
 	};
 };
@@ -110,8 +123,24 @@ function linkDriverOnly(link: NetLink | undefined): string {
 	return d;
 }
 
+/** 仪表板展示用：host:port，与「配置服务」表单一致 */
+function formatServiceAddress(raw: string | null | undefined): string {
+	const v = String(raw ?? '').trim();
+	if (!v) return '未配置';
+	if (v.includes('://')) {
+		try {
+			const u = new URL(v);
+			return u.host || v;
+		} catch {
+			return v.split('://')[1]?.split('/')[0]?.trim() || v;
+		}
+	}
+	return v.split('/')[0]?.trim() || v;
+}
+
 export function HomePage() {
 	const navigate = useNavigate();
+	const { message } = AntApp.useApp();
 	const screens = Grid.useBreakpoint();
 	const desktop = Boolean(screens.md);
 	const nicCols = screens.sm ? (desktop ? 3 : 2) : 1;
@@ -125,7 +154,28 @@ export function HomePage() {
 	const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 	const [op, setOp] = useState<null | 'start' | 'stop' | 'restart'>(null);
 	const [opError, setOpError] = useState<string | null>(null);
+	const [reporting, setReporting] = useState(false);
 	const mountedRef = useRef(true);
+
+	const reportManagementIp = useCallback(async () => {
+		setReporting(true);
+		try {
+			const { data } = await api.post<{ ok?: boolean; management_ip?: string; error?: string }>(
+				'/sys/sdnc/report-management-ip',
+				{},
+			);
+			if (!data?.ok) {
+				message.error(data?.error || '上报失败');
+				return;
+			}
+			message.success(`管理口地址已上报到 SDN Console：${data.management_ip ?? ''}`);
+		} catch (e) {
+			const err = e as { response?: { data?: { error?: string } }; message?: string };
+			message.error(err?.response?.data?.error || err?.message || '上报失败');
+		} finally {
+			if (mountedRef.current) setReporting(false);
+		}
+	}, [message]);
 
 	const refresh = useCallback(
 		async (opts?: { silent?: boolean }) => {
@@ -138,21 +188,24 @@ export function HomePage() {
 					api.get<StatusResp>('/status'),
 					api.get<AgentSummary>('/forwarding/agent/status'),
 				]);
-				if (!mountedRef.current) return;
-				if (statusRes.status === 'fulfilled') {
-					setStatus(statusRes.value.data);
-					setLastUpdated(Date.now());
-				} else {
-					setError(statusRes.reason instanceof Error ? statusRes.reason.message : '请求失败');
+				if (mountedRef.current) {
+					if (statusRes.status === 'fulfilled') {
+						setStatus(statusRes.value.data);
+						setLastUpdated(Date.now());
+					} else {
+						setError(statusRes.reason instanceof Error ? statusRes.reason.message : '请求失败');
+					}
+					if (agentRes.status === 'fulfilled') setAgentSummary(agentRes.value.data);
 				}
-				if (agentRes.status === 'fulfilled') setAgentSummary(agentRes.value.data);
 			} catch (e) {
-				if (!mountedRef.current) return;
-				setError(e instanceof Error ? e.message : '请求失败');
+				if (mountedRef.current) {
+					setError(e instanceof Error ? e.message : '请求失败');
+				}
 			} finally {
-				if (!mountedRef.current) return;
-				if (!silent) setLoading(false);
-				setRefreshing(false);
+				if (mountedRef.current) {
+					if (!silent) setLoading(false);
+					setRefreshing(false);
+				}
 			}
 		},
 		[],
@@ -260,23 +313,49 @@ export function HomePage() {
 	const healthItems = useMemo(() => {
 		const r = status?.service_reachability;
 		const pending = Boolean(r?.pending);
-		const tower = r?.tower ?? null;
-		const sdwan = r?.sdwan ?? null;
-		const aisoc = r?.aisoc ?? null;
-		const line = (v: boolean | null): { ok: boolean; neutral: boolean; value: string } => {
+		const line = (v: boolean | null, configured: boolean): { ok: boolean; neutral: boolean; value: string } => {
+			if (!configured) return { ok: false, neutral: true, value: '未配置' };
 			if (pending) return { ok: false, neutral: true, value: '检测中…' };
-			if (v === null) return { ok: false, neutral: true, value: '未配置' };
+			if (v === null) return { ok: false, neutral: true, value: '—' };
 			return { ok: v, neutral: false, value: v ? '可达' : '不可达' };
 		};
-		const a = line(tower);
-		const b = line(sdwan);
-		const c = line(aisoc);
-		return [
-			{ key: 'tower', label: 'Compute.Tower 地址', ...a },
-			{ key: 'sdwan', label: 'SDWAN 管理地址', ...b },
-			{ key: 'aisoc', label: 'AI SOC 地址', ...c },
+		const rows = [
+			{
+				key: 'sdnc-console',
+				label: 'SDN Console',
+				address: status?.sdnc_console_base,
+				reach: r?.sdnc_console ?? null,
+			},
+			{
+				key: 'sdnc-csmctl',
+				label: 'SDN CSMCTL',
+				address: status?.sdnc_csmctl_address ?? status?.sdwan_manageip,
+				reach: r?.sdnc_csmctl ?? r?.sdwan ?? null,
+			},
+			{
+				key: 'compute-tower',
+				label: 'Compute Tower',
+				address: status?.compute_tower_base ?? status?.tower_base,
+				reach: r?.compute_tower ?? r?.tower ?? null,
+			},
+			{
+				key: 'aisoc',
+				label: 'AI SOC',
+				address: status?.ai_soc_base,
+				reach: r?.aisoc ?? null,
+			},
 		];
-	}, [status?.service_reachability]);
+		return rows.map((row) => {
+			const addr = formatServiceAddress(row.address);
+			const configured = addr !== '未配置';
+			return {
+				key: row.key,
+				label: row.label,
+				address: addr,
+				...line(row.reach, configured),
+			};
+		});
+	}, [status]);
 
 	return (
 		<PageStack className="app-dashboard">
@@ -293,6 +372,9 @@ export function HomePage() {
 								去初始化向导
 							</Button>
 						)}
+						<Button icon={<CloudUploadOutlined />} onClick={() => void reportManagementIp()} loading={reporting}>
+							上报管理地址
+						</Button>
 						<Button onClick={() => refresh({ silent: false })} loading={loading || refreshing}>
 							刷新
 						</Button>
@@ -397,18 +479,29 @@ export function HomePage() {
 
 							<div className="app-dash-divider" />
 
-							<div style={{ display: 'grid', gap: 8 }}>
+							<div className="app-ui-muted" style={{ marginBottom: 8, fontSize: 13 }}>
+								服务地址
+							</div>
+							<div style={{ display: 'grid', gap: 10 }}>
 								{healthItems.map((it) => (
-									<div key={it.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-										<div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+									<div key={it.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+										<div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 0, flex: 1 }}>
 											<div
 												className={`app-dash-health-dot${
 													it.neutral ? ' app-dash-health-dot--neutral' : it.ok ? ' app-dash-health-dot--ok' : ' app-dash-health-dot--warn'
 												}`}
+												style={{ marginTop: 6 }}
 											/>
-											<span className="app-ui-muted">{it.label}</span>
+											<div style={{ minWidth: 0 }}>
+												<div className="app-ui-strong">{it.label}</div>
+												<div className="app-ui-muted app-ui-mono" style={{ marginTop: 2, wordBreak: 'break-all' }}>
+													{it.address}
+												</div>
+											</div>
 										</div>
-										<span className="app-ui-muted app-ui-mono">{it.value}</span>
+										<span className="app-ui-muted app-ui-mono" style={{ flexShrink: 0 }}>
+											{it.value}
+										</span>
 									</div>
 								))}
 							</div>

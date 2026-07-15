@@ -50,7 +50,7 @@ export const VrConsoleSelfcheckPanel: React.FC<Props> = ({
 
 	const checks = useMemo(
 		() => (Array.isArray(result?.checks) ? result!.checks! : []),
-		[result?.checks],
+		[result],
 	);
 	const summary = useMemo(() => summarizeChecks(checks), [checks]);
 

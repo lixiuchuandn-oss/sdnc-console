@@ -17,7 +17,7 @@
 | **S-1** | 支持 **Hub–Spoke**（`tunnelTopology=H`）：同一 Hub PE 可挂 **多条**隧道，每条绑定 **一个** Spoke PE。 |
 | **S-2** | 支持 **Spoke–Spoke 点对点**（`tunnelTopology=S`）：两端均为 `SPOKE_PE`，四端 CE–PE–PE–CE 模型不变。 |
 | **S-3** | 支持 **Hub 对多 Spoke** 的星型互通：各 Spoke 经 Hub 私网/BGP 域交换路由（具体可达性取决于 REUSE / DEDICATED 与客户侧拓扑）。 |
-| **S-4** | **禁止**两端均为 `HUB_PE` 的隧道。 |
+| **S-4** | 支持 **Hub–Hub**（两端均为 `HUB_PE`）：按点对点拓扑归档（`tunnelTopology=S`），不做 Hub–Spoke 的 inventory / REUSE 锚点流程；与 Spoke–Spoke、Spoke–Hub 一并在向导第 1 步「隧道类型」中选型。 |
 
 ### 1.2 Hub PE · 多 WAN 公网
 

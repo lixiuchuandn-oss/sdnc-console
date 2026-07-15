@@ -2,6 +2,7 @@ import type { Router } from 'express';
 import os from 'node:os';
 import { fetchVbrasInterfaceTelemetry, lookupVbrasTeleIp } from '../../nicRolesSnapshot.js';
 import { serviceReachabilityForStatus } from '../../lib/serviceReachability.js';
+import { readComputeTowerBase, readSdncConsoleBase, readSdncCsmctlAddress } from '../../lib/sdncServiceConfig.js';
 import { ensureNicRolesSnapshotFresh, resolveOsNicAttachPci } from '../../services/network/netApply.js';
 import {
 	EMPTY_SYSTEM_STATS,
@@ -42,8 +43,13 @@ export function registerStatusRoute(r: Router): void {
 		const paths = getPaths();
 		const state = loadState(paths);
 		const initMode = normalizeInitMode(state.init_mode);
-		const sdwan_manageip = readVrcontrolString(paths, 'manageip') || null;
-		const tower_base = readVrcontrolString(paths, 'compute_tower_base') || readVrcontrolString(paths, 'tower_base') || null;
+		const sdnc_console_base = readSdncConsoleBase(paths);
+		const sdnc_csmctl_address = readSdncCsmctlAddress(paths);
+		const compute_tower_base = readComputeTowerBase(paths);
+		/** @deprecated 与 sdnc_csmctl_address 相同，兼容 agent manageip 语义 */
+		const sdwan_manageip = sdnc_csmctl_address;
+		/** @deprecated 与 compute_tower_base 相同；勿再当作 SDN Console 地址 */
+		const tower_base = compute_tower_base;
 		const ai_soc_base = readVrcontrolString(paths, 'ai_soc_base') || null;
 		let rolesConf = readNicRolesConf(paths);
 		const pciNicsDetailed = listPciNicsDetailed({ rolesConf });
@@ -325,6 +331,9 @@ export function registerStatusRoute(r: Router): void {
 			net_init_ok,
 			last_apply,
 			extra_lans,
+			sdnc_console_base,
+			sdnc_csmctl_address,
+			compute_tower_base,
 			sdwan_manageip,
 			tower_base,
 			ai_soc_base,

@@ -129,8 +129,8 @@ export const VrConsolePingPanel: React.FC<Props> = ({
 				</div>
 				{!embedded ? (
 					<Typography.Paragraph className="ibr-console-ops-hint">
-						经 vbras CLI（cli.sock）执行 <code>ping &lt;target&gt; repeat N</code>，独立会话探测目标 IPv4
-						可达性。
+						经设备 local-web 执行 clish{' '}
+						<code>do ping &lt;target&gt;</code>（konfd.socket），非整机操作系统 ping。
 					</Typography.Paragraph>
 				) : null}
 				{error ? (

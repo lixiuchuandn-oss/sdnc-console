@@ -55,7 +55,7 @@ export type HubLanInventoryRef = {
 const normIf = (raw: unknown) => String(raw ?? '').trim().toLowerCase();
 
 /** portRegistry 与 LAN inventory 行对齐（lanInventoryId 优先；legacy 无 id 时回退 ifName） */
-export const portRegistryLanMatchesInventoryItem = (
+const portRegistryLanMatchesInventoryItem = (
   entry: HubPortRegistryLanRef,
   item: HubLanInventoryRef,
 ): boolean => {
@@ -486,7 +486,7 @@ export const hubLanSelectionClear = (
 };
 
 /** Hub CE 是否与锚点 CE 不同 */
-export const hubCeDiffersFromAnchor = (
+const hubCeDiffersFromAnchor = (
   selectedCeUuid: unknown,
   anchorCeUuid: unknown,
 ): boolean => {

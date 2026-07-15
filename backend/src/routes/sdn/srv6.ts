@@ -25,6 +25,8 @@ import {
   isHubTunnel,
 } from './srv6.hub';
 import { resolveHubBindingsWithInventory } from './srv6.hubInventory';
+import { buildSrv6TunnelHealth } from './srv6.health';
+import { buildSrv6TunnelHealthSummaries } from './srv6.listHealth';
 import { reconcileAllSrv6Vrs } from './srv6.reconcile';
 import { findSrv6TunnelsReferencingVr } from './srv6.references';
 import { alignReuseVrfTunnelArchive } from './srv6.reuseRdRt';
@@ -86,7 +88,26 @@ srv6Routes.get('/', async (req, res, next) => {
       }
     }
     const list = await repo().find({ order: { createdAt: 'DESC' } });
-    res.json(list);
+    const includeHealth =
+      String(req.query.includeHealth || '') === '1' ||
+      String(req.query.includeHealth || '').toLowerCase() === 'true';
+    if (!includeHealth) {
+      res.json(list);
+      return;
+    }
+    const summaries = await buildSrv6TunnelHealthSummaries(list);
+    res.json(
+      list.map((t) => {
+        const h = summaries[t.id];
+        return {
+          ...t,
+          configHealth: h?.configHealth ?? null,
+          configHealthMessage: h?.message ?? null,
+          configHealthIssueCount: h?.issueCount ?? 0,
+          configHealthCheckedAt: h?.checkedAt ?? null,
+        };
+      }),
+    );
   } catch (e) {
     next(e);
   }
@@ -539,6 +560,35 @@ srv6Routes.get('/vr/:vrUuid/references', async (req, res, next) => {
     }
     const refs = await findSrv6TunnelsReferencingVr(vrUuid);
     res.json({ vrUuid, count: refs.length, refs });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** 隧道健康巡检：BGP 公网/私网邻居、SRv6 数据面、CE A → CE B 可达性（附带四端 reconcile） */
+srv6Routes.get('/:id/health', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (
+        !(
+          role === 'super_admin' ||
+          perms.includes('networks.srv6:read') ||
+          perms.includes('networks.srv6:write')
+        )
+      ) {
+        return res.status(403).json({ message: '权限不足：需要读取权限 networks.srv6:read' });
+      }
+    }
+    const report = await buildSrv6TunnelHealth(String(req.params.id || ''));
+    if (!report) {
+      res.status(404).json({ message: '未找到隧道' });
+      return;
+    }
+    res.json({ code: 200, msg: 'ok', data: report });
   } catch (e) {
     next(e);
   }

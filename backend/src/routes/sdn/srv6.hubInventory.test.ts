@@ -1,8 +1,6 @@
 import {
   buildHubInventoryUi,
   emptyHubInventory,
-  ensureBgpSegmentFromLanInventory,
-  ensureInterfaceFromInventory,
   materializeHubInventoryForBinding,
   mergeInventoryWithBaselineCandidates,
   parseHubInventoryFromBaseline,

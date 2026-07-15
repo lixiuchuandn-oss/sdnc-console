@@ -28,22 +28,21 @@ describe('buildPageSearchEntries', () => {
     ]);
   });
 
-  it('二级 children 展开为独立条目', () => {
+  it('SDNCC 等平台扁平菜单：仅顶层 path 条目', () => {
     const entries = buildPageSearchEntries([
-      center('cen', '多云', [
-        {
-          key: 'grp',
-          label: '网络',
-          icon: null,
-          children: [{ key: '/admin/vpc', label: 'VPC', icon: null }],
-        },
+      center('/admin/cen_sdn', 'IBR 控制台', [
+        { key: '/admin/interconnect/vr', label: 'IBR实例', icon: null },
+        { key: '/admin/interconnect/srv6', label: 'SRv6隧道', icon: null },
       ]),
     ]);
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0].path).toBe('/admin/vpc');
-    expect(entries[0].title).toBe('VPC 网络 多云');
-    expect(entries[0].group).toBe('网络');
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      path: '/admin/interconnect/vr',
+      label: 'IBR实例',
+      group: 'IBR 控制台',
+      title: 'IBR实例 IBR 控制台',
+    });
   });
 
   it('SETTINGS 平台走 items 直推（无 children 分组）', () => {

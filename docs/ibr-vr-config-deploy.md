@@ -1,7 +1,7 @@
 # IBR 配置下发架构
 
-> **适用范围**：SDNC · IBR 管理（ACL / NAT / IPsec / SRv6）及 IBR 初始化通道。  
-> **关联**：全栈与 CSMCTL 边界见 [`sdnc-stack-integration.md`](./sdnc-stack-integration.md)；SRv6 隧道专项见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)。
+> **适用范围**：SDNC · IBR 管理（ACL / NAT / IPsec / SRv6 / HA·VRRP）及 IBR 初始化通道。  
+> **关联**：全栈与 CSMCTL 边界见 [`sdnc-stack-integration.md`](./sdnc-stack-integration.md)；SRv6 隧道专项见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)；**BGP RR 与 SRv6 共存（设计）**见 [`bgp-rr-design.md`](./bgp-rr-design.md)。
 
 ---
 
@@ -65,6 +65,7 @@ GET 设备 VR 全量 JSON
 | `nat` | `nat_address_group` | 由 `syncNatToVRConfig` 从 NAT 表生成；**不**覆盖设备 `nat[]` |
 | `ipsec` | `ipsec` | IPsec 条目规范化后覆盖 |
 | `srv6` | 平台意图中除 `acl` / `nat` / `nat_address_group` / `ipsec` 外的业务 key | 保留设备侧 ACL/NAT/IPsec 现网值 |
+| `vrrp` | （不走 slice merge） | HA 组：`haGroupVrrpMaterialize` 在设备底稿上定点 upsert `interface[].vrrp` + 顶层 `vrrp[]`，经 `preMergedConfig` 下发 |
 
 **漂移预览 API**：`GET /api/vr-config/:uuid/deploy-drift?domain=acl|nat|ipsec|srv6`
 
@@ -76,6 +77,7 @@ GET 设备 VR 全量 JSON
 | `POST /api/networks/nat/deploy/push` | 先 `syncNatToVRConfig`，再 push |
 | `POST /api/networks/ipsec/deploy/push` | 含 preview / verify（向导用） |
 | `POST /api/networks/srv6/deploy/push` | 含 preview |
+| `POST /api/ibr-ha-groups/:id/deploy` | HA 组 VRRP：主备串行 `pushVRConfig(domain: vrrp, preMergedConfig)`；成功 → `configured`，仅主成功 → `degraded` |
 
 ---
 
@@ -174,6 +176,31 @@ GET 设备 VR 全量 JSON
                              │ saveVRConfig + proxyApiRequest
                              ▼
                       CSMCTL 全量 POST（无分域漂移网关）
+```
+
+### 6.1 统一下发时序（Mermaid）
+
+与 [`bgp-rr-design.md`](./bgp-rr-design.md) §6.6 一致；RR 步骤为规划能力，现网已走 **保存 → recompute（baseline + SRv6）→ deploy/push** 同一网关。
+
+```mermaid
+sequenceDiagram
+  participant UI as 运维 / 向导
+  participant SDNC as SDNC 平台库
+  participant GW as pushVRConfig
+  participant CSM as CSMCTL
+  participant PE as PE 设备
+
+  Note over UI,SDNC: 平时：改 SRv6 或 RR 只改平台库
+  UI->>SDNC: 保存隧道 / 保存 RR 域
+  SDNC->>SDNC: recompute 合并 baseline + SRv6 + RR
+
+  Note over UI,PE: 点「下发」时
+  UI->>GW: deploy/push
+  GW->>CSM: GET 设备现网 VR2
+  GW->>GW: 设备底稿 + 平台意图 merge
+  GW->>CSM: POST 整份 JSON
+  CSM->>PE: 生效
+  GW->>SDNC: 成功则回写平台库
 ```
 
 ---

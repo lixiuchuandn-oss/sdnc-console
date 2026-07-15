@@ -121,55 +121,57 @@ export function usePageContainerToolbarActions({
     if (!hasActions) return null;
 
     return (
-      <Space>
-        {secondaryActions}
-        {primaryAction && (
-          <Button
-            type={primaryAction.type || 'primary'}
-            size={actionsSize}
-            disabled={primaryAction.disabled}
-            onClick={primaryAction.onClick}
-          >
-            {primaryAction.text}
-          </Button>
-        )}
-        {moreMenuItems && moreMenuItems.length > 0 && (
-          <Dropdown
-            menu={{
-              items: moreMenuItems.flatMap((m, idx) => {
-                const items: any[] = [];
-                if (idx > 0 && m.danger && !moreMenuItems[idx - 1].danger) {
-                  items.push({ type: 'divider' });
-                }
-                items.push({
-                  key: m.key,
-                  label: m.label,
-                  danger: m.danger,
-                  disabled: m.disabled,
-                  onClick: m.onClick ? () => m.onClick?.() : undefined,
-                });
-                return items;
-              }),
-            }}
-          >
-            <Button size={actionsSize} icon={<EllipsisOutlined />} />
-          </Dropdown>
-        )}
-        {tableProps && !externalColumnControl && (
-          <Popover trigger="click" placement="bottomRight" content={columnControllerContent}>
-            <Button size={actionsSize} icon={<SettingOutlined />} />
-          </Popover>
-        )}
-        {onRefresh && (
-          <Button
-            size={actionsSize}
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              (onRefresh as (force?: boolean) => void)(true);
-            }}
-          />
-        )}
-      </Space>
+      <div className="toolbar-actions">
+        <Space size={8} wrap>
+          {primaryAction && (
+            <Button
+              type={primaryAction.type || 'primary'}
+              size={actionsSize}
+              disabled={primaryAction.disabled}
+              onClick={primaryAction.onClick}
+            >
+              {primaryAction.text}
+            </Button>
+          )}
+          {secondaryActions}
+          {moreMenuItems && moreMenuItems.length > 0 && (
+            <Dropdown
+              menu={{
+                items: moreMenuItems.flatMap((m, idx) => {
+                  const items: any[] = [];
+                  if (idx > 0 && m.danger && !moreMenuItems[idx - 1].danger) {
+                    items.push({ type: 'divider' });
+                  }
+                  items.push({
+                    key: m.key,
+                    label: m.label,
+                    danger: m.danger,
+                    disabled: m.disabled,
+                    onClick: m.onClick ? () => m.onClick?.() : undefined,
+                  });
+                  return items;
+                }),
+              }}
+            >
+              <Button size={actionsSize} icon={<EllipsisOutlined />} />
+            </Dropdown>
+          )}
+          {tableProps && !externalColumnControl && (
+            <Popover trigger="click" placement="bottomRight" content={columnControllerContent}>
+              <Button size={actionsSize} icon={<SettingOutlined />} />
+            </Popover>
+          )}
+          {onRefresh && (
+            <Button
+              size={actionsSize}
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                (onRefresh as (force?: boolean) => void)(true);
+              }}
+            />
+          )}
+        </Space>
+      </div>
     );
   }, [
     toolbarRight,

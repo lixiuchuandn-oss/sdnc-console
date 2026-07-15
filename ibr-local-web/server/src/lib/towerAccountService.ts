@@ -1,10 +1,11 @@
 /**
- * 与 v1 vrlocalctl `/api/account/login` 对齐：请求 Compute.Tower 登录、可选 SASE 绑定、写入 state.json。
+ * 平台账号登录：IBR 管理面走 SDN Console；安全业务面（Compute Tower）可选绑定租户。
  */
 import http from 'node:http';
 import https from 'node:https';
 import { URL } from 'node:url';
 import type { JsonObject } from '../vrwizard.js';
+import { readSdncConsoleBase } from './sdncServiceConfig.js';
 import { readTowerBase } from './towerAuth.js';
 import { getPaths, loadState, readRegisterVrName, readVrUuid, saveState } from '../vrwizard.js';
 
@@ -58,6 +59,28 @@ function requestJsonInsecure(
 	});
 }
 
+/** SDN Console 登录（无租户语义） */
+async function callSdncConsoleLogin(base: string, username: string, password: string): Promise<Record<string, unknown>> {
+	const url = base.replace(/\/+$/, '') + '/api/auth/login';
+	const { status, json } = await requestJsonInsecure(
+		'POST',
+		url,
+		{ 'Content-Type': 'application/json', 'User-Agent': 'VRConsole/2.0' },
+		JSON.stringify({ username, password }),
+	);
+	if (status === 401) {
+		throw new Error('用户名或密码错误');
+	}
+	if (status < 200 || status >= 300) {
+		throw new Error(`SDN Console 登录失败: HTTP ${status}`);
+	}
+	if (!json || typeof json !== 'object') {
+		throw new Error('SDN Console 响应格式错误');
+	}
+	return json as Record<string, unknown>;
+}
+
+/** Compute Tower 租户登录（安全业务面，保留兼容） */
 async function callTowerLogin(base: string, username: string, password: string): Promise<Record<string, unknown>> {
 	const url = base.replace(/\/+$/, '') + '/api/sase/auth/login';
 	const { status, json } = await requestJsonInsecure(
@@ -70,15 +93,15 @@ async function callTowerLogin(base: string, username: string, password: string):
 		throw new Error('用户名或密码错误');
 	}
 	if (status < 200 || status >= 300) {
-		throw new Error(`Compute.Tower 登录失败: HTTP ${status}`);
+		throw new Error(`Compute Tower 登录失败: HTTP ${status}`);
 	}
 	if (!json || typeof json !== 'object') {
-		throw new Error('Compute.Tower 响应格式错误');
+		throw new Error('Compute Tower 响应格式错误');
 	}
 	const root = json as Record<string, unknown>;
 	const data = (root.data ?? root) as Record<string, unknown>;
 	if (!data || typeof data !== 'object') {
-		throw new Error('Compute.Tower 响应无有效 data');
+		throw new Error('Compute Tower 响应无有效 data');
 	}
 	return data;
 }
@@ -92,7 +115,7 @@ type BindResult = {
 	bind_status?: string;
 };
 
-async function callSaseBind(
+async function callTowerBind(
 	base: string,
 	token: string,
 	vrUuid: string,
@@ -121,15 +144,15 @@ async function callSaseBind(
 		}),
 	);
 	if (status < 200 || status >= 300) {
-		throw new Error(`SASE 绑定失败: HTTP ${status}`);
+		throw new Error(`Tower 绑定失败: HTTP ${status}`);
 	}
 	const data = json as Record<string, unknown> | null;
 	if (!data || typeof data !== 'object') {
-		throw new Error('SASE 绑定响应格式错误');
+		throw new Error('Tower 绑定响应格式错误');
 	}
 	const vu = String(data.vr_unique_id ?? '').trim();
 	if (!vu) {
-		throw new Error('SASE 绑定未返回 vr_unique_id');
+		throw new Error('Tower 绑定未返回 vr_unique_id');
 	}
 	return {
 		vr_unique_id: vu,
@@ -153,11 +176,17 @@ export async function runAccountLogin(req: LoginBody): Promise<{
 	}
 
 	const paths = getPaths();
-	const towerBase = readTowerBase(paths);
+	const sdncBase = readSdncConsoleBase(paths);
+	const computeTowerBase = readTowerBase(paths);
 	let remote: Record<string, unknown> = {};
+	let loginPlane: 'sdnc' | 'tower' | null = null;
 
-	if (towerBase) {
-		remote = await callTowerLogin(towerBase, username, password);
+	if (sdncBase) {
+		remote = await callSdncConsoleLogin(sdncBase, username, password);
+		loginPlane = 'sdnc';
+	} else if (computeTowerBase) {
+		remote = await callTowerLogin(computeTowerBase, username, password);
+		loginPlane = 'tower';
 	}
 
 	const tenantId = String(remote.tenant_id ?? req.tenant_id ?? '').trim();
@@ -191,9 +220,11 @@ export async function runAccountLogin(req: LoginBody): Promise<{
 	let bindError: string | undefined;
 
 	const vrType = (req.vr_type ?? 'sase').trim() || 'sase';
+	const bindBase = loginPlane === 'sdnc' ? sdncBase : computeTowerBase;
 
 	try {
-		if (towerBase && token && tenantId && orgId && vrUuid) {
+		// SDNC 管理面无租户：仅登录拿 token，不做租户绑定
+		if (loginPlane === 'tower' && bindBase && token && tenantId && orgId && vrUuid) {
 			bindAttempted = true;
 			const vmId =
 				(typeof remote.vm_id === 'string' && remote.vm_id.trim()) ||
@@ -201,8 +232,8 @@ export async function runAccountLogin(req: LoginBody): Promise<{
 				'local-vr';
 			const remoteName = String(remote.display_name ?? remote.name ?? '').trim();
 			const displayName = localVrName || remoteName || 'local-vr';
-			bindResult = await callSaseBind(
-				towerBase,
+			bindResult = await callTowerBind(
+				bindBase,
 				token,
 				vrUuid,
 				tenantId,
@@ -211,8 +242,10 @@ export async function runAccountLogin(req: LoginBody): Promise<{
 				displayName,
 				vrType,
 			);
+		} else if (loginPlane === 'sdnc') {
+			bindReason = 'sdnc_management_plane';
 		} else {
-			if (!towerBase) bindReason = 'missing_tower_base';
+			if (!bindBase) bindReason = 'missing_management_base';
 			else if (!token) bindReason = 'missing_access_token';
 			else if (!tenantId) bindReason = 'missing_tenant_id';
 			else if (!orgId) bindReason = 'missing_org_id';
@@ -233,7 +266,7 @@ export async function runAccountLogin(req: LoginBody): Promise<{
 	}
 
 	if (!account.access_token) {
-		throw new Error('登录未成功，请检查账号密码或 Tower 服务配置。');
+		throw new Error('登录未成功，请检查账号密码或 SDN Console / Compute Tower 服务配置。');
 	}
 
 	const state = loadState(paths);
@@ -243,6 +276,7 @@ export async function runAccountLogin(req: LoginBody): Promise<{
 	const bind: Record<string, unknown> = {
 		attempted: bindAttempted,
 		reason: bindReason,
+		login_plane: loginPlane,
 	};
 	if (bindResult) {
 		bind.status = bindResult.bind_status || 'BOUND';

@@ -19,12 +19,12 @@ export const HEALTH_CHECK_TABS: VrConsoleHealthCheckTabDef[] = [
 	{
 		id: 'ping',
 		label: '连通性测试',
-		description: 'vbras CLI ping，经 cli.sock 探测目标 IPv4 可达性',
+		description: '经 local-web 调 clish「do ping」探测目标 IPv4 可达性',
 		sourceLabel: '设备 · 代理',
 	},
 ];
 
-export const HEALTH_CHECK_DEFAULT_TAB: VrConsoleHealthCheckTabId = 'cli';
+const HEALTH_CHECK_DEFAULT_TAB: VrConsoleHealthCheckTabId = 'cli';
 
 /** 旧侧栏 panel= 迁移到健康巡检 Tab */
 export const LEGACY_PANEL_TO_HEALTH_TAB: Partial<Record<string, VrConsoleHealthCheckTabId>> = {

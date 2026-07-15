@@ -9,12 +9,34 @@ import {
   mapDeployErrorToResponse,
   type VrConfigDeployDomain,
 } from '../../services/vrouter/vrConfigDeploy';
+import { checkPermission } from '../../permissions';
 import { logger } from '../../utils/logger';
 
 const vrConfigLog = logger.child('VR-Config');
 
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function reqPerms(req: import('express').Request): string[] {
+  const perms = (req as any).user?.permissions;
+  return Array.isArray(perms) ? perms : [];
+}
+
+function hasVrConfigRead(req: import('express').Request): boolean {
+  const role = (req as any).user?.role;
+  if (role === 'super_admin') return true;
+  const perms = reqPerms(req);
+  return (
+    checkPermission(perms, 'networks.vr-config:read') ||
+    checkPermission(perms, 'networks.vr-config:write')
+  );
+}
+
+function hasVrConfigWrite(req: import('express').Request): boolean {
+  const role = (req as any).user?.role;
+  if (role === 'super_admin') return true;
+  return checkPermission(reqPerms(req), 'networks.vr-config:write');
 }
 
 export const vrConfigRoutes = Router();
@@ -59,6 +81,9 @@ vrConfigRoutes.get('/:uuid/deploy-drift', async (req, res) => {
 // Get Cached VR Config (from DB)
 vrConfigRoutes.get('/:uuid/cached', async (req, res) => {
   try {
+    if (!hasVrConfigRead(req)) {
+      return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
+    }
     const { uuid } = req.params;
     if (!uuid) return res.status(400).json({ message: 'UUID required' });
 
@@ -83,6 +108,7 @@ vrConfigRoutes.get('/:uuid/cached', async (req, res) => {
       meta: {
         updatedAt: record.updated_at,
         role: record.role,
+        managementIp: record.managementIp || null,
       },
     });
   } catch (err: any) {
@@ -107,6 +133,9 @@ function getTenantContext(req: any) {
 // Bind VR to Tenant
 vrConfigRoutes.post('/bind', async (req, res) => {
   try {
+    if (!hasVrConfigWrite(req)) {
+      return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
+    }
     const ctx = getTenantContext(req as any);
     const { vm_id, vr_uuid, tenant_id, org_id, device_fingerprint, display_name, vr_type } =
       req.body || {};
@@ -146,14 +175,17 @@ vrConfigRoutes.post('/bind', async (req, res) => {
 function canReportManagementIp(req: any): boolean {
   const role = req.user?.role;
   const perms: string[] = Array.isArray(req.user?.permissions) ? req.user.permissions : [];
-  if (role === 'super_admin' || perms.includes('*')) return true;
-  if (perms.includes('networks.vr-config:write')) return true;
+  if (role === 'super_admin') return true;
+  if (checkPermission(perms, 'networks.vr-config:write')) return true;
+  // 租户用户可上报自有 VR 管理口（设备侧仍走 public 路由）
   if (role === 'tenant' || req.user?.isTenantUser) return true;
-  if (role === 'admin') return true;
   return false;
 }
 
-/** 设备 Paas Console 上报 IBR 管理口 IPv4 */
+/**
+ * 管理端/租户用户上报 IBR 管理口 IPv4（需 JWT）。
+ * 无人值守 IBR 设备请走 `POST /api/public/vr-config/report-management-ip`（vr_uuid 自标识）。
+ */
 vrConfigRoutes.post('/report-management-ip', async (req, res) => {
   try {
     if (!canReportManagementIp(req as any)) {
@@ -179,6 +211,9 @@ vrConfigRoutes.post('/report-management-ip', async (req, res) => {
 // List VRs (from database)
 vrConfigRoutes.get('/list', async (req, res) => {
   try {
+    if (!hasVrConfigRead(req)) {
+      return res.status(403).json({ message: '权限不足：需要读取权限 networks.vr-config:read' });
+    }
     const ctx = getTenantContext(req as any);
     const repository = AppDataSource.getRepository(VRConfig);
 
@@ -266,26 +301,6 @@ vrConfigRoutes.get('/list', async (req, res) => {
     return res.json({ items: data });
   } catch (err: any) {
     vrConfigLog.error('list error', errMsg(err));
-    return res.status(500).json({ message: err?.message || '内部错误' });
-  }
-});
-
-// Delete VR Config (Unbind/Remove from DB)
-vrConfigRoutes.delete('/:uuid', async (req, res) => {
-  try {
-    const { uuid } = req.params;
-    if (!uuid) return res.status(400).json({ message: 'UUID required' });
-
-    const repo = AppDataSource.getRepository(VRConfig);
-    const result = await repo.delete({ uuid });
-
-    if (result.affected === 0) {
-      return res.status(404).json({ message: 'VR config not found' });
-    }
-
-    return res.json({ message: 'ok', uuid });
-  } catch (err: any) {
-    vrConfigLog.error('delete error', errMsg(err));
     return res.status(500).json({ message: err?.message || '内部错误' });
   }
 });
@@ -499,6 +514,9 @@ vrConfigRoutes.get('/roles-vr2', async (req, res) => {
       : [];
     if (uuids.length === 0) {
       return res.status(400).json({ code: 400, msg: '缺少 uuids 参数' });
+    }
+    if (uuids.length > 50) {
+      return res.status(400).json({ code: 400, msg: 'uuids 单次最多 50 个' });
     }
     const { resolveVrRolesWithFallback } = await import('../../services/vrouter/ibrVrRoleResolve');
     const roleMap = await resolveVrRolesWithFallback(uuids);

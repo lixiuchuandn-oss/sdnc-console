@@ -17,6 +17,9 @@ import type {
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 
+/** Type-0 RD/RT：`数字:数字`（与前端 isValidRdRtToken 一致） */
+const isValidRdRtToken = (value: unknown): boolean => /^\d+:\d+$/.test(normalizeText(value));
+
 const parseJsonObject = (raw: unknown): Record<string, unknown> | null => {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
   if (typeof raw !== 'string') return null;
@@ -200,6 +203,53 @@ const extractCeWanIpv4 = (cfg: Record<string, unknown>): string | undefined => {
   return extractPortIpv4(cfg, 0);
 };
 
+/** CE LAN：优先 ce.lanConfig / lanName，否则第二网口 IPv4 */
+export const extractCeLanIpv4 = (cfg: Record<string, unknown>): string | undefined => {
+  const ce = cfg.ce;
+  const ceObj = ce && typeof ce === 'object' ? (ce as Record<string, unknown>) : undefined;
+  if (ceObj) {
+    const lanConfig = ceObj.lanConfig;
+    if (Array.isArray(lanConfig)) {
+      for (const row of lanConfig) {
+        if (!row || typeof row !== 'object') continue;
+        const r = row as Record<string, unknown>;
+        const direct = trimPrefix(r.lanIpv4 ?? r.ifIpv4);
+        if (direct) return direct;
+        const lanName = normalizeText(r.lanName ?? r.ifName);
+        if (lanName) {
+          const byName = extractInterfaceIpv4(cfg, lanName);
+          if (byName) return byName;
+        }
+      }
+    }
+    const topDirect = trimPrefix(ceObj.lanIpv4 ?? ceObj.ifIpv4);
+    if (topDirect) return topDirect;
+    const topLan = normalizeText(ceObj.lanName ?? ceObj.ifName);
+    if (topLan) {
+      const byName = extractInterfaceIpv4(cfg, topLan);
+      if (byName) return byName;
+    }
+  }
+  return extractPortIpv4(cfg, 1);
+};
+
+export const extractCeLanIf = (cfg: Record<string, unknown>): string | undefined => {
+  const ce = cfg.ce;
+  const ceObj = ce && typeof ce === 'object' ? (ce as Record<string, unknown>) : undefined;
+  if (!ceObj) return undefined;
+  const lanConfig = ceObj.lanConfig;
+  if (Array.isArray(lanConfig)) {
+    for (const row of lanConfig) {
+      if (!row || typeof row !== 'object') continue;
+      const name = normalizeText(
+        (row as Record<string, unknown>).lanName ?? (row as Record<string, unknown>).ifName,
+      );
+      if (name) return name;
+    }
+  }
+  return normalizeText(ceObj.lanName ?? ceObj.ifName) || undefined;
+};
+
 const extractInterfaceIpv6 = (cfg: Record<string, unknown>, ifName?: string): string | undefined => {
   if (!ifName) return undefined;
   for (const k of Object.keys(cfg)) {
@@ -256,6 +306,8 @@ export const computePeFingerprint = (
 
 export const computeCeFingerprint = (cfg: Record<string, unknown>): Srv6CeFingerprint => ({
   publicIpv4: extractCeWanIpv4(cfg),
+  lanIpv4: extractCeLanIpv4(cfg),
+  lanIf: extractCeLanIf(cfg),
   publicBgpAsn: extractBgpAsnAt(cfg, 0),
   innerBgpAsn: extractBgpAsnAt(cfg, 1),
 });
@@ -291,11 +343,26 @@ export const parseSrv6ArchiveFromBody = (
   if (raw.rdRtMeta !== undefined && raw.rdRtMeta !== null) {
     const meta = raw.rdRtMeta as Record<string, unknown>;
     const rtCommon = normalizeText(meta.rtCommon);
-    const rdMap = meta.rdMap;
-    if (!rtCommon || !rdMap || typeof rdMap !== 'object') {
+    const rdMapRaw = meta.rdMap;
+    if (!rtCommon || !rdMapRaw || typeof rdMapRaw !== 'object') {
       return { ok: false, message: '路由标识（RD/RT）格式无效：缺少公共 RT 或 PE 侧 RD 映射' };
     }
-    archive.rdRtMeta = { rtCommon, rdMap: rdMap as Record<string, string> };
+    const rdMapObj = rdMapRaw as Record<string, unknown>;
+    const peA = normalizeText(rdMapObj.peA);
+    const peB = normalizeText(rdMapObj.peB);
+    if (!peA || !peB) {
+      return { ok: false, message: '路由标识（RD/RT）格式无效：缺少 PE-A / PE-B 的 RD' };
+    }
+    if (![rtCommon, peA, peB].every(isValidRdRtToken)) {
+      return {
+        ok: false,
+        message: '路由标识（RD/RT）须为「数字:数字」格式（例如 200:100 或 65001:1）',
+      };
+    }
+    if (peA === peB) {
+      return { ok: false, message: 'PE-A 与 PE-B 的 RD 不能相同' };
+    }
+    archive.rdRtMeta = { rtCommon, rdMap: { peA, peB } };
   } else if (raw.rdRtMeta === null) {
     archive.rdRtMeta = null;
   }
@@ -348,6 +415,33 @@ export const parseSrv6ArchiveFromBody = (
       }
       archive.hubBindings = parsedBinding;
     }
+  }
+
+  const parseNeighborMode = (value: unknown): 'static' | 'rr_domain' | null | undefined => {
+    if (value === undefined) return undefined;
+    if (value === null || value === '') return null;
+    const m = normalizeText(value).toLowerCase();
+    if (m === 'static' || m === 'rr_domain') return m;
+    return undefined;
+  };
+
+  const modeA = parseNeighborMode(raw.peANeighborMode);
+  if (raw.peANeighborMode !== undefined && modeA === undefined && normalizeText(raw.peANeighborMode)) {
+    return { ok: false, message: 'peANeighborMode 须为 static 或 rr_domain' };
+  }
+  if (modeA !== undefined) archive.peANeighborMode = modeA;
+
+  const modeB = parseNeighborMode(raw.peBNeighborMode);
+  if (raw.peBNeighborMode !== undefined && modeB === undefined && normalizeText(raw.peBNeighborMode)) {
+    return { ok: false, message: 'peBNeighborMode 须为 static 或 rr_domain' };
+  }
+  if (modeB !== undefined) archive.peBNeighborMode = modeB;
+
+  if (raw.peARrDomainId !== undefined) {
+    archive.peARrDomainId = normalizeText(raw.peARrDomainId) || null;
+  }
+  if (raw.peBRrDomainId !== undefined) {
+    archive.peBRrDomainId = normalizeText(raw.peBRrDomainId) || null;
   }
 
   return { ok: true, archive };
@@ -424,10 +518,30 @@ export const validateTunnelArchiveRequired = (tunnel: {
   hubVrfMode?: Srv6HubVrfMode | null;
   peA?: string;
   peB?: string;
+  peANeighborMode?: 'static' | 'rr_domain' | null;
+  peBNeighborMode?: 'static' | 'rr_domain' | null;
+  peARrDomainId?: string | null;
+  peBRrDomainId?: string | null;
 }): { ok: true } | { ok: false; message: string } => {
   if (!normalizeText(tunnel.peAInnerIf) || !normalizeText(tunnel.peBInnerIf)) {
     return { ok: false, message: '缺少关系档案：须指定 PE-A / PE-B 内网接口' };
   }
+
+  const checkPeRr = (label: string, mode: 'static' | 'rr_domain' | null | undefined, domainId?: string | null) => {
+    const m = mode ?? 'static';
+    if (m === 'rr_domain' && !normalizeText(domainId)) {
+      return `${label}：邻居模式为 RR 反射域时须选择 RR 域`;
+    }
+    if (m === 'static' && normalizeText(domainId)) {
+      return `${label}：静态邻居模式不应指定 RR 域`;
+    }
+    return null;
+  };
+  const peAErr = checkPeRr('PE-A', tunnel.peANeighborMode, tunnel.peARrDomainId);
+  if (peAErr) return { ok: false, message: peAErr };
+  const peBErr = checkPeRr('PE-B', tunnel.peBNeighborMode, tunnel.peBRrDomainId);
+  if (peBErr) return { ok: false, message: peBErr };
+
   if (!tunnel.rdRtMeta?.rtCommon || !tunnel.rdRtMeta?.rdMap?.peA || !tunnel.rdRtMeta?.rdMap?.peB) {
     return { ok: false, message: '缺少关系档案：须包含公共 RT 与 PE-A / PE-B 的路由标识（RD）' };
   }
@@ -492,6 +606,10 @@ export const mergeArchiveIntoTunnel = (
     hubPeSlot?: 'peA' | 'peB' | null;
     hubBindings?: Srv6HubSlotBinding | null;
     hubVrfMode?: Srv6HubVrfMode | null;
+    peANeighborMode?: 'static' | 'rr_domain' | null;
+    peBNeighborMode?: 'static' | 'rr_domain' | null;
+    peARrDomainId?: string | null;
+    peBRrDomainId?: string | null;
   },
   archive: Srv6TunnelArchiveFields,
 ) => {
@@ -504,4 +622,8 @@ export const mergeArchiveIntoTunnel = (
   if (archive.hubPeSlot !== undefined) target.hubPeSlot = archive.hubPeSlot;
   if (archive.hubBindings !== undefined) target.hubBindings = archive.hubBindings;
   if (archive.hubVrfMode !== undefined) target.hubVrfMode = archive.hubVrfMode;
+  if (archive.peANeighborMode !== undefined) target.peANeighborMode = archive.peANeighborMode;
+  if (archive.peBNeighborMode !== undefined) target.peBNeighborMode = archive.peBNeighborMode;
+  if (archive.peARrDomainId !== undefined) target.peARrDomainId = archive.peARrDomainId;
+  if (archive.peBRrDomainId !== undefined) target.peBRrDomainId = archive.peBRrDomainId;
 };

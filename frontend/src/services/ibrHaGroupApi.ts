@@ -72,3 +72,15 @@ export async function replaceIbrHaGroupMembers(
 export async function deleteIbrHaGroup(id: string): Promise<void> {
 	await apiDelete(`/api/ibr-ha-groups/${encodeURIComponent(id)}`);
 }
+
+export type IbrHaGroupDeployResult = {
+	group: IbrHaGroup;
+	primary: { status: string; mergedConfig?: unknown };
+	backup: { status: string; mergedConfig?: unknown };
+};
+
+/** 将 vrrpIntent 经 CSMCTL 下发主备两台 IBR */
+export async function deployIbrHaGroup(id: string): Promise<IbrHaGroupDeployResult> {
+	const res = await apiPost(`/api/ibr-ha-groups/${encodeURIComponent(id)}/deploy`, {});
+	return unwrapData<IbrHaGroupDeployResult>(res);
+}

@@ -32,6 +32,8 @@ export type HubLanInventoryItem = {
   ipv6?: string;
   privateAsn: number;
   routerId: string;
+  routeDistinguisher?: string;
+  routeTarget?: string;
   source: HubInventorySource;
   createdByTunnelId?: string;
   createdAt: string;
@@ -72,10 +74,16 @@ const normalizeWanItem = (item: HubWanInventoryItem): HubWanInventoryItem => ({
   source: normalizeInventorySource(item.source),
 });
 
-const normalizeLanItem = (item: HubLanInventoryItem): HubLanInventoryItem => ({
-  ...item,
-  source: normalizeInventorySource(item.source),
-});
+const normalizeLanItem = (item: HubLanInventoryItem): HubLanInventoryItem => {
+  const rd = String(item.routeDistinguisher ?? '').trim();
+  const rt = String(item.routeTarget ?? '').trim();
+  return {
+    ...item,
+    ...(rd ? { routeDistinguisher: rd } : {}),
+    ...(rt ? { routeTarget: rt } : {}),
+    source: normalizeInventorySource(item.source),
+  };
+};
 
 const vrRepo = () => AppDataSource.getRepository(VRConfig);
 
@@ -248,7 +256,12 @@ const readIfaceIpv4 = (row: Record<string, unknown>): string | undefined => {
 const findBgpForVrf = (
   baseline: Record<string, unknown>,
   vrf: number,
-): { asn: number; routerId: string } | null => {
+): {
+  asn: number;
+  routerId: string;
+  routeDistinguisher?: string;
+  routeTarget?: string;
+} | null => {
   const bgp = baseline.bgp;
   if (!Array.isArray(bgp)) return null;
   const hit = bgp.find((b) => b && typeof b === 'object' && Number((b as Record<string, unknown>).vrf) === vrf) as
@@ -258,7 +271,21 @@ const findBgpForVrf = (
   const asn = Number(hit.asn);
   const routerId = normIf(hit.router_id ?? hit.routerId);
   if (!Number.isFinite(asn) || !routerId) return null;
-  return { asn, routerId };
+  const afs = Array.isArray(hit.address_family) ? (hit.address_family as Record<string, unknown>[]) : [];
+  const af =
+    afs.find(
+      (a) =>
+        String(a?.address_family || '').toLowerCase() === 'ipv4' &&
+        String(a?.modifiler || a?.modifier || '').toLowerCase() === 'unicast',
+    ) || afs[0];
+  const rd = normIf(af?.route_distinguisher);
+  const rt = normIf(af?.route_target);
+  return {
+    asn,
+    routerId,
+    ...(rd ? { routeDistinguisher: rd } : {}),
+    ...(rt ? { routeTarget: rt } : {}),
+  };
 };
 
 /** 从 Hub PE SRv6 基线 interfaces_* 提取尚未写入 inventory 的 WAN/LAN 候选 */
@@ -297,6 +324,8 @@ export const extractHubBaselineInterfaceCandidates = (
           ipv6: ipv6 || undefined,
           privateAsn: bgpMeta.asn,
           routerId: bgpMeta.routerId,
+          routeDistinguisher: bgpMeta.routeDistinguisher,
+          routeTarget: bgpMeta.routeTarget,
           source: 'device_baseline',
           createdAt: now,
         });

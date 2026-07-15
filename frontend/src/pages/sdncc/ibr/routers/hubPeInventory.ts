@@ -28,6 +28,10 @@ export type HubLanInventoryItem = {
   ipv6?: string;
   privateAsn: number;
   routerId: string;
+  /** BGP VPN · Route Distinguisher（与设备 address_family.route_distinguisher 对齐） */
+  routeDistinguisher?: string;
+  /** BGP VPN · Route Target（与设备 address_family.route_target 对齐） */
+  routeTarget?: string;
   source: HubInventorySource;
   createdByTunnelId?: string;
   createdAt: string;
@@ -57,6 +61,8 @@ export type HubLanFormRow = {
   ipv6?: string;
   asn?: number;
   routerId?: string;
+  routeDistinguisher?: string;
+  routeTarget?: string;
 };
 
 const normIf = (v: unknown) => String(v ?? '').trim();
@@ -174,6 +180,8 @@ export const buildHubInventoryFromPeWizardValues = (
       ipv6: r.ipv6?.trim() || undefined,
       privateAsn: Number(r.asn),
       routerId: normIf(r.routerId),
+      routeDistinguisher: normIf(r.routeDistinguisher) || undefined,
+      routeTarget: normIf(r.routeTarget) || undefined,
       source: 'role_wizard' as const,
       createdAt: existing?.lan.find((l) => l.id === resolveLanId(r, existing))?.createdAt ?? now,
     }));
@@ -230,6 +238,8 @@ export const hubInventoryToPeWizardForm = (
           ipv6: l.ipv6,
           asn: l.privateAsn,
           routerId: l.routerId,
+          routeDistinguisher: l.routeDistinguisher,
+          routeTarget: l.routeTarget,
         })),
     };
   }

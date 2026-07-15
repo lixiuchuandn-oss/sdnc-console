@@ -96,6 +96,8 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 	const [extraCidrByIfname, setExtraCidrByIfname] = useState<Record<string, string>>({});
 
 	const [form] = Form.useForm<{ public_ip?: string; private_ip?: string }>();
+	const watchedPublicIp = Form.useWatch('public_ip', form);
+	const watchedPrivateIp = Form.useWatch('private_ip', form);
 
 	const loadStatus = useCallback(async () => {
 		setRefreshing(true);
@@ -280,26 +282,38 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 									<div className="ibr-console-set-ip-row-title">WAN 口</div>
 									<div className="ibr-console-set-ip-row-desc">接口 {wanIf}</div>
 								</div>
-								<Form.Item name="public_ip" rules={[WAN_CIDR_RULE]} className="ibr-console-set-ip-field">
-									<Input
-										className="ibr-console-ops-input"
-										placeholder="例如 10.0.0.2/24"
-										disabled={writeDisabled || saving}
-									/>
-								</Form.Item>
+								{canWrite ? (
+									<Form.Item name="public_ip" rules={[WAN_CIDR_RULE]} className="ibr-console-set-ip-field">
+										<Input
+											className="ibr-console-ops-input"
+											placeholder="例如 10.0.0.2/24"
+											disabled={writeDisabled || saving}
+										/>
+									</Form.Item>
+								) : (
+									<Typography.Text className="ibr-console-set-ip-field">
+										{watchedPublicIp || '—'}
+									</Typography.Text>
+								)}
 							</div>
 							<div className="ibr-console-set-ip-row">
 								<div className="ibr-console-set-ip-row-meta">
 									<div className="ibr-console-set-ip-row-title">LAN 口</div>
 									<div className="ibr-console-set-ip-row-desc">接口 {lanIf}</div>
 								</div>
-								<Form.Item name="private_ip" rules={[LAN_CIDR_RULE]} className="ibr-console-set-ip-field">
-									<Input
-										className="ibr-console-ops-input"
-										placeholder="例如 192.168.1.1/24"
-										disabled={writeDisabled || saving}
-									/>
-								</Form.Item>
+								{canWrite ? (
+									<Form.Item name="private_ip" rules={[LAN_CIDR_RULE]} className="ibr-console-set-ip-field">
+										<Input
+											className="ibr-console-ops-input"
+											placeholder="例如 192.168.1.1/24"
+											disabled={writeDisabled || saving}
+										/>
+									</Form.Item>
+								) : (
+									<Typography.Text className="ibr-console-set-ip-field">
+										{watchedPrivateIp || '—'}
+									</Typography.Text>
+								)}
 							</div>
 						</div>
 						{applyError || applyLogs.length > 0 ? (
@@ -356,17 +370,23 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 												<div className="ibr-console-set-ip-row-title">{label}</div>
 												<div className="ibr-console-set-ip-row-desc">{descParts.join(' · ')}</div>
 											</div>
-											<Input
-												className="ibr-console-ops-input ibr-console-set-ip-field-input"
-												disabled={!canWrite || !c.attached || !c.ifname || extraSaving || writeDisabled}
-												placeholder="例如 192.168.10.1/24"
-												value={c.ifname ? extraCidrByIfname[c.ifname] ?? '' : ''}
-												onChange={(e) => {
-													if (!c.ifname) return;
-													const v = e.target.value;
-													setExtraCidrByIfname((prev) => ({ ...prev, [c.ifname]: v }));
-												}}
-											/>
+											{canWrite ? (
+												<Input
+													className="ibr-console-ops-input ibr-console-set-ip-field-input"
+													disabled={!c.attached || !c.ifname || extraSaving || writeDisabled}
+													placeholder="例如 192.168.10.1/24"
+													value={c.ifname ? extraCidrByIfname[c.ifname] ?? '' : ''}
+													onChange={(e) => {
+														if (!c.ifname) return;
+														const v = e.target.value;
+														setExtraCidrByIfname((prev) => ({ ...prev, [c.ifname]: v }));
+													}}
+												/>
+											) : (
+												<Typography.Text className="ibr-console-set-ip-field">
+													{(c.ifname ? extraCidrByIfname[c.ifname] : '') || c.currentIp || '—'}
+												</Typography.Text>
+											)}
 										</div>
 									);
 								})}

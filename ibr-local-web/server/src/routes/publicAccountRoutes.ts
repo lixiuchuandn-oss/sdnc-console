@@ -57,7 +57,7 @@ export function createPublicAccountRouter() {
 
 	r.get('/status', (_req, res) => {
 		const paths = getPaths();
-		let state = loadState(paths);
+		const state = loadState(paths);
 		const account = state.account;
 		if (account && typeof account === 'object') {
 			const exp = (account as Record<string, unknown>).expires_at;

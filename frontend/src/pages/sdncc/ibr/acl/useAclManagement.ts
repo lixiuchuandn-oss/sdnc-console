@@ -16,7 +16,7 @@ import {
 import { loadIbrVrCatalog, syncAndLoadIbrVrCatalog } from '../lib/ibrVrCatalog';
 import { DeployDriftCancelledError, runIbrDeployPushInteractive } from '../lib/vrConfigDeployFlow';
 
-export type AclTabKey = 'groups' | 'rules';
+type AclTabKey = 'groups' | 'rules';
 
 export function useAclManagement(scopedVrUuid?: string) {
 	const scopedVr = String(scopedVrUuid || '').trim();
@@ -323,83 +323,6 @@ export function useAclManagement(scopedVrUuid?: string) {
 		setGroupDrawerOpen(true);
 	}, [groupForm, scopedVr]);
 
-	const [createAclForm] = Form.useForm<{ acl_id: string }>();
-
-	/** 控制台「创建 ACL」：仅 ACL 编号，对齐 ibr-local-web */
-	const handleCreateAclById = useCallback(async () => {
-		try {
-			const values = await createAclForm.validateFields();
-			const raw = String(values.acl_id ?? '').trim();
-			const aclId = Number(raw);
-			if (!raw || !Number.isFinite(aclId) || aclId < 1001 || aclId > 4000) {
-				message.error('请输入 1001-4000 之间的 ACL 编号');
-				return false;
-			}
-			if (!scopedVr) {
-				message.error('未绑定 IBR，无法创建');
-				return false;
-			}
-			setSubmitting(true);
-			await createACLGroup({
-				name: `ACL-${aclId}`,
-				vrId: scopedVr,
-				aclId,
-				description: '',
-			});
-			message.success('已创建');
-			createAclForm.resetFields();
-			await fetchGroups(true);
-			return true;
-		} catch (e: unknown) {
-			if (e && typeof e === 'object' && 'errorFields' in e) return false;
-			const msg = e instanceof Error ? e.message : String(e);
-			message.error(`创建失败: ${msg}`);
-			return false;
-		} finally {
-			setSubmitting(false);
-		}
-	}, [createAclForm, fetchGroups, scopedVr]);
-
-	/** 规则 Modal（ibr-local-web 字段）→ Tower ACL 规则 */
-	const handleAddRuleFromModal = useCallback(
-		async (group: ACLGroup, values: Record<string, unknown>) => {
-			const proto = String(values.proto ?? '').trim();
-			const sport = String(values.sport ?? '').trim();
-			const dport = String(values.dport ?? '').trim();
-			if ((proto === 'tcp' || proto === 'udp') && !sport && !dport) {
-				message.warning('协议已指定但端口为空，请确认后提交');
-			}
-			const ruleIdRaw = String(values.rule_id ?? '').trim();
-			const priority = ruleIdRaw ? Number(ruleIdRaw) : 100;
-			const name = ruleIdRaw ? `rule-${ruleIdRaw}` : `rule-${Date.now()}`;
-			setSubmitting(true);
-			try {
-				await addACLRuleToGroup(group.id, {
-					name,
-					vrId: group.vrId,
-					priority: Number.isFinite(priority) ? priority : 100,
-					action: values.match_action as 'permit' | 'deny',
-					protocol: (proto || 'any') as 'tcp' | 'udp' | 'icmp' | 'any',
-					sourceIp: String(values.source ?? '').trim() || 'any',
-					destinationIp: String(values.destination ?? '').trim() || 'any',
-					sourcePort: sport || 'any',
-					destinationPort: dport || 'any',
-				});
-				message.success('已添加规则');
-				await fetchRules(true);
-				await fetchGroups(true);
-				return true;
-			} catch (e: unknown) {
-				const msg = e instanceof Error ? e.message : String(e);
-				message.error(`添加失败: ${msg}`);
-				return false;
-			} finally {
-				setSubmitting(false);
-			}
-		},
-		[fetchGroups, fetchRules],
-	);
-
 	const filteredRules = useMemo(
 		() =>
 			rules.filter((r) => {
@@ -484,9 +407,6 @@ export function useAclManagement(scopedVrUuid?: string) {
 		bindingSubmitting,
 		openCreateGroup,
 		handleCreateGroup,
-		createAclForm,
-		handleCreateAclById,
-		handleAddRuleFromModal,
 		handleDeleteGroup,
 		handleOpenBind,
 		handleSubmitBind,
@@ -497,7 +417,5 @@ export function useAclManagement(scopedVrUuid?: string) {
 		handleDeleteRule,
 	};
 }
-
-export type UseAclManagementResult = ReturnType<typeof useAclManagement>;
 
 export type { ACLGroup, ACLGroupBinding, ACLRule };

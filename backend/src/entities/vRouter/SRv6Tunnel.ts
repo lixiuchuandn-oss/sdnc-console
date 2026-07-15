@@ -81,6 +81,19 @@ export class SRv6Tunnel {
   @Column({ type: 'text', nullable: true })
   hubVrfMode?: Srv6HubVrfMode | null;
 
+  /** PE-A 邻居模式（默认 static） */
+  @Column({ type: 'text', nullable: true })
+  peANeighborMode?: 'static' | 'rr_domain' | null;
+
+  @Column({ type: 'text', nullable: true })
+  peBNeighborMode?: 'static' | 'rr_domain' | null;
+
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  peARrDomainId?: string | null;
+
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  peBRrDomainId?: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 

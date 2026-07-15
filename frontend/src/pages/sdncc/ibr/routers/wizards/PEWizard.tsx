@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Descriptions, Divider, Form, Input, InputNumber, Space, Steps, message, Row, Col, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
+import { Button, Descriptions, Divider, Form, Input, InputNumber, Steps, message, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import PageContainer from '../../../../../components/PageContainer';
-import { getVRConfig, saveVRConfig, setVRRole, fetchVrCacheMerged } from '../../../../../services/virtualRouterApi';
+import {
+  fetchVrTowerLocalConfigCache,
+  saveVRConfig,
+  setVRRole,
+  fetchVrCacheMerged,
+} from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import {
   collectIfaceNamesForSelect,
@@ -29,6 +33,43 @@ import {
   resolveHubWanRowsForPeWizardForm,
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
+import { isValidRdRtToken } from '../../srv6/srv6RdRt';
+import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
+import IbrWizardPage from '../../lib/IbrWizardPage';
+import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
+
+const rdRtFieldRules = (label: string) => [
+  { required: true, message: `请输入 ${label}` },
+  {
+    validator: (_: unknown, value: unknown) => {
+      const s = String(value ?? '').trim();
+      if (!s) return Promise.resolve();
+      if (!isValidRdRtToken(s)) {
+        return Promise.reject(new Error(`${label} 须为「数字:数字」格式（例如 200:100）`));
+      }
+      return Promise.resolve();
+    },
+  },
+];
+
+/** 从 BGP 段 ipv4 unicast AF 读取 RD/RT */
+const extractRdRtFromBgpEntry = (
+  b: any,
+): { routeDistinguisher?: string; routeTarget?: string } => {
+  const afs = Array.isArray(b?.address_family) ? b.address_family : [];
+  const af =
+    afs.find(
+      (a: any) =>
+        String(a?.address_family || '').toLowerCase() === 'ipv4' &&
+        String(a?.modifiler || a?.modifier || '').toLowerCase() === 'unicast',
+    ) || afs[0];
+  const rd = String(af?.route_distinguisher ?? '').trim();
+  const rt = String(af?.route_target ?? '').trim();
+  return {
+    ...(rd ? { routeDistinguisher: rd } : {}),
+    ...(rt ? { routeTarget: rt } : {}),
+  };
+};
 
 /** 读取平台侧 pe 配置；优先 pe.publicConfig，否则从根级扁平字段组装 */
 function getPePublicConfig(pe: any): Record<string, any> {
@@ -97,6 +138,9 @@ function normalizeLanRowFromPeMeta(l: any) {
   const asnNum = Number(asnRaw);
   const routerId =
     String(lb.routerId ?? l.lanBgpRouterId ?? l.bgpRouterId ?? l.routerId ?? '').trim() || undefined;
+  const routeDistinguisher =
+    String(lb.routeDistinguisher ?? l.routeDistinguisher ?? '').trim() || undefined;
+  const routeTarget = String(lb.routeTarget ?? l.routeTarget ?? '').trim() || undefined;
   const {
     lanBgp: _lb,
     lanBgpAsn: _la,
@@ -105,6 +149,8 @@ function normalizeLanRowFromPeMeta(l: any) {
     bgpRouterId: _br,
     asn: _a,
     routerId: _r,
+    routeDistinguisher: _rd,
+    routeTarget: _rt,
     ifName,
     lanName,
     ...rest
@@ -114,6 +160,8 @@ function normalizeLanRowFromPeMeta(l: any) {
     ifName: lanName || ifName,
     ...(Number.isFinite(asnNum) ? { asn: asnNum } : {}),
     ...(routerId ? { routerId } : {}),
+    ...(routeDistinguisher ? { routeDistinguisher } : {}),
+    ...(routeTarget ? { routeTarget } : {}),
   };
 }
 
@@ -159,9 +207,15 @@ function buildPeWizardStepFieldNames(
           ['lanConfigs', idx, 'vrf'],
           ['lanConfigs', idx, 'asn'],
           ['lanConfigs', idx, 'routerId'],
+          ['lanConfigs', idx, 'routeDistinguisher'],
+          ['lanConfigs', idx, 'routeTarget'],
         );
       } else {
-        names.push(['lanConfigs', idx, 'vrf']);
+        names.push(
+          ['lanConfigs', idx, 'vrf'],
+          ['lanConfigs', idx, 'routeDistinguisher'],
+          ['lanConfigs', idx, 'routeTarget'],
+        );
       }
     });
     return names;
@@ -199,6 +253,8 @@ const PEWizard: React.FC = () => {
   );
   /** 仅刷新设备回读时：跳过用 vr2 推断覆盖左侧编辑 form，只更新右侧 mirror */
   const skipEditFormOnNextDeviceReadRef = useRef(false);
+  /** 平台上报的管理口 IPv4，用于 Router-ID 空值预填 */
+  const managementIpRef = useRef('');
 
   const watchWanDev = Form.useWatch('wanDev', form);
   const watchLanConfigs = Form.useWatch('lanConfigs', form);
@@ -341,12 +397,17 @@ const PEWizard: React.FC = () => {
     setActiveWanTabKey('0');
   }, [uuid]);
 
+  const ifaceLoadGenRef = useRef(0);
+
   /** 拉取 VR 缓存合并数据，解析接口列表与 VR3 网卡 IP */
   const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
+    const gen = ++ifaceLoadGenRef.current;
+    const reqUuid = uuid;
     setIfaceLoading(true);
     try {
-      const merged = await fetchVrCacheMerged(uuid);
+      const merged = await fetchVrCacheMerged(reqUuid);
+      if (gen !== ifaceLoadGenRef.current || reqUuid !== uuid) return;
       if (!merged || typeof merged !== 'object') {
         if (!silent) message.warning('未获取到设备回读数据，请先确认 IBR 设备在线/已接入。');
         setCsmctlCfg(null);
@@ -355,10 +416,14 @@ const PEWizard: React.FC = () => {
       }
       let savedCfg: any = {};
       try {
-        savedCfg = (await getVRConfig(uuid)) || {};
+        const cached = await fetchVrTowerLocalConfigCache(reqUuid, { skipCache: true });
+        if (gen !== ifaceLoadGenRef.current) return;
+        savedCfg = cached?.config || {};
+        managementIpRef.current = String(cached?.meta?.managementIp || '').trim();
       } catch (e) {
-        console.warn('fetchInterfaces: getVRConfig failed:', e);
+        console.warn('fetchInterfaces: fetchVrTowerLocalConfigCache failed:', e);
       }
+      if (gen !== ifaceLoadGenRef.current || reqUuid !== uuid) return;
       if (!silent) {
         skipEditFormOnNextDeviceReadRef.current = true;
       }
@@ -377,10 +442,11 @@ const PEWizard: React.FC = () => {
       setExistingCfg(savedCfg);
       if (!silent) message.success('设备回读已刷新');
     } catch (err) {
+      if (gen !== ifaceLoadGenRef.current) return;
       console.warn('[PEWizard] fetchVrCacheMerged:', (err as any)?.message || err);
       if (!silent) message.error('设备回读失败');
     } finally {
-      setIfaceLoading(false);
+      if (gen === ifaceLoadGenRef.current) setIfaceLoading(false);
     }
   }, [uuid]);
 
@@ -410,7 +476,7 @@ const PEWizard: React.FC = () => {
         bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
         bgpNetworkIpv6: pcfg.bgpNetworkIpv6,
         bgpAsn: pbg.asn,
-        bgpRouterId: pbg.routerId,
+        bgpRouterId: pbg.routerId || managementIpRef.current || undefined,
         lanConfigs,
         ...(isHubPe
           ? (() => {
@@ -548,10 +614,17 @@ const PEWizard: React.FC = () => {
       }
     });
     const topBgpArr: any[] = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp : [];
-    const bgpByVrf = new Map<any, { asn?: number; routerId?: string }>();
+    const bgpByVrf = new Map<
+      any,
+      { asn?: number; routerId?: string; routeDistinguisher?: string; routeTarget?: string }
+    >();
     topBgpArr.forEach((b) => {
       if (b && typeof b === 'object' && 'vrf' in b && b.vrf != null) {
-        bgpByVrf.set(b.vrf, { asn: b.asn, routerId: b.router_id });
+        bgpByVrf.set(b.vrf, {
+          asn: b.asn,
+          routerId: b.router_id,
+          ...extractRdRtFromBgpEntry(b),
+        });
       }
     });
     const vrfCandidates = new Set<any>();
@@ -571,12 +644,15 @@ const PEWizard: React.FC = () => {
           ipv6: ipVr3.ipv6,
           asn: bgpMatch?.asn,
           routerId: bgpMatch?.routerId,
+          routeDistinguisher: bgpMatch?.routeDistinguisher,
+          routeTarget: bgpMatch?.routeTarget,
         });
       });
     } else if (ifaceItems.length) {
       const first = ifaceItems[0];
       const ifn = first?.name;
       const ipVr3 = lanIpFromVr3(ifn);
+      const topRdRt = extractRdRtFromBgpEntry(bgpTop);
       groups.push({
         vrf: first?.vrf,
         ifName: ifn,
@@ -584,6 +660,7 @@ const PEWizard: React.FC = () => {
         ipv6: ipVr3.ipv6,
         asn: bgpTop?.asn,
         routerId: bgpTop?.router_id,
+        ...topRdRt,
       });
     }
 
@@ -661,7 +738,8 @@ const PEWizard: React.FC = () => {
         bgpNetworkIpv6: pcfg.bgpNetworkIpv6 ?? inferredTop.bgpNetworkIpv6,
         lanConfigs: lanConfigsVr3,
         bgpAsn: pbg.asn ?? inferredTop.bgpAsn,
-        bgpRouterId: pbg.routerId ?? inferredTop.bgpRouterId,
+        bgpRouterId:
+          pbg.routerId || inferredTop.bgpRouterId || managementIpRef.current || undefined,
         ...(isHubPe
           ? (() => {
               const hubForm = hubInventoryToPeWizardForm(existingCfg, {
@@ -849,11 +927,13 @@ const PEWizard: React.FC = () => {
       }
       // 2. 按 LAN 行追加 VRF BGP 段
       groups.forEach((g) => {
-        if (g?.asn || g?.routerId) {
+        if (g?.asn || g?.routerId || g?.routeDistinguisher || g?.routeTarget) {
           const vrfNum = g?.vrf != null && String(g.vrf).trim() !== '' ? Number(g.vrf) : undefined;
           const enableAutoSid = Number.isFinite(vrfNum as any) && (vrfNum as number) >= 4001;
           const asnRaw = Number(g?.asn);
           const asn = Number.isFinite(asnRaw) ? asnRaw : undefined;
+          const rd = String(g?.routeDistinguisher || '').trim();
+          const rt = String(g?.routeTarget || '').trim();
           bgpArr.push({
             ...(asn != null ? { asn } : {}),
             ...(enableAutoSid ? { vrf: vrfNum } : {}), // VRF>=4001 时带 vrf，并开启 auto_assign_sid
@@ -867,6 +947,8 @@ const PEWizard: React.FC = () => {
                 import_route: 'enable',
                 // enableAutoSid 时在 address_family 打开 auto_assign_sid
                 ...(enableAutoSid ? { auto_assign_sid: 'enable' } : { auto_assign_sid: 'disable' }),
+                ...(rd ? { route_distinguisher: rd } : {}),
+                ...(rt ? { route_target: rt } : {}),
               },
             ],
           });
@@ -910,17 +992,21 @@ const PEWizard: React.FC = () => {
         },
       },
       lanConfig: (v.lanConfigs || []).map((l: any) => {
-        const { ifName, asn, routerId, ...rest } = l;
+        const { ifName, asn, routerId, routeDistinguisher, routeTarget, ...rest } = l;
         const asnN = Number(asn);
         const rid = String(routerId || '').trim();
+        const rd = String(routeDistinguisher || '').trim();
+        const rt = String(routeTarget || '').trim();
         const row: any = {
           ...rest,
           lanName: ifName,
         };
-        if (Number.isFinite(asnN) || rid) {
+        if (Number.isFinite(asnN) || rid || rd || rt) {
           row.lanBgp = {
             ...(Number.isFinite(asnN) ? { asn: asnN } : {}),
             ...(rid ? { routerId: rid } : {}),
+            ...(rd ? { routeDistinguisher: rd } : {}),
+            ...(rt ? { routeTarget: rt } : {}),
           };
         }
         return row;
@@ -1081,13 +1167,13 @@ const PEWizard: React.FC = () => {
       <Form form={form} layout="vertical">
         {/* Step 1 Content */}
         <div style={{ display: current === 0 ? 'block' : 'none' }}>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>SRv6 配置</div>
-          <Form.Item name="locatorName" label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 Locator 名称</span>}> 
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>SRv6 配置</div>
+          <Form.Item name="locatorName" label="SRv6 Locator 名称"> 
             <Input placeholder="例如 default" />
           </Form.Item>
           <Form.Item
             name="sidPrefix"
-            label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 SID 前缀</span>}
+            label="SRv6 SID 前缀"
             rules={[
               {
                 validator: (_, value) => {
@@ -1103,13 +1189,13 @@ const PEWizard: React.FC = () => {
           </Form.Item>
           {isHubPe ? (
             <>
-              <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+              <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                 Hub 公网 BGP（进程级 · bgp[0]）
               </div>
-              <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}>
+              <Form.Item name="bgpAsn" label="ASN" rules={[{ required: true, message: '请输入 BGP ASN' }]}>
                 <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
               </Form.Item>
-              <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>} rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
+              <Form.Item name="bgpRouterId" label="Router-ID" rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
                 <Input placeholder="例如 200.1.1.2" />
               </Form.Item>
               <Divider style={{ margin: '16px 0' }} />
@@ -1117,7 +1203,7 @@ const PEWizard: React.FC = () => {
           ) : null}
           {isHubPe ? (
             <>
-            <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+            <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
               WAN侧配置（Hub-PE to Spoke-PE）
             </div>
             <Form.List name="hubWanInventory" initialValue={[{}]}>
@@ -1152,7 +1238,7 @@ const PEWizard: React.FC = () => {
                       <Form.Item
                         {...field}
                         name={[field.name, 'ifName']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>}
+                        label="WAN 侧接口"
                         rules={[{ required: true, message: '请选择 WAN 侧接口' }]}
                       >
                         <Select
@@ -1171,14 +1257,14 @@ const PEWizard: React.FC = () => {
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv4']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>}
+                        label="WAN 侧 IPv4 地址/掩码"
                       >
                         <Input placeholder="例如 200.1.1.2/24" />
                       </Form.Item>
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv6']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>}
+                        label="WAN 侧 IPv6 地址/掩码"
                         rules={[
                           { required: true, message: '请输入 WAN 侧 IPv6 地址/掩码' },
                           {
@@ -1190,27 +1276,27 @@ const PEWizard: React.FC = () => {
                         <Input placeholder="例如 2408:3333:1002::1/64" />
                       </Form.Item>
                       <div style={{ height: 8 }} />
-                      <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                      <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                         静态路由（本 WAN 口）
                       </div>
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv4RouteDest']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}
+                        label="IPv4 目的网段"
                       >
                         <Input placeholder="例如 0.0.0.0/0" />
                       </Form.Item>
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv4RoutePriority']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>优先级</span>}
+                        label="优先级"
                       >
                         <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
                       </Form.Item>
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv6Dest']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}
+                        label="IPv6 目的网段"
                         rules={[
                           {
                             validator: async (_, value) => {
@@ -1234,7 +1320,7 @@ const PEWizard: React.FC = () => {
                       <Form.Item
                         {...field}
                         name={[field.name, 'ipv6Via']}
-                        label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}
+                        label="IPv6 网关"
                         rules={[
                           {
                             validator: async (_, value) => {
@@ -1272,10 +1358,10 @@ const PEWizard: React.FC = () => {
             </>
           ) : (
             <>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
             WAN 侧配置（PE to PE）
           </div>
-          <Form.Item name="wanDev" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>} rules={[{ required: true, message: '请选择 WAN 侧接口' }]}> 
+          <Form.Item name="wanDev" label="WAN 侧接口" rules={[{ required: true, message: '请选择 WAN 侧接口' }]}> 
             <Select
               placeholder="请选择接口"
               showSearch
@@ -1291,12 +1377,12 @@ const PEWizard: React.FC = () => {
               }
             />
           </Form.Item>
-          <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>}>
+          <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码">
             <Input placeholder="例如 200.1.1.2/24" />
           </Form.Item>
           <Form.Item
             name="wanIpv6"
-            label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>}
+            label="WAN 侧 IPv6 地址/掩码"
             rules={[
               { required: true, message: '请输入 WAN 侧 IPv6 地址/掩码' },
               { pattern: /^[0-9a-fA-F:]+\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/, message: '格式示例：2408:3333:1002::1/64' },
@@ -1309,24 +1395,24 @@ const PEWizard: React.FC = () => {
           {!isHubPe ? (
             <>
           <div style={{ height: 12 }} />
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
-          <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
+          <Form.Item name="bgpAsn" label="ASN" rules={[{ required: true, message: '请输入 BGP ASN' }]}>
             <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
           </Form.Item>
-          <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>} rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
+          <Form.Item name="bgpRouterId" label="Router-ID" rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
             <Input placeholder="例如 200.1.1.2" />
           </Form.Item>
           <div style={{ height: 12 }} />
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
-          <Form.Item name="wanRouteDest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
+          <Form.Item name="wanRouteDest" label="IPv4 目的网段">
             <Input placeholder="例如 0.0.0.0/0" />
           </Form.Item>
-          <Form.Item name="wanRoutePriority" label={<span style={{ fontSize: 13, color: '#595959' }}>优先级</span>}> 
+          <Form.Item name="wanRoutePriority" label="优先级"> 
             <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
           </Form.Item>
           <Form.Item
             name="ipv6Dest"
-            label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}
+            label="IPv6 目的网段"
             rules={[
               {
                 validator: async (_, value) => {
@@ -1344,7 +1430,7 @@ const PEWizard: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="ipv6Via"
-            label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}
+            label="IPv6 网关"
             rules={[
               {
                 validator: async (_, value) => {
@@ -1366,7 +1452,7 @@ const PEWizard: React.FC = () => {
 
         {/* Step 2 Content */}
         <div style={{ display: current === 1 ? 'block' : 'none' }}>
-          <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
             {isHubPe ? 'LAN 侧配置（Hub-PE to CE）' : 'LAN 侧配置（PE to CE）'}
           </div>
           <Form.List name="lanConfigs" initialValue={[{}]}>
@@ -1401,7 +1487,7 @@ const PEWizard: React.FC = () => {
                     <Form.Item
                       {...field}
                       name={[field.name, 'vrf']}
-                      label={<span style={{ fontSize: 13, color: '#595959' }}>VRF ID{isHubPe ? '' : '（可选）'}</span>}
+                      label={<>VRF ID{isHubPe ? '' : '（可选）'}</>}
                       rules={
                         isHubPe
                           ? [
@@ -1413,7 +1499,7 @@ const PEWizard: React.FC = () => {
                     >
                       <InputNumber style={{ width: '100%' }} placeholder={"例如 9999（4001+）"} min={4001} />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'ifName']} label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧接口</span>}>
+                    <Form.Item {...field} name={[field.name, 'ifName']} label="LAN 侧接口">
                       <Select
                         placeholder="请选择接口"
                         showSearch
@@ -1426,35 +1512,48 @@ const PEWizard: React.FC = () => {
                         }
                       />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'ipv4']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>
+                    <Form.Item {...field} name={[field.name, 'ipv4']} label="IPv4 地址/掩码">
                       <Input placeholder="例如 130.1.1.1/24" />
                     </Form.Item>
-                    <Form.Item {...field} name={[field.name, 'ipv6']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}>
+                    <Form.Item {...field} name={[field.name, 'ipv6']} label="IPv6 地址/掩码">
                       <Input placeholder="例如 2408:3333:1002::1/64" />
                     </Form.Item>
-                    {isHubPe ? (
-                      <>
-                        <div style={{ height: 12 }} />
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
-                        <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>} rules={[{ required: true, message: '请输入 BGP ASN' }]}>
-                          <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
-                        </Form.Item>
-                        <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>} rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
-                          <Input placeholder="例如 130.1.1.1" />
-                        </Form.Item>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ height: 12 }} />
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
-                        <Form.Item {...field} name={[field.name, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>}>
-                          <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
-                        </Form.Item>
-                        <Form.Item {...field} name={[field.name, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}>
-                          <Input placeholder="例如 130.1.1.1" />
-                        </Form.Item>
-                      </>
-                    )}
+                    <>
+                      <div style={{ height: 12 }} />
+                      <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'asn']}
+                        label="BGP ASN"
+                        rules={isHubPe ? [{ required: true, message: '请输入 BGP ASN' }] : undefined}
+                      >
+                        <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
+                      </Form.Item>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'routerId']}
+                        label="BGP Router-ID"
+                        rules={isHubPe ? [{ required: true, message: '请输入 BGP Router-ID' }] : undefined}
+                      >
+                        <Input placeholder="例如 130.1.1.1" />
+                      </Form.Item>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'routeDistinguisher']}
+                        label="Route Distinguisher（RD）"
+                        rules={rdRtFieldRules('RD')}
+                      >
+                        <Input placeholder="例如 200:1001" />
+                      </Form.Item>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'routeTarget']}
+                        label="Route Target（RT）"
+                        rules={rdRtFieldRules('RT')}
+                      >
+                        <Input placeholder="例如 200:100" />
+                      </Form.Item>
+                    </>
                   </div>
                 ),
               }));
@@ -1524,7 +1623,7 @@ const PEWizard: React.FC = () => {
           </Descriptions>
           {(values.lanConfigs || []).map((lan: any, idx: number) => (
             <div key={idx} style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 8px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 接口 #{idx + 1}</div>
+              <div style={{ color: '#1677ff', margin: '4px 0 8px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 接口 #{idx + 1}</div>
               <Descriptions column={1} bordered size="small">
                 <Descriptions.Item label="VRF ID">{lan.vrf || '-'}</Descriptions.Item>
                 <Descriptions.Item label="LAN 侧接口">{lan.ifName || '-'}</Descriptions.Item>
@@ -1532,6 +1631,8 @@ const PEWizard: React.FC = () => {
                 <Descriptions.Item label="IPv6">{lan.ipv6 || '-'}</Descriptions.Item>
                 <Descriptions.Item label="BGP ASN">{lan.asn || '-'}</Descriptions.Item>
                 <Descriptions.Item label="BGP Router-ID">{lan.routerId || '-'}</Descriptions.Item>
+                <Descriptions.Item label="RD">{lan.routeDistinguisher || '-'}</Descriptions.Item>
+                <Descriptions.Item label="RT">{lan.routeTarget || '-'}</Descriptions.Item>
               </Descriptions>
             </div>
           ))}
@@ -1545,22 +1646,21 @@ const PEWizard: React.FC = () => {
     : ['基础配置（PE to PE）', 'LAN 侧配置（PE to CE）', '确认下发'];
 
   return (
-    <PageContainer
-      titleLevel={3}
+    <IbrWizardPage
+      meta={uuid || undefined}
       extra={<Button icon={<ReloadOutlined />} onClick={() => fetchInterfaces()}>刷新设备回读</Button>}
-      onBack={() => navigate(-1)}
-      asCard={false}
-    >
-      <Row gutter={16}>
-        <Col span={4}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>步骤</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
-            <Steps direction="vertical" size="small" current={current} onChange={handleStepsChange} items={wizardStepTitles.map((title) => ({ title }))} />
-          </Card>
-        </Col>
-        <Col span={7}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`第 ${current + 1} 步：${wizardStepTitles[current]} 设备回读`}
-          </span>} variant="outlined">
+      layout="compare"
+      steps={
+          <Steps
+            direction="vertical"
+            size="small"
+            current={current}
+            onChange={handleStepsChange}
+            items={wizardStepTitles.map((title) => ({ title }))}
+          />
+        }
+        mirror={
+          <IbrWizardCard title={ibrWizardStepCardTitle(current, wizardStepTitles[current], '设备回读')}>
             {ifaceLoading ? (
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <Spin />
@@ -1569,26 +1669,26 @@ const PEWizard: React.FC = () => {
               <Form layout="vertical" form={mirrorForm} disabled>
                 {current === 0 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>SRv6 配置</div>
-                    <Form.Item name="locatorName" label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 Locator 名称</span>}> 
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>SRv6 配置</div>
+                    <Form.Item name="locatorName" label="SRv6 Locator 名称"> 
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="sidPrefix" label={<span style={{ fontSize: 13, color: '#595959' }}>SRv6 SID 前缀</span>}>
+                    <Form.Item name="sidPrefix" label="SRv6 SID 前缀">
                       <Input placeholder="未配置" />
                     </Form.Item>
                     {isHubPe ? (
                       <>
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                        <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                           Hub 公网 BGP（进程级 · bgp[0]）
                         </div>
-                        <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>}>
+                        <Form.Item name="bgpAsn" label="ASN">
                           <InputNumber style={{ width: '100%' }} placeholder="未配置" />
                         </Form.Item>
-                        <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>}>
+                        <Form.Item name="bgpRouterId" label="Router-ID">
                           <Input placeholder="未配置" />
                         </Form.Item>
                         <div style={{ height: 12 }} />
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                        <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                           WAN侧配置（Hub-PE to Spoke-PE）
                         </div>
                         <Tabs
@@ -1601,29 +1701,29 @@ const PEWizard: React.FC = () => {
                               label: `WAN 接口 #${idx + 1}`,
                               children: (
                                 <div>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>}>
+                                  <Form.Item label="WAN 侧接口">
                                     <Input disabled value={g?.ifName || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>}>
+                                  <Form.Item label="WAN 侧 IPv4 地址/掩码">
                                     <Input disabled value={g?.ipv4 || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>}>
+                                  <Form.Item label="WAN 侧 IPv6 地址/掩码">
                                     <Input disabled value={g?.ipv6 || '未配置'} />
                                   </Form.Item>
                                   <div style={{ height: 8 }} />
-                                  <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                                  <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                                     静态路由（本 WAN 口）
                                   </div>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
+                                  <Form.Item label="IPv4 目的网段">
                                     <Input disabled value={g?.ipv4RouteDest || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>优先级</span>}>
+                                  <Form.Item label="优先级">
                                     <Input disabled value={g?.ipv4RoutePriority ?? '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}>
+                                  <Form.Item label="IPv6 目的网段">
                                     <Input disabled value={g?.ipv6Dest || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}>
+                                  <Form.Item label="IPv6 网关">
                                     <Input disabled value={g?.ipv6Via || '未配置'} />
                                   </Form.Item>
                                 </div>
@@ -1634,8 +1734,8 @@ const PEWizard: React.FC = () => {
                       </>
                     ) : (
                       <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（PE to PE）</div>
-                    <Form.Item name="wanDev" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧接口</span>}> 
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>WAN 侧配置（PE to PE）</div>
+                    <Form.Item name="wanDev" label="WAN 侧接口"> 
                       <Select
                       placeholder="未配置"
                       showSearch
@@ -1646,32 +1746,32 @@ const PEWizard: React.FC = () => {
                       ]}
                     />
                     </Form.Item>
-                    <Form.Item name="wanIpv4" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv4 地址/掩码</span>}>
+                    <Form.Item name="wanIpv4" label="WAN 侧 IPv4 地址/掩码">
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="wanIpv6" label={<span style={{ fontSize: 13, color: '#595959' }}>WAN 侧 IPv6 地址/掩码</span>}>
-                      <Input placeholder="未配置" />
-                    </Form.Item>
-                    <div style={{ height: 12 }} />
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
-                    <Form.Item name="bgpAsn" label={<span style={{ fontSize: 13, color: '#595959' }}>ASN</span>}>
-                      <InputNumber style={{ width: '100%' }} placeholder="未配置" />
-                    </Form.Item>
-                    <Form.Item name="bgpRouterId" label={<span style={{ fontSize: 13, color: '#595959' }}>Router-ID</span>}>
+                    <Form.Item name="wanIpv6" label="WAN 侧 IPv6 地址/掩码">
                       <Input placeholder="未配置" />
                     </Form.Item>
                     <div style={{ height: 12 }} />
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
-                    <Form.Item name="wanRouteDest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 目的网段</span>}>
-                      <Input placeholder="未配置" />
-                    </Form.Item>
-                    <Form.Item name="wanRoutePriority" label={<span style={{ fontSize: 13, color: '#595959' }}>优先级</span>}> 
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
+                    <Form.Item name="bgpAsn" label="ASN">
                       <InputNumber style={{ width: '100%' }} placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="ipv6Dest" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 目的网段</span>}> 
+                    <Form.Item name="bgpRouterId" label="Router-ID">
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="ipv6Via" label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 网关</span>}> 
+                    <div style={{ height: 12 }} />
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
+                    <Form.Item name="wanRouteDest" label="IPv4 目的网段">
+                      <Input placeholder="未配置" />
+                    </Form.Item>
+                    <Form.Item name="wanRoutePriority" label="优先级"> 
+                      <InputNumber style={{ width: '100%' }} placeholder="未配置" />
+                    </Form.Item>
+                    <Form.Item name="ipv6Dest" label="IPv6 目的网段"> 
+                      <Input placeholder="未配置" />
+                    </Form.Item>
+                    <Form.Item name="ipv6Via" label="IPv6 网关"> 
                       <Input placeholder="未配置" />
                     </Form.Item>
                       </>
@@ -1680,57 +1780,81 @@ const PEWizard: React.FC = () => {
                 )}
                 {current === 1 && (
                   <>
-                    <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                    <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
                       {isHubPe ? 'LAN 侧配置（Hub-PE to CE）' : 'LAN 侧配置（PE to CE）'}
                     </div>
-                    <Tabs
-                      type="card"
-                      items={(() => {
-                        const groups: any[] = mirrorForm.getFieldValue('lanConfigs') || [{}];
-                        return groups.map((g, idx) => ({
-                          key: String(idx),
-                          label: `LAN 接口 #${idx + 1}`,
-                          children: (
-                            <div>
-                              <Form.Item name={['lanConfigs', idx, 'vrf']} label={<span style={{ fontSize: 13, color: '#595959' }}>VRF ID（可选）</span>}> 
-                                <InputNumber style={{ width: '100%' }} placeholder={"未配置"} />
-                              </Form.Item>
-                              <Form.Item name={['lanConfigs', idx, 'ifName']} label={<span style={{ fontSize: 13, color: '#595959' }}>LAN 侧接口</span>}> 
-                                <Select
-                                  placeholder="未配置"
-                                  showSearch
-                                  loading={ifaceLoading}
-                                  options={[
-                                    ...(g?.ifName ? [{ label: String(g.ifName), value: String(g.ifName) }] : []),
-                                    ...ifaceOptions.map(n => ({ label: n, value: n })),
-                                  ]}
-                                />
-                              </Form.Item>
-                              <Form.Item name={['lanConfigs', idx, 'ipv4']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv4 地址/掩码</span>}>
-                                <Input placeholder="未配置" />
-                              </Form.Item>
-                              <Form.Item name={['lanConfigs', idx, 'ipv6']} label={<span style={{ fontSize: 13, color: '#595959' }}>IPv6 地址/掩码</span>}> 
-                                <Input placeholder="未配置" />
-                              </Form.Item>
-                              <div style={{ height: 12 }} />
-                              <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（LAN）</div>
-                              <Form.Item name={['lanConfigs', idx, 'asn']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP ASN</span>}> 
-                                <InputNumber style={{ width: '100%' }} placeholder="未配置" />
-                              </Form.Item>
-                              <Form.Item name={['lanConfigs', idx, 'routerId']} label={<span style={{ fontSize: 13, color: '#595959' }}>BGP Router-ID</span>}> 
-                                <Input placeholder="未配置" />
-                              </Form.Item>
-                            </div>
-                          ),
-                        }));
-                      })()}
-                      tabBarGutter={8}
-                      size="small"
-                      activeKey={activeLanTabKey ?? '0'}
-                      onChange={(key) => {
-                        setActiveLanTabKey(String(key));
-                      }}
-                    />
+                    {(() => {
+                      const groups: any[] = mirrorForm.getFieldValue('lanConfigs') || [{}];
+                      const renderLanMirrorFields = (idx: number, g: any) => (
+                        <div>
+                          <Form.Item
+                            name={['lanConfigs', idx, 'vrf']}
+                            label={<>
+                                VRF ID{isHubPe ? '' : '（可选）'}
+                              </>}
+                          >
+                            <InputNumber style={{ width: '100%' }} placeholder="未配置" />
+                          </Form.Item>
+                          <Form.Item name={['lanConfigs', idx, 'ifName']} label="LAN 侧接口">
+                            <Select
+                              placeholder="未配置"
+                              showSearch
+                              loading={ifaceLoading}
+                              options={[
+                                ...(g?.ifName ? [{ label: String(g.ifName), value: String(g.ifName) }] : []),
+                                ...ifaceOptions.map((n) => ({ label: n, value: n })),
+                              ]}
+                            />
+                          </Form.Item>
+                          <Form.Item name={['lanConfigs', idx, 'ipv4']} label="IPv4 地址/掩码">
+                            <Input placeholder="未配置" />
+                          </Form.Item>
+                          <Form.Item name={['lanConfigs', idx, 'ipv6']} label="IPv6 地址/掩码">
+                            <Input placeholder="未配置" />
+                          </Form.Item>
+                          <div style={{ height: 12 }} />
+                          <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
+                            BGP 配置（LAN）
+                          </div>
+                          <Form.Item name={['lanConfigs', idx, 'asn']} label="BGP ASN">
+                            <InputNumber style={{ width: '100%' }} placeholder="未配置" />
+                          </Form.Item>
+                          <Form.Item name={['lanConfigs', idx, 'routerId']} label="BGP Router-ID">
+                            <Input placeholder="未配置" />
+                          </Form.Item>
+                          <Form.Item
+                            name={['lanConfigs', idx, 'routeDistinguisher']}
+                            label="Route Distinguisher（RD）"
+                          >
+                            <Input placeholder="未配置" />
+                          </Form.Item>
+                          <Form.Item
+                            name={['lanConfigs', idx, 'routeTarget']}
+                            label="Route Target（RT）"
+                          >
+                            <Input placeholder="未配置" />
+                          </Form.Item>
+                        </div>
+                      );
+                      // 与右侧配置编辑一致：Spoke 单行无 Tab；Hub 多 LAN 用卡片 Tab
+                      if (!isHubPe) {
+                        return renderLanMirrorFields(0, groups[0]);
+                      }
+                      return (
+                        <Tabs
+                          type="card"
+                          size="small"
+                          tabBarGutter={8}
+                          activeKey={activeLanTabKey ?? (groups.length ? '0' : undefined)}
+                          onChange={(key) => setActiveLanTabKey(String(key))}
+                          items={groups.map((g, idx) => ({
+                            key: String(idx),
+                            label: `LAN 接口 #${idx + 1}`,
+                            children: renderLanMirrorFields(idx, g),
+                          }))}
+                        />
+                      );
+                    })()}
                   </>
                 )}
                 {current === 2 && (
@@ -1766,7 +1890,7 @@ const PEWizard: React.FC = () => {
                     </Descriptions>
                     {(mirrorForm.getFieldValue('lanConfigs') || []).map((lan: any, idx: number) => (
                       <div key={idx} style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 13, color: '#1677ff', margin: '4px 0 8px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 接口 #{idx + 1}</div>
+                        <div style={{ color: '#1677ff', margin: '4px 0 8px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>LAN 接口 #{idx + 1}</div>
                         <Descriptions column={1} bordered size="small">
                           <Descriptions.Item label="VRF ID">{lan.vrf || '-'}</Descriptions.Item>
                           <Descriptions.Item label="LAN 侧接口">{lan.ifName || '-'}</Descriptions.Item>
@@ -1774,6 +1898,8 @@ const PEWizard: React.FC = () => {
                           <Descriptions.Item label="IPv6">{lan.ipv6 || '-'}</Descriptions.Item>
                           <Descriptions.Item label="BGP ASN">{lan.asn || '-'}</Descriptions.Item>
                           <Descriptions.Item label="BGP Router-ID">{lan.routerId || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="RD">{lan.routeDistinguisher || '-'}</Descriptions.Item>
+                          <Descriptions.Item label="RT">{lan.routeTarget || '-'}</Descriptions.Item>
                         </Descriptions>
                       </div>
                     ))}
@@ -1785,19 +1911,19 @@ const PEWizard: React.FC = () => {
                 未能读取设备回读数据，请先检查设备连接状态或稍后重试。
               </div>
             )}
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>
-            {`第 ${current + 1} 步：${wizardStepTitles[current]} 配置编辑`}
-          </span>} variant="outlined">
-            {renderCoreContent()}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 16 }}>
-              <Space>
+          </IbrWizardCard>
+        }
+        main={
+          <IbrWizardStepPane
+            title={ibrWizardStepCardTitle(current, wizardStepTitles[current], '配置编辑')}
+            footerLeft={
+              <>
                 <Button onClick={() => navigate('/admin/interconnect/vr')}>返回列表</Button>
                 {current > 0 && <Button onClick={prev}>上一步</Button>}
-              </Space>
-              <Space>
+              </>
+            }
+            footerRight={
+              <>
                 {current < 2 && <Button type="primary" onClick={next}>下一步</Button>}
                 {current === 2 && (
                   <Button
@@ -1811,18 +1937,20 @@ const PEWizard: React.FC = () => {
                     下发配置
                   </Button>
                 )}
-              </Space>
-            </div>
-          </Card>
-        </Col>
-        <Col span={5}>
-          <Card size="small" title={<span style={{ fontSize: 13, color: '#000', fontWeight: 400 }}>配置 JSON预览</span>} variant="outlined" style={{ position: 'sticky', top: 16 }}>
+              </>
+            }
+          >
+            {renderCoreContent()}
+          </IbrWizardStepPane>
+        }
+        preview={
+          <IbrWizardCard sticky title="配置 JSON预览">
             <pre style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
               {JSON.stringify(uuid ? { uuid, ...configPreview } : configPreview, null, 2)}
             </pre>
-          </Card>
-        </Col>
-      </Row>
+          </IbrWizardCard>
+        }
+    >
       <Modal
         title="重要提示：配置下发为全量覆盖"
         open={confirmOpen}
@@ -1837,7 +1965,7 @@ const PEWizard: React.FC = () => {
         cancelText="取消"
         width={680}
       >
-        <div style={{ fontSize: 13, color: '#595959' }}>
+        <div style={{ color: '#595959' }}>
           <div style={{ marginBottom: 12 }}>
             本次下发属于全量覆盖。设备当前配置将被完全替换为向导生成的配置，不进行保留或增量合并。
           </div>
@@ -1858,7 +1986,7 @@ const PEWizard: React.FC = () => {
           </Checkbox>
         </div>
       </Modal>
-    </PageContainer>
+    </IbrWizardPage>
   );
 };
 
