@@ -551,4 +551,7 @@ docker compose up -d --build
 
 - 前端编译首次较慢（约 1-2 分钟），后续热重载正常。
 - Husky 在非 git 根目录运行 `npm install` 时会报 `.git can't be found`，可忽略。
+- **CSMCTL 目录已改名**：仓库根为 `ibr-controller/`（`docker-compose.yml` 亦指向它）；`csm-controller/` 已不存在，文中残留链接按 `ibr-controller/` 理解。仅做登录 + 系统设置/用户 UI 冒烟时，MongoDB/CSMCTL 均可不启。
+- **用户管理 UI 路由**为 `/admin/access/users`（不是 `/admin/settings/users`）；权威路由清单见 `frontend/src/routes/RouteSpec.ts`。
+- 前端测试有一条**与环境无关的既有失败**：`src/components/pageRouteMeta/routeMeta.test.ts` 期望已移除的 `/admin/dashboard` 路由；其余 126 条通过，勿因此误判环境问题。
 - `patch-package` 在 `frontend/postinstall` 中运行（当前仅 `react-dev-utils` 开发代理补丁；`npm install` 后自动应用）。
