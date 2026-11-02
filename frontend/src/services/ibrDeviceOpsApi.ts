@@ -54,6 +54,8 @@ export type IbrDeviceStatusResp = {
 	init_mode?: IbrDeviceInitMode;
 	pci_nics?: Array<{ pci?: string; ifnames?: string[]; macs?: string[] }>;
 	mgmt_pci?: string | null;
+	wan_pci?: string | null;
+	lan_pci?: string | null;
 	nics_initialized?: boolean;
 	os_nic_attach_pci?: string[] | null;
 	net_overview?: {

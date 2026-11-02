@@ -44,7 +44,9 @@ type StatusResp = {
 	stats?: { cpu: number; cpu_count?: number; mem: number; disk: number; uptime: string; load_1: number; load_5: number; load_15: number };
 	net_overview?: { mgmt?: NetEntry; wan?: NetEntry; lan?: NetEntry };
 	net_init_ok?: boolean;
-	init_mode?: 'static' | 'dhcp';
+	mgmt_pci?: string | null;
+	wan_pci?: string | null;
+	lan_pci?: string | null;
 	nics_initialized?: boolean;
 	nic_roles?: { roles?: Array<{ pci?: string; os?: { speed_grade?: string; speed_mbps?: number | null }; vbras?: { speed_grade?: string; speed_mbps?: number | null } }> } | null;
 	version?: string;
@@ -301,14 +303,13 @@ export function HomePage() {
 
 	const netItems = useMemo(() => {
 		const ov = status?.net_overview ?? {};
-		const dhcp = status?.init_mode === 'dhcp';
 		const rows: { key: string; title: string; v?: NetEntry }[] = [
-			{ key: 'mgmt', title: dhcp ? '管理口（同WAN）' : '管理口', v: ov.mgmt },
+			{ key: 'mgmt', title: '管理口', v: ov.mgmt },
 			{ key: 'wan', title: 'WAN口', v: ov.wan },
 			{ key: 'lan', title: 'LAN口', v: ov.lan },
 		];
 		return rows;
-	}, [status?.net_overview, status?.init_mode]);
+	}, [status?.net_overview]);
 
 	const healthItems = useMemo(() => {
 		const r = status?.service_reachability;

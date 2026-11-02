@@ -27,9 +27,13 @@ type NicRoleRow = NicRoleRowLike & {
 type StatusResp = {
 	init_mode?: 'static' | 'dhcp';
 	pci_nics?: Array<{ pci?: string; ifnames?: string[]; macs?: string[] }>;
+	mgmt_pci?: string | null;
+	wan_pci?: string | null;
+	lan_pci?: string | null;
+	os_nic_attach_pci?: string[] | null;
 	net_overview?: {
-		wan?: { name: string; ip: string; source: 'os' | 'vpp'; attached: boolean; gateway?: string | null };
-		lan?: { name: string; ip: string; source: 'os' | 'vpp'; attached: boolean; gateway?: string | null };
+		wan?: { name: string; ip: string; source: 'os' | 'vpp'; attached: boolean; gateway?: string | null; identity_missing?: boolean };
+		lan?: { name: string; ip: string; source: 'os' | 'vpp'; attached: boolean; gateway?: string | null; identity_missing?: boolean };
 	};
 	net_init_ok?: boolean;
 	last_apply?: { public_ip?: string; public_gw?: string | null; private_ip?: string } | null;
@@ -90,7 +94,7 @@ export function SetIpPage() {
 				setStatus(data);
 				const initMode = data.init_mode === 'dhcp' ? 'dhcp' : 'static';
 				const roles = Array.isArray(data.nic_roles?.roles) ? data.nic_roles?.roles ?? [] : [];
-				const { wanPci, lanPci } = resolveWanLanPci(initMode, data.pci_nics);
+				const { wanPci, lanPci } = resolveWanLanPci({ wanPci: data.wan_pci, lanPci: data.lan_pci });
 				const wanRow = findNicRoleByPci(roles, wanPci);
 				const lanRow = findNicRoleByPci(roles, lanPci);
 				const wanIp = resolveNicDisplayIp(data.net_overview?.wan?.ip, wanRow?.vbras?.ip, data.last_apply?.public_ip);
@@ -103,9 +107,15 @@ export function SetIpPage() {
 				setExtraResult([]);
 				setExtraError(null);
 				if (initMode === 'static') {
+					const mgmt = String(data.mgmt_pci ?? '').trim();
+					const attach = Array.isArray(data.os_nic_attach_pci)
+						? data.os_nic_attach_pci.map((x) => String(x).trim()).filter(Boolean)
+						: [];
 					const extraRows = roles.filter((r) => {
 						const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-						return pci && pci !== wanPci && pci !== lanPci;
+						if (!pci || pci === wanPci || pci === lanPci || pci === mgmt) return false;
+						if (attach.length > 0 && !attach.includes(pci)) return false;
+						return !!r?.attached;
 					}).slice(0, 5);
 					const next: Record<string, string> = {};
 					for (const r of extraRows) {
@@ -162,14 +172,21 @@ export function SetIpPage() {
 
 	const initMode = status.init_mode === 'dhcp' ? 'dhcp' : 'static';
 	const roles = Array.isArray(status.nic_roles?.roles) ? status.nic_roles?.roles ?? [] : [];
-	const { wanPci, lanPci } = resolveWanLanPci(initMode, status.pci_nics);
+	const { wanPci, lanPci } = resolveWanLanPci({ wanPci: status.wan_pci, lanPci: status.lan_pci });
+	const identityReady = Boolean(wanPci || lanPci);
 	const wanIf = normalizeIp(status.net_overview?.wan?.name) || pciToVbrasIfname(wanPci) || '-';
 	const lanIf = normalizeIp(status.net_overview?.lan?.name) || pciToVbrasIfname(lanPci) || '-';
+	const mgmtPci = String(status.mgmt_pci ?? '').trim();
+	const attachSet = Array.isArray(status.os_nic_attach_pci)
+		? status.os_nic_attach_pci.map((x) => String(x).trim()).filter(Boolean)
+		: [];
 
 	const extraCandidates = roles
 		.filter((r) => {
 			const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-			return pci && pci !== wanPci && pci !== lanPci;
+			if (!pci || pci === wanPci || pci === lanPci || pci === mgmtPci) return false;
+			if (attachSet.length > 0 && !attachSet.includes(pci)) return false;
+			return !!r?.attached;
 		})
 		.slice(0, 5)
 		.map((r, i) => {
@@ -180,7 +197,7 @@ export function SetIpPage() {
 			return { idx: i + 4, pci, ifname, attached, currentIp };
 		})
 		.filter((x) => !!x.pci);
-	const extraHasEditable = extraCandidates.some((x) => x.attached && !!x.ifname);
+	const extraHasEditable = identityReady && extraCandidates.some((x) => x.attached && !!x.ifname);
 
 	const applyExtraLans = async () => {
 		setExtraSaving(true);
@@ -190,7 +207,9 @@ export function SetIpPage() {
 			const items = roles
 				.filter((r) => {
 					const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-					return pci && pci !== wanPci && pci !== lanPci;
+					if (!pci || pci === wanPci || pci === lanPci || pci === mgmtPci) return false;
+					if (attachSet.length > 0 && !attachSet.includes(pci)) return false;
+					return !!r?.attached;
 				})
 				.slice(0, 5)
 				.map((r) => {
@@ -256,13 +275,17 @@ export function SetIpPage() {
 						<BlockHeader
 							title="主网卡"
 							action={
-								<Button type="primary" loading={saving} onClick={() => form.submit()}>
+								<Button type="primary" loading={saving} disabled={!identityReady} onClick={() => form.submit()}>
 									保存并应用
 								</Button>
 							}
 						/>
 						<Card variant="list">
-							{status.net_init_ok ? null : (
+							{!identityReady ? (
+								<Typography.Paragraph type="warning" style={{ margin: 0, padding: '12px 20px 0' }}>
+									尚未写入 WAN/LAN 身份，请先完成「初始化网卡」后再设定 IP（禁止按下标猜口）。
+								</Typography.Paragraph>
+							) : status.net_init_ok ? null : (
 								<Typography.Paragraph type="warning" style={{ margin: 0, padding: '12px 20px 0' }}>
 									请先完成网卡初始化并确保 VBRAS 正常启动。
 								</Typography.Paragraph>
@@ -293,7 +316,11 @@ export function SetIpPage() {
 										key={item.key}
 										extra={
 											<Form.Item name={item.name} noStyle rules={[item.rule]}>
-												<Input className="app-settings-list-input" placeholder={item.placeholder} disabled={saving} />
+												<Input
+													className="app-settings-list-input"
+													placeholder={item.placeholder}
+													disabled={saving || (item.key === 'wan' ? !wanPci : !lanPci)}
+												/>
 											</Form.Item>
 										}
 									>
@@ -335,7 +362,7 @@ export function SetIpPage() {
 							</Typography.Paragraph>
 						) : extraCandidates.length === 0 ? (
 							<Typography.Paragraph type="secondary" style={{ margin: 0, padding: '14px 20px' }}>
-								请在「初始化网卡」中接管网卡 4–8 后，此处将显示可配置的辅助 LAN 口。
+								请先在「辅助网卡管理」中扩容接管辅助口后，此处将显示可配置的辅助 LAN 口。
 							</Typography.Paragraph>
 						) : (
 							<>

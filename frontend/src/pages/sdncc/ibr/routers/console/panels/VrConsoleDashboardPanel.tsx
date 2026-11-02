@@ -221,13 +221,12 @@ export const VrConsoleDashboardPanel: React.FC<Props> = ({
 
 	const netItems = useMemo(() => {
 		const ov = status?.net_overview ?? {};
-		const dhcp = status?.init_mode === 'dhcp';
 		return [
-			{ key: 'mgmt', title: dhcp ? '管理口（同WAN）' : '管理口', v: ov.mgmt },
+			{ key: 'mgmt', title: '管理口', v: ov.mgmt },
 			{ key: 'wan', title: 'WAN口', v: ov.wan },
 			{ key: 'lan', title: 'LAN口', v: ov.lan },
 		];
-	}, [status?.net_overview, status?.init_mode]);
+	}, [status?.net_overview]);
 
 	const healthItems = useMemo(() => {
 		const r = status?.service_reachability;

@@ -41,7 +41,7 @@ function hydrateFormFromStatus(
 ) {
 	const initMode = status.init_mode === 'dhcp' ? 'dhcp' : 'static';
 	const roles = Array.isArray(status.nic_roles?.roles) ? status.nic_roles?.roles ?? [] : [];
-	const { wanPci, lanPci } = resolveWanLanPci(initMode, status.pci_nics);
+	const { wanPci, lanPci } = resolveWanLanPci({ wanPci: status.wan_pci, lanPci: status.lan_pci });
 	const wanRow = findNicRoleByPci(roles, wanPci);
 	const lanRow = findNicRoleByPci(roles, lanPci);
 	const wanIp = resolveNicDisplayIp(
@@ -59,9 +59,15 @@ function hydrateFormFromStatus(
 		private_ip: lanIp || undefined,
 	});
 	if (initMode === 'static') {
+		const mgmt = String(status.mgmt_pci ?? '').trim();
+		const attach = Array.isArray(status.os_nic_attach_pci)
+			? status.os_nic_attach_pci.map((x) => String(x).trim()).filter(Boolean)
+			: [];
 		const extraRows = roles.filter((r) => {
 			const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-			return pci && pci !== wanPci && pci !== lanPci;
+			if (!pci || pci === wanPci || pci === lanPci || pci === mgmt) return false;
+			if (attach.length > 0 && !attach.includes(pci)) return false;
+			return !!r?.attached;
 		}).slice(0, 5);
 		const next: Record<string, string> = {};
 		for (const r of extraRows) {
@@ -125,8 +131,16 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 		[status],
 	);
 	const { wanPci, lanPci } = useMemo(
-		() => resolveWanLanPci(initMode, status?.pci_nics),
-		[initMode, status?.pci_nics],
+		() => resolveWanLanPci({ wanPci: status?.wan_pci, lanPci: status?.lan_pci }),
+		[status?.wan_pci, status?.lan_pci],
+	);
+	const mgmtPci = String(status?.mgmt_pci ?? '').trim();
+	const attachSet = useMemo(
+		() =>
+			Array.isArray(status?.os_nic_attach_pci)
+				? status!.os_nic_attach_pci!.map((x) => String(x).trim()).filter(Boolean)
+				: [],
+		[status?.os_nic_attach_pci],
 	);
 
 	const wanIf =
@@ -138,7 +152,9 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 		return roles
 			.filter((r) => {
 				const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-				return pci && pci !== wanPci && pci !== lanPci;
+				if (!pci || pci === wanPci || pci === lanPci || pci === mgmtPci) return false;
+				if (attachSet.length > 0 && !attachSet.includes(pci)) return false;
+				return !!r?.attached;
 			})
 			.slice(0, 5)
 			.map((r, i) => {
@@ -149,11 +165,12 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 				return { idx: i + 4, pci, ifname, attached, currentIp };
 			})
 			.filter((x) => !!x.pci);
-	}, [roles, wanPci, lanPci]);
+	}, [roles, wanPci, lanPci, mgmtPci, attachSet]);
 
-	const extraHasEditable = extraCandidates.some((x) => x.attached && !!x.ifname);
+	const identityReady = Boolean(wanPci || lanPci);
+	const extraHasEditable = identityReady && extraCandidates.some((x) => x.attached && !!x.ifname);
 	const netInitOk = status?.net_init_ok !== false;
-	const writeDisabled = !canWrite || !netInitOk;
+	const writeDisabled = !canWrite || !netInitOk || !identityReady;
 
 	const applyMain = async (values: { public_ip?: string; private_ip?: string }) => {
 		setSaving(true);
@@ -185,7 +202,9 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 			const items = roles
 				.filter((r) => {
 					const pci = typeof r?.pci === 'string' ? r.pci.trim() : '';
-					return pci && pci !== wanPci && pci !== lanPci;
+					if (!pci || pci === wanPci || pci === lanPci || pci === mgmtPci) return false;
+					if (attachSet.length > 0 && !attachSet.includes(pci)) return false;
+					return !!r?.attached;
 				})
 				.slice(0, 5)
 				.map((r) => {
@@ -266,7 +285,11 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 						</div>
 					</div>
 					<div className="ibr-console-ops-card">
-						{!netInitOk ? (
+						{!identityReady ? (
+							<Typography.Paragraph type="warning" className="ibr-console-ops-hint">
+								尚未写入 WAN/LAN 身份，请先完成「初始化网卡」后再设定 IP。
+							</Typography.Paragraph>
+						) : !netInitOk ? (
 							<Typography.Paragraph type="warning" className="ibr-console-ops-hint">
 								请先完成网卡初始化并确保 VBRAS 正常启动。
 							</Typography.Paragraph>
@@ -287,7 +310,7 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 										<Input
 											className="ibr-console-ops-input"
 											placeholder="例如 10.0.0.2/24"
-											disabled={writeDisabled || saving}
+											disabled={writeDisabled || saving || !wanPci}
 										/>
 									</Form.Item>
 								) : (
@@ -306,7 +329,7 @@ export const VrConsoleSetIpPanel: React.FC<Props> = ({ vrUuid, managementIp }) =
 										<Input
 											className="ibr-console-ops-input"
 											placeholder="例如 192.168.1.1/24"
-											disabled={writeDisabled || saving}
+											disabled={writeDisabled || saving || !lanPci}
 										/>
 									</Form.Item>
 								) : (

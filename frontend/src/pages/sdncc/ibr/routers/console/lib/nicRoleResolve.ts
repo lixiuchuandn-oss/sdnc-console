@@ -1,19 +1,12 @@
-/** 与 ibr-local-web statusRoute / netApply 一致的 WAN/LAN PCI 下标映射 */
-function wanLanPciIndices(initMode: 'static' | 'dhcp') {
-	return initMode === 'static' ? { wan: 1, lan: 2 } : { wan: 0, lan: 1 };
-}
+/** 与设备 Console status 身份字段一致：WAN/LAN 只认 wan_pci/lan_pci，禁止 PCI 下标。 */
 
-type PciNicBrief = { pci?: string; ifnames?: string[]; macs?: string[] };
-
-export function resolveWanLanPci(
-	initMode: 'static' | 'dhcp',
-	pciNics: PciNicBrief[] | null | undefined,
-): { wanPci: string; lanPci: string } {
-	const idx = wanLanPciIndices(initMode);
-	const list = Array.isArray(pciNics) ? pciNics : [];
+export function resolveWanLanPci(params: {
+	wanPci?: string | null;
+	lanPci?: string | null;
+}): { wanPci: string; lanPci: string } {
 	return {
-		wanPci: String(list[idx.wan]?.pci ?? '').trim(),
-		lanPci: String(list[idx.lan]?.pci ?? '').trim(),
+		wanPci: String(params.wanPci ?? '').trim(),
+		lanPci: String(params.lanPci ?? '').trim(),
 	};
 }
 
