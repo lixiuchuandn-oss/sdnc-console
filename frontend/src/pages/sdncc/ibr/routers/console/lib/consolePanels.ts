@@ -76,7 +76,7 @@ export const VR_CONSOLE_PANELS: VrConsolePanelDef[] = [
 		label: '初始化网卡',
 		group: 'ops',
 		ready: true,
-		description: '选择静态/DHCP 模式，绑定 WAN/LAN 并重启 VBRAS',
+		description: '选择静态/DHCP 模式，绑定 WAN/LAN；仅当目标口尚未进入 VPP 数据面时才重启 VBRAS',
 		sourceLabel: '设备 · 代理',
 	},
 	{

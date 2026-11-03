@@ -185,22 +185,21 @@ export function NicInitPage() {
 										overlayStyle={{ maxWidth: 520 }}
 										title={
 											<Space direction="vertical" size={8} style={{ width: '100%' }}>
-												<div>将重新分配业务网口并重启 VBRAS，可能导致网络中断。</div>
+												<div>登记业务网口并清这些口的 IP/口级绑定；仅当目标口尚未进入 VPP 数据面（或仍在 OS）时才短中断重启。</div>
 												<div>
 													<div style={{ fontWeight: 600, marginBottom: 4 }}>静态模式（3 网口）</div>
 													<ul style={{ margin: 0, paddingLeft: 18 }}>
-														<li>执行后会强制 up 管理口、down 业务网口</li>
-														<li>重启 VBRAS 服务接管业务网口（WAN/LAN）</li>
+														<li>管理口保留 OS；WAN/LAN 交 VBRAS</li>
+														<li>startup-config 按口合并，非整文件覆盖</li>
 														<li>interface 由 PCI 号生成，请按实际 PCI 选择</li>
 													</ul>
 												</div>
 												<div>
 													<div style={{ fontWeight: 600, marginBottom: 4 }}>DHCP 模式（2 网口）</div>
 													<ul style={{ margin: 0, paddingLeft: 18 }}>
-														<li>执行后会 down OS 侧物理网卡，并重启 VBRAS</li>
-														<li>VBRAS 默认按 PCI 顺序使用：第一块网卡为 WAN、第二块网卡为 LAN</li>
+														<li>排除管理口后接管其余物理网卡，口上写 DHCP</li>
+														<li>WAN/LAN 身份按接管序写入（不是全量 PCI 下标）</li>
 														<li>VBRAS 会对接口下发 DHCP 配置，需确保网络侧有 DHCP 服务</li>
-														<li>interface 由 PCI 号生成</li>
 													</ul>
 												</div>
 											</Space>
@@ -230,11 +229,11 @@ export function NicInitPage() {
 									<>
 										{mode === 'static' ? (
 											<Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-												管理口默认使用第一块 PCI：{mgmtPci ?? '-'}
+												管理口默认使用仍在 OS 的物理口（mgmt_pci）：{mgmtPci ?? '-'}
 											</Typography.Paragraph>
 										) : (
 											<Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-												DHCP 模式会将所有物理网卡交由 VBRAS 接管：第一块网卡为 WAN、第二块网卡为 LAN（按 PCI 顺序）。执行会 down 网卡并重启，可能导致本页面断连。
+												DHCP 排除管理口后按接管序写入 WAN/LAN 身份（不是全量 PCI 下标第一块）。执行可能 down 网卡；仅当目标口尚未进入 VPP 数据面时才重启。
 											</Typography.Paragraph>
 										)}
 

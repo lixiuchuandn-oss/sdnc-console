@@ -258,19 +258,19 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 										overlayClassName="ibr-console-ops-tooltip"
 										title={
 											<div className="ibr-console-ops-tooltip-body">
-												<div>将重新分配业务网口并重启 VBRAS，可能导致网络中断。</div>
+												<div>登记业务网口并清这些口的 IP/口级绑定；仅当目标口尚未进入 VPP 数据面（或仍在 OS）时才短中断重启。</div>
 												<div>
 													<strong>静态模式（3 网口）</strong>
 													<ul>
-														<li>执行后会强制 up 管理口、down 业务网口</li>
-														<li>重启 VBRAS 接管 WAN/LAN</li>
+														<li>管理口保留 OS；WAN/LAN 交 VBRAS</li>
+														<li>startup-config 按口合并，非整文件覆盖</li>
 													</ul>
 												</div>
 												<div>
 													<strong>DHCP 模式（2 网口）</strong>
 													<ul>
-														<li>down OS 侧物理网卡并重启 VBRAS</li>
-														<li>按 PCI 顺序：第一块 WAN、第二块 LAN</li>
+														<li>排除管理口后接管其余物理网卡，口上写 DHCP</li>
+														<li>WAN/LAN 身份按接管序写入（不是全量 PCI 下标）</li>
 													</ul>
 												</div>
 											</div>
@@ -302,12 +302,12 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 									<>
 										{mode === 'static' ? (
 											<Typography.Paragraph type="secondary" className="ibr-console-ops-hint">
-												管理口默认使用第一块 PCI：{mgmtPci ?? '-'}
+												管理口默认使用仍在 OS 的物理口（mgmt_pci）：{mgmtPci ?? '-'}
 											</Typography.Paragraph>
 										) : (
 											<Typography.Paragraph type="warning" className="ibr-console-ops-hint">
-												DHCP 模式会将所有物理网卡交由 VBRAS 接管（按 PCI 顺序 WAN/LAN）。执行会 down
-												网卡并重启，可能导致设备短暂不可达。
+												DHCP 排除管理口后按接管序写入 WAN/LAN 身份（不是全量 PCI 下标第一块）。执行可能 down
+												网卡；仅当目标口尚未进入 VPP 数据面时才重启，可能导致设备短暂不可达。
 											</Typography.Paragraph>
 										)}
 
