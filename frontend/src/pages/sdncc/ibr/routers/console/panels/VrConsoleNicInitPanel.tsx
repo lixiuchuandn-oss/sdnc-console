@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
-import { Button, Divider, Form, Radio, Select, Space, Spin, Tag, Tooltip, Typography } from 'antd';
+import { Button, Divider, Form, Radio, Select, Space, Spin, Tag, Tooltip, Typography, message } from 'antd';
 import { getApiErrorMessage } from '../../../../../../services/api';
 import {
 	applyIbrDeviceNicInitRestart,
@@ -24,7 +24,6 @@ type FormValues = {
 	mode: IbrDeviceInitMode;
 	wan_pci?: string;
 	lan_pci?: string;
-	extra_pcis?: string[];
 };
 
 export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp }) => {
@@ -39,11 +38,13 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 	const [error, setError] = useState<string | null>(null);
 	const [previewOpen, setPreviewOpen] = useState(false);
 	const [previewContent, setPreviewContent] = useState('');
+	const [previewNote, setPreviewNote] = useState('');
+	const [previewNeedsRestart, setPreviewNeedsRestart] = useState(true);
 	const [pendingPayload, setPendingPayload] = useState<IbrDeviceNicInitPayload | null>(null);
-	const [restartOpen, setRestartOpen] = useState(false);
-	const [restartLogs, setRestartLogs] = useState<string[]>([]);
 
 	const [form] = Form.useForm<FormValues>();
+	const mode = (Form.useWatch('mode', form) as IbrDeviceInitMode | undefined) ?? 'static';
+	const watchedWan = String(Form.useWatch('wan_pci', form) ?? '');
 
 	const loadStatus = useCallback(async () => {
 		setRefreshing(true);
@@ -55,7 +56,6 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 				mode: data.init_mode === 'dhcp' ? 'dhcp' : 'static',
 				wan_pci: undefined,
 				lan_pci: undefined,
-				extra_pcis: undefined,
 			});
 		} catch (e) {
 			setLoadError(getApiErrorMessage(e, '加载设备状态失败'));
@@ -76,53 +76,56 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 	);
 	const mgmtPci = status?.mgmt_pci ?? null;
 
-	const options = useMemo(
+	const businessOptions = useMemo(
 		() =>
-			pcis.map((pci) => ({
-				label: pci === mgmtPci ? `${pci}（默认管理口）` : pci,
-				value: pci,
-			})),
+			pcis
+				.filter((pci) => pci !== mgmtPci)
+				.map((pci) => ({ label: pci, value: pci })),
 		[pcis, mgmtPci],
 	);
 
-	const businessOptionsStatic = useMemo(
-		() => options.filter((o) => o.value !== mgmtPci),
-		[options, mgmtPci],
+	const lanOptions = useMemo(
+		() => businessOptions.map((o) => ({ ...o, disabled: o.value === watchedWan })),
+		[businessOptions, watchedWan],
 	);
-
-	const buildPayload = (values: FormValues): IbrDeviceNicInitPayload => {
-		const mode = values.mode ?? 'static';
-		const wan = values.wan_pci?.trim() || '';
-		const lan = values.lan_pci?.trim() || '';
-		const extra = Array.isArray(values.extra_pcis)
-			? values.extra_pcis.map((x) => String(x).trim()).filter(Boolean)
-			: [];
-		const attach_pci = Array.from(new Set([wan, lan, ...extra].map((x) => x.trim()).filter(Boolean)));
-
-		if (mode === 'dhcp') {
-			return { mode, nics: [] };
-		}
-		return {
-			mode,
-			nics: [
-				...(wan ? [{ pci: wan, role: 'wan' as const }] : []),
-				...(lan ? [{ pci: lan, role: 'lan' as const }] : []),
-			],
-			attach_pci: attach_pci.length > 0 ? attach_pci : undefined,
-		};
-	};
 
 	const onSubmit = async (values: FormValues) => {
 		if (!canWrite) return;
+		const nextMode = values.mode ?? 'static';
+		const wan = values.wan_pci?.trim() || '';
+		const lan = values.lan_pci?.trim() || '';
+		if (!wan) {
+			setError('请选择 WAN 口');
+			return;
+		}
+		if (nextMode === 'static' && !lan) {
+			setError('请选择 LAN 口');
+			return;
+		}
+		if (lan && wan === lan) {
+			setError('WAN 与 LAN 不能是同一块网卡');
+			return;
+		}
+		const attachPci = Array.from(new Set([wan, lan].filter(Boolean)));
+		const payload: IbrDeviceNicInitPayload = {
+			mode: nextMode,
+			nics: [
+				{ pci: wan, role: 'wan' },
+				...(lan ? [{ pci: lan, role: 'lan' as const }] : []),
+			],
+			attach_pci: attachPci.length > 0 ? attachPci : undefined,
+		};
+
 		setSaving(true);
 		setError(null);
 		try {
-			const payload = buildPayload(values);
 			await setIbrDeviceNicMode(vrUuid, { mode: payload.mode });
 			setPendingPayload(payload);
 			const preview = await previewIbrDeviceNicInit(vrUuid, payload);
 			if (!preview?.ok) throw new Error(preview?.error || '生成配置失败');
 			setPreviewContent(String(preview.config_content ?? ''));
+			setPreviewNote(String(preview.preview_note ?? preview.message ?? ''));
+			setPreviewNeedsRestart(Boolean(preview.requires_vbras_restart));
 			setPreviewOpen(true);
 		} catch (e) {
 			setError(getApiErrorMessage(e, '初始化失败'));
@@ -137,13 +140,13 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 		setError(null);
 		try {
 			const data = await applyIbrDeviceNicInitRestart(vrUuid, pendingPayload);
-			if (!data?.ok) throw new Error(data?.error || '重启失败');
+			if (!data?.ok) throw new Error(data?.error || '应用失败');
 			setPreviewOpen(false);
-			setRestartLogs(Array.isArray(data.logs) ? data.logs.map(String) : []);
-			setRestartOpen(true);
+			setPendingPayload(null);
+			message.success(data.vbras_restarted ? '初始化完成（已重启 VBRAS）' : '初始化完成');
 			await loadStatus();
 		} catch (e) {
-			setError(getApiErrorMessage(e, '重启失败'));
+			setError(getApiErrorMessage(e, '应用失败'));
 		} finally {
 			setSaving(false);
 		}
@@ -203,7 +206,7 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 							</Typography.Text>
 						) : (
 							<Typography.Text type="secondary" className="ibr-console-ops-meta">
-								请选择模式与网卡并执行初始化
+								请选择模式与 WAN/LAN 后执行初始化
 							</Typography.Text>
 						)}
 					</Space>
@@ -256,25 +259,7 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 									<Tooltip
 										placement="right"
 										overlayClassName="ibr-console-ops-tooltip"
-										title={
-											<div className="ibr-console-ops-tooltip-body">
-												<div>登记业务网口并清这些口的 IP/口级绑定；仅当目标口尚未进入 VPP 数据面（或仍在 OS）时才短中断重启。</div>
-												<div>
-													<strong>静态模式（3 网口）</strong>
-													<ul>
-														<li>管理口保留 OS；WAN/LAN 交 VBRAS</li>
-														<li>startup-config 按口合并，非整文件覆盖</li>
-													</ul>
-												</div>
-												<div>
-													<strong>DHCP 模式（2 网口）</strong>
-													<ul>
-														<li>排除管理口后接管其余物理网卡，口上写 DHCP</li>
-														<li>WAN/LAN 身份按接管序写入（不是全量 PCI 下标）</li>
-													</ul>
-												</div>
-											</div>
-										}
+										title="管理口留 OS；未选中的原业务口将释放口级配置。初始化后不自动灌回 IP。"
 									>
 										<QuestionCircleOutlined className="ibr-console-ops-help-icon" />
 									</Tooltip>
@@ -295,86 +280,43 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 
 						<Divider className="ibr-console-ops-divider" />
 
-						<Form.Item shouldUpdate noStyle>
-							{() => {
-								const mode = (form.getFieldValue('mode') as IbrDeviceInitMode) ?? 'static';
-								return (
-									<>
-										{mode === 'static' ? (
-											<Typography.Paragraph type="secondary" className="ibr-console-ops-hint">
-												管理口默认使用仍在 OS 的物理口（mgmt_pci）：{mgmtPci ?? '-'}
-											</Typography.Paragraph>
-										) : (
-											<Typography.Paragraph type="warning" className="ibr-console-ops-hint">
-												DHCP 排除管理口后按接管序写入 WAN/LAN 身份（不是全量 PCI 下标第一块）。执行可能 down
-												网卡；仅当目标口尚未进入 VPP 数据面时才重启，可能导致设备短暂不可达。
-											</Typography.Paragraph>
-										)}
+						<Typography.Paragraph type="secondary" className="ibr-console-ops-hint">
+							{mode === 'static'
+								? `请选定 WAN 与 LAN；管理口（${mgmtPci ?? '-'}）留 OS。每次需重新选择，避免误用旧口。`
+								: `请选定 WAN（必选）；LAN 可选。管理口（${mgmtPci ?? '-'}）留 OS。`}
+						</Typography.Paragraph>
 
-										{mode === 'static' ? (
-											<>
-												<Form.Item
-													label="WAN 口（PCI）"
-													name="wan_pci"
-													rules={[{ required: true, message: '请选择 WAN 口' }]}
-												>
-													<Select
-														className="ibr-console-ops-select"
-														placeholder="选择 PCI"
-														disabled={saving}
-														options={businessOptionsStatic}
-														onChange={() => {
-															const wan = String(form.getFieldValue('wan_pci') ?? '');
-															const lan = String(form.getFieldValue('lan_pci') ?? '');
-															if (wan && lan && wan === lan) {
-																form.setFieldsValue({ lan_pci: undefined });
-															}
-														}}
-													/>
-												</Form.Item>
+						<Form.Item label="WAN 口（PCI）" name="wan_pci" rules={[{ required: true, message: '请选择 WAN 口' }]}>
+							<Select
+								className="ibr-console-ops-select"
+								placeholder="选择 PCI"
+								disabled={saving}
+								options={businessOptions}
+								showSearch
+								optionFilterProp="label"
+								onChange={(nextWan) => {
+									const nextLan = String(form.getFieldValue('lan_pci') ?? '');
+									if (nextWan && nextLan && nextWan === nextLan) {
+										form.setFieldsValue({ lan_pci: undefined });
+									}
+								}}
+							/>
+						</Form.Item>
 
-												<Form.Item
-													label="LAN 口（PCI）"
-													name="lan_pci"
-													rules={[{ required: true, message: '请选择 LAN 口' }]}
-												>
-													<Select
-														className="ibr-console-ops-select"
-														placeholder="选择 PCI"
-														disabled={saving}
-														options={businessOptionsStatic.map((o) => {
-															const wan = String(form.getFieldValue('wan_pci') ?? '');
-															return { ...o, disabled: o.value === wan || o.value === mgmtPci };
-														})}
-													/>
-												</Form.Item>
-
-												<Form.Item label="辅助 LAN 口（可选，最多 4 块）" name="extra_pcis">
-													<Select
-														className="ibr-console-ops-select"
-														mode="multiple"
-														placeholder="选择需要接管的额外网卡（可选）"
-														disabled={saving}
-														options={businessOptionsStatic
-															.filter((o) => {
-																const wan = String(form.getFieldValue('wan_pci') ?? '');
-																const lan = String(form.getFieldValue('lan_pci') ?? '');
-																return o.value !== wan && o.value !== lan;
-															})
-															.map((o) => ({ ...o, disabled: false }))}
-														onChange={(vals) => {
-															const list = Array.isArray(vals) ? vals.map((x) => String(x)) : [];
-															if (list.length > 4) {
-																form.setFieldsValue({ extra_pcis: list.slice(0, 4) });
-															}
-														}}
-													/>
-												</Form.Item>
-											</>
-										) : null}
-									</>
-								);
-							}}
+						<Form.Item
+							label={mode === 'dhcp' ? 'LAN 口（PCI，可选）' : 'LAN 口（PCI）'}
+							name="lan_pci"
+							rules={mode === 'static' ? [{ required: true, message: '请选择 LAN 口' }] : []}
+						>
+							<Select
+								className="ibr-console-ops-select"
+								allowClear={mode === 'dhcp'}
+								placeholder={mode === 'dhcp' ? '可不选' : '选择 PCI'}
+								disabled={saving}
+								options={lanOptions}
+								showSearch
+								optionFilterProp="label"
+							/>
 						</Form.Item>
 
 						{error ? (
@@ -398,37 +340,20 @@ export const VrConsoleNicInitPanel: React.FC<Props> = ({ vrUuid, managementIp })
 			) : null}
 
 			<ConsoleOpsModal
-				title="生成的配置预览"
+				title="接口配置预览"
 				open={previewOpen}
-				okText="应用配置并重启 VBRAS"
+				okText={previewNeedsRestart ? '应用并重启 VBRAS' : '应用'}
 				cancelText="取消"
 				onCancel={() => setPreviewOpen(false)}
 				onOk={() => void confirmApplyRestart()}
-				okButtonProps={{ loading: saving }}
+				okButtonProps={{ loading: saving, danger: previewNeedsRestart }}
 				destroyOnClose
 			>
 				<Typography.Paragraph type="secondary" className="ibr-console-ops-hint">
-					确认无误后点击「应用配置并重启 VBRAS」。此过程约需 1 分钟，请勿关闭页面。
+					{previewNote || '确认后应用；仅清相关口配置。'}
 				</Typography.Paragraph>
 				<pre className="ibr-console-ops-pre ibr-console-ops-pre--scroll ibr-console-ops-pre--drawer">
 					{previewContent || '(空)'}
-				</pre>
-			</ConsoleOpsModal>
-
-			<ConsoleOpsModal
-				title="重启执行日志"
-				open={restartOpen}
-				okText="刷新状态"
-				cancelText="关闭"
-				onCancel={() => setRestartOpen(false)}
-				onOk={() => {
-					setRestartOpen(false);
-					void loadStatus();
-				}}
-				destroyOnClose
-			>
-				<pre className="ibr-console-ops-pre ibr-console-ops-pre--scroll ibr-console-ops-pre--drawer">
-					{(restartLogs ?? []).join('\n') || '(无日志)'}
 				</pre>
 			</ConsoleOpsModal>
 		</div>

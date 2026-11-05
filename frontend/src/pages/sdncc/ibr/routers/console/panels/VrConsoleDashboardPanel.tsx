@@ -237,12 +237,13 @@ export const VrConsoleDashboardPanel: React.FC<Props> = ({
 			if (v === null) return { ok: false, neutral: true, value: '—' };
 			return { ok: v, neutral: false, value: v ? '可达' : '不可达' };
 		};
+		const legacyConsole = status?.sdnc_console_base || status?.compute_tower_base || status?.tower_base;
 		const rows = [
 			{
 				key: 'sdnc-console',
 				label: 'SDN Console',
-				address: status?.sdnc_console_base,
-				reach: r?.sdnc_console ?? null,
+				address: legacyConsole,
+				reach: r?.sdnc_console ?? r?.compute_tower ?? r?.tower ?? null,
 			},
 			{
 				key: 'sdnc-csmctl',
@@ -253,8 +254,8 @@ export const VrConsoleDashboardPanel: React.FC<Props> = ({
 			{
 				key: 'compute-tower',
 				label: 'Compute Tower',
-				address: status?.compute_tower_base ?? status?.tower_base,
-				reach: r?.compute_tower ?? r?.tower ?? null,
+				address: null,
+				reach: null,
 			},
 			{
 				key: 'aisoc',

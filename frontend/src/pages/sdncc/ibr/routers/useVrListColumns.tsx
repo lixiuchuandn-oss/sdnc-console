@@ -3,10 +3,9 @@ import type { MenuProps } from 'antd';
 import { Badge, Progress, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { message } from 'antd';
-import { LinkOutlined } from '@ant-design/icons';
 import ResourceActionsDropdown from '../../../../components/ResourceActionsDropdown';
 import { commonBadgeStyles, commonTableStyles } from '../../../../utils/tableStyles';
-import { buildIbrLocalWebUrl, openIbrConsole } from '../lib/ibrLocalWebUrl';
+import { openIbrConsole } from '../lib/ibrLocalWebUrl';
 import { ibrVrRowId } from '../lib/ibrVrCatalog';
 import {
   VrRoleTag,
@@ -150,21 +149,7 @@ export function useVrListColumns(params: UseVrListColumnsParams): ColumnsType<Vr
         key: 'management_ip',
         render: (_v, row) => {
           const ip = String(row.management_ip ?? row.managementIp ?? '').trim();
-          const localWebUrl = buildIbrLocalWebUrl(row);
-          if (!ip) return '—';
-          if (!localWebUrl) return ip;
-          return (
-            <Tooltip title={`新窗口打开本机 Console：${localWebUrl}`}>
-              <Typography.Link
-                href={localWebUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <LinkOutlined /> {ip}
-              </Typography.Link>
-            </Tooltip>
-          );
+          return ip || '—';
         },
       },
       {

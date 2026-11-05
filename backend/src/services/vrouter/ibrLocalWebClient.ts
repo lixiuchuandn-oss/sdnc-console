@@ -491,7 +491,9 @@ export const ibrLocalWebClient = {
     return ibrLocalWebNorthRequest<{
       ok: boolean;
       config_content?: string;
+      preview_note?: string;
       message?: string;
+      requires_vbras_restart?: boolean;
       error?: string;
     }>({
       managementIp,
@@ -515,6 +517,8 @@ export const ibrLocalWebClient = {
       logs?: string[];
       attach_pci?: string[];
       mode?: string;
+      requires_vbras_restart?: boolean;
+      vbras_restarted?: boolean;
       error?: string;
     }>({
       managementIp,
