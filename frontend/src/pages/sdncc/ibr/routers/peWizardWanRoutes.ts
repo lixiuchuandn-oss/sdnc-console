@@ -5,7 +5,7 @@ export type WanRouteFormRow = {
   ipv4?: string;
   ipv6?: string;
   ipv4RouteDest?: string;
-  ipv4RoutePriority?: number;
+  ipv4RouteVia?: string;
   ipv6Dest?: string;
   ipv6Via?: string;
 };
@@ -26,10 +26,10 @@ export const normalizePeWizardIpv6Cidr = (raw: unknown): string | undefined => {
 };
 
 export function buildWanStaticRoutesFromRows(rows: WanRouteFormRow[]): {
-  ipv4_route: Array<{ destination: string; dev: string; priority: number }>;
+  ipv4_route: Array<{ destination: string; via: string; dev: string }>;
   ipv6_route: Array<{ destination: string; via?: string }>;
 } {
-  const ipv4_route: Array<{ destination: string; dev: string; priority: number }> = [];
+  const ipv4_route: Array<{ destination: string; via: string; dev: string }> = [];
   const ipv6_route: Array<{ destination: string; via?: string }> = [];
 
   for (const row of rows) {
@@ -37,13 +37,13 @@ export function buildWanStaticRoutesFromRows(rows: WanRouteFormRow[]): {
     if (!ifName) continue;
 
     const dest4Raw = String(row.ipv4RouteDest ?? '').trim();
+    const via4 = String(row.ipv4RouteVia ?? '').trim();
     const dest4 = dest4Raw ? normalizePeWizardIpv4Cidr(dest4Raw) : undefined;
-    if (dest4) {
-      const prio = Number(row.ipv4RoutePriority ?? 100);
+    if (dest4 && via4) {
       ipv4_route.push({
         destination: dest4,
+        via: via4,
         dev: ifName,
-        priority: Number.isFinite(prio) ? prio : 100,
       });
     }
 
@@ -113,9 +113,9 @@ export function enrichHubWanRowsFromDeviceRoutes<T extends WanRouteFormRow>(
     ) as Record<string, unknown> | undefined;
     if (v4?.destination && !next.ipv4RouteDest) {
       next.ipv4RouteDest = String(v4.destination);
-      if (v4.priority !== undefined && v4.priority !== null && next.ipv4RoutePriority == null) {
-        next.ipv4RoutePriority = Number(v4.priority);
-      }
+    }
+    if (v4?.via && !next.ipv4RouteVia) {
+      next.ipv4RouteVia = String(v4.via);
     }
 
     const hasInventoryV6 =
@@ -213,7 +213,7 @@ export function mergeHubWanFormRowsForWizard(
       ipv4: hit?.ipv4 ?? devRow.ipv4,
       ipv6: hit?.ipv6 ?? devRow.ipv6,
       ipv4RouteDest: hit?.ipv4RouteDest ?? devRow.ipv4RouteDest,
-      ipv4RoutePriority: hit?.ipv4RoutePriority ?? devRow.ipv4RoutePriority,
+      ipv4RouteVia: hit?.ipv4RouteVia ?? devRow.ipv4RouteVia,
       ipv6Dest: hit?.ipv6Dest ?? devRow.ipv6Dest,
       ipv6Via: hit?.ipv6Via ?? devRow.ipv6Via,
     });

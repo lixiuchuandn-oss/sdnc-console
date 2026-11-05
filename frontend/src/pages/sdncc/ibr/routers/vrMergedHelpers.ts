@@ -2,9 +2,9 @@
  * 与 GET /api/vr-instances/:uuid 聚合接口对齐（含 vr1 元数据、vr2_info、vr3_info 等）：
  *
  * 1）进入 PE/CE 等向导应调用该聚合接口拉全量。
- * 2）左侧「设备回读」仅展示/推断 vr2_info（pickDeviceBlobForLookup）。
- * 3）右侧「配置编辑」默认用 vr2_info 跟接口 IP 等；用户主动改「公网口」Select 时，
- *    该次对齐仅查 vr3_info（接口权威）。网卡下拉选项见 collectIfaceNamesForSelect（vr3 优先，vr2/基线兜底）。
+ * 2）左侧「设备回读」只按已保存角色点名的接口、路由和公网 BGP，从 vr2_info 取值。
+ * 3）右侧已保存角色时展示 pe；用户主动改公网口时，才用 vr3_info 预填该口当前地址。
+ *    网卡下拉选项见 collectIfaceNamesForSelect（vr3 优先，vr2/基线兜底）。
  */
 
 const IFC_NAME_KEYS = ['name', 'iface', 'ifName', 'interface', 'devName'] as const;

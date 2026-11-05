@@ -30,7 +30,6 @@ import {
   assertUniqueHubInventoryIfNames,
   buildHubWanMirrorRowsFromDevice,
   buildWanStaticRoutesFromRows,
-  resolveHubWanRowsForPeWizardForm,
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
 import { isValidRdRtToken } from '../../srv6/srv6RdRt';
@@ -87,7 +86,7 @@ function getPePublicConfig(pe: any): Record<string, any> {
     'wanIpv4',
     'wanIpv6',
     'wanRouteDest',
-    'wanRoutePriority',
+    'wanRouteVia',
     'ipv6Dest',
     'ipv6Via',
     'publicBgp',
@@ -162,6 +161,109 @@ function normalizeLanRowFromPeMeta(l: any) {
     ...(routerId ? { routerId } : {}),
     ...(routeDistinguisher ? { routeDistinguisher } : {}),
     ...(routeTarget ? { routeTarget } : {}),
+  };
+}
+
+function isPublicBgpEntry(b: any): boolean {
+  return !!b && (b.vrf == null || b.vrf === '' || b.vrf === 0 || b.vrf === '0');
+}
+
+function ipv6DestFromRoute(route: any): string | undefined {
+  const raw = String(route?.destination || '').trim();
+  if (!raw) return undefined;
+  if (raw.includes('/')) return raw;
+  return `${raw}/128`;
+}
+
+function roleText(v: unknown): string {
+  return String(v ?? '').trim();
+}
+
+/** 角色没填的地址不回显；填了才读该接口上角色下发后的 static，避免把初始化地址当成角色配置。 */
+function deviceStaticIfRoleSet(
+  iface: any,
+  key: 'ipv4_static' | 'ipv6_static',
+  roleValue: unknown,
+): string | undefined {
+  if (!roleText(roleValue)) return undefined;
+  return roleText(iface?.[key]) || undefined;
+}
+
+function pickIpv4RouteForWan(routes: any[], wanName: string, roleDest: unknown, roleVia: unknown) {
+  if (!wanName || (!roleText(roleDest) && !roleText(roleVia))) return undefined;
+  const onDev = routes.filter((r) => roleText(r?.dev) === wanName);
+  if (!onDev.length) return undefined;
+  const dest = roleText(roleDest);
+  return (dest && onDev.find((r) => roleText(r?.destination) === dest)) || onDev[0];
+}
+
+/** IPv6 路由没有 dev。角色没配则不回显；配了则按目的网段对上设备条目，单条时直接展示以便看出不一致。 */
+function pickIpv6RouteForRole(
+  routes: any[],
+  roleDest: unknown,
+  roleVia: unknown,
+  allowSingle: boolean,
+) {
+  if (!roleText(roleDest) && !roleText(roleVia)) return undefined;
+  const dest = roleText(roleDest);
+  const hit = dest ? routes.find((r) => ipv6DestFromRoute(r) === dest) : undefined;
+  if (hit) return hit;
+  if (allowSingle && routes.length === 1) return routes[0];
+  return undefined;
+}
+
+/**
+ * 设备回读只核对角色配置点名的对象：
+ * 口名、是否回显地址/路由，以已保存的 pe 为准；
+ * 值只来自这些口的 ipv4_static/ipv6_static、dev 对上的 ipv4_route、以及无 VRF 的公网 BGP。
+ */
+function buildSpokeRoleMirror(
+  dev: any,
+  pe: any,
+  findInterface: (device: any, name: string) => any,
+): Record<string, any> {
+  const pcfg = getPePublicConfig(pe);
+  const wanName = roleText(pcfg.wanName || pcfg.wanDev);
+  const wanIf = wanName ? findInterface(dev, wanName) : null;
+  const routes4 = Array.isArray(dev?.ipv4_route) ? dev.ipv4_route : [];
+  const routes6 = Array.isArray(dev?.ipv6_route) ? dev.ipv6_route : [];
+  const wanRoute4 = pickIpv4RouteForWan(routes4, wanName, pcfg.wanRouteDest, pcfg.wanRouteVia);
+  const wanRoute6 = pickIpv6RouteForRole(routes6, pcfg.ipv6Dest, pcfg.ipv6Via, true);
+  const bgpArr = Array.isArray(dev?.bgp) ? dev.bgp : [];
+  const publicBgp = bgpArr.find(isPublicBgpEntry);
+  const lanConfigs = readLanListFromPe(pe)
+    .map((row) => normalizeLanRowFromPeMeta(row))
+    .filter((row) => roleText(row?.ifName) || row?.vrf != null)
+    .map((row) => {
+      const ifn = roleText(row?.ifName);
+      const iface = ifn ? findInterface(dev, ifn) : null;
+      const bgp = bgpArr.find((b: any) => row?.vrf != null && String(b?.vrf) === String(row.vrf));
+      const rdRt = bgp ? extractRdRtFromBgpEntry(bgp) : {};
+      return {
+        vrf: row.vrf,
+        ifName: ifn || undefined,
+        ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', row?.ipv4),
+        ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', row?.ipv6),
+        asn: row?.asn != null && row?.asn !== '' ? bgp?.asn : undefined,
+        routerId: roleText(row?.routerId) ? bgp?.router_id : undefined,
+        routeDistinguisher: roleText(row?.routeDistinguisher) ? rdRt.routeDistinguisher : undefined,
+        routeTarget: roleText(row?.routeTarget) ? rdRt.routeTarget : undefined,
+      };
+    });
+  const srv6 = dev?.segment_routing_srv6;
+  return {
+    locatorName: roleText(pcfg.locatorName) ? srv6?.locator : undefined,
+    sidPrefix: roleText(pcfg.sidPrefix) ? srv6?.prefix : undefined,
+    wanDev: wanName || undefined,
+    wanIpv4: deviceStaticIfRoleSet(wanIf, 'ipv4_static', pcfg.wanIpv4),
+    wanIpv6: deviceStaticIfRoleSet(wanIf, 'ipv6_static', pcfg.wanIpv6),
+    wanRouteDest: wanRoute4?.destination || undefined,
+    wanRouteVia: wanRoute4?.via || undefined,
+    ipv6Dest: ipv6DestFromRoute(wanRoute6),
+    ipv6Via: wanRoute6?.via || undefined,
+    bgpAsn: publicBgp?.asn,
+    bgpRouterId: publicBgp?.router_id,
+    lanConfigs: lanConfigs.length ? lanConfigs : [{}],
   };
 }
 
@@ -241,6 +343,10 @@ const PEWizard: React.FC = () => {
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
+  const hasRoleConfig = Boolean(
+    (existingCfg?.pe && typeof existingCfg.pe === 'object' && Object.keys(existingCfg.pe).length) ||
+      (csmctlCfg?.pe && typeof csmctlCfg.pe === 'object' && Object.keys(csmctlCfg.pe).length),
+  );
   /** vr3_info 设备回读：用于在接口选择后反查 IP 等字段 */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
@@ -384,14 +490,9 @@ const PEWizard: React.FC = () => {
   };
 
   const prevWanDevRef = useRef<string | undefined>(undefined);
-  const hadVr3InfoRef = useRef(false);
-  /** 记录上一轮 vr3：未改 WAN 口名时勿用新 vr3 覆盖用户已编辑的 wanIpv4/6 */
-  const prevVr3InfoForPeWanRef = useRef<any>(null);
 
   useEffect(() => {
-    hadVr3InfoRef.current = false;
     prevWanDevRef.current = undefined;
-    prevVr3InfoForPeWanRef.current = null;
     skipEditFormOnNextDeviceReadRef.current = false;
     setActiveLanTabKey('0');
     setActiveWanTabKey('0');
@@ -399,7 +500,7 @@ const PEWizard: React.FC = () => {
 
   const ifaceLoadGenRef = useRef(0);
 
-  /** 拉取 VR 缓存合并数据，解析接口列表与 VR3 网卡 IP */
+  /** 拉平台已保存角色和设备 VR2。左侧回读用这两份；VR3 只参与网卡下拉和用户改口时的预填。 */
   const fetchInterfaces = useCallback(async (silent = false) => {
     if (!uuid) return;
     const gen = ++ifaceLoadGenRef.current;
@@ -461,22 +562,21 @@ const PEWizard: React.FC = () => {
       const pcfg = getPePublicConfig(pe);
       let lanConfigs = readLanListFromPe(pe).map((x: any) => normalizeLanRowFromPeMeta(x));
       if (!lanConfigs.length) lanConfigs = [{}];
-      lanConfigs = lanConfigs.map((r: any) => ({ ...r, ipv4: undefined, ipv6: undefined }));
       const pbg = readPublicBgpMetaFromPe(pe);
       form.setFieldsValue({
         locatorName: pcfg.locatorName,
         sidPrefix: pcfg.sidPrefix,
         wanDev: pcfg.wanName || pcfg.wanDev,
-        wanIpv4: undefined,
-        wanIpv6: undefined,
+        wanIpv4: pcfg.wanIpv4,
+        wanIpv6: pcfg.wanIpv6,
         wanRouteDest: pcfg.wanRouteDest,
-        wanRoutePriority: pcfg.wanRoutePriority,
+        wanRouteVia: pcfg.wanRouteVia,
         ipv6Dest: pcfg.ipv6Dest,
         ipv6Via: pcfg.ipv6Via,
         bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
         bgpNetworkIpv6: pcfg.bgpNetworkIpv6,
         bgpAsn: pbg.asn,
-        bgpRouterId: pbg.routerId || managementIpRef.current || undefined,
+        bgpRouterId: pbg.routerId || undefined,
         lanConfigs,
         ...(isHubPe
           ? (() => {
@@ -487,11 +587,7 @@ const PEWizard: React.FC = () => {
                 lanConfigs,
               });
               return {
-                hubWanInventory: resolveHubWanRowsForPeWizardForm(
-                  hubForm.hubWanInventory,
-                  [],
-                  existingCfg,
-                ),
+                hubWanInventory: hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}],
                 lanConfigs: hubForm.lanConfigs,
               };
             })()
@@ -525,9 +621,9 @@ const PEWizard: React.FC = () => {
     const ipv6RouteTop = Array.isArray((dev as any)?.ipv6_route) ? (dev as any).ipv6_route[0] : undefined;
     const wanDevCandidate = ipv4RouteTop?.dev || anyIface?.name;
     const wanDevStr = wanDevCandidate ? String(wanDevCandidate) : '';
-    const wanIfVr3 = wanDevStr && vr3Info ? findInterfaceInDevice(vr3Info, wanDevStr) : null;
-    const v4Wan = wanIfVr3 ? String(pickIfaceIpv4(wanIfVr3) || '').trim() : '';
-    const v6Wan = wanIfVr3 ? String(pickIfaceIpv6(wanIfVr3) || '').trim() : '';
+    const wanIfCfg = wanDevStr ? findInterfaceInDevice(dev, wanDevStr) : null;
+    const v4Wan = String(wanIfCfg?.ipv4_static || '').trim();
+    const v6Wan = String(wanIfCfg?.ipv6_static || '').trim();
     const bgpTop = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp[0] : undefined;
     const fam = Array.isArray(bgpTop?.address_family) ? bgpTop.address_family : [];
     const af4 = fam.find((f: any) => f?.address_family === 'ipv4');
@@ -542,42 +638,10 @@ const PEWizard: React.FC = () => {
       wanDev: wanDevCandidate,
       wanIpv4: v4Wan || undefined,
       wanIpv6: v6Wan || undefined,
-      wanRouteDest: ipv4RouteTop?.destination || '0.0.0.0/0',
-      wanRoutePriority: ipv4RouteTop?.priority ?? 100,
-      // ipv6 route destination：无掩码时默认 ::/0；设备可能返回主机地址
-      ipv6Dest: (() => {
-        const raw = String(ipv6RouteTop?.destination || '').trim();
-        if (!raw) return '::/0';
-        if (raw.includes('/')) return raw;
-        // 设备仅返回主机地址时补 /128，便于表单展示为 CIDR
-        return `${raw}/128`;
-      })(),
-      ipv6Via: ipv6RouteTop?.via || '500::1',
-      bgpAsn: bgpTop?.asn,
-      bgpRouterId: bgpTop?.router_id,
-      bgpNetworkIpv4: nets4,
-      bgpNetworkIpv6: nets6,
-    };
-
-    // mirror 侧：ipv6Dest 与 vr2 原始 destination 对齐（避免 spread 推断偏差）
-    const ipv6DestMirror =
-      ipv6RouteTop &&
-      (() => {
-        const raw = String(ipv6RouteTop.destination || '').trim();
-        if (!raw) return undefined;
-        if (raw.includes('/')) return raw;
-        return `${raw}/128`;
-      })();
-    const mirrorInferredTop = {
-      locatorName: (dev as any)?.segment_routing_srv6?.locator,
-      sidPrefix: (dev as any)?.segment_routing_srv6?.prefix,
-      wanDev: wanDevCandidate,
-      wanIpv4: v4Wan || undefined,
-      wanIpv6: v6Wan || undefined,
-      wanRouteDest: ipv4RouteTop?.destination,
-      wanRoutePriority: ipv4RouteTop?.priority,
-      ipv6Dest: ipv6DestMirror,
-      ipv6Via: ipv6RouteTop?.via,
+      wanRouteDest: ipv4RouteTop?.destination || undefined,
+      wanRouteVia: ipv4RouteTop?.via || undefined,
+      ipv6Dest: ipv6DestFromRoute(ipv6RouteTop),
+      ipv6Via: ipv6RouteTop?.via || undefined,
       bgpAsn: bgpTop?.asn,
       bgpRouterId: bgpTop?.router_id,
       bgpNetworkIpv4: nets4,
@@ -585,13 +649,13 @@ const PEWizard: React.FC = () => {
     };
 
     const ifaceItems: Array<{ name?: string; ipv4_static?: string; ipv6_static?: string; vrf?: any }> = [];
-    const lanIpFromVr3 = (ifName?: string) => {
+    const staticIpOnRoleIface = (ifName?: string) => {
       const n = String(ifName || '').trim();
-      if (!n || !vr3Info) return { ipv4: undefined as string | undefined, ipv6: undefined as string | undefined };
-      const o = findInterfaceInDevice(vr3Info, n);
+      if (!n) return { ipv4: undefined as string | undefined, ipv6: undefined as string | undefined };
+      const o = findInterfaceInDevice(dev, n);
       if (!o) return { ipv4: undefined, ipv6: undefined };
-      const ipv4 = String(pickIfaceIpv4(o) || '').trim() || undefined;
-      const ipv6 = String(pickIfaceIpv6(o) || '').trim() || undefined;
+      const ipv4 = String(o.ipv4_static || '').trim() || undefined;
+      const ipv6 = String(o.ipv6_static || '').trim() || undefined;
       return { ipv4, ipv6 };
     };
     const collectFromArr = (arr?: any[]) => {
@@ -636,12 +700,12 @@ const PEWizard: React.FC = () => {
         const ifaceMatch = ifaceItems.find((it) => it.vrf === vrfVal);
         const bgpMatch = bgpByVrf.get(vrfVal);
         const ifn = ifaceMatch?.name;
-        const ipVr3 = lanIpFromVr3(ifn);
+        const ipRole = staticIpOnRoleIface(ifn);
         groups.push({
           vrf: vrfVal,
           ifName: ifn,
-          ipv4: ipVr3.ipv4,
-          ipv6: ipVr3.ipv6,
+          ipv4: ipRole.ipv4,
+          ipv6: ipRole.ipv6,
           asn: bgpMatch?.asn,
           routerId: bgpMatch?.routerId,
           routeDistinguisher: bgpMatch?.routeDistinguisher,
@@ -651,13 +715,13 @@ const PEWizard: React.FC = () => {
     } else if (ifaceItems.length) {
       const first = ifaceItems[0];
       const ifn = first?.name;
-      const ipVr3 = lanIpFromVr3(ifn);
+      const ipRole = staticIpOnRoleIface(ifn);
       const topRdRt = extractRdRtFromBgpEntry(bgpTop);
       groups.push({
         vrf: first?.vrf,
         ifName: ifn,
-        ipv4: ipVr3.ipv4,
-        ipv6: ipVr3.ipv6,
+        ipv4: ipRole.ipv4,
+        ipv6: ipRole.ipv6,
         asn: bgpTop?.asn,
         routerId: bgpTop?.router_id,
         ...topRdRt,
@@ -666,7 +730,6 @@ const PEWizard: React.FC = () => {
 
     // LAN 分组为空时仍保留 [{}]，避免 Form.List 无行；与 vr2 推断一致
     const lanConfigsForForm = groups.length > 0 ? groups : [{}];
-    const lanConfigsForMirror = lanConfigsForForm;
 
     const fullInferredForForm = {
       ...inferredTop,
@@ -680,19 +743,72 @@ const PEWizard: React.FC = () => {
           }
         : {}),
     };
-    const fullInferredForMirror = {
-      ...mirrorInferredTop,
-      lanConfigs: lanConfigsForMirror,
-      ...(isHubPe
-        ? {
-            hubWanInventory: buildHubWanMirrorRowsFromDevice(ifaceItems, {
-              ipv4_route: (dev as any)?.ipv4_route,
-              ipv6_route: (dev as any)?.ipv6_route,
-            }),
-          }
-        : {}),
-    };
-    mirrorForm.setFieldsValue(fullInferredForMirror);
+    const rolePe =
+      existingCfg?.pe && Object.keys(existingCfg.pe).length
+        ? existingCfg.pe
+        : dev?.pe && typeof dev.pe === 'object' && Object.keys(dev.pe).length
+          ? dev.pe
+          : null;
+    mirrorForm.resetFields();
+    if (rolePe) {
+      const spokeMirror = buildSpokeRoleMirror(dev, rolePe, findInterfaceInDevice);
+      if (isHubPe) {
+        const pcfg = getPePublicConfig(rolePe);
+        const inv = parseHubInventoryFromConfig(existingCfg) || parseHubInventoryFromConfig(dev);
+        const routes4 = Array.isArray((dev as any)?.ipv4_route) ? (dev as any).ipv4_route : [];
+        const routes6 = Array.isArray((dev as any)?.ipv6_route) ? (dev as any).ipv6_route : [];
+        const wanItems = (inv?.wan || []).filter((w) => w.source === 'role_wizard');
+        const usingInventory = wanItems.length > 0;
+        const hubWanFromRole = usingInventory
+          ? wanItems
+          : spokeMirror.wanDev
+            ? [{
+                ifName: String(spokeMirror.wanDev),
+                ipv4: pcfg.wanIpv4,
+                ipv6: pcfg.wanIpv6,
+                ipv4RouteDest: pcfg.wanRouteDest,
+                ipv4RouteVia: pcfg.wanRouteVia,
+                ipv6Dest: pcfg.ipv6Dest,
+                ipv6Via: pcfg.ipv6Via,
+              }]
+            : [];
+        spokeMirror.hubWanInventory = hubWanFromRole.map((w) => {
+          const ifName = roleText(w.ifName);
+          const iface = findInterfaceInDevice(dev, ifName);
+          const v4 = pickIpv4RouteForWan(routes4, ifName, w.ipv4RouteDest, w.ipv4RouteVia);
+          const v6 = pickIpv6RouteForRole(routes6, w.ipv6Dest, w.ipv6Via, hubWanFromRole.length === 1);
+          return {
+            ifName,
+            ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', w.ipv4),
+            ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', w.ipv6),
+            ipv4RouteDest: v4?.destination || undefined,
+            ipv4RouteVia: v4?.via || undefined,
+            ipv6Dest: ipv6DestFromRoute(v6),
+            ipv6Via: v6?.via || undefined,
+          };
+        });
+        const lanItems = (inv?.lan || []).filter((l) => l.source === 'role_wizard');
+        if (lanItems.length) {
+          const bgpArr = Array.isArray((dev as any)?.bgp) ? (dev as any).bgp : [];
+          spokeMirror.lanConfigs = lanItems.map((l) => {
+            const iface = findInterfaceInDevice(dev, l.ifName);
+            const bgp = bgpArr.find((b: any) => String(b?.vrf) === String(l.vrf));
+            const rdRt = bgp ? extractRdRtFromBgpEntry(bgp) : {};
+            return {
+              vrf: l.vrf,
+              ifName: l.ifName,
+              ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', l.ipv4),
+              ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', l.ipv6),
+              asn: l.privateAsn != null ? bgp?.asn : undefined,
+              routerId: roleText(l.routerId) ? bgp?.router_id : undefined,
+              routeDistinguisher: roleText(l.routeDistinguisher) ? rdRt.routeDistinguisher : undefined,
+              routeTarget: roleText(l.routeTarget) ? rdRt.routeTarget : undefined,
+            };
+          });
+        }
+      }
+      mirrorForm.setFieldsValue(spokeMirror);
+    }
 
     if (skipEditFormOnNextDeviceReadRef.current) {
       skipEditFormOnNextDeviceReadRef.current = false;
@@ -709,20 +825,13 @@ const PEWizard: React.FC = () => {
       const pbg = readPublicBgpMetaFromPe(pe);
       const { publicConfig: _pc, lanConfig: _lnc, LanConfig: _LncLegacy, lanConfigs: _lc, publicBgp: _pb, ...peRest } = pe;
       const wanDevMapped = pcfg.wanName || pcfg.wanDev || peRest.wanDev;
-      const wanVr3ForMap =
-        wanDevMapped && vr3Info ? findInterfaceInDevice(vr3Info, String(wanDevMapped)) : null;
-      const wanIpv4Mapped = wanVr3ForMap ? String(pickIfaceIpv4(wanVr3ForMap) || '').trim() || undefined : undefined;
-      const wanIpv6Mapped = (() => {
-        const fromVr3 = wanVr3ForMap ? String(pickIfaceIpv6(wanVr3ForMap) || '').trim() : '';
-        const fromSaved = filterLinkLocalIpv6(pcfg.wanIpv6);
-        const merged = fromVr3 || fromSaved;
-        return merged || undefined;
-      })();
-      const lanConfigsVr3 = (lanConfigs || []).map((row: any) => {
-        const ifn = row?.ifName;
-        const ip = lanIpFromVr3(ifn);
-        return { ...row, ipv4: ip.ipv4, ipv6: ip.ipv6 };
-      });
+      const wanIpv4Mapped = String(pcfg.wanIpv4 || '').trim() || undefined;
+      const wanIpv6Mapped = filterLinkLocalIpv6(pcfg.wanIpv6) || undefined;
+      const lanConfigsVr3 = (lanConfigs || []).map((row: any) => ({
+        ...row,
+        ipv4: String(row?.ipv4 || '').trim() || undefined,
+        ipv6: String(row?.ipv6 || '').trim() || undefined,
+      }));
       const mapped = {
         ...peRest,
         locatorName: pcfg.locatorName ?? peRest.locatorName,
@@ -731,15 +840,14 @@ const PEWizard: React.FC = () => {
         wanIpv4: wanIpv4Mapped,
         wanIpv6: wanIpv6Mapped,
         wanRouteDest: pcfg.wanRouteDest ?? peRest.wanRouteDest,
-        wanRoutePriority: pcfg.wanRoutePriority ?? peRest.wanRoutePriority,
+        wanRouteVia: pcfg.wanRouteVia ?? peRest.wanRouteVia,
         ipv6Dest: pcfg.ipv6Dest ?? peRest.ipv6Dest,
         ipv6Via: pcfg.ipv6Via ?? peRest.ipv6Via,
-        bgpNetworkIpv4: pcfg.bgpNetworkIpv4 ?? inferredTop.bgpNetworkIpv4,
-        bgpNetworkIpv6: pcfg.bgpNetworkIpv6 ?? inferredTop.bgpNetworkIpv6,
+        bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
+        bgpNetworkIpv6: pcfg.bgpNetworkIpv6,
         lanConfigs: lanConfigsVr3,
-        bgpAsn: pbg.asn ?? inferredTop.bgpAsn,
-        bgpRouterId:
-          pbg.routerId || inferredTop.bgpRouterId || managementIpRef.current || undefined,
+        bgpAsn: pbg.asn,
+        bgpRouterId: pbg.routerId || undefined,
         ...(isHubPe
           ? (() => {
               const hubForm = hubInventoryToPeWizardForm(existingCfg, {
@@ -749,11 +857,7 @@ const PEWizard: React.FC = () => {
                 lanConfigs: lanConfigsVr3,
               });
               return {
-                hubWanInventory: resolveHubWanRowsForPeWizardForm(
-                  hubForm.hubWanInventory,
-                  ifaceItems,
-                  dev,
-                ),
+                hubWanInventory: hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}],
                 lanConfigs: hubForm.lanConfigs,
               };
             })()
@@ -769,27 +873,18 @@ const PEWizard: React.FC = () => {
   const watchedWanDev = Form.useWatch('wanDev', form);
   useEffect(() => {
     const wan = watchedWanDev ? String(watchedWanDev) : '';
-    if (prevVr3InfoForPeWanRef.current != null && vr3Info != null) {
-      const nicUnchanged = (prevWanDevRef.current ?? '') === wan;
-      if (nicUnchanged) {
-        prevVr3InfoForPeWanRef.current = vr3Info;
-        return;
-      }
-    }
-    if (vr3Info) prevVr3InfoForPeWanRef.current = vr3Info;
-
-    const vr3JustArrived = !!vr3Info && !hadVr3InfoRef.current;
-    if (vr3Info) hadVr3InfoRef.current = true;
-    if (wan) {
-      const nicChanged = prevWanDevRef.current !== wan;
-      prevWanDevRef.current = wan || undefined;
-      autoFillWanFromIface(wan, { force: nicChanged || vr3JustArrived });
-    } else {
+    const prev = prevWanDevRef.current;
+    if (!wan) {
       prevWanDevRef.current = undefined;
-      autoFillWanFromIface('', { force: true });
+      return;
+    }
+    prevWanDevRef.current = wan;
+    // 向导打开或 VR3 晚到时不覆盖已保存的角色地址。只有用户把公网口改成另一块网卡，才用该口当前地址预填。
+    if (prev !== undefined && prev !== wan) {
+      autoFillWanFromIface(wan, { force: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedWanDev, vr3Info]);
+  }, [watchedWanDev]);
 
   const buildConfigFromValues = (v: any): Record<string, unknown> => {
     const cfg: Record<string, unknown> = {};
@@ -894,9 +989,9 @@ const PEWizard: React.FC = () => {
       if (ipv4_route.length) cfg.ipv4_route = ipv4_route;
       if (ipv6_route.length) cfg.ipv6_route = ipv6_route;
     } else if (primaryWanDev) {
-      const dest = normalizeIPv4Cidr(v?.wanRouteDest || '0.0.0.0/0');
-      const prio = Number(v?.wanRoutePriority ?? 100);
-      if (dest) cfg.ipv4_route = [{ destination: dest, dev: primaryWanDev, priority: prio }];
+      const dest = normalizeIPv4Cidr(v?.wanRouteDest);
+      const via = String(v?.wanRouteVia || '').trim();
+      if (dest && via) cfg.ipv4_route = [{ destination: dest, via, dev: primaryWanDev }];
       const v6dest = String(v?.ipv6Dest || '').trim();
       const v6via = String(v?.ipv6Via || '').trim();
       const dest6 = normalizeIPv6Cidr(v6dest);
@@ -983,7 +1078,7 @@ const PEWizard: React.FC = () => {
         wanIpv4: wanRows[0]?.ipv4 ?? v.wanIpv4,
         wanIpv6: filterLinkLocalIpv6(wanRows[0]?.ipv6) || filterLinkLocalIpv6(v.wanIpv6) || undefined,
         wanRouteDest: isHubPe ? wanRows[0]?.ipv4RouteDest : v.wanRouteDest,
-        wanRoutePriority: isHubPe ? wanRows[0]?.ipv4RoutePriority : v.wanRoutePriority,
+        wanRouteVia: isHubPe ? wanRows[0]?.ipv4RouteVia : v.wanRouteVia,
         ipv6Dest: isHubPe ? wanRows[0]?.ipv6Dest : v.ipv6Dest,
         ipv6Via: isHubPe ? wanRows[0]?.ipv6Via : v.ipv6Via,
         publicBgp: {
@@ -1283,15 +1378,46 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ipv4RouteDest']}
                         label="IPv4 目的网段"
+                        rules={[
+                          {
+                            validator: async (_, value) => {
+                              const dest = String(value ?? '').trim();
+                              const via = String(
+                                form.getFieldValue(['hubWanInventory', field.name, 'ipv4RouteVia']) ?? '',
+                              ).trim();
+                              if ((dest && !via) || (!dest && via)) {
+                                throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
+                              }
+                            },
+                          },
+                        ]}
                       >
                         <Input placeholder="例如 0.0.0.0/0" />
                       </Form.Item>
                       <Form.Item
                         {...field}
-                        name={[field.name, 'ipv4RoutePriority']}
-                        label="优先级"
+                        name={[field.name, 'ipv4RouteVia']}
+                        label="IPv4 网关"
+                        rules={[
+                          {
+                            validator: async (_, value) => {
+                              const via = String(value ?? '').trim();
+                              const dest = String(
+                                form.getFieldValue(['hubWanInventory', field.name, 'ipv4RouteDest']) ?? '',
+                              ).trim();
+                              if ((dest && !via) || (!dest && via)) {
+                                throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
+                              }
+                            },
+                          },
+                          {
+                            pattern:
+                              /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/,
+                            message: '请输入合法的 IPv4 网关地址（不带 /xx）',
+                          },
+                        ]}
                       >
-                        <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
+                        <Input placeholder="例如 10.1.1.254" />
                       </Form.Item>
                       <Form.Item
                         {...field}
@@ -1404,11 +1530,44 @@ const PEWizard: React.FC = () => {
           </Form.Item>
           <div style={{ height: 12 }} />
           <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>
-          <Form.Item name="wanRouteDest" label="IPv4 目的网段">
+          <Form.Item
+            name="wanRouteDest"
+            label="IPv4 目的网段"
+            rules={[
+              {
+                validator: async (_, value) => {
+                  const dest = String(value ?? '').trim();
+                  const via = String(form.getFieldValue('wanRouteVia') ?? '').trim();
+                  if ((dest && !via) || (!dest && via)) {
+                    throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
+                  }
+                },
+              },
+            ]}
+          >
             <Input placeholder="例如 0.0.0.0/0" />
           </Form.Item>
-          <Form.Item name="wanRoutePriority" label="优先级"> 
-            <InputNumber style={{ width: '100%' }} placeholder="例如 100" />
+          <Form.Item
+            name="wanRouteVia"
+            label="IPv4 网关"
+            rules={[
+              {
+                validator: async (_, value) => {
+                  const via = String(value ?? '').trim();
+                  const dest = String(form.getFieldValue('wanRouteDest') ?? '').trim();
+                  if ((dest && !via) || (!dest && via)) {
+                    throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
+                  }
+                },
+              },
+              {
+                pattern:
+                  /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/,
+                message: '请输入合法的 IPv4 网关地址（不带 /xx）',
+              },
+            ]}
+          >
+            <Input placeholder="例如 10.1.1.254" />
           </Form.Item>
           <Form.Item
             name="ipv6Dest"
@@ -1615,7 +1774,7 @@ const PEWizard: React.FC = () => {
             {!isHubPe && (
               <>
                 <Descriptions.Item label="IPv4 目的网段">{previewStr(values.wanRouteDest)}</Descriptions.Item>
-                <Descriptions.Item label="优先级">{previewNum(values.wanRoutePriority)}</Descriptions.Item>
+                <Descriptions.Item label="IPv4 网关">{previewStr(values.wanRouteVia)}</Descriptions.Item>
                 <Descriptions.Item label="IPv6 目的网段">{previewStr(values.ipv6Dest)}</Descriptions.Item>
                 <Descriptions.Item label="IPv6 网关">{previewStr(values.ipv6Via)}</Descriptions.Item>
               </>
@@ -1665,7 +1824,7 @@ const PEWizard: React.FC = () => {
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <Spin />
               </div>
-            ) : csmctlCfg ? (
+            ) : hasRoleConfig && csmctlCfg ? (
               <Form layout="vertical" form={mirrorForm} disabled>
                 {current === 0 && (
                   <>
@@ -1717,8 +1876,8 @@ const PEWizard: React.FC = () => {
                                   <Form.Item label="IPv4 目的网段">
                                     <Input disabled value={g?.ipv4RouteDest || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label="优先级">
-                                    <Input disabled value={g?.ipv4RoutePriority ?? '未配置'} />
+                                  <Form.Item label="IPv4 网关">
+                                    <Input disabled value={g?.ipv4RouteVia || '未配置'} />
                                   </Form.Item>
                                   <Form.Item label="IPv6 目的网段">
                                     <Input disabled value={g?.ipv6Dest || '未配置'} />
@@ -1765,8 +1924,8 @@ const PEWizard: React.FC = () => {
                     <Form.Item name="wanRouteDest" label="IPv4 目的网段">
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="wanRoutePriority" label="优先级"> 
-                      <InputNumber style={{ width: '100%' }} placeholder="未配置" />
+                    <Form.Item name="wanRouteVia" label="IPv4 网关">
+                      <Input placeholder="未配置" />
                     </Form.Item>
                     <Form.Item name="ipv6Dest" label="IPv6 目的网段"> 
                       <Input placeholder="未配置" />
@@ -1877,12 +2036,12 @@ const PEWizard: React.FC = () => {
                       ) : (
                         <>
                           <Descriptions.Item label="WAN 侧接口">{previewStr(mirrorForm.getFieldValue('wanDev'))}</Descriptions.Item>
-                          <Descriptions.Item label="IPv4 目的网段">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>
-                          <Descriptions.Item label="优先级">{previewNum(mirrorForm.getFieldValue('wanRoutePriority'))}</Descriptions.Item>
                           <Descriptions.Item label="WAN 侧 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
                           <Descriptions.Item label="WAN 侧 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
                           <Descriptions.Item label="BGP ASN（WAN）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
                           <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv4 目的网段">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv4 网关">{previewStr(mirrorForm.getFieldValue('wanRouteVia'))}</Descriptions.Item>
                           <Descriptions.Item label="IPv6 目的网段">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
                           <Descriptions.Item label="IPv6 网关">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
                         </>
@@ -1906,9 +2065,13 @@ const PEWizard: React.FC = () => {
                   </>
                 )}
               </Form>
+            ) : hasRoleConfig ? (
+              <div style={{ padding: 12, background: '#f7f8fa', border: '1px dashed #d9d9d9', borderRadius: 6, color: '#4e5969', fontSize: 12 }}>
+                角色配置已保存，但还没有读到设备上的 VR2 配置。请确认设备在线后再次点「刷新设备回读」。
+              </div>
             ) : (
-              <div style={{ padding: 12, background: '#fffbe6', border: '1px dashed #faad14', borderRadius: 6, color: '#faad14', fontSize: 12 }}>
-                未能读取设备回读数据，请先检查设备连接状态或稍后重试。
+              <div style={{ padding: 12, background: '#f7f8fa', border: '1px dashed #d9d9d9', borderRadius: 6, color: '#4e5969', fontSize: 12 }}>
+                尚未下发角色配置，设备上没有可核对的回读。请先完成「下发配置」，再点「刷新设备回读」对照设备上的实际配置。
               </div>
             )}
           </IbrWizardCard>

@@ -780,7 +780,7 @@ const EditVRConfig: React.FC = () => {
             const pc = newPe.publicConfig;
             const pcOrder = [
               'publicBgpIndex', 'locatorName', 'sidPrefix', 'wanName', 'wanIpv4', 'wanIpv6',
-              'wanRouteDest', 'wanRoutePriority', 'ipv6Dest', 'ipv6Via', 'publicBgp',
+              'wanRouteDest', 'wanRouteVia', 'ipv6Dest', 'ipv6Via', 'publicBgp',
             ];
             const npc: any = {};
             pcOrder.forEach((k) => {

@@ -12,7 +12,7 @@ export type HubWanInventoryItem = {
   ipv4?: string;
   ipv6: string;
   ipv4RouteDest?: string;
-  ipv4RoutePriority?: number;
+  ipv4RouteVia?: string;
   ipv6Dest?: string;
   ipv6Via?: string;
   source: HubInventorySource;
@@ -48,7 +48,7 @@ export type HubWanFormRow = {
   ipv4?: string;
   ipv6?: string;
   ipv4RouteDest?: string;
-  ipv4RoutePriority?: number;
+  ipv4RouteVia?: string;
   ipv6Dest?: string;
   ipv6Via?: string;
 };
@@ -159,10 +159,7 @@ export const buildHubInventoryFromPeWizardValues = (
       ipv4: r.ipv4?.trim() || undefined,
       ipv6: normIf(r.ipv6),
       ipv4RouteDest: r.ipv4RouteDest?.trim() || undefined,
-      ipv4RoutePriority:
-        r.ipv4RoutePriority !== undefined && r.ipv4RoutePriority !== null
-          ? Number(r.ipv4RoutePriority)
-          : undefined,
+      ipv4RouteVia: r.ipv4RouteVia?.trim() || undefined,
       ipv6Dest: r.ipv6Dest?.trim() || undefined,
       ipv6Via: r.ipv6Via?.trim() || undefined,
       source: 'role_wizard' as const,
@@ -224,7 +221,7 @@ export const hubInventoryToPeWizardForm = (
           ipv4: w.ipv4,
           ipv6: w.ipv6,
           ipv4RouteDest: w.ipv4RouteDest,
-          ipv4RoutePriority: w.ipv4RoutePriority,
+          ipv4RouteVia: w.ipv4RouteVia,
           ipv6Dest: w.ipv6Dest,
           ipv6Via: w.ipv6Via,
         })),
