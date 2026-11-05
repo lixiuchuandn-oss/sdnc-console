@@ -65,7 +65,7 @@ public class DbManager {
 
         String[] hostIps = hosts.split(",");
         if (hostIps.length == 1) {//单机部署
-            log.info("数据库配置为单机部署");
+            log.info("数据库配置为单机部署, host={}:{}", hosts, port);
             ServerAddress serverAddress = new ServerAddress(hosts, port);
             List<MongoCredential> credentials = new ArrayList();
             MongoCredential credential = MongoCredential.createCredential(userName, dbName, password.toCharArray());  // 需要验证

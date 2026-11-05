@@ -28,8 +28,7 @@ public class PropertiesConfig {
                 if (null == instance) {
                     instance = new PropertiesConfig();
                     try {
-                        ClassPathResource classPathResource = new ClassPathResource(QUARTZ_PROPERTIES);
-                        instance.properties = PropertiesLoaderUtils.loadProperties(classPathResource);
+                        instance.properties = loadProperties();
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -37,6 +36,47 @@ public class PropertiesConfig {
             }
         }
         return instance;
+    }
+
+    /**
+     * 先读 application.properties，再按当前 Spring profile 覆盖。
+     * DbManager 不走 Spring Environment，docker 部署必须在这里吃到 application-docker.properties，
+     * 否则 mongodb.host 会停在 127.0.0.1，容器内连不上 Compose 里的 Mongo。
+     */
+    private static Properties loadProperties() throws IOException {
+        Properties properties = PropertiesLoaderUtils.loadProperties(new ClassPathResource(QUARTZ_PROPERTIES));
+        String profiles = activeProfiles(properties);
+        if (profiles == null) {
+            return properties;
+        }
+        for (String raw : profiles.split(",")) {
+            String profile = raw.trim();
+            if (!profile.matches("[A-Za-z0-9_-]+")) {
+                continue;
+            }
+            ClassPathResource overlay = new ClassPathResource("/application-" + profile + ".properties");
+            if (!overlay.exists()) {
+                continue;
+            }
+            properties.putAll(PropertiesLoaderUtils.loadProperties(overlay));
+        }
+        return properties;
+    }
+
+    private static String activeProfiles(Properties base) {
+        String fromProp = System.getProperty("spring.profiles.active");
+        if (fromProp != null && !fromProp.trim().isEmpty()) {
+            return fromProp.trim();
+        }
+        String fromEnv = System.getenv("SPRING_PROFILES_ACTIVE");
+        if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+            return fromEnv.trim();
+        }
+        String fromFile = base.getProperty("spring.profiles.active");
+        if (fromFile != null && !fromFile.trim().isEmpty()) {
+            return fromFile.trim();
+        }
+        return null;
     }
 
     public Properties getProperties(){
