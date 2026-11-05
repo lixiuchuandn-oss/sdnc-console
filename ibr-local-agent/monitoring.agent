@@ -47,6 +47,35 @@ get_mac() {
 	mac=$(ip link show $interface | awk '/ether/ {print $2}')
 	echo "$mac"
 }
+# 每轮 download/send 前重读 registervr.conf。UUID 只在 main 启动时读一次的话，
+# 重新注册改写 uuid 后，进程会一直用旧 uuid（check-sum / 上报），新配置不会被拉取。
+refresh_uuid() {
+	local latest old
+	latest=$(get_uuid)
+	if [ -z "$latest" ] || [ "$latest" = "null" ]; then
+		return 0
+	fi
+	if [ "$latest" = "$UUID" ]; then
+		return 0
+	fi
+	old="${UUID:-}"
+	logger -s "registervr uuid changed: ${old:-<empty>} -> $latest, drop cached checksum" \
+		-t download-monitoring \
+		-p daemon.warn
+	UUID="$latest"
+	# 清空本机校验和，让下一轮 configuration_changed 走 first（ret=3），
+	# 避免 update 路径拿旧 uuid 的 .bak 与新 uuid 配置做 diff。
+	if [ -n "$CONFIGURATION_CHECKSUM" ]; then
+		: > "$CONFIGURATION_CHECKSUM"
+	fi
+	if [ -n "$PERSISTENT_CHECKSUM" ]; then
+		rm -f "$PERSISTENT_CHECKSUM"
+	fi
+	if [ -n "$DOWNLOAD_DIR" ]; then
+		rm -f "$DOWNLOAD_DIR/$latest" "$DOWNLOAD_DIR/$latest.bak"
+	fi
+}
+
 get_uuid() {
 	# 从VR_CONF文件中读取UUID
     local uuid=$(jq -r .uuid < "$VR_CONF" 2>/dev/null)
@@ -385,6 +414,9 @@ send_prepare() {
 			trap "" USR1
 			continue
 		fi
+
+		# 重新注册后 uuid 可能已变；上报须跟 registervr.conf，避免写到旧 uuid
+		refresh_uuid
 		
 		# 统计文件数量
 		file_count=$(ls -1 "$TMP_DIR"/* 2>/dev/null | wc -l)
@@ -656,6 +688,7 @@ download_data_prepare() {
 			continue
 		fi
 		trap "" USR1
+		refresh_uuid
 		configuration_changed
 		ret=$?
 		if [ "$ret" -eq "1" ]; then
