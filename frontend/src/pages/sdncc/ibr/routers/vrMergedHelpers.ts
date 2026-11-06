@@ -2,8 +2,8 @@
  * 与 GET /api/vr-instances/:uuid 聚合接口对齐（含 vr1 元数据、vr2_info、vr3_info 等）：
  *
  * 1）进入 PE/CE 等向导应调用该聚合接口拉全量。
- * 2）左侧「设备回读」只按已保存角色点名的接口、路由和公网 BGP，从 vr2_info 取值。
- * 3）右侧已保存角色时展示 pe；用户主动改公网口时，才用 vr3_info 预填该口当前地址。
+ * 2）左侧「设备回读」（PE/CE）只按已保存角色点名的接口、路由和公网 BGP，从 vr2_info 取值。
+ * 3）右侧编辑：已保存角色展示 pe/ce；用户主动改公网/业务口时，才用 vr3_info 预填该口当前地址。
  *    网卡下拉选项见 collectIfaceNamesForSelect（vr3 优先，vr2/基线兜底）。
  */
 

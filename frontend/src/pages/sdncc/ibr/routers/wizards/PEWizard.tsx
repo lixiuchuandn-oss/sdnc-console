@@ -1378,6 +1378,7 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ipv4RouteDest']}
                         label="IPv4 目的网段"
+                        dependencies={[['hubWanInventory', field.name, 'ipv4RouteVia']]}
                         rules={[
                           {
                             validator: async (_, value) => {
@@ -1398,6 +1399,7 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ipv4RouteVia']}
                         label="IPv4 网关"
+                        dependencies={[['hubWanInventory', field.name, 'ipv4RouteDest']]}
                         rules={[
                           {
                             validator: async (_, value) => {
@@ -1423,6 +1425,7 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ipv6Dest']}
                         label="IPv6 目的网段"
+                        dependencies={[['hubWanInventory', field.name, 'ipv6Via']]}
                         rules={[
                           {
                             validator: async (_, value) => {
@@ -1447,6 +1450,7 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ipv6Via']}
                         label="IPv6 网关"
+                        dependencies={[['hubWanInventory', field.name, 'ipv6Dest']]}
                         rules={[
                           {
                             validator: async (_, value) => {
@@ -1533,6 +1537,7 @@ const PEWizard: React.FC = () => {
           <Form.Item
             name="wanRouteDest"
             label="IPv4 目的网段"
+            dependencies={['wanRouteVia']}
             rules={[
               {
                 validator: async (_, value) => {
@@ -1550,6 +1555,7 @@ const PEWizard: React.FC = () => {
           <Form.Item
             name="wanRouteVia"
             label="IPv4 网关"
+            dependencies={['wanRouteDest']}
             rules={[
               {
                 validator: async (_, value) => {
@@ -1572,6 +1578,7 @@ const PEWizard: React.FC = () => {
           <Form.Item
             name="ipv6Dest"
             label="IPv6 目的网段"
+            dependencies={['ipv6Via']}
             rules={[
               {
                 validator: async (_, value) => {
@@ -1590,6 +1597,7 @@ const PEWizard: React.FC = () => {
           <Form.Item
             name="ipv6Via"
             label="IPv6 网关"
+            dependencies={['ipv6Dest']}
             rules={[
               {
                 validator: async (_, value) => {
@@ -2067,11 +2075,11 @@ const PEWizard: React.FC = () => {
               </Form>
             ) : hasRoleConfig ? (
               <div style={{ padding: 12, background: '#f7f8fa', border: '1px dashed #d9d9d9', borderRadius: 6, color: '#4e5969', fontSize: 12 }}>
-                角色配置已保存，但还没有读到设备上的 VR2 配置。请确认设备在线后再次点「刷新设备回读」。
+                请确认设备在线后再次点「刷新设备回读」。
               </div>
             ) : (
               <div style={{ padding: 12, background: '#f7f8fa', border: '1px dashed #d9d9d9', borderRadius: 6, color: '#4e5969', fontSize: 12 }}>
-                尚未下发角色配置，设备上没有可核对的回读。请先完成「下发配置」，再点「刷新设备回读」对照设备上的实际配置。
+                请先完成「下发配置」，再点「刷新设备回读」。
               </div>
             )}
           </IbrWizardCard>

@@ -1,6 +1,7 @@
 #!/usr/bin/env lua
 local json = require("cjson")
-CLISH_CMD="/rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view"
+-- 显式带上 /rhos/lib，与 vrctl-agent.service 一致，避免非 agent 环境找不到 libclish
+CLISH_CMD="env LD_LIBRARY_PATH=/rhos/lib /rhos/bin/clish --lock --log -x /rhos/etc/cli/enable-view -w configure-view"
 
 function execute_command(cmd)
     local handle = io.popen(cmd)
@@ -108,6 +109,119 @@ function interfaces.update_interface_all(cur_table, new_table)
     end
 end
 
+-- 将空串/空白视为未配置，便于按 VR2 意图清掉口上残留地址
+function interfaces.normalize_addr(addr)
+    if addr == nil then
+        return nil
+    end
+    if type(addr) ~= "string" then
+        return addr
+    end
+    local trimmed = addr:match("^%s*(.-)%s*$")
+    if trimmed == nil or trimmed == "" then
+        return nil
+    end
+    return trimmed
+end
+
+-- VR2 口名含空格（GigabitEthernet 0/7/0），tap-inject 左侧无空格
+function interfaces.resolve_vswif(interface_name)
+    if interface_name == nil then
+        return nil
+    end
+    local key = string.gsub(interface_name, "%s+", "")
+    local cmd = string.format(
+        "vctl show tap-inject | awk -v n='%s' '{k=$1; gsub(/[ \\t]+/,\"\",k); if (k==n) { print $3; exit }}'",
+        key
+    )
+    local out = execute_command(cmd)
+    if not out then
+        return nil
+    end
+    return out:match("^%s*(%S+)")
+end
+
+function interfaces.list_live_addrs(interface_name, family)
+    local addrs = {}
+    local vsw = interfaces.resolve_vswif(interface_name)
+    if not vsw then
+        return addrs
+    end
+    local cmd
+    if family == "6" then
+        cmd = string.format("ip -6 -o addr show dev '%s' scope global 2>/dev/null | awk '{print $4}'", vsw)
+    else
+        cmd = string.format("ip -4 -o addr show dev '%s' 2>/dev/null | awk '{print $4}'", vsw)
+    end
+    local out = execute_command(cmd)
+    if not out then
+        return addrs
+    end
+    for line in string.gmatch(out, "[^\r\n]+") do
+        local a = line:match("^%s*(%S+)")
+        if a then
+            table.insert(addrs, a)
+        end
+    end
+    return addrs
+end
+
+-- VRRP VIP 会出现在口的 live 地址里，同步 static 时不得当多余地址清掉
+function interfaces.collect_vrrp_keep_addrs(vrrp)
+    local keep = {}
+    if not vrrp then
+        return keep
+    end
+    for _, item in pairs(vrrp) do
+        local list = item and item.virtual_ipaddress
+        if type(list) == "table" then
+            for _, raw in pairs(list) do
+                if type(raw) == "string" then
+                    for token in string.gmatch(raw, "%S+") do
+                        keep[token] = true
+                    end
+                end
+            end
+        end
+    end
+    return keep
+end
+
+-- 以 VR2 意图为准：清掉口上多余地址，再写入期望地址（含期望为空时全清）
+function interfaces.sync_interface_v4addr(interface_name, desired, keep)
+    desired = interfaces.normalize_addr(desired)
+    keep = keep or {}
+    local live = interfaces.list_live_addrs(interface_name, "4")
+    local has_desired = false
+    for _, addr in ipairs(live) do
+        if desired ~= nil and addr == desired then
+            has_desired = true
+        elseif not keep[addr] then
+            interfaces.del_interface_v4addr(interface_name, addr)
+        end
+    end
+    if desired and not has_desired then
+        interfaces.add_interface_v4addr(interface_name, desired)
+    end
+end
+
+function interfaces.sync_interface_v6addr(interface_name, desired, keep)
+    desired = interfaces.normalize_addr(desired)
+    keep = keep or {}
+    local live = interfaces.list_live_addrs(interface_name, "6")
+    local has_desired = false
+    for _, addr in ipairs(live) do
+        if desired ~= nil and addr == desired then
+            has_desired = true
+        elseif not keep[addr] then
+            interfaces.del_interface_v6addr(interface_name, addr)
+        end
+    end
+    if desired and not has_desired then
+        interfaces.add_interface_v6addr(interface_name, desired)
+    end
+end
+
 function interfaces.add_interface_part(interface_table)
     if interface_table == nil then
         return
@@ -122,12 +236,10 @@ function interfaces.add_interface_part(interface_table)
         interfaces.add_interface_vrf(interface_table.name, interface_table.vrf)
         interfaces.set_interface_vrf_status(interface_table.name, "enable")
     end
-    if interface_table.ipv4_static then
-        interfaces.add_interface_v4addr(interface_table.name, interface_table.ipv4_static)
-    end
-    if interface_table.ipv6_static then
-        interfaces.add_interface_v6addr(interface_table.name, interface_table.ipv6_static)
-    end
+    -- 无论 VR2 是否带地址字段，都按意图同步，避免本地初始化残留 IPv4/IPv6
+    local keep = interfaces.collect_vrrp_keep_addrs(interface_table.vrrp)
+    interfaces.sync_interface_v4addr(interface_table.name, interface_table.ipv4_static, keep)
+    interfaces.sync_interface_v6addr(interface_table.name, interface_table.ipv6_static, keep)
     if interface_table.vrrp then
         for _, v in pairs(interface_table.vrrp) do
             interfaces.add_interface_vrrp_part(interface_table.name, v)
@@ -193,8 +305,9 @@ function interfaces.compare_interface_part(cur_table, new_table)
         --命令行删除vrf时会将一些配置一起删除
         interfaces.del_interface_vrf(cur_table.name)
         interfaces.add_interface_vrf(cur_table.name, new_table.vrf)
-        interfaces.add_interface_v4addr(cur_table.name, new_table.ipv4_static)
-        interfaces.add_interface_v6addr(cur_table.name, new_table.ipv6_static)
+        local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
+        interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
+        interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
         if new_table.vrrp then  
             for _, v in pairs(new_table.vrrp) do
                 interfaces.add_interface_vrrp_part(cur_table.name, v)
@@ -202,15 +315,10 @@ function interfaces.compare_interface_part(cur_table, new_table)
         end
         interfaces.set_interface_status(cur_table.name, new_table.status)
     else
-
-        if cur_table.ipv4_static ~= new_table.ipv4_static then
-            interfaces.del_interface_v4addr(cur_table.name, cur_table.ipv4_static)
-            interfaces.add_interface_v4addr(cur_table.name, new_table.ipv4_static)
-        end
-        if cur_table.ipv6_static ~= new_table.ipv6_static then
-            interfaces.del_interface_v6addr(cur_table.name, cur_table.ipv6_static)
-            interfaces.add_interface_v6addr(cur_table.name, new_table.ipv6_static)
-        end
+        -- 始终按 new（VR2 意图）同步地址，不依赖 bak 是否记录过本地残留地址
+        local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
+        interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
+        interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
         interfaces.compare_interface_vrrp_part(cur_table.name, cur_table.vrrp, new_table.vrrp)
         interfaces.compare_interface_acl_part(cur_table.name, cur_table.acl, new_table.acl)
         if cur_table.status ~= new_table.status then

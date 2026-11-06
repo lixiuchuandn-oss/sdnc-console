@@ -79,6 +79,52 @@ function normalizeCeLanRowForForm(l: any) {
   };
 }
 
+function roleText(v: unknown): string {
+  return String(v ?? '').trim();
+}
+
+/** 角色没填的地址不回显；填了才读 VR2 口上的 static，避免把初始化地址当成角色配置。 */
+function deviceStaticIfRoleSet(
+  iface: any,
+  key: 'ipv4_static' | 'ipv6_static',
+  roleValue: unknown,
+): string | undefined {
+  if (!roleText(roleValue)) return undefined;
+  return roleText(iface?.[key]) || undefined;
+}
+
+/**
+ * 左侧设备回读与 PE 对齐：口名来自已保存 ce，地址/BGP 只读 vr2_info（csmctlCfg）。
+ */
+function buildCeRoleMirror(
+  dev: any,
+  ce: any,
+  findInterface: (device: any, name: string) => any,
+): Record<string, any> {
+  const pub = getCePublicConfig(ce);
+  const wanName = roleText(pub.wanName || pub.wanDev || ce?.wanDev);
+  const lanRows = readLanListFromCe(ce).map((x) => normalizeCeLanRowForForm(x));
+  const firstLan = lanRows[0] || {};
+  const lanName = roleText(firstLan.lanName);
+  const wanIf = wanName ? findInterface(dev, wanName) : null;
+  const lanIf = lanName ? findInterface(dev, lanName) : null;
+  const bgpArr = Array.isArray(dev?.bgp) ? dev.bgp : [];
+  const publicBgp = bgpArr.find(
+    (b: any) => !!b && (b.vrf == null || b.vrf === '' || b.vrf === 0 || b.vrf === '0'),
+  ) || bgpArr[0];
+  const pbg = readCePublicBgpMeta(ce);
+  return {
+    wanName: wanName || undefined,
+    wanIpv4: deviceStaticIfRoleSet(wanIf, 'ipv4_static', pub.wanIpv4),
+    wanIpv6: deviceStaticIfRoleSet(wanIf, 'ipv6_static', pub.wanIpv6),
+    bgpAsn: pbg.asn != null ? publicBgp?.asn : undefined,
+    bgpRouterId: roleText(pbg.routerId) ? publicBgp?.router_id : undefined,
+    lanName: lanName || undefined,
+    lanIpv4: deviceStaticIfRoleSet(lanIf, 'ipv4_static', firstLan.lanIpv4),
+    lanIpv6: deviceStaticIfRoleSet(lanIf, 'ipv6_static', firstLan.lanIpv6),
+  };
+}
+
 const CEWizard: React.FC = () => {
   const navigate = useNavigate();
   const { uuid } = useParams();
@@ -90,6 +136,10 @@ const CEWizard: React.FC = () => {
   const [ifaceOptions, setIfaceOptions] = useState<string[]>([]);
   const [ifaceLoading, setIfaceLoading] = useState<boolean>(false);
   const [csmctlCfg, setCsmctlCfg] = useState<any | null>(null);
+  const hasRoleConfig = Boolean(
+    (existingCfg?.ce && typeof existingCfg.ce === 'object' && Object.keys(existingCfg.ce).length) ||
+      (csmctlCfg?.ce && typeof csmctlCfg.ce === 'object' && Object.keys(csmctlCfg.ce).length),
+  );
   /** vr3_info 设备回读：用于在接口选择后反查 IP 等字段 */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
@@ -149,8 +199,8 @@ const CEWizard: React.FC = () => {
   const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
 
   /**
-   * WAN/LAN IPv4/IPv6 仅从 VR3（vr3_info）回填；force 为 true 时忽略 isFieldTouched
-   * force：强制用 VR3 覆盖；否则用户已 touch 的 IP 字段不覆盖
+   * 右侧编辑表：用户改口名时用 VR3 预填当前口地址（与 PE 一致）。
+   * 左侧设备回读不走这里，而走 buildCeRoleMirror（VR2）。
    */
   const autoFillFromIface = (kind: 'wan' | 'lan', ifaceName: string, opts?: { force?: boolean }) => {
     const force = opts?.force ?? false;
@@ -278,7 +328,7 @@ const CEWizard: React.FC = () => {
     })();
   }, [uuid, form]);
 
-  /** 拉取 VR 缓存合并数据；网卡 IP 供 autoFillFromIface / mirror 使用 */
+  /** 拉平台已保存角色和设备 VR2。左侧回读用这两份；VR3 只参与网卡下拉和用户改口时的预填。 */
   const refreshDeviceData = useCallback(async (silent = false) => {
     if (!uuid) return;
     const gen = ++deviceLoadGenRef.current;
@@ -293,9 +343,23 @@ const CEWizard: React.FC = () => {
         setVr3Info(null);
         return;
       }
-      setIfaceOptions(collectIfaceNamesForSelect(merged as Record<string, any>).filter(looksLikeIfaceName));
+      let savedCfg: any = {};
+      try {
+        const cached = await fetchVrTowerLocalConfigCache(reqUuid, { skipCache: true });
+        if (gen !== deviceLoadGenRef.current) return;
+        savedCfg = cached?.config || {};
+      } catch (e) {
+        console.warn('refreshDeviceData: fetchVrTowerLocalConfigCache failed:', e);
+      }
+      if (gen !== deviceLoadGenRef.current || reqUuid !== uuid) return;
+      setIfaceOptions(
+        collectIfaceNamesForSelect(merged as Record<string, any>, {
+          baseline: savedCfg && typeof savedCfg === 'object' ? savedCfg : null,
+        }).filter(looksLikeIfaceName),
+      );
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
+      setExistingCfg(savedCfg);
       if (!silent) message.success('设备回读已刷新');
     } catch (err) {
       if (gen !== deviceLoadGenRef.current) return;
@@ -312,32 +376,13 @@ const CEWizard: React.FC = () => {
 
   useEffect(() => {
     const pce = existingCfg?.ce;
-    if (!pce || typeof pce !== 'object') return;
-
-    const pub = getCePublicConfig(pce);
-    const wanDevName = pub.wanName || pub.wanDev || pce?.wanDev;
-    const lanRows = readLanListFromCe(pce).map((x) => normalizeCeLanRowForForm(x));
-    const firstLan = lanRows[0] || {};
-    const lanDevName = firstLan.lanName;
-
-    const wanObjVr3 = wanDevName && vr3Info ? findInterfaceInDevice(vr3Info, String(wanDevName)) : null;
-    const lanObjVr3 = lanDevName && vr3Info ? findInterfaceInDevice(vr3Info, String(lanDevName)) : null;
-
-    const bgpTop = Array.isArray(csmctlCfg?.bgp) ? csmctlCfg.bgp[0] : undefined;
-    const formRid = String(form.getFieldValue('bgpRouterId') || '').trim();
-
-    mirrorForm.setFieldsValue({
-      wanName: wanDevName,
-      wanIpv4: wanObjVr3?.ipv4_static,
-      wanIpv6: wanObjVr3?.ipv6_static,
-      bgpAsn: bgpTop?.asn,
-      bgpRouterId: bgpTop?.router_id || formRid || undefined,
-      lanName: lanDevName,
-      lanIpv4: lanObjVr3?.ipv4_static,
-      lanIpv6: lanObjVr3?.ipv6_static,
-    });
+    if (!pce || typeof pce !== 'object' || !csmctlCfg) {
+      return;
+    }
+    mirrorForm.resetFields();
+    mirrorForm.setFieldsValue(buildCeRoleMirror(csmctlCfg, pce, findInterfaceInDevice));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existingCfg, csmctlCfg, vr3Info, mirrorForm]);
+  }, [existingCfg, csmctlCfg, mirrorForm]);
 
   /** 将 host IPv4 CIDR 转为网段，如 130.1.1.9/24 → 130.1.1.0/24 */
   const ipv4NetworkFromCidr = (cidr: string): string | undefined => {
@@ -582,7 +627,9 @@ const CEWizard: React.FC = () => {
       if (data && typeof data.code === 'number' && data.code !== 200) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
+      setExistingCfg(finalCfg);
       message.success(data?.msg || '配置已下发');
+      await refreshDeviceData(true);
     } catch (err: any) {
       message.error(`下发失败：${err?.message || '未知错误'}`);
     } finally {
@@ -711,7 +758,7 @@ const CEWizard: React.FC = () => {
               <div style={{ textAlign: 'center', padding: '32px 0' }}>
                 <Spin />
               </div>
-            ) : csmctlCfg ? (
+            ) : hasRoleConfig && csmctlCfg ? (
               <>
                 {current === 0 && (
                   <>
@@ -782,9 +829,13 @@ const CEWizard: React.FC = () => {
                   </Descriptions>
                 )}
               </>
+            ) : hasRoleConfig ? (
+              <div style={{ padding: 12, background: '#f7f8fa', border: '1px dashed #d9d9d9', borderRadius: 6, color: '#4e5969', fontSize: 12 }}>
+                请确认设备在线后再次点「刷新设备回读」。
+              </div>
             ) : (
-              <div style={{ padding: 12, background: '#fffbe6', border: '1px dashed #faad14', borderRadius: 6, color: '#faad14', fontSize: 12 }}>
-                未能读取设备回读数据，请先检查设备连接状态或稍后重试。
+              <div style={{ padding: 12, background: '#f7f8fa', border: '1px dashed #d9d9d9', borderRadius: 6, color: '#4e5969', fontSize: 12 }}>
+                请先完成「下发配置」，再点「刷新设备回读」。
               </div>
             )}
           </IbrWizardCard>
