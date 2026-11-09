@@ -1,7 +1,7 @@
 # IBR 配置下发架构
 
 > **适用范围**：SDNC · IBR 管理（ACL / NAT / IPsec / SRv6 / HA·VRRP）及 IBR 初始化通道。  
-> **关联**：全栈与 CSMCTL 边界见 [`sdnc-stack-integration.md`](./sdnc-stack-integration.md)；SRv6 隧道专项见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)；**BGP RR 与 SRv6 共存（设计）**见 [`bgp-rr-design.md`](./bgp-rr-design.md)。
+> **关联**：全栈与 CSMCTL 边界见 [`sdnc-stack-integration.md`](./sdnc-stack-integration.md)；SRv6 隧道专项见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)；**账本 / 叠加 / 漂移判定**见 [`srv6-config-ledger-and-drift.md`](./srv6-config-ledger-and-drift.md)；**BGP RR 与 SRv6 共存（设计）**见 [`bgp-rr-design.md`](./bgp-rr-design.md)。
 
 ---
 

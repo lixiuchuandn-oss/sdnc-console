@@ -2,8 +2,18 @@ import { jsonEqual } from './srv6.reconcile';
 import { mergeBaselineWithContributions } from './srv6.merge';
 
 describe('srv6.reconcile', () => {
-  it('jsonEqual compares serialized JSON', () => {
+  it('jsonEqual compares business semantics (meta, key order, neighbor order ignored)', () => {
     expect(jsonEqual({ a: 1, b: [2] }, { a: 1, b: [2] })).toBe(true);
+    expect(jsonEqual({ b: [2], a: 1 }, { a: 1, b: [2] })).toBe(true);
+    expect(
+      jsonEqual({ a: 1, _id: { $oid: 'x' }, updateDate: 1 }, { a: 1, _id: { $oid: 'y' } }),
+    ).toBe(true);
+    expect(
+      jsonEqual(
+        { bgp: [{ asn: 1, neighbor: [{ remote_ip: 'a' }, { remote_ip: 'b' }] }] },
+        { bgp: [{ asn: 1, neighbor: [{ remote_ip: 'b' }, { remote_ip: 'a' }] }] },
+      ),
+    ).toBe(true);
     expect(jsonEqual({ a: 1 }, { a: 2 })).toBe(false);
   });
 

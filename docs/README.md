@@ -11,6 +11,7 @@
 | [internetwork-routing-domain.md](./internetwork-routing-domain.md) | 网际路由域、SDN 导航 IA |
 | [vr-sase-downstream-notice.md](./vr-sase-downstream-notice.md) | VR / SASE 下游对接 |
 | [srv6-baseline-recompute.md](./srv6-baseline-recompute.md) | SRv6 baseline / recompute |
+| [srv6-config-ledger-and-drift.md](./srv6-config-ledger-and-drift.md) | **SRv6 账本 / 叠加 / 漂移**（弹窗 vs 黄标、语义比较、对账修复边界） |
 | [srv6-hub-pe-spec.md](./srv6-hub-pe-spec.md) | SRv6 Hub PE 约束 |
 | [srv6-release-notes.md](./srv6-release-notes.md) | SRv6 发版说明 |
 | [srv6-testcases.md](./srv6-testcases.md) | SRv6 冒烟清单 |

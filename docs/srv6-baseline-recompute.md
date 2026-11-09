@@ -4,7 +4,8 @@
 > **当前生产范围**：**CE-A ↔ PE-A ↔ PE-B ↔ CE-B** 四端单会话（Spoke 点对点）；Hub 多 Spoke 待 P5 交付。  
 > **关联发版说明**：[`docs/srv6-release-notes.md`](./srv6-release-notes.md)  
 > **Hub PE 产品约束与遗留（查阅用）**：[`docs/srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md)  
-> **冒烟用例**：[`docs/srv6-testcases.md`](./srv6-testcases.md)
+> **冒烟用例**：[`docs/srv6-testcases.md`](./srv6-testcases.md)  
+> **账本、叠加与漂移（弹窗 / 黄标）**：[`docs/srv6-config-ledger-and-drift.md`](./srv6-config-ledger-and-drift.md)  
 > **对外 API 索引**：[`AGENTS.md`](../AGENTS.md) · API 规范 · SDN 网络
 
 ---

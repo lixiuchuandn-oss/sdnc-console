@@ -116,4 +116,50 @@ describe('vrConfigDeploy', () => {
     expect(conflicts.some((c) => c.kind === 'PLATFORM_STALE' && c.key === 'acl')).toBe(true);
     expect(blockers.some((c) => c.key === 'acl')).toBe(false);
   });
+
+  it('detectDeployDrift skips srv6 when platform only injects extra neighbors/routes', () => {
+    const device = {
+      bgp: [{ asn: 65001, router_id: '10.1.1.100', address_family: [] }],
+      ipv6_route: [{ destination: '2200::/64', via: '2100::1' }],
+    };
+    const platform = {
+      bgp: [
+        {
+          asn: 65001,
+          router_id: '10.1.1.100',
+          address_family: [{ address_family: 'ipv4', modifiler: 'vpn' }],
+          neighbor: [{ remote_ip: '2200::100', remote_as: 65002 }],
+        },
+      ],
+      ipv6_route: [
+        { destination: '2200::/64', via: '2100::1' },
+        { destination: '::/0', vrf: 10001, via: 'nexthop-vrf 0' },
+      ],
+    };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    expect(getBlockingDriftConflicts(conflicts)).toHaveLength(0);
+  });
+
+  it('detectDeployDrift still blocks srv6 when device has extra neighbor', () => {
+    const device = {
+      bgp: [
+        {
+          asn: 65001,
+          neighbor: [{ remote_ip: '2001:db8::9', remote_as: 99 }],
+        },
+      ],
+    };
+    const platform = {
+      bgp: [
+        {
+          asn: 65001,
+          neighbor: [{ remote_ip: '2200::100', remote_as: 65002 }],
+        },
+      ],
+    };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    const bgp = getBlockingDriftConflicts(conflicts).find((c) => c.key === 'bgp');
+    expect(bgp).toBeTruthy();
+    expect(bgp?.message).toMatch(/2001:db8::9|设备多出|将覆盖/);
+  });
 });

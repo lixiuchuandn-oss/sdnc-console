@@ -111,7 +111,7 @@ export function summarizeSrv6TunnelHealth(
   }
   return {
     configHealth: 'ok',
-    message: '四端配置对账通过，SRv6 注入档案存在（配置面）',
+    message: '四端平台账本与隧道公式一致（配置面；非 live BGP）',
     issueCount: 0,
     checkedAt,
   };

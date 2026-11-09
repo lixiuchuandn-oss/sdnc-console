@@ -1,5 +1,12 @@
 import { AppDataSource } from '../../config/database';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
+import {
+  CONFIG_META_KEYS,
+  configSemanticEqual,
+  diffConfigSemantic,
+  formatConfigSemanticDiffs,
+  hasDestructiveSemanticDiff,
+} from '../../utils/configSemanticEqual';
 import { logger } from '../../utils/logger';
 import { vrController } from './vrController';
 
@@ -12,16 +19,7 @@ const OTHER_FEATURE_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec'])
 /** NAT 域仅同步平台管理的 nat_address_group */
 const NAT_SLICE_KEYS = ['nat_address_group'] as const;
 
-const META_KEYS = new Set([
-  'msg',
-  'code',
-  'report_config_status',
-  'updateDate',
-  'createDate',
-  '_id',
-  'requestId',
-  '_towerHubInventory',
-]);
+const META_KEYS = CONFIG_META_KEYS;
 
 export type VrConfigJson = Record<string, unknown>;
 
@@ -46,8 +44,7 @@ export type VrConfigDriftConflict = {
   message: string;
 };
 
-export const jsonConfigEqual = (a: unknown, b: unknown): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
+export const jsonConfigEqual = (a: unknown, b: unknown): boolean => configSemanticEqual(a, b);
 
 export const isConfigValueEmpty = (value: unknown): boolean => {
   if (value == null) return true;
@@ -273,13 +270,26 @@ export const detectDeployDrift = (
     if (jsonConfigEqual(deviceNorm, platformNorm)) continue;
     if (isConfigValueEmpty(deviceVal)) continue;
 
+    const diffs = diffConfigSemantic(deviceNorm, platformNorm);
+    if (domain === 'srv6' && !hasDestructiveSemanticDiff(diffs)) {
+      continue;
+    }
+
+    const detail = diffs.length
+      ? formatConfigSemanticDiffs(diffs, {
+          leftLabel: '设备',
+          rightLabel: '平台意图',
+          limit: 4,
+        })
+      : '';
+    const head =
+      domain === 'srv6'
+        ? `设备上的「${key}」与平台意图不一致，下发将覆盖设备侧现网配置`
+        : `设备上的「${key}」与平台意图不一致，下发将覆盖设备侧历史策略`;
     conflicts.push({
       kind: 'DOMAIN_OVERWRITE',
       key,
-      message:
-        domain === 'srv6'
-          ? `设备上的「${key}」与平台意图不一致，下发将覆盖设备侧现网配置`
-          : `设备上的「${key}」与平台意图不一致，下发将覆盖设备侧历史策略`,
+      message: detail ? `${head}：${detail}` : head,
     });
   }
 

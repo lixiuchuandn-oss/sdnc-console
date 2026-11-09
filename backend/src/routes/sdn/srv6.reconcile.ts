@@ -1,7 +1,13 @@
 import { AppDataSource } from '../../config/database';
 import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
-import { parseSrv6Baseline, resetSrv6BaselineWhenNoTunnels } from './srv6.baseline';
+import {
+  configBusinessEqual,
+  diffConfigSemantic,
+  formatConfigSemanticDiffs,
+} from '../../utils/configSemanticEqual';
+import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
+import { parseSrv6Baseline } from './srv6.baseline';
 import { listAliveContributionsForVr, recomputeVrEffectiveConfig } from './srv6.recompute';
 import { persistSrv6VrEffectiveConfig } from './srv6.sync';
 
@@ -36,8 +42,19 @@ export type Srv6ReconcileReport = {
   items: Srv6ReconcileItem[];
 };
 
-export const jsonEqual = (a: unknown, b: unknown): boolean =>
-  JSON.stringify(a) === JSON.stringify(b);
+export const jsonEqual = (a: unknown, b: unknown): boolean => configBusinessEqual(a, b);
+
+const describeLedgerDrift = (actual: unknown, expected: unknown): string => {
+  const diffs = diffConfigSemantic(actual, expected);
+  if (!diffs.length) {
+    return '平台账本与「向导基线 + 存活隧道叠加」不一致';
+  }
+  return `平台账本与「向导基线 + 存活隧道叠加」不一致：${formatConfigSemanticDiffs(diffs, {
+    leftLabel: '账本',
+    rightLabel: '公式',
+    limit: 4,
+  })}`;
+};
 
 const parseConfigJson = (raw: string | null | undefined): Record<string, unknown> | null => {
   if (!raw?.trim()) return null;
@@ -109,7 +126,10 @@ export const reconcileSrv6Vr = async (
   if (contribs.length === 0 && baseline && !jsonEqual(actual, baseline)) {
     item.issues.push({
       code: 'ORPHAN_BASELINE_DRIFT',
-      message: '当前无存活隧道，但平台生效配置与向导基线不一致',
+      message: `当前无存活隧道，但平台账本与向导基线不一致：${formatConfigSemanticDiffs(
+        diffConfigSemantic(actual, baseline),
+        { leftLabel: '账本', rightLabel: '基线', limit: 4 },
+      )}`,
     });
   }
 
@@ -119,7 +139,7 @@ export const reconcileSrv6Vr = async (
       if (!jsonEqual(actual, expected)) {
         item.issues.push({
           code: 'INVARIANT_DRIFT',
-          message: '平台生效配置与「向导基线 + 存活隧道叠加」不一致',
+          message: describeLedgerDrift(actual, expected),
         });
       }
     } catch (e: unknown) {
@@ -132,12 +152,17 @@ export const reconcileSrv6Vr = async (
     for (const issue of [...item.issues]) {
       if (issue.code === 'INVARIANT_DRIFT' && contribs.length > 0) {
         await persistSrv6VrEffectiveConfig(id);
-        item.repairActions.push('已按向导基线与存活隧道重算并写回平台生效配置');
+        item.repairActions.push('已按向导基线与存活隧道重算并写回平台账本（未下发设备）');
         item.repaired = true;
       }
-      if (issue.code === 'ORPHAN_BASELINE_DRIFT' && contribs.length === 0) {
-        await resetSrv6BaselineWhenNoTunnels(id);
-        item.repairActions.push('无存活隧道：已将向导基线对齐为当前平台配置');
+      if (issue.code === 'ORPHAN_BASELINE_DRIFT' && contribs.length === 0 && baseline) {
+        await withSqliteWriteLock(`srv6-vr:${id}`, async () => {
+          const row = await vrRepo().findOne({ where: { uuid: id } });
+          if (!row) return;
+          row.config_json = JSON.stringify(baseline);
+          await vrRepo().save(row);
+        });
+        item.repairActions.push('无存活隧道：已将平台账本写回向导基线（未下发设备，未改基线）');
         item.repaired = true;
       }
     }

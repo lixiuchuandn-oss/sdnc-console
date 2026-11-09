@@ -97,14 +97,61 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     return vrNameMap[id] || id;
   };
 
-  const runReconcile = async (repair: boolean) => {
+  const openReconcileModal = () => {
+    setReconcileReport(null);
+    setReconcileOpen(true);
+  };
+
+  const loadGenRef = useRef(0);
+  const loadSrv6Tunnels = useCallback(async (force?: boolean) => {
+    const gen = ++loadGenRef.current;
+    setListLoading(true);
+    let shellPainted = false;
+    try {
+      const { fetchSrv6Tunnels } = await import('../../../../services/api');
+      const list = await fetchSrv6Tunnels({ skipCache: !!force, includeHealth: false });
+      if (gen !== loadGenRef.current) return;
+      setTunnels((Array.isArray(list) ? list : []).map(mapSrv6TunnelRow));
+      shellPainted = true;
+      setListLoading(false);
+      try {
+        const withHealth = await fetchSrv6Tunnels({ skipCache: true, includeHealth: true });
+        if (gen !== loadGenRef.current) return;
+        setTunnels((Array.isArray(withHealth) ? withHealth : []).map(mapSrv6TunnelRow));
+      } catch (he: any) {
+        if (gen !== loadGenRef.current) return;
+        console.warn('SRv6 配置健康 enrich 失败:', he);
+        message.warning(`配置健康暂不可用：${he?.message || '请稍后刷新'}`);
+      }
+    } catch (e: any) {
+      if (gen !== loadGenRef.current) return;
+      console.error('加载 SRv6 隧道失败:', e);
+      message.error(`加载 SRv6 隧道失败：${e?.message || '请稍后重试'}`);
+      if (!shellPainted) setTunnels([]);
+      setListLoading(false);
+    }
+  }, []);
+
+  const runReconcile = useCallback(async (repair: boolean) => {
     setReconcileLoading(true);
     try {
       const { fetchSrv6Reconcile, repairSrv6Reconcile } = await import('../../../../services/api');
-      const report = repair ? await repairSrv6Reconcile({ repair: true }) : await fetchSrv6Reconcile();
+      const vrUuid = scopedVr || undefined;
+      const report = repair
+        ? await repairSrv6Reconcile({ repair: true, vrUuid })
+        : await fetchSrv6Reconcile(vrUuid);
       setReconcileReport(report);
       if (repair) {
-        message.success(`对账完成：已修复 ${report.repaired} 个 VR`);
+        if (report.repaired > 0) {
+          message.success(`对账完成：已修复 ${report.repaired} 个 VR（仅平台账本，未下发设备）`);
+          await loadSrv6Tunnels(true);
+        } else if (report.withIssues > 0) {
+          message.warning(
+            `对账完成：仍有 ${report.withIssues} 个 VR 无法自动修复（如缺基线），请查看问题列`,
+          );
+        } else {
+          message.success('对账完成：未发现需修复项');
+        }
       } else if (report.withIssues === 0) {
         message.success('对账完成：未发现配置漂移');
       } else {
@@ -115,7 +162,7 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     } finally {
       setReconcileLoading(false);
     }
-  };
+  }, [loadSrv6Tunnels, scopedVr]);
 
   const handleBatchDelete = () => {
     if (!canWrite || selectedRowKeys.length === 0) return;
@@ -370,16 +417,35 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
       title: '配置健康',
       key: 'configHealth',
       render: (_: unknown, row) => {
+        const isDrift = row.configHealth === 'drift';
         const tip = [
           row.configHealthMessage || '刷新列表可重新对账',
           row.configHealthCheckedAt
             ? `检查于 ${new Date(row.configHealthCheckedAt).toLocaleString()}`
             : '',
-          '配置面对账；非 live BGP。SRv6 暂无隧道级流量计数。',
+          '比较平台账本与「向导基线 + 存活隧道」公式，不是线路是否已通，也不是设备 FRR。',
+          isDrift ? '点击打开「配置对账」查看差异；「扫描并修复」只重写平台账本，不会下发设备。' : '',
         ]
           .filter(Boolean)
           .join('\n');
-        return <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>{configHealthTag(row.configHealth)}</Tooltip>;
+        return (
+          <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{tip}</span>}>
+            <span
+              role={isDrift ? 'button' : undefined}
+              style={isDrift ? { cursor: 'pointer' } : undefined}
+              onClick={
+                isDrift
+                  ? () => {
+                      openReconcileModal();
+                      void runReconcile(false);
+                    }
+                  : undefined
+              }
+            >
+              {configHealthTag(row.configHealth)}
+            </span>
+          </Tooltip>
+        );
       },
     },
     {
@@ -423,41 +489,6 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     });
   }, [tunnels, keyword, statusFilter, scopedVr]);
 
-  /** 列表请求代次：快切/连点刷新时丢弃过期响应（行业常用 stale-while-revalidate） */
-  const loadGenRef = useRef(0);
-
-  const loadSrv6Tunnels = useCallback(async (force?: boolean) => {
-    const gen = ++loadGenRef.current;
-    setListLoading(true);
-    let shellPainted = false;
-    try {
-      const { fetchSrv6Tunnels } = await import('../../../../services/api');
-      // 首屏：先出档案列表，不阻塞在全量对账
-      const list = await fetchSrv6Tunnels({ skipCache: !!force, includeHealth: false });
-      if (gen !== loadGenRef.current) return;
-      setTunnels((Array.isArray(list) ? list : []).map(mapSrv6TunnelRow));
-      shellPainted = true;
-      setListLoading(false);
-
-      // 二阶段：异步 enrich 配置健康列
-      try {
-        const withHealth = await fetchSrv6Tunnels({ skipCache: true, includeHealth: true });
-        if (gen !== loadGenRef.current) return;
-        setTunnels((Array.isArray(withHealth) ? withHealth : []).map(mapSrv6TunnelRow));
-      } catch (he: any) {
-        if (gen !== loadGenRef.current) return;
-        console.warn('SRv6 配置健康 enrich 失败:', he);
-        message.warning(`配置健康暂不可用：${he?.message || '请稍后刷新'}`);
-      }
-    } catch (e: any) {
-      if (gen !== loadGenRef.current) return;
-      console.error('加载 SRv6 隧道失败:', e);
-      message.error(`加载 SRv6 隧道失败：${e?.message || '请稍后重试'}`);
-      if (!shellPainted) setTunnels([]);
-      setListLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     void loadSrv6Tunnels(true);
     void (async () => {
@@ -499,8 +530,7 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
       secondaryActions={
         <Button
           onClick={() => {
-            setReconcileReport(null);
-            setReconcileOpen(true);
+            openReconcileModal();
             void runReconcile(false);
           }}
         >
@@ -621,7 +651,7 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           showIcon
           style={{ marginBottom: 12 }}
           message="对账说明"
-          description="检查各 VR 的平台生效配置是否与「向导基线 + 存活隧道叠加」一致；无存活隧道时可将向导基线对齐为当前配置。修复操作会写入审计日志。"
+          description="比较平台账本（详情「本地配置 Cache」）是否等于「向导基线 + 存活隧道」公式。忽略 CSM 的 _id / 时间戳和字段顺序，不读设备 FRR、不表示线路已通。黄标仍在时，「扫描并修复」把账本重写成公式（不下发设备）；设备和意图对齐仍需走下发。"
         />
         {reconcileReport ? (
           <div style={{ marginBottom: 8, color: 'rgba(0,0,0,.65)' }}>
