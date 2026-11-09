@@ -301,6 +301,23 @@ public class VrServiceImpl implements VrService {
                                 "接口下配置vrrp中的auth_pass时，只能为数字，且最多10个数字");
                     }
                 }
+                // HA 单播宣告：unicast_peer / unicast_source 须为无掩码 IPv4
+                if (vrRp.containsKey("unicast_peer")) {
+                    String unicastPeer = vrRp.getString("unicast_peer");
+                    if (StringUtils.isBlank(unicastPeer) || unicastPeer.contains("/") || checkIpv4OrIpv6NoMask(unicastPeer, 4)) {
+                        throw new ServiceException(
+                                String.valueOf(ApiResultCode.VM19000.code()),
+                                "接口下配置vrrp中的unicast_peer须为合法IPv4且不可携带掩码");
+                    }
+                }
+                if (vrRp.containsKey("unicast_source")) {
+                    String unicastSource = vrRp.getString("unicast_source");
+                    if (StringUtils.isBlank(unicastSource) || unicastSource.contains("/") || checkIpv4OrIpv6NoMask(unicastSource, 4)) {
+                        throw new ServiceException(
+                                String.valueOf(ApiResultCode.VM19000.code()),
+                                "接口下配置vrrp中的unicast_source须为合法IPv4且不可携带掩码");
+                    }
+                }
             }
         }
     }
