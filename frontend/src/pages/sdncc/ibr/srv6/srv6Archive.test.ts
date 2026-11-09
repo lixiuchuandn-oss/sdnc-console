@@ -71,8 +71,11 @@ describe('srv6Archive buildTunnelArchive', () => {
 
     const peerNeighbor = archive.injectedDelta?.peA?.neighbors?.find((n) => n.remote_ip === peerIp);
     expect(peerNeighbor?.bgpIndex).toBe(1);
+    expect(peerNeighbor?.ebgp_multihop).toBe(255);
     expect(archive.injectedDelta?.peA?.activateAddressFamily?.[0]?.bgpIndex).toBe(1);
     expect(archive.injectedDelta?.peA?.neighborDisableConnectedCheck?.[0]?.bgpIndex).toBe(1);
+    const ceNeighbor = archive.injectedDelta?.ceA?.neighbors?.find((n) => n.remote_ip);
+    expect(ceNeighbor?.ebgp_multihop).toBeUndefined();
   });
 
   it('without peStorageCfgs falls back to raw cfg public index (legacy)', () => {
@@ -122,6 +125,7 @@ describe('srv6Archive buildTunnelArchive', () => {
     expect(archive.endpointFingerprint?.peA?.peerPublicNeighbor).toBe(peerIp);
     const hubNeighbor = archive.injectedDelta?.peA?.neighbors?.find((n) => n.remote_ip === peerIp);
     expect(hubNeighbor?.bgpIndex).toBe(0);
+    expect(hubNeighbor?.ebgp_multihop).toBe(255);
   });
 
   it('uses hub inventory wan ipv6 when hub cfg lacks wan interface', () => {

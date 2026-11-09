@@ -59,6 +59,20 @@ describe('haGroupWizardLib scheme two intent', () => {
 		expect(primary?.priority).toBeGreaterThan(backup?.priority ?? 0);
 	});
 
+	it('maps interface IPs to crossed unicast-peer/source', () => {
+		const intent = buildHaGroupVrrpIntent({
+			...sampleFormValues(),
+			primaryInterfaceIp: '10.16.160.124',
+			backupInterfaceIp: '10.16.160.125',
+		});
+		const primary = intent.members.find((m) => m.role === 'primary');
+		const backup = intent.members.find((m) => m.role === 'backup');
+		expect(primary?.unicast_source).toBe('10.16.160.124');
+		expect(primary?.unicast_peer).toBe('10.16.160.125');
+		expect(backup?.unicast_source).toBe('10.16.160.125');
+		expect(backup?.unicast_peer).toBe('10.16.160.124');
+	});
+
 	it('validates required track-gateway and priority order', () => {
 		expect(validateHaGroupWizardForm(sampleFormValues())).toBeNull();
 		const bad = { ...sampleFormValues(), primaryTrackGateway: '' };
@@ -68,10 +82,17 @@ describe('haGroupWizardLib scheme two intent', () => {
 	});
 
 	it('round-trips intent to form fields', () => {
-		const intent = buildHaGroupVrrpIntent({ ...sampleFormValues(), placement: 'egress' });
+		const intent = buildHaGroupVrrpIntent({
+			...sampleFormValues(),
+			placement: 'egress',
+			primaryInterfaceIp: '10.16.160.124',
+			backupInterfaceIp: '10.16.160.125',
+		});
 		const form = parseVrrpIntentToForm(intent, { primaryUuid: '', backupUuid: '' });
 		expect(form.placement).toBe('egress');
 		expect(form.primaryTrackGateway).toBe('GigabitEthernet2/2/0');
+		expect(form.primaryInterfaceIp).toBe('10.16.160.124');
+		expect(form.backupInterfaceIp).toBe('10.16.160.125');
 		expect(placementLabel('access')).toContain('接入');
 	});
 

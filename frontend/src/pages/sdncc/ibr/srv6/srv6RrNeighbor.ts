@@ -1,5 +1,7 @@
 /** PE → RR 反射域邻居注入（RR 模式；§7.3 / §7.3.1） */
 
+const PUBLIC_EBGP_MULTIHOP = 255;
+
 export type RrNeighborTarget = {
   neighborAddress: string;
   remoteAs: number;
@@ -93,9 +95,19 @@ export const injectNeighborsForRrDomain = (
       ? [...(bgpObj.neighbor as Record<string, unknown>[])]
       : [];
     validTargets.forEach((t) => {
-      const exists = neighbors.some((n) => String(n?.remote_ip) === String(t.neighborAddress));
-      if (!exists) {
-        neighbors.push({ remote_ip: t.neighborAddress, remote_as: t.remoteAs });
+      const idx = neighbors.findIndex((n) => String(n?.remote_ip) === String(t.neighborAddress));
+      if (idx < 0) {
+        neighbors.push({
+          remote_ip: t.neighborAddress,
+          remote_as: t.remoteAs,
+          ebgp_multihop: PUBLIC_EBGP_MULTIHOP,
+        });
+      } else {
+        neighbors[idx] = {
+          ...neighbors[idx],
+          remote_as: neighbors[idx]?.remote_as ?? t.remoteAs,
+          ebgp_multihop: (neighbors[idx]?.ebgp_multihop as number | undefined) ?? PUBLIC_EBGP_MULTIHOP,
+        };
       }
     });
     bgpObj.neighbor = neighbors;

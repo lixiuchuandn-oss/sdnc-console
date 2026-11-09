@@ -74,6 +74,10 @@ export type HaGroupWizardFormValues = {
 	backupInterface: string;
 	primaryTrackGateway: string;
 	backupTrackGateway: string;
+	/** 主节点 VRRP 口本端 IPv4（单播 source）；与备节点 IP 成对填写 */
+	primaryInterfaceIp?: string;
+	/** 备节点 VRRP 口本端 IPv4（单播 source）；与主节点 IP 成对填写 */
+	backupInterfaceIp?: string;
 };
 
 type HaGroupVrrpMemberIntent = {
@@ -82,6 +86,8 @@ type HaGroupVrrpMemberIntent = {
 	priority: number;
 	interface?: string;
 	track_gateway?: string;
+	unicast_peer?: string;
+	unicast_source?: string;
 };
 
 export type HaGroupVrrpIntent = {
@@ -143,6 +149,9 @@ export function buildHaGroupVrrpIntent(values: HaGroupWizardFormValues): HaGroup
 	const primaryUuid = String(values.primaryUuid || '').trim();
 	const backupUuid = String(values.backupUuid || '').trim();
 	const trackIface = String(values.trackInterface || '').trim();
+	const primaryIp = String(values.primaryInterfaceIp || '').trim();
+	const backupIp = String(values.backupInterfaceIp || '').trim();
+	const unicastReady = Boolean(primaryIp && backupIp);
 	return {
 		scheme: HA_GROUP_SCHEME,
 		placement: values.placement === 'egress' ? 'egress' : 'access',
@@ -159,6 +168,9 @@ export function buildHaGroupVrrpIntent(values: HaGroupWizardFormValues): HaGroup
 				priority: Number(values.primaryPriority) || 200,
 				interface: String(values.primaryInterface || '').trim() || undefined,
 				track_gateway: String(values.primaryTrackGateway || '').trim() || undefined,
+				...(unicastReady
+					? { unicast_source: primaryIp, unicast_peer: backupIp }
+					: {}),
 			},
 			{
 				role: 'backup',
@@ -166,6 +178,9 @@ export function buildHaGroupVrrpIntent(values: HaGroupWizardFormValues): HaGroup
 				priority: Number(values.backupPriority) || 100,
 				interface: String(values.backupInterface || '').trim() || undefined,
 				track_gateway: String(values.backupTrackGateway || '').trim() || undefined,
+				...(unicastReady
+					? { unicast_source: backupIp, unicast_peer: primaryIp }
+					: {}),
 			},
 		],
 	};
@@ -199,6 +214,22 @@ export function validateHaGroupWizardForm(values: HaGroupWizardFormValues): stri
 	}
 	if (!String(values.backupTrackGateway || '').trim()) {
 		return '请填写备节点 track-gateway（上游 PE 接口或网关地址）';
+	}
+	const primaryIp = String(values.primaryInterfaceIp || '').trim();
+	const backupIp = String(values.backupInterfaceIp || '').trim();
+	if ((primaryIp && !backupIp) || (!primaryIp && backupIp)) {
+		return '主备接口 IP（VRRP 单播）须同时填写或同时留空';
+	}
+	if (primaryIp) {
+		if (!IPV4_RE.test(primaryIp) || primaryIp.includes('/')) {
+			return '主节点接口 IP 须为无掩码 IPv4';
+		}
+		if (!IPV4_RE.test(backupIp) || backupIp.includes('/')) {
+			return '备节点接口 IP 须为无掩码 IPv4';
+		}
+		if (primaryIp === backupIp) {
+			return '主备接口 IP 不能相同';
+		}
 	}
 	return null;
 }
@@ -237,6 +268,10 @@ export function parseVrrpIntentToForm(
 		primaryTrackGateway:
 			String(primary?.track_gateway ?? primary?.trackGateway ?? '').trim() || undefined,
 		backupTrackGateway: String(backup?.track_gateway ?? backup?.trackGateway ?? '').trim() || undefined,
+		primaryInterfaceIp:
+			String(primary?.unicast_source ?? primary?.unicastSource ?? '').trim() || undefined,
+		backupInterfaceIp:
+			String(backup?.unicast_source ?? backup?.unicastSource ?? '').trim() || undefined,
 		primaryUuid: String(primary?.vr_uuid ?? primary?.vrUuid ?? fallback.primaryUuid).trim() || undefined,
 		backupUuid: String(backup?.vr_uuid ?? backup?.vrUuid ?? fallback.backupUuid).trim() || undefined,
 	};

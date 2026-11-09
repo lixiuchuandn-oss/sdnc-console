@@ -23,6 +23,7 @@ import {
   inferTunnelLinkTypeFromRoles,
   inferTunnelTopologyFromRoles,
   resolveHubPeSlotFromRoles,
+  SRV6_PUBLIC_EBGP_MULTIHOP,
   tunnelLinkTypeLabel,
   tunnelLinkTypeToTopology,
   type Srv6HubVrfMode,
@@ -468,12 +469,19 @@ const SRv6CreatePage: React.FC = () => {
       bgpPub.address_family = afNoV6;
       const peerPublicAsn = extractBgpAsnAt(peerPeCfg, 0);
       const neighbors = Array.isArray(bgpPub.neighbor) ? [...bgpPub.neighbor] : [];
-      const hasPeerNeighbor = neighbors.some((n: any) => String(n?.remote_ip) === String(peerPublicIp));
-      if (!hasPeerNeighbor) {
+      const peerIdx = neighbors.findIndex((n: any) => String(n?.remote_ip) === String(peerPublicIp));
+      if (peerIdx < 0) {
         neighbors.push({
           remote_ip: peerPublicIp,
           remote_as: peerPublicAsn ?? 0,
+          ebgp_multihop: SRV6_PUBLIC_EBGP_MULTIHOP,
         });
+      } else {
+        neighbors[peerIdx] = {
+          ...neighbors[peerIdx],
+          remote_as: neighbors[peerIdx]?.remote_as ?? peerPublicAsn ?? 0,
+          ebgp_multihop: neighbors[peerIdx]?.ebgp_multihop ?? SRV6_PUBLIC_EBGP_MULTIHOP,
+        };
       }
       bgpPub.neighbor = neighbors;
       const ndc = Array.isArray(bgpPub.neighbor_disable_connected_check)

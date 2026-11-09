@@ -239,6 +239,8 @@ const IbrHaGroupWizard: React.FC = () => {
 				'backupInterface',
 				'primaryTrackGateway',
 				'backupTrackGateway',
+				'primaryInterfaceIp',
+				'backupInterfaceIp',
 			];
 		}
 		return [];
@@ -548,6 +550,17 @@ const IbrHaGroupWizard: React.FC = () => {
 					</Form.Item>
 				</Col>
 			</Row>
+			<Row gutter={16}>
+				<Col span={12}>
+					<Form.Item
+						name="primaryInterfaceIp"
+						label="接口 IP（单播 source）"
+						extra="现网 HA：unicast-source；与备节点 IP 成对填写"
+					>
+						<Input placeholder="例如 10.16.160.124" />
+					</Form.Item>
+				</Col>
+			</Row>
 			<Divider orientation="left" plain>
 				备节点（Backup）
 			</Divider>
@@ -593,6 +606,17 @@ const IbrHaGroupWizard: React.FC = () => {
 					</Form.Item>
 				</Col>
 			</Row>
+			<Row gutter={16}>
+				<Col span={12}>
+					<Form.Item
+						name="backupInterfaceIp"
+						label="接口 IP（单播 source）"
+						extra="现网 HA：unicast-source；与主节点 IP 成对填写"
+					>
+						<Input placeholder="例如 10.16.160.125" />
+					</Form.Item>
+				</Col>
+			</Row>
 		</>
 	);
 
@@ -621,6 +645,11 @@ const IbrHaGroupWizard: React.FC = () => {
 					</Descriptions.Item>
 					<Descriptions.Item label="Track-gateway">
 						主 {values.primaryTrackGateway || '—'} · 备 {values.backupTrackGateway || '—'}
+					</Descriptions.Item>
+					<Descriptions.Item label="VRRP 单播">
+						{values.primaryInterfaceIp && values.backupInterfaceIp
+							? `主 ${values.primaryInterfaceIp} ↔ 备 ${values.backupInterfaceIp}`
+							: '未配置（组播）'}
 					</Descriptions.Item>
 					<Descriptions.Item label="抢占模式">
 						{values.preempt !== false ? <Tag color="blue">开启</Tag> : <Tag>关闭</Tag>}

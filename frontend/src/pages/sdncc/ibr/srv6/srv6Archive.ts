@@ -20,7 +20,12 @@ export type Srv6BgpNeighborDelta = {
   bgpIndex: number;
   remote_ip: string;
   remote_as?: number;
+  /** PE–PE / RR 公网多跳 eBGP；设备 CLI：neighbor <ip> ebgp-multihop <ttl> */
+  ebgp_multihop?: number;
 };
+
+/** 公网 PE–PE / RR 邻居默认 TTL（与现网一致） */
+export const SRV6_PUBLIC_EBGP_MULTIHOP = 255;
 
 export type Srv6Ipv6RouteDelta = {
   destination: string;
@@ -451,7 +456,12 @@ const appendRrNeighborsToDelta = (
   targets.forEach((t) => {
     delta.neighbors = [
       ...(delta.neighbors || []),
-      { bgpIndex: pubIdx, remote_ip: t.neighborAddress, remote_as: t.remoteAs },
+      {
+        bgpIndex: pubIdx,
+        remote_ip: t.neighborAddress,
+        remote_as: t.remoteAs,
+        ebgp_multihop: SRV6_PUBLIC_EBGP_MULTIHOP,
+      },
     ];
     delta.activateAddressFamily = [
       ...(delta.activateAddressFamily || []),
@@ -499,7 +509,12 @@ const buildPeInjectedDelta = (
     if (peerPublicIp) {
       delta.neighbors = [
         ...(delta.neighbors || []),
-        { bgpIndex: pubIdx, remote_ip: peerPublicIp, remote_as: peerAsn ?? 0 },
+        {
+          bgpIndex: pubIdx,
+          remote_ip: peerPublicIp,
+          remote_as: peerAsn ?? 0,
+          ebgp_multihop: SRV6_PUBLIC_EBGP_MULTIHOP,
+        },
       ];
       delta.activateAddressFamily = [
         ...(delta.activateAddressFamily || []),
