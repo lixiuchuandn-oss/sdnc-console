@@ -54,6 +54,20 @@ describe('haGroupVrrpMaterialize', () => {
     });
   });
 
+  it('materializeHaGroupVrrpForMember emits unicast-peer/source when intent has them', () => {
+    const intent = sampleIntent();
+    intent.members[0].unicast_source = '10.16.160.124';
+    intent.members[0].unicast_peer = '10.16.160.125';
+    intent.members[1].unicast_source = '10.16.160.125';
+    intent.members[1].unicast_peer = '10.16.160.124';
+    const primary = materializeHaGroupVrrpForMember(intent, 'primary');
+    expect(primary.ifaceVrrp.unicast_source).toBe('10.16.160.124');
+    expect(primary.ifaceVrrp.unicast_peer).toBe('10.16.160.125');
+    const backup = materializeHaGroupVrrpForMember(intent, 'backup');
+    expect(backup.ifaceVrrp.unicast_source).toBe('10.16.160.125');
+    expect(backup.ifaceVrrp.unicast_peer).toBe('10.16.160.124');
+  });
+
   it('applyVrrpPatchToDeviceConfig upserts without wiping other interfaces', () => {
     const device = {
       uuid: 'vr-a',
@@ -83,6 +97,31 @@ describe('haGroupVrrpMaterialize', () => {
     const top = merged.vrrp as Array<Record<string, unknown>>;
     expect(top).toHaveLength(2);
     expect(top.find((g) => g.group_id === 10)?.track_gateway).toEqual(['192.168.1.1']);
+  });
+
+  it('applyVrrpPatchToDeviceConfig clears sticky unicast when intent drops them', () => {
+    const withUnicast = sampleIntent();
+    withUnicast.members[0].unicast_source = '10.16.160.124';
+    withUnicast.members[0].unicast_peer = '10.16.160.125';
+    const device = {
+      uuid: 'vr-a',
+      interface: [{ name: 'GigabitEthernet0/0/1', ipv4_static: '10.16.160.124/26' }],
+    };
+    const first = applyVrrpPatchToDeviceConfig(device, materializeHaGroupVrrpForMember(withUnicast, 'primary'));
+    const firstVrrp = (
+      (first.interface as Array<Record<string, unknown>>)[0].vrrp as Array<Record<string, unknown>>
+    )[0];
+    expect(firstVrrp.unicast_peer).toBe('10.16.160.125');
+
+    const cleared = applyVrrpPatchToDeviceConfig(
+      first,
+      materializeHaGroupVrrpForMember(sampleIntent(), 'primary'),
+    );
+    const clearedVrrp = (
+      (cleared.interface as Array<Record<string, unknown>>)[0].vrrp as Array<Record<string, unknown>>
+    )[0];
+    expect(clearedVrrp.unicast_peer).toBeUndefined();
+    expect(clearedVrrp.unicast_source).toBeUndefined();
   });
 
   it('applyVrrpPatchToDeviceConfig fails when interface missing', () => {

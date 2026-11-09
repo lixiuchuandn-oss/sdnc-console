@@ -1,4 +1,8 @@
-import type { Srv6EndpointInjectedDelta, Srv6HubVrfMode } from '../../entities/vRouter/srv6Tunnel.types';
+import {
+  SRV6_PUBLIC_EBGP_MULTIHOP,
+  type Srv6EndpointInjectedDelta,
+  type Srv6HubVrfMode,
+} from '../../entities/vRouter/srv6Tunnel.types';
 import {
   type HubInventoryBindingRef,
   materializeHubInventoryForBinding,
@@ -99,11 +103,18 @@ const mergeNeighbors = (
   for (const item of items) {
     const bgp = ensureBgpBlock(cfg, item.bgpIndex);
     const arr = Array.isArray(bgp.neighbor) ? [...(bgp.neighbor as unknown[])] : [];
-    if (!arr.some((n) => neighborMatches(n as Record<string, unknown>, item.remote_ip))) {
+    const idx = arr.findIndex((n) => neighborMatches(n as Record<string, unknown>, item.remote_ip));
+    if (idx < 0) {
       arr.push({
         remote_ip: item.remote_ip,
         remote_as: item.remote_as ?? 0,
+        ...(item.ebgp_multihop != null ? { ebgp_multihop: item.ebgp_multihop } : {}),
       });
+    } else if (item.ebgp_multihop != null || item.remote_as != null) {
+      const existing = { ...(arr[idx] as Record<string, unknown>) };
+      if (item.remote_as != null) existing.remote_as = item.remote_as;
+      if (item.ebgp_multihop != null) existing.ebgp_multihop = item.ebgp_multihop;
+      arr[idx] = existing;
     }
     bgp.neighbor = arr;
   }
@@ -210,6 +221,34 @@ const mergeOneContribution = (cfg: ConfigJson, packed: Srv6MergeContribution): v
 };
 
 /**
+ * 旧档案可能只有 NDC、没有 ebgp_multihop。
+ * NDC 是 PE–PE / RR 公网邻居标记；CE LAN 贡献不写 NDC，故不会被误加 255。
+ */
+const backfillPublicEbgpMultihop = (cfg: ConfigJson): void => {
+  if (!Array.isArray(cfg.bgp)) return;
+  for (const rawBgp of cfg.bgp) {
+    if (!rawBgp || typeof rawBgp !== 'object') continue;
+    const bgp = rawBgp as Record<string, unknown>;
+    const ndc = Array.isArray(bgp.neighbor_disable_connected_check)
+      ? (bgp.neighbor_disable_connected_check as unknown[]).map((ip) => normIp(ip)).filter(Boolean)
+      : [];
+    if (!ndc.length) continue;
+    const ndcSet = new Set(ndc);
+    const neighbors = Array.isArray(bgp.neighbor) ? [...(bgp.neighbor as unknown[])] : [];
+    let changed = false;
+    const next = neighbors.map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw;
+      const n = raw as Record<string, unknown>;
+      if (!ndcSet.has(normIp(n.remote_ip))) return raw;
+      if (n.ebgp_multihop != null) return raw;
+      changed = true;
+      return { ...n, ebgp_multihop: SRV6_PUBLIC_EBGP_MULTIHOP };
+    });
+    if (changed) bgp.neighbor = next;
+  }
+};
+
+/**
  * Layer-2 生效配置：基线 + 按创建顺序叠加各隧道贡献（P1 merge 引擎；P5.3 Hub 分支）。
  */
 export const mergeBaselineWithContributions = (
@@ -235,5 +274,6 @@ export const mergeBaselineWithContributions = (
     if (!packed.delta || typeof packed.delta !== 'object') continue;
     mergeOneContribution(result, packed);
   }
+  backfillPublicEbgpMultihop(result);
   return result;
 };

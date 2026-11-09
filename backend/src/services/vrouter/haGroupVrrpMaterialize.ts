@@ -11,6 +11,10 @@ export type DeviceVrrpIfaceInstance = {
   advert_interval: number;
   auth_pass?: string;
   priority: number;
+  /** CLI: vrrp vrid N unicast-peer */
+  unicast_peer?: string;
+  /** CLI: vrrp vrid N unicast-source */
+  unicast_source?: string;
   virtual_ipaddress: string[];
 };
 
@@ -72,6 +76,10 @@ export function materializeHaGroupVrrpForMember(
   };
   const auth = String(intent.auth_pass ?? '').trim();
   if (auth) ifaceVrrp.auth_pass = auth;
+  const unicastPeer = String(member.unicast_peer ?? '').trim();
+  const unicastSource = String(member.unicast_source ?? '').trim();
+  if (unicastPeer) ifaceVrrp.unicast_peer = unicastPeer;
+  if (unicastSource) ifaceVrrp.unicast_source = unicastSource;
 
   return {
     role,
@@ -113,10 +121,13 @@ export function applyVrrpPatchToDeviceConfig(
     return Number((raw as { vrid?: unknown }).vrid) === patch.ifaceVrrp.vrid;
   });
   if (vrrpIdx >= 0) {
-    existingVrrp[vrrpIdx] = {
+    const merged = {
       ...(existingVrrp[vrrpIdx] as Record<string, unknown>),
       ...patch.ifaceVrrp,
     };
+    if (!patch.ifaceVrrp.unicast_peer) delete merged.unicast_peer;
+    if (!patch.ifaceVrrp.unicast_source) delete merged.unicast_source;
+    existingVrrp[vrrpIdx] = merged;
   } else {
     existingVrrp.push(patch.ifaceVrrp);
   }

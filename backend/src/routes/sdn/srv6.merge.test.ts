@@ -47,7 +47,7 @@ const pe22Baseline = {
 /** PE22-A 端隧道贡献 */
 const pe22PeAContrib: Srv6EndpointInjectedDelta = {
   neighbors: [
-    { bgpIndex: 0, remote_ip: '203::33', remote_as: 430 },
+    { bgpIndex: 0, remote_ip: '203::33', remote_as: 430, ebgp_multihop: 255 },
     { bgpIndex: 1, remote_ip: '101.1.1.22', remote_as: 122 },
   ],
   activateAddressFamily: [{ bgpIndex: 0, peerIp: '203::33' }],
@@ -70,7 +70,7 @@ describe('srv6.merge', () => {
   it('M2: baseline + PE22-A contribution adds tunnel increments', () => {
     const out = mergeBaselineWithContributions(pe22Baseline, [pe22PeAContrib]);
     const pubBgp = (out.bgp as Record<string, unknown>[])[0];
-    expect(pubBgp.neighbor).toEqual([{ remote_ip: '203::33', remote_as: 430 }]);
+    expect(pubBgp.neighbor).toEqual([{ remote_ip: '203::33', remote_as: 430, ebgp_multihop: 255 }]);
     expect(pubBgp.neighbor_disable_connected_check).toEqual(['203::33']);
 
     const vpnAf = (pubBgp.address_family as Record<string, unknown>[]).find(
@@ -123,6 +123,50 @@ describe('srv6.merge', () => {
     expect((out.bgp as Record<string, unknown>[])[0].neighbor).toEqual([
       { remote_ip: '101.1.1.1', remote_as: 105 },
     ]);
+  });
+
+  it('legacy PE-PE archive with NDC but no ebgp_multihop backfills 255', () => {
+    const legacy: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::33', remote_as: 430 }],
+      activateAddressFamily: [{ bgpIndex: 0, peerIp: '203::33' }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::33' }],
+    };
+    const out = mergeBaselineWithContributions(pe22Baseline, [legacy]);
+    const pub = (out.bgp as Record<string, unknown>[])[0];
+    expect(pub.neighbor).toEqual([{ remote_ip: '203::33', remote_as: 430, ebgp_multihop: 255 }]);
+  });
+
+  it('upserts ebgp_multihop onto an existing baseline neighbor', () => {
+    const baseline = {
+      bgp: [
+        {
+          vrf: 0,
+          asn: 429,
+          neighbor: [{ remote_ip: '203::33', remote_as: 430 }],
+          address_family: [],
+        },
+      ],
+    };
+    const contrib: Srv6EndpointInjectedDelta = {
+      neighbors: [{ bgpIndex: 0, remote_ip: '203::33', remote_as: 430, ebgp_multihop: 255 }],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::33' }],
+    };
+    const out = mergeBaselineWithContributions(baseline, [contrib]);
+    const pub = (out.bgp as Record<string, unknown>[])[0];
+    expect(pub.neighbor).toEqual([{ remote_ip: '203::33', remote_as: 430, ebgp_multihop: 255 }]);
+  });
+
+  it('CE neighbors without NDC do not receive ebgp_multihop', () => {
+    const mixed: Srv6EndpointInjectedDelta = {
+      neighbors: [
+        { bgpIndex: 0, remote_ip: '203::33', remote_as: 430 },
+        { bgpIndex: 1, remote_ip: '101.1.1.22', remote_as: 122 },
+      ],
+      neighborDisableConnectedCheck: [{ bgpIndex: 0, remote_ip: '203::33' }],
+    };
+    const out = mergeBaselineWithContributions(pe22Baseline, [mixed]);
+    const inner = (out.bgp as Record<string, unknown>[])[1];
+    expect(inner.neighbor).toEqual([{ remote_ip: '101.1.1.22', remote_as: 122 }]);
   });
 
   describe('P5.3 Hub merge', () => {
@@ -185,7 +229,7 @@ describe('srv6.merge', () => {
         packHub(pe22HubContrib, 'REUSE_VRF'),
       ]);
       const pub = (afterDeleteT2.bgp as Record<string, unknown>[])[0];
-      expect(pub.neighbor).toEqual([{ remote_ip: '203::22', remote_as: 430 }]);
+      expect(pub.neighbor).toEqual([{ remote_ip: '203::22', remote_as: 430, ebgp_multihop: 255 }]);
       const inner = (afterDeleteT2.bgp as Record<string, unknown>[])[1];
       const uniAf = (inner.address_family as Record<string, unknown>[])[0];
       expect(uniAf.route_distinguisher).toBe('200:12851');

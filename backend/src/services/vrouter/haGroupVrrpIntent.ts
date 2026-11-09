@@ -12,6 +12,10 @@ export type HaGroupVrrpMemberIntent = {
   interface?: string;
   /** 方案二：track-gateway，上游 PE 接口名或对端网关 IPv4 */
   track_gateway?: string;
+  /** VRRP 单播对端 IPv4（CLI: unicast-peer） */
+  unicast_peer?: string;
+  /** VRRP 单播本端源 IPv4（CLI: unicast-source） */
+  unicast_source?: string;
 };
 
 export type HaGroupVrrpIntent = {
@@ -59,6 +63,8 @@ export function normalizeHaGroupVrrpIntent(raw: unknown): HaGroupVrrpIntent | nu
       priority: Number(m.priority) || (role === 'primary' ? 200 : 100),
       interface: String(m.interface ?? '').trim() || undefined,
       track_gateway: String(m.track_gateway ?? m.trackGateway ?? '').trim() || undefined,
+      unicast_peer: String(m.unicast_peer ?? m.unicastPeer ?? '').trim() || undefined,
+      unicast_source: String(m.unicast_source ?? m.unicastSource ?? '').trim() || undefined,
     });
   }
   if (members.length !== 2) return null;
@@ -128,6 +134,23 @@ export function validateHaGroupVrrpIntent(
     const iface = String(m.interface ?? '').trim();
     if (!iface) {
       throw new Error(`${m.role === 'primary' ? '主' : '备'}节点须配置 VRRP 绑定接口`);
+    }
+    const peer = String(m.unicast_peer ?? '').trim();
+    const source = String(m.unicast_source ?? '').trim();
+    if ((peer && !source) || (!peer && source)) {
+      throw new Error(
+        `${m.role === 'primary' ? '主' : '备'}节点 unicast-peer 与 unicast-source 须同时填写或同时留空`,
+      );
+    }
+    if (peer && (!IPV4_RE.test(peer) || peer.includes('/'))) {
+      throw new Error(
+        `${m.role === 'primary' ? '主' : '备'}节点 unicast-peer 须为无掩码 IPv4`,
+      );
+    }
+    if (source && (!IPV4_RE.test(source) || source.includes('/'))) {
+      throw new Error(
+        `${m.role === 'primary' ? '主' : '备'}节点 unicast-source 须为无掩码 IPv4`,
+      );
     }
   }
 

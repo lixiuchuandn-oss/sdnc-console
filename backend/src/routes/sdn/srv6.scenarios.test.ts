@@ -106,7 +106,7 @@ describe('srv6.scenarios (P1–P4 matrix)', () => {
       const afterT1Delete = mergeBaselineWithContributions(hubBaseline, [t2Ok]);
       expect(effectiveConfigMatches(afterT1Delete, hubBaseline, [t2Ok])).toBe(true);
       const pub = (afterT1Delete.bgp as Record<string, unknown>[])[0];
-      expect(pub.neighbor).toEqual([{ remote_ip: '203::44', remote_as: 430 }]);
+      expect(pub.neighbor).toEqual([{ remote_ip: '203::44', remote_as: 430, ebgp_multihop: 255 }]);
     });
 
     it('S3.3 C-N1：重复 neighbor 拒绝', () => {
