@@ -123,6 +123,9 @@ function bgp.add_part(segment_routing_list, p)
     if p.neighbor ~= nil then
         for _, n in pairs(p.neighbor) do
             bgp.add_bgp_neighbor(as, n.remote_ip, n.remote_as)
+            if n.ebgp_multihop ~= nil then
+                bgp.add_bgp_neighbor_ebgp_multihop(as, n.remote_ip, n.ebgp_multihop)
+            end
         end
     end
     if p.neighbor_disable_connected_check ~= nil then
@@ -264,6 +267,9 @@ function bgp.update(cur_bgp, new_bgp, segment_routing_srv6, cur_table)
     elseif not cur_bgp.neighbor and new_bgp.neighbor then
         for _, n in pairs(new_bgp.neighbor) do
             bgp.add_bgp_neighbor(bgp_as, n.remote_ip, n.remote_as)
+            if n.ebgp_multihop ~= nil then
+                bgp.add_bgp_neighbor_ebgp_multihop(bgp_as, n.remote_ip, n.ebgp_multihop)
+            end
         end
     elseif cur_bgp.neighbor and new_bgp.neighbor then
         bgp.compare_neighbor(bgp_as, cur_bgp.neighbor, new_bgp.neighbor)
@@ -344,6 +350,14 @@ function bgp.compare_neighbor(as, cur_neighbor, new_neighbor)
         for _, n2 in pairs(new_neighbor) do
             if n.remote_ip == n2.remote_ip and n.remote_as == n2.remote_as then
                 found = true
+                -- 同 peer 时同步 ebgp-multihop（现网 PE–PE 公网邻居必需）
+                if n.ebgp_multihop ~= n2.ebgp_multihop then
+                    if n2.ebgp_multihop ~= nil then
+                        bgp.add_bgp_neighbor_ebgp_multihop(as, n2.remote_ip, n2.ebgp_multihop)
+                    elseif n.ebgp_multihop ~= nil then
+                        bgp.del_bgp_neighbor_ebgp_multihop(as, n.remote_ip)
+                    end
+                end
                 break
             end
         end
@@ -364,6 +378,9 @@ function bgp.compare_neighbor(as, cur_neighbor, new_neighbor)
         end
         if not found then
             bgp.add_bgp_neighbor(as, n.remote_ip, n.remote_as)
+            if n.ebgp_multihop ~= nil then
+                bgp.add_bgp_neighbor_ebgp_multihop(as, n.remote_ip, n.ebgp_multihop)
+            end
         end
     end
     
@@ -716,6 +733,27 @@ function bgp.del_bgp_neighbor(bgp_as, neighbor_ip)
         return
     end
     local cmd = string.format("%s -c 'router bgp %s' -c 'no neighbor %s'", CLISH_CMD, bgp_as, neighbor_ip)
+    local result = execute_command(cmd)
+    print(cmd)
+    return result
+end
+
+-- PE–PE / RR 等多跳 eBGP：neighbor <ip> ebgp-multihop <ttl>
+function bgp.add_bgp_neighbor_ebgp_multihop(bgp_as, neighbor_ip, hops)
+    if bgp_as == nil or neighbor_ip == nil or hops == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'router bgp %s' -c 'neighbor %s ebgp-multihop %i'", CLISH_CMD, bgp_as, neighbor_ip, hops)
+    local result = execute_command(cmd)
+    print(cmd)
+    return result
+end
+
+function bgp.del_bgp_neighbor_ebgp_multihop(bgp_as, neighbor_ip)
+    if bgp_as == nil or neighbor_ip == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'router bgp %s' -c 'no neighbor %s ebgp-multihop'", CLISH_CMD, bgp_as, neighbor_ip)
     local result = execute_command(cmd)
     print(cmd)
     return result
