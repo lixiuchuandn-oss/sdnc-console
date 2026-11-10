@@ -39,6 +39,8 @@ export type VrCacheSyncPart = {
   reported_total?: number;
   /** VR2：对端无配置条数 */
   skipped_no_config?: number;
+  /** VR2：因 SRv6 公式账本而跳过 config_json 覆盖的条数 */
+  skipped_srv6_ledger?: number;
   /** VR2：传输或未知失败条数 */
   fetch_errors?: number;
   csm_business_error?: CsmVrBizError;
@@ -296,11 +298,12 @@ export class VRCacheService {
       const r = await syncVr2ConfigsToPlatform(uuids);
       part.rowCount = r.updated;
       part.skipped_no_config = r.noConfig;
+      part.skipped_srv6_ledger = r.skippedLedger;
       part.fetch_errors = r.errors;
       part.ok = r.ok;
       if (r.error) part.error = r.error;
       vrCacheLog.info(
-        `VR2 同步完成: 回写 ${r.updated} 条，对端无配置 ${r.noConfig} 条${r.errors ? `，失败 ${r.errors} 条` : ''}`,
+        `VR2 同步完成: 回写 ${r.updated} 条，保留 SRv6 账本 ${r.skippedLedger} 条，对端无配置 ${r.noConfig} 条${r.errors ? `，失败 ${r.errors} 条` : ''}`,
       );
       return part;
     } catch (err) {

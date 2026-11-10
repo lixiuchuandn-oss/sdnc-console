@@ -1,4 +1,5 @@
 import { AppDataSource } from '../../config/database';
+import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { getVR2QueryResult } from './vrController';
 import { extractRoleFromVr2Config } from './ibrVrRoleResolve';
@@ -6,10 +7,34 @@ import { extractRoleFromVr2Config } from './ibrVrRoleResolve';
 export type Vr2PlatformSyncResult = {
   ok: boolean;
   updated: number;
+  /** 有 SRv6 基线且仍被隧道引用：保留公式账本，不拿 VR2 整份覆盖 */
+  skippedLedger: number;
   noConfig: number;
   errors: number;
   queried: number;
   error?: string;
+};
+
+/** 被存活 SRv6 隧道引用、且已打下向导基线的 VR：config_json 以公式为准，禁止 VR2 回写抹掉注入字段。 */
+export const shouldPreserveSrv6PlatformLedger = (
+  row: Pick<VRConfig, 'srv6BaselineJson'> | null | undefined,
+  referencedVrIds: Set<string>,
+  uuid: string,
+): boolean => {
+  if (!row) return false;
+  if (!String(row.srv6BaselineJson || '').trim()) return false;
+  return referencedVrIds.has(uuid);
+};
+
+const collectReferencedVrUuids = (tunnels: Array<Pick<SRv6Tunnel, 'peA' | 'peB' | 'ceA' | 'ceB'>>): Set<string> => {
+  const ids = new Set<string>();
+  for (const t of tunnels) {
+    for (const raw of [t.peA, t.peB, t.ceA, t.ceB]) {
+      const id = String(raw || '').trim();
+      if (id) ids.add(id);
+    }
+  }
+  return ids;
 };
 
 async function mapWithConcurrency<T, R>(
@@ -34,6 +59,7 @@ async function mapWithConcurrency<T, R>(
 /**
  * 从 CSMCTL VR2 批量回写平台 vr_config（config_json + role）。
  * 对端无 VR2 配置时保留既有 vr_config，不删除。
+ * 有 SRv6 基线且仍被隧道引用时，只同步 role，不覆盖 config_json（公式账本）。
  */
 export async function syncVr2ConfigsToPlatform(
   uuids: string[],
@@ -43,6 +69,7 @@ export async function syncVr2ConfigsToPlatform(
   const result: Vr2PlatformSyncResult = {
     ok: false,
     updated: 0,
+    skippedLedger: 0,
     noConfig: 0,
     errors: 0,
     queried: unique.length,
@@ -53,6 +80,8 @@ export async function syncVr2ConfigsToPlatform(
   }
 
   const configRepo = AppDataSource.getRepository(VRConfig);
+  const tunnelRepo = AppDataSource.getRepository(SRv6Tunnel);
+  const referencedVrIds = collectReferencedVrUuids(await tunnelRepo.find());
   const concurrency = options?.concurrency ?? 6;
 
   await mapWithConcurrency(unique, concurrency, async (uuid) => {
@@ -70,6 +99,14 @@ export async function syncVr2ConfigsToPlatform(
     const configJson = JSON.stringify(r.config);
 
     let row = await configRepo.findOne({ where: { uuid } });
+    if (row && shouldPreserveSrv6PlatformLedger(row, referencedVrIds, uuid)) {
+      result.skippedLedger += 1;
+      if (role && row.role !== role) {
+        row.role = role;
+        await configRepo.save(row);
+      }
+      return;
+    }
     if (row) {
       row.config_json = configJson;
       if (role) row.role = role;
