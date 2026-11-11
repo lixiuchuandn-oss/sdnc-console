@@ -35,6 +35,9 @@ local meta = {
                             found = true
                             self.cmp_add_vrrp_track_gateway_part(cur_vrrp_group.group_id, cur_vrrp_group.track_gateway, new_vrrp_group.track_gateway)
                             self.cmp_add_vrrp_vrid_part(cur_vrrp_group.group_id, cur_vrrp_group.vrrp_instance, new_vrrp_group.vrrp_instance)
+                            if new_vrrp_group.track_interval ~= nil and new_vrrp_group.track_interval ~= cur_vrrp_group.track_interval then
+                                self.add_vrrp_track_interval(new_vrrp_group.group_id, new_vrrp_group.track_interval)
+                            end
                             break
                         end
                     end
@@ -82,6 +85,7 @@ local meta = {
 				"1.1.1.1",
 				"22.22.2.2"
 			],
+			"track_interval": 1,
 			"vrrp_instance" : [
 				1,
 				2
@@ -98,11 +102,18 @@ function vrrp.add_vrrp_part(cur_table)
     if cur_table.group_id then
         vrrp.add_vrrp_group(cur_table.group_id)
     end
-    for _, gateway_ip in pairs(cur_table.track_gateway) do
-        vrrp.add_vrrp_track_gateway(cur_table.group_id, gateway_ip)
+    if cur_table.track_interval then
+        vrrp.add_vrrp_track_interval(cur_table.group_id, cur_table.track_interval)
     end
-    for _, vrid in pairs(cur_table.vrrp_instance) do
-        vrrp.add_vrrp_vrid(cur_table.group_id, vrid)
+    if cur_table.track_gateway then
+        for _, gateway_ip in pairs(cur_table.track_gateway) do
+            vrrp.add_vrrp_track_gateway(cur_table.group_id, gateway_ip)
+        end
+    end
+    if cur_table.vrrp_instance then
+        for _, vrid in pairs(cur_table.vrrp_instance) do
+            vrrp.add_vrrp_vrid(cur_table.group_id, vrid)
+        end
     end
 end
 
@@ -226,6 +237,17 @@ end
 
 function vrrp.del_vrrp_track_gateway(vrrp_group_id, gateway_ip)
     local cmd = string.format("%s -c 'vrrp group %i' -c 'no track-gateway %s'", CLISH_CMD, vrrp_group_id, gateway_ip)
+    print(cmd)
+    local result = execute_command(cmd)
+    return result
+end
+
+function vrrp.add_vrrp_track_interval(vrrp_group_id, interval)
+    if vrrp_group_id == nil or interval == nil then
+        return
+    end
+    -- 设备 clish 仅有 track-interval（无 no track-interval）；改值覆盖写即可
+    local cmd = string.format("%s -c 'vrrp group %i' -c 'track-interval %i'", CLISH_CMD, vrrp_group_id, interval)
     print(cmd)
     local result = execute_command(cmd)
     return result

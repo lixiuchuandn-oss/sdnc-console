@@ -1,19 +1,23 @@
 /**
  * 将 HA 组平台侧 vrrpIntent 物化为单机设备 config_json 补丁，
- * 并在设备底稿上定点合并（interface[].vrrp + 顶层 vrrp[]）。
+ * 并在设备底稿上定点合并（interfaces_*[].vrrp 或 interface[].vrrp + 顶层 vrrp[]）。
  */
 
-import type { HaGroupVrrpIntent, HaGroupVrrpMemberIntent } from './haGroupVrrpIntent';
+import type {
+  HaGroupVrrpGroupIntent,
+  HaGroupVrrpInstanceIntent,
+  HaGroupVrrpIntent,
+  HaGroupVrrpMemberIntent,
+} from './haGroupVrrpIntent';
 import type { VrConfigJson } from './vrConfigDeploy';
 
 export type DeviceVrrpIfaceInstance = {
   vrid: number;
-  advert_interval: number;
   auth_pass?: string;
   priority: number;
-  /** CLI: vrrp vrid N unicast-peer */
+  advert_interval: number;
+  preempt: boolean;
   unicast_peer?: string;
-  /** CLI: vrrp vrid N unicast-source */
   unicast_source?: string;
   virtual_ipaddress: string[];
 };
@@ -22,17 +26,57 @@ export type DeviceVrrpGroup = {
   group_id: number;
   track_gateway: string[];
   vrrp_instance: number[];
+  track_interval?: number;
+};
+
+export type HaMemberIfacePatch = {
+  interfaceName: string;
+  ifaceVrrp: DeviceVrrpIfaceInstance;
 };
 
 export type HaMemberVrrpPatch = {
   role: 'primary' | 'backup';
   vrUuid: string;
-  interfaceName: string;
-  ifaceVrrp: DeviceVrrpIfaceInstance;
-  topVrrp: DeviceVrrpGroup;
+  ifacePatches: HaMemberIfacePatch[];
+  topVrrp: DeviceVrrpGroup[];
 };
 
 const deepClone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+function compactIfaceName(name: string): string {
+  return String(name || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+}
+
+function ifaceNamesEqual(a: string, b: string): boolean {
+  const left = compactIfaceName(a);
+  const right = compactIfaceName(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return left.replace(/\s/g, '') === right.replace(/\s/g, '');
+}
+
+function isIfaceBucketKey(key: string): boolean {
+  return (
+    key === 'interface' ||
+    key === 'interfaces' ||
+    key.startsWith('interfaces_') ||
+    key.startsWith('subinterfaces_')
+  );
+}
+
+function listIfaceBucketKeys(cfg: Record<string, unknown>): string[] {
+  return Object.keys(cfg).filter((key) => isIfaceBucketKey(key) && Array.isArray(cfg[key]));
+}
+
+function findIfaceIndex(list: unknown[], interfaceName: string): number {
+  return list.findIndex((raw) => {
+    if (!raw || typeof raw !== 'object') return false;
+    return ifaceNamesEqual(String((raw as { name?: unknown }).name ?? ''), interfaceName);
+  });
+}
 
 /** 设备 schema 要求 VIP 带掩码；无掩码时默认 /32 */
 export function ensureVipCidr(vip: string): string {
@@ -53,45 +97,132 @@ function requireMember(
   return member;
 }
 
+function materializeInstance(inst: HaGroupVrrpInstanceIntent): DeviceVrrpIfaceInstance {
+  const advert = inst.advert_interval ?? 1;
+  const ifaceVrrp: DeviceVrrpIfaceInstance = {
+    vrid: inst.vrid,
+    priority: inst.priority,
+    advert_interval: Number.isFinite(advert) ? Math.trunc(advert) : 1,
+    preempt: inst.preempt !== false,
+    virtual_ipaddress: [ensureVipCidr(inst.virtual_ip)],
+  };
+  const auth = String(inst.auth_pass ?? '').trim();
+  if (auth) ifaceVrrp.auth_pass = auth;
+  if (inst.advert_mode === 'unicast') {
+    const unicastPeer = String(inst.unicast_peer ?? '').trim();
+    const unicastSource = String(inst.unicast_source ?? '').trim();
+    if (unicastPeer) ifaceVrrp.unicast_peer = unicastPeer;
+    if (unicastSource) ifaceVrrp.unicast_source = unicastSource;
+  }
+  return ifaceVrrp;
+}
+
+function materializeGroup(group: HaGroupVrrpGroupIntent): DeviceVrrpGroup {
+  const track = String(group.track_gateway ?? '').trim();
+  const interval = group.track_interval ?? 1;
+  return {
+    group_id: group.group_id,
+    track_gateway: track ? [track] : [],
+    vrrp_instance: [group.vrrp_instance],
+    ...(Number.isFinite(interval) ? { track_interval: Math.trunc(interval) } : {}),
+  };
+}
+
 /** 按角色生成单机 VRRP 补丁（不读设备） */
 export function materializeHaGroupVrrpForMember(
   intent: HaGroupVrrpIntent,
   role: 'primary' | 'backup',
 ): HaMemberVrrpPatch {
   const member = requireMember(intent, role);
-  const interfaceName = String(member.interface ?? '').trim();
-  if (!interfaceName) {
-    throw new Error(`${role === 'primary' ? '主' : '备'}节点缺少 VRRP 绑定接口`);
+  if (!member.instances.length) {
+    throw new Error(`${role === 'primary' ? '主' : '备'}节点缺少 VRRP 实例`);
   }
-  const trackGateway = String(member.track_gateway ?? '').trim();
-  if (!trackGateway) {
-    throw new Error(`${role === 'primary' ? '主' : '备'}节点缺少 track-gateway`);
+  const ifacePatches: HaMemberIfacePatch[] = member.instances.map((inst) => {
+    const interfaceName = String(inst.interface ?? '').trim();
+    if (!interfaceName) {
+      throw new Error(`${role === 'primary' ? '主' : '备'}节点缺少 VRRP 绑定接口`);
+    }
+    return {
+      interfaceName,
+      ifaceVrrp: materializeInstance(inst),
+    };
+  });
+  const topVrrp = (member.groups || []).map(materializeGroup);
+  if (!topVrrp.length) {
+    throw new Error(`${role === 'primary' ? '主' : '备'}节点缺少 VRRP 组策略`);
   }
-
-  const ifaceVrrp: DeviceVrrpIfaceInstance = {
-    vrid: intent.vrid,
-    advert_interval: intent.advert_interval,
-    priority: member.priority,
-    virtual_ipaddress: [ensureVipCidr(intent.virtual_ip)],
-  };
-  const auth = String(intent.auth_pass ?? '').trim();
-  if (auth) ifaceVrrp.auth_pass = auth;
-  const unicastPeer = String(member.unicast_peer ?? '').trim();
-  const unicastSource = String(member.unicast_source ?? '').trim();
-  if (unicastPeer) ifaceVrrp.unicast_peer = unicastPeer;
-  if (unicastSource) ifaceVrrp.unicast_source = unicastSource;
 
   return {
     role,
     vrUuid: member.vr_uuid,
-    interfaceName,
-    ifaceVrrp,
-    topVrrp: {
-      group_id: intent.vrid,
-      track_gateway: [trackGateway],
-      vrrp_instance: [intent.vrid],
-    },
+    ifacePatches,
+    topVrrp,
   };
+}
+
+function upsertIfaceVrrp(
+  result: VrConfigJson,
+  patch: HaMemberIfacePatch,
+  vrUuid: string,
+): void {
+  const bucketKeys = listIfaceBucketKeys(result);
+  let bucketKey: string | null = null;
+  let ifaceIdx = -1;
+  for (const key of bucketKeys) {
+    const idx = findIfaceIndex(result[key] as unknown[], patch.interfaceName);
+    if (idx >= 0) {
+      bucketKey = key;
+      ifaceIdx = idx;
+      break;
+    }
+  }
+  if (!bucketKey || ifaceIdx < 0) {
+    throw new Error(
+      `设备配置中未找到接口「${patch.interfaceName}」（vr=${vrUuid}），请确认该口已存在于 IBR`,
+    );
+  }
+
+  const interfaces = [...(result[bucketKey] as unknown[])];
+  const iface = { ...(interfaces[ifaceIdx] as Record<string, unknown>) };
+  const existingVrrp = Array.isArray(iface.vrrp) ? [...(iface.vrrp as unknown[])] : [];
+  const vrrpIdx = existingVrrp.findIndex((raw) => {
+    if (!raw || typeof raw !== 'object') return false;
+    return Number((raw as { vrid?: unknown }).vrid) === patch.ifaceVrrp.vrid;
+  });
+  if (vrrpIdx >= 0) {
+    const merged: Record<string, unknown> = {
+      ...(existingVrrp[vrrpIdx] as Record<string, unknown>),
+      ...patch.ifaceVrrp,
+    };
+    if (!patch.ifaceVrrp.unicast_peer) delete merged.unicast_peer;
+    if (!patch.ifaceVrrp.unicast_source) delete merged.unicast_source;
+    if (!patch.ifaceVrrp.auth_pass) delete merged.auth_pass;
+    existingVrrp[vrrpIdx] = merged;
+  } else {
+    existingVrrp.push(patch.ifaceVrrp);
+  }
+  iface.vrrp = existingVrrp;
+  interfaces[ifaceIdx] = iface;
+  result[bucketKey] = interfaces;
+}
+
+function upsertTopVrrp(result: VrConfigJson, group: DeviceVrrpGroup): void {
+  const topVrrp = Array.isArray(result.vrrp) ? [...(result.vrrp as unknown[])] : [];
+  const topIdx = topVrrp.findIndex((raw) => {
+    if (!raw || typeof raw !== 'object') return false;
+    const row = raw as { group_id?: unknown; vrrp_instance?: unknown };
+    if (Number(row.group_id) === group.group_id) return true;
+    if (Array.isArray(row.vrrp_instance)) {
+      return row.vrrp_instance.map(Number).includes(group.vrrp_instance[0] ?? -1);
+    }
+    return false;
+  });
+  if (topIdx >= 0) {
+    topVrrp[topIdx] = group;
+  } else {
+    topVrrp.push(group);
+  }
+  result.vrrp = topVrrp;
 }
 
 /**
@@ -103,54 +234,11 @@ export function applyVrrpPatchToDeviceConfig(
   patch: HaMemberVrrpPatch,
 ): VrConfigJson {
   const result = deepClone(deviceConfig);
-  const interfaces = Array.isArray(result.interface) ? [...(result.interface as unknown[])] : [];
-  const ifaceIdx = interfaces.findIndex((raw) => {
-    if (!raw || typeof raw !== 'object') return false;
-    return String((raw as { name?: unknown }).name ?? '').trim() === patch.interfaceName;
-  });
-  if (ifaceIdx < 0) {
-    throw new Error(
-      `设备配置中未找到接口「${patch.interfaceName}」（vr=${patch.vrUuid}），请确认该口已存在于 IBR`,
-    );
+  for (const ifacePatch of patch.ifacePatches) {
+    upsertIfaceVrrp(result, ifacePatch, patch.vrUuid);
   }
-
-  const iface = { ...(interfaces[ifaceIdx] as Record<string, unknown>) };
-  const existingVrrp = Array.isArray(iface.vrrp) ? [...(iface.vrrp as unknown[])] : [];
-  const vrrpIdx = existingVrrp.findIndex((raw) => {
-    if (!raw || typeof raw !== 'object') return false;
-    return Number((raw as { vrid?: unknown }).vrid) === patch.ifaceVrrp.vrid;
-  });
-  if (vrrpIdx >= 0) {
-    const merged = {
-      ...(existingVrrp[vrrpIdx] as Record<string, unknown>),
-      ...patch.ifaceVrrp,
-    };
-    if (!patch.ifaceVrrp.unicast_peer) delete merged.unicast_peer;
-    if (!patch.ifaceVrrp.unicast_source) delete merged.unicast_source;
-    existingVrrp[vrrpIdx] = merged;
-  } else {
-    existingVrrp.push(patch.ifaceVrrp);
+  for (const group of patch.topVrrp) {
+    upsertTopVrrp(result, group);
   }
-  iface.vrrp = existingVrrp;
-  interfaces[ifaceIdx] = iface;
-  result.interface = interfaces;
-
-  const topVrrp = Array.isArray(result.vrrp) ? [...(result.vrrp as unknown[])] : [];
-  const topIdx = topVrrp.findIndex((raw) => {
-    if (!raw || typeof raw !== 'object') return false;
-    const row = raw as { group_id?: unknown; vrrp_instance?: unknown };
-    if (Number(row.group_id) === patch.topVrrp.group_id) return true;
-    if (Array.isArray(row.vrrp_instance)) {
-      return row.vrrp_instance.map(Number).includes(patch.ifaceVrrp.vrid);
-    }
-    return false;
-  });
-  if (topIdx >= 0) {
-    topVrrp[topIdx] = patch.topVrrp;
-  } else {
-    topVrrp.push(patch.topVrrp);
-  }
-  result.vrrp = topVrrp;
-
   return result;
 }

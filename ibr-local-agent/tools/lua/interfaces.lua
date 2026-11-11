@@ -573,6 +573,7 @@ end
         {
             "vrid":1, #取值范围[1,232]
             "advert_interval":30, #取值范围[1,256]
+            "preempt":true, #默认抢占；false 时下发 vrrp vrid N disable-preempt
             "auth_pass":"1235456",  #string
             "priority":200,#取值范围[1,255],越大优先级越高
             "unicast_peer":"10.16.160.125",  # HA 单播对端
@@ -612,6 +613,10 @@ function interfaces.add_interface_vrrp_part(interface_name, cur_table)
             interfaces.add_interface_vrrp_virtual_ipaddress(interface_name, cur_table.vrid, v)
         end
     end
+    -- 抢占须在实例已创建后下发；字段缺省=设备默认抢占，不写 CLI
+    if cur_table.preempt == false or cur_table.preempt == true then
+        interfaces.apply_interface_vrrp_preempt(interface_name, cur_table.vrid, cur_table.preempt)
+    end
 end
 
 function interfaces.del_interface_vrrp_part(interface_name, cur_table)
@@ -640,7 +645,10 @@ function interfaces.del_interface_vrrp_part(interface_name, cur_table)
         for _, v in pairs(cur_table.virtual_ipaddress) do
             interfaces.del_interface_vrrp_virtual_ipaddress(interface_name, cur_table.vrid, v)
         end
-    end  
+    end
+    if cur_table.preempt == false then
+        interfaces.del_interface_vrrp_disable_preempt(interface_name, cur_table.vrid)
+    end
 end
 
 function interfaces.compare_interface_vrrp_part(interface_name, cur_table, new_table)
@@ -692,6 +700,9 @@ function interfaces.compare_interface_vrrp_part(interface_name, cur_table, new_t
                         if v.unicast_source then
                             interfaces.add_interface_vrrp_unicast_source(interface_name, v.vrid, v.unicast_source)
                         end
+                    end
+                    if (v.preempt == false) ~= (v2.preempt == false) then
+                        interfaces.apply_interface_vrrp_preempt(interface_name, v.vrid, v.preempt)
                     end
                     interfaces.compare_interface_vrrp_virtual_ipaddress(interface_name, v.vrid, v2.virtual_ipaddress, v.virtual_ipaddress)
                     break
@@ -776,6 +787,34 @@ function interfaces.del_interface_vrrp_advert_interval(interface_name, vrid, adv
         return
     end
     local cmd = string.format("%s -c 'interface %s' -c 'no vrrp vrid %i advert_int %i'", CLISH_CMD, interface_name, vrid, advert_interval)
+    print(cmd)
+    local result = execute_command(cmd)
+    return result
+end
+
+-- 设备 CLI：vrrp vrid N disable-preempt / no vrrp vrid N disable-preempt（默认抢占）
+function interfaces.apply_interface_vrrp_preempt(interface_name, vrid, preempt)
+    if preempt == false then
+        return interfaces.add_interface_vrrp_disable_preempt(interface_name, vrid)
+    end
+    return interfaces.del_interface_vrrp_disable_preempt(interface_name, vrid)
+end
+
+function interfaces.add_interface_vrrp_disable_preempt(interface_name, vrid)
+    if interface_name == nil or vrid == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'interface %s' -c 'vrrp vrid %i disable-preempt'", CLISH_CMD, interface_name, vrid)
+    print(cmd)
+    local result = execute_command(cmd)
+    return result
+end
+
+function interfaces.del_interface_vrrp_disable_preempt(interface_name, vrid)
+    if interface_name == nil or vrid == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'interface %s' -c 'no vrrp vrid %i disable-preempt'", CLISH_CMD, interface_name, vrid)
     print(cmd)
     local result = execute_command(cmd)
     return result

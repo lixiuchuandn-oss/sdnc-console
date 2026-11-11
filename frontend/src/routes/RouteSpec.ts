@@ -160,7 +160,7 @@ const allRouteSpecs: RouteSpec[] = [
     platform: 'SDNCC',
     group: 'IBR管理',
     title: 'IBR 高可用组',
-    subtitle: 'CE / 标准模式双机主备编组；PE 通过多通道一对多接入，不编入 HA 组。',
+    subtitle: '按本端/对端分别创建主备组；PE 通过多通道接入，不编入 HA 组。',
     icon: 'ClusterOutlined',
     order: 2,
     requiredActions: {

@@ -17,7 +17,7 @@ import {
 import { loadIbrVrCatalog } from '../lib/ibrVrCatalog';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import { commonBadgeStyles } from '../../../../utils/tableStyles';
-import { placementLabel, readPlacementFromIntent } from './haGroupWizardLib';
+import { readSideFromIntent, sideLabel } from './haGroupWizardLib';
 
 const STATUS_LABEL: Record<IbrHaGroupStatus, string> = {
 	draft: '草稿',
@@ -160,9 +160,9 @@ const IbrHaGroupsPage: React.FC = () => {
 				render: (_v, row) => formatMemberCell(memberByRole(row.members, 'backup')),
 			},
 			{
-				title: '部署侧',
-				key: 'placement',
-				render: (_v, row) => placementLabel(readPlacementFromIntent(row.vrrpIntent) ?? undefined),
+				title: 'HA 组角色',
+				key: 'side',
+				render: (_v, row) => sideLabel(readSideFromIntent(row.vrrpIntent) ?? undefined),
 			},
 			{
 				title: '模式',

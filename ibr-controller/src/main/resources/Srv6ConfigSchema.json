@@ -487,6 +487,11 @@
               "type": "string"
             }
           },
+          "track_interval": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          },
           "vrrp_instance": {
             "type": "array",
             "items": {
@@ -575,7 +580,10 @@
                 "advert_interval": {
                   "type":"integer",
                   "minimum": 1,
-                  "maximum": 255
+                  "maximum": 256
+                },
+                "preempt": {
+                  "type": "boolean"
                 },
                 "auth_pass": {
                   "type":"string"

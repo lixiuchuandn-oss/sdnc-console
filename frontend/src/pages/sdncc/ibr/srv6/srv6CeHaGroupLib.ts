@@ -1,4 +1,5 @@
 import type { IbrHaGroup, IbrHaGroupMember } from '../../../../services/ibrHaGroupApi';
+import { readSideFromIntent, sideLabel } from '../ha-groups/haGroupWizardLib';
 
 export type Srv6TunnelCeMode = '标准' | '高可用';
 
@@ -38,9 +39,11 @@ export function buildSrv6HaGroupSelectOptions(groups: IbrHaGroup[]): Array<{
 		const primaryLabel = primary.name || primary.vrUuid;
 		const backupLabel = backup.name || backup.vrUuid;
 		const statusTag = group.status === 'configured' ? '已配置' : '草稿';
+		const side = readSideFromIntent(group.vrrpIntent);
+		const sideTag = side ? ` · ${sideLabel(side)}` : '';
 		return {
 			value: group.id,
-			label: `${group.name} · 主 ${primaryLabel} / 备 ${backupLabel}（${statusTag}）`,
+			label: `${group.name}${sideTag} · 主 ${primaryLabel} / 备 ${backupLabel}（${statusTag}）`,
 			group,
 		};
 	});

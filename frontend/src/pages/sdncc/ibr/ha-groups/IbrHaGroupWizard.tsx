@@ -5,19 +5,19 @@ import {
 	Card,
 	Col,
 	Descriptions,
-	Divider,
 	Form,
 	Input,
-	InputNumber,
+	Radio,
 	Row,
 	Select,
 	Space,
 	Steps,
-	Switch,
+	Tabs,
 	Tag,
 	Typography,
 	message,
 } from 'antd';
+import type { FormInstance } from 'antd/es/form';
 import { CheckCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../../contexts/AuthContext';
@@ -27,9 +27,11 @@ import {
 	createIbrHaGroup,
 	deployIbrHaGroup,
 	fetchIbrHaGroup,
+	replaceIbrHaGroupMembers,
 	updateIbrHaGroup,
 	type IbrHaGroup,
 } from '../../../../services/ibrHaGroupApi';
+import { fetchVrCacheMerged } from '../../../../services/virtualRouterApi';
 import {
 	applyIbrVrRolesToRows,
 	buildIbrVrRolesMapFromVr2,
@@ -40,18 +42,27 @@ import {
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../lib/IbrWizardCard';
 import IbrWizardPage from '../lib/IbrWizardPage';
 import IbrWizardStepPane from '../lib/IbrWizardStepPane';
+import HaGroupNodeVrrpPane from './HaGroupNodeVrrpPane';
 import {
 	HA_GROUP_MEMBER_SCOPE_HINT,
 	HA_GROUP_WIZARD_DEFAULTS,
-	HA_PLACEMENT_OPTIONS,
+	HA_SIDE_OPTIONS,
 	buildHaGroupVrrpIntent,
+	collectHaDeviceIfaces,
+	createDefaultNodeVrrp,
 	generateHaGroupName,
 	haGroupEligibleRoleLabel,
+	isAutoHaGroupName,
 	isHaGroupEligibleIbrRole,
+	lookupIfaceIpv4,
+	matchPeerInstance,
 	parseVrrpIntentToForm,
-	placementLabel,
+	sideLabel,
 	validateHaGroupWizardForm,
+	type HaDeviceIface,
+	type HaGroupSide,
 	type HaGroupWizardFormValues,
+	type HaVrrpInstanceForm,
 } from './haGroupWizardLib';
 import {
 	handleWizardStepsChange,
@@ -61,7 +72,7 @@ import {
 
 const { Text } = Typography;
 
-const STEP_TITLES = ['基础信息', '主备成员', 'VRRP 策略', '确认并保存', '策略下发'] as const;
+const STEP_TITLES = ['基础信息', '节点业务配置', '确认并保存', '策略下发'] as const;
 
 type HaGroupVrOption = {
 	label: string;
@@ -79,6 +90,35 @@ function safeStringify(value: unknown): string {
 		return JSON.stringify(value, null, 2);
 	} catch {
 		return String(value);
+	}
+}
+
+function fillUnicastDefaults(
+	form: FormInstance<HaGroupWizardFormValues>,
+	all: HaGroupWizardFormValues,
+	ifaceMap: Record<string, HaDeviceIface[]>,
+	forceIndexes?: { role: 'primary' | 'backup'; index: number }[],
+) {
+	const roles: Array<'primary' | 'backup'> = ['primary', 'backup'];
+	for (const role of roles) {
+		const peerRole = role === 'primary' ? 'backup' : 'primary';
+		const uuid = role === 'primary' ? all.primaryUuid : all.backupUuid;
+		const peerUuid = peerRole === 'primary' ? all.primaryUuid : all.backupUuid;
+		const instances = all[role]?.instances || [];
+		const peerInstances = all[peerRole]?.instances || [];
+		instances.forEach((inst, idx) => {
+			if (inst?.advertMode !== 'unicast') return;
+			const force = forceIndexes?.some((item) => item.role === role && item.index === idx);
+			const thisIp = lookupIfaceIpv4(ifaceMap[uuid], String(inst.interface || ''));
+			const peerInst = matchPeerInstance(peerInstances, idx, Number(inst.vrid));
+			const peerIp = lookupIfaceIpv4(ifaceMap[peerUuid], String(peerInst?.interface || ''));
+			if (thisIp && (force || !String(inst.unicastSource || '').trim())) {
+				form.setFieldValue([role, 'instances', idx, 'unicastSource'], thisIp);
+			}
+			if (peerIp && (force || !String(inst.unicastPeer || '').trim())) {
+				form.setFieldValue([role, 'instances', idx, 'unicastPeer'], peerIp);
+			}
+		});
 	}
 }
 
@@ -112,12 +152,17 @@ const IbrHaGroupWizard: React.FC = () => {
 	const [deployDone, setDeployDone] = useState(false);
 	const [deployError, setDeployError] = useState<string | null>(null);
 	const [previewKey, setPreviewKey] = useState(0);
+	const [deviceTab, setDeviceTab] = useState<'primary' | 'backup'>('primary');
+	const [ifaceMap, setIfaceMap] = useState<Record<string, HaDeviceIface[]>>({});
+	const [ifaceLoadingMap, setIfaceLoadingMap] = useState<Record<string, boolean>>({});
 
 	const primaryUuid = Form.useWatch('primaryUuid', form);
 	const backupUuid = Form.useWatch('backupUuid', form);
+	const side = Form.useWatch('side', form) as HaGroupSide | undefined;
 
 	const catalogLoadGenRef = useRef(0);
 	const editLoadGenRef = useRef(0);
+	const ifaceLoadGenRef = useRef<Record<string, number>>({});
 
 	const loadVrCatalog = useCallback(async () => {
 		const gen = ++catalogLoadGenRef.current;
@@ -134,8 +179,11 @@ const IbrHaGroupWizard: React.FC = () => {
 			const mgmtMap: Record<string, string> = {};
 			enrichedVrs.forEach((vr) => {
 				const uuid = ibrVrRowId(vr);
-				const ip = String((vr as { management_ip?: string; managementIp?: string }).management_ip
-					?? (vr as { managementIp?: string }).managementIp ?? '').trim();
+				const ip = String(
+					(vr as { management_ip?: string; managementIp?: string }).management_ip ??
+						(vr as { managementIp?: string }).managementIp ??
+						'',
+				).trim();
 				if (uuid && ip) mgmtMap[uuid] = ip;
 			});
 			setVrMgmtMap(mgmtMap);
@@ -163,6 +211,26 @@ const IbrHaGroupWizard: React.FC = () => {
 		}
 	}, []);
 
+	const loadDeviceIfaces = useCallback(async (uuid: string) => {
+		const id = String(uuid || '').trim();
+		if (!id) return;
+		const gen = (ifaceLoadGenRef.current[id] || 0) + 1;
+		ifaceLoadGenRef.current[id] = gen;
+		setIfaceLoadingMap((prev) => ({ ...prev, [id]: true }));
+		try {
+			const merged = await fetchVrCacheMerged(id);
+			if (ifaceLoadGenRef.current[id] !== gen) return;
+			setIfaceMap((prev) => ({ ...prev, [id]: collectHaDeviceIfaces(merged) }));
+		} catch {
+			if (ifaceLoadGenRef.current[id] !== gen) return;
+			setIfaceMap((prev) => ({ ...prev, [id]: prev[id] || [] }));
+		} finally {
+			if (ifaceLoadGenRef.current[id] === gen) {
+				setIfaceLoadingMap((prev) => ({ ...prev, [id]: false }));
+			}
+		}
+	}, []);
+
 	const loadExistingGroup = useCallback(async () => {
 		if (!editId?.trim()) return;
 		const gen = ++editLoadGenRef.current;
@@ -182,11 +250,11 @@ const IbrHaGroupWizard: React.FC = () => {
 				backupUuid: backup?.vrUuid || '',
 			});
 			form.setFieldsValue({
+				...HA_GROUP_WIZARD_DEFAULTS,
 				name: group.name,
 				description: group.description || undefined,
 				primaryUuid: primary?.vrUuid,
 				backupUuid: backup?.vrUuid,
-				...HA_GROUP_WIZARD_DEFAULTS,
 				...vrrpForm,
 			});
 		} catch (e) {
@@ -205,10 +273,17 @@ const IbrHaGroupWizard: React.FC = () => {
 		} else {
 			form.setFieldsValue({
 				...HA_GROUP_WIZARD_DEFAULTS,
-				name: generateHaGroupName('access'),
+				name: generateHaGroupName('local'),
+				primary: createDefaultNodeVrrp('primary'),
+				backup: createDefaultNodeVrrp('backup'),
 			});
 		}
 	}, [form, isEdit, loadExistingGroup, loadVrCatalog]);
+
+	useEffect(() => {
+		if (primaryUuid) void loadDeviceIfaces(primaryUuid);
+		if (backupUuid) void loadDeviceIfaces(backupUuid);
+	}, [backupUuid, loadDeviceIfaces, primaryUuid]);
 
 	const previewIntent = useMemo(() => {
 		void previewKey;
@@ -223,44 +298,35 @@ const IbrHaGroupWizard: React.FC = () => {
 
 	const refreshPreview = () => setPreviewKey((k) => k + 1);
 
-	const placement = Form.useWatch('placement', form);
-
 	const haFieldsForStep = (step: number): string[] => {
-		if (step === 0) return ['name', 'description', 'placement'];
-		if (step === 1) return ['primaryUuid', 'backupUuid'];
-		if (step === 2) {
-			return [
-				'vrid',
-				'virtualIp',
-				'advertInterval',
-				'primaryPriority',
-				'backupPriority',
-				'primaryInterface',
-				'backupInterface',
-				'primaryTrackGateway',
-				'backupTrackGateway',
-				'primaryInterfaceIp',
-				'backupInterfaceIp',
-			];
-		}
+		if (step === 0) return ['name', 'side', 'primaryUuid', 'backupUuid'];
 		return [];
 	};
 
 	const validateHaStepsThrough = (from: number, to: number) =>
-		validateWizardStepsThrough(form, from, to, haFieldsForStep);
+		validateWizardStepsThrough(form, from, to, haFieldsForStep, {
+			beforeAdvance: async (step) => {
+				if (step !== 1) return true;
+				try {
+					await form.validateFields();
+				} catch (err) {
+					warnFormValidationFailure(err);
+					return false;
+				}
+				const values = form.getFieldsValue(true) as HaGroupWizardFormValues;
+				const formErr = validateHaGroupWizardForm(values);
+				if (formErr) {
+					message.error(formErr);
+					return false;
+				}
+				return true;
+			},
+		});
 
 	const next = async () => {
 		try {
 			const ok = await validateHaStepsThrough(current, current + 1);
 			if (!ok) return;
-			if (current === 2) {
-				const values = form.getFieldsValue(true) as HaGroupWizardFormValues;
-				const formErr = validateHaGroupWizardForm(values);
-				if (formErr) {
-					message.error(formErr);
-					return;
-				}
-			}
 			setCurrent((c) => Math.min(c + 1, STEP_TITLES.length - 1));
 			refreshPreview();
 		} catch (err) {
@@ -272,7 +338,8 @@ const IbrHaGroupWizard: React.FC = () => {
 
 	const handleSaveToPlatform = async () => {
 		try {
-			const values = await form.validateFields();
+			await form.validateFields();
+			const values = form.getFieldsValue(true) as HaGroupWizardFormValues;
 			const formErr = validateHaGroupWizardForm(values);
 			if (formErr) {
 				message.error(formErr);
@@ -281,6 +348,18 @@ const IbrHaGroupWizard: React.FC = () => {
 			setLoading(true);
 			const vrrpIntent = buildHaGroupVrrpIntent(values);
 			if (isEdit && editId) {
+				const currentPrimary = memberByRole(savedGroup, 'primary')?.vrUuid;
+				const currentBackup = memberByRole(savedGroup, 'backup')?.vrUuid;
+				if (
+					currentPrimary &&
+					currentBackup &&
+					(currentPrimary !== values.primaryUuid || currentBackup !== values.backupUuid)
+				) {
+					await replaceIbrHaGroupMembers(editId, {
+						primaryUuid: values.primaryUuid,
+						backupUuid: values.backupUuid,
+					});
+				}
 				const updated = await updateIbrHaGroup(editId, {
 					name: values.name,
 					description: values.description || null,
@@ -352,10 +431,37 @@ const IbrHaGroupWizard: React.FC = () => {
 		return `${vrNameMap[id] || id}${roleSuffix}${mgmt ? ` · ${mgmt}` : ''}`;
 	};
 
-	const placementHint =
-		HA_PLACEMENT_OPTIONS.find((o) => o.value === placement)?.hint ?? HA_PLACEMENT_OPTIONS[0]!.hint;
+	const deviceTabLabel = (role: 'primary' | 'backup') => {
+		const uuid = String((role === 'primary' ? primaryUuid : backupUuid) || '').trim();
+		const fallback = role === 'primary' ? '主节点' : '备节点';
+		const name = (uuid && (vrNameMap[uuid] || uuid)) || fallback;
+		return `${name}（${role === 'primary' ? '主' : '备'}）`;
+	};
 
+	const sideHint = HA_SIDE_OPTIONS.find((o) => o.value === side)?.hint ?? HA_SIDE_OPTIONS[0]!.hint;
 	const eligibleVrCount = vrOptions.length;
+
+	const onFormValuesChange = (
+		changed: Partial<HaGroupWizardFormValues>,
+		all: HaGroupWizardFormValues,
+	) => {
+		if (changed.side && isAutoHaGroupName(all.name)) {
+			form.setFieldValue('name', generateHaGroupName(changed.side));
+		}
+		const forceIndexes: { role: 'primary' | 'backup'; index: number }[] = [];
+		(['primary', 'backup'] as const).forEach((role) => {
+			const instances = (changed[role] as { instances?: HaVrrpInstanceForm[] } | undefined)?.instances;
+			if (!Array.isArray(instances)) return;
+			instances.forEach((inst, idx) => {
+				if (!inst || typeof inst !== 'object') return;
+				if (inst.interface !== undefined || inst.advertMode !== undefined) {
+					forceIndexes.push({ role, index: idx });
+				}
+			});
+		});
+		fillUnicastDefaults(form, all, ifaceMap, forceIndexes.length ? forceIndexes : undefined);
+		refreshPreview();
+	};
 
 	const renderStep0 = () => (
 		<>
@@ -363,73 +469,56 @@ const IbrHaGroupWizard: React.FC = () => {
 				type="info"
 				showIcon
 				style={{ marginBottom: 16 }}
-				message="双机主备编组仅面向 CE / 标准模式 IBR"
+				message="一次向导配置一组主备"
 				description={HA_GROUP_MEMBER_SCOPE_HINT}
 			/>
-			<Form.Item
-				name="name"
-				label="组名称"
-				rules={[{ required: true, message: '请输入组名称' }]}
-			>
-				<Input placeholder="例如 ha-acc-k3m9x2p7q1w" maxLength={128} />
+			<Form.Item name="name" label="组名称" rules={[{ required: true, message: '请输入组名称' }]}>
+				<Input placeholder="例如 ha-loc-k3m9x2p7q1w" maxLength={128} />
 			</Form.Item>
 			<Form.Item name="description" label="备注">
-				<Input.TextArea rows={3} maxLength={500} placeholder="可选：站点、用途、维护窗口等" />
+				<Input.TextArea rows={2} maxLength={500} placeholder="可选：站点、用途、维护窗口等" />
 			</Form.Item>
 			<Form.Item
-				name="placement"
-				label="部署侧（Placement）"
-				rules={[{ required: true, message: '请选择部署侧' }]}
-				extra={placementHint}
+				name="side"
+				label="HA 组角色"
+				rules={[{ required: true, message: '请选择本端或对端' }]}
+				extra={sideHint}
 			>
-				<Select options={HA_PLACEMENT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))} />
+				<Radio.Group
+					optionType="button"
+					buttonStyle="solid"
+					options={HA_SIDE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+				/>
 			</Form.Item>
-			<Descriptions size="small" column={1} bordered>
-				<Descriptions.Item label="高可用模式">双机主备（active-standby）</Descriptions.Item>
-				<Descriptions.Item label="成员数量">2 台 IBR（1 主 + 1 备）</Descriptions.Item>
-				<Descriptions.Item label="中间选路">PE 侧 SRv6 segment list（不由本组 VRRP 联动）</Descriptions.Item>
-			</Descriptions>
-		</>
-	);
-
-	const renderStep1 = () => (
-		<>
-			<Alert
-				type="info"
-				showIcon
-				style={{ marginBottom: 16 }}
-				message="仅列出 VR2 实时配置中 role 为 CE 或标准模式的 IBR"
-				description={`${HA_GROUP_MEMBER_SCOPE_HINT} 角色从 CSMCTL VR2/VRConfig 回读，与 IBR Console「VR2 实时配置」一致。`}
-			/>
 			{eligibleVrCount < 2 ? (
 				<Alert
 					type="warning"
 					showIcon
 					style={{ marginBottom: 16 }}
 					message="可选实例不足"
-					description="至少需要 2 台 CE 或标准模式 IBR。请确认 CSMCTL 可达且 VR2 配置中已写入 role 字段；PE 实例无需加入 HA 组。"
+					description="至少需要 2 台 CE 或标准模式 IBR。请确认 CSMCTL 可达且 VR2 配置中已写入 role 字段。"
 				/>
 			) : null}
 			<Row gutter={16}>
-				<Col span={12}>
+				<Col xs={24} md={12}>
 					<Form.Item
 						name="primaryUuid"
-						label="主节点（Primary）"
+						label="主节点"
 						rules={[{ required: true, message: '请选择主节点' }]}
 					>
 						<Select
 							showSearch
 							loading={vrLoading}
 							optionFilterProp="label"
-							placeholder="选择 primary"
-							options={vrOptions}
+							placeholder="选择主节点设备"
+							options={vrOptions.filter((opt) => opt.value !== backupUuid)}
 						/>
 					</Form.Item>
 				</Col>
-				<Col span={12}>
+				<Col xs={24} md={12}>
 					<Form.Item
 						name="backupUuid"
-						label="备节点（Backup）"
+						label="备节点"
 						rules={[
 							{ required: true, message: '请选择备节点' },
 							({ getFieldValue }) => ({
@@ -446,181 +535,102 @@ const IbrHaGroupWizard: React.FC = () => {
 							showSearch
 							loading={vrLoading}
 							optionFilterProp="label"
-							placeholder="选择 backup"
-							options={vrOptions}
+							placeholder="选择备节点设备"
+							options={vrOptions.filter((opt) => opt.value !== primaryUuid)}
 						/>
 					</Form.Item>
 				</Col>
 			</Row>
-			<Card size="small" type="inner" title="成员预览">
-				<Descriptions size="small" column={1}>
-					<Descriptions.Item label="主节点">{vrLabel(primaryUuid)}</Descriptions.Item>
-					<Descriptions.Item label="备节点">{vrLabel(backupUuid)}</Descriptions.Item>
-					<Descriptions.Item label="可选实例数">
-						{eligibleVrCount} 台（CE / 标准）
-					</Descriptions.Item>
-				</Descriptions>
-			</Card>
 		</>
 	);
 
-	const renderStep2 = () => (
+	const renderStep1 = () => (
 		<>
 			<Alert
 				type="info"
 				showIcon
 				style={{ marginBottom: 16 }}
-				message="VRRP 参数（方案二）"
-				description="主备须分别配置 track-gateway，指向各自主/备路径上的上游 PE 接口或网关 IPv4。中间 PE 故障时由 SRv6 路由重选 segment list，不依赖四台 VRRP 整链联动。"
+				message="按节点分别配置 VRRP"
+				description="每个标签对应一台设备。先配接口上的 VRRP 实例，再配全局组策略。主备两台都需要配置。"
 			/>
-			<Row gutter={16}>
-				<Col span={8}>
-					<Form.Item
-						name="vrid"
-						label="VRID"
-						rules={[{ required: true, message: '请输入 VRID' }]}
-					>
-						<InputNumber min={1} max={255} style={{ width: '100%' }} />
-					</Form.Item>
-				</Col>
-				<Col span={8}>
-					<Form.Item
-						name="virtualIp"
-						label="虚拟 IP（VIP）"
-						rules={[{ required: true, message: '请输入虚拟 IP' }]}
-					>
-						<Input placeholder="例如 192.168.1.254" />
-					</Form.Item>
-				</Col>
-				<Col span={8}>
-					<Form.Item
-						name="advertInterval"
-						label="通告间隔（秒）"
-						rules={[{ required: true, message: '请输入通告间隔' }]}
-					>
-						<InputNumber min={1} max={60} style={{ width: '100%' }} />
-					</Form.Item>
-				</Col>
-			</Row>
-			<Row gutter={16}>
-				<Col span={12}>
-					<Form.Item name="trackInterface" label="组级跟踪接口（可选）">
-						<Input placeholder="本地额外 track 接口，可留空" />
-					</Form.Item>
-				</Col>
-				<Col span={12}>
-					<Form.Item name="authPass" label="认证口令（可选）">
-						<Input.Password placeholder="VRRP 认证口令" autoComplete="new-password" />
-					</Form.Item>
-				</Col>
-			</Row>
-			<Form.Item name="preempt" label="抢占模式" valuePropName="checked">
-				<Switch checkedChildren="开启" unCheckedChildren="关闭" />
-			</Form.Item>
-			<Divider orientation="left" plain>
-				主节点（Primary）
-			</Divider>
-			<Row gutter={16}>
-				<Col span={8}>
-					<Form.Item
-						name="primaryPriority"
-						label="优先级"
-						rules={[{ required: true, message: '请输入主节点优先级' }]}
-					>
-						<InputNumber min={1} max={255} style={{ width: '100%' }} />
-					</Form.Item>
-				</Col>
-				<Col span={8}>
-					<Form.Item
-						name="primaryInterface"
-						label="VRRP 绑定接口"
-						rules={[{ required: true, message: '请输入主节点 VRRP 接口' }]}
-					>
-						<Input placeholder="例如 GigabitEthernet2/1/0" />
-					</Form.Item>
-				</Col>
-				<Col span={8}>
-					<Form.Item
-						name="primaryTrackGateway"
-						label="Track-gateway"
-						rules={[{ required: true, message: '请输入主路径 track-gateway' }]}
-						extra="上游 PE 接口名或 IPv4"
-					>
-						<Input placeholder="例如 GigabitEthernet2/2/0" />
-					</Form.Item>
-				</Col>
-			</Row>
-			<Row gutter={16}>
-				<Col span={12}>
-					<Form.Item
-						name="primaryInterfaceIp"
-						label="接口 IP（单播 source）"
-						extra="现网 HA：unicast-source；与备节点 IP 成对填写"
-					>
-						<Input placeholder="例如 10.16.160.124" />
-					</Form.Item>
-				</Col>
-			</Row>
-			<Divider orientation="left" plain>
-				备节点（Backup）
-			</Divider>
-			<Row gutter={16}>
-				<Col span={8}>
-					<Form.Item
-						name="backupPriority"
-						label="优先级"
-						rules={[
-							{ required: true, message: '请输入备节点优先级' },
-							({ getFieldValue }) => ({
-								validator(_rule, value) {
-									const primary = Number(getFieldValue('primaryPriority'));
-									const backup = Number(value);
-									if (!Number.isFinite(primary) || !Number.isFinite(backup) || primary > backup) {
-										return Promise.resolve();
-									}
-									return Promise.reject(new Error('备节点优先级须低于主节点'));
-								},
-							}),
-						]}
-					>
-						<InputNumber min={1} max={255} style={{ width: '100%' }} />
-					</Form.Item>
-				</Col>
-				<Col span={8}>
-					<Form.Item
-						name="backupInterface"
-						label="VRRP 绑定接口"
-						rules={[{ required: true, message: '请输入备节点 VRRP 接口' }]}
-					>
-						<Input placeholder="例如 GigabitEthernet2/1/0" />
-					</Form.Item>
-				</Col>
-				<Col span={8}>
-					<Form.Item
-						name="backupTrackGateway"
-						label="Track-gateway"
-						rules={[{ required: true, message: '请输入备路径 track-gateway' }]}
-						extra="备路径上游 PE 接口名或 IPv4"
-					>
-						<Input placeholder="例如 GigabitEthernet2/3/4" />
-					</Form.Item>
-				</Col>
-			</Row>
-			<Row gutter={16}>
-				<Col span={12}>
-					<Form.Item
-						name="backupInterfaceIp"
-						label="接口 IP（单播 source）"
-						extra="现网 HA：unicast-source；与主节点 IP 成对填写"
-					>
-						<Input placeholder="例如 10.16.160.125" />
-					</Form.Item>
-				</Col>
-			</Row>
+			<Tabs
+				type="card"
+				activeKey={deviceTab}
+				onChange={(key) => setDeviceTab(key as 'primary' | 'backup')}
+				items={[
+					{
+						key: 'primary',
+						label: deviceTabLabel('primary'),
+						disabled: !primaryUuid,
+						forceRender: true,
+						children: (
+							<HaGroupNodeVrrpPane
+								role="primary"
+								ifaces={ifaceMap[String(primaryUuid || '')] || []}
+								ifaceLoading={ifaceLoadingMap[String(primaryUuid || '')]}
+								defaultPriority={200}
+							/>
+						),
+					},
+					{
+						key: 'backup',
+						label: deviceTabLabel('backup'),
+						disabled: !backupUuid,
+						forceRender: true,
+						children: (
+							<HaGroupNodeVrrpPane
+								role="backup"
+								ifaces={ifaceMap[String(backupUuid || '')] || []}
+								ifaceLoading={ifaceLoadingMap[String(backupUuid || '')]}
+								defaultPriority={100}
+							/>
+						),
+					},
+				]}
+			/>
 		</>
 	);
 
-	const renderStep3 = () => {
+	const renderNodeSummary = (role: 'primary' | 'backup', values: HaGroupWizardFormValues) => {
+		const node = values[role];
+		const uuid = role === 'primary' ? values.primaryUuid : values.backupUuid;
+		return (
+			<Card
+				size="small"
+				type="inner"
+				title={deviceTabLabel(role)}
+				style={{ marginBottom: 12 }}
+			>
+				<Descriptions size="small" column={1}>
+					<Descriptions.Item label="设备">{vrLabel(uuid)}</Descriptions.Item>
+					<Descriptions.Item label="VRRP 实例">
+						{(node?.instances || []).map((inst, idx) => (
+							<div key={`${role}-inst-${idx}`}>
+								#{idx + 1} {inst.interface || '—'} · VRID {inst.vrid} · {inst.virtualIp || '—'} · 优先级{' '}
+								{inst.priority}
+								{inst.advertMode === 'unicast'
+									? ` · 单播 ${inst.unicastSource || '—'} → ${inst.unicastPeer || '—'}`
+									: ' · 组播'}
+								{inst.preempt === false ? ' · 不抢占' : ' · 抢占'}
+								{` · 通告 ${inst.advertInterval ?? 1}s`}
+							</div>
+						))}
+					</Descriptions.Item>
+					<Descriptions.Item label="组策略">
+						{(node?.groups || []).map((group, idx) => (
+							<div key={`${role}-grp-${idx}`}>
+								#{idx + 1} Group {group.groupId} → 实例 {group.vrrpInstanceId}
+								{group.trackGateway ? ` · track ${group.trackGateway}` : ''}
+								{` · 间隔 ${group.trackInterval ?? 1}s`}
+							</div>
+						))}
+					</Descriptions.Item>
+				</Descriptions>
+			</Card>
+		);
+	};
+
+	const renderStep2 = () => {
 		const values = form.getFieldsValue(true) as HaGroupWizardFormValues;
 		return (
 			<>
@@ -628,38 +638,21 @@ const IbrHaGroupWizard: React.FC = () => {
 					type="info"
 					showIcon
 					style={{ marginBottom: 16 }}
-					message="确认后将保存 HA 组与方案二 vrrpIntent 到平台"
-					description="状态为「草稿」；边缘 VRRP（含 track-gateway）待 CSMCTL 下发能力接入后推到主备 IBR，中间 PE 选路由 SRv6 segment list 负责。"
+					message="确认后将保存 HA 组与 VRRP 意图到平台"
+					description="状态为「草稿」。下一步再按设备定点合并 interface/vrrp 与 vrrp group 并下发。"
 				/>
 				<Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
 					<Descriptions.Item label="组名称">{values.name || '—'}</Descriptions.Item>
-					<Descriptions.Item label="部署侧">{placementLabel(values.placement)}</Descriptions.Item>
+					<Descriptions.Item label="HA 组角色">{sideLabel(values.side)}</Descriptions.Item>
 					<Descriptions.Item label="备注">{values.description || '—'}</Descriptions.Item>
-					<Descriptions.Item label="主节点">{vrLabel(values.primaryUuid)}</Descriptions.Item>
-					<Descriptions.Item label="备节点">{vrLabel(values.backupUuid)}</Descriptions.Item>
-					<Descriptions.Item label="VRID / VIP">
-						{values.vrid} / {values.virtualIp || '—'}
-					</Descriptions.Item>
-					<Descriptions.Item label="主备优先级">
-						{values.primaryPriority} / {values.backupPriority}
-					</Descriptions.Item>
-					<Descriptions.Item label="Track-gateway">
-						主 {values.primaryTrackGateway || '—'} · 备 {values.backupTrackGateway || '—'}
-					</Descriptions.Item>
-					<Descriptions.Item label="VRRP 单播">
-						{values.primaryInterfaceIp && values.backupInterfaceIp
-							? `主 ${values.primaryInterfaceIp} ↔ 备 ${values.backupInterfaceIp}`
-							: '未配置（组播）'}
-					</Descriptions.Item>
-					<Descriptions.Item label="抢占模式">
-						{values.preempt !== false ? <Tag color="blue">开启</Tag> : <Tag>关闭</Tag>}
-					</Descriptions.Item>
 					{savedGroup ? (
 						<Descriptions.Item label="平台状态">
 							<Tag>{savedGroup.status === 'draft' ? '草稿' : savedGroup.status}</Tag>
 						</Descriptions.Item>
 					) : null}
 				</Descriptions>
+				{renderNodeSummary('primary', values)}
+				{renderNodeSummary('backup', values)}
 			</>
 		);
 	};
@@ -676,17 +669,17 @@ const IbrHaGroupWizard: React.FC = () => {
 				? '已完成'
 				: deployError
 					? '失败（见下方说明）'
-					: '读设备底稿 → 合并 interface/vrrp → CSMCTL 全量 POST',
+					: '读设备底稿 → 合并接口实例与 vrrp group → CSMCTL 全量 POST',
 			done: deployDone,
 		},
 		{
-			title: '校验 VRRP 与 SRv6 选路',
-			desc: '请在 IBR Console VRRP 面板核对主备；中间 PE 仍由 SRv6 segment list 选路',
+			title: '校验设备 VRRP',
+			desc: '请在 IBR Console 核对接口 vrrp 与 vrrp group；对端 HA 组需另开一次向导',
 			done: deployDone,
 		},
 	];
 
-	const renderStep4 = () => (
+	const renderStep3 = () => (
 		<>
 			<Alert
 				type={deployDone ? 'success' : 'info'}
@@ -697,7 +690,7 @@ const IbrHaGroupWizard: React.FC = () => {
 						? '策略已下发到主备 IBR'
 						: '下发将按设备当前配置定点合并 VRRP，不会整表覆盖其它业务域'
 				}
-				description="方案二：边缘 CE 双机 VRRP（含 track-gateway）；中间 PE 选路仍由 SRv6 隧道负责。"
+				description={`${sideLabel(side)} · 主 ${vrLabel(primaryUuid)} / 备 ${vrLabel(backupUuid)}`}
 			/>
 			{deployError ? (
 				<Alert
@@ -780,22 +773,14 @@ const IbrHaGroupWizard: React.FC = () => {
 		</>
 	);
 
-	const renderStepContent = () => {
-		switch (current) {
-			case 0:
-				return renderStep0();
-			case 1:
-				return renderStep1();
-			case 2:
-				return renderStep2();
-			case 3:
-				return renderStep3();
-			case 4:
-				return renderStep4();
-			default:
-				return null;
-		}
-	};
+	const renderStepContent = () => (
+		<>
+			<div style={{ display: current === 0 ? 'block' : 'none' }}>{renderStep0()}</div>
+			<div style={{ display: current === 1 ? 'block' : 'none' }}>{renderStep1()}</div>
+			<div style={{ display: current === 2 ? 'block' : 'none' }}>{renderStep2()}</div>
+			<div style={{ display: current === 3 ? 'block' : 'none' }}>{renderStep3()}</div>
+		</>
+	);
 
 	if (!canWrite) {
 		return null;
@@ -804,128 +789,123 @@ const IbrHaGroupWizard: React.FC = () => {
 	return (
 		<IbrWizardPage
 			title={isEdit ? '配置 IBR 高可用组' : undefined}
+			subtitle="一次向导配置本端或对端一组主备；对端请再开一次向导。"
 			onBack={() => navigate('/admin/interconnect/ha-groups')}
 			layout="linear"
 			steps={
-					<Steps
-						direction="vertical"
-						size="small"
-						current={current}
-						onChange={(idx) => {
-							if (idx >= 4 && !platformSaved) {
-								message.warning('请先在「确认并保存」中完成保存到平台');
-								return;
-							}
-							if (idx >= 4) {
-								setCurrent(idx);
-								return;
-							}
-							void handleWizardStepsChange(idx, current, setCurrent, validateHaStepsThrough);
+				<Steps
+					direction="vertical"
+					size="small"
+					current={current}
+					onChange={(idx) => {
+						if (idx >= 3 && !platformSaved) {
+							message.warning('请先在「确认并保存」中完成保存到平台');
+							return;
+						}
+						if (idx >= 3) {
+							setCurrent(idx);
+							return;
+						}
+						void handleWizardStepsChange(idx, current, setCurrent, validateHaStepsThrough);
+					}}
+					items={STEP_TITLES.map((title, idx) => ({
+						title,
+						disabled: idx === 3 && !platformSaved,
+					}))}
+				/>
+			}
+			main={
+				<IbrWizardStepPane
+					title={ibrWizardStepCardTitle(current, STEP_TITLES[current])}
+					footerLeft={
+						<>
+							{current !== 3 && (
+								<Button onClick={() => navigate('/admin/interconnect/ha-groups')}>返回列表</Button>
+							)}
+							{current > 0 && current !== 3 && <Button onClick={prev}>上一步</Button>}
+							{current === 3 && (
+								<Button type="primary" onClick={() => navigate('/admin/interconnect/ha-groups')}>
+									关闭向导
+								</Button>
+							)}
+						</>
+					}
+					footerRight={
+						<>
+							{current < 2 && (
+								<Button type="primary" onClick={() => void next()}>
+									下一步
+								</Button>
+							)}
+							{current === 2 && (
+								<>
+									{platformSaved && (
+										<span
+											style={{
+												color: '#52c41a',
+												display: 'inline-flex',
+												alignItems: 'center',
+												fontWeight: 500,
+												marginRight: 8,
+											}}
+										>
+											<CheckCircleOutlined style={{ marginRight: 4 }} />
+											已保存到平台
+										</span>
+									)}
+									<Button
+										type="primary"
+										loading={loading}
+										disabled={platformSaved && !isEdit}
+										onClick={() => void handleSaveToPlatform()}
+									>
+										{isEdit ? '更新并保存' : '创建并保存'}
+									</Button>
+									<Button type="primary" disabled={!platformSaved} onClick={() => setCurrent(3)}>
+										进入下发向导
+									</Button>
+								</>
+							)}
+						</>
+					}
+				>
+					<Form form={form} layout="vertical" preserve onValuesChange={onFormValuesChange}>
+						{renderStepContent()}
+					</Form>
+				</IbrWizardStepPane>
+			}
+			preview={
+				<IbrWizardCard
+					sticky
+					title="VRRP 意图预览"
+					extra={
+						<Button
+							type="text"
+							icon={<ReloadOutlined />}
+							size="small"
+							onClick={refreshPreview}
+							title="刷新预览"
+						/>
+					}
+				>
+					<Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+						保存时写入 HA 组的 vrrpIntent；下发时按节点拆成接口实例与 vrrp group。
+					</Text>
+					<pre
+						style={{
+							fontSize: 12,
+							lineHeight: '18px',
+							whiteSpace: 'pre-wrap',
+							wordBreak: 'break-word',
+							overflowX: 'auto',
+							margin: 0,
+							maxHeight: 520,
 						}}
-						items={STEP_TITLES.map((title, idx) => ({
-							title,
-							disabled: idx === 4 && !platformSaved,
-						}))}
-					/>
-				}
-				main={
-					<IbrWizardStepPane
-						title={ibrWizardStepCardTitle(current, STEP_TITLES[current])}
-						footerLeft={
-							<>
-								{current !== 4 && (
-									<Button onClick={() => navigate('/admin/interconnect/ha-groups')}>
-										返回列表
-									</Button>
-								)}
-								{current > 0 && current !== 4 && <Button onClick={prev}>上一步</Button>}
-								{current === 4 && (
-									<Button type="primary" onClick={() => navigate('/admin/interconnect/ha-groups')}>
-										关闭向导
-									</Button>
-								)}
-							</>
-						}
-						footerRight={
-							<>
-								{current < 3 && (
-									<Button type="primary" onClick={() => void next()}>
-										下一步
-									</Button>
-								)}
-								{current === 3 && (
-									<>
-										{platformSaved && (
-											<span
-												style={{
-													color: '#52c41a',
-													display: 'inline-flex',
-													alignItems: 'center',
-													fontWeight: 500,
-													marginRight: 8,
-												}}
-											>
-												<CheckCircleOutlined style={{ marginRight: 4 }} />
-												已保存到平台
-											</span>
-										)}
-										<Button
-											type="primary"
-											loading={loading}
-											disabled={platformSaved && !isEdit}
-											onClick={() => void handleSaveToPlatform()}
-										>
-											{isEdit ? '更新并保存' : '创建并保存'}
-										</Button>
-										<Button
-											type="primary"
-											disabled={!platformSaved}
-											onClick={() => setCurrent(4)}
-										>
-											进入下发向导
-										</Button>
-									</>
-								)}
-							</>
-						}
 					>
-						<Form form={form} layout="vertical" preserve>
-							{renderStepContent()}
-						</Form>
-					</IbrWizardStepPane>
-				}
-				preview={
-					<IbrWizardCard
-						sticky
-						title="VRRP 意图预览"
-						extra={
-							<Button
-								type="text"
-								icon={<ReloadOutlined />}
-								size="small"
-								onClick={refreshPreview}
-								title="刷新预览"
-							/>
-						}
-					>
-						<Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-							保存时将写入 HA 组的 <code>vrrpIntent</code> 字段
-						</Text>
-						<pre
-							style={{
-								fontSize: 12,
-								lineHeight: '18px',
-								whiteSpace: 'pre-wrap',
-								wordBreak: 'break-word',
-								overflowX: 'auto',
-								margin: 0,
-								maxHeight: 520,
-							}}
-						>
-							{previewIntent ? safeStringify(previewIntent) : '请选择主备成员并填写 VRRP 参数'}
-						</pre>
-					</IbrWizardCard>
-				}
+						{previewIntent ? safeStringify(previewIntent) : '请选择主备成员并填写 VRRP 参数'}
+					</pre>
+				</IbrWizardCard>
+			}
 		/>
 	);
 };
