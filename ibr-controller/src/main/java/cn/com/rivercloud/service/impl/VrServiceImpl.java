@@ -535,18 +535,76 @@ public class VrServiceImpl implements VrService {
     }
 
     /**
-     * segment_routing_srv6中prefix是ipv6 地址 且不能携带掩码
-     * @param jsonObject
+     * segment_routing_srv6.prefix 一阶段：
+     * - 无掩码 IPv6（设备默认 /64）
+     * - 或 IPv6/plen 且 plen ∈ [40,88]（设备可省略 block-len/node-len）
+     * block-len / node-len / func-bits 及超范围 plen 暂不开放
      */
     private void checkOutSegmentRoutingSrv6(JSONObject jsonObject) {
-        if (jsonObject.containsKey("segment_routing_srv6")) {
-            JSONObject segmentRoutingSrv6 = jsonObject.getJSONObject("segment_routing_srv6");
-            if (segmentRoutingSrv6.containsKey("prefix") &&
-                    checkIpv4OrIpv6NoMask(segmentRoutingSrv6.getString("prefix"), 6)) {
+        if (!jsonObject.containsKey("segment_routing_srv6")) {
+            return;
+        }
+        JSONObject segmentRoutingSrv6 = jsonObject.getJSONObject("segment_routing_srv6");
+        if (segmentRoutingSrv6 == null) {
+            return;
+        }
+        // 一阶段拒绝高级字段，避免静默忽略或设备侧半配置
+        if (segmentRoutingSrv6.containsKey("block_len")
+                || segmentRoutingSrv6.containsKey("block-len")
+                || segmentRoutingSrv6.containsKey("node_len")
+                || segmentRoutingSrv6.containsKey("node-len")
+                || segmentRoutingSrv6.containsKey("func_bits")
+                || segmentRoutingSrv6.containsKey("func-bits")) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "segment_routing_srv6 一阶段暂不支持 block_len/node_len/func_bits");
+        }
+        if (!segmentRoutingSrv6.containsKey("prefix")) {
+            return;
+        }
+        String prefix = segmentRoutingSrv6.getString("prefix");
+        if (StringUtils.isBlank(prefix)) {
+            return;
+        }
+        prefix = prefix.trim();
+        if (prefix.contains(" ")) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "segment_routing_srv6中prefix请勿包含空格或附加参数（block-len等暂不支持）");
+        }
+        // 无掩码：沿用原 IPv6 主机校验
+        if (!prefix.contains("/")) {
+            if (checkIpv4OrIpv6NoMask(prefix, 6)) {
                 throw new ServiceException(
                         String.valueOf(ApiResultCode.VM19000.code()),
-                        "segment_routing_srv6中prefix是ipv6 地址 且不能携带掩码");
+                        "segment_routing_srv6中prefix须为合法 IPv6 地址（无掩码）或 IPv6/40–88");
             }
+            return;
+        }
+        String[] parts = prefix.split("/", 2);
+        if (parts.length != 2 || StringUtils.isBlank(parts[0]) || StringUtils.isBlank(parts[1])) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "segment_routing_srv6中prefix掩码格式无效");
+        }
+        if (checkIpv4OrIpv6NoMask(parts[0], 6)) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "segment_routing_srv6中prefix主机部分须为合法 IPv6 地址");
+        }
+        int plen;
+        try {
+            plen = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "segment_routing_srv6中prefix掩码长度无效");
+        }
+        if (plen < 40 || plen > 88) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "segment_routing_srv6中prefix掩码长度须为 40–88（当前 /" + plen
+                            + "）；其它长度需 block-len/node-len，一阶段暂不支持");
         }
     }
 

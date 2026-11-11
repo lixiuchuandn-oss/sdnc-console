@@ -1980,18 +1980,6 @@ const SRv6CreatePage: React.FC = () => {
       return false;
     }
     
-    // 后端控制：SRv6 segment_routing_srv6.prefix 不允许带掩码（例如 /64）
-    const peAPrefix = extractSrv6Prefix(peConfigs.peA);
-    if (peAPrefix && peAPrefix.includes('/')) {
-      message.error('PE-A 的 SRv6 SID 前缀不允许包含/掩码，请去掉 /xx');
-      return false;
-    }
-    const peBPrefix = extractSrv6Prefix(peConfigs.peB);
-    if (peBPrefix && peBPrefix.includes('/')) {
-      message.error('PE-B 的 SRv6 SID 前缀不允许包含/掩码，请去掉 /xx');
-      return false;
-    }
-
     const rA = getPeRole(peA);
     const rB = getPeRole(peB);
     const linkFromRoles = inferTunnelLinkTypeFromRoles(rA, rB);
@@ -2203,9 +2191,17 @@ const SRv6CreatePage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入第 4 步时触发自动下发链
   }, [current, hasAnyCeHa]);
 
-  const next = () => {
-    if (current === 1 && !validateTunnelForm()) return;
+  const next = async (): Promise<boolean> => {
+    if (current === 0) {
+      try {
+        await form.validateFields(['tunnelName']);
+      } catch {
+        return false;
+      }
+    }
+    if (current === 1 && !validateTunnelForm()) return false;
     setCurrent((c) => Math.min(c + 1, 3));
+    return true;
   };
   const prev = () => setCurrent((c) => Math.max(c - 1, 0));
 
@@ -2659,10 +2655,23 @@ const SRv6CreatePage: React.FC = () => {
     return null;
   };
 
-  const handleWizardStepChange = (idx: number) => {
+  const handleWizardStepChange = async (idx: number) => {
+    if (idx === current) return;
     if (idx >= 3 && !platformSaved) {
       message.warning('请先在「确认并保存」中完成「创建隧道并保存到平台」');
       return;
+    }
+    if (idx > current) {
+      if (current === 0) {
+        try {
+          await form.validateFields(['tunnelName']);
+        } catch {
+          return;
+        }
+      }
+      if (idx > 1) {
+        if (!validateTunnelForm()) return;
+      }
     }
     setCurrent(idx);
   };
@@ -2716,8 +2725,9 @@ const SRv6CreatePage: React.FC = () => {
                   <Button
                     type="primary"
                     onClick={() => {
-                      commitPreview();
-                      next();
+                      void (async () => {
+                        if (await next()) commitPreview();
+                      })();
                     }}
                   >
                     下一步

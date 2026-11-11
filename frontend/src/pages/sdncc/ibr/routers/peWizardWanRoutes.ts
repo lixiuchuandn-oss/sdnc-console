@@ -5,7 +5,8 @@ export type WanRouteFormRow = {
   ipv4?: string;
   ipv6?: string;
   ipv4RouteDest?: string;
-  ipv4RouteVia?: string;
+  /** IPv4 出站静态路由优先级；有目的网段时默认 100，与设备 `ip route … dev … priority` 对齐 */
+  ipv4RoutePriority?: number;
   ipv6Dest?: string;
   ipv6Via?: string;
 };
@@ -25,11 +26,16 @@ export const normalizePeWizardIpv6Cidr = (raw: unknown): string | undefined => {
   return IPV6_CIDR.test(t) ? t : undefined;
 };
 
+export function normalizePeWizardIpv4RoutePriority(raw: unknown, fallback = 100): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.trunc(n) : fallback;
+}
+
 export function buildWanStaticRoutesFromRows(rows: WanRouteFormRow[]): {
-  ipv4_route: Array<{ destination: string; via: string; dev: string }>;
+  ipv4_route: Array<{ destination: string; dev: string; priority: number }>;
   ipv6_route: Array<{ destination: string; via?: string }>;
 } {
-  const ipv4_route: Array<{ destination: string; via: string; dev: string }> = [];
+  const ipv4_route: Array<{ destination: string; dev: string; priority: number }> = [];
   const ipv6_route: Array<{ destination: string; via?: string }> = [];
 
   for (const row of rows) {
@@ -37,13 +43,13 @@ export function buildWanStaticRoutesFromRows(rows: WanRouteFormRow[]): {
     if (!ifName) continue;
 
     const dest4Raw = String(row.ipv4RouteDest ?? '').trim();
-    const via4 = String(row.ipv4RouteVia ?? '').trim();
     const dest4 = dest4Raw ? normalizePeWizardIpv4Cidr(dest4Raw) : undefined;
-    if (dest4 && via4) {
+    // 公网口 IPv4 静态路由：有目的即下发 `{ destination, dev, priority }`（不要求 via）
+    if (dest4) {
       ipv4_route.push({
         destination: dest4,
-        via: via4,
         dev: ifName,
+        priority: normalizePeWizardIpv4RoutePriority(row.ipv4RoutePriority, 100),
       });
     }
 
@@ -113,9 +119,17 @@ export function enrichHubWanRowsFromDeviceRoutes<T extends WanRouteFormRow>(
     ) as Record<string, unknown> | undefined;
     if (v4?.destination && !next.ipv4RouteDest) {
       next.ipv4RouteDest = String(v4.destination);
+      if (v4.priority !== undefined && v4.priority !== null && next.ipv4RoutePriority == null) {
+        next.ipv4RoutePriority = Number(v4.priority);
+      }
     }
-    if (v4?.via && !next.ipv4RouteVia) {
-      next.ipv4RouteVia = String(v4.via);
+    if (
+      next.ipv4RoutePriority == null &&
+      v4?.priority !== undefined &&
+      v4?.priority !== null &&
+      String(v4.destination ?? '').trim()
+    ) {
+      next.ipv4RoutePriority = Number(v4.priority);
     }
 
     const hasInventoryV6 =
@@ -213,7 +227,7 @@ export function mergeHubWanFormRowsForWizard(
       ipv4: hit?.ipv4 ?? devRow.ipv4,
       ipv6: hit?.ipv6 ?? devRow.ipv6,
       ipv4RouteDest: hit?.ipv4RouteDest ?? devRow.ipv4RouteDest,
-      ipv4RouteVia: hit?.ipv4RouteVia ?? devRow.ipv4RouteVia,
+      ipv4RoutePriority: hit?.ipv4RoutePriority ?? devRow.ipv4RoutePriority,
       ipv6Dest: hit?.ipv6Dest ?? devRow.ipv6Dest,
       ipv6Via: hit?.ipv6Via ?? devRow.ipv6Via,
     });

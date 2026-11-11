@@ -190,12 +190,18 @@ export function maskToIpv6Network(addr: string, prefixLen: number): string {
   }
 }
 
-/** 对端 SID → ipv6_route.destination（形如 240f:2033::/64） */
+/** 对端 SID → ipv6_route.destination；带掩码且 plen∈[40,88] 时用该 plen，否则 /64 */
 export function buildSrv6PeerRouteDestination(peerSidPrefix: string | undefined): string | undefined {
   const raw = String(peerSidPrefix ?? '').trim();
   if (!raw) return undefined;
-  const host = raw.split('/')[0].trim();
+  const parts = raw.split('/');
+  const host = parts[0]?.trim();
   if (!host) return undefined;
-  const net = maskToIpv6Network(host, 64);
-  return net ? `${net}/64` : undefined;
+  let plen = 64;
+  if (parts.length > 1) {
+    const n = Number(parts[1]);
+    if (Number.isFinite(n) && n >= 40 && n <= 88) plen = Math.trunc(n);
+  }
+  const net = maskToIpv6Network(host, plen);
+  return net ? `${net}/${plen}` : undefined;
 }

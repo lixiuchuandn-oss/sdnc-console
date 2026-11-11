@@ -8,12 +8,12 @@ import {
 } from './peWizardWanRoutes';
 
 describe('peWizardWanRoutes P2', () => {
-  it('buildWanStaticRoutesFromRows emits per-WAN ipv4 and ipv6 routes', () => {
+  it('buildWanStaticRoutesFromRows emits per-WAN ipv4 dev+priority and ipv6 routes', () => {
     const { ipv4_route, ipv6_route } = buildWanStaticRoutesFromRows([
       {
         ifName: 'GigabitEthernet 2/2/0',
         ipv4RouteDest: '0.0.0.0/0',
-        ipv4RouteVia: '203.100.100.1',
+        ipv4RoutePriority: 100,
         ipv6Dest: '::/0',
         ipv6Via: '203::33',
       },
@@ -26,8 +26,8 @@ describe('peWizardWanRoutes P2', () => {
     expect(ipv4_route).toHaveLength(1);
     expect(ipv4_route[0]).toEqual({
       destination: '0.0.0.0/0',
-      via: '203.100.100.1',
       dev: 'GigabitEthernet 2/2/0',
+      priority: 100,
     });
     expect(ipv6_route).toHaveLength(2);
     expect(ipv6_route[0]).toEqual({ destination: '::/0', via: '203::33' });
@@ -35,11 +35,13 @@ describe('peWizardWanRoutes P2', () => {
     expect((ipv6_route[0] as Record<string, unknown>).dev).toBeUndefined();
   });
 
-  it('buildWanStaticRoutesFromRows skips ipv4 route when gateway is empty', () => {
+  it('buildWanStaticRoutesFromRows emits ipv4 route with default priority when only dest is set', () => {
     const { ipv4_route } = buildWanStaticRoutesFromRows([
       { ifName: 'GigabitEthernet 0/7/0', ipv4RouteDest: '0.0.0.0/0' },
     ]);
-    expect(ipv4_route).toEqual([]);
+    expect(ipv4_route).toEqual([
+      { destination: '0.0.0.0/0', dev: 'GigabitEthernet 0/7/0', priority: 100 },
+    ]);
   });
 
   it('sanitizeIpv6RoutesForDevice strips dev from ipv6_route', () => {
@@ -53,7 +55,7 @@ describe('peWizardWanRoutes P2', () => {
     const rows = enrichHubWanRowsFromDeviceRoutes<WanRouteFormRow>(
       [{ ifName: 'ge0' }, { ifName: 'ge1' }],
       {
-        ipv4_route: [{ destination: '0.0.0.0/0', dev: 'ge0', via: '203.100.100.1' }],
+        ipv4_route: [{ destination: '0.0.0.0/0', dev: 'ge0', priority: 80 }],
         ipv6_route: [
           { destination: '::/0', via: '203::33' },
           { destination: '::/0', via: '203::44' },
@@ -61,7 +63,7 @@ describe('peWizardWanRoutes P2', () => {
       },
     );
     expect(rows[0].ipv4RouteDest).toBe('0.0.0.0/0');
-    expect(rows[0].ipv4RouteVia).toBe('203.100.100.1');
+    expect(rows[0].ipv4RoutePriority).toBe(80);
     expect(rows[0].ipv6Via).toBe('203::33');
     expect(rows[1].ipv6Via).toBe('203::44');
   });

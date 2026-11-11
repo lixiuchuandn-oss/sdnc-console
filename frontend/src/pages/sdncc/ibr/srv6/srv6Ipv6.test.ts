@@ -19,6 +19,16 @@ describe('srv6Ipv6', () => {
     expect(buildSrv6PeerRouteDestination('240f:2033:0:0:0:0:0:1235')).toBe('240f:2033::/64');
   });
 
+  it('uses configured plen when in 40–88', () => {
+    expect(buildSrv6PeerRouteDestination('240f:2033::/48')).toBe('240f:2033::/48');
+    expect(buildSrv6PeerRouteDestination('240f:2033::1235/64')).toBe('240f:2033::/64');
+  });
+
+  it('falls back to /64 when plen omitted or out of phase-1 range', () => {
+    expect(buildSrv6PeerRouteDestination('240f:2033::')).toBe('240f:2033::/64');
+    expect(buildSrv6PeerRouteDestination('240f:2033::/32')).toBe('240f:2033::/64');
+  });
+
   describe('resolveSid64Via §14.14.1', () => {
     const peerCfg = {
       interfaces_eth0: [{ ipv6_static: '203::44/64' }],

@@ -89,8 +89,10 @@ function ipv4_routes.add_ipv4_route(route_table)
     local blackhole = route_table.blackhole
     local via = route_table.via
     local dev = route_table.dev
+    -- 注意：不可写成 if 内 local priority，否则块外 if priority 永远看不到（此前导致 priority 未拼进 CLI）
+    local priority = nil
     if route_table.priority then
-        local priority = string.format("%i", route_table.priority)
+        priority = string.format("%i", route_table.priority)
     end
     local cmd = "ip route "
 
@@ -125,8 +127,9 @@ function ipv4_routes.del_ipv4_route(route_table)
     local blackhole = route_table.blackhole
     local via = route_table.via
     local dev = route_table.dev
+    local priority = nil
     if route_table.priority then
-        local priority = string.format("%i", route_table.priority)
+        priority = string.format("%i", route_table.priority)
     end
     local cmd = "no ip route "
 

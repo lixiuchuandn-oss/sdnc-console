@@ -85,9 +85,32 @@ describe('srv6.validation', () => {
     expect(validateSrv6VrEndpointsForCreate(payload, rows).ok).toBe(true);
   });
 
-  it('validateSrv6VrEndpointsForCreate rejects PE prefix with mask', () => {
-    const badPe = JSON.stringify({
+  it('validateSrv6VrEndpointsForCreate accepts PE prefix with phase-1 mask', () => {
+    const peWithMask = JSON.stringify({
       segment_routing_srv6: { locator: 'loc', prefix: '2001:db8::/64' },
+      bgp: [{ asn: 1, vrf: 0 }],
+      interfaces_eth0: [
+        { ipv6_static: '2001:db8::1/64' },
+        { vrf: 1, name: 'in' },
+      ],
+    });
+    const peB = peConfigJson();
+    const ce = ceConfigJson();
+    const r = validateSrv6VrEndpointsForCreate(
+      { name: 't', peA: 'pe-a', peB: 'pe-b', ceA: 'ce-a', ceB: 'ce-b' },
+      [
+        { uuid: 'pe-a', role: 'SPOKE_PE', config_json: peWithMask },
+        { uuid: 'pe-b', role: 'SPOKE_PE', config_json: peB },
+        { uuid: 'ce-a', role: 'CE', config_json: ce },
+        { uuid: 'ce-b', role: 'CE', config_json: ce },
+      ],
+    );
+    expect(r.ok).toBe(true);
+  });
+
+  it('validateSrv6VrEndpointsForCreate rejects PE prefix plen outside 40–88', () => {
+    const peBad = JSON.stringify({
+      segment_routing_srv6: { locator: 'loc', prefix: '2001:db8::/32' },
       bgp: [{ asn: 1, vrf: 0 }],
       interfaces_eth0: [
         { ipv6_static: '2001:db8::1/64' },
@@ -96,10 +119,10 @@ describe('srv6.validation', () => {
     });
     const r = validateSrv6VrEndpointsForCreate(
       { name: 't', peA: 'pe-a', peB: 'pe-b', ceA: 'ce-a', ceB: 'ce-b' },
-      [{ uuid: 'pe-a', role: 'SPOKE_PE', config_json: badPe }],
+      [{ uuid: 'pe-a', role: 'SPOKE_PE', config_json: peBad }],
     );
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.message).toContain('SRv6 SID 前缀不允许包含');
+    if (!r.ok) expect(r.message).toMatch(/40|88|掩码/);
   });
 
   it('validateSrv6VrEndpointsForCreate reports missing VR row', () => {

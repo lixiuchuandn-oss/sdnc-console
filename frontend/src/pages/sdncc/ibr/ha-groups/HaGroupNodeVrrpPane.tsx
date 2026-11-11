@@ -145,7 +145,8 @@ const HaGroupNodeVrrpPane: React.FC<HaGroupNodeVrrpPaneProps> = ({
 						{...field}
 						name={[field.name, 'advertInterval']}
 						label="通告间隔（秒）"
-						extra="默认 1 秒，范围 1–256"
+						initialValue={1}
+						extra="缺省 1 秒，可改；范围 1–256"
 					>
 						<InputNumber min={1} max={256} style={{ width: '100%' }} />
 					</Form.Item>
@@ -250,7 +251,8 @@ const HaGroupNodeVrrpPane: React.FC<HaGroupNodeVrrpPaneProps> = ({
 						{...field}
 						name={[field.name, 'trackInterval']}
 						label="探测间隔（秒）"
-						extra="默认 1 秒"
+						initialValue={1}
+						extra="缺省 1 秒，可改；范围 1–255"
 					>
 						<InputNumber min={1} max={255} style={{ width: '100%' }} />
 					</Form.Item>

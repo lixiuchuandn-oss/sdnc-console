@@ -29,6 +29,42 @@ type NormalizeResult = { ok: true; value: Srv6TunnelPayload } | { ok: false; mes
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 
+/** 一阶段 SID 前缀：无掩码，或 plen ∈ [40,88] */
+export const SRV6_SID_PREFIX_PLEN_MIN = 40;
+export const SRV6_SID_PREFIX_PLEN_MAX = 88;
+
+export const validateSrv6SidPrefixPhase1 = (
+  raw: unknown,
+): { ok: true } | { ok: false; message: string } => {
+  const s = normalizeText(raw);
+  if (!s) return { ok: true };
+  if (/\s/.test(s)) {
+    return { ok: false, message: 'SRv6 SID 前缀请勿包含空格或附加参数（block-len 等暂不支持）' };
+  }
+  const cidr = s.match(/^([0-9a-fA-F:]+)\/([0-9]|[1-9]\d|1[01]\d|12[0-8])$/);
+  if (cidr) {
+    const host = cidr[1];
+    const plen = Number(cidr[2]);
+    if (!host.includes(':')) {
+      return { ok: false, message: 'SRv6 SID 前缀须为合法 IPv6' };
+    }
+    if (plen < SRV6_SID_PREFIX_PLEN_MIN || plen > SRV6_SID_PREFIX_PLEN_MAX) {
+      return {
+        ok: false,
+        message: `SRv6 SID 前缀掩码须为 ${SRV6_SID_PREFIX_PLEN_MIN}–${SRV6_SID_PREFIX_PLEN_MAX}（当前 /${plen}）；其它长度需 block-len/node-len，一阶段暂不支持`,
+      };
+    }
+    return { ok: true };
+  }
+  if (/^[0-9a-fA-F:]+$/.test(s) && s.includes(':') && !s.includes('/')) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    message: `SRv6 SID 前缀格式无效（无掩码或 /${SRV6_SID_PREFIX_PLEN_MIN}–/${SRV6_SID_PREFIX_PLEN_MAX}）`,
+  };
+};
+
 const sameId = (a: unknown, b: unknown) => String(a ?? '') === String(b ?? '');
 
 const sameName = (a: unknown, b: unknown) =>
@@ -331,8 +367,9 @@ const collectPeIssues = (cfg: Record<string, unknown>): string[] => {
   const prefix = extractSrv6PrefixFromConfig(cfg);
   if (!prefix) {
     issues.push('缺少 SRv6 SID 前缀（请在角色配置向导中填写 SID 前缀）');
-  } else if (prefix.includes('/')) {
-    issues.push('SRv6 SID 前缀不允许包含 / 掩码');
+  } else {
+    const prefixCheck = validateSrv6SidPrefixPhase1(prefix);
+    if (!prefixCheck.ok) issues.push(prefixCheck.message);
   }
   if (extractPublicBgpAsn(cfg) === undefined) {
     issues.push('缺少公网 BGP ASN');

@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Descriptions, Divider, Form, Input, InputNumber, Steps, message, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
+import { Button, Collapse, Descriptions, Divider, Form, Input, InputNumber, Steps, message, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import {
+  srv6SidPrefixPhase1Extra,
+  validateSrv6SidPrefixPhase1,
+} from '../../srv6/srv6SidPrefix';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   fetchVrTowerLocalConfigCache,
@@ -86,7 +90,8 @@ function getPePublicConfig(pe: any): Record<string, any> {
     'wanIpv4',
     'wanIpv6',
     'wanRouteDest',
-    'wanRouteVia',
+    'wanRoutePriority',
+    'wanRouteVia', // legacy：曾用 via，回读时忽略
     'ipv6Dest',
     'ipv6Via',
     'publicBgp',
@@ -189,8 +194,8 @@ function deviceStaticIfRoleSet(
   return roleText(iface?.[key]) || undefined;
 }
 
-function pickIpv4RouteForWan(routes: any[], wanName: string, roleDest: unknown, roleVia: unknown) {
-  if (!wanName || (!roleText(roleDest) && !roleText(roleVia))) return undefined;
+function pickIpv4RouteForWan(routes: any[], wanName: string, roleDest: unknown, rolePriority?: unknown) {
+  if (!wanName || (!roleText(roleDest) && rolePriority == null)) return undefined;
   const onDev = routes.filter((r) => roleText(r?.dev) === wanName);
   if (!onDev.length) return undefined;
   const dest = roleText(roleDest);
@@ -227,7 +232,12 @@ function buildSpokeRoleMirror(
   const wanIf = wanName ? findInterface(dev, wanName) : null;
   const routes4 = Array.isArray(dev?.ipv4_route) ? dev.ipv4_route : [];
   const routes6 = Array.isArray(dev?.ipv6_route) ? dev.ipv6_route : [];
-  const wanRoute4 = pickIpv4RouteForWan(routes4, wanName, pcfg.wanRouteDest, pcfg.wanRouteVia);
+  const wanRoute4 = pickIpv4RouteForWan(
+    routes4,
+    wanName,
+    pcfg.wanRouteDest,
+    pcfg.wanRoutePriority,
+  );
   const wanRoute6 = pickIpv6RouteForRole(routes6, pcfg.ipv6Dest, pcfg.ipv6Via, true);
   const bgpArr = Array.isArray(dev?.bgp) ? dev.bgp : [];
   const publicBgp = bgpArr.find(isPublicBgpEntry);
@@ -258,7 +268,10 @@ function buildSpokeRoleMirror(
     wanIpv4: deviceStaticIfRoleSet(wanIf, 'ipv4_static', pcfg.wanIpv4),
     wanIpv6: deviceStaticIfRoleSet(wanIf, 'ipv6_static', pcfg.wanIpv6),
     wanRouteDest: wanRoute4?.destination || undefined,
-    wanRouteVia: wanRoute4?.via || undefined,
+    wanRoutePriority:
+      wanRoute4?.priority !== undefined && wanRoute4?.priority !== null
+        ? Number(wanRoute4.priority)
+        : undefined,
     ipv6Dest: ipv6DestFromRoute(wanRoute6),
     ipv6Via: wanRoute6?.via || undefined,
     bgpAsn: publicBgp?.asn,
@@ -489,6 +502,31 @@ const PEWizard: React.FC = () => {
     form.setFieldsValue({ hubWanInventory: rows });
   };
 
+  /** LAN 口变更时：从 VR3/设备回读回填 IPv4/IPv6（与 WAN 一致） */
+  const autoFillLanRow = (fieldIndex: number, ifaceName: string, opts?: { force?: boolean }) => {
+    const force = opts?.force ?? false;
+    const obj =
+      findInterfaceInDevice(vr3Info, ifaceName) || findInterfaceInDevice(csmctlCfg, ifaceName);
+    const rows = [...(form.getFieldValue('lanConfigs') || [])];
+    const row = { ...(rows[fieldIndex] || {}), ifName: ifaceName };
+    if (obj) {
+      const v4 = String(pickIfaceIpv4(obj) || '').trim();
+      const v6 = String(pickIfaceIpv6(obj) || '').trim();
+      if (force || !row.ipv4) row.ipv4 = v4 || undefined;
+      if (force || !row.ipv6) row.ipv6 = v6 || undefined;
+    } else if (force) {
+      row.ipv4 = undefined;
+      row.ipv6 = undefined;
+    }
+    rows[fieldIndex] = row;
+    form.setFieldsValue({ lanConfigs: rows });
+  };
+
+  const formatHubWanConfirmLine = (wan: any): string =>
+    [wan?.ifName, wan?.ipv4, wan?.ipv6, wan?.ipv4RouteDest, wan?.ipv6Dest, wan?.ipv6Via ? `gw ${wan.ipv6Via}` : '']
+      .filter(Boolean)
+      .join(' · ') || '-';
+
   const prevWanDevRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
@@ -570,7 +608,7 @@ const PEWizard: React.FC = () => {
         wanIpv4: pcfg.wanIpv4,
         wanIpv6: pcfg.wanIpv6,
         wanRouteDest: pcfg.wanRouteDest,
-        wanRouteVia: pcfg.wanRouteVia,
+        wanRoutePriority: pcfg.wanRoutePriority,
         ipv6Dest: pcfg.ipv6Dest,
         ipv6Via: pcfg.ipv6Via,
         bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
@@ -639,7 +677,10 @@ const PEWizard: React.FC = () => {
       wanIpv4: v4Wan || undefined,
       wanIpv6: v6Wan || undefined,
       wanRouteDest: ipv4RouteTop?.destination || undefined,
-      wanRouteVia: ipv4RouteTop?.via || undefined,
+      wanRoutePriority:
+        ipv4RouteTop?.priority !== undefined && ipv4RouteTop?.priority !== null
+          ? Number(ipv4RouteTop.priority)
+          : undefined,
       ipv6Dest: ipv6DestFromRoute(ipv6RouteTop),
       ipv6Via: ipv6RouteTop?.via || undefined,
       bgpAsn: bgpTop?.asn,
@@ -767,7 +808,7 @@ const PEWizard: React.FC = () => {
                 ipv4: pcfg.wanIpv4,
                 ipv6: pcfg.wanIpv6,
                 ipv4RouteDest: pcfg.wanRouteDest,
-                ipv4RouteVia: pcfg.wanRouteVia,
+                ipv4RoutePriority: pcfg.wanRoutePriority,
                 ipv6Dest: pcfg.ipv6Dest,
                 ipv6Via: pcfg.ipv6Via,
               }]
@@ -775,14 +816,15 @@ const PEWizard: React.FC = () => {
         spokeMirror.hubWanInventory = hubWanFromRole.map((w) => {
           const ifName = roleText(w.ifName);
           const iface = findInterfaceInDevice(dev, ifName);
-          const v4 = pickIpv4RouteForWan(routes4, ifName, w.ipv4RouteDest, w.ipv4RouteVia);
+          const v4 = pickIpv4RouteForWan(routes4, ifName, w.ipv4RouteDest, w.ipv4RoutePriority);
           const v6 = pickIpv6RouteForRole(routes6, w.ipv6Dest, w.ipv6Via, hubWanFromRole.length === 1);
           return {
             ifName,
             ipv4: deviceStaticIfRoleSet(iface, 'ipv4_static', w.ipv4),
             ipv6: deviceStaticIfRoleSet(iface, 'ipv6_static', w.ipv6),
             ipv4RouteDest: v4?.destination || undefined,
-            ipv4RouteVia: v4?.via || undefined,
+            ipv4RoutePriority:
+              v4?.priority !== undefined && v4?.priority !== null ? Number(v4.priority) : undefined,
             ipv6Dest: ipv6DestFromRoute(v6),
             ipv6Via: v6?.via || undefined,
           };
@@ -840,7 +882,7 @@ const PEWizard: React.FC = () => {
         wanIpv4: wanIpv4Mapped,
         wanIpv6: wanIpv6Mapped,
         wanRouteDest: pcfg.wanRouteDest ?? peRest.wanRouteDest,
-        wanRouteVia: pcfg.wanRouteVia ?? peRest.wanRouteVia,
+        wanRoutePriority: pcfg.wanRoutePriority ?? peRest.wanRoutePriority,
         ipv6Dest: pcfg.ipv6Dest ?? peRest.ipv6Dest,
         ipv6Via: pcfg.ipv6Via ?? peRest.ipv6Via,
         bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
@@ -990,8 +1032,16 @@ const PEWizard: React.FC = () => {
       if (ipv6_route.length) cfg.ipv6_route = ipv6_route;
     } else if (primaryWanDev) {
       const dest = normalizeIPv4Cidr(v?.wanRouteDest);
-      const via = String(v?.wanRouteVia || '').trim();
-      if (dest && via) cfg.ipv4_route = [{ destination: dest, via, dev: primaryWanDev }];
+      if (dest) {
+        const prio = Number(v?.wanRoutePriority ?? 100);
+        cfg.ipv4_route = [
+          {
+            destination: dest,
+            dev: primaryWanDev,
+            priority: Number.isFinite(prio) && prio >= 1 ? Math.trunc(prio) : 100,
+          },
+        ];
+      }
       const v6dest = String(v?.ipv6Dest || '').trim();
       const v6via = String(v?.ipv6Via || '').trim();
       const dest6 = normalizeIPv6Cidr(v6dest);
@@ -1078,7 +1128,7 @@ const PEWizard: React.FC = () => {
         wanIpv4: wanRows[0]?.ipv4 ?? v.wanIpv4,
         wanIpv6: filterLinkLocalIpv6(wanRows[0]?.ipv6) || filterLinkLocalIpv6(v.wanIpv6) || undefined,
         wanRouteDest: isHubPe ? wanRows[0]?.ipv4RouteDest : v.wanRouteDest,
-        wanRouteVia: isHubPe ? wanRows[0]?.ipv4RouteVia : v.wanRouteVia,
+        wanRoutePriority: isHubPe ? wanRows[0]?.ipv4RoutePriority : v.wanRoutePriority,
         ipv6Dest: isHubPe ? wanRows[0]?.ipv6Dest : v.ipv6Dest,
         ipv6Via: isHubPe ? wanRows[0]?.ipv6Via : v.ipv6Via,
         publicBgp: {
@@ -1268,20 +1318,35 @@ const PEWizard: React.FC = () => {
           </Form.Item>
           <Form.Item
             name="sidPrefix"
-            label="SRv6 SID 前缀"
+            label="SRv6 SID 前缀（可带 /掩码）"
+            extra={srv6SidPrefixPhase1Extra()}
             rules={[
               {
                 validator: (_, value) => {
-                  const s = String(value ?? '').trim();
-                  if (!s) return Promise.resolve();
-                  if (s.includes('/')) return Promise.reject(new Error('SID 前缀无需填写掩码（/xx），系统会自动处理'));
-                  return Promise.resolve();
+                  const r = validateSrv6SidPrefixPhase1(value);
+                  return r.ok ? Promise.resolve() : Promise.reject(new Error(r.message));
                 },
               },
             ]}
           >
-            <Input placeholder="例如 2400:1234::1（不带 /xx）" />
+            <Input placeholder="例如 2400:1234::1 或 2400:1234::/48" />
           </Form.Item>
+          <Collapse
+            ghost
+            style={{ marginBottom: 12 }}
+            items={[
+              {
+                key: 'srv6-locator-advanced',
+                label: '高级 Locator 参数（一阶段暂不开放）',
+                children: (
+                  <div style={{ color: 'rgba(0,0,0,.45)', fontSize: 12, lineHeight: 1.6 }}>
+                    设备新 CLI 支持 <code>block-len</code> / <code>node-len</code> / <code>func-bits</code>
+                    ；当掩码长度不在 40–88 或需自定义拆分时使用。当前阶段请仅配置无掩码或 /40–/88 前缀，平台不下发上述字段。
+                  </div>
+                ),
+              },
+            ]}
+          />
           {isHubPe ? (
             <>
               <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
@@ -1378,48 +1443,18 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ipv4RouteDest']}
                         label="IPv4 目的网段"
-                        dependencies={[['hubWanInventory', field.name, 'ipv4RouteVia']]}
-                        rules={[
-                          {
-                            validator: async (_, value) => {
-                              const dest = String(value ?? '').trim();
-                              const via = String(
-                                form.getFieldValue(['hubWanInventory', field.name, 'ipv4RouteVia']) ?? '',
-                              ).trim();
-                              if ((dest && !via) || (!dest && via)) {
-                                throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
-                              }
-                            },
-                          },
-                        ]}
+                        extra="填写后按本 WAN 口下发 `ip route … dev …`（无 via）"
                       >
                         <Input placeholder="例如 0.0.0.0/0" />
                       </Form.Item>
                       <Form.Item
                         {...field}
-                        name={[field.name, 'ipv4RouteVia']}
-                        label="IPv4 网关"
-                        dependencies={[['hubWanInventory', field.name, 'ipv4RouteDest']]}
-                        rules={[
-                          {
-                            validator: async (_, value) => {
-                              const via = String(value ?? '').trim();
-                              const dest = String(
-                                form.getFieldValue(['hubWanInventory', field.name, 'ipv4RouteDest']) ?? '',
-                              ).trim();
-                              if ((dest && !via) || (!dest && via)) {
-                                throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
-                              }
-                            },
-                          },
-                          {
-                            pattern:
-                              /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/,
-                            message: '请输入合法的 IPv4 网关地址（不带 /xx）',
-                          },
-                        ]}
+                        name={[field.name, 'ipv4RoutePriority']}
+                        label="IPv4 优先级"
+                        initialValue={100}
+                        extra="缺省 100，可改；对应设备 priority"
                       >
-                        <Input placeholder="例如 10.1.1.254" />
+                        <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="100" />
                       </Form.Item>
                       <Form.Item
                         {...field}
@@ -1537,43 +1572,17 @@ const PEWizard: React.FC = () => {
           <Form.Item
             name="wanRouteDest"
             label="IPv4 目的网段"
-            dependencies={['wanRouteVia']}
-            rules={[
-              {
-                validator: async (_, value) => {
-                  const dest = String(value ?? '').trim();
-                  const via = String(form.getFieldValue('wanRouteVia') ?? '').trim();
-                  if ((dest && !via) || (!dest && via)) {
-                    throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
-                  }
-                },
-              },
-            ]}
+            extra="填写后按 WAN 口下发 `ip route … dev …`（无 via）"
           >
             <Input placeholder="例如 0.0.0.0/0" />
           </Form.Item>
           <Form.Item
-            name="wanRouteVia"
-            label="IPv4 网关"
-            dependencies={['wanRouteDest']}
-            rules={[
-              {
-                validator: async (_, value) => {
-                  const via = String(value ?? '').trim();
-                  const dest = String(form.getFieldValue('wanRouteDest') ?? '').trim();
-                  if ((dest && !via) || (!dest && via)) {
-                    throw new Error('IPv4 目的网段与 IPv4 网关需同时填写或同时留空');
-                  }
-                },
-              },
-              {
-                pattern:
-                  /^(?:(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}(?:[0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/,
-                message: '请输入合法的 IPv4 网关地址（不带 /xx）',
-              },
-            ]}
+            name="wanRoutePriority"
+            label="IPv4 优先级"
+            initialValue={100}
+            extra="缺省 100，可改；对应设备 priority"
           >
-            <Input placeholder="例如 10.1.1.254" />
+            <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="100" />
           </Form.Item>
           <Form.Item
             name="ipv6Dest"
@@ -1677,6 +1686,7 @@ const PEWizard: React.FC = () => {
                             .toLowerCase()
                             .includes(input.toLowerCase())
                         }
+                        onChange={(val) => autoFillLanRow(idx, String(val || ''), { force: true })}
                       />
                     </Form.Item>
                     <Form.Item {...field} name={[field.name, 'ipv4']} label="IPv4 地址/掩码">
@@ -1753,10 +1763,8 @@ const PEWizard: React.FC = () => {
             <Descriptions.Item label="SRv6 SID Prefix">{values.sidPrefix || '-'}</Descriptions.Item>
             {isHubPe ? (
               (values.hubWanInventory || []).map((wan: any, idx: number) => (
-                <Descriptions.Item key={`wan-${idx}`} label={`Hub WAN #${idx + 1}`}>
-                  {[wan.ifName, wan.ipv6, wan.ipv6Via ? `gw ${wan.ipv6Via}` : '']
-                    .filter(Boolean)
-                    .join(' · ') || '-'}
+                <Descriptions.Item key={`wan-${idx}`} label={`WAN 接口 #${idx + 1}`}>
+                  {formatHubWanConfirmLine(wan)}
                 </Descriptions.Item>
               ))
             ) : (
@@ -1770,8 +1778,8 @@ const PEWizard: React.FC = () => {
             )}
             {isHubPe ? (
               <>
-                <Descriptions.Item label="公网 BGP ASN（Hub 级）">{previewNum(values.bgpAsn)}</Descriptions.Item>
-                <Descriptions.Item label="公网 BGP Router-ID（Hub 级）">{previewStr(values.bgpRouterId)}</Descriptions.Item>
+                <Descriptions.Item label="公网 BGP ASN">{previewNum(values.bgpAsn)}</Descriptions.Item>
+                <Descriptions.Item label="公网 BGP Router-ID">{previewStr(values.bgpRouterId)}</Descriptions.Item>
               </>
             ) : (
               <>
@@ -1782,7 +1790,13 @@ const PEWizard: React.FC = () => {
             {!isHubPe && (
               <>
                 <Descriptions.Item label="IPv4 目的网段">{previewStr(values.wanRouteDest)}</Descriptions.Item>
-                <Descriptions.Item label="IPv4 网关">{previewStr(values.wanRouteVia)}</Descriptions.Item>
+                <Descriptions.Item label="IPv4 优先级">
+                  {values.wanRoutePriority != null && values.wanRoutePriority !== ''
+                    ? previewNum(values.wanRoutePriority)
+                    : values.wanRouteDest
+                      ? 100
+                      : '-'}
+                </Descriptions.Item>
                 <Descriptions.Item label="IPv6 目的网段">{previewStr(values.ipv6Dest)}</Descriptions.Item>
                 <Descriptions.Item label="IPv6 网关">{previewStr(values.ipv6Via)}</Descriptions.Item>
               </>
@@ -1884,8 +1898,17 @@ const PEWizard: React.FC = () => {
                                   <Form.Item label="IPv4 目的网段">
                                     <Input disabled value={g?.ipv4RouteDest || '未配置'} />
                                   </Form.Item>
-                                  <Form.Item label="IPv4 网关">
-                                    <Input disabled value={g?.ipv4RouteVia || '未配置'} />
+                                  <Form.Item label="IPv4 优先级">
+                                    <Input
+                                      disabled
+                                      value={
+                                        g?.ipv4RoutePriority != null
+                                          ? String(g.ipv4RoutePriority)
+                                          : g?.ipv4RouteDest
+                                            ? '100'
+                                            : '未配置'
+                                      }
+                                    />
                                   </Form.Item>
                                   <Form.Item label="IPv6 目的网段">
                                     <Input disabled value={g?.ipv6Dest || '未配置'} />
@@ -1932,8 +1955,8 @@ const PEWizard: React.FC = () => {
                     <Form.Item name="wanRouteDest" label="IPv4 目的网段">
                       <Input placeholder="未配置" />
                     </Form.Item>
-                    <Form.Item name="wanRouteVia" label="IPv4 网关">
-                      <Input placeholder="未配置" />
+                    <Form.Item name="wanRoutePriority" label="IPv4 优先级">
+                      <InputNumber style={{ width: '100%' }} placeholder="未配置" />
                     </Form.Item>
                     <Form.Item name="ipv6Dest" label="IPv6 目的网段"> 
                       <Input placeholder="未配置" />
@@ -2033,13 +2056,11 @@ const PEWizard: React.FC = () => {
                         <>
                           {(mirrorForm.getFieldValue('hubWanInventory') || []).map((wan: any, idx: number) => (
                             <Descriptions.Item key={`hub-wan-${idx}`} label={`WAN 接口 #${idx + 1}`}>
-                              {[wan?.ifName, wan?.ipv4, wan?.ipv6, wan?.ipv4RouteDest, wan?.ipv6Dest, wan?.ipv6Via ? `gw ${wan.ipv6Via}` : '']
-                                .filter(Boolean)
-                                .join(' · ') || '-'}
+                              {formatHubWanConfirmLine(wan)}
                             </Descriptions.Item>
                           ))}
-                          <Descriptions.Item label="公网 BGP ASN（Hub 级）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
-                          <Descriptions.Item label="公网 BGP Router-ID（Hub 级）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
+                          <Descriptions.Item label="公网 BGP ASN">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
+                          <Descriptions.Item label="公网 BGP Router-ID">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
                         </>
                       ) : (
                         <>
@@ -2049,7 +2070,14 @@ const PEWizard: React.FC = () => {
                           <Descriptions.Item label="BGP ASN（WAN）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
                           <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
                           <Descriptions.Item label="IPv4 目的网段">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>
-                          <Descriptions.Item label="IPv4 网关">{previewStr(mirrorForm.getFieldValue('wanRouteVia'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv4 优先级">
+                            {(() => {
+                              const p = mirrorForm.getFieldValue('wanRoutePriority');
+                              const d = mirrorForm.getFieldValue('wanRouteDest');
+                              if (p != null && p !== '') return previewNum(p);
+                              return d ? 100 : '-';
+                            })()}
+                          </Descriptions.Item>
                           <Descriptions.Item label="IPv6 目的网段">{previewStr(mirrorForm.getFieldValue('ipv6Dest'))}</Descriptions.Item>
                           <Descriptions.Item label="IPv6 网关">{previewStr(mirrorForm.getFieldValue('ipv6Via'))}</Descriptions.Item>
                         </>
