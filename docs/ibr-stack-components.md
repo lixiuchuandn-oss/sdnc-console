@@ -179,6 +179,7 @@ SDNC `pushVRConfig` 在 POST 前 **读设备现网 → 分域 merge → 漂移�
 |------|------|
 | [sdnc-stack-integration.md](./sdnc-stack-integration.md) | SDNC + CSMCTL + Mongo 数据权威 |
 | [ibr-vr-config-deploy.md](./ibr-vr-config-deploy.md) | 分域下发、NAT/ACL、初始化通道边界 |
+| [ibr-identity-registration.md](./ibr-identity-registration.md) | 设备 uuid/注册：Paas 入口 vs agent 轮询、主键与手改文件 |
 | `ibr-local-web/docs/reference/architecture.md` | IBR 内部分层、ipoe、双配置图、Lua 模块 |
 | `ibr-local-web/docs/knowledge-base.md` | Paas Console 部署、`products/` 四份源码 |
 | [`csm-controller/README.md`](../csm-controller/README.md) | CSMCTL 构建与北向 API |
@@ -190,3 +191,4 @@ SDNC `pushVRConfig` 在 POST 前 **读设备现网 → 分域 merge → 漂移�
 | 日期 | 说明 |
 |------|------|
 | 2026-07-09 | 初版：`ibr-local-web` / `ibr-controller` / `ibr-local-agent` 与 SDNC 主仓对照 |
+| 2026-11-11 | 延伸阅读增加设备身份注册备查 |

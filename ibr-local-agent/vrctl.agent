@@ -218,16 +218,10 @@ generate_random_mac() {
 }
 
 get_mac() {
-	# local mac interface
-	# interface=$(ip link show | grep -v "lo" | grep -v "docker" | grep -v "veth" | grep -v "br-" | awk -F: '$0 !~ "^ " {print $2}' | head -n 1 | tr -d ' ')
-	# mac=$(ip link show $interface | awk '/ether/ {print $2}')
-	# echo "$mac"
+	# 身份由 Paas-VRv2 写入 registervr.conf；此处只读，不再随机生成。
     local mac
-    
-    # 1. 从VR_CONF配置文件中读取MAC地址
     mac=$(jq -r .mac < "$VR_CONF" 2>/dev/null)
     
-    # 2. 检查MAC地址是否有效
     if is_valid_mac "$mac"; then
         logger "Using MAC address from VR_CONF: $mac" \
             -t agent \
@@ -235,28 +229,12 @@ get_mac() {
         echo "$mac"
         return 0
     fi
-    
-    # 3. 如果MAC地址无效或不存在，生成随机MAC地址
-    logger "MAC address not found or invalid in VR_CONF, generating random MAC address" \
+
+    logger "MAC address not found or invalid in VR_CONF; wait for Paas identity save" \
         -t agent \
-        -p daemon.info
-    
-    mac=$(generate_random_mac)
-    
-    # 4. 将随机生成的MAC地址写入VR_CONF配置文件
-    if jq --arg mac "$mac" '.mac = $mac' "$VR_CONF" > "$VR_CONF.tmp" && mv "$VR_CONF.tmp" "$VR_CONF"; then
-        logger "Successfully updated MAC address in VR_CONF: $mac" \
-            -t agent \
-            -p daemon.info
-    else
-        logger -s "Failed to update MAC address in VR_CONF" \
-            -t agent \
-            -p daemon.err
-        # 即使写入失败，仍然返回生成的MAC地址
-    fi
-    
-    echo "$mac"
-    return 0
+        -p daemon.notice
+    echo ""
+    return 1
 }
 get_uuid() {
 	# 从VR_CONF文件中读取UUID
@@ -312,30 +290,25 @@ init_validation() {
         -t agent \
         -p daemon.info
     
-    # 检查name字段
+    # 身份由 Paas-VRv2 保存后写入；init_name_function / init_uuid_function 保留但不在此调用。
     if [ -n "$name" ] && [ "$name" != "null" ]; then
         logger "name field is valid: '$name', skipping name initialization" \
             -t agent \
             -p daemon.info
     else
-        logger "name field is empty or invalid, calling name initialization function" \
+        logger "name field is empty; wait for Paas identity save (not auto-generating)" \
             -t agent \
-            -p daemon.info
-        # 调用name初始化函数
-        init_name_function
+            -p daemon.notice
     fi
     
-    # 检查uuid字段
     if [ -n "$uuid" ] && [ "$uuid" != "null" ]; then
         logger "uuid field is valid: '$uuid', skipping uuid initialization" \
             -t agent \
             -p daemon.info
     else
-        logger "uuid field is empty or invalid, calling uuid initialization function" \
+        logger "uuid field is empty; wait for Paas identity save (not auto-generating)" \
             -t agent \
-            -p daemon.info
-        # 调用uuid初始化函数
-        init_uuid_function
+            -p daemon.notice
     fi
     
     logger "Initialization validation completed successfully" \
@@ -613,8 +586,16 @@ auth_device() {
 	UUID=$(get_uuid)
 	VERSION=$(jq -r .version < "$VR_CONF")
 	TYPE=$(jq -r .type < "$VR_CONF")
-	if [ -z "$NAME" ] || [ -z "$MAC" ] || [ -z "$UUID" ] || [ -z "$VERSION" ] || [ -z "$TYPE" ]; then
-		logger "$VR_CONF file is error" \
+	[ "$POOL_ID" = "null" ] && POOL_ID=""
+	[ "$POOL_NAME" = "null" ] && POOL_NAME=""
+	[ "$VM_ID" = "null" ] && VM_ID=""
+	[ "$NAME" = "null" ] && NAME=""
+	[ "$VERSION" = "null" ] && VERSION=""
+	[ "$TYPE" = "null" ] && TYPE=""
+	# 完整身份才允许认证/注册；实例主键是 uuid，vm_id 为必填运维标识。
+	if [ -z "$VM_ID" ] || [ -z "$NAME" ] || [ -z "$MAC" ] || [ -z "$UUID" ] || [ -z "$VERSION" ] || [ -z "$TYPE" ]; then
+		rm -rf $WORKING_DIR/.registration_finish 2>/dev/null
+		logger "$VR_CONF identity incomplete (need vm_id/name/uuid/mac/version/type)" \
 			-t agent \
 			-p daemon.info
 		return 1
@@ -1118,8 +1099,9 @@ restore_backup() {
 }
 
 discover_change() {
-	# return if not using management interface
-	local pool_id pool_name vm_id vr_ip ret interval name version type
+	# 文件相对上次认证载荷有变化时，清 .registration_finish，让主循环再 POST register。
+	# CSMCTL 按 uuid 查库：uuid 不变是 update；uuid 变了才是新实例。
+	local pool_id pool_name vm_id vr_ip ret interval name version type uuid mac
 
 	if [ ! -f "$VR_CONF" ] || [ ! -f "$VR_CTL" ] ; then
 		[ -n "$VERBOSE_MODE" ] && [ "$VERBOSE_MODE" -eq "1" ] && logger "$VR_CONF file does not exist" \
@@ -1128,20 +1110,28 @@ discover_change() {
 		return 1
 	fi
 	
-	#获取配置文件的数据并与环境中的比较 且以配置文件中为准
 	pool_id=$(jq -r .pool_id < "$VR_CONF")
 	pool_name=$(jq -r .pool_name < "$VR_CONF")
 	vm_id=$(jq -r .vm_id < "$VR_CONF")
 	name=$(jq -r .name < "$VR_CONF")
 	version=$(jq -r .version < "$VR_CONF")
 	type=$(jq -r .type < "$VR_CONF")
-	if [ -z "$vm_id" ] || [ -z "$name" ] || [ -z "$MAC" ] || [ -z "$UUID" ] || [ -z "$version" ] || [ -z "$type" ]; then
-		logger "$VR_CONF file configuration is error" \
+	uuid=$(jq -r .uuid < "$VR_CONF")
+	mac=$(jq -r .mac < "$VR_CONF")
+	[ "$vm_id" = "null" ] && vm_id=""
+	[ "$name" = "null" ] && name=""
+	[ "$version" = "null" ] && version=""
+	[ "$type" = "null" ] && type=""
+	[ "$uuid" = "null" ] && uuid=""
+	[ "$mac" = "null" ] && mac=""
+	if [ -z "$vm_id" ] || [ -z "$name" ] || [ -z "$mac" ] || [ -z "$uuid" ] || [ -z "$version" ] || [ -z "$type" ]; then
+		rm -rf $WORKING_DIR/.registration_finish 2>/dev/null
+		logger "$VR_CONF identity incomplete" \
 				-t agent \
 				-p daemon.notice
 		return 1
 	fi
-	if [ "$vm_id" != "$VM_ID" ] || [ "$name" != "$NAME" ] || [ "$version" != "$VERSION" ] || [ "$type" != "$TYPE" ]; then
+	if [ "$uuid" != "$UUID" ] || [ "$vm_id" != "$VM_ID" ] || [ "$name" != "$NAME" ] || [ "$mac" != "$MAC" ] || [ "$version" != "$VERSION" ] || [ "$type" != "$TYPE" ]; then
 		rm -rf $WORKING_DIR/.registration_finish 2>/dev/null
 		return 0
 	fi
@@ -1157,13 +1147,13 @@ reload_config() {
 		auth_device
 		ret=$?
 		if [ "$ret" -ne 0 ]; then
-			sleep "$AUTH_INTERVAL"
+			sleep_interruptible "$AUTH_INTERVAL"
 			continue
 		fi	
 		register
 		ret=$?
 		if [ "$ret" -ne 0 ]; then
-			sleep "$REGISTRATION_INTERVAL"
+			sleep_interruptible "$REGISTRATION_INTERVAL"
 			continue
 		fi	
 		logger " register success after config changed" \
@@ -1181,13 +1171,24 @@ handle_sigusr1() {
 		-p daemon.info
 }
 
+# Paas 首次保存会在 auth/register 等待期发 SIGUSR1；默认动作是终止进程
+#（vrctl-agent.service Type=forking 且无 Restart）。全程 trap + wait，才能被 poke 唤醒。
+sleep_interruptible() {
+	sleep "$1" &
+	local spid=$!
+	wait "$spid" || true
+	kill "$spid" 2>/dev/null || true
+}
+
+trap handle_sigusr1 USR1
+
 URL=""
 VR_IP=""
 VR_CONF="/usr/local/src/vrconf/registervr.conf"
 VR_CTL="/usr/local/src/vrconf/vrcontrol.conf"
 #检查配置文件是否正确
 until check_conf_info; do
-	sleep "$CHECK_INTERVAL"
+	sleep_interruptible "$CHECK_INTERVAL"
 done
 
 #执行初始化校验
@@ -1197,7 +1198,7 @@ AUTH_URL="$URL/api/sign?url=/V2/vrcontrol/VM19/vr/register&method=POST&accessKey
 # 如果AUTH和TONCE为空，则执行post_auth_hook 
 if [ -z "$AUTH" ] || [ -z "$TONCE" ]; then
 	until auth_device; do
-		sleep "$AUTH_INTERVAL"
+		sleep_interruptible "$AUTH_INTERVAL"
 	done
 fi	
 
@@ -1210,7 +1211,7 @@ export REPORT_URL
 if [ ! -f "$WORKING_DIR/.registration_finish" ]; then
 	if [ -n "$AUTH" ] && [ -n "$TONCE" ]; then
 		until register; do
-			sleep "$REGISTRATION_INTERVAL"
+			sleep_interruptible "$REGISTRATION_INTERVAL"
 		done
 	else
 		logger -s "Unable to get ATUTH or TONCE" \
@@ -1240,10 +1241,5 @@ while true; do
 			-t agent \
 			-p daemon.notice
 	fi
-	# handle SIGUSR1 to interrupt sleep
-	trap handle_sigusr1 USR1
-	sleep "$INTERVAL" &
-	wait $!
-	# ignore SIGUSR1 signals again
-	trap "" USR1
+	sleep_interruptible "$INTERVAL"
 done

@@ -1,0 +1,6 @@
+# agent 在设备上由 bash 执行；CRLF 会触发 `set: invalid option`
+ibr-local-agent/*.agent text eol=lf
+ibr-local-agent/*.init text eol=lf
+ibr-local-agent/*.shutdown text eol=lf
+ibr-local-agent/*.cli text eol=lf
+ibr-local-agent/clean text eol=lf

@@ -116,7 +116,7 @@ paas-vr-console/
 | 文件 | 用途 | 控制台入口示例 |
 |------|------|----------------|
 | `vrcontrol.conf` | Tower / SDWAN / AI SOC 等 JSON 配置 | 设备 → 配置服务；`GET/POST /api/sys/vrcontrol` |
-| `registervr.conf` | VR 身份（uuid、name、pool 等） | 配置服务 → registervr 抽屉 |
+| `registervr.conf` | VR 身份（uuid、name、pool 等） | 接入与身份；与 agent 注册的交叉见 [`docs/ibr-identity-registration.md`](../../docs/ibr-identity-registration.md) |
 | `nic_roles.conf` | 网卡角色与 IP 快照 | 设备 → 主网卡；`GET/POST /api/nic_roles_conf` |
 
 `vrcontrol.conf` 常见字段：

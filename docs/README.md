@@ -20,6 +20,7 @@
 | [ibr-vr-config-deploy.md](./ibr-vr-config-deploy.md) | **IBR VR 配置下发**（分域 merge、漂移、NAT/ACL；初始化通道边界） |
 | [bgp-rr-design.md](./bgp-rr-design.md) | **BGP Route Reflector（RR）** 产品定义、与 SRv6 共存与 config_json 合并（设计；功能未实现）；RR 域导入模板见 [`templates/rr-domain-import-template.csv`](./templates/rr-domain-import-template.csv) |
 | [ibr-stack-components.md](./ibr-stack-components.md) | **IBR 全栈组件**（SDNC / CSMCTL / agent / 设备 Console 对照与联调） |
+| [ibr-identity-registration.md](./ibr-identity-registration.md) | **IBR 设备身份**（Paas 接入与身份 vs vrctl-agent 注册、uuid 主键、仍可手改文件） |
 
 **同仓组件**：[`../csm-controller/README.md`](../csm-controller/README.md) — CSMCTL 构建、API 与 Tower 联调。
 
