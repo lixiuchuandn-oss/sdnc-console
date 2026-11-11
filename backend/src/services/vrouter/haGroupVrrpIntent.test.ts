@@ -179,4 +179,13 @@ describe('haGroupVrrpIntent', () => {
     delete primary.groups[0].track_gateway;
     expect(() => validateHaGroupVrrpIntent(normalized)).not.toThrow();
   });
+
+  it('parses string false as preempt false', () => {
+    const intent = normalizeHaGroupVrrpIntent({
+      ...legacyIntent,
+      preempt: 'false',
+      members: legacyIntent.members.map((m) => ({ ...m, preempt: 'false' })),
+    });
+    expect(intent?.members[0].instances[0].preempt).toBe(false);
+  });
 });

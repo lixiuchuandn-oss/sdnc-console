@@ -208,14 +208,10 @@ function upsertIfaceVrrp(
 
 function upsertTopVrrp(result: VrConfigJson, group: DeviceVrrpGroup): void {
   const topVrrp = Array.isArray(result.vrrp) ? [...(result.vrrp as unknown[])] : [];
+  // 仅按 group_id 匹配，避免同 VRID 的多条策略互相覆盖
   const topIdx = topVrrp.findIndex((raw) => {
     if (!raw || typeof raw !== 'object') return false;
-    const row = raw as { group_id?: unknown; vrrp_instance?: unknown };
-    if (Number(row.group_id) === group.group_id) return true;
-    if (Array.isArray(row.vrrp_instance)) {
-      return row.vrrp_instance.map(Number).includes(group.vrrp_instance[0] ?? -1);
-    }
-    return false;
+    return Number((raw as { group_id?: unknown }).group_id) === group.group_id;
   });
   if (topIdx >= 0) {
     topVrrp[topIdx] = group;

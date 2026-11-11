@@ -61,6 +61,12 @@ function readPositiveInt(raw: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : fallback;
 }
 
+function asBool(raw: unknown, defaultTrue = true): boolean {
+  if (raw === false || raw === 'false' || raw === 0 || raw === '0') return false;
+  if (raw === true || raw === 'true' || raw === 1 || raw === '1') return true;
+  return defaultTrue;
+}
+
 export function normalizeHaGroupSide(raw: unknown): HaGroupSide {
   const t = String(raw ?? '').trim();
   if (t === 'peer' || t === 'egress') return 'peer';
@@ -88,7 +94,7 @@ function parseInstance(
     vrid,
     virtual_ip: String(row.virtual_ip ?? row.virtualIp ?? legacyTop?.virtual_ip ?? '').trim(),
     priority: readPositiveInt(row.priority, fallbackPriority),
-    preempt: (row.preempt ?? legacyTop?.preempt) !== false,
+    preempt: asBool(row.preempt ?? legacyTop?.preempt, true),
     advert_interval: readPositiveInt(
       row.advert_interval ?? row.advertInterval ?? legacyTop?.advert_interval,
       1,
@@ -251,6 +257,7 @@ function validateMemberNode(member: HaGroupVrrpMemberIntent): void {
     throw new Error(`${prefix}须至少配置 1 条 VRRP 组策略`);
   }
   const groupIds = new Set<number>();
+  const boundInstances = new Set<number>();
   for (const group of member.groups) {
     if (!Number.isInteger(group.group_id) || group.group_id < 1) {
       throw new Error(`${prefix} Group ID 须为正整数`);
@@ -262,6 +269,10 @@ function validateMemberNode(member: HaGroupVrrpMemberIntent): void {
     if (!vrids.has(group.vrrp_instance)) {
       throw new Error(`${prefix}组策略的 VRRP 实例 ID 须指向已配置实例`);
     }
+    if (boundInstances.has(group.vrrp_instance)) {
+      throw new Error(`${prefix} VRRP 实例 ID ${group.vrrp_instance} 不可绑定多条组策略`);
+    }
+    boundInstances.add(group.vrrp_instance);
     const interval = group.track_interval ?? 1;
     if (!Number.isInteger(interval) || interval < 1 || interval > 255) {
       throw new Error(`${prefix}探测间隔须为 1–255 秒`);

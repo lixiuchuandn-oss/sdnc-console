@@ -447,6 +447,7 @@ function validateNodeVrrp(node: HaNodeVrrpForm | undefined, role: 'primary' | 'b
 	const groups = node?.groups || [];
 	if (groups.length < 1) return `${prefix}至少配置 1 条 VRRP 组策略`;
 	const groupIds = new Set<number>();
+	const boundInstances = new Set<number>();
 	for (let i = 0; i < groups.length; i += 1) {
 		const group = groups[i]!;
 		const n = i + 1;
@@ -460,6 +461,10 @@ function validateNodeVrrp(node: HaNodeVrrpForm | undefined, role: 'primary' | 'b
 		if (!vrids.has(instId)) {
 			return `${prefix}组策略 ${n}：VRRP 实例 ID 须指向本节点已配置的实例`;
 		}
+		if (boundInstances.has(instId)) {
+			return `${prefix}组策略 ${n}：VRRP 实例 ID ${instId} 不可绑定多条组策略`;
+		}
+		boundInstances.add(instId);
 		const interval = Number(group.trackInterval ?? 1);
 		if (!Number.isInteger(interval) || interval < 1 || interval > 255) {
 			return `${prefix}组策略 ${n}：探测间隔须为 1–255 秒`;

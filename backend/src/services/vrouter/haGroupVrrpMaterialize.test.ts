@@ -133,6 +133,21 @@ describe('haGroupVrrpMaterialize', () => {
     expect(patch.topVrrp).toHaveLength(2);
   });
 
+  it('upsertTopVrrp matches only by group_id, not shared vrrp_instance', () => {
+    const device = {
+      uuid: 'vr-a',
+      interface: [{ name: 'GigabitEthernet0/0/1', ipv4_static: '10.0.0.2/24' }],
+      vrrp: [{ group_id: 99, track_gateway: ['9.9.9.9'], vrrp_instance: [10], track_interval: 9 }],
+    };
+    const patch = materializeHaGroupVrrpForMember(sampleIntent(), 'primary');
+    // sample primary group_id=1, vrrp_instance=[10] — must not overwrite group 99
+    const merged = applyVrrpPatchToDeviceConfig(device, patch);
+    const top = merged.vrrp as Array<Record<string, unknown>>;
+    expect(top).toHaveLength(2);
+    expect(top.find((g) => g.group_id === 99)?.track_interval).toBe(9);
+    expect(top.find((g) => g.group_id === 1)?.track_interval).toBe(1);
+  });
+
   it('applyVrrpPatchToDeviceConfig upserts without wiping other interfaces', () => {
     const device = {
       uuid: 'vr-a',

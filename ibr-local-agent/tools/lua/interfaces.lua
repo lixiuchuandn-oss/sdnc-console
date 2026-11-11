@@ -646,9 +646,8 @@ function interfaces.del_interface_vrrp_part(interface_name, cur_table)
             interfaces.del_interface_vrrp_virtual_ipaddress(interface_name, cur_table.vrid, v)
         end
     end
-    if cur_table.preempt == false then
-        interfaces.del_interface_vrrp_disable_preempt(interface_name, cur_table.vrid)
-    end
+    -- 删实例时无条件清 disable-preempt，避免旧 JSON 无 preempt=false 时残留
+    interfaces.del_interface_vrrp_disable_preempt(interface_name, cur_table.vrid)
 end
 
 function interfaces.compare_interface_vrrp_part(interface_name, cur_table, new_table)
@@ -701,8 +700,11 @@ function interfaces.compare_interface_vrrp_part(interface_name, cur_table, new_t
                             interfaces.add_interface_vrrp_unicast_source(interface_name, v.vrid, v.unicast_source)
                         end
                     end
-                    if (v.preempt == false) ~= (v2.preempt == false) then
-                        interfaces.apply_interface_vrrp_preempt(interface_name, v.vrid, v.preempt)
+                    -- 新侧显式 boolean 时一律 apply，避免旧 JSON 缺 preempt(nil) 与 true 同态导致 sticky disable-preempt
+                    if v.preempt == false or v.preempt == true then
+                        if v.preempt ~= v2.preempt then
+                            interfaces.apply_interface_vrrp_preempt(interface_name, v.vrid, v.preempt)
+                        end
                     end
                     interfaces.compare_interface_vrrp_virtual_ipaddress(interface_name, v.vrid, v2.virtual_ipaddress, v.virtual_ipaddress)
                     break
