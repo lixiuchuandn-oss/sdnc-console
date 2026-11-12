@@ -297,3 +297,31 @@ export function stripHaGroupVrrpFromDeviceConfig(
 
   return result;
 }
+
+/** 下发预览：只抽出本组写入的接口 vrrp 与顶层 vrrp group */
+export function pickHaVrrpDeploySlice(
+  merged: VrConfigJson,
+  patch: HaMemberVrrpPatch,
+): { interfaces: Array<{ name: string; vrrp?: unknown }>; vrrp: unknown } {
+  const cfg = merged as Record<string, unknown>;
+  const interfaces: Array<{ name: string; vrrp?: unknown }> = [];
+  for (const ifacePatch of patch.ifacePatches) {
+    let found: Record<string, unknown> | null = null;
+    for (const key of listIfaceBucketKeys(cfg)) {
+      const list = cfg[key] as unknown[];
+      const idx = findIfaceIndex(list, ifacePatch.interfaceName);
+      if (idx >= 0 && list[idx] && typeof list[idx] === 'object') {
+        found = list[idx] as Record<string, unknown>;
+        break;
+      }
+    }
+    interfaces.push({
+      name: ifacePatch.interfaceName,
+      vrrp: found?.vrrp ?? [ifacePatch.ifaceVrrp],
+    });
+  }
+  return {
+    interfaces,
+    vrrp: cfg.vrrp ?? patch.topVrrp,
+  };
+}

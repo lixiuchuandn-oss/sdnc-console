@@ -1,8 +1,10 @@
 import {
 	buildSrv6HaGroupSelectOptions,
+	inferSrv6TunnelCeAccessMode,
 	isSrv6EligibleHaGroup,
 	resolveSrv6CeHaBinding,
 	resolveSrv6CeHaBindingById,
+	srv6CeSlotLabel,
 } from './srv6CeHaGroupLib';
 import type { IbrHaGroup } from '../../../../services/ibrHaGroupApi';
 
@@ -52,5 +54,17 @@ describe('srv6CeHaGroupLib', () => {
 		expect(opts).toHaveLength(1);
 		expect(opts[0]?.value).toBe('g1');
 		expect(opts[0]?.label).toContain('北京 CE 组');
+	});
+
+	it('infers tunnel CE access mode from fingerprints', () => {
+		expect(inferSrv6TunnelCeAccessMode(undefined, undefined)).toBe('标准');
+		expect(inferSrv6TunnelCeAccessMode({ haGroupId: 'g1' }, { haGroupId: 'g2' })).toBe('高可用');
+		expect(inferSrv6TunnelCeAccessMode({ haGroupId: 'g1' }, undefined)).toBe('高可用');
+	});
+
+	it('labels HA CE slots as logical primary', () => {
+		expect(srv6CeSlotLabel('ceA', '标准')).toBe('CE-A');
+		expect(srv6CeSlotLabel('ceA', '高可用')).toBe('CE-A（HA 主）');
+		expect(srv6CeSlotLabel('ceB', '高可用')).toBe('CE-B（HA 主）');
 	});
 });

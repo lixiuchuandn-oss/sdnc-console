@@ -77,7 +77,8 @@ GET 设备 VR 全量 JSON
 | `POST /api/networks/nat/deploy/push` | 先 `syncNatToVRConfig`，再 push |
 | `POST /api/networks/ipsec/deploy/push` | 含 preview / verify（向导用） |
 | `POST /api/networks/srv6/deploy/push` | 含 preview |
-| `POST /api/ibr-ha-groups/:id/deploy` | HA 组 VRRP：主备串行 `pushVRConfig(domain: vrrp, preMergedConfig)`；成功 → `configured`，仅主成功 → `degraded` |
+| `GET /api/ibr-ha-groups/:id/deploy/preview?role=primary\|backup` | 预览该节点 VRRP 组装片（默认同设备底稿合并；`merge=0` 只出意图物化结果） |
+| `POST /api/ibr-ha-groups/:id/deploy` | HA 组 VRRP：主备串行 `pushVRConfig(domain: vrrp, preMergedConfig)`，或 `body.role` 只推一端（向导分步，可重复下发）；两端都成功 → `configured`，仅主成功 → `degraded` |
 
 ---
 

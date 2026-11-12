@@ -75,3 +75,17 @@ export function findHaGroupById(groups: IbrHaGroup[], id: string): IbrHaGroup | 
 	if (!key) return undefined;
 	return groups.find((g) => g.id === key);
 }
+
+export function inferSrv6TunnelCeAccessMode(
+	fpA?: { haGroupId?: string | null } | null,
+	fpB?: { haGroupId?: string | null } | null,
+): Srv6TunnelCeMode {
+	const haA = Boolean(String(fpA?.haGroupId || '').trim());
+	const haB = Boolean(String(fpB?.haGroupId || '').trim());
+	return haA || haB ? '高可用' : '标准';
+}
+
+export function srv6CeSlotLabel(slot: 'ceA' | 'ceB', mode: Srv6TunnelCeMode): string {
+	const base = slot === 'ceA' ? 'CE-A' : 'CE-B';
+	return mode === '高可用' ? `${base}（HA 主）` : base;
+}

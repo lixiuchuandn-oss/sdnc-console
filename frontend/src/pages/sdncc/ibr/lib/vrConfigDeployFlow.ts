@@ -6,6 +6,10 @@
 import { Modal } from 'antd';
 import { apiRequest } from '../../../../services/api';
 import {
+  deployIbrHaGroup,
+  previewIbrHaGroupDeploy,
+} from '../../../../services/ibrHaGroupApi';
+import {
   DeployDriftCancelledError,
   ensureDeployDriftAcknowledged,
   fetchDeployDrift,
@@ -15,9 +19,21 @@ import {
   type VrConfigDriftConflict,
 } from '../../../../utils/vrConfigDeployDrift';
 
-export type IbrDeployFeature = 'acl' | 'ipsec' | 'srv6' | 'nat';
+export type IbrSliceDeployFeature = 'acl' | 'ipsec' | 'srv6' | 'nat';
+export type IbrDeployFeature = IbrSliceDeployFeature | 'vrrp';
 
 type IbrDeployStepKind = 'preview' | 'push' | 'verify';
+
+export type IbrDeployWizardStepMeta = {
+  haGroupId?: string;
+  haRole?: 'primary' | 'backup';
+};
+
+export type IbrDeployWizardEndpoint = {
+  label: string;
+  vrId?: string | null;
+  meta?: IbrDeployWizardStepMeta;
+};
 
 export type IbrDeployWizardStep = {
   title: string;
@@ -26,6 +42,7 @@ export type IbrDeployWizardStep = {
   feature: IbrDeployFeature;
   vrId: string;
   endpointLabel: string;
+  meta?: IbrDeployWizardStepMeta;
 };
 
 type IbrDeployFeatureConfig = {
@@ -38,7 +55,7 @@ type IbrDeployFeatureConfig = {
 
 const REQUEST_OPTS = { skipCache: true, enableDeduplication: false } as const;
 
-const IBR_DEPLOY_FEATURES: Record<IbrDeployFeature, IbrDeployFeatureConfig> = {
+const IBR_DEPLOY_FEATURES: Record<IbrSliceDeployFeature, IbrDeployFeatureConfig> = {
   acl: {
     domain: 'acl',
     label: 'ACL',
@@ -122,7 +139,7 @@ const isConfigDrift409 = (err: unknown): err is { status: number; conflicts?: Vr
 
 const pushWithDriftGuard = async (
   vrId: string,
-  feature: IbrDeployFeature,
+  feature: IbrSliceDeployFeature,
   extraBody?: Record<string, unknown>,
 ): Promise<{ response: unknown; driftWarnings?: VrConfigDriftConflict[] }> => {
   const cfg = IBR_DEPLOY_FEATURES[feature];
@@ -146,15 +163,68 @@ const pushWithDriftGuard = async (
   }
 };
 
-/** 为每台 VR 生成「预览 → 下发 → [回查]」步骤（IPsec / SRv6 向导共用） */
+const executeHaVrrpWizardStep = async (step: IbrDeployWizardStep): Promise<string> => {
+  const groupId = String(step.meta?.haGroupId || '').trim();
+  const role = step.meta?.haRole;
+  if (!groupId || (role !== 'primary' && role !== 'backup')) {
+    throw new Error('HA 组下发步骤缺少组 ID 或主备角色');
+  }
+  const tag = step.endpointLabel || 'VRRP';
+
+  if (step.kind === 'preview') {
+    const data = await previewIbrHaGroupDeploy(groupId, role);
+    const lines = [`[${tag}] 本组将写入的 VRRP 组装片`, JSON.stringify(data.slice, null, 2)];
+    if (data.warning) {
+      lines.push('', `[提示] ${data.warning}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (step.kind === 'push') {
+    const data = await deployIbrHaGroup(groupId, { role });
+    const node = role === 'primary' ? data.primary : data.backup;
+    return [`[${tag}] 下发设备响应`, JSON.stringify(node ?? data, null, 2)].join('\n');
+  }
+
+  throw new Error('HA VRRP 向导不支持该步骤类型');
+};
+
+/** 为每台 VR 生成「预览 → 下发 → [回查]」步骤（IPsec / SRv6 / HA VRRP 向导共用） */
 export const buildIbrDeployWizardSteps = (
-  endpoints: Array<{ label: string; vrId?: string | null }>,
+  endpoints: IbrDeployWizardEndpoint[],
   feature: IbrDeployFeature,
   options?: { includeVerify?: boolean },
 ): IbrDeployWizardStep[] => {
+  const steps: IbrDeployWizardStep[] = [];
+
+  if (feature === 'vrrp') {
+    for (const ep of endpoints) {
+      const vrId = String(ep.vrId || '').trim();
+      if (!vrId) continue;
+      steps.push({
+        title: `预览 ${ep.label}`,
+        desc: '读取本组 VRRP 组装配置（合并设备底稿）',
+        kind: 'preview',
+        feature,
+        vrId,
+        endpointLabel: ep.label,
+        meta: ep.meta,
+      });
+      steps.push({
+        title: `下发 ${ep.label}`,
+        desc: '定点合并后推送到设备，可重复下发',
+        kind: 'push',
+        feature,
+        vrId,
+        endpointLabel: ep.label,
+        meta: ep.meta,
+      });
+    }
+    return steps;
+  }
+
   const cfg = IBR_DEPLOY_FEATURES[feature];
   const includeVerify = options?.includeVerify === true && !!cfg.verifyPath;
-  const steps: IbrDeployWizardStep[] = [];
 
   for (const ep of endpoints) {
     const vrId = String(ep.vrId || '').trim();
@@ -168,6 +238,7 @@ export const buildIbrDeployWizardSteps = (
         feature,
         vrId,
         endpointLabel: ep.label,
+        meta: ep.meta,
       });
     }
 
@@ -178,6 +249,7 @@ export const buildIbrDeployWizardSteps = (
       feature,
       vrId,
       endpointLabel: ep.label,
+      meta: ep.meta,
     });
 
     if (includeVerify && cfg.verifyPath) {
@@ -188,6 +260,7 @@ export const buildIbrDeployWizardSteps = (
         feature,
         vrId,
         endpointLabel: ep.label,
+        meta: ep.meta,
       });
     }
   }
@@ -197,6 +270,10 @@ export const buildIbrDeployWizardSteps = (
 
 /** 执行单步（预览 / 下发 / 回查），返回日志文本 */
 export const executeIbrDeployWizardStep = async (step: IbrDeployWizardStep): Promise<string> => {
+  if (step.feature === 'vrrp') {
+    return executeHaVrrpWizardStep(step);
+  }
+
   const cfg = IBR_DEPLOY_FEATURES[step.feature];
   const tag = step.endpointLabel || cfg.label;
 
@@ -255,7 +332,7 @@ export const executeIbrDeployWizardStep = async (step: IbrDeployWizardStep): Pro
 /** 列表页等场景：确认后走统一下发（漂移检测 → 推送） */
 export const runIbrDeployPushInteractive = (options: {
   vrId: string;
-  feature: IbrDeployFeature;
+  feature: IbrSliceDeployFeature;
   confirmTitle?: string;
   confirmContent?: string;
 }): Promise<unknown> => {

@@ -278,11 +278,13 @@ function validateMemberNode(member: HaGroupVrrpMemberIntent): void {
       throw new Error(`${prefix}探测间隔须为 1–255 秒`);
     }
     const track = String(group.track_gateway ?? '').trim();
-    if (/^\d+\.\d+\.\d+\.\d+\//.test(track)) {
-      throw new Error(`${prefix} track-gateway 不可携带掩码`);
-    }
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(track) && !IPV4_HOST_RE.test(track)) {
-      throw new Error(`${prefix} track-gateway IPv4 不合法`);
+    if (track) {
+      if (IPV4_OPTIONAL_CIDR_RE.test(track) && track.includes('/')) {
+        throw new Error(`${prefix} track-gateway 不可携带掩码`);
+      }
+      if (!IPV4_HOST_RE.test(track)) {
+        throw new Error(`${prefix} track-gateway 须为不带掩码的 IPv4 地址，不能填接口名`);
+      }
     }
   }
 }

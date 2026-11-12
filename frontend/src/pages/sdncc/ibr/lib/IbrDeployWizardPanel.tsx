@@ -6,6 +6,7 @@ import type { IbrDeployWizardStatus } from './useIbrDeployWizard';
 export type IbrDeployWizardPanelProps = {
   title?: string;
   hint?: string;
+  headerExtra?: React.ReactNode;
   steps: IbrDeployWizardStep[];
   activeStep: number;
   logs: Record<number, string>;
@@ -24,6 +25,7 @@ const statusColor = (s?: IbrDeployWizardStatus) => {
 const IbrDeployWizardPanel: React.FC<IbrDeployWizardPanelProps> = ({
   title = '下发向导',
   hint = '进入本页后将自动依次执行各步；某步失败时可点击该步「执行」重试。',
+  headerExtra,
   steps,
   activeStep,
   logs,
@@ -31,7 +33,19 @@ const IbrDeployWizardPanel: React.FC<IbrDeployWizardPanelProps> = ({
   onRunStep,
 }) => (
   <div>
-    <div style={{ marginBottom: 16, fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>{title}</div>
+    <div
+      style={{
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>{title}</div>
+      {headerExtra}
+    </div>
     {hint ? (
       <div style={{ fontSize: 12, color: '#64748b', marginBottom: 16 }}>{hint}</div>
     ) : null}

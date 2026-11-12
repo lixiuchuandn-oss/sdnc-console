@@ -215,4 +215,38 @@ describe('srv6Archive buildTunnelArchive', () => {
     expect(hubSidRoute?.via).toBe('203::33');
     expect(hubSidRoute?.via).not.toBe('203::22');
   });
+
+  it('writes HA CE fingerprint even without CE device config', () => {
+    const archive = buildTunnelArchive({
+      peA: 'pe-a',
+      peB: 'pe-b',
+      peAInnerIf: 'GigabitEthernet 0/0/1',
+      peBInnerIf: 'GigabitEthernet 0/0/0',
+      peConfigs: { peA: rawPeA, peB: rawPeB },
+      ceConfigs: {},
+      rdRtMeta: { rtCommon: '200:100', rdMap: { peA: '200:101', peB: '200:102' } },
+      ceAHaBinding: {
+        haGroupId: 'ha-1',
+        haGroupName: 'ha-1',
+        primaryVrUuid: 'ce1',
+        backupVrUuid: 'ce2',
+      },
+      ceBHaBinding: {
+        haGroupId: 'ha-2',
+        haGroupName: 'ha-2',
+        primaryVrUuid: 'ce3',
+        backupVrUuid: 'ce4',
+      },
+    });
+    expect(archive.endpointFingerprint?.ceA).toMatchObject({
+      haGroupId: 'ha-1',
+      haGroupName: 'ha-1',
+      backupVrUuid: 'ce2',
+    });
+    expect(archive.endpointFingerprint?.ceB).toMatchObject({
+      haGroupId: 'ha-2',
+      haGroupName: 'ha-2',
+      backupVrUuid: 'ce4',
+    });
+  });
 });

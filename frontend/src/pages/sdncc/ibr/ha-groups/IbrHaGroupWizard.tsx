@@ -10,7 +10,6 @@ import {
 	Radio,
 	Row,
 	Select,
-	Space,
 	Steps,
 	Tabs,
 	Tag,
@@ -21,17 +20,21 @@ import type { FormInstance } from 'antd/es/form';
 import { CheckCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../../contexts/AuthContext';
-import { getApiErrorMessage } from '../../../../services/api';
+import { fetchSrv6Tunnels, getApiErrorMessage } from '../../../../services/api';
 import { hasPermissionForAction } from '../../../../utils/accessMapping';
 import {
 	createIbrHaGroup,
-	deployIbrHaGroup,
 	fetchIbrHaGroup,
+	fetchIbrHaGroups,
 	replaceIbrHaGroupMembers,
 	updateIbrHaGroup,
 	type IbrHaGroup,
 } from '../../../../services/ibrHaGroupApi';
 import { fetchVrCacheMerged } from '../../../../services/virtualRouterApi';
+import {
+	evaluateHaMembersAgainstTunnels,
+	type Srv6TunnelEndpointLite,
+} from './haGroupTunnelGate';
 import {
 	applyIbrVrRolesToRows,
 	buildIbrVrRolesMapFromVr2,
@@ -39,9 +42,11 @@ import {
 	ibrVrRowName,
 	loadIbrVrCatalog,
 } from '../lib/ibrVrCatalog';
+import IbrDeployWizardPanel from '../lib/IbrDeployWizardPanel';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../lib/IbrWizardCard';
 import IbrWizardPage from '../lib/IbrWizardPage';
 import IbrWizardStepPane from '../lib/IbrWizardStepPane';
+import { useIbrDeployWizard } from '../lib/useIbrDeployWizard';
 import HaGroupNodeVrrpPane from './HaGroupNodeVrrpPane';
 import {
 	HA_GROUP_MEMBER_SCOPE_HINT,
@@ -50,12 +55,14 @@ import {
 	buildHaGroupVrrpIntent,
 	collectHaDeviceIfaces,
 	createDefaultNodeVrrp,
+	decorateOccupiedHaVrOptions,
 	generateHaGroupName,
 	haGroupEligibleRoleLabel,
 	isAutoHaGroupName,
 	isHaGroupEligibleIbrRole,
 	lookupIfaceIpv4,
 	matchPeerInstance,
+	occupiedHaMemberIndex,
 	parseVrrpIntentToForm,
 	sideLabel,
 	validateHaGroupWizardForm,
@@ -148,21 +155,117 @@ const IbrHaGroupWizard: React.FC = () => {
 	const [vrRoleMap, setVrRoleMap] = useState<Record<string, string>>({});
 	const [savedGroup, setSavedGroup] = useState<IbrHaGroup | null>(null);
 	const [platformSaved, setPlatformSaved] = useState(false);
-	const [deployLoading, setDeployLoading] = useState(false);
-	const [deployDone, setDeployDone] = useState(false);
-	const [deployError, setDeployError] = useState<string | null>(null);
+	const [haGroupList, setHaGroupList] = useState<IbrHaGroup[]>([]);
 	const [previewKey, setPreviewKey] = useState(0);
 	const [deviceTab, setDeviceTab] = useState<'primary' | 'backup'>('primary');
 	const [ifaceMap, setIfaceMap] = useState<Record<string, HaDeviceIface[]>>({});
 	const [ifaceLoadingMap, setIfaceLoadingMap] = useState<Record<string, boolean>>({});
+	const [tunnelEndpoints, setTunnelEndpoints] = useState<Srv6TunnelEndpointLite[]>([]);
+	const deployAutoStartedRef = useRef(false);
 
 	const primaryUuid = Form.useWatch('primaryUuid', form);
 	const backupUuid = Form.useWatch('backupUuid', form);
 	const side = Form.useWatch('side', form) as HaGroupSide | undefined;
 
+	const memberTunnelGate = useMemo(
+		() =>
+			evaluateHaMembersAgainstTunnels(
+				tunnelEndpoints,
+				String(primaryUuid || ''),
+				String(backupUuid || ''),
+			),
+		[backupUuid, primaryUuid, tunnelEndpoints],
+	);
+
+	const occupiedMembers = useMemo(
+		() => occupiedHaMemberIndex(haGroupList, editId),
+		[editId, haGroupList],
+	);
+
+	const freeVrCount = useMemo(
+		() => vrOptions.filter((opt) => !occupiedMembers.has(opt.value)).length,
+		[occupiedMembers, vrOptions],
+	);
+
+	const primaryVrOptions = useMemo(
+		() =>
+			decorateOccupiedHaVrOptions(
+				vrOptions.filter((opt) => opt.value !== backupUuid),
+				occupiedMembers,
+			),
+		[backupUuid, occupiedMembers, vrOptions],
+	);
+
+	const backupVrOptions = useMemo(
+		() =>
+			decorateOccupiedHaVrOptions(
+				vrOptions.filter((opt) => opt.value !== primaryUuid),
+				occupiedMembers,
+			),
+		[occupiedMembers, primaryUuid, vrOptions],
+	);
+
+	const resolveHaDeployEndpoints = useCallback(() => {
+		const groupId = String(savedGroup?.id || editId || '').trim();
+		const labelOf = (uuid: string | undefined, fallback: string) => {
+			const id = String(uuid || '').trim();
+			if (!id) return fallback;
+			const role = vrRoleMap[id];
+			const roleSuffix = role ? ` [${haGroupEligibleRoleLabel(role)}]` : '';
+			const mgmt = vrMgmtMap[id];
+			return `${vrNameMap[id] || id}${roleSuffix}${mgmt ? ` · ${mgmt}` : ''}`;
+		};
+		return [
+			{
+				label: `${labelOf(primaryUuid, '主节点')}（主）`,
+				vrId: String(primaryUuid || ''),
+				meta: { haGroupId: groupId, haRole: 'primary' as const },
+			},
+			{
+				label: `${labelOf(backupUuid, '备节点')}（备）`,
+				vrId: String(backupUuid || ''),
+				meta: { haGroupId: groupId, haRole: 'backup' as const },
+			},
+		];
+	}, [backupUuid, editId, primaryUuid, savedGroup?.id, vrMgmtMap, vrNameMap, vrRoleMap]);
+
+	const haDeployWizard = useIbrDeployWizard({
+		feature: 'vrrp',
+		resolveEndpoints: resolveHaDeployEndpoints,
+		onAllFinished: () => {
+			message.success('主备 VRRP 下发流程已执行完毕');
+			const groupId = String(savedGroup?.id || editId || '').trim();
+			if (!groupId) return;
+			void fetchIbrHaGroup(groupId)
+				.then((group) => setSavedGroup(group))
+				.catch(() => undefined);
+		},
+	});
+
+	const deployBusy = haDeployWizard.steps.some((_, i) => haDeployWizard.status[i] === 'process');
+
 	const catalogLoadGenRef = useRef(0);
 	const editLoadGenRef = useRef(0);
 	const ifaceLoadGenRef = useRef<Record<string, number>>({});
+
+	const loadTunnelEndpoints = useCallback(async () => {
+		try {
+			const list = await fetchSrv6Tunnels({ skipCache: true, includeHealth: false });
+			const rows = Array.isArray(list) ? list : [];
+			setTunnelEndpoints(
+				rows.map((t: any) => ({
+					id: String(t?.id || ''),
+					name: String(t?.name || t?.id || ''),
+					peA: t?.peA,
+					peB: t?.peB,
+					ceA: t?.ceA,
+					ceB: t?.ceB,
+				})),
+			);
+		} catch {
+			setTunnelEndpoints([]);
+		}
+	}, []);
 
 	const loadVrCatalog = useCallback(async () => {
 		const gen = ++catalogLoadGenRef.current;
@@ -231,6 +334,15 @@ const IbrHaGroupWizard: React.FC = () => {
 		}
 	}, []);
 
+	const loadHaGroups = useCallback(async () => {
+		try {
+			const groups = await fetchIbrHaGroups({ skipCache: true });
+			setHaGroupList(groups);
+		} catch {
+			setHaGroupList([]);
+		}
+	}, []);
+
 	const loadExistingGroup = useCallback(async () => {
 		if (!editId?.trim()) return;
 		const gen = ++editLoadGenRef.current;
@@ -241,8 +353,6 @@ const IbrHaGroupWizard: React.FC = () => {
 			if (gen !== editLoadGenRef.current || reqId !== editId?.trim()) return;
 			setSavedGroup(group);
 			setPlatformSaved(true);
-			setDeployDone(group.status === 'configured');
-			setDeployError(null);
 			const primary = memberByRole(group, 'primary');
 			const backup = memberByRole(group, 'backup');
 			const vrrpForm = parseVrrpIntentToForm(group.vrrpIntent, {
@@ -268,6 +378,8 @@ const IbrHaGroupWizard: React.FC = () => {
 
 	useEffect(() => {
 		void loadVrCatalog();
+		void loadTunnelEndpoints();
+		void loadHaGroups();
 		if (isEdit) {
 			void loadExistingGroup();
 		} else {
@@ -278,7 +390,7 @@ const IbrHaGroupWizard: React.FC = () => {
 				backup: createDefaultNodeVrrp('backup'),
 			});
 		}
-	}, [form, isEdit, loadExistingGroup, loadVrCatalog]);
+	}, [form, isEdit, loadExistingGroup, loadHaGroups, loadTunnelEndpoints, loadVrCatalog]);
 
 	useEffect(() => {
 		if (primaryUuid) void loadDeviceIfaces(primaryUuid);
@@ -303,9 +415,26 @@ const IbrHaGroupWizard: React.FC = () => {
 		return [];
 	};
 
+	const occupiedMemberError = (values: HaGroupWizardFormValues): string | null => {
+		const primaryOwner = occupiedMembers.get(String(values.primaryUuid || '').trim());
+		if (primaryOwner) return `主节点已属于高可用组「${primaryOwner}」`;
+		const backupOwner = occupiedMembers.get(String(values.backupUuid || '').trim());
+		if (backupOwner) return `备节点已属于高可用组「${backupOwner}」`;
+		return null;
+	};
+
 	const validateHaStepsThrough = (from: number, to: number) =>
 		validateWizardStepsThrough(form, from, to, haFieldsForStep, {
 			beforeAdvance: async (step) => {
+				if (step === 0) {
+					const values = form.getFieldsValue(true) as HaGroupWizardFormValues;
+					const occupiedErr = occupiedMemberError(values);
+					if (occupiedErr) {
+						message.error(occupiedErr);
+						return false;
+					}
+					return true;
+				}
 				if (step !== 1) return true;
 				try {
 					await form.validateFields();
@@ -317,6 +446,11 @@ const IbrHaGroupWizard: React.FC = () => {
 				const formErr = validateHaGroupWizardForm(values);
 				if (formErr) {
 					message.error(formErr);
+					return false;
+				}
+				const occupiedErr = occupiedMemberError(values);
+				if (occupiedErr) {
+					message.error(occupiedErr);
 					return false;
 				}
 				return true;
@@ -345,8 +479,23 @@ const IbrHaGroupWizard: React.FC = () => {
 				message.error(formErr);
 				return;
 			}
+			const occupiedErr = occupiedMemberError(values);
+			if (occupiedErr) {
+				message.error(occupiedErr);
+				return;
+			}
+			const gate = evaluateHaMembersAgainstTunnels(
+				tunnelEndpoints,
+				values.primaryUuid,
+				values.backupUuid,
+			);
+			if (gate.hardError) {
+				message.error(gate.hardError);
+				return;
+			}
 			setLoading(true);
 			const vrrpIntent = buildHaGroupVrrpIntent(values);
+			let writeWarnings: string[] = [];
 			if (isEdit && editId) {
 				const currentPrimary = memberByRole(savedGroup, 'primary')?.vrUuid;
 				const currentBackup = memberByRole(savedGroup, 'backup')?.vrUuid;
@@ -355,10 +504,12 @@ const IbrHaGroupWizard: React.FC = () => {
 					currentBackup &&
 					(currentPrimary !== values.primaryUuid || currentBackup !== values.backupUuid)
 				) {
-					await replaceIbrHaGroupMembers(editId, {
+					const replaced = await replaceIbrHaGroupMembers(editId, {
 						primaryUuid: values.primaryUuid,
 						backupUuid: values.backupUuid,
 					});
+					writeWarnings = replaced.warnings;
+					setSavedGroup(replaced.group);
 				}
 				const updated = await updateIbrHaGroup(editId, {
 					name: values.name,
@@ -374,13 +525,15 @@ const IbrHaGroupWizard: React.FC = () => {
 					backupUuid: values.backupUuid,
 					vrrpIntent,
 				});
-				setSavedGroup(created);
-				navigate(`/admin/interconnect/ha-groups/${created.id}/wizard`, { replace: true });
+				writeWarnings = created.warnings;
+				setSavedGroup(created.group);
+				navigate(`/admin/interconnect/ha-groups/${created.group.id}/wizard`, { replace: true });
 			}
 			setPlatformSaved(true);
-			setDeployDone(false);
-			setDeployError(null);
+			void loadHaGroups();
 			message.success(isEdit ? 'HA 组已更新' : 'HA 组已创建（草稿）');
+			const tips = writeWarnings.length ? writeWarnings : gate.warnings;
+			tips.forEach((w) => message.warning(w, 8));
 			refreshPreview();
 		} catch (e) {
 			if (e && typeof e === 'object' && 'errorFields' in e) return;
@@ -390,37 +543,24 @@ const IbrHaGroupWizard: React.FC = () => {
 		}
 	};
 
-	const handleDeploy = async () => {
+	useEffect(() => {
+		if (current !== 3) {
+			deployAutoStartedRef.current = false;
+			haDeployWizard.cancel();
+			return;
+		}
 		const groupId = String(savedGroup?.id || editId || '').trim();
-		if (!groupId) {
-			message.error('请先保存 HA 组到平台');
+		if (!groupId) return;
+		if (deployAutoStartedRef.current) return;
+		deployAutoStartedRef.current = true;
+		// 已配置组进入本步只展示步骤，不自动推设备；改意图保存后状态会回草稿并自动下发
+		if (savedGroup?.status === 'configured') {
+			haDeployWizard.resetWizard();
 			return;
 		}
-		if (!platformSaved && !savedGroup) {
-			message.error('请先保存 HA 组到平台');
-			return;
-		}
-		setDeployLoading(true);
-		setDeployError(null);
-		try {
-			const result = await deployIbrHaGroup(groupId);
-			setSavedGroup(result.group);
-			setDeployDone(true);
-			message.success('主备 VRRP 已下发到设备');
-		} catch (e) {
-			const msg = getApiErrorMessage(e, '下发失败');
-			setDeployError(msg);
-			message.error(msg);
-			try {
-				const refreshed = await fetchIbrHaGroup(groupId);
-				setSavedGroup(refreshed);
-			} catch {
-				/* ignore refresh errors */
-			}
-		} finally {
-			setDeployLoading(false);
-		}
-	};
+		haDeployWizard.startAuto();
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在进入第 4 步时触发自动下发链
+	}, [current, editId, savedGroup?.id, savedGroup?.status]);
 
 	const vrLabel = (uuid?: string) => {
 		const id = String(uuid || '').trim();
@@ -439,7 +579,6 @@ const IbrHaGroupWizard: React.FC = () => {
 	};
 
 	const sideHint = HA_SIDE_OPTIONS.find((o) => o.value === side)?.hint ?? HA_SIDE_OPTIONS[0]!.hint;
-	const eligibleVrCount = vrOptions.length;
 
 	const onFormValuesChange = (
 		changed: Partial<HaGroupWizardFormValues>,
@@ -490,13 +629,41 @@ const IbrHaGroupWizard: React.FC = () => {
 					options={HA_SIDE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
 				/>
 			</Form.Item>
-			{eligibleVrCount < 2 ? (
+			{freeVrCount < 2 ? (
 				<Alert
 					type="warning"
 					showIcon
 					style={{ marginBottom: 16 }}
 					message="可选实例不足"
-					description="至少需要 2 台 CE 或标准模式 IBR。请确认 CSMCTL 可达且 VR2 配置中已写入 role 字段。"
+					description={
+						vrOptions.length < 2
+							? '至少需要 2 台 CE 或标准模式 IBR。请确认 CSMCTL 可达且 VR2 配置中已写入 role 字段。'
+							: '至少需要 2 台尚未编入其它高可用组的 CE 或标准模式 IBR。已占用的设备会在下拉中禁用。'
+					}
+				/>
+			) : null}
+			{memberTunnelGate.hardError ? (
+				<Alert
+					type="error"
+					showIcon
+					style={{ marginBottom: 16 }}
+					message="不能组成 HA 组"
+					description={memberTunnelGate.hardError}
+				/>
+			) : null}
+			{!memberTunnelGate.hardError && memberTunnelGate.warnings.length ? (
+				<Alert
+					type="warning"
+					showIcon
+					style={{ marginBottom: 16 }}
+					message="成员已被隧道引用"
+					description={
+						<ul style={{ margin: 0, paddingLeft: 18 }}>
+							{memberTunnelGate.warnings.map((w) => (
+								<li key={w}>{w}</li>
+							))}
+						</ul>
+					}
 				/>
 			) : null}
 			<Row gutter={16}>
@@ -511,7 +678,7 @@ const IbrHaGroupWizard: React.FC = () => {
 							loading={vrLoading}
 							optionFilterProp="label"
 							placeholder="选择主节点设备"
-							options={vrOptions.filter((opt) => opt.value !== backupUuid)}
+							options={primaryVrOptions}
 						/>
 					</Form.Item>
 				</Col>
@@ -536,7 +703,7 @@ const IbrHaGroupWizard: React.FC = () => {
 							loading={vrLoading}
 							optionFilterProp="label"
 							placeholder="选择备节点设备"
-							options={vrOptions.filter((opt) => opt.value !== primaryUuid)}
+							options={backupVrOptions}
 						/>
 					</Form.Item>
 				</Col>
@@ -657,103 +824,42 @@ const IbrHaGroupWizard: React.FC = () => {
 		);
 	};
 
-	const deploySteps = [
-		{
-			title: '保存 HA 组与 vrrpIntent 到平台',
-			desc: platformSaved || savedGroup ? '已完成' : '待执行',
-			done: platformSaved || Boolean(savedGroup),
-		},
-		{
-			title: '下发主 / 备节点 VRRP',
-			desc: deployDone
-				? '已完成'
-				: deployError
-					? '失败（见下方说明）'
-					: '读设备底稿 → 合并接口实例与 vrrp group → CSMCTL 全量 POST',
-			done: deployDone,
-		},
-		{
-			title: '校验设备 VRRP',
-			desc: '请在 IBR Console 核对接口 vrrp 与 vrrp group；对端 HA 组需另开一次向导',
-			done: deployDone,
-		},
-	];
-
 	const renderStep3 = () => (
 		<>
 			<Alert
-				type={deployDone ? 'success' : 'info'}
+				type={savedGroup?.status === 'configured' ? 'success' : 'info'}
 				showIcon
 				style={{ marginBottom: 16 }}
 				message={
-					deployDone
-						? '策略已下发到主备 IBR'
-						: '下发将按设备当前配置定点合并 VRRP，不会整表覆盖其它业务域'
+					savedGroup?.status === 'configured'
+						? '主备 VRRP 可重复下发；重新下发会再次预览并推送两端'
+						: '进入本步后按「预览主 → 下发主 → 预览备 → 下发备」执行，日志中可见本组组装片'
 				}
 				description={`${sideLabel(side)} · 主 ${vrLabel(primaryUuid)} / 备 ${vrLabel(backupUuid)}`}
 			/>
-			{deployError ? (
+			{savedGroup?.status === 'degraded' ? (
 				<Alert
-					type="error"
+					type="warning"
 					showIcon
 					style={{ marginBottom: 16 }}
-					message="下发未完全成功"
-					description={
-						savedGroup?.status === 'degraded'
-							? `${deployError}（组状态已标为 degraded，请排查后备节点后重试）`
-							: deployError
-					}
+					message="组状态为降级"
+					description="主节点可能已下发、备节点未成功。可点失败步骤「执行」重试，或「重新下发」整链重跑。"
 				/>
 			) : null}
-			<div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-				{deploySteps.map((step, idx) => (
-					<Card
-						key={step.title}
-						size="small"
-						type="inner"
-						title={
-							<Space>
-								<span
-									style={{
-										display: 'inline-flex',
-										width: 24,
-										height: 24,
-										borderRadius: '50%',
-										background: step.done ? '#52c41a' : '#d9d9d9',
-										color: '#fff',
-										alignItems: 'center',
-										justifyContent: 'center',
-										fontSize: 12,
-									}}
-								>
-									{idx + 1}
-								</span>
-								<span>{step.title}</span>
-								<Text type="secondary" style={{ fontSize: 12 }}>
-									{step.desc}
-								</Text>
-							</Space>
-						}
-						extra={
-							idx === 1 ? (
-								<Button
-									type="primary"
-									size="small"
-									loading={deployLoading}
-									disabled={!platformSaved && !savedGroup}
-									onClick={() => void handleDeploy()}
-								>
-									{deployDone ? '重新下发' : '下发主备'}
-								</Button>
-							) : (
-								<Button size="small" disabled>
-									{step.done ? '已完成' : '—'}
-								</Button>
-							)
-						}
-					/>
-				))}
-			</div>
+			<IbrDeployWizardPanel
+				title="下发向导"
+				hint="与 SRv6 隧道向导相同：每步日志展示将写入或已推送的内容。失败可点该步「执行」重试；也可点「重新下发」整链重跑。"
+				headerExtra={
+					<Button size="small" disabled={deployBusy || !savedGroup} onClick={() => haDeployWizard.startAuto()}>
+						重新下发
+					</Button>
+				}
+				steps={haDeployWizard.steps}
+				activeStep={haDeployWizard.activeStep}
+				logs={haDeployWizard.logs}
+				status={haDeployWizard.status}
+				onRunStep={(idx) => void haDeployWizard.runStep(idx)}
+			/>
 			{savedGroup ? (
 				<div style={{ marginTop: 12 }}>
 					<Text type="secondary" style={{ fontSize: 12 }}>
@@ -824,7 +930,11 @@ const IbrHaGroupWizard: React.FC = () => {
 							)}
 							{current > 0 && current !== 3 && <Button onClick={prev}>上一步</Button>}
 							{current === 3 && (
-								<Button type="primary" onClick={() => navigate('/admin/interconnect/ha-groups')}>
+								<Button
+									type="primary"
+									disabled={deployBusy}
+									onClick={() => navigate('/admin/interconnect/ha-groups')}
+								>
 									关闭向导
 								</Button>
 							)}

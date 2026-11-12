@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Badge, Checkbox, Form, Input, Modal, Tag, message } from 'antd';
+import { Badge, Checkbox, Form, Input, Modal, Spin, Tabs, Tag, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -10,7 +10,9 @@ import { getApiErrorMessage } from '../../../../services/api';
 import {
 	deleteIbrHaGroup,
 	fetchIbrHaGroups,
+	previewIbrHaGroupDeploy,
 	type IbrHaGroup,
+	type IbrHaGroupDeployPreview,
 	type IbrHaGroupMember,
 	type IbrHaGroupStatus,
 } from '../../../../services/ibrHaGroupApi';
@@ -69,6 +71,28 @@ function formatMemberCell(member?: IbrHaGroupMember): React.ReactNode {
 	);
 }
 
+function safeStringify(value: unknown): string {
+	try {
+		return JSON.stringify(value, null, 2);
+	} catch {
+		return String(value);
+	}
+}
+
+const jsonBlockStyle: React.CSSProperties = {
+	fontSize: 12,
+	lineHeight: '18px',
+	whiteSpace: 'pre-wrap',
+	wordBreak: 'break-word',
+	overflowX: 'auto',
+	margin: 0,
+	maxHeight: 420,
+	background: '#1e1e1e',
+	color: '#d4d4d4',
+	padding: 12,
+	borderRadius: 6,
+};
+
 const IbrHaGroupsPage: React.FC = () => {
 	const navigate = useNavigate();
 	const { user } = useAuth();
@@ -80,6 +104,14 @@ const IbrHaGroupsPage: React.FC = () => {
 	const [rows, setRows] = useState<IbrHaGroup[]>([]);
 	const [keyword, setKeyword] = useState('');
 	const [filterForm] = Form.useForm();
+	const [configModal, setConfigModal] = useState<IbrHaGroup | null>(null);
+	const [configLoading, setConfigLoading] = useState(false);
+	const [configPreview, setConfigPreview] = useState<{
+		primary?: IbrHaGroupDeployPreview;
+		backup?: IbrHaGroupDeployPreview;
+		primaryError?: string;
+		backupError?: string;
+	}>({});
 
 	const load = useCallback(async (force?: boolean) => {
 		setLoading(true);
@@ -120,13 +152,35 @@ const IbrHaGroupsPage: React.FC = () => {
 		});
 	}, [keyword, rows]);
 
+	const handleViewConfig = useCallback(async (row: IbrHaGroup) => {
+		setConfigModal(row);
+		setConfigPreview({});
+		setConfigLoading(true);
+		try {
+			const [primary, backup] = await Promise.allSettled([
+				previewIbrHaGroupDeploy(row.id, 'primary', { mergeDevice: false }),
+				previewIbrHaGroupDeploy(row.id, 'backup', { mergeDevice: false }),
+			]);
+			setConfigPreview({
+				primary: primary.status === 'fulfilled' ? primary.value : undefined,
+				backup: backup.status === 'fulfilled' ? backup.value : undefined,
+				primaryError:
+					primary.status === 'rejected' ? getApiErrorMessage(primary.reason, '主节点组装失败') : undefined,
+				backupError:
+					backup.status === 'rejected' ? getApiErrorMessage(backup.reason, '备节点组装失败') : undefined,
+			});
+		} finally {
+			setConfigLoading(false);
+		}
+	}, []);
+
 	const handleDelete = useCallback((row: IbrHaGroup) => {
 		let revertDevice = false;
 		Modal.confirm({
-			title: '解散 HA 组',
+			title: '删除 HA 组',
 			content: (
 				<div>
-					<p style={{ marginBottom: 8 }}>确定解散「{row.name}」？不会删除 IBR 实例本身。</p>
+					<p style={{ marginBottom: 8 }}>确定删除「{row.name}」？不会删除 IBR 实例本身。</p>
 					<Checkbox
 						onChange={(e) => {
 							revertDevice = e.target.checked;
@@ -135,20 +189,20 @@ const IbrHaGroupsPage: React.FC = () => {
 						同时从主备设备回退本组 VRRP（写入 VR2，由 agent 应用到 CLI）
 					</Checkbox>
 					<p style={{ margin: '8px 0 0', color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
-						仍被 SRv6 隧道绑定的组不能解散。不勾选则只删平台组档案，设备 / VR2 上的 VRRP 会留下；勾选失败时组仍保留，可重试。
+						仍被 SRv6 隧道绑定的组不能删除。不勾选则只删平台组档案，设备 / VR2 上的 VRRP 会留下；勾选失败时组仍保留，可重试。
 					</p>
 				</div>
 			),
-			okText: '解散',
+			okText: '删除',
 			okButtonProps: { danger: true },
 			cancelText: '取消',
 			onOk: async () => {
 				try {
 					await deleteIbrHaGroup(row.id, { revertDevice });
-					message.success(revertDevice ? '已解散并回退设备 VRRP' : '已解散（设备 VRRP 未改）');
+					message.success(revertDevice ? '已删除并回退设备 VRRP' : '已删除（设备 VRRP 未改）');
 					await load(true);
 				} catch (e) {
-					message.error(getApiErrorMessage(e, '解散失败'));
+					message.error(getApiErrorMessage(e, '删除失败'));
 					throw e;
 				}
 			},
@@ -195,27 +249,35 @@ const IbrHaGroupsPage: React.FC = () => {
 				title: '操作',
 				key: 'actions',
 				fixed: 'right',
-				render: (_v, row) =>
-					canWrite ? (
+				render: (_v, row) => (
 						<ResourceActionsDropdown
 							items={[
 								{
-									key: 'wizard',
-									label: '配置向导',
-									onClick: () => navigate(`/admin/interconnect/ha-groups/${row.id}/wizard`),
+									key: 'view',
+									label: '查看配置',
+									onClick: () => void handleViewConfig(row),
 								},
-								{
-									key: 'delete',
-									label: '解散',
-									danger: true,
-									onClick: () => handleDelete(row),
-								},
+								...(canWrite
+									? [
+											{
+												key: 'wizard',
+												label: '配置向导',
+												onClick: () => navigate(`/admin/interconnect/ha-groups/${row.id}/wizard`),
+											},
+											{
+												key: 'delete',
+												label: '删除',
+												danger: true,
+												onClick: () => handleDelete(row),
+											},
+										]
+									: []),
 							]}
 						/>
-					) : null,
+					),
 			},
 		];
-	}, [canWrite, navigate, handleDelete]);
+	}, [canWrite, handleDelete, handleViewConfig, navigate]);
 
 	return (
 		<PageContainer
@@ -274,7 +336,63 @@ const IbrHaGroupsPage: React.FC = () => {
 					showTotal: (total) => `共 ${total} 条`,
 				},
 			}}
-		/>
+		>
+			<Modal
+				title={`HA 组配置 · ${configModal?.name || ''}`}
+				open={Boolean(configModal)}
+				onCancel={() => setConfigModal(null)}
+				footer={null}
+				width={760}
+				destroyOnClose
+			>
+				<Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 0 }}>
+					平台意图为向导保存的 vrrpIntent；组装片是下发时写入接口 vrrp 与顶层 vrrp group 的 JSON。
+				</Typography.Paragraph>
+				<Spin spinning={configLoading}>
+					<Tabs
+						items={[
+							{
+								key: 'intent',
+								label: '平台意图',
+								children: (
+									<pre style={jsonBlockStyle}>
+										{configModal?.vrrpIntent
+											? safeStringify(configModal.vrrpIntent)
+											: '本组尚未保存 VRRP 意图'}
+									</pre>
+								),
+							},
+							{
+								key: 'primary',
+								label: '主节点组装',
+								children: (
+									<pre style={jsonBlockStyle}>
+										{configPreview.primaryError
+											? configPreview.primaryError
+											: configPreview.primary
+												? safeStringify(configPreview.primary.slice)
+												: '暂无组装结果'}
+									</pre>
+								),
+							},
+							{
+								key: 'backup',
+								label: '备节点组装',
+								children: (
+									<pre style={jsonBlockStyle}>
+										{configPreview.backupError
+											? configPreview.backupError
+											: configPreview.backup
+												? safeStringify(configPreview.backup.slice)
+												: '暂无组装结果'}
+									</pre>
+								),
+							},
+						]}
+					/>
+				</Spin>
+			</Modal>
+		</PageContainer>
 	);
 };
 

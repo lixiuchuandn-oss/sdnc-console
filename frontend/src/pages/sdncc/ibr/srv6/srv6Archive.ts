@@ -725,30 +725,26 @@ export const buildTunnelArchive = (input: BuildTunnelArchiveInput): Srv6TunnelAr
       hubPeSlot === 'peB' ? hubFpMeta : undefined,
     );
   }
-  if (ceAfp) {
-    endpointFingerprint.ceA = {
-      ...buildCeFingerprint(ceAfp),
-      ...(ceAHaBinding
+  const mergeCeFingerprint = (
+    cfg: unknown,
+    binding?: Srv6CeHaBinding | null,
+  ): Srv6CeFingerprint | undefined => {
+    if (!cfg && !binding) return undefined;
+    return {
+      ...(cfg ? buildCeFingerprint(cfg) : {}),
+      ...(binding
         ? {
-            haGroupId: ceAHaBinding.haGroupId,
-            haGroupName: ceAHaBinding.haGroupName,
-            backupVrUuid: ceAHaBinding.backupVrUuid,
+            haGroupId: binding.haGroupId,
+            haGroupName: binding.haGroupName,
+            backupVrUuid: binding.backupVrUuid,
           }
         : {}),
     };
-  }
-  if (ceBfp) {
-    endpointFingerprint.ceB = {
-      ...buildCeFingerprint(ceBfp),
-      ...(ceBHaBinding
-        ? {
-            haGroupId: ceBHaBinding.haGroupId,
-            haGroupName: ceBHaBinding.haGroupName,
-            backupVrUuid: ceBHaBinding.backupVrUuid,
-          }
-        : {}),
-    };
-  }
+  };
+  const ceAMerged = mergeCeFingerprint(ceAfp, ceAHaBinding);
+  const ceBMerged = mergeCeFingerprint(ceBfp, ceBHaBinding);
+  if (ceAMerged) endpointFingerprint.ceA = ceAMerged;
+  if (ceBMerged) endpointFingerprint.ceB = ceBMerged;
 
   return {
     peAInnerIf,

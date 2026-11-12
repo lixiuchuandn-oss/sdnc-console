@@ -53,14 +53,55 @@ ibrHaGroupRoutes.post('/', async (req, res) => {
   }
   try {
     const body = req.body ?? {};
-    const data = await ibrHaGroupService.create({
+    const result = await ibrHaGroupService.create({
       name: body.name,
       description: body.description,
       primaryUuid: body.primaryUuid,
       backupUuid: body.backupUuid,
       vrrpIntent: body.vrrpIntent,
     });
-    return res.status(201).json({ code: 201, msg: 'ok', data });
+    return res.status(201).json({
+      code: 201,
+      msg: 'ok',
+      data: result.group,
+      warnings: result.warnings,
+    });
+  } catch (err) {
+    return mapError(res, err);
+  }
+});
+
+/** 预览某节点将写入的 VRRP 组装片（默认同设备底稿合并）；须挂在 /:id 之前 */
+ibrHaGroupRoutes.get('/:id/deploy/preview', async (req, res) => {
+  if (!hasRead(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:read' });
+  }
+  try {
+    const roleRaw = String(req.query.role || '').trim();
+    if (roleRaw !== 'primary' && roleRaw !== 'backup') {
+      return res.status(400).json({ code: 400, message: 'role 须为 primary 或 backup' });
+    }
+    const mergeRaw = String(req.query.merge ?? '1').trim().toLowerCase();
+    const mergeDevice = mergeRaw !== '0' && mergeRaw !== 'false' && mergeRaw !== 'no';
+    const data = await ibrHaGroupService.preview(String(req.params.id || '').trim(), roleRaw, {
+      mergeDevice,
+    });
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err) {
+    return mapError(res, err);
+  }
+});
+
+/** 将 vrrpIntent 下发至主备 IBR（读设备 → 定点 merge → 全量 POST）；body.role 可只推一端 */
+ibrHaGroupRoutes.post('/:id/deploy', async (req, res) => {
+  if (!hasWrite(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
+  }
+  try {
+    const roleRaw = String(req.body?.role || '').trim();
+    const role = roleRaw === 'primary' || roleRaw === 'backup' ? roleRaw : undefined;
+    const data = await ibrHaGroupService.deploy(String(req.params.id || '').trim(), { role });
+    return res.json({ code: 200, msg: 'ok', data });
   } catch (err) {
     return mapError(res, err);
   }
@@ -99,11 +140,16 @@ ibrHaGroupRoutes.put('/:id/members', async (req, res) => {
     return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
   }
   try {
-    const data = await ibrHaGroupService.replaceMembers(String(req.params.id || '').trim(), {
+    const result = await ibrHaGroupService.replaceMembers(String(req.params.id || '').trim(), {
       primaryUuid: req.body?.primaryUuid,
       backupUuid: req.body?.backupUuid,
     });
-    return res.json({ code: 200, msg: 'ok', data });
+    return res.json({
+      code: 200,
+      msg: 'ok',
+      data: result.group,
+      warnings: result.warnings,
+    });
   } catch (err) {
     return mapError(res, err);
   }
@@ -118,19 +164,6 @@ ibrHaGroupRoutes.delete('/:id', async (req, res) => {
     const revertDevice = revertRaw === '1' || revertRaw === 'true' || revertRaw === 'yes';
     await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
     return res.json({ code: 200, msg: 'ok' });
-  } catch (err) {
-    return mapError(res, err);
-  }
-});
-
-/** 将 vrrpIntent 下发至主备 IBR（读设备 → 定点 merge → 全量 POST） */
-ibrHaGroupRoutes.post('/:id/deploy', async (req, res) => {
-  if (!hasWrite(req)) {
-    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
-  }
-  try {
-    const data = await ibrHaGroupService.deploy(String(req.params.id || '').trim());
-    return res.json({ code: 200, msg: 'ok', data });
   } catch (err) {
     return mapError(res, err);
   }

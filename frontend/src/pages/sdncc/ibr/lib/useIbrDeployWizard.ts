@@ -6,6 +6,7 @@ import {
   executeIbrDeployWizardStep,
   DeployDriftCancelledError,
   type IbrDeployFeature,
+  type IbrDeployWizardEndpoint,
   type IbrDeployWizardStep,
 } from './vrConfigDeployFlow';
 
@@ -15,7 +16,7 @@ export type UseIbrDeployWizardOptions = {
   feature: IbrDeployFeature;
   includeVerify?: boolean;
   /** 进入向导时解析当前端点列表 */
-  resolveEndpoints: () => Array<{ label: string; vrId?: string | null }>;
+  resolveEndpoints: () => IbrDeployWizardEndpoint[];
   onAllFinished?: () => void;
   stepDelayMs?: number;
 };

@@ -42,15 +42,29 @@ export async function fetchIbrHaGroup(id: string): Promise<IbrHaGroup> {
 	return unwrapData<IbrHaGroup>(res);
 }
 
+export type IbrHaGroupWriteResult = {
+	group: IbrHaGroup;
+	warnings: string[];
+};
+
+function unwrapWriteResult(payload: unknown): IbrHaGroupWriteResult {
+	const group = unwrapData<IbrHaGroup>(payload);
+	const warnings =
+		payload && typeof payload === 'object' && Array.isArray((payload as { warnings?: unknown }).warnings)
+			? ((payload as { warnings: unknown[] }).warnings.map((w) => String(w)).filter(Boolean) as string[])
+			: [];
+	return { group, warnings };
+}
+
 export async function createIbrHaGroup(body: {
 	name: string;
 	description?: string;
 	primaryUuid: string;
 	backupUuid: string;
 	vrrpIntent?: unknown;
-}): Promise<IbrHaGroup> {
+}): Promise<IbrHaGroupWriteResult> {
 	const res = await apiPost('/api/ibr-ha-groups', body);
-	return unwrapData<IbrHaGroup>(res);
+	return unwrapWriteResult(res);
 }
 
 export async function updateIbrHaGroup(
@@ -64,9 +78,9 @@ export async function updateIbrHaGroup(
 export async function replaceIbrHaGroupMembers(
 	id: string,
 	body: { primaryUuid: string; backupUuid: string },
-): Promise<IbrHaGroup> {
+): Promise<IbrHaGroupWriteResult> {
 	const res = await apiPut(`/api/ibr-ha-groups/${encodeURIComponent(id)}/members`, body);
-	return unwrapData<IbrHaGroup>(res);
+	return unwrapWriteResult(res);
 }
 
 export async function deleteIbrHaGroup(
@@ -79,12 +93,38 @@ export async function deleteIbrHaGroup(
 
 export type IbrHaGroupDeployResult = {
 	group: IbrHaGroup;
-	primary: { status: string; mergedConfig?: unknown };
-	backup: { status: string; mergedConfig?: unknown };
+	primary?: { status: string; mergedConfig?: unknown };
+	backup?: { status: string; mergedConfig?: unknown };
 };
 
-/** 将 vrrpIntent 经 CSMCTL 下发主备两台 IBR */
-export async function deployIbrHaGroup(id: string): Promise<IbrHaGroupDeployResult> {
-	const res = await apiPost(`/api/ibr-ha-groups/${encodeURIComponent(id)}/deploy`, {});
+export type IbrHaGroupDeployPreview = {
+	role: 'primary' | 'backup';
+	vrUuid: string;
+	patch: { ifacePatches: unknown; topVrrp: unknown };
+	slice: { interfaces: Array<{ name: string; vrrp?: unknown }>; vrrp: unknown };
+	warning?: string;
+};
+
+/** 预览某节点将写入的 VRRP 组装片；mergeDevice=false 时不读设备底稿 */
+export async function previewIbrHaGroupDeploy(
+	id: string,
+	role: 'primary' | 'backup',
+	options?: { mergeDevice?: boolean },
+): Promise<IbrHaGroupDeployPreview> {
+	const merge = options?.mergeDevice === false ? '0' : '1';
+	const res = await apiRequest(
+		`/api/ibr-ha-groups/${encodeURIComponent(id)}/deploy/preview?role=${encodeURIComponent(role)}&merge=${merge}`,
+		{ skipCache: true, enableDeduplication: false },
+	);
+	return unwrapData<IbrHaGroupDeployPreview>(res);
+}
+
+/** 将 vrrpIntent 经 CSMCTL 下发；传 role 时只推该节点，可重复下发 */
+export async function deployIbrHaGroup(
+	id: string,
+	options?: { role?: 'primary' | 'backup' },
+): Promise<IbrHaGroupDeployResult> {
+	const body = options?.role ? { role: options.role } : {};
+	const res = await apiPost(`/api/ibr-ha-groups/${encodeURIComponent(id)}/deploy`, body);
 	return unwrapData<IbrHaGroupDeployResult>(res);
 }

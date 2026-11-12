@@ -111,9 +111,10 @@ const HaGroupNodeVrrpPane: React.FC<HaGroupNodeVrrpPaneProps> = ({
 						{...field}
 						name={[field.name, 'virtualIp']}
 						label="VRRP IP"
-						rules={[{ required: true, message: '请输入 VRRP IP' }]}
+						rules={[{ required: true, message: '请输入 VRRP IP（须含掩码）' }]}
+						extra="须为 IPv4/掩码，例如 34.1.1.254/24；未填掩码时按 /32 下发"
 					>
-						<Input placeholder="例如 10.16.160.123/26" />
+						<Input placeholder="例如 34.1.1.254/24" />
 					</Form.Item>
 				</Col>
 				<Col span={12}>
@@ -262,9 +263,9 @@ const HaGroupNodeVrrpPane: React.FC<HaGroupNodeVrrpPaneProps> = ({
 				{...field}
 				name={[field.name, 'trackGateway']}
 				label="Track 网关（可选）"
-				extra="网关或任意可达地址；IPv4 不带掩码，也可填接口名"
+				extra="IPv4 地址，不带掩码，例如 34.1.1.3；设备不支持填接口名"
 			>
-				<Input placeholder="例如 172.16.23.3" />
+				<Input placeholder="例如 34.1.1.3" />
 			</Form.Item>
 		</div>
 	);

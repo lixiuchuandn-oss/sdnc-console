@@ -3,6 +3,7 @@ import {
   applyVrrpPatchToDeviceConfig,
   ensureVipCidr,
   materializeHaGroupVrrpForMember,
+  pickHaVrrpDeploySlice,
   stripHaGroupVrrpFromDeviceConfig,
 } from './haGroupVrrpMaterialize';
 
@@ -181,6 +182,11 @@ describe('haGroupVrrpMaterialize', () => {
     expect(top).toHaveLength(2);
     expect(top.find((g) => g.group_id === 1)?.track_gateway).toEqual(['192.168.1.1']);
     expect(top.find((g) => g.group_id === 1)?.track_interval).toBe(1);
+
+    const slice = pickHaVrrpDeploySlice(merged, patch);
+    expect(slice.interfaces).toHaveLength(1);
+    expect(slice.interfaces[0]?.name).toBe('GigabitEthernet0/0/1');
+    expect(Array.isArray(slice.vrrp)).toBe(true);
   });
 
   it('stripHaGroupVrrpFromDeviceConfig removes only this group vrid/group_id', () => {

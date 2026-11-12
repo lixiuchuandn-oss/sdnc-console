@@ -180,6 +180,13 @@ describe('haGroupVrrpIntent', () => {
     expect(() => validateHaGroupVrrpIntent(normalized)).not.toThrow();
   });
 
+  it('rejects interface names as track-gateway', () => {
+    const normalized = normalizeHaGroupVrrpIntent(legacyIntent);
+    const primary = normalized!.members.find((m) => m.role === 'primary')!;
+    primary.groups[0].track_gateway = 'GigabitEthernet 0/8/0';
+    expect(() => validateHaGroupVrrpIntent(normalized)).toThrow(/不能填接口名/);
+  });
+
   it('parses string false as preempt false', () => {
     const intent = normalizeHaGroupVrrpIntent({
       ...legacyIntent,

@@ -21,6 +21,8 @@ interface Srv6TunnelRow {
   peB: string;
   ceA: string;
   ceB: string;
+  ceAHaGroupName?: string | null;
+  ceBHaGroupName?: string | null;
   status: string;
   createdAt: string;
   tunnelTopology?: 'S' | 'H' | null;
@@ -39,6 +41,8 @@ interface Srv6TunnelRow {
 }
 
 function mapSrv6TunnelRow(it: any): Srv6TunnelRow {
+  const fpA = it?.endpointFingerprint?.ceA;
+  const fpB = it?.endpointFingerprint?.ceB;
   return {
     id: it.id,
     name: it.name,
@@ -46,6 +50,8 @@ function mapSrv6TunnelRow(it: any): Srv6TunnelRow {
     peB: it.peB,
     ceA: it.ceA,
     ceB: it.ceB,
+    ceAHaGroupName: fpA?.haGroupName || null,
+    ceBHaGroupName: fpB?.haGroupName || null,
     status: it.status,
     createdAt: it.createdAt,
     tunnelTopology: it.tunnelTopology,
@@ -57,6 +63,23 @@ function mapSrv6TunnelRow(it: any): Srv6TunnelRow {
     configHealthIssueCount: it.configHealthIssueCount ?? 0,
     configHealthCheckedAt: it.configHealthCheckedAt ?? null,
   };
+}
+
+function renderSrv6ListCeCell(
+  uuid: string,
+  haGroupName: string | null | undefined,
+  vrLabel: (id?: string | null) => string,
+) {
+  const primary = vrLabel(uuid);
+  if (!haGroupName) return primary;
+  return (
+    <Tooltip title={`逻辑主：${primary}（备机不下发）`}>
+      <span>
+        {haGroupName}
+        <Tag style={{ marginLeft: 6 }}>HA 主</Tag>
+      </span>
+    </Tooltip>
+  );
 }
 
 function configHealthTag(h?: Srv6TunnelRow['configHealth']) {
@@ -389,10 +412,18 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
         );
       },
     },
-    { title: 'PE-A', dataIndex: 'peA', key: 'peA' },
-    { title: 'PE-B', dataIndex: 'peB', key: 'peB' },
-    { title: 'CE-A', dataIndex: 'ceA', key: 'ceA' },
-    { title: 'CE-B', dataIndex: 'ceB', key: 'ceB' },
+    { title: 'PE-A', dataIndex: 'peA', key: 'peA', render: (id: string) => vrLabel(id) },
+    { title: 'PE-B', dataIndex: 'peB', key: 'peB', render: (id: string) => vrLabel(id) },
+    {
+      title: 'CE-A',
+      key: 'ceA',
+      render: (_: unknown, row) => renderSrv6ListCeCell(row.ceA, row.ceAHaGroupName, vrLabel),
+    },
+    {
+      title: 'CE-B',
+      key: 'ceB',
+      render: (_: unknown, row) => renderSrv6ListCeCell(row.ceB, row.ceBHaGroupName, vrLabel),
+    },
     {
       title: '生命周期',
       dataIndex: 'status',

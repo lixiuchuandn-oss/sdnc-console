@@ -37,6 +37,7 @@ import {
   normalizeSrv6TunnelPayload,
   validateSrv6VrEndpointsForCreate,
 } from './srv6.validation';
+import { assertSrv6TunnelHaCePair } from './srv6.haBinding';
 
 export const srv6Routes = Router();
 const repo = () => AppDataSource.getRepository(SRv6Tunnel);
@@ -170,6 +171,12 @@ srv6Routes.post('/', async (req, res, next) => {
       return;
     }
 
+    const haCheck = await assertSrv6TunnelHaCePair(item);
+    if (!haCheck.ok) {
+      res.status(400).json({ message: haCheck.message });
+      return;
+    }
+
     await alignReuseVrfTunnelArchive(item);
 
     const saved = await repo().save(item);
@@ -289,6 +296,12 @@ srv6Routes.put('/:id', async (req, res, next) => {
     const archiveCheck = validateTunnelArchiveRequired(current);
     if (!archiveCheck.ok) {
       res.status(400).json({ message: archiveCheck.message });
+      return;
+    }
+
+    const haCheck = await assertSrv6TunnelHaCePair(current);
+    if (!haCheck.ok) {
+      res.status(400).json({ message: haCheck.message });
       return;
     }
 

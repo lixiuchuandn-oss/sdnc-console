@@ -11,6 +11,8 @@ import {
 	parseVrrpIntentToForm,
 	readSideFromIntent,
 	sideLabel,
+	occupiedHaMemberIndex,
+	decorateOccupiedHaVrOptions,
 	validateHaGroupWizardForm,
 	type HaGroupWizardFormValues,
 } from './haGroupWizardLib';
@@ -54,7 +56,7 @@ const sampleFormValues = (): HaGroupWizardFormValues => ({
 			{
 				groupId: 1,
 				vrrpInstanceId: 10,
-				trackGateway: 'GigabitEthernet2/2/0',
+				trackGateway: '172.16.23.3',
 				trackInterval: 1,
 			},
 		],
@@ -75,7 +77,7 @@ const sampleFormValues = (): HaGroupWizardFormValues => ({
 			{
 				groupId: 1,
 				vrrpInstanceId: 10,
-				trackGateway: 'GigabitEthernet2/3/4',
+				trackGateway: '172.16.24.3',
 				trackInterval: 1,
 			},
 		],
@@ -93,7 +95,7 @@ describe('haGroupWizardLib vrrp intent', () => {
 		expect(primary?.instances[0]?.vrid).toBe(10);
 		expect(primary?.instances[0]?.advert_interval).toBe(1);
 		expect(primary?.instances[0]?.preempt).toBe(true);
-		expect(primary?.groups[0]?.track_gateway).toBe('GigabitEthernet2/2/0');
+		expect(primary?.groups[0]?.track_gateway).toBe('172.16.23.3');
 		expect(backup?.groups[0]?.track_interval).toBe(1);
 		expect(primary?.instances[0]?.priority).toBeGreaterThan(backup?.instances[0]?.priority ?? 0);
 	});
@@ -135,6 +137,46 @@ describe('haGroupWizardLib vrrp intent', () => {
 		const cidrTrack = sampleFormValues();
 		cidrTrack.primary.groups[0]!.trackGateway = '172.16.23.3/24';
 		expect(validateHaGroupWizardForm(cidrTrack)).toMatch(/不可携带掩码/);
+		const ifaceTrack = sampleFormValues();
+		ifaceTrack.primary.groups[0]!.trackGateway = 'GigabitEthernet 0/8/0';
+		expect(validateHaGroupWizardForm(ifaceTrack)).toMatch(/不能填接口名/);
+	});
+
+	it('occupiedHaMemberIndex skips current group and maps uuid to group name', () => {
+		const occupied = occupiedHaMemberIndex(
+			[
+				{
+					id: 'ha-1',
+					name: 'ha-1',
+					members: [{ vrUuid: 'ce1' }, { vrUuid: 'ce2' }],
+				},
+				{
+					id: 'ha-2',
+					name: 'ha-2',
+					members: [{ vrUuid: 'ce3' }],
+				},
+			],
+			'ha-2',
+		);
+		expect(occupied.get('ce1')).toBe('ha-1');
+		expect(occupied.get('ce2')).toBe('ha-1');
+		expect(occupied.has('ce3')).toBe(false);
+	});
+
+	it('decorateOccupiedHaVrOptions disables occupied uuids with owner hint', () => {
+		const decorated = decorateOccupiedHaVrOptions(
+			[
+				{ value: 'ce1', label: 'CE1 [CE] · 10.23.5.101' },
+				{ value: 'ce3', label: 'CE3 [CE] · 10.23.5.103' },
+			],
+			new Map([['ce1', 'ha-1']]),
+		);
+		expect(decorated[0]).toMatchObject({
+			value: 'ce1',
+			disabled: true,
+			label: 'CE1 [CE] · 10.23.5.101（已属于 ha-1）',
+		});
+		expect(decorated[1]).toEqual({ value: 'ce3', label: 'CE3 [CE] · 10.23.5.103' });
 	});
 
 	it('round-trips new intent and legacy intent to form fields', () => {
@@ -144,7 +186,7 @@ describe('haGroupWizardLib vrrp intent', () => {
 		});
 		const form = parseVrrpIntentToForm(intent, { primaryUuid: '', backupUuid: '' });
 		expect(form.side).toBe('peer');
-		expect(form.primary?.groups[0]?.trackGateway).toBe('GigabitEthernet2/2/0');
+		expect(form.primary?.groups[0]?.trackGateway).toBe('172.16.23.3');
 
 		const legacyForm = parseVrrpIntentToForm(
 			{

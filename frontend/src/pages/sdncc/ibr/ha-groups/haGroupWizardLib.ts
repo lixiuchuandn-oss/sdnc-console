@@ -470,11 +470,13 @@ function validateNodeVrrp(node: HaNodeVrrpForm | undefined, role: 'primary' | 'b
 			return `${prefix}组策略 ${n}：探测间隔须为 1–255 秒`;
 		}
 		const track = String(group.trackGateway || '').trim();
-		if (/^\d+\.\d+\.\d+\.\d+\//.test(track)) {
-			return `${prefix}组策略 ${n}：Track 地址不可携带掩码`;
-		}
-		if (/^\d+\.\d+\.\d+\.\d+$/.test(track) && !IPV4_HOST_RE.test(track)) {
-			return `${prefix}组策略 ${n}：Track 网关 IPv4 不合法`;
+		if (track) {
+			if (IPV4_OPTIONAL_CIDR_RE.test(track) && track.includes('/')) {
+				return `${prefix}组策略 ${n}：Track 网关不可携带掩码`;
+			}
+			if (!IPV4_HOST_RE.test(track)) {
+				return `${prefix}组策略 ${n}：Track 网关须为不带掩码的 IPv4 地址，不能填接口名`;
+			}
 		}
 	}
 	return null;
@@ -649,4 +651,44 @@ export function matchPeerInstance(
 	const list = peerInstances || [];
 	if (list[index]) return list[index];
 	return list.find((item) => Number(item.vrid) === Number(vrid));
+}
+
+export type HaGroupMemberOccupancyLite = {
+	id: string;
+	name?: string | null;
+	members?: Array<{ vrUuid?: string | null }>;
+};
+
+/** 已被其它 HA 组占用的 CE uuid → 组名；编辑本组时 excludeGroupId 放行现成员 */
+export function occupiedHaMemberIndex(
+	groups: HaGroupMemberOccupancyLite[],
+	excludeGroupId?: string | null,
+): Map<string, string> {
+	const occupied = new Map<string, string>();
+	const exclude = String(excludeGroupId || '').trim();
+	for (const group of groups) {
+		if (exclude && group.id === exclude) continue;
+		const owner = String(group.name || group.id || '').trim() || group.id;
+		for (const member of group.members || []) {
+			const uuid = String(member.vrUuid || '').trim();
+			if (uuid) occupied.set(uuid, owner);
+		}
+	}
+	return occupied;
+}
+
+/** 下拉中标注并禁用已被其它 HA 组占用的 CE */
+export function decorateOccupiedHaVrOptions<T extends { value: string; label: string }>(
+	options: T[],
+	occupied: Map<string, string>,
+): Array<T & { disabled?: boolean }> {
+	return options.map((opt) => {
+		const owner = occupied.get(opt.value);
+		if (!owner) return opt;
+		return {
+			...opt,
+			disabled: true,
+			label: `${opt.label}（已属于 ${owner}）`,
+		};
+	});
 }

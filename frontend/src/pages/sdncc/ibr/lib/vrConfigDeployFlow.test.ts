@@ -35,4 +35,34 @@ describe('vrConfigDeployFlow', () => {
     expect(steps.every((s) => s.vrId === 'x')).toBe(true);
     expect(steps).toHaveLength(3);
   });
+
+  it('builds preview → push per HA node for vrrp and keeps role meta', () => {
+    const steps = buildIbrDeployWizardSteps(
+      [
+        {
+          label: 'CE1（主）',
+          vrId: 'ce-1',
+          meta: { haGroupId: 'ha-1', haRole: 'primary' },
+        },
+        {
+          label: 'CE2（备）',
+          vrId: 'ce-2',
+          meta: { haGroupId: 'ha-1', haRole: 'backup' },
+        },
+      ],
+      'vrrp',
+    );
+    expect(steps).toHaveLength(4);
+    expect(steps.map((s) => s.kind)).toEqual(['preview', 'push', 'preview', 'push']);
+    expect(steps[0]).toMatchObject({
+      feature: 'vrrp',
+      vrId: 'ce-1',
+      meta: { haGroupId: 'ha-1', haRole: 'primary' },
+    });
+    expect(steps[3]).toMatchObject({
+      kind: 'push',
+      vrId: 'ce-2',
+      meta: { haRole: 'backup' },
+    });
+  });
 });
