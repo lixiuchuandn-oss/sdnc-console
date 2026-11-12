@@ -90,8 +90,10 @@ export type Srv6CeFingerprint = {
   lanIf?: string;
   publicBgpAsn?: number;
   innerBgpAsn?: number;
+  /** CE 所属 HA 组标注（端点仍是隧道 ce uuid） */
   haGroupId?: string;
   haGroupName?: string;
+  /** 同组另一台成员 */
   backupVrUuid?: string;
 };
 

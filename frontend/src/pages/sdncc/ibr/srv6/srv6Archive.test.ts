@@ -228,14 +228,20 @@ describe('srv6Archive buildTunnelArchive', () => {
       ceAHaBinding: {
         haGroupId: 'ha-1',
         haGroupName: 'ha-1',
+        memberRole: 'primary',
+        memberVrUuid: 'ce1',
+        peerVrUuid: 'ce2',
         primaryVrUuid: 'ce1',
         backupVrUuid: 'ce2',
       },
       ceBHaBinding: {
         haGroupId: 'ha-2',
         haGroupName: 'ha-2',
+        memberRole: 'backup',
+        memberVrUuid: 'ce4',
+        peerVrUuid: 'ce3',
         primaryVrUuid: 'ce3',
-        backupVrUuid: 'ce4',
+        backupVrUuid: 'ce3',
       },
     });
     expect(archive.endpointFingerprint?.ceA).toMatchObject({
@@ -246,7 +252,7 @@ describe('srv6Archive buildTunnelArchive', () => {
     expect(archive.endpointFingerprint?.ceB).toMatchObject({
       haGroupId: 'ha-2',
       haGroupName: 'ha-2',
-      backupVrUuid: 'ce4',
+      backupVrUuid: 'ce3',
     });
   });
 });

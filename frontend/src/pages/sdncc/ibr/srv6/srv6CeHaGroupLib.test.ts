@@ -1,9 +1,10 @@
 import {
-	buildSrv6HaGroupSelectOptions,
-	inferSrv6TunnelCeAccessMode,
+	decorateCeOptionLabelWithHa,
+	findSharedHaGroupForCes,
+	haMemberHint,
 	isSrv6EligibleHaGroup,
+	lookupHaAnnotationByVrUuid,
 	resolveSrv6CeHaBinding,
-	resolveSrv6CeHaBindingById,
 	srv6CeSlotLabel,
 } from './srv6CeHaGroupLib';
 import type { IbrHaGroup } from '../../../../services/ibrHaGroupApi';
@@ -40,31 +41,45 @@ describe('srv6CeHaGroupLib', () => {
 		).toBe(false);
 	});
 
-	it('resolveSrv6CeHaBindingById returns null for missing id', () => {
-		expect(resolveSrv6CeHaBindingById([sampleGroup], '')).toBeNull();
-		expect(resolveSrv6CeHaBindingById([sampleGroup], 'missing')).toBeNull();
+	it('lookupHaAnnotationByVrUuid returns primary or backup annotation', () => {
+		const asPrimary = lookupHaAnnotationByVrUuid([sampleGroup], 'ce-primary');
+		expect(asPrimary).toMatchObject({
+			haGroupId: 'g1',
+			memberRole: 'primary',
+			memberVrUuid: 'ce-primary',
+			peerVrUuid: 'ce-backup',
+			backupVrUuid: 'ce-backup',
+		});
+		const asBackup = lookupHaAnnotationByVrUuid([sampleGroup], 'ce-backup');
+		expect(asBackup).toMatchObject({
+			haGroupId: 'g1',
+			memberRole: 'backup',
+			memberVrUuid: 'ce-backup',
+			peerVrUuid: 'ce-primary',
+			backupVrUuid: 'ce-primary',
+		});
+		expect(lookupHaAnnotationByVrUuid([sampleGroup], 'unknown')).toBeNull();
 	});
 
-	it('resolveSrv6CeHaBinding tolerates undefined group', () => {
-		expect(resolveSrv6CeHaBinding(undefined)).toBeNull();
+	it('decorates CE option labels with HA membership', () => {
+		expect(decorateCeOptionLabelWithHa('CE1 [CE]', [sampleGroup], 'ce-primary')).toContain('HA 北京 CE 组（主）');
+		expect(decorateCeOptionLabelWithHa('CE2 [CE]', [sampleGroup], 'ce-backup')).toContain('（备）');
+		expect(decorateCeOptionLabelWithHa('CE9 [CE]', [sampleGroup], 'other')).toBe('CE9 [CE]');
 	});
 
-	it('builds select options', () => {
-		const opts = buildSrv6HaGroupSelectOptions([sampleGroup]);
-		expect(opts).toHaveLength(1);
-		expect(opts[0]?.value).toBe('g1');
-		expect(opts[0]?.label).toContain('北京 CE 组');
+	it('haMemberHint explains per-device tunnel deploy', () => {
+		const hint = haMemberHint(lookupHaAnnotationByVrUuid([sampleGroup], 'ce-primary'));
+		expect(hint).toMatch(/另建隧道/);
+		expect(haMemberHint(null)).toBeNull();
 	});
 
-	it('infers tunnel CE access mode from fingerprints', () => {
-		expect(inferSrv6TunnelCeAccessMode(undefined, undefined)).toBe('标准');
-		expect(inferSrv6TunnelCeAccessMode({ haGroupId: 'g1' }, { haGroupId: 'g2' })).toBe('高可用');
-		expect(inferSrv6TunnelCeAccessMode({ haGroupId: 'g1' }, undefined)).toBe('高可用');
+	it('srv6CeSlotLabel is plain CE slot', () => {
+		expect(srv6CeSlotLabel('ceA')).toBe('CE-A');
+		expect(srv6CeSlotLabel('ceB')).toBe('CE-B');
 	});
 
-	it('labels HA CE slots as logical primary', () => {
-		expect(srv6CeSlotLabel('ceA', '标准')).toBe('CE-A');
-		expect(srv6CeSlotLabel('ceA', '高可用')).toBe('CE-A（HA 主）');
-		expect(srv6CeSlotLabel('ceB', '高可用')).toBe('CE-B（HA 主）');
+	it('findSharedHaGroupForCes detects same-group opposite CEs', () => {
+		expect(findSharedHaGroupForCes([sampleGroup], 'ce-primary', 'ce-backup')?.id).toBe('g1');
+		expect(findSharedHaGroupForCes([sampleGroup], 'ce-primary', 'other')).toBeNull();
 	});
 });

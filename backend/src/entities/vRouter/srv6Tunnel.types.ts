@@ -74,9 +74,10 @@ export type Srv6CeFingerprint = {
   lanIf?: string;
   publicBgpAsn?: number;
   innerBgpAsn?: number;
-  /** 高可用模式：CE 侧绑定的 IBR HA 组（平台档案，不参与设备 merge） */
+  /** CE 所属 IBR HA 组标注（平台档案，不参与设备 merge；隧道端点仍是本指纹对应的 ce uuid） */
   haGroupId?: string;
   haGroupName?: string;
+  /** 同组另一台成员 uuid（不论本端是主还是备） */
   backupVrUuid?: string;
 };
 

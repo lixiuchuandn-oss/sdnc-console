@@ -86,7 +86,7 @@ export function buildHaMemberTunnelEndpointWarnings(
     if (seen.has(key)) continue;
     seen.add(key);
     warnings.push(
-      `${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组/下发 VRRP 不会自动改隧道档案；若要按高可用接入，请稍后编辑该隧道将两端同时改为「高可用」并分别绑定两组。`,
+      `${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组/下发 VRRP 不会自动改隧道档案；隧道端点仍为所选 CE，指纹可标注所属 HA 组。`,
     );
   }
   return warnings;

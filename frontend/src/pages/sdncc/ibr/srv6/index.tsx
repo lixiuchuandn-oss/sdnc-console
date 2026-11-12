@@ -70,13 +70,13 @@ function renderSrv6ListCeCell(
   haGroupName: string | null | undefined,
   vrLabel: (id?: string | null) => string,
 ) {
-  const primary = vrLabel(uuid);
-  if (!haGroupName) return primary;
+  const device = vrLabel(uuid);
+  if (!haGroupName) return device;
   return (
-    <Tooltip title={`逻辑主：${primary}（备机不下发）`}>
+    <Tooltip title={`端点设备：${device}`}>
       <span>
-        {haGroupName}
-        <Tag style={{ marginLeft: 6 }}>HA 主</Tag>
+        {device}
+        <Tag style={{ marginLeft: 6 }}>{haGroupName}</Tag>
       </span>
     </Tooltip>
   );
