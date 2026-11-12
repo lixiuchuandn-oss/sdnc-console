@@ -114,7 +114,9 @@ ibrHaGroupRoutes.delete('/:id', async (req, res) => {
     return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
   }
   try {
-    await ibrHaGroupService.remove(String(req.params.id || '').trim());
+    const revertRaw = String(req.query.revertDevice ?? '').trim().toLowerCase();
+    const revertDevice = revertRaw === '1' || revertRaw === 'true' || revertRaw === 'yes';
+    await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
     return res.json({ code: 200, msg: 'ok' });
   } catch (err) {
     return mapError(res, err);

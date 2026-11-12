@@ -3,6 +3,7 @@ import {
   applyVrrpPatchToDeviceConfig,
   ensureVipCidr,
   materializeHaGroupVrrpForMember,
+  stripHaGroupVrrpFromDeviceConfig,
 } from './haGroupVrrpMaterialize';
 
 const sampleIntent = (): HaGroupVrrpIntent => ({
@@ -180,6 +181,61 @@ describe('haGroupVrrpMaterialize', () => {
     expect(top).toHaveLength(2);
     expect(top.find((g) => g.group_id === 1)?.track_gateway).toEqual(['192.168.1.1']);
     expect(top.find((g) => g.group_id === 1)?.track_interval).toBe(1);
+  });
+
+  it('stripHaGroupVrrpFromDeviceConfig removes only this group vrid/group_id', () => {
+    const device = {
+      uuid: 'vr-a',
+      interface: [
+        {
+          name: 'GigabitEthernet0/0/1',
+          ipv4_static: '10.0.0.2/24',
+          vrrp: [{ vrid: 99, priority: 50, virtual_ipaddress: ['10.0.0.99/32'] }],
+        },
+      ],
+      vrrp: [{ group_id: 99, track_gateway: ['9.9.9.9'], vrrp_instance: [99] }],
+    };
+    const patch = materializeHaGroupVrrpForMember(sampleIntent(), 'primary');
+    const merged = applyVrrpPatchToDeviceConfig(device, patch);
+    const stripped = stripHaGroupVrrpFromDeviceConfig(merged, patch);
+    const iface = (stripped.interface as Array<Record<string, unknown>>)[0];
+    expect(iface.vrrp).toEqual([{ vrid: 99, priority: 50, virtual_ipaddress: ['10.0.0.99/32'] }]);
+    expect(stripped.vrrp).toEqual([{ group_id: 99, track_gateway: ['9.9.9.9'], vrrp_instance: [99] }]);
+  });
+
+  it('stripHaGroupVrrpFromDeviceConfig drops empty vrrp keys', () => {
+    const device = {
+      uuid: 'vr-a',
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/7/0', ipv4_static: '11.1.1.11/24' }],
+    };
+    const patch = materializeHaGroupVrrpForMember(sampleIntent(), 'primary');
+    patch.ifacePatches[0].interfaceName = 'GigabitEthernet 0/7/0';
+    const merged = applyVrrpPatchToDeviceConfig(device, patch);
+    const stripped = stripHaGroupVrrpFromDeviceConfig(merged, patch);
+    const iface = (stripped.interfaces_GigabitEthernet as Array<Record<string, unknown>>)[0];
+    expect(iface.vrrp).toBeUndefined();
+    expect(stripped.vrrp).toBeUndefined();
+  });
+
+  it('stripHaGroupVrrpFromDeviceConfig keeps same vrid on other interfaces', () => {
+    const device = {
+      uuid: 'vr-a',
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/7/0', ipv4_static: '11.1.1.11/24' },
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '12.1.1.1/24',
+          vrrp: [{ vrid: 10, priority: 50, virtual_ipaddress: ['12.1.1.100/24'] }],
+        },
+      ],
+    };
+    const patch = materializeHaGroupVrrpForMember(sampleIntent(), 'primary');
+    patch.ifacePatches[0].interfaceName = 'GigabitEthernet 0/7/0';
+    const merged = applyVrrpPatchToDeviceConfig(device, patch);
+    const stripped = stripHaGroupVrrpFromDeviceConfig(merged, patch);
+    const ifaces = stripped.interfaces_GigabitEthernet as Array<Record<string, unknown>>;
+    expect(ifaces[0].vrrp).toBeUndefined();
+    expect(ifaces[1].vrrp).toEqual([{ vrid: 10, priority: 50, virtual_ipaddress: ['12.1.1.100/24'] }]);
   });
 
   it('applyVrrpPatchToDeviceConfig clears sticky unicast when intent drops them', () => {

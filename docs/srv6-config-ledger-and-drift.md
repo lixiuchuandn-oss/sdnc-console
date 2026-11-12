@@ -74,6 +74,8 @@ clish 加的 BGP 邻居：**弹窗看不见**；下次 agent 按 VR2 应用会�
 
 SRv6 下发若 VR2 的 `acl` / `nat` / `ipsec` 与账本不一致，只出 **PLATFORM_STALE**（不阻塞）：本次不覆盖这些域，提醒账本滞后。
 
+CE 高可用 VRRP **不是**本文件的黄标范围（不进隧道公式）。HA 组自己的健康与解散回退见 [`ibr-ha-vrrp-health-and-rollback.md`](./ibr-ha-vrrp-health-and-rollback.md)。SRv6 下发/回退须成对保留设备接口 vrrp 与顶层 `vrrp`，避免冲掉 HA。
+
 ---
 
 ## 5. 原实现与问题（为何建一条隧道会连弹四次）

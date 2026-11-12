@@ -1,7 +1,7 @@
 # IBR 配置下发架构
 
 > **适用范围**：SDNC · IBR 管理（ACL / NAT / IPsec / SRv6 / HA·VRRP）及 IBR 初始化通道。  
-> **关联**：全栈与 CSMCTL 边界见 [`sdnc-stack-integration.md`](./sdnc-stack-integration.md)；SRv6 隧道专项见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)；**账本 / 叠加 / 漂移判定**见 [`srv6-config-ledger-and-drift.md`](./srv6-config-ledger-and-drift.md)；**BGP RR 与 SRv6 共存（设计）**见 [`bgp-rr-design.md`](./bgp-rr-design.md)。
+> **关联**：全栈与 CSMCTL 边界见 [`sdnc-stack-integration.md`](./sdnc-stack-integration.md)；SRv6 隧道专项见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)；**账本 / 叠加 / 漂移判定**见 [`srv6-config-ledger-and-drift.md`](./srv6-config-ledger-and-drift.md)；**BGP RR 与 SRv6 共存（设计）**见 [`bgp-rr-design.md`](./bgp-rr-design.md)；**删除实例收口（设计待落地）**见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md)。
 
 ---
 
@@ -65,7 +65,7 @@ GET 设备 VR 全量 JSON
 | `nat` | `nat_address_group` | 由 `syncNatToVRConfig` 从 NAT 表生成；**不**覆盖设备 `nat[]` |
 | `ipsec` | `ipsec` | IPsec 条目规范化后覆盖 |
 | `srv6` | 平台意图中除 `acl` / `nat` / `nat_address_group` / `ipsec` 外的业务 key | 保留设备侧 ACL/NAT/IPsec 现网值 |
-| `vrrp` | （不走 slice merge） | HA 组：`haGroupVrrpMaterialize` 在设备底稿上定点 upsert `interface[].vrrp` + 顶层 `vrrp[]`，经 `preMergedConfig` 下发 |
+| `vrrp` | （不走 slice merge） | HA 组：`haGroupVrrpMaterialize` 在设备底稿上定点 upsert `interface[].vrrp` + 顶层 `vrrp[]`，经 `preMergedConfig` 下发。健康/解散回退见 [`ibr-ha-vrrp-health-and-rollback.md`](./ibr-ha-vrrp-health-and-rollback.md)（H0/H1/H5 已落地；H2–H4 待做） |
 
 **漂移预览 API**：`GET /api/vr-config/:uuid/deploy-drift?domain=acl|nat|ipsec|srv6`
 

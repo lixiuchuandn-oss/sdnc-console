@@ -96,6 +96,7 @@ srv6Routes.get('/', async (req, res, next) => {
       return;
     }
     const summaries = await buildSrv6TunnelHealthSummaries(list);
+    // 配置健康只读对账，不得在 GET 上把 lifecycle status 写回 available（见 ibr-ha-vrrp-health-and-rollback §7）
     res.json(
       list.map((t) => {
         const h = summaries[t.id];
@@ -619,6 +620,53 @@ srv6Routes.get('/:id', async (req, res, next) => {
       return;
     }
     res.json(item);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * 显式复位生命周期 error → available（需 write）。
+ * 仅当平台配置健康为 ok 时允许，避免 GET 列表静默写库。
+ */
+srv6Routes.post('/:id/clear-lifecycle-error', async (req, res, next) => {
+  try {
+    {
+      const role = (req as any).user?.role;
+      const perms: string[] = Array.isArray((req as any).user?.permissions)
+        ? (req as any).user?.permissions
+        : [];
+      if (!(role === 'super_admin' || perms.includes('networks.srv6:write'))) {
+        return res.status(403).json({ message: '权限不足：需要写入权限 networks.srv6:write' });
+      }
+    }
+    const id = String(req.params.id);
+    const item = await repo().findOne({ where: { id } });
+    if (!item) {
+      res.status(404).json({ message: '未找到隧道' });
+      return;
+    }
+    if (item.status !== SRv6Status.ERROR) {
+      res.json({ success: true, status: item.status, cleared: false });
+      return;
+    }
+    const summaries = await buildSrv6TunnelHealthSummaries([item]);
+    if (summaries[item.id]?.configHealth !== 'ok') {
+      res.status(409).json({
+        message: `配置健康未通过，不能复位生命周期：${summaries[item.id]?.message || '未知'}`,
+      });
+      return;
+    }
+    item.status = SRv6Status.AVAILABLE;
+    await repo().save(item);
+    await auditSrv6Tunnel(
+      req,
+      'SRv6 Clear Lifecycle Error',
+      `复位隧道生命周期：${item.name} error → available`,
+      true,
+      id,
+    );
+    res.json({ success: true, status: item.status, cleared: true });
   } catch (e) {
     next(e);
   }

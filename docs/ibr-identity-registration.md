@@ -2,7 +2,7 @@
 
 > **备查日期**：2026-11-11  
 > **范围**：本机 `registervr.conf` 如何变成 CSMCTL/SDNC 上的一台 IBR；Paas 控制台与 agent 两条路径如何交叉。  
-> **不覆盖**：VR2 业务配置下发（ACL/NAT/SRv6），见 [ibr-vr-config-deploy.md](./ibr-vr-config-deploy.md)。
+> **不覆盖**：VR2 业务配置下发（ACL/NAT/SRv6），见 [ibr-vr-config-deploy.md](./ibr-vr-config-deploy.md)；删实例收口见 [ibr-instance-delete-lifecycle.md](./ibr-instance-delete-lifecycle.md)。
 
 ---
 
@@ -151,6 +151,7 @@ SDNC IBR 列表、隧道、角色、VR2 配置都挂 **uuid**。uuid 变了 = �
 | 缩小 `discover_change` | 只比 uuid + name；vm_id/mac 仍作**首次注册必填**，不当变更触发器 |
 | 真正只认 Paas | 文件签名或 agent 忽略手工改动；会牺牲「无控制台写文件注册」 |
 | 改 uuid 的迁移 | 今日改 uuid = 新行，旧角色/隧道不搬；若要搬家需单独工具 |
+| 删实例收口 | 今日仅 CSM 注销、不回退 CLI；方案见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) |
 | 运维仓对齐 | `ibr-local-web` 身份页与 Paas 同一套只读 uuid / 可改 mac |
 | finish 与心跳 | 界面 ONLINE 可叠加 CSMCTL 可达，避免「本地已注册、列表已停止」 |
 
@@ -188,3 +189,4 @@ systemctl restart vrctl-agent.service
 | Paas 身份页 | `Paas-VRv2`（或本仓对照 `ibr-local-web`）`web/src/pages/device/config/DeviceServicePage.tsx` |
 | Paas 写盘 / 唤醒 | `server/src/lib/registerVrIdentity.ts`、`server/src/routes/api/configSysRoutes.ts` |
 | ONLINE 与同步 | `server/src/services/forwarding/forwardingExtended.ts` |
+| 删实例收口（设计） | [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) |

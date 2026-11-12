@@ -13,6 +13,7 @@ import {
 import {
   applyVrrpPatchToDeviceConfig,
   materializeHaGroupVrrpForMember,
+  stripHaGroupVrrpFromDeviceConfig,
 } from './haGroupVrrpMaterialize';
 import {
   getVRConfigFromDevice,
@@ -412,9 +413,95 @@ export const ibrHaGroupService = {
     });
   },
 
-  async remove(id: string): Promise<void> {
-    const group = await groupRepo().findOne({ where: { id } });
+  async remove(id: string, options?: { revertDevice?: boolean }): Promise<void> {
+    const group = await groupRepo().findOne({ where: { id }, relations: ['members'] });
     if (!group) throw new IbrHaGroupError('HA 组不存在', 404);
+
+    const { findSrv6TunnelsReferencingHaGroup } = await import('../../routes/sdn/srv6.references');
+    const tunnelRefs = await findSrv6TunnelsReferencingHaGroup(id);
+    if (tunnelRefs.length) {
+      const names = [...new Set(tunnelRefs.map((r) => r.tunnelName))].join('、');
+      throw new IbrHaGroupError(
+        `仍有 SRv6 隧道绑定本组（${names}），请先删除或改绑隧道后再解散`,
+        409,
+      );
+    }
+
+    if (options?.revertDevice) {
+      const primary = group.members?.find((m) => m.role === 'primary');
+      const backup = group.members?.find((m) => m.role === 'backup');
+      if (!primary || !backup) {
+        throw new IbrHaGroupError('HA 组主备成员不完整，无法回退设备 VRRP');
+      }
+      let intent: HaGroupVrrpIntent;
+      try {
+        intent = validateHaGroupVrrpIntent(parseStoredVrrpIntent(group.vrrpIntentJson), {
+          primaryUuid: primary.vrUuid,
+          backupUuid: backup.vrUuid,
+        });
+      } catch (e) {
+        throw new IbrHaGroupError(
+          e instanceof Error ? e.message : 'vrrpIntent 无效，无法按意图回退设备，请先手工清理 VRRP 或补全向导',
+        );
+      }
+
+      const stripRole = async (role: 'primary' | 'backup'): Promise<void> => {
+        const patch = materializeHaGroupVrrpForMember(intent, role);
+        try {
+          const device = await getVRConfigFromDevice(patch.vrUuid);
+          const stripped = stripHaGroupVrrpFromDeviceConfig(device, patch);
+          await pushVRConfig({
+            vrId: patch.vrUuid,
+            domain: 'vrrp',
+            preMergedConfig: stripped,
+            skipDriftCheck: true,
+          });
+        } catch (e) {
+          if (e instanceof VrConfigDeployError) {
+            throw new IbrHaGroupError(
+              `${role === 'primary' ? '主' : '备'}节点回退失败：${e.message}`,
+              e.code === 'DEVICE_READ_FAILED' || e.code === 'DEVICE_EMPTY' ? 502 : 400,
+            );
+          }
+          throw new IbrHaGroupError(
+            `${role === 'primary' ? '主' : '备'}节点回退失败：${
+              e instanceof Error ? e.message : String(e)
+            }`,
+            502,
+          );
+        }
+      };
+
+      const restoreRole = async (role: 'primary' | 'backup'): Promise<void> => {
+        const patch = materializeHaGroupVrrpForMember(intent, role);
+        const device = await getVRConfigFromDevice(patch.vrUuid);
+        const restored = applyVrrpPatchToDeviceConfig(device, patch);
+        await pushVRConfig({
+          vrId: patch.vrUuid,
+          domain: 'vrrp',
+          preMergedConfig: restored,
+          skipDriftCheck: true,
+        });
+      };
+
+      await stripRole('primary');
+      try {
+        await stripRole('backup');
+      } catch (backupErr) {
+        try {
+          await restoreRole('primary');
+        } catch (restoreErr) {
+          const backupMsg = backupErr instanceof Error ? backupErr.message : String(backupErr);
+          const restoreMsg = restoreErr instanceof Error ? restoreErr.message : String(restoreErr);
+          throw new IbrHaGroupError(
+            `备节点回退失败且主节点补偿失败：${backupMsg}；补偿：${restoreMsg}`,
+            502,
+          );
+        }
+        throw backupErr;
+      }
+    }
+
     await groupRepo().remove(group);
   },
 

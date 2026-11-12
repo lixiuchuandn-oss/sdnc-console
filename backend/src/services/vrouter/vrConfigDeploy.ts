@@ -55,6 +55,61 @@ export const isConfigValueEmpty = (value: unknown): boolean => {
 
 const deepClone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+const isIfaceArrayKey = (key: string): boolean =>
+  key === 'interface' ||
+  key === 'interfaces' ||
+  key.startsWith('interfaces_') ||
+  key.startsWith('subinterfaces_');
+
+const ifaceNameOf = (row: unknown): string => {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return '';
+  return String((row as Record<string, unknown>).name ?? '').trim();
+};
+
+/** 与 haGroupVrrpMaterialize.ifaceNamesEqual 对齐：折叠空白差异 */
+const ifaceNamesEqualLoose = (a: string, b: string): boolean => {
+  const left = a.trim().toLowerCase().replace(/\s+/g, ' ');
+  const right = b.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!left || !right) return false;
+  if (left === right) return true;
+  return left.replace(/\s/g, '') === right.replace(/\s/g, '');
+};
+
+const ifaceHasVrrp = (row: Record<string, unknown>): boolean => {
+  const v = row.vrrp;
+  if (Array.isArray(v)) return v.length > 0;
+  return v != null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+};
+
+/**
+ * SRv6 覆盖会整表替换 interfaces_*，把设备上 HA 留下的接口 vrrp 冲掉，
+ * 同时最外层 vrrp（平台基线通常没有该键）仍留在底稿上 → CSM 报 vrrp_instance 找不到 vrid。
+ */
+const preserveDeviceIfaceVrrpOnSrv6Overlay = (
+  deviceConfig: VrConfigJson,
+  merged: VrConfigJson,
+): void => {
+  for (const key of Object.keys(merged)) {
+    if (!isIfaceArrayKey(key)) continue;
+    const mergedIfaces = merged[key];
+    const deviceIfaces = deviceConfig[key];
+    if (!Array.isArray(mergedIfaces) || !Array.isArray(deviceIfaces)) continue;
+    const deviceRows = deviceIfaces.filter(
+      (row): row is Record<string, unknown> =>
+        Boolean(row && typeof row === 'object' && !Array.isArray(row) && ifaceNameOf(row)),
+    );
+    merged[key] = mergedIfaces.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+      const cur = row as Record<string, unknown>;
+      if (ifaceHasVrrp(cur)) return cur;
+      const curName = ifaceNameOf(cur);
+      const prev = deviceRows.find((d) => ifaceNamesEqualLoose(ifaceNameOf(d), curName));
+      if (!prev || !ifaceHasVrrp(prev)) return cur;
+      return { ...cur, vrrp: deepClone(prev.vrrp) };
+    });
+  }
+};
+
 /** 去掉 CSM 包装字段与平台扩展，再下发 */
 export const stripMeta = (obj: unknown): VrConfigJson => {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
@@ -197,6 +252,7 @@ export const mergeDeviceWithPlatformSlice = (
       if (META_KEYS.has(key) || OTHER_FEATURE_KEYS.has(key)) continue;
       result[key] = deepClone(value);
     }
+    preserveDeviceIfaceVrrpOnSrv6Overlay(deviceConfig, result);
     return result;
   }
 

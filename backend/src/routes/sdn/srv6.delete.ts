@@ -1,5 +1,5 @@
 import { AppDataSource } from '../../config/database';
-import { SRv6Tunnel, SRv6Status } from '../../entities/vRouter/SRv6Tunnel';
+import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import { pushVRConfig } from '../../services/vrouter/vrConfigDeploy';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
@@ -194,7 +194,6 @@ export const deleteSrv6TunnelWithRevert = async (
     warnings = revert.warnings;
     devicePushErrors = revert.devicePushErrors;
     if (devicePushErrors.length) {
-      await repo.update({ id: tunnel.id }, { status: SRv6Status.ERROR });
       const err = new Error(`删除前回退未完全成功：${devicePushErrors.join('；')}`);
       (err as Error & { statusCode: number; warnings: string[] }).statusCode = 409;
       (err as Error & { warnings: string[] }).warnings = warnings;

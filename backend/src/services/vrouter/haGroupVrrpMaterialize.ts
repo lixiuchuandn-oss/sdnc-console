@@ -238,3 +238,62 @@ export function applyVrrpPatchToDeviceConfig(
   }
   return result;
 }
+
+function groupIdSetOf(patch: HaMemberVrrpPatch): Set<number> {
+  return new Set(patch.topVrrp.map((g) => g.group_id).filter((n) => Number.isFinite(n)));
+}
+
+/**
+ * 解散回退：从底稿剥掉本组 vrid / group_id。
+ * 同一份 JSON 里接口片和顶层 vrrp 一起去掉，避免 CSM「顶层 instance 在接口中无 vrid」。
+ * 其它 vrid / group 不动；空数组改为缺省键，便于 agent Lua cmp_del。
+ */
+export function stripHaGroupVrrpFromDeviceConfig(
+  deviceConfig: VrConfigJson,
+  patch: HaMemberVrrpPatch,
+): VrConfigJson {
+  const result = deepClone(deviceConfig);
+  const groupIds = groupIdSetOf(patch);
+  /** 接口侧按「接口名 + vrid」剥，避免同机其它口碰巧同 vrid 被误删 */
+  const vridsByIface = patch.ifacePatches.map((p) => ({
+    interfaceName: p.interfaceName,
+    vrid: p.ifaceVrrp.vrid,
+  }));
+
+  for (const key of listIfaceBucketKeys(result)) {
+    const list = result[key];
+    if (!Array.isArray(list)) continue;
+    result[key] = list.map((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+      const iface = { ...(raw as Record<string, unknown>) };
+      if (!Array.isArray(iface.vrrp)) return iface;
+      const ifaceName = String(iface.name ?? '');
+      const dropVrids = new Set(
+        vridsByIface
+          .filter((p) => Number.isFinite(p.vrid) && ifaceNamesEqual(ifaceName, p.interfaceName))
+          .map((p) => p.vrid),
+      );
+      if (!dropVrids.size) return iface;
+      const kept = (iface.vrrp as unknown[]).filter((row) => {
+        if (!row || typeof row !== 'object') return true;
+        const vrid = Number((row as { vrid?: unknown }).vrid);
+        return !Number.isFinite(vrid) || !dropVrids.has(vrid);
+      });
+      if (kept.length) iface.vrrp = kept;
+      else delete iface.vrrp;
+      return iface;
+    });
+  }
+
+  if (Array.isArray(result.vrrp)) {
+    const kept = (result.vrrp as unknown[]).filter((row) => {
+      if (!row || typeof row !== 'object') return true;
+      const gid = Number((row as { group_id?: unknown }).group_id);
+      return !Number.isFinite(gid) || !groupIds.has(gid);
+    });
+    if (kept.length) result.vrrp = kept;
+    else delete result.vrrp;
+  }
+
+  return result;
+}

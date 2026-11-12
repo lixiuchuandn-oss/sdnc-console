@@ -39,7 +39,7 @@ Compute Tower **SDNC** 是 **IBR** 运维控制台（默认 `PRODUCT_FLAVOR=sdnc
 | **`AGENTS.md`**（本文件） | 项目总览、运行、API 索引、SDNC 开发规范摘要 |
 | **`frontend/src/STRUCTURE.md`** | 前端 `pages/sdncc/`、`pages/settings/` 目录与放置规则（**SDNC 权威**） |
 | **`backend/src/STRUCTURE.md`** | 后端 `backend/src/` 的分层与落点、**路由 ↔ 服务 ↔ 实体** 约定、与前端平台的心智对照；**API 清单不重复维护**（以本文件为准） |
-| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`sdnc-stack-integration.md`**（全栈整合）、**`ibr-stack-components.md`**（SDNC/CSMCTL/agent/设备 Console）、**`ibr-vr-config-deploy.md`**（VR 分域下发与初始化边界）、**`internetwork-routing-domain.md`**、SRv6 系列、**`sdnc-tower-integration-api.md`**（Tower 联部署可选）、**`code-quality.md`**、**`frontend-layout.md`** |
+| **`docs/`**（Hub） | 索引见 **`docs/README.md`**：**`sdnc-stack-integration.md`**（全栈整合）、**`ibr-stack-components.md`**（SDNC/CSMCTL/agent/设备 Console）、**`ibr-vr-config-deploy.md`**（VR 分域下发与初始化边界）、**`ibr-instance-delete-lifecycle.md`**（删实例收口，设计待落地）、**`ibr-ha-vrrp-health-and-rollback.md`**（HA VRRP 健康/回退，设计待落地）、**`internetwork-routing-domain.md`**、SRv6 系列、**`sdnc-tower-integration-api.md`**（Tower 联部署可选）、**`code-quality.md`**、**`frontend-layout.md`** |
 | **`csm-controller/README.md`** | CSMCTL 构建、Docker、北向 API 与 Tower 联调 |
 | **`tests/E2E_COVERAGE.md`** | **SDNC E2E 覆盖索引**；终端一览 `cd tests && npm run e2e:status`；登记 `tests/e2e-manifest.cjs` |
 | **`deployment/`** | 本地设计/规格，**不入库**（见 `.gitignore`） |

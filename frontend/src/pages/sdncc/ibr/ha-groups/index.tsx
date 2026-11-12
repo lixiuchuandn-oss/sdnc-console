@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Badge, Form, Input, Modal, Tag, message } from 'antd';
+import { Badge, Checkbox, Form, Input, Modal, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -121,16 +121,31 @@ const IbrHaGroupsPage: React.FC = () => {
 	}, [keyword, rows]);
 
 	const handleDelete = useCallback((row: IbrHaGroup) => {
+		let revertDevice = false;
 		Modal.confirm({
 			title: '解散 HA 组',
-			content: `确定解散「${row.name}」？不会删除 IBR 实例本身。`,
+			content: (
+				<div>
+					<p style={{ marginBottom: 8 }}>确定解散「{row.name}」？不会删除 IBR 实例本身。</p>
+					<Checkbox
+						onChange={(e) => {
+							revertDevice = e.target.checked;
+						}}
+					>
+						同时从主备设备回退本组 VRRP（写入 VR2，由 agent 应用到 CLI）
+					</Checkbox>
+					<p style={{ margin: '8px 0 0', color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
+						仍被 SRv6 隧道绑定的组不能解散。不勾选则只删平台组档案，设备 / VR2 上的 VRRP 会留下；勾选失败时组仍保留，可重试。
+					</p>
+				</div>
+			),
 			okText: '解散',
 			okButtonProps: { danger: true },
 			cancelText: '取消',
 			onOk: async () => {
 				try {
-					await deleteIbrHaGroup(row.id);
-					message.success('已解散');
+					await deleteIbrHaGroup(row.id, { revertDevice });
+					message.success(revertDevice ? '已解散并回退设备 VRRP' : '已解散（设备 VRRP 未改）');
 					await load(true);
 				} catch (e) {
 					message.error(getApiErrorMessage(e, '解散失败'));

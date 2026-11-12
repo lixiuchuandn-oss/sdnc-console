@@ -59,6 +59,56 @@ describe('vrConfigDeploy', () => {
     expect(merged).not.toHaveProperty('_towerHubInventory');
   });
 
+  it('merge srv6 keeps device interface vrrp when platform interfaces omit it', () => {
+    const deviceVrrp = [{ vrid: 1, priority: 200, virtual_ipaddress: ['11.1.1.100/24'] }];
+    const device = {
+      vrrp: [{ group_id: 1, vrrp_instance: [1], track_interval: 3, track_gateway: [] }],
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/7/0',
+          ipv4_static: '11.1.1.11/24',
+          vrrp: deviceVrrp,
+        },
+        { name: 'GigabitEthernet 0/8/0', ipv4_static: '12.1.1.1/24' },
+      ],
+      bgp: [{ asn: 65000, neighbor: [{ remote_ip: '11.1.1.1', remote_as: 65001 }] }],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/7/0', ipv4_static: '11.1.1.11/24' },
+        { name: 'GigabitEthernet 0/8/0', ipv4_static: '12.1.1.1/24' },
+      ],
+      bgp: [{ asn: 65000, neighbor: [] }],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    expect(merged.vrrp).toEqual(device.vrrp);
+    expect(merged.bgp).toEqual(platform.bgp);
+    const wan = (merged.interfaces_GigabitEthernet as Array<Record<string, unknown>>)[0];
+    expect(wan.vrrp).toEqual(deviceVrrp);
+  });
+
+  it('merge srv6 preserves iface vrrp across whitespace name variants and interface key', () => {
+    const deviceVrrp = [{ vrid: 1, priority: 200, virtual_ipaddress: ['11.1.1.100/24'] }];
+    const device = {
+      vrrp: [{ group_id: 1, vrrp_instance: [1] }],
+      interface: [
+        {
+          name: 'GigabitEthernet 0/7/0',
+          ipv4_static: '11.1.1.11/24',
+          vrrp: deviceVrrp,
+        },
+      ],
+    };
+    const platform = {
+      interface: [{ name: 'GigabitEthernet0/7/0', ipv4_static: '11.1.1.11/24' }],
+      bgp: [{ asn: 65000 }],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    const wan = (merged.interface as Array<Record<string, unknown>>)[0];
+    expect(wan.vrrp).toEqual(deviceVrrp);
+    expect(merged.vrrp).toEqual(device.vrrp);
+  });
+
   it('normalizeIpsecSliceForDevice converts booleans and drops dpd', () => {
     const out = normalizeIpsecSliceForDevice([
       {

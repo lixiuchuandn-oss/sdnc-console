@@ -21,6 +21,8 @@
 | [bgp-rr-design.md](./bgp-rr-design.md) | **BGP Route Reflector（RR）** 产品定义、与 SRv6 共存与 config_json 合并（设计；功能未实现）；RR 域导入模板见 [`templates/rr-domain-import-template.csv`](./templates/rr-domain-import-template.csv) |
 | [ibr-stack-components.md](./ibr-stack-components.md) | **IBR 全栈组件**（SDNC / CSMCTL / agent / 设备 Console 对照与联调） |
 | [ibr-identity-registration.md](./ibr-identity-registration.md) | **IBR 设备身份**（Paas 接入与身份 vs vrctl-agent 注册、uuid 主键、仍可手改文件） |
+| [ibr-instance-delete-lifecycle.md](./ibr-instance-delete-lifecycle.md) | **IBR 实例删除收口**（引用门闩、角色前快照、可选回退 CLI；设计已定待落地） |
+| [ibr-ha-vrrp-health-and-rollback.md](./ibr-ha-vrrp-health-and-rollback.md) | **IBR 高可用组 VRRP**（健康检查、下发漂移、解散回退；与 SRv6 隧道账本隔离；H0/H1/H5 已落地） |
 
 **同仓组件**：[`../csm-controller/README.md`](../csm-controller/README.md) — CSMCTL 构建、API 与 Tower 联调。
 

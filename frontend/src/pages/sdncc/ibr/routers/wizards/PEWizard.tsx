@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Collapse, Descriptions, Divider, Form, Input, InputNumber, Steps, message, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
+import { Button, Descriptions, Divider, Form, Input, InputNumber, Steps, message, Select, Tabs, Spin, Modal, Checkbox } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import {
   srv6SidPrefixPhase1Extra,
@@ -1331,22 +1331,6 @@ const PEWizard: React.FC = () => {
           >
             <Input placeholder="例如 2400:1234::1 或 2400:1234::/48" />
           </Form.Item>
-          <Collapse
-            ghost
-            style={{ marginBottom: 12 }}
-            items={[
-              {
-                key: 'srv6-locator-advanced',
-                label: '高级 Locator 参数（一阶段暂不开放）',
-                children: (
-                  <div style={{ color: 'rgba(0,0,0,.45)', fontSize: 12, lineHeight: 1.6 }}>
-                    设备新 CLI 支持 <code>block-len</code> / <code>node-len</code> / <code>func-bits</code>
-                    ；当掩码长度不在 40–88 或需自定义拆分时使用。当前阶段请仅配置无掩码或 /40–/88 前缀，平台不下发上述字段。
-                  </div>
-                ),
-              },
-            ]}
-          />
           {isHubPe ? (
             <>
               <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>
