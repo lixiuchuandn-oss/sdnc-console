@@ -103,7 +103,7 @@ export function decorateCeOptionLabelWithHa(
 
 export function haMemberHint(ann: Srv6CeHaBinding | null): string | null {
 	if (!ann) return null;
-	return `该 CE 属于高可用组「${ann.haGroupName}」。本隧道 SRv6 只下发到所选设备；同组另一台请另建隧道单独下发；VRRP 仍走高可用组向导。`;
+	return '本隧道 SRv6 只下发到所选设备';
 }
 
 /** 同一 HA 组的主备不能作为一条隧道的两端 CE */

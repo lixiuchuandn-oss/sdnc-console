@@ -67,9 +67,9 @@ describe('srv6CeHaGroupLib', () => {
 		expect(decorateCeOptionLabelWithHa('CE9 [CE]', [sampleGroup], 'other')).toBe('CE9 [CE]');
 	});
 
-	it('haMemberHint explains per-device tunnel deploy', () => {
+	it('haMemberHint is a short per-device deploy reminder', () => {
 		const hint = haMemberHint(lookupHaAnnotationByVrUuid([sampleGroup], 'ce-primary'));
-		expect(hint).toMatch(/另建隧道/);
+		expect(hint).toBe('本隧道 SRv6 只下发到所选设备');
 		expect(haMemberHint(null)).toBeNull();
 	});
 

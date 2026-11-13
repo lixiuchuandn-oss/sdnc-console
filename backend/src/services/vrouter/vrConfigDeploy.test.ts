@@ -190,6 +190,69 @@ describe('vrConfigDeploy', () => {
     expect(getBlockingDriftConflicts(conflicts)).toHaveLength(0);
   });
 
+  it('detectDeployDrift ignores device HA vrrp when comparing srv6 overlays', () => {
+    const device = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '12.1.1.2/24',
+          vrrp: [
+            {
+              vrid: 1,
+              advert_interval: 1,
+              virtual_ipaddress: ['12.1.1.254/24'],
+              auth_pass: '123456',
+              priority: 200,
+              preempt: true,
+            },
+          ],
+        },
+      ],
+      vrrp: [{ group_id: 1, vrrp_instance: [1], track_interval: 1 }],
+      bgp: [{ asn: 65001 }],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/8/0', ipv4_static: '12.1.1.2/24' }],
+      bgp: [{ asn: 65001 }],
+    };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    expect(getBlockingDriftConflicts(conflicts)).toHaveLength(0);
+    expect(conflicts.some((c) => c.key === 'vrrp')).toBe(false);
+  });
+
+  it('merge srv6 does not overlay platform empty vrrp onto device HA groups', () => {
+    const device = {
+      vrrp: [{ group_id: 1, vrrp_instance: [1] }],
+      bgp: [{ asn: 1 }],
+    };
+    const platform = {
+      vrrp: [],
+      bgp: [{ asn: 429 }],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    expect(merged.vrrp).toEqual(device.vrrp);
+    expect(merged.bgp).toEqual(platform.bgp);
+  });
+
+  it('detectDeployDrift still blocks srv6 when interface addressing differs besides vrrp', () => {
+    const device = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '12.1.1.2/24',
+          vrrp: [{ vrid: 1, priority: 200 }],
+        },
+      ],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/8/0', ipv4_static: '12.1.1.9/24' }],
+    };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    const iface = getBlockingDriftConflicts(conflicts).find((c) => c.key === 'interfaces_GigabitEthernet');
+    expect(iface).toBeTruthy();
+    expect(iface?.message).not.toMatch(/vrrp/);
+  });
+
   it('detectDeployDrift still blocks srv6 when device has extra neighbor', () => {
     const device = {
       bgp: [

@@ -64,7 +64,7 @@ GET 设备 VR 全量 JSON
 | `acl` | `acl` | 由 `syncACLToVRConfig` 从 ACL 表生成 |
 | `nat` | `nat_address_group` | 由 `syncNatToVRConfig` 从 NAT 表生成；**不**覆盖设备 `nat[]` |
 | `ipsec` | `ipsec` | IPsec 条目规范化后覆盖 |
-| `srv6` | 平台意图中除 `acl` / `nat` / `nat_address_group` / `ipsec` 外的业务 key | 保留设备侧 ACL/NAT/IPsec 现网值 |
+| `srv6` | 平台意图中除 `acl` / `nat` / `nat_address_group` / `ipsec` / `vrrp` 外的业务 key | 保留设备侧 ACL/NAT/IPsec/**VRRP**；漂移比较忽略接口 `vrrp` 与顶层 `vrrp`（HA 域，H0 下发原样保留） |
 | `vrrp` | （不走 slice merge） | HA 组：`haGroupVrrpMaterialize` 在设备底稿上定点 upsert `interface[].vrrp` + 顶层 `vrrp[]`，经 `preMergedConfig` 下发。健康/解散回退见 [`ibr-ha-vrrp-health-and-rollback.md`](./ibr-ha-vrrp-health-and-rollback.md)（H0/H1/H5 已落地；H2–H4 待做） |
 
 **漂移预览 API**：`GET /api/vr-config/:uuid/deploy-drift?domain=acl|nat|ipsec|srv6`

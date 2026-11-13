@@ -14,7 +14,10 @@ const deployLog = logger.child('VR-Config-Deploy');
 
 export type VrConfigDeployDomain = 'acl' | 'nat' | 'ipsec' | 'srv6' | 'vrrp';
 
-const OTHER_FEATURE_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec']);
+/** SRv6 下发不得覆盖的邻域（含 HA VRRP） */
+const OTHER_FEATURE_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec', 'vrrp']);
+/** 平台库滞后提示：VRRP 由 HA 组管理，不提示为「滞后」 */
+const SRV6_STALE_HINT_KEYS = new Set(['acl', 'nat', 'nat_address_group', 'ipsec']);
 
 /** NAT 域仅同步平台管理的 nat_address_group */
 const NAT_SLICE_KEYS = ['nat_address_group'] as const;
@@ -292,6 +295,17 @@ export const getOverlayKeysForDomain = (
   return [domain];
 };
 
+/** SRv6 漂移比较忽略接口上的 vrrp（由 HA 域持有，H0 下发会原样保留） */
+const omitIfaceVrrp = (value: unknown): unknown => {
+  if (!Array.isArray(value)) return value;
+  return value.map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+    if (!Object.prototype.hasOwnProperty.call(row, 'vrrp')) return row;
+    const { vrrp: _vrrp, ...rest } = row as Record<string, unknown>;
+    return rest;
+  });
+};
+
 const normalizeSliceForCompare = (
   domain: VrConfigDeployDomain,
   key: string,
@@ -299,6 +313,9 @@ const normalizeSliceForCompare = (
 ): unknown => {
   if (domain === 'ipsec' && key === 'ipsec') {
     return normalizeIpsecSliceForDevice(value);
+  }
+  if (domain === 'srv6' && isIfaceArrayKey(key)) {
+    return omitIfaceVrrp(value);
   }
   return value;
 };
@@ -350,7 +367,7 @@ export const detectDeployDrift = (
   }
 
   if (domain === 'srv6') {
-    for (const key of OTHER_FEATURE_KEYS) {
+    for (const key of SRV6_STALE_HINT_KEYS) {
       if (!Object.prototype.hasOwnProperty.call(device, key)) continue;
       if (isConfigValueEmpty(device[key])) continue;
       if (jsonConfigEqual(device[key], platform[key])) continue;

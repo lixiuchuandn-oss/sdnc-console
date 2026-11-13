@@ -61,7 +61,7 @@ export function buildHaMemberTunnelEndpointWarnings(
 		}
 		if (!hits.length) continue;
 		warnings.push(
-			`${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组/下发 VRRP 不会自动改隧道档案；隧道端点仍为所选 CE，指纹可标注所属 HA 组。`,
+			`${role.label}已被 SRv6 隧道引用（${hits.join('、')}）。建组不会改隧道端点。`,
 		);
 	}
 	return warnings;

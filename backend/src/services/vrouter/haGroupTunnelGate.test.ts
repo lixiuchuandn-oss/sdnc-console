@@ -35,7 +35,7 @@ describe('haGroupTunnelGate', () => {
     expect(warnings).toHaveLength(2);
     expect(warnings[0]).toContain('主节点');
     expect(warnings[0]).toContain('test-20261106');
-    expect(warnings[0]).toContain('HA 组');
+    expect(warnings[0]).toContain('建组不会改');
     expect(warnings[1]).toContain('备节点');
     expect(warnings[1]).toContain('test-20261111');
   });

@@ -148,7 +148,7 @@ HA 下发/回退      只动本组 vrrp 片
 
 | 阶段 | 内容 | 建议 |
 |------|------|------|
-| **H0. 互不踩踏** | SRv6 `domain=srv6` 覆盖 interfaces 时保留设备接口 vrrp；顶层 `vrrp` 与接口 vrid 成对保留 | 否则 HA 健康再准也会被邻域冲掉（CE1 已中招） |
+| **H0. 互不踩踏** | SRv6 `domain=srv6` 覆盖 interfaces 时保留设备接口 vrrp；顶层 `vrrp` 不覆盖；**漂移比较忽略 VRRP**（不弹「覆盖」窗） | 否则 HA 健康再准也会被邻域冲掉（CE1 已中招） |
 | **H1. 解散回退** | 解散对话框「回退设备」；隧道引用拒绝；备失败补偿主 | **已落地** |
 | **H2. 列表健康** | HA 组列增加健康；详情 diff；不写进 SRv6 `configHealth` | 只读对账，不自动 deploy |
 | **H3. 下发漂移** | 去掉无条件 `skipDriftCheck`；按 vrid 子集弹窗 | 依赖 H0 |
@@ -236,7 +236,7 @@ VRRP        仍走高可用组向导（domain=vrrp）
 | 选 CE | 始终选具体设备；下拉可标注「HA 组名（主/备）」 |
 | 指纹 | 若 CE 属于 HA 组：写 `haGroupId`/`haGroupName`/`backupVrUuid`（= 同组另一台） |
 | 校验 | 有标注时端点须为该组成员且 peer 一致；允许一端有标注、一端无。CE 属于某组时须写标注（防保存抹掉解散门闩）。**拒绝**同一组主备作为一条隧道的 CE-A/CE-B |
-| 增量 CLI | 写入所选 CE 的 `injectedDelta`，经 `domain=srv6` 推送；H0 保留设备 VRRP |
+| 增量 CLI | 写入所选 CE 的 `injectedDelta`，经 `domain=srv6` 推送；H0 保留设备 VRRP；SRv6 漂移比较忽略 VRRP |
 | 删除/健康 | 扫隧道四端（所选 CE）；解散 HA 仍受 `haGroupId` 引用门闩 |
 | VRRP | 不进 SRv6 公式 |
 

@@ -2358,12 +2358,6 @@ const SRv6CreatePage: React.FC = () => {
         >
           {wizardStepShell(
             <>
-              <Alert
-                type="info"
-                showIcon
-                message="CE 选择说明"
-                description="直接选择本端/对端 CE 设备。若 CE 已编入高可用组，下拉会标注所属组；本隧道 SRv6 只下发到所选设备，同组另一台请另建隧道。VRRP 仍走高可用组向导。"
-              />
               <Row gutter={24}>
                 <Col xs={24} lg={12}>
                   {renderEndpointColumn('local')}
@@ -2470,7 +2464,7 @@ const SRv6CreatePage: React.FC = () => {
             showIcon
             message="保存说明"
             description={
-              '请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到所选设备。若 CE 属于高可用组，同组另一台请另建隧道下发；VRRP 仍走高可用组向导。'
+              '请先点击「创建隧道并保存到平台」，将隧道记录与四端拼装配置写入平台库；再进入下一步「下发向导」，按 PE-A → PE-B → CE-A → CE-B 顺序分步预览并推送到所选设备。'
             }
           />
         </>,
