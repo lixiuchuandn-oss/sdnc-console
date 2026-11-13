@@ -567,13 +567,12 @@ export const repairSrv6Reconcile = async (options?: {
   });
 };
 
-/** 默认回退平台库并 push 设备；传 revertPlatform/revertDevice 为 false 可关闭 */
+/** 始终回退平台库；可选择跳过设备下发 */
 export const deleteSrv6Tunnel = async (
   id: string,
-  options?: { revertPlatform?: boolean; revertDevice?: boolean },
+  options?: { revertDevice?: boolean },
 ) => {
   const qs: string[] = [];
-  if (options?.revertPlatform === false) qs.push('revertPlatform=0');
   if (options?.revertDevice === false) qs.push('revertDevice=0');
   const suffix = qs.length ? `?${qs.join('&')}` : '';
   return await apiDelete(`/api/networks/srv6/${id}${suffix}`);

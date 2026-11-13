@@ -35,7 +35,7 @@ function homeGroupOf(groups: HaGroupLite[], ceUuid: string): HaGroupLite | undef
 /**
  * 隧道 CE 与 HA 组：HA 仅作指纹标注。
  * - 同一 HA 组的主备不能作为一条隧道的两端 CE（同组另一台须另建隧道）。
- * - CE 属于某组时必须写入该组标注，避免保存时抹掉解散门闩。
+ * - CE 属于某组时必须写入该组标注，避免保存时丢失当前归属信息。
  * - 有 haGroupId 时校验端点属于该组成员，peer（backupVrUuid）为同组另一台。
  * - 无组成员关系且无标注则放行。不强制两端同为 HA，不强制逻辑主。
  */

@@ -86,9 +86,10 @@ export async function replaceIbrHaGroupMembers(
 export async function deleteIbrHaGroup(
 	id: string,
 	options?: { revertDevice?: boolean },
-): Promise<void> {
+): Promise<{ detachedTunnelCount: number }> {
 	const q = options?.revertDevice ? '?revertDevice=true' : '';
-	await apiDelete(`/api/ibr-ha-groups/${encodeURIComponent(id)}${q}`);
+	const res = await apiDelete(`/api/ibr-ha-groups/${encodeURIComponent(id)}${q}`);
+	return unwrapData<{ detachedTunnelCount: number }>(res);
 }
 
 export type IbrHaGroupDeployResult = {

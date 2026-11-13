@@ -162,8 +162,8 @@ ibrHaGroupRoutes.delete('/:id', async (req, res) => {
   try {
     const revertRaw = String(req.query.revertDevice ?? '').trim().toLowerCase();
     const revertDevice = revertRaw === '1' || revertRaw === 'true' || revertRaw === 'yes';
-    await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
-    return res.json({ code: 200, msg: 'ok' });
+    const data = await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
+    return res.json({ code: 200, msg: 'ok', data });
   } catch (err) {
     return mapError(res, err);
   }

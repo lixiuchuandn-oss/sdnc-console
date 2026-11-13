@@ -181,28 +181,16 @@ export const revertSrv6TunnelInjections = async (
 
 export const deleteSrv6TunnelWithRevert = async (
   tunnel: SRv6Tunnel,
-  options: { revertPlatform: boolean; revertDevice: boolean },
+  options: { revertDevice: boolean },
 ): Promise<{ warnings: string[]; devicePushErrors: string[] }> => {
-  const repo = AppDataSource.getRepository(SRv6Tunnel);
-  let warnings: string[] = [];
-  let devicePushErrors: string[] = [];
-
-  if (options.revertPlatform) {
-    const revert = await revertSrv6TunnelInjections(tunnel, {
-      revertDevice: options.revertDevice !== false,
-    });
-    warnings = revert.warnings;
-    devicePushErrors = revert.devicePushErrors;
-    if (devicePushErrors.length) {
-      const err = new Error(`删除前回退未完全成功：${devicePushErrors.join('；')}`);
-      (err as Error & { statusCode: number; warnings: string[] }).statusCode = 409;
-      (err as Error & { warnings: string[] }).warnings = warnings;
-      throw err;
-    }
+  const revert = await revertSrv6TunnelInjections(tunnel, {
+    revertDevice: options.revertDevice,
+  });
+  if (revert.devicePushErrors.length) {
+    const err = new Error(`删除前回退未完全成功：${revert.devicePushErrors.join('；')}`);
+    (err as Error & { statusCode: number; warnings: string[] }).statusCode = 409;
+    (err as Error & { warnings: string[] }).warnings = revert.warnings;
+    throw err;
   }
-
-  if (!options.revertPlatform) {
-    await repo.delete({ id: tunnel.id });
-  }
-  return { warnings, devicePushErrors };
+  return revert;
 };

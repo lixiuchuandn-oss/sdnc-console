@@ -685,7 +685,7 @@ srv6Routes.post('/:id/clear-lifecycle-error', async (req, res, next) => {
   }
 });
 
-// 删除：默认回退平台库并 push 设备（revertPlatform=0 / revertDevice=0 可显式关闭）
+// 删除：必须回退平台库；可通过 revertDevice=0 跳过设备下发
 srv6Routes.delete('/:id', async (req, res, next) => {
   try {
     {
@@ -698,22 +698,27 @@ srv6Routes.delete('/:id', async (req, res, next) => {
       }
     }
     const id = String(req.params.id);
+    const q = req.query;
+    const revertPlatformRaw = String(q.revertPlatform ?? '').trim().toLowerCase();
+    if (revertPlatformRaw === '0' || revertPlatformRaw === 'false') {
+      res.status(400).json({ message: '删除 SRv6 隧道必须回退平台库配置，不能关闭平台回退' });
+      return;
+    }
+
     const item = await repo().findOne({ where: { id } });
     if (!item) {
       res.status(404).json({ message: '未找到隧道' });
       return;
     }
 
-    const q = req.query;
-    const revertPlatform = q.revertPlatform !== '0' && q.revertPlatform !== 'false';
     const revertDevice = q.revertDevice !== '0' && q.revertDevice !== 'false';
 
     try {
-      const result = await deleteSrv6TunnelWithRevert(item, { revertPlatform, revertDevice });
+      const result = await deleteSrv6TunnelWithRevert(item, { revertDevice });
       await auditSrv6Tunnel(
         req,
         'SRv6 Delete Tunnel',
-        `删除隧道：${item.name}（回退平台=${revertPlatform}，回退设备=${revertDevice}）`,
+        `删除隧道：${item.name}（回退平台=true，回退设备=${revertDevice}）`,
         true,
         id,
       );

@@ -43,7 +43,7 @@
 2. **Layer 1 · 隧道贡献**：`SRv6Tunnel.injectedDelta` — 各端（peA/peB/ceA/ceB）相对基线新增的 neighbors、路由、RD/RT、activate AF 等结构化清单。  
 3. **Layer 2 · 平台生效配置**：`VRConfig.config_json` — 由服务端 **merge + recompute** 写入，为下发与对账的权威来源。  
 4. **关系档案**：除 `injectedDelta` 外，隧道须持久化 `rdRtMeta`、`endpointFingerprint`、内网口等，用于 Hub 冲突检测与 VR 配置锁。  
-5. **不做历史隧道自动兼容**：无完整档案或无基线的旧隧道，删除回退返回 **400/409** 并给出中文引导（仅删记录 / 配置对账 / 手工清理）。  
+5. **不做历史隧道自动兼容**：无完整档案或无基线的旧隧道，平台回退返回 **400/409** 并给出中文引导；普通删除不再支持跳过平台回退。
 6. **用户可见文案**：API `message`、409 `conflicts[]`、对账 UI 均使用中文业务描述；内部规则码（如 `C-N1`）仅用于程序与单测，不展示给终端用户。
 
 ---
@@ -152,9 +152,8 @@ sequenceDiagram
 
 模块：`backend/src/routes/sdn/srv6.delete.ts`
 
-- 默认 `revertPlatform=1`、`revertDevice=1`（query 传 `0` / `false` 可关闭）。  
-- **回退平台库**：对该隧道四端各执行 `recomputeVrEffectiveConfig`（exclude 本隧道），写回 `config_json`。  
-- 可选 **push 设备**（与 IPsec 同源 `vrController.updateVRConfig`）。  
+- **必须回退平台库**：对该隧道四端各执行 `recomputeVrEffectiveConfig`（exclude 本隧道），写回 `config_json` 并删除隧道档案；`revertPlatform=0/false` 请求会被拒绝。
+- 默认 **push 设备**；传 `revertDevice=0/false` 可只回退平台库、不向设备下发。
 - 删除成功后对四端尝试 `resetSrv6BaselineWhenNoTunnels`（零隧道基线对齐）。  
 - 无 `injectedDelta` / 无基线：**400**，中文提示 + 操作建议。
 
@@ -317,7 +316,7 @@ npx tsc --noEmit
 | 现象 | 排查 |
 |------|------|
 | 创建 409 冲突 | 响应 `conflicts[]`；查 Hub API；确认 neighbor/RD/内网口是否与已有隧道重复 |
-| 删除 400 | 多为历史隧道无档案/无基线；按提示仅删记录或走对账 |
+| 删除 400 | 多为历史隧道无档案/无基线；普通删除必须执行平台回退，先按配置对账流程补齐或修复数据 |
 | 保存 VR 409 | 设备被隧道引用且改了指纹；先删隧道或勿改关键 WAN/内网项 |
 | 对账 INVARIANT_DRIFT | POST reconcile `repair: true`；查审计 `SRv6 Reconcile` |
 | 生效态与预期不符 | 确认四端是否 sync 成功；PUT 是否先冲突检测；是否有人 bypass upsert 直写库 |

@@ -175,40 +175,50 @@ const IbrHaGroupsPage: React.FC = () => {
 	}, []);
 
 	const handleDelete = useCallback((row: IbrHaGroup) => {
-		let revertDevice = false;
-		Modal.confirm({
+			let revertDevice = true;
+			Modal.confirm({
 			title: '删除 HA 组',
-			content: (
-				<div>
-					<p style={{ marginBottom: 8 }}>确定删除「{row.name}」？不会删除 IBR 实例本身。</p>
-					<Checkbox
-						onChange={(e) => {
-							revertDevice = e.target.checked;
-						}}
-					>
-						同时从主备设备回退本组 VRRP（写入 VR2，由 agent 应用到 CLI）
-					</Checkbox>
-					<p style={{ margin: '8px 0 0', color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
-						仍被 SRv6 隧道绑定的组不能删除。不勾选则只删平台组档案，设备 / VR2 上的 VRRP 会留下；勾选失败时组仍保留，可重试。
-					</p>
-				</div>
-			),
-			okText: '删除',
-			okButtonProps: { danger: true },
-			cancelText: '取消',
-			onOk: async () => {
-				try {
-					await deleteIbrHaGroup(row.id, { revertDevice });
-					message.success(revertDevice ? '已删除并回退设备 VRRP' : '已删除（设备 VRRP 未改）');
-					await load(true);
-				} catch (e) {
-					message.error(getApiErrorMessage(e, '删除失败'));
-					throw e;
-				}
-			},
-		});
+				content: (
+					<div>
+						<p style={{ marginBottom: 8 }}>确定删除「{row.name}」？不会删除 IBR 实例本身。</p>
+						<Checkbox checked disabled style={{ color: 'rgba(0,0,0,.88)' }}>
+							回退平台中的 HA 组档案
+						</Checkbox>
+						<br />
+						<Checkbox
+							defaultChecked
+							onChange={(e) => {
+								revertDevice = e.target.checked;
+							}}
+						>
+							同步回退到底层设备
+						</Checkbox>
+						<p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
+							删除时会清除 SRv6 隧道端点上的 HA 归属标注，不改隧道配置或设备。不勾选回退设备时，设备 VR2 / CLI
+							上的本组 VRRP 会留下；勾选后按本组 vrid / group_id 剥配置（其它 VRRP 与 SRv6 保留），失败时组和隧道标注仍保留，可重试。
+						</p>
+					</div>
+				),
+				okText: '删除',
+				okButtonProps: { danger: true },
+				cancelText: '取消',
+				onOk: async () => {
+					try {
+						const result = await deleteIbrHaGroup(row.id, { revertDevice });
+						const detachedMessage = result.detachedTunnelCount
+							? `，已清除 ${result.detachedTunnelCount} 条隧道的 HA 标注`
+							: '';
+						message.success(
+							`${revertDevice ? '已删除并回退设备 VRRP' : '已删除（设备 VRRP 未改）'}${detachedMessage}`,
+						);
+						await load(true);
+					} catch (e) {
+						message.error(getApiErrorMessage(e, '删除失败'));
+						throw e;
+					}
+				},
+			});
 	}, [load]);
-
 	const columns = useMemo((): ColumnsType<IbrHaGroup> => {
 		return [
 			{
