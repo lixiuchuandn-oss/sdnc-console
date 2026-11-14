@@ -283,33 +283,30 @@ export function getVrrpCloudConfig(paths: Paths): unknown[] {
 }
 
 export async function getVrrpRunning(paths: Paths): Promise<{
+	/** @deprecated 兼容字段：live 巡检不再扫 running-config，恒为空 */
 	groups: unknown[];
+	/** @deprecated 兼容字段：完整 running-config 请走 /forwarding/running-config */
 	raw: string;
 	instancesRaw: string;
 	groupsRaw: string;
 }> {
 	if (isForwardingMock(paths)) {
 		return {
-			groups: [{ group_id: 1, track_gateway: ['2.2.2.2'], vrrp_instance: [2] }],
-			raw: 'vrrp 1',
+			groups: [],
+			raw: '',
 			instancesRaw:
 				'VRRP Instance = 1\n  State = MASTER\n  Virtual Router ID = 1\n    12.1.1.254/24 dev GigabitEthernet0/8/0 scope global set\n',
 			groupsRaw: 'VRRP Sync Group = 1, MASTER\n  Status = GOOD\n',
 		};
 	}
-	const res = await runClishStdin('do show running-config', paths);
-	const groups: Array<{ line: string }> = [];
-	if (res.ok) {
-		for (const line of res.output.split('\n')) {
-			const t = line.trim();
-			if (/^vrrp\s+/i.test(t) || /^track\s+gateway/i.test(t)) groups.push({ line: t });
-		}
-	}
-	const inst = await runClishArgv(['-c', 'do show vrrp instances'], paths, { timeoutMs: 10000 });
-	const grp = await runClishArgv(['-c', 'do show vrrp groups'], paths, { timeoutMs: 10000 });
+	// 只读 keepalived live show；不再先跑整份 running-config（慢且 live 三项判定不用）
+	const [inst, grp] = await Promise.all([
+		runClishArgv(['-c', 'do show vrrp instances'], paths, { timeoutMs: 10000 }),
+		runClishArgv(['-c', 'do show vrrp groups'], paths, { timeoutMs: 10000 }),
+	]);
 	return {
-		groups,
-		raw: res.ok ? res.output : '',
+		groups: [],
+		raw: '',
 		instancesRaw: inst.ok ? inst.output : String(inst.output || inst.error || ''),
 		groupsRaw: grp.ok ? grp.output : String(grp.output || grp.error || ''),
 	};

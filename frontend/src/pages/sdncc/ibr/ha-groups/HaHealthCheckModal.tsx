@@ -123,8 +123,10 @@ const HaHealthCheckModal: React.FC<Props> = ({ open, group, onClose }) => {
     runSeq.current += 1;
   }, [open, group?.id]);
 
-  const passCount = steps.filter((s) => s.status === 'finish' || s.status === 'skip').length;
+  const passCount = steps.filter((s) => s.status === 'finish').length;
+  const skipCount = steps.filter((s) => s.status === 'skip').length;
   const failCount = steps.filter((s) => s.status === 'error').length;
+  const doneCount = passCount + skipCount + failCount;
   const done = Boolean(report) && !running;
   const total = steps.length;
 
@@ -137,20 +139,23 @@ const HaHealthCheckModal: React.FC<Props> = ({ open, group, onClose }) => {
   const scoreValue = useMemo(() => {
     if (running) return '…';
     if (!done) return '—';
+    // 跳过不计入通过分，避免「未验 track」也显示 3/3
     return `${passCount}/${total}`;
   }, [running, done, passCount, total]);
 
   const scoreCaption = useMemo(() => {
     if (running) return '巡检中';
     if (!done) return '未开始';
-    return failCount > 0 ? '存在异常' : '全部通过';
-  }, [running, done, failCount]);
+    if (failCount > 0) return '存在异常';
+    if (skipCount > 0) return '通过（含跳过）';
+    return '全部通过';
+  }, [running, done, failCount, skipCount]);
 
   const progressPercent = useMemo(() => {
     if (running) return undefined;
     if (!done) return 0;
-    return Math.round((passCount / Math.max(total, 1)) * 100);
-  }, [running, done, passCount, total]);
+    return Math.round((doneCount / Math.max(total, 1)) * 100);
+  }, [running, done, doneCount, total]);
 
   const startHealthCheck = async () => {
     if (!group?.id) return;
@@ -201,7 +206,10 @@ const HaHealthCheckModal: React.FC<Props> = ({ open, group, onClose }) => {
       setSteps(mapped);
 
       const failed = nextReport.steps.filter((s) => s.status === 'fail').length;
+      const skipped = nextReport.steps.filter((s) => s.status === 'skip').length;
+      const passed = nextReport.steps.filter((s) => s.status === 'pass').length;
       if (failed) message.warning(`巡检完成：${failed} 项未通过`);
+      else if (skipped) message.success(`巡检完成：${passed} 项通过，${skipped} 项跳过`);
       else message.success('巡检完成：全部通过');
     } catch (e) {
       if (runSeq.current !== seq) return;
@@ -390,7 +398,7 @@ const HaHealthCheckModal: React.FC<Props> = ({ open, group, onClose }) => {
               重置
             </Button>
             <Button type="primary" loading={running} onClick={() => void startHealthCheck()}>
-              {done || failCount || passCount ? '重新巡检' : '开始巡检'}
+              {done || failCount || passCount || skipCount ? '重新巡检' : '开始巡检'}
             </Button>
           </div>
         </footer>

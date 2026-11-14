@@ -69,16 +69,30 @@ export type HaGroupLiveReport = {
   checkedAt: string;
 };
 
+/** 只取该成员自己的意图标识，避免把对端 vrid/group_id 算进本机过滤集 */
+export function ownedVrrpIdsForMember(
+  member: HaGroupVrrpIntent['members'][number] | undefined | null,
+): { vrids: Set<number>; groupIds: Set<number> } {
+  const vrids = new Set<number>();
+  const groupIds = new Set<number>();
+  if (!member) return { vrids, groupIds };
+  for (const inst of member.instances || []) {
+    if (Number.isFinite(inst.vrid)) vrids.add(inst.vrid);
+  }
+  for (const g of member.groups || []) {
+    if (Number.isFinite(g.group_id)) groupIds.add(g.group_id);
+  }
+  return { vrids, groupIds };
+}
+
+/** @deprecated 仅兼容旧调用；live 巡检请用 ownedVrrpIdsForMember */
 export function ownedVrrpIds(intent: HaGroupVrrpIntent): { vrids: Set<number>; groupIds: Set<number> } {
   const vrids = new Set<number>();
   const groupIds = new Set<number>();
   for (const member of intent.members || []) {
-    for (const inst of member.instances || []) {
-      if (Number.isFinite(inst.vrid)) vrids.add(inst.vrid);
-    }
-    for (const g of member.groups || []) {
-      if (Number.isFinite(g.group_id)) groupIds.add(g.group_id);
-    }
+    const owned = ownedVrrpIdsForMember(member);
+    for (const v of owned.vrids) vrids.add(v);
+    for (const g of owned.groupIds) groupIds.add(g);
   }
   return { vrids, groupIds };
 }
@@ -386,11 +400,11 @@ export async function collectHaLiveMembers(options: {
   intent: HaGroupVrrpIntent;
   names: Partial<Record<'primary' | 'backup', string | null>>;
 }): Promise<HaLiveMemberSnapshot[]> {
-  const { vrids, groupIds } = ownedVrrpIds(options.intent);
   const roles = ['primary', 'backup'] as const;
   return Promise.all(
     roles.map(async (role) => {
       const member = options.intent.members.find((m) => m.role === role);
+      const { vrids, groupIds } = ownedVrrpIdsForMember(member);
       const vrUuid = String(member?.vr_uuid || '').trim();
       const name = options.names[role] ?? null;
       if (!vrUuid) {

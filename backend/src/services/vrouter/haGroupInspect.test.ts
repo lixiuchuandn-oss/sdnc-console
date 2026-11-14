@@ -1,8 +1,10 @@
 import {
   evaluateHaLiveSteps,
+  ownedVrrpIdsForMember,
   snapshotFromVrrpPayload,
   type HaLiveMemberSnapshot,
 } from './haGroupInspect';
+import type { HaGroupVrrpIntent } from './haGroupVrrpIntent';
 
 const INSTANCES_MASTER = `
 VRRP Instance = 1
@@ -87,6 +89,83 @@ describe('haGroupInspect', () => {
     expect(snap.groupsReadable).toBe(true);
     expect(snap.anyVipInstalled).toBe(true);
     expect(snap.trackIncomplete).toBe(false);
+  });
+
+  it('filters owned ids per member instead of merging peer intent', () => {
+    const intent: HaGroupVrrpIntent = {
+      scheme: 'srv6-segment-list-vrrp',
+      side: 'local',
+      members: [
+        {
+          role: 'primary',
+          vr_uuid: 'vr-a',
+          instances: [
+            {
+              interface: 'GigabitEthernet0/8/0',
+              vrid: 1,
+              virtual_ip: '12.1.1.254/24',
+              priority: 200,
+              preempt: true,
+              advert_interval: 1,
+              advert_mode: 'multicast',
+            },
+          ],
+          groups: [{ group_id: 1, vrrp_instance: 1, track_interval: 1 }],
+        },
+        {
+          role: 'backup',
+          vr_uuid: 'vr-b',
+          instances: [
+            {
+              interface: 'GigabitEthernet0/8/0',
+              vrid: 2,
+              virtual_ip: '12.1.1.254/24',
+              priority: 100,
+              preempt: true,
+              advert_interval: 1,
+              advert_mode: 'multicast',
+            },
+          ],
+          groups: [{ group_id: 2, vrrp_instance: 2, track_interval: 1 }],
+        },
+      ],
+    };
+    const primaryOwned = ownedVrrpIdsForMember(intent.members[0]);
+    const backupOwned = ownedVrrpIdsForMember(intent.members[1]);
+    expect([...primaryOwned.vrids]).toEqual([1]);
+    expect([...primaryOwned.groupIds]).toEqual([1]);
+    expect([...backupOwned.vrids]).toEqual([2]);
+    expect([...backupOwned.groupIds]).toEqual([2]);
+
+    const snap = snapshotFromVrrpPayload({
+      role: 'primary',
+      vrUuid: 'vr-a',
+      name: 'CE3',
+      data: {
+        instancesRaw: `
+VRRP Instance = 1
+  State = MASTER
+  Virtual Router ID = 1
+    12.1.1.254/24 scope global set
+VRRP Instance = 2
+  State = BACKUP
+  Virtual Router ID = 2
+    12.1.1.253/24
+`,
+        groupsRaw: `
+VRRP Sync Group = 1, MASTER
+  Status = GOOD
+VRRP Sync Group = 2, BACKUP
+  Status = FAULT
+`,
+      },
+      vrids: primaryOwned.vrids,
+      groupIds: primaryOwned.groupIds,
+    });
+    expect(snap.memberVrids).toEqual([1]);
+    expect(snap.groupIds).toEqual([1]);
+    expect(snap.trackStatus).toBe('GOOD');
+    expect(snap.state).toBe('MASTER');
   });
 
   it('uses Virtual Router ID for memberVrids, not keepalived instance number', () => {

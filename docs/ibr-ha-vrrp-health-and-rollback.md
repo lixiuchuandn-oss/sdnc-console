@@ -80,13 +80,15 @@ HA 意图     = IbrHaGroup.vrrpIntent（主备各 instances[] + groups[]）
 
 ### 4.1 运行时巡检（live keepalived）
 
-列表「健康巡检」走 `GET /api/ibr-ha-groups/:id/live`，与配置健康解耦。路径与 SRv6 隧道 BGP 相同：SDNC → 设备 local-web `/forwarding/vrrp` → clish `do show vrrp instances` / `do show vrrp groups`。
+列表「健康巡检」走 `GET /api/ibr-ha-groups/:id/live`，与配置健康解耦。路径与 SRv6 隧道 BGP 相同：SDNC → 设备 local-web `/forwarding/vrrp` → clish `do show vrrp instances` / `do show vrrp groups`（**不再**先扫整份 `running-config`）。
 
 | 检查项 | 通过条件 | 设备对照 |
 |--------|----------|----------|
 | 主备角色 | 两台均可读，且恰好一台 `State = MASTER`、一台 `BACKUP`（允许故障切换后意图主变成 BACKUP） | `do show vrrp instances` → `State =` |
 | Track 可达 | 本组 Sync Group **自己跟踪的脚本**全部 `Status = GOOD`（按脚本名对齐全局 `VRRP Scripts` 段，不把整段落到最后一组）。`show vrrp groups` 失败、或有跟踪脚本但读不到 Status → 失败。两端都没有跟踪脚本则跳过 | `do show vrrp groups` → Tracked scripts + `Status =` |
 | VIP 挂载 | 当前 MASTER **本组每个实例的每条 VIP** 均为 `scope global set`（或行尾 `set`）；BACKUP 任一条已挂载则失败 | 实例 VIP 行 |
+
+过滤范围按**该成员自己的**意图 `vrid` / `group_id`，不把对端意图并进本机集合。前端总分只计 `pass`；合法 `skip` 显示「通过（含跳过）」，不冒充 3/3 全部通过。
 
 旧版 local-web 若只回 `running-config`、没有 `VRRP Instance =` 原文，巡检记该端不可达并提示升级。配置健康列仍只比 VR2。
 
