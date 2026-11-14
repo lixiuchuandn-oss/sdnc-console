@@ -40,7 +40,7 @@
 
 | 域 | 挂载 | 典型落点 |
 |----|------|----------|
-| **IBR** | 是 | `routes/sdn/srv6*.ts`、`ipsec.ts`、`acl*.ts`、`nat.ts`、`vrInstances.ts`、`vrConfig.ts`、`ibrHaGroups.ts`、`rrDomains.ts`；实体 `entities/vRouter/RrDomain*.ts`；服务 `services/vrouter/rrDomain*.ts`、`ibrHaGroup*`、`haGroupVrrp*` |
+| **IBR** | 是 | `routes/sdn/srv6*.ts`、`ipsec.ts`、`acl*.ts`、`nat.ts`、`vrInstances.ts`、`vrConfig.ts`、`ibrHaGroups.ts`、`rrDomains.ts`；实体 `entities/vRouter/RrDomain*.ts`；服务 `services/vrouter/rrDomain*.ts`、`ibrHaGroup*`、`haGroupVrrp*`、`haGroupHealth.ts`、`haGroupInspect.ts` |
 | **租户** | 是 | `routes/tenants/`（列表、组织树、租户用户） |
 | **SETTINGS** | 是 | `routes/sysuser/`、`routes/system.ts`、`routes/auditLogs.ts` |
 | **北向** | 是 | `routes/sdnc/northboundV1.ts` → `/api/v1/vr-instances` |

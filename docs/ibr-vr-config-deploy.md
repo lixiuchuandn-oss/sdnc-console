@@ -65,7 +65,7 @@ GET 设备 VR 全量 JSON
 | `nat` | `nat_address_group` | 由 `syncNatToVRConfig` 从 NAT 表生成；**不**覆盖设备 `nat[]` |
 | `ipsec` | `ipsec` | IPsec 条目规范化后覆盖 |
 | `srv6` | 平台意图中除 `acl` / `nat` / `nat_address_group` / `ipsec` / `vrrp` 外的业务 key | 保留设备侧 ACL/NAT/IPsec/**VRRP**；漂移比较忽略接口 `vrrp` 与顶层 `vrrp`（HA 域，H0 下发原样保留） |
-| `vrrp` | （不走 slice merge） | HA 组：`haGroupVrrpMaterialize` 在设备底稿上定点 upsert `interface[].vrrp` + 顶层 `vrrp[]`，经 `preMergedConfig` 下发。健康/解散回退见 [`ibr-ha-vrrp-health-and-rollback.md`](./ibr-ha-vrrp-health-and-rollback.md)（H0/H1/H5 已落地；H2–H4 待做） |
+| `vrrp` | （不走 slice merge） | HA 组：`haGroupVrrpMaterialize` 在设备底稿上定点 upsert `interface[].vrrp` + 顶层 `vrrp[]`，经 `preMergedConfig` 下发。健康/对账/解散回退见 [`ibr-ha-vrrp-health-and-rollback.md`](./ibr-ha-vrrp-health-and-rollback.md)（H0–H3 / H5 已落地；H4 待做） |
 
 **漂移预览 API**：`GET /api/vr-config/:uuid/deploy-drift?domain=acl|nat|ipsec|srv6`
 
@@ -77,8 +77,13 @@ GET 设备 VR 全量 JSON
 | `POST /api/networks/nat/deploy/push` | 先 `syncNatToVRConfig`，再 push |
 | `POST /api/networks/ipsec/deploy/push` | 含 preview / verify（向导用） |
 | `POST /api/networks/srv6/deploy/push` | 含 preview |
+| `GET /api/ibr-ha-groups?includeHealth=1` | HA 组列表；附带主备本组 VRRP 配置健康 |
+| `GET /api/ibr-ha-groups/:id/health` | 单组配置健康（VR2 意图对账，不读 keepalived） |
+| `GET /api/ibr-ha-groups/:id/live` | 单组运行时巡检：两台 CE `do show vrrp instances/groups`（主备 / track / VIP） |
+| `POST /api/ibr-ha-groups/reconcile` | HA 对账；`repair: true` 按意图重新下发本组 VRRP（写设备） |
 | `GET /api/ibr-ha-groups/:id/deploy/preview?role=primary\|backup` | 预览该节点 VRRP 组装片（默认同设备底稿合并；`merge=0` 只出意图物化结果） |
-| `POST /api/ibr-ha-groups/:id/deploy` | HA 组 VRRP：主备串行 `pushVRConfig(domain: vrrp, preMergedConfig)`，或 `body.role` 只推一端（向导分步，可重复下发）；两端都成功 → `configured`，仅主成功 → `degraded` |
+| `GET /api/ibr-ha-groups/:id/deploy/drift?role=primary\|backup` | 本组 vrid 子集漂移（改写本组或丢掉非本组 vrid 才阻塞） |
+| `POST /api/ibr-ha-groups/:id/deploy` | HA 组 VRRP：主备串行 `pushVRConfig(domain: vrrp, preMergedConfig)`，或 `body.role` 只推一端；`acknowledgeDrift` 确认改写本组；两端都成功 → `configured`，仅主成功 → `degraded` |
 
 ---
 

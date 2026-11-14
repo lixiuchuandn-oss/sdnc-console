@@ -1,0 +1,376 @@
+.ha-live-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.ha-live-modal .ant-modal-body {
+  padding: 0;
+}
+
+.ha-live-shell {
+  --ha-ink: #1d2129;
+  --ha-muted: #86909c;
+  --ha-line: #e5e6eb;
+  --ha-soft: #f7f8fa;
+  --ha-accent: #1677ff;
+  --ha-ok: #00b42a;
+  --ha-bad: #f53f3f;
+  font-family: inherit;
+  color: var(--ha-ink);
+}
+
+.ha-live-hero {
+  padding: 20px 24px 18px;
+  background:
+    linear-gradient(180deg, rgba(22, 119, 255, 0.06) 0%, rgba(255, 255, 255, 0) 100%),
+    #fff;
+  border-bottom: 1px solid var(--ha-line);
+}
+
+.ha-live-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ha-live-kicker {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ha-muted);
+  font-weight: 500;
+}
+
+.ha-live-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ha-live-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--ha-muted);
+  line-height: 1.5;
+}
+
+.ha-live-score {
+  flex: 0 0 auto;
+  min-width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  border: 1px solid var(--ha-line);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.ha-live-score.is-ok {
+  border-color: rgba(0, 180, 42, 0.35);
+  box-shadow: inset 0 0 0 3px rgba(0, 180, 42, 0.08);
+}
+
+.ha-live-score.is-bad {
+  border-color: rgba(245, 63, 63, 0.35);
+  box-shadow: inset 0 0 0 3px rgba(245, 63, 63, 0.08);
+}
+
+.ha-live-score.is-run {
+  border-color: rgba(22, 119, 255, 0.4);
+  box-shadow: inset 0 0 0 3px rgba(22, 119, 255, 0.08);
+}
+
+.ha-live-score-value {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.ha-live-score.is-ok .ha-live-score-value {
+  color: var(--ha-ok);
+}
+
+.ha-live-score.is-bad .ha-live-score-value {
+  color: var(--ha-bad);
+}
+
+.ha-live-score.is-run .ha-live-score-value {
+  color: var(--ha-accent);
+}
+
+.ha-live-score-label {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ha-muted);
+}
+
+.ha-live-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ha-live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--ha-soft);
+  border: 1px solid var(--ha-line);
+  font-size: 12px;
+  color: #4e5969;
+}
+
+.ha-live-chip strong {
+  font-weight: 500;
+  color: var(--ha-ink);
+}
+
+.ha-live-body {
+  padding: 16px 24px 8px;
+}
+
+.ha-live-section-label {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ha-muted);
+  letter-spacing: 0.04em;
+}
+
+.ha-live-members {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+  .ha-live-members {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ha-live-member {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ha-line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ha-live-member.is-master {
+  border-color: rgba(0, 180, 42, 0.35);
+  background: rgba(0, 180, 42, 0.03);
+}
+
+.ha-live-member.is-down {
+  border-color: rgba(245, 63, 63, 0.28);
+  background: rgba(245, 63, 63, 0.03);
+}
+
+.ha-live-member-role {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ha-accent);
+  letter-spacing: 0.02em;
+}
+
+.ha-live-member-name {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ha-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ha-live-member-facts {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ha-live-fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #4e5969;
+}
+
+.ha-live-fact-k {
+  color: var(--ha-muted);
+  flex: 0 0 auto;
+}
+
+.ha-live-fact-v {
+  text-align: right;
+  word-break: break-all;
+  color: var(--ha-ink);
+}
+
+.ha-live-fact-v.is-ok {
+  color: var(--ha-ok);
+}
+
+.ha-live-fact-v.is-bad {
+  color: var(--ha-bad);
+}
+
+.ha-live-progress-wrap {
+  margin-bottom: 14px;
+}
+
+.ha-live-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ha-live-check {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--ha-line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.ha-live-check.is-process {
+  border-color: rgba(22, 119, 255, 0.35);
+  background: rgba(22, 119, 255, 0.02);
+}
+
+.ha-live-check.is-finish {
+  border-color: rgba(0, 180, 42, 0.28);
+  background: rgba(0, 180, 42, 0.03);
+}
+
+.ha-live-check.is-error {
+  border-color: rgba(245, 63, 63, 0.28);
+  background: rgba(245, 63, 63, 0.03);
+}
+
+.ha-live-check-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  background: var(--ha-soft);
+  color: #4e5969;
+  border: 1px solid var(--ha-line);
+}
+
+.ha-live-check.is-process .ha-live-check-icon {
+  color: var(--ha-accent);
+  border-color: rgba(22, 119, 255, 0.25);
+  background: rgba(22, 119, 255, 0.08);
+}
+
+.ha-live-check.is-finish .ha-live-check-icon {
+  color: var(--ha-ok);
+  border-color: rgba(0, 180, 42, 0.25);
+  background: rgba(0, 180, 42, 0.08);
+}
+
+.ha-live-check.is-error .ha-live-check-icon {
+  color: var(--ha-bad);
+  border-color: rgba(245, 63, 63, 0.25);
+  background: rgba(245, 63, 63, 0.08);
+}
+
+.ha-live-check-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.ha-live-check-desc {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #4e5969;
+  word-break: break-word;
+}
+
+.ha-live-check-desc.is-placeholder {
+  color: var(--ha-muted);
+}
+
+.ha-live-status {
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.ha-live-status.is-wait,
+.ha-live-status.is-skip {
+  color: var(--ha-muted);
+  background: var(--ha-soft);
+  border-color: var(--ha-line);
+}
+
+.ha-live-status.is-process {
+  color: var(--ha-accent);
+  background: rgba(22, 119, 255, 0.08);
+  border-color: rgba(22, 119, 255, 0.2);
+}
+
+.ha-live-status.is-finish {
+  color: var(--ha-ok);
+  background: rgba(0, 180, 42, 0.08);
+  border-color: rgba(0, 180, 42, 0.2);
+}
+
+.ha-live-status.is-error {
+  color: var(--ha-bad);
+  background: rgba(245, 63, 63, 0.08);
+  border-color: rgba(245, 63, 63, 0.2);
+}
+
+.ha-live-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--ha-line);
+}
+
+.ha-live-footer-hint {
+  font-size: 12px;
+  color: var(--ha-muted);
+  line-height: 1.45;
+  max-width: 360px;
+}
+
+.ha-live-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}

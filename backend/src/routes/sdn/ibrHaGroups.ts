@@ -29,7 +29,11 @@ function hasWrite(req: import('express').Request) {
 
 function mapError(res: import('express').Response, err: unknown) {
   if (err instanceof IbrHaGroupError) {
-    return res.status(err.statusCode).json({ code: err.statusCode, message: err.message });
+    return res.status(err.statusCode).json({
+      code: err.code || err.statusCode,
+      message: err.message,
+      conflicts: err.conflicts,
+    });
   }
   const message = err instanceof Error ? err.message : String(err);
   return res.status(500).json({ code: 500, message });
@@ -40,7 +44,26 @@ ibrHaGroupRoutes.get('/', async (req, res) => {
     return res.status(403).json({ message: '权限不足：需要 networks.vr-config:read' });
   }
   try {
-    const data = await ibrHaGroupService.list();
+    const healthRaw = String(req.query.includeHealth ?? '').trim().toLowerCase();
+    const includeHealth = healthRaw === '1' || healthRaw === 'true' || healthRaw === 'yes';
+    const data = await ibrHaGroupService.list({ includeHealth });
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err) {
+    return mapError(res, err);
+  }
+});
+
+ibrHaGroupRoutes.post('/reconcile', async (req, res) => {
+  if (!hasRead(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:read' });
+  }
+  const repair = req.body?.repair === true;
+  if (repair && !hasWrite(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
+  }
+  try {
+    const groupId = String(req.body?.groupId || '').trim() || undefined;
+    const data = await ibrHaGroupService.reconcile({ repair, groupId });
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err) {
     return mapError(res, err);
@@ -93,6 +116,22 @@ ibrHaGroupRoutes.get('/:id/deploy/preview', async (req, res) => {
 });
 
 /** 将 vrrpIntent 下发至主备 IBR（读设备 → 定点 merge → 全量 POST）；body.role 可只推一端 */
+ibrHaGroupRoutes.get('/:id/deploy/drift', async (req, res) => {
+  if (!hasRead(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:read' });
+  }
+  try {
+    const roleRaw = String(req.query.role || '').trim();
+    if (roleRaw !== 'primary' && roleRaw !== 'backup') {
+      return res.status(400).json({ code: 400, message: 'role 须为 primary 或 backup' });
+    }
+    const data = await ibrHaGroupService.inspectDeployDrift(String(req.params.id || '').trim(), roleRaw);
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err) {
+    return mapError(res, err);
+  }
+});
+
 ibrHaGroupRoutes.post('/:id/deploy', async (req, res) => {
   if (!hasWrite(req)) {
     return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
@@ -100,7 +139,35 @@ ibrHaGroupRoutes.post('/:id/deploy', async (req, res) => {
   try {
     const roleRaw = String(req.body?.role || '').trim();
     const role = roleRaw === 'primary' || roleRaw === 'backup' ? roleRaw : undefined;
-    const data = await ibrHaGroupService.deploy(String(req.params.id || '').trim(), { role });
+    const acknowledgeDrift = req.body?.acknowledgeDrift === true;
+    const data = await ibrHaGroupService.deploy(String(req.params.id || '').trim(), {
+      role,
+      acknowledgeDrift,
+    });
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err) {
+    return mapError(res, err);
+  }
+});
+
+ibrHaGroupRoutes.get('/:id/health', async (req, res) => {
+  if (!hasRead(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:read' });
+  }
+  try {
+    const data = await ibrHaGroupService.health(String(req.params.id || '').trim());
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err) {
+    return mapError(res, err);
+  }
+});
+
+ibrHaGroupRoutes.get('/:id/live', async (req, res) => {
+  if (!hasRead(req)) {
+    return res.status(403).json({ message: '权限不足：需要 networks.vr-config:read' });
+  }
+  try {
+    const data = await ibrHaGroupService.live(String(req.params.id || '').trim());
     return res.json({ code: 200, msg: 'ok', data });
   } catch (err) {
     return mapError(res, err);
@@ -162,8 +229,8 @@ ibrHaGroupRoutes.delete('/:id', async (req, res) => {
   try {
     const revertRaw = String(req.query.revertDevice ?? '').trim().toLowerCase();
     const revertDevice = revertRaw === '1' || revertRaw === 'true' || revertRaw === 'yes';
-    const data = await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
-    return res.json({ code: 200, msg: 'ok', data });
+    await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
+    return res.json({ code: 200, msg: 'ok' });
   } catch (err) {
     return mapError(res, err);
   }

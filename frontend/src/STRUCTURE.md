@@ -77,7 +77,7 @@ frontend/src/
 | 目录 | 导航分组（`RouteSpec.group`） | 职责 |
 |------|------------------------------|------|
 | `ibr/routers/` | IBR 管理 | IBR实例 |
-| `ibr/ha-groups/` | IBR 管理 | IBR 高可用组（仅 CE / 标准模式）列表 + 向导 |
+| `ibr/ha-groups/` | IBR 管理 | IBR 高可用组（仅 CE / 标准模式）列表（生命周期 Tag / 配置健康 / 对账 / 删除回退）+ live 巡检 + 向导 |
 | `ibr/rr-domains/` | IBR 管理 | BGP RR 反射域列表 / 导入 |
 | `ibr/srv6/` | IBR 管理 | SRv6 隧道（含 `Architecture.tsx` 架构拓扑、向导 `Create.tsx`） |
 | `ibr/ipsec-vpn/` | IBR 管理 | IPsec VPN |

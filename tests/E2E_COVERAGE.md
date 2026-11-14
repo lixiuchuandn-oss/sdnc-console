@@ -18,7 +18,7 @@
 
 ## 建议下一批
 
-1. 网际路由域列表 / 创建（需 mock 或联调环境）
+1. IBR HA 组配置健康 / 对账 / 解散回退 / live 巡检（`ibr-ha-groups-health`，H2/H3 + GET /:id/live 已落地，待实验室 E2E）
 2. IBR VR 列表只读冒烟
 3. 系统设置 · 用户 / 角色 RBAC 只读
 

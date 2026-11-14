@@ -235,6 +235,10 @@ export type IbrForwardingVrrpResult = {
   groups?: unknown[];
   cloud?: unknown[];
   error?: string;
+  /** clish `do show vrrp instances` 原文 */
+  instancesRaw?: string;
+  /** clish `do show vrrp groups` 原文 */
+  groupsRaw?: string;
 };
 
 export type IbrForwardingRunningConfigResult = {

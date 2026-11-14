@@ -2,7 +2,6 @@ import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { IbrHaGroup, type IbrHaGroupStatus } from '../../entities/vRouter/IbrHaGroup';
 import { IbrHaGroupMember, type IbrHaGroupMemberRole } from '../../entities/vRouter/IbrHaGroupMember';
-import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { resolveVrRolesWithFallback } from './ibrVrRoleResolve';
 import {
@@ -19,26 +18,49 @@ import {
   type HaMemberVrrpPatch,
 } from './haGroupVrrpMaterialize';
 import {
+  assessHaMemberHealth,
+  composeHaGroupHealthMessage,
+  inspectHaVrrpDeployDrift,
+  rollupHaGroupHealth,
+  type HaGroupHealthCode,
+  type HaGroupHealthReport,
+  type HaMemberHealth,
+} from './haGroupHealth';
+import {
+  collectHaLiveMembers,
+  evaluateHaLiveSteps,
+  type HaGroupLiveReport,
+} from './haGroupInspect';
+import {
+  assertNoBlockingDeployDrift,
   getVRConfigFromDevice,
   pushVRConfig,
   VrConfigDeployError,
   type PushVRConfigResult,
+  type VrConfigDriftConflict,
 } from './vrConfigDeploy';
 import {
   assertHaMembersNotOppositeCesOnSameTunnel,
   collectHaMemberTunnelEndpointWarnings,
 } from './haGroupTunnelGate';
-import { detachSrv6TunnelsFromHaGroup } from './haGroupTunnelMetadata';
 
 const HA_GROUP_ELIGIBLE_ROLES = new Set(['CE', '标准']);
 
 export class IbrHaGroupError extends Error {
   statusCode: number;
+  code?: string;
+  conflicts?: VrConfigDriftConflict[];
 
-  constructor(message: string, statusCode = 400) {
+  constructor(
+    message: string,
+    statusCode = 400,
+    extras?: { code?: string; conflicts?: VrConfigDriftConflict[] },
+  ) {
     super(message);
     this.name = 'IbrHaGroupError';
     this.statusCode = statusCode;
+    this.code = extras?.code;
+    this.conflicts = extras?.conflicts;
   }
 }
 
@@ -66,6 +88,10 @@ export type IbrHaGroupView = {
   members: IbrHaGroupMemberView[];
   createdAt: string;
   updatedAt: string;
+  configHealth?: HaGroupHealthCode | null;
+  configHealthMessage?: string | null;
+  configHealthCheckedAt?: string | null;
+  memberHealth?: HaMemberHealth[];
 };
 
 export type IbrHaGroupWriteResult = {
@@ -310,6 +336,82 @@ async function enrichMembers(members: IbrHaGroupMember[]): Promise<IbrHaGroupMem
     }));
 }
 
+const HEALTH_CONCURRENCY = 4;
+
+async function mapPool<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const run = async () => {
+    while (cursor < items.length) {
+      const i = cursor;
+      cursor += 1;
+      results[i] = await worker(items[i]);
+    }
+  };
+  const n = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: n }, () => run()));
+  return results;
+}
+
+async function readDeviceOrNull(vrUuid: string): Promise<{ device: import('./vrConfigDeploy').VrConfigJson | null; error?: string }> {
+  try {
+    return { device: await getVRConfigFromDevice(vrUuid) };
+  } catch (e) {
+    return { device: null, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+async function buildGroupHealth(group: IbrHaGroup): Promise<HaGroupHealthReport> {
+  const checkedAt = new Date().toISOString();
+  const empty = (message: string, code: HaGroupHealthCode = 'not_deployed'): HaGroupHealthReport => ({
+    groupId: group.id,
+    health: code,
+    message,
+    checkedAt,
+    members: [],
+  });
+  try {
+    const { intent } = await requireDeployableGroup(group.id);
+    const members: HaMemberHealth[] = [];
+    for (const role of ['primary', 'backup'] as const) {
+      const patch = materializeHaGroupVrrpForMember(intent, role);
+      const { device, error } = await readDeviceOrNull(patch.vrUuid);
+      members.push(
+        assessHaMemberHealth({
+          role,
+          vrUuid: patch.vrUuid,
+          patch,
+          device,
+          deviceError: error,
+        }),
+      );
+    }
+    const health = rollupHaGroupHealth(members[0]!.code, members[1]!.code);
+    return {
+      groupId: group.id,
+      health,
+      message: composeHaGroupHealthMessage(health, members),
+      checkedAt,
+      members,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('不存在')) return empty(msg, 'endpoint_missing');
+    return empty(msg, group.status === 'draft' ? 'not_deployed' : 'drift');
+  }
+}
+
+function attachHealth(view: IbrHaGroupView, report: HaGroupHealthReport): IbrHaGroupView {
+  return {
+    ...view,
+    configHealth: report.health,
+    configHealthMessage: report.message,
+    configHealthCheckedAt: report.checkedAt,
+    memberHealth: report.members,
+  };
+}
+
 async function toView(group: IbrHaGroup): Promise<IbrHaGroupView> {
   const members = group.members?.length
     ? group.members
@@ -328,9 +430,135 @@ async function toView(group: IbrHaGroup): Promise<IbrHaGroupView> {
 }
 
 export const ibrHaGroupService = {
-  async list(): Promise<IbrHaGroupView[]> {
+  async list(options?: { includeHealth?: boolean }): Promise<IbrHaGroupView[]> {
     const groups = await groupRepo().find({ order: { updatedAt: 'DESC' } });
-    return Promise.all(groups.map((g) => toView(g)));
+    const views = await Promise.all(groups.map((g) => toView(g)));
+    if (!options?.includeHealth) return views;
+    const reports = await mapPool(groups, HEALTH_CONCURRENCY, (g) => buildGroupHealth(g));
+    const byId = new Map(reports.map((r) => [r.groupId, r]));
+    return views.map((v) => {
+      const report = byId.get(v.id);
+      return report ? attachHealth(v, report) : v;
+    });
+  },
+
+  async health(id: string): Promise<HaGroupHealthReport> {
+    const group = await groupRepo().findOne({ where: { id }, relations: ['members'] });
+    if (!group) throw new IbrHaGroupError('HA 组不存在', 404);
+    return buildGroupHealth(group);
+  },
+
+  /** 运行时巡检：设备 live VRRP（主备 / track / VIP），与配置健康解耦 */
+  async live(id: string): Promise<HaGroupLiveReport> {
+    const { group, intent } = await requireDeployableGroup(id);
+    const view = await toView(group);
+    const names: Partial<Record<'primary' | 'backup', string | null>> = {};
+    for (const m of view.members) names[m.role] = m.name;
+    const members = await collectHaLiveMembers({ intent, names });
+    const side = intent.side || null;
+    return {
+      groupId: group.id,
+      name: group.name,
+      lifecycleStatus: group.status,
+      side,
+      members,
+      steps: evaluateHaLiveSteps(members),
+      checkedAt: new Date().toISOString(),
+    };
+  },
+
+  async inspectDeployDrift(
+    id: string,
+    role: 'primary' | 'backup',
+  ): Promise<{
+    groupId: string;
+    role: 'primary' | 'backup';
+    vrUuid: string;
+    conflicts: VrConfigDriftConflict[];
+    blocking: boolean;
+  }> {
+    const { intent } = await requireDeployableGroup(id);
+    const patch = materializeHaGroupVrrpForMember(intent, role);
+    try {
+      const device = await getVRConfigFromDevice(patch.vrUuid);
+      const conflicts = inspectHaVrrpDeployDrift(device, patch);
+      return {
+        groupId: id,
+        role,
+        vrUuid: patch.vrUuid,
+        conflicts,
+        blocking: conflicts.some((c) => c.kind === 'DOMAIN_OVERWRITE'),
+      };
+    } catch (e) {
+      if (e instanceof IbrHaGroupError) throw e;
+      if (e instanceof VrConfigDeployError) {
+        throw new IbrHaGroupError(
+          `${role === 'primary' ? '主' : '备'}节点读取失败：${e.message}`,
+          e.code === 'DEVICE_READ_FAILED' || e.code === 'DEVICE_EMPTY' ? 502 : 400,
+        );
+      }
+      throw new IbrHaGroupError(
+        `${role === 'primary' ? '主' : '备'}节点读取失败：${e instanceof Error ? e.message : String(e)}`,
+        502,
+      );
+    }
+  },
+
+  async reconcile(options?: { repair?: boolean; groupId?: string }): Promise<{
+    scanned: number;
+    withIssues: number;
+    repaired: number;
+    items: Array<{
+      groupId: string;
+      name: string;
+      health: HaGroupHealthCode;
+      message: string;
+      members: HaMemberHealth[];
+      repaired: boolean;
+      repairActions: string[];
+    }>;
+  }> {
+    const groups = options?.groupId
+      ? await groupRepo().find({ where: { id: options.groupId }, relations: ['members'] })
+      : await groupRepo().find({ relations: ['members'] });
+    if (options?.groupId && groups.length === 0) {
+      throw new IbrHaGroupError('HA 组不存在', 404);
+    }
+    const items = await mapPool(groups, HEALTH_CONCURRENCY, async (group) => {
+      const report = await buildGroupHealth(group);
+      const item = {
+        groupId: group.id,
+        name: group.name,
+        health: report.health,
+        message: report.message,
+        members: report.members,
+        repaired: false,
+        repairActions: [] as string[],
+      };
+      const repairable =
+        Boolean(options?.repair) &&
+        (report.health === 'drift' || report.health === 'degraded' || report.health === 'not_deployed');
+      if (!repairable) return item;
+      try {
+        await ibrHaGroupService.deploy(group.id, { acknowledgeDrift: true });
+        item.repaired = true;
+        item.repairActions.push('已按平台意图重新下发主备本组 VRRP');
+        const fresh = await groupRepo().findOne({ where: { id: group.id }, relations: ['members'] });
+        const again = await buildGroupHealth(fresh || group);
+        item.health = again.health;
+        item.message = again.message;
+        item.members = again.members;
+      } catch (e) {
+        item.repairActions.push(`重新下发失败：${e instanceof Error ? e.message : String(e)}`);
+      }
+      return item;
+    });
+    return {
+      scanned: items.length,
+      withIssues: items.filter((i) => i.health !== 'ok' && i.health !== 'not_deployed').length,
+      repaired: items.filter((i) => i.repaired).length,
+      items,
+    };
   },
 
   async getById(id: string): Promise<IbrHaGroupView> {
@@ -479,9 +707,19 @@ export const ibrHaGroupService = {
     return { group: view, warnings };
   },
 
-  async remove(id: string, options?: { revertDevice?: boolean }): Promise<{ detachedTunnelCount: number }> {
+  async remove(id: string, options?: { revertDevice?: boolean }): Promise<void> {
     const group = await groupRepo().findOne({ where: { id }, relations: ['members'] });
     if (!group) throw new IbrHaGroupError('HA 组不存在', 404);
+
+    const { findSrv6TunnelsReferencingHaGroup } = await import('../../routes/sdn/srv6.references');
+    const tunnelRefs = await findSrv6TunnelsReferencingHaGroup(id);
+    if (tunnelRefs.length) {
+      const names = [...new Set(tunnelRefs.map((r) => r.tunnelName))].join('、');
+      throw new IbrHaGroupError(
+        `仍有 SRv6 隧道绑定本组（${names}），请先删除或改绑隧道后再删除本组`,
+        409,
+      );
+    }
 
     if (options?.revertDevice) {
       const primary = group.members?.find((m) => m.role === 'primary');
@@ -558,16 +796,7 @@ export const ibrHaGroupService = {
       }
     }
 
-    const detachedTunnelCount = await AppDataSource.transaction(async (manager) => {
-      const txGroupRepo = manager.getRepository(IbrHaGroup);
-      const txGroup = await txGroupRepo.findOne({ where: { id }, relations: ['members'] });
-      if (!txGroup) throw new IbrHaGroupError('HA 组不存在', 404);
-
-      const detached = await detachSrv6TunnelsFromHaGroup(manager.getRepository(SRv6Tunnel), id);
-      await txGroupRepo.remove(txGroup);
-      return detached;
-    });
-    return { detachedTunnelCount };
+    await groupRepo().remove(group);
   },
 
   /**
@@ -631,7 +860,7 @@ export const ibrHaGroupService = {
    */
   async deploy(
     id: string,
-    options?: { role?: 'primary' | 'backup' },
+    options?: { role?: 'primary' | 'backup'; acknowledgeDrift?: boolean },
   ): Promise<{
     group: IbrHaGroupView;
     primary?: PushVRConfigResult;
@@ -644,6 +873,18 @@ export const ibrHaGroupService = {
       const patch = materializeHaGroupVrrpForMember(intent, target);
       try {
         const device = await getVRConfigFromDevice(patch.vrUuid);
+        const conflicts = inspectHaVrrpDeployDrift(device, patch);
+        try {
+          assertNoBlockingDeployDrift(conflicts, { acknowledgeDrift: options?.acknowledgeDrift });
+        } catch (driftErr) {
+          if (driftErr instanceof VrConfigDeployError && driftErr.code === 'CONFIG_DRIFT') {
+            throw new IbrHaGroupError(driftErr.message, 409, {
+              code: 'CONFIG_DRIFT',
+              conflicts: driftErr.conflicts,
+            });
+          }
+          throw driftErr;
+        }
         const merged = applyVrrpPatchToDeviceConfig(device, patch);
         return await pushVRConfig({
           vrId: patch.vrUuid,
@@ -652,6 +893,7 @@ export const ibrHaGroupService = {
           skipDriftCheck: true,
         });
       } catch (e) {
+        if (e instanceof IbrHaGroupError) throw e;
         if (e instanceof VrConfigDeployError) {
           throw new IbrHaGroupError(
             `${target === 'primary' ? '主' : '备'}节点下发失败：${e.message}`,

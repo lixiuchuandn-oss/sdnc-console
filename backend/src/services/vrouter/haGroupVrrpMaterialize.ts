@@ -199,7 +199,7 @@ function upsertIfaceVrrp(
     if (!patch.ifaceVrrp.auth_pass) delete merged.auth_pass;
     existingVrrp[vrrpIdx] = merged;
   } else {
-    existingVrrp.push(patch.ifaceVrrp);
+    existingVrrp.push(deepClone(patch.ifaceVrrp));
   }
   iface.vrrp = existingVrrp;
   interfaces[ifaceIdx] = iface;
@@ -214,9 +214,9 @@ function upsertTopVrrp(result: VrConfigJson, group: DeviceVrrpGroup): void {
     return Number((raw as { group_id?: unknown }).group_id) === group.group_id;
   });
   if (topIdx >= 0) {
-    topVrrp[topIdx] = group;
+    topVrrp[topIdx] = deepClone(group);
   } else {
-    topVrrp.push(group);
+    topVrrp.push(deepClone(group));
   }
   result.vrrp = topVrrp;
 }
@@ -296,6 +296,108 @@ export function stripHaGroupVrrpFromDeviceConfig(
   }
 
   return result;
+}
+
+export type HaVrrpSlice = {
+  interfaces: Array<{ name: string; vrrp: unknown[] }>;
+  vrrp: unknown[];
+};
+
+const vridOf = (row: unknown): number | null => {
+  if (!row || typeof row !== 'object') return null;
+  const n = Number((row as { vrid?: unknown }).vrid);
+  return Number.isFinite(n) ? n : null;
+};
+
+const groupIdOf = (row: unknown): number | null => {
+  if (!row || typeof row !== 'object') return null;
+  const n = Number((row as { group_id?: unknown }).group_id);
+  return Number.isFinite(n) ? n : null;
+};
+
+function findIfaceRow(
+  cfg: Record<string, unknown>,
+  interfaceName: string,
+): Record<string, unknown> | null {
+  for (const key of listIfaceBucketKeys(cfg)) {
+    const list = cfg[key] as unknown[];
+    const idx = findIfaceIndex(list, interfaceName);
+    if (idx >= 0 && list[idx] && typeof list[idx] === 'object') {
+      return list[idx] as Record<string, unknown>;
+    }
+  }
+  return null;
+}
+
+/** 设备 VR2 上属于本组的 vrrp 子集（其它 vrid / group_id 不纳入） */
+export function extractHaGroupVrrpSubset(
+  deviceConfig: VrConfigJson,
+  patch: HaMemberVrrpPatch,
+): HaVrrpSlice {
+  const cfg = deviceConfig as Record<string, unknown>;
+  const interfaces: HaVrrpSlice['interfaces'] = [];
+  for (const ifacePatch of patch.ifacePatches) {
+    const found = findIfaceRow(cfg, ifacePatch.interfaceName);
+    const all = Array.isArray(found?.vrrp) ? (found!.vrrp as unknown[]) : [];
+    const vrrp = all.filter((row) => vridOf(row) === ifacePatch.ifaceVrrp.vrid);
+    interfaces.push({ name: ifacePatch.interfaceName, vrrp });
+  }
+  const groupIds = groupIdSetOf(patch);
+  const top = Array.isArray(cfg.vrrp) ? (cfg.vrrp as unknown[]) : [];
+  return {
+    interfaces,
+    vrrp: top.filter((row) => {
+      const gid = groupIdOf(row);
+      return gid != null && groupIds.has(gid);
+    }),
+  };
+}
+
+export function expectedHaVrrpSlice(patch: HaMemberVrrpPatch): HaVrrpSlice {
+  return {
+    interfaces: patch.ifacePatches.map((p) => ({
+      name: p.interfaceName,
+      vrrp: [p.ifaceVrrp],
+    })),
+    vrrp: [...patch.topVrrp],
+  };
+}
+
+/** 设备上不属于本组的接口 vrid + 顶层 group_id 指纹（下发不得丢掉） */
+export function listForeignHaVrrpMarks(
+  deviceConfig: VrConfigJson,
+  patch: HaMemberVrrpPatch,
+): string[] {
+  const ownedIface = new Set(
+    patch.ifacePatches.map((p) => `${compactIfaceName(p.interfaceName)}#${p.ifaceVrrp.vrid}`),
+  );
+  const ownedGroups = groupIdSetOf(patch);
+  const marks: string[] = [];
+  const cfg = deviceConfig as Record<string, unknown>;
+  for (const key of listIfaceBucketKeys(cfg)) {
+    const list = cfg[key];
+    if (!Array.isArray(list)) continue;
+    for (const raw of list) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      const iface = raw as Record<string, unknown>;
+      const name = String(iface.name ?? '').trim();
+      if (!Array.isArray(iface.vrrp)) continue;
+      for (const row of iface.vrrp as unknown[]) {
+        const vrid = vridOf(row);
+        if (vrid == null) continue;
+        if (ownedIface.has(`${compactIfaceName(name)}#${vrid}`)) continue;
+        marks.push(`iface:${name}#${vrid}`);
+      }
+    }
+  }
+  if (Array.isArray(cfg.vrrp)) {
+    for (const row of cfg.vrrp as unknown[]) {
+      const gid = groupIdOf(row);
+      if (gid == null || ownedGroups.has(gid)) continue;
+      marks.push(`group:${gid}`);
+    }
+  }
+  return marks.sort();
 }
 
 /** 下发预览：只抽出本组写入的接口 vrrp 与顶层 vrrp group */

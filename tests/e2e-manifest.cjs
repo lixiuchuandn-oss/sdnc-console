@@ -33,6 +33,16 @@ const ENTRIES = [
     smoke: null,
     status: 'done',
   },
+  {
+    id: 'ibr-ha-groups-health',
+    name: 'IBR HA 组配置健康 / 对账 / 解散回退',
+    manual: 'IBR 高可用组',
+    api: null,
+    browser: null,
+    smoke: null,
+    status: 'deferred',
+    notes: 'H2/H3 配置健康已落地；live 巡检 GET /:id/live（Jest parseVrrpShow / haGroupInspect）。待实验室 E2E。',
+  },
 ];
 
 function testsRoot() {

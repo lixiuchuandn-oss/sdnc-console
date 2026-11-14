@@ -267,6 +267,7 @@ Compute.Tower/
 - `/api/vr-instances`：IBR 实例聚合列表（API 路径保留 `vr` 前缀）
 - `/api/vr-config`：VR 配置（写经 CSMCTL，见 **`docs/sdnc-stack-integration.md`**）
 - `/api/networks/srv6`：SRv6（含 reconcile、hub、baseline、deploy）
+- `/api/ibr-ha-groups`：HA 组（`includeHealth`、health、live、deploy/drift、reconcile、DELETE revertDevice）；与 SRv6 账本解耦
 - `/api/networks/ipsec`、`/api/networks/acl`、`/api/networks/acl-groups`、`/api/networks/nat`
 
 **北向与代理**：

@@ -282,9 +282,20 @@ export function getVrrpCloudConfig(paths: Paths): unknown[] {
 	return getStructuredAgentConfig(paths).modules.vrrp ?? [];
 }
 
-export async function getVrrpRunning(paths: Paths): Promise<{ groups: unknown[]; raw: string }> {
+export async function getVrrpRunning(paths: Paths): Promise<{
+	groups: unknown[];
+	raw: string;
+	instancesRaw: string;
+	groupsRaw: string;
+}> {
 	if (isForwardingMock(paths)) {
-		return { groups: [{ group_id: 1, track_gateway: ['2.2.2.2'], vrrp_instance: [2] }], raw: 'vrrp 1' };
+		return {
+			groups: [{ group_id: 1, track_gateway: ['2.2.2.2'], vrrp_instance: [2] }],
+			raw: 'vrrp 1',
+			instancesRaw:
+				'VRRP Instance = 1\n  State = MASTER\n  Virtual Router ID = 1\n    12.1.1.254/24 dev GigabitEthernet0/8/0 scope global set\n',
+			groupsRaw: 'VRRP Sync Group = 1, MASTER\n  Status = GOOD\n',
+		};
 	}
 	const res = await runClishStdin('do show running-config', paths);
 	const groups: Array<{ line: string }> = [];
@@ -294,7 +305,14 @@ export async function getVrrpRunning(paths: Paths): Promise<{ groups: unknown[];
 			if (/^vrrp\s+/i.test(t) || /^track\s+gateway/i.test(t)) groups.push({ line: t });
 		}
 	}
-	return { groups, raw: res.ok ? res.output : '' };
+	const inst = await runClishArgv(['-c', 'do show vrrp instances'], paths, { timeoutMs: 10000 });
+	const grp = await runClishArgv(['-c', 'do show vrrp groups'], paths, { timeoutMs: 10000 });
+	return {
+		groups,
+		raw: res.ok ? res.output : '',
+		instancesRaw: inst.ok ? inst.output : String(inst.output || inst.error || ''),
+		groupsRaw: grp.ok ? grp.output : String(grp.output || grp.error || ''),
+	};
 }
 
 export async function getRoutingPolicy(paths: Paths): Promise<{

@@ -7,6 +7,7 @@ import { Modal } from 'antd';
 import { apiRequest } from '../../../../services/api';
 import {
   deployIbrHaGroup,
+  inspectIbrHaGroupDeployDrift,
   previewIbrHaGroupDeploy,
 } from '../../../../services/ibrHaGroupApi';
 import {
@@ -132,6 +133,27 @@ const confirmOverwriteDrift = (
     });
   });
 
+const confirmHaVrrpOverwriteDrift = (
+  conflicts: Array<{ message: string }>,
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const lines = [
+      '继续下发将按平台意图改写本组 vrid / group_id；设备上其它 VRRP 以及 SRv6 / ACL / NAT / IPsec 会保留。',
+      '',
+      ...conflicts.map((c) => `• ${c.message}`),
+    ];
+    Modal.confirm({
+      title: '检测到本组 VRRP 漂移',
+      content: lines.join('\n'),
+      okText: '确认改写并下发',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      width: 560,
+      onOk: () => resolve(),
+      onCancel: () => reject(new DeployDriftCancelledError()),
+    });
+  });
+
 const isConfigDrift409 = (err: unknown): err is { status: number; conflicts?: VrConfigDriftConflict[] } => {
   const e = err as { status?: number; conflicts?: VrConfigDriftConflict[] };
   return e?.status === 409 && Array.isArray(e.conflicts) && e.conflicts.length > 0;
@@ -177,13 +199,47 @@ const executeHaVrrpWizardStep = async (step: IbrDeployWizardStep): Promise<strin
     if (data.warning) {
       lines.push('', `[提示] ${data.warning}`);
     }
+    try {
+      const drift = await inspectIbrHaGroupDeployDrift(groupId, role);
+      if (!drift.conflicts.length) {
+        lines.push('', '[漂移检测] 设备本组 VRRP 与意图一致，或本组尚未下发（注入不弹窗）。');
+      } else {
+        lines.push('', '[漂移检测] 继续下发将按意图改写本组 vrid（其它 VRRP / SRv6 保留）：');
+        drift.conflicts.forEach((c) => lines.push(`  • ${c.message}`));
+      }
+    } catch (e) {
+      lines.push(
+        '',
+        `[漂移检测] 未能读取：${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
     return lines.join('\n');
   }
 
   if (step.kind === 'push') {
-    const data = await deployIbrHaGroup(groupId, { role });
-    const node = role === 'primary' ? data.primary : data.backup;
-    return [`[${tag}] 下发设备响应`, JSON.stringify(node ?? data, null, 2)].join('\n');
+    let acknowledgeDrift = false;
+    try {
+      const drift = await inspectIbrHaGroupDeployDrift(groupId, role);
+      if (drift.blocking) {
+        await confirmHaVrrpOverwriteDrift(drift.conflicts);
+        acknowledgeDrift = true;
+      }
+    } catch (e) {
+      if (e instanceof DeployDriftCancelledError) throw e;
+      // 预检失败时仍走下发，由 409 CONFIG_DRIFT 再确认
+    }
+
+    try {
+      const data = await deployIbrHaGroup(groupId, { role, acknowledgeDrift });
+      const node = role === 'primary' ? data.primary : data.backup;
+      return [`[${tag}] 下发设备响应`, JSON.stringify(node ?? data, null, 2)].join('\n');
+    } catch (err: unknown) {
+      if (!isConfigDrift409(err)) throw err;
+      await confirmHaVrrpOverwriteDrift(err.conflicts || []);
+      const data = await deployIbrHaGroup(groupId, { role, acknowledgeDrift: true });
+      const node = role === 'primary' ? data.primary : data.backup;
+      return [`[${tag}] 下发设备响应`, JSON.stringify(node ?? data, null, 2)].join('\n');
+    }
   }
 
   throw new Error('HA VRRP 向导不支持该步骤类型');
@@ -212,7 +268,7 @@ export const buildIbrDeployWizardSteps = (
       });
       steps.push({
         title: `下发 ${ep.label}`,
-        desc: '定点合并后推送到设备，可重复下发',
+        desc: '定点合并后推送到设备；改写本组 VRRP 须确认（其它域保留）',
         kind: 'push',
         feature,
         vrId,

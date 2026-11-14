@@ -438,6 +438,8 @@ export type IbrForwardingVrrpResult = {
 	groups?: unknown[];
 	cloud?: unknown[];
 	error?: string;
+	instancesRaw?: string;
+	groupsRaw?: string;
 };
 
 export async function fetchIbrForwardingVrrp(
