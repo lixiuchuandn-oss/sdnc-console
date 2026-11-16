@@ -53,6 +53,8 @@ export function isDevicePingOk(raw: string): boolean {
 	if (/100%\s*packet\s*loss/i.test(t)) return false;
 	if (/network is unreachable/i.test(t)) return false;
 	if (/unknown host/i.test(t)) return false;
+	// clish `do ping` 常前台挂起，超时打断时可能只有 icmp 回显、没有 Statistics
+	if (/\bbytes from\b/i.test(t)) return true;
 
 	const stats = parseDevicePingStats(t);
 	if (stats.received != null && Number.isFinite(stats.received)) {
@@ -154,7 +156,7 @@ export function createVbrasOpsRouter(): Router {
 
 		const paths = getPaths();
 		try {
-			const timeoutMs = Math.max(30_000, repeat * 5_000 + 10_000);
+			const timeoutMs = Math.max(8_000, Math.min(repeat, 3) * 3_000 + 5_000);
 			const clishRes = await runClishArgv(['-c', clishCmd], paths, { timeoutMs });
 			const raw = String(clishRes.ok ? clishRes.output : clishRes.output || clishRes.error || '');
 			if (!clishRes.ok && !raw) {

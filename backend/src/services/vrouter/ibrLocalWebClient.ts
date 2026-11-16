@@ -80,6 +80,9 @@ function extractErrorMessage(data: unknown, status: number): string {
       if (/Cannot POST \/api\/north\/v1\//i.test(htmlErr)) {
         return '设备 local-web 尚未提供北向 API（/api/north/v1），请升级 ibr-local-web 后重试';
       }
+      if (/Cannot POST \/api\/connectivity\/ping/i.test(htmlErr)) {
+        return '设备 Console 未提供 ping 接口（/api/connectivity/ping），请升级 ibr-local-web 后重试';
+      }
       return htmlErr;
     }
     return data.trim();
@@ -139,12 +142,8 @@ export async function ibrLocalWebNorthRequest<T = unknown>(params: {
       });
 
       if (res.status === 404 && i < urlCandidates.length - 1) {
-        const hint =
-          typeof res.data === 'string' ? parseHtmlErrorBody(res.data) : null;
-        if (hint && /Cannot (GET|POST) \/api\/north\/v1\//i.test(hint)) {
-          ibrLocalLog.info('north API missing, fallback to legacy /api path', northPath);
-          continue;
-        }
+        ibrLocalLog.info('north API 404, fallback to legacy /api path', northPath);
+        continue;
       }
 
       if (res.status >= 400) {
