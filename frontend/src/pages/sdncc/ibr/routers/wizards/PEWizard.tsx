@@ -44,7 +44,6 @@ import {
   ifaceHasNdProxy,
   ndProxySidHostFromPrefix,
   patchVrConfigWanNdProxy,
-  pickIfaceHardwareMac,
   validateWanNdProxyIntent,
   wanNdProxyEnabledOn,
 } from '../peWizardNdProxy';
@@ -352,40 +351,7 @@ function buildPeWizardStepFieldNames(
   return [];
 }
 
-const NdProxyBindingNote: React.FC<{
-  sidHost: string;
-  wanIf: string;
-  ifaceMac?: string;
-  deviceRegMac?: string;
-}> = ({ sidHost, wanIf, ifaceMac, deviceRegMac }) => (
-  <div
-    style={{
-      marginTop: -4,
-      marginBottom: 12,
-      padding: '8px 10px',
-      background: '#f7f8fa',
-      borderRadius: 6,
-      color: '#4e5969',
-      fontSize: 12,
-      lineHeight: '20px',
-    }}
-  >
-    <div>Locator SID：{sidHost || '请先填写上方 SRv6 SID 前缀'}</div>
-    <div>代答接口：{wanIf || '请先选择 WAN 侧接口'}</div>
-    <div>
-      口 MAC：
-      {ifaceMac
-        ? ifaceMac
-        : `VR3 接口状态不上报该口 MAC${
-            deviceRegMac ? `；设备注册 MAC ${deviceRegMac}（VR1，非口级）` : ''
-          }`}
-    </div>
-    <div>
-      勾选后下发 <code>ipv6 nd proxy {sidHost || '<SID>'}</code>
-      ；NA 使用该 WAN 口硬件地址，命令不携带 MAC。
-    </div>
-  </div>
-);
+const ND_PROXY_CHECKBOX_LABEL = '接口启用 Locator SID 地址 ND 代答';
 
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -411,8 +377,6 @@ const PEWizard: React.FC = () => {
   );
   /** vr3_info 设备回读：用于在接口选择后反查 IP 等字段 */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
-  /** VR1 注册 MAC：设备身份，不是 WAN 口 MAC */
-  const [deviceRegMac, setDeviceRegMac] = useState('');
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
   const [activeWanTabKey, setActiveWanTabKey] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
@@ -531,11 +495,6 @@ const PEWizard: React.FC = () => {
     iface?.address ??
     '';
   const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
-  const lookupWanMac = (ifName?: string) =>
-    pickIfaceHardwareMac(
-      findInterfaceInDevice(vr3Info, String(ifName || '')) ||
-        findInterfaceInDevice(csmctlCfg, String(ifName || '')),
-    );
 
   /** WAN 口变更时：从 VR3 设备回读回填 IPv4/IPv6 */
   const autoFillWanFromIface = (ifaceName: string, opts?: { force?: boolean }) => {
@@ -603,7 +562,7 @@ const PEWizard: React.FC = () => {
       wan?.ipv4RouteDest,
       wan?.ipv6Dest,
       wan?.ipv6Via ? `gw ${wan.ipv6Via}` : '',
-      wan?.ndProxy ? `ND proxy ${ndProxySidHost || 'on'}` : '',
+      wan?.ndProxy ? `ND代答 ${ndProxySidHost || 'on'}` : '',
     ]
       .filter(Boolean)
       .join(' · ') || '-';
@@ -659,10 +618,6 @@ const PEWizard: React.FC = () => {
       setIfaceOptions(unique.filter(looksLikeIfaceName));
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
-      const rawCsm = merged._raw_csmctl_info && typeof merged._raw_csmctl_info === 'object'
-        ? merged._raw_csmctl_info
-        : {};
-      setDeviceRegMac(String(merged.mac || (rawCsm as any).mac || '').trim());
       setExistingCfg(savedCfg);
       if (!silent) message.success('设备回读已刷新');
     } catch (err) {
@@ -1391,7 +1346,7 @@ const PEWizard: React.FC = () => {
         const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
         ndProxyOnly = true;
         message.info(
-          `该 VR 已被 SRv6 隧道引用，本次仅保存/下发 WAN IPv6 ND Proxy 变更，避免向导全量覆盖隧道配置。${namesPart}`,
+          `该 VR 已被 SRv6 隧道引用，本次仅保存/下发 WAN Locator SID ND 代答变更，避免向导全量覆盖隧道配置。${namesPart}`,
           8,
         );
       }
@@ -1646,24 +1601,15 @@ const PEWizard: React.FC = () => {
                         {...field}
                         name={[field.name, 'ndProxy']}
                         valuePropName="checked"
-                        extra="对应设备命令 ipv6 nd proxy <Locator SID>。默认关闭。"
                       >
                         <Checkbox
                           disabled={
                             !ndProxySidHost && !Boolean((watchHubWanInventory || [])[idx]?.ndProxy)
                           }
                         >
-                          在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
+                          {ND_PROXY_CHECKBOX_LABEL}
                         </Checkbox>
                       </Form.Item>
-                      {Boolean((watchHubWanInventory || [])[idx]?.ndProxy) ? (
-                        <NdProxyBindingNote
-                          sidHost={ndProxySidHost}
-                          wanIf={String((watchHubWanInventory || [])[idx]?.ifName || '')}
-                          ifaceMac={lookupWanMac((watchHubWanInventory || [])[idx]?.ifName)}
-                          deviceRegMac={deviceRegMac}
-                        />
-                      ) : null}
                     </div>
                   ),
                 }));
@@ -1716,23 +1662,11 @@ const PEWizard: React.FC = () => {
           >
             <Input placeholder="例如 2408:3333:1002::1/64" />
           </Form.Item>
-          <Form.Item
-            name="wanNdProxy"
-            valuePropName="checked"
-            extra="对应设备命令 ipv6 nd proxy <Locator SID>。默认关闭。"
-          >
+          <Form.Item name="wanNdProxy" valuePropName="checked">
             <Checkbox disabled={!ndProxySidHost && !watchWanNdProxy}>
-              在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
+              {ND_PROXY_CHECKBOX_LABEL}
             </Checkbox>
           </Form.Item>
-          {watchWanNdProxy ? (
-            <NdProxyBindingNote
-              sidHost={ndProxySidHost}
-              wanIf={String(watchWanDev || '')}
-              ifaceMac={lookupWanMac(watchWanDev)}
-              deviceRegMac={deviceRegMac}
-            />
-          ) : null}
             </>
           )}
           {!isHubPe ? (
@@ -1952,7 +1886,7 @@ const PEWizard: React.FC = () => {
               <>
             <Descriptions.Item label="WAN 侧 IPv4">{previewStr(values.wanIpv4)}</Descriptions.Item>
             <Descriptions.Item label="WAN 侧 IPv6">{previewStr(values.wanIpv6)}</Descriptions.Item>
-            <Descriptions.Item label="IPv6 ND Proxy">
+            <Descriptions.Item label="Locator SID ND 代答">
               {values.wanNdProxy
                 ? `开启 · ${ndProxySidHostFromPrefix(values.sidPrefix) || '-'} @ ${values.wanDev || '-'}`
                 : '关闭'}
@@ -2101,17 +2035,9 @@ const PEWizard: React.FC = () => {
                                   </Form.Item>
                                   <Form.Item>
                                     <Checkbox checked={Boolean(g?.ndProxy)}>
-                                      在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
+                                      {ND_PROXY_CHECKBOX_LABEL}
                                     </Checkbox>
                                   </Form.Item>
-                                  {g?.ndProxy ? (
-                                    <NdProxyBindingNote
-                                      sidHost={ndProxySidHostFromPrefix(mirrorForm.getFieldValue('sidPrefix'))}
-                                      wanIf={String(g?.ifName || '')}
-                                      ifaceMac={lookupWanMac(g?.ifName)}
-                                      deviceRegMac={deviceRegMac}
-                                    />
-                                  ) : null}
                                 </div>
                               ),
                             }));
@@ -2139,16 +2065,8 @@ const PEWizard: React.FC = () => {
                       <Input placeholder="未配置" />
                     </Form.Item>
                     <Form.Item name="wanNdProxy" valuePropName="checked">
-                      <Checkbox>在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）</Checkbox>
+                      <Checkbox>{ND_PROXY_CHECKBOX_LABEL}</Checkbox>
                     </Form.Item>
-                    {mirrorForm.getFieldValue('wanNdProxy') ? (
-                      <NdProxyBindingNote
-                        sidHost={ndProxySidHostFromPrefix(mirrorForm.getFieldValue('sidPrefix'))}
-                        wanIf={String(mirrorForm.getFieldValue('wanDev') || '')}
-                        ifaceMac={lookupWanMac(mirrorForm.getFieldValue('wanDev'))}
-                        deviceRegMac={deviceRegMac}
-                      />
-                    ) : null}
                     <div style={{ height: 12 }} />
                     <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
                     <Form.Item name="bgpAsn" label="ASN">
@@ -2274,7 +2192,7 @@ const PEWizard: React.FC = () => {
                           <Descriptions.Item label="WAN 侧接口">{previewStr(mirrorForm.getFieldValue('wanDev'))}</Descriptions.Item>
                           <Descriptions.Item label="WAN 侧 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
                           <Descriptions.Item label="WAN 侧 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
-                          <Descriptions.Item label="IPv6 ND Proxy">
+                          <Descriptions.Item label="Locator SID ND 代答">
                             {mirrorForm.getFieldValue('wanNdProxy')
                               ? `开启 · ${ndProxySidHostFromPrefix(mirrorForm.getFieldValue('sidPrefix')) || '-'} @ ${mirrorForm.getFieldValue('wanDev') || '-'}`
                               : '关闭'}
