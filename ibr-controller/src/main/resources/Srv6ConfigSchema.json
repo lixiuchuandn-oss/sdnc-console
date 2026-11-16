@@ -565,8 +565,7 @@
           },
           "ipv6_nd_proxy": {
             "type": "string",
-            "format": "ipv6",
-            "maxLength": 45
+            "format": "ipv6"
           },
           "ipv6_static":{
             "type":"string",
