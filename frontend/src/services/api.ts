@@ -133,6 +133,8 @@ export type ApiGetOptions = {
   cacheTTL?: number;
   /** 默认 true；与运行中列表/进度轮询等同 URL 并发时建议 false */
   enableDeduplication?: boolean;
+  /** 默认 true；长耗时探测类接口可关重试，避免超时叠加 */
+  enableRetry?: boolean;
   /** 可选：外部中断底层 fetch（如部署步骤超时 abort） */
   signal?: AbortSignal;
 };
@@ -149,7 +151,7 @@ export const apiRequest = async (endpoint: string, options?: ApiGetOptions) => {
         options: {
           enableDeduplication: options?.enableDeduplication ?? true,
           enableCache: options?.enableCache ?? false,
-          enableRetry: true,
+          enableRetry: options?.enableRetry ?? true,
           skipCache: options?.skipCache || false,
           ...(typeof options?.cacheTTL === 'number' ? { cacheTTL: options.cacheTTL } : {}),
         },
