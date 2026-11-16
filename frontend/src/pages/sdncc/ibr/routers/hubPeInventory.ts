@@ -51,6 +51,7 @@ export type HubWanFormRow = {
   ipv4RoutePriority?: number;
   ipv6Dest?: string;
   ipv6Via?: string;
+  ndProxy?: boolean;
 };
 
 export type HubLanFormRow = {

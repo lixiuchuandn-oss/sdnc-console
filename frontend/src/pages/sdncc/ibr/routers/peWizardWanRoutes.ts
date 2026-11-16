@@ -9,6 +9,8 @@ export type WanRouteFormRow = {
   ipv4RoutePriority?: number;
   ipv6Dest?: string;
   ipv6Via?: string;
+  /** 本 WAN 口是否下发 ipv6 nd proxy（Locator SID） */
+  ndProxy?: boolean;
 };
 
 const IPV4_CIDR =
@@ -166,6 +168,7 @@ type DeviceIfaceRow = {
   name?: string;
   ipv4_static?: string;
   ipv6_static?: string;
+  ipv6_nd_proxy?: string;
   vrf?: unknown;
 };
 
@@ -184,6 +187,7 @@ export function buildHubWanMirrorRowsFromDevice(
     ifName: String(it.name).trim(),
     ipv4: it.ipv4_static,
     ipv6: it.ipv6_static,
+    ndProxy: Boolean(String(it.ipv6_nd_proxy || '').trim()),
   }));
   if (!rows.length) return rows;
   return enrichHubWanRowsFromDeviceRoutes(rows, cfg);

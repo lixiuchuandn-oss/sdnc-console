@@ -84,9 +84,13 @@ const ifaceHasVrrp = (row: Record<string, unknown>): boolean => {
   return v != null && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
 };
 
+const ifaceNdProxyOf = (row: Record<string, unknown>): string =>
+  String(row.ipv6_nd_proxy ?? '').trim();
+
 /**
  * SRv6 覆盖会整表替换 interfaces_*，把设备上 HA 留下的接口 vrrp 冲掉，
  * 同时最外层 vrrp（平台基线通常没有该键）仍留在底稿上 → CSM 报 vrrp_instance 找不到 vrid。
+ * ipv6_nd_proxy 同样由接口意图持有，SRv6 切片未带时保留设备值。
  */
 const preserveDeviceIfaceVrrpOnSrv6Overlay = (
   deviceConfig: VrConfigJson,
@@ -104,11 +108,16 @@ const preserveDeviceIfaceVrrpOnSrv6Overlay = (
     merged[key] = mergedIfaces.map((row) => {
       if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
       const cur = row as Record<string, unknown>;
-      if (ifaceHasVrrp(cur)) return cur;
       const curName = ifaceNameOf(cur);
       const prev = deviceRows.find((d) => ifaceNamesEqualLoose(ifaceNameOf(d), curName));
-      if (!prev || !ifaceHasVrrp(prev)) return cur;
-      return { ...cur, vrrp: deepClone(prev.vrrp) };
+      let next = cur;
+      if (!ifaceHasVrrp(next) && prev && ifaceHasVrrp(prev)) {
+        next = { ...next, vrrp: deepClone(prev.vrrp) };
+      }
+      if (!ifaceNdProxyOf(next) && prev && ifaceNdProxyOf(prev)) {
+        next = { ...next, ipv6_nd_proxy: prev.ipv6_nd_proxy };
+      }
+      return next;
     });
   }
 };
@@ -295,13 +304,19 @@ export const getOverlayKeysForDomain = (
   return [domain];
 };
 
-/** SRv6 漂移比较忽略接口上的 vrrp（由 HA 域持有，H0 下发会原样保留） */
+/** SRv6 漂移比较忽略接口上的 vrrp / ipv6_nd_proxy（非 SRv6 切片字段） */
 const omitIfaceVrrp = (value: unknown): unknown => {
   if (!Array.isArray(value)) return value;
   return value.map((row) => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
-    if (!Object.prototype.hasOwnProperty.call(row, 'vrrp')) return row;
-    const { vrrp: _vrrp, ...rest } = row as Record<string, unknown>;
+    const rec = row as Record<string, unknown>;
+    if (
+      !Object.prototype.hasOwnProperty.call(rec, 'vrrp') &&
+      !Object.prototype.hasOwnProperty.call(rec, 'ipv6_nd_proxy')
+    ) {
+      return row;
+    }
+    const { vrrp: _vrrp, ipv6_nd_proxy: _ndProxy, ...rest } = rec;
     return rest;
   });
 };

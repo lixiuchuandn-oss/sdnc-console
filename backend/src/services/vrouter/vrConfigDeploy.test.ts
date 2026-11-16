@@ -87,6 +87,28 @@ describe('vrConfigDeploy', () => {
     expect(wan.vrrp).toEqual(deviceVrrp);
   });
 
+  it('merge srv6 keeps device ipv6_nd_proxy when platform interfaces omit it', () => {
+    const device = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/7/0',
+          ipv6_static: '240e:398:8507:1:1::1/64',
+          ipv6_nd_proxy: '240e:398:8507:1:1::301',
+        },
+      ],
+      bgp: [{ asn: 65000 }],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/7/0', ipv6_static: '240e:398:8507:1:1::1/64' },
+      ],
+      bgp: [{ asn: 65000 }],
+    };
+    const merged = mergeDeviceWithPlatformSlice(device, platform, 'srv6');
+    const wan = (merged.interfaces_GigabitEthernet as Array<Record<string, unknown>>)[0];
+    expect(wan.ipv6_nd_proxy).toBe('240e:398:8507:1:1::301');
+  });
+
   it('merge srv6 preserves iface vrrp across whitespace name variants and interface key', () => {
     const deviceVrrp = [{ vrid: 1, priority: 200, virtual_ipaddress: ['11.1.1.100/24'] }];
     const device = {
@@ -218,6 +240,27 @@ describe('vrConfigDeploy', () => {
     const conflicts = detectDeployDrift(device, platform, 'srv6');
     expect(getBlockingDriftConflicts(conflicts)).toHaveLength(0);
     expect(conflicts.some((c) => c.key === 'vrrp')).toBe(false);
+  });
+
+  it('detectDeployDrift ignores device ipv6_nd_proxy when comparing srv6 overlays', () => {
+    const device = {
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/7/0',
+          ipv6_static: '240e:398:8507:1:1::1/64',
+          ipv6_nd_proxy: '240e:398:8507:1:1::301',
+        },
+      ],
+      bgp: [{ asn: 65001 }],
+    };
+    const platform = {
+      interfaces_GigabitEthernet: [
+        { name: 'GigabitEthernet 0/7/0', ipv6_static: '240e:398:8507:1:1::1/64' },
+      ],
+      bgp: [{ asn: 65001 }],
+    };
+    const conflicts = detectDeployDrift(device, platform, 'srv6');
+    expect(getBlockingDriftConflicts(conflicts)).toHaveLength(0);
   });
 
   it('merge srv6 does not overlay platform empty vrrp onto device HA groups', () => {

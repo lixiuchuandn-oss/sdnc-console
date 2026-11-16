@@ -37,6 +37,15 @@ import {
   type WanRouteFormRow,
 } from '../peWizardWanRoutes';
 import { isValidRdRtToken } from '../../srv6/srv6RdRt';
+import {
+  applyWanNdProxy,
+  collectWanNdProxyIfNames,
+  ifaceHasNdProxy,
+  ndProxySidHostFromPrefix,
+  pickIfaceHardwareMac,
+  validateWanNdProxyIntent,
+  wanNdProxyEnabledOn,
+} from '../peWizardNdProxy';
 import IbrWizardCard, { ibrWizardStepCardTitle } from '../../lib/IbrWizardCard';
 import IbrWizardPage from '../../lib/IbrWizardPage';
 import IbrWizardStepPane from '../../lib/IbrWizardStepPane';
@@ -97,6 +106,8 @@ function getPePublicConfig(pe: any): Record<string, any> {
     'publicBgp',
     'bgpNetworkIpv4',
     'bgpNetworkIpv6',
+    'wanNdProxy',
+    'wanNdProxyIfNames',
   ];
   keys.forEach((k) => {
     if ((pe as any)[k] !== undefined) legacy[k] = (pe as any)[k];
@@ -267,6 +278,7 @@ function buildSpokeRoleMirror(
     wanDev: wanName || undefined,
     wanIpv4: deviceStaticIfRoleSet(wanIf, 'ipv4_static', pcfg.wanIpv4),
     wanIpv6: deviceStaticIfRoleSet(wanIf, 'ipv6_static', pcfg.wanIpv6),
+    wanNdProxy: ifaceHasNdProxy(wanIf),
     wanRouteDest: wanRoute4?.destination || undefined,
     wanRoutePriority:
       wanRoute4?.priority !== undefined && wanRoute4?.priority !== null
@@ -338,6 +350,41 @@ function buildPeWizardStepFieldNames(
   return [];
 }
 
+const NdProxyBindingNote: React.FC<{
+  sidHost: string;
+  wanIf: string;
+  ifaceMac?: string;
+  deviceRegMac?: string;
+}> = ({ sidHost, wanIf, ifaceMac, deviceRegMac }) => (
+  <div
+    style={{
+      marginTop: -4,
+      marginBottom: 12,
+      padding: '8px 10px',
+      background: '#f7f8fa',
+      borderRadius: 6,
+      color: '#4e5969',
+      fontSize: 12,
+      lineHeight: '20px',
+    }}
+  >
+    <div>Locator SID：{sidHost || '请先填写上方 SRv6 SID 前缀'}</div>
+    <div>代答接口：{wanIf || '请先选择 WAN 侧接口'}</div>
+    <div>
+      口 MAC：
+      {ifaceMac
+        ? ifaceMac
+        : `VR3 接口状态不上报该口 MAC${
+            deviceRegMac ? `；设备注册 MAC ${deviceRegMac}（VR1，非口级）` : ''
+          }`}
+    </div>
+    <div>
+      勾选后下发 <code>ipv6 nd proxy {sidHost || '<SID>'}</code>
+      ；NA 使用该 WAN 口硬件地址，命令不携带 MAC。
+    </div>
+  </div>
+);
+
 const PEWizard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -362,6 +409,8 @@ const PEWizard: React.FC = () => {
   );
   /** vr3_info 设备回读：用于在接口选择后反查 IP 等字段 */
   const [vr3Info, setVr3Info] = useState<any | null>(null);
+  /** VR1 注册 MAC：设备身份，不是 WAN 口 MAC */
+  const [deviceRegMac, setDeviceRegMac] = useState('');
   const [activeLanTabKey, setActiveLanTabKey] = useState<string>('0');
   const [activeWanTabKey, setActiveWanTabKey] = useState<string>('0');
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
@@ -378,6 +427,9 @@ const PEWizard: React.FC = () => {
   const watchWanDev = Form.useWatch('wanDev', form);
   const watchLanConfigs = Form.useWatch('lanConfigs', form);
   const watchHubWanInventory = Form.useWatch('hubWanInventory', form);
+  const watchSidPrefix = Form.useWatch('sidPrefix', form);
+  const watchWanNdProxy = Form.useWatch('wanNdProxy', form);
+  const ndProxySidHost = ndProxySidHostFromPrefix(watchSidPrefix);
 
   const peIfaceSelectOptions = useCallback(
     (
@@ -463,6 +515,11 @@ const PEWizard: React.FC = () => {
     iface?.address ??
     '';
   const pickIfaceIpv6 = pickIfaceIpv6FromDevice;
+  const lookupWanMac = (ifName?: string) =>
+    pickIfaceHardwareMac(
+      findInterfaceInDevice(vr3Info, String(ifName || '')) ||
+        findInterfaceInDevice(csmctlCfg, String(ifName || '')),
+    );
 
   /** WAN 口变更时：从 VR3 设备回读回填 IPv4/IPv6 */
   const autoFillWanFromIface = (ifaceName: string, opts?: { force?: boolean }) => {
@@ -523,7 +580,15 @@ const PEWizard: React.FC = () => {
   };
 
   const formatHubWanConfirmLine = (wan: any): string =>
-    [wan?.ifName, wan?.ipv4, wan?.ipv6, wan?.ipv4RouteDest, wan?.ipv6Dest, wan?.ipv6Via ? `gw ${wan.ipv6Via}` : '']
+    [
+      wan?.ifName,
+      wan?.ipv4,
+      wan?.ipv6,
+      wan?.ipv4RouteDest,
+      wan?.ipv6Dest,
+      wan?.ipv6Via ? `gw ${wan.ipv6Via}` : '',
+      wan?.ndProxy ? `ND proxy ${ndProxySidHost || 'on'}` : '',
+    ]
       .filter(Boolean)
       .join(' · ') || '-';
 
@@ -578,6 +643,10 @@ const PEWizard: React.FC = () => {
       setIfaceOptions(unique.filter(looksLikeIfaceName));
       setCsmctlCfg(pickDeviceBlobForLookup(merged));
       setVr3Info(merged.vr3_info && typeof merged.vr3_info === 'object' ? merged.vr3_info : null);
+      const rawCsm = merged._raw_csmctl_info && typeof merged._raw_csmctl_info === 'object'
+        ? merged._raw_csmctl_info
+        : {};
+      setDeviceRegMac(String(merged.mac || (rawCsm as any).mac || '').trim());
       setExistingCfg(savedCfg);
       if (!silent) message.success('设备回读已刷新');
     } catch (err) {
@@ -607,6 +676,9 @@ const PEWizard: React.FC = () => {
         wanDev: pcfg.wanName || pcfg.wanDev,
         wanIpv4: pcfg.wanIpv4,
         wanIpv6: pcfg.wanIpv6,
+        wanNdProxy:
+          Boolean(pcfg.wanNdProxy) ||
+          wanNdProxyEnabledOn(String(pcfg.wanName || pcfg.wanDev || ''), pcfg.wanNdProxyIfNames),
         wanRouteDest: pcfg.wanRouteDest,
         wanRoutePriority: pcfg.wanRoutePriority,
         ipv6Dest: pcfg.ipv6Dest,
@@ -624,8 +696,15 @@ const PEWizard: React.FC = () => {
                 wanIpv6: pcfg.wanIpv6,
                 lanConfigs,
               });
+              const proxyIfs = Array.isArray(pcfg.wanNdProxyIfNames) ? pcfg.wanNdProxyIfNames : [];
               return {
-                hubWanInventory: hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}],
+                hubWanInventory: (hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}]).map(
+                  (row) => ({
+                    ...row,
+                    ndProxy:
+                      Boolean(row.ndProxy) || wanNdProxyEnabledOn(String(row.ifName || ''), proxyIfs),
+                  }),
+                ),
                 lanConfigs: hubForm.lanConfigs,
               };
             })()
@@ -676,6 +755,7 @@ const PEWizard: React.FC = () => {
       wanDev: wanDevCandidate,
       wanIpv4: v4Wan || undefined,
       wanIpv6: v6Wan || undefined,
+      wanNdProxy: ifaceHasNdProxy(wanIfCfg),
       wanRouteDest: ipv4RouteTop?.destination || undefined,
       wanRoutePriority:
         ipv4RouteTop?.priority !== undefined && ipv4RouteTop?.priority !== null
@@ -689,7 +769,13 @@ const PEWizard: React.FC = () => {
       bgpNetworkIpv6: nets6,
     };
 
-    const ifaceItems: Array<{ name?: string; ipv4_static?: string; ipv6_static?: string; vrf?: any }> = [];
+    const ifaceItems: Array<{
+      name?: string;
+      ipv4_static?: string;
+      ipv6_static?: string;
+      ipv6_nd_proxy?: string;
+      vrf?: any;
+    }> = [];
     const staticIpOnRoleIface = (ifName?: string) => {
       const n = String(ifName || '').trim();
       if (!n) return { ipv4: undefined as string | undefined, ipv6: undefined as string | undefined };
@@ -706,6 +792,7 @@ const PEWizard: React.FC = () => {
             name: it.name,
             ipv4_static: it.ipv4_static,
             ipv6_static: it.ipv6_static,
+            ipv6_nd_proxy: it.ipv6_nd_proxy,
             vrf: it.vrf,
           });
         }
@@ -827,6 +914,7 @@ const PEWizard: React.FC = () => {
               v4?.priority !== undefined && v4?.priority !== null ? Number(v4.priority) : undefined,
             ipv6Dest: ipv6DestFromRoute(v6),
             ipv6Via: v6?.via || undefined,
+            ndProxy: ifaceHasNdProxy(iface),
           };
         });
         const lanItems = (inv?.lan || []).filter((l) => l.source === 'role_wizard');
@@ -881,6 +969,10 @@ const PEWizard: React.FC = () => {
         wanDev: wanDevMapped,
         wanIpv4: wanIpv4Mapped,
         wanIpv6: wanIpv6Mapped,
+        wanNdProxy:
+          Boolean(pcfg.wanNdProxy) ||
+          wanNdProxyEnabledOn(String(wanDevMapped || ''), pcfg.wanNdProxyIfNames) ||
+          ifaceHasNdProxy(wanDevMapped ? findInterfaceInDevice(dev, String(wanDevMapped)) : null),
         wanRouteDest: pcfg.wanRouteDest ?? peRest.wanRouteDest,
         wanRoutePriority: pcfg.wanRoutePriority ?? peRest.wanRoutePriority,
         ipv6Dest: pcfg.ipv6Dest ?? peRest.ipv6Dest,
@@ -898,8 +990,19 @@ const PEWizard: React.FC = () => {
                 wanIpv6: wanIpv6Mapped,
                 lanConfigs: lanConfigsVr3,
               });
+              const proxyIfs = Array.isArray(pcfg.wanNdProxyIfNames) ? pcfg.wanNdProxyIfNames : [];
               return {
-                hubWanInventory: hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}],
+                hubWanInventory: (hubForm.hubWanInventory?.length ? hubForm.hubWanInventory : [{}]).map(
+                  (row) => ({
+                    ...row,
+                    ndProxy:
+                      Boolean(row.ndProxy) ||
+                      wanNdProxyEnabledOn(String(row.ifName || ''), proxyIfs) ||
+                      ifaceHasNdProxy(
+                        row.ifName ? findInterfaceInDevice(dev, String(row.ifName)) : null,
+                      ),
+                  }),
+                ),
                 lanConfigs: hubForm.lanConfigs,
               };
             })()
@@ -955,7 +1058,7 @@ const PEWizard: React.FC = () => {
       isHubPe && Array.isArray(v?.hubWanInventory)
         ? v.hubWanInventory
         : v?.wanDev
-          ? [{ ifName: v.wanDev, ipv4: v.wanIpv4, ipv6: v.wanIpv6 }]
+          ? [{ ifName: v.wanDev, ipv4: v.wanIpv4, ipv6: v.wanIpv6, ndProxy: Boolean(v.wanNdProxy) }]
           : [];
     wanRows.forEach((row) => {
       const ifName = String(row?.ifName || '').trim();
@@ -965,6 +1068,7 @@ const PEWizard: React.FC = () => {
       if (ipv4Wan) item.ipv4_static = ipv4Wan;
       const wan6 = normalizeIPv6Cidr(filterLinkLocalIpv6(row?.ipv6) || row?.ipv6);
       if (wan6) item.ipv6_static = wan6;
+      applyWanNdProxy(item, Boolean(row.ndProxy), v?.sidPrefix);
       ifaceObjs.push(item);
     });
     const primaryWanDev = String(wanRows[0]?.ifName || v?.wanDev || '').trim();
@@ -1117,6 +1221,12 @@ const PEWizard: React.FC = () => {
       }
     }
     
+    const wanNdProxyIfNames = collectWanNdProxyIfNames({
+      wanNdProxy: Boolean(v.wanNdProxy),
+      wanDev: v.wanDev,
+      hubWanInventory: v.hubWanInventory,
+    });
+
     // Metadata for PE Wizard
     cfg.role = peRoleTarget;
     cfg.pe = {
@@ -1131,6 +1241,8 @@ const PEWizard: React.FC = () => {
         wanRoutePriority: isHubPe ? wanRows[0]?.ipv4RoutePriority : v.wanRoutePriority,
         ipv6Dest: isHubPe ? wanRows[0]?.ipv6Dest : v.ipv6Dest,
         ipv6Via: isHubPe ? wanRows[0]?.ipv6Via : v.ipv6Via,
+        ...(!isHubPe ? { wanNdProxy: Boolean(v.wanNdProxy) } : {}),
+        ...(wanNdProxyIfNames.length ? { wanNdProxyIfNames } : {}),
         publicBgp: {
           asn: v.bgpAsn,
           routerId: v.bgpRouterId,
@@ -1184,6 +1296,16 @@ const PEWizard: React.FC = () => {
     return true;
   };
 
+  const ensureNdProxyIntent = (): boolean => {
+    const values = form.getFieldsValue(true);
+    const err = validateWanNdProxyIntent(values);
+    if (err) {
+      message.error(err);
+      return false;
+    }
+    return true;
+  };
+
   const focusPeWizardValidationError = (err: unknown) => {
     warnFormValidationFailure(err);
     const e = err as { errorFields?: { name: (string | number)[]; errors: string[] }[] };
@@ -1204,6 +1326,9 @@ const PEWizard: React.FC = () => {
         await form.validateFields(fields);
       }
       if (s === 0 && !ensureUniqueHubIfNames()) {
+        return false;
+      }
+      if (s === 0 && !ensureNdProxyIntent()) {
         return false;
       }
     }
@@ -1264,6 +1389,7 @@ const PEWizard: React.FC = () => {
       return;
     }
     if (!ensureUniqueHubIfNames()) return;
+    if (!ensureNdProxyIntent()) return;
     try {
       setLoading(true);
       const values = form.getFieldsValue(true);
@@ -1487,6 +1613,24 @@ const PEWizard: React.FC = () => {
                       >
                         <Input placeholder="例如 203::33" />
                       </Form.Item>
+                      <Form.Item
+                        {...field}
+                        name={[field.name, 'ndProxy']}
+                        valuePropName="checked"
+                        extra="对应设备命令 ipv6 nd proxy <Locator SID>。默认关闭。"
+                      >
+                        <Checkbox disabled={!ndProxySidHost}>
+                          在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
+                        </Checkbox>
+                      </Form.Item>
+                      {Boolean((watchHubWanInventory || [])[idx]?.ndProxy) ? (
+                        <NdProxyBindingNote
+                          sidHost={ndProxySidHost}
+                          wanIf={String((watchHubWanInventory || [])[idx]?.ifName || '')}
+                          ifaceMac={lookupWanMac((watchHubWanInventory || [])[idx]?.ifName)}
+                          deviceRegMac={deviceRegMac}
+                        />
+                      ) : null}
                     </div>
                   ),
                 }));
@@ -1539,6 +1683,23 @@ const PEWizard: React.FC = () => {
           >
             <Input placeholder="例如 2408:3333:1002::1/64" />
           </Form.Item>
+          <Form.Item
+            name="wanNdProxy"
+            valuePropName="checked"
+            extra="对应设备命令 ipv6 nd proxy <Locator SID>。默认关闭。"
+          >
+            <Checkbox disabled={!ndProxySidHost}>
+              在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
+            </Checkbox>
+          </Form.Item>
+          {watchWanNdProxy ? (
+            <NdProxyBindingNote
+              sidHost={ndProxySidHost}
+              wanIf={String(watchWanDev || '')}
+              ifaceMac={lookupWanMac(watchWanDev)}
+              deviceRegMac={deviceRegMac}
+            />
+          ) : null}
             </>
           )}
           {!isHubPe ? (
@@ -1758,6 +1919,11 @@ const PEWizard: React.FC = () => {
               <>
             <Descriptions.Item label="WAN 侧 IPv4">{previewStr(values.wanIpv4)}</Descriptions.Item>
             <Descriptions.Item label="WAN 侧 IPv6">{previewStr(values.wanIpv6)}</Descriptions.Item>
+            <Descriptions.Item label="IPv6 ND Proxy">
+              {values.wanNdProxy
+                ? `开启 · ${ndProxySidHostFromPrefix(values.sidPrefix) || '-'} @ ${values.wanDev || '-'}`
+                : '关闭'}
+            </Descriptions.Item>
               </>
             )}
             {isHubPe ? (
@@ -1900,6 +2066,19 @@ const PEWizard: React.FC = () => {
                                   <Form.Item label="IPv6 网关">
                                     <Input disabled value={g?.ipv6Via || '未配置'} />
                                   </Form.Item>
+                                  <Form.Item>
+                                    <Checkbox checked={Boolean(g?.ndProxy)}>
+                                      在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
+                                    </Checkbox>
+                                  </Form.Item>
+                                  {g?.ndProxy ? (
+                                    <NdProxyBindingNote
+                                      sidHost={ndProxySidHostFromPrefix(mirrorForm.getFieldValue('sidPrefix'))}
+                                      wanIf={String(g?.ifName || '')}
+                                      ifaceMac={lookupWanMac(g?.ifName)}
+                                      deviceRegMac={deviceRegMac}
+                                    />
+                                  ) : null}
                                 </div>
                               ),
                             }));
@@ -1926,6 +2105,17 @@ const PEWizard: React.FC = () => {
                     <Form.Item name="wanIpv6" label="WAN 侧 IPv6 地址/掩码">
                       <Input placeholder="未配置" />
                     </Form.Item>
+                    <Form.Item name="wanNdProxy" valuePropName="checked">
+                      <Checkbox>在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）</Checkbox>
+                    </Form.Item>
+                    {mirrorForm.getFieldValue('wanNdProxy') ? (
+                      <NdProxyBindingNote
+                        sidHost={ndProxySidHostFromPrefix(mirrorForm.getFieldValue('sidPrefix'))}
+                        wanIf={String(mirrorForm.getFieldValue('wanDev') || '')}
+                        ifaceMac={lookupWanMac(mirrorForm.getFieldValue('wanDev'))}
+                        deviceRegMac={deviceRegMac}
+                      />
+                    ) : null}
                     <div style={{ height: 12 }} />
                     <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>BGP 配置（PE to PE）</div>
                     <Form.Item name="bgpAsn" label="ASN">
@@ -2051,6 +2241,11 @@ const PEWizard: React.FC = () => {
                           <Descriptions.Item label="WAN 侧接口">{previewStr(mirrorForm.getFieldValue('wanDev'))}</Descriptions.Item>
                           <Descriptions.Item label="WAN 侧 IPv4">{previewStr(mirrorForm.getFieldValue('wanIpv4'))}</Descriptions.Item>
                           <Descriptions.Item label="WAN 侧 IPv6">{previewStr(mirrorForm.getFieldValue('wanIpv6'))}</Descriptions.Item>
+                          <Descriptions.Item label="IPv6 ND Proxy">
+                            {mirrorForm.getFieldValue('wanNdProxy')
+                              ? `开启 · ${ndProxySidHostFromPrefix(mirrorForm.getFieldValue('sidPrefix')) || '-'} @ ${mirrorForm.getFieldValue('wanDev') || '-'}`
+                              : '关闭'}
+                          </Descriptions.Item>
                           <Descriptions.Item label="BGP ASN（WAN）">{previewNum(mirrorForm.getFieldValue('bgpAsn'))}</Descriptions.Item>
                           <Descriptions.Item label="BGP Router-ID（WAN）">{previewStr(mirrorForm.getFieldValue('bgpRouterId'))}</Descriptions.Item>
                           <Descriptions.Item label="IPv4 目的网段">{previewStr(mirrorForm.getFieldValue('wanRouteDest'))}</Descriptions.Item>

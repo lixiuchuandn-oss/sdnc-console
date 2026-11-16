@@ -172,6 +172,7 @@ public class VrServiceImpl implements VrService {
                     }
                     // 校验接口的名称是否符合规范
                     checkVrfInterfaceName(vrInterface, srv6InterfaceNames, vrConfigInterface);
+                    checkIpv6NdProxy(vrInterface);
                     // 校验接口中的vrrp中的vrid是否重复
                     checkVrId(vrIds, vrInterface);
                 }
@@ -428,6 +429,18 @@ public class VrServiceImpl implements VrService {
                             name + "的序列号只能是1到999999的正整数");
                 }
             }
+        }
+    }
+
+    private void checkIpv6NdProxy(JSONObject vrInterface) {
+        String ndProxy = vrInterface.getString("ipv6_nd_proxy");
+        if (StringUtils.isEmpty(ndProxy)) {
+            return;
+        }
+        if (ndProxy.contains("/") || !IpValidateUtil.isValidIpv6(ndProxy)) {
+            throw new ServiceException(
+                    String.valueOf(ApiResultCode.VM19000.code()),
+                    "接口中配置的ipv6_nd_proxy只能是不带掩码的IPv6主机地址");
         }
     }
 

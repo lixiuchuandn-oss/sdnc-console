@@ -1,4 +1,4 @@
-import { jsonEqual } from './srv6.reconcile';
+import { jsonEqual, srv6LedgerEqual } from './srv6.reconcile';
 import { mergeBaselineWithContributions } from './srv6.merge';
 
 describe('srv6.reconcile', () => {
@@ -63,5 +63,25 @@ describe('srv6.reconcile', () => {
       unknown
     >[])[0];
     expect(af.route_target).toBe('200:100');
+  });
+
+  it('srv6LedgerEqual ignores HA vrrp on ledger vs baseline/formula', () => {
+    const ledger = {
+      bgp: [{ asn: 65001 }],
+      interfaces_GigabitEthernet: [
+        {
+          name: 'GigabitEthernet 0/8/0',
+          ipv4_static: '12.1.1.2/24',
+          vrrp: [{ vrid: 1, priority: 100, preempt: true }],
+        },
+      ],
+      vrrp: [{ group_id: 1, vrrp_instance: [1], track_gateway: ['12.1.1.2'] }],
+    };
+    const formula = {
+      bgp: [{ asn: 65001 }],
+      interfaces_GigabitEthernet: [{ name: 'GigabitEthernet 0/8/0', ipv4_static: '12.1.1.2/24' }],
+    };
+    expect(jsonEqual(ledger, formula)).toBe(false);
+    expect(srv6LedgerEqual(ledger, formula)).toBe(true);
   });
 });

@@ -240,6 +240,7 @@ function interfaces.add_interface_part(interface_table)
     local keep = interfaces.collect_vrrp_keep_addrs(interface_table.vrrp)
     interfaces.sync_interface_v4addr(interface_table.name, interface_table.ipv4_static, keep)
     interfaces.sync_interface_v6addr(interface_table.name, interface_table.ipv6_static, keep)
+    interfaces.sync_interface_nd_proxy(interface_table.name, nil, interface_table.ipv6_nd_proxy)
     if interface_table.vrrp then
         for _, v in pairs(interface_table.vrrp) do
             interfaces.add_interface_vrrp_part(interface_table.name, v)
@@ -265,6 +266,9 @@ function interfaces.del_interface_part(interface_table)
             for _, v in pairs(interface_table.vrrp) do
                 interfaces.del_interface_vrrp_part(interface_table.name, v)
             end
+        end
+        if interface_table.ipv6_nd_proxy then
+            interfaces.del_interface_nd_proxy(interface_table.name, interface_table.ipv6_nd_proxy)
         end
         if interface_table.ipv4_static then
             interfaces.del_interface_v4addr(interface_table.name, interface_table.ipv4_static)
@@ -308,6 +312,7 @@ function interfaces.compare_interface_part(cur_table, new_table)
         local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
         interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
         interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
+        interfaces.sync_interface_nd_proxy(cur_table.name, nil, new_table.ipv6_nd_proxy)
         if new_table.vrrp then  
             for _, v in pairs(new_table.vrrp) do
                 interfaces.add_interface_vrrp_part(cur_table.name, v)
@@ -319,6 +324,7 @@ function interfaces.compare_interface_part(cur_table, new_table)
         local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
         interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
         interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
+        interfaces.sync_interface_nd_proxy(cur_table.name, cur_table.ipv6_nd_proxy, new_table.ipv6_nd_proxy)
         interfaces.compare_interface_vrrp_part(cur_table.name, cur_table.vrrp, new_table.vrrp)
         interfaces.compare_interface_acl_part(cur_table.name, cur_table.acl, new_table.acl)
         if cur_table.status ~= new_table.status then
@@ -441,6 +447,57 @@ function interfaces.del_interface_v6addr(interface_name, v6_addr)
     print(cmd)
     local result = execute_command(cmd)
     return result
+end
+
+function interfaces.normalize_nd_proxy(addr)
+    if type(addr) ~= "string" then
+        return nil
+    end
+    local trimmed = addr:match("^%s*(.-)%s*$")
+    if trimmed == nil or trimmed == "" then
+        return nil
+    end
+    return trimmed
+end
+
+function interfaces.add_interface_nd_proxy(interface_name, proxy_ip)
+    proxy_ip = interfaces.normalize_nd_proxy(proxy_ip)
+    if interface_name == nil or proxy_ip == nil then
+        return
+    end
+    if interface_name == "lo" or string.match(interface_name, "^Loopback") then
+        print(string.format("Skip IPv6 ND proxy on loopback: %s", interface_name))
+        return
+    end
+    local cmd = string.format("%s -c 'interface %s' -c 'ipv6 nd proxy %s'", CLISH_CMD, interface_name, proxy_ip)
+    print(cmd)
+    local result = execute_command(cmd)
+    return result
+end
+
+function interfaces.del_interface_nd_proxy(interface_name, proxy_ip)
+    proxy_ip = interfaces.normalize_nd_proxy(proxy_ip)
+    if interface_name == nil or proxy_ip == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'interface %s' -c 'no ipv6 nd proxy %s'", CLISH_CMD, interface_name, proxy_ip)
+    print(cmd)
+    local result = execute_command(cmd)
+    return result
+end
+
+function interfaces.sync_interface_nd_proxy(interface_name, current, desired)
+    current = interfaces.normalize_nd_proxy(current)
+    desired = interfaces.normalize_nd_proxy(desired)
+    if current == desired then
+        return
+    end
+    if current then
+        interfaces.del_interface_nd_proxy(interface_name, current)
+    end
+    if desired then
+        interfaces.add_interface_nd_proxy(interface_name, desired)
+    end
 end
 
 function interfaces.set_interface_status(interface_name, status)

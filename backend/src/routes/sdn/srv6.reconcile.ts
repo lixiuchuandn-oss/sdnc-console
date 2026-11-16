@@ -6,6 +6,7 @@ import {
   diffConfigSemantic,
   formatConfigSemanticDiffs,
 } from '../../utils/configSemanticEqual';
+import { stripVrrpOwnedFields } from '../../utils/stripVrrpOwnedFields';
 import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { parseSrv6Baseline } from './srv6.baseline';
 import { listAliveContributionsForVr, recomputeVrEffectiveConfig } from './srv6.recompute';
@@ -44,8 +45,12 @@ export type Srv6ReconcileReport = {
 
 export const jsonEqual = (a: unknown, b: unknown): boolean => configBusinessEqual(a, b);
 
+/** SRv6 账本 ≟ 公式：忽略 HA VRRP（H0 下发会把设备 vrrp 写回账本，但不属于隧道公式） */
+export const srv6LedgerEqual = (a: unknown, b: unknown): boolean =>
+  configBusinessEqual(stripVrrpOwnedFields(a), stripVrrpOwnedFields(b));
+
 const describeLedgerDrift = (actual: unknown, expected: unknown): string => {
-  const diffs = diffConfigSemantic(actual, expected);
+  const diffs = diffConfigSemantic(stripVrrpOwnedFields(actual), stripVrrpOwnedFields(expected));
   if (!diffs.length) {
     return '平台账本与「向导基线 + 存活隧道叠加」不一致';
   }
@@ -123,11 +128,11 @@ export const reconcileSrv6Vr = async (
     item.issues.push({ code: 'BASELINE_PARSE_ERROR', message: '向导基线配置无法解析' });
   }
 
-  if (contribs.length === 0 && baseline && !jsonEqual(actual, baseline)) {
+  if (contribs.length === 0 && baseline && !srv6LedgerEqual(actual, baseline)) {
     item.issues.push({
       code: 'ORPHAN_BASELINE_DRIFT',
       message: `当前无存活隧道，但平台账本与向导基线不一致：${formatConfigSemanticDiffs(
-        diffConfigSemantic(actual, baseline),
+        diffConfigSemantic(stripVrrpOwnedFields(actual), stripVrrpOwnedFields(baseline)),
         { leftLabel: '账本', rightLabel: '基线', limit: 4 },
       )}`,
     });
@@ -136,7 +141,7 @@ export const reconcileSrv6Vr = async (
   if (baseline && contribs.length > 0) {
     try {
       const expected = await recomputeVrEffectiveConfig(id);
-      if (!jsonEqual(actual, expected)) {
+      if (!srv6LedgerEqual(actual, expected)) {
         item.issues.push({
           code: 'INVARIANT_DRIFT',
           message: describeLedgerDrift(actual, expected),

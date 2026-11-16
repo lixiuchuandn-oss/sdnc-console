@@ -124,6 +124,9 @@ public class VrConfigAndStatusBean {
         @JsonProperty("ipv6_static")
         private String ipv6Static;
 
+        @JsonProperty("ipv6_nd_proxy")
+        private String ipv6NdProxy;
+
         private String status;
 
         /**

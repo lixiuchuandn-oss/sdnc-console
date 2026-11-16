@@ -3,6 +3,7 @@ import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRConfig } from '../../entities/vRouter/VRConfig';
 import type { Srv6EndpointSlot } from '../../entities/vRouter/srv6Tunnel.types';
 import { configBusinessEqual } from '../../utils/configSemanticEqual';
+import { stripVrrpOwnedFields } from '../../utils/stripVrrpOwnedFields';
 import { withSqliteWriteLock } from '../../utils/sqliteWriteLock';
 import { captureSrv6BaselinesForTunnel } from './srv6.baseline';
 import { mergeBaselineWithContributions } from './srv6.merge';
@@ -76,7 +77,7 @@ export const assertSrv6VrConfigInvariant = async (vrUuid: string): Promise<void>
     throw err;
   }
 
-  if (!configBusinessEqual(actual, expected)) {
+  if (!configBusinessEqual(stripVrrpOwnedFields(actual), stripVrrpOwnedFields(expected))) {
     const err = new Error('平台账本与「向导基线 + 存活隧道叠加」不一致');
     (err as Error & { statusCode: number }).statusCode = 409;
     throw err;
@@ -90,7 +91,7 @@ export const effectiveConfigMatches = (
   contributions: Parameters<typeof mergeBaselineWithContributions>[1],
 ): boolean => {
   const expected = mergeBaselineWithContributions(baseline, contributions);
-  return configBusinessEqual(actual, expected);
+  return configBusinessEqual(stripVrrpOwnedFields(actual), stripVrrpOwnedFields(expected));
 };
 
 /** 列出某 VR 当前存活贡献（供 upsert 分支判断） */
