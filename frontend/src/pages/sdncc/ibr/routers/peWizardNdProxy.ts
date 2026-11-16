@@ -39,11 +39,77 @@ export function applyWanNdProxy(
   enabled: boolean,
   sidPrefix: unknown,
 ): boolean {
-  if (!enabled) return false;
+  if (!enabled) {
+    delete item.ipv6_nd_proxy;
+    return false;
+  }
   const host = ndProxySidHostFromPrefix(sidPrefix);
-  if (!host) return false;
+  if (!host) {
+    delete item.ipv6_nd_proxy;
+    return false;
+  }
   item.ipv6_nd_proxy = host;
   return true;
+}
+
+const IFACE_ARRAY_KEYS = [
+  'interfaces_GigabitEthernet',
+  'subinterfaces_GigabitEthernet',
+  'interfaces_lo',
+  'interfaces_Tunnel',
+  'subinterfaces_Tunnel',
+] as const;
+
+/** 隧道引用下的窄通道：只改现有 VR 配置上的 WAN ipv6_nd_proxy + pe.publicConfig 意图。 */
+export function patchVrConfigWanNdProxy(
+  cfg: Record<string, unknown>,
+  values: {
+    sidPrefix?: unknown;
+    wanNdProxy?: boolean;
+    wanDev?: string;
+    hubWanInventory?: Array<{ ifName?: string; ndProxy?: boolean }>;
+  },
+): Record<string, unknown> {
+  const wantNames = collectWanNdProxyIfNames(values);
+  const hub = Array.isArray(values.hubWanInventory) ? values.hubWanInventory : [];
+  const hubNamed = hub
+    .map((row) => String(row?.ifName || '').trim())
+    .filter(Boolean);
+  const managedNames = hubNamed.length
+    ? hubNamed
+    : [String(values.wanDev || '').trim()].filter(Boolean);
+  const host = ndProxySidHostFromPrefix(values.sidPrefix);
+
+  for (const key of IFACE_ARRAY_KEYS) {
+    const arr = cfg[key];
+    if (!Array.isArray(arr)) continue;
+    cfg[key] = arr.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
+      const next = { ...(row as Record<string, unknown>) };
+      const name = String(next.name || '').trim();
+      if (!wanNdProxyEnabledOn(name, managedNames)) return next;
+      applyWanNdProxy(next, wanNdProxyEnabledOn(name, wantNames), host || values.sidPrefix);
+      return next;
+    });
+  }
+
+  const pe =
+    cfg.pe && typeof cfg.pe === 'object' && !Array.isArray(cfg.pe)
+      ? { ...(cfg.pe as Record<string, unknown>) }
+      : {};
+  const publicConfig =
+    pe.publicConfig && typeof pe.publicConfig === 'object' && !Array.isArray(pe.publicConfig)
+      ? { ...(pe.publicConfig as Record<string, unknown>) }
+      : {};
+  if (!hubNamed.length) {
+    publicConfig.wanNdProxy = Boolean(values.wanNdProxy);
+  } else {
+    delete publicConfig.wanNdProxy;
+  }
+  publicConfig.wanNdProxyIfNames = wantNames;
+  pe.publicConfig = publicConfig;
+  cfg.pe = pe;
+  return cfg;
 }
 
 /**

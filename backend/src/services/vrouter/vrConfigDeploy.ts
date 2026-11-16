@@ -90,7 +90,8 @@ const ifaceNdProxyOf = (row: Record<string, unknown>): string =>
 /**
  * SRv6 覆盖会整表替换 interfaces_*，把设备上 HA 留下的接口 vrrp 冲掉，
  * 同时最外层 vrrp（平台基线通常没有该键）仍留在底稿上 → CSM 报 vrrp_instance 找不到 vrid。
- * ipv6_nd_proxy 同样由接口意图持有，SRv6 切片未带时保留设备值。
+ * ipv6_nd_proxy：SRv6 切片不带该字段时保留设备值（防隧道下发冲掉）；
+ * 启停/改 SID 由 PE 向导全量或隧道引用下的 ND Proxy 窄通道负责，不经本函数清除。
  */
 const preserveDeviceIfaceVrrpOnSrv6Overlay = (
   deviceConfig: VrConfigJson,

@@ -312,7 +312,7 @@ function interfaces.compare_interface_part(cur_table, new_table)
         local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
         interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
         interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
-        interfaces.sync_interface_nd_proxy(cur_table.name, nil, new_table.ipv6_nd_proxy)
+        interfaces.sync_interface_nd_proxy(cur_table.name, cur_table.ipv6_nd_proxy, new_table.ipv6_nd_proxy)
         if new_table.vrrp then  
             for _, v in pairs(new_table.vrrp) do
                 interfaces.add_interface_vrrp_part(cur_table.name, v)

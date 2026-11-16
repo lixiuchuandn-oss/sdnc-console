@@ -1,7 +1,7 @@
 /**
  * SRv6 账本/公式对账忽略：
  * - HA VRRP（顶层 vrrp[] 与接口行 vrrp）
- * - 接口 ipv6_nd_proxy（由 PE 角色向导持有；隧道公式重建 interfaces_* 时通常不带该字段）
+ * - 接口 ipv6_nd_proxy（PE 向导/窄通道全量 POST 负责启停；SRv6 账本不拥有、不校正）
  * 不修改入参。
  */
 

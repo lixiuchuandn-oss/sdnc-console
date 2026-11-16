@@ -8,6 +8,7 @@ import {
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import {
   fetchVrTowerLocalConfigCache,
+  getVRConfig,
   saveVRConfig,
   setVRRole,
   fetchVrCacheMerged,
@@ -42,6 +43,7 @@ import {
   collectWanNdProxyIfNames,
   ifaceHasNdProxy,
   ndProxySidHostFromPrefix,
+  patchVrConfigWanNdProxy,
   pickIfaceHardwareMac,
   validateWanNdProxyIntent,
   wanNdProxyEnabledOn,
@@ -430,6 +432,20 @@ const PEWizard: React.FC = () => {
   const watchSidPrefix = Form.useWatch('sidPrefix', form);
   const watchWanNdProxy = Form.useWatch('wanNdProxy', form);
   const ndProxySidHost = ndProxySidHostFromPrefix(watchSidPrefix);
+
+  // SID 被清空/改坏时：允许取消勾选；并主动清掉无效意图，避免 validate 永久卡住
+  useEffect(() => {
+    if (ndProxySidHost) return;
+    const patch: Record<string, unknown> = {};
+    if (watchWanNdProxy) patch.wanNdProxy = false;
+    const hub = Array.isArray(watchHubWanInventory) ? watchHubWanInventory : [];
+    if (hub.some((row: any) => Boolean(row?.ndProxy))) {
+      patch.hubWanInventory = hub.map((row: any) =>
+        row && typeof row === 'object' ? { ...row, ndProxy: false } : row,
+      );
+    }
+    if (Object.keys(patch).length) form.setFieldsValue(patch);
+  }, [ndProxySidHost, watchWanNdProxy, watchHubWanInventory, form]);
 
   const peIfaceSelectOptions = useCallback(
     (
@@ -1242,7 +1258,7 @@ const PEWizard: React.FC = () => {
         ipv6Dest: isHubPe ? wanRows[0]?.ipv6Dest : v.ipv6Dest,
         ipv6Via: isHubPe ? wanRows[0]?.ipv6Via : v.ipv6Via,
         ...(!isHubPe ? { wanNdProxy: Boolean(v.wanNdProxy) } : {}),
-        ...(wanNdProxyIfNames.length ? { wanNdProxyIfNames } : {}),
+        wanNdProxyIfNames,
         publicBgp: {
           asn: v.bgpAsn,
           routerId: v.bgpRouterId,
@@ -1367,33 +1383,46 @@ const PEWizard: React.FC = () => {
       message.error('缺少 IBR 实例 UUID，无法继续');
       return;
     }
+    let ndProxyOnly = false;
     try {
       const refs = await fetchSrv6VrReferences(uuid);
       if (refs?.count && refs.count > 0) {
         const names = Array.from(new Set((refs.refs || []).map((r) => r.tunnelName).filter(Boolean)));
         const namesPart = names.length ? `引用隧道：${names.join('、')}` : '当前 IBR 已被 SRv6 隧道引用';
-        message.error(
-          `为规避 SRv6 注入路由被向导全量覆盖的风险，当前阶段不允许在角色配置向导中保存/下发该 VR 配置。${namesPart}`,
+        ndProxyOnly = true;
+        message.info(
+          `该 VR 已被 SRv6 隧道引用，本次仅保存/下发 WAN IPv6 ND Proxy 变更，避免向导全量覆盖隧道配置。${namesPart}`,
           8,
         );
-        return;
       }
     } catch (e: any) {
       // refs 接口失败时不阻塞原有流程，但要让用户感知
       console.warn('PEWizard: fetchSrv6VrReferences failed:', e);
     }
-    try {
-      await form.validateFields();
-    } catch {
-      message.warning('请先完善表单必填项');
-      return;
+    if (!ndProxyOnly) {
+      try {
+        await form.validateFields();
+      } catch {
+        message.warning('请先完善表单必填项');
+        return;
+      }
+      if (!ensureUniqueHubIfNames()) return;
     }
-    if (!ensureUniqueHubIfNames()) return;
     if (!ensureNdProxyIntent()) return;
     try {
       setLoading(true);
       const values = form.getFieldsValue(true);
-      const cfg = buildConfigFromValues(values);
+      let cfg: Record<string, unknown>;
+      if (ndProxyOnly) {
+        const existing = (await getVRConfig(uuid, { skipCache: true })) || {};
+        const base =
+          existing && typeof existing === 'object' && !Array.isArray(existing)
+            ? (JSON.parse(JSON.stringify(existing)) as Record<string, unknown>)
+            : {};
+        cfg = patchVrConfigWanNdProxy(base, values);
+      } else {
+        cfg = buildConfigFromValues(values);
+      }
       if (uuid) cfg.uuid = uuid;
       
       // 1. 先保存到平台（saveVRConfig + setVRRole），失败则中止设备下发
@@ -1619,7 +1648,11 @@ const PEWizard: React.FC = () => {
                         valuePropName="checked"
                         extra="对应设备命令 ipv6 nd proxy <Locator SID>。默认关闭。"
                       >
-                        <Checkbox disabled={!ndProxySidHost}>
+                        <Checkbox
+                          disabled={
+                            !ndProxySidHost && !Boolean((watchHubWanInventory || [])[idx]?.ndProxy)
+                          }
+                        >
                           在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
                         </Checkbox>
                       </Form.Item>
@@ -1688,7 +1721,7 @@ const PEWizard: React.FC = () => {
             valuePropName="checked"
             extra="对应设备命令 ipv6 nd proxy <Locator SID>。默认关闭。"
           >
-            <Checkbox disabled={!ndProxySidHost}>
+            <Checkbox disabled={!ndProxySidHost && !watchWanNdProxy}>
               在该 WAN 口启用 IPv6 ND Proxy（代答 Locator SID）
             </Checkbox>
           </Form.Item>

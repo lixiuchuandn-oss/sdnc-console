@@ -3,6 +3,7 @@ import {
   collectWanNdProxyIfNames,
   ifaceHasNdProxy,
   ndProxySidHostFromPrefix,
+  patchVrConfigWanNdProxy,
   pickIfaceHardwareMac,
   validateWanNdProxyIntent,
   wanNdProxyEnabledOn,
@@ -22,7 +23,43 @@ describe('peWizardNdProxy', () => {
     expect(item.ipv6_nd_proxy).toBeUndefined();
     expect(applyWanNdProxy(item, true, '240e:398:8507:1:1::301/64')).toBe(true);
     expect(item.ipv6_nd_proxy).toBe('240e:398:8507:1:1::301');
+    expect(applyWanNdProxy(item, false, '240e:398:8507:1:1::301')).toBe(false);
+    expect(item.ipv6_nd_proxy).toBeUndefined();
     expect(applyWanNdProxy({ name: 'x' }, true, '')).toBe(false);
+  });
+
+  it('patches only managed WAN ipv6_nd_proxy on existing VR config', () => {
+    const cfg = patchVrConfigWanNdProxy(
+      {
+        interfaces_GigabitEthernet: [
+          { name: 'GigabitEthernet 0/7/0', ipv6_static: '2001:db8::1/64', ipv6_nd_proxy: 'old::1' },
+          { name: 'GigabitEthernet 0/1/0', ipv6_static: '2001:db8:1::1/64' },
+        ],
+        pe: { publicConfig: { wanName: 'GigabitEthernet 0/7/0', wanNdProxy: true } },
+      },
+      {
+        wanNdProxy: true,
+        wanDev: 'GigabitEthernet 0/7/0',
+        sidPrefix: '240e:398:8507:1:1::301/64',
+      },
+    );
+    const ifaces = cfg.interfaces_GigabitEthernet as Array<Record<string, unknown>>;
+    expect(ifaces[0].ipv6_nd_proxy).toBe('240e:398:8507:1:1::301');
+    expect(ifaces[1].ipv6_nd_proxy).toBeUndefined();
+    const pe = cfg.pe as { publicConfig: Record<string, unknown> };
+    expect(pe.publicConfig.wanNdProxy).toBe(true);
+    expect(pe.publicConfig.wanNdProxyIfNames).toEqual(['GigabitEthernet 0/7/0']);
+
+    const cleared = patchVrConfigWanNdProxy(cfg, {
+      wanNdProxy: false,
+      wanDev: 'GigabitEthernet 0/7/0',
+      sidPrefix: '240e:398:8507:1:1::301/64',
+    });
+    const clearedIfaces = cleared.interfaces_GigabitEthernet as Array<Record<string, unknown>>;
+    expect(clearedIfaces[0].ipv6_nd_proxy).toBeUndefined();
+    const clearedPe = cleared.pe as { publicConfig: Record<string, unknown> };
+    expect(clearedPe.publicConfig.wanNdProxy).toBe(false);
+    expect(clearedPe.publicConfig.wanNdProxyIfNames).toEqual([]);
   });
 
   it('collects spoke and hub WAN names that enabled ND proxy', () => {
