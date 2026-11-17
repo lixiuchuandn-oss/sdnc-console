@@ -30,7 +30,7 @@
 | 名称 | 存在哪 | 是什么 | 谁在改 |
 |------|--------|--------|--------|
 | **实时 VR2** | CSMCTL Mongo | 控制面**已接受**的整份 JSON；agent 下载并应用到设备 | 向导/专家模式/统一下发 POST |
-| **平台账本** | SQLite `vr_config.config_json`；详情「本地配置 (Cache)」 | SRv6 规定它应等于下面的**公式**；也是再下发的底稿 | 隧道 recompute、下发成功回写、**VR-Cache 定时用 VR2 整份覆盖** |
+| **平台账本** | SQLite `vr_config.config_json`；详情「本地配置 (Cache)」 | SRv6 规定它应等于下面的**公式**；也是再下发的底稿 | 隧道 recompute、下发成功回写；VR-Cache：**仍被隧道引用且有基线时不覆盖** `config_json`；无存活隧道时才用 VR2 整份盖账本 |
 | **设备 FRR / VPP** | 盒子本机 | 真正在跑的转发表 | agent 按 VR2 应用；clish 本地改 **不上报** |
 
 `GET VR2` **不是**读 FRR。南向只有：下载 VR2、上报 applied/error、VR3 接口/运行态。  
@@ -38,7 +38,7 @@ clish 加的 BGP 邻居：**弹窗看不见**；下次 agent 按 VR2 应用会�
 
 弹窗里能比到的「设备多出来的东西」，只可能来自**另一条北向写 VR2 的路径**（专家模式、角色向导、其它业务 POST），不是盒子上偷偷改、又不上报的那份。
 
-后台 `VRCacheService`（约 5 分钟，列表刷新也会跑）会把 VR2 写进同一张 `config_json`。账本因此经常长得像 VR2，但职责仍是「公式底稿」，不是第三份终极配置。
+后台 `VRCacheService`（约 5 分钟，列表刷新也会跑）从 CSM 拉 VR1/VR3 进缓存表，并尝试把 VR2 写入 `vr_config`。**有存活 SRv6 隧道且已有基线时跳过 `config_json`**（`shouldPreserveSrv6PlatformLedger`），以免公式账本被 VR2 抹掉。无隧道后不再保护，脏 VR2 会盖回账本。账本职责仍是「公式底稿」，不是 VR2 的镜子。黄标只比 sqlite 账本 ≟ sqlite 公式，不读 VR2。
 
 ---
 
@@ -216,7 +216,7 @@ VR-Cache 仍可能用 VR2 覆盖账本。
 
 ## 10. 后续可扩展（未做）
 
-1. **账本与 VR2 镜子拆开**：有 SRv6 基线时，VR-Cache 不要用 VR2 整份覆盖 `config_json`，对账不再和回写打架。Cache 页需标明「公式账本」还是「VR2 副本」。  
+1. **账本与 VR2 镜子拆开**：五分钟不再用 VR2 覆盖 `config_json`（有无隧道都如此）。结论见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) §14，落地步骤与回归见该文档 **§18.1 步骤 E**。详情「本地配置」标明平台意图，不是 VR2 副本。  
 2. **真偏离时的修复**：黄标在「VR2 业务 ≠ 公式」时提供「按下发意图推到设备」，而不是只写库。  
 3. **新贡献类型**：先扩 `injectedDelta` + merge；对象数组补指纹。不必为每种新字段单独写「免弹窗」逻辑。  
 4. **对账 diff 全量导出**：弹窗目前截前 4 条，排障可加完整列表。

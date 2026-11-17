@@ -118,7 +118,7 @@ SDNC IBR 列表、隧道、角色、VR2 配置都挂 **uuid**。uuid 变了 = �
 | agent 假 ONLINE | 身份不齐时清 `.registration_finish` |
 | 控制器 | **未改**；主键仍是 uuid，同一 uuid 再 POST 为 update |
 
-同一 uuid 再注册，CSMCTL 返回「设备已注册, 仅更新该设备」。删 finish **不等于**新建实例。
+同一 uuid 再注册，CSMCTL 返回「设备已注册, 仅更新该设备」（`updateDate` 会刷新，VR1 `createDate` **不**刷新）。unregister 后再 register 才是新 insert、新的 `createDate`。IBR 列表「登记时间」即此字段。删 finish **不等于**新建实例。
 
 ---
 

@@ -19,8 +19,9 @@
 ## 建议下一批
 
 1. IBR HA 组配置健康 / 对账 / 解散回退 / live 巡检（`ibr-ha-groups-health`，H2/H3 + GET /:id/live 已落地，待实验室 E2E）
-2. IBR VR 列表只读冒烟
-3. 系统设置 · 用户 / 角色 RBAC 只读
+2. IBR 实例删除门闩 / 生命周期收口（`ibr-vr-delete-binders`、`ibr-vr-delete-lifecycle`；方案与回归见 `docs/ibr-instance-delete-lifecycle.md` §18，有测试文件后再登记 manifest）
+3. IBR VR 列表只读冒烟
+4. 系统设置 · 用户 / 角色 RBAC 只读
 
 ## 维护约定
 
