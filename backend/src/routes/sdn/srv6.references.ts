@@ -24,3 +24,30 @@ export const findSrv6TunnelsReferencingVr = async (vrUuid: string): Promise<Srv6
   }
   return out;
 };
+
+export type Srv6HaGroupReference = {
+  tunnelId: string;
+  tunnelName: string;
+  slot: 'ceA' | 'ceB';
+};
+
+/** 查询 fingerprint 绑定某 HA 组的存活 SRv6 隧道（CE-A / CE-B） */
+export const findSrv6TunnelsReferencingHaGroup = async (
+  haGroupId: string,
+): Promise<Srv6HaGroupReference[]> => {
+  const id = String(haGroupId || '').trim();
+  if (!id) return [];
+  const list = await srv6Repo().find();
+  const out: Srv6HaGroupReference[] = [];
+  for (const t of list) {
+    const fp = t.endpointFingerprint;
+    if (!fp || typeof fp !== 'object') continue;
+    if (String(fp.ceA?.haGroupId || '').trim() === id) {
+      out.push({ tunnelId: t.id, tunnelName: t.name, slot: 'ceA' });
+    }
+    if (String(fp.ceB?.haGroupId || '').trim() === id) {
+      out.push({ tunnelId: t.id, tunnelName: t.name, slot: 'ceB' });
+    }
+  }
+  return out;
+};

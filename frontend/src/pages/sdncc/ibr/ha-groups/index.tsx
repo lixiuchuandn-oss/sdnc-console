@@ -270,7 +270,7 @@ const IbrHaGroupsPage: React.FC = () => {
 							同步回退到底层设备
 						</Checkbox>
 						<p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
-							仍被 SRv6 隧道绑定的组不能删除。不勾选回退设备则只删平台档案，设备 VR2 / CLI
+							隧道上的 HA 组指纹会一并清除，SRv6 增量不动。不勾选回退设备则只删平台档案，设备 VR2 / CLI
 							上的本组 VRRP 会留下；勾选后按本组 vrid / group_id 剥配置（其它 VRRP 与 SRv6 保留），失败时组仍保留，可重试。
 						</p>
 					</div>

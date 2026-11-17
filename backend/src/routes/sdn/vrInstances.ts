@@ -142,6 +142,12 @@ function mergeOne(params: {
       'VR1 是注册信息（列表侧关键基础/关键帧）。本条非空字段很少：若 vr1 同步成功，则与 CSM 注册列表当前返回一致；若对端本应带齐 name/mac 等，需在 CSM/注册接口侧排查，Tower 不会补造。';
   }
 
+  // 列表「登记时间」/详情「创建时间」用 VR1 createDate；勿被 VR3 同名字段盖掉。
+  const vr1Create = (bd as Record<string, unknown>).createDate ?? (bd as Record<string, unknown>).create_time;
+  if (vr1Create != null && vr1Create !== '') {
+    merged.createDate = vr1Create;
+  }
+
   return merged;
 }
 

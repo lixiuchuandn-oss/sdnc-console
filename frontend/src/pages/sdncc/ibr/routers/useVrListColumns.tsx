@@ -35,6 +35,8 @@ export type VrListRow = Record<string, unknown> & {
   healthStatus?: unknown;
   resourceIndicators?: unknown;
   interfaces?: unknown;
+  createDate?: unknown;
+  create_time?: unknown;
 };
 
 function parseJsonField(val: unknown): unknown {
@@ -46,6 +48,22 @@ function parseJsonField(val: unknown): unknown {
     }
   }
   return val;
+}
+
+function pickVrRegisterAt(row: VrListRow): unknown {
+  const rec = row as Record<string, unknown>;
+  return row.createDate ?? row.create_time ?? rec.create_date;
+}
+
+function fmtVrRegisterAt(v: unknown): string {
+  if (v == null || v === '') return '—';
+  let raw: unknown = v;
+  if (typeof v === 'object' && v !== null && '$date' in v) {
+    raw = (v as { $date: unknown }).$date;
+  }
+  const d = raw instanceof Date ? raw : new Date(typeof raw === 'number' ? raw : String(raw));
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString();
 }
 
 function formatTrafficRateBps(bps: number): string {
@@ -138,6 +156,11 @@ export function useVrListColumns(params: UseVrListColumnsParams): ColumnsType<Vr
         title: '状态',
         key: 'status',
         render: (_v, row) => renderVrStatus(row.health_status ?? row.healthStatus ?? row.status),
+      },
+      {
+        title: '登记时间',
+        key: 'createDate',
+        render: (_v, row) => fmtVrRegisterAt(pickVrRegisterAt(row)),
       },
       {
         title: '角色',

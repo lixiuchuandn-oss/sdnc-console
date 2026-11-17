@@ -2,6 +2,7 @@ import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { IbrHaGroup, type IbrHaGroupStatus } from '../../entities/vRouter/IbrHaGroup';
 import { IbrHaGroupMember, type IbrHaGroupMemberRole } from '../../entities/vRouter/IbrHaGroupMember';
+import { SRv6Tunnel } from '../../entities/vRouter/SRv6Tunnel';
 import { VRCacheBasic } from '../../entities/vRouter/VRCacheBasic';
 import { resolveVrRolesWithFallback } from './ibrVrRoleResolve';
 import {
@@ -43,6 +44,7 @@ import {
   assertHaMembersNotOppositeCesOnSameTunnel,
   collectHaMemberTunnelEndpointWarnings,
 } from './haGroupTunnelGate';
+import { detachSrv6TunnelsFromHaGroup } from './haGroupTunnelMetadata';
 
 const HA_GROUP_ELIGIBLE_ROLES = new Set(['CE', '标准']);
 
@@ -711,16 +713,6 @@ export const ibrHaGroupService = {
     const group = await groupRepo().findOne({ where: { id }, relations: ['members'] });
     if (!group) throw new IbrHaGroupError('HA 组不存在', 404);
 
-    const { findSrv6TunnelsReferencingHaGroup } = await import('../../routes/sdn/srv6.references');
-    const tunnelRefs = await findSrv6TunnelsReferencingHaGroup(id);
-    if (tunnelRefs.length) {
-      const names = [...new Set(tunnelRefs.map((r) => r.tunnelName))].join('、');
-      throw new IbrHaGroupError(
-        `仍有 SRv6 隧道绑定本组（${names}），请先删除或改绑隧道后再删除本组`,
-        409,
-      );
-    }
-
     if (options?.revertDevice) {
       const primary = group.members?.find((m) => m.role === 'primary');
       const backup = group.members?.find((m) => m.role === 'backup');
@@ -796,7 +788,11 @@ export const ibrHaGroupService = {
       }
     }
 
-    await groupRepo().remove(group);
+    // 指纹只是标注：允许隧道仍在时解散组，反向剥掉 haGroupId 等，不改 SRv6 增量。
+    await AppDataSource.transaction(async (manager) => {
+      await detachSrv6TunnelsFromHaGroup(manager.getRepository(SRv6Tunnel), id);
+      await manager.getRepository(IbrHaGroup).remove(group);
+    });
   },
 
   /**
