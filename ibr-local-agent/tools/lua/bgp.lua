@@ -123,6 +123,9 @@ function bgp.add_part(segment_routing_list, p)
     if p.neighbor ~= nil then
         for _, n in pairs(p.neighbor) do
             bgp.add_bgp_neighbor(as, n.remote_ip, n.remote_as)
+            if n.update_source ~= nil then
+                bgp.add_bgp_neighbor_update_source(as, n.remote_ip, n.update_source)
+            end
             if n.ebgp_multihop ~= nil then
                 bgp.add_bgp_neighbor_ebgp_multihop(as, n.remote_ip, n.ebgp_multihop)
             end
@@ -260,6 +263,13 @@ function bgp.update(cur_bgp, new_bgp, segment_routing_srv6, cur_table)
         bgp.set_bgp_fast_convergence(bgp_as, new_bgp.bgp_fast_convergence)
     end
     -- neighbor
+    if cur_bgp.neighbor then
+        for _, n in pairs(cur_bgp.neighbor) do
+            if not bgp.has_neighbor(new_bgp.neighbor, n.remote_ip, n.remote_as) then
+                bgp.del_neighbor_dependent_config(bgp_as, cur_bgp, n.remote_ip)
+            end
+        end
+    end
     if cur_bgp.neighbor and not new_bgp.neighbor then
         for _, n in pairs(cur_bgp.neighbor) do
             bgp.del_bgp_neighbor(bgp_as, n.remote_ip)
@@ -267,6 +277,9 @@ function bgp.update(cur_bgp, new_bgp, segment_routing_srv6, cur_table)
     elseif not cur_bgp.neighbor and new_bgp.neighbor then
         for _, n in pairs(new_bgp.neighbor) do
             bgp.add_bgp_neighbor(bgp_as, n.remote_ip, n.remote_as)
+            if n.update_source ~= nil then
+                bgp.add_bgp_neighbor_update_source(bgp_as, n.remote_ip, n.update_source)
+            end
             if n.ebgp_multihop ~= nil then
                 bgp.add_bgp_neighbor_ebgp_multihop(bgp_as, n.remote_ip, n.ebgp_multihop)
             end
@@ -343,6 +356,70 @@ function bgp.update(cur_bgp, new_bgp, segment_routing_srv6, cur_table)
     end
 end
 
+function bgp.has_neighbor(neighbor_list, neighbor_ip, neighbor_as)
+    if neighbor_list == nil then
+        return false
+    end
+    for _, n in pairs(neighbor_list) do
+        if n.remote_ip == neighbor_ip and n.remote_as == neighbor_as then
+            return true
+        end
+    end
+    return false
+end
+
+function bgp.del_neighbor_dependent_config(as, bgp_config, neighbor_ip)
+    if bgp_config == nil or neighbor_ip == nil then
+        return
+    end
+    if bgp_config.neighbor ~= nil then
+        for _, n in pairs(bgp_config.neighbor) do
+            if n.remote_ip == neighbor_ip and n.update_source ~= nil then
+                bgp.del_bgp_neighbor_update_source(as, neighbor_ip, n.update_source)
+                break
+            end
+        end
+    end
+    if bgp_config.address_family ~= nil then
+        for _, af in pairs(bgp_config.address_family) do
+            if af.neighbor_route_map ~= nil then
+                for i = #af.neighbor_route_map, 1, -1 do
+                    local nr = af.neighbor_route_map[i]
+                    if nr.neighbor == neighbor_ip then
+                        bgp.del_bgp_address_family_neighbor_route_map(as, af.address_family, af.modifiler, nr.neighbor, nr.direction, nr.route_map)
+                        table.remove(af.neighbor_route_map, i)
+                    end
+                end
+                if #af.neighbor_route_map == 0 then
+                    af.neighbor_route_map = nil
+                end
+            end
+            if af.activate_address_family ~= nil then
+                for i = #af.activate_address_family, 1, -1 do
+                    if af.activate_address_family[i] == neighbor_ip then
+                        bgp.del_bgp_address_family_active(as, af.address_family, af.modifiler, neighbor_ip)
+                        table.remove(af.activate_address_family, i)
+                    end
+                end
+                if #af.activate_address_family == 0 then
+                    af.activate_address_family = nil
+                end
+            end
+        end
+    end
+    if bgp_config.neighbor_disable_connected_check ~= nil then
+        for i = #bgp_config.neighbor_disable_connected_check, 1, -1 do
+            if bgp_config.neighbor_disable_connected_check[i] == neighbor_ip then
+                bgp.del_bgp_neighbor_disable_connected_check(as, neighbor_ip)
+                table.remove(bgp_config.neighbor_disable_connected_check, i)
+            end
+        end
+        if #bgp_config.neighbor_disable_connected_check == 0 then
+            bgp_config.neighbor_disable_connected_check = nil
+        end
+    end
+end
+
 function bgp.compare_neighbor(as, cur_neighbor, new_neighbor)
     
     for _, n in pairs(cur_neighbor) do
@@ -350,6 +427,14 @@ function bgp.compare_neighbor(as, cur_neighbor, new_neighbor)
         for _, n2 in pairs(new_neighbor) do
             if n.remote_ip == n2.remote_ip and n.remote_as == n2.remote_as then
                 found = true
+                if bgp.cli_if_name(n.update_source) ~= bgp.cli_if_name(n2.update_source) then
+                    if n.update_source ~= nil then
+                        bgp.del_bgp_neighbor_update_source(as, n.remote_ip, n.update_source)
+                    end
+                    if n2.update_source ~= nil then
+                        bgp.add_bgp_neighbor_update_source(as, n2.remote_ip, n2.update_source)
+                    end
+                end
                 -- 同 peer 时同步 ebgp-multihop（现网 PE–PE 公网邻居必需）
                 if n.ebgp_multihop ~= n2.ebgp_multihop then
                     if n2.ebgp_multihop ~= nil then
@@ -378,6 +463,9 @@ function bgp.compare_neighbor(as, cur_neighbor, new_neighbor)
         end
         if not found then
             bgp.add_bgp_neighbor(as, n.remote_ip, n.remote_as)
+            if n.update_source ~= nil then
+                bgp.add_bgp_neighbor_update_source(as, n.remote_ip, n.update_source)
+            end
             if n.ebgp_multihop ~= nil then
                 bgp.add_bgp_neighbor_ebgp_multihop(as, n.remote_ip, n.ebgp_multihop)
             end
@@ -733,6 +821,39 @@ function bgp.del_bgp_neighbor(bgp_as, neighbor_ip)
         return
     end
     local cmd = string.format("%s -c 'router bgp %s' -c 'no neighbor %s'", CLISH_CMD, bgp_as, neighbor_ip)
+    local result = execute_command(cmd)
+    print(cmd)
+    return result
+end
+
+-- CLISH takes "Loopback" and the number as separate tokens, so "Loopback1"
+-- must be normalized the same way interfaces.cli_if_name does.
+function bgp.cli_if_name(interface_name)
+    if interface_name == nil then
+        return nil
+    end
+    local loop_num = string.match(interface_name, "^Loopback%s*([1-9][0-9]*)$")
+    if loop_num then
+        return string.format("Loopback %s", loop_num)
+    end
+    return interface_name
+end
+
+function bgp.add_bgp_neighbor_update_source(bgp_as, neighbor_ip, update_source)
+    if bgp_as == nil or neighbor_ip == nil or update_source == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'router bgp %s' -c 'neighbor %s update-source %s'", CLISH_CMD, bgp_as, neighbor_ip, bgp.cli_if_name(update_source))
+    local result = execute_command(cmd)
+    print(cmd)
+    return result
+end
+
+function bgp.del_bgp_neighbor_update_source(bgp_as, neighbor_ip, update_source)
+    if bgp_as == nil or neighbor_ip == nil or update_source == nil then
+        return
+    end
+    local cmd = string.format("%s -c 'router bgp %s' -c 'no neighbor %s update-source %s'", CLISH_CMD, bgp_as, neighbor_ip, bgp.cli_if_name(update_source))
     local result = execute_command(cmd)
     print(cmd)
     return result

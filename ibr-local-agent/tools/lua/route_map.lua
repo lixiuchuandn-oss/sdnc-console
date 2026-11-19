@@ -64,7 +64,7 @@ local meta = {
         elseif op == "del" then
             if cur_table ~= nil then
                 for _, route_map_table in pairs(cur_table) do
-                    self.del_route_map_part(route_map_table.name)
+                    self.del_route_map_part(route_map_table)
                 end
             end
         end
@@ -75,7 +75,9 @@ local meta = {
 local route_map = {}
 
 function route_map.compare_route_map(cur_table, new_table)
-    return cur_table.name == new_table.name
+    local cur_seq = cur_table.seq or 1
+    local new_seq = new_table.seq or 1
+    return cur_table.name == new_table.name and cur_seq == new_seq
 end
 
 
@@ -83,22 +85,28 @@ function route_map.add_route_map_part(table)
     if not table then
         return
     end
-    route_map.add_route_map(table.name,table.type)
-    route_map.add_route_map_match_prefix(table.name,table.type,table.match_prefix)
-    route_map.add_route_map_set_metric(table.name,table.type,table.metric)
+    local seq = table.seq or 1
+    route_map.add_route_map(table.name, table.type, seq)
+    route_map.add_route_map_match_prefix(table.name, table.type, seq, table.match_prefix)
+    route_map.add_route_map_set_metric(table.name, table.type, seq, table.metric)
 end
 function route_map.del_route_map_part(table)
     if not table then
         return
     end
-    route_map.del_route_map(table.name)
+    if table.seq then
+        route_map.del_route_map_seq(table.name, table.type, table.seq)
+    else
+        route_map.del_route_map(table.name)
+    end
 end
 
-function route_map.add_route_map(route_map_name,type)
+function route_map.add_route_map(route_map_name, type, seq)
     if not route_map_name or not type then
         return
     end
-    local cmd = string.format("%s -c 'route-map %s  %s'", CLISH_CMD, route_map_name, type)
+    seq = seq or 1
+    local cmd = string.format("%s -c 'route-map %s %s %d'", CLISH_CMD, route_map_name, type, seq)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -114,41 +122,55 @@ function route_map.del_route_map(route_map_name)
     return result
 end
 
-function route_map.add_route_map_match_prefix(route_map_name, type, prefix)
-    if not route_map_name or not type or not prefix then
+function route_map.del_route_map_seq(route_map_name, type, seq)
+    if not route_map_name or not type or not seq then
         return
     end
-    local cmd = string.format("%s -c 'route-map %s %s' -c 'match ip address prefix-list %s'", CLISH_CMD, route_map_name, type, prefix)
+    local cmd = string.format("%s -c 'no route-map %s %s %d'", CLISH_CMD, route_map_name, type, seq)
     print(cmd)
     local result = execute_command(cmd)
     return result
 end
 
-function route_map.del_route_map_set_prefix(route_map_name,type,prefix)
+function route_map.add_route_map_match_prefix(route_map_name, type, seq, prefix)
     if not route_map_name or not type or not prefix then
         return
     end
-    local cmd = string.format("%s -c 'route-map %s %s' -c 'no match ip address prefix-list %s'", CLISH_CMD, route_map_name, type, prefix)
+    seq = seq or 1
+    local cmd = string.format("%s -c 'route-map %s %s %d' -c 'match ip address prefix-list %s'", CLISH_CMD, route_map_name, type, seq, prefix)
     print(cmd)
     local result = execute_command(cmd)
     return result
 end
 
-function route_map.add_route_map_set_metric(route_map_name,type,metric)
+function route_map.del_route_map_set_prefix(route_map_name, type, seq, prefix)
+    if not route_map_name or not type or not prefix then
+        return
+    end
+    seq = seq or 1
+    local cmd = string.format("%s -c 'route-map %s %s %d' -c 'no match ip address prefix-list %s'", CLISH_CMD, route_map_name, type, seq, prefix)
+    print(cmd)
+    local result = execute_command(cmd)
+    return result
+end
+
+function route_map.add_route_map_set_metric(route_map_name, type, seq, metric)
     if not route_map_name or not type or not metric then
         return
     end
-    local cmd = string.format("%s -c 'route-map %s %s' -c 'set metric %i'", CLISH_CMD, route_map_name, type, metric)
+    seq = seq or 1
+    local cmd = string.format("%s -c 'route-map %s %s %d' -c 'set metric %i'", CLISH_CMD, route_map_name, type, seq, metric)
     print(cmd)
     local result = execute_command(cmd)
     return result
 end
 
-function route_map.del_route_map_set_metric(route_map_name,type)
+function route_map.del_route_map_set_metric(route_map_name, type, seq)
     if not route_map_name or not type then
         return
     end
-    local cmd = string.format("%s -c 'route-map %s %s' -c 'no set metric'", CLISH_CMD, route_map_name, type)
+    seq = seq or 1
+    local cmd = string.format("%s -c 'route-map %s %s %d' -c 'no set metric'", CLISH_CMD, route_map_name, type, seq)
     print(cmd)
     local result = execute_command(cmd)
     return result

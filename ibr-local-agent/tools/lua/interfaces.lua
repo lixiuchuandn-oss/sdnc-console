@@ -39,8 +39,21 @@ interfaces.list = { "interfaces_BondEthernet",
     "interfaces_GigabitEthernet",
     "subinterfaces_GigabitEthernet",
     "interfaces_lo",
+    "interfaces_Loopback",
     "interfaces_Tunnel",
     "subinterfaces_Tunnel" }
+
+-- Normalize interface name for CLISH: "Loopback1" / "Loopback 1" -> "Loopback 1"
+function interfaces.cli_if_name(interface_name)
+    if interface_name == nil then
+        return nil
+    end
+    local loop_num = string.match(interface_name, "^Loopback%s*([1-9][0-9]*)$")
+    if loop_num then
+        return string.format("Loopback %s", loop_num)
+    end
+    return interface_name
+end
 
 
 function interfaces.add_interface_all(cur_table)
@@ -226,6 +239,12 @@ function interfaces.add_interface_part(interface_table)
     if interface_table == nil then
         return
     end
+    -- Loopback0 is retained only for config replay compatibility.  Do not
+    -- apply new Agent-managed configuration to its hidden CLI entry.
+    if interface_table.name and string.match(interface_table.name, "^Loopback%s*0$") then
+        print(string.format("Skip hidden legacy interface configuration: %s", interface_table.name))
+        return
+    end
     if interface_table.name then
         interfaces.add_interface(interface_table.name)
     end
@@ -251,13 +270,28 @@ function interfaces.add_interface_part(interface_table)
             interfaces.add_interface_acl(interface_table.name, v)
         end
     end
-    if interface_table.status then
+    -- lo reaches this point (only Loopback0 returns early above).  Its admin status
+    -- is never Agent-managed: a shutdown on lo would tear down every local socket
+    -- on the box, including konfd and FRR.
+    if interface_table.status and not interfaces.is_legacy_loopback(interface_table.name) then
         interfaces.set_interface_status(interface_table.name, interface_table.status)
     end
 end
 
 function interfaces.del_interface_part(interface_table)
     if interface_table == nil then
+        return
+    end
+    -- Legacy lo/Loopback0: clear addresses only.  The interface itself must not be
+    -- deleted, and its admin status must not be touched: shutting down lo would
+    -- tear down every local socket on the box, including konfd and FRR.
+    if interfaces.is_legacy_loopback(interface_table.name) then
+        if interface_table.ipv4_static then
+            interfaces.del_interface_v4addr(interface_table.name, interface_table.ipv4_static)
+        end
+        if interface_table.ipv6_static then
+            interfaces.del_interface_v6addr(interface_table.name, interface_table.ipv6_static)
+        end
         return
     end
    if string.find(interface_table.name, "GigabitEthernet") and not string.find(interface_table.name, "%.") then
@@ -312,7 +346,7 @@ function interfaces.compare_interface_part(cur_table, new_table)
         local keep = interfaces.collect_vrrp_keep_addrs(new_table.vrrp)
         interfaces.sync_interface_v4addr(cur_table.name, new_table.ipv4_static, keep)
         interfaces.sync_interface_v6addr(cur_table.name, new_table.ipv6_static, keep)
-        interfaces.sync_interface_nd_proxy(cur_table.name, cur_table.ipv6_nd_proxy, new_table.ipv6_nd_proxy)
+        interfaces.sync_interface_nd_proxy(cur_table.name, nil, new_table.ipv6_nd_proxy)
         if new_table.vrrp then  
             for _, v in pairs(new_table.vrrp) do
                 interfaces.add_interface_vrrp_part(cur_table.name, v)
@@ -338,17 +372,39 @@ function interfaces.add_interface(interface_name)
     if interface_name == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s'", CLISH_CMD, interface_name)
+    -- Loopback0 config entry is hidden; do not create/enter via Agent.
+    if string.match(interface_name, "^Loopback%s*0$") then
+        print(string.format("Skip creating hidden legacy interface: %s (use Loopback N, N>=1)", interface_name))
+        return
+    end
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s'", CLISH_CMD, cli_name)
     print(cmd)
     local result = execute_command(cmd)
     return result
+end
+
+function interfaces.is_legacy_loopback(interface_name)
+    if interface_name == nil then
+        return false
+    end
+    if interface_name == "lo" then
+        return true
+    end
+    return string.match(interface_name, "^Loopback%s*0$") ~= nil
 end
 
 function interfaces.del_interface(interface_name)
     if interface_name == nil then
         return
     end
-    local cmd = string.format("%s -c 'no interface %s'", CLISH_CMD, interface_name)
+    -- Legacy lo/Loopback0 are system interfaces and cannot be deleted via CLI.
+    if interfaces.is_legacy_loopback(interface_name) then
+        print(string.format("Skip deleting legacy loopback interface: %s", interface_name))
+        return
+    end
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'no interface %s'", CLISH_CMD, cli_name)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -378,7 +434,8 @@ function interfaces.add_interface_vrf(interface_name, vrf_name)
     if interface_name == nil or vrf_name == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'vrf %i'", CLISH_CMD, interface_name, vrf_name)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'vrf %i'", CLISH_CMD, cli_name, vrf_name)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -388,7 +445,8 @@ function interfaces.del_interface_vrf(interface_name)
     if interface_name == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'no vrf'", CLISH_CMD, interface_name)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'no vrf'", CLISH_CMD, cli_name)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -398,11 +456,12 @@ function interfaces.set_interface_vrf_status(interface_name, status)
     if interface_name == nil or status == nil then
         return
     end
+    local cli_name = interfaces.cli_if_name(interface_name)
     local cmd = ""
     if status == "enable" then
-        cmd = string.format("%s -c 'interface %s' -c 'vrf enable'", CLISH_CMD, interface_name)
+        cmd = string.format("%s -c 'interface %s' -c 'vrf enable'", CLISH_CMD, cli_name)
     else
-        cmd = string.format("%s -c 'interface %s' -c 'no vrf enable'", CLISH_CMD, interface_name) 
+        cmd = string.format("%s -c 'interface %s' -c 'no vrf enable'", CLISH_CMD, cli_name)
     end
     print(cmd)
     local result = execute_command(cmd)
@@ -413,7 +472,8 @@ function interfaces.add_interface_v4addr(interface_name, v4_addr)
     if interface_name == nil or v4_addr == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'ip address %s'", CLISH_CMD, interface_name, v4_addr)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'ip address %s'", CLISH_CMD, cli_name, v4_addr)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -423,7 +483,8 @@ function interfaces.del_interface_v4addr(interface_name, v4_addr)
     if interface_name == nil or v4_addr == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'no ip address %s'", CLISH_CMD, interface_name, v4_addr)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'no ip address %s'", CLISH_CMD, cli_name, v4_addr)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -433,7 +494,8 @@ function interfaces.add_interface_v6addr(interface_name, v6_addr)
     if interface_name == nil or v6_addr == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'ipv6 address %s'", CLISH_CMD, interface_name, v6_addr)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'ipv6 address %s'", CLISH_CMD, cli_name, v6_addr)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -443,7 +505,8 @@ function interfaces.del_interface_v6addr(interface_name, v6_addr)
     if interface_name == nil or v6_addr == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'no ipv6 address %s'", CLISH_CMD, interface_name, v6_addr)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'no ipv6 address %s'", CLISH_CMD, cli_name, v6_addr)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -469,7 +532,8 @@ function interfaces.add_interface_nd_proxy(interface_name, proxy_ip)
         print(string.format("Skip IPv6 ND proxy on loopback: %s", interface_name))
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'ipv6 nd proxy %s'", CLISH_CMD, interface_name, proxy_ip)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'ipv6 nd proxy %s'", CLISH_CMD, cli_name, proxy_ip)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -480,7 +544,8 @@ function interfaces.del_interface_nd_proxy(interface_name, proxy_ip)
     if interface_name == nil or proxy_ip == nil then
         return
     end
-    local cmd = string.format("%s -c 'interface %s' -c 'no ipv6 nd proxy %s'", CLISH_CMD, interface_name, proxy_ip)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c 'no ipv6 nd proxy %s'", CLISH_CMD, cli_name, proxy_ip)
     print(cmd)
     local result = execute_command(cmd)
     return result
@@ -509,7 +574,8 @@ function interfaces.set_interface_status(interface_name, status)
     else
         status = "no shutdown"
     end
-    local cmd = string.format("%s -c 'interface %s' -c '%s'", CLISH_CMD, interface_name, status)
+    local cli_name = interfaces.cli_if_name(interface_name)
+    local cmd = string.format("%s -c 'interface %s' -c '%s'", CLISH_CMD, cli_name, status)
     print(cmd)
     local result = execute_command(cmd)
     return result
