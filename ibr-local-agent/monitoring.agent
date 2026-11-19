@@ -53,7 +53,14 @@ refresh_uuid() {
 	local latest old
 	latest=$(get_uuid)
 	if [ -z "$latest" ] || [ "$latest" = "null" ]; then
-		return 0
+		# 文件里的 uuid 已空（出厂模板）时必须丢掉内存里的旧值，否则 VR3 会继续报到旧实例。
+		if [ -n "$UUID" ] && [ "$UUID" != "null" ]; then
+			logger -s "registervr uuid empty, stop reporting previous uuid $UUID" \
+				-t download-monitoring \
+				-p daemon.warn
+			UUID=""
+		fi
+		return 1
 	fi
 	if [ "$latest" = "$UUID" ]; then
 		return 0
@@ -417,6 +424,16 @@ send_prepare() {
 
 		# 重新注册后 uuid 可能已变；上报须跟 registervr.conf，避免写到旧 uuid
 		refresh_uuid
+		if [ -z "$UUID" ] || [ "$UUID" = "null" ]; then
+			logger -s "registervr uuid empty, skip VR3 report" \
+				-t monitoring \
+				-p daemon.info
+			trap handle_sigusr1 USR1
+			sleep "$INTERVAL" &
+			wait $!
+			trap "" USR1
+			continue
+		fi
 		
 		# 统计文件数量
 		file_count=$(ls -1 "$TMP_DIR"/* 2>/dev/null | wc -l)
@@ -689,6 +706,15 @@ download_data_prepare() {
 		fi
 		trap "" USR1
 		refresh_uuid
+		if [ -z "$UUID" ] || [ "$UUID" = "null" ]; then
+			logger -s "registervr uuid empty, skip configuration download" \
+				-t download-monitoring \
+				-p daemon.info
+			trap handle_sigusr1 USR1
+			sleep "$DOWNLOAD_INTERVAL" &
+			wait $!
+			continue
+		fi
 		configuration_changed
 		ret=$?
 		if [ "$ret" -eq "1" ]; then

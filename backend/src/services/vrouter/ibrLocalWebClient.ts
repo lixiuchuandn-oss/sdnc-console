@@ -182,6 +182,46 @@ export async function ibrLocalWebNorthRequest<T = unknown>(params: {
   throw lastError ?? new IbrLocalWebError('设备 local-web 请求失败', 502);
 }
 
+/** 仅用于无需 SSO 的设备公开接口（如删除实例回写清 finish）。 */
+export async function ibrLocalWebPublicRequest<T = unknown>(params: {
+  managementIp: string;
+  path: string;
+  method?: 'GET' | 'POST';
+  body?: unknown;
+  timeoutMs?: number;
+}): Promise<T> {
+  const base = buildIbrLocalWebBaseUrl(params.managementIp);
+  const publicPath = params.path.startsWith('/') ? params.path : `/${params.path}`;
+  const url = `${base}/api/public${publicPath}`;
+  const headers = {
+    ...northHeaders(),
+    ...(params.body != null ? { 'Content-Type': 'application/json' } : {}),
+  };
+  try {
+    const res: AxiosResponse = await axios({
+      method: params.method ?? 'GET',
+      url,
+      data: params.body,
+      headers,
+      timeout: params.timeoutMs ?? 15_000,
+      validateStatus: () => true,
+    });
+    if (res.status >= 400) {
+      throw new IbrLocalWebError(extractErrorMessage(res.data, res.status), res.status);
+    }
+    if (isSpaIndexHtml(res.data)) {
+      throw new IbrLocalWebError(
+        '设备 local-web 返回了前端页面而非 API 数据，请升级设备 Console 后重试',
+        502,
+      );
+    }
+    return res.data as T;
+  } catch (err) {
+    if (err instanceof IbrLocalWebError) throw err;
+    throw wrapTransportError(params.managementIp, err);
+  }
+}
+
 export type IbrDeviceSelfcheckResult = {
   ok: boolean;
   reasons?: string[];
@@ -436,6 +476,28 @@ export const ibrLocalWebClient = {
       path: '/system/logs',
       responseType: 'text',
     });
+  },
+
+  /**
+   * 删除实例后回写：只清设备 `.registration_finish`。
+   * 必须打 `/api/public/...`：北向 `/api/north/v1` 走 SSO，生产无 Bearer 会 401 且不会回落到 public。
+   */
+  async clearRegistrationFinish(managementIp: string, uuid: string): Promise<{ ok?: boolean; cleared?: boolean }> {
+    const u = String(uuid || '').trim();
+    if (!u) {
+      throw new IbrLocalWebError('缺少 uuid', 400);
+    }
+    const data = await ibrLocalWebPublicRequest<{ ok?: boolean; cleared?: boolean; error?: string }>({
+      managementIp,
+      method: 'POST',
+      path: '/registration/clear-finish',
+      body: { uuid: u },
+      timeoutMs: 15_000,
+    });
+    if (!data || data.ok !== true) {
+      throw new IbrLocalWebError(data?.error?.trim() || '设备未清掉 .registration_finish', 502);
+    }
+    return data;
   },
 
   async status(managementIp: string): Promise<Record<string, unknown>> {

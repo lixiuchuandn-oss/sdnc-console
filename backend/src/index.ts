@@ -278,10 +278,12 @@ export function startServer(): void {
         logger.warn('启用 WAL 模式失败:', e);
       }
       try {
-        const { ensureUsersPasswordChangedAtColumn } = await import('./config/database');
+        const { ensureUsersPasswordChangedAtColumn, ensureVrConfigRolePreSnapshotColumn } =
+          await import('./config/database');
         await ensureUsersPasswordChangedAtColumn();
+        await ensureVrConfigRolePreSnapshotColumn();
       } catch (e) {
-        logger.warn('users.passwordChangedAt 检查失败:', e);
+        logger.warn('schema 列检查失败:', e);
       }
       // 初始化管理员账户
       await initializeAdmin();

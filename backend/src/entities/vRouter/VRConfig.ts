@@ -19,6 +19,10 @@ export class VRConfig {
   @Column({ type: 'text' })
   config_json!: string; // 完整配置JSON字符串
 
+  /** 首次角色化之前的 VR2 快照（Layer −1）；仅空则写、禁止补录 */
+  @Column({ type: 'text', nullable: true })
+  rolePreSnapshot?: string | null;
+
   /** SRv6 向导基线（Layer 0）；隧道贡献叠加前快照 */
   @Column({ type: 'text', nullable: true })
   srv6BaselineJson?: string | null;

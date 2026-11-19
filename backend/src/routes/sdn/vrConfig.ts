@@ -359,6 +359,23 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
     let record = await repo.findOne({ where: { uuid } });
     const jsonStr = typeof config === 'string' ? config : JSON.stringify(config);
 
+    const source = String(req.query.source || '').trim();
+    if (source === 'expert') {
+      const { assertExpertVrConfigWriteAllowed } = await import('../../services/vrouter/vrConfigExpert');
+      try {
+        await assertExpertVrConfigWriteAllowed(uuid);
+      } catch (expertErr: any) {
+        if (expertErr?.statusCode === 409) {
+          return res.status(409).json({
+            code: 409,
+            msg: expertErr.message,
+            message: expertErr.message,
+          });
+        }
+        throw expertErr;
+      }
+    }
+
     const { assertSrv6VrConfigUpsertAllowed } = await import('./srv6.vrLock');
     try {
       await assertSrv6VrConfigUpsertAllowed(uuid, jsonStr);
@@ -371,6 +388,24 @@ vrConfigRoutes.post('/upsert', async (req, res) => {
         });
       }
       throw lockErr;
+    }
+
+    const { captureRolePreSnapshotIfEmpty, RolePreSnapshotError } = await import(
+      '../../services/vrouter/rolePreSnapshot'
+    );
+    try {
+      await captureRolePreSnapshotIfEmpty(uuid);
+      // 捕获可能新建行，或写入 rolePreSnapshot。必须重读，避免用捕获前的实体 save 把快照盖回空。
+      record = await repo.findOne({ where: { uuid } });
+    } catch (capErr: any) {
+      if (capErr instanceof RolePreSnapshotError || capErr?.statusCode === 503) {
+        return res.status(503).json({
+          code: 503,
+          msg: capErr.message,
+          message: capErr.message,
+        });
+      }
+      throw capErr;
     }
 
     const { findSrv6TunnelsReferencingVr } = await import('./srv6.references');
@@ -472,6 +507,22 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
       }
       throw lockErr;
     }
+    const { captureRolePreSnapshotIfEmpty, RolePreSnapshotError } = await import(
+      '../../services/vrouter/rolePreSnapshot'
+    );
+    try {
+      await captureRolePreSnapshotIfEmpty(uuid);
+      record = await repo.findOne({ where: { uuid } });
+    } catch (capErr: any) {
+      if (capErr instanceof RolePreSnapshotError || capErr?.statusCode === 503) {
+        return res.status(503).json({
+          code: 503,
+          msg: capErr.message,
+          message: capErr.message,
+        });
+      }
+      throw capErr;
+    }
     if (record) {
       record.role = normalized;
       await repo.save(record);
@@ -483,6 +534,45 @@ vrConfigRoutes.post('/set-role', async (req, res) => {
     return res.json({ code: 200, msg: 'ok', data: { uuid, role: normalized } });
   } catch (err: any) {
     vrConfigLog.error('set-role error', errMsg(err));
+    return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
+  }
+});
+
+vrConfigRoutes.post('/:uuid/dispatch-full', async (req, res) => {
+  try {
+    if (!hasVrConfigWrite(req)) {
+      return res.status(403).json({ message: '权限不足：需要写入权限 networks.vr-config:write' });
+    }
+    const uuid = String(req.params.uuid || '').trim();
+    const config = req.body?.config ?? req.body;
+    if (!uuid) {
+      return res.status(400).json({ code: 400, msg: '缺少必要参数: uuid' });
+    }
+    if (typeof config === 'undefined' || config === null) {
+      return res.status(400).json({ code: 400, msg: '缺少必要参数: config' });
+    }
+    const { dispatchExpertVrConfig, VrConfigExpertError } = await import(
+      '../../services/vrouter/vrConfigExpert'
+    );
+    const { RolePreSnapshotError } = await import('../../services/vrouter/rolePreSnapshot');
+    try {
+      const data = await dispatchExpertVrConfig(uuid, config);
+      return res.json({ code: 200, msg: 'ok', data });
+    } catch (err: any) {
+      if (err instanceof VrConfigExpertError || err?.statusCode === 409 || err?.statusCode === 400) {
+        return res.status(err.statusCode || 409).json({
+          code: err.statusCode || 409,
+          msg: err.message,
+          message: err.message,
+        });
+      }
+      if (err instanceof RolePreSnapshotError || err?.statusCode === 503) {
+        return res.status(503).json({ code: 503, msg: err.message, message: err.message });
+      }
+      throw err;
+    }
+  } catch (err: any) {
+    vrConfigLog.error('dispatch-full error', errMsg(err));
     return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
   }
 });

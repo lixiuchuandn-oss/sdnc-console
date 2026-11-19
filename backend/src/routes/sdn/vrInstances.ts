@@ -237,6 +237,46 @@ vrInstancesRoutes.get('/', async (req, res) => {
   }
 });
 
+const sendVrInstanceDeleteErr = (res: import('express').Response, err: any) => {
+  if (!err?.statusCode) return false;
+  res.status(err.statusCode).json({
+    code: err.statusCode,
+    msg: err.message,
+    message: err.message,
+    reason: err.reason,
+    binders: err.binders,
+    conflicts: err.conflicts,
+  });
+  return true;
+};
+
+vrInstancesRoutes.get('/:uuid/delete-preview', async (req, res) => {
+  try {
+    const uuid = String(req.params.uuid || '').trim();
+    const { previewVrInstanceDelete } = await import('../../services/vrouter/vrInstanceDeleteService');
+    const data = await previewVrInstanceDelete(uuid);
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err: any) {
+    if (sendVrInstanceDeleteErr(res, err)) return;
+    vrInstHttpLog.error('delete-preview error', err instanceof Error ? err.message : String(err));
+    return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
+  }
+});
+
+vrInstancesRoutes.delete('/:uuid', async (req, res) => {
+  try {
+    const uuid = String(req.params.uuid || '').trim();
+    const acknowledgeDrift = Boolean(req.body?.acknowledgeDrift);
+    const { deleteVrInstance } = await import('../../services/vrouter/vrInstanceDeleteService');
+    const data = await deleteVrInstance(uuid, { acknowledgeDrift });
+    return res.json({ code: 200, msg: 'ok', data });
+  } catch (err: any) {
+    if (sendVrInstanceDeleteErr(res, err)) return;
+    vrInstHttpLog.error('delete instance error', err instanceof Error ? err.message : String(err));
+    return res.status(500).json({ code: 500, msg: err?.message || 'internal error' });
+  }
+});
+
 /**
  * GET /api/vr-instances/:uuid/csm-live-raw
  * 并行直连 CSM：返回 VR1 列表、VR2 单实例、VR3 列表三次调用的**真实 HTTP JSON**（与 csmRequest 收到的一致），用于排障。

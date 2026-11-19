@@ -69,3 +69,31 @@ export async function ensureUsersPasswordChangedAtColumn() {
     throw error;
   }
 }
+
+/** 兼容旧库：vr_config.rolePreSnapshot（生产默认 DB_SYNC=false，不能靠 synchronize） */
+export async function ensureVrConfigRolePreSnapshotColumn() {
+  try {
+    if (!AppDataSource.isInitialized) {
+      dbLog.warn('数据库未初始化，跳过 vr_config.rolePreSnapshot 检查');
+      return;
+    }
+    const tables = await AppDataSource.query(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name='vr_config'`,
+    );
+    if (!Array.isArray(tables) || tables.length === 0) return;
+    const cols = await AppDataSource.query(`PRAGMA table_info(vr_config)`);
+    const has =
+      Array.isArray(cols) && cols.some((c: { name?: string }) => c.name === 'rolePreSnapshot');
+    if (!has) {
+      dbLog.info('为 vr_config 表添加 rolePreSnapshot 列...');
+      await AppDataSource.query(`ALTER TABLE "vr_config" ADD COLUMN "rolePreSnapshot" text`);
+      dbLog.info('vr_config.rolePreSnapshot 已添加');
+    }
+  } catch (error) {
+    dbLog.error(
+      'vr_config.rolePreSnapshot 迁移失败:',
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+}

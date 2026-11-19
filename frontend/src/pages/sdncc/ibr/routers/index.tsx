@@ -22,10 +22,8 @@ import {
   apiPost,
 } from '../../../../services/api';
 import { getSystemSetting, updateSystemSetting } from '../../../../services/systemApi';
-import {
-  fetchVrCacheMergedAll,
-  vrApi,
-} from '../../../../services/virtualRouterApi';
+import { fetchVrCacheMergedAll } from '../../../../services/virtualRouterApi';
+import DeleteVrInstanceModal from './DeleteVrInstanceModal';
 import {
   applyIbrVrRolesToRows,
   buildIbrVrRolesMapFromVr2,
@@ -40,7 +38,7 @@ import {
 } from './vrListDisplay';
 import { useVrListColumns, type VrListRow } from './useVrListColumns';
 
-import { VrDetailDrawer } from './VrDetailDrawer';
+import { VrDetailDrawer, type VrDetailRow } from './VrDetailDrawer';
 import type { IbrSectionEmbedProps } from '../lib/embedProps';
 import { useIbrEmbedContext } from '../lib/useIbrEmbedContext';
 import { openIbrConsole } from '../lib/ibrLocalWebUrl';
@@ -79,6 +77,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [selectedRoleType, setSelectedRoleType] = useState('标准');
   const [roleVrUuid, setRoleVrUuid] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ uuid: string; label: string } | null>(null);
 
   const getActionMenu = useCallback((row: VRRow): MenuProps['items'] => {
     const vrUuid = String(row.uuid || row.vr_unique_id || row.vm_id || '').trim();
@@ -194,33 +193,13 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
       const rid = String(row.id || '').trim();
       const ruuid = String(row.uuid || row.vr_unique_id || '').trim();
       const rvmid = String(row.vm_id || '').trim();
-      /** 接口文档：注销仅支持 Query `uuid`（与注册时 uuid 一致），不用 id/vm_id */
       if (!ruuid) {
-        message.warning('该行缺少 uuid（与 CSM 注册时 uuid 一致），无法按规范注销');
+        message.warning('该行缺少 uuid（与 CSM 注册时 uuid 一致），无法删除');
         return;
       }
-      const label = String(row.name || rid || ruuid || rvmid).trim();
-      Modal.confirm({
-        title: '删除 IBR实例',
-        content: `确定从 CSM 控制面注销「${label}」吗？将调用 DELETE /V2/vrcontrol/VR1/unregister?uuid=… ，此操作不可恢复。`,
-        okText: '删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            setLoading(true);
-            const json = await vrApi.deleteVRInstance(ruuid);
-            const j = json as { msg?: string };
-            message.success(j?.msg || '已删除');
-            await apiPost('/api/vr-instances/refresh', {});
-            await fetchVRInstances(true);
-          } catch (e: any) {
-            message.error(e?.message || '删除失败');
-            throw e;
-          } finally {
-            setLoading(false);
-          }
-        },
+      setDeleteTarget({
+        uuid: ruuid,
+        label: String(row.name || rid || ruuid || rvmid).trim(),
       });
     }
   };
@@ -489,7 +468,7 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
           setDetailDrawerOpen(false);
           setDetailRow(null);
         }}
-        row={detailRow}
+        row={detailRow as VrDetailRow | null}
         rolesMap={rolesMap}
       />
 
@@ -533,6 +512,22 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
       </Modal>
 
       {/* 角色设置向导 - 步骤1：选择类型 */}
+      <DeleteVrInstanceModal
+        open={Boolean(deleteTarget)}
+        uuid={deleteTarget?.uuid || ''}
+        label={deleteTarget?.label || ''}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={async () => {
+          setLoading(true);
+          try {
+            await apiPost('/api/vr-instances/refresh', {});
+            await fetchVRInstances(true);
+          } finally {
+            setLoading(false);
+          }
+        }}
+      />
+
       <Modal
         title="设置角色 - 选择类型"
         open={roleModalOpen}
