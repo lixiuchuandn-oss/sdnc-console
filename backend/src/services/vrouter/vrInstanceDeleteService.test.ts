@@ -43,7 +43,7 @@ const okVr2 = (config: unknown) => ({
 
 const missingVr2 = () => ({
   config: null,
-  csmBizError: { code: 404, msg: 'none' },
+  csmBizError: { code: 5012, msg: '没有此VR配置' },
   transportError: null,
   csm_http_body_raw: null,
 });
@@ -87,13 +87,25 @@ describe('deleteVrInstance', () => {
     expect(del).not.toHaveBeenCalled();
   });
 
-  it('unregisters a never-configured instance when VR2 is missing', async () => {
+  it('unregisters a never-configured instance when VR2 is missing (CSM 5012)', async () => {
     getVR2.mockResolvedValue(missingVr2() as Awaited<ReturnType<typeof getVR2QueryResult>>);
     const result = await deleteVrInstance('vr-a');
     expect(result.deviceReverted).toBe(false);
     expect(updateVRConfig).not.toHaveBeenCalled();
     expect(unregister).toHaveBeenCalledWith('vr-a');
     expect(del).toHaveBeenCalled();
+  });
+
+  it('unregisters a never-configured instance when VR2 is missing (HTTP-style 404)', async () => {
+    getVR2.mockResolvedValue({
+      config: null,
+      csmBizError: { code: 404, msg: 'not found' },
+      transportError: null,
+      csm_http_body_raw: null,
+    } as Awaited<ReturnType<typeof getVR2QueryResult>>);
+    const result = await deleteVrInstance('vr-a');
+    expect(result.deviceReverted).toBe(false);
+    expect(unregister).toHaveBeenCalledWith('vr-a');
   });
 
   it('unregisters a never-configured instance when VR2 is identity-only', async () => {
