@@ -23,6 +23,7 @@ const ACCESS_KEY = 'Cloudmap%23123';
 const SECRET_KEY = 'Cloudmap%23123';
 
 const PATH_VR1_PAGELIST = '/V2/ctcontrol/VR1/pagelist';
+const PATH_VR1_UNREGISTER = '/V2/vrcontrol/VR1/unregister';
 const PATH_VR2_CONFIG = '/V2/ctcontrol/VR2/VRConfig';
 const PATH_VR3_LIST = '/V2/ctcontrol/VR3/VRConfig/list';
 
@@ -414,3 +415,40 @@ export const vrController = {
     };
   },
 };
+
+const httpStatusOf = (err: unknown): number => {
+  const e = err as { response?: { status?: number }; status?: number };
+  return Number(e?.response?.status ?? e?.status ?? 0);
+};
+
+const unregisterBizResult = (raw: unknown): 'ok' | 'already_gone' => {
+  if (!raw || typeof raw !== 'object') return 'ok';
+  const code = (raw as { code?: unknown }).code;
+  if (code === 404) return 'already_gone';
+  if (typeof code === 'number' && code !== 200 && code !== 0) {
+    const msg = (raw as { msg?: string }).msg || `unregister failed code=${code}`;
+    throw new Error(msg);
+  }
+  return 'ok';
+};
+
+/** CSM 注销 VR1（DELETE，404/405 时回退 POST body uuid） */
+export async function unregisterVrFromCsm(uuid: string): Promise<'ok' | 'already_gone'> {
+  const u = String(uuid || '').trim();
+  if (!u) throw new Error('缺少 uuid');
+  const cfg = csmVrConfig();
+  const run = async (method: 'DELETE' | 'POST', body: unknown) => {
+    const raw = await csmRequest(cfg, PATH_VR1_UNREGISTER, { uuid: u }, method, body);
+    return unregisterBizResult(raw);
+  };
+  try {
+    return await run('DELETE', null);
+  } catch (err: unknown) {
+    const st = httpStatusOf(err);
+    if (st === 404) return 'already_gone';
+    if (st === 405) {
+      return run('POST', { uuid: u });
+    }
+    throw err;
+  }
+}

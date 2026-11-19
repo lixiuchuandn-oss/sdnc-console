@@ -152,8 +152,8 @@ sequenceDiagram
 
 模块：`backend/src/routes/sdn/srv6.delete.ts`
 
-- **必须回退平台库**：对该隧道四端各执行 `recomputeVrEffectiveConfig`（exclude 本隧道），写回 `config_json` 并删除隧道档案；`revertPlatform=0/false` 请求会被拒绝。
-- 默认 **push 设备**；传 `revertDevice=0/false` 可只回退平台库、不向设备下发。
+- **必须回退平台库并 push 设备**（2026-11-18 R1，见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) §19.1）：对该隧道四端各执行 `recomputeVrEffectiveConfig`（exclude 本隧道），`pushVRConfig(domain=srv6)` 成功后再写回 `config_json` 并删除隧道档案。
+- `revertPlatform=0/false` 或 `revertDevice=0/false` 请求会被拒绝（不再提供「只删平台」）。
 - 删除成功后对四端尝试 `resetSrv6BaselineWhenNoTunnels`（零隧道基线对齐）。  
 - 无 `injectedDelta` / 无基线：**400**，中文提示 + 操作建议。
 

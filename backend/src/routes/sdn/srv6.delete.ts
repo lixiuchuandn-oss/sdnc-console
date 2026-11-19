@@ -34,17 +34,14 @@ const slotEndpoints = (
 const slotLabel = (slot: Srv6EndpointSlot) =>
   ({ peA: 'PE-A', peB: 'PE-B', ceA: 'CE-A', ceB: 'CE-B' } as const)[slot];
 
-/** 历史隧道无变更清单时，引导用户仅删记录或手工清理 */
+/** 历史隧道无变更清单时无法自动回退 */
 const LEGACY_TUNNEL_DELETE_HINT =
-  '请取消勾选「回退平台库中的隧道注入项」后仅删除隧道记录，或由管理员在四端 VR 上手工还原配置。';
+  '删除必须回退四端配置；请先通过配置对账补齐变更记录，或由管理员在四端 VR 上手工还原后再删。';
 
 const BASELINE_MISSING_HINT =
-  '该设备尚未保存向导基线（多为历史隧道），无法自动回退配置。请取消勾选「回退平台库」后仅删除记录，或使用「配置对账」处理。';
+  '该设备尚未保存向导基线（多为历史隧道），无法自动回退配置。请先通过「配置对账」处理后再删除。';
 
-export const revertSrv6TunnelInjections = async (
-  tunnel: SRv6Tunnel,
-  options: { revertDevice: boolean },
-): Promise<RevertResult> => {
+export const revertSrv6TunnelInjections = async (tunnel: SRv6Tunnel): Promise<RevertResult> => {
   const warnings: string[] = [];
   const devicePushErrors: string[] = [];
   const delta = tunnel.injectedDelta;
@@ -103,21 +100,20 @@ export const revertSrv6TunnelInjections = async (
   }
 
   const pushed: PreparedRevert[] = [];
-  if (options.revertDevice) {
-    for (const item of prepared) {
-      try {
-        await pushVRConfig({
-          vrId: item.vrId,
-          domain: 'srv6',
-          platformConfig: item.nextConfig as Record<string, unknown>,
-          acknowledgeDrift: true,
-        });
-        pushed.push(item);
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        devicePushErrors.push(`${item.slot}：${msg}`);
-        break;
-      }
+  for (const item of prepared) {
+    try {
+      await pushVRConfig({
+        vrId: item.vrId,
+        domain: 'srv6',
+        platformConfig: item.nextConfig as Record<string, unknown>,
+        acknowledgeDrift: true,
+        persistPlatform: false,
+      });
+      pushed.push(item);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      devicePushErrors.push(`${item.slot}：${msg}`);
+      break;
     }
   }
 
@@ -129,6 +125,7 @@ export const revertSrv6TunnelInjections = async (
           domain: 'srv6',
           platformConfig: item.originalConfig as Record<string, unknown>,
           acknowledgeDrift: true,
+          persistPlatform: false,
         });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -154,19 +151,18 @@ export const revertSrv6TunnelInjections = async (
       }
     }
   } catch (e: unknown) {
-    if (options.revertDevice) {
-      for (const item of prepared.slice().reverse()) {
-        try {
-          await pushVRConfig({
-            vrId: item.vrId,
-            domain: 'srv6',
-            platformConfig: item.originalConfig as Record<string, unknown>,
-            acknowledgeDrift: true,
-          });
-        } catch (rollbackErr: unknown) {
-          const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-          warnings.push(`${item.slot}：数据库失败后设备回滚原配置失败（${msg}）`);
-        }
+    for (const item of prepared.slice().reverse()) {
+      try {
+        await pushVRConfig({
+          vrId: item.vrId,
+          domain: 'srv6',
+          platformConfig: item.originalConfig as Record<string, unknown>,
+          acknowledgeDrift: true,
+          persistPlatform: false,
+        });
+      } catch (rollbackErr: unknown) {
+        const msg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+        warnings.push(`${item.slot}：数据库失败后设备回滚原配置失败（${msg}）`);
       }
     }
     const msg = e instanceof Error ? e.message : String(e);
@@ -181,28 +177,13 @@ export const revertSrv6TunnelInjections = async (
 
 export const deleteSrv6TunnelWithRevert = async (
   tunnel: SRv6Tunnel,
-  options: { revertPlatform: boolean; revertDevice: boolean },
 ): Promise<{ warnings: string[]; devicePushErrors: string[] }> => {
-  const repo = AppDataSource.getRepository(SRv6Tunnel);
-  let warnings: string[] = [];
-  let devicePushErrors: string[] = [];
-
-  if (options.revertPlatform) {
-    const revert = await revertSrv6TunnelInjections(tunnel, {
-      revertDevice: options.revertDevice !== false,
-    });
-    warnings = revert.warnings;
-    devicePushErrors = revert.devicePushErrors;
-    if (devicePushErrors.length) {
-      const err = new Error(`删除前回退未完全成功：${devicePushErrors.join('；')}`);
-      (err as Error & { statusCode: number; warnings: string[] }).statusCode = 409;
-      (err as Error & { warnings: string[] }).warnings = warnings;
-      throw err;
-    }
+  const revert = await revertSrv6TunnelInjections(tunnel);
+  if (revert.devicePushErrors.length) {
+    const err = new Error(`删除前回退未完全成功：${revert.devicePushErrors.join('；')}`);
+    (err as Error & { statusCode: number; warnings: string[] }).statusCode = 409;
+    (err as Error & { warnings: string[] }).warnings = revert.warnings;
+    throw err;
   }
-
-  if (!options.revertPlatform) {
-    await repo.delete({ id: tunnel.id });
-  }
-  return { warnings, devicePushErrors };
+  return revert;
 };

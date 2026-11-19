@@ -13,9 +13,11 @@ import {
   configSemanticEqual,
   diffConfigSemantic,
   formatConfigSemanticDiffs,
+  isSemanticEmpty,
 } from '../../utils/configSemanticEqual';
+import { extractRoleFromVr2Config } from './ibrVrRoleResolve';
 import { listVrInstanceBinders, type VrInstanceBinder } from './vrInstanceBinders';
-import { parseRolePreSnapshot } from './rolePreSnapshot';
+import { hasPlatformRole, parseRolePreSnapshot } from './rolePreSnapshot';
 import { assertCsmUpdateSuccess, stripMeta } from './vrConfigDeploy';
 import { ibrLocalWebClient } from './ibrLocalWebClient';
 import { getVR2QueryResult, unregisterVrFromCsm, vrController } from './vrController';
@@ -62,6 +64,8 @@ export type VrInstanceDeletePreview = {
   uuid: string;
   binders: VrInstanceBinder[];
   hasSnapshot: boolean;
+  /** 仅注册、未设角色、VR2 业务为空：可直接从列表移除，不回退设备 */
+  neverConfigured: boolean;
   deviceReverted: boolean;
   conflicts: VrInstanceDeleteConflict[];
   applied?: string | null;
@@ -80,19 +84,84 @@ const readApplied = (config: unknown): string => {
 const snapshotEqualsLive = (live: unknown, snapshot: Record<string, unknown>): boolean =>
   configSemanticEqual(stripMeta(live), snapshot);
 
+type Vr2Live = Awaited<ReturnType<typeof getVR2QueryResult>>;
+
+const VR2_IDENTITY_KEYS = new Set(['uuid', 'name', 'id']);
+
+const leftoverDeleteError = () =>
+  new VrInstanceDeleteError('当前无法删除该实例。请先到专家模式或设备侧清理后再试。', {
+    reason: 'no_snapshot',
+  });
+
+const vr2HasRole = (config: unknown): boolean => {
+  if (!config) return false;
+  return Boolean(extractRoleFromVr2Config(config) || extractRoleFromVr2Config(stripMeta(config)));
+};
+
+/** 仅「对端没有这份配置」可视为空；其它业务错误不得当空配置删掉 */
+const isVr2MissingBizError = (err: { code?: number; msg?: string } | null | undefined): boolean => {
+  if (!err) return false;
+  if (err.code === 404) return true;
+  const msg = String(err.msg ?? '').toLowerCase();
+  return msg.includes('不存在') || msg.includes('not found') || msg.includes('no such');
+};
+
+/** 去掉身份字段与空 role 后，VR2 是否没有业务配置 */
+const isVr2BusinessEmpty = (config: unknown): boolean => {
+  if (config == null || typeof config !== 'object' || Array.isArray(config)) return true;
+  const rest: Record<string, unknown> = { ...stripMeta(config) };
+  for (const key of VR2_IDENTITY_KEYS) {
+    delete rest[key];
+  }
+  if (!String(rest.role ?? '').trim()) delete rest.role;
+  return isSemanticEmpty(rest);
+};
+
+const throwIfVr2Unreadable = (live: Vr2Live): void => {
+  if (!live.transportError) return;
+  throw new VrInstanceDeleteError('暂时无法读取实例状态，请稍后重试。', {
+    statusCode: 503,
+    reason: 'device_read',
+  });
+};
+
+const throwIfVr2BizUncertain = (live: Vr2Live): void => {
+  if (!live.csmBizError || isVr2MissingBizError(live.csmBizError)) return;
+  throw new VrInstanceDeleteError('暂时无法读取实例状态，请稍后重试。', {
+    statusCode: 503,
+    reason: 'device_read',
+  });
+};
+
+/** 无快照时：从未设角色且 VR2 为空 → 可删；否则视为存量残留，拒绝 */
+async function resolveNeverConfiguredState(
+  row: { role?: string | null } | null | undefined,
+  id: string,
+): Promise<'never_configured' | 'leftover'> {
+  if (hasPlatformRole(row)) return 'leftover';
+  const live = await getVR2QueryResult(id);
+  throwIfVr2Unreadable(live);
+  throwIfVr2BizUncertain(live);
+  if (vr2HasRole(live.config)) return 'leftover';
+  if (isVr2MissingBizError(live.csmBizError) || live.config == null || isVr2BusinessEmpty(live.config)) {
+    return 'never_configured';
+  }
+  return 'leftover';
+}
+
 const diffsToConflicts = (live: unknown, snapshot: Record<string, unknown>): VrInstanceDeleteConflict[] => {
   const diffs = diffConfigSemantic(stripMeta(live), snapshot);
   if (!diffs.length) return [];
   const detail = formatConfigSemanticDiffs(diffs, {
-    leftLabel: '设备',
-    rightLabel: '角色前快照',
+    leftLabel: '当前',
+    rightLabel: '恢复目标',
     limit: 8,
   });
   return [
     {
       kind: 'DOMAIN_OVERWRITE',
       key: diffs[0]?.path || '$',
-      message: `下发角色前快照将覆盖设备现网配置。${detail}`,
+      message: `确认后将覆盖当前设备配置。${detail}`,
     },
   ];
 };
@@ -107,19 +176,29 @@ export async function previewVrInstanceDelete(uuid: string): Promise<VrInstanceD
   const snapshot = parseRolePreSnapshot(row?.rolePreSnapshot);
   const hasSnapshot = Boolean(snapshot);
   if (binders.length) {
-    return { uuid: id, binders, hasSnapshot, deviceReverted: false, conflicts: [] };
+    return {
+      uuid: id,
+      binders,
+      hasSnapshot,
+      neverConfigured: false,
+      deviceReverted: false,
+      conflicts: [],
+    };
   }
   if (!snapshot) {
-    return { uuid: id, binders, hasSnapshot: false, deviceReverted: false, conflicts: [] };
+    const neverConfigured = (await resolveNeverConfiguredState(row, id)) === 'never_configured';
+    return {
+      uuid: id,
+      binders,
+      hasSnapshot: false,
+      neverConfigured,
+      deviceReverted: false,
+      conflicts: [],
+    };
   }
 
   const live = await getVR2QueryResult(id);
-  if (live.transportError) {
-    throw new VrInstanceDeleteError(`无法读取设备当前配置：${live.transportError}`, {
-      statusCode: 503,
-      reason: 'device_read',
-    });
-  }
+  throwIfVr2Unreadable(live);
   const liveConfig = live.config;
   const applied = readApplied(liveConfig) || null;
   if (!liveConfig) {
@@ -127,12 +206,13 @@ export async function previewVrInstanceDelete(uuid: string): Promise<VrInstanceD
       uuid: id,
       binders,
       hasSnapshot: true,
+      neverConfigured: false,
       deviceReverted: false,
       conflicts: [
         {
           kind: 'DOMAIN_OVERWRITE',
           key: '$',
-          message: '无法读取设备当前配置，确认后将下发角色前快照',
+          message: '当前设备配置读不到，确认后将覆盖为删除前状态',
         },
       ],
       applied,
@@ -142,6 +222,7 @@ export async function previewVrInstanceDelete(uuid: string): Promise<VrInstanceD
     uuid: id,
     binders,
     hasSnapshot: true,
+    neverConfigured: false,
     deviceReverted: false,
     conflicts: diffsToConflicts(liveConfig, snapshot),
     applied,
@@ -179,10 +260,10 @@ async function waitUntilApplied(
     if (Date.now() + options.pollMs > deadline) break;
     await options.sleep(options.pollMs);
   }
-  throw new VrInstanceDeleteError(
-    '回退配置已在控制器，设备尚未 applied。实例仍在，可重试（不会再次打乱 checksum）。',
-    { statusCode: 409, reason: 'not_applied' },
-  );
+  throw new VrInstanceDeleteError('设备尚未完成恢复，实例仍在，请稍后重试。', {
+    statusCode: 409,
+    reason: 'not_applied',
+  });
 }
 
 function assertCsmAccepted(respData: unknown): void {
@@ -196,16 +277,13 @@ function assertCsmAccepted(respData: unknown): void {
   }
 }
 
-export async function deleteVrInstance(
-  uuid: string,
-  options?: {
-    acknowledgeDrift?: boolean;
-    appliedTimeoutMs?: number;
-    pollMs?: number;
-    sleep?: (ms: number) => Promise<unknown>;
-    /** 注销成功后回写设备，只清 finish。缺省走 local-web；测试可注入。 */
+async function unregisterAndCleanupPlatform(
+  id: string,
+  row: { managementIp?: string | null } | null | undefined,
+  options: {
     clearDeviceRegistration?: (params: { uuid: string; managementIp: string }) => Promise<unknown>;
-  },
+  } | undefined,
+  deviceReverted: boolean,
 ): Promise<{
   uuid: string;
   deviceReverted: boolean;
@@ -213,67 +291,6 @@ export async function deleteVrInstance(
   registrationFinishCleared: boolean;
   registrationClearError?: string;
 }> {
-  const id = String(uuid || '').trim();
-  if (!id) {
-    throw new VrInstanceDeleteError('缺少 uuid', { statusCode: 400, reason: 'device_read' });
-  }
-
-  const binders = await listVrInstanceBinders(id);
-  if (binders.length) {
-    throw new VrInstanceDeleteError('该 IBR 仍被其它业务引用，请先按待办拆除后再删除实例', {
-      reason: 'binders',
-      binders,
-    });
-  }
-
-  const row = await AppDataSource.getRepository(VRConfig).findOne({ where: { uuid: id } });
-  const snapshot = parseRolePreSnapshot(row?.rolePreSnapshot);
-  let deviceReverted = false;
-
-  if (!snapshot) {
-    throw new VrInstanceDeleteError(
-      '该实例没有角色前快照，无法回退设备 CLI，因此不能删除。历史已设角色的实例不会补录快照。',
-      { reason: 'no_snapshot' },
-    );
-  }
-
-  const live = await getVR2QueryResult(id);
-  if (live.transportError) {
-    throw new VrInstanceDeleteError(`无法读取设备当前配置：${live.transportError}`, {
-      statusCode: 503,
-      reason: 'device_read',
-    });
-  }
-  const liveConfig = live.config;
-  const equal = liveConfig ? snapshotEqualsLive(liveConfig, snapshot) : false;
-  const conflicts = liveConfig
-    ? diffsToConflicts(liveConfig, snapshot)
-    : [
-        {
-          kind: 'DOMAIN_OVERWRITE' as const,
-          key: '$',
-          message: '无法读取设备当前配置，确认后将下发角色前快照',
-        },
-      ];
-  if (!equal && conflicts.length && !options?.acknowledgeDrift) {
-    throw new VrInstanceDeleteError('设备现网与角色前快照不一致，确认后将覆盖设备配置', {
-      reason: 'drift',
-      conflicts,
-    });
-  }
-
-  if (!equal) {
-    const resp = await vrController.updateVRConfig(id, { ...snapshot, uuid: id });
-    assertCsmAccepted(resp.data);
-  }
-
-  await waitUntilApplied(id, snapshot, {
-    timeoutMs: options?.appliedTimeoutMs ?? DEFAULT_APPLIED_TIMEOUT_MS,
-    pollMs: options?.pollMs ?? DEFAULT_POLL_MS,
-    sleep: options?.sleep ?? sleepDefault,
-  });
-  deviceReverted = true;
-
   let alreadyGone = false;
   try {
     alreadyGone = (await unregisterVrFromCsm(id)) === 'already_gone';
@@ -315,4 +332,79 @@ export async function deleteVrInstance(
     registrationFinishCleared,
     ...(registrationClearError ? { registrationClearError } : {}),
   };
+}
+
+export async function deleteVrInstance(
+  uuid: string,
+  options?: {
+    acknowledgeDrift?: boolean;
+    appliedTimeoutMs?: number;
+    pollMs?: number;
+    sleep?: (ms: number) => Promise<unknown>;
+    /** 注销成功后回写设备，只清 finish。缺省走 local-web；测试可注入。 */
+    clearDeviceRegistration?: (params: { uuid: string; managementIp: string }) => Promise<unknown>;
+  },
+): Promise<{
+  uuid: string;
+  deviceReverted: boolean;
+  alreadyGone?: boolean;
+  registrationFinishCleared: boolean;
+  registrationClearError?: string;
+}> {
+  const id = String(uuid || '').trim();
+  if (!id) {
+    throw new VrInstanceDeleteError('缺少 uuid', { statusCode: 400, reason: 'device_read' });
+  }
+
+  const binders = await listVrInstanceBinders(id);
+  if (binders.length) {
+    throw new VrInstanceDeleteError('该实例仍被其它业务引用，请先处理后再删除', {
+      reason: 'binders',
+      binders,
+    });
+  }
+
+  const row = await AppDataSource.getRepository(VRConfig).findOne({ where: { uuid: id } });
+  const snapshot = parseRolePreSnapshot(row?.rolePreSnapshot);
+
+  if (!snapshot) {
+    const state = await resolveNeverConfiguredState(row, id);
+    if (state !== 'never_configured') {
+      throw leftoverDeleteError();
+    }
+    return unregisterAndCleanupPlatform(id, row, options, false);
+  }
+
+  const live = await getVR2QueryResult(id);
+  throwIfVr2Unreadable(live);
+  const liveConfig = live.config;
+  const equal = liveConfig ? snapshotEqualsLive(liveConfig, snapshot) : false;
+  const conflicts = liveConfig
+    ? diffsToConflicts(liveConfig, snapshot)
+    : [
+        {
+          kind: 'DOMAIN_OVERWRITE' as const,
+          key: '$',
+          message: '当前设备配置读不到，确认后将覆盖为删除前状态',
+        },
+      ];
+  if (!equal && conflicts.length && !options?.acknowledgeDrift) {
+    throw new VrInstanceDeleteError('当前设备配置与删除后目标不一致，确认后将覆盖', {
+      reason: 'drift',
+      conflicts,
+    });
+  }
+
+  if (!equal) {
+    const resp = await vrController.updateVRConfig(id, { ...snapshot, uuid: id });
+    assertCsmAccepted(resp.data);
+  }
+
+  await waitUntilApplied(id, snapshot, {
+    timeoutMs: options?.appliedTimeoutMs ?? DEFAULT_APPLIED_TIMEOUT_MS,
+    pollMs: options?.pollMs ?? DEFAULT_POLL_MS,
+    sleep: options?.sleep ?? sleepDefault,
+  });
+
+  return unregisterAndCleanupPlatform(id, row, options, true);
 }

@@ -15,8 +15,7 @@ const BINDER_LABEL: Record<VrInstanceBinder['type'], string> = {
   ipsec: 'IPsec',
 };
 
-const IDENTITY_HINT =
-  '注销成功后会回写设备，只清 .registration_finish，不改 uuid、不停 agent。本机 IBR状态先变为 OFFLINE，同一 uuid 会在下一轮重新注册，列表可能再出现空行，请用登记时间区分。';
+const REAPPEAR_HINT = '删除后设备可能再次出现在列表中，请用登记时间区分。';
 
 type Props = {
   open: boolean;
@@ -32,7 +31,7 @@ const binderError = (
   const e = err as { status?: number; binders?: VrInstanceBinder[]; responseData?: { binders?: VrInstanceBinder[] } };
   const binders = e?.binders ?? e?.responseData?.binders;
   if (e?.status === 409 && Array.isArray(binders) && binders.length) {
-    return { binders, message: getApiErrorMessage(err, '该 IBR 仍被其它业务引用') };
+    return { binders, message: getApiErrorMessage(err, '该实例仍被其它业务引用') };
   }
   return null;
 };
@@ -66,7 +65,7 @@ const DeleteVrInstanceModal: React.FC<Props> = ({ open, uuid, label, onClose, on
           setLoadError(blocked.message);
           return;
         }
-        setLoadError(getApiErrorMessage(err, '无法预览删除'));
+        setLoadError(getApiErrorMessage(err, '暂时无法读取实例状态，请稍后重试'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -98,16 +97,17 @@ const DeleteVrInstanceModal: React.FC<Props> = ({ open, uuid, label, onClose, on
   );
 
   const handleOk = async () => {
-    if (!preview || blockedBinders.length || !preview.hasSnapshot) return;
+    const canDelete = Boolean(preview && (preview.hasSnapshot || preview.neverConfigured));
+    if (!preview || blockedBinders.length || !canDelete) return;
     setSubmitting(true);
     const hideWait = message.loading({
-      content: '正在回退设备并等待 applied…',
+      content: '正在删除…',
       key: 'vr_delete',
       duration: 0,
     });
     try {
       const resp = await deleteVrInstanceOnPlatform(uuid, {
-        acknowledgeDrift: true,
+        acknowledgeDrift: Boolean(preview.hasSnapshot),
       });
       const payload = (resp?.data ?? resp) as {
         registrationFinishCleared?: boolean;
@@ -116,14 +116,12 @@ const DeleteVrInstanceModal: React.FC<Props> = ({ open, uuid, label, onClose, on
       hideWait();
       if (payload?.registrationFinishCleared) {
         message.success({
-          content: '已回退设备并注销实例，本机 IBR状态已改为 OFFLINE。同一 uuid 会在下一轮重新注册',
+          content: '已删除',
           key: 'vr_delete',
         });
       } else {
         message.warning({
-          content: payload?.registrationClearError
-            ? `实例已从控制器注销。本机 finish 未清掉：${payload.registrationClearError}`
-            : '实例已从控制器注销。本机 finish 未清掉，设备侧可能仍显示 ONLINE',
+          content: '已删除。请刷新列表确认。',
           key: 'vr_delete',
           duration: 8,
         });
@@ -147,9 +145,10 @@ const DeleteVrInstanceModal: React.FC<Props> = ({ open, uuid, label, onClose, on
 
   const binders = blockedBinders.length ? blockedBinders : preview?.binders || [];
   const blocked = binders.length > 0;
+  const leftover = Boolean(preview && !preview.hasSnapshot && !preview.neverConfigured);
+  const canDelete = Boolean(preview && (preview.hasSnapshot || preview.neverConfigured) && !blocked && !loadError);
+  const okClosesOnly = blocked || leftover || Boolean(loadError);
   const conflicts = preview?.conflicts || [];
-  const okText = blocked || (preview && !preview.hasSnapshot && !loadError) ? '知道了' : '确认覆盖并删除';
-  const okClosesOnly = blocked || Boolean(preview && !preview.hasSnapshot);
 
   return (
     <Modal
@@ -157,10 +156,10 @@ const DeleteVrInstanceModal: React.FC<Props> = ({ open, uuid, label, onClose, on
       open={open}
       onCancel={onClose}
       onOk={okClosesOnly ? onClose : handleOk}
-      okText={okText}
+      okText="确定"
       okButtonProps={{
-        danger: !okClosesOnly,
-        disabled: loading || Boolean(loadError && !blocked),
+        danger: canDelete,
+        disabled: loading,
       }}
       confirmLoading={submitting}
       cancelText="取消"
@@ -178,43 +177,33 @@ const DeleteVrInstanceModal: React.FC<Props> = ({ open, uuid, label, onClose, on
           </Typography.Paragraph>
           {blocked ? (
             <>
-              <Typography.Paragraph>
-                该实例仍被其它业务引用，请先按待办拆除后再删除。不要在删 VR 时隐式拆隧道 / HA / IPsec。
-              </Typography.Paragraph>
+              <Typography.Paragraph>该实例仍被其它业务引用，请先处理后再删除。</Typography.Paragraph>
               {renderBinders(binders)}
             </>
           ) : loadError ? (
             <Typography.Paragraph type="danger">{loadError}</Typography.Paragraph>
           ) : preview?.hasSnapshot ? (
             <>
-              <Typography.Paragraph>
-                该实例有角色前快照。删除会先把设备盖回快照，等到 agent 回报 applied 后再注销；任一步失败则实例仍在，可重试。
-              </Typography.Paragraph>
+              <Typography.Paragraph>删除后设备将恢复为配置角色前的状态。</Typography.Paragraph>
               {conflicts.length > 0 ? (
-                <>
-                  <Typography.Paragraph>设备现网与角色前快照不一致，确认后将覆盖：</Typography.Paragraph>
-                  <ul style={{ paddingLeft: 18 }}>
-                    {conflicts.map((c, idx) => (
-                      <li key={`${c.key || 'c'}-${idx}`}>{c.message}</li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <Typography.Paragraph type="secondary">
-                  设备现网已接近角色前快照，将等待设备 applied 后再注销。
-                </Typography.Paragraph>
-              )}
+                <Typography.Paragraph>当前设备配置与恢复目标不一致，确认后将覆盖。</Typography.Paragraph>
+              ) : null}
               <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                {IDENTITY_HINT}
+                {REAPPEAR_HINT}
+              </Typography.Paragraph>
+            </>
+          ) : preview?.neverConfigured ? (
+            <>
+              <Typography.Paragraph>该实例尚未配置角色，确认后将从列表中移除。</Typography.Paragraph>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                {REAPPEAR_HINT}
               </Typography.Paragraph>
             </>
           ) : (
             <>
-              <Typography.Paragraph>
-                该实例没有角色前快照，无法回退设备 CLI，因此不能删除。历史已设角色的实例不会补录快照。
-              </Typography.Paragraph>
+              <Typography.Paragraph>当前无法删除该实例。</Typography.Paragraph>
               <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                需要清设备时请走专家模式或设备侧，不要在此仅注销平台。
+                请先到专家模式或设备侧清理后再试。
               </Typography.Paragraph>
             </>
           )}

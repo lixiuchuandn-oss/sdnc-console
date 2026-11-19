@@ -18,6 +18,7 @@ import {
 import { auditSrv6Tunnel, auditSrv6Vr } from './srv6.audit';
 import { forceResetSrv6BaselineFromConfig } from './srv6.baseline';
 import { deleteSrv6TunnelWithRevert } from './srv6.delete';
+import { queryFlagOff } from './deleteRevertFlags';
 import {
   assertNoSrv6ContributionConflictsForTunnel,
   findAliveTunnelsByVr,
@@ -685,7 +686,7 @@ srv6Routes.post('/:id/clear-lifecycle-error', async (req, res, next) => {
   }
 });
 
-// 删除：默认回退平台库并 push 设备（revertPlatform=0 / revertDevice=0 可显式关闭）
+// 删除：必须回退平台库并 push 设备（R1，见 ibr-instance-delete-lifecycle.md §19.1）
 srv6Routes.delete('/:id', async (req, res, next) => {
   try {
     {
@@ -704,16 +705,19 @@ srv6Routes.delete('/:id', async (req, res, next) => {
       return;
     }
 
-    const q = req.query;
-    const revertPlatform = q.revertPlatform !== '0' && q.revertPlatform !== 'false';
-    const revertDevice = q.revertDevice !== '0' && q.revertDevice !== 'false';
+    if (queryFlagOff(req.query.revertPlatform) || queryFlagOff(req.query.revertDevice)) {
+      res.status(400).json({
+        message: '删除隧道必须回退平台账本并下发设备，不再支持仅删除平台',
+      });
+      return;
+    }
 
     try {
-      const result = await deleteSrv6TunnelWithRevert(item, { revertPlatform, revertDevice });
+      const result = await deleteSrv6TunnelWithRevert(item);
       await auditSrv6Tunnel(
         req,
         'SRv6 Delete Tunnel',
-        `删除隧道：${item.name}（回退平台=${revertPlatform}，回退设备=${revertDevice}）`,
+        `删除隧道：${item.name}（回退平台=true，回退设备=true）`,
         true,
         id,
       );

@@ -41,6 +41,20 @@ const okVr2 = (config: unknown) => ({
   csm_http_body_raw: config,
 });
 
+const missingVr2 = () => ({
+  config: null,
+  csmBizError: { code: 404, msg: 'none' },
+  transportError: null,
+  csm_http_body_raw: null,
+});
+
+const unreadVr2 = (transportError: string) => ({
+  config: null,
+  csmBizError: null,
+  transportError,
+  csm_http_body_raw: null,
+});
+
 describe('deleteVrInstance', () => {
   const deletes: string[] = [];
   const findOne = jest.fn();
@@ -73,12 +87,84 @@ describe('deleteVrInstance', () => {
     expect(del).not.toHaveBeenCalled();
   });
 
-  it('409s without POST or unregister when there is no snapshot', async () => {
+  it('unregisters a never-configured instance when VR2 is missing', async () => {
+    getVR2.mockResolvedValue(missingVr2() as Awaited<ReturnType<typeof getVR2QueryResult>>);
+    const result = await deleteVrInstance('vr-a');
+    expect(result.deviceReverted).toBe(false);
+    expect(updateVRConfig).not.toHaveBeenCalled();
+    expect(unregister).toHaveBeenCalledWith('vr-a');
+    expect(del).toHaveBeenCalled();
+  });
+
+  it('unregisters a never-configured instance when VR2 is identity-only', async () => {
+    getVR2.mockResolvedValue(
+      okVr2({ uuid: 'vr-a', name: 'box', report_config_status: 'applied' }) as Awaited<
+        ReturnType<typeof getVR2QueryResult>
+      >,
+    );
+    const result = await deleteVrInstance('vr-a');
+    expect(result.deviceReverted).toBe(false);
+    expect(updateVRConfig).not.toHaveBeenCalled();
+    expect(unregister).toHaveBeenCalledWith('vr-a');
+  });
+
+  it('409s leftover instances that have a platform role but no snapshot', async () => {
+    findOne.mockResolvedValue({ uuid: 'vr-a', role: 'CE', rolePreSnapshot: null });
     await expect(deleteVrInstance('vr-a')).rejects.toMatchObject({
       reason: 'no_snapshot',
       statusCode: 409,
     });
+    expect(getVR2).not.toHaveBeenCalled();
     expect(updateVRConfig).not.toHaveBeenCalled();
+    expect(unregister).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('409s leftover instances whose VR2 already has business config', async () => {
+    getVR2.mockResolvedValue(
+      okVr2({ uuid: 'vr-a', interfaces: [{ name: 'ge0' }] }) as Awaited<
+        ReturnType<typeof getVR2QueryResult>
+      >,
+    );
+    await expect(deleteVrInstance('vr-a')).rejects.toMatchObject({
+      reason: 'no_snapshot',
+      statusCode: 409,
+    });
+    expect(unregister).not.toHaveBeenCalled();
+    expect(del).not.toHaveBeenCalled();
+  });
+
+  it('409s leftover instances whose VR2 already has a role', async () => {
+    getVR2.mockResolvedValue(
+      okVr2({ uuid: 'vr-a', role: 'CE' }) as Awaited<ReturnType<typeof getVR2QueryResult>>,
+    );
+    await expect(deleteVrInstance('vr-a')).rejects.toMatchObject({
+      reason: 'no_snapshot',
+      statusCode: 409,
+    });
+    expect(unregister).not.toHaveBeenCalled();
+  });
+
+  it('503s when VR2 is unreadable for a never-roled instance', async () => {
+    getVR2.mockResolvedValue(unreadVr2('ECONNREFUSED') as Awaited<ReturnType<typeof getVR2QueryResult>>);
+    await expect(deleteVrInstance('vr-a')).rejects.toMatchObject({
+      reason: 'device_read',
+      statusCode: 503,
+    });
+    expect(unregister).not.toHaveBeenCalled();
+  });
+
+  it('503s when VR2 returns a non-missing business error instead of treating it as empty', async () => {
+    getVR2.mockResolvedValue({
+      config: null,
+      csmBizError: { code: 500, msg: 'internal' },
+      transportError: null,
+      csm_http_body_raw: null,
+    } as Awaited<ReturnType<typeof getVR2QueryResult>>);
+    await expect(deleteVrInstance('vr-a')).rejects.toMatchObject({
+      reason: 'device_read',
+      statusCode: 503,
+    });
     expect(unregister).not.toHaveBeenCalled();
     expect(del).not.toHaveBeenCalled();
   });
@@ -294,13 +380,24 @@ describe('previewVrInstanceDelete', () => {
     );
     const preview = await previewVrInstanceDelete('vr-a');
     expect(preview.hasSnapshot).toBe(true);
+    expect(preview.neverConfigured).toBe(false);
     expect(preview.conflicts.length).toBeGreaterThan(0);
     expect(preview.conflicts[0].message).toMatch(/vrrp/i);
   });
 
-  it('reports hasSnapshot false when the ledger has no role-pre snapshot', async () => {
+  it('marks neverConfigured when there is no snapshot and VR2 is empty', async () => {
+    getVR2.mockResolvedValue(missingVr2() as Awaited<ReturnType<typeof getVR2QueryResult>>);
     const preview = await previewVrInstanceDelete('vr-a');
     expect(preview.hasSnapshot).toBe(false);
+    expect(preview.neverConfigured).toBe(true);
     expect(preview.binders).toEqual([]);
+  });
+
+  it('does not mark neverConfigured when platform already has a role', async () => {
+    findOne.mockResolvedValue({ uuid: 'vr-a', role: 'PE', rolePreSnapshot: null });
+    const preview = await previewVrInstanceDelete('vr-a');
+    expect(preview.hasSnapshot).toBe(false);
+    expect(preview.neverConfigured).toBe(false);
+    expect(getVR2).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Checkbox, Form, Input, Select, Space, Tag, Modal, message, Table, Alert, Tooltip } from 'antd';
+import { Button, Form, Input, Select, Space, Tag, Modal, message, Table, Alert, Tooltip } from 'antd';
 import type { MenuProps } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -191,7 +191,6 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
     if (!canWrite || selectedRowKeys.length === 0) return;
     const selected = tunnels.filter((t) => selectedRowKeys.includes(t.id));
     const names = selected.map((t) => t.name).filter(Boolean);
-    let revertDevice = true;
     Modal.confirm({
       title: '确认批量删除隧道？',
       content: (
@@ -201,20 +200,8 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
             {names.length ? `：${names.slice(0, 5).join('、')}${names.length > 5 ? '…' : ''}` : ''}
             ？
           </p>
-          <Checkbox checked disabled style={{ color: 'rgba(0,0,0,.88)' }}>
-            回退平台库中的隧道注入项
-          </Checkbox>
-          <br />
-          <Checkbox
-            defaultChecked
-            onChange={(e) => {
-              revertDevice = e.target.checked;
-            }}
-          >
-            同步回退到底层设备
-          </Checkbox>
           <p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
-            平台库回退为必选，将逐条删除；历史隧道若缺少创建时的配置变更记录，删除会失败，请先通过配置对账处理。
+            将回退四端平台账本并把公式下发到设备；任一台失败则该隧道保留。历史隧道若缺少创建时的配置变更记录，删除会失败，请先通过配置对账处理。
           </p>
         </div>
       ),
@@ -230,7 +217,7 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           const id = String(key);
           const label = selected.find((t) => t.id === id)?.name || id;
           try {
-            const res: any = await deleteSrv6Tunnel(id, { revertDevice });
+            const res: any = await deleteSrv6Tunnel(id);
             ok += 1;
             if (Array.isArray(res?.warnings) && res.warnings.length) {
               warnings.push(`${label}：${res.warnings.join('；')}`);
@@ -280,26 +267,13 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
         setHealthModalOpen(true);
         break;
       case 'delete': {
-        let revertDevice = true;
         Modal.confirm({
           title: '确认删除该隧道？',
           content: (
             <div>
               <p style={{ marginBottom: 8 }}>确定删除：{row.name}</p>
-              <Checkbox checked disabled style={{ color: 'rgba(0,0,0,.88)' }}>
-                回退平台库中的隧道注入项
-              </Checkbox>
-              <br />
-              <Checkbox
-                defaultChecked
-                onChange={(e) => {
-                  revertDevice = e.target.checked;
-                }}
-              >
-                同步回退到底层设备
-              </Checkbox>
               <p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
-                平台库回退为必选；历史隧道若缺少创建时的配置变更记录，删除会失败，请先通过配置对账处理。
+                将回退四端平台账本并把公式下发到设备；任一台失败则隧道保留。历史隧道若缺少创建时的配置变更记录，删除会失败，请先通过配置对账处理。
               </p>
             </div>
           ),
@@ -309,7 +283,7 @@ const SRv6Page: React.FC<IbrSectionEmbedProps> = ({ embedded = false, scopedVrUu
           onOk: async () => {
             try {
               const { deleteSrv6Tunnel } = await import('../../../../services/api');
-              const res: any = await deleteSrv6Tunnel(row.id, { revertDevice });
+              const res: any = await deleteSrv6Tunnel(row.id);
               if (Array.isArray(res?.warnings) && res.warnings.length) {
                 message.warning(res.warnings.join('；'));
               }

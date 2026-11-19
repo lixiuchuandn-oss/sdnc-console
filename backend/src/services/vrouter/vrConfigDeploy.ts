@@ -494,6 +494,11 @@ export interface PushVRConfigOptions {
   acknowledgeDrift?: boolean;
   /** 为 true 时不做漂移检测（如 NAT 已在设备态完成 merge） */
   skipDriftCheck?: boolean;
+  /**
+   * 默认 true：设备接受后回写 config_json。
+   * 删除回退须等全部设备成功后由调用方自己写账本，传 false，避免失败路径用设备底稿盖掉公式。
+   */
+  persistPlatform?: boolean;
 }
 
 export interface PushVRConfigResult {
@@ -521,6 +526,7 @@ export const pushVRConfig = async (options: PushVRConfigOptions): Promise<PushVR
     acknowledgeDrift,
     skipDriftCheck,
   } = options;
+  const persistPlatform = options.persistPlatform !== false;
   const skipPush = resolveSkipPush(options.skipPush);
 
   let merged: VrConfigJson;
@@ -571,7 +577,7 @@ export const pushVRConfig = async (options: PushVRConfigOptions): Promise<PushVR
   const cleanConfig = sanitizeConfig(stripMeta(deepClone(merged)));
 
   if (skipPush) {
-    await saveVRConfigToDB(vrId, merged);
+    if (persistPlatform) await saveVRConfigToDB(vrId, merged);
     return { status: 'skipped', mergedConfig: merged, driftWarnings };
   }
 
@@ -580,7 +586,7 @@ export const pushVRConfig = async (options: PushVRConfigOptions): Promise<PushVR
   const respData = updateResp.data || {};
   assertCsmUpdateSuccess(respData);
 
-  await saveVRConfigToDB(vrId, merged);
+  if (persistPlatform) await saveVRConfigToDB(vrId, merged);
   return {
     status: 'success',
     mergedConfig: merged,

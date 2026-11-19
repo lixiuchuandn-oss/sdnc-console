@@ -3,6 +3,7 @@ import {
   IbrHaGroupError,
   ibrHaGroupService,
 } from '../../services/vrouter/ibrHaGroupService';
+import { queryFlagOff } from './deleteRevertFlags';
 
 export const ibrHaGroupRoutes = Router();
 
@@ -227,9 +228,13 @@ ibrHaGroupRoutes.delete('/:id', async (req, res) => {
     return res.status(403).json({ message: '权限不足：需要 networks.vr-config:write' });
   }
   try {
-    const revertRaw = String(req.query.revertDevice ?? '').trim().toLowerCase();
-    const revertDevice = revertRaw === '1' || revertRaw === 'true' || revertRaw === 'yes';
-    await ibrHaGroupService.remove(String(req.params.id || '').trim(), { revertDevice });
+    if (queryFlagOff(req.query.revertDevice)) {
+      return res.status(400).json({
+        code: 400,
+        message: '解散 HA 组必须回退设备本组 VRRP，不再支持仅删除平台',
+      });
+    }
+    await ibrHaGroupService.remove(String(req.params.id || '').trim());
     return res.json({ code: 200, msg: 'ok' });
   } catch (err) {
     return mapError(res, err);

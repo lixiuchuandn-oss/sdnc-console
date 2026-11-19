@@ -151,6 +151,8 @@ async function parseErrorResponse(response: Response): Promise<never> {
   // 保存解析后的响应数据，方便前端访问 e?.response?.data
   err.responseData = responseData;
   if (responseData?.conflicts) err.conflicts = responseData.conflicts;
+  if (responseData?.binders) err.binders = responseData.binders;
+  if (responseData?.reason) err.reason = responseData.reason;
   throw err;
 }
 

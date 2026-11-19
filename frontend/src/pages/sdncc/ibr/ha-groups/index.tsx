@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
 	Alert,
 	Button,
-	Checkbox,
 	Form,
 	Input,
 	Modal,
@@ -251,27 +250,14 @@ const IbrHaGroupsPage: React.FC = () => {
 
 	const handleDelete = useCallback(
 		(row: IbrHaGroup) => {
-			let revertDevice = false;
 			Modal.confirm({
 				title: '确认删除该HA组？',
 				content: (
 					<div>
 						<p style={{ marginBottom: 8 }}>确定删除：{row.name}</p>
-						<Checkbox checked disabled>
-							回退平台中的 HA 组档案
-						</Checkbox>
-						<br />
-						<Checkbox
-							defaultChecked={false}
-							onChange={(e) => {
-								revertDevice = e.target.checked;
-							}}
-						>
-							同步回退到底层设备
-						</Checkbox>
 						<p style={{ marginTop: 12, marginBottom: 0, color: 'rgba(0,0,0,.45)', fontSize: 12 }}>
-							隧道上的 HA 组指纹会一并清除，SRv6 增量不动。不勾选回退设备则只删平台档案，设备 VR2 / CLI
-							上的本组 VRRP 会留下；勾选后按本组 vrid / group_id 剥配置（其它 VRRP 与 SRv6 保留），失败时组仍保留，可重试。
+							将从主备设备剥掉本组 vrid / group_id，成功后再删组；隧道上的 HA 组指纹会一并清除，SRv6
+							增量不动。任一侧失败则组保留，可重试。
 						</p>
 					</div>
 				),
@@ -280,8 +266,8 @@ const IbrHaGroupsPage: React.FC = () => {
 				cancelText: '取消',
 				onOk: async () => {
 					try {
-						await deleteIbrHaGroup(row.id, { revertDevice });
-						message.success(revertDevice ? '已删除并回退设备 VRRP' : '已删除（设备 VRRP 未改）');
+						await deleteIbrHaGroup(row.id);
+						message.success('已删除并回退设备 VRRP');
 						await load(true);
 					} catch (e) {
 						message.error(getApiErrorMessage(e, '删除失败'));

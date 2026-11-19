@@ -3,6 +3,7 @@
 > 适用范围：**P1–P4** baseline + 贡献 + recompute；**P1–P4 Hub PE 多 WAN/LAN UX**（§HP）；**P5 真·Hub PE**（H1–H7、R-GW-1）；**P5.2b / WS-2b Hub inventory + 双轴互联 UI**（§14.17）。  
 > 组网范围见 [`docs/srv6-baseline-recompute.md`](./srv6-baseline-recompute.md#140-架构总览定稿)。  
 > Hub PE 产品约束：[`docs/srv6-hub-pe-spec.md`](./srv6-hub-pe-spec.md)。  
+> 删除隧道：2026-11-18 R1 起必回退平台并下发设备，对话框不再勾选（见 [`ibr-instance-delete-lifecycle.md`](./ibr-instance-delete-lifecycle.md) §19.1）。下文「勾选回退」= 走删除确认即可。  
 > 建议环境：具备四端 VR（PE-A、PE-B、CE-A、CE-B）的测试集群，管理员账号。
 
 ## 环境与执行说明
@@ -82,7 +83,7 @@
 
 | 项 | 内容 |
 |----|------|
-| **步骤** | 1. 在隧道列表删除 R1 创建的隧道<br>2. 勾选「回退平台库中的隧道注入项」<br>3. 确认删除 |
+| **步骤** | 1. 在隧道列表删除 R1 创建的隧道<br>2. 确认删除（R1：必回退平台并下发设备，无勾选） |
 | **期望** | 删除成功；四端 VR 生效配置回到创建前的向导基线（Spoke 点对点 / PE22 类场景） |
 | **失败信号** | 400「缺少配置变更记录」或「尚未保存向导基线」；四端配置仍含已删隧道的邻居/路由 |
 

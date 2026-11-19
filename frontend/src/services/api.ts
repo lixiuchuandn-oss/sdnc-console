@@ -209,7 +209,11 @@ export const apiPost = async (
 // 通用 DELETE 请求（带重试，不缓存，不去重）
 // 注意：删除操作禁用去重，确保每次删除都能真正执行
 // body: 可选的请求体（某些 DELETE 请求需要 body，如删除安全组规则）
-export const apiDelete = async (endpoint: string, body?: any) => {
+export const apiDelete = async (
+  endpoint: string,
+  body?: any,
+  options?: { enableRetry?: boolean },
+) => {
   try {
     return await requestManager(
       {
@@ -220,7 +224,7 @@ export const apiDelete = async (endpoint: string, body?: any) => {
         options: {
           enableDeduplication: false, // 删除操作不去重，允许重复删除
           enableCache: false, // DELETE 请求不缓存
-          enableRetry: true, // 保留重试功能
+          enableRetry: options?.enableRetry ?? true, // 长耗时删除可关重试，避免等 applied 过程中叠请求
         },
       },
       API_BASE_URL
@@ -569,15 +573,9 @@ export const repairSrv6Reconcile = async (options?: {
   });
 };
 
-/** 始终回退平台库；可选择跳过设备下发 */
-export const deleteSrv6Tunnel = async (
-  id: string,
-  options?: { revertDevice?: boolean },
-) => {
-  const qs: string[] = [];
-  if (options?.revertDevice === false) qs.push('revertDevice=0');
-  const suffix = qs.length ? `?${qs.join('&')}` : '';
-  return await apiDelete(`/api/networks/srv6/${id}${suffix}`);
+/** 回退平台账本并下发设备（不再支持仅删除平台） */
+export const deleteSrv6Tunnel = async (id: string) => {
+  return await apiDelete(`/api/networks/srv6/${id}`, undefined, { enableRetry: false });
 };
 
 // ===== IPsec VPN =====

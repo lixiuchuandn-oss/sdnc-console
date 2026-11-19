@@ -4,11 +4,13 @@ import { SaveOutlined, SendOutlined, ArrowLeftOutlined, CopyOutlined } from '@an
 import { useNavigate, useParams } from 'react-router-dom';
 import PageContainer from '../../../../components/PageContainer';
 
-import { getVRConfig, saveVRConfig } from '../../../../services/virtualRouterApi';
+import {
+  dispatchFullVRConfig,
+  getVR2ConfigRaw,
+  getVRConfig,
+  saveVRConfig,
+} from '../../../../services/virtualRouterApi';
 import LinedTextArea from './LinedTextArea';
-
-import { getVR2ConfigRaw } from '../../../../services/virtualRouterApi';
-import { proxyApiRequest } from '../../../../services/api';
 
 const EditVRConfig: React.FC = () => {
   const navigate = useNavigate();
@@ -669,7 +671,7 @@ const EditVRConfig: React.FC = () => {
     if (!obj) return;
     setLoading(true);
     try {
-      await saveVRConfig(uuid, obj, {}); // 移除 cloudId/vmId 绑定
+      await saveVRConfig(uuid, obj, {}, { source: 'expert' });
       message.success('配置已保存到平台');
     } catch (err: any) {
       message.error(`保存失败: ${err.message}`);
@@ -684,22 +686,11 @@ const EditVRConfig: React.FC = () => {
     if (!obj) return;
     setLoading(true);
     try {
-      // 先保存到平台
-      await saveVRConfig(uuid, obj, {}); // 移除 cloudId/vmId 绑定
-
-      // 改为复用 AuthDirect 的直接认证与请求方式进行下发
-      const accesskey = 'Cloudmap#123';
-      const secretkey = 'Cloudmap#123';
-      const path = '/V2/ctcontrol/VR2/VRConfig';
-      const method = 'POST';
-      // POST 的签名 other 为空；签名服务以 body 原文参与计算
-      const other = '';
-
-      const data = await proxyApiRequest(path, method, other, { uuid, ...obj }, accesskey, secretkey);
-      if (data && typeof data.code === 'number' && data.code !== 200) {
+      const data = await dispatchFullVRConfig(uuid, obj);
+      if (data && typeof data.code === 'number' && data.code !== 200 && data.code !== 0) {
         throw new Error(data?.msg || `下发失败: ${JSON.stringify(data)}`);
       }
-      message.success(data?.msg || '配置已下发');
+      message.success((data as { msg?: string })?.msg || '配置已下发');
     } catch (err: any) {
       message.error(`下发失败: ${err.message}`);
     } finally {

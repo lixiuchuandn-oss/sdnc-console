@@ -1,6 +1,6 @@
 # IBR 实例删除收口（生命周期）
 
-> **状态**：**开发基线**（2026-11-17 终审）。编码以本文为准；与旧讨论冲突时以 **§6.1 / §6.2 / §18.0** 为准。HA 解散剥离隧道指纹、IBR 列表「登记时间」已接线。实现前勿在删除路径上临时加「假回退」。  
+> **状态**：**开发基线**（2026-11-17 终审）+ **2026-11-18 修订 R1**（删除必回退设备，见 **§19**）+ **2026-11-19 R1.1**（仅注册、未走角色向导、VR2 业务为空的实例允许删除，见 **§19.3**）。编码以本文为准；与旧讨论冲突时以 **§6.1 / §6.2 / §18.0 / §19** 为准。§19 覆盖 SRv6 隧道删除、HA 解散、IBR 实例删除三条路径；与 §3 / §6.3 / §12 冲突时以 §19 为准。HA 解散剥离隧道指纹、IBR 列表「登记时间」已接线。实现前勿在删除路径上临时加「假回退」。  
 > **读者**：产品、研发。  
 > **关联**：身份主键见 [`ibr-identity-registration.md`](./ibr-identity-registration.md)；分域下发与角色向导通道见 [`ibr-vr-config-deploy.md`](./ibr-vr-config-deploy.md)；SRv6 三层账本见 [`srv6-baseline-recompute.md`](./srv6-baseline-recompute.md)；漂移见 [`srv6-config-ledger-and-drift.md`](./srv6-config-ledger-and-drift.md)；HA VRRP 健康与解散回退见 [`ibr-ha-vrrp-health-and-rollback.md`](./ibr-ha-vrrp-health-and-rollback.md)。
 
@@ -10,7 +10,7 @@
 
 删除 IBR 实例应是该设备在控制器上的 **生命周期收口**，而不是只在 CSMCTL 抹掉登记。
 
-现网「删除实例」只做控制器注销：设备 CLI、角色初始化、对端隧道注入、HA/IPsec 引用都不处理。SRv6 隧道删除已有「回退平台库 / 下发设备」选项；实例删除应对齐同一心智，并补齐 **角色向导这一层** 的入库与回退。
+现网「删除实例」只做控制器注销：设备 CLI、角色初始化、对端隧道注入、HA/IPsec 引用都不处理。SRv6 隧道删除、HA 解散曾提供「只改平台、不回退设备」勾选，删完档案后设备 CLI 与平台账本会分叉，且原来的删除框没了，无法再勾一次。**R1（§19）取消这条分叉**：三条删除都是先回退设备成功再删平台；对话框不再提供「仅删除平台」。实例删除仍须补齐 **角色向导这一层** 的入库与回退；无 Layer −1 的实例 **拒绝删除**，不再仅注销。
 
 本文删实例收口只定方案与分期；HA `remove()` 剥离指纹与列表「登记时间」已接线，见 §5.1 / §7.1。
 
@@ -33,7 +33,7 @@ CSMCTL：`VrInServiceImpl.unregister`：
 - 清 sqlite `vr_config`（含 `srv6BaselineJson`）、ACL/NAT 行、HA 成员
 - 处理 `registervr.conf` / `.registration_finish`（agent 仍可能用同一 uuid 再 register）
 
-SRv6 隧道删除回退（`backend/src/routes/sdn/srv6.delete.ts`）是 **另一条路径**：勾选「回退平台库中的隧道注入项」后 `exclude` 贡献再 `recompute`，可选 `pushVRConfig`。删实例 **不走** 这条路径。
+SRv6 隧道删除回退（`backend/src/routes/sdn/srv6.delete.ts`）是 **另一条路径**：四端 `exclude` 后 `recompute`，再 `pushVRConfig(domain=srv6)`，成功才写账本并删隧道档案（R1 起设备回退不可关，见 §19）。删实例 **不走** 这条路径。
 
 ---
 
@@ -41,14 +41,15 @@ SRv6 隧道删除回退（`backend/src/routes/sdn/srv6.delete.ts`）是 **另一
 
 | 场景 | 行为 |
 |------|------|
-| 实例仍被 **存活 SRv6 隧道** 引用 | **禁止删除**；列出隧道名称，引导走现有「删除隧道 + 回退」 |
-| 实例仍是 **HA 组成员** | **禁止删除**；先解散或移出 HA 组 |
-| 实例仍是 **IPsec** 端点 | **禁止删除**；先删该 IPsec。不得在删 VR 时悄悄拆对端 |
-| 无上述引用、**无** Layer −1 | 只能平台注销（§6.3）。对话框说明 CLI 保留，**没有**回退勾选 |
+| 实例仍被 **存活 SRv6 隧道** 引用 | **禁止删除**；列出隧道名称，引导走现有「删除隧道」（R1 起该删除必回退设备，§19） |
+| 实例仍是 **HA 组成员** | **禁止删除**；先解散或移出 HA 组（R1 起解散必回退本组 VRRP，§19） |
+| 实例仍是 **IPsec** 端点 | **禁止删除**；先删该 IPsec。不得在删 VR 时悄悄拆对端。IPsec 删除是否必回退设备 **不在 R1 范围** |
+| 无上述引用、**无** Layer −1、**仅注册未设角色且 VR2 业务为空** | **允许删除**（R1.1 / §19.3）：不 POST 快照，直接从控制器与列表移除。对话框确认即可，不提「注销平台」 |
+| 无上述引用、**无** Layer −1、已有角色或 VR2 非空 | **禁止删除**（§6.3 / §19.3）。没有合法回退目标，不得空骨架 POST。对话框只说明无法删除 |
 | 无上述引用、**有** Layer −1 | 收口固有步骤，不是勾选：漂移确认 → 全量 POST 快照 → **等到 agent 回报 `applied`** → 再 unregister（§6.2）。任一步失败则实例仍在、可重试。再注册上来应是角色前空机 |
 | 身份文件仍在 | **说明，不是开关**（§7）：注销后 agent 可用同一 uuid 再报空行 |
 
-「有引用先拆引用、无引用再收口本机」——不要在一次「删 VR」里对四端隧道做隐式 recompute。各叠加业务 **自己管删除与平台/设备回退**（SRv6、HA、IPsec、以后同类照搬同一套）；删 VR 只问绑定注册表「还有没有 binder」（§13）。
+「有引用先拆引用、无引用再收口本机」——不要在一次「删 VR」里对四端隧道做隐式 recompute。各叠加业务 **自己管删除**（SRv6、HA、以后同类照搬同一套，且删除本身必须完成设备回退，§19）；删 VR 只问绑定注册表「还有没有 binder」（§13）。
 
 ---
 
@@ -81,17 +82,16 @@ sqlite vr_cache_basic / extended      ← VR1 / VR3 **列表**缓存（约 5 分
 账本 vr_config.config_json  ≟  公式 merge(srv6BaselineJson, Σ 还活着的隧道 injectedDelta)
 ```
 
-「删隧道 / 解散 HA、不回退设备」清的就是这些 **sqlite 行**（隧道档案、HA 组、并把 `config_json` recompute 成公式）。**不会 POST VR2**，所以 Mongo 里的邻居 / VRRP 还在，agent 也不会去拆 CLI。
+「删隧道 / 解散 HA」清的是这些 **sqlite 行**（隧道档案、HA 组、并把 `config_json` recompute 成公式）。R1 之前允许不 POST VR2，Mongo 里的邻居 / VRRP 会留下，agent 也不会去拆 CLI。**R1 起不允许这条路**（§19）：删档案前必须先把对应域推到设备。
 
 VR2 什么时候才会被清：
 
 | 动作 | VR2 |
 |------|-----|
-| 只清平台（不勾回退设备） | **不动** |
-| 删隧道勾回退设备 | `domain=srv6` POST 公式（H0 **保留** VRRP） |
-| 解散 HA 勾回退设备 | 剥本组 VRRP 后 POST |
-| 五分钟 / 列表刷新 | **反向、半套**：有存活隧道且有基线时不盖 `config_json`；**零隧道后保护取消**，脏 VR2 会盖回账本（黄标可能过一会才亮）。**方案 2（§14）改为永不盖 `config_json`**；VR1/VR3 列表缓存照刷 |
-| 删实例 unregister | **整份删掉** Mongo VR1+VR2。若在 agent 下载并 `transfer` 之前删掉，刚 POST 的快照不会进 CLI（§6.2） |
+| 删 SRv6 隧道（R1 唯一路径） | `domain=srv6` POST 公式（H0 **保留** VRRP）；失败则隧道仍在 |
+| 解散 HA（R1 唯一路径） | 剥本组 VRRP 后 POST；失败则组仍在 |
+| 五分钟 / 列表刷新 | **反向**：永不盖 `config_json`（方案 2 / §14）；VR1/VR3 列表缓存照刷 |
+| 删实例 unregister | **整份删掉** Mongo VR1+VR2。有快照须先等到 `applied`（§6.2）；仅注册且 VR2 空可直接走到这一步（R1.1）；其余无快照不到这一步（§19.3） |
 
 详情不要和账本混：列表 / 概览主要是 VR1 缓存；「本地配置」才是 `config_json`；`vr2_info` 是实时 CSM。
 
@@ -101,11 +101,11 @@ VR2 什么时候才会被清：
 生效 config_json = merge(srv6BaselineJson, Σ 存活隧道 injectedDelta)
 ```
 
-| 层 | 存什么 | 删隧道 + 勾选回退的终点 |
-|----|--------|-------------------------|
+| 层 | 存什么 | 删隧道（R1：必下发）的终点 |
+|----|--------|---------------------------|
 | Layer 0 `VRConfig.srv6BaselineJson` | **第一次被隧道引用前** 的 `config_json` 快照（**已含角色向导** 写下的接口/BGP/SID 等） | 隧道删光后回到 **角色态** |
 | Layer 1 `SRv6Tunnel.injectedDelta` | 各隧道相对基线的邻居/路由/RD/RT 等 | exclude 后 recompute |
-| Layer 2 `VRConfig.config_json` | 平台生效配置 | 写入后再可选下发 |
+| Layer 2 `VRConfig.config_json` | 平台生效配置 | 写入并下发后再删档案 |
 
 零隧道时 `resetSrv6BaselineWhenNoTunnels` 会把 Layer 0 **对齐成当前 config_json**，角色配置被写进基线，之后更没有「角色之前」可回。
 
@@ -133,11 +133,12 @@ VR2 什么时候才会被清：
 
 ```text
 删 IBR 实例
-  ├─ 被存活 SRv6 隧道引用（四端 uuid） → 拒绝，列出隧道，跳转现有删除+回退
-  ├─ 仍在 HA 组成员（vrUuid）         → 拒绝，先解散或移出（VRRP 回退走 HA 自己的勾选）
+  ├─ 被存活 SRv6 隧道引用（四端 uuid） → 拒绝，列出隧道，跳转现有删除（必回退设备）
+  ├─ 仍在 HA 组成员（vrUuid）         → 拒绝，先解散或移出（解散必剥本组 VRRP）
   ├─ 被 IPsec 作为端点                → 拒绝，或先删该 IPsec
   └─ 无上述引用（绑定注册表为空）
-        ├─ 无 Layer −1：仅注销（VR1 + Mongo VR2 + 状态 + 平台 sqlite）；设备 CLI 仍在
+        ├─ 无 Layer −1、仅注册且 VR2 为空：直接移除（R1.1 / §19.3）
+        ├─ 无 Layer −1、已有角色或 VR2 非空：拒绝删除（§19.3）
         └─ 有 Layer −1：漂移确认 → updateVRConfig(快照) → 等到 report_config_status=applied
            → 再注销。未回退的邻居 / VRRP / 角色 / ACL 段在这次全量 POST 里被盖掉。
            不必重建隧道/HA，也不另设「先清残留才能删」门闩（见 §12）
@@ -151,13 +152,13 @@ VR2 什么时候才会被清：
 | HA | 本 uuid 是否为某组成员 | `ibr_ha_group_member.vrUuid` 唯一 |
 | IPsec | 本 uuid 是否为隧道端点 | `IPsecVPN.localVrId` **或** `IPsecVPN.peerVrId` 等于本 uuid（一期不按对端 IP 猜；`peerVrId` 为空的只挡本端行） |
 
-平台侧随注销一并清理（阶段 B，即使不下发设备）：sqlite `vr_config`、该 `vrId` 的 ACL/NAT 行等。HA/IPsec 在门闩通过后不应再残留成员行。
+平台侧随注销一并清理（阶段 B，且 R1 起必须先完成设备回退）：sqlite `vr_config`、该 `vrId` 的 ACL/NAT 行等。HA/IPsec 在门闩通过后不应再残留成员行。
 
 ### 5.1 拆除顺序：SRv6 与 HA 独立
 
 SRv6 与 HA 是两类独立绑定。隧道端点是所选 CE；`haGroupId` 只是指纹 **标注**，隧道不拥有、不回退 VRRP。
 
-**现网（2026-11-16）**：解散 HA **不再**因隧道指纹 409。`ibrHaGroupService.remove` 在设备回退（可选）成功后调用 `detachSrv6TunnelsFromHaGroup`，剥掉隧道上的 `haGroupId` / `haGroupName` / `backupVrUuid`，SRv6 增量不动。CE 仍属某组时保存隧道仍须写标注（归属展示），组删掉后标注被剥离即可。
+**现网（2026-11-16）**：解散 HA **不再**因隧道指纹 409。`ibrHaGroupService.remove` 在设备回退成功后调用 `detachSrv6TunnelsFromHaGroup`，剥掉隧道上的 `haGroupId` / `haGroupName` / `backupVrUuid`，SRv6 增量不动。CE 仍属某组时保存隧道仍须写标注（归属展示），组删掉后标注被剥离即可。**R1 起设备回退不可关**（§19.2）。
 
 删 VR 的门闩问三件独立的事：还是不是隧道端点、还是不是 HA 成员、还是不是 IPsec 本端或对端。三者都空才能收口。**不存在**「必须先删光隧道才能解散 HA」。IPsec 先走现有删除，不在删 VR 里拆对端。HA 成员可解散组，或经 `replaceMembers` 换掉该成员。
 
@@ -180,10 +181,10 @@ SRv6 与 HA 是两类独立绑定。隧道端点是所选 CE；`haGroupId` 只�
 因此：
 
 - 设了角色且 **当时捕获成功**：删实例会 POST Layer −1，把角色基线从设备清掉，再注销。
-- **从未捕获**（历史向导、或 VR2 上已经有角色才升级到本方案）：快照保持空，**禁止**用当前 VR2 补录。只能平台注销。
+- **从未捕获**（历史向导、或 VR2 上已经有角色才升级到本方案）：快照保持空，**禁止**用当前 VR2 补录。R1 起 **禁止删除**（§19.3），不再仅注销。
 - **已捕获、向导尚未下发成功**（快照≈当前 VR2）：仍然 POST（幂等）并等到 `applied`，再注销。不要因为「还没角色」就跳过。
 - 有角色、还没建 SRv6：`srv6BaselineJson` 可能为空，**不能**当回退目标。
-- 删光隧道档案后回到的是 **角色态**（Layer 0），不是 Layer −1。隧道不必先勾设备回退；残留邻居由删实例这一次 POST 盖掉。
+- 删光隧道档案后回到的是 **角色态**（Layer 0），不是 Layer −1。R1 起删隧道必下发，设备上的该隧道注入应已随删除清掉；删实例 POST Layer −1 仍会盖掉角色段及其余本机策略。
 
 「空」指 **没有角色向导叠加**，不是保证出厂白板：注册时设备上已有的口地址/`device_baseline` 应留在 Layer −1 里。
 
@@ -241,9 +242,9 @@ Hub 上 `device_baseline` 口地址属于本机原有，Layer −1 应保留它�
 | 拼一份空骨架 POST | 误伤本机原有口 / `device_baseline`，接近格式化 |
 | 对当前 JSON 做 eject | 与历史隧道 eject 同类：Hub、手改、漂移会漏删或误删 |
 
-一期若没有 Layer −1：**只平台注销**。对话框说明「该实例无角色前快照，无法自动回退 CLI」，**不提供**回退勾选（也不是置灰勾选）。
+一期若没有 Layer −1：默认 **禁止删除**（R1 / §19.3）。例外见 R1.1：仅注册、未设角色、VR2 业务为空时允许从列表移除。三种假回退仍然禁止。
 
-历史已向导过的设备没有快照：不强制补录；需要清 CLI 时走专家模式或设备侧，不在删除对话框里赌空配置。
+历史已向导过的设备没有快照：不强制补录，删除对话框不得赌空配置。
 
 ---
 
@@ -251,7 +252,7 @@ Hub 上 `device_baseline` 口地址属于本机原有，Layer −1 应保留它�
 
 即使 CLI 回退 + unregister 都成功：只要 `/usr/local/src/vrconf/registervr.conf` 仍有该 uuid，agent 会按 **同一 uuid** 再 `POST VR1/register`，控制器出现 **无 VR2 的空行**。`.registration_finish` 仍在时，agent 可能暂时不再 POST，但与控制器已对不上号。
 
-身份不是第三种删除模式。对话框只说明：注销后若 `registervr.conf` 仍有该 uuid，列表会再出现空行，用登记时间区分。一期不改 uuid、不停 agent、不碰 `.registration_finish`，也不做「清 finish」勾选。有无快照决定会不会 POST，用户不另选。
+身份不是第三种删除模式。界面只提示删除后设备可能再次出现在列表中，请用登记时间区分。删除不改 uuid、不停 agent。注销成功后向设备 `POST /api/public/registration/clear-finish`，只删 `.registration_finish`；agent 下一轮用同一 uuid 再 `POST VR1/register`，列表出现新的空行。设备不可达或没有管理口地址时，平台删除仍然完成。用户不另选「只注销」。
 
 uuid 变了 = 新设备，旧行不会自动迁移；那是身份问题，见 [`ibr-identity-registration.md`](./ibr-identity-registration.md)，不在删除收口里做搬家。
 
@@ -278,14 +279,14 @@ uuid 变了 = 新设备，旧行不会自动迁移；那是身份问题，见 [`
 | 阶段 | 内容 | 依赖 Layer −1 | 建议 |
 |------|------|----------------|------|
 | **E. 账本/VR2 分离** | 五分钟不再用 VR2 盖 `config_json`（§14）；无行时也不用 VR2 建行 | 否 | **先做**；立刻掐掉零隧道黄标循环 |
-| **C0. 捕获 Layer −1** | 向导/首次写角色前 GET VR2 写入 `rolePreSnapshot` | 捕获本身 | **尽早合入**，让现网开始攒快照；否则阶段 C 上线后历史实例仍只能平台注销 |
+| **C0. 捕获 Layer −1** | 向导/首次写角色前 GET VR2 写入 `rolePreSnapshot` | 捕获本身 | **尽早合入**，让现网开始攒快照；否则阶段 C / R1 上线后历史实例 **删不掉** |
 | **F. 专家入口** | 保存+下发走同一套 upsert→`updateVRConfig`；专家路径有隧道则 409（§15） | 否 | 可与 C0 并行；**不要**让普通 upsert（PE ND、SRv6 persist）也 409 |
 | **A. 引用门闩** | 有存活 SRv6 / HA 成员 / IPsec 则拒绝删实例，文案列出对象并引导现有删除流 | 否 | 删实例 UI 改走后端；风险低 |
-| **B. 平台侧收口** | 门闩通过后：unregister + 删 sqlite `vr_config` / ACL·NAT / VRCache | 否 | 与 A 同 PR；无 Layer −1 时这就是全部 |
+| **B. 平台侧收口** | 门闩通过且设备回退完成后：unregister + 删 sqlite `vr_config` / ACL·NAT / VRCache | 否（清理本身） | 与 A 同 PR；R1 起无 Layer −1 **不得**走到本步 |
 | **C. 设备回退** | 快照 POST → 等到 `applied` → 再注销；失败或超时不注销 | **是** | 有快照时是固有步骤；直接 `updateVRConfig`，不走 `pushVRConfig` |
 | **D. 身份收口** | 对话框说明再注册；看登记时间 | 与 C 独立 | 与 C 同 PR 的文案即可；勿停 agent / 改 uuid |
 
-阶段 C：失败 409、实例仍在、可重试。不要另做详情「留角色剥残留」。无快照时不得假装回退出厂。步骤顺序、落点与每步回归见 **§18**。
+阶段 C：失败 409、实例仍在、可重试。不要另做详情「留角色剥残留」。无快照时不得假装回退出厂；仅注册且 VR2 空除外（R1.1）。步骤顺序、落点与每步回归见 **§18**；删除必回退设备见 **§19**。
 
 ---
 
@@ -293,7 +294,7 @@ uuid 变了 = 新设备，旧行不会自动迁移；那是身份问题，见 [`
 
 | 层 | 位置 |
 |----|------|
-| 删除入口 UI | `frontend/src/pages/sdncc/ibr/routers/index.tsx`（现 `Modal.confirm` 仅注销）；漂移确认复用 `utils/vrConfigDeployDrift.ts` |
+| 删除入口 UI | `DeleteVrInstanceModal.tsx`（R1.1：仅注册空 VR2 可删；其余无快照拒绝；按钮「确定」）；漂移确认复用 `utils/vrConfigDeployDrift.ts` |
 | 删除 API | **改走** `DELETE /api/vr-instances/:uuid`（新）；前端不再直打 CSM unregister |
 | 绑定注册表 | 新 `backend/src/services/vrouter/vrInstanceBinders.ts`（SRv6 / HA / IPsec） |
 | 删除编排 | 新 `backend/src/services/vrouter/vrInstanceDeleteService.ts` |
@@ -314,11 +315,11 @@ E2E：门闩与删除选项登记 `tests/e2e-manifest.cjs`（见 `tests/E2E_COVE
 
 ## 10. 验收要点（落地后）
 
-1. 被 SRv6 引用的实例无法删除，提示含隧道名。删光隧道 **档案** 后即可删实例，不要求先勾隧道的设备回退。  
-2. HA 成员、IPsec 本端或对端同样挡删除。  
-3. 无引用、无 Layer −1：控制器与平台库无该 uuid；设备 CLI **仍在**。  
+1. 被 SRv6 引用的实例无法删除，提示含隧道名。删光隧道（R1：必回退设备）后即可删实例。  
+2. HA 成员、IPsec 本端或对端同样挡删除。HA 解散 R1 起必剥本组 VRRP。  
+3. 无引用、无 Layer −1、已有角色或 VR2 非空：**删除失败**；控制器、平台库、设备 CLI 都还在。仅注册且 VR2 空：可从列表删除。  
 4. 无引用、有 Layer −1：`applied` 之后设备才是角色前快照（Hub 本机 `device_baseline` 口仍在）；然后 VR1/VR2/平台行消失；再注册为空行。  
-5. 无 Layer −1：对话框没有回退勾选，只能平台注销。  
+5. 无法删除时主按钮为「确定」，只关闭对话框；不出现「注销平台」。  
 6. POST 失败、或超时仍未 `applied`：不 unregister，用户可重试或取消。  
 7. 不把 `srv6BaselineJson` 或空 JSON 当作回退 payload。快照里不带 `report_config_status`。
 
@@ -339,15 +340,13 @@ E2E：门闩与删除选项登记 `tests/e2e-manifest.cjs`（见 `tests/E2E_COVE
 
 ## 12. 只删平台之后：残留跟谁走
 
-删隧道 / 解散 HA 都可以只改 sqlite、不 POST VR2。列表空了，删实例门闩放行，VR2 和盒子上邻居 / VRRP 可能还在。原来的删除框没了，无法再勾一次回退。
+> **R1 起（§19）**：SRv6 / HA / 删实例都不再提供「只改平台」。本节保留作为 **R1 之前** 为何会分叉、以及删实例 POST Layer −1 为何仍能盖掉本机段的说明。R1 落地后，正常删除路径不应再制造「档案没了、CLI 还在」的新分叉。本文 **不**处理 R1 之前已经留下的设备残留。
 
 ### 12.0 产品口径（已收简）
 
 **不做「留着这台 IBR、只剥残留」的详情对账。** 角色态覆盖、更严门闩、重建隧道/HA，全部不做。
 
-收口目标就一件：删实例成功后，agent 再注册上来应是 **角色前空机**。实现是注销前 POST Layer −1，并等到 agent `applied`，然后 unregister。忘了回退的邻居 / VRRP / 角色段都在这一次 diff 里被盖掉。只 POST、不等 `applied` 就注销，盒子不会变空。
-
-今日只注销、不 POST，再注册得到的是控制器上空 VR2，**盒子 CLI 不会自己变空**。要变成你说的空设备，必须走 Layer −1，不能指望五分钟同步或黄标。
+收口目标就一件：删实例成功后，agent 再注册上来应是 **角色前空机**。实现是注销前 POST Layer −1，并等到 agent `applied`，然后 unregister。角色段与本机 ACL/NAT 在这一次全量 POST 里被盖掉。只 POST、不等 `applied` 就注销，盒子不会变空。R1 之后隧道/HA 的设备回退应已在各自删除里做完，删实例不再依赖「忘了勾选」这一前提。
 
 ### 12.1 现成对账为什么帮不上
 
@@ -366,7 +365,7 @@ E2E：门闩与删除选项登记 `tests/e2e-manifest.cjs`（见 `tests/E2E_COVE
          → 同一 uuid 再 register = 空行，角色未设
 ```
 
-没有 Layer −1 快照：只能平台注销（§6.3），不能拿 `srv6BaselineJson` 或空骨架冒充。存量无快照、必须清 CLI 时走专家模式或设备侧（§15），不在删除对话框里赌空配置。
+没有 Layer −1 快照：禁止删除（§6.3 / §19.3），不能拿 `srv6BaselineJson` 或空骨架冒充，也不能仅注销。存量无快照、必须清 CLI 时走专家模式或设备侧（§15），不在删除对话框里赌空配置。
 
 ### 12.3 明确不要
 
@@ -385,12 +384,12 @@ E2E：门闩与删除选项登记 `tests/e2e-manifest.cjs`（见 `tests/E2E_COVE
 |------|------|
 | 检测 | 这台 uuid 是否仍被本业务引用 |
 | 清平台 | 本业务自己的删档案 / 解绑 |
-| 清设备 | 本业务自己的 revertDevice / 分域 push |
+| 清设备 | 本业务自己的删除路径 **必须**完成（R1 起不可关；SRv6 分域 push / HA 剥本组 VRRP） |
 | 文案 | 门闩里怎么列待办、跳到哪条现有删除流 |
 
 一期登记：SRv6 端点、HA 成员、IPsec 端点。RR 反射域节点按地址不是按 uuid，邻居随隧道 `injectedDelta` 走，一期不单独挡。ACL/NAT 是本机分域策略，不是 binder，随 Layer −1 或分域清空覆盖。
 
-新业务（再来一种会话/组）按 SRv6/HA/IPsec 同一套：自己管叠加与回退；删 VR 只问注册表是否已空。
+新业务（再来一种会话/组）按 SRv6/HA 同一套：自己管叠加与回退，删除对话框 **不提供**「只改平台」；删 VR 只问注册表是否已空。IPsec 是否同样强制设备回退，不在 R1 范围，另开需求。
 
 ---
 
@@ -507,8 +506,182 @@ IBR 实例列表的「状态」（运行中/已停止）来自 VR3 健康，与�
 | 2026-11-17 | §14 采用账本/VR2 分离（否决拆 SRv6 公式表）；§15 专家入口；§16 黄标/下发漂移/生命周期。删实例有快照则 POST Layer −1；不做 clish 导入 |
 | 2026-11-17 | 评审硬规则写入 §3/§6；IPsec 门闩字段写死；§8 调整为 E→C0→F→A/B→C/D；新增 **§18 开发落地计划与回归** |
 | 2026-11-17 | **基线**：捕获只在「尚无角色」时发生，禁止补录；回退改走 `updateVRConfig` 并等到 `applied` 再注销；去掉回退勾选与 `pushVRConfig` |
+| 2026-11-18 | **R1**：SRv6 / HA / 删实例取消「仅删除平台」；删除必回退设备。无 Layer −1 改为拒绝删除。见 **§19**。不处理 R1 之前已留下的设备残留 |
 
 ---
+
+## 19. 修订 R1（2026-11-18）：删除必回退设备
+
+> **性质**：在 2026-11-17 基线之上的产品优化。**编码已落地**（2026-11-18）；与 §18 步骤 C 旧口径「无快照仅注销」冲突时以本节为准。  
+> **范围**：SRv6 隧道删除、HA 组解散、IBR 实例删除。  
+> **不做**：清理 R1 之前因「只改平台」已经留在设备上的配置；不把专家模式当常规入口；不改 IPsec 删除是否回退设备（另开需求）。
+
+### 19.0 为什么改
+
+当初给 SRv6 / HA 提供「只删平台、不回退设备」，是为了设备离线、缺 `injectedDelta` / 基线、或只想拆档案时仍能删库。实验室和现网证明这条分叉用处不大，麻烦更大：
+
+1. 档案删了，原来的删除框没了，没有第二次「再回退设备」入口。
+2. SRv6 黄标只比 sqlite 账本 ≟ 公式，不读 VR2；只回退平台后列表仍「健康」。
+3. HA 不勾选会连 `vrrpIntent` 一起删掉，事后无法按 `vrid` / `group_id` 再剥。
+4. 删实例若允许无快照仅注销，盒子 CLI 永远不会自己变空（unregister 只删 Mongo，agent 不会拆 FRR）。
+
+因此三条删除收成 **同一条路**：先把设备 CLI 回退到「删完后应有的状态」，成功再删平台档案。对话框不再放「仅删除平台 / 同步回退到底层设备」勾选。失败则整单停住，档案还在，可以再删一次。
+
+以后新的跨实例业务（再来一种会话 / 组）按同一套登记 binder（§13）：删除路径自己完成设备回退，不把「只改平台」留给删 VR。
+
+### 19.1 SRv6 隧道删除
+
+**产品**
+
+- 确认框只保留「删除」。文案写明：将回退四端平台账本，并把公式下发到设备；任一台失败则隧道保留。
+- 前端不再传 `revertDevice=0`。后端 `DELETE /api/networks/srv6/:id` 若带 `revertDevice=0/false` 或 `revertPlatform=0/false` → **400**，不删档案。
+
+**顺序**（现网勾选设备回退时已经是这条，R1 只是关掉另一条）
+
+```text
+缺 injectedDelta / 缺 srv6BaselineJson → 400，隧道仍在
+四端 recompute（exclude 本隧道）
+→ 逐端 pushVRConfig(domain=srv6, 公式)     ← H0 保留设备接口 vrrp 与顶层 vrrp
+→ 任一台失败：已推过的端补回原配置；不写账本、不删隧道
+→ 四端都成功：写 config_json、删隧道行、零隧道时 resetSrv6BaselineWhenNoTunnels
+```
+
+**失败语义**
+
+| 情况 | 结果 |
+|------|------|
+| 设备离线 / POST 失败 | 409，隧道仍在，可重试 |
+| 缺变更记录或基线 | 400，不能删。不得改为「只删档案」 |
+| 下发成功、写库失败 | 现网会尝试把设备推回原配置（`srv6.delete.ts`）；R1 保持这一补偿，不得改成「设备已回退、档案还在」的静默成功 |
+
+SRv6 删除 **不等** `report_config_status=applied`。现网 `pushVRConfig` 在 CSM 接受后即写账本；R1 不把删实例那套 90s 轮询搬到四端隧道（四台串行等待过长）。控制器已接受公式后删档案；若 agent 尚未 `transfer`，重试删除会 404（档案已无），不在 R1 做「删完再等四端 applied」。需要 applied 语义的是删实例（整机角色前快照）。
+
+**与账本 / VR2 分离（§14）**
+
+向导下发后 `config_json` 含当时 POST 到 VR2 的业务配置；五分钟不再用 VR2 回写账本，这份不会被现场 VR2 盖掉。删隧道的公式 = `merge(srv6BaselineJson, Σ 还活着的隧道)`，基线就是向导那份。下发走 `domain=srv6`，只盖 SRv6 业务键，**不**整份把账本当成 VR2 覆盖 ACL / NAT / 顶层 `vrrp`。
+
+### 19.2 HA 组解散
+
+**产品**
+
+- 确认框只保留「删除」。文案写明：将从主备设备剥掉本组 `vrid` / `group_id`，成功后再删组；失败则组保留。
+- 前端不再传 `revertDevice=false`。后端 `DELETE /api/ibr-ha-groups/:id` **缺省即回退设备后删组**；显式 `revertDevice=0/false` → **400**。旧缺省是 `false`（只删库），R1 改掉后旧客户端不带参数也会走回退，而不是只删库。
+
+**顺序**（现网 `revertDevice=true` 已经是这条）
+
+```text
+主、备串行：设备底稿上删除本组 vrid 与 group_id
+→ 一份 POST 里接口片和顶层 vrrp 同时改干净
+→ 备失败则补偿主侧
+→ 双端成功再剥隧道指纹并删库
+```
+
+回退补丁仍是物化的 **逆操作**，不是 POST 空 `vrrp: []`，也不是回放 SRv6 基线。SRv6 增量不动。
+
+**失败语义**
+
+| 情况 | 结果 |
+|------|------|
+| 主或备离线 / POST 失败 | 组仍在，可重试 |
+| `vrrpIntent` 无效、成员不完整 | 409/400，组仍在。不得改为只删库 |
+| 设备上没有本组 vrid | 剥离是幂等成功，然后删库 |
+
+HA 解散同样 **不等** `applied`（与现网 H1 一致）；R1 不新增轮询。
+
+**不要**为了「事后还能剥」而把组改成「待清设备」长期留着。R1 的取舍是：删不掉就留着组，直到设备恢复后再删；不再提供「先拆档案」。
+
+### 19.3 IBR 实例删除
+
+有 Layer −1 时 **已经是**「必回退」：漂移确认 → `updateVRConfig(快照)` → 等到 `applied` → 再 unregister。R1 不改这条，也不把分域 `pushVRConfig` 引进来。
+
+**改的是无快照。** 2026-11-17 基线允许「仅注销平台、CLI 保留」。R1 取消对「已有角色 / VR2 非空」存量的仅注销。**R1.1** 补回一类安全例外：
+
+| | 2026-11-17 | R1 | R1.1 |
+|--|------------|-----|------|
+| 仅注册、未设角色、VR2 业务为空 | 仅注销平台 | 与存量一并 409 | **允许删除**：不 POST，unregister + 清 sqlite，`deviceReverted: false` |
+| 已有角色或 VR2 非空、无快照 | 仅注销平台 | **409** `reason=no_snapshot` | 仍 409 |
+| 预览 | `hasSnapshot=false` 出「仅注销平台」 | 一律无法删除 | `neverConfigured=true` 可确认删除；否则无法删除。按钮文案「确定」，不提注销平台 |
+| 假回退 | 仍禁止（§6.3） | 仍禁止 | 仍禁止 |
+
+无快照且 **不能**走 R1.1 的包括：历史向导未捕获、平台或 VR2 已有 role、VR2 已有业务配置。再跑一次向导 **不会**补快照（§6.1）。这些实例仍 **删不掉**，直到将来另做强制删除。这是刻意的：没有合法回退目标，就不要把设备上的配置留成孤儿。
+
+漂移确认（设备现网 ≠ 快照）仍要用户点一次。那是覆盖前确认，**不是**「只删平台」勾选。
+
+界面只提示删除后设备可能再次出现在列表中，用登记时间区分。不讲快照 / applied / 注销平台等内部词。
+
+### 19.4 三条路径对照（避免混用等待语义）
+
+| | SRv6 删隧道 | HA 解散 | 删 IBR 实例（有快照） |
+|--|-------------|---------|----------------------|
+| 回退目标 | 公式 = 基线 + 其它存活隧道 | 设备底稿去掉本组 vrid | Layer −1 整份 |
+| 下发 | `pushVRConfig(domain=srv6)` | `pushVRConfig(domain=vrrp, preMerged)` | `updateVRConfig(快照)`，不走 `pushVRConfig` |
+| 等 `applied` | 否 | 否 | **是**，超时不注销 |
+| 失败 | 隧道仍在 | 组仍在 | 实例仍在 |
+| 无合法目标 | 400（无 delta/基线） | 400/409（无意图） | 仅注册且 VR2 空：可删；其余无快照 409 |
+
+不要把删实例的 `applied` 轮询套到 SRv6 四端或 HA 主备上；也不要用 SRv6 黄标判断设备是否已清。
+
+### 19.5 影响面与关联收口
+
+| 落点 | 改什么 |
+|------|--------|
+| `frontend/src/pages/sdncc/ibr/srv6/index.tsx` | 单删 / 批量删：去掉两个 Checkbox；文案改为必回退 |
+| `frontend/src/services/api.ts` `deleteSrv6Tunnel` | 不再传 `revertDevice=0`；可删除该可选参数 |
+| `backend/src/routes/sdn/srv6.ts` DELETE | 拒绝 `revertPlatform=0`、`revertDevice=0`；审计不再写「回退设备=false」 |
+| `backend/src/routes/sdn/srv6.delete.ts` | `deleteSrv6TunnelWithRevert` 内部视为二者恒 true；可删「只删行」分支 |
+| `docs/srv6-baseline-recompute.md` §5.3 | 同步为必 push |
+| `frontend/src/pages/sdncc/ibr/ha-groups/index.tsx` | 去掉回退 Checkbox；默认不再是 false |
+| `frontend/src/services/ibrHaGroupApi.ts` | `deleteIbrHaGroup` 不再靠调用方传 true |
+| `backend/src/routes/sdn/ibrHaGroups.ts` DELETE | 不带参数即回退；显式 false → 400 |
+| `backend/src/services/vrouter/ibrHaGroupService.ts` `remove` | 调用方不得再 `revertDevice: false` 作为产品路径 |
+| `docs/ibr-ha-vrrp-health-and-rollback.md` §6 / §8 / 验收 3 | 取消「默认只删平台」 |
+| `DeleteVrInstanceModal.tsx` | 仅注册空 VR2：确认删除；其余无快照：无法删除。按钮「确定」，不提注销平台 |
+| `vrInstanceDeleteService.ts` | 仅注册空 VR2 可 unregister；已有角色或 VR2 非空仍 409 |
+| 本文 §3 / §5 / §6.3 / §10 / §12 / §18.0#3 / §18.5–18.8 | 已按 R1 改口径 |
+| 绑定注册表 §13 | 新业务删除必须自带设备回退 |
+| IPsec 删除 UI / API | **不改**（R1 范围外） |
+| 专家模式、角色向导、分域日常下发、黄标公式、VR2 同步 | **不改** |
+| CSMCTL `unregister` | **不改**；仍只在实例回退 `applied` 之后由 SDNC 调用 |
+
+**E2E / 单测**
+
+- SRv6：`revertDevice=0` → 400；设备 push 失败 → 隧道仍在。
+- HA：显式 `revertDevice=0/false` → 400；不带参数则回退设备后删组；剥失败 → 组仍在。
+- 删实例：仅注册且 VR2 空 → 可删；已有角色或 VR2 非空无快照 → 409。有快照失败不注销（已有）。
+- `tests/e2e-manifest.cjs` 的 `ibr-vr-delete-lifecycle` 对照含「空注册可删 / 存量无快照拒绝」。
+
+**实验室（R1 落地后）**
+
+1. 有基线的隧道：删除成功后四端 VR2 无该隧道注入，档案消失。
+2. 人为让一端不可达：隧道仍在，其它端补偿后仍是删前配置。
+3. HA：解散成功后主备无本组 vrid；失败则组还在。
+4. 新向导实例：删实例等到 applied，再注册为空行。
+5. 仅注册未设角色、VR2 为空：可从列表删除。已有角色或 VR2 非空、无快照：删不掉。
+
+不把 R1 之前已分叉的设备（例如只回退平台的 `test-20261113-1`）列入本修订验收。
+
+### 19.6 明确不要（R1）
+
+- 给删隧道 / 解散 HA / 删实例再留「仅平台」勾选或等价 query
+- 已有角色或 VR2 非空、无快照时 unregister；空骨架 POST、拿 `srv6BaselineJson` 当 Layer −1
+- 为事后补救再建一条「按账本下发」独立入口（R1 用删除本身完成下发；日常建隧道下发入口保留）
+- 用「待清设备」长期挂着已删业务的档案（HA 不要改成软删状态机）
+- 把四端 SRv6 / 双端 HA 的删除改成等 `applied` 才删库
+- 顺手改 IPsec 删除、专家模式、身份文件
+- 在本修订里清扫历史残留 CLI
+
+### 19.7 编码时相对 §18 的增量
+
+§18 的 E / C0 / F / A 不因 R1 重做。增量集中在：
+
+| 相对步骤 | 增量 |
+|----------|------|
+| SRv6 删除（不在原 A–D 内） | 关 `revertDevice=0`；单测与 UI |
+| HA `remove`（H1 已落地） | 缺省改为必回退；关 false |
+| 步骤 B / C | 存量无快照 409；仅注册空 VR2 可走 B（R1.1） |
+| 步骤 D 文案 | 无快照不再说「CLI 会保留、可以注销」 |
+
+建议独立一小步合入，不要和 Layer −1 捕获揉在同一个 PR。合入前手工确认：缺省不带 query 的 HA DELETE 不再只删库。
 
 ## 18. 开发落地计划与回归
 
@@ -520,7 +693,7 @@ IBR 实例列表的「状态」（运行中/已停止）来自 VR3 健康，与�
 |---|------|
 | 1 | 只在「快照空 + 平台 role 空 + VR2 无 role 且非空」时，从 GET VR2 捕获。不用 `config_json`。已有角色 **不补录**。不存 `{}`，不存 `report_config_status` |
 | 2 | 回退只调 `updateVRConfig(快照)`。**不**走 `pushVRConfig`，**不**用 `deploy-drift?domain=srv6`。diff 含 VRRP |
-| 3 | 有快照：POST 后必须等到 `applied` 才 unregister。超时、POST 失败、未 applied：**不注销**。VR2 已等于快照时重试 **不再 POST**。无快照：只平台注销，无回退勾选 |
+| 3 | 有快照：POST 后必须等到 `applied` 才 unregister。超时、POST 失败、未 applied：**不注销**。VR2 已等于快照时重试 **不再 POST**。仅注册且 VR2 空：可 unregister（R1.1）。已有角色或 VR2 非空无快照：拒绝删除（§19.3） |
 | 4 | 方案 2：**永不**用 VR2 盖/建 `config_json`，也不改 `rolePreSnapshot` / `srv6BaselineJson`。无 `vr_config` 行时向导读实时 VR2 |
 | 5 | IPsec 门闩：`localVrId` **或** `peerVrId` |
 | 6 | 专家 409 仅 `source=expert`，且 **先于**捕获。PE ND / `persistSrv6VrEffectiveConfig` 仍走普通 upsert。等 `applied` 只用于删实例，不用于向导/专家 |
@@ -555,7 +728,7 @@ IBR 实例列表的「状态」（运行中/已停止）来自 VR3 健康，与�
 
 **本步验收（手工）**
 
-1. 删光隧道、不回退设备：账本已是公式。等五分钟或点 IBR 列表刷新 → 黄标 **保持绿**（或保持原来的账本≟公式结果），不会过一会变黄。
+1. 删光隧道后账本已是公式。等五分钟或点 IBR 列表刷新 → 黄标 **保持绿**（或保持原来的账本≟公式结果），不会过一会变黄。R1 起删隧道必下发，本条仍用来确认五分钟不会用 VR2 盖账本。
 2. 同一实例详情「本地配置」仍是公式，不是 VR2 脏邻居。
 3. 「扫描并修复」仍只写 sqlite、不下发。
 4. 列表名称 / ONLINE / 流量 / 登记时间刷新正常。
@@ -563,7 +736,7 @@ IBR 实例列表的「状态」（运行中/已停止）来自 VR3 健康，与�
 
 **回归（不得坏）**
 
-- SRv6 建隧道 / 删隧道勾回退 / 下发弹窗（读的是 VR2 vs 意图，与五分钟无关）。
+- SRv6 建隧道 / 删隧道（必回退设备） / 下发弹窗（读的是 VR2 vs 意图，与五分钟无关）。
 - HA 下发 / 解散回退（不经 `vr2PlatformSync`）。
 - ACL / NAT / IPsec 分域 push（成功后仍写 `config_json`）。
 
@@ -681,11 +854,11 @@ IBR 实例列表的「状态」（运行中/已停止）来自 VR3 健康，与�
 
 ### 18.5 步骤 B — 平台侧收口
 
-**目标**：门闩通过后才 unregister；无论有无快照，平台 sqlite 行清掉。CSM 失败则不动库。
+**目标**：门闩通过后才 unregister；有快照须先完成设备回退；仅注册且 VR2 空可直接 unregister（R1.1）。平台 sqlite 行清掉。CSM 失败则不动库。已有角色或 VR2 非空、无快照不得走到 unregister（见 §19.3）。
 
 **改动**（`vrInstanceDeleteService.ts`）
 
-顺序：binders 空 →（阶段 C：POST 快照并等到 `applied`；无快照则跳过）→ CSM unregister → 删：
+顺序：binders 空 → 仅注册且 VR2 空则直接 unregister → 已有角色或 VR2 非空无快照则 409 停住 →（阶段 C：POST 快照并等到 `applied`）→ CSM unregister → 删：
 
 - `vr_config`（含 baseline / Layer −1）
 - `ACLGroup` / `ACLRule` / `ACLGroupBinding`（`vrId`）
@@ -702,16 +875,16 @@ CSM **404**：视为已注销，仍做 sqlite 清理（可重试）。unregister
 - 404 → 仍清理 sqlite。
 - binders 非空 → 不调用 unregister、不删行。
 
-**本步验收（手工，无快照实例）**
+**本步验收（手工）**
 
-1. 无引用、无 Layer −1：删除成功；列表无该 uuid（直到 agent 再注册）。
-2. 详情 / ACL / NAT 不再出现该 VR 的平台行。
-3. **设备 CLI 仍在**（这是无快照的合法结果，不是 bug）。
-4. 点列表刷新：不会从 sqlite 把已删配置救回来。
+1. 无引用、无 Layer −1：**删除失败**（409）；列表仍有该 uuid；设备 CLI 仍在。这是 R1 的合法结果，不是漏做注销。
+2. 有快照且回退成功后：详情 / ACL / NAT 不再出现该 VR 的平台行。
+3. 点列表刷新：不会从 sqlite 把已删配置救回来。
+4. unregister 失败时 sqlite 仍在。
 
 **回归**：`POST /api/vr-instances/refresh` 仍只同步 VR1/VR3；其它实例的 `vr_config` 还在。
 
-**完成门禁**：无快照删除的实验室路径走通；A 的 409 路径未回归。
+**完成门禁**：存量无快照 409、仅注册空 VR2 可删路径走通；A 的 binders 409 未回归。
 
 ---
 
@@ -723,9 +896,9 @@ CSM **404**：视为已注销，仍做 sqlite 清理（可重试）。unregister
 
 | 落点 | 做什么 |
 |------|--------|
-| `GET /api/vr-instances/:uuid/delete-preview` | binders + 是否有快照 + **当前 VR2 vs Layer −1** 的 `diffConfigSemantic`（含 vrrp，去元数据）。不是 `srv6BaselineJson`，不是 `deploy-drift?domain=srv6` |
-| `DELETE /api/vr-instances/:uuid` | body `{ acknowledgeDrift?: boolean }`。有快照：有差异且未 ack → 409。ack 后若 VR2 已等于快照则不 POST，否则 `updateVRConfig`。然后轮询 `applied`（建议 90s）。未 applied 或 POST 失败 → **不** unregister，不改 sqlite。无快照：不 POST，走 B，`deviceReverted: false` |
-| 前端删除框 | 有快照：列出将从设备拿掉的项（邻居 / VRRP / 角色段）→ 确认后 DELETE，并显示「等待设备应用」。无快照：只说明 CLI 保留，**没有**回退勾选 |
+| `GET /api/vr-instances/:uuid/delete-preview` | binders + 是否有快照 + `neverConfigured` + **当前 VR2 vs Layer −1** 的 `diffConfigSemantic`（含 vrrp，去元数据）。仅注册且 VR2 空：`neverConfigured=true`，前端允许确认删除 |
+| `DELETE /api/vr-instances/:uuid` | body `{ acknowledgeDrift?: boolean }`。仅注册且 VR2 空 → unregister，不 POST。已有角色或 VR2 非空无快照 → 409，**不** unregister。有快照：有差异且未 ack → 409。ack 后若 VR2 已等于快照则不 POST，否则 `updateVRConfig`。然后轮询 `applied`（建议 90s）。未 applied 或 POST 失败 → **不** unregister，不改 sqlite |
+| 前端删除框 | 有快照 / 仅注册空 VR2：确认后 DELETE。其余无快照：说明无法删除。主按钮一律「确定」，不提注销平台 |
 
 **不做**：空骨架 POST；用 Layer 0 冒充；详情另做角色态覆盖。
 
@@ -735,18 +908,18 @@ CSM **404**：视为已注销，仍做 sqlite 清理（可重试）。unregister
 - POST 失败，或超时未 `applied` → 不 unregister，`config_json` 与快照列都不变。
 - VR2 已与快照语义相同且未 applied → **零次** `updateVRConfig`，继续等；仍超时则不注销。
 - 有差异且未 ack → 409，不 POST。
-- 无快照 → 不 POST，unregister。
+- 仅注册且 VR2 空 → unregister，不 POST。已有角色或 VR2 非空无快照 → 409，不 POST，不 unregister。
 - POST 的 JSON **等于**快照，**不等于** `srv6BaselineJson`，且不含 `report_config_status`。
 - 设备多一段 `vrrp` 时预览 **能**报出来。
 - 断言删除服务 **没有**调用 `pushVRConfig`。
 
 **本步验收（手工，必须用 C0 之后向导过的实例）**
 
-1. 建角色 →（可选）建隧道再只清平台删光 →（可选）HA 只清平台解散 → 删实例。弹窗列出 VR2 上多出来的邻居/VRRP/角色段。
+1. 建角色 →（可选）建隧道再删除（必回退设备）→（可选）解散 HA（必剥 VRRP）→ 删实例。弹窗列出将从设备拿掉的角色段等。
 2. 确认后先看到「等待设备应用」。`applied` 之后：Hub 本机口还在；向导段 / 隧道邻居 / 本组 VRRP 从 CLI 消失。然后列表该行消失。
 3. 同一 uuid 再注册 = **空行**（无角色、无隧道）；**登记时间接近刚才**。
 4. 停 CSM，或把 agent 停住让 `applied` 不来：实例仍在，sqlite 还在，可重试。重试时若 VR2 已是快照，不应把 checksum 再打乱一遍。
-5. 存量无快照实例：框上无回退勾选，删除后 CLI 仍在（与 B 一致）。历史已有角色的机器，再跑一次向导后快照仍为空。
+5. 仅注册未设角色、VR2 为空：可删除。已有角色或 VR2 非空、无快照：确认被拒或 409；列表仍在。
 
 **回归**：日常 ACL/NAT/IPsec/SRv6 分域下发仍按原 domain；SRv6 下发 H0 **仍保留** VRRP；HA 解散回退仍剥指纹。
 
@@ -780,11 +953,11 @@ CSM **404**：视为已注销，仍做 sqlite 清理（可重试）。unregister
 | 1 | 新盒子注册 | 列表有行；无角色；无 `rolePreSnapshot` |
 | 2 | 角色向导下发 | 有快照；快照无角色段；设备已角色化 |
 | 3 | 建 SRv6（可选 HA） | 黄标绿；删实例 409 列出隧道/组 |
-| 4 | 只清平台删隧道 / 解散 HA | 列表空绑定；设备邻居/VRRP 可能仍在；黄标不因五分钟变黄（E） |
-| 5 | 删实例，看 drift | 残留项出现在弹窗，不是黄标 |
+| 4 | 删隧道 / 解散 HA | 列表空绑定；对应域 CLI 已回退（R1）；黄标不因五分钟变黄（E） |
+| 5 | 删实例，看 drift | 将覆盖的角色段出现在弹窗，不是黄标 |
 | 6 | 确认删除 | 先 `applied`，CLI ≈ 角色前；然后控制器无 VR1/VR2；sqlite 无该 uuid 配置 |
 | 7 | agent 再注册 | 空行；登记时间新；再向导是全新角色化 |
-| 8 | 对照组：无快照存量删除 | 仅平台注销，CLI 仍在 |
+| 8 | 对照组：无快照存量删除 | 已有角色或 VR2 非空：**拒绝删除**；仅注册且 VR2 空：可从列表删除 |
 
 E2E：实现 A/B/C 的 API 测试文件后登记 `tests/e2e-manifest.cjs`（见 `tests/E2E_COVERAGE.md`）。浏览器用例实验室有设备再补；未登记空文件。建议 id：`ibr-vr-delete-binders`（A）、`ibr-vr-delete-lifecycle`（C，可 `deferred` 到有设备）。
 
@@ -798,6 +971,6 @@ E2E：实现 A/B/C 的 API 测试文件后登记 `tests/e2e-manifest.cjs`（见 
 | 2 | C0 | `npx jest src/services/vrouter/rolePreSnapshot.test.ts` |
 | 3 | F | 专家 upsert/dispatch 单测 + `src/routes/sdn/srv6.vrLock.test.ts` |
 | 4 | A+B | binders + delete service 单测 |
-| 5 | C+D | delete service（含 applied 才注销、超时不注销、已相等不再 POST、无快照）+ `vrConfigDeploy.test.ts`（确认日常 srv6 域仍忽略 vrrp，删实例不调用该路径） |
+| 5 | C+D | delete service（含 applied 才注销、超时不注销、已相等不再 POST、无快照 409）+ `vrConfigDeploy.test.ts`（确认日常 srv6 域仍忽略 vrrp，删实例不调用该路径） |
 
 合入前另跑与触碰文件相关的现网套件（HA：`haGroup*.test.ts`；SRv6：`srv6.reconcile` / `srv6.delete` 若有）。前端改动按 `docs/frontend-layout.md` 与 RBAC 隐藏按钮。不提交密钥、不在删除路径上加空 JSON 假回退。

@@ -18,6 +18,7 @@ export type VrInstanceDeletePreview = {
   uuid: string;
   binders: VrInstanceBinder[];
   hasSnapshot: boolean;
+  neverConfigured: boolean;
   deviceReverted: boolean;
   conflicts: VrInstanceDeleteConflict[];
   applied?: string | null;

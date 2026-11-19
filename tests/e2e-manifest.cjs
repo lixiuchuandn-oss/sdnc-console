@@ -43,6 +43,26 @@ const ENTRIES = [
     status: 'deferred',
     notes: 'H2/H3 配置健康已落地；live 巡检 GET /:id/live（Jest parseVrrpShow / haGroupInspect）。待实验室 E2E。',
   },
+  {
+    id: 'ibr-vr-delete-binders',
+    name: 'IBR 实例删除门闩（SRv6 / HA / IPsec）',
+    manual: 'IBR实例',
+    api: null,
+    browser: null,
+    smoke: null,
+    status: 'deferred',
+    notes: 'Jest：vrInstanceBinders / vrInstanceDeleteService。实验室有设备后再补 API/浏览器用例。',
+  },
+  {
+    id: 'ibr-vr-delete-lifecycle',
+    name: 'IBR 实例删除生命周期收口（Layer −1 / applied）',
+    manual: 'IBR实例',
+    api: null,
+    browser: null,
+    smoke: null,
+    status: 'deferred',
+    notes: '方案 docs/ibr-instance-delete-lifecycle.md §18.8 / §19。仅注册且 VR2 空可删；已有角色或 VR2 非空无快照 409 no_snapshot。须用 C0 之后向导过的实例做设备闭环。',
+  },
 ];
 
 function testsRoot() {

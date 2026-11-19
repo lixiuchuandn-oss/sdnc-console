@@ -183,6 +183,9 @@ export const vrApi = {
    * 注销 IBR（《VR 控制器接口》2026-05-08：DELETE + `?uuid=`；与注册同路径前缀 `/V2/vrcontrol/VR1/`）
    * 部分已部署 CSM 仅注册 **POST**（对 DELETE 返回 404），故在 404/405 时回退为 **POST** 同路径 + JSON `{ uuid }`（与 `register` 一样走 body 签名）。
    */
+  /**
+   * @deprecated 列表删除改走 deleteVrInstanceOnPlatform；保留仅作排障直连 CSM。
+   */
   deleteVRInstance: async (uuid: string) => {
     const u = String(uuid || '').trim();
     if (!u) throw new Error('缺少 uuid：注销接口要求传入注册时的设备 uuid');
@@ -298,14 +301,75 @@ export const fetchVrTowerLocalConfigCache = async (
  * @param meta 元数据（可选），包含 cloudId、cloudName、vmId
  * @returns Promise<any> 保存结果
  */
-export const saveVRConfig = async (uuid: string, config: any, meta?: { cloudId?: string; cloudName?: string; vmId?: string }) => {
+export const saveVRConfig = async (
+  uuid: string,
+  config: any,
+  meta?: { cloudId?: string; cloudName?: string; vmId?: string },
+  options?: { source?: 'expert' },
+) => {
   const body: any = { uuid, config };
   if (meta) {
     if (meta.cloudId !== undefined) body.cloudId = meta.cloudId;
     if (meta.cloudName !== undefined) body.cloudName = meta.cloudName;
     if (meta.vmId !== undefined) body.vmId = meta.vmId;
   }
-  return await apiPost('/api/vr-config/upsert', body);
+  const qs = options?.source === 'expert' ? '?source=expert' : '';
+  return await apiPost(`/api/vr-config/upsert${qs}`, body);
+};
+
+/** 专家模式：保存到平台后全量 POST VR2（有存活隧道则 409） */
+export const dispatchFullVRConfig = async (uuid: string, config: any) => {
+  const u = String(uuid || '').trim();
+  if (!u) throw new Error('缺少 uuid');
+  return await apiPost(`/api/vr-config/${encodeURIComponent(u)}/dispatch-full`, { config });
+};
+
+export type VrInstanceBinder = {
+  type: 'srv6' | 'ha' | 'ipsec';
+  id: string;
+  name: string;
+  href: string;
+  detail?: string;
+};
+
+export type VrInstanceDeleteConflict = {
+  kind?: string;
+  key?: string;
+  message: string;
+};
+
+export type VrInstanceDeletePreview = {
+  uuid: string;
+  binders: VrInstanceBinder[];
+  hasSnapshot: boolean;
+  neverConfigured: boolean;
+  deviceReverted: boolean;
+  conflicts: VrInstanceDeleteConflict[];
+  applied?: string | null;
+};
+
+export const previewVrInstanceDelete = async (uuid: string): Promise<VrInstanceDeletePreview> => {
+  const u = String(uuid || '').trim();
+  if (!u) throw new Error('缺少 uuid');
+  const json = await apiRequest(`/api/vr-instances/${encodeURIComponent(u)}/delete-preview`, {
+    skipCache: true,
+    enableRetry: false,
+  });
+  return (json?.data ?? json) as VrInstanceDeletePreview;
+};
+
+/** 平台删除收口（binder 门闩 + 有快照则回退 applied 后再注销）。勿直打 CSM unregister。 */
+export const deleteVrInstanceOnPlatform = async (
+  uuid: string,
+  options?: { acknowledgeDrift?: boolean },
+) => {
+  const u = String(uuid || '').trim();
+  if (!u) throw new Error('缺少 uuid');
+  return await apiDelete(
+    `/api/vr-instances/${encodeURIComponent(u)}`,
+    { acknowledgeDrift: Boolean(options?.acknowledgeDrift) },
+    { enableRetry: false },
+  );
 };
 
 /**
