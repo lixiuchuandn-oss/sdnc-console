@@ -66,11 +66,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
   const [roleFilter, setRoleFilter] = useState<string | undefined>();
   const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
   const [detailRow, setDetailRow] = useState<VRRow | null>(null);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editForm] = Form.useForm();
-  const [currentEditId, setCurrentEditId] = useState<string | null>(null);
-  /** 打开弹窗时从当前行快照，提交时与名称一并发往注册接口 */
-  const editRegisterPayloadRef = useRef<Record<string, unknown>>({});
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [settingsForm] = Form.useForm();
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -87,10 +82,9 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
     ];
     if (canWrite) {
       items.push(
-      { key: 'editDevice', label: '修改名称' },
       { type: 'divider' },
-      { key: 'role', label: '设置角色', danger: true },
-      { key: 'editConfig', label: '专家模式', danger: true },
+      { key: 'role', label: '设置角色' },
+      { key: 'editConfig', label: '专家模式' },
       { type: 'divider' },
       { key: 'delete', label: '删除实例', danger: true },
       );
@@ -167,28 +161,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
          setSelectedRoleType('标准');
       }
       setRoleModalOpen(true);
-    } else if (key === 'editDevice') {
-      const onlyId = row.id;
-      setCurrentEditId(onlyId || null);
-      const uuid = String(row.uuid || row.id || row.vm_id || '').trim();
-      const mac = String(row.mac || '').trim();
-      const version = String(row.version || '').trim();
-      const type = String((row as any).type || 'VR');
-      editRegisterPayloadRef.current = {
-        uuid,
-        mac,
-        version,
-        type,
-        ...((row.pool_id !== undefined && row.pool_id !== null && String(row.pool_id).trim() !== '')
-          ? { pool_id: String(row.pool_id) }
-          : {}),
-        ...(row.pool_name != null && String(row.pool_name).trim() !== ''
-          ? { pool_name: String(row.pool_name) }
-          : {}),
-        ...(row.vm_id != null && String(row.vm_id).trim() !== '' ? { vm_id: String(row.vm_id) } : {}),
-      };
-      editForm.setFieldsValue({ name: row.name || '' });
-      setEditModalOpen(true);
     } else if (key === 'delete') {
       const rid = String(row.id || '').trim();
       const ruuid = String(row.uuid || row.vr_unique_id || '').trim();
@@ -259,69 +231,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
       }
     } finally {
       if (gen === listLoadGenRef.current) setRolesLoading(false);
-    }
-  };
-
-  // 提交设备信息编辑（注册接口支持更新已注册设备）
-  const submitEditVR = async () => {
-    try {
-      const values = await editForm.validateFields();
-      const payload = {
-        ...editRegisterPayloadRef.current,
-        name: values.name,
-        ...(currentEditId ? { id: currentEditId } : {}),
-      };
-      setLoading(true);
-
-      const accesskey = 'Cloudmap#123';
-      const secretkey = 'Cloudmap#123';
-      const path = '/V2/vrcontrol/VR1/register';
-      const method = 'POST';
-      const other = '';
-
-      const authUrl = `/api-proxy/api/sign?` +
-        `url=${encodeURIComponent(path)}&` +
-        `method=${method}&` +
-        `other=${encodeURIComponent(other)}&` +
-        `accessKey=${encodeURIComponent(accesskey)}&` +
-        `secretKey=${encodeURIComponent(secretkey)}`;
-
-      const bodyStr = JSON.stringify(payload);
-
-      const signResp = await fetch(authUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: bodyStr
-      });
-      const signJson = await signResp.json();
-      const info = (signJson && signJson.data) ? signJson.data : signJson;
-      if (!info || !info.Authorization || !info.tonce) {
-        throw new Error('认证响应数据缺少 Authorization 或 tonce');
-      }
-
-      const registerUrl = `/api-proxy${path}`;
-      const res = await fetch(registerUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': info.Authorization,
-          'tonce': String(info.tonce)
-        },
-        body: bodyStr
-      });
-      const json = await res.json().catch(async () => ({ raw: await res.text() }));
-      if (!res.ok || (json && typeof json === 'object' && 'code' in json && (json as any).code !== 200)) {
-        throw new Error((json as any)?.msg || `HTTP ${res.status}`);
-      }
-      message.success((json as any)?.msg || '设备名称已更新');
-      setEditModalOpen(false);
-      editForm.resetFields();
-      await fetchVRInstances(true);
-    } catch (e: any) {
-      if (e?.errorFields) return; // 表单校验错误
-      message.error(`更新失败: ${e?.message || e}`);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -488,25 +397,6 @@ const VRPage: React.FC<IbrSectionEmbedProps> = (props) => {
             extra="例如: https://10.20.255.93:8016"
           >
             <Input placeholder="https://ip:port" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="修改名称"
-        open={editModalOpen}
-        onOk={submitEditVR}
-        onCancel={() => {
-          setEditModalOpen(false);
-          editForm.resetFields();
-        }}
-        confirmLoading={loading}
-        destroyOnHidden
-        width={480}
-      >
-        <Form form={editForm} layout="vertical">
-          <Form.Item name="name" label="设备名称" rules={[{ required: true, message: '请输入设备名称' }]}>
-            <Input  placeholder="请输入设备名称" allowClear />
           </Form.Item>
         </Form>
       </Modal>

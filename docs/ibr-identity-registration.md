@@ -36,7 +36,7 @@
 | 字段 | 含义 | CSMCTL | 是否身份主键 |
 |------|------|--------|----------------|
 | **uuid** | 实例主键 | 有则 update 整条文档，无则 insert | **是**（唯一查找键） |
-| **name** | 列表显示名 | 随 register 更新 | 否；改名应再 POST，仍是同一台 |
+| **name** | 列表显示名 | 随 register 更新 | 否。改名走设备 PaaS「接入与身份」写 `registervr.conf`，agent `discover_change` 再 POST；**SDNC 列表不提供改名** |
 | **vm_id** | 运维辅助号（云主机时代残留） | 无唯一索引；与 VM04 那套 `vm_id` API 不是一条路 | 否 |
 | **mac** | 注册报文占位（`02:…` 随机，**不是网卡 MAC**） | `@NotBlank`，列表默认隐藏 | 否 |
 | **type / version** | 默认 `VR` / `V1.0` | 随报文保存 | 否；界面锁死 |
