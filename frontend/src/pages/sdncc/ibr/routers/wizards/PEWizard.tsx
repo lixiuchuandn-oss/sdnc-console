@@ -29,7 +29,7 @@ import {
   stripTowerExtensionsFromDeviceConfig,
 } from '../hubPeInventory';
 import { planInventoryTabEdit } from '../peWizardTabEdit';
-import { warnFormValidationFailure } from '../vrWizardFormUtils';
+import { routerIdFromIpv4, warnFormValidationFailure } from '../vrWizardFormUtils';
 import { sortVrConfigJsonKeys } from '../vrConfigJsonSort';
 import {
   assertUniqueHubInventoryIfNames,
@@ -154,6 +154,7 @@ function normalizeLanRowFromPeMeta(l: any) {
   const asnNum = Number(asnRaw);
   const routerId =
     String(lb.routerId ?? l.lanBgpRouterId ?? l.bgpRouterId ?? l.routerId ?? '').trim() || undefined;
+  const defaultRouterId = routerId || routerIdFromIpv4(l.ipv4);
   const routeDistinguisher =
     String(lb.routeDistinguisher ?? l.routeDistinguisher ?? '').trim() || undefined;
   const routeTarget = String(lb.routeTarget ?? l.routeTarget ?? '').trim() || undefined;
@@ -175,7 +176,7 @@ function normalizeLanRowFromPeMeta(l: any) {
     ...rest,
     ifName: lanName || ifName,
     ...(Number.isFinite(asnNum) ? { asn: asnNum } : {}),
-    ...(routerId ? { routerId } : {}),
+    ...(defaultRouterId ? { routerId: defaultRouterId } : {}),
     ...(routeDistinguisher ? { routeDistinguisher } : {}),
     ...(routeTarget ? { routeTarget } : {}),
   };
@@ -387,10 +388,12 @@ const PEWizard: React.FC = () => {
   );
   /** 仅刷新设备回读时：跳过用 vr2 推断覆盖左侧编辑 form，只更新右侧 mirror */
   const skipEditFormOnNextDeviceReadRef = useRef(false);
-  /** 平台上报的管理口 IPv4，用于 Router-ID 空值预填 */
-  const managementIpRef = useRef('');
+  const savedPublicRouterIdRef = useRef(false);
+  const editedPublicRouterIdRef = useRef(false);
+  const lanRouterIdDefaultsRef = useRef<string[]>([]);
 
   const watchWanDev = Form.useWatch('wanDev', form);
+  const watchWanIpv4 = Form.useWatch('wanIpv4', form);
   const watchLanConfigs = Form.useWatch('lanConfigs', form);
   const watchHubWanInventory = Form.useWatch('hubWanInventory', form);
   const watchSidPrefix = Form.useWatch('sidPrefix', form);
@@ -572,6 +575,9 @@ const PEWizard: React.FC = () => {
   useEffect(() => {
     prevWanDevRef.current = undefined;
     skipEditFormOnNextDeviceReadRef.current = false;
+    savedPublicRouterIdRef.current = false;
+    editedPublicRouterIdRef.current = false;
+    lanRouterIdDefaultsRef.current = [];
     setActiveLanTabKey('0');
     setActiveWanTabKey('0');
   }, [uuid]);
@@ -598,7 +604,6 @@ const PEWizard: React.FC = () => {
         const cached = await fetchVrTowerLocalConfigCache(reqUuid, { skipCache: true });
         if (gen !== ifaceLoadGenRef.current) return;
         savedCfg = cached?.config || {};
-        managementIpRef.current = String(cached?.meta?.managementIp || '').trim();
       } catch (e) {
         console.warn('fetchInterfaces: fetchVrTowerLocalConfigCache failed:', e);
       }
@@ -641,6 +646,10 @@ const PEWizard: React.FC = () => {
       let lanConfigs = readLanListFromPe(pe).map((x: any) => normalizeLanRowFromPeMeta(x));
       if (!lanConfigs.length) lanConfigs = [{}];
       const pbg = readPublicBgpMetaFromPe(pe);
+      savedPublicRouterIdRef.current = Boolean(
+        pbg.routerId && pbg.routerId !== routerIdFromIpv4(pcfg.wanIpv4),
+      );
+      editedPublicRouterIdRef.current = false;
       form.setFieldsValue({
         locatorName: pcfg.locatorName,
         sidPrefix: pcfg.sidPrefix,
@@ -657,7 +666,7 @@ const PEWizard: React.FC = () => {
         bgpNetworkIpv4: pcfg.bgpNetworkIpv4,
         bgpNetworkIpv6: pcfg.bgpNetworkIpv6,
         bgpAsn: pbg.asn,
-        bgpRouterId: pbg.routerId || undefined,
+        bgpRouterId: pbg.routerId || routerIdFromIpv4(pcfg.wanIpv4),
         lanConfigs,
         ...(isHubPe
           ? (() => {
@@ -676,7 +685,10 @@ const PEWizard: React.FC = () => {
                       Boolean(row.ndProxy) || wanNdProxyEnabledOn(String(row.ifName || ''), proxyIfs),
                   }),
                 ),
-                lanConfigs: hubForm.lanConfigs,
+                lanConfigs: hubForm.lanConfigs.map((row: any) => ({
+                  ...row,
+                  routerId: roleText(row?.routerId) || routerIdFromIpv4(row?.ipv4),
+                })),
               };
             })()
           : {}),
@@ -806,7 +818,7 @@ const PEWizard: React.FC = () => {
           ipv4: ipRole.ipv4,
           ipv6: ipRole.ipv6,
           asn: bgpMatch?.asn,
-          routerId: bgpMatch?.routerId,
+          routerId: bgpMatch?.routerId || routerIdFromIpv4(ipRole.ipv4),
           routeDistinguisher: bgpMatch?.routeDistinguisher,
           routeTarget: bgpMatch?.routeTarget,
         });
@@ -822,7 +834,7 @@ const PEWizard: React.FC = () => {
         ipv4: ipRole.ipv4,
         ipv6: ipRole.ipv6,
         asn: bgpTop?.asn,
-        routerId: bgpTop?.router_id,
+        routerId: bgpTop?.router_id || routerIdFromIpv4(ipRole.ipv4),
         ...topRdRt,
       });
     }
@@ -928,6 +940,12 @@ const PEWizard: React.FC = () => {
       const wanDevMapped = pcfg.wanName || pcfg.wanDev || peRest.wanDev;
       const wanIpv4Mapped = String(pcfg.wanIpv4 || '').trim() || undefined;
       const wanIpv6Mapped = filterLinkLocalIpv6(pcfg.wanIpv6) || undefined;
+      const publicRouterId =
+        pbg.routerId || roleText(bgpTop?.router_id) || routerIdFromIpv4(wanIpv4Mapped);
+      savedPublicRouterIdRef.current = Boolean(
+        publicRouterId && publicRouterId !== routerIdFromIpv4(wanIpv4Mapped),
+      );
+      editedPublicRouterIdRef.current = false;
       const lanConfigsVr3 = (lanConfigs || []).map((row: any) => ({
         ...row,
         ipv4: String(row?.ipv4 || '').trim() || undefined,
@@ -952,7 +970,7 @@ const PEWizard: React.FC = () => {
         bgpNetworkIpv6: pcfg.bgpNetworkIpv6,
         lanConfigs: lanConfigsVr3,
         bgpAsn: pbg.asn,
-        bgpRouterId: pbg.routerId || undefined,
+        bgpRouterId: publicRouterId,
         ...(isHubPe
           ? (() => {
               const hubForm = hubInventoryToPeWizardForm(existingCfg, {
@@ -974,13 +992,21 @@ const PEWizard: React.FC = () => {
                       ),
                   }),
                 ),
-                lanConfigs: hubForm.lanConfigs,
+                lanConfigs: hubForm.lanConfigs.map((row: any) => ({
+                  ...row,
+                  routerId: roleText(row?.routerId) || routerIdFromIpv4(row?.ipv4),
+                })),
               };
             })()
           : {}),
       };
       form.setFieldsValue(mapped);
     } else {
+      savedPublicRouterIdRef.current = Boolean(
+        roleText(fullInferredForForm.bgpRouterId) &&
+          fullInferredForForm.bgpRouterId !== routerIdFromIpv4(fullInferredForForm.wanIpv4),
+      );
+      editedPublicRouterIdRef.current = false;
       form.setFieldsValue(fullInferredForForm);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1001,6 +1027,31 @@ const PEWizard: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [watchedWanDev]);
+
+  useEffect(() => {
+    if (savedPublicRouterIdRef.current || editedPublicRouterIdRef.current) return;
+    const hubWan = Array.isArray(watchHubWanInventory)
+      ? watchHubWanInventory.find((row: any) => routerIdFromIpv4(row?.ipv4))
+      : undefined;
+    const ipv4 = isHubPe ? hubWan?.ipv4 : watchWanIpv4;
+    form.setFieldsValue({ bgpRouterId: routerIdFromIpv4(ipv4) });
+  }, [form, isHubPe, watchHubWanInventory, watchWanIpv4]);
+
+  useEffect(() => {
+    const rows = Array.isArray(watchLanConfigs) ? watchLanConfigs : [];
+    const defaults = lanRouterIdDefaultsRef.current;
+    let changed = false;
+    const nextRows = rows.map((row: any, index: number) => {
+      const currentRouterId = roleText(row?.routerId);
+      const defaultRouterId = routerIdFromIpv4(row?.ipv4);
+      const canUpdate = !currentRouterId || currentRouterId === defaults[index];
+      if (!canUpdate || currentRouterId === (defaultRouterId || '')) return row;
+      changed = true;
+      return { ...row, routerId: defaultRouterId };
+    });
+    lanRouterIdDefaultsRef.current = rows.map((row: any) => routerIdFromIpv4(row?.ipv4) || '');
+    if (changed) form.setFieldsValue({ lanConfigs: nextRows });
+  }, [form, watchLanConfigs]);
 
   const buildConfigFromValues = (v: any): Record<string, unknown> => {
     const cfg: Record<string, unknown> = {};
@@ -1450,7 +1501,12 @@ const PEWizard: React.FC = () => {
                 <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
               </Form.Item>
               <Form.Item name="bgpRouterId" label="Router-ID" rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
-                <Input placeholder="例如 200.1.1.2" />
+                <Input
+                  placeholder="例如 200.1.1.2"
+                  onChange={() => {
+                    editedPublicRouterIdRef.current = true;
+                  }}
+                />
               </Form.Item>
               <Divider style={{ margin: '16px 0' }} />
             </>
@@ -1677,7 +1733,12 @@ const PEWizard: React.FC = () => {
             <InputNumber style={{ width: '100%' }} min={1} placeholder="例如 100" />
           </Form.Item>
           <Form.Item name="bgpRouterId" label="Router-ID" rules={[{ required: true, message: '请输入 BGP Router-ID' }]}>
-            <Input placeholder="例如 200.1.1.2" />
+            <Input
+              placeholder="例如 200.1.1.2"
+              onChange={() => {
+                editedPublicRouterIdRef.current = true;
+              }}
+            />
           </Form.Item>
           <div style={{ height: 12 }} />
           <div style={{ color: '#1677ff', margin: '4px 0 12px 0', borderBottom: '1px solid #e8e8e8', paddingBottom: 6 }}>静态路由（WAN）</div>

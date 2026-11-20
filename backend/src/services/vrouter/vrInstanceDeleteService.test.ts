@@ -232,6 +232,35 @@ describe('deleteVrInstance', () => {
     expect(unregister).toHaveBeenCalled();
   });
 
+  it('restores a captured empty pre-role snapshot before unregister', async () => {
+    findOne.mockResolvedValue({
+      uuid: 'vr-a',
+      role: 'CE',
+      rolePreSnapshot: '{"uuid":"vr-a"}',
+      config_json: '{"role":"CE"}',
+    });
+    getVR2
+      .mockResolvedValueOnce(okVr2({ uuid: 'vr-a', role: 'CE' }) as Awaited<
+        ReturnType<typeof getVR2QueryResult>
+      >)
+      .mockResolvedValue(
+        okVr2({ uuid: 'vr-a', report_config_status: 'applied' }) as Awaited<
+          ReturnType<typeof getVR2QueryResult>
+        >,
+      );
+
+    const result = await deleteVrInstance('vr-a', {
+      acknowledgeDrift: true,
+      appliedTimeoutMs: 50,
+      pollMs: 1,
+      sleep: async () => undefined,
+    });
+
+    expect(updateVRConfig).toHaveBeenCalledWith('vr-a', { uuid: 'vr-a' });
+    expect(result.deviceReverted).toBe(true);
+    expect(unregister).toHaveBeenCalledWith('vr-a');
+  });
+
   it('does not POST again when VR2 already equals snapshot; still waits for applied', async () => {
     findOne.mockResolvedValue({ uuid: 'vr-a', rolePreSnapshot: SNAPSHOT_JSON });
     getVR2

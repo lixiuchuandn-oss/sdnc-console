@@ -107,12 +107,37 @@ describe('captureRolePreSnapshotIfEmpty', () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it('rejects empty VR2 instead of storing {}', async () => {
+  it('stores an empty snapshot when VR2 only contains metadata', async () => {
     getVR2.mockResolvedValue(
       okVr2({ report_config_status: 'applied', createDate: 'x' }) as Awaited<
         ReturnType<typeof getVR2QueryResult>
       >,
     );
+
+    await expect(captureRolePreSnapshotIfEmpty('vr-a')).resolves.toBe('captured');
+    expect(rows.get('vr-a')?.rolePreSnapshot).toBe('{"uuid":"vr-a"}');
+  });
+
+  it('stores an empty snapshot when CSM reports no VR2 config (5012)', async () => {
+    getVR2.mockResolvedValue({
+      config: null,
+      csmBizError: { code: 5012, msg: '没有此VR配置' },
+      transportError: null,
+      csm_http_body_raw: null,
+    } as Awaited<ReturnType<typeof getVR2QueryResult>>);
+
+    await expect(captureRolePreSnapshotIfEmpty('vr-a')).resolves.toBe('captured');
+    expect(rows.get('vr-a')?.rolePreSnapshot).toBe('{"uuid":"vr-a"}');
+  });
+
+  it('does not treat unrelated CSM business errors as an empty snapshot', async () => {
+    getVR2.mockResolvedValue({
+      config: null,
+      csmBizError: { code: 500, msg: 'internal' },
+      transportError: null,
+      csm_http_body_raw: null,
+    } as Awaited<ReturnType<typeof getVR2QueryResult>>);
+
     await expect(captureRolePreSnapshotIfEmpty('vr-a')).rejects.toMatchObject({ statusCode: 503 });
     expect(save).not.toHaveBeenCalled();
   });

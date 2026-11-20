@@ -21,6 +21,7 @@ import { hasPlatformRole, parseRolePreSnapshot } from './rolePreSnapshot';
 import { assertCsmUpdateSuccess, stripMeta } from './vrConfigDeploy';
 import { ibrLocalWebClient } from './ibrLocalWebClient';
 import { getVR2QueryResult, unregisterVrFromCsm, vrController } from './vrController';
+import { isVr2MissingBizError } from './vr2ConfigErrors';
 
 export type VrInstanceDeleteReason =
   | 'binders'
@@ -96,21 +97,6 @@ const leftoverDeleteError = () =>
 const vr2HasRole = (config: unknown): boolean => {
   if (!config) return false;
   return Boolean(extractRoleFromVr2Config(config) || extractRoleFromVr2Config(stripMeta(config)));
-};
-
-/** 仅「对端没有这份配置」可视为空；其它业务错误不得当空配置删掉 */
-const isVr2MissingBizError = (err: { code?: number; msg?: string } | null | undefined): boolean => {
-  if (!err) return false;
-  // CSM：404 通用缺失；5012 = 没有此 VR 配置（仅注册空机常见）
-  if (err.code === 404 || err.code === 5012) return true;
-  const msg = String(err.msg ?? '').toLowerCase();
-  return (
-    msg.includes('不存在') ||
-    msg.includes('没有此vr') ||
-    msg.includes('没有此 vr') ||
-    msg.includes('not found') ||
-    msg.includes('no such')
-  );
 };
 
 /** 去掉身份字段与空 role 后，VR2 是否没有业务配置 */

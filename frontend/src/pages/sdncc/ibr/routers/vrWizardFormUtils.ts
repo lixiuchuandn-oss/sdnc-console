@@ -3,6 +3,11 @@ import type { FormInstance } from 'antd';
 
 export type WizardFieldName = string | (string | number)[];
 
+export function routerIdFromIpv4(value: unknown): string | undefined {
+  const address = String(value ?? '').trim().split('/')[0]?.trim();
+  return address || undefined;
+}
+
 /** 表单校验失败时给出首条字段错误提示（避免空 catch 无反馈） */
 export function warnFormValidationFailure(err: unknown, fallback = '请先完善当前步骤必填项') {
   const e = err as { errorFields?: { name: (string | number)[]; errors: string[] }[] };

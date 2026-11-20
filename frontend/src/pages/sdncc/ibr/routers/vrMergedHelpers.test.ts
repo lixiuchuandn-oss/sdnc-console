@@ -22,6 +22,11 @@ describe('vrMergedHelpers', () => {
     expect(looksLikeIfaceName('TapEthernet0')).toBe(true);
   });
 
+  it('looksLikeIfaceName rejects memif virtual interfaces', () => {
+    expect(looksLikeIfaceName('memif0/0')).toBe(false);
+    expect(looksLikeIfaceName('memif 0/0')).toBe(false);
+  });
+
   it('collectIfaceNamesForSelect merges vr2 when vr3 has junk tokens', () => {
     const merged = {
       vr3_info: {
@@ -42,6 +47,20 @@ describe('vrMergedHelpers', () => {
     };
     const names = collectIfaceNamesForSelect(merged);
     expect(names).toEqual(['GigabitEthernet 2/3/0', 'GigabitEthernet 2/2/0']);
+  });
+
+  it('collectIfaceNamesForSelect excludes memif interfaces', () => {
+    const names = collectIfaceNamesForSelect({
+      vr3_info: {
+        interfaces: [
+          { name: 'GigabitEthernet 2/3/0' },
+          { name: 'memif0/0' },
+          { name: 'memif 0/1' },
+        ],
+      },
+      vr2_info: {},
+    });
+    expect(names).toEqual(['GigabitEthernet 2/3/0']);
   });
 
   it('collectIfaceNamesForSelect includes baseline and extraNames', () => {

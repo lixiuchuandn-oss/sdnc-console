@@ -4,6 +4,7 @@ import { isSemanticEmpty } from '../../utils/configSemanticEqual';
 import { extractRoleFromVr2Config } from './ibrVrRoleResolve';
 import { stripMeta } from './vrConfigDeploy';
 import { getVR2QueryResult } from './vrController';
+import { isVr2MissingBizError } from './vr2ConfigErrors';
 
 export class RolePreSnapshotError extends Error {
   statusCode = 503;
@@ -48,7 +49,7 @@ export const parseRolePreSnapshot = (raw: string | null | undefined): Record<str
 
 /**
  * 第一次写角色之前捕获实时 VR2。不满足三条件则跳过且不 GET。
- * 应捕获但 GET 失败 / VR2 空：抛 503，调用方不得写库。
+ * 无法确认设备状态时抛 503；已确认的空配置也作为有效快照保存。
  */
 export async function captureRolePreSnapshotIfEmpty(uuid: string): Promise<'captured' | 'skipped'> {
   const id = text(uuid);
@@ -66,19 +67,21 @@ export async function captureRolePreSnapshotIfEmpty(uuid: string): Promise<'capt
   if (r.transportError) {
     throw new RolePreSnapshotError(`无法读取设备当前配置，已中止角色前快照捕获：${r.transportError}`);
   }
-  if (r.csmBizError || !r.config || typeof r.config !== 'object' || Array.isArray(r.config)) {
+  const vr2Missing = isVr2MissingBizError(r.csmBizError);
+  if (r.csmBizError && !vr2Missing) {
+    throw new RolePreSnapshotError('无法读取设备当前配置，已中止角色前快照捕获');
+  }
+  if (!vr2Missing && (!r.config || typeof r.config !== 'object' || Array.isArray(r.config))) {
     throw new RolePreSnapshotError('设备当前配置为空，无法捕获角色前快照');
   }
 
-  const stripped = stripMeta(r.config);
-  if (isSemanticEmpty(stripped) || Object.keys(stripped).length === 0) {
-    throw new RolePreSnapshotError('设备当前配置为空，无法捕获角色前快照');
-  }
+  const stripped = vr2Missing ? {} : stripMeta(r.config);
   if (extractRoleFromVr2Config(r.config) || extractRoleFromVr2Config(stripped)) {
     return 'skipped';
   }
 
-  const payload = JSON.stringify(stripped);
+  const snapshot = isSemanticEmpty(stripped) ? { uuid: id } : stripped;
+  const payload = JSON.stringify(snapshot);
   if (row) {
     row.rolePreSnapshot = payload;
     await repo.save(row);

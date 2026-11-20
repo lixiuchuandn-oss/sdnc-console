@@ -15,6 +15,7 @@ import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
 import { pickIfaceIpv6FromDevice } from '../vrIpv6Utils';
 import {
   handleWizardStepsChange,
+  routerIdFromIpv4,
   validateWizardStepsThrough,
   warnFormValidationFailure,
 } from '../vrWizardFormUtils';
@@ -144,6 +145,8 @@ const CEWizard: React.FC = () => {
   const [vr3Info, setVr3Info] = useState<any | null>(null);
   const [confirmOpen, setConfirmOpen] = useState<boolean>(false);
   const [confirmChecked, setConfirmChecked] = useState<boolean>(false);
+  const savedBgpRouterIdRef = useRef(false);
+  const editedBgpRouterIdRef = useRef(false);
 
   const normalizeIfaceName = (s: string) =>
     String(s || '')
@@ -249,9 +252,15 @@ const CEWizard: React.FC = () => {
   }, [uuid]);
 
   const watchedWanName = Form.useWatch('wanName', form);
+  const watchedWanIpv4 = Form.useWatch('wanIpv4', form);
   const watchedLanName = Form.useWatch('lanName', form);
   const wanIfaceTrim = watchedWanName ? String(watchedWanName).trim() : '';
   const lanIfaceTrim = watchedLanName ? String(watchedLanName).trim() : '';
+  useEffect(() => {
+    if (savedBgpRouterIdRef.current || editedBgpRouterIdRef.current) return;
+    form.setFieldsValue({ bgpRouterId: routerIdFromIpv4(watchedWanIpv4) });
+  }, [form, watchedWanIpv4]);
+
   useEffect(() => {
     const wan0 = watchedWanName != null && watchedWanName !== '' ? String(watchedWanName) : '';
     const lan0 = watchedLanName != null && watchedLanName !== '' ? String(watchedLanName) : '';
@@ -292,6 +301,8 @@ const CEWizard: React.FC = () => {
   const deviceLoadGenRef = useRef(0);
 
   useEffect(() => {
+    savedBgpRouterIdRef.current = false;
+    editedBgpRouterIdRef.current = false;
     if (!uuid) return;
     const gen = ++localCfgLoadGenRef.current;
     const reqUuid = uuid;
@@ -301,7 +312,6 @@ const CEWizard: React.FC = () => {
         if (gen !== localCfgLoadGenRef.current || reqUuid !== uuid) return;
         const cfg = cached?.config || (await getVRConfig(reqUuid)) || {};
         if (gen !== localCfgLoadGenRef.current || reqUuid !== uuid) return;
-        const mgmtIp = String(cached?.meta?.managementIp || '').trim();
         setExistingCfg(cfg || {});
         const names: string[] = [];
         const collectNames = (arr?: any[]) => { (arr || []).forEach((it) => { if (it?.name) names.push(String(it.name)); }); };
@@ -318,11 +328,13 @@ const CEWizard: React.FC = () => {
         const lanRows = readLanListFromCe(cfg?.ce).map((x) => normalizeCeLanRowForForm(x));
         const firstLan = lanRows[0] || {};
         const pbg = readCePublicBgpMeta(cfg?.ce);
+        const savedRouterId = String(pbg.routerId || bgpTop?.router_id || '').trim();
+        savedBgpRouterIdRef.current = Boolean(savedRouterId);
         form.setFieldsValue({
           lanName: firstLan.lanName,
           wanName: pcfg.wanName || pcfg.wanDev || (cfg?.ce as any)?.wanDev,
           bgpAsn: pbg.asn ?? bgpTop?.asn,
-          bgpRouterId: pbg.routerId || bgpTop?.router_id || mgmtIp || undefined,
+          bgpRouterId: savedRouterId || undefined,
         });
       } catch {}
     })();
@@ -686,7 +698,12 @@ const CEWizard: React.FC = () => {
               ]}
               preserve
             >
-              <Input placeholder="例如 200.1.1.2" />
+              <Input
+                placeholder="例如 200.1.1.2"
+                onChange={() => {
+                  editedBgpRouterIdRef.current = true;
+                }}
+              />
             </Form.Item>
           </div>
           <div style={{ display: current === 1 ? 'block' : 'none' }}>

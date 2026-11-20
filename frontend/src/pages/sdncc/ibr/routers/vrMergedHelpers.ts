@@ -32,7 +32,7 @@ const JUNK_IFACE_TOKENS = new Set([
 
 /** 常见真实网卡名前缀（勿用裸 `tap`，避免误匹配 tap-inject） */
 const STRICT_IFACE_PREFIX =
-  /^(GigabitEthernet|Ethernet\d|eth\d*|eth$|lo\d*|lo$|Tunnel|BondEthernet|Bond|memif|TapEthernet|vlan\d*|GE\d|Gi\d|Te\d)/i;
+  /^(GigabitEthernet|Ethernet\d|eth\d*|eth$|lo\d*|lo$|Tunnel|BondEthernet|Bond|TapEthernet|vlan\d*|GE\d|Gi\d|Te\d)/i;
 
 function normalizeIfaceToken(raw: string): string {
   return String(raw ?? '')
@@ -41,6 +41,10 @@ function normalizeIfaceToken(raw: string): string {
     .replace(/[.,;:!?]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export function isMemifIfaceName(raw: string): boolean {
+  return /^memif/i.test(normalizeIfaceToken(raw));
 }
 
 function isJunkPhrase(s: string): boolean {
@@ -55,7 +59,7 @@ function isJunkPhrase(s: string): boolean {
 /** 过滤 VR3 缓存中误当作接口名的状态/错误文案 token */
 export function looksLikeIfaceName(raw: string): boolean {
   const s = normalizeIfaceToken(raw);
-  if (!s || s.length < 2) return false;
+  if (!s || s.length < 2 || isMemifIfaceName(s)) return false;
   if (isJunkPhrase(s)) return false;
   if (STRICT_IFACE_PREFIX.test(s)) return true;
   if (/GigabitEthernet\s+\d/i.test(s)) return true;

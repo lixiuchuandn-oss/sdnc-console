@@ -584,6 +584,7 @@ const IbrHaGroupWizard: React.FC = () => {
 		changed: Partial<HaGroupWizardFormValues>,
 		all: HaGroupWizardFormValues,
 	) => {
+		setPlatformSaved(false);
 		if (changed.side && isAutoHaGroupName(all.name)) {
 			form.setFieldValue('name', generateHaGroupName(changed.side));
 		}
@@ -966,7 +967,7 @@ const IbrHaGroupWizard: React.FC = () => {
 									<Button
 										type="primary"
 										loading={loading}
-										disabled={platformSaved && !isEdit}
+										disabled={platformSaved}
 										onClick={() => void handleSaveToPlatform()}
 									>
 										{isEdit ? '更新并保存' : '创建并保存'}

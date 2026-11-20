@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { getVRConfig, saveVRConfig, setVRRole } from '../../../../../services/virtualRouterApi';
 import { fetchSrv6VrReferences, proxyApiRequest } from '../../../../../services/api';
 import { renderIfaceWizardSelectLabel } from '../vrWizardIfaceSelect';
+import { isMemifIfaceName } from '../vrMergedHelpers';
 import {
   handleWizardStepsChange,
   validateWizardStepsThrough,
@@ -163,7 +164,7 @@ const SASEWizard: React.FC = () => {
           if (key.startsWith('interfaces_') || key.startsWith('subinterfaces_')) collectFromArray((data as any)[key]);
         });
       }
-      const unique = Array.from(new Set(names)).filter((n) => !!n);
+      const unique = Array.from(new Set(names)).filter((n) => !!n && !isMemifIfaceName(n));
       if (unique.length) setIfaceOptions(unique);
 
       // 2. 使用 VR3 扩展信息作为设备配置 (用于回读显示)
